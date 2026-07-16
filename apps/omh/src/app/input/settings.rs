@@ -205,8 +205,8 @@ fn pending_shows_terminal_accent(state: &AppState) -> bool {
 
 fn next_toast_delivery(delivery: ToastDelivery) -> ToastDelivery {
     match delivery {
-        ToastDelivery::Off => ToastDelivery::Hako,
-        ToastDelivery::Hako => ToastDelivery::Terminal,
+        ToastDelivery::Off => ToastDelivery::Omh,
+        ToastDelivery::Omh => ToastDelivery::Terminal,
         ToastDelivery::Terminal => ToastDelivery::System,
         ToastDelivery::System => ToastDelivery::Off,
     }
@@ -3557,7 +3557,7 @@ mod tests {
     fn group_general_settings_edits_default_directory_for_future_spaces_inline() {
         let mut state = state_with_workspaces(&["test"]);
         let group_idx = state.create_group("Side".to_string());
-        state.set_group_default_directory(group_idx, Some(PathBuf::from("/tmp/hako-old")));
+        state.set_group_default_directory(group_idx, Some(PathBuf::from("/tmp/omh-old")));
         open_group_settings(&mut state, group_idx);
         state.settings.section = SettingsSection::GroupGeneral;
         state.settings.list.selected = 1;
@@ -3573,7 +3573,7 @@ mod tests {
             action,
             Some(SettingsAction::SaveGroupDefaultDirectory {
                 group_idx,
-                default_directory: Some(PathBuf::from("/tmp/hako-old2")),
+                default_directory: Some(PathBuf::from("/tmp/omh-old2")),
             })
         );
     }
@@ -3682,7 +3682,7 @@ mod tests {
     #[test]
     fn workspace_general_settings_edits_name_and_default_directory_inline() {
         let mut state = state_with_workspaces(&["space"]);
-        state.workspaces[0].default_cwd = PathBuf::from("/tmp/hako-old");
+        state.workspaces[0].default_cwd = PathBuf::from("/tmp/omh-old");
 
         open_workspace_settings(&mut state, 0);
 
@@ -3694,7 +3694,7 @@ mod tests {
         );
         assert_eq!(
             state.settings.pending_workspace_default_cwd.as_deref(),
-            Some("/tmp/hako-old")
+            Some("/tmp/omh-old")
         );
 
         state.settings.list.selected = 0;
@@ -3722,7 +3722,7 @@ mod tests {
             cwd_action,
             Some(SettingsAction::SaveWorkspaceDefaultCwd {
                 ws_idx: 0,
-                cwd: PathBuf::from("/tmp/hako-old2"),
+                cwd: PathBuf::from("/tmp/omh-old2"),
             })
         );
     }
@@ -4100,7 +4100,7 @@ mod tests {
             None
         );
         assert_eq!(state.mode, Mode::EditWorktreeDirectory);
-        assert_eq!(state.name_input, "/tmp/hako-worktrees");
+        assert_eq!(state.name_input, "/tmp/omh-worktrees");
         state.mode = Mode::Settings;
 
         update_settings_state(
@@ -4377,7 +4377,7 @@ mod tests {
     fn integrations_enter_installs_selected_missing_profile_hooks_row() {
         let _lock = crate::integration::integration_env_lock();
         let base = std::env::temp_dir().join(format!(
-            "hako-settings-enter-codex-profile-hook-{}-{}",
+            "omh-settings-enter-codex-profile-hook-{}-{}",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -4399,8 +4399,8 @@ mod tests {
 
         crate::integration::install_target(crate::api::schema::IntegrationTarget::Codex)
             .expect("install default codex integration");
-        assert!(default_codex_dir.join("hako-agent-state.sh").is_file());
-        assert!(!custom_codex_dir.join("hako-agent-state.sh").exists());
+        assert!(default_codex_dir.join("omh-agent-state.sh").is_file());
+        assert!(!custom_codex_dir.join("omh-agent-state.sh").exists());
 
         let mut state = state_with_workspaces(&["test"]);
         state.agent_profiles = crate::agent_profiles::AgentProfileCatalog::from_config(
@@ -5147,7 +5147,7 @@ mod tests {
             label: crate::integration::integration_target_label(target),
             command: crate::integration::integration_target_command(target),
             available,
-            path: std::path::PathBuf::from("/tmp/hako-test-integration"),
+            path: std::path::PathBuf::from("/tmp/omh-test-integration"),
             state,
         }
     }

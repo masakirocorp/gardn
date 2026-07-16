@@ -26,7 +26,7 @@ fn integration_status(args: &[String]) -> std::io::Result<i32> {
         [] => false,
         [flag] if flag == "--outdated-only" => true,
         _ => {
-            eprintln!("usage: hako integration status [--outdated-only]");
+            eprintln!("usage: omh integration status [--outdated-only]");
             return Ok(2);
         }
     };
@@ -103,13 +103,13 @@ fn parse_integration_target(
 ) -> std::io::Result<Option<IntegrationTarget>> {
     let Some(target) = args.first().map(|arg| arg.as_str()) else {
         eprintln!(
-            "usage: hako integration {action} <pi|omp|claude|codex|devin|kimi|droid|copilot|opencode|hermes|qodercli|cursor>"
+            "usage: omh integration {action} <pi|omp|claude|codex|devin|kimi|droid|copilot|opencode|hermes|qodercli|cursor>"
         );
         return Ok(None);
     };
     if args.len() != 1 {
         eprintln!(
-            "usage: hako integration {action} <pi|omp|claude|codex|devin|kimi|droid|copilot|opencode|hermes|qodercli|cursor|grok>"
+            "usage: omh integration {action} <pi|omp|claude|codex|devin|kimi|droid|copilot|opencode|hermes|qodercli|cursor|grok>"
         );
         return Ok(None);
     }
@@ -139,28 +139,28 @@ fn parse_integration_target(
 }
 
 fn print_integration_help() {
-    eprintln!("hako integration commands:");
-    eprintln!("  hako integration install pi");
-    eprintln!("  hako integration install omp");
-    eprintln!("  hako integration install claude");
-    eprintln!("  hako integration install codex");
-    eprintln!("  hako integration install devin");
-    eprintln!("  hako integration install kimi");
-    eprintln!("  hako integration install droid");
-    eprintln!("  hako integration install opencode");
-    eprintln!("  hako integration install hermes");
-    eprintln!("  hako integration install qodercli");
-    eprintln!("  hako integration install cursor");
-    eprintln!("  hako integration uninstall pi");
-    eprintln!("  hako integration uninstall omp");
-    eprintln!("  hako integration uninstall claude");
-    eprintln!("  hako integration uninstall codex");
-    eprintln!("  hako integration uninstall devin");
-    eprintln!("  hako integration uninstall kimi");
-    eprintln!("  hako integration uninstall droid");
-    eprintln!("  hako integration uninstall opencode");
-    eprintln!("  hako integration uninstall hermes");
-    eprintln!("  hako integration uninstall qodercli");
-    eprintln!("  hako integration uninstall cursor");
-    eprintln!("  hako integration status [--outdated-only]");
+    eprintln!("omh integration commands:");
+    eprintln!("  omh integration install pi");
+    eprintln!("  omh integration install omp");
+    eprintln!("  omh integration install claude");
+    eprintln!("  omh integration install codex");
+    eprintln!("  omh integration install devin");
+    eprintln!("  omh integration install kimi");
+    eprintln!("  omh integration install droid");
+    eprintln!("  omh integration install opencode");
+    eprintln!("  omh integration install hermes");
+    eprintln!("  omh integration install qodercli");
+    eprintln!("  omh integration install cursor");
+    eprintln!("  omh integration uninstall pi");
+    eprintln!("  omh integration uninstall omp");
+    eprintln!("  omh integration uninstall claude");
+    eprintln!("  omh integration uninstall codex");
+    eprintln!("  omh integration uninstall devin");
+    eprintln!("  omh integration uninstall kimi");
+    eprintln!("  omh integration uninstall droid");
+    eprintln!("  omh integration uninstall opencode");
+    eprintln!("  omh integration uninstall hermes");
+    eprintln!("  omh integration uninstall qodercli");
+    eprintln!("  omh integration uninstall cursor");
+    eprintln!("  omh integration status [--outdated-only]");
 }

@@ -861,7 +861,7 @@ fn persisted_agent_session_from_snapshot(
 }
 
 fn snapshot_session_path_available_for_restore(session: &PaneAgentSessionSnapshot) -> bool {
-    if session.source == "hako:omp"
+    if session.source == "omh:omp"
         && session.agent == "omp"
         && session.kind == crate::agent_resume::AgentSessionRefKind::Path
     {
@@ -1132,7 +1132,7 @@ mod tests {
     #[test]
     fn restore_falls_back_to_home_when_cwd_missing() {
         let missing =
-            std::env::temp_dir().join(format!("hako-missing-restore-cwd-{}", std::process::id()));
+            std::env::temp_dir().join(format!("omh-missing-restore-cwd-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&missing);
         let expected_cwd = std::env::var("HOME")
             .map(PathBuf::from)
@@ -1174,7 +1174,7 @@ mod tests {
                             label: None,
                             agent_name: Some("codex".into()),
                             agent_session: Some(super::super::snapshot::PaneAgentSessionSnapshot {
-                                source: "hako:codex".into(),
+                                source: "omh:codex".into(),
                                 agent: "codex".into(),
                                 kind: crate::agent_resume::AgentSessionRefKind::Id,
                                 value: "codex-session".into(),
@@ -1410,7 +1410,7 @@ mod tests {
     async fn restore_unsupported_agent_path_has_no_pending_plan() {
         let snapshot =
             single_pane_snapshot(Some(super::super::snapshot::PaneAgentSessionSnapshot {
-                source: "hako:claude".into(),
+                source: "omh:claude".into(),
                 agent: "claude".into(),
                 kind: crate::agent_resume::AgentSessionRefKind::Path,
                 value: "/tmp/claude-session".into(),
@@ -1440,31 +1440,31 @@ mod tests {
             .to_string();
         let id_cases = [
             (
-                "hako:claude",
+                "omh:claude",
                 "claude",
                 "claude-session",
                 vec!["--resume", "claude-session"],
             ),
             (
-                "hako:codex",
+                "omh:codex",
                 "codex",
                 "codex-session",
                 vec!["resume", "codex-session"],
             ),
             (
-                "hako:copilot",
+                "omh:copilot",
                 "copilot",
                 "copilot-session",
                 vec!["--resume=copilot-session"],
             ),
             (
-                "hako:hermes",
+                "omh:hermes",
                 "hermes",
                 "hermes-session",
                 vec!["--resume", "hermes-session"],
             ),
             (
-                "hako:opencode",
+                "omh:opencode",
                 "opencode",
                 "opencode-session",
                 vec!["--session", "opencode-session"],
@@ -1495,7 +1495,7 @@ mod tests {
         }
 
         let pi_session = super::super::snapshot::PaneAgentSessionSnapshot {
-            source: "hako:pi".into(),
+            source: "omh:pi".into(),
             agent: "pi".into(),
             kind: crate::agent_resume::AgentSessionRefKind::Path,
             value: "/tmp/pi-session.jsonl".into(),
@@ -1517,7 +1517,7 @@ mod tests {
         );
 
         let omp_session_path = std::env::temp_dir().join(format!(
-            "hako-restore-existing-omp-{}-{}.jsonl",
+            "omh-restore-existing-omp-{}-{}.jsonl",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -1528,7 +1528,7 @@ mod tests {
         let omp_session_path = omp_session_path.to_string_lossy().into_owned();
 
         let omp_session = super::super::snapshot::PaneAgentSessionSnapshot {
-            source: "hako:omp".into(),
+            source: "omh:omp".into(),
             agent: "omp".into(),
             kind: crate::agent_resume::AgentSessionRefKind::Path,
             value: omp_session_path.clone(),
@@ -1552,7 +1552,7 @@ mod tests {
     fn restore_plan_skips_missing_omp_session_path() {
         let missing_session_path = std::env::temp_dir()
             .join(format!(
-                "hako-restore-missing-omp-{}-{}",
+                "omh-restore-missing-omp-{}-{}",
                 std::process::id(),
                 std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
@@ -1565,7 +1565,7 @@ mod tests {
             "test session path must start absent"
         );
         let session = super::super::snapshot::PaneAgentSessionSnapshot {
-            source: "hako:omp".into(),
+            source: "omh:omp".into(),
             agent: "omp".into(),
             kind: crate::agent_resume::AgentSessionRefKind::Path,
             value: missing_session_path.to_string_lossy().into_owned(),
@@ -1623,7 +1623,7 @@ mod tests {
                             label: None,
                             agent_name: Some("codex".into()),
                             agent_session: Some(super::super::snapshot::PaneAgentSessionSnapshot {
-                                source: "hako:codex".into(),
+                                source: "omh:codex".into(),
                                 agent: "codex".into(),
                                 kind: crate::agent_resume::AgentSessionRefKind::Id,
                                 value: "codex-session".into(),
@@ -1724,7 +1724,7 @@ mod tests {
     #[test]
     fn restore_plan_selection_suppresses_duplicates() {
         let session = super::super::snapshot::PaneAgentSessionSnapshot {
-            source: "hako:pi".into(),
+            source: "omh:pi".into(),
             agent: "pi".into(),
             kind: crate::agent_resume::AgentSessionRefKind::Path,
             value: "/tmp/pi-session.jsonl".into(),
@@ -1743,7 +1743,7 @@ mod tests {
     #[test]
     fn restore_plan_dedupe_keeps_profile_scoped_session_ids_distinct() {
         let session = super::super::snapshot::PaneAgentSessionSnapshot {
-            source: "hako:codex".into(),
+            source: "omh:codex".into(),
             agent: "codex".into(),
             kind: crate::agent_resume::AgentSessionRefKind::Id,
             value: "same-session-id".into(),
@@ -1789,7 +1789,7 @@ mod tests {
     #[test]
     fn pane_restore_startup_suppresses_history_for_duplicate_native_agent_session() {
         let session = super::super::snapshot::PaneAgentSessionSnapshot {
-            source: "hako:pi".into(),
+            source: "omh:pi".into(),
             agent: "pi".into(),
             kind: crate::agent_resume::AgentSessionRefKind::Path,
             value: "/tmp/pi-session.jsonl".into(),
@@ -1829,7 +1829,7 @@ mod tests {
     #[test]
     fn pane_restore_startup_keeps_history_without_native_agent_resume() {
         let session = super::super::snapshot::PaneAgentSessionSnapshot {
-            source: "hako:pi".into(),
+            source: "omh:pi".into(),
             agent: "pi".into(),
             kind: crate::agent_resume::AgentSessionRefKind::Path,
             value: "/tmp/pi-session.jsonl".into(),
@@ -1861,7 +1861,7 @@ mod tests {
     #[test]
     fn restore_rehydrates_agent_session_metadata() {
         let session = super::super::snapshot::PaneAgentSessionSnapshot {
-            source: "hako:hermes".into(),
+            source: "omh:hermes".into(),
             agent: "hermes".into(),
             kind: crate::agent_resume::AgentSessionRefKind::Id,
             value: "hermes-session".into(),
@@ -1869,7 +1869,7 @@ mod tests {
 
         let preserved = restored_terminal_agent_session(Some(&session), false)
             .expect("restore should preserve metadata");
-        assert_eq!(preserved.source, "hako:hermes");
+        assert_eq!(preserved.source, "omh:hermes");
         assert_eq!(preserved.agent, "hermes");
         assert_eq!(preserved.session_ref.value, "hermes-session");
     }
@@ -1877,7 +1877,7 @@ mod tests {
     #[test]
     fn restore_does_not_rehydrate_duplicate_agent_session_metadata() {
         let session = super::super::snapshot::PaneAgentSessionSnapshot {
-            source: "hako:pi".into(),
+            source: "omh:pi".into(),
             agent: "pi".into(),
             kind: crate::agent_resume::AgentSessionRefKind::Path,
             value: "/tmp/pi-session.jsonl".into(),
@@ -1991,7 +1991,7 @@ mod tests {
                             label: None,
                             agent_name: None,
                             agent_session: Some(super::super::snapshot::PaneAgentSessionSnapshot {
-                                source: "hako:opencode".into(),
+                                source: "omh:opencode".into(),
                                 agent: "opencode".into(),
                                 kind: crate::agent_resume::AgentSessionRefKind::Id,
                                 value: "opencode-session".into(),
@@ -2047,7 +2047,7 @@ mod tests {
             .persisted_agent_session
             .as_ref()
             .expect("persisted agent session should survive restore");
-        assert_eq!(session.source, "hako:opencode");
+        assert_eq!(session.source, "omh:opencode");
         assert_eq!(session.agent, "opencode");
         assert_eq!(session.session_ref.value, "opencode-session");
     }
@@ -2094,7 +2094,7 @@ mod tests {
                             label: None,
                             agent_name: None,
                             agent_session: Some(super::super::snapshot::PaneAgentSessionSnapshot {
-                                source: "hako:codex".into(),
+                                source: "omh:codex".into(),
                                 agent: "codex".into(),
                                 kind: crate::agent_resume::AgentSessionRefKind::Id,
                                 value: "codex-session".into(),
@@ -2306,7 +2306,7 @@ mod tests {
 
     fn pi_path_agent_session() -> super::super::snapshot::PaneAgentSessionSnapshot {
         super::super::snapshot::PaneAgentSessionSnapshot {
-            source: "hako:pi".into(),
+            source: "omh:pi".into(),
             agent: "pi".into(),
             kind: crate::agent_resume::AgentSessionRefKind::Path,
             value: "/tmp/pi-session.jsonl".into(),

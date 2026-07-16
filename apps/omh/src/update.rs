@@ -1,7 +1,7 @@
 //! Self-update mechanism.
 //!
 //! Checks GitHub Releases for newer versions.
-//! Manual `hako update` downloads and installs the binary.
+//! Manual `omh update` downloads and installs the binary.
 //! Background checks only surface availability and release notes.
 //! Uses `curl` as a subprocess for HTTP — no additional Rust HTTP dependencies.
 //! JSON parsing uses serde_json (already in deps for persistence).
@@ -17,12 +17,12 @@ use std::time::{Duration, Instant};
 
 use serde::Deserialize;
 const GITHUB_LATEST_RELEASE_API_URL: &str =
-    "https://api.github.com/repos/masakirocorp/hako/releases/latest";
-const HAKO_UPDATE_COMMAND: &str = "hako update";
-const MISE_UPDATE_COMMAND: &str = "mise upgrade hako";
+    "https://api.github.com/repos/masakirocorp/oh-my-herdr/releases/latest";
+const OMH_UPDATE_COMMAND: &str = "omh update";
+const MISE_UPDATE_COMMAND: &str = "mise upgrade omh";
 const NIX_UPDATE_COMMAND: &str = "update through Nix";
 const MISE_INSTALLS_DIR_ENV: &str = "MISE_INSTALLS_DIR";
-const FAKE_UPDATE_VERSION_ENV: &str = "HAKO_FAKE_UPDATE_VERSION";
+const FAKE_UPDATE_VERSION_ENV: &str = "OMH_FAKE_UPDATE_VERSION";
 const SERVER_STOP_RESPONSE_TIMEOUT: Duration = Duration::from_secs(5);
 const SERVER_HANDOFF_REQUEST_TIMEOUT: Duration = Duration::from_secs(240);
 const SERVER_HANDOFF_CONFIRM_TIMEOUT: Duration = Duration::from_secs(30);
@@ -120,7 +120,7 @@ fn fetch_url(url: &str, label: &str) -> Result<Vec<u8>, String> {
             "-H",
             "Accept: application/vnd.github+json",
             "-H",
-            "User-Agent: hako-updater",
+            "User-Agent: omh-updater",
             "-w",
             "\n%{http_code}",
             url,
@@ -150,7 +150,7 @@ fn fetch_url(url: &str, label: &str) -> Result<Vec<u8>, String> {
         .map_err(|e| format!("invalid HTTP status while fetching {label} from {url}: {e}"))?;
     if !(200..300).contains(&status) {
         if url == GITHUB_LATEST_RELEASE_API_URL && status == 404 {
-            return Err("no published GitHub releases found for masakirocorp/hako".to_string());
+            return Err("no published GitHub releases found for masakirocorp/oh-my-herdr".to_string());
         }
         return Err(format!("failed to fetch {label} from {url}: HTTP {status}"));
     }
@@ -172,7 +172,7 @@ fn github_release_notes_body(release: &GitHubRelease, version: &Version) -> Stri
         .map(str::trim)
         .filter(|body| !body.is_empty())
         .map(str::to_string)
-        .unwrap_or_else(|| format!("Hako v{version}"))
+        .unwrap_or_else(|| format!("Oh My Herdr v{version}"))
 }
 
 fn release_info_from_github_release(
@@ -237,7 +237,7 @@ fn download_update(release: &ReleaseInfo) -> Result<DownloadedUpdate, String> {
     let parent = current_exe.parent().ok_or("can't find binary directory")?;
 
     // Check write permissions early
-    let test_path = parent.join(".hako-write-test");
+    let test_path = parent.join(".omh-write-test");
     if let Err(e) = fs::write(&test_path, b"") {
         let _ = fs::remove_file(&test_path);
         return Err(format!(
@@ -249,7 +249,7 @@ fn download_update(release: &ReleaseInfo) -> Result<DownloadedUpdate, String> {
     let _ = fs::remove_file(&test_path);
 
     // Unique temp file (avoids races with concurrent instances)
-    let tmp_path = parent.join(format!(".hako-update-{}.tmp", std::process::id()));
+    let tmp_path = parent.join(format!(".omh-update-{}.tmp", std::process::id()));
 
     // Download the exact asset URL (pinned to the release we checked)
     let status = Command::new("curl")
@@ -311,12 +311,12 @@ fn install_downloaded_update(mut update: DownloadedUpdate) -> Result<(), String>
 // Upgrade flow helpers
 // ---------------------------------------------------------------------------
 
-fn running_inside_hako_env(hako_env: Option<&str>) -> bool {
-    hako_env == Some(crate::HAKO_ENV_VALUE)
+fn running_inside_omh_env(omh_env: Option<&str>) -> bool {
+    omh_env == Some(crate::OMH_ENV_VALUE)
 }
 
-fn running_inside_hako() -> bool {
-    running_inside_hako_env(env::var(crate::HAKO_ENV_VAR).ok().as_deref())
+fn running_inside_omh() -> bool {
+    running_inside_omh_env(env::var(crate::OMH_ENV_VAR).ok().as_deref())
 }
 
 fn client_protocol_server_is_running_at(socket_path: &Path) -> bool {
@@ -445,7 +445,7 @@ fn plan_running_server_updates(
         )
         .map_err(|err| {
             format!(
-                "failed to read status for hako target {} at {}: {err}. stop it with `{}` and run `hako update` again",
+                "failed to read status for omh target {} at {}: {err}. stop it with `{}` and run `omh update` again",
                 target.label,
                 target.socket_path.display(),
                 target.stop_command
@@ -454,7 +454,7 @@ fn plan_running_server_updates(
             Some(server) => server,
             None if target.must_be_running => {
                 return Err(format!(
-                        "hako target {} looked running, but its status API did not respond at {}. stop it with `{}` and run `hako update` again",
+                        "omh target {} looked running, but its status API did not respond at {}. stop it with `{}` and run `omh update` again",
                     target.label,
                     target.socket_path.display(),
                     target.stop_command
@@ -462,7 +462,7 @@ fn plan_running_server_updates(
             }
             None if client_protocol_server_is_running_at(&target.client_socket_path) => {
                 return Err(format!(
-                    "hako target {} has a client socket, but its status API did not respond at {}. stop it with `{}` and run `hako update` again",
+                    "omh target {} has a client socket, but its status API did not respond at {}. stop it with `{}` and run `omh update` again",
                     target.label,
                     target.socket_path.display(),
                     target.stop_command
@@ -480,7 +480,7 @@ fn plan_running_server_updates(
 
     if plans.is_empty() && target_client_protocol_server_is_running()? {
         return Err(format!(
-            "a hako server is listening, but its status API is unavailable; try `{}`, or stop the old server process manually, then run `hako update` again",
+            "an Oh My Herdr server is listening, but its status API is unavailable; try `{}`, or stop the old server process manually, then run `omh update` again",
             crate::session::local_stop_command()
         ));
     }
@@ -519,7 +519,7 @@ fn running_update_targets() -> Result<Vec<RunningUpdateTarget>, String> {
             name: None,
             label: socket_path.display().to_string(),
             stop_command: format!(
-                "{}={} hako server stop",
+                "{}={} omh server stop",
                 crate::api::SOCKET_PATH_ENV_VAR,
                 socket_path.display()
             ),
@@ -534,7 +534,7 @@ fn running_update_targets() -> Result<Vec<RunningUpdateTarget>, String> {
     }
 
     let sessions = crate::session::list_sessions()
-        .map_err(|err| format!("failed to list hako sessions: {err}"))?;
+        .map_err(|err| format!("failed to list Oh My Herdr sessions: {err}"))?;
     Ok(sessions
         .into_iter()
         .map(|session| RunningUpdateTarget {
@@ -549,9 +549,9 @@ fn running_update_targets() -> Result<Vec<RunningUpdateTarget>, String> {
                 Some(&session.name)
             }),
             attach_command: Some(if session.default {
-                "hako".to_string()
+                "omh".to_string()
             } else {
-                format!("hako session attach {}", session.name)
+                format!("omh session attach {}", session.name)
             }),
             label: session.name.clone(),
             client_socket_path: crate::session::client_socket_path_for(if session.default {
@@ -573,7 +573,7 @@ fn target_client_protocol_server_is_running() -> Result<bool, String> {
     }
 
     let sessions = crate::session::list_sessions()
-        .map_err(|err| format!("failed to list hako sessions: {err}"))?;
+        .map_err(|err| format!("failed to list Oh My Herdr sessions: {err}"))?;
     Ok(sessions.into_iter().any(|session| {
         let client_socket = crate::session::client_socket_path_for(if session.default {
             None
@@ -591,7 +591,7 @@ pub(crate) struct SelfUpdateOptions {
 
 fn self_update_platform_error(target_is_windows: bool) -> Option<&'static str> {
     target_is_windows.then_some(
-        "self-update is disabled on Windows; download the latest hako-windows-x86_64.exe from GitHub Releases",
+        "self-update is disabled on Windows; download the latest omh-windows-x86_64.exe from GitHub Releases",
     )
 }
 
@@ -601,7 +601,7 @@ pub(crate) fn parse_self_update_args(args: &[String]) -> Result<SelfUpdateOption
         match arg.as_str() {
             "--handoff" => options.live_handoff = true,
             "--help" | "-h" => {
-                return Err("usage: hako update [--handoff]".to_string());
+                return Err("usage: omh update [--handoff]".to_string());
             }
             _ => return Err(format!("unknown update option: {arg}")),
         }
@@ -614,7 +614,7 @@ fn prompt_to_stop_old_servers_before_update(
 ) -> Result<bool, String> {
     if !io::stdin().is_terminal() {
         return Err(
-            "one or more Hako sessions must stop for this update. Stop running Hako sessions when ready, then run `hako update` again from an interactive terminal."
+            "one or more Oh My Herdr sessions must stop for this update. Stop running Oh My Herdr sessions when ready, then run `omh update` again from an interactive terminal."
                 .to_string(),
         );
     }
@@ -737,7 +737,7 @@ fn prompt_to_complete_plain_update(
     let (singular, plural) = target_group_nouns(&plans);
     let noun = if plans.len() == 1 { singular } else { plural };
     eprintln!(
-        "To complete the update, Hako must stop {} running {}.",
+        "To complete the update, Oh My Herdr must stop {} running {}.",
         plans.len(),
         noun
     );
@@ -792,7 +792,7 @@ fn print_running_session_update_summary(
     release: &ReleaseInfo,
     options: SelfUpdateOptions,
 ) {
-    eprintln!("running hako targets:");
+    eprintln!("running omh targets:");
     for plan in plans {
         if options.live_handoff {
             let capability = if server_supports_live_handoff(&plan.server) {
@@ -868,7 +868,7 @@ fn prompt_to_stop_old_server_after_failed_handoff(
     eprintln!("  server: v{}", version_label(status.version.as_deref()));
     eprintln!("  installed: v{}", release.version);
     eprintln!(
-        "you can keep using the old server, or stop it now so the next `hako` start uses v{}.",
+        "you can keep using the old server, or stop it now so the next `omh` start uses v{}.",
         release.version
     );
     eprintln!("stopping the old server will exit its pane processes.");
@@ -934,13 +934,13 @@ fn recover_failed_live_handoff_for_update(
         FailedHandoffServerState::NoServerResponding => {
             if let Some(command) = plan.attach_command() {
                 eprintln!(
-                    "no hako server is responding for session {}. the binary was updated; run `{command}` to start v{}.",
+                    "no Oh My Herdr server is responding for session {}. the binary was updated; run `{command}` to start v{}.",
                     plan.label(),
                     release.version
                 );
             } else {
                 eprintln!(
-                    "no hako server is responding at {}. the binary was updated; restart with the same socket override to use v{}.",
+                    "no Oh My Herdr server is responding at {}. the binary was updated; restart with the same socket override to use v{}.",
                     plan.socket_path().display(),
                     release.version
                 );
@@ -949,7 +949,7 @@ fn recover_failed_live_handoff_for_update(
         }
         FailedHandoffServerState::Unknown(status_error) => {
             eprintln!(
-                "hako could not determine server state for {} {} after the failed handoff: {status_error}",
+                "omh could not determine server state for {} {} after the failed handoff: {status_error}",
                 plan.target_noun(),
                 plan.label()
             );
@@ -1147,7 +1147,7 @@ fn wait_for_server_shutdown_at(socket_path: &Path, timeout: Duration) -> Result<
 }
 
 fn stop_running_server_for_update(plan: &RunningServerUpdatePlan) -> Result<(), String> {
-    eprintln!("stopping hako {} {}...", plan.target_noun(), plan.label());
+    eprintln!("stopping omh {} {}...", plan.target_noun(), plan.label());
     stop_server_via_api_at(plan.socket_path(), SERVER_STOP_RESPONSE_TIMEOUT)?;
     wait_for_server_shutdown_at(plan.socket_path(), SERVER_HANDOFF_CONFIRM_TIMEOUT)?;
     Ok(())
@@ -1233,7 +1233,7 @@ fn print_running_session_update_outcomes(
     release: &ReleaseInfo,
 ) {
     if outcomes.is_empty() {
-        eprintln!("run hako again.");
+        eprintln!("run `omh` again.");
         return;
     }
 
@@ -1266,7 +1266,7 @@ fn print_running_session_update_outcomes(
                         outcome.stop_command, release.version
                     ),
                     None => eprintln!(
-                        "Run `{}`, then restart Hako with the same socket override when ready to use v{}.",
+                        "Run `{}`, then restart Oh My Herdr with the same socket override when ready to use v{}.",
                         outcome.stop_command, release.version
                     ),
                 }
@@ -1326,22 +1326,22 @@ pub(crate) fn update_install_command() -> &'static str {
     } else if is_nix_managed_install() {
         NIX_UPDATE_COMMAND
     } else {
-        HAKO_UPDATE_COMMAND
+        OMH_UPDATE_COMMAND
     }
 }
 
 pub(crate) fn update_install_instruction(install_command: &str) -> String {
     match install_command {
-        HAKO_UPDATE_COMMAND => {
-            "detach, run `hako update`, then follow its restart guidance".to_string()
+        OMH_UPDATE_COMMAND => {
+            "detach, run `omh update`, then follow its restart guidance".to_string()
         }
         MISE_UPDATE_COMMAND => {
-            "detach, run `mise upgrade hako`, then restart this Hako session when ready".to_string()
+            "detach, run `mise upgrade omh`, then restart this Oh My Herdr session when ready".to_string()
         }
         NIX_UPDATE_COMMAND => {
-            "detach, update through Nix, then restart this Hako session when ready".to_string()
+            "detach, update through Nix, then restart this Oh My Herdr session when ready".to_string()
         }
-        command => format!("detach, run `{command}`, then restart this Hako session when ready"),
+        command => format!("detach, run `{command}`, then restart this Oh My Herdr session when ready"),
     }
 }
 
@@ -1412,7 +1412,7 @@ fn mise_install_root_under_named_installs_dir(path: &Path) -> Option<PathBuf> {
 }
 
 fn mise_tool_version_dir(path: &Path) -> Option<&Path> {
-    if path.file_name()? != "hako" {
+    if path.file_name()? != "omh" {
         return None;
     }
     let bin_dir = path.parent()?;
@@ -1421,7 +1421,7 @@ fn mise_tool_version_dir(path: &Path) -> Option<&Path> {
     }
     let version_dir = bin_dir.parent()?;
     let tool_dir = version_dir.parent()?;
-    if tool_dir.file_name()? != "hako" {
+    if tool_dir.file_name()? != "omh" {
         return None;
     }
     Some(version_dir)
@@ -1445,7 +1445,7 @@ fn paths_match(left: &Path, right: &Path) -> bool {
 // Public API
 // ---------------------------------------------------------------------------
 
-/// Manual self-update command (`hako update`).
+/// Manual self-update command (`omh update`).
 pub fn self_update(options: SelfUpdateOptions) -> Result<Version, String> {
     if let Some(message) = self_update_platform_error(cfg!(windows)) {
         return Err(message.to_string());
@@ -1459,12 +1459,12 @@ pub fn self_update(options: SelfUpdateOptions) -> Result<Version, String> {
 
     if is_nix_managed_install() {
         return Err(
-            "self-update is disabled for Nix installs; update with `nix profile upgrade` or update the flake input that provides Hako".into(),
+            "self-update is disabled for Nix installs; update with `nix profile upgrade` or update the flake input that provides Oh My Herdr".into(),
         );
     }
 
-    if running_inside_hako() {
-        return Err("run `hako update` outside hako after detaching from the session".into());
+    if running_inside_omh() {
+        return Err("run `omh update` outside omh after detaching from the session".into());
     }
 
     eprintln!("checking for updates...");
@@ -1493,8 +1493,8 @@ pub fn self_update(options: SelfUpdateOptions) -> Result<Version, String> {
     if !options.live_handoff
         && !prompt_to_complete_plain_update(&server_update_decisions, &release)?
     {
-        eprintln!("Hako was not updated.");
-        eprintln!("Stop running Hako sessions when ready, then run `hako update` again.");
+        eprintln!("Oh My Herdr was not updated.");
+        eprintln!("Stop running Oh My Herdr sessions when ready, then run `omh update` again.");
         return Ok(current);
     }
     install_downloaded_update(downloaded_update)?;
@@ -1603,7 +1603,7 @@ fn platform_target() -> (&'static str, &'static str) {
 
 fn release_asset_name((os, arch): (&str, &str)) -> String {
     let extension = if os == "windows" { ".exe" } else { "" };
-    format!("hako-{os}-{arch}{extension}")
+    format!("omh-{os}-{arch}{extension}")
 }
 
 // ---------------------------------------------------------------------------
@@ -1684,7 +1684,7 @@ mod tests {
         ReleaseInfo {
             version: Version::parse(version).unwrap(),
             identity: version.to_string(),
-            download_url: "https://example.com/hako".to_string(),
+            download_url: "https://example.com/omh".to_string(),
             sha256: None,
             notes_body: "### Changed\n- One".to_string(),
         }
@@ -1696,7 +1696,7 @@ mod tests {
             .map(|duration| duration.as_nanos())
             .unwrap_or(0);
         let dir = PathBuf::from(format!(
-            "/tmp/hako-update-{name}-{}-{nanos}",
+            "/tmp/omh-update-{name}-{}-{nanos}",
             std::process::id()
         ));
         let _ = fs::remove_dir_all(&dir);
@@ -1738,14 +1738,14 @@ mod tests {
 
     #[test]
     fn nix_store_path_is_detected() {
-        let path = Path::new("/nix/store/abc123-hako-0.6.1/bin/hako");
+        let path = Path::new("/nix/store/abc123-omh-0.6.1/bin/omh");
 
         assert!(is_nix_store_exe_path(path));
     }
 
     #[test]
     fn non_nix_store_path_is_not_detected() {
-        let path = Path::new("/usr/local/bin/hako");
+        let path = Path::new("/usr/local/bin/omh");
 
         assert!(!is_nix_store_exe_path(path));
     }
@@ -1759,10 +1759,10 @@ mod tests {
     }
 
     #[test]
-    fn running_inside_hako_env_requires_marker() {
-        assert!(running_inside_hako_env(Some(crate::HAKO_ENV_VALUE)));
-        assert!(!running_inside_hako_env(None));
-        assert!(!running_inside_hako_env(Some("0")));
+    fn running_inside_omh_env_requires_marker() {
+        assert!(running_inside_omh_env(Some(crate::OMH_ENV_VALUE)));
+        assert!(!running_inside_omh_env(None));
+        assert!(!running_inside_omh_env(Some("0")));
     }
 
     #[test]
@@ -1788,7 +1788,7 @@ mod tests {
         assert_eq!(
             self_update_platform_error(true),
             Some(
-                "self-update is disabled on Windows; download the latest hako-windows-x86_64.exe from GitHub Releases"
+                "self-update is disabled on Windows; download the latest omh-windows-x86_64.exe from GitHub Releases"
             )
         );
         assert_eq!(self_update_platform_error(false), None);
@@ -1821,33 +1821,33 @@ mod tests {
     #[test]
     fn update_install_instruction_distinguishes_install_from_restart() {
         assert_eq!(
-            update_install_instruction(HAKO_UPDATE_COMMAND),
-            "detach, run `hako update`, then follow its restart guidance"
+            update_install_instruction(OMH_UPDATE_COMMAND),
+            "detach, run `omh update`, then follow its restart guidance"
         );
         assert_eq!(
             update_install_instruction(MISE_UPDATE_COMMAND),
-            "detach, run `mise upgrade hako`, then restart this Hako session when ready"
+            "detach, run `mise upgrade omh`, then restart this Oh My Herdr session when ready"
         );
         assert_eq!(
             update_install_instruction(NIX_UPDATE_COMMAND),
-            "detach, update through Nix, then restart this Hako session when ready"
+            "detach, update through Nix, then restart this Oh My Herdr session when ready"
         );
     }
 
     #[test]
     fn mise_install_path_is_detected() {
-        let path = Path::new("/home/user/.local/share/mise/installs/hako/0.6.6/bin/hako");
+        let path = Path::new("/home/user/.local/share/mise/installs/omh/0.6.6/bin/omh");
 
         assert!(is_mise_managed_exe_path(path));
         assert_eq!(
             mise_install_root(path).unwrap(),
-            PathBuf::from("/home/user/.local/share/mise/installs/hako/0.6.6")
+            PathBuf::from("/home/user/.local/share/mise/installs/omh/0.6.6")
         );
     }
 
     #[test]
     fn mise_alias_install_path_is_detected() {
-        let path = Path::new("/home/user/.local/share/mise/installs/hako/latest/bin/hako");
+        let path = Path::new("/home/user/.local/share/mise/installs/omh/latest/bin/omh");
 
         assert!(is_mise_managed_exe_path(path));
     }
@@ -1856,18 +1856,18 @@ mod tests {
     fn mise_configured_installs_dir_path_is_detected() {
         let _guard = env_lock().lock().unwrap();
         let _mise_installs_dir_env = TestEnvVar::set(MISE_INSTALLS_DIR_ENV, "/opt/mise-tools");
-        let path = Path::new("/opt/mise-tools/hako/0.6.6/bin/hako");
+        let path = Path::new("/opt/mise-tools/omh/0.6.6/bin/omh");
 
         assert!(is_mise_managed_exe_path(path));
         assert_eq!(
             mise_install_root(path).unwrap(),
-            PathBuf::from("/opt/mise-tools/hako/0.6.6")
+            PathBuf::from("/opt/mise-tools/omh/0.6.6")
         );
     }
 
     #[test]
     fn non_mise_install_path_is_not_detected() {
-        let path = Path::new("/home/user/.local/bin/hako");
+        let path = Path::new("/home/user/.local/bin/omh");
 
         assert!(!is_mise_managed_exe_path(path));
     }
@@ -1882,7 +1882,7 @@ mod tests {
         let release = ReleaseInfo {
             version: Version::parse("0.5.6").unwrap(),
             identity: "0.5.6".to_string(),
-            download_url: "https://example.com/hako".to_string(),
+            download_url: "https://example.com/omh".to_string(),
             sha256: None,
             notes_body: "### Changed\n- One".to_string(),
         };
@@ -1901,8 +1901,8 @@ mod tests {
             target: RunningUpdateTarget {
                 name: Some("work".to_string()),
                 label: "work".to_string(),
-                stop_command: "hako session stop work".to_string(),
-                attach_command: Some("hako session attach work".to_string()),
+                stop_command: "omh session stop work".to_string(),
+                attach_command: Some("omh session attach work".to_string()),
                 socket_path: crate::session::api_socket_path_for(Some("work")),
                 client_socket_path: crate::session::client_socket_path_for(Some("work")),
                 must_be_running: true,
@@ -1963,11 +1963,11 @@ mod tests {
         let _guard = env_lock().lock().unwrap();
         let (config_home, _config_home_env) = set_test_config_home("explicit-session");
         let _socket_env =
-            TestEnvVar::set(crate::api::SOCKET_PATH_ENV_VAR, "/tmp/ignored-hako.sock");
+            TestEnvVar::set(crate::api::SOCKET_PATH_ENV_VAR, "/tmp/ignored-omh.sock");
         let _session_env = TestEnvVar::remove(crate::session::SESSION_ENV_VAR);
         let _explicit_session = crate::session::explicit_session_request_guard(false);
         let args = vec![
-            "hako".to_string(),
+            "omh".to_string(),
             "--session".to_string(),
             "work".to_string(),
             "update".to_string(),
@@ -1988,7 +1988,7 @@ mod tests {
     #[test]
     fn socket_override_update_targets_socket_not_env_session() {
         let _guard = env_lock().lock().unwrap();
-        let _socket_env = TestEnvVar::set(crate::api::SOCKET_PATH_ENV_VAR, "/tmp/custom-hako.sock");
+        let _socket_env = TestEnvVar::set(crate::api::SOCKET_PATH_ENV_VAR, "/tmp/custom-omh.sock");
         let _session_env = TestEnvVar::set(crate::session::SESSION_ENV_VAR, "work");
         let _explicit_session = crate::session::explicit_session_request_guard(false);
 
@@ -1998,7 +1998,7 @@ mod tests {
         assert_eq!(targets[0].name, None);
         assert_eq!(
             targets[0].socket_path,
-            PathBuf::from("/tmp/custom-hako.sock")
+            PathBuf::from("/tmp/custom-omh.sock")
         );
         assert!(targets[0]
             .stop_command
@@ -2028,7 +2028,7 @@ mod tests {
             "unexpected error: {err}"
         );
         assert!(
-            err.contains("hako session stop work"),
+            err.contains("omh session stop work"),
             "unexpected error: {err}"
         );
     }
@@ -2092,7 +2092,7 @@ mod tests {
         let release = ReleaseInfo {
             version: Version::parse("0.5.6").unwrap(),
             identity: "0.5.6".to_string(),
-            download_url: "https://example.com/hako".to_string(),
+            download_url: "https://example.com/omh".to_string(),
             sha256: None,
             notes_body: "### Changed\n- One".to_string(),
         };
@@ -2100,8 +2100,8 @@ mod tests {
             target: RunningUpdateTarget {
                 name: Some("work".to_string()),
                 label: "work".to_string(),
-                stop_command: "hako session stop work".to_string(),
-                attach_command: Some("hako session attach work".to_string()),
+                stop_command: "omh session stop work".to_string(),
+                attach_command: Some("omh session attach work".to_string()),
                 socket_path: crate::session::api_socket_path_for(Some("work")),
                 client_socket_path: crate::session::client_socket_path_for(Some("work")),
                 must_be_running: true,
@@ -2210,7 +2210,7 @@ mod tests {
                 .unwrap();
             let value: serde_json::Value = serde_json::from_str(&request).unwrap();
             assert_eq!(value["method"], "server.live_handoff");
-            assert_eq!(value["params"]["import_exe"], "/tmp/hako-new");
+            assert_eq!(value["params"]["import_exe"], "/tmp/omh-new");
             assert!(value["params"]["expected_protocol"].is_null());
             assert_eq!(value["params"]["expected_version"], "9.8.7");
             stream
@@ -2221,7 +2221,7 @@ mod tests {
         let release = ReleaseInfo {
             version: Version::parse("9.8.7").unwrap(),
             identity: "9.8.7".to_string(),
-            download_url: "https://example.com/hako".to_string(),
+            download_url: "https://example.com/omh".to_string(),
             sha256: None,
             notes_body: "### Changed\n- One".to_string(),
         };
@@ -2229,7 +2229,7 @@ mod tests {
         let result = live_handoff_server_via_api_for_release_at(
             &socket_path,
             Duration::from_millis(200),
-            Path::new("/tmp/hako-new"),
+            Path::new("/tmp/omh-new"),
             &release,
         );
         let _ = handle.join();
@@ -2337,12 +2337,12 @@ mod tests {
             body: Some("### Changed\n- GitHub release".to_string()),
             assets: vec![
                 GitHubReleaseAsset {
-                    name: "hako-plan9-riscv128".to_string(),
+                    name: "omh-plan9-riscv128".to_string(),
                     browser_download_url: "https://example.com/wrong".to_string(),
                 },
                 GitHubReleaseAsset {
                     name: release_asset_name((os, arch)),
-                    browser_download_url: "https://example.com/hako".to_string(),
+                    browser_download_url: "https://example.com/omh".to_string(),
                 },
             ],
         };
@@ -2352,7 +2352,7 @@ mod tests {
             .expect("release info");
 
         assert_eq!(info.version, Version::parse("99.99.99").unwrap());
-        assert_eq!(info.download_url, "https://example.com/hako");
+        assert_eq!(info.download_url, "https://example.com/omh");
         assert_eq!(info.notes_body, "### Changed\n- GitHub release");
     }
 
@@ -2360,12 +2360,12 @@ mod tests {
     fn release_asset_name_adds_exe_only_for_windows() {
         assert_eq!(
             release_asset_name(("windows", "x86_64")),
-            "hako-windows-x86_64.exe"
+            "omh-windows-x86_64.exe"
         );
-        assert_eq!(release_asset_name(("linux", "x86_64")), "hako-linux-x86_64");
+        assert_eq!(release_asset_name(("linux", "x86_64")), "omh-linux-x86_64");
         assert_eq!(
             release_asset_name(("macos", "aarch64")),
-            "hako-macos-aarch64"
+            "omh-macos-aarch64"
         );
     }
 
@@ -2379,6 +2379,6 @@ mod tests {
 
         let err = release_info_from_github_release(&release).expect_err("missing asset");
 
-        assert!(err.contains("no binary asset named hako-"), "{err}");
+        assert!(err.contains("no binary asset named omh-"), "{err}");
     }
 }

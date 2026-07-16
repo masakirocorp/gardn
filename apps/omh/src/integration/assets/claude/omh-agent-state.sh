@@ -1,14 +1,17 @@
 #!/bin/sh
-# installed by hako
-# managed by hako; reinstalling or updating the integration overwrites this file.
+# installed by Oh My Herdr
+# managed by Oh My Herdr; reinstalling or updating the integration overwrites this file.
 # add custom hooks beside this file instead of editing it.
-# HAKO_INTEGRATION_ID=codex
-# HAKO_INTEGRATION_VERSION=2
+# OMH_INTEGRATION_ID=claude
+# OMH_INTEGRATION_VERSION=4
 
 set -eu
 
+# Grok Build loads Claude compatibility hooks. Its native Oh My Herdr hook owns Grok panes.
+[ -z "${GROK_HOOK_EVENT:-}" ] || exit 0
+
 action="${1:-}"
-hook_input_file="$(mktemp "${TMPDIR:-/tmp}/hako-codex-hook.XXXXXX")" || exit 0
+hook_input_file="$(mktemp "${TMPDIR:-/tmp}/omh-claude-hook.XXXXXX")" || exit 0
 trap 'rm -f "$hook_input_file"' EXIT HUP INT TERM
 cat >"$hook_input_file" 2>/dev/null || true
 
@@ -17,24 +20,24 @@ case "$action" in
   *) exit 0 ;;
 esac
 
-[ "${HAKO_ENV:-}" = "1" ] || exit 0
-[ -n "${HAKO_SOCKET_PATH:-}" ] || exit 0
-[ -n "${HAKO_PANE_ID:-}" ] || exit 0
+[ "${OMH_ENV:-}" = "1" ] || exit 0
+[ -n "${OMH_SOCKET_PATH:-}" ] || exit 0
+[ -n "${OMH_PANE_ID:-}" ] || exit 0
 command -v python3 >/dev/null 2>&1 || exit 0
 
-HAKO_ACTION="$action" HAKO_HOOK_INPUT_FILE="$hook_input_file" python3 - <<'PY'
+OMH_ACTION="$action" OMH_HOOK_INPUT_FILE="$hook_input_file" python3 - <<'PY'
 import json
 import os
 import random
 import socket
 import time
 
-source = "hako:codex"
-agent = "codex"
-action = os.environ.get("HAKO_ACTION", "")
-pane_id = os.environ.get("HAKO_PANE_ID")
-socket_path = os.environ.get("HAKO_SOCKET_PATH")
-hook_input_file = os.environ.get("HAKO_HOOK_INPUT_FILE")
+source = "omh:claude"
+agent = "claude"
+action = os.environ.get("OMH_ACTION", "")
+pane_id = os.environ.get("OMH_PANE_ID")
+socket_path = os.environ.get("OMH_SOCKET_PATH")
+hook_input_file = os.environ.get("OMH_HOOK_INPUT_FILE")
 
 if not pane_id or not socket_path:
     raise SystemExit(0)
@@ -61,20 +64,38 @@ def first_text(*keys):
 
 
 hook_event_name = first_text("hook_event_name", "hookEventName") or ""
+notification_type = first_text("notification_type", "notificationType") or ""
 is_subagent = bool(hook_input.get("agent_id")) or hook_event_name in ("SubagentStart", "SubagentStop")
 
-# Subagent completion is not parent completion. Keep parent state owned by
-# Stop/idle events instead of child completion hooks.
+# Subagent completion is not parent completion. Claude can emit recap/summary
+# SubagentStop events after the parent turn is already idle; never let those
+# revive or idle the parent pane.
 if hook_event_name == "SubagentStop":
     raise SystemExit(0)
 if is_subagent and action in ("idle", "release"):
     raise SystemExit(0)
+if action == "blocked" and notification_type and notification_type not in (
+    "permission_prompt",
+    "elicitation_dialog",
+):
+    raise SystemExit(0)
+if action == "idle" and notification_type and notification_type != "idle_prompt":
+    raise SystemExit(0)
 
 session_id = first_text("session_id", "sessionId")
 agent_session_id = session_id if session_id else None
+transcript_path = first_text("transcript_path", "transcriptPath")
+agent_session_path = transcript_path if transcript_path else None
+session_start_source = (
+    first_text("source", "session_start_source")
+    if hook_event_name == "SessionStart"
+    else None
+)
+if session_start_source not in ("startup", "resume", "clear", "compact"):
+    session_start_source = None
 launch_env = {
     key: value
-    for key in ("CODEX_HOME",)
+    for key in ("CLAUDE_CONFIG_DIR",)
     if isinstance((value := os.environ.get(key)), str) and value
 }
 request_id = f"{source}:{int(time.time() * 1000)}:{random.randrange(1_000_000):06d}"
@@ -95,6 +116,10 @@ if action == "session":
             "launch_env": launch_env,
         },
     }
+    if agent_session_path:
+        request["params"]["agent_session_path"] = agent_session_path
+    if session_start_source:
+        request["params"]["session_start_source"] = session_start_source
 elif action == "release":
     request = {
         "id": request_id,
@@ -108,6 +133,8 @@ elif action == "release":
     }
     if agent_session_id:
         request["params"]["agent_session_id"] = agent_session_id
+    if agent_session_path:
+        request["params"]["agent_session_path"] = agent_session_path
 else:
     request = {
         "id": request_id,
@@ -123,7 +150,8 @@ else:
     }
     if agent_session_id:
         request["params"]["agent_session_id"] = agent_session_id
-
+    if agent_session_path:
+        request["params"]["agent_session_path"] = agent_session_path
 try:
     client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     client.settimeout(0.5)

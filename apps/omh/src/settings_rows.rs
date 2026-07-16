@@ -985,7 +985,7 @@ fn integration_rows(app: &AppState) -> Vec<SettingsListRow> {
 fn toast_delivery_label(delivery: ToastDelivery) -> &'static str {
     match delivery {
         ToastDelivery::Off => "off",
-        ToastDelivery::Hako => "inside hako",
+        ToastDelivery::Omh => "inside Oh My Herdr",
         ToastDelivery::Terminal => "via terminal",
         ToastDelivery::System => "via system",
     }
@@ -1119,7 +1119,7 @@ fn new_terminal_cwd_label(policy: &NewTerminalCwdConfig) -> String {
     match policy {
         NewTerminalCwdConfig::Follow => "follow focused pane".to_string(),
         NewTerminalCwdConfig::Home => "home directory".to_string(),
-        NewTerminalCwdConfig::Current => "hako process directory".to_string(),
+        NewTerminalCwdConfig::Current => "Oh My Herdr process directory".to_string(),
         NewTerminalCwdConfig::Path(path) => format!("custom path: {path}"),
     }
 }
@@ -1203,7 +1203,7 @@ mod tests {
     fn custom_codex_profile_rows_mark_missing_profile_hook_as_warning() {
         let _lock = crate::integration::integration_env_lock();
         let base = std::env::temp_dir().join(format!(
-            "hako-settings-codex-profile-warning-{}-{}",
+            "omh-settings-codex-profile-warning-{}-{}",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -1233,7 +1233,7 @@ mod tests {
             label: "codex",
             command: "codex",
             available: true,
-            path: std::path::PathBuf::from("/tmp/hako-test-codex"),
+            path: std::path::PathBuf::from("/tmp/omh-test-codex"),
             state: crate::integration::IntegrationStatusKind::Current,
         }];
 
@@ -1269,7 +1269,7 @@ mod tests {
     fn integrations_row_warns_when_custom_codex_profile_home_missing_hook() {
         let _lock = crate::integration::integration_env_lock();
         let base = std::env::temp_dir().join(format!(
-            "hako-settings-integrations-codex-profile-hook-{}-{}",
+            "omh-settings-integrations-codex-profile-hook-{}-{}",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -1291,8 +1291,8 @@ mod tests {
 
         crate::integration::install_target(crate::api::schema::IntegrationTarget::Codex)
             .expect("install default codex integration");
-        assert!(default_codex_dir.join("hako-agent-state.sh").is_file());
-        assert!(!custom_codex_dir.join("hako-agent-state.sh").exists());
+        assert!(default_codex_dir.join("omh-agent-state.sh").is_file());
+        assert!(!custom_codex_dir.join("omh-agent-state.sh").exists());
 
         let mut app = AppState::test_new();
         app.agent_profiles = crate::agent_profiles::AgentProfileCatalog::from_config(
@@ -1313,7 +1313,7 @@ mod tests {
             label: "codex",
             command: "codex",
             available: true,
-            path: default_codex_dir.join("hako-agent-state.sh"),
+            path: default_codex_dir.join("omh-agent-state.sh"),
             state: crate::integration::IntegrationStatusKind::Current,
         }];
 

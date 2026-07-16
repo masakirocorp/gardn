@@ -285,7 +285,7 @@ mod tests {
 
     fn temp_test_dir(name: &str) -> PathBuf {
         let unique = format!(
-            "hako-workspace-tests-{}-{}-{}",
+            "omh-workspace-tests-{}-{}-{}",
             name,
             std::process::id(),
             SystemTime::now()
@@ -460,8 +460,8 @@ mod tests {
             panic!("git init --ref-format=reftable failed: {stderr}");
         }
 
-        run_git(&root, &["config", "user.email", "hako@example.invalid"]);
-        run_git(&root, &["config", "user.name", "Hako Test"]);
+        run_git(&root, &["config", "user.email", "omh@example.invalid"]);
+        run_git(&root, &["config", "user.name", "Oh My Herdr Test"]);
         run_git(&root, &["commit", "--allow-empty", "-m", "initial"]);
 
         let head_oid = git_rev_parse_verify(&root, "HEAD").unwrap();

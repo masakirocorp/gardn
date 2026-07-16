@@ -40,16 +40,16 @@ impl App {
                 crate::api::SOCKET_PATH_ENV_VAR.to_string(),
                 crate::api::socket_path().display().to_string(),
             ),
-            ("HAKO_ENV".to_string(), "1".to_string()),
-            ("HAKO_PLUGIN_ID".to_string(), plugin.plugin_id.clone()),
-            ("HAKO_PLUGIN_CONTEXT_JSON".to_string(), context_json.clone()),
+            ("OMH_ENV".to_string(), "1".to_string()),
+            ("OMH_PLUGIN_ID".to_string(), plugin.plugin_id.clone()),
+            ("OMH_PLUGIN_CONTEXT_JSON".to_string(), context_json.clone()),
             ("HERDR_ENV".to_string(), "1".to_string()),
             ("HERDR_PLUGIN_ID".to_string(), plugin.plugin_id.clone()),
             ("HERDR_PLUGIN_CONTEXT_JSON".to_string(), context_json),
         ]);
         if let Ok(current_exe) = std::env::current_exe() {
             env.push((
-                "HAKO_BIN_PATH".to_string(),
+                "OMH_BIN_PATH".to_string(),
                 current_exe.display().to_string(),
             ));
             env.push((
@@ -58,36 +58,36 @@ impl App {
             ));
         }
         if let Some(action_id) = action_id.as_ref() {
-            env.push(("HAKO_PLUGIN_ACTION_ID".to_string(), action_id.clone()));
+            env.push(("OMH_PLUGIN_ACTION_ID".to_string(), action_id.clone()));
             env.push(("HERDR_PLUGIN_ACTION_ID".to_string(), action_id.clone()));
         }
         if let Some(event) = event.as_ref() {
-            env.push(("HAKO_PLUGIN_EVENT".to_string(), event.clone()));
+            env.push(("OMH_PLUGIN_EVENT".to_string(), event.clone()));
             env.push(("HERDR_PLUGIN_EVENT".to_string(), event.clone()));
         }
         if let Some(event_json) = event_json {
-            env.push(("HAKO_PLUGIN_EVENT_JSON".to_string(), event_json.clone()));
+            env.push(("OMH_PLUGIN_EVENT_JSON".to_string(), event_json.clone()));
             env.push(("HERDR_PLUGIN_EVENT_JSON".to_string(), event_json));
         }
         if let Some(workspace_id) = context.workspace_id.as_ref() {
-            env.push(("HAKO_WORKSPACE_ID".to_string(), workspace_id.clone()));
+            env.push(("OMH_WORKSPACE_ID".to_string(), workspace_id.clone()));
             env.push(("HERDR_WORKSPACE_ID".to_string(), workspace_id.clone()));
         }
         if let Some(tab_id) = context.tab_id.as_ref() {
-            env.push(("HAKO_TAB_ID".to_string(), tab_id.clone()));
+            env.push(("OMH_TAB_ID".to_string(), tab_id.clone()));
             env.push(("HERDR_TAB_ID".to_string(), tab_id.clone()));
         }
         if let Some(pane_id) = context.focused_pane_id.as_ref() {
-            env.push(("HAKO_PANE_ID".to_string(), pane_id.clone()));
+            env.push(("OMH_PANE_ID".to_string(), pane_id.clone()));
             env.push(("HERDR_PANE_ID".to_string(), pane_id.clone()));
         }
         if let Some(clicked_url) = context.clicked_url.as_ref() {
-            env.push(("HAKO_PLUGIN_CLICKED_URL".to_string(), clicked_url.clone()));
+            env.push(("OMH_PLUGIN_CLICKED_URL".to_string(), clicked_url.clone()));
             env.push(("HERDR_PLUGIN_CLICKED_URL".to_string(), clicked_url.clone()));
         }
         if let Some(link_handler_id) = context.link_handler_id.as_ref() {
             env.push((
-                "HAKO_PLUGIN_LINK_HANDLER_ID".to_string(),
+                "OMH_PLUGIN_LINK_HANDLER_ID".to_string(),
                 link_handler_id.clone(),
             ));
             env.push((
@@ -282,7 +282,7 @@ pub(super) fn read_capped_plugin_output(mut reader: impl Read, cap: usize) -> St
     let mut output = String::from_utf8_lossy(&kept).into_owned();
     if truncated {
         output.push_str(&format!(
-            "\n[hako truncated plugin output after {cap} bytes]"
+            "\n[Oh My Herdr truncated plugin output after {cap} bytes]"
         ));
     }
     output

@@ -878,7 +878,7 @@ mod tests {
             label: kind.as_str(),
             command: kind.system_command(),
             available: true,
-            path: std::path::PathBuf::from("/tmp/hako-test-integration"),
+            path: std::path::PathBuf::from("/tmp/omh-test-integration"),
             state: crate::integration::IntegrationStatusKind::Current,
         }
     }
@@ -942,7 +942,7 @@ mod tests {
     fn new_agent_ignores_default_profile_without_installed_integration() {
         let _lock = crate::integration::integration_env_lock();
         let base = std::env::temp_dir().join(format!(
-            "hako-picker-ignore-unlaunchable-default-{}-{}",
+            "omh-picker-ignore-unlaunchable-default-{}-{}",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -982,7 +982,7 @@ mod tests {
     fn picker_keeps_custom_codex_profile_visible_with_profile_hook_warning() {
         let _lock = crate::integration::integration_env_lock();
         let base = std::env::temp_dir().join(format!(
-            "hako-picker-codex-profile-warning-{}-{}",
+            "omh-picker-codex-profile-warning-{}-{}",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -1024,7 +1024,7 @@ mod tests {
         assert_eq!(entry.name, "codex mk");
         assert!(warning.contains(".codex-mk"), "{warning}");
         assert!(
-            warning.contains("hako integration install codex"),
+            warning.contains("omh integration install codex"),
             "{warning}"
         );
 
@@ -1040,7 +1040,7 @@ mod tests {
                 label: "codex",
                 command: "codex",
                 available: true,
-                path: std::path::PathBuf::from("/tmp/hako-test-integration"),
+                path: std::path::PathBuf::from("/tmp/omh-test-integration"),
                 state: crate::integration::IntegrationStatusKind::Outdated,
             }];
 
@@ -1059,7 +1059,7 @@ mod tests {
                 label: "omp",
                 command: "omp",
                 available: true,
-                path: std::path::PathBuf::from("/tmp/hako-test-integration"),
+                path: std::path::PathBuf::from("/tmp/omh-test-integration"),
                 state: crate::integration::IntegrationStatusKind::Outdated,
             }];
         app.state.groups[app.state.active_group].default_agent_profile_id =

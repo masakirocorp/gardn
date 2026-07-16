@@ -29,7 +29,7 @@ impl ConnectionTarget {
     }
 }
 
-/// Reusable client for Hako's newline-delimited JSON API.
+/// Reusable client for Oh My Herdr's newline-delimited JSON API.
 #[derive(Debug, Clone)]
 pub struct ApiClient {
     target: ConnectionTarget,
@@ -234,12 +234,12 @@ mod tests {
     #[test]
     fn local_session_target_resolves_named_session_socket() {
         let client = ApiClient::for_target(ConnectionTarget::LocalSession(Some("work".into())));
-        assert!(client.socket_path().ends_with("sessions/work/hako.sock"));
+        assert!(client.socket_path().ends_with("sessions/work/omh.sock"));
     }
 
     #[test]
     fn socket_path_target_uses_explicit_path() {
-        let path = PathBuf::from("/tmp/hako-test.sock");
+        let path = PathBuf::from("/tmp/omh-test.sock");
         let client = ApiClient::for_target(ConnectionTarget::SocketPath(path.clone()));
         assert_eq!(client.socket_path(), path);
     }

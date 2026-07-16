@@ -78,11 +78,11 @@ fn pane_list(args: &[String]) -> std::io::Result<i32> {
 
 fn pane_get(args: &[String]) -> std::io::Result<i32> {
     let Some(raw_pane_id) = args.first() else {
-        eprintln!("usage: hako pane get <pane_id>");
+        eprintln!("usage: omh pane get <pane_id>");
         return Ok(2);
     };
     if args.len() != 1 {
-        eprintln!("usage: hako pane get <pane_id>");
+        eprintln!("usage: omh pane get <pane_id>");
         return Ok(2);
     }
 
@@ -95,7 +95,7 @@ fn pane_get(args: &[String]) -> std::io::Result<i32> {
 }
 
 fn pane_current(args: &[String]) -> std::io::Result<i32> {
-    let env_pane_id = std::env::var("HAKO_PANE_ID")
+    let env_pane_id = std::env::var("OMH_PANE_ID")
         .ok()
         .filter(|value| !value.trim().is_empty());
     let caller_pane_id = match parse_pane_current_args(args, env_pane_id.as_deref()) {
@@ -280,7 +280,7 @@ fn parse_pane_neighbor_args(args: &[String]) -> Result<PaneNeighborParams, Strin
 
     let Some(direction) = direction else {
         return Err(
-            "usage: hako pane neighbor --direction left|right|up|down [--pane ID|--current]".into(),
+            "usage: omh pane neighbor --direction left|right|up|down [--pane ID|--current]".into(),
         );
     };
 
@@ -289,7 +289,7 @@ fn parse_pane_neighbor_args(args: &[String]) -> Result<PaneNeighborParams, Strin
 
 fn parse_pane_focus_args(args: &[String]) -> Result<PaneFocusDirectionParams, String> {
     let params = parse_pane_neighbor_args(args).map_err(|_| {
-        "usage: hako pane focus --direction left|right|up|down [--pane ID|--current]".to_string()
+        "usage: omh pane focus --direction left|right|up|down [--pane ID|--current]".to_string()
     })?;
     Ok(PaneFocusDirectionParams {
         pane_id: params.pane_id,
@@ -342,7 +342,7 @@ fn parse_pane_resize_args(args: &[String]) -> Result<PaneResizeParams, String> {
 
     let Some(direction) = direction else {
         return Err(
-            "usage: hako pane resize --direction left|right|up|down [--amount FLOAT] [--pane ID|--current]"
+            "usage: omh pane resize --direction left|right|up|down [--amount FLOAT] [--pane ID|--current]"
                 .into(),
         );
     };
@@ -428,11 +428,11 @@ fn parse_pane_zoom_args(args: &[String]) -> Result<PaneZoomParams, String> {
 
 fn pane_rename(args: &[String]) -> std::io::Result<i32> {
     let Some(raw_pane_id) = args.first() else {
-        eprintln!("usage: hako pane rename <pane_id> <label>|--clear");
+        eprintln!("usage: omh pane rename <pane_id> <label>|--clear");
         return Ok(2);
     };
     if args.len() < 2 {
-        eprintln!("usage: hako pane rename <pane_id> <label>|--clear");
+        eprintln!("usage: omh pane rename <pane_id> <label>|--clear");
         return Ok(2);
     }
     let label = if args.len() == 2 && args[1] == "--clear" {
@@ -452,7 +452,7 @@ fn pane_rename(args: &[String]) -> std::io::Result<i32> {
 
 fn pane_read(args: &[String]) -> std::io::Result<i32> {
     let Some(raw_pane_id) = args.first() else {
-        eprintln!("usage: hako pane read <pane_id> [--source visible|recent|recent-unwrapped] [--lines N] [--format text|ansi] [--ansi]");
+        eprintln!("usage: omh pane read <pane_id> [--source visible|recent|recent-unwrapped] [--lines N] [--format text|ansi] [--ansi]");
         return Ok(2);
     };
 
@@ -621,7 +621,7 @@ fn parse_pane_split_args(args: &[String]) -> Result<PaneSplitParams, String> {
 
     let Some(direction) = direction else {
         return Err(
-            "usage: hako pane split [<pane_id>|--pane ID|--current] --direction right|down [--ratio FLOAT] [--cwd PATH] [--env KEY=VALUE] [--focus] [--no-focus]"
+            "usage: omh pane split [<pane_id>|--pane ID|--current] --direction right|down [--ratio FLOAT] [--cwd PATH] [--env KEY=VALUE] [--focus] [--no-focus]"
                 .into(),
         );
     };
@@ -812,7 +812,7 @@ fn parse_pane_move_args(args: &[String]) -> Result<PaneMoveParams, String> {
 }
 
 fn pane_move_usage() -> String {
-    "usage: hako pane move <pane_id> --tab <tab_id> --split right|down [--target-pane ID] [--ratio FLOAT] [--focus|--no-focus]\n       hako pane move <pane_id> --new-tab [--workspace ID] [--label TEXT] [--focus|--no-focus]\n       hako pane move <pane_id> --new-workspace [--label TEXT] [--tab-label TEXT] [--focus|--no-focus]"
+    "usage: omh pane move <pane_id> --tab <tab_id> --split right|down [--target-pane ID] [--ratio FLOAT] [--focus|--no-focus]\n       omh pane move <pane_id> --new-tab [--workspace ID] [--label TEXT] [--focus|--no-focus]\n       omh pane move <pane_id> --new-workspace [--label TEXT] [--tab-label TEXT] [--focus|--no-focus]"
         .into()
 }
 
@@ -877,7 +877,7 @@ fn parse_pane_swap_args(args: &[String]) -> Result<PaneSwapParams, String> {
             })
         }
         _ => Err(
-            "usage: hako pane swap --direction left|right|up|down [--pane ID|--current]\n       hako pane swap --source-pane ID --target-pane ID"
+            "usage: omh pane swap --direction left|right|up|down [--pane ID|--current]\n       omh pane swap --source-pane ID --target-pane ID"
                 .into(),
         ),
     }
@@ -907,11 +907,11 @@ fn parse_pane_direction(value: &str) -> Result<PaneDirection, String> {
 
 fn pane_close(args: &[String]) -> std::io::Result<i32> {
     let Some(raw_pane_id) = args.first() else {
-        eprintln!("usage: hako pane close <pane_id>");
+        eprintln!("usage: omh pane close <pane_id>");
         return Ok(2);
     };
     if args.len() != 1 {
-        eprintln!("usage: hako pane close <pane_id>");
+        eprintln!("usage: omh pane close <pane_id>");
         return Ok(2);
     }
 
@@ -925,7 +925,7 @@ fn pane_close(args: &[String]) -> std::io::Result<i32> {
 
 fn pane_send_text(args: &[String]) -> std::io::Result<i32> {
     if args.len() < 2 {
-        eprintln!("usage: hako pane send-text <pane_id> <text>");
+        eprintln!("usage: omh pane send-text <pane_id> <text>");
         return Ok(2);
     }
 
@@ -936,7 +936,7 @@ fn pane_send_text(args: &[String]) -> std::io::Result<i32> {
 
 fn pane_send_keys(args: &[String]) -> std::io::Result<i32> {
     if args.len() < 2 {
-        eprintln!("usage: hako pane send-keys <pane_id> <key> [key ...]");
+        eprintln!("usage: omh pane send-keys <pane_id> <key> [key ...]");
         return Ok(2);
     }
 
@@ -947,7 +947,7 @@ fn pane_send_keys(args: &[String]) -> std::io::Result<i32> {
 
 fn pane_run(args: &[String]) -> std::io::Result<i32> {
     if args.len() < 2 {
-        eprintln!("usage: hako pane run <pane_id> <command>");
+        eprintln!("usage: omh pane run <pane_id> <command>");
         return Ok(2);
     }
 
@@ -962,7 +962,7 @@ fn pane_run(args: &[String]) -> std::io::Result<i32> {
 
 fn pane_report_agent(args: &[String]) -> std::io::Result<i32> {
     let Some(raw_pane_id) = args.first() else {
-        eprintln!("usage: hako pane report-agent <pane_id> --source ID --agent LABEL --state idle|working|blocked|unknown [--message TEXT] [--custom-status TEXT] [--seq N] [--agent-session-id ID] [--agent-session-path PATH]");
+        eprintln!("usage: omh pane report-agent <pane_id> --source ID --agent LABEL --state idle|working|blocked|unknown [--message TEXT] [--custom-status TEXT] [--seq N] [--agent-session-id ID] [--agent-session-path PATH]");
         return Ok(2);
     };
 
@@ -1082,7 +1082,7 @@ fn pane_report_agent(args: &[String]) -> std::io::Result<i32> {
 
 fn pane_report_agent_session(args: &[String]) -> std::io::Result<i32> {
     let Some(raw_pane_id) = args.first() else {
-        eprintln!("usage: hako pane report-agent-session <pane_id> --source ID --agent LABEL [--seq N] [--agent-session-id ID] [--agent-session-path PATH] [--session-start-source SOURCE]");
+        eprintln!("usage: omh pane report-agent-session <pane_id> --source ID --agent LABEL [--seq N] [--agent-session-id ID] [--agent-session-path PATH] [--session-start-source SOURCE]");
         return Ok(2);
     };
 
@@ -1180,7 +1180,7 @@ fn pane_report_agent_session(args: &[String]) -> std::io::Result<i32> {
 
 fn pane_release_agent(args: &[String]) -> std::io::Result<i32> {
     let Some(raw_pane_id) = args.first() else {
-        eprintln!("usage: hako pane release-agent <pane_id> --source ID --agent LABEL [--seq N]");
+        eprintln!("usage: omh pane release-agent <pane_id> --source ID --agent LABEL [--seq N]");
         return Ok(2);
     };
 
@@ -1247,7 +1247,7 @@ fn pane_release_agent(args: &[String]) -> std::io::Result<i32> {
 
 fn pane_report_metadata(args: &[String]) -> std::io::Result<i32> {
     let Some(raw_pane_id) = args.first() else {
-        eprintln!("usage: hako pane report-metadata <pane_id> --source ID [--agent LABEL] [--applies-to-source ID] [--title TEXT|--clear-title] [--display-agent TEXT|--clear-display-agent] [--custom-status TEXT|--clear-custom-status] [--state-label STATUS=TEXT] [--clear-state-labels] [--seq N] [--ttl-ms N]");
+        eprintln!("usage: omh pane report-metadata <pane_id> --source ID [--agent LABEL] [--applies-to-source ID] [--title TEXT|--clear-title] [--display-agent TEXT|--clear-display-agent] [--custom-status TEXT|--clear-custom-status] [--state-label STATUS=TEXT] [--clear-state-labels] [--seq N] [--ttl-ms N]");
         return Ok(2);
     };
 
@@ -1431,39 +1431,39 @@ fn pane_report_metadata(args: &[String]) -> std::io::Result<i32> {
 }
 
 fn print_pane_help() {
-    eprintln!("hako pane commands:");
-    eprintln!("  hako pane list [--workspace <workspace_id>]");
-    eprintln!("  hako pane current [--pane ID|--current]");
-    eprintln!("  hako pane get <pane_id>");
-    eprintln!("  hako pane layout [--pane ID|--current]");
-    eprintln!("  hako pane process-info [--pane ID|--current]");
-    eprintln!("  hako pane neighbor --direction left|right|up|down [--pane ID|--current]");
-    eprintln!("  hako pane edges [--pane ID|--current]");
-    eprintln!("  hako pane focus --direction left|right|up|down [--pane ID|--current]");
+    eprintln!("omh pane commands:");
+    eprintln!("  omh pane list [--workspace <workspace_id>]");
+    eprintln!("  omh pane current [--pane ID|--current]");
+    eprintln!("  omh pane get <pane_id>");
+    eprintln!("  omh pane layout [--pane ID|--current]");
+    eprintln!("  omh pane process-info [--pane ID|--current]");
+    eprintln!("  omh pane neighbor --direction left|right|up|down [--pane ID|--current]");
+    eprintln!("  omh pane edges [--pane ID|--current]");
+    eprintln!("  omh pane focus --direction left|right|up|down [--pane ID|--current]");
     eprintln!(
-        "  hako pane resize --direction left|right|up|down [--amount FLOAT] [--pane ID|--current]"
+        "  omh pane resize --direction left|right|up|down [--amount FLOAT] [--pane ID|--current]"
     );
-    eprintln!("  hako pane zoom [<pane_id>|--pane ID|--current] [--toggle|--on|--off]");
-    eprintln!("  hako pane rename <pane_id> <label>|--clear");
-    eprintln!("  hako pane read <pane_id> [--source visible|recent|recent-unwrapped] [--lines N] [--format text|ansi] [--ansi]");
+    eprintln!("  omh pane zoom [<pane_id>|--pane ID|--current] [--toggle|--on|--off]");
+    eprintln!("  omh pane rename <pane_id> <label>|--clear");
+    eprintln!("  omh pane read <pane_id> [--source visible|recent|recent-unwrapped] [--lines N] [--format text|ansi] [--ansi]");
     eprintln!(
-        "  hako pane split [<pane_id>|--pane ID|--current] --direction right|down [--ratio FLOAT] [--cwd PATH] [--env KEY=VALUE] [--focus] [--no-focus]"
+        "  omh pane split [<pane_id>|--pane ID|--current] --direction right|down [--ratio FLOAT] [--cwd PATH] [--env KEY=VALUE] [--focus] [--no-focus]"
     );
-    eprintln!("  hako pane swap --direction left|right|up|down [--pane ID|--current]");
-    eprintln!("  hako pane swap --source-pane ID --target-pane ID");
-    eprintln!("  hako pane move <pane_id> --tab <tab_id> --split right|down [--target-pane ID] [--ratio FLOAT] [--focus|--no-focus]");
+    eprintln!("  omh pane swap --direction left|right|up|down [--pane ID|--current]");
+    eprintln!("  omh pane swap --source-pane ID --target-pane ID");
+    eprintln!("  omh pane move <pane_id> --tab <tab_id> --split right|down [--target-pane ID] [--ratio FLOAT] [--focus|--no-focus]");
     eprintln!(
-        "  hako pane move <pane_id> --new-tab [--workspace ID] [--label TEXT] [--focus|--no-focus]"
+        "  omh pane move <pane_id> --new-tab [--workspace ID] [--label TEXT] [--focus|--no-focus]"
     );
-    eprintln!("  hako pane move <pane_id> --new-workspace [--label TEXT] [--tab-label TEXT] [--focus|--no-focus]");
-    eprintln!("  hako pane close <pane_id>");
-    eprintln!("  hako pane send-text <pane_id> <text>");
-    eprintln!("  hako pane send-keys <pane_id> <key> [key ...]");
-    eprintln!("  hako pane report-agent <pane_id> --source ID --agent LABEL --state idle|working|blocked|unknown [--message TEXT] [--custom-status TEXT] [--seq N] [--agent-session-id ID] [--agent-session-path PATH]");
-    eprintln!("  hako pane report-agent-session <pane_id> --source ID --agent LABEL [--seq N] [--agent-session-id ID] [--agent-session-path PATH]");
-    eprintln!("  hako pane release-agent <pane_id> --source ID --agent LABEL [--seq N]");
-    eprintln!("  hako pane report-metadata <pane_id> --source ID [--agent LABEL] [--applies-to-source ID] [--title TEXT|--clear-title] [--display-agent TEXT|--clear-display-agent] [--custom-status TEXT|--clear-custom-status] [--state-label STATUS=TEXT] [--clear-state-labels] [--seq N] [--ttl-ms N]");
-    eprintln!("  hako pane run <pane_id> <command>");
+    eprintln!("  omh pane move <pane_id> --new-workspace [--label TEXT] [--tab-label TEXT] [--focus|--no-focus]");
+    eprintln!("  omh pane close <pane_id>");
+    eprintln!("  omh pane send-text <pane_id> <text>");
+    eprintln!("  omh pane send-keys <pane_id> <key> [key ...]");
+    eprintln!("  omh pane report-agent <pane_id> --source ID --agent LABEL --state idle|working|blocked|unknown [--message TEXT] [--custom-status TEXT] [--seq N] [--agent-session-id ID] [--agent-session-path PATH]");
+    eprintln!("  omh pane report-agent-session <pane_id> --source ID --agent LABEL [--seq N] [--agent-session-id ID] [--agent-session-path PATH]");
+    eprintln!("  omh pane release-agent <pane_id> --source ID --agent LABEL [--seq N]");
+    eprintln!("  omh pane report-metadata <pane_id> --source ID [--agent LABEL] [--applies-to-source ID] [--title TEXT|--clear-title] [--display-agent TEXT|--clear-display-agent] [--custom-status TEXT|--clear-custom-status] [--state-label STATUS=TEXT] [--clear-state-labels] [--seq N] [--ttl-ms N]");
+    eprintln!("  omh pane run <pane_id> <command>");
 }
 
 #[cfg(test)]
@@ -1573,7 +1573,7 @@ mod tests {
         ]))
         .unwrap_err();
 
-        assert!(err.contains("usage: hako pane swap"));
+        assert!(err.contains("usage: omh pane swap"));
     }
 
     #[test]
@@ -1610,7 +1610,7 @@ mod tests {
         let err =
             parse_pane_move_args(&args(&["issue-1", "--target-pane", "issue-2"])).unwrap_err();
 
-        assert!(err.contains("usage: hako pane move"));
+        assert!(err.contains("usage: omh pane move"));
     }
 
     #[test]

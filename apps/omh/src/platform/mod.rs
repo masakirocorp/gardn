@@ -248,13 +248,13 @@ pub fn process_agent_hint(_pid: u32) -> Option<crate::detect::Agent> {
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 pub(crate) fn parse_agent_env_hint(environ: &[u8]) -> Option<crate::detect::Agent> {
     environ.split(|&byte| byte == 0).find_map(|record| {
-        let value = record.strip_prefix(b"HAKO_AGENT=")?;
+        let value = record.strip_prefix(b"OMH_AGENT=")?;
         let value = std::str::from_utf8(value).ok()?;
         crate::detect::parse_agent_label(value)
     })
 }
 
-/// Whether the platform should draw Hako's cursor into frame cells by default.
+/// Whether the platform should draw Oh My Herdr's cursor into frame cells by default.
 pub(crate) fn should_draw_host_cursor_by_default() -> bool {
     should_draw_host_cursor_by_default_platform()
 }

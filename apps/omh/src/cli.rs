@@ -99,14 +99,14 @@ fn run_status_command(args: &[String]) -> std::io::Result<i32> {
         None => print_full_status(StatusFormat::Text),
         Some("--json") if args.len() == 1 => print_full_status(StatusFormat::Json),
         Some("server") => {
-            let Ok(format) = parse_status_format(&args[1..], "usage: hako status server [--json]")
+            let Ok(format) = parse_status_format(&args[1..], "usage: omh status server [--json]")
             else {
                 return Ok(2);
             };
             print_server_status(format)
         }
         Some("client") => {
-            let Ok(format) = parse_status_format(&args[1..], "usage: hako status client [--json]")
+            let Ok(format) = parse_status_format(&args[1..], "usage: omh status client [--json]")
             else {
                 return Ok(2);
             };
@@ -147,11 +147,11 @@ fn config_check(args: &[String]) -> std::io::Result<i32> {
     match args {
         [] => {}
         [flag] if matches!(flag.as_str(), "help" | "--help" | "-h") => {
-            eprintln!("usage: hako config check");
+            eprintln!("usage: omh config check");
             return Ok(0);
         }
         _ => {
-            eprintln!("usage: hako config check");
+            eprintln!("usage: omh config check");
             return Ok(2);
         }
     }
@@ -171,7 +171,7 @@ fn config_check(args: &[String]) -> std::io::Result<i32> {
 
 fn config_reset_keys(args: &[String]) -> std::io::Result<i32> {
     if !args.is_empty() {
-        eprintln!("usage: hako config reset-keys");
+        eprintln!("usage: omh config reset-keys");
         return Ok(2);
     }
 
@@ -229,8 +229,8 @@ fn config_reset_keys(args: &[String]) -> std::io::Result<i32> {
         "Removed [keys], [keys.indexed], and [[keys.command]] from {}.",
         path.display()
     );
-    println!("Built-in v2 keybindings will apply after Hako restarts or reloads config.");
-    println!("If a Hako server is running, run `hako server reload-config` to apply this now.");
+    println!("Built-in v2 keybindings will apply after Oh My Herdr restarts or reloads config.");
+    println!("If an Oh My Herdr server is running, run `omh server reload-config` to apply this now.");
     println!(
         "To restore: cp {} {}",
         backup_path.display(),
@@ -494,7 +494,7 @@ fn run_notification_command(args: &[String]) -> std::io::Result<i32> {
 
 fn print_notification_help() {
     eprintln!(
-        "usage: hako notification show <title> [--body TEXT] [--position top-left|top-right|bottom-left|bottom-right] [--sound none|done|request]"
+        "usage: omh notification show <title> [--body TEXT] [--position top-left|top-right|bottom-left|bottom-right] [--sound none|done|request]"
     );
 }
 
@@ -523,7 +523,7 @@ fn notification_show(args: &[String]) -> std::io::Result<i32> {
                     print_notification_help();
                     return Ok(2);
                 };
-                position = Some(parse_hako_toast_position(value)?);
+                position = Some(parse_omh_toast_position(value)?);
                 idx += 2;
             }
             "--sound" => {
@@ -553,12 +553,12 @@ fn notification_show(args: &[String]) -> std::io::Result<i32> {
     print_response(&response)
 }
 
-fn parse_hako_toast_position(value: &str) -> std::io::Result<crate::config::ToastHakoPosition> {
+fn parse_omh_toast_position(value: &str) -> std::io::Result<crate::config::ToastOmhPosition> {
     match value {
-        "top-left" => Ok(crate::config::ToastHakoPosition::TopLeft),
-        "top-right" => Ok(crate::config::ToastHakoPosition::TopRight),
-        "bottom-left" => Ok(crate::config::ToastHakoPosition::BottomLeft),
-        "bottom-right" => Ok(crate::config::ToastHakoPosition::BottomRight),
+        "top-left" => Ok(crate::config::ToastOmhPosition::TopLeft),
+        "top-right" => Ok(crate::config::ToastOmhPosition::TopRight),
+        "bottom-left" => Ok(crate::config::ToastOmhPosition::BottomLeft),
+        "bottom-right" => Ok(crate::config::ToastOmhPosition::BottomRight),
         _ => Err(std::io::Error::other(
             "invalid notification position: expected top-left, top-right, bottom-left, or bottom-right",
         )),
@@ -671,8 +671,8 @@ fn agent_explain(args: &[String]) -> std::io::Result<i32> {
                 index += 2;
             }
             "help" | "--help" | "-h" => {
-                eprintln!("usage: hako agent explain <target> [--json]");
-                eprintln!("usage: hako agent explain --file PATH --agent LABEL [--json]");
+                eprintln!("usage: omh agent explain <target> [--json]");
+                eprintln!("usage: omh agent explain --file PATH --agent LABEL [--json]");
                 return Ok(0);
             }
             value if value.starts_with('-') => {
@@ -681,7 +681,7 @@ fn agent_explain(args: &[String]) -> std::io::Result<i32> {
             }
             value => {
                 if target.is_some() {
-                    eprintln!("usage: hako agent explain <target> [--json]");
+                    eprintln!("usage: omh agent explain <target> [--json]");
                     return Ok(2);
                 }
                 target = Some(value.to_string());
@@ -692,11 +692,11 @@ fn agent_explain(args: &[String]) -> std::io::Result<i32> {
 
     let explain = if let Some(path) = file {
         if target.is_some() {
-            eprintln!("usage: hako agent explain --file PATH --agent LABEL [--json]");
+            eprintln!("usage: omh agent explain --file PATH --agent LABEL [--json]");
             return Ok(2);
         }
         let Some(agent_label) = agent else {
-            eprintln!("hako agent explain --file requires --agent LABEL");
+            eprintln!("omh agent explain --file requires --agent LABEL");
             return Ok(2);
         };
         let content = std::fs::read_to_string(path)?;
@@ -706,8 +706,8 @@ fn agent_explain(args: &[String]) -> std::io::Result<i32> {
         ))
     } else {
         let Some(target) = target else {
-            eprintln!("usage: hako agent explain <target> [--json]");
-            eprintln!("usage: hako agent explain --file PATH --agent LABEL [--json]");
+            eprintln!("usage: omh agent explain <target> [--json]");
+            eprintln!("usage: omh agent explain --file PATH --agent LABEL [--json]");
             return Ok(2);
         };
         if agent.is_some() {
@@ -903,7 +903,7 @@ fn run_session_command(args: &[String]) -> std::io::Result<i32> {
 
 fn server_stop(args: &[String]) -> std::io::Result<i32> {
     if !args.is_empty() {
-        eprintln!("usage: hako server stop");
+        eprintln!("usage: omh server stop");
         return Ok(2);
     }
 
@@ -918,7 +918,7 @@ fn server_stop(args: &[String]) -> std::io::Result<i32> {
 
 fn server_reload_config(args: &[String]) -> std::io::Result<i32> {
     if !args.is_empty() {
-        eprintln!("usage: hako server reload-config");
+        eprintln!("usage: omh server reload-config");
         return Ok(2);
     }
 
@@ -930,7 +930,7 @@ fn server_reload_config(args: &[String]) -> std::io::Result<i32> {
 
 fn server_agent_manifests(args: &[String]) -> std::io::Result<i32> {
     if !args.is_empty() {
-        eprintln!("usage: hako server agent-manifests");
+        eprintln!("usage: omh server agent-manifests");
         return Ok(2);
     }
 
@@ -942,7 +942,7 @@ fn server_agent_manifests(args: &[String]) -> std::io::Result<i32> {
 
 fn server_reload_agent_manifests(args: &[String]) -> std::io::Result<i32> {
     if !args.is_empty() {
-        eprintln!("usage: hako server reload-agent-manifests");
+        eprintln!("usage: omh server reload-agent-manifests");
         return Ok(2);
     }
 
@@ -955,7 +955,7 @@ fn server_reload_agent_manifests(args: &[String]) -> std::io::Result<i32> {
 fn server_live_handoff(args: &[String]) -> std::io::Result<i32> {
     let Some(params) = parse_live_handoff_params(args) else {
         eprintln!(
-            "usage: hako server live-handoff [--import-exe <path>] [--expected-protocol <n>] [--expected-version <version>]"
+            "usage: omh server live-handoff [--import-exe <path>] [--expected-protocol <n>] [--expected-version <version>]"
         );
         return Ok(2);
     };
@@ -976,7 +976,7 @@ fn server_live_handoff(args: &[String]) -> std::io::Result<i32> {
 
     eprintln!(
         "live handoff complete; server log: {}",
-        crate::session::data_dir().join("hako-server.log").display()
+        crate::session::data_dir().join("omh-server.log").display()
     );
     Ok(0)
 }
@@ -1011,15 +1011,15 @@ fn session_attach_help(args: &[String]) -> std::io::Result<i32> {
         args.first().map(String::as_str),
         Some("help" | "--help" | "-h")
     ) {
-        eprintln!("usage: hako session attach <name>");
+        eprintln!("usage: omh session attach <name>");
         return Ok(0);
     }
-    eprintln!("usage: hako session attach <name>");
+    eprintln!("usage: omh session attach <name>");
     Ok(2)
 }
 
 fn session_list(args: &[String]) -> std::io::Result<i32> {
-    let json = match parse_session_json_only(args, "usage: hako session list [--json]") {
+    let json = match parse_session_json_only(args, "usage: omh session list [--json]") {
         Ok(json) => json,
         Err(code) => return Ok(code),
     };
@@ -1037,7 +1037,7 @@ fn session_list(args: &[String]) -> std::io::Result<i32> {
 
 fn session_stop(args: &[String]) -> std::io::Result<i32> {
     let (name, json) =
-        match parse_session_name_and_json(args, "usage: hako session stop <name> [--json]") {
+        match parse_session_name_and_json(args, "usage: omh session stop <name> [--json]") {
             Ok(parsed) => parsed,
             Err(code) => return Ok(code),
         };
@@ -1070,7 +1070,7 @@ fn session_stop(args: &[String]) -> std::io::Result<i32> {
 
 fn session_delete(args: &[String]) -> std::io::Result<i32> {
     let (name, json) =
-        match parse_session_name_and_json(args, "usage: hako session delete <name> [--json]") {
+        match parse_session_name_and_json(args, "usage: omh session delete <name> [--json]") {
             Ok(parsed) => parsed,
             Err(code) => return Ok(code),
         };
@@ -1096,7 +1096,7 @@ fn session_delete(args: &[String]) -> std::io::Result<i32> {
 
 fn group_list(args: &[String]) -> std::io::Result<i32> {
     if !args.is_empty() {
-        eprintln!("usage: hako group list");
+        eprintln!("usage: omh group list");
         return Ok(2);
     }
 
@@ -1108,7 +1108,7 @@ fn group_list(args: &[String]) -> std::io::Result<i32> {
 
 fn group_create(args: &[String]) -> std::io::Result<i32> {
     if args.is_empty() {
-        eprintln!("usage: hako group create <name>");
+        eprintln!("usage: omh group create <name>");
         return Ok(2);
     }
 
@@ -1122,11 +1122,11 @@ fn group_create(args: &[String]) -> std::io::Result<i32> {
 
 fn group_focus(args: &[String]) -> std::io::Result<i32> {
     let Some(raw_group_id) = args.first() else {
-        eprintln!("usage: hako group focus <group_id>");
+        eprintln!("usage: omh group focus <group_id>");
         return Ok(2);
     };
     if args.len() != 1 {
-        eprintln!("usage: hako group focus <group_id>");
+        eprintln!("usage: omh group focus <group_id>");
         return Ok(2);
     }
 
@@ -1140,7 +1140,7 @@ fn group_focus(args: &[String]) -> std::io::Result<i32> {
 
 fn group_rename(args: &[String]) -> std::io::Result<i32> {
     if args.len() < 2 {
-        eprintln!("usage: hako group rename <group_id> <name>");
+        eprintln!("usage: omh group rename <group_id> <name>");
         return Ok(2);
     }
 
@@ -1155,11 +1155,11 @@ fn group_rename(args: &[String]) -> std::io::Result<i32> {
 
 fn group_delete(args: &[String]) -> std::io::Result<i32> {
     let Some(raw_group_id) = args.first() else {
-        eprintln!("usage: hako group delete <group_id>");
+        eprintln!("usage: omh group delete <group_id>");
         return Ok(2);
     };
     if args.len() != 1 {
-        eprintln!("usage: hako group delete <group_id>");
+        eprintln!("usage: omh group delete <group_id>");
         return Ok(2);
     }
 
@@ -1173,12 +1173,12 @@ fn group_delete(args: &[String]) -> std::io::Result<i32> {
 
 fn agent_start(args: &[String]) -> std::io::Result<i32> {
     let Some(name) = args.first() else {
-        eprintln!("usage: hako agent start <name> [--cwd PATH] [--workspace ID] [--tab ID] [--split right|down] [--focus|--no-focus] -- <argv...>");
+        eprintln!("usage: omh agent start <name> [--cwd PATH] [--workspace ID] [--tab ID] [--split right|down] [--focus|--no-focus] -- <argv...>");
         return Ok(2);
     };
 
     let Some(separator) = args.iter().position(|arg| arg == "--") else {
-        eprintln!("usage: hako agent start <name> [--cwd PATH] [--workspace ID] [--tab ID] [--split right|down] [--focus|--no-focus] -- <argv...>");
+        eprintln!("usage: omh agent start <name> [--cwd PATH] [--workspace ID] [--tab ID] [--split right|down] [--focus|--no-focus] -- <argv...>");
         return Ok(2);
     };
     if separator == args.len() - 1 {
@@ -1259,7 +1259,7 @@ fn agent_start(args: &[String]) -> std::io::Result<i32> {
 
 fn agent_list(args: &[String]) -> std::io::Result<i32> {
     if !args.is_empty() {
-        eprintln!("usage: hako agent list");
+        eprintln!("usage: omh agent list");
         return Ok(2);
     }
 
@@ -1271,11 +1271,11 @@ fn agent_list(args: &[String]) -> std::io::Result<i32> {
 
 fn agent_get(args: &[String]) -> std::io::Result<i32> {
     let Some(target) = args.first() else {
-        eprintln!("usage: hako agent get <target>");
+        eprintln!("usage: omh agent get <target>");
         return Ok(2);
     };
     if args.len() != 1 {
-        eprintln!("usage: hako agent get <target>");
+        eprintln!("usage: omh agent get <target>");
         return Ok(2);
     }
 
@@ -1289,11 +1289,11 @@ fn agent_get(args: &[String]) -> std::io::Result<i32> {
 
 fn agent_focus(args: &[String]) -> std::io::Result<i32> {
     let Some(target) = args.first() else {
-        eprintln!("usage: hako agent focus <target>");
+        eprintln!("usage: omh agent focus <target>");
         return Ok(2);
     };
     if args.len() != 1 {
-        eprintln!("usage: hako agent focus <target>");
+        eprintln!("usage: omh agent focus <target>");
         return Ok(2);
     }
 
@@ -1307,7 +1307,7 @@ fn agent_focus(args: &[String]) -> std::io::Result<i32> {
 
 fn agent_attach(args: &[String]) -> std::io::Result<i32> {
     let (target, takeover) =
-        match parse_attach_target(args, "usage: hako agent attach <target> [--takeover]") {
+        match parse_attach_target(args, "usage: omh agent attach <target> [--takeover]") {
             Ok(parsed) => parsed,
             Err(code) => return Ok(code),
         };
@@ -1327,7 +1327,7 @@ fn agent_attach(args: &[String]) -> std::io::Result<i32> {
 
 fn agent_wait(args: &[String]) -> std::io::Result<i32> {
     let Some(target) = args.first() else {
-        eprintln!("usage: hako agent wait <target> --status <idle|working|blocked|unknown> [--timeout MS]");
+        eprintln!("usage: omh agent wait <target> --status <idle|working|blocked|unknown> [--timeout MS]");
         return Ok(2);
     };
 
@@ -1354,7 +1354,7 @@ fn agent_wait(args: &[String]) -> std::io::Result<i32> {
                 index += 2;
             }
             "help" | "--help" | "-h" => {
-                eprintln!("usage: hako agent wait <target> --status <idle|working|blocked|unknown> [--timeout MS]");
+                eprintln!("usage: omh agent wait <target> --status <idle|working|blocked|unknown> [--timeout MS]");
                 return Ok(0);
             }
             other => {
@@ -1428,7 +1428,7 @@ fn resolve_agent_target(target: &str, request_id: &str) -> std::io::Result<serde
 fn terminal_attach(args: &[String]) -> std::io::Result<i32> {
     let (terminal_id, takeover) = match parse_attach_target(
         args,
-        "usage: hako terminal attach <terminal_id> [--takeover]",
+        "usage: omh terminal attach <terminal_id> [--takeover]",
     ) {
         Ok(parsed) => parsed,
         Err(code) => return Ok(code),
@@ -1441,7 +1441,7 @@ fn terminal_title(args: &[String]) -> std::io::Result<i32> {
     match args.first().map(|arg| arg.as_str()) {
         Some("set") => {
             if args.len() != 2 {
-                eprintln!("usage: hako terminal title set <title>");
+                eprintln!("usage: omh terminal title set <title>");
                 return Ok(2);
             }
             print_response(&send_request(&Request {
@@ -1453,7 +1453,7 @@ fn terminal_title(args: &[String]) -> std::io::Result<i32> {
         }
         Some("clear") => {
             if args.len() != 1 {
-                eprintln!("usage: hako terminal title clear");
+                eprintln!("usage: omh terminal title clear");
                 return Ok(2);
             }
             print_response(&send_request(&Request {
@@ -1462,13 +1462,13 @@ fn terminal_title(args: &[String]) -> std::io::Result<i32> {
             })?)
         }
         Some("help" | "--help" | "-h") => {
-            eprintln!("usage: hako terminal title set <title>");
-            eprintln!("       hako terminal title clear");
+            eprintln!("usage: omh terminal title set <title>");
+            eprintln!("       omh terminal title clear");
             Ok(0)
         }
         _ => {
-            eprintln!("usage: hako terminal title set <title>");
-            eprintln!("       hako terminal title clear");
+            eprintln!("usage: omh terminal title set <title>");
+            eprintln!("       omh terminal title clear");
             Ok(2)
         }
     }
@@ -1498,11 +1498,11 @@ pub(super) fn parse_attach_target(args: &[String], usage: &str) -> Result<(Strin
 
 fn agent_rename(args: &[String]) -> std::io::Result<i32> {
     let Some(target) = args.first() else {
-        eprintln!("usage: hako agent rename <target> <name>|--clear");
+        eprintln!("usage: omh agent rename <target> <name>|--clear");
         return Ok(2);
     };
     if args.len() < 2 {
-        eprintln!("usage: hako agent rename <target> <name>|--clear");
+        eprintln!("usage: omh agent rename <target> <name>|--clear");
         return Ok(2);
     }
     let name = if args.len() == 2 && args[1] == "--clear" {
@@ -1522,7 +1522,7 @@ fn agent_rename(args: &[String]) -> std::io::Result<i32> {
 
 fn agent_send(args: &[String]) -> std::io::Result<i32> {
     if args.len() < 2 {
-        eprintln!("usage: hako agent send <target> <text>");
+        eprintln!("usage: omh agent send <target> <text>");
         return Ok(2);
     }
 
@@ -1537,7 +1537,7 @@ fn agent_send(args: &[String]) -> std::io::Result<i32> {
 
 fn agent_read(args: &[String]) -> std::io::Result<i32> {
     let Some(target) = args.first() else {
-        eprintln!("usage: hako agent read <target> [--source visible|recent|recent-unwrapped] [--lines N] [--format text|ansi] [--ansi]");
+        eprintln!("usage: omh agent read <target> [--source visible|recent|recent-unwrapped] [--lines N] [--format text|ansi] [--ansi]");
         return Ok(2);
     };
 
@@ -1618,7 +1618,7 @@ fn integration_status(args: &[String]) -> std::io::Result<i32> {
         [] => false,
         [flag] if flag == "--outdated-only" => true,
         _ => {
-            eprintln!("usage: hako integration status [--outdated-only]");
+            eprintln!("usage: omh integration status [--outdated-only]");
             return Ok(2);
         }
     };
@@ -1702,13 +1702,13 @@ fn parse_integration_target(
 ) -> std::io::Result<Option<IntegrationTarget>> {
     let Some(target) = args.first().map(|arg| arg.as_str()) else {
         eprintln!(
-            "usage: hako integration {action} <pi|omp|claude|codex|devin|opencode|hermes|grok>"
+            "usage: omh integration {action} <pi|omp|claude|codex|devin|opencode|hermes|grok>"
         );
         return Ok(None);
     };
     if args.len() != 1 {
         eprintln!(
-            "usage: hako integration {action} <pi|omp|claude|codex|devin|opencode|hermes|grok>"
+            "usage: omh integration {action} <pi|omp|claude|codex|devin|opencode|hermes|grok>"
         );
         return Ok(None);
     }
@@ -1737,7 +1737,7 @@ fn parse_integration_target(
 }
 fn wait_output(args: &[String]) -> std::io::Result<i32> {
     let Some(raw_pane_id) = args.first() else {
-        eprintln!("usage: hako wait output <pane_id> --match <text> [--source visible|recent|recent-unwrapped] [--lines N] [--timeout MS] [--regex]");
+        eprintln!("usage: omh wait output <pane_id> --match <text> [--source visible|recent|recent-unwrapped] [--lines N] [--timeout MS] [--regex]");
         return Ok(2);
     };
 
@@ -1833,7 +1833,7 @@ fn wait_output(args: &[String]) -> std::io::Result<i32> {
 
 fn wait_agent_status(args: &[String]) -> std::io::Result<i32> {
     let Some(raw_pane_id) = args.first() else {
-        eprintln!("usage: hako wait agent-status <pane_id> --status <idle|working|blocked|done|unknown> [--timeout MS]");
+        eprintln!("usage: omh wait agent-status <pane_id> --status <idle|working|blocked|done|unknown> [--timeout MS]");
         return Ok(2);
     };
 
@@ -2269,93 +2269,93 @@ fn print_session_error(code: &str, message: &str) {
 }
 
 fn print_server_help() {
-    eprintln!("hako server commands:");
-    eprintln!("  hako server                run as headless server");
-    eprintln!("  hako server stop           stop the running server via the API socket");
-    eprintln!("  hako server live-handoff   hand off live panes to a new local server");
-    eprintln!("  hako server reload-config  reload config.toml in the running server");
-    eprintln!("  hako server agent-manifests         list active agent detection manifests");
-    eprintln!("  hako server reload-agent-manifests  reload local agent detection manifests");
+    eprintln!("omh server commands:");
+    eprintln!("  omh server                run as headless server");
+    eprintln!("  omh server stop           stop the running server via the API socket");
+    eprintln!("  omh server live-handoff   hand off live panes to a new local server");
+    eprintln!("  omh server reload-config  reload config.toml in the running server");
+    eprintln!("  omh server agent-manifests         list active agent detection manifests");
+    eprintln!("  omh server reload-agent-manifests  reload local agent detection manifests");
 }
 
 fn print_status_help() {
-    eprintln!("hako status commands:");
-    eprintln!("  hako status [--json]                 show local client and running server status");
-    eprintln!("  hako status server [--json]          show running server status");
-    eprintln!("  hako status client [--json]          show local client binary status");
+    eprintln!("omh status commands:");
+    eprintln!("  omh status [--json]                 show local client and running server status");
+    eprintln!("  omh status server [--json]          show running server status");
+    eprintln!("  omh status client [--json]          show local client binary status");
 }
 fn print_config_help() {
-    eprintln!("hako config commands:");
-    eprintln!("  hako config reset-keys  back up config.toml and remove custom keybindings");
-    eprintln!("  hako config check  validate config.toml and print diagnostics");
+    eprintln!("omh config commands:");
+    eprintln!("  omh config reset-keys  back up config.toml and remove custom keybindings");
+    eprintln!("  omh config check  validate config.toml and print diagnostics");
 }
 
 fn print_group_help() {
-    eprintln!("hako group commands:");
-    eprintln!("  hako group list");
-    eprintln!("  hako group create <name>");
-    eprintln!("  hako group focus <group_id>");
-    eprintln!("  hako group switch <group_id>");
-    eprintln!("  hako group rename <group_id> <name>");
-    eprintln!("  hako group delete <group_id>");
+    eprintln!("omh group commands:");
+    eprintln!("  omh group list");
+    eprintln!("  omh group create <name>");
+    eprintln!("  omh group focus <group_id>");
+    eprintln!("  omh group switch <group_id>");
+    eprintln!("  omh group rename <group_id> <name>");
+    eprintln!("  omh group delete <group_id>");
 }
 
 fn print_agent_help() {
-    eprintln!("hako agent commands:");
-    eprintln!("  hako agent list");
-    eprintln!("  hako agent get <target>");
-    eprintln!("  hako agent read <target> [--source visible|recent|recent-unwrapped] [--lines N] [--format text|ansi] [--ansi]");
-    eprintln!("  hako agent send <target> <text>");
-    eprintln!("  hako agent rename <target> <name>|--clear");
-    eprintln!("  hako agent focus <target>");
-    eprintln!("  hako agent wait <target> --status <idle|working|blocked|unknown> [--timeout MS]");
-    eprintln!("  hako agent attach <target> [--takeover]");
-    eprintln!("  hako agent start <name> [--cwd PATH] [--workspace ID] [--tab ID] [--split right|down] [--focus|--no-focus] -- <argv...>");
-    eprintln!("  hako agent explain <target> [--json]");
-    eprintln!("  hako agent explain --file PATH --agent LABEL [--json]");
+    eprintln!("omh agent commands:");
+    eprintln!("  omh agent list");
+    eprintln!("  omh agent get <target>");
+    eprintln!("  omh agent read <target> [--source visible|recent|recent-unwrapped] [--lines N] [--format text|ansi] [--ansi]");
+    eprintln!("  omh agent send <target> <text>");
+    eprintln!("  omh agent rename <target> <name>|--clear");
+    eprintln!("  omh agent focus <target>");
+    eprintln!("  omh agent wait <target> --status <idle|working|blocked|unknown> [--timeout MS]");
+    eprintln!("  omh agent attach <target> [--takeover]");
+    eprintln!("  omh agent start <name> [--cwd PATH] [--workspace ID] [--tab ID] [--split right|down] [--focus|--no-focus] -- <argv...>");
+    eprintln!("  omh agent explain <target> [--json]");
+    eprintln!("  omh agent explain --file PATH --agent LABEL [--json]");
     eprintln!("  targets accept terminal ids, unique agent names, detected/reported agent labels, and legacy pane ids");
     eprintln!(
         "  agent send writes literal text; use pane run when you want command text plus Enter"
     );
 }
 fn print_terminal_help() {
-    eprintln!("hako terminal commands:");
-    eprintln!("  hako terminal attach <terminal_id> [--takeover]");
-    eprintln!("  hako terminal title set <title>");
-    eprintln!("  hako terminal title clear");
+    eprintln!("omh terminal commands:");
+    eprintln!("  omh terminal attach <terminal_id> [--takeover]");
+    eprintln!("  omh terminal title set <title>");
+    eprintln!("  omh terminal title clear");
     eprintln!("  detach from direct attach with ctrl+b q; send literal ctrl+b with ctrl+b ctrl+b");
 }
 
 fn print_wait_help() {
-    eprintln!("hako wait commands:");
-    eprintln!("  hako wait output <pane_id> --match <text> [--source visible|recent|recent-unwrapped] [--lines N] [--timeout MS] [--regex] [--raw]");
+    eprintln!("omh wait commands:");
+    eprintln!("  omh wait output <pane_id> --match <text> [--source visible|recent|recent-unwrapped] [--lines N] [--timeout MS] [--regex] [--raw]");
     eprintln!(
-        "  hako wait agent-status <pane_id> --status <idle|working|blocked|done|unknown> [--timeout MS]"
+        "  omh wait agent-status <pane_id> --status <idle|working|blocked|done|unknown> [--timeout MS]"
     );
 }
 
 fn print_integration_help() {
-    eprintln!("hako integration commands:");
-    eprintln!("  hako integration install pi");
-    eprintln!("  hako integration install omp");
-    eprintln!("  hako integration install claude");
-    eprintln!("  hako integration install codex");
-    eprintln!("  hako integration install opencode");
-    eprintln!("  hako integration install hermes");
-    eprintln!("  hako integration uninstall pi");
-    eprintln!("  hako integration uninstall omp");
-    eprintln!("  hako integration uninstall claude");
-    eprintln!("  hako integration uninstall codex");
-    eprintln!("  hako integration uninstall opencode");
-    eprintln!("  hako integration uninstall hermes");
-    eprintln!("  hako integration status [--outdated-only]");
+    eprintln!("omh integration commands:");
+    eprintln!("  omh integration install pi");
+    eprintln!("  omh integration install omp");
+    eprintln!("  omh integration install claude");
+    eprintln!("  omh integration install codex");
+    eprintln!("  omh integration install opencode");
+    eprintln!("  omh integration install hermes");
+    eprintln!("  omh integration uninstall pi");
+    eprintln!("  omh integration uninstall omp");
+    eprintln!("  omh integration uninstall claude");
+    eprintln!("  omh integration uninstall codex");
+    eprintln!("  omh integration uninstall opencode");
+    eprintln!("  omh integration uninstall hermes");
+    eprintln!("  omh integration status [--outdated-only]");
 }
 fn print_session_help() {
-    eprintln!("hako session commands:");
-    eprintln!("  hako session list [--json]");
-    eprintln!("  hako session attach <name>");
-    eprintln!("  hako session stop <name> [--json]");
-    eprintln!("  hako session delete <name> [--json]");
+    eprintln!("omh session commands:");
+    eprintln!("  omh session list [--json]");
+    eprintln!("  omh session attach <name>");
+    eprintln!("  omh session stop <name> [--json]");
+    eprintln!("  omh session delete <name> [--json]");
     eprintln!("  use 'default' as <name> to target the default session for stop");
 }
 
@@ -2369,15 +2369,15 @@ mod tests {
     #[test]
     fn parse_env_assignment_accepts_empty_values() {
         assert_eq!(
-            super::parse_env_assignment("HAKO_ROLE=").unwrap(),
-            ("HAKO_ROLE".to_string(), String::new())
+            super::parse_env_assignment("OMH_ROLE=").unwrap(),
+            ("OMH_ROLE".to_string(), String::new())
         );
     }
 
     #[test]
     fn parse_env_assignment_requires_key_value_separator() {
         assert_eq!(
-            super::parse_env_assignment("HAKO_ROLE").unwrap_err(),
+            super::parse_env_assignment("OMH_ROLE").unwrap_err(),
             "env must use KEY=VALUE"
         );
     }

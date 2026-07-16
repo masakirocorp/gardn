@@ -566,7 +566,7 @@ mod tests {
             label: "omp",
             command: "omp",
             available: true,
-            path: std::path::PathBuf::from("/tmp/hako-test-omp"),
+            path: std::path::PathBuf::from("/tmp/omh-test-omp"),
             state: crate::integration::IntegrationStatusKind::Current,
         }];
         app.groups[0]

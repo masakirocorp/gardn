@@ -868,7 +868,7 @@ mod tests {
                 label: "codex",
                 command: "codex",
                 available: true,
-                path: std::path::PathBuf::from("/tmp/hako-test-codex"),
+                path: std::path::PathBuf::from("/tmp/omh-test-codex"),
                 state: crate::integration::IntegrationStatusKind::Current,
             },
             crate::integration::IntegrationRecommendation {
@@ -876,7 +876,7 @@ mod tests {
                 label: "claude",
                 command: "claude",
                 available: true,
-                path: std::path::PathBuf::from("/tmp/hako-test-claude"),
+                path: std::path::PathBuf::from("/tmp/omh-test-claude"),
                 state: crate::integration::IntegrationStatusKind::Current,
             },
         ];

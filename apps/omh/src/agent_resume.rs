@@ -108,15 +108,15 @@ pub fn launch_env_from_report(
     }
 
     let allowed = match (source, agent) {
-        ("hako:claude", "claude") => &["CLAUDE_CONFIG_DIR"][..],
-        ("hako:codex", "codex") => &["CODEX_HOME"][..],
-        ("hako:copilot", "copilot") => &["COPILOT_HOME"][..],
-        ("hako:devin", "devin") => &["DEVIN_CONFIG_DIR"][..],
-        ("hako:kimi", "kimi") => &["KIMI_CODE_HOME"][..],
-        ("hako:cursor", "cursor") => &["CURSOR_CONFIG_DIR"][..],
-        ("hako:pi", "pi") | ("hako:omp", "omp") => &["PI_CONFIG_DIR", "PI_CODING_AGENT_DIR"][..],
-        ("hako:hermes", "hermes") => &["HERMES_HOME"][..],
-        ("hako:opencode", "opencode") => &["OPENCODE_CONFIG", "XDG_DATA_HOME"][..],
+        ("omh:claude", "claude") => &["CLAUDE_CONFIG_DIR"][..],
+        ("omh:codex", "codex") => &["CODEX_HOME"][..],
+        ("omh:copilot", "copilot") => &["COPILOT_HOME"][..],
+        ("omh:devin", "devin") => &["DEVIN_CONFIG_DIR"][..],
+        ("omh:kimi", "kimi") => &["KIMI_CODE_HOME"][..],
+        ("omh:cursor", "cursor") => &["CURSOR_CONFIG_DIR"][..],
+        ("omh:pi", "pi") | ("omh:omp", "omp") => &["PI_CONFIG_DIR", "PI_CODING_AGENT_DIR"][..],
+        ("omh:hermes", "hermes") => &["HERMES_HOME"][..],
+        ("omh:opencode", "opencode") => &["OPENCODE_CONFIG", "XDG_DATA_HOME"][..],
         _ => &[],
     };
 
@@ -158,49 +158,49 @@ pub fn plan(source: &str, agent: &str, session_ref: &AgentSessionRef) -> Option<
     }
 
     let argv = match (source, agent, session_ref.kind) {
-        ("hako:claude", "claude", AgentSessionRefKind::Id) => {
+        ("omh:claude", "claude", AgentSessionRefKind::Id) => {
             vec![
                 "claude".into(),
                 "--resume".into(),
                 session_ref.value.clone(),
             ]
         }
-        ("hako:codex", "codex", AgentSessionRefKind::Id) => {
+        ("omh:codex", "codex", AgentSessionRefKind::Id) => {
             vec!["codex".into(), "resume".into(), session_ref.value.clone()]
         }
-        ("hako:copilot", "copilot", AgentSessionRefKind::Id) => {
+        ("omh:copilot", "copilot", AgentSessionRefKind::Id) => {
             vec!["copilot".into(), format!("--resume={}", session_ref.value)]
         }
-        ("hako:devin", "devin", AgentSessionRefKind::Id) => {
+        ("omh:devin", "devin", AgentSessionRefKind::Id) => {
             vec!["devin".into(), "--resume".into(), session_ref.value.clone()]
         }
-        ("hako:droid", "droid", AgentSessionRefKind::Id) => {
+        ("omh:droid", "droid", AgentSessionRefKind::Id) => {
             vec!["droid".into(), "--resume".into(), session_ref.value.clone()]
         }
-        ("hako:kimi", "kimi", AgentSessionRefKind::Id) => {
+        ("omh:kimi", "kimi", AgentSessionRefKind::Id) => {
             vec!["kimi".into(), "--session".into(), session_ref.value.clone()]
         }
-        ("hako:pi", "pi", AgentSessionRefKind::Path | AgentSessionRefKind::Id) => {
+        ("omh:pi", "pi", AgentSessionRefKind::Path | AgentSessionRefKind::Id) => {
             path_agent_resume_argv("pi", "--session", session_ref)
         }
-        ("hako:omp", "omp", AgentSessionRefKind::Path | AgentSessionRefKind::Id) => {
+        ("omh:omp", "omp", AgentSessionRefKind::Path | AgentSessionRefKind::Id) => {
             path_agent_resume_argv("omp", "--resume", session_ref)
         }
-        ("hako:hermes", "hermes", AgentSessionRefKind::Id) => {
+        ("omh:hermes", "hermes", AgentSessionRefKind::Id) => {
             vec![
                 "hermes".into(),
                 "--resume".into(),
                 session_ref.value.clone(),
             ]
         }
-        ("hako:opencode", "opencode", AgentSessionRefKind::Id) => {
+        ("omh:opencode", "opencode", AgentSessionRefKind::Id) => {
             vec![
                 "opencode".into(),
                 "--session".into(),
                 session_ref.value.clone(),
             ]
         }
-        ("hako:cursor", "cursor", AgentSessionRefKind::Id) => {
+        ("omh:cursor", "cursor", AgentSessionRefKind::Id) => {
             vec![
                 "cursor-agent".into(),
                 "--resume".into(),
@@ -405,17 +405,17 @@ fn dedupe_key_with_env(base: &str, env: &[(String, String)]) -> String {
 fn is_official_agent_source(source: &str, agent: &str) -> bool {
     matches!(
         (source, agent),
-        ("hako:claude", "claude")
-            | ("hako:codex", "codex")
-            | ("hako:copilot", "copilot")
-            | ("hako:devin", "devin")
-            | ("hako:droid", "droid")
-            | ("hako:kimi", "kimi")
-            | ("hako:pi", "pi")
-            | ("hako:omp", "omp")
-            | ("hako:hermes", "hermes")
-            | ("hako:opencode", "opencode")
-            | ("hako:cursor", "cursor")
+        ("omh:claude", "claude")
+            | ("omh:codex", "codex")
+            | ("omh:copilot", "copilot")
+            | ("omh:devin", "devin")
+            | ("omh:droid", "droid")
+            | ("omh:kimi", "kimi")
+            | ("omh:pi", "pi")
+            | ("omh:omp", "omp")
+            | ("omh:hermes", "hermes")
+            | ("omh:opencode", "opencode")
+            | ("omh:cursor", "cursor")
     )
 }
 
@@ -472,7 +472,7 @@ mod tests {
     fn planner_allows_supported_agents() {
         assert_eq!(
             plan(
-                "hako:claude",
+                "omh:claude",
                 "claude",
                 &AgentSessionRef::id("claude-session").unwrap()
             )
@@ -482,7 +482,7 @@ mod tests {
         );
         assert_eq!(
             plan(
-                "hako:codex",
+                "omh:codex",
                 "codex",
                 &AgentSessionRef::id("codex-session").unwrap()
             )
@@ -492,7 +492,7 @@ mod tests {
         );
         assert_eq!(
             plan(
-                "hako:copilot",
+                "omh:copilot",
                 "copilot",
                 &AgentSessionRef::id("copilot-session").unwrap()
             )
@@ -502,7 +502,7 @@ mod tests {
         );
         assert_eq!(
             plan(
-                "hako:devin",
+                "omh:devin",
                 "devin",
                 &AgentSessionRef::id("devin-session").unwrap()
             )
@@ -512,7 +512,7 @@ mod tests {
         );
         assert_eq!(
             plan(
-                "hako:kimi",
+                "omh:kimi",
                 "kimi",
                 &AgentSessionRef::id("kimi-session").unwrap()
             )
@@ -522,7 +522,7 @@ mod tests {
         );
         assert_eq!(
             plan(
-                "hako:droid",
+                "omh:droid",
                 "droid",
                 &AgentSessionRef::id("droid-session").unwrap()
             )
@@ -532,7 +532,7 @@ mod tests {
         );
         assert_eq!(
             plan(
-                "hako:pi",
+                "omh:pi",
                 "pi",
                 &AgentSessionRef::path("/tmp/pi-session.jsonl").unwrap()
             )
@@ -542,7 +542,7 @@ mod tests {
         );
         assert_eq!(
             plan(
-                "hako:omp",
+                "omh:omp",
                 "omp",
                 &AgentSessionRef::path("/tmp/omp-session.jsonl").unwrap()
             )
@@ -552,7 +552,7 @@ mod tests {
         );
         assert_eq!(
             plan(
-                "hako:hermes",
+                "omh:hermes",
                 "hermes",
                 &AgentSessionRef::id("hermes-session").unwrap()
             )
@@ -562,7 +562,7 @@ mod tests {
         );
         assert_eq!(
             plan(
-                "hako:opencode",
+                "omh:opencode",
                 "opencode",
                 &AgentSessionRef::id("opencode-session").unwrap()
             )
@@ -572,7 +572,7 @@ mod tests {
         );
         assert_eq!(
             plan(
-                "hako:cursor",
+                "omh:cursor",
                 "cursor",
                 &AgentSessionRef::id("cursor-session").unwrap()
             )
@@ -586,7 +586,7 @@ mod tests {
     fn omp_report_uses_session_id_when_reported_path_is_not_a_file() {
         let missing_path = std::env::temp_dir()
             .join(format!(
-                "hako-missing-omp-session-{}-{}.jsonl",
+                "omh-missing-omp-session-{}-{}.jsonl",
                 std::process::id(),
                 std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
@@ -597,7 +597,7 @@ mod tests {
             .to_string();
 
         let session_ref = session_ref_from_report(
-            "hako:omp",
+            "omh:omp",
             "omp",
             Some("stable-omp-session-id".into()),
             Some(missing_path),
@@ -621,7 +621,7 @@ mod tests {
             .to_string();
 
         let session_ref = session_ref_from_report(
-            "hako:omp",
+            "omh:omp",
             "omp",
             Some("stable-omp-session-id".into()),
             Some(existing_path.clone()),
@@ -645,37 +645,37 @@ mod tests {
             .to_string();
         let id_cases = [
             (
-                "hako:claude",
+                "omh:claude",
                 "claude",
                 "claude-session",
                 vec!["--resume", "claude-session"],
             ),
             (
-                "hako:codex",
+                "omh:codex",
                 "codex",
                 "codex-session",
                 vec!["resume", "codex-session"],
             ),
             (
-                "hako:copilot",
+                "omh:copilot",
                 "copilot",
                 "copilot-session",
                 vec!["--resume=copilot-session"],
             ),
             (
-                "hako:devin",
+                "omh:devin",
                 "devin",
                 "devin-session",
                 vec!["--resume", "devin-session"],
             ),
             (
-                "hako:hermes",
+                "omh:hermes",
                 "hermes",
                 "hermes-session",
                 vec!["--resume", "hermes-session"],
             ),
             (
-                "hako:opencode",
+                "omh:opencode",
                 "opencode",
                 "opencode-session",
                 vec!["--session", "opencode-session"],
@@ -702,7 +702,7 @@ mod tests {
         let pi_ref = AgentSessionRef::path("/tmp/pi-session.jsonl").unwrap();
         assert_eq!(
             plan_with_launch_argv(
-                "hako:pi",
+                "omh:pi",
                 "pi",
                 &pi_ref,
                 std::slice::from_ref(&launch_command).into()
@@ -719,7 +719,7 @@ mod tests {
         let omp_ref = AgentSessionRef::path("/tmp/omp-session.jsonl").unwrap();
         assert_eq!(
             plan_with_launch_argv(
-                "hako:omp",
+                "omh:omp",
                 "omp",
                 &omp_ref,
                 std::slice::from_ref(&launch_command).into()
@@ -738,12 +738,12 @@ mod tests {
     fn planner_uses_omp_launch_command_for_path_resume() {
         let home = std::env::var("HOME").expect("HOME should be set in tests");
         let session_path =
-            format!("{home}/.omp-mk/agent/sessions/-projects-masakiro-hako/session.jsonl");
-        let session_dir = format!("{home}/.omp-mk/agent/sessions/-projects-masakiro-hako");
+            format!("{home}/.omp-mk/agent/sessions/-projects-masakiro-omh/session.jsonl");
+        let session_dir = format!("{home}/.omp-mk/agent/sessions/-projects-masakiro-omh");
         let session_ref = AgentSessionRef::path(session_path.clone()).unwrap();
         let launch_argv = vec!["omp-mk".to_string(), "--ignored-launch-arg".to_string()];
 
-        let plan = plan_with_launch_argv("hako:omp", "omp", &session_ref, Some(&launch_argv))
+        let plan = plan_with_launch_argv("omh:omp", "omp", &session_ref, Some(&launch_argv))
             .expect("official OMP path ref should be resumable");
 
         assert_eq!(
@@ -762,14 +762,14 @@ mod tests {
     fn planner_preserves_shell_resolved_profile_command_and_launch_env() {
         let home = std::env::var("HOME").expect("HOME should be set in tests");
         let session_path =
-            format!("{home}/.omp-mk/agent/sessions/-projects-masakiro-hako/session.jsonl");
-        let session_dir = format!("{home}/.omp-mk/agent/sessions/-projects-masakiro-hako");
+            format!("{home}/.omp-mk/agent/sessions/-projects-masakiro-omh/session.jsonl");
+        let session_dir = format!("{home}/.omp-mk/agent/sessions/-projects-masakiro-omh");
         let agent_dir = format!("{home}/.omp-mk/agent");
         let omp_profile_ref = AgentSessionRef::path(session_path.clone()).unwrap();
         let shell_resolved_profile = "omp-profile-alias".to_string();
 
         let plan = plan_with_launch_context(
-            "hako:omp",
+            "omh:omp",
             "omp",
             &omp_profile_ref,
             Some(std::slice::from_ref(&shell_resolved_profile)),
@@ -860,14 +860,14 @@ mod tests {
     fn omp_child_session_restore_keeps_project_session_dir() {
         let home = std::env::var("HOME").expect("HOME should be set in tests");
         let session_path = format!(
-            "{home}/.omp-profile/agent/sessions/-projects-masakiro-hako/2026-06-03T17-52-01-399Z_019e8e9d-1b77-7000-875f-206076643bdf/RightSidebarHierarchyReview.jsonl"
+            "{home}/.omp-profile/agent/sessions/-projects-masakiro-omh/2026-06-03T17-52-01-399Z_019e8e9d-1b77-7000-875f-206076643bdf/RightSidebarHierarchyReview.jsonl"
         );
         let project_session_dir =
-            format!("{home}/.omp-profile/agent/sessions/-projects-masakiro-hako");
+            format!("{home}/.omp-profile/agent/sessions/-projects-masakiro-omh");
         let omp_ref = AgentSessionRef::path(session_path.clone()).unwrap();
 
         assert_eq!(
-            plan_with_launch_argv("hako:omp", "omp", &omp_ref, None)
+            plan_with_launch_argv("omh:omp", "omp", &omp_ref, None)
                 .unwrap()
                 .argv,
             vec![
@@ -886,13 +886,13 @@ mod tests {
         let env = vec![("CODEX_HOME".to_string(), "/profiles/codex".to_string())];
 
         let plan =
-            plan_with_launch_context("hako:codex", "codex", &session_ref, None, &env).unwrap();
+            plan_with_launch_context("omh:codex", "codex", &session_ref, None, &env).unwrap();
 
         assert_eq!(plan.argv, vec!["codex", "resume", "codex-session"]);
         assert_eq!(plan.env, env);
         let other_env = vec![("CODEX_HOME".to_string(), "/profiles/other".to_string())];
         let other_plan =
-            plan_with_launch_context("hako:codex", "codex", &session_ref, None, &other_env)
+            plan_with_launch_context("omh:codex", "codex", &session_ref, None, &other_env)
                 .unwrap();
         assert_ne!(plan.dedupe_key, other_plan.dedupe_key);
     }
@@ -906,7 +906,7 @@ mod tests {
         ]);
 
         assert_eq!(
-            launch_env_from_report("hako:codex", "codex", env),
+            launch_env_from_report("omh:codex", "codex", env),
             vec![("CODEX_HOME".to_string(), "/profiles/codex".to_string())]
         );
         let env = BTreeMap::from([
@@ -917,7 +917,7 @@ mod tests {
             ("PATH".to_string(), "/bin".to_string()),
         ]);
         assert_eq!(
-            launch_env_from_report("hako:devin", "devin", env),
+            launch_env_from_report("omh:devin", "devin", env),
             vec![(
                 "DEVIN_CONFIG_DIR".to_string(),
                 "/profiles/devin".to_string()
@@ -934,7 +934,7 @@ mod tests {
         )
         .is_none());
         assert!(plan(
-            "hako:claude",
+            "omh:claude",
             "claude",
             &AgentSessionRef::path("/tmp/claude-session").unwrap()
         )
@@ -944,7 +944,7 @@ mod tests {
     #[test]
     fn report_ref_prefers_pi_path_and_validates_values() {
         let session_ref = session_ref_from_report(
-            "hako:pi",
+            "omh:pi",
             "pi",
             Some("pi-id".into()),
             Some("/tmp/pi-session.jsonl".into()),
@@ -957,7 +957,7 @@ mod tests {
             .to_string_lossy()
             .to_string();
         let omp_session_ref = session_ref_from_report(
-            "hako:omp",
+            "omh:omp",
             "omp",
             Some("omp-id".into()),
             Some(omp_path.clone()),
@@ -966,13 +966,13 @@ mod tests {
         assert_eq!(omp_session_ref.kind, AgentSessionRefKind::Path);
         assert_eq!(omp_session_ref.value, omp_path);
 
-        assert!(session_ref_from_report("hako:pi", "pi", Some("bad\nid".into()), None).is_none());
+        assert!(session_ref_from_report("omh:pi", "pi", Some("bad\nid".into()), None).is_none());
         assert!(
-            session_ref_from_report("hako:pi", "pi", None, Some("relative.jsonl".into())).is_none()
+            session_ref_from_report("omh:pi", "pi", None, Some("relative.jsonl".into())).is_none()
         );
         assert!(session_ref_from_report("custom:pi", "pi", Some("pi-id".into()), None).is_none());
         assert!(session_ref_from_report(
-            "hako:claude",
+            "omh:claude",
             "claude",
             None,
             Some("/tmp/claude-session".into())
@@ -983,54 +983,54 @@ mod tests {
     #[test]
     fn ids_are_data_not_shell_text() {
         let id = "abc; rm -rf /";
-        let codex_plan = plan("hako:codex", "codex", &AgentSessionRef::id(id).unwrap()).unwrap();
+        let codex_plan = plan("omh:codex", "codex", &AgentSessionRef::id(id).unwrap()).unwrap();
         assert_eq!(codex_plan.argv, vec!["codex", "resume", id]);
-        let devin_plan = plan("hako:devin", "devin", &AgentSessionRef::id(id).unwrap()).unwrap();
+        let devin_plan = plan("omh:devin", "devin", &AgentSessionRef::id(id).unwrap()).unwrap();
         assert_eq!(devin_plan.argv, vec!["devin", "--resume", id]);
     }
 
     #[test]
     fn planner_rejects_path_refs_for_id_only_agents() {
         assert!(plan(
-            "hako:hermes",
+            "omh:hermes",
             "hermes",
             &AgentSessionRef::path("/tmp/hermes-session").unwrap()
         )
         .is_none());
         assert!(plan(
-            "hako:opencode",
+            "omh:opencode",
             "opencode",
             &AgentSessionRef::path("/tmp/opencode-session").unwrap()
         )
         .is_none());
         assert!(plan(
-            "hako:copilot",
+            "omh:copilot",
             "copilot",
             &AgentSessionRef::path("/tmp/copilot-session").unwrap()
         )
         .is_none());
         assert!(plan(
-            "hako:devin",
+            "omh:devin",
             "devin",
             &AgentSessionRef::path("/tmp/devin-session").unwrap()
         )
         .is_none());
         assert!(session_ref_from_snapshot(
-            "hako:hermes",
+            "omh:hermes",
             "hermes",
             AgentSessionRefKind::Id,
             "hermes-session"
         )
         .is_some());
         assert!(session_ref_from_snapshot(
-            "hako:opencode",
+            "omh:opencode",
             "opencode",
             AgentSessionRefKind::Id,
             "opencode-session"
         )
         .is_some());
         assert!(session_ref_from_snapshot(
-            "hako:devin",
+            "omh:devin",
             "devin",
             AgentSessionRefKind::Id,
             "devin-session"

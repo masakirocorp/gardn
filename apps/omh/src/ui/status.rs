@@ -8,7 +8,7 @@ use ratatui::{
 
 use crate::{
     app::state::{CopyFeedback, Palette, ToastKind, ToastNotification},
-    config::{ToastClipboardPosition, ToastHakoPosition},
+    config::{ToastClipboardPosition, ToastOmhPosition},
     detect::AgentState,
 };
 
@@ -50,21 +50,21 @@ pub(crate) fn copy_feedback_rect(
 pub(crate) fn toast_notification_rect(
     area: Rect,
     toast: &ToastNotification,
-    position: ToastHakoPosition,
+    position: ToastOmhPosition,
 ) -> Rect {
     let content_width = (toast.title.len().max(toast.context.len()) as u16) + 4;
     let width = content_width.saturating_add(2).min(area.width);
     let content_height = if toast.context.is_empty() { 1 } else { 2 };
     let height = (content_height + 2).min(area.height);
     let x = match position {
-        ToastHakoPosition::TopLeft | ToastHakoPosition::BottomLeft => area.x,
-        ToastHakoPosition::TopRight | ToastHakoPosition::BottomRight => {
+        ToastOmhPosition::TopLeft | ToastOmhPosition::BottomLeft => area.x,
+        ToastOmhPosition::TopRight | ToastOmhPosition::BottomRight => {
             area.x + area.width.saturating_sub(width)
         }
     };
     let y = match position {
-        ToastHakoPosition::TopLeft | ToastHakoPosition::TopRight => area.y,
-        ToastHakoPosition::BottomLeft | ToastHakoPosition::BottomRight => {
+        ToastOmhPosition::TopLeft | ToastOmhPosition::TopRight => area.y,
+        ToastOmhPosition::BottomLeft | ToastOmhPosition::BottomRight => {
             area.y + area.height.saturating_sub(height)
         }
     };
@@ -83,7 +83,7 @@ pub(super) fn render_toast_notification(
     frame: &mut Frame,
     area: Rect,
     toast: &ToastNotification,
-    position: ToastHakoPosition,
+    position: ToastOmhPosition,
     p: &Palette,
 ) {
     let dot_color = toast_kind_color(toast.kind, p);

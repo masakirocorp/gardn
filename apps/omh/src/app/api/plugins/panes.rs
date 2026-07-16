@@ -185,21 +185,21 @@ impl App {
             .map_err(|err| ("invalid_plugin_context".to_string(), err.to_string()))?;
         env.retain(|(key, _)| !plugin_pane_protected_env_key(key));
         env.extend(super::env::plugin_path_env(plugin));
-        env.push(("HAKO_PLUGIN_ID".to_string(), plugin.plugin_id.clone()));
+        env.push(("OMH_PLUGIN_ID".to_string(), plugin.plugin_id.clone()));
         env.push(("HERDR_PLUGIN_ID".to_string(), plugin.plugin_id.clone()));
         env.push((
-            "HAKO_PLUGIN_ENTRYPOINT_ID".to_string(),
+            "OMH_PLUGIN_ENTRYPOINT_ID".to_string(),
             entrypoint.to_string(),
         ));
         env.push((
             "HERDR_PLUGIN_ENTRYPOINT_ID".to_string(),
             entrypoint.to_string(),
         ));
-        env.push(("HAKO_PLUGIN_CONTEXT_JSON".to_string(), context_json.clone()));
+        env.push(("OMH_PLUGIN_CONTEXT_JSON".to_string(), context_json.clone()));
         env.push(("HERDR_PLUGIN_CONTEXT_JSON".to_string(), context_json));
         if let Ok(current_exe) = std::env::current_exe() {
             env.push((
-                "HAKO_BIN_PATH".to_string(),
+                "OMH_BIN_PATH".to_string(),
                 current_exe.display().to_string(),
             ));
             env.push((
@@ -283,13 +283,13 @@ impl App {
 fn plugin_pane_protected_env_key(key: &str) -> bool {
     matches!(
         key,
-        "HAKO_PLUGIN_ID"
-            | "HAKO_PLUGIN_ROOT"
-            | "HAKO_PLUGIN_CONFIG_DIR"
-            | "HAKO_PLUGIN_STATE_DIR"
-            | "HAKO_PLUGIN_ENTRYPOINT_ID"
-            | "HAKO_PLUGIN_CONTEXT_JSON"
-            | "HAKO_BIN_PATH"
+        "OMH_PLUGIN_ID"
+            | "OMH_PLUGIN_ROOT"
+            | "OMH_PLUGIN_CONFIG_DIR"
+            | "OMH_PLUGIN_STATE_DIR"
+            | "OMH_PLUGIN_ENTRYPOINT_ID"
+            | "OMH_PLUGIN_CONTEXT_JSON"
+            | "OMH_BIN_PATH"
             | "HERDR_PLUGIN_ID"
             | "HERDR_PLUGIN_ROOT"
             | "HERDR_PLUGIN_CONFIG_DIR"

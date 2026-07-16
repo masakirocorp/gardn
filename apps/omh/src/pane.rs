@@ -49,7 +49,7 @@ const PANE_TERM: &str = "xterm-256color";
 const PANE_COLORTERM: &str = "truecolor";
 
 fn apply_pane_terminal_env(cmd: &mut CommandBuilder) {
-    // Each pane is rendered by hako's own terminal layer, not the outer terminal
+    // Each pane is rendered by Oh My Herdr's own terminal layer, not the outer terminal
     // that launched the app. Advertising the inherited TERM leaks the host terminal
     // identity into shells and across SSH, which breaks redraw and cursor movement
     // when the remote side lacks matching terminfo entries.
@@ -101,12 +101,12 @@ fn apply_pane_launch_env(cmd: &mut CommandBuilder, launch_env: &PaneLaunchEnv, p
     for (key, value) in &launch_env.extra {
         cmd.env(key, value);
     }
-    cmd.env(crate::HAKO_ENV_VAR, crate::HAKO_ENV_VALUE);
+    cmd.env(crate::OMH_ENV_VAR, crate::OMH_ENV_VALUE);
     cmd.env(crate::api::SOCKET_PATH_ENV_VAR, crate::api::socket_path());
     if let Some(identity) = &launch_env.identity {
-        cmd.env("HAKO_WORKSPACE_ID", &identity.workspace_id);
-        cmd.env("HAKO_TAB_ID", &identity.tab_id);
-        cmd.env("HAKO_PANE_ID", &identity.pane_id);
+        cmd.env("OMH_WORKSPACE_ID", &identity.workspace_id);
+        cmd.env("OMH_TAB_ID", &identity.tab_id);
+        cmd.env("OMH_PANE_ID", &identity.pane_id);
         cmd.env("HERDR_WORKSPACE_ID", &identity.workspace_id);
         cmd.env("HERDR_TAB_ID", &identity.tab_id);
         cmd.env("HERDR_PANE_ID", &identity.pane_id);
@@ -904,7 +904,7 @@ fn resolve_shell_for_login_mode(shell: &str) -> io::Result<String> {
 
 /// PowerShell prompt wrapper used on native Windows panes to report the
 /// current filesystem location via OSC 9;9.
-pub(crate) const WINDOWS_POWERSHELL_SHELL_INTEGRATION_COMMAND: &str = r"if ($null -eq $global:__HakoOriginalPrompt) { $global:__HakoOriginalPrompt = $function:prompt; function global:prompt { $out = @(& $global:__HakoOriginalPrompt) -join ' '; $loc = $ExecutionContext.SessionState.Path.CurrentLocation; if ($loc.Provider.Name -eq 'FileSystem') { $esc = [string][char]27; $out += $esc + ']9;9;' + $loc.ProviderPath + $esc + '\' }; $out } }";
+pub(crate) const WINDOWS_POWERSHELL_SHELL_INTEGRATION_COMMAND: &str = r"if ($null -eq $global:__OmhOriginalPrompt) { $global:__OmhOriginalPrompt = $function:prompt; function global:prompt { $out = @(& $global:__OmhOriginalPrompt) -join ' '; $loc = $ExecutionContext.SessionState.Path.CurrentLocation; if ($loc.Provider.Name -eq 'FileSystem') { $esc = [string][char]27; $out += $esc + ']9;9;' + $loc.ProviderPath + $esc + '\' }; $out } }";
 
 pub(crate) fn uses_windows_powershell_pane_shell(shell_config: PaneShellConfig<'_>) -> bool {
     uses_windows_powershell_pane_shell_for_target(shell_config, cfg!(windows))
@@ -2395,7 +2395,7 @@ mod tests {
             })
             .unwrap();
         let output_path = std::env::temp_dir().join(format!(
-            "hako-pane-term-test-{}-{}.txt",
+            "omh-pane-term-test-{}-{}.txt",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -2533,7 +2533,7 @@ mod tests {
     fn login_shell_builder_rejects_missing_shell_instead_of_falling_back() {
         let err = pane_shell_command_builder_for_target(
             PaneShellConfig::new(
-                "/__hako_missing_shell__",
+                "/__omh_missing_shell__",
                 crate::config::ShellModeConfig::Login,
             ),
             false,
@@ -2547,7 +2547,7 @@ mod tests {
     fn login_shell_builder_resolves_bare_shell_names_from_path() {
         let _lock = crate::integration::integration_env_lock();
         let base = std::env::temp_dir().join(format!(
-            "hako-login-shell-path-{}-{}",
+            "omh-login-shell-path-{}-{}",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -2609,7 +2609,7 @@ mod tests {
         assert!(!WINDOWS_POWERSHELL_SHELL_INTEGRATION_COMMAND.contains('"'));
         assert!(
             WINDOWS_POWERSHELL_SHELL_INTEGRATION_COMMAND
-                .find("@(& $global:__HakoOriginalPrompt)")
+                .find("@(& $global:__OmhOriginalPrompt)")
                 .unwrap()
                 < WINDOWS_POWERSHELL_SHELL_INTEGRATION_COMMAND
                     .find("$loc =")
@@ -3036,7 +3036,7 @@ mod tests {
 
         tx.try_send(AppEvent::UpdateReady {
             version: "9.9.9".into(),
-            install_command: "hako update".into(),
+            install_command: "omh update".into(),
         })
         .unwrap();
 

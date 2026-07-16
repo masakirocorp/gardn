@@ -257,6 +257,6 @@ mod tests {
     }
 
     fn temp_socket_marker_path(name: &str) -> PathBuf {
-        std::env::temp_dir().join(format!("hako-{name}-{}.sock", std::process::id()))
+        std::env::temp_dir().join(format!("omh-{name}-{}.sock", std::process::id()))
     }
 }

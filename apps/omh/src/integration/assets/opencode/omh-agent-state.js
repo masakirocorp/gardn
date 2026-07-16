@@ -1,12 +1,12 @@
-// installed by hako
-// managed by hako; reinstalling or updating the integration overwrites this file.
+// installed by Oh My Herdr
+// managed by Oh My Herdr; reinstalling or updating the integration overwrites this file.
 // add custom hooks/plugins beside this file instead of editing it.
-// HAKO_INTEGRATION_ID=opencode
-// HAKO_INTEGRATION_VERSION=6
+// OMH_INTEGRATION_ID=opencode
+// OMH_INTEGRATION_VERSION=6
 
 import net from "node:net";
 
-const SOURCE = "hako:opencode";
+const SOURCE = "omh:opencode";
 let reportSeq = Date.now() * 1000;
 
 function nextReportSeq() {
@@ -14,7 +14,7 @@ function nextReportSeq() {
   return reportSeq;
 }
 const IDLE_REPORT_DELAY_MS = Number.parseInt(
-  process.env.HAKO_OPENCODE_IDLE_REPORT_DELAY_MS ?? "750",
+  process.env.OMH_OPENCODE_IDLE_REPORT_DELAY_MS ?? "750",
   10,
 );
 
@@ -209,7 +209,7 @@ function launchEnv() {
 }
 
 function requestEnvelope(method, params) {
-  const paneId = process.env.HAKO_PANE_ID;
+  const paneId = process.env.OMH_PANE_ID;
 
   return {
     id: `${SOURCE}:${Date.now()}:${Math.floor(Math.random() * 1_000_000)
@@ -227,9 +227,9 @@ function requestEnvelope(method, params) {
 }
 
 function sendRequest(request) {
-  const socketPath = process.env.HAKO_SOCKET_PATH;
+  const socketPath = process.env.OMH_SOCKET_PATH;
 
-  if (!process.env.HAKO_PANE_ID || !socketPath) {
+  if (!process.env.OMH_PANE_ID || !socketPath) {
     return Promise.resolve();
   }
 
@@ -408,7 +408,7 @@ async function handleEvent(event) {
   const childSession = isChildOfPrimary(sessionID);
 
   switch (type) {
-    case "hako.session.compacting":
+    case "omh.session.compacting":
       await markSessionWorking(sessionID);
       break;
     case "session.created":
@@ -533,11 +533,11 @@ function queueEvent(event) {
   return eventQueue;
 }
 
-export const HakoAgentStatePlugin = async () => {
+export const OmhAgentStatePlugin = async () => {
   if (
-    process.env.HAKO_ENV !== "1" ||
-    !process.env.HAKO_SOCKET_PATH ||
-    !process.env.HAKO_PANE_ID
+    process.env.OMH_ENV !== "1" ||
+    !process.env.OMH_SOCKET_PATH ||
+    !process.env.OMH_PANE_ID
   ) {
     return {};
   }
@@ -545,6 +545,6 @@ export const HakoAgentStatePlugin = async () => {
   return {
     event: async ({ event }) => queueEvent(event),
     "experimental.session.compacting": async (input) =>
-      queueEvent({ type: "hako.session.compacting", properties: { sessionID: input?.sessionID } }),
+      queueEvent({ type: "omh.session.compacting", properties: { sessionID: input?.sessionID } }),
   };
 };

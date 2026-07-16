@@ -1,7 +1,7 @@
 //! Thin client mode — connects to the server's client socket.
 //!
 //! The client:
-//! - Connects to `hako-client.sock`, sends Hello with terminal size and protocol version
+//! - Connects to `omh-client.sock`, sends Hello with terminal size and protocol version
 //! - Sets up the real terminal (raw mode, mouse capture, keyboard enhancements)
 //! - Receives Frame messages and blits them to the terminal (diff against last frame)
 //! - Reads stdin events (keystrokes, mouse, paste) and sends them as ClientMessage::Input
@@ -235,7 +235,7 @@ impl std::fmt::Display for ClientError {
             ClientError::ConnectionFailed(err) => {
                 write!(f, "failed to connect to server: {err}")?;
                 let path = client_socket_path();
-                write!(f, "\nIs hako server running? Start it with `hako server`.")?;
+                write!(f, "\nIs the Oh My Herdr server running? Start it with `omh server`.")?;
                 write!(f, "\nSocket path: {}", path.display())
             }
             ClientError::HandshakeRejected { version, error } => {
@@ -526,7 +526,7 @@ fn restore_windows_input_mode_value(mode: u32) {
 
 #[cfg(windows)]
 fn windows_win32_input_mode_enabled() -> bool {
-    std::env::var("HAKO_WINDOWS_INPUT_PROBE")
+    std::env::var("OMH_WINDOWS_INPUT_PROBE")
         .map(|probe| probe.eq_ignore_ascii_case("win32"))
         .unwrap_or(true)
 }
@@ -548,7 +548,7 @@ fn disable_windows_win32_input_mode(writer: &mut impl io::Write) -> io::Result<(
 // ---------------------------------------------------------------------------
 
 fn requested_render_encoding() -> RenderEncoding {
-    match std::env::var("HAKO_RENDER_ENCODING").ok().as_deref() {
+    match std::env::var("OMH_RENDER_ENCODING").ok().as_deref() {
         Some("terminal-ansi" | "terminal_ansi" | "ansi") => RenderEncoding::TerminalAnsi,
         _ => RenderEncoding::SemanticFrame,
     }
@@ -725,7 +725,7 @@ fn run_client_with_mode(
         Err(err) => {
             // Server unreachable — show clear error and exit.
             let client_err = ClientError::ConnectionFailed(err);
-            eprintln!("hako: {client_err}");
+            eprintln!("omh: {client_err}");
             std::process::exit(1);
         }
     };
@@ -746,7 +746,7 @@ fn run_client_with_mode(
     ) {
         Ok(encoding) => encoding,
         Err(err) => {
-            eprintln!("hako: {err}");
+            eprintln!("omh: {err}");
             std::process::exit(1);
         }
     };
@@ -757,7 +757,7 @@ fn run_client_with_mode(
             takeover,
         };
         if let Err(err) = write_to_server(&mut stream, &attach) {
-            eprintln!("hako: failed to request terminal attach: {err}");
+            eprintln!("omh: failed to request terminal attach: {err}");
             std::process::exit(1);
         }
     }
@@ -771,7 +771,7 @@ fn run_client_with_mode(
         setup_terminal(false)
     }
     .map_err(|err| {
-        eprintln!("hako: failed to set up terminal: {err}");
+        eprintln!("omh: failed to set up terminal: {err}");
         err
     })?;
 
@@ -824,7 +824,7 @@ fn run_client_with_mode(
     drop(_guard);
 
     if let Err(err) = result {
-        eprintln!("hako: {err}");
+        eprintln!("omh: {err}");
         rt.shutdown_timeout(Duration::from_millis(100));
         crate::logging::shutdown("client");
 
@@ -1519,7 +1519,7 @@ fn forward_clipboard(data: &str) {
 }
 
 fn window_title_osc(title: Option<&str>) -> Vec<u8> {
-    let title = title.unwrap_or("hako");
+    let title = title.unwrap_or("omh");
     let safe_title = title
         .chars()
         .filter(|ch| !matches!(*ch, '\u{1b}' | '\u{7}' | '\u{9c}'))
@@ -1694,7 +1694,7 @@ fn should_query_host_terminal_theme() -> bool {
 }
 #[cfg(windows)]
 fn windows_vti_input_backend_enabled() -> bool {
-    std::env::var("HAKO_WINDOWS_INPUT_BACKEND")
+    std::env::var("OMH_WINDOWS_INPUT_BACKEND")
         .map(|backend| !backend.eq_ignore_ascii_case("crossterm"))
         .unwrap_or(true)
 }
@@ -1718,7 +1718,7 @@ fn refresh_host_terminal_theme_if_due(
 }
 
 fn init_logging() {
-    crate::logging::init_file_logging("hako-client.log");
+    crate::logging::init_file_logging("omh-client.log");
 }
 
 // ---------------------------------------------------------------------------
@@ -1816,7 +1816,7 @@ mod tests {
                 .unwrap()
                 .as_nanos();
             let path = std::env::temp_dir().join(format!(
-                "hako-client-drop-{name_fragment}-{}-{nanos}.{extension}",
+                "omh-client-drop-{name_fragment}-{}-{nanos}.{extension}",
                 std::process::id()
             ));
             std::fs::write(&path, bytes).unwrap();
@@ -1914,7 +1914,7 @@ mod tests {
     }
 
     #[test]
-    fn kitty_graphics_image_id_parser_tracks_hako_ids_only() {
+    fn kitty_graphics_image_id_parser_tracks_omh_ids_only() {
         let ids = kitty_graphics_image_ids(
             b"text\x1b_Ga=t,t=d,f=32,s=1,v=1,i=10023,q=2;AAAA\x1b\\\x1b_Ga=p,i=10023,p=7;\x1b\\",
         );
@@ -2083,7 +2083,7 @@ mod tests {
             "should mention connection failure: {msg}"
         );
         assert!(
-            msg.contains("hako server"),
+            msg.contains("Oh My Herdr server"),
             "should suggest starting server: {msg}"
         );
     }
@@ -2137,7 +2137,7 @@ mod tests {
         };
         let msg = err.to_string();
         assert!(
-            msg.contains("Run `hako` to reattach"),
+            msg.contains("Run `omh` to reattach"),
             "should suggest default reattach command: {msg}"
         );
     }
@@ -2152,7 +2152,7 @@ mod tests {
         };
         let msg = err.to_string();
         assert!(
-            msg.contains("Run `hako session attach work` to reattach"),
+            msg.contains("Run `omh session attach work` to reattach"),
             "should suggest named session reattach command: {msg}"
         );
     }
@@ -2162,7 +2162,7 @@ mod tests {
         let _guard = env_lock().lock().unwrap();
         let _remote_env = EnvVarGuard::set(
             crate::remote::REATTACH_COMMAND_ENV_VAR,
-            "hako --remote host --session work",
+            "omh --remote host --session work",
         );
         let _session_env = EnvVarGuard::set(crate::session::SESSION_ENV_VAR, "work");
         let err = ClientError::ServerShutdown {
@@ -2170,7 +2170,7 @@ mod tests {
         };
         let msg = err.to_string();
         assert!(
-            msg.contains("Run `hako --remote host --session work` to reattach"),
+            msg.contains("Run `omh --remote host --session work` to reattach"),
             "should prefer remote reattach command: {msg}"
         );
     }
@@ -2213,7 +2213,7 @@ mod tests {
     fn reload_local_client_config_refreshes_redraw_on_focus_gained() {
         let _guard = crate::config::test_config_env_lock().lock().unwrap();
         let path = std::env::temp_dir().join(format!(
-            "hako-client-config-reload-{}-{}.toml",
+            "omh-client-config-reload-{}-{}.toml",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -2307,11 +2307,11 @@ mod tests {
     }
 
     #[test]
-    fn window_title_osc_strips_terminators_and_defaults_to_hako() {
+    fn window_title_osc_strips_terminators_and_defaults_to_omh() {
         assert_eq!(
-            window_title_osc(Some("hako\x1b api\u{7}\u{9c}")),
-            b"\x1b]0;hako api\x07"
+            window_title_osc(Some("omh\x1b api\u{7}\u{9c}")),
+            b"\x1b]0;omh api\x07"
         );
-        assert_eq!(window_title_osc(None), b"\x1b]0;hako\x07");
+        assert_eq!(window_title_osc(None), b"\x1b]0;omh\x07");
     }
 }

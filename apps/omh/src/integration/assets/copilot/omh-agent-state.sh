@@ -1,6 +1,6 @@
 #!/bin/sh
-# installed by hako
-# managed by hako; reinstalling or updating the integration overwrites this file.
+# installed by Oh My Herdr
+# managed by Oh My Herdr; reinstalling or updating the integration overwrites this file.
 # add custom hooks beside this file instead of editing it.
 # High-level state machine:
 # - SessionStart reports working when Copilot includes an initial prompt, else idle.
@@ -12,32 +12,32 @@
 # - SessionEnd only releases ownership for real exits such as user_exit / abort.
 # Official Copilot hooks reference:
 # https://docs.github.com/en/copilot/reference/hooks-reference
-# HAKO_INTEGRATION_ID=copilot
-# HAKO_INTEGRATION_VERSION=1
+# OMH_INTEGRATION_ID=copilot
+# OMH_INTEGRATION_VERSION=1
 
 set -eu
 
-hook_input_file="$(mktemp "${TMPDIR:-/tmp}/hako-copilot-hook.XXXXXX")" || exit 0
+hook_input_file="$(mktemp "${TMPDIR:-/tmp}/omh-copilot-hook.XXXXXX")" || exit 0
 trap 'rm -f "$hook_input_file"' EXIT HUP INT TERM
 cat >"$hook_input_file" 2>/dev/null || true
 
-[ "${HAKO_ENV:-}" = "1" ] || exit 0
-[ -n "${HAKO_SOCKET_PATH:-}" ] || exit 0
-[ -n "${HAKO_PANE_ID:-}" ] || exit 0
+[ "${OMH_ENV:-}" = "1" ] || exit 0
+[ -n "${OMH_SOCKET_PATH:-}" ] || exit 0
+[ -n "${OMH_PANE_ID:-}" ] || exit 0
 command -v python3 >/dev/null 2>&1 || exit 0
 
-HAKO_HOOK_INPUT_FILE="$hook_input_file" python3 - <<'PY'
+OMH_HOOK_INPUT_FILE="$hook_input_file" python3 - <<'PY'
 import json
 import os
 import random
 import socket
 import time
 
-source = "hako:copilot"
+source = "omh:copilot"
 agent = "copilot"
-pane_id = os.environ.get("HAKO_PANE_ID")
-socket_path = os.environ.get("HAKO_SOCKET_PATH")
-hook_input_file = os.environ.get("HAKO_HOOK_INPUT_FILE")
+pane_id = os.environ.get("OMH_PANE_ID")
+socket_path = os.environ.get("OMH_SOCKET_PATH")
+hook_input_file = os.environ.get("OMH_HOOK_INPUT_FILE")
 
 if not pane_id or not socket_path:
     raise SystemExit(0)
@@ -181,7 +181,7 @@ try:
             pass
     elif event_key == "sessionend":
         # Copilot can emit reason=complete at normal turn boundaries. Keep
-        # ownership until a real session exit so Hako can still track later turns.
+        # ownership until a real session exit so Oh My Herdr can still track later turns.
         if reason in ("user_exit", "abort"):
             release()
         else:

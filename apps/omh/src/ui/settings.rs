@@ -309,7 +309,7 @@ fn settings_section_description(app: &AppState, section: SettingsSection) -> &'s
         }
         SettingsSection::Experiments => "configure advanced or platform-specific behavior",
         SettingsSection::Agents if settings_agents_editor_open(app) => {
-            "name the profile and provide the command hako should launch"
+            "name the profile and provide the command omh should launch"
         }
         SettingsSection::Agents => "create custom commands and manage agent profiles",
         SettingsSection::Integrations => "install hooks so agents report state directly",
@@ -570,7 +570,7 @@ fn settings_section_description_for(
         }
         SettingsSection::Experiments => "configure advanced or platform-specific behavior",
         SettingsSection::Agents if settings_agents_editor_open_for(settings) => {
-            "name the profile and provide the command hako should launch"
+            "name the profile and provide the command omh should launch"
         }
         SettingsSection::Agents => "create custom commands and manage agent profiles",
         SettingsSection::Integrations => "install hooks so agents report state directly",
@@ -2193,7 +2193,7 @@ mod tests {
             label: "omp",
             command: "omp",
             available: true,
-            path: std::path::PathBuf::from("/tmp/hako-test-omp"),
+            path: std::path::PathBuf::from("/tmp/omh-test-omp"),
             state: crate::integration::IntegrationStatusKind::Current,
         }];
 
@@ -2234,7 +2234,7 @@ mod tests {
                 label: "claude",
                 command: "claude",
                 available: true,
-                path: std::path::PathBuf::from("/tmp/hako-test-claude"),
+                path: std::path::PathBuf::from("/tmp/omh-test-claude"),
                 state: crate::integration::IntegrationStatusKind::Current,
             },
             crate::integration::IntegrationRecommendation {
@@ -2242,7 +2242,7 @@ mod tests {
                 label: "codex",
                 command: "codex",
                 available: true,
-                path: std::path::PathBuf::from("/tmp/hako-test-codex"),
+                path: std::path::PathBuf::from("/tmp/omh-test-codex"),
                 state: crate::integration::IntegrationStatusKind::Current,
             },
         ];
@@ -2299,7 +2299,7 @@ mod tests {
 
         assert_eq!(delivery_row, header_row + 1);
         assert_eq!(description_row, delivery_row + 1);
-        assert!(!text.contains("inside hako"));
+        assert!(!text.contains("inside Oh My Herdr"));
         assert!(!text.contains("via terminal"));
     }
 
@@ -2524,14 +2524,14 @@ mod tests {
         assert!(text.contains("36 cols"));
         assert!(!text.contains("worktrees"));
         assert!(!text.contains("worktree directory"));
-        assert!(!text.contains("/tmp/hako-worktrees"));
+        assert!(!text.contains("/tmp/omh-worktrees"));
     }
 
     #[test]
     fn behavior_settings_render_workspace_terminal_and_worktree_options() {
         let mut app = AppState::test_new();
         app.settings.section = SettingsSection::PaneLabels;
-        app.worktree_directory = std::path::PathBuf::from("/tmp/hako-worktrees");
+        app.worktree_directory = std::path::PathBuf::from("/tmp/omh-worktrees");
 
         let area = Rect::new(0, 0, 100, 30);
         let backend = TestBackend::new(area.width, area.height);
@@ -2545,7 +2545,7 @@ mod tests {
         assert!(text.contains("terminal"));
         assert!(text.contains("worktrees"));
         assert!(text.contains("worktree directory"));
-        assert!(text.contains("/tmp/hako-worktrees"));
+        assert!(text.contains("/tmp/omh-worktrees"));
         assert!(!text.contains("agent border labels"));
     }
     #[test]
@@ -2676,7 +2676,7 @@ mod tests {
             label: "codex",
             command: "codex",
             available: true,
-            path: std::path::PathBuf::from("/tmp/hako-test-codex"),
+            path: std::path::PathBuf::from("/tmp/omh-test-codex"),
             state: crate::integration::IntegrationStatusKind::Current,
         }];
         let restart_guidance = "restart running codex panes to use the updated hook";
@@ -2758,7 +2758,7 @@ mod tests {
                 label: "codex",
                 command: "codex",
                 available: true,
-                path: std::path::PathBuf::from("/tmp/hako-test-codex"),
+                path: std::path::PathBuf::from("/tmp/omh-test-codex"),
                 state: crate::integration::IntegrationStatusKind::Current,
             },
             crate::integration::IntegrationRecommendation {
@@ -2766,7 +2766,7 @@ mod tests {
                 label: "claude",
                 command: "claude",
                 available: false,
-                path: std::path::PathBuf::from("/tmp/hako-test-claude"),
+                path: std::path::PathBuf::from("/tmp/omh-test-claude"),
                 state: crate::integration::IntegrationStatusKind::NotInstalled,
             },
         ];
@@ -2815,7 +2815,7 @@ mod tests {
             label: "omp",
             command: "omp",
             available: true,
-            path: std::path::PathBuf::from("/tmp/hako-test-omp"),
+            path: std::path::PathBuf::from("/tmp/omh-test-omp"),
             state: crate::integration::IntegrationStatusKind::Outdated,
         }];
 
@@ -2841,7 +2841,7 @@ mod tests {
             label: "omp",
             command: "omp",
             available: true,
-            path: std::path::PathBuf::from("/tmp/hako-test-omp"),
+            path: std::path::PathBuf::from("/tmp/omh-test-omp"),
             state: crate::integration::IntegrationStatusKind::NotInstalled,
         }];
 
@@ -2880,7 +2880,7 @@ mod tests {
             label: "pi",
             command: "pi",
             available: true,
-            path: std::path::PathBuf::from("/tmp/hako-test-pi"),
+            path: std::path::PathBuf::from("/tmp/omh-test-pi"),
             state: crate::integration::IntegrationStatusKind::Current,
         }];
         let mut client_view = crate::app::ClientViewState::from_default_client_state(&app);

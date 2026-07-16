@@ -1369,7 +1369,7 @@ impl App {
     fn clear_terminal_for_full_redraw<B: Backend>(
         terminal: &mut Terminal<B>,
     ) -> Result<(), B::Error> {
-        // Ratatui's clear() queries the host cursor. Hako's raw input reader can
+        // Ratatui's clear() queries the host cursor. Oh My Herdr's raw input reader can
         // consume that response first, so resize the fullscreen viewport instead.
         let size = terminal.size()?;
         terminal.resize(Rect::new(0, 0, size.width, size.height))
@@ -1997,7 +1997,7 @@ impl App {
     ///
     /// The input bytes are parsed into `RawInputEvent`s and then processed.
     /// In terminal mode, keys are routed through the same semantic
-    /// key-handling path as monolithic hako so they are re-encoded for the
+    /// key-handling path as monolithic Oh My Herdr so they are re-encoded for the
     /// focused pane's negotiated keyboard protocol instead of passing host
     /// terminal escape sequences through unchanged.
     #[cfg(test)]
@@ -9208,7 +9208,7 @@ mod tests {
             label: kind.as_str(),
             command: kind.system_command(),
             available: true,
-            path: std::path::PathBuf::from("/tmp/hako-test-integration"),
+            path: std::path::PathBuf::from("/tmp/omh-test-integration"),
             state: crate::integration::IntegrationStatusKind::Current,
         }
     }
@@ -9537,7 +9537,7 @@ mod tests {
 
     fn temp_config_path(name: &str) -> std::path::PathBuf {
         let unique = format!(
-            "hako-{name}-{}-{}",
+            "omh-{name}-{}-{}",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -9625,7 +9625,7 @@ mod tests {
     #[tokio::test]
     async fn managed_profile_launch_exposes_selected_kind_to_wrapped_process() {
         let dir = std::env::temp_dir().join(format!(
-            "hako-wrapped-profile-env-{}-{}",
+            "omh-wrapped-profile-env-{}-{}",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -9635,7 +9635,7 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let output = dir.join("agent-hint.txt");
         let command = format!(
-            "printf %s \"$HAKO_AGENT\" > '{}'; sleep 30",
+            "printf %s \"$OMH_AGENT\" > '{}'; sleep 30",
             output.display()
         );
 
@@ -9709,7 +9709,7 @@ mod tests {
             ]
         );
         assert_eq!(
-            recorded_hint.expect("wrapped process should record HAKO_AGENT"),
+            recorded_hint.expect("wrapped process should record OMH_AGENT"),
             "claude"
         );
     }
@@ -9719,7 +9719,7 @@ mod tests {
         let _lock = crate::integration::integration_env_lock();
         let _env = clear_integration_path_env();
         let base = std::env::temp_dir().join(format!(
-            "hako-profile-launch-warning-{}-{}",
+            "omh-profile-launch-warning-{}-{}",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -9763,7 +9763,7 @@ mod tests {
         assert_eq!(toast.title, "agent launch failed");
         assert!(toast.context.contains("codex mk"), "{}", toast.context);
         assert!(
-            toast.context.contains("hako integration install codex"),
+            toast.context.contains("omh integration install codex"),
             "{}",
             toast.context
         );
@@ -9992,7 +9992,7 @@ mod tests {
         let restored_first_pane = app.state.workspaces[0].tabs[0].root_pane;
         app.handle_internal_event(AppEvent::HookStateReported {
             pane_id: restored_first_pane,
-            source: "hako:omp".to_string(),
+            source: "omh:omp".to_string(),
             agent_label: "omp".to_string(),
             state: AgentState::Idle,
             message: None,
@@ -10029,7 +10029,7 @@ mod tests {
             .get_mut(&terminal_id)
             .expect("test terminal should exist");
         let _ = terminal.set_hook_authority_with_session_ref(
-            "hako:omp".to_string(),
+            "omh:omp".to_string(),
             "omp".to_string(),
             agent_state,
             Some("reported".to_string()),
@@ -10041,9 +10041,9 @@ mod tests {
             Some(seq),
         );
         let _ = terminal.set_agent_metadata(crate::terminal::AgentMetadataReport {
-            source: format!("hako:omp:metadata:{ws_idx}"),
+            source: format!("omh:omp:metadata:{ws_idx}"),
             agent_label: Some("omp".to_string()),
-            applies_to_source: Some("hako:omp".to_string()),
+            applies_to_source: Some("omh:omp".to_string()),
             title: None,
             display_agent: Some("OMP".to_string()),
             custom_status: custom_status.map(str::to_string),
@@ -10232,15 +10232,15 @@ mod tests {
         crate::release_notes::save_pending(env!("CARGO_PKG_VERSION"), "### Changed\n- One")
             .unwrap();
         let _fake_announcement_body_env = crate::config::TestEnvVar::set(
-            "HAKO_FAKE_PRODUCT_ANNOUNCEMENT_BODY",
+            "OMH_FAKE_PRODUCT_ANNOUNCEMENT_BODY",
             "### Announcement\n- One",
         );
         let _fake_announcement_title_env = crate::config::TestEnvVar::set(
-            "HAKO_FAKE_PRODUCT_ANNOUNCEMENT_TITLE",
+            "OMH_FAKE_PRODUCT_ANNOUNCEMENT_TITLE",
             "Startup announcement",
         );
         let _fake_announcement_id_env = crate::config::TestEnvVar::set(
-            "HAKO_FAKE_PRODUCT_ANNOUNCEMENT_ID",
+            "OMH_FAKE_PRODUCT_ANNOUNCEMENT_ID",
             "startup-announcement",
         );
 
@@ -10272,7 +10272,7 @@ mod tests {
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         std::fs::write(
             &path,
-            "[terminal]\ndefault_shell = \"nu\"\nshell_mode = \"non_login\"\nnew_cwd = \"home\"\n[keys]\nnew_workspace = \"prefix+g\"\nprefix = \"ctrl+a\"\n[update]\nversion_check = false\nmanifest_check = false\n[ui]\nredraw_on_focus_gained = false\nright_click_passthrough_modifier = \"ctrl\"\n[ui.sidebar]\ninitial_state = \"collapsed\"\ninitial_agent_scope = \"current\"\n[ui.toast]\ndelivery = \"hako\"\n",
+            "[terminal]\ndefault_shell = \"nu\"\nshell_mode = \"non_login\"\nnew_cwd = \"home\"\n[keys]\nnew_workspace = \"prefix+g\"\nprefix = \"ctrl+a\"\n[update]\nversion_check = false\nmanifest_check = false\n[ui]\nredraw_on_focus_gained = false\nright_click_passthrough_modifier = \"ctrl\"\n[ui.sidebar]\ninitial_state = \"collapsed\"\ninitial_agent_scope = \"current\"\n[ui.toast]\ndelivery = \"omh\"\n",
         )
         .unwrap();
         let _config_path_env =
@@ -10293,7 +10293,7 @@ mod tests {
             .matches_prefix(&KeyEvent::new(KeyCode::Char('g'), KeyModifiers::empty())));
         assert_eq!(
             app.state.toast_config.delivery,
-            crate::config::ToastDelivery::Hako
+            crate::config::ToastDelivery::Omh
         );
         assert_eq!(
             app.state.agent_panel_scope,
@@ -10537,7 +10537,7 @@ mod tests {
             crate::config::TestEnvVar::set(crate::config::CONFIG_PATH_ENV_VAR, &path);
 
         let mut app = test_app();
-        app.state.toast_config.delivery = crate::config::ToastDelivery::Hako;
+        app.state.toast_config.delivery = crate::config::ToastDelivery::Omh;
         let report = app.reload_config();
 
         assert_eq!(report.status, crate::config::ConfigReloadStatus::Partial);
@@ -10548,7 +10548,7 @@ mod tests {
             .matches_prefix(&KeyEvent::new(KeyCode::Char('g'), KeyModifiers::empty())));
         assert_eq!(
             app.state.toast_config.delivery,
-            crate::config::ToastDelivery::Hako
+            crate::config::ToastDelivery::Omh
         );
         assert!(app
             .state
@@ -10752,15 +10752,15 @@ mod tests {
             crate::config::TestEnvVar::set(crate::config::CONFIG_PATH_ENV_VAR, &path);
 
         let mut app = test_app();
-        app.save_worktree_directory("~/Projects/hako-worktrees");
+        app.save_worktree_directory("~/Projects/omh-worktrees");
 
         assert!(app
             .state
             .worktree_directory
-            .ends_with("Projects/hako-worktrees"));
+            .ends_with("Projects/omh-worktrees"));
         let content = std::fs::read_to_string(&path).unwrap();
         assert!(content.contains("[worktrees]"));
-        assert!(content.contains("directory = \"~/Projects/hako-worktrees\""));
+        assert!(content.contains("directory = \"~/Projects/omh-worktrees\""));
         assert!(app.state.config_diagnostic.is_none());
 
         let _ = std::fs::remove_dir_all(path.parent().unwrap());
@@ -11238,8 +11238,8 @@ mod tests {
     #[test]
     fn workspace_creation_in_navigate_mode_uses_selected_workspace_seed_cwd() {
         let mut app = test_app();
-        let mut first = Workspace::test_new("hako");
-        first.identity_cwd = std::path::PathBuf::from("/tmp/hako");
+        let mut first = Workspace::test_new("omh");
+        first.identity_cwd = std::path::PathBuf::from("/tmp/omh");
         let mut second = Workspace::test_new("pion");
         second.identity_cwd = std::path::PathBuf::from("/tmp/pion");
 
@@ -11340,27 +11340,27 @@ mod tests {
     #[test]
     fn workspace_creation_names_duplicate_cwd_labels_with_suffix() {
         let mut app = test_app();
-        app.state.workspaces = vec![Workspace::test_new("hako"), Workspace::test_new("hako 2")];
+        app.state.workspaces = vec![Workspace::test_new("omh"), Workspace::test_new("omh 2")];
 
         let name = app.collision_free_workspace_name(
-            std::path::Path::new("/tmp/hako"),
+            std::path::Path::new("/tmp/omh"),
             app.state.active_group_id(),
         );
 
-        assert_eq!(name.as_deref(), Some("hako 3"));
+        assert_eq!(name.as_deref(), Some("omh 3"));
     }
 
     #[test]
     fn workspace_creation_suffixes_only_within_active_group() {
         let mut app = test_app();
         let work_group = app.state.create_group("Work".to_string());
-        let mut existing = Workspace::test_new("hako");
+        let mut existing = Workspace::test_new("omh");
         existing.group_id = app.state.groups[work_group].id.clone();
         app.state.workspaces = vec![existing];
         app.state.active_group = 0;
 
         let name = app.collision_free_workspace_name(
-            std::path::Path::new("/tmp/hako"),
+            std::path::Path::new("/tmp/omh"),
             app.state.active_group_id(),
         );
 
@@ -11371,20 +11371,20 @@ mod tests {
     fn new_terminal_cwd_follow_uses_source_cwd() {
         let cwd = creation::resolve_new_terminal_cwd(
             &crate::config::NewTerminalCwdConfig::Follow,
-            Some(std::path::PathBuf::from("/tmp/hako-source")),
+            Some(std::path::PathBuf::from("/tmp/omh-source")),
         );
 
-        assert_eq!(cwd, std::path::PathBuf::from("/tmp/hako-source"));
+        assert_eq!(cwd, std::path::PathBuf::from("/tmp/omh-source"));
     }
 
     #[test]
     fn new_terminal_cwd_path_uses_configured_path() {
         let cwd = creation::resolve_new_terminal_cwd(
-            &crate::config::NewTerminalCwdConfig::Path("/tmp/hako-fixed".into()),
-            Some(std::path::PathBuf::from("/tmp/hako-source")),
+            &crate::config::NewTerminalCwdConfig::Path("/tmp/omh-fixed".into()),
+            Some(std::path::PathBuf::from("/tmp/omh-source")),
         );
 
-        assert_eq!(cwd, std::path::PathBuf::from("/tmp/hako-fixed"));
+        assert_eq!(cwd, std::path::PathBuf::from("/tmp/omh-fixed"));
     }
 
     #[test]
@@ -12118,7 +12118,7 @@ mod tests {
             app.event_tx
                 .try_send(AppEvent::UpdateReady {
                     version: format!("9.9.{i}"),
-                    install_command: "hako update".into(),
+                    install_command: "omh update".into(),
                 })
                 .unwrap();
         }
@@ -12398,7 +12398,7 @@ mod tests {
         app.state.mode = Mode::Terminal;
 
         let output_path =
-            std::env::temp_dir().join(format!("hako-client-literal-custom-{}", std::process::id()));
+            std::env::temp_dir().join(format!("omh-client-literal-custom-{}", std::process::id()));
         let config: crate::config::Config = toml::from_str(&format!(
             r#"
 [keys]
@@ -12498,17 +12498,17 @@ command = "printf literal > '{}'"
     fn route_client_events_pastes_text_into_worktree_directory_modal() {
         let mut app = test_app();
         app.state.mode = Mode::EditWorktreeDirectory;
-        app.state.name_input = "/tmp/hako".into();
+        app.state.name_input = "/tmp/omh".into();
         app.state.name_input_replace_on_type = true;
 
         app.route_client_events(
             vec![crate::raw_input::RawInputEvent::Paste(
-                "/tmp/hako-worktrees".into(),
+                "/tmp/omh-worktrees".into(),
             )],
             true,
         );
 
-        assert_eq!(app.state.name_input, "/tmp/hako-worktrees");
+        assert_eq!(app.state.name_input, "/tmp/omh-worktrees");
         assert!(!app.state.name_input_replace_on_type);
     }
 
@@ -14836,14 +14836,14 @@ command = "printf literal > '{}'"
         let shared_focus = app.state.workspaces[0].tabs[0].layout.focused();
         let client_focus = app.state.workspaces[1].tabs[0].layout.focused();
         let output_path = std::env::temp_dir().join(format!(
-            "hako-client-custom-shell-{}",
+            "omh-client-custom-shell-{}",
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .expect("clock")
                 .as_nanos()
         ));
         let command = format!(
-            "printf '%s\\n%s\\n%s\\n%s\\n' \"$HAKO_ACTIVE_WORKSPACE_ID\" \"$HAKO_ACTIVE_TAB_ID\" \"$HAKO_ACTIVE_PANE_ID\" \"$PWD\" > '{}'",
+            "printf '%s\\n%s\\n%s\\n%s\\n' \"$OMH_ACTIVE_WORKSPACE_ID\" \"$OMH_ACTIVE_TAB_ID\" \"$OMH_ACTIVE_PANE_ID\" \"$PWD\" > '{}'",
             output_path.display()
         );
         let binding = crate::config::CustomCommandKeybind {
@@ -15654,12 +15654,12 @@ command = "printf literal > '{}'"
         app.route_client_events_for_view(
             &mut first_client,
             vec![crate::raw_input::RawInputEvent::Paste(
-                "/tmp/hako-worktrees".into(),
+                "/tmp/omh-worktrees".into(),
             )],
             true,
         );
 
-        assert_eq!(first_client.name_input, "/tmp/hako-worktrees");
+        assert_eq!(first_client.name_input, "/tmp/omh-worktrees");
         assert!(!first_client.name_input_replace_on_type);
         assert_eq!(second_client.name_input, "/tmp/other");
         assert!(second_client.name_input_replace_on_type);

@@ -443,7 +443,7 @@ fn compute_view_for_client_internal(
             toast_notification_rect(
                 area,
                 toast,
-                toast.position.unwrap_or(app.toast_config.hako.position),
+                toast.position.unwrap_or(app.toast_config.omh.position),
             )
         })
         .unwrap_or_default();
@@ -662,7 +662,7 @@ fn compute_view_internal(
             toast_notification_rect(
                 area,
                 toast,
-                toast.position.unwrap_or(app.toast_config.hako.position),
+                toast.position.unwrap_or(app.toast_config.omh.position),
             )
         })
         .unwrap_or_default();
@@ -1025,7 +1025,7 @@ fn render_notifications(app: &AppState, frame: &mut Frame, terminal_area: Rect) 
             render_mobile_toast_banner(frame, frame.area(), toast, &app.palette);
             toast_rect = Some(mobile_toast_banner_rect(frame.area()));
         } else {
-            let position = toast.position.unwrap_or(app.toast_config.hako.position);
+            let position = toast.position.unwrap_or(app.toast_config.omh.position);
             render_toast_notification(frame, frame.area(), toast, position, &app.palette);
             toast_rect = Some(toast_notification_rect(frame.area(), toast, position));
         }
@@ -1069,7 +1069,7 @@ fn render_notifications_for_view(
             render_mobile_toast_banner(frame, frame.area(), toast, &app.palette);
             toast_rect = Some(mobile_toast_banner_rect(frame.area()));
         } else {
-            let position = toast.position.unwrap_or(app.toast_config.hako.position);
+            let position = toast.position.unwrap_or(app.toast_config.omh.position);
             render_toast_notification(frame, frame.area(), toast, position, &app.palette);
             toast_rect = Some(toast_notification_rect(frame.area(), toast, position));
         }

@@ -286,7 +286,7 @@ pub struct CustomCommandKeybind {
     pub description: Option<String>,
 }
 
-/// Parsed keybinds for Hako actions.
+/// Parsed keybinds for Oh My Herdr actions.
 #[derive(Debug, Clone)]
 pub struct NavigateKeybinds {
     pub workspace_up: ActionKeybinds,
@@ -297,7 +297,7 @@ pub struct NavigateKeybinds {
     pub pane_right: ActionKeybinds,
 }
 
-/// Parsed keybinds for Hako actions.
+/// Parsed keybinds for Oh My Herdr actions.
 #[derive(Debug, Clone)]
 pub struct Keybinds {
     pub navigate: NavigateKeybinds,

@@ -671,7 +671,7 @@ impl TerminalState {
         agent_label: &str,
         session_ref: Option<crate::agent_resume::AgentSessionRef>,
     ) -> Option<crate::agent_resume::AgentSessionRef> {
-        if source == "hako:omp" && agent_label == "omp" {
+        if source == "omh:omp" && agent_label == "omp" {
             let current_ref = self.current_matching_session_ref(source, agent_label);
             if let Some(session_ref) = session_ref {
                 if self.reported_omp_subagent_ref_would_replace_current(&session_ref, current_ref) {
@@ -720,7 +720,7 @@ impl TerminalState {
         agent_label: &str,
         session_ref: &crate::agent_resume::AgentSessionRef,
     ) -> bool {
-        if source == "hako:omp"
+        if source == "omh:omp"
             && agent_label == "omp"
             && session_ref.kind == crate::agent_resume::AgentSessionRefKind::Path
         {
@@ -735,7 +735,7 @@ impl TerminalState {
         current_ref: Option<&crate::agent_resume::AgentSessionRef>,
     ) -> bool {
         current_ref.is_some_and(|current_ref| {
-            Self::session_ref_available_for_report("hako:omp", "omp", current_ref)
+            Self::session_ref_available_for_report("omh:omp", "omp", current_ref)
                 && current_ref != session_ref
                 && Self::is_distinguishable_omp_subagent_ref(session_ref)
         })
@@ -774,11 +774,11 @@ impl TerminalState {
         matches!(
             (source, agent_label, session_start_source),
             (
-                "hako:claude",
+                "omh:claude",
                 "claude",
                 Some("clear" | "resume" | "compact")
             ) | (
-                "hako:omp",
+                "omh:omp",
                 "omp",
                 Some("startup" | "new" | "resume" | "fork")
             )
@@ -1048,8 +1048,8 @@ impl TerminalState {
 
     pub fn take_missing_integration_warning_agent(&mut self, now: Instant) -> Option<Agent> {
         let agent = self.detected_agent?;
-        if !Self::agent_supports_hako_integration(agent)
-            || self.has_hako_integration_evidence_for_agent_at(agent, now)
+        if !Self::agent_supports_omh_integration(agent)
+            || self.has_omh_integration_evidence_for_agent_at(agent, now)
             || self.missing_integration_warning_reported_for == Some(agent)
         {
             return None;
@@ -1059,14 +1059,14 @@ impl TerminalState {
         Some(agent)
     }
 
-    pub fn has_hako_integration_evidence_for_detected_agent_at(&self, now: Instant) -> bool {
+    pub fn has_omh_integration_evidence_for_detected_agent_at(&self, now: Instant) -> bool {
         self.detected_agent
-            .is_some_and(|agent| self.has_hako_integration_evidence_for_agent_at(agent, now))
+            .is_some_and(|agent| self.has_omh_integration_evidence_for_agent_at(agent, now))
     }
 
-    fn has_hako_integration_evidence_for_agent_at(&self, agent: Agent, now: Instant) -> bool {
+    fn has_omh_integration_evidence_for_agent_at(&self, agent: Agent, now: Instant) -> bool {
         self.hook_authority.as_ref().is_some_and(|authority| {
-            Self::hako_report_identity_matches_agent(
+            Self::omh_report_identity_matches_agent(
                 &authority.source,
                 Some(&authority.agent_label),
                 agent,
@@ -1075,7 +1075,7 @@ impl TerminalState {
             .persisted_agent_session
             .as_ref()
             .is_some_and(|session| {
-                Self::hako_report_identity_matches_agent(
+                Self::omh_report_identity_matches_agent(
                     &session.source,
                     Some(&session.agent),
                     agent,
@@ -1083,7 +1083,7 @@ impl TerminalState {
             })
             || self.agent_metadata.values().any(|metadata| {
                 self.agent_metadata_is_valid(metadata, now, true)
-                    && Self::hako_report_identity_matches_agent(
+                    && Self::omh_report_identity_matches_agent(
                         &metadata.source,
                         metadata.agent_label.as_ref(),
                         agent,
@@ -1091,7 +1091,7 @@ impl TerminalState {
             })
     }
 
-    fn agent_supports_hako_integration(agent: Agent) -> bool {
+    fn agent_supports_omh_integration(agent: Agent) -> bool {
         matches!(
             agent,
             Agent::Pi
@@ -1109,13 +1109,13 @@ impl TerminalState {
         )
     }
 
-    fn hako_report_identity_matches_agent(
+    fn omh_report_identity_matches_agent(
         source: &str,
         agent_label: Option<&String>,
         agent: Agent,
     ) -> bool {
         let label = crate::detect::agent_label(agent);
-        source == format!("hako:{label}")
+        source == format!("omh:{label}")
             && agent_label.is_none_or(|agent_label| agent_label == label)
     }
 
@@ -1349,7 +1349,7 @@ mod tests {
 
     fn unique_temp_path(name: &str) -> std::path::PathBuf {
         std::env::temp_dir().join(format!(
-            "hako-terminal-state-{name}-{}-{}",
+            "omh-terminal-state-{name}-{}-{}",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -1503,7 +1503,7 @@ mod tests {
         let mut terminal = test_terminal();
         terminal.set_detected_state(Some(Agent::Pi), AgentState::Idle);
         terminal.set_hook_authority(
-            "hako:pi".into(),
+            "omh:pi".into(),
             "pi".into(),
             AgentState::Working,
             None,
@@ -1521,7 +1521,7 @@ mod tests {
         let mut terminal = test_terminal();
         terminal.set_detected_state(Some(Agent::OhMyPi), AgentState::Idle);
         terminal.set_hook_authority(
-            "hako:omp".into(),
+            "omh:omp".into(),
             "omp".into(),
             AgentState::Working,
             None,
@@ -1545,14 +1545,14 @@ mod tests {
             value: session_path.to_string_lossy().to_string(),
         };
         terminal.set_persisted_agent_session(crate::agent_resume::PersistedAgentSession {
-            source: "hako:omp".into(),
+            source: "omh:omp".into(),
             agent: "omp".into(),
             session_ref: session_ref.clone(),
         });
 
         let mutation = terminal
             .set_hook_authority_with_session_ref(
-                "hako:omp".into(),
+                "omh:omp".into(),
                 "omp".into(),
                 AgentState::Working,
                 None,
@@ -1596,7 +1596,7 @@ mod tests {
 
         terminal
             .set_hook_authority_with_session_ref(
-                "hako:omp".into(),
+                "omh:omp".into(),
                 "omp".into(),
                 AgentState::Idle,
                 None,
@@ -1607,7 +1607,7 @@ mod tests {
             .expect("parent report should establish hook authority");
         let mutation = terminal
             .set_hook_authority_with_session_ref(
-                "hako:omp".into(),
+                "omh:omp".into(),
                 "omp".into(),
                 AgentState::Working,
                 None,
@@ -1634,7 +1634,7 @@ mod tests {
         let mut terminal = test_terminal();
         terminal.set_detected_state(Some(Agent::OhMyPi), AgentState::Idle);
         terminal.set_persisted_agent_session(crate::agent_resume::PersistedAgentSession {
-            source: "hako:omp".into(),
+            source: "omh:omp".into(),
             agent: "omp".into(),
             session_ref: crate::agent_resume::AgentSessionRef {
                 kind: crate::agent_resume::AgentSessionRefKind::Path,
@@ -1646,7 +1646,7 @@ mod tests {
 
         let mutation = terminal
             .set_hook_authority_with_session_ref(
-                "hako:omp".into(),
+                "omh:omp".into(),
                 "omp".into(),
                 AgentState::Working,
                 None,
@@ -1682,7 +1682,7 @@ mod tests {
 
         terminal
             .set_hook_authority_with_session_ref(
-                "hako:omp".into(),
+                "omh:omp".into(),
                 "omp".into(),
                 AgentState::Idle,
                 None,
@@ -1693,7 +1693,7 @@ mod tests {
             .expect("old idle session should establish hook authority");
         let mutation = terminal
             .set_hook_authority_with_session_ref(
-                "hako:omp".into(),
+                "omh:omp".into(),
                 "omp".into(),
                 AgentState::Working,
                 None,
@@ -1713,7 +1713,7 @@ mod tests {
         terminal.set_detected_state(Some(Agent::Pi), AgentState::Idle);
 
         let rejected = terminal.set_hook_authority_with_session_ref(
-            "hako:omp".into(),
+            "omh:omp".into(),
             "omp".into(),
             AgentState::Working,
             None,
@@ -1725,7 +1725,7 @@ mod tests {
 
         let accepted = terminal
             .set_hook_authority_with_session_ref(
-                "hako:pi".into(),
+                "omh:pi".into(),
                 "pi".into(),
                 AgentState::Working,
                 None,
@@ -1744,7 +1744,7 @@ mod tests {
         let mut terminal = test_terminal();
         terminal.set_detected_state(Some(Agent::Pi), AgentState::Idle);
         terminal.set_hook_authority(
-            "hako:custom".into(),
+            "omh:custom".into(),
             "custom-agent".into(),
             AgentState::Working,
             None,
@@ -1763,7 +1763,7 @@ mod tests {
         let mut terminal = test_terminal();
         terminal.set_detected_state(Some(Agent::Codex), AgentState::Idle);
         terminal.set_hook_authority(
-            "hako:codex".into(),
+            "omh:codex".into(),
             "codex".into(),
             AgentState::Working,
             None,
@@ -1788,7 +1788,7 @@ mod tests {
         let mut terminal = test_terminal();
         terminal.set_detected_state(Some(Agent::Codex), AgentState::Idle);
         terminal.set_hook_authority(
-            "hako:codex".into(),
+            "omh:codex".into(),
             "codex".into(),
             AgentState::Working,
             None,
@@ -1813,7 +1813,7 @@ mod tests {
         let mut terminal = test_terminal();
         terminal.set_detected_state(Some(Agent::Codex), AgentState::Working);
         terminal.set_hook_authority(
-            "hako:codex".into(),
+            "omh:codex".into(),
             "codex".into(),
             AgentState::Blocked,
             None,
@@ -1861,7 +1861,7 @@ mod tests {
         let mut terminal = test_terminal();
         terminal.set_detected_state(Some(Agent::Codex), AgentState::Idle);
         terminal.set_hook_authority_with_custom_status(
-            "hako:codex".into(),
+            "omh:codex".into(),
             "codex".into(),
             AgentState::Working,
             None,
@@ -1895,7 +1895,7 @@ mod tests {
             now,
         );
         terminal.set_hook_authority_with_custom_status_at(
-            "hako:claude".into(),
+            "omh:claude".into(),
             "claude".into(),
             AgentState::Working,
             None,
@@ -1947,7 +1947,7 @@ mod tests {
         let mut terminal = test_terminal();
         terminal.set_detected_state(Some(Agent::Claude), AgentState::Working);
         terminal.set_hook_authority_with_custom_status_at(
-            "hako:claude".into(),
+            "omh:claude".into(),
             "claude".into(),
             AgentState::Working,
             None,
@@ -1967,7 +1967,7 @@ mod tests {
         );
 
         terminal.set_hook_authority_with_custom_status_at(
-            "hako:claude".into(),
+            "omh:claude".into(),
             "claude".into(),
             AgentState::Working,
             None,
@@ -1996,7 +1996,7 @@ mod tests {
         let mut terminal = test_terminal();
         terminal.set_detected_state(Some(Agent::Claude), AgentState::Idle);
         terminal.set_hook_authority_with_custom_status_at(
-            "hako:claude".into(),
+            "omh:claude".into(),
             "claude".into(),
             AgentState::Idle,
             None,
@@ -2037,7 +2037,7 @@ mod tests {
             now,
         );
         terminal.set_hook_authority_with_custom_status_at(
-            "hako:codex".into(),
+            "omh:codex".into(),
             "codex".into(),
             AgentState::Blocked,
             None,
@@ -2072,7 +2072,7 @@ mod tests {
         let mut terminal = test_terminal();
         terminal.set_detected_state(Some(Agent::Claude), AgentState::Working);
         terminal.set_hook_authority(
-            "hako:claude".into(),
+            "omh:claude".into(),
             "claude".into(),
             AgentState::Blocked,
             None,
@@ -2097,7 +2097,7 @@ mod tests {
         let mut terminal = test_terminal();
         terminal.set_detected_state(Some(Agent::Codex), AgentState::Working);
         terminal.set_hook_authority(
-            "hako:codex".into(),
+            "omh:codex".into(),
             "codex".into(),
             AgentState::Working,
             None,
@@ -2122,7 +2122,7 @@ mod tests {
         let mut terminal = test_terminal();
         terminal.set_detected_state(Some(Agent::Grok), AgentState::Working);
         let change = terminal.set_hook_authority(
-            "hako:claude".into(),
+            "omh:claude".into(),
             "claude".into(),
             AgentState::Blocked,
             None,
@@ -2140,7 +2140,7 @@ mod tests {
     fn detected_agent_clears_conflicting_known_hook_authority() {
         let mut terminal = test_terminal();
         terminal.set_hook_authority(
-            "hako:claude".into(),
+            "omh:claude".into(),
             "claude".into(),
             AgentState::Blocked,
             None,
@@ -2194,7 +2194,7 @@ mod tests {
         let mut terminal = test_terminal();
         terminal.set_detected_state(Some(Agent::Pi), AgentState::Idle);
         terminal.set_hook_authority(
-            "hako:custom".into(),
+            "omh:custom".into(),
             "custom-agent".into(),
             AgentState::Working,
             None,
@@ -2214,7 +2214,7 @@ mod tests {
         let mut terminal = test_terminal();
         terminal.set_detected_state(Some(Agent::OpenCode), AgentState::Idle);
         terminal.set_hook_authority(
-            "hako:opencode".into(),
+            "omh:opencode".into(),
             "opencode".into(),
             AgentState::Idle,
             None,
@@ -2235,7 +2235,7 @@ mod tests {
         let mut terminal = test_terminal();
         terminal.set_detected_state(Some(Agent::Codex), AgentState::Working);
         terminal.set_hook_authority(
-            "hako:codex".into(),
+            "omh:codex".into(),
             "codex".into(),
             AgentState::Working,
             None,
@@ -2255,7 +2255,7 @@ mod tests {
         let mut terminal = test_terminal();
         terminal.set_detected_state(Some(Agent::Codex), AgentState::Working);
         terminal.set_hook_authority(
-            "hako:codex".into(),
+            "omh:codex".into(),
             "codex".into(),
             AgentState::Working,
             None,
@@ -2290,7 +2290,7 @@ mod tests {
             observed,
         );
         terminal.set_hook_authority_with_custom_status_at(
-            "hako:claude".into(),
+            "omh:claude".into(),
             "claude".into(),
             AgentState::Working,
             None,
@@ -2328,7 +2328,7 @@ mod tests {
             observed,
         );
         terminal.set_hook_authority_with_custom_status_at(
-            "hako:codex".into(),
+            "omh:codex".into(),
             "codex".into(),
             AgentState::Working,
             None,
@@ -2338,7 +2338,7 @@ mod tests {
             observed,
         );
         terminal.set_hook_authority_with_custom_status_at(
-            "hako:codex".into(),
+            "omh:codex".into(),
             "codex".into(),
             AgentState::Working,
             None,
@@ -2369,7 +2369,7 @@ mod tests {
         let mut terminal = test_terminal();
         terminal.set_detected_state(Some(Agent::Codex), AgentState::Idle);
         terminal.set_hook_authority(
-            "hako:codex".into(),
+            "omh:codex".into(),
             "codex".into(),
             AgentState::Idle,
             None,
@@ -2389,14 +2389,14 @@ mod tests {
         let mut terminal = test_terminal();
         terminal.set_detected_state(Some(Agent::Pi), AgentState::Idle);
         terminal.set_hook_authority(
-            "hako:pi".into(),
+            "omh:pi".into(),
             "pi".into(),
             AgentState::Working,
             None,
             None,
         );
 
-        terminal.release_agent("hako:pi", "pi", None);
+        terminal.release_agent("omh:pi", "pi", None);
 
         assert!(terminal.hook_authority.is_none());
         assert_eq!(terminal.detected_agent, None);
@@ -2408,7 +2408,7 @@ mod tests {
     fn stale_hook_report_sequence_is_ignored_for_same_source() {
         let mut terminal = test_terminal();
         terminal.set_hook_authority(
-            "hako:pi".into(),
+            "omh:pi".into(),
             "pi".into(),
             AgentState::Working,
             None,
@@ -2416,7 +2416,7 @@ mod tests {
         );
 
         let change = terminal.set_hook_authority(
-            "hako:pi".into(),
+            "omh:pi".into(),
             "pi".into(),
             AgentState::Idle,
             None,
@@ -2436,7 +2436,7 @@ mod tests {
         let mut terminal = test_terminal();
         let mutation = terminal
             .set_hook_authority_with_session_ref(
-                "hako:pi".into(),
+                "omh:pi".into(),
                 "pi".into(),
                 AgentState::Working,
                 None,
@@ -2464,7 +2464,7 @@ mod tests {
     fn stale_hook_report_cannot_overwrite_session_ref() {
         let mut terminal = test_terminal();
         terminal.set_hook_authority_with_session_ref(
-            "hako:pi".into(),
+            "omh:pi".into(),
             "pi".into(),
             AgentState::Working,
             None,
@@ -2474,7 +2474,7 @@ mod tests {
         );
 
         let mutation = terminal.set_hook_authority_with_session_ref(
-            "hako:pi".into(),
+            "omh:pi".into(),
             "pi".into(),
             AgentState::Working,
             None,
@@ -2499,7 +2499,7 @@ mod tests {
         let mut terminal = test_terminal();
         terminal
             .set_hook_authority_with_session_ref(
-                "hako:pi".into(),
+                "omh:pi".into(),
                 "pi".into(),
                 AgentState::Working,
                 None,
@@ -2511,7 +2511,7 @@ mod tests {
 
         let mutation = terminal
             .set_hook_authority_with_session_ref(
-                "hako:pi".into(),
+                "omh:pi".into(),
                 "pi".into(),
                 AgentState::Blocked,
                 Some("waiting on child tool".into()),
@@ -2526,7 +2526,7 @@ mod tests {
         assert_eq!(
             terminal.current_session_identity_for_persistence(),
             Some((
-                "hako:pi".to_string(),
+                "omh:pi".to_string(),
                 "pi".to_string(),
                 crate::agent_resume::AgentSessionRefKind::Id,
                 "parent-session".to_string(),
@@ -2539,7 +2539,7 @@ mod tests {
         let mut terminal = test_terminal();
         terminal
             .set_agent_session_ref(
-                "hako:pi".into(),
+                "omh:pi".into(),
                 "pi".into(),
                 crate::agent_resume::AgentSessionRef::id("parent-session"),
                 Some(20),
@@ -2547,7 +2547,7 @@ mod tests {
             .expect("parent session should be persisted");
 
         let mutation = terminal.set_agent_session_ref(
-            "hako:pi".into(),
+            "omh:pi".into(),
             "pi".into(),
             crate::agent_resume::AgentSessionRef::id("child-session"),
             Some(21),
@@ -2557,7 +2557,7 @@ mod tests {
         assert_eq!(
             terminal.current_session_identity_for_persistence(),
             Some((
-                "hako:pi".to_string(),
+                "omh:pi".to_string(),
                 "pi".to_string(),
                 crate::agent_resume::AgentSessionRefKind::Id,
                 "parent-session".to_string(),
@@ -2571,7 +2571,7 @@ mod tests {
         terminal.set_detected_state(Some(Agent::Pi), AgentState::Working);
         terminal
             .set_agent_session_ref(
-                "hako:pi".into(),
+                "omh:pi".into(),
                 "pi".into(),
                 crate::agent_resume::AgentSessionRef::id("parent-session"),
                 Some(20),
@@ -2583,7 +2583,7 @@ mod tests {
 
         let mutation = terminal
             .set_agent_session_ref(
-                "hako:pi".into(),
+                "omh:pi".into(),
                 "pi".into(),
                 crate::agent_resume::AgentSessionRef::id("new-parent-session"),
                 Some(21),
@@ -2594,7 +2594,7 @@ mod tests {
         assert_eq!(
             terminal.current_session_identity_for_persistence(),
             Some((
-                "hako:pi".to_string(),
+                "omh:pi".to_string(),
                 "pi".to_string(),
                 crate::agent_resume::AgentSessionRefKind::Id,
                 "new-parent-session".to_string(),
@@ -2606,7 +2606,7 @@ mod tests {
         let mut terminal = test_terminal();
         terminal
             .set_agent_session_ref(
-                "hako:claude".into(),
+                "omh:claude".into(),
                 "claude".into(),
                 crate::agent_resume::AgentSessionRef::id("claude-old"),
                 Some(20),
@@ -2616,7 +2616,7 @@ mod tests {
         assert!(
             terminal
                 .set_agent_session_ref_for_session_start(
-                    "hako:claude".into(),
+                    "omh:claude".into(),
                     "claude".into(),
                     crate::agent_resume::AgentSessionRef::id("claude-startup"),
                     Some(21),
@@ -2628,7 +2628,7 @@ mod tests {
 
         let rotation = terminal
             .set_agent_session_ref_for_session_start(
-                "hako:claude".into(),
+                "omh:claude".into(),
                 "claude".into(),
                 crate::agent_resume::AgentSessionRef::id("claude-resumed"),
                 Some(22),
@@ -2649,7 +2649,7 @@ mod tests {
     fn accepted_hook_report_without_session_ref_clears_previous_ref() {
         let mut terminal = test_terminal();
         terminal.set_hook_authority_with_session_ref(
-            "hako:pi".into(),
+            "omh:pi".into(),
             "pi".into(),
             AgentState::Working,
             None,
@@ -2660,7 +2660,7 @@ mod tests {
 
         let mutation = terminal
             .set_hook_authority_with_session_ref(
-                "hako:pi".into(),
+                "omh:pi".into(),
                 "pi".into(),
                 AgentState::Working,
                 None,
@@ -2684,14 +2684,14 @@ mod tests {
     fn accepted_hook_report_marks_changed_when_session_identity_changes() {
         let mut terminal = test_terminal();
         terminal.set_persisted_agent_session(crate::agent_resume::PersistedAgentSession {
-            source: "hako:opencode".into(),
+            source: "omh:opencode".into(),
             agent: "opencode".into(),
             session_ref: crate::agent_resume::AgentSessionRef::id("same-session").unwrap(),
         });
 
         let mutation = terminal
             .set_hook_authority_with_session_ref(
-                "hako:hermes".into(),
+                "omh:hermes".into(),
                 "hermes".into(),
                 AgentState::Working,
                 None,
@@ -2708,7 +2708,7 @@ mod tests {
     fn clearing_hook_authority_clears_session_ref() {
         let mut terminal = test_terminal();
         terminal.set_hook_authority_with_session_ref(
-            "hako:pi".into(),
+            "omh:pi".into(),
             "pi".into(),
             AgentState::Working,
             None,
@@ -2718,7 +2718,7 @@ mod tests {
         );
 
         let mutation = terminal
-            .clear_hook_authority_with_mutation(Some("hako:pi"), Some(21))
+            .clear_hook_authority_with_mutation(Some("omh:pi"), Some(21))
             .expect("accepted clear");
 
         assert!(mutation.session_ref_changed);
@@ -2729,7 +2729,7 @@ mod tests {
     fn release_agent_clears_session_ref() {
         let mut terminal = test_terminal();
         terminal.set_hook_authority_with_session_ref(
-            "hako:pi".into(),
+            "omh:pi".into(),
             "pi".into(),
             AgentState::Working,
             None,
@@ -2740,7 +2740,7 @@ mod tests {
 
         let mutation = terminal
             .release_agent_with_mutation(
-                "hako:pi",
+                "omh:pi",
                 "pi",
                 crate::agent_resume::AgentSessionRef::path("/tmp/pi.jsonl"),
                 Some(21),
@@ -2755,14 +2755,14 @@ mod tests {
     fn release_agent_clears_matching_restored_session_ref_before_detection() {
         let mut terminal = test_terminal();
         terminal.set_persisted_agent_session(crate::agent_resume::PersistedAgentSession {
-            source: "hako:hermes".into(),
+            source: "omh:hermes".into(),
             agent: "hermes".into(),
             session_ref: crate::agent_resume::AgentSessionRef::id("hermes-session").unwrap(),
         });
 
         let mutation = terminal
             .release_agent_with_mutation(
-                "hako:hermes",
+                "omh:hermes",
                 "hermes",
                 crate::agent_resume::AgentSessionRef::id("hermes-session"),
                 Some(21),
@@ -2779,7 +2779,7 @@ mod tests {
         let mut terminal = test_terminal();
         terminal
             .set_hook_authority_with_session_ref(
-                "hako:omp".into(),
+                "omh:omp".into(),
                 "omp".into(),
                 AgentState::Working,
                 None,
@@ -2790,7 +2790,7 @@ mod tests {
             .expect("current session should establish authority");
 
         let stale_release = terminal.release_agent_with_mutation(
-            "hako:omp",
+            "omh:omp",
             "omp",
             crate::agent_resume::AgentSessionRef::path("/tmp/old.jsonl"),
             Some(21),
@@ -2800,7 +2800,7 @@ mod tests {
         assert!(terminal.hook_authority.is_some());
 
         let matching_release = terminal.release_agent_with_mutation(
-            "hako:omp",
+            "omh:omp",
             "omp",
             crate::agent_resume::AgentSessionRef::path("/tmp/current.jsonl"),
             Some(22),
@@ -2813,7 +2813,7 @@ mod tests {
     fn detected_conflict_clears_session_ref() {
         let mut terminal = test_terminal();
         terminal.set_hook_authority_with_session_ref(
-            "hako:claude".into(),
+            "omh:claude".into(),
             "claude".into(),
             AgentState::Working,
             None,
@@ -2834,7 +2834,7 @@ mod tests {
         let mut terminal = test_terminal();
         terminal.set_detected_state(Some(Agent::Hermes), AgentState::Idle);
         terminal.set_hook_authority_with_session_ref(
-            "hako:hermes".into(),
+            "omh:hermes".into(),
             "hermes".into(),
             AgentState::Working,
             None,
@@ -2855,7 +2855,7 @@ mod tests {
     fn detected_agent_disappearance_clears_matching_persisted_session_ref() {
         let mut terminal = test_terminal();
         terminal.set_persisted_agent_session(crate::agent_resume::PersistedAgentSession {
-            source: "hako:opencode".into(),
+            source: "omh:opencode".into(),
             agent: "opencode".into(),
             session_ref: crate::agent_resume::AgentSessionRef::id("opencode-session").unwrap(),
         });
@@ -2874,7 +2874,7 @@ mod tests {
     fn initial_unknown_detection_preserves_restored_session_ref() {
         let mut terminal = test_terminal();
         terminal.set_persisted_agent_session(crate::agent_resume::PersistedAgentSession {
-            source: "hako:hermes".into(),
+            source: "omh:hermes".into(),
             agent: "hermes".into(),
             session_ref: crate::agent_resume::AgentSessionRef::id("hermes-session").unwrap(),
         });
@@ -2888,7 +2888,7 @@ mod tests {
     fn unsequenced_hook_report_is_ignored_after_source_uses_sequence() {
         let mut terminal = test_terminal();
         terminal.set_hook_authority(
-            "hako:pi".into(),
+            "omh:pi".into(),
             "pi".into(),
             AgentState::Working,
             None,
@@ -2896,7 +2896,7 @@ mod tests {
         );
 
         let change = terminal.set_hook_authority(
-            "hako:pi".into(),
+            "omh:pi".into(),
             "pi".into(),
             AgentState::Idle,
             None,
@@ -2911,14 +2911,14 @@ mod tests {
     fn stale_release_sequence_is_ignored_for_same_source() {
         let mut terminal = test_terminal();
         terminal.set_hook_authority(
-            "hako:pi".into(),
+            "omh:pi".into(),
             "pi".into(),
             AgentState::Working,
             None,
             Some(20),
         );
 
-        let change = terminal.release_agent("hako:pi", "pi", Some(19));
+        let change = terminal.release_agent("omh:pi", "pi", Some(19));
 
         assert!(change.is_none());
         assert_eq!(terminal.state, AgentState::Working);
@@ -2929,7 +2929,7 @@ mod tests {
     fn stale_clear_all_sequence_is_checked_against_current_authority_source() {
         let mut terminal = test_terminal();
         terminal.set_hook_authority(
-            "hako:pi".into(),
+            "omh:pi".into(),
             "pi".into(),
             AgentState::Working,
             None,
@@ -2947,7 +2947,7 @@ mod tests {
     fn same_sequence_from_different_sources_is_independent() {
         let mut terminal = test_terminal();
         terminal.set_hook_authority(
-            "hako:pi".into(),
+            "omh:pi".into(),
             "pi".into(),
             AgentState::Working,
             None,

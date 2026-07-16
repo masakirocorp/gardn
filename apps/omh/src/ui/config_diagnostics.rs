@@ -198,7 +198,7 @@ fn render_config_diagnostics_overlay_from(
                     .add_modifier(Modifier::BOLD),
             ),
             Span::styled(
-                "  $ hako config check",
+                "  $ omh config check",
                 Style::default()
                     .fg(app.palette.text)
                     .add_modifier(Modifier::BOLD),

@@ -134,7 +134,7 @@ pub enum AppEvent {
         status: crate::detect::manifest_update::ManifestUpdateStatus,
     },
     /// A pane child emitted a valid OSC 52 clipboard write. The main loop
-    /// re-emits it through hako's own clipboard writer.
+    /// re-emits it through Oh My Herdr's own clipboard writer.
     ClipboardWrite { content: Vec<u8> },
     /// Prefix-mode ASCII input-source intent. The foreground client applies
     /// the host-local switch in server mode; the monolithic app applies it

@@ -395,7 +395,7 @@ impl App {
         {
             let previous_toast = self.state.toast.clone();
             for update in self.state.expire_agent_metadata_at(deadline, now) {
-                self.refresh_new_hako_toast_context_for_update(&update, &previous_toast);
+                self.refresh_new_omh_toast_context_for_update(&update, &previous_toast);
                 self.emit_pane_state_update(&update);
             }
             self.sync_agent_metadata_deadline();
@@ -847,7 +847,7 @@ mod tests {
     #[test]
     fn git_refresh_deduplicates_workspaces_with_same_cache_key() {
         let repo =
-            std::env::temp_dir().join(format!("hako-git-refresh-dedupe-{}", std::process::id()));
+            std::env::temp_dir().join(format!("omh-git-refresh-dedupe-{}", std::process::id()));
         let nested = repo.join("nested");
         let other = repo.join("other");
         std::fs::create_dir_all(&nested).expect("create nested dir");
@@ -899,7 +899,7 @@ mod tests {
     #[test]
     fn git_refresh_items_include_direct_child_repos_for_non_git_cwd() {
         let parent = std::env::temp_dir().join(format!(
-            "hako-git-refresh-child-repos-{}",
+            "omh-git-refresh-child-repos-{}",
             std::process::id()
         ));
         let child = parent.join("child");
@@ -941,7 +941,7 @@ mod tests {
             tokio::sync::mpsc::unbounded_channel().1,
             crate::api::EventHub::default(),
         );
-        let cwd = std::env::temp_dir().join(format!("hako-non-git-cwd-{}", std::process::id()));
+        let cwd = std::env::temp_dir().join(format!("omh-non-git-cwd-{}", std::process::id()));
         std::fs::create_dir_all(&cwd).expect("create temp cwd");
         let mut ws = Workspace::test_new("test");
         ws.identity_cwd = cwd.clone();

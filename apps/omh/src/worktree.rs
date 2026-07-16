@@ -417,7 +417,7 @@ mod tests {
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_nanos())
             .unwrap_or(0);
-        std::env::temp_dir().join(format!("hako-{name}-{}-{nanos}", std::process::id()))
+        std::env::temp_dir().join(format!("omh-{name}-{}-{nanos}", std::process::id()))
     }
 
     fn run_git(repo: &Path, args: &[&str]) {
@@ -439,8 +439,8 @@ mod tests {
         let repo = unique_temp_path(name);
         std::fs::create_dir_all(&repo).unwrap();
         run_git(&repo, &["init", "--quiet"]);
-        run_git(&repo, &["config", "user.email", "hako@example.invalid"]);
-        run_git(&repo, &["config", "user.name", "Hako Test"]);
+        run_git(&repo, &["config", "user.email", "omh@example.invalid"]);
+        run_git(&repo, &["config", "user.name", "Oh My Herdr Test"]);
         std::fs::write(repo.join("README.md"), "test\n").unwrap();
         run_git(&repo, &["add", "README.md"]);
         run_git(&repo, &["commit", "--quiet", "-m", "initial"]);
@@ -517,10 +517,10 @@ prunable stale
         assert_eq!(
             home_dir_from_env(true, |key| match key {
                 "HOME" => Some("~".into()),
-                "USERPROFILE" => Some(r"C:\Users\hako".into()),
+                "USERPROFILE" => Some(r"C:\Users\omh".into()),
                 _ => None,
             }),
-            Ok(PathBuf::from(r"C:\Users\hako"))
+            Ok(PathBuf::from(r"C:\Users\omh"))
         );
     }
 
@@ -529,10 +529,10 @@ prunable stale
         assert_eq!(
             home_dir_from_env(true, |key| match key {
                 "HOMEDRIVE" => Some("C:".into()),
-                "HOMEPATH" => Some(r"\Users\hako".into()),
+                "HOMEPATH" => Some(r"\Users\omh".into()),
                 _ => None,
             }),
-            Ok(PathBuf::from(r"C:\Users\hako"))
+            Ok(PathBuf::from(r"C:\Users\omh"))
         );
     }
 
@@ -549,7 +549,7 @@ prunable stale
         assert_eq!(
             home_dir_from_env(true, |key| match key {
                 "HOMEDRIVE" => Some("C:".into()),
-                "HOMEPATH" => Some("Users\\hako".into()),
+                "HOMEPATH" => Some("Users\\omh".into()),
                 _ => None,
             }),
             Err(())
@@ -560,11 +560,11 @@ prunable stale
     #[test]
     fn non_windows_tilde_expansion_keeps_windows_separator_literal() {
         assert_eq!(
-            expand_tilde_path_from_env(r"~\.hako\worktrees", false, |key| match key {
+            expand_tilde_path_from_env(r"~\.omh\worktrees", false, |key| match key {
                 "HOME" => Some("/home/me".into()),
                 _ => None,
             }),
-            PathBuf::from(r"~\.hako\worktrees")
+            PathBuf::from(r"~\.omh\worktrees")
         );
     }
 
@@ -574,34 +574,34 @@ prunable stale
         fn env(key: &str) -> Option<OsString> {
             match key {
                 "HOME" => Some("~".into()),
-                "USERPROFILE" => Some(r"C:\Users\hako".into()),
+                "USERPROFILE" => Some(r"C:\Users\omh".into()),
                 _ => None,
             }
         }
 
-        let default_path = expand_tilde_path_from_env("~/.hako/worktrees", true, env);
+        let default_path = expand_tilde_path_from_env("~/.omh/worktrees", true, env);
         assert_eq!(
             default_path,
-            PathBuf::from(r"C:\Users\hako\.hako\worktrees")
+            PathBuf::from(r"C:\Users\omh\.omh\worktrees")
         );
         assert_eq!(
             default_path.display().to_string(),
-            r"C:\Users\hako\.hako\worktrees"
+            r"C:\Users\omh\.omh\worktrees"
         );
         assert_eq!(
-            expand_tilde_path_from_env(r"~\.hako\worktrees", true, env),
-            PathBuf::from(r"C:\Users\hako\.hako\worktrees")
+            expand_tilde_path_from_env(r"~\.omh\worktrees", true, env),
+            PathBuf::from(r"C:\Users\omh\.omh\worktrees")
         );
     }
 
     #[test]
     fn expand_tilde_path_uses_home_when_available() {
         assert_eq!(
-            expand_tilde_path_from_env("~/.hako/worktrees", false, |key| match key {
+            expand_tilde_path_from_env("~/.omh/worktrees", false, |key| match key {
                 "HOME" => Some("/home/me".into()),
                 _ => None,
             }),
-            PathBuf::from("/home/me/.hako/worktrees")
+            PathBuf::from("/home/me/.omh/worktrees")
         );
         assert_eq!(
             expand_tilde_path_from_env("/tmp/worktrees", false, |_| None),
@@ -613,11 +613,11 @@ prunable stale
     fn default_checkout_path_appends_repo_and_branch_slug() {
         assert_eq!(
             default_checkout_path(
-                Path::new("/home/me/.hako/worktrees"),
-                "hako",
+                Path::new("/home/me/.omh/worktrees"),
+                "omh",
                 "worktree/brave-river",
             ),
-            PathBuf::from("/home/me/.hako/worktrees/hako/worktree-brave-river")
+            PathBuf::from("/home/me/.omh/worktrees/omh/worktree-brave-river")
         );
     }
 
@@ -650,8 +650,8 @@ prunable stale
     #[test]
     fn worktree_remove_command_preserves_branch_by_not_deleting_it() {
         let command = build_worktree_remove_command(
-            Path::new("/repo/hako"),
-            Path::new("/w/hako/issue-137"),
+            Path::new("/repo/omh"),
+            Path::new("/w/omh/issue-137"),
             false,
         );
         assert_eq!(command.program, "git");
@@ -659,10 +659,10 @@ prunable stale
             command.args,
             vec![
                 "-C",
-                "/repo/hako",
+                "/repo/omh",
                 "worktree",
                 "remove",
-                "/w/hako/issue-137"
+                "/w/omh/issue-137"
             ]
         );
     }
@@ -670,19 +670,19 @@ prunable stale
     #[test]
     fn forced_worktree_remove_command_uses_git_force_flag() {
         let command = build_worktree_remove_command(
-            Path::new("/repo/hako"),
-            Path::new("/w/hako/issue-137"),
+            Path::new("/repo/omh"),
+            Path::new("/w/omh/issue-137"),
             true,
         );
         assert_eq!(
             command.args,
             vec![
                 "-C",
-                "/repo/hako",
+                "/repo/omh",
                 "worktree",
                 "remove",
                 "--force",
-                "/w/hako/issue-137"
+                "/w/omh/issue-137"
             ]
         );
     }
@@ -690,21 +690,21 @@ prunable stale
     #[test]
     fn dirty_remove_error_detection_matches_git_force_hint() {
         assert!(is_dirty_worktree_remove_error(
-            "fatal: '/w/hako' contains modified or untracked files, use --force to delete it"
+            "fatal: '/w/omh' contains modified or untracked files, use --force to delete it"
         ));
         assert!(!is_dirty_worktree_remove_error(
-            "fatal: '/w/hako' is a missing but already registered worktree"
+            "fatal: '/w/omh' is a missing but already registered worktree"
         ));
         assert!(!is_dirty_worktree_remove_error(
-            "fatal: '/w/hako' contains a locked worktree, use --force only if you know why"
+            "fatal: '/w/omh' contains a locked worktree, use --force only if you know why"
         ));
     }
 
     #[test]
     fn worktree_add_command_creates_new_branch_from_base() {
         let command = build_worktree_add_new_branch_command(
-            Path::new("/repo/hako"),
-            Path::new("/w/hako/worktree-brave-river"),
+            Path::new("/repo/omh"),
+            Path::new("/w/omh/worktree-brave-river"),
             "worktree/brave-river",
             "HEAD",
         );
@@ -713,12 +713,12 @@ prunable stale
             command.args,
             vec![
                 "-C",
-                "/repo/hako",
+                "/repo/omh",
                 "worktree",
                 "add",
                 "-b",
                 "worktree/brave-river",
-                "/w/hako/worktree-brave-river",
+                "/w/omh/worktree-brave-river",
                 "HEAD"
             ]
         );

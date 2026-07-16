@@ -79,12 +79,12 @@ fn sanitize_extension(extension: &str) -> &'static str {
 #[cfg(unix)]
 fn staging_dir() -> PathBuf {
     let user_id = unsafe { libc::geteuid() };
-    std::env::temp_dir().join(format!("hako-clipboard-images-{user_id}"))
+    std::env::temp_dir().join(format!("omh-clipboard-images-{user_id}"))
 }
 
 #[cfg(not(unix))]
 fn staging_dir() -> PathBuf {
-    std::env::temp_dir().join(format!("hako-clipboard-images-{}", std::process::id()))
+    std::env::temp_dir().join(format!("omh-clipboard-images-{}", std::process::id()))
 }
 
 fn ensure_staging_dir() -> io::Result<PathBuf> {

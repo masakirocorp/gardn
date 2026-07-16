@@ -2,7 +2,7 @@ id = "omp"
 version = "2026.06.12.1"
 min_engine_version = 1
 updated_at = "2026-06-12T00:00:00Z"
-aliases = ["hako:omp", "oh-my-pi"]
+aliases = ["omh:omp", "oh-my-pi"]
 
 [[rules]]
 id = "blocked_selector_dialog"

@@ -37,13 +37,13 @@ fn detection(
 pub(crate) fn full_lifecycle_hook_authority(source: &str, agent_label: &str) -> bool {
     matches!(
         (source, agent_label),
-        ("hako:claude", "claude")
-            | ("hako:codex", "codex")
-            | ("hako:grok", "grok")
-            | ("hako:hermes", "hermes")
-            | ("hako:opencode", "opencode")
-            | ("hako:kilo", "kilo")
-            | ("hako:kimi", "kimi")
+        ("omh:claude", "claude")
+            | ("omh:codex", "codex")
+            | ("omh:grok", "grok")
+            | ("omh:hermes", "hermes")
+            | ("omh:opencode", "opencode")
+            | ("omh:kilo", "kilo")
+            | ("omh:kimi", "kimi")
     )
 }
 
@@ -86,16 +86,16 @@ mod tests {
     }
 
     #[test]
-    fn full_lifecycle_hook_sources_use_hako_namespace() {
-        assert!(!full_lifecycle_hook_authority("hako:pi", "pi"));
-        assert!(!full_lifecycle_hook_authority("hako:omp", "omp"));
-        assert!(full_lifecycle_hook_authority("hako:claude", "claude"));
-        assert!(full_lifecycle_hook_authority("hako:codex", "codex"));
-        assert!(full_lifecycle_hook_authority("hako:grok", "grok"));
-        assert!(full_lifecycle_hook_authority("hako:hermes", "hermes"));
-        assert!(full_lifecycle_hook_authority("hako:opencode", "opencode"));
-        assert!(full_lifecycle_hook_authority("hako:kilo", "kilo"));
-        assert!(full_lifecycle_hook_authority("hako:kimi", "kimi"));
+    fn full_lifecycle_hook_sources_use_omh_namespace() {
+        assert!(!full_lifecycle_hook_authority("omh:pi", "pi"));
+        assert!(!full_lifecycle_hook_authority("omh:omp", "omp"));
+        assert!(full_lifecycle_hook_authority("omh:claude", "claude"));
+        assert!(full_lifecycle_hook_authority("omh:codex", "codex"));
+        assert!(full_lifecycle_hook_authority("omh:grok", "grok"));
+        assert!(full_lifecycle_hook_authority("omh:hermes", "hermes"));
+        assert!(full_lifecycle_hook_authority("omh:opencode", "opencode"));
+        assert!(full_lifecycle_hook_authority("omh:kilo", "kilo"));
+        assert!(full_lifecycle_hook_authority("omh:kimi", "kimi"));
         assert!(!full_lifecycle_hook_authority("herdr:pi", "pi"));
     }
 

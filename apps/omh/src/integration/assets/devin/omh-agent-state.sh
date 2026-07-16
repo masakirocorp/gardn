@@ -1,14 +1,14 @@
 #!/bin/sh
-# installed by hako
-# managed by hako; reinstalling or updating the integration overwrites this file.
+# installed by Oh My Herdr
+# managed by Oh My Herdr; reinstalling or updating the integration overwrites this file.
 # add custom hooks beside this file instead of editing it.
-# HAKO_INTEGRATION_ID=devin
-# HAKO_INTEGRATION_VERSION=2
+# OMH_INTEGRATION_ID=devin
+# OMH_INTEGRATION_VERSION=2
 
 set -eu
 
 action="${1:-}"
-hook_input_file="$(mktemp "${TMPDIR:-/tmp}/hako-devin-hook.XXXXXX")" || exit 0
+hook_input_file="$(mktemp "${TMPDIR:-/tmp}/omh-devin-hook.XXXXXX")" || exit 0
 trap 'rm -f "$hook_input_file"' EXIT HUP INT TERM
 cat >"$hook_input_file" 2>/dev/null || true
 
@@ -17,12 +17,12 @@ case "$action" in
   *) exit 0 ;;
 esac
 
-[ "${HAKO_ENV:-}" = "1" ] || exit 0
-[ -n "${HAKO_SOCKET_PATH:-}" ] || exit 0
-[ -n "${HAKO_PANE_ID:-}" ] || exit 0
+[ "${OMH_ENV:-}" = "1" ] || exit 0
+[ -n "${OMH_SOCKET_PATH:-}" ] || exit 0
+[ -n "${OMH_PANE_ID:-}" ] || exit 0
 command -v python3 >/dev/null 2>&1 || exit 0
 
-HAKO_HOOK_INPUT_FILE="$hook_input_file" python3 - <<'PY'
+OMH_HOOK_INPUT_FILE="$hook_input_file" python3 - <<'PY'
 from __future__ import annotations
 
 import json
@@ -32,7 +32,7 @@ import socket
 import subprocess
 import time
 
-SOURCE = "hako:devin"
+SOURCE = "omh:devin"
 AGENT = "devin"
 
 
@@ -51,7 +51,7 @@ def load_hook_input(path):
 
 
 def load_session_list(project_dir):
-    injected = os.environ.get("HAKO_DEVIN_LIST_JSON")
+    injected = os.environ.get("OMH_DEVIN_LIST_JSON")
     if injected is not None:
         try:
             parsed = json.loads(injected)
@@ -134,10 +134,10 @@ def resolve_session_id(project_dir, hook_input):
     return None
 
 
-pane_id = os.environ.get("HAKO_PANE_ID")
-socket_path = os.environ.get("HAKO_SOCKET_PATH")
+pane_id = os.environ.get("OMH_PANE_ID")
+socket_path = os.environ.get("OMH_SOCKET_PATH")
 project_dir = os.environ.get("DEVIN_PROJECT_DIR") or os.getcwd()
-hook_input = load_hook_input(os.environ.get("HAKO_HOOK_INPUT_FILE"))
+hook_input = load_hook_input(os.environ.get("OMH_HOOK_INPUT_FILE"))
 
 if not pane_id or not socket_path:
     raise SystemExit(0)

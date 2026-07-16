@@ -32,7 +32,7 @@ pub(super) fn ghostty_key_event_from_terminal_key(
     Some(event)
 }
 
-pub(super) fn ghostty_prefers_hako_text_encoding(key: crate::input::TerminalKey) -> bool {
+pub(super) fn ghostty_prefers_omh_text_encoding(key: crate::input::TerminalKey) -> bool {
     matches!(key.code, crossterm::event::KeyCode::Char(_))
 }
 
@@ -62,7 +62,7 @@ pub(super) fn ghostty_mouse_encoder_for_terminal(
         .mode_get(crate::ghostty::MODE_MOUSE_SGR_PIXELS)
         .unwrap_or(false)
     {
-        // Hako receives terminal mouse positions in cell coordinates from the
+        // Oh My Herdr receives terminal mouse positions in cell coordinates from the
         // host terminal, not surface pixels. If the child requested SGR-pixels,
         // downgrade to SGR cells instead of forwarding bogus pixel values.
         encoder.set_format_sgr();

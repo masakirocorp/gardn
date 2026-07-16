@@ -386,7 +386,7 @@ mod unix {
                 poll_observer,
             };
             std::thread::Builder::new()
-                .name(format!("hako-pty-{}", config.pane_id))
+                .name(format!("omh-pty-{}", config.pane_id))
                 .spawn(move || runner.run())
                 .map_err(|err| std::io::Error::other(err.to_string()))?;
 

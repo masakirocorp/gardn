@@ -105,7 +105,7 @@ impl App {
         let job = self.capture_session_save_job();
         self.session_save_deadline = None;
         match std::thread::Builder::new()
-            .name("hako-session-save".into())
+            .name("omh-session-save".into())
             .spawn(move || run_session_save_job(job))
         {
             Ok(thread) => self.session_save_thread = Some(thread),

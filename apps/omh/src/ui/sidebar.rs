@@ -4624,7 +4624,7 @@ mod tests {
             .attached_terminal_id
             .clone();
         let left_terminal = app.terminals.get_mut(&left_terminal_id).unwrap();
-        left_terminal.cwd = std::path::PathBuf::from("/tmp/hako");
+        left_terminal.cwd = std::path::PathBuf::from("/tmp/omh");
         left_terminal.detected_agent = Some(Agent::Pi);
         left_terminal.state = AgentState::Working;
 
@@ -4642,7 +4642,7 @@ mod tests {
 
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0].pane_id, left_pane);
-        assert_eq!(entries[0].primary_label, "hako");
+        assert_eq!(entries[0].primary_label, "omh");
         assert_eq!(entries[0].primary_tab_label.as_deref(), Some("1"));
         assert_eq!(entries[0].agent_label.as_deref(), Some("pi"));
         assert_eq!(entries[0].state, AgentState::Working);
@@ -4651,7 +4651,7 @@ mod tests {
     #[tokio::test]
     async fn all_workspaces_agent_panel_entries_use_live_root_runtime_cwd_for_workspace_label() {
         let unique = format!(
-            "hako-agent-panel-runtime-cwd-{}-{}",
+            "omh-agent-panel-runtime-cwd-{}-{}",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -4660,7 +4660,7 @@ mod tests {
         );
         let root = std::env::temp_dir().join(unique);
         let stale_cwd = root.join("issue-264-nix-support");
-        let live_cwd = root.join("hako");
+        let live_cwd = root.join("omh");
         std::fs::create_dir_all(stale_cwd.join(".git")).unwrap();
         std::fs::create_dir_all(live_cwd.join(".git")).unwrap();
 
@@ -4713,7 +4713,7 @@ mod tests {
         }
         let _ = std::fs::remove_dir_all(root);
 
-        assert_eq!(primary_label, "hako");
+        assert_eq!(primary_label, "omh");
     }
 
     #[test]

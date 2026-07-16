@@ -163,7 +163,7 @@ impl App {
             let _ = respond_to.send(encode_error(
                 id,
                 "not_linked_worktree",
-                "workspace is not a Hako-managed worktree checkout",
+                "workspace is not an Oh My Herdr-managed worktree checkout",
             ));
             return;
         };

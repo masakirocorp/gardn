@@ -563,21 +563,21 @@ impl App {
         )];
         if let Ok(current_exe) = std::env::current_exe() {
             env.push((
-                "HAKO_BIN_PATH".to_string(),
+                "OMH_BIN_PATH".to_string(),
                 current_exe.display().to_string(),
             ));
         }
         let mut cwd = None;
         if let Some(target) = target {
             env.push((
-                "HAKO_ACTIVE_WORKSPACE_ID".to_string(),
+                "OMH_ACTIVE_WORKSPACE_ID".to_string(),
                 self.public_workspace_id(target.ws_idx),
             ));
             if let Some(tab_id) = self.public_tab_id(target.ws_idx, target.tab_idx) {
-                env.push(("HAKO_ACTIVE_TAB_ID".to_string(), tab_id));
+                env.push(("OMH_ACTIVE_TAB_ID".to_string(), tab_id));
             }
             if let Some(pane_id) = self.public_pane_id(target.ws_idx, target.pane_id) {
-                env.push(("HAKO_ACTIVE_PANE_ID".to_string(), pane_id));
+                env.push(("OMH_ACTIVE_PANE_ID".to_string(), pane_id));
             }
             if let Some(pane_cwd) = self
                 .state
@@ -593,7 +593,7 @@ impl App {
                 })
             {
                 env.push((
-                    "HAKO_ACTIVE_PANE_CWD".to_string(),
+                    "OMH_ACTIVE_PANE_CWD".to_string(),
                     pane_cwd.display().to_string(),
                 ));
                 if pane_cwd.is_dir() {
@@ -1557,7 +1557,7 @@ fn unique_scrollback_path(attempt: u32) -> std::path::PathBuf {
         .map(|duration| duration.as_nanos())
         .unwrap_or(0);
     std::env::temp_dir().join(format!(
-        "hako-scrollback-{}-{nanos}-{attempt}.txt",
+        "omh-scrollback-{}-{nanos}-{attempt}.txt",
         std::process::id()
     ))
 }
@@ -1582,9 +1582,9 @@ mod tests {
     fn mark_worktree_space_member(state: &mut AppState, ws_idx: usize, key: &str) {
         state.workspaces[ws_idx].worktree_space = Some(crate::workspace::WorktreeSpaceMembership {
             key: key.into(),
-            label: "hako".into(),
-            repo_root: "/repo/hako".into(),
-            checkout_path: format!("/repo/hako-{ws_idx}").into(),
+            label: "omh".into(),
+            repo_root: "/repo/omh".into(),
+            checkout_path: format!("/repo/omh-{ws_idx}").into(),
             is_linked_worktree: ws_idx != 0,
         });
     }
@@ -1612,10 +1612,10 @@ mod tests {
             .attached_terminal_id
             .clone();
         state.workspaces[0].custom_name = None;
-        state.workspaces[0].identity_cwd = "/__hako_original__".into();
+        state.workspaces[0].identity_cwd = "/__omh_original__".into();
         state.terminals.insert(
             terminal_id.clone(),
-            TerminalState::new(terminal_id, "/__hako_projects__".into()),
+            TerminalState::new(terminal_id, "/__omh_projects__".into()),
         );
         state.keybinds.goto = crate::config::ActionKeybinds::default();
         state.keybinds.rename_workspace = crate::config::ActionKeybinds::prefix("g");
@@ -1626,8 +1626,8 @@ mod tests {
         );
 
         assert_eq!(state.mode, Mode::RenameWorkspace);
-        assert_eq!(state.name_input, "__hako_projects__");
-        assert_eq!(state.workspaces[0].display_name(), "__hako_original__");
+        assert_eq!(state.name_input, "__omh_projects__");
+        assert_eq!(state.workspaces[0].display_name(), "__omh_original__");
     }
 
     #[test]
@@ -2450,9 +2450,9 @@ command = "echo literal"
         state.confirm_close = false;
         state.workspaces[1].worktree_space = Some(crate::workspace::WorktreeSpaceMembership {
             key: "repo-key".into(),
-            label: "hako".into(),
-            repo_root: "/repo/hako".into(),
-            checkout_path: "/repo/hako-issue".into(),
+            label: "omh".into(),
+            repo_root: "/repo/omh".into(),
+            checkout_path: "/repo/omh-issue".into(),
             is_linked_worktree: true,
         });
 
@@ -2495,7 +2495,7 @@ command = "echo literal"
 
         let output_path = unique_temp_path("custom-command-keybind");
         let command = format!(
-            "printf '%s\\n%s\\n%s\\n' \"$HAKO_ACTIVE_WORKSPACE_ID\" \"$HAKO_ACTIVE_TAB_ID\" \"$HAKO_ACTIVE_PANE_ID\" > '{}'",
+            "printf '%s\\n%s\\n%s\\n' \"$OMH_ACTIVE_WORKSPACE_ID\" \"$OMH_ACTIVE_TAB_ID\" \"$OMH_ACTIVE_PANE_ID\" > '{}'",
             output_path.display()
         );
         app.state.keybinds.goto = crate::config::ActionKeybinds::default();

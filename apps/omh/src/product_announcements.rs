@@ -6,10 +6,10 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 const PRODUCT_ANNOUNCEMENTS_PATH: &str = "product-announcements.json";
-const FAKE_ANNOUNCEMENT_BODY_ENV: &str = "HAKO_FAKE_PRODUCT_ANNOUNCEMENT_BODY";
-const FAKE_ANNOUNCEMENT_BODY_FILE_ENV: &str = "HAKO_FAKE_PRODUCT_ANNOUNCEMENT_BODY_FILE";
-const FAKE_ANNOUNCEMENT_ID_ENV: &str = "HAKO_FAKE_PRODUCT_ANNOUNCEMENT_ID";
-const FAKE_ANNOUNCEMENT_TITLE_ENV: &str = "HAKO_FAKE_PRODUCT_ANNOUNCEMENT_TITLE";
+const FAKE_ANNOUNCEMENT_BODY_ENV: &str = "OMH_FAKE_PRODUCT_ANNOUNCEMENT_BODY";
+const FAKE_ANNOUNCEMENT_BODY_FILE_ENV: &str = "OMH_FAKE_PRODUCT_ANNOUNCEMENT_BODY_FILE";
+const FAKE_ANNOUNCEMENT_ID_ENV: &str = "OMH_FAKE_PRODUCT_ANNOUNCEMENT_ID";
+const FAKE_ANNOUNCEMENT_TITLE_ENV: &str = "OMH_FAKE_PRODUCT_ANNOUNCEMENT_TITLE";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProductAnnouncement {
@@ -173,7 +173,7 @@ mod tests {
 
     fn temp_path(name: &str) -> PathBuf {
         std::env::temp_dir().join(format!(
-            "hako-product-announcements-{name}-{}-{}.json",
+            "omh-product-announcements-{name}-{}-{}.json",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)

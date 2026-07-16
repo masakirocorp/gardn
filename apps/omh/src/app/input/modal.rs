@@ -1423,7 +1423,7 @@ mod tests {
 
     fn temp_config_path(name: &str) -> std::path::PathBuf {
         let unique = format!(
-            "hako-modal-{name}-{}-{}",
+            "omh-modal-{name}-{}-{}",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -1439,7 +1439,7 @@ mod tests {
             label: "codex",
             command: "codex",
             available: true,
-            path: std::path::PathBuf::from("/tmp/hako-test-codex"),
+            path: std::path::PathBuf::from("/tmp/omh-test-codex"),
             state: crate::integration::IntegrationStatusKind::Outdated,
         }
     }
@@ -1521,10 +1521,10 @@ mod tests {
     #[test]
     fn worktree_directory_editor_updates_pending_setting() {
         let mut state = state_with_workspaces(&["test"]);
-        state.worktree_directory = std::path::PathBuf::from("/tmp/hako-worktrees");
+        state.worktree_directory = std::path::PathBuf::from("/tmp/omh-worktrees");
         open_worktree_directory_editor(&mut state);
 
-        state.name_input = "~/Projects/hako-worktrees".to_string();
+        state.name_input = "~/Projects/omh-worktrees".to_string();
         handle_worktree_directory_key(
             &mut state,
             KeyEvent::new(KeyCode::Enter, KeyModifiers::empty()),
@@ -1533,7 +1533,7 @@ mod tests {
         assert_eq!(state.mode, Mode::Settings);
         assert_eq!(
             state.settings.pending_worktree_directory.as_deref(),
-            Some("~/Projects/hako-worktrees")
+            Some("~/Projects/omh-worktrees")
         );
     }
 
@@ -2043,7 +2043,7 @@ mod tests {
                 label: "codex",
                 command: "codex",
                 available: true,
-                path: std::path::PathBuf::from("/tmp/hako-test-codex"),
+                path: std::path::PathBuf::from("/tmp/omh-test-codex"),
                 state: crate::integration::IntegrationStatusKind::Current,
             },
             crate::integration::IntegrationRecommendation {
@@ -2051,7 +2051,7 @@ mod tests {
                 label: "claude",
                 command: "claude",
                 available: true,
-                path: std::path::PathBuf::from("/tmp/hako-test-claude"),
+                path: std::path::PathBuf::from("/tmp/omh-test-claude"),
                 state: crate::integration::IntegrationStatusKind::Current,
             },
         ];

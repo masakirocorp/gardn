@@ -10,7 +10,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use tracing::warn;
 
-const DISABLE_SOUND_ENV: &str = "HAKO_DISABLE_SOUND";
+const DISABLE_SOUND_ENV: &str = "OMH_DISABLE_SOUND";
 
 static SOUND_TMP_COUNTER: AtomicU64 = AtomicU64::new(0);
 
@@ -87,7 +87,7 @@ fn play_bytes(data: &[u8]) -> Result<(), String> {
 
 fn temp_sound_path() -> PathBuf {
     let id = SOUND_TMP_COUNTER.fetch_add(1, Ordering::Relaxed);
-    std::env::temp_dir().join(format!("hako-sound-{}-{id}.mp3", std::process::id()))
+    std::env::temp_dir().join(format!("omh-sound-{}-{id}.mp3", std::process::id()))
 }
 
 fn run_player(path: &Path) -> Result<Output, String> {

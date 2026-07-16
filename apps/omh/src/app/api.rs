@@ -140,7 +140,7 @@ impl App {
             let previous_toast = self.state.toast.clone();
             if let Some(update) = self.state.publish_pane_process_exit_if_agent(*pane_id) {
                 self.sync_full_lifecycle_authority_detection_pauses();
-                self.refresh_new_hako_toast_context_for_update(&update, &previous_toast);
+                self.refresh_new_omh_toast_context_for_update(&update, &previous_toast);
                 self.emit_pane_state_update(&update);
             }
             if self.runtime_exit_action(*pane_id) == RuntimeExitAction::RespawnShell
@@ -251,7 +251,7 @@ impl App {
         }
         self.sync_full_lifecycle_authority_detection_pauses();
         for update in &pane_updates {
-            self.refresh_new_hako_toast_context_for_update(update, &previous_toast);
+            self.refresh_new_omh_toast_context_for_update(update, &previous_toast);
             self.emit_pane_state_update(update);
         }
         self.sync_agent_metadata_deadline();
@@ -372,14 +372,14 @@ impl App {
         }
     }
 
-    pub(crate) fn refresh_new_hako_toast_context_for_update(
+    pub(crate) fn refresh_new_omh_toast_context_for_update(
         &mut self,
         update: &crate::app::actions::PaneStateUpdate,
         previous_toast: &Option<crate::app::state::ToastNotification>,
     ) {
         if !matches!(
             self.state.toast_config.delivery,
-            crate::config::ToastDelivery::Hako
+            crate::config::ToastDelivery::Omh
         ) || self.state.toast == *previous_toast
         {
             return;
@@ -1312,7 +1312,7 @@ impl App {
         let now = Instant::now();
         let reason = match self.state.toast_config.delivery {
             crate::config::ToastDelivery::Off => NotificationShowReason::Disabled,
-            crate::config::ToastDelivery::Hako => {
+            crate::config::ToastDelivery::Omh => {
                 if self.state.toast.is_some() {
                     NotificationShowReason::Busy
                 } else if self.api_notification_rate_limited(now) {
@@ -1723,7 +1723,7 @@ mod tests {
             method: crate::api::schema::Method::PaneReportAgent(
                 crate::api::schema::PaneReportAgentParams {
                     pane_id: target.clone(),
-                    source: "hako:claude".into(),
+                    source: "omh:claude".into(),
                     agent: "claude".into(),
                     state: crate::api::schema::PaneAgentState::Working,
                     message: None,
@@ -1747,7 +1747,7 @@ mod tests {
             method: crate::api::schema::Method::PaneReportAgent(
                 crate::api::schema::PaneReportAgentParams {
                     pane_id: target,
-                    source: "hako:codex".into(),
+                    source: "omh:codex".into(),
                     agent: "codex".into(),
                     state: crate::api::schema::PaneAgentState::Idle,
                     message: None,
@@ -1791,7 +1791,7 @@ mod tests {
             .get_mut(&terminal_id)
             .unwrap()
             .set_hook_authority(
-                "hako:claude".to_string(),
+                "omh:claude".to_string(),
                 "claude".to_string(),
                 AgentState::Working,
                 None,
@@ -1845,7 +1845,7 @@ mod tests {
             .get_mut(&terminal_id)
             .unwrap()
             .set_hook_authority(
-                "hako:omp".to_string(),
+                "omh:omp".to_string(),
                 "omp".to_string(),
                 AgentState::Idle,
                 None,
@@ -1949,7 +1949,7 @@ mod tests {
 
     #[cfg(unix)]
     #[tokio::test]
-    async fn hako_toast_context_uses_live_root_runtime_cwd_label() {
+    async fn omh_toast_context_uses_live_root_runtime_cwd_label() {
         let (_api_tx, api_rx) = tokio::sync::mpsc::unbounded_channel();
         let mut app = App::new(
             &crate::config::Config::default(),
@@ -1964,15 +1964,15 @@ mod tests {
         let root = workspace.tabs[0].root_pane;
         let terminal_id = workspace.terminal_id(root).cloned().unwrap();
         let temp_root = std::env::temp_dir().join(format!(
-            "hako-toast-context-{}-{}",
+            "omh-toast-context-{}-{}",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap()
                 .as_nanos()
         ));
-        let stale_cwd = temp_root.join("__hako_original__");
-        let live_cwd = temp_root.join("__hako_projects__");
+        let stale_cwd = temp_root.join("__omh_original__");
+        let live_cwd = temp_root.join("__omh_projects__");
         std::fs::create_dir_all(&stale_cwd).unwrap();
         std::fs::create_dir_all(&live_cwd).unwrap();
         init_repo(&stale_cwd);
@@ -1985,7 +1985,7 @@ mod tests {
         app.state.active = None;
         app.state.selected = 0;
         app.state.mode = Mode::Terminal;
-        app.state.toast_config.delivery = crate::config::ToastDelivery::Hako;
+        app.state.toast_config.delivery = crate::config::ToastDelivery::Omh;
         app.state.toast_config.delay_seconds = 0;
 
         let (events, _) = tokio::sync::mpsc::channel(4);
@@ -2032,7 +2032,7 @@ mod tests {
 
         assert_eq!(
             app.state.toast.as_ref().map(|toast| toast.context.as_str()),
-            Some("__hako_projects__ · 1")
+            Some("__omh_projects__ · 1")
         );
 
         for (_, runtime) in app.terminal_runtimes.drain() {
@@ -2043,7 +2043,7 @@ mod tests {
 
     #[cfg(unix)]
     #[tokio::test]
-    async fn delayed_hako_toast_context_uses_live_root_runtime_cwd_label() {
+    async fn delayed_omh_toast_context_uses_live_root_runtime_cwd_label() {
         let (_api_tx, api_rx) = tokio::sync::mpsc::unbounded_channel();
         let mut app = App::new(
             &crate::config::Config::default(),
@@ -2058,15 +2058,15 @@ mod tests {
         let root = workspace.tabs[0].root_pane;
         let terminal_id = workspace.terminal_id(root).cloned().unwrap();
         let temp_root = std::env::temp_dir().join(format!(
-            "hako-delayed-toast-context-{}-{}",
+            "omh-delayed-toast-context-{}-{}",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap()
                 .as_nanos()
         ));
-        let stale_cwd = temp_root.join("__hako_original__");
-        let live_cwd = temp_root.join("__hako_projects__");
+        let stale_cwd = temp_root.join("__omh_original__");
+        let live_cwd = temp_root.join("__omh_projects__");
         std::fs::create_dir_all(&stale_cwd).unwrap();
         std::fs::create_dir_all(&live_cwd).unwrap();
         init_repo(&stale_cwd);
@@ -2079,7 +2079,7 @@ mod tests {
         app.state.active = None;
         app.state.selected = 0;
         app.state.mode = Mode::Terminal;
-        app.state.toast_config.delivery = crate::config::ToastDelivery::Hako;
+        app.state.toast_config.delivery = crate::config::ToastDelivery::Omh;
         app.state.toast_config.delay_seconds = 1;
 
         let (events, _) = tokio::sync::mpsc::channel(4);
@@ -2131,7 +2131,7 @@ mod tests {
         assert!(app.handle_scheduled_tasks(notification_deadline, false));
         assert_eq!(
             app.state.toast.as_ref().map(|toast| toast.context.as_str()),
-            Some("__hako_projects__ · 1")
+            Some("__omh_projects__ · 1")
         );
 
         for (_, runtime) in app.terminal_runtimes.drain() {
@@ -2163,7 +2163,7 @@ mod tests {
         terminal.respawn_shell_on_exit = true;
         terminal.set_agent_name("codex".into());
         terminal.set_persisted_agent_session(crate::agent_resume::PersistedAgentSession {
-            source: "hako:codex".into(),
+            source: "omh:codex".into(),
             agent: "codex".into(),
             session_ref: crate::agent_resume::AgentSessionRef::id("codex-session")
                 .expect("test session id should be valid"),
@@ -2206,13 +2206,13 @@ mod tests {
 
         let mut workspace = crate::workspace::Workspace::test_new("stale");
         workspace.custom_name = None;
-        workspace.identity_cwd = "/__hako_original__".into();
+        workspace.identity_cwd = "/__omh_original__".into();
         let root = workspace.tabs[0].root_pane;
         let terminal_id = workspace.terminal_id(root).cloned().unwrap();
         let workspace_id = workspace.id.clone();
         app.state.workspaces = vec![workspace];
         app.state.ensure_test_terminals();
-        app.state.terminals.get_mut(&terminal_id).unwrap().cwd = "/__hako_projects__".into();
+        app.state.terminals.get_mut(&terminal_id).unwrap().cwd = "/__omh_projects__".into();
         app.state.active = None;
         app.state.selected = 0;
         app.state.mode = Mode::Terminal;
@@ -2231,7 +2231,7 @@ mod tests {
         app.state.toast = Some(crate::app::state::ToastNotification {
             kind: ToastKind::Finished,
             title: "codex finished".into(),
-            context: "__hako_original__ · 1".into(),
+            context: "__omh_original__ · 1".into(),
             position: None,
             target: Some(crate::app::state::ToastTarget {
                 workspace_id,
@@ -2252,7 +2252,7 @@ mod tests {
 
         assert_eq!(
             app.state.toast.as_ref().map(|toast| toast.context.as_str()),
-            Some("__hako_original__ · 1")
+            Some("__omh_original__ · 1")
         );
     }
 }

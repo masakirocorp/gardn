@@ -1,6 +1,6 @@
-//! Auto-detect launch behavior for the `hako` command.
+//! Auto-detect launch behavior for the `omh` command.
 //!
-//! When the user runs `hako` with no subcommand:
+//! When the user runs `omh` with no subcommand:
 //! 1. Check if a server is already listening on the client socket
 //! 2. If no server → spawn one as a background daemon → wait for socket readiness (up to 15s)
 //! 3. Attach as a thin client to the server
@@ -33,7 +33,7 @@ const STATUS_REQUEST_TIMEOUT: Duration = Duration::from_secs(2);
 // Server detection
 // ---------------------------------------------------------------------------
 
-/// Checks whether a hako server is currently listening on the client socket.
+/// Checks whether an Oh My Herdr server is currently listening on the client socket.
 ///
 /// This works by attempting to connect to the client socket. If the connection
 /// succeeds, a server is running. If the socket file doesn't exist or the
@@ -45,7 +45,7 @@ pub fn is_server_listening() -> bool {
     is_server_listening_at(&client_socket_path())
 }
 
-/// Checks whether a hako server is listening at a specific socket path.
+/// Checks whether an Oh My Herdr server is listening at a specific socket path.
 fn is_server_listening_at(socket_path: &Path) -> bool {
     if !socket_path.exists() {
         return false;
@@ -86,7 +86,7 @@ fn read_server_status() -> io::Result<Option<crate::api::RuntimeStatus>> {
 fn validate_running_server_compatibility() -> io::Result<()> {
     let Some(status) = read_server_status()? else {
         return Err(io::Error::other(
-            "a hako server is listening, but its status API is unavailable. Try `hako server stop`; if that fails, stop the old server process manually, then run `hako` again.",
+            "an Oh My Herdr server is listening, but its status API is unavailable. Try `omh server stop`; if that fails, stop the old server process manually, then run `omh` again.",
         ));
     };
 
@@ -95,7 +95,7 @@ fn validate_running_server_compatibility() -> io::Result<()> {
     }
 
     Err(io::Error::other(format!(
-        "hako server is running from v{} / protocol {}, but this client is v{} / protocol {}.\nStop the old server with `hako server stop`, then run `hako` again.",
+        "Oh My Herdr server is running from v{} / protocol {}, but this client is v{} / protocol {}.\nStop the old server with `omh server stop`, then run `omh` again.",
         status.version.as_deref().unwrap_or("unknown"),
         status
             .protocol
@@ -110,12 +110,12 @@ fn validate_running_server_compatibility() -> io::Result<()> {
 // Server spawning
 // ---------------------------------------------------------------------------
 
-/// Spawns the hako server as a background daemon process.
+/// Spawns the Oh My Herdr server as a background daemon process.
 ///
 /// The server process is fully detached:
 /// - Runs in its own session (setsid) so it survives the client exiting
 /// - Stdin/stdout/stderr are redirected to /dev/null
-/// - Inherits relevant environment variables (`XDG_CONFIG_HOME`, `HAKO_SESSION`,
+/// - Inherits relevant environment variables (`XDG_CONFIG_HOME`, `OMH_SESSION`,
 ///   socket overrides, etc.), except inherited socket overrides are cleared when
 ///   this CLI invocation explicitly selected a session.
 ///
@@ -124,7 +124,7 @@ pub fn spawn_server_daemon() -> io::Result<u32> {
     let exe = std::env::current_exe().map_err(|err| {
         io::Error::new(
             err.kind(),
-            format!("failed to determine hako executable path: {err}"),
+            format!("failed to determine Oh My Herdr executable path: {err}"),
         )
     })?;
 
@@ -133,7 +133,7 @@ pub fn spawn_server_daemon() -> io::Result<u32> {
     let mut command = build_server_daemon_command(exe);
 
     let child = command.spawn().map_err(|err: io::Error| {
-        io::Error::new(err.kind(), format!("failed to spawn hako server: {err}"))
+        io::Error::new(err.kind(), format!("failed to spawn Oh My Herdr server: {err}"))
     })?;
 
     let pid = child.id();
@@ -155,7 +155,7 @@ fn build_server_daemon_command(exe: PathBuf) -> Command {
     if crate::session::explicit_session_requested() {
         command
             .env_remove(crate::api::SOCKET_PATH_ENV_VAR)
-            .env_remove("HAKO_CLIENT_SOCKET_PATH");
+            .env_remove("OMH_CLIENT_SOCKET_PATH");
     }
 
     command
@@ -184,10 +184,10 @@ pub fn wait_for_server_socket(socket_path: &Path, timeout: Duration) -> io::Resu
     Err(io::Error::new(
         io::ErrorKind::TimedOut,
         format!(
-            "server did not become ready within {}s (socket: {}). The background server may still be starting; try `hako` again, or check {}",
+            "server did not become ready within {}s (socket: {}). The background server may still be starting; try `omh` again, or check {}",
             timeout.as_secs(),
             socket_path.display(),
-            crate::session::data_dir().join("hako-server.log").display()
+            crate::session::data_dir().join("omh-server.log").display()
         ),
     ))
 }
@@ -199,7 +199,7 @@ pub fn wait_for_server_socket(socket_path: &Path, timeout: Duration) -> io::Resu
 /// Performs auto-detect launch: check for server, spawn if needed, then
 /// attach as a thin client.
 ///
-/// This is the entry point called from `main.rs` when the user runs `hako`
+/// This is the entry point called from `main.rs` when the user runs `omh`
 /// without `--no-session` and without a subcommand.
 ///
 /// Flow:
@@ -273,24 +273,24 @@ mod tests {
         let _socket_env =
             crate::config::TestEnvVar::set(crate::api::SOCKET_PATH_ENV_VAR, "/tmp/inherited.sock");
         let _client_socket_env =
-            crate::config::TestEnvVar::set("HAKO_CLIENT_SOCKET_PATH", "/tmp/inherited-client.sock");
+            crate::config::TestEnvVar::set("OMH_CLIENT_SOCKET_PATH", "/tmp/inherited-client.sock");
         let _session_env = crate::config::TestEnvVar::remove(crate::session::SESSION_ENV_VAR);
         crate::session::clear_explicit_session_for_test();
         let args = vec![
-            "hako".to_string(),
+            "omh".to_string(),
             "--session".to_string(),
             "work".to_string(),
         ];
         crate::session::configure_from_args(&args).unwrap();
 
-        let command = build_server_daemon_command(PathBuf::from("/tmp/hako-test"));
+        let command = build_server_daemon_command(PathBuf::from("/tmp/omh-test"));
         let envs: Vec<_> = command.get_envs().collect();
 
         assert!(envs.iter().any(|(key, value)| {
             *key == OsStr::new(crate::api::SOCKET_PATH_ENV_VAR) && value.is_none()
         }));
         assert!(envs.iter().any(|(key, value)| {
-            *key == OsStr::new("HAKO_CLIENT_SOCKET_PATH") && value.is_none()
+            *key == OsStr::new("OMH_CLIENT_SOCKET_PATH") && value.is_none()
         }));
         crate::session::clear_explicit_session_for_test();
     }
@@ -361,7 +361,7 @@ mod tests {
         // No listener — should time out.
         let err = wait_for_server_socket(&path, Duration::from_millis(50)).unwrap_err();
         assert_eq!(err.kind(), io::ErrorKind::TimedOut);
-        assert!(err.to_string().contains("hako-server.log"));
+        assert!(err.to_string().contains("omh-server.log"));
         let _ = std::fs::remove_dir_all(dir);
     }
 

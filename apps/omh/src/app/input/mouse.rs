@@ -2397,7 +2397,7 @@ mod tests {
         app.state.ensure_test_terminals();
         app.state.active = Some(0);
         app.state.selected = 0;
-        app.state.toast_config.delivery = crate::config::ToastDelivery::Hako;
+        app.state.toast_config.delivery = crate::config::ToastDelivery::Omh;
         let target_terminal_id = app.state.workspaces[1]
             .panes
             .get(&target_pane)
@@ -3152,7 +3152,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn unset_right_click_passthrough_keeps_modified_right_click_as_hako_menu() {
+    async fn unset_right_click_passthrough_keeps_modified_right_click_as_omh_menu() {
         let mut app = app_for_mouse_test();
         let mut ws = Workspace::test_new("test");
         let pane_id = ws.tabs[0].root_pane;

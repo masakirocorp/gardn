@@ -47,7 +47,7 @@ fn render_onboarding_welcome(app: &AppState, frame: &mut Frame, area: Rect) {
     ])
     .areas::<4>(stack.content);
 
-    render_modal_header(frame, header_rows[0], "hako", &app.palette);
+    render_modal_header(frame, header_rows[0], "omh", &app.palette);
     frame.render_widget(
         Paragraph::new("  terminal workspace manager for coding agents")
             .style(Style::default().fg(app.palette.overlay0)),

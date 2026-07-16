@@ -164,7 +164,7 @@ pub struct Workspace {
     pub(crate) cached_git_work_summary: Option<GitWorkSummary>,
     /// Cached derived Git repo metadata for worktree actions and status display.
     pub(crate) cached_git_space: Option<GitSpaceMetadata>,
-    /// Explicit Hako-managed worktree grouping provenance.
+    /// Explicit Oh My Herdr-managed worktree grouping provenance.
     pub worktree_space: Option<WorktreeSpaceMembership>,
     /// Public pane numbers within this workspace. Closed pane numbers are not reused.
     pub public_pane_numbers: HashMap<PaneId, usize>,
@@ -1569,13 +1569,13 @@ mod tests {
     fn workspace_display_name_from_uses_live_runtime_cwd() {
         let mut ws = Workspace::test_new("ignored");
         ws.custom_name = None;
-        ws.identity_cwd = PathBuf::from("/hako-test/original");
+        ws.identity_cwd = PathBuf::from("/omh-test/original");
         let root_pane = ws.tabs[0].root_pane;
         let terminal_id = ws.tabs[0].terminal_id(root_pane).unwrap().clone();
         let mut terminals = HashMap::new();
         terminals.insert(
             terminal_id.clone(),
-            TerminalState::new(terminal_id, PathBuf::from("/hako-test/pion")),
+            TerminalState::new(terminal_id, PathBuf::from("/omh-test/pion")),
         );
         let terminal_runtimes = TerminalRuntimeRegistry::new();
 
@@ -1584,20 +1584,20 @@ mod tests {
         assert_eq!(ws.display_name_from(&terminals, &terminal_runtimes), "pion");
         assert_eq!(
             ws.resolved_identity_cwd_from(&terminals, &terminal_runtimes),
-            Some(PathBuf::from("/hako-test/pion"))
+            Some(PathBuf::from("/omh-test/pion"))
         );
     }
 
     #[test]
     fn workspace_manual_name_overrides_live_runtime_cwd() {
         let mut ws = Workspace::test_new("manual");
-        ws.identity_cwd = PathBuf::from("/hako-test/original");
+        ws.identity_cwd = PathBuf::from("/omh-test/original");
         let root_pane = ws.tabs[0].root_pane;
         let terminal_id = ws.tabs[0].terminal_id(root_pane).unwrap().clone();
         let mut terminals = HashMap::new();
         terminals.insert(
             terminal_id.clone(),
-            TerminalState::new(terminal_id, PathBuf::from("/hako-test/live")),
+            TerminalState::new(terminal_id, PathBuf::from("/omh-test/live")),
         );
         let terminal_runtimes = TerminalRuntimeRegistry::new();
 
@@ -1607,7 +1607,7 @@ mod tests {
         );
         assert_eq!(
             ws.resolved_identity_cwd_from(&terminals, &terminal_runtimes),
-            Some(PathBuf::from("/hako-test/live"))
+            Some(PathBuf::from("/omh-test/live"))
         );
     }
 

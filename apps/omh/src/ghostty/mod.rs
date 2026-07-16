@@ -1708,7 +1708,7 @@ fn kitty_placeholder_color_to_id(color: CellColor) -> u32 {
 
 fn kitty_placeholder_diacritic_index(codepoint: u32) -> Option<u32> {
     let map = KITTY_PLACEHOLDER_DIACRITICS.get_or_init(|| {
-        // Reuse Ghostty's vendored table so Hako decodes the same placeholder
+        // Reuse Ghostty's vendored table so Oh My Herdr decodes the same placeholder
         // row/column diacritics that libghostty accepts.
         let source =
             include_str!("../../vendor/libghostty-vt/src/terminal/kitty/graphics_unicode.zig");
@@ -2820,7 +2820,7 @@ mod tests {
     fn kitty_graphics_file_medium_rgba_placement_is_queryable() {
         use base64::Engine;
         let dir =
-            std::env::temp_dir().join(format!("hako-kitty-file-medium-{}", std::process::id()));
+            std::env::temp_dir().join(format!("omh-kitty-file-medium-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("pixel.rgba");
         std::fs::write(&path, [255, 0, 0, 255]).unwrap();

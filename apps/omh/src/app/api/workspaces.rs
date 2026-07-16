@@ -553,9 +553,9 @@ mod tests {
         app.state.workspaces = vec![Workspace::test_new("issue")];
         app.state.workspaces[0].worktree_space = Some(crate::workspace::WorktreeSpaceMembership {
             key: "repo-key".into(),
-            label: "hako".into(),
-            repo_root: "/repo/hako".into(),
-            checkout_path: "/repo/hako-issue".into(),
+            label: "omh".into(),
+            repo_root: "/repo/omh".into(),
+            checkout_path: "/repo/omh-issue".into(),
             is_linked_worktree: true,
         });
         app

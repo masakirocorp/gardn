@@ -243,7 +243,7 @@ impl App {
         self.state.settings.pending_toast_delivery = Some(delivery);
         let value = match delivery {
             crate::config::ToastDelivery::Off => "\"off\"",
-            crate::config::ToastDelivery::Hako => "\"hako\"",
+            crate::config::ToastDelivery::Omh => "\"omh\"",
             crate::config::ToastDelivery::Terminal => "\"terminal\"",
             crate::config::ToastDelivery::System => "\"system\"",
         };

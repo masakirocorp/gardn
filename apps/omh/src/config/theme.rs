@@ -29,11 +29,11 @@ pub struct ThemeConfig {
     pub mode: ThemeMode,
     /// Custom overrides — applied on top of the selected base theme.
     pub custom: Option<CustomThemeColors>,
-    /// ANSI color used for Hako's accent when following terminal colors.
+    /// ANSI color used for Oh My Herdr's accent when following terminal colors.
     pub terminal_accent: TerminalAccent,
-    /// ANSI color used for Hako's accent when terminal colors resolve light.
+    /// ANSI color used for Oh My Herdr's accent when terminal colors resolve light.
     pub terminal_light_accent: Option<TerminalAccent>,
-    /// ANSI color used for Hako's accent when terminal colors resolve dark.
+    /// ANSI color used for Oh My Herdr's accent when terminal colors resolve dark.
     pub terminal_dark_accent: Option<TerminalAccent>,
 }
 

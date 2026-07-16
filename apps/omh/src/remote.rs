@@ -5,9 +5,9 @@ mod unix;
 pub(crate) use unix::*;
 
 #[cfg(windows)]
-pub(crate) const REATTACH_COMMAND_ENV_VAR: &str = "HAKO_REATTACH_COMMAND";
+pub(crate) const REATTACH_COMMAND_ENV_VAR: &str = "OMH_REATTACH_COMMAND";
 #[cfg(windows)]
-pub(crate) const REMOTE_KEYBINDINGS_ENV_VAR: &str = "HAKO_REMOTE_KEYBINDINGS";
+pub(crate) const REMOTE_KEYBINDINGS_ENV_VAR: &str = "OMH_REMOTE_KEYBINDINGS";
 
 #[cfg(windows)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -169,7 +169,7 @@ pub(crate) fn print_remote_error_hint(err: &std::io::Error, target: &str) {
             ssh_check_command(target)
         );
         eprintln!(
-            "hint: if your SSH key has a passphrase, load it into ssh-agent with `ssh-add` before running `hako --remote`."
+            "hint: if your SSH key has a passphrase, load it into ssh-agent with `ssh-add` before running `omh --remote`."
         );
     }
 }

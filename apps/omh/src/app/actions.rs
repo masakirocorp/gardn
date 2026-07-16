@@ -3125,7 +3125,7 @@ impl AppState {
                 self.update_dismissed = true;
                 if matches!(
                     self.toast_config.delivery,
-                    crate::config::ToastDelivery::Hako
+                    crate::config::ToastDelivery::Omh
                 ) {
                     self.toast = Some(ToastNotification {
                         kind: ToastKind::UpdateInstalled,
@@ -3143,7 +3143,7 @@ impl AppState {
                 if !updated.is_empty()
                     && matches!(
                         self.toast_config.delivery,
-                        crate::config::ToastDelivery::Hako
+                        crate::config::ToastDelivery::Omh
                     )
                 {
                     let agent_list = updated
@@ -3413,7 +3413,7 @@ impl AppState {
             return;
         };
         let integrated = self.terminals.get(&terminal_id).is_some_and(|terminal| {
-            terminal.has_hako_integration_evidence_for_detected_agent_at(std::time::Instant::now())
+            terminal.has_omh_integration_evidence_for_detected_agent_at(std::time::Instant::now())
         });
         if integrated && self.toast_is_missing_integration_warning_for_pane(pane_id) {
             self.toast = None;
@@ -3426,7 +3426,7 @@ impl AppState {
                 .target
                 .as_ref()
                 .is_some_and(|target| target.pane_id == pane_id)
-                && toast.context.contains("hako integration install")
+                && toast.context.contains("omh integration install")
         })
     }
 
@@ -3437,7 +3437,7 @@ impl AppState {
     ) {
         if !matches!(
             self.toast_config.delivery,
-            crate::config::ToastDelivery::Hako
+            crate::config::ToastDelivery::Omh
         ) {
             return;
         }
@@ -3468,12 +3468,12 @@ impl AppState {
         let workspace_id = self.workspaces[ws_idx].id.clone();
         let workspace_label = self.workspaces[ws_idx].display_name();
         let context = format!(
-            "{}; run `hako integration install {agent_label}`, then restart agent",
+            "{}; run `omh integration install {agent_label}`, then restart agent",
             notification_context(&self.workspaces[ws_idx], &workspace_label, ws_idx, pane_id)
         );
         self.toast = Some(ToastNotification {
             kind: ToastKind::NeedsAttention,
-            title: format!("{agent_title} detected without Hako integration"),
+            title: format!("{agent_title} detected without Oh My Herdr integration"),
             context,
             position: None,
             target: Some(ToastTarget {
@@ -3674,7 +3674,7 @@ impl AppState {
 
         if matches!(
             self.toast_config.delivery,
-            crate::config::ToastDelivery::Hako
+            crate::config::ToastDelivery::Omh
         ) {
             if let Some(toast) = delivery.toast.clone() {
                 self.toast = Some(toast);
@@ -3863,7 +3863,7 @@ mod tests {
 
     fn temp_project(name: &str) -> std::path::PathBuf {
         let root = std::env::temp_dir().join(format!(
-            "hako-app-commands-{name}-{}-{}",
+            "omh-app-commands-{name}-{}-{}",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -3889,9 +3889,9 @@ mod tests {
     fn mark_parent_worktree(state: &mut AppState, ws_idx: usize) {
         state.workspaces[ws_idx].worktree_space = Some(crate::workspace::WorktreeSpaceMembership {
             key: "repo-key".into(),
-            label: "hako".into(),
-            repo_root: "/repo/hako".into(),
-            checkout_path: "/repo/hako".into(),
+            label: "omh".into(),
+            repo_root: "/repo/omh".into(),
+            checkout_path: "/repo/omh".into(),
             is_linked_worktree: false,
         });
     }
@@ -3899,9 +3899,9 @@ mod tests {
     fn mark_linked_worktree(state: &mut AppState, ws_idx: usize) {
         state.workspaces[ws_idx].worktree_space = Some(crate::workspace::WorktreeSpaceMembership {
             key: "repo-key".into(),
-            label: "hako".into(),
-            repo_root: "/repo/hako".into(),
-            checkout_path: "/repo/hako-linked".into(),
+            label: "omh".into(),
+            repo_root: "/repo/omh".into(),
+            checkout_path: "/repo/omh-linked".into(),
             is_linked_worktree: true,
         });
     }
@@ -3912,8 +3912,8 @@ mod tests {
         let root = state.workspaces[0].tabs[0].root_pane;
 
         assert_eq!(
-            notification_context(&state.workspaces[0], "__hako_projects__", 0, root),
-            "__hako_projects__ · 1"
+            notification_context(&state.workspaces[0], "__omh_projects__", 0, root),
+            "__omh_projects__ · 1"
         );
     }
 
@@ -4000,9 +4000,9 @@ mod tests {
                 "./src/app/actions.rs:795",
             ),
             (
-                "open ../hako-worktrees/issue-1",
-                "hako",
-                "../hako-worktrees/issue-1",
+                "open ../omh-worktrees/issue-1",
+                "omh",
+                "../omh-worktrees/issue-1",
             ),
             (
                 "edit src/app/actions.rs,then",
@@ -4033,7 +4033,7 @@ mod tests {
             ),
             ("refs #123 and @owner/name", "#123", "#123"),
             ("refs #123 and @owner/name", "owner", "@owner/name"),
-            ("cargo test --package=hako", "--package", "--package=hako"),
+            ("cargo test --package=omh", "--package", "--package=omh"),
             (
                 "cargo test app::actions::tests",
                 "app::",
@@ -4046,7 +4046,7 @@ mod tests {
             ),
             ("ERROR [worker-1] request_id=abc-123", "worker", "worker-1"),
             (
-                "tmux|newhoo|fixhoo|newmoo|notification|window_bell|hako",
+                "tmux|newhoo|fixhoo|newmoo|notification|window_bell|omh",
                 "newhoo",
                 "newhoo",
             ),
@@ -4078,7 +4078,7 @@ mod tests {
     fn double_click_word_bounds_ignore_delimiters() {
         for (row, click) in [
             (
-                "tmux|newhoo|fixhoo|newmoo|notification|window_bell|hako",
+                "tmux|newhoo|fixhoo|newmoo|notification|window_bell|omh",
                 "|",
             ),
             ("alpha,beta;gamma", ","),
@@ -4142,7 +4142,7 @@ mod tests {
     #[tokio::test]
     async fn navigator_rows_match_live_root_runtime_cwd_workspace_label() {
         let unique = format!(
-            "hako-navigator-runtime-cwd-{}-{}",
+            "omh-navigator-runtime-cwd-{}-{}",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -4151,7 +4151,7 @@ mod tests {
         );
         let root = std::env::temp_dir().join(unique);
         let stale_cwd = root.join("issue-264-nix-support");
-        let live_cwd = root.join("hako");
+        let live_cwd = root.join("omh");
         std::fs::create_dir_all(stale_cwd.join(".git")).unwrap();
         std::fs::create_dir_all(live_cwd.join(".git")).unwrap();
 
@@ -4189,7 +4189,7 @@ mod tests {
         let mut runtime_registry = crate::terminal::TerminalRuntimeRegistry::new();
         runtime_registry.insert(terminal_id, runtime);
         state.open_navigator_from(&runtime_registry);
-        state.navigator.query = "hako".into();
+        state.navigator.query = "omh".into();
         let rows = state.navigator_rows_from(&runtime_registry);
 
         for (_, runtime) in runtime_registry.drain() {
@@ -4198,7 +4198,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(root);
 
         assert_eq!(rows.len(), 1);
-        assert_eq!(rows[0].label, "hako (1)");
+        assert_eq!(rows[0].label, "omh (1)");
     }
 
     #[test]
@@ -4945,11 +4945,11 @@ mod tests {
     #[test]
     fn update_ready_sets_explicit_upgrade_toast() {
         let mut state = AppState::test_new();
-        state.toast_config.delivery = crate::config::ToastDelivery::Hako;
+        state.toast_config.delivery = crate::config::ToastDelivery::Omh;
 
         let updates = state.handle_app_event(crate::events::AppEvent::UpdateReady {
             version: "0.5.0".into(),
-            install_command: "hako update".into(),
+            install_command: "omh update".into(),
         });
 
         assert!(updates.is_empty());
@@ -4957,7 +4957,7 @@ mod tests {
         assert!(state.latest_release_notes_available);
         let toast = state.toast.as_ref().expect("update toast");
         assert_eq!(toast.title, "v0.5.0 available");
-        assert_eq!(toast.context, "detach, then run `hako update`");
+        assert_eq!(toast.context, "detach, then run `omh update`");
     }
 
     fn mark_agent(state: &mut AppState, ws_idx: usize, tab_idx: usize, pane_id: PaneId) {
@@ -5111,7 +5111,7 @@ mod tests {
 
     #[test]
     fn switching_workspace_keeps_all_mode_group_headers_visible() {
-        let mut state = app_with_workspaces(&["charliezugasti", "hako", "hako 2"]);
+        let mut state = app_with_workspaces(&["charliezugasti", "omh", "omh 2"]);
         let group_two = state.create_group("group 2".to_string());
         state.move_workspace_to_group(1, group_two);
         state.move_workspace_to_group(2, group_two);
@@ -5418,9 +5418,9 @@ mod tests {
     }
 
     #[test]
-    fn detected_codex_without_hako_integration_warns_once() {
+    fn detected_codex_without_omh_integration_warns_once() {
         let mut state = app_with_workspaces(&["manual"]);
-        state.toast_config.delivery = crate::config::ToastDelivery::Hako;
+        state.toast_config.delivery = crate::config::ToastDelivery::Omh;
         let pane_id = state.workspaces[0].tabs[0].root_pane;
         let observed_at = std::time::Instant::now();
 
@@ -5437,9 +5437,9 @@ mod tests {
 
         let toast = state.toast.as_ref().expect("missing integration toast");
         assert_eq!(toast.kind, ToastKind::NeedsAttention);
-        assert_eq!(toast.title, "Codex detected without Hako integration");
+        assert_eq!(toast.title, "Codex detected without Oh My Herdr integration");
         assert!(toast.context.contains("manual · 1"));
-        assert!(toast.context.contains("hako integration install codex"));
+        assert!(toast.context.contains("omh integration install codex"));
         assert_eq!(
             toast.target.as_ref().map(|target| target.pane_id),
             Some(pane_id)
@@ -5461,7 +5461,7 @@ mod tests {
     }
 
     #[test]
-    fn detected_installable_agent_families_warn_without_hako_integration() {
+    fn detected_installable_agent_families_warn_without_omh_integration() {
         for (agent, title, install_target) in [
             (Agent::Pi, "Pi", "pi"),
             (Agent::OhMyPi, "OMP", "omp"),
@@ -5469,7 +5469,7 @@ mod tests {
             (Agent::OpenCode, "OpenCode", "opencode"),
         ] {
             let mut state = app_with_workspaces(&["manual"]);
-            state.toast_config.delivery = crate::config::ToastDelivery::Hako;
+            state.toast_config.delivery = crate::config::ToastDelivery::Omh;
             let pane_id = state.workspaces[0].tabs[0].root_pane;
 
             state.handle_app_event(AppEvent::StateChanged {
@@ -5486,12 +5486,12 @@ mod tests {
             let toast = state.toast.as_ref().expect("missing integration toast");
             assert_eq!(
                 toast.title,
-                format!("{title} detected without Hako integration")
+                format!("{title} detected without Oh My Herdr integration")
             );
             assert!(
                 toast
                     .context
-                    .contains(&format!("hako integration install {install_target}")),
+                    .contains(&format!("omh integration install {install_target}")),
                 "{}",
                 toast.context
             );
@@ -5499,14 +5499,14 @@ mod tests {
     }
 
     #[test]
-    fn hako_session_report_suppresses_missing_integration_warning() {
+    fn omh_session_report_suppresses_missing_integration_warning() {
         let mut state = app_with_workspaces(&["integrated"]);
-        state.toast_config.delivery = crate::config::ToastDelivery::Hako;
+        state.toast_config.delivery = crate::config::ToastDelivery::Omh;
         let pane_id = state.workspaces[0].tabs[0].root_pane;
 
         state.handle_app_event(AppEvent::HookSessionReported {
             pane_id,
-            source: "hako:codex".into(),
+            source: "omh:codex".into(),
             agent_label: "codex".into(),
             seq: Some(1),
             session_start_source: None,
@@ -5530,7 +5530,7 @@ mod tests {
     #[test]
     fn process_exit_allows_next_manual_codex_session_to_warn() {
         let mut state = app_with_workspaces(&["manual"]);
-        state.toast_config.delivery = crate::config::ToastDelivery::Hako;
+        state.toast_config.delivery = crate::config::ToastDelivery::Omh;
         let pane_id = state.workspaces[0].tabs[0].root_pane;
         let observed_at = std::time::Instant::now();
 
@@ -5546,7 +5546,7 @@ mod tests {
         });
         assert_eq!(
             state.toast.as_ref().map(|toast| toast.title.as_str()),
-            Some("Codex detected without Hako integration")
+            Some("Codex detected without Oh My Herdr integration")
         );
 
         state.toast = None;
@@ -5575,7 +5575,7 @@ mod tests {
 
         assert_eq!(
             state.toast.as_ref().map(|toast| toast.title.as_str()),
-            Some("Codex detected without Hako integration")
+            Some("Codex detected without Oh My Herdr integration")
         );
     }
 
@@ -5691,7 +5691,7 @@ mod tests {
     fn background_waiting_sets_attention_toast() {
         let mut state = app_with_workspaces(&["active", "background"]);
         state.active = Some(0);
-        state.toast_config.delivery = crate::config::ToastDelivery::Hako;
+        state.toast_config.delivery = crate::config::ToastDelivery::Omh;
         let bg_pane_id = *state.workspaces[1].panes.keys().next().unwrap();
 
         state.handle_app_event(AppEvent::StateChanged {
@@ -5715,7 +5715,7 @@ mod tests {
     fn delayed_background_toast_waits_and_revalidates_state() {
         let mut state = app_with_workspaces(&["active", "background"]);
         state.active = Some(0);
-        state.toast_config.delivery = crate::config::ToastDelivery::Hako;
+        state.toast_config.delivery = crate::config::ToastDelivery::Omh;
         state.toast_config.delay_seconds = 1;
         let bg_pane_id = *state.workspaces[1].panes.keys().next().unwrap();
 
@@ -5747,7 +5747,7 @@ mod tests {
     fn hook_reported_unknown_agent_sets_toast_title_from_label() {
         let mut state = app_with_workspaces(&["active", "background"]);
         state.active = Some(0);
-        state.toast_config.delivery = crate::config::ToastDelivery::Hako;
+        state.toast_config.delivery = crate::config::ToastDelivery::Omh;
         let bg_pane_id = *state.workspaces[1].panes.keys().next().unwrap();
 
         state.handle_app_event(AppEvent::HookStateReported {
@@ -5772,7 +5772,7 @@ mod tests {
     fn visible_blocker_overrides_hook_working_and_notifies() {
         let mut state = app_with_workspaces(&["active", "background"]);
         state.active = Some(0);
-        state.toast_config.delivery = crate::config::ToastDelivery::Hako;
+        state.toast_config.delivery = crate::config::ToastDelivery::Omh;
         let bg_pane_id = *state.workspaces[1].panes.keys().next().unwrap();
         let bg_terminal_id = state.workspaces[1]
             .panes
@@ -5793,7 +5793,7 @@ mod tests {
         });
         state.handle_app_event(AppEvent::HookStateReported {
             pane_id: bg_pane_id,
-            source: "hako:codex".into(),
+            source: "omh:codex".into(),
             agent_label: "codex".into(),
             state: AgentState::Working,
             message: None,
@@ -5824,7 +5824,7 @@ mod tests {
     fn visible_idle_waits_before_overriding_claude_hook_working() {
         let mut state = app_with_workspaces(&["active", "background"]);
         state.active = Some(0);
-        state.toast_config.delivery = crate::config::ToastDelivery::Hako;
+        state.toast_config.delivery = crate::config::ToastDelivery::Omh;
         let bg_pane_id = *state.workspaces[1].panes.keys().next().unwrap();
         let bg_terminal_id = state.workspaces[1]
             .panes
@@ -5845,7 +5845,7 @@ mod tests {
         });
         state.handle_app_event(AppEvent::HookStateReported {
             pane_id: bg_pane_id,
-            source: "hako:claude".into(),
+            source: "omh:claude".into(),
             agent_label: "claude".into(),
             state: AgentState::Working,
             message: None,
@@ -5890,7 +5890,7 @@ mod tests {
 
         let second_updates = state.handle_app_event(AppEvent::HookSessionReported {
             pane_id,
-            source: "hako:pi".into(),
+            source: "omh:pi".into(),
             agent_label: "pi".into(),
             seq: Some(21),
             session_start_source: None,
@@ -5935,7 +5935,7 @@ mod tests {
         state.session_dirty = false;
         let third_updates = state.handle_app_event(AppEvent::HookSessionReported {
             pane_id,
-            source: "hako:pi".into(),
+            source: "omh:pi".into(),
             agent_label: "pi".into(),
             session_start_source: None,
             seq: Some(23),
@@ -5956,7 +5956,7 @@ mod tests {
     fn background_idle_sets_finished_toast() {
         let mut state = app_with_workspaces(&["active", "background"]);
         state.active = Some(0);
-        state.toast_config.delivery = crate::config::ToastDelivery::Hako;
+        state.toast_config.delivery = crate::config::ToastDelivery::Omh;
         let bg_pane_id = *state.workspaces[1].panes.keys().next().unwrap();
         let bg_terminal_id = state.workspaces[1]
             .panes
@@ -5990,7 +5990,7 @@ mod tests {
     fn background_toast_includes_tab_name_when_workspace_has_multiple_tabs() {
         let mut state = app_with_workspaces(&["active", "background"]);
         state.active = Some(0);
-        state.toast_config.delivery = crate::config::ToastDelivery::Hako;
+        state.toast_config.delivery = crate::config::ToastDelivery::Omh;
         state.workspaces[1].tabs[0].set_custom_name("main".into());
         let second_tab = state.workspaces[1].test_add_tab(Some("logs"));
         state.ensure_test_terminals();
@@ -6017,7 +6017,7 @@ mod tests {
     fn background_tab_in_active_workspace_still_sets_toast() {
         let mut state = app_with_workspaces(&["active"]);
         state.active = Some(0);
-        state.toast_config.delivery = crate::config::ToastDelivery::Hako;
+        state.toast_config.delivery = crate::config::ToastDelivery::Omh;
         state.workspaces[0].tabs[0].set_custom_name("main".into());
         let second_tab = state.workspaces[0].test_add_tab(Some("logs"));
         state.ensure_test_terminals();
@@ -6044,7 +6044,7 @@ mod tests {
     fn active_workspace_active_tab_does_not_set_toast() {
         let mut state = app_with_workspaces(&["active"]);
         state.active = Some(0);
-        state.toast_config.delivery = crate::config::ToastDelivery::Hako;
+        state.toast_config.delivery = crate::config::ToastDelivery::Omh;
         let pane_id = *state.workspaces[0].panes.keys().next().unwrap();
 
         state.handle_app_event(AppEvent::StateChanged {
@@ -6062,11 +6062,11 @@ mod tests {
     }
 
     #[test]
-    fn active_workspace_active_tab_keeps_hako_toast_suppressed_when_outer_terminal_is_unfocused() {
+    fn active_workspace_active_tab_keeps_omh_toast_suppressed_when_outer_terminal_is_unfocused() {
         let mut state = app_with_workspaces(&["active"]);
         state.active = Some(0);
         state.outer_terminal_focus = Some(false);
-        state.toast_config.delivery = crate::config::ToastDelivery::Hako;
+        state.toast_config.delivery = crate::config::ToastDelivery::Omh;
         let pane_id = *state.workspaces[0].panes.keys().next().unwrap();
 
         state.handle_app_event(AppEvent::StateChanged {
@@ -6094,11 +6094,11 @@ mod tests {
     #[test]
     fn update_ready_sets_manual_update_toast() {
         let mut state = AppState::test_new();
-        state.toast_config.delivery = crate::config::ToastDelivery::Hako;
+        state.toast_config.delivery = crate::config::ToastDelivery::Omh;
 
         let updates = state.handle_app_event(AppEvent::UpdateReady {
             version: "0.5.0".into(),
-            install_command: "hako update".into(),
+            install_command: "omh update".into(),
         });
 
         assert!(updates.is_empty());
@@ -6108,28 +6108,28 @@ mod tests {
         let toast = state.toast.as_ref().expect("update toast");
         assert_eq!(toast.kind, ToastKind::UpdateInstalled);
         assert_eq!(toast.title, "v0.5.0 available");
-        assert_eq!(toast.context, "detach, then run `hako update`");
+        assert_eq!(toast.context, "detach, then run `omh update`");
     }
 
     #[test]
     fn update_ready_uses_event_install_command_in_toast() {
         let mut state = AppState::test_new();
-        state.toast_config.delivery = crate::config::ToastDelivery::Hako;
+        state.toast_config.delivery = crate::config::ToastDelivery::Omh;
 
         state.handle_app_event(AppEvent::UpdateReady {
             version: "0.5.0".into(),
-            install_command: "custom upgrade hako".into(),
+            install_command: "custom upgrade omh".into(),
         });
 
-        assert_eq!(state.update_install_command, "custom upgrade hako");
+        assert_eq!(state.update_install_command, "custom upgrade omh");
         let toast = state.toast.as_ref().expect("update toast");
-        assert_eq!(toast.context, "detach, then run `custom upgrade hako`");
+        assert_eq!(toast.context, "detach, then run `custom upgrade omh`");
     }
 
     #[test]
     fn agent_detection_manifest_update_event_updates_status_and_toast() {
         let mut state = AppState::test_new();
-        state.toast_config.delivery = crate::config::ToastDelivery::Hako;
+        state.toast_config.delivery = crate::config::ToastDelivery::Omh;
         let status = crate::detect::manifest_update::ManifestUpdateStatus {
             last_result: Some("checked".to_string()),
             ..Default::default()

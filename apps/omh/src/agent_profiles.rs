@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, HashSet};
 
 use serde::{Deserialize, Serialize};
-pub(crate) const AGENT_HINT_ENV_VAR: &str = "HAKO_AGENT";
+pub(crate) const AGENT_HINT_ENV_VAR: &str = "OMH_AGENT";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]

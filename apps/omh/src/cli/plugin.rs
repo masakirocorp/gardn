@@ -45,7 +45,7 @@ pub(super) fn run_plugin_command(args: &[String]) -> std::io::Result<i32> {
 
 fn plugin_link(args: &[String]) -> std::io::Result<i32> {
     let Some(path) = args.first() else {
-        eprintln!("usage: hako plugin link <path> [--disabled]");
+        eprintln!("usage: omh plugin link <path> [--disabled]");
         return Ok(2);
     };
     let path = normalize_plugin_path_arg(path)?;
@@ -113,11 +113,11 @@ fn plugin_list(args: &[String]) -> std::io::Result<i32> {
 
 fn plugin_unlink(args: &[String]) -> std::io::Result<i32> {
     let Some(plugin_id) = args.first() else {
-        eprintln!("usage: hako plugin unlink <plugin_id>");
+        eprintln!("usage: omh plugin unlink <plugin_id>");
         return Ok(2);
     };
     if args.len() != 1 {
-        eprintln!("usage: hako plugin unlink <plugin_id>");
+        eprintln!("usage: omh plugin unlink <plugin_id>");
         return Ok(2);
     }
     print_plugin_response(Method::PluginUnlink(PluginUnlinkParams {
@@ -127,7 +127,7 @@ fn plugin_unlink(args: &[String]) -> std::io::Result<i32> {
 
 fn plugin_install(args: &[String]) -> std::io::Result<i32> {
     let Some(source_arg) = args.first() else {
-        eprintln!("usage: hako plugin install <owner>/<repo>[/subdir...] [--ref REF] [--yes]");
+        eprintln!("usage: omh plugin install <owner>/<repo>[/subdir...] [--ref REF] [--yes]");
         return Ok(2);
     };
     let source = match GithubPluginSource::parse(source_arg) {
@@ -229,11 +229,11 @@ fn plugin_install(args: &[String]) -> std::io::Result<i32> {
 
 fn plugin_uninstall(args: &[String]) -> std::io::Result<i32> {
     let Some(target) = args.first() else {
-        eprintln!("usage: hako plugin uninstall <plugin_id|owner/repo[/subdir...]>");
+        eprintln!("usage: omh plugin uninstall <plugin_id|owner/repo[/subdir...]>");
         return Ok(2);
     };
     if args.len() != 1 {
-        eprintln!("usage: hako plugin uninstall <plugin_id|owner/repo[/subdir...]>");
+        eprintln!("usage: omh plugin uninstall <plugin_id|owner/repo[/subdir...]>");
         return Ok(2);
     }
 
@@ -294,14 +294,14 @@ fn plugin_uninstall(args: &[String]) -> std::io::Result<i32> {
 fn plugin_set_enabled(args: &[String], enabled: bool) -> std::io::Result<i32> {
     let Some(plugin_id) = args.first() else {
         eprintln!(
-            "usage: hako plugin {} <plugin_id>",
+            "usage: omh plugin {} <plugin_id>",
             if enabled { "enable" } else { "disable" }
         );
         return Ok(2);
     };
     if args.len() != 1 {
         eprintln!(
-            "usage: hako plugin {} <plugin_id>",
+            "usage: omh plugin {} <plugin_id>",
             if enabled { "enable" } else { "disable" }
         );
         return Ok(2);
@@ -396,7 +396,7 @@ fn plugin_action_list(args: &[String]) -> std::io::Result<i32> {
 
 fn plugin_action_invoke(args: &[String]) -> std::io::Result<i32> {
     let Some(action_id) = args.first() else {
-        eprintln!("usage: hako plugin action invoke <action_id> [--plugin ID]");
+        eprintln!("usage: omh plugin action invoke <action_id> [--plugin ID]");
         return Ok(2);
     };
     let mut plugin_id = None;
@@ -574,11 +574,11 @@ fn plugin_pane_open(args: &[String]) -> std::io::Result<i32> {
 
 fn plugin_pane_focus(args: &[String]) -> std::io::Result<i32> {
     let Some(pane_id) = args.first() else {
-        eprintln!("usage: hako plugin pane focus <pane_id>");
+        eprintln!("usage: omh plugin pane focus <pane_id>");
         return Ok(2);
     };
     if args.len() != 1 {
-        eprintln!("usage: hako plugin pane focus <pane_id>");
+        eprintln!("usage: omh plugin pane focus <pane_id>");
         return Ok(2);
     }
     print_plugin_response(Method::PluginPaneFocus(PluginPaneFocusParams {
@@ -588,11 +588,11 @@ fn plugin_pane_focus(args: &[String]) -> std::io::Result<i32> {
 
 fn plugin_pane_close(args: &[String]) -> std::io::Result<i32> {
     let Some(pane_id) = args.first() else {
-        eprintln!("usage: hako plugin pane close <pane_id>");
+        eprintln!("usage: omh plugin pane close <pane_id>");
         return Ok(2);
     };
     if args.len() != 1 {
-        eprintln!("usage: hako plugin pane close <pane_id>");
+        eprintln!("usage: omh plugin pane close <pane_id>");
         return Ok(2);
     }
     print_plugin_response(Method::PluginPaneClose(PluginPaneCloseParams {
@@ -661,7 +661,7 @@ impl GithubPluginSource {
         }
         let parts = value.split('/').collect::<Vec<_>>();
         if parts.len() < 2 {
-            return Err("usage: hako plugin install <owner>/<repo>[/subdir...]".into());
+            return Err("usage: omh plugin install <owner>/<repo>[/subdir...]".into());
         }
         let owner = parts[0];
         let repo = parts[1];
@@ -922,7 +922,7 @@ fn verify_plugin_link_source_response(
         || plugin.source.managed_path != expected.managed_path
     {
         return Err(std::io::Error::other(
-            "running Hako server did not persist GitHub plugin source metadata",
+            "running Oh My Herdr server did not persist GitHub plugin source metadata",
         ));
     }
     Ok(())
@@ -1197,7 +1197,7 @@ fn ensure_manifest_unchanged_after_build(
         return Ok(());
     }
     Err(io::Error::other(
-        "plugin build changed hako-plugin.toml after install preview; aborting install",
+        "plugin build changed omh-plugin.toml after install preview; aborting install",
     ))
 }
 
@@ -1227,7 +1227,7 @@ fn run_plugin_build_command(
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
-    scrub_hako_runtime_env(&mut child);
+    scrub_omh_runtime_env(&mut child);
 
     let mut child = match child.spawn() {
         Ok(child) => child,
@@ -1406,21 +1406,21 @@ fn read_tail_capped_output(mut reader: impl Read, cap: usize) -> CappedOutput {
     }
 }
 
-fn scrub_hako_runtime_env(command: &mut Command) {
+fn scrub_omh_runtime_env(command: &mut Command) {
     for key in [
         crate::api::SOCKET_PATH_ENV_VAR,
         crate::server::socket_paths::CLIENT_SOCKET_PATH_ENV_VAR,
         crate::session::SESSION_ENV_VAR,
-        "HAKO_BIN_PATH",
-        "HAKO_ENV",
-        "HAKO_WORKSPACE_ID",
-        "HAKO_TAB_ID",
-        "HAKO_PANE_ID",
+        "OMH_BIN_PATH",
+        "OMH_ENV",
+        "OMH_WORKSPACE_ID",
+        "OMH_TAB_ID",
+        "OMH_PANE_ID",
     ] {
         command.env_remove(key);
     }
     for (key, _) in std::env::vars_os() {
-        if key.to_string_lossy().starts_with("HAKO_PLUGIN_") {
+        if key.to_string_lossy().starts_with("OMH_PLUGIN_") {
             command.env_remove(key);
         }
     }
@@ -1539,30 +1539,30 @@ fn print_plugin_response(method: Method) -> std::io::Result<i32> {
 }
 
 fn print_plugin_help() {
-    eprintln!("hako plugin commands:");
-    eprintln!("  hako plugin install <owner>/<repo>[/subdir...] [--ref REF] [--yes]");
-    eprintln!("  hako plugin uninstall <plugin_id|owner/repo[/subdir...]>");
-    eprintln!("  hako plugin link <path> [--disabled]");
-    eprintln!("  hako plugin list [--plugin ID] [--json]");
-    eprintln!("  hako plugin unlink <plugin_id>");
-    eprintln!("  hako plugin enable <plugin_id>");
-    eprintln!("  hako plugin disable <plugin_id>");
-    eprintln!("  hako plugin action <list|invoke>");
-    eprintln!("  hako plugin log list [--plugin ID] [--limit N]");
-    eprintln!("  hako plugin pane <open|focus|close>");
+    eprintln!("omh plugin commands:");
+    eprintln!("  omh plugin install <owner>/<repo>[/subdir...] [--ref REF] [--yes]");
+    eprintln!("  omh plugin uninstall <plugin_id|owner/repo[/subdir...]>");
+    eprintln!("  omh plugin link <path> [--disabled]");
+    eprintln!("  omh plugin list [--plugin ID] [--json]");
+    eprintln!("  omh plugin unlink <plugin_id>");
+    eprintln!("  omh plugin enable <plugin_id>");
+    eprintln!("  omh plugin disable <plugin_id>");
+    eprintln!("  omh plugin action <list|invoke>");
+    eprintln!("  omh plugin log list [--plugin ID] [--limit N]");
+    eprintln!("  omh plugin pane <open|focus|close>");
 }
 
 fn print_plugin_action_help() {
-    eprintln!("hako plugin action commands:");
-    eprintln!("  hako plugin action list [--plugin ID]");
-    eprintln!("  hako plugin action invoke <action_id> [--plugin ID]");
+    eprintln!("omh plugin action commands:");
+    eprintln!("  omh plugin action list [--plugin ID]");
+    eprintln!("  omh plugin action invoke <action_id> [--plugin ID]");
 }
 
 fn print_plugin_pane_help() {
-    eprintln!("hako plugin pane commands:");
-    eprintln!("  hako plugin pane open --plugin ID --entrypoint ID [--placement overlay|split|tab|zoomed] [--workspace ID] [--target-pane PANE] [--direction right|down] [--cwd PATH] [--env KEY=VALUE] [--focus|--no-focus]");
-    eprintln!("  hako plugin pane focus <pane_id>");
-    eprintln!("  hako plugin pane close <pane_id>");
+    eprintln!("omh plugin pane commands:");
+    eprintln!("  omh plugin pane open --plugin ID --entrypoint ID [--placement overlay|split|tab|zoomed] [--workspace ID] [--target-pane PANE] [--direction right|down] [--cwd PATH] [--env KEY=VALUE] [--focus|--no-focus]");
+    eprintln!("  omh plugin pane focus <pane_id>");
+    eprintln!("  omh plugin pane close <pane_id>");
 }
 
 #[cfg(test)]
@@ -1579,9 +1579,9 @@ mod tests {
             plugin_id: id.to_string(),
             name: "Test Plugin".to_string(),
             version: "0.1.0".to_string(),
-            min_hako_version: "0.1.0".to_string(),
+            min_omh_version: "0.1.0".to_string(),
             description: None,
-            manifest_path: format!("/tmp/{id}/hako-plugin.toml"),
+            manifest_path: format!("/tmp/{id}/omh-plugin.toml"),
             plugin_root: format!("/tmp/{id}"),
             enabled: true,
             platforms: None,
@@ -1597,7 +1597,7 @@ mod tests {
                 subdir: subdir.map(str::to_string),
                 requested_ref: None,
                 resolved_commit: Some("abc123".to_string()),
-                managed_path: Some(format!("/tmp/hako/plugins/{id}")),
+                managed_path: Some(format!("/tmp/omh/plugins/{id}")),
                 installed_unix_ms: Some(42),
             },
             warnings: vec![],
@@ -1606,34 +1606,34 @@ mod tests {
 
     #[test]
     fn github_plugin_source_parses_root_repo() {
-        let source = GithubPluginSource::parse("ogulcancelik/hako-plugin-examples").unwrap();
+        let source = GithubPluginSource::parse("ogulcancelik/omh-plugin-examples").unwrap();
         assert_eq!(source.owner, "ogulcancelik");
-        assert_eq!(source.repo, "hako-plugin-examples");
+        assert_eq!(source.repo, "omh-plugin-examples");
         assert_eq!(source.subdir, None);
         assert_eq!(
             source.remote_url(),
-            "https://github.com/ogulcancelik/hako-plugin-examples.git"
+            "https://github.com/ogulcancelik/omh-plugin-examples.git"
         );
     }
 
     #[test]
     fn github_plugin_source_parses_subdir() {
         let source =
-            GithubPluginSource::parse("ogulcancelik/hako-plugin-examples/worktree-bootstrap")
+            GithubPluginSource::parse("ogulcancelik/omh-plugin-examples/worktree-bootstrap")
                 .unwrap();
         assert_eq!(source.owner, "ogulcancelik");
-        assert_eq!(source.repo, "hako-plugin-examples");
+        assert_eq!(source.repo, "omh-plugin-examples");
         assert_eq!(source.subdir.as_deref(), Some("worktree-bootstrap"));
     }
 
     #[test]
     fn github_plugin_source_rejects_non_shorthand_sources() {
         for source in [
-            "https://github.com/ogulcancelik/hako-plugin-examples",
-            "git@github.com:ogulcancelik/hako-plugin-examples.git",
+            "https://github.com/ogulcancelik/omh-plugin-examples",
+            "git@github.com:ogulcancelik/omh-plugin-examples.git",
             "ogulcancelik",
-            "ogulcancelik/hako-plugin-examples/../bad",
-            "ogulcancelik/hako-plugin-examples//bad",
+            "ogulcancelik/omh-plugin-examples/../bad",
+            "ogulcancelik/omh-plugin-examples//bad",
         ] {
             assert!(
                 GithubPluginSource::parse(source).is_err(),
@@ -1645,19 +1645,19 @@ mod tests {
     #[test]
     fn github_source_lookup_matches_installed_plugin_source() {
         let source =
-            GithubPluginSource::parse("ogulcancelik/hako-plugin-examples/agent-telegram-notify")
+            GithubPluginSource::parse("ogulcancelik/omh-plugin-examples/agent-telegram-notify")
                 .unwrap();
         let plugins = vec![
             github_plugin(
                 "examples.github-link-preview",
                 "ogulcancelik",
-                "hako-plugin-examples",
+                "omh-plugin-examples",
                 Some("github-link-preview"),
             ),
             github_plugin(
                 "examples.agent-telegram-notify",
                 "ogulcancelik",
-                "hako-plugin-examples",
+                "omh-plugin-examples",
                 Some("agent-telegram-notify"),
             ),
         ];
@@ -1668,11 +1668,11 @@ mod tests {
 
     #[test]
     fn github_source_lookup_requires_exact_subdir() {
-        let source = GithubPluginSource::parse("ogulcancelik/hako-plugin-examples").unwrap();
+        let source = GithubPluginSource::parse("ogulcancelik/omh-plugin-examples").unwrap();
         let plugins = vec![github_plugin(
             "examples.agent-telegram-notify",
             "ogulcancelik",
-            "hako-plugin-examples",
+            "omh-plugin-examples",
             Some("agent-telegram-notify"),
         )];
 
@@ -1681,11 +1681,11 @@ mod tests {
 
     #[test]
     fn github_source_lookup_ignores_local_plugins() {
-        let source = GithubPluginSource::parse("ogulcancelik/hako-plugin-examples").unwrap();
+        let source = GithubPluginSource::parse("ogulcancelik/omh-plugin-examples").unwrap();
         let mut plugin = github_plugin(
             "examples.local",
             "ogulcancelik",
-            "hako-plugin-examples",
+            "omh-plugin-examples",
             None,
         );
         plugin.source = PluginSourceInfo::default();

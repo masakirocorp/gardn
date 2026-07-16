@@ -22,9 +22,9 @@ const KNOWN_TOP_LEVEL_CONFIG_KEYS: &[&str] = &[
 
 pub fn app_dir_name() -> &'static str {
     if cfg!(debug_assertions) {
-        "hako-dev"
+        "omh-dev"
     } else {
-        "hako"
+        "omh"
     }
 }
 
@@ -547,8 +547,8 @@ fn upsert_section_raw(content: &str, section: &str, key: &str, value: &str) -> S
 mod tests {
     use super::*;
     #[test]
-    fn app_dir_uses_hako_namespace() {
-        assert_eq!(app_dir_name(), "hako-dev");
+    fn app_dir_uses_omh_namespace() {
+        assert_eq!(app_dir_name(), "omh-dev");
     }
 
     #[test]
@@ -600,15 +600,15 @@ mod tests {
     #[test]
     fn remove_section_key_removes_matching_key_from_section() {
         let content =
-            "[ui.toast]\nenabled = true\ndelivery = \"hako\"\n[ui.sound]\nenabled = true\n";
+            "[ui.toast]\nenabled = true\ndelivery = \"omh\"\n[ui.sound]\nenabled = true\n";
         let updated = remove_section_key(content, "ui.toast", "enabled");
         assert_eq!(
             updated,
-            "[ui.toast]\ndelivery = \"hako\"\n[ui.sound]\nenabled = true\n"
+            "[ui.toast]\ndelivery = \"omh\"\n[ui.sound]\nenabled = true\n"
         );
         let parsed: toml::Table = toml::from_str(&updated).unwrap();
         assert!(parsed["ui"]["toast"].get("enabled").is_none());
-        assert_eq!(parsed["ui"]["toast"]["delivery"].as_str(), Some("hako"));
+        assert_eq!(parsed["ui"]["toast"]["delivery"].as_str(), Some("omh"));
         assert_eq!(parsed["ui"]["sound"]["enabled"].as_bool(), Some(true));
     }
 
@@ -667,7 +667,7 @@ command = "omp-mk"
 delivery = "system"
 
 [ui.toast]
-delivery = "hako"
+delivery = "omh"
 "#,
         )
         .unwrap();
@@ -679,7 +679,7 @@ delivery = "hako"
         assert!(loaded.invalid_sections.is_empty());
         assert_eq!(
             loaded.config.ui.toast.delivery,
-            super::super::ToastDelivery::Hako
+            super::super::ToastDelivery::Omh
         );
     }
 
@@ -690,7 +690,7 @@ delivery = "hako"
 plugin = []
 
 [ui.toast]
-delivery = "hako"
+delivery = "omh"
 "#,
         )
         .unwrap();
@@ -698,7 +698,7 @@ delivery = "hako"
         assert!(loaded.diagnostics.is_empty());
         assert_eq!(
             loaded.config.ui.toast.delivery,
-            super::super::ToastDelivery::Hako
+            super::super::ToastDelivery::Omh
         );
     }
 

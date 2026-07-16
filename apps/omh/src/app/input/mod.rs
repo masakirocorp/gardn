@@ -1044,7 +1044,7 @@ fn unique_temp_path(name: &str) -> std::path::PathBuf {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_nanos())
         .unwrap_or(0);
-    std::env::temp_dir().join(format!("hako-{name}-{}-{nanos}", std::process::id()))
+    std::env::temp_dir().join(format!("omh-{name}-{}-{nanos}", std::process::id()))
 }
 
 #[cfg(test)]
@@ -1095,12 +1095,12 @@ mod tests {
     async fn paste_routes_to_worktree_directory_input() {
         let mut app = test_app();
         app.state.mode = Mode::EditWorktreeDirectory;
-        app.state.name_input = "/tmp/hako".into();
+        app.state.name_input = "/tmp/omh".into();
         app.state.name_input_replace_on_type = true;
 
-        app.handle_paste("/tmp/hako-worktrees".into()).await;
+        app.handle_paste("/tmp/omh-worktrees".into()).await;
 
-        assert_eq!(app.state.name_input, "/tmp/hako-worktrees");
+        assert_eq!(app.state.name_input, "/tmp/omh-worktrees");
         assert!(!app.state.name_input_replace_on_type);
     }
 

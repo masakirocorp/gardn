@@ -1853,7 +1853,7 @@ mod tests {
                 label: "omp",
                 command: "omp",
                 available: true,
-                path: std::path::PathBuf::from("/tmp/hako-test-omp"),
+                path: std::path::PathBuf::from("/tmp/omh-test-omp"),
                 state: crate::integration::IntegrationStatusKind::Outdated,
             }];
         app.state.mode = Mode::GlobalMenu;
@@ -1897,7 +1897,7 @@ mod tests {
                 label: "omp",
                 command: "omp",
                 available: true,
-                path: std::path::PathBuf::from("/tmp/hako-test-omp"),
+                path: std::path::PathBuf::from("/tmp/omh-test-omp"),
                 state: crate::integration::IntegrationStatusKind::Outdated,
             }];
 
@@ -1962,7 +1962,7 @@ mod tests {
         assert!(text.contains("configuration issue"));
         assert!(text.contains("diagnostics · 2"));
         assert!(text.contains("CLI"));
-        assert!(text.contains("$ hako config check"));
+        assert!(text.contains("$ omh config check"));
         assert!(text.contains("1. config.toml"));
         assert!(text.contains("unknown key `colour`"));
         assert!(text.contains("2. config read error"));

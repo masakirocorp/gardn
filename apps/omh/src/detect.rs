@@ -32,7 +32,7 @@ pub struct AgentDetection {
     /// scrollback and may override a non-blocked integration state.
     pub visible_blocker: bool,
     /// True when the current screen visibly shows the agent's idle input UI.
-    /// This lets Hako recover from integrations that miss an interrupt/stop
+    /// This lets Oh My Herdr recover from integrations that miss an interrupt/stop
     /// event without treating an empty or ambiguous screen as idle authority.
     pub visible_idle: bool,
     /// True when the current screen visibly shows live working chrome. This is
@@ -250,17 +250,17 @@ pub fn should_skip_state_update(agent: Option<Agent>, screen_content: &str) -> b
 pub(crate) fn full_lifecycle_hook_authority(source: &str, agent_label: &str) -> bool {
     matches!(
         (source, agent_label),
-        ("hako:claude", "claude")
-            | ("hako:codex", "codex")
-            | ("hako:copilot", "copilot")
-            | ("hako:cursor", "cursor")
-            | ("hako:droid", "droid")
-            | ("hako:grok", "grok")
-            | ("hako:hermes", "hermes")
-            | ("hako:opencode", "opencode")
-            | ("hako:kilo", "kilo")
-            | ("hako:kimi", "kimi")
-            | ("hako:qodercli", "qodercli")
+        ("omh:claude", "claude")
+            | ("omh:codex", "codex")
+            | ("omh:copilot", "copilot")
+            | ("omh:cursor", "cursor")
+            | ("omh:droid", "droid")
+            | ("omh:grok", "grok")
+            | ("omh:hermes", "hermes")
+            | ("omh:opencode", "opencode")
+            | ("omh:kilo", "kilo")
+            | ("omh:kimi", "kimi")
+            | ("omh:qodercli", "qodercli")
     )
 }
 
@@ -550,7 +550,7 @@ mod tests {
 
     fn temp_detection_path(name: &str) -> std::path::PathBuf {
         let unique = format!(
-            "hako-detect-tests-{}-{}-{}",
+            "omh-detect-tests-{}-{}-{}",
             name,
             std::process::id(),
             std::time::SystemTime::now()
@@ -832,7 +832,7 @@ mod tests {
                 "node.exe",
                 &[
                     "node.exe",
-                    r"C:\Users\hako\AppData\Roaming\npm\node_modules\@earendil-works\pi-coding-agent\dist\cli.js",
+                    r"C:\Users\omh\AppData\Roaming\npm\node_modules\@earendil-works\pi-coding-agent\dist\cli.js",
                 ],
             )],
         };
@@ -852,7 +852,7 @@ mod tests {
                 "node.exe",
                 &[
                     "node.exe",
-                    r"C:\Users\hako\AppData\Roaming\npm\node_modules\@earendil-works\pi-coding-agent\scripts\build.js",
+                    r"C:\Users\omh\AppData\Roaming\npm\node_modules\@earendil-works\pi-coding-agent\scripts\build.js",
                 ],
             )],
         };

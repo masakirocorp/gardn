@@ -133,11 +133,11 @@ fn tab_create(args: &[String]) -> std::io::Result<i32> {
 
 fn tab_get(args: &[String]) -> std::io::Result<i32> {
     let Some(raw_tab_id) = args.first() else {
-        eprintln!("usage: hako tab get <tab_id>");
+        eprintln!("usage: omh tab get <tab_id>");
         return Ok(2);
     };
     if args.len() != 1 {
-        eprintln!("usage: hako tab get <tab_id>");
+        eprintln!("usage: omh tab get <tab_id>");
         return Ok(2);
     }
 
@@ -151,11 +151,11 @@ fn tab_get(args: &[String]) -> std::io::Result<i32> {
 
 fn tab_focus(args: &[String]) -> std::io::Result<i32> {
     let Some(raw_tab_id) = args.first() else {
-        eprintln!("usage: hako tab focus <tab_id>");
+        eprintln!("usage: omh tab focus <tab_id>");
         return Ok(2);
     };
     if args.len() != 1 {
-        eprintln!("usage: hako tab focus <tab_id>");
+        eprintln!("usage: omh tab focus <tab_id>");
         return Ok(2);
     }
 
@@ -169,7 +169,7 @@ fn tab_focus(args: &[String]) -> std::io::Result<i32> {
 
 fn tab_rename(args: &[String]) -> std::io::Result<i32> {
     if args.len() < 2 {
-        eprintln!("usage: hako tab rename <tab_id> <label>");
+        eprintln!("usage: omh tab rename <tab_id> <label>");
         return Ok(2);
     }
 
@@ -184,11 +184,11 @@ fn tab_rename(args: &[String]) -> std::io::Result<i32> {
 
 fn tab_close(args: &[String]) -> std::io::Result<i32> {
     let Some(raw_tab_id) = args.first() else {
-        eprintln!("usage: hako tab close <tab_id>");
+        eprintln!("usage: omh tab close <tab_id>");
         return Ok(2);
     };
     if args.len() != 1 {
-        eprintln!("usage: hako tab close <tab_id>");
+        eprintln!("usage: omh tab close <tab_id>");
         return Ok(2);
     }
 
@@ -201,13 +201,13 @@ fn tab_close(args: &[String]) -> std::io::Result<i32> {
 }
 
 fn print_tab_help() {
-    eprintln!("hako tab commands:");
-    eprintln!("  hako tab list [--workspace <workspace_id>]");
+    eprintln!("omh tab commands:");
+    eprintln!("  omh tab list [--workspace <workspace_id>]");
     eprintln!(
-        "  hako tab create [--workspace <workspace_id>] [--cwd PATH] [--label TEXT] [--env KEY=VALUE] [--focus] [--no-focus]"
+        "  omh tab create [--workspace <workspace_id>] [--cwd PATH] [--label TEXT] [--env KEY=VALUE] [--focus] [--no-focus]"
     );
-    eprintln!("  hako tab get <tab_id>");
-    eprintln!("  hako tab focus <tab_id>");
-    eprintln!("  hako tab rename <tab_id> <label>");
-    eprintln!("  hako tab close <tab_id>");
+    eprintln!("  omh tab get <tab_id>");
+    eprintln!("  omh tab focus <tab_id>");
+    eprintln!("  omh tab rename <tab_id> <label>");
+    eprintln!("  omh tab close <tab_id>");
 }

@@ -357,7 +357,7 @@ pub fn process_cwd(pid: u32) -> Option<PathBuf> {
     std::fs::read_link(format!("/proc/{pid}/cwd")).ok()
 }
 
-/// Read Hako's agent identity hint from a process environment.
+/// Read Oh My Herdr's agent identity hint from a process environment.
 pub fn process_agent_hint(pid: u32) -> Option<crate::detect::Agent> {
     if pid == 0 {
         return None;
@@ -763,13 +763,13 @@ mod tests {
     }
 
     #[test]
-    fn parse_agent_env_hint_accepts_hako_agents_only() {
+    fn parse_agent_env_hint_accepts_omh_agents_only() {
         assert_eq!(
-            parse_agent_env_hint(b"PATH=/bin\0HAKO_AGENT=claude\0TERM=xterm\0"),
+            parse_agent_env_hint(b"PATH=/bin\0OMH_AGENT=claude\0TERM=xterm\0"),
             Some(crate::detect::Agent::Claude)
         );
         assert_eq!(
-            parse_agent_env_hint(b"HAKO_AGENT=codex"),
+            parse_agent_env_hint(b"OMH_AGENT=codex"),
             Some(crate::detect::Agent::Codex)
         );
         assert_eq!(parse_agent_env_hint(b"HERDR_AGENT=pi\0"), None);
@@ -778,8 +778,8 @@ mod tests {
     #[test]
     fn parse_agent_env_hint_ignores_unknown_or_invalid_values() {
         assert_eq!(parse_agent_env_hint(b"PATH=/bin\0TERM=xterm\0"), None);
-        assert_eq!(parse_agent_env_hint(b"HAKO_AGENT=not-an-agent\0"), None);
-        assert_eq!(parse_agent_env_hint(b"HAKO_AGENT=\xff\0"), None);
+        assert_eq!(parse_agent_env_hint(b"OMH_AGENT=not-an-agent\0"), None);
+        assert_eq!(parse_agent_env_hint(b"OMH_AGENT=\xff\0"), None);
     }
 
     #[test]
@@ -1076,7 +1076,7 @@ mod tests {
     #[test]
     fn read_clipboard_image_rejects_xclip_text_served_for_image_target() {
         let _guard = env_lock().lock().unwrap();
-        let temp_dir = std::env::temp_dir().join(format!("hako-fake-xclip-{}", std::process::id()));
+        let temp_dir = std::env::temp_dir().join(format!("omh-fake-xclip-{}", std::process::id()));
         std::fs::create_dir_all(&temp_dir).expect("temp dir should be created");
         let fake_xclip = temp_dir.join("xclip");
         std::fs::write(&fake_xclip, "#!/bin/sh\nprintf '# Tasks'\n")
@@ -1118,7 +1118,7 @@ mod tests {
     fn read_clipboard_image_rejects_wayland_xclip_fallback_text_for_image_target() {
         let _guard = env_lock().lock().unwrap();
         let temp_dir =
-            std::env::temp_dir().join(format!("hako-fake-wayland-xclip-{}", std::process::id()));
+            std::env::temp_dir().join(format!("omh-fake-wayland-xclip-{}", std::process::id()));
         std::fs::create_dir_all(&temp_dir).expect("temp dir should be created");
         let fake_wl_paste = temp_dir.join("wl-paste");
         let fake_xclip = temp_dir.join("xclip");
@@ -1219,17 +1219,17 @@ mod tests {
             .map(|duration| duration.as_nanos())
             .unwrap_or(0);
         let path = std::env::temp_dir().join(format!(
-            "hako-notify-send-args-{}-{nanos}",
+            "omh-notify-send-args-{}-{nanos}",
             std::process::id()
         ));
         let _ = std::fs::remove_file(&path);
-        let script = "printf '%s\\n' \"$@\" > \"$HAKO_NOTIFY_ARGS\"";
+        let script = "printf '%s\\n' \"$@\" > \"$OMH_NOTIFY_ARGS\"";
         let shown = show_desktop_notification_with_command("-danger", Some("body"), |_| {
             let mut cmd = Command::new("sh");
             cmd.arg("-c")
                 .arg(script)
                 .arg("notify-send")
-                .env("HAKO_NOTIFY_ARGS", &path);
+                .env("OMH_NOTIFY_ARGS", &path);
             cmd
         })
         .expect("notification command should run");

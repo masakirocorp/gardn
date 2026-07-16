@@ -400,7 +400,7 @@ mod tests {
             .expect("test clock should be after epoch")
             .as_nanos();
         let dir =
-            std::env::temp_dir().join(format!("hako-{test_name}-{}-{nanos}", std::process::id()));
+            std::env::temp_dir().join(format!("omh-{test_name}-{}-{nanos}", std::process::id()));
         std::fs::create_dir_all(&dir).expect("temp restore dir should be created");
         dir
     }
@@ -590,7 +590,7 @@ mod tests {
             command_resolution: crate::agent_resume::AgentResumeCommandResolution::External,
             preserved_launch_argv: None,
             env: vec![("CODEX_HOME".into(), "/profiles/manual-codex".into())],
-            dedupe_key: format!("hako:codex\0codex\0Id\0{}", output.display()),
+            dedupe_key: format!("omh:codex\0codex\0Id\0{}", output.display()),
         });
 
         assert!(app.start_pending_agent_resumes(false));
@@ -794,7 +794,7 @@ mod tests {
             command_resolution: crate::agent_resume::AgentResumeCommandResolution::External,
             preserved_launch_argv: None,
             env: Vec::new(),
-            dedupe_key: "hako:codex\0codex\0Id\0codex-session".into(),
+            dedupe_key: "omh:codex\0codex\0Id\0codex-session".into(),
         });
 
         assert!(app.start_pending_agent_resumes(false));
@@ -849,7 +849,7 @@ mod tests {
             command_resolution: crate::agent_resume::AgentResumeCommandResolution::External,
             preserved_launch_argv: None,
             env: Vec::new(),
-            dedupe_key: "hako:codex\0codex\0Id\0codex-session".into(),
+            dedupe_key: "omh:codex\0codex\0Id\0codex-session".into(),
         });
 
         assert!(!app.start_pending_agent_resumes(false));
@@ -928,7 +928,7 @@ mod tests {
             command_resolution: crate::agent_resume::AgentResumeCommandResolution::External,
             preserved_launch_argv: None,
             env: Vec::new(),
-            dedupe_key: "hako:codex\0codex\0Id\0codex-session".into(),
+            dedupe_key: "omh:codex\0codex\0Id\0codex-session".into(),
         });
 
         app.sync_pending_agent_resume_deadline(std::time::Instant::now());
@@ -980,7 +980,7 @@ mod tests {
                 command_resolution: crate::agent_resume::AgentResumeCommandResolution::External,
                 preserved_launch_argv: None,
                 env: Vec::new(),
-                dedupe_key: format!("hako:codex\0codex\0Id\0{terminal_id}"),
+                dedupe_key: format!("omh:codex\0codex\0Id\0{terminal_id}"),
             });
         }
         app.pending_agent_resume_deadline =
@@ -1065,7 +1065,7 @@ mod tests {
             command_resolution: crate::agent_resume::AgentResumeCommandResolution::External,
             preserved_launch_argv: None,
             env: Vec::new(),
-            dedupe_key: "hako:codex\0codex\0Id\0codex-session".into(),
+            dedupe_key: "omh:codex\0codex\0Id\0codex-session".into(),
         });
 
         app.sync_pending_agent_resume_deadline(std::time::Instant::now());
@@ -1151,7 +1151,7 @@ mod tests {
             command_resolution: crate::agent_resume::AgentResumeCommandResolution::External,
             preserved_launch_argv: None,
             env: Vec::new(),
-            dedupe_key: "hako:codex\0codex\0Id\0codex-session".into(),
+            dedupe_key: "omh:codex\0codex\0Id\0codex-session".into(),
         });
 
         assert!(app.start_pending_agent_resumes(false));

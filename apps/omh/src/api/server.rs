@@ -124,7 +124,7 @@ pub fn start_server_with_capabilities(
 fn prepare_socket_path(path: &Path) -> std::io::Result<()> {
     crate::ipc::prepare_socket_path(path, |path| {
         format!(
-            "hako is already running (socket busy at {})",
+            "Oh My Herdr is already running (socket busy at {})",
             path.display()
         )
     })
@@ -662,7 +662,7 @@ mod tests {
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_nanos();
-        std::env::temp_dir().join(format!("hako-{name}-{}-{nanos}", std::process::id()))
+        std::env::temp_dir().join(format!("omh-{name}-{}-{nanos}", std::process::id()))
     }
 
     fn read_line(stream: &mut LocalStream) -> String {
@@ -708,7 +708,7 @@ mod tests {
     fn socket_path_prefers_explicit_env_override() {
         let _guard = env_lock().lock().unwrap();
         let unique = format!(
-            "/tmp/hako-test-{}-{}.sock",
+            "/tmp/omh-test-{}-{}.sock",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -734,7 +734,7 @@ mod tests {
 
         let expected = config_home
             .join(crate::config::app_dir_name())
-            .join("hako.sock");
+            .join("omh.sock");
         assert_eq!(socket_path(), expected);
     }
 
@@ -751,7 +751,7 @@ mod tests {
             .join(crate::config::app_dir_name())
             .join("sessions")
             .join("work")
-            .join("hako.sock");
+            .join("omh.sock");
         assert_eq!(socket_path(), expected);
     }
 

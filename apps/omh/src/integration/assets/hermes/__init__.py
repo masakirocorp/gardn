@@ -1,7 +1,7 @@
-"""Hermes plugin installed by Hako to report agent lifecycle state."""
+"""Hermes plugin installed by Oh My Herdr to report agent lifecycle state."""
 
-# HAKO_INTEGRATION_ID=hermes
-# HAKO_INTEGRATION_VERSION=1
+# OMH_INTEGRATION_ID=hermes
+# OMH_INTEGRATION_VERSION=1
 
 from __future__ import annotations
 
@@ -11,15 +11,15 @@ import random
 import socket
 import time
 
-_SOURCE = "hako:hermes"
+_SOURCE = "omh:hermes"
 _AGENT = "hermes"
 
 
 def _base_params() -> tuple[str, str] | None:
-    if os.environ.get("HAKO_ENV") != "1":
+    if os.environ.get("OMH_ENV") != "1":
         return None
-    pane_id = os.environ.get("HAKO_PANE_ID", "").strip()
-    socket_path = os.environ.get("HAKO_SOCKET_PATH", "").strip()
+    pane_id = os.environ.get("OMH_PANE_ID", "").strip()
+    socket_path = os.environ.get("OMH_SOCKET_PATH", "").strip()
     if not pane_id or not socket_path:
         return None
     return pane_id, socket_path

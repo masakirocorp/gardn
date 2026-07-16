@@ -55,8 +55,8 @@ mod tests {
 
     #[test]
     fn verifies_matching_sha256() {
-        let path = std::env::temp_dir().join(format!("hako-checksum-test-{}", std::process::id()));
-        fs::write(&path, b"hako").unwrap();
+        let path = std::env::temp_dir().join(format!("omh-checksum-test-{}", std::process::id()));
+        fs::write(&path, b"omh").unwrap();
         let result = super::verify_sha256(
             &path,
             "f9a2256162a97e61c9912c92dc3379c8efae0311fdcff3689a14b73c3a7250e1",

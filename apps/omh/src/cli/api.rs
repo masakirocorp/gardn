@@ -56,7 +56,7 @@ fn api_schema(args: &[String]) -> std::io::Result<i32> {
 
 fn api_snapshot(args: &[String]) -> std::io::Result<i32> {
     if !args.is_empty() {
-        eprintln!("usage: hako api snapshot");
+        eprintln!("usage: omh api snapshot");
         return Ok(2);
     }
 
@@ -93,19 +93,19 @@ fn schema_summary_text() -> std::io::Result<String> {
     schemas.sort();
 
     Ok(format!(
-        "Hako API schema\nprotocol: {protocol}\nschema_version: {schema_version}\nschemas: {}\n\nUse `hako api schema --json` to print the full schema.\nUse `hako api schema --output PATH` to write it to a file.\n",
+        "Oh My Herdr API schema\nprotocol: {protocol}\nschema_version: {schema_version}\nschemas: {}\n\nUse `omh api schema --json` to print the full schema.\nUse `omh api schema --output PATH` to write it to a file.\n",
         schemas.join(", ")
     ))
 }
 
 fn print_api_help() {
-    eprintln!("hako api commands:");
-    eprintln!("  hako api snapshot");
-    eprintln!("  hako api schema [--json | --output PATH]");
+    eprintln!("omh api commands:");
+    eprintln!("  omh api snapshot");
+    eprintln!("  omh api schema [--json | --output PATH]");
 }
 
 fn print_api_schema_help() {
-    eprintln!("usage: hako api schema [--json | --output PATH]");
+    eprintln!("usage: omh api schema [--json | --output PATH]");
 }
 
 #[cfg(test)]
@@ -113,8 +113,8 @@ mod tests {
     #[test]
     fn schema_summary_text_stays_human_sized() {
         let text = super::schema_summary_text().unwrap();
-        assert!(text.contains("Hako API schema"));
-        assert!(text.contains("Use `hako api schema --json`"));
+        assert!(text.contains("Oh My Herdr API schema"));
+        assert!(text.contains("Use `omh api schema --json`"));
         assert!(text.len() < 400);
     }
 }

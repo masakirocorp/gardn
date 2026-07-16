@@ -5,9 +5,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const originalEnvironment = {
-  HAKO_ENV: process.env.HAKO_ENV,
-  HAKO_PANE_ID: process.env.HAKO_PANE_ID,
-  HAKO_SOCKET_PATH: process.env.HAKO_SOCKET_PATH,
+  OMH_ENV: process.env.OMH_ENV,
+  OMH_PANE_ID: process.env.OMH_PANE_ID,
+  OMH_SOCKET_PATH: process.env.OMH_SOCKET_PATH,
 };
 let importCounter = 0;
 
@@ -34,7 +34,7 @@ function freshImport(path: string) {
 async function recordingSocket(
   handle: (request: RequestRecord, connection: number, socket: Socket) => void,
 ): Promise<RecordingSocket> {
-  const path = join(tmpdir(), `hako-agent-state-${process.pid}-${Date.now()}-${Math.random()}.sock`);
+  const path = join(tmpdir(), `omh-agent-state-${process.pid}-${Date.now()}-${Math.random()}.sock`);
   await rm(path, { force: true });
   const requests: RequestRecord[] = [];
   let connections = 0;
@@ -119,15 +119,15 @@ async function waitForNewState(
 
 test("Pi and OMP reloads preserve working status", async () => {
   for (const integration of [
-    ["Pi", "./pi/hako-agent-state.ts"],
-    ["OMP", "./omp/hako-agent-state.ts"],
+    ["Pi", "./pi/omh-agent-state.ts"],
+    ["OMP", "./omp/omh-agent-state.ts"],
   ] as const) {
     let recording: RecordingSocket | undefined;
     try {
       recording = await recordingSocket((_request, _connection, socket) => socket.end("{}\n"));
-      process.env.HAKO_ENV = "1";
-      process.env.HAKO_SOCKET_PATH = recording.path;
-      process.env.HAKO_PANE_ID = "test:p1";
+      process.env.OMH_ENV = "1";
+      process.env.OMH_SOCKET_PATH = recording.path;
+      process.env.OMH_PANE_ID = "test:p1";
       const harness = createPiHarness();
       const { default: install } = await freshImport(integration[1]);
       install(harness.pi);
@@ -156,11 +156,11 @@ test("Pi and OMP ignore non-UI runtimes and release on shutdown", async () => {
     let recording: RecordingSocket | undefined;
     try {
       recording = await recordingSocket((_request, _connection, socket) => socket.end("{}\n"));
-      process.env.HAKO_ENV = "1";
-      process.env.HAKO_SOCKET_PATH = recording.path;
-      process.env.HAKO_PANE_ID = `test:${integration}`;
+      process.env.OMH_ENV = "1";
+      process.env.OMH_SOCKET_PATH = recording.path;
+      process.env.OMH_PANE_ID = `test:${integration}`;
       const harness = createPiHarness();
-      const { default: install } = await freshImport(`./${integration}/hako-agent-state.ts`);
+      const { default: install } = await freshImport(`./${integration}/omh-agent-state.ts`);
       install(harness.pi);
       const sessionStart = harness.handlers.get("session_start");
       const agentStart = harness.handlers.get("agent_start");
@@ -185,11 +185,11 @@ test("OMP session resume resets blocked state and reports its lifecycle source",
   let recording: RecordingSocket | undefined;
   try {
     recording = await recordingSocket((_request, _connection, socket) => socket.end("{}\n"));
-    process.env.HAKO_ENV = "1";
-    process.env.HAKO_SOCKET_PATH = recording.path;
-    process.env.HAKO_PANE_ID = "test:p3";
+    process.env.OMH_ENV = "1";
+    process.env.OMH_SOCKET_PATH = recording.path;
+    process.env.OMH_PANE_ID = "test:p3";
     const harness = createPiHarness();
-    const { default: install } = await freshImport("./omp/hako-agent-state.ts");
+    const { default: install } = await freshImport("./omp/omh-agent-state.ts");
     install(harness.pi);
     const sessionStart = harness.handlers.get("session_start");
     const sessionSwitch = harness.handlers.get("session_switch");
@@ -227,11 +227,11 @@ test("Pi retries an unanswered socket report", async () => {
     recording = await recordingSocket((_request, connection, socket) => {
       if (connection > 1) socket.end("{}\n");
     });
-    process.env.HAKO_ENV = "1";
-    process.env.HAKO_SOCKET_PATH = recording.path;
-    process.env.HAKO_PANE_ID = "test:p4";
+    process.env.OMH_ENV = "1";
+    process.env.OMH_SOCKET_PATH = recording.path;
+    process.env.OMH_PANE_ID = "test:p4";
     const harness = createPiHarness();
-    const { default: install } = await freshImport("./pi/hako-agent-state.ts");
+    const { default: install } = await freshImport("./pi/omh-agent-state.ts");
     install(harness.pi);
     const sessionStart = harness.handlers.get("session_start");
     expect(sessionStart).toBeDefined();

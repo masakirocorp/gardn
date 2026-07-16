@@ -1763,7 +1763,7 @@ mod tests {
             tab_idx: 0,
             pane_id: PaneId::from_raw(1),
             group_context_idx: None,
-            primary_label: "hako".into(),
+            primary_label: "omh".into(),
             pane_label: None,
             primary_tab_label: primary_tab_label.map(str::to_string),
             agent_label: agent_label.map(str::to_string),
@@ -1797,7 +1797,7 @@ mod tests {
     #[tokio::test]
     async fn mobile_header_uses_live_root_runtime_cwd_for_workspace_label() {
         let unique = format!(
-            "hako-mobile-header-runtime-cwd-{}-{}",
+            "omh-mobile-header-runtime-cwd-{}-{}",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -1806,7 +1806,7 @@ mod tests {
         );
         let root = std::env::temp_dir().join(unique);
         let stale_cwd = root.join("issue-264-nix-support");
-        let live_cwd = root.join("hako");
+        let live_cwd = root.join("omh");
         std::fs::create_dir_all(stale_cwd.join(".git")).unwrap();
         std::fs::create_dir_all(live_cwd.join(".git")).unwrap();
 
@@ -1865,7 +1865,7 @@ mod tests {
         }
         let _ = std::fs::remove_dir_all(root);
 
-        assert!(row.contains("hako"), "header row: {row:?}");
+        assert!(row.contains("omh"), "header row: {row:?}");
         assert!(
             !row.contains("issue-264-nix-support"),
             "header row: {row:?}"

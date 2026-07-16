@@ -1,20 +1,22 @@
-// installed by hako
-// managed by hako; reinstalling or updating the integration overwrites this file.
+// installed by Oh My Herdr
+// managed by Oh My Herdr; reinstalling or updating the integration overwrites this file.
 // add custom hooks/plugins beside this file instead of editing it.
-// HAKO_INTEGRATION_ID=pi
-// HAKO_INTEGRATION_VERSION=5
+// OMH_INTEGRATION_ID=omp
+// OMH_INTEGRATION_VERSION=6
 // @ts-nocheck
 
 import { createConnection } from "node:net";
 
-const HAKO_ENV = process.env.HAKO_ENV;
-const socketPath = process.env.HAKO_SOCKET_PATH;
-const paneId = process.env.HAKO_PANE_ID;
-const source = "hako:pi";
+const OMH_ENV = process.env.OMH_ENV;
+const socketPath = process.env.OMH_SOCKET_PATH;
+const paneId = process.env.OMH_PANE_ID;
+const source = "omh:omp";
 
 function enabled() {
-  return HAKO_ENV === "1" && !!socketPath && !!paneId;
+  return OMH_ENV === "1" && !!socketPath && !!paneId;
 }
+
+let requestQueue = Promise.resolve();
 
 function sendRequestAttempt(request: unknown, timeoutMs: number): Promise<boolean> {
   if (!enabled()) {
@@ -42,11 +44,19 @@ function sendRequestAttempt(request: unknown, timeoutMs: number): Promise<boolea
   return promise;
 }
 
-async function sendRequest(request: unknown): Promise<void> {
+async function sendRequestNow(request: unknown): Promise<void> {
   if (await sendRequestAttempt(request, 500)) {
     return;
   }
   await sendRequestAttempt(request, 1500);
+}
+
+function sendRequest(request: unknown): Promise<void> {
+  requestQueue = requestQueue.then(
+    () => sendRequestNow(request),
+    () => sendRequestNow(request),
+  );
+  return requestQueue;
 }
 
 type AgentState = "working" | "blocked" | "idle";
@@ -57,8 +67,8 @@ type QueuedState = {
   seq: number;
 };
 
-const idleDebounceMs = parseDurationEnv("HAKO_PI_IDLE_DEBOUNCE_MS", 250);
-const retryGraceMs = parseDurationEnv("HAKO_PI_RETRY_GRACE_MS", 2500);
+const idleDebounceMs = parseDurationEnv("OMH_OMP_IDLE_DEBOUNCE_MS", 250);
+const retryGraceMs = parseDurationEnv("OMH_OMP_RETRY_GRACE_MS", 2500);
 const retryableErrorPattern =
   /overloaded|provider.?returned.?error|rate.?limit|too many requests|429|500|502|503|504|service.?unavailable|server.?error|internal.?error|network.?error|connection.?error|connection.?refused|connection.?lost|websocket.?closed|websocket.?error|other side closed|fetch failed|upstream.?connect|reset before headers|socket hang up|ended without|http2 request did not get a response|timed? out|timeout|terminated|retry delay/i;
 let reportSeq = Date.now() * 1000;
@@ -139,7 +149,7 @@ function withSessionRef(params: Record<string, unknown>): Record<string, unknown
     : currentAgentSessionId
       ? { ...params, agent_session_id: currentAgentSessionId }
       : params;
-  return { ...sessionParams, launch_env: launchEnv() };
+  return sessionParams;
 }
 
 function sendState(state: AgentState, message?: string, seq = nextReportSeq()): Promise<void> {
@@ -149,7 +159,7 @@ function sendState(state: AgentState, message?: string, seq = nextReportSeq()): 
     params: withSessionRef({
       pane_id: paneId,
       source,
-      agent: "pi",
+      agent: "omp",
       state,
       message,
       seq,
@@ -210,6 +220,7 @@ function retryableErrorMessage(event: any): string | undefined {
   }
   return errorMessage || "retryable provider error";
 }
+
 function reportSession(sessionStartSource = "startup"): Promise<void> {
   if (!currentAgentSessionPath && !currentAgentSessionId) {
     return Promise.resolve();
@@ -220,13 +231,13 @@ function reportSession(sessionStartSource = "startup"): Promise<void> {
     params: withSessionRef({
       pane_id: paneId,
       source,
-      agent: "pi",
+      agent: "omp",
       seq: nextReportSeq(),
       session_start_source: sessionStartSource,
+      launch_env: launchEnv(),
     }),
   });
 }
-
 
 function releaseAgent(): Promise<void> {
   return sendRequest({
@@ -235,7 +246,7 @@ function releaseAgent(): Promise<void> {
     params: withSessionRef({
       pane_id: paneId,
       source,
-      agent: "pi",
+      agent: "omp",
       seq: nextReportSeq(),
     }),
   });
@@ -246,7 +257,8 @@ export default function (pi) {
     return;
   }
 
-  const instanceId = Symbol("hako-pi-agent");
+  const instanceId = Symbol("omh-omp-agent");
+  let rootSession = false;
   let retryHoldActive = false;
   let failureBlocked = false;
   let failureMessage: string | undefined;
@@ -257,7 +269,6 @@ export default function (pi) {
   let idleTimer: ReturnType<typeof setTimeout> | undefined;
   let retryTimer: ReturnType<typeof setTimeout> | undefined;
   const blockingToolCalls = new Set<string>();
-  let rootSession = false;
   const permissionGateToolCalls = new Set<string>();
 
   function clearTimer(timer: ReturnType<typeof setTimeout> | undefined) {
@@ -337,6 +348,20 @@ export default function (pi) {
     return true;
   }
 
+  function resetSessionState() {
+    clearPendingTimers();
+    clearFailureState();
+    activeAgents.delete(instanceId);
+    blockedCount = 0;
+    blockedMessage = undefined;
+    blockingToolCalls.clear();
+    permissionGateToolCalls.clear();
+  }
+
+  function rootSessionActive(ctx?: unknown): boolean {
+    return rootSession || activateRootSession(ctx);
+  }
+
   pi.on("session_start", (_event, ctx) => {
     if (!ctx || typeof ctx !== "object" || !("hasUI" in ctx) || ctx.hasUI !== true) {
       rootSession = false;
@@ -352,10 +377,14 @@ export default function (pi) {
     }
     publishState(true);
   });
-  function rootSessionActive(ctx?: unknown): boolean {
-    return rootSession || activateRootSession(ctx);
-  }
 
+  pi.on("session_switch", (event, ctx) => {
+    if (!activateRootSession(ctx, event?.reason || "resume")) {
+      return;
+    }
+    resetSessionState();
+    publishState(true);
+  });
 
   function holdForRetry(message: string) {
     clearPendingTimers();
@@ -388,7 +417,7 @@ export default function (pi) {
     publishState();
   }
 
-  pi.events.on("hako:blocked", (data) => {
+  pi.events.on("omh:blocked", (data) => {
     if (!rootSession) {
       return;
     }
@@ -431,6 +460,18 @@ export default function (pi) {
   function isBlockingTool(event: any): boolean {
     return event?.toolName === "ask";
   }
+  function askBlockedMessage(args: unknown): string {
+    if (!args || typeof args !== "object" || !("questions" in args) || !Array.isArray(args.questions)) {
+      return "waiting for user input";
+    }
+    const firstQuestion = args.questions.find(
+      (question: unknown) =>
+        question && typeof question === "object" && "question" in question
+        && typeof question.question === "string",
+    );
+    return firstQuestion?.question || "waiting for user input";
+  }
+
 
   function clearBlockingTool(toolCallId: unknown): boolean {
     if (typeof toolCallId !== "string" || !blockingToolCalls.delete(toolCallId)) {
@@ -440,6 +481,23 @@ export default function (pi) {
     leaveBlocked();
     return true;
   }
+
+  pi.on("tool_approval_requested", (event, ctx) => {
+    if (!rootSessionActive(ctx)) {
+      return;
+    }
+    const label = typeof event?.reason === "string" && event.reason.length > 0
+      ? event.reason
+      : `${event?.toolName || "Tool"} approval`;
+    enterBlocked(label);
+  });
+
+  pi.on("tool_approval_resolved", (_event, ctx) => {
+    if (!rootSessionActive(ctx)) {
+      return;
+    }
+    leaveBlocked();
+  });
 
   pi.on("tool_execution_start", (event, ctx) => {
     if (!rootSessionActive(ctx) || !isBlockingTool(event) || typeof event?.toolCallId !== "string") {
@@ -452,9 +510,7 @@ export default function (pi) {
     clearPendingTimers();
     blockingToolCalls.add(event.toolCallId);
     blockedCount += 1;
-    blockedMessage = typeof event.intent === "string" && event.intent.length > 0
-      ? event.intent
-      : "waiting for user";
+    blockedMessage = askBlockedMessage(event.args);
     publishState();
   });
 
@@ -480,7 +536,7 @@ export default function (pi) {
       return;
     }
     if (!activeAgents.delete(instanceId)) {
-      // Pi can emit duplicate/late end events while auto-retry is already
+      // OMP can emit duplicate/late end events while auto-retry is already
       // holding the pane in Working. Do not let an unqualified duplicate end
       // cancel the retry hold and publish a false Idle.
       return;
@@ -513,4 +569,5 @@ export default function (pi) {
       await releaseAgent();
     }
   });
+
 }

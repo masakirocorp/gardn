@@ -56,7 +56,7 @@ fn worktree_list(args: &[String]) -> std::io::Result<i32> {
         }
     }
     if workspace_id.is_some() && cwd.is_some() {
-        eprintln!("usage: hako worktree list [--workspace ID | --cwd PATH] [--json]");
+        eprintln!("usage: omh worktree list [--workspace ID | --cwd PATH] [--json]");
         return Ok(2);
     }
 
@@ -143,7 +143,7 @@ fn worktree_create(args: &[String]) -> std::io::Result<i32> {
     }
     if workspace_id.is_some() && cwd.is_some() {
         eprintln!(
-            "usage: hako worktree create [--workspace ID | --cwd PATH] [--branch NAME] [--base REF] [--path PATH] [--label TEXT] [--focus] [--no-focus] [--json]"
+            "usage: omh worktree create [--workspace ID | --cwd PATH] [--branch NAME] [--base REF] [--path PATH] [--label TEXT] [--focus] [--no-focus] [--json]"
         );
         return Ok(2);
     }
@@ -230,13 +230,13 @@ fn worktree_open(args: &[String]) -> std::io::Result<i32> {
     }
     if workspace_id.is_some() && cwd.is_some() {
         eprintln!(
-            "usage: hako worktree open [--workspace ID | --cwd PATH] (--path PATH | --branch NAME) [--label TEXT] [--focus] [--no-focus] [--json]"
+            "usage: omh worktree open [--workspace ID | --cwd PATH] (--path PATH | --branch NAME) [--label TEXT] [--focus] [--no-focus] [--json]"
         );
         return Ok(2);
     }
     if path.is_some() == branch.is_some() {
         eprintln!(
-            "usage: hako worktree open [--workspace ID | --cwd PATH] (--path PATH | --branch NAME) [--label TEXT] [--focus] [--no-focus] [--json]"
+            "usage: omh worktree open [--workspace ID | --cwd PATH] (--path PATH | --branch NAME) [--label TEXT] [--focus] [--no-focus] [--json]"
         );
         return Ok(2);
     }
@@ -282,7 +282,7 @@ fn worktree_remove(args: &[String]) -> std::io::Result<i32> {
     }
 
     let Some(workspace_id) = workspace_id else {
-        eprintln!("usage: hako worktree remove --workspace ID [--force] [--json]");
+        eprintln!("usage: omh worktree remove --workspace ID [--force] [--json]");
         return Ok(2);
     };
 
@@ -296,15 +296,15 @@ fn worktree_remove(args: &[String]) -> std::io::Result<i32> {
 }
 
 fn print_worktree_help() {
-    eprintln!("hako worktree commands:");
-    eprintln!("  hako worktree list [--workspace ID | --cwd PATH] [--json]");
+    eprintln!("omh worktree commands:");
+    eprintln!("  omh worktree list [--workspace ID | --cwd PATH] [--json]");
     eprintln!(
-        "  hako worktree create [--workspace ID | --cwd PATH] [--branch NAME] [--base REF] [--path PATH] [--label TEXT] [--focus] [--no-focus] [--json]"
+        "  omh worktree create [--workspace ID | --cwd PATH] [--branch NAME] [--base REF] [--path PATH] [--label TEXT] [--focus] [--no-focus] [--json]"
     );
     eprintln!(
-        "  hako worktree open [--workspace ID | --cwd PATH] (--path PATH | --branch NAME) [--label TEXT] [--focus] [--no-focus] [--json]"
+        "  omh worktree open [--workspace ID | --cwd PATH] (--path PATH | --branch NAME) [--label TEXT] [--focus] [--no-focus] [--json]"
     );
-    eprintln!("  hako worktree remove --workspace ID [--force] [--json]");
+    eprintln!("  omh worktree remove --workspace ID [--force] [--json]");
 }
 
 fn normalize_path_arg(value: &str) -> std::io::Result<String> {

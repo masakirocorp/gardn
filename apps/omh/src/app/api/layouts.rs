@@ -671,7 +671,7 @@ mod tests {
                             label: Some("tests".into()),
                             command: Some(vec!["sh".into(), "-c".into(), "true".into()]),
                             env: std::collections::HashMap::from([(
-                                "HAKO_ROLE".into(),
+                                "OMH_ROLE".into(),
                                 "tests".into(),
                             )]),
                             ..Default::default()

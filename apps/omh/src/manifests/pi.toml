@@ -2,7 +2,7 @@ id = "pi"
 version = "2026.06.12.1"
 min_engine_version = 1
 updated_at = "2026-06-12T00:00:00Z"
-aliases = ["hako:pi"]
+aliases = ["omh:pi"]
 
 [[rules]]
 id = "tool_approval_prompt"

@@ -600,7 +600,7 @@ pub fn open_url(url: &str) -> std::io::Result<()> {
 
 pub fn read_clipboard_image() -> Option<ClipboardImage> {
     let path = std::env::temp_dir().join(format!(
-        "hako-clipboard-image-{}-{}.png",
+        "omh-clipboard-image-{}-{}.png",
         std::process::id(),
         unique_timestamp_nanos()
     ));
@@ -861,7 +861,7 @@ fn process_cmdline(pid: u32) -> Option<String> {
     Some(argv.join(" "))
 }
 
-/// Read Hako's agent identity hint from a process environment.
+/// Read Oh My Herdr's agent identity hint from a process environment.
 pub fn process_agent_hint(pid: u32) -> Option<crate::detect::Agent> {
     if pid == 0 {
         return None;
@@ -1165,11 +1165,11 @@ mod tests {
     }
 
     #[test]
-    fn procargs2_agent_hint_reads_hako_agent_after_argv() {
+    fn procargs2_agent_hint_reads_omh_agent_after_argv() {
         let buf = build_procargs2(
             "/opt/homebrew/bin/nono",
-            &["nono", "run", "HAKO_AGENT=codex", "--", "claude"],
-            &["PATH=/usr/bin", "HAKO_AGENT=claude", "TERM=xterm-256color"],
+            &["nono", "run", "OMH_AGENT=codex", "--", "claude"],
+            &["PATH=/usr/bin", "OMH_AGENT=claude", "TERM=xterm-256color"],
         );
 
         assert_eq!(
@@ -1182,7 +1182,7 @@ mod tests {
     fn procargs2_agent_hint_does_not_treat_argv_as_environment() {
         let buf = build_procargs2(
             "/opt/homebrew/bin/nono",
-            &["nono", "run", "HAKO_AGENT=claude"],
+            &["nono", "run", "OMH_AGENT=claude"],
             &["PATH=/usr/bin"],
         );
 
@@ -1190,13 +1190,13 @@ mod tests {
     }
 
     #[test]
-    fn procargs2_agent_hint_rejects_non_hako_and_malformed_values() {
+    fn procargs2_agent_hint_rejects_non_omh_and_malformed_values() {
         let upstream =
             build_procargs2("/opt/homebrew/bin/nono", &["nono"], &["HERDR_AGENT=claude"]);
         let unknown = build_procargs2(
             "/opt/homebrew/bin/nono",
             &["nono"],
-            &["HAKO_AGENT=not-an-agent"],
+            &["OMH_AGENT=not-an-agent"],
         );
         let mut truncated = build_procargs2("/opt/homebrew/bin/nono", &["nono"], &[]);
         truncated[..4].copy_from_slice(&2_i32.to_ne_bytes());
@@ -1208,7 +1208,7 @@ mod tests {
 
     #[test]
     fn hinted_process_fixture() {
-        if std::env::var_os("HAKO_AGENT_HINT_TEST_CHILD").is_some() {
+        if std::env::var_os("OMH_AGENT_HINT_TEST_CHILD").is_some() {
             std::thread::sleep(std::time::Duration::from_secs(5));
         }
     }
@@ -1218,8 +1218,8 @@ mod tests {
         let mut child = Command::new(std::env::current_exe().expect("current test executable"))
             .arg("platform::macos::tests::hinted_process_fixture")
             .arg("--exact")
-            .env("HAKO_AGENT_HINT_TEST_CHILD", "1")
-            .env("HAKO_AGENT", "claude")
+            .env("OMH_AGENT_HINT_TEST_CHILD", "1")
+            .env("OMH_AGENT", "claude")
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .spawn()
@@ -1308,18 +1308,18 @@ mod tests {
     #[test]
     fn terminal_notifier_success_skips_osascript() {
         let path = std::env::temp_dir().join(format!(
-            "hako-terminal-notifier-args-{}-{}",
+            "omh-terminal-notifier-args-{}-{}",
             std::process::id(),
             unique_timestamp_nanos()
         ));
         let _ = std::fs::remove_file(&path);
-        let script = "printf '%s:%s\\n' \"$0\" \"$*\" > \"$HAKO_NOTIFY_ARGS\"";
+        let script = "printf '%s:%s\\n' \"$0\" \"$*\" > \"$OMH_NOTIFY_ARGS\"";
         let mut command = |program: &str| {
             let mut cmd = Command::new("sh");
             cmd.arg("-c")
                 .arg(script)
                 .arg(program)
-                .env("HAKO_NOTIFY_ARGS", &path);
+                .env("OMH_NOTIFY_ARGS", &path);
             cmd
         };
 
@@ -1342,7 +1342,7 @@ mod tests {
     #[test]
     fn desktop_notification_falls_back_to_osascript_when_terminal_notifier_fails() {
         let path = std::env::temp_dir().join(format!(
-            "hako-osascript-args-{}-{}",
+            "omh-osascript-args-{}-{}",
             std::process::id(),
             unique_timestamp_nanos()
         ));
@@ -1351,14 +1351,14 @@ mod tests {
 if [ "$0" = "terminal-notifier" ]; then
   exit 1
 fi
-printf '%s\n' "$@" > "$HAKO_NOTIFY_ARGS"
+printf '%s\n' "$@" > "$OMH_NOTIFY_ARGS"
 "#;
         let mut command = |program: &str| {
             let mut cmd = Command::new("sh");
             cmd.arg("-c")
                 .arg(script)
                 .arg(program)
-                .env("HAKO_NOTIFY_ARGS", &path);
+                .env("OMH_NOTIFY_ARGS", &path);
             cmd
         };
         let shown = show_desktop_notification_with_command("title", Some("body"), &mut command)

@@ -11,7 +11,7 @@ use crate::workspace::Workspace;
 /// Current snapshot format version.
 pub(super) const SNAPSHOT_VERSION: u32 = 3;
 
-/// Serializable snapshot of the entire hako session.
+/// Serializable snapshot of the entire Oh My Herdr session.
 // Legacy mirror fields stay on the in-memory struct so old snapshots migrate
 // through one parser shape; new snapshots serialize `default_view` instead.
 #[allow(dead_code)]
@@ -907,11 +907,11 @@ mod tests {
     fn capture_keeps_space_identity_separate_from_runtime_cwd() {
         let mut state = state_with_workspaces(&["space"]);
         state.workspaces[0].custom_name = None;
-        state.workspaces[0].identity_cwd = PathBuf::from("/hako-test/space");
-        state.workspaces[0].default_cwd = PathBuf::from("/hako-test/default");
+        state.workspaces[0].identity_cwd = PathBuf::from("/omh-test/space");
+        state.workspaces[0].default_cwd = PathBuf::from("/omh-test/default");
         let root_pane = state.workspaces[0].tabs[0].root_pane;
         let terminal_id = state.workspaces[0].terminal_id(root_pane).unwrap().clone();
-        state.terminals.get_mut(&terminal_id).unwrap().cwd = PathBuf::from("/hako-test/runtime");
+        state.terminals.get_mut(&terminal_id).unwrap().cwd = PathBuf::from("/omh-test/runtime");
         state.workspaces[0].tabs[0]
             .panes
             .get_mut(&root_pane)
@@ -922,15 +922,15 @@ mod tests {
 
         assert_eq!(
             snap.workspaces[0].identity_cwd,
-            PathBuf::from("/hako-test/space")
+            PathBuf::from("/omh-test/space")
         );
         assert_eq!(
             snap.workspaces[0].default_cwd,
-            PathBuf::from("/hako-test/default")
+            PathBuf::from("/omh-test/default")
         );
         assert_eq!(
             snap.workspaces[0].tabs[0].panes[&root_pane.raw()].cwd,
-            PathBuf::from("/hako-test/runtime")
+            PathBuf::from("/omh-test/runtime")
         );
         assert_eq!(
             snap.workspaces[0].tabs[0].panes[&root_pane.raw()].env_pane_id,
@@ -945,7 +945,7 @@ mod tests {
         let terminal_id = state.workspaces[0].terminal_id(root_pane).unwrap().clone();
         let terminal = state.terminals.get_mut(&terminal_id).unwrap();
         let _ = terminal.set_hook_authority_with_session_ref(
-            "hako:omp".to_string(),
+            "omh:omp".to_string(),
             "omp".to_string(),
             crate::detect::AgentState::Working,
             Some("processing".to_string()),
@@ -957,9 +957,9 @@ mod tests {
             Some(7),
         );
         let _ = terminal.set_agent_metadata(crate::terminal::AgentMetadataReport {
-            source: "hako:omp:metadata".to_string(),
+            source: "omh:omp:metadata".to_string(),
             agent_label: Some("omp".to_string()),
-            applies_to_source: Some("hako:omp".to_string()),
+            applies_to_source: Some("omh:omp".to_string()),
             title: Some("Oracle".to_string()),
             display_agent: Some("OMP".to_string()),
             custom_status: Some("thinking".to_string()),
@@ -1014,8 +1014,8 @@ mod tests {
         );
         assert_eq!(semantics.state, crate::detect::AgentState::Working);
         assert_eq!(semantics.agent_metadata.len(), 1);
-        assert_eq!(semantics.hook_report_sequences["hako:omp"], 7);
-        assert_eq!(semantics.metadata_report_sequences["hako:omp:metadata"], 9);
+        assert_eq!(semantics.hook_report_sequences["omh:omp"], 7);
+        assert_eq!(semantics.metadata_report_sequences["omh:omp:metadata"], 9);
     }
 
     #[test]
@@ -1151,7 +1151,7 @@ mod tests {
             0,
             PaneSnapshot {
                 env_pane_id: None,
-                cwd: PathBuf::from("/home/can/Projects/hako"),
+                cwd: PathBuf::from("/home/can/Projects/omh"),
                 label: None,
                 agent_name: None,
                 agent_session: None,
@@ -1195,8 +1195,8 @@ mod tests {
                 id: Some("wproj".to_string()),
                 custom_name: Some("pi-mono".to_string()),
                 group_id: default_group_id(),
-                identity_cwd: PathBuf::from("/home/can/Projects/hako"),
-                default_cwd: PathBuf::from("/home/can/Projects/hako"),
+                identity_cwd: PathBuf::from("/home/can/Projects/omh"),
+                default_cwd: PathBuf::from("/home/can/Projects/omh"),
                 public_pane_numbers: HashMap::from([(0, 1), (1, 2)]),
                 next_public_pane_number: 3,
                 public_tab_numbers: vec![1],
@@ -1242,7 +1242,7 @@ mod tests {
         assert_eq!(restored.workspaces[0].tabs[0].panes.len(), 2);
         assert_eq!(
             restored.workspaces[0].tabs[0].panes[&0].cwd,
-            PathBuf::from("/home/can/Projects/hako")
+            PathBuf::from("/home/can/Projects/omh")
         );
         assert_eq!(
             restored.workspaces[0].tabs[0].panes[&1].label.as_deref(),
@@ -1363,7 +1363,7 @@ mod tests {
         assert_eq!(ws.tabs[0].focused, Some(1));
         assert_eq!(ws.tabs[0].root_pane, Some(0));
         assert_eq!(ws.tabs[0].panes[&0].cwd, PathBuf::from("/tmp/pion"));
-        assert_eq!(ws.tabs[0].panes[&1].cwd, PathBuf::from("/tmp/hako"));
+        assert_eq!(ws.tabs[0].panes[&1].cwd, PathBuf::from("/tmp/omh"));
     }
 
     #[test]
@@ -1538,14 +1538,14 @@ mod tests {
         let second_terminal_id = state.workspaces[0].tabs[0].panes[&second]
             .attached_terminal_id
             .clone();
-        state.terminals.get_mut(&second_terminal_id).unwrap().cwd = PathBuf::from("/tmp/hako");
+        state.terminals.get_mut(&second_terminal_id).unwrap().cwd = PathBuf::from("/tmp/omh");
 
         let snapshot = capture_from_state(&state);
         let workspace = &snapshot.workspaces[0];
         let tab = &workspace.tabs[0];
         assert_eq!(workspace.identity_cwd, PathBuf::from("/tmp/pion"));
         assert_eq!(tab.panes[&root.raw()].cwd, PathBuf::from("/tmp/pion"));
-        assert_eq!(tab.panes[&second.raw()].cwd, PathBuf::from("/tmp/hako"));
+        assert_eq!(tab.panes[&second.raw()].cwd, PathBuf::from("/tmp/omh"));
     }
 
     #[tokio::test]
@@ -1637,7 +1637,7 @@ mod tests {
             .get_mut(&terminal_id)
             .unwrap()
             .set_hook_authority_with_session_ref(
-                "hako:pi".into(),
+                "omh:pi".into(),
                 "pi".into(),
                 crate::detect::AgentState::Working,
                 None,
@@ -1652,7 +1652,7 @@ mod tests {
             .as_ref()
             .expect("agent session should be captured");
 
-        assert_eq!(agent_session.source, "hako:pi");
+        assert_eq!(agent_session.source, "omh:pi");
         assert_eq!(agent_session.agent, "pi");
         assert_eq!(
             agent_session.kind,
@@ -1674,7 +1674,7 @@ mod tests {
             .get_mut(&terminal_id)
             .unwrap()
             .set_persisted_agent_session(crate::agent_resume::PersistedAgentSession {
-                source: "hako:opencode".into(),
+                source: "omh:opencode".into(),
                 agent: "opencode".into(),
                 session_ref: crate::agent_resume::AgentSessionRef::id("opencode-session").unwrap(),
             });
@@ -1685,7 +1685,7 @@ mod tests {
             .as_ref()
             .expect("persisted agent session should be captured");
 
-        assert_eq!(agent_session.source, "hako:opencode");
+        assert_eq!(agent_session.source, "omh:opencode");
         assert_eq!(agent_session.agent, "opencode");
         assert_eq!(
             agent_session.kind,

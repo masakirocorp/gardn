@@ -13,8 +13,8 @@ use serde::{Deserialize, Serialize};
 use super::{agent_label, parse_agent_label, Agent};
 
 pub(crate) const MANIFEST_ENGINE_VERSION: u32 = 2;
-const DEFAULT_CATALOG_URL: &str = "https://hako.dev/agent-detection/index.toml";
-const CATALOG_URL_ENV: &str = "HAKO_AGENT_DETECTION_MANIFEST_CATALOG_URL";
+const DEFAULT_CATALOG_URL: &str = "https://github.com/masakirocorp/oh-my-herdr";
+const CATALOG_URL_ENV: &str = "OMH_AGENT_DETECTION_MANIFEST_CATALOG_URL";
 const MAX_FETCH_BYTES: usize = 256 * 1024;
 
 #[derive(Debug, Clone)]
@@ -566,7 +566,7 @@ contains = ["{contains}"]
         let old_config = std::env::var_os("XDG_CONFIG_HOME");
         let old_state = std::env::var_os("XDG_STATE_HOME");
         let dir = std::env::temp_dir().join(format!(
-            "hako-manifest-update-{name}-{}",
+            "omh-manifest-update-{name}-{}",
             std::process::id()
         ));
         let config_dir = dir.join("config");
@@ -631,7 +631,7 @@ contains = ["{contains}"]
     fn auto_update_reloads_manifest_cache_after_remote_commit() {
         with_state_dir("auto-update-reloads-cache", || {
             let web_dir = std::env::temp_dir()
-                .join(format!("hako-manifest-update-web-{}", std::process::id()));
+                .join(format!("omh-manifest-update-web-{}", std::process::id()));
             let _ = fs::remove_dir_all(&web_dir);
             fs::create_dir_all(&web_dir).unwrap();
             fs::write(

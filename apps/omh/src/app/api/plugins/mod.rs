@@ -687,7 +687,7 @@ mod tests {
             .duration_since(UNIX_EPOCH)
             .map(|d| d.as_nanos())
             .unwrap_or(0);
-        std::env::temp_dir().join(format!("hako-{name}-{}-{nanos}", std::process::id()))
+        std::env::temp_dir().join(format!("omh-{name}-{}-{nanos}", std::process::id()))
     }
 
     fn canonical_path_string(path: &std::path::Path) -> String {
@@ -696,14 +696,14 @@ mod tests {
 
     fn write_manifest(root: &std::path::Path) -> std::path::PathBuf {
         std::fs::create_dir_all(root).unwrap();
-        let manifest = root.join("hako-plugin.toml");
+        let manifest = root.join("omh-plugin.toml");
         std::fs::write(
             &manifest,
             r#"
 id = "example.worktree-bootstrap"
 name = "Worktree Bootstrap"
 version = "0.1.0"
-min_hako_version = "0.2.0"
+min_omh_version = "0.2.0"
 description = "Prepare new worktrees"
 platforms = ["linux", "macos", "windows"]
 
@@ -738,7 +738,7 @@ action = "bootstrap"
 
     fn write_manifest_content(root: &std::path::Path, content: &str) -> std::path::PathBuf {
         std::fs::create_dir_all(root).unwrap();
-        let manifest = root.join("hako-plugin.toml");
+        let manifest = root.join("omh-plugin.toml");
         std::fs::write(&manifest, content).unwrap();
         manifest
     }
@@ -961,22 +961,22 @@ command = ["./target/release/rust-release-check"]
                 expected_link_handlers,
                 expected_builds,
             );
-            assert_eq!(plugin.min_hako_version, "0.7.0");
+            assert_eq!(plugin.min_omh_version, "0.7.0");
 
             let _ = std::fs::remove_dir_all(root);
         }
     }
 
     #[test]
-    fn hako_variants_of_herdr_examples_prefer_hako_manifest_and_context_names() {
+    fn omh_variants_of_herdr_examples_prefer_omh_manifest_and_context_names() {
         let cases = [
             (
-                "hako-agent-telegram-notify",
+                "omh-agent-telegram-notify",
                 r#"
 id = "examples.agent-telegram-notify"
 name = "Agent Telegram Notify"
 version = "0.1.0"
-min_hako_version = "0.2.0"
+min_omh_version = "0.2.0"
 description = "Send a Telegram message when an agent finishes."
 platforms = ["linux", "macos", "windows"]
 
@@ -997,12 +997,12 @@ command = ["node", "notify.mjs"]
                 0,
             ),
             (
-                "hako-dev-layout-bootstrap",
+                "omh-dev-layout-bootstrap",
                 r#"
 id = "examples.dev-layout-bootstrap"
 name = "Dev Layout Bootstrap"
 version = "0.1.0"
-min_hako_version = "0.2.0"
+min_omh_version = "0.2.0"
 description = "Create a simple three-pane development layout around the current pane."
 platforms = ["linux", "macos"]
 
@@ -1020,13 +1020,13 @@ command = ["lua", "setup.lua"]
                 0,
             ),
             (
-                "hako-github-link-preview",
+                "omh-github-link-preview",
                 r#"
 id = "examples.github-link-preview"
 name = "GitHub Link Preview"
 version = "0.1.0"
-min_hako_version = "0.2.0"
-description = "Open clicked GitHub issue and PR links in a Hako side pane."
+min_omh_version = "0.2.0"
+description = "Open clicked GitHub issue and PR links in an Oh My Herdr side pane."
 platforms = ["linux", "macos"]
 
 [[actions]]
@@ -1067,7 +1067,7 @@ action = "open"
         ) in cases
         {
             let root = unique_temp_path(name);
-            write_manifest_file(&root, "hako-plugin.toml", manifest);
+            write_manifest_file(&root, "omh-plugin.toml", manifest);
             write_manifest_file(
                 &root,
                 "herdr-plugin.toml",
@@ -1081,7 +1081,7 @@ platforms = ["linux", "macos", "windows"]
             );
 
             let plugin = load_plugin_manifest(&root.display().to_string(), true)
-                .unwrap_or_else(|err| panic!("{name}: failed to load Hako variant: {err:?}"));
+                .unwrap_or_else(|err| panic!("{name}: failed to load Oh My Herdr variant: {err:?}"));
             assert_example_plugin_shape(
                 &plugin,
                 expected_id,
@@ -1091,8 +1091,8 @@ platforms = ["linux", "macos", "windows"]
                 expected_link_handlers,
                 expected_builds,
             );
-            assert_eq!(plugin.min_hako_version, "0.2.0");
-            assert!(plugin.manifest_path.ends_with("hako-plugin.toml"));
+            assert_eq!(plugin.min_omh_version, "0.2.0");
+            assert!(plugin.manifest_path.ends_with("omh-plugin.toml"));
 
             let _ = std::fs::remove_dir_all(root);
         }
@@ -1184,7 +1184,7 @@ platforms = ["linux", "macos", "windows"]
                 source: Some(PluginSourceInfo {
                     kind: PluginSourceKind::Github,
                     owner: Some("masakirocorp".into()),
-                    repo: Some("hako-plugin-examples".into()),
+                    repo: Some("omh-plugin-examples".into()),
                     subdir: Some("worktree-bootstrap".into()),
                     requested_ref: None,
                     resolved_commit: Some("abc123".into()),
@@ -1208,7 +1208,7 @@ platforms = ["linux", "macos", "windows"]
 id = "example.duplicate"
 name = "Duplicate"
 version = "0.1.0"
-min_hako_version = "0.2.0"
+min_omh_version = "0.2.0"
 platforms = ["linux", "macos", "windows"]
 
 [[actions]]
@@ -1237,7 +1237,7 @@ command = ["echo", "b"]
 id = "example.dotted-action"
 name = "Dotted Action"
 version = "0.1.0"
-min_hako_version = "0.2.0"
+min_omh_version = "0.2.0"
 platforms = ["linux", "macos", "windows"]
 
 [[actions]]
@@ -1261,7 +1261,7 @@ command = ["echo", "build"]
 id = "example.duplicate-pane"
 name = "Duplicate Pane"
 version = "0.1.0"
-min_hako_version = "0.2.0"
+min_omh_version = "0.2.0"
 platforms = ["linux", "macos", "windows"]
 
 [[panes]]
@@ -1282,39 +1282,39 @@ command = ["echo", "b"]
     }
 
     #[test]
-    fn link_rejects_invalid_min_hako_versions() {
+    fn link_rejects_invalid_min_omh_versions() {
         let cases = [
             (
-                "plugin-missing-min-hako",
+                "plugin-missing-min-omh",
                 r#"
-id = "example.missing-min-hako"
-name = "Missing Min Hako"
+id = "example.missing-min-omh"
+name = "Missing Min Oh My Herdr"
 version = "0.1.0"
 platforms = ["linux", "macos", "windows"]
 "#,
-                "invalid_plugin_min_hako_version",
+                "invalid_plugin_min_omh_version",
             ),
             (
-                "plugin-invalid-min-hako",
+                "plugin-invalid-min-omh",
                 r#"
-id = "example.invalid-min-hako"
-name = "Invalid Min Hako"
+id = "example.invalid-min-omh"
+name = "Invalid Min Oh My Herdr"
 version = "0.1.0"
-min_hako_version = "soon"
+min_omh_version = "soon"
 platforms = ["linux", "macos", "windows"]
 "#,
-                "invalid_plugin_min_hako_version",
+                "invalid_plugin_min_omh_version",
             ),
             (
-                "plugin-future-min-hako",
+                "plugin-future-min-omh",
                 r#"
-id = "example.future-min-hako"
-name = "Future Min Hako"
+id = "example.future-min-omh"
+name = "Future Min Oh My Herdr"
 version = "0.1.0"
-min_hako_version = "999.0.0"
+min_omh_version = "999.0.0"
 platforms = ["linux", "macos", "windows"]
 "#,
-                "plugin_requires_newer_hako",
+                "plugin_requires_newer_omh",
             ),
         ];
 
@@ -1346,7 +1346,7 @@ platforms = ["linux", "macos", "windows"]
         );
 
         let plugin = load_plugin_manifest(&root.display().to_string(), true).unwrap();
-        assert_eq!(plugin.min_hako_version, "0.1.0");
+        assert_eq!(plugin.min_omh_version, "0.1.0");
         let _ = std::fs::remove_dir_all(root);
     }
 
@@ -1365,7 +1365,7 @@ platforms = ["linux", "macos", "windows"]
     fn plugin_command_output_reader_caps_and_marks_truncation() {
         let output = read_capped_plugin_output("abcdef".as_bytes(), 3);
 
-        assert_eq!(output, "abc\n[hako truncated plugin output after 3 bytes]");
+        assert_eq!(output, "abc\n[Oh My Herdr truncated plugin output after 3 bytes]");
     }
 
     #[test]
@@ -1446,13 +1446,13 @@ platforms = ["linux", "macos", "windows"]
 id = "example.pane"
 name = "Pane Plugin"
 version = "0.1.0"
-min_hako_version = "0.2.0"
+min_omh_version = "0.2.0"
 platforms = ["linux", "macos"]
 
 [[panes]]
 id = "board"
 title = "Plugin Board"
-command = ["sh", "-c", "printf '%s\n%s\n%s\n%s\n%s\n%s\n%s\n' \"$PWD\" \"$HAKO_PLUGIN_ID\" \"$HAKO_PLUGIN_ENTRYPOINT_ID\" \"$HAKO_WORKSPACE_ID\" \"$HAKO_PANE_ID\" \"$HAKO_BIN_PATH\" \"$HAKO_PLUGIN_CONTEXT_JSON\" > {}"]
+command = ["sh", "-c", "printf '%s\n%s\n%s\n%s\n%s\n%s\n%s\n' \"$PWD\" \"$OMH_PLUGIN_ID\" \"$OMH_PLUGIN_ENTRYPOINT_ID\" \"$OMH_WORKSPACE_ID\" \"$OMH_PANE_ID\" \"$OMH_BIN_PATH\" \"$OMH_PLUGIN_CONTEXT_JSON\" > {}"]
 "#,
                 capture.display()
             ),
@@ -1471,16 +1471,16 @@ command = ["sh", "-c", "printf '%s\n%s\n%s\n%s\n%s\n%s\n%s\n' \"$PWD\" \"$HAKO_P
                 cwd: None,
                 focus: true,
                 env: std::collections::HashMap::from([
-                    ("HAKO_PLUGIN_ID".to_string(), "spoofed-plugin".to_string()),
+                    ("OMH_PLUGIN_ID".to_string(), "spoofed-plugin".to_string()),
                     (
-                        "HAKO_PLUGIN_ENTRYPOINT_ID".to_string(),
+                        "OMH_PLUGIN_ENTRYPOINT_ID".to_string(),
                         "spoofed-entrypoint".to_string(),
                     ),
                     (
-                        "HAKO_PLUGIN_CONTEXT_JSON".to_string(),
+                        "OMH_PLUGIN_CONTEXT_JSON".to_string(),
                         "{\"spoofed\":true}".to_string(),
                     ),
-                    ("HAKO_BIN_PATH".to_string(), "/tmp/spoofed-hako".to_string()),
+                    ("OMH_BIN_PATH".to_string(), "/tmp/spoofed-omh".to_string()),
                 ]),
             }),
         });
@@ -1507,7 +1507,7 @@ command = ["sh", "-c", "printf '%s\n%s\n%s\n%s\n%s\n%s\n%s\n' \"$PWD\" \"$HAKO_P
         assert_eq!(lines.next(), Some(plugin_pane.pane.workspace_id.as_str()));
         assert_eq!(lines.next(), Some(plugin_pane.pane.pane_id.as_str()));
         let bin_path = lines.next().expect("bin path");
-        assert_ne!(bin_path, "/tmp/spoofed-hako");
+        assert_ne!(bin_path, "/tmp/spoofed-omh");
         assert_eq!(
             bin_path,
             std::env::current_exe()
@@ -1550,13 +1550,13 @@ command = ["sh", "-c", "printf '%s\n%s\n%s\n%s\n%s\n%s\n%s\n' \"$PWD\" \"$HAKO_P
 id = "example.path-env"
 name = "Path Env"
 version = "0.1.0"
-min_hako_version = "0.2.0"
+min_omh_version = "0.2.0"
 platforms = ["linux", "macos"]
 
 [[panes]]
 id = "board"
 title = "Plugin Board"
-command = ["sh", "-c", "printf '%s\n%s\n%s\n' \"$HAKO_PLUGIN_ROOT\" \"$HAKO_PLUGIN_CONFIG_DIR\" \"$HAKO_PLUGIN_STATE_DIR\" > {}"]
+command = ["sh", "-c", "printf '%s\n%s\n%s\n' \"$OMH_PLUGIN_ROOT\" \"$OMH_PLUGIN_CONFIG_DIR\" \"$OMH_PLUGIN_STATE_DIR\" > {}"]
 "#,
                 capture.display()
             ),
@@ -1576,15 +1576,15 @@ command = ["sh", "-c", "printf '%s\n%s\n%s\n' \"$HAKO_PLUGIN_ROOT\" \"$HAKO_PLUG
                 focus: true,
                 env: std::collections::HashMap::from([
                     (
-                        "HAKO_PLUGIN_ROOT".to_string(),
+                        "OMH_PLUGIN_ROOT".to_string(),
                         "/tmp/spoofed-root".to_string(),
                     ),
                     (
-                        "HAKO_PLUGIN_CONFIG_DIR".to_string(),
+                        "OMH_PLUGIN_CONFIG_DIR".to_string(),
                         "/tmp/spoofed-config".to_string(),
                     ),
                     (
-                        "HAKO_PLUGIN_STATE_DIR".to_string(),
+                        "OMH_PLUGIN_STATE_DIR".to_string(),
                         "/tmp/spoofed-state".to_string(),
                     ),
                 ]),
@@ -1659,7 +1659,7 @@ command = ["sh", "-c", "printf '%s\n%s\n%s\n' \"$HAKO_PLUGIN_ROOT\" \"$HAKO_PLUG
 id = "example.tab"
 name = "Tab Plugin"
 version = "0.1.0"
-min_hako_version = "0.2.0"
+min_omh_version = "0.2.0"
 platforms = ["linux", "macos"]
 
 [[panes]]
@@ -1856,13 +1856,13 @@ command = ["sh", "-c", "sleep 1"]
 id = "example.runner"
 name = "Runner"
 version = "0.1.0"
-min_hako_version = "0.2.0"
+min_omh_version = "0.2.0"
 platforms = ["linux", "macos"]
 
 [[actions]]
 id = "run"
 title = "Run"
-command = ["sh", "-c", "printf '%s' \"$HAKO_PLUGIN_ACTION_ID\""]
+command = ["sh", "-c", "printf '%s' \"$OMH_PLUGIN_ACTION_ID\""]
 "#,
         );
         link_manifest(&mut app, &root);
@@ -1923,13 +1923,13 @@ command = ["sh", "-c", "printf '%s' \"$HAKO_PLUGIN_ACTION_ID\""]
 id = "example.action-paths"
 name = "Action Paths"
 version = "0.1.0"
-min_hako_version = "0.2.0"
+min_omh_version = "0.2.0"
 platforms = ["linux", "macos"]
 
 [[actions]]
 id = "run"
 title = "Run"
-command = ["sh", "-c", "printf '%s\n%s\n%s' \"$HAKO_PLUGIN_ROOT\" \"$HAKO_PLUGIN_CONFIG_DIR\" \"$HAKO_PLUGIN_STATE_DIR\""]
+command = ["sh", "-c", "printf '%s\n%s\n%s' \"$OMH_PLUGIN_ROOT\" \"$OMH_PLUGIN_CONFIG_DIR\" \"$OMH_PLUGIN_STATE_DIR\""]
 "#,
         );
         link_manifest(&mut app, &root);
@@ -2066,13 +2066,13 @@ command = ["sh", "-c", "printf '%s\n%s\n%s' \"$HAKO_PLUGIN_ROOT\" \"$HAKO_PLUGIN
 id = "example.client-selection"
 name = "Client Selection"
 version = "0.1.0"
-min_hako_version = "0.2.0"
+min_omh_version = "0.2.0"
 platforms = ["linux", "macos"]
 
 [[actions]]
 id = "capture"
 title = "Capture context"
-command = ["sh", "-c", "printf '%s' \"$HAKO_PLUGIN_CONTEXT_JSON\" > {}"]
+command = ["sh", "-c", "printf '%s' \"$OMH_PLUGIN_CONTEXT_JSON\" > {}"]
 "#,
                 capture.display()
             ),
@@ -2148,12 +2148,12 @@ command = ["sh", "-c", "printf '%s' \"$HAKO_PLUGIN_CONTEXT_JSON\" > {}"]
 id = "example.event-context"
 name = "Event Context"
 version = "0.1.0"
-min_hako_version = "0.2.0"
+min_omh_version = "0.2.0"
 platforms = ["linux", "macos"]
 
 [[events]]
 on = "worktree.created"
-command = ["sh", "-c", "printf '%s' \"$HAKO_PLUGIN_CONTEXT_JSON\" > {}"]
+command = ["sh", "-c", "printf '%s' \"$OMH_PLUGIN_CONTEXT_JSON\" > {}"]
 "#,
                 capture.display()
             ),
@@ -2298,13 +2298,13 @@ command = ["sh", "-c", "printf '%s' \"$HAKO_PLUGIN_CONTEXT_JSON\" > {}"]
 id = "example.links"
 name = "Links"
 version = "0.1.0"
-min_hako_version = "0.2.0"
+min_omh_version = "0.2.0"
 platforms = ["linux", "macos"]
 
 [[actions]]
 id = "open"
 title = "Open link"
-command = ["sh", "-c", "printf '%s|%s' \"$HAKO_PLUGIN_LINK_HANDLER_ID\" \"$HAKO_PLUGIN_CLICKED_URL\""]
+command = ["sh", "-c", "printf '%s|%s' \"$OMH_PLUGIN_LINK_HANDLER_ID\" \"$OMH_PLUGIN_CLICKED_URL\""]
 
 [[link_handlers]]
 id = "github-issue"
@@ -2317,7 +2317,7 @@ action = "open"
 
         let handled = app
             .invoke_plugin_link_handler_for_url(
-                "https://github.com/masakirocorp/hako/issues/398",
+                "https://github.com/masakirocorp/oh-my-herdr/issues/398",
                 pane_id,
             )
             .expect("link handler should invoke");
@@ -2350,7 +2350,7 @@ action = "open"
         assert_eq!(finished.action_id.as_deref(), Some("open"));
         assert_eq!(
             finished.stdout.as_deref(),
-            Some("github-issue|https://github.com/masakirocorp/hako/issues/398")
+            Some("github-issue|https://github.com/masakirocorp/oh-my-herdr/issues/398")
         );
 
         let _ = std::fs::remove_dir_all(root);
@@ -2366,7 +2366,7 @@ action = "open"
 id = "example.link-order"
 name = "Link Order"
 version = "0.1.0"
-min_hako_version = "0.2.0"
+min_omh_version = "0.2.0"
 platforms = ["linux", "macos", "windows"]
 
 [[actions]]
@@ -2413,7 +2413,7 @@ action = "generic"
 id = "example.bad-links"
 name = "Bad Links"
 version = "0.1.0"
-min_hako_version = "0.2.0"
+min_omh_version = "0.2.0"
 platforms = ["linux", "macos", "windows"]
 
 [[actions]]
@@ -2456,7 +2456,7 @@ action = "open"
 id = "example.bad-link-action"
 name = "Bad Link Action"
 version = "0.1.0"
-min_hako_version = "0.2.0"
+min_omh_version = "0.2.0"
 platforms = ["linux", "macos", "windows"]
 
 [[actions]]
@@ -2498,9 +2498,9 @@ action = "missing"
         app.state.workspaces[0].custom_name = Some("Plugin Work".into());
         app.state.workspaces[0].worktree_space = Some(crate::workspace::WorktreeSpaceMembership {
             key: "repo-key".into(),
-            label: "hako".into(),
-            repo_root: "/repo/hako".into(),
-            checkout_path: "/repo/hako-issue".into(),
+            label: "omh".into(),
+            repo_root: "/repo/omh".into(),
+            checkout_path: "/repo/omh-issue".into(),
             is_linked_worktree: true,
         });
         let pane_id = app.state.workspaces[0].tabs[0].root_pane;
@@ -2527,12 +2527,12 @@ action = "missing"
         // write a manifest with a "show" action in pane context
         std::fs::create_dir_all(&root).unwrap();
         std::fs::write(
-            root.join("hako-plugin.toml"),
+            root.join("omh-plugin.toml"),
             r#"
 id = "example.context"
 name = "Context"
 version = "0.1.0"
-min_hako_version = "0.2.0"
+min_omh_version = "0.2.0"
 
 [[actions]]
 id = "show"
@@ -2578,9 +2578,9 @@ command = ["show-ctx"]
         assert_eq!(context.correlation_id.as_deref(), Some("invoke-context"));
         let worktree = context.worktree.as_ref().unwrap();
         assert_eq!(worktree.repo_key, "repo-key");
-        assert_eq!(worktree.repo_name, "hako");
-        assert_eq!(worktree.repo_root, "/repo/hako");
-        assert_eq!(worktree.checkout_path, "/repo/hako-issue");
+        assert_eq!(worktree.repo_name, "omh");
+        assert_eq!(worktree.repo_root, "/repo/omh");
+        assert_eq!(worktree.checkout_path, "/repo/omh-issue");
         assert!(worktree.is_linked_worktree);
 
         let _ = std::fs::remove_dir_all(root);
@@ -2622,14 +2622,14 @@ command = ["show-ctx"]
 
     fn write_manifest_with_bad_event(root: &std::path::Path) -> std::path::PathBuf {
         std::fs::create_dir_all(root).unwrap();
-        let manifest = root.join("hako-plugin.toml");
+        let manifest = root.join("omh-plugin.toml");
         std::fs::write(
             &manifest,
             r#"
 id = "example.bad-event"
 name = "Bad Event Plugin"
 version = "0.1.0"
-min_hako_version = "0.2.0"
+min_omh_version = "0.2.0"
 
 [[events]]
 on = "worktree.craeted"
@@ -2912,12 +2912,12 @@ command = ["sh", "-c", "echo ok"]
         let root = unique_temp_path("plugin-platforms");
         std::fs::create_dir_all(&root).unwrap();
         std::fs::write(
-            root.join("hako-plugin.toml"),
+            root.join("omh-plugin.toml"),
             r#"
 id = "example.platforms"
 name = "Platforms"
 version = "0.1.0"
-min_hako_version = "0.2.0"
+min_omh_version = "0.2.0"
 platforms = ["linux", "macos"]
 
 [[actions]]
@@ -2994,13 +2994,13 @@ command = ["run.bat"]
         };
 
         std::fs::write(
-            root.join("hako-plugin.toml"),
+            root.join("omh-plugin.toml"),
             format!(
                 r#"
 id = "example.reject"
 name = "Reject"
 version = "0.1.0"
-min_hako_version = "0.2.0"
+min_omh_version = "0.2.0"
 {excluded_platforms}
 
 [[actions]]
@@ -3059,13 +3059,13 @@ command = ["act"]
         };
 
         std::fs::write(
-            root.join("hako-plugin.toml"),
+            root.join("omh-plugin.toml"),
             format!(
                 r#"
 id = "example.override"
 name = "Override"
 version = "0.1.0"
-min_hako_version = "0.2.0"
+min_omh_version = "0.2.0"
 platforms = ["linux", "macos", "windows"]
 
 [[actions]]
@@ -3111,12 +3111,12 @@ command = ["act"]
         let root = unique_temp_path("plugin-platform-undeclared");
         std::fs::create_dir_all(&root).unwrap();
         std::fs::write(
-            root.join("hako-plugin.toml"),
+            root.join("omh-plugin.toml"),
             r#"
 id = "example.nodecl"
 name = "No Decl"
 version = "0.1.0"
-min_hako_version = "0.2.0"
+min_omh_version = "0.2.0"
 
 [[actions]]
 id = "act"
@@ -3169,12 +3169,12 @@ command = ["act"]
         let root = unique_temp_path("plugin-bad-platform");
         std::fs::create_dir_all(&root).unwrap();
         std::fs::write(
-            root.join("hako-plugin.toml"),
+            root.join("omh-plugin.toml"),
             r#"
 id = "example.badplatform"
 name = "Bad Platform"
 version = "0.1.0"
-min_hako_version = "0.2.0"
+min_omh_version = "0.2.0"
 platforms = ["linux", "beos"]
 
 [[actions]]
@@ -3201,12 +3201,12 @@ command = ["act"]
         let root = unique_temp_path("plugin-platform-rt");
         std::fs::create_dir_all(&root).unwrap();
         std::fs::write(
-            root.join("hako-plugin.toml"),
+            root.join("omh-plugin.toml"),
             r#"
 id = "example.platform-rt"
 name = "Platform RT"
 version = "0.1.0"
-min_hako_version = "0.2.0"
+min_omh_version = "0.2.0"
 platforms = ["linux", "macos"]
 
 [[actions]]

@@ -1,14 +1,14 @@
 #!/bin/sh
-# installed by hako
-# managed by hako; reinstalling or updating the integration overwrites this file.
+# installed by Oh My Herdr
+# managed by Oh My Herdr; reinstalling or updating the integration overwrites this file.
 # add custom hooks beside this file instead of editing it.
-# HAKO_INTEGRATION_ID=grok
-# HAKO_INTEGRATION_VERSION=1
+# OMH_INTEGRATION_ID=grok
+# OMH_INTEGRATION_VERSION=1
 
 set -eu
 
 action="${1:-}"
-hook_input_file="$(mktemp "${TMPDIR:-/tmp}/hako-grok-hook.XXXXXX")" || exit 0
+hook_input_file="$(mktemp "${TMPDIR:-/tmp}/omh-grok-hook.XXXXXX")" || exit 0
 trap 'rm -f "$hook_input_file"' EXIT HUP INT TERM
 cat >"$hook_input_file" 2>/dev/null || true
 
@@ -17,24 +17,24 @@ case "$action" in
   *) exit 0 ;;
 esac
 
-[ "${HAKO_ENV:-}" = "1" ] || exit 0
-[ -n "${HAKO_SOCKET_PATH:-}" ] || exit 0
-[ -n "${HAKO_PANE_ID:-}" ] || exit 0
+[ "${OMH_ENV:-}" = "1" ] || exit 0
+[ -n "${OMH_SOCKET_PATH:-}" ] || exit 0
+[ -n "${OMH_PANE_ID:-}" ] || exit 0
 command -v python3 >/dev/null 2>&1 || exit 0
 
-HAKO_ACTION="$action" HAKO_HOOK_INPUT_FILE="$hook_input_file" python3 - <<'PY'
+OMH_ACTION="$action" OMH_HOOK_INPUT_FILE="$hook_input_file" python3 - <<'PY'
 import json
 import os
 import random
 import socket
 import time
 
-source = "hako:grok"
+source = "omh:grok"
 agent = "grok"
-action = os.environ.get("HAKO_ACTION", "")
-pane_id = os.environ.get("HAKO_PANE_ID")
-socket_path = os.environ.get("HAKO_SOCKET_PATH")
-hook_input_file = os.environ.get("HAKO_HOOK_INPUT_FILE")
+action = os.environ.get("OMH_ACTION", "")
+pane_id = os.environ.get("OMH_PANE_ID")
+socket_path = os.environ.get("OMH_SOCKET_PATH")
+hook_input_file = os.environ.get("OMH_HOOK_INPUT_FILE")
 
 if not pane_id or not socket_path:
     raise SystemExit(0)

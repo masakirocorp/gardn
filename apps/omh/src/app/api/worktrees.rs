@@ -297,7 +297,7 @@ impl App {
             return encode_error(
                 id,
                 "not_linked_worktree",
-                "workspace is not a Hako-managed worktree checkout",
+                "workspace is not an Oh My Herdr-managed worktree checkout",
             );
         };
         if !space.is_linked_worktree {
@@ -426,7 +426,7 @@ impl App {
             let space = crate::workspace::git_space_metadata(&path).ok_or_else(|| {
                 ApiFailure::new(
                     "not_git_worktree",
-                    "Hako worktree actions require a path inside a Git work tree",
+                    "Oh My Herdr worktree actions require a path inside a Git work tree",
                 )
             })?;
             if space.is_linked_worktree {
@@ -486,7 +486,7 @@ impl App {
             let space = crate::workspace::git_space_metadata(&path).ok_or_else(|| {
                 ApiFailure::new(
                     "not_git_worktree",
-                    "Hako worktree actions require a path inside a Git work tree",
+                    "Oh My Herdr worktree actions require a path inside a Git work tree",
                 )
             })?;
             let workspace_idx = self.list_source_workspace_idx_for_space(&space);
@@ -538,7 +538,7 @@ impl App {
         let Some(space) = git_space else {
             return Err(ApiFailure::new(
                 "not_git_worktree",
-                "Hako worktree actions require a workspace inside a Git work tree",
+                "Oh My Herdr worktree actions require a workspace inside a Git work tree",
             ));
         };
         if space.is_linked_worktree {
@@ -594,7 +594,7 @@ impl App {
         let Some(space) = git_space else {
             return Err(ApiFailure::new(
                 "not_git_worktree",
-                "Hako worktree actions require a workspace inside a Git work tree",
+                "Oh My Herdr worktree actions require a workspace inside a Git work tree",
             ));
         };
         let workspace_idx = if space.is_linked_worktree {
@@ -942,7 +942,7 @@ mod tests {
             .duration_since(UNIX_EPOCH)
             .map(|d| d.as_nanos())
             .unwrap_or(0);
-        std::env::temp_dir().join(format!("hako-{name}-{}-{nanos}", std::process::id()))
+        std::env::temp_dir().join(format!("omh-{name}-{}-{nanos}", std::process::id()))
     }
 
     fn run_git(repo: &Path, args: &[&str]) {
@@ -964,8 +964,8 @@ mod tests {
         let repo = unique_temp_path(name);
         std::fs::create_dir_all(&repo).unwrap();
         run_git(&repo, &["init", "--quiet"]);
-        run_git(&repo, &["config", "user.email", "hako@example.invalid"]);
-        run_git(&repo, &["config", "user.name", "Hako Test"]);
+        run_git(&repo, &["config", "user.email", "omh@example.invalid"]);
+        run_git(&repo, &["config", "user.name", "Oh My Herdr Test"]);
         std::fs::write(repo.join("README.md"), "test\n").unwrap();
         run_git(&repo, &["add", "README.md"]);
         run_git(&repo, &["commit", "--quiet", "-m", "initial"]);

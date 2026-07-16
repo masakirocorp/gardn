@@ -199,7 +199,7 @@ pub struct NotificationShowParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub body: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub position: Option<crate::config::ToastHakoPosition>,
+    pub position: Option<crate::config::ToastOmhPosition>,
     #[serde(default, skip_serializing_if = "NotificationShowSound::is_none")]
     pub sound: NotificationShowSound,
 }
@@ -946,7 +946,7 @@ pub struct InstalledPluginInfo {
     pub plugin_id: String,
     pub name: String,
     pub version: String,
-    pub min_hako_version: String,
+    pub min_omh_version: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
     pub manifest_path: String,
@@ -2303,7 +2303,7 @@ mod tests {
         assert_eq!(params.body.as_deref(), Some("api workspace"));
         assert_eq!(
             params.position,
-            Some(crate::config::ToastHakoPosition::TopLeft)
+            Some(crate::config::ToastOmhPosition::TopLeft)
         );
         assert_eq!(params.sound, NotificationShowSound::Request);
     }
@@ -2326,7 +2326,7 @@ mod tests {
             id: "req_hook".into(),
             method: Method::PaneReportAgent(PaneReportAgentParams {
                 pane_id: "1-1".into(),
-                source: "hako:pi".into(),
+                source: "omh:pi".into(),
                 agent: "pi".into(),
                 state: PaneAgentState::Working,
                 message: Some("thinking".into()),
@@ -2349,7 +2349,7 @@ mod tests {
             id: "req_session".into(),
             method: Method::PaneReportAgentSession(PaneReportAgentSessionParams {
                 pane_id: "1-1".into(),
-                source: "hako:claude".into(),
+                source: "omh:claude".into(),
                 agent: "claude".into(),
                 seq: Some(42),
                 agent_session_id: Some("claude-session".into()),
@@ -2372,7 +2372,7 @@ mod tests {
                 pane_id: "1-1".into(),
                 source: "user:claude-title".into(),
                 agent: Some("claude".into()),
-                applies_to_source: Some("hako:claude".into()),
+                applies_to_source: Some("omh:claude".into()),
                 title: Some("Refactor auth".into()),
                 display_agent: Some("Claude auth".into()),
                 custom_status: Some("refactor auth".into()),
@@ -2398,7 +2398,7 @@ mod tests {
             id: "req_clear".into(),
             method: Method::PaneClearAgentAuthority(PaneClearAgentAuthorityParams {
                 pane_id: "1-1".into(),
-                source: Some("hako:pi".into()),
+                source: Some("omh:pi".into()),
                 seq: Some(42),
             }),
         };
@@ -2414,7 +2414,7 @@ mod tests {
             id: "req_release".into(),
             method: Method::PaneReleaseAgent(PaneReleaseAgentParams {
                 pane_id: "1-1".into(),
-                source: "hako:pi".into(),
+                source: "omh:pi".into(),
                 agent: "pi".into(),
                 agent_session_id: Some("session-1".into()),
                 agent_session_path: None,
@@ -2777,17 +2777,17 @@ mod tests {
                     workspace_id: "w_1".into(),
                     group_id: "default".into(),
                     number: 2,
-                    label: "hako".into(),
+                    label: "omh".into(),
                     focused: true,
                     pane_count: 1,
                     tab_count: 1,
                     active_tab_id: "w_1:1".into(),
                     agent_status: AgentStatus::Unknown,
                     worktree: Some(WorkspaceWorktreeInfo {
-                        repo_key: "/repo/hako/.git".into(),
-                        repo_name: "hako".into(),
-                        repo_root: "/repo/hako".into(),
-                        checkout_path: "/worktrees/hako/worktree-api".into(),
+                        repo_key: "/repo/omh/.git".into(),
+                        repo_name: "omh".into(),
+                        repo_root: "/repo/omh".into(),
+                        checkout_path: "/worktrees/omh/worktree-api".into(),
                         is_linked_worktree: true,
                     }),
                 },
@@ -2795,7 +2795,7 @@ mod tests {
                     tab_id: "w_1:1".into(),
                     workspace_id: "w_1".into(),
                     number: 1,
-                    label: "hako".into(),
+                    label: "omh".into(),
                     focused: true,
                     pane_count: 1,
                     agent_status: AgentStatus::Unknown,
@@ -2806,7 +2806,7 @@ mod tests {
                     workspace_id: "w_1".into(),
                     tab_id: "w_1:1".into(),
                     focused: true,
-                    cwd: Some("/worktrees/hako/worktree-api".into()),
+                    cwd: Some("/worktrees/omh/worktree-api".into()),
                     foreground_cwd: None,
                     label: None,
                     agent: None,
@@ -2821,14 +2821,14 @@ mod tests {
                     revision: 0,
                 },
                 worktree: WorktreeInfo {
-                    path: "/worktrees/hako/worktree-api".into(),
+                    path: "/worktrees/omh/worktree-api".into(),
                     branch: Some("worktree/api".into()),
                     is_bare: false,
                     is_detached: false,
                     is_prunable: false,
                     is_linked_worktree: true,
                     open_workspace_id: Some("w_1".into()),
-                    label: "hako".into(),
+                    label: "omh".into(),
                 },
             },
         };
@@ -2948,9 +2948,9 @@ mod tests {
             plugin_id: "example.worktree-bootstrap".into(),
             name: "Worktree Bootstrap".into(),
             version: "1.0.0".into(),
-            min_hako_version: "0.1.0".into(),
+            min_omh_version: "0.1.0".into(),
             description: Some("Create useful worktrees".into()),
-            manifest_path: "/plugins/worktree-bootstrap/hako-plugin.toml".into(),
+            manifest_path: "/plugins/worktree-bootstrap/omh-plugin.toml".into(),
             plugin_root: "/plugins/worktree-bootstrap".into(),
             enabled: true,
             platforms: None,
@@ -2961,7 +2961,7 @@ mod tests {
                 description: None,
                 contexts: vec![PluginActionContext::Workspace],
                 platforms: None,
-                command: vec!["hako".into(), "worktree".into(), "create".into()],
+                command: vec!["omh".into(), "worktree".into(), "create".into()],
             }],
             events: Vec::new(),
             panes: Vec::new(),

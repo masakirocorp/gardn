@@ -2420,7 +2420,7 @@ impl ConfigIssue {
 
     pub fn summary(&self) -> &'static str {
         match self.impact {
-            ConfigIssueImpact::UsingDefaults => "Hako is using default settings.",
+            ConfigIssueImpact::UsingDefaults => "Oh My Herdr is using default settings.",
             ConfigIssueImpact::KeepingCurrent => "Some changes were not applied.",
             ConfigIssueImpact::Warnings => "Some configuration was ignored.",
         }
@@ -2504,7 +2504,7 @@ pub struct ToastNotification {
     pub kind: ToastKind,
     pub title: String,
     pub context: String,
-    pub position: Option<crate::config::ToastHakoPosition>,
+    pub position: Option<crate::config::ToastOmhPosition>,
     pub target: Option<ToastTarget>,
 }
 
@@ -2690,7 +2690,7 @@ pub struct AppState {
     pub toast: Option<ToastNotification>,
     pub pending_agent_notifications: std::collections::HashMap<PaneId, PendingAgentNotification>,
     pub copy_feedback: Option<CopyFeedback>,
-    /// Last reported focus state for the outer terminal hosting hako.
+    /// Last reported focus state for the outer terminal hosting Oh My Herdr.
     /// None means unsupported or not yet reported, which preserves active-pane suppression.
     pub outer_terminal_focus: Option<bool>,
     // Config
@@ -2720,7 +2720,7 @@ pub struct AppState {
     pub collapsed_command_status_groups: Vec<String>,
     pub collapsed_workspace_groups: Vec<String>,
     pub agent_panel_scope: AgentPanelScope,
-    /// Capture mouse input for Hako's own mouse UI. When false, Hako only
+    /// Capture mouse input for Oh My Herdr's own mouse UI. When false, Oh My Herdr only
     /// captures mouse while the focused pane app requests mouse reporting.
     pub mouse_capture: bool,
     /// Copy text selected with the mouse on selection completion. Default: true.
@@ -2799,7 +2799,7 @@ pub struct AppState {
     pub agent_manifest_update_status: crate::detect::manifest_update::ManifestUpdateStatus,
     /// Result messages from the latest integration install action.
     pub integration_install_messages: Vec<String>,
-    /// Installed or linked plugins known to this running Hako instance.
+    /// Installed or linked plugins known to this running Oh My Herdr instance.
     pub(crate) installed_plugins: InstalledPluginRegistry,
     /// Pane ids opened through the plugin pane API.
     pub(crate) plugin_panes: std::collections::HashMap<PaneId, PluginPaneRecord>,
@@ -3435,7 +3435,7 @@ impl AppState {
             selection_autoscroll: None,
             context_menu: None,
             update_available: None,
-            update_install_command: "hako update".into(),
+            update_install_command: "omh update".into(),
             latest_release_notes_available: false,
             update_dismissed: false,
             config_diagnostic: None,
@@ -3493,7 +3493,7 @@ impl AppState {
             shell_mode: crate::config::ShellModeConfig::Auto,
             new_terminal_cwd: NewTerminalCwdConfig::Follow,
             pane_scrollback_limit_bytes: crate::config::DEFAULT_SCROLLBACK_LIMIT_BYTES,
-            worktree_directory: PathBuf::from("/tmp/hako-worktrees"),
+            worktree_directory: PathBuf::from("/tmp/omh-worktrees"),
             accent: Color::Cyan,
             sound: SoundConfig {
                 enabled: false,

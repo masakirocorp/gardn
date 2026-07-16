@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
-pub const SESSION_ENV_VAR: &str = "HAKO_SESSION";
+pub const SESSION_ENV_VAR: &str = "OMH_SESSION";
 pub const DEFAULT_SESSION_NAME: &str = "default";
 
 const MAX_SESSION_NAME_LEN: usize = 64;
@@ -44,10 +44,10 @@ pub fn configure_from_args(args: &[String]) -> Result<Vec<String>, String> {
             return Ok(args.to_vec());
         }
         let Some(name) = args.get(3) else {
-            return Err("usage: hako session attach <name>".to_string());
+            return Err("usage: omh session attach <name>".to_string());
         };
         if args.len() != 4 {
-            return Err("usage: hako session attach <name>".to_string());
+            return Err("usage: omh session attach <name>".to_string());
         }
         apply_explicit_name(name)?;
         return Ok(cleaned);
@@ -104,8 +104,8 @@ pub fn active_name() -> Option<String> {
 
 pub fn local_attach_command() -> String {
     match active_name() {
-        Some(name) => format!("hako session attach {name}"),
-        None => "hako".to_string(),
+        Some(name) => format!("omh session attach {name}"),
+        None => "omh".to_string(),
     }
 }
 
@@ -115,8 +115,8 @@ pub fn local_stop_command() -> String {
 
 pub fn stop_command_for(name: Option<&str>) -> String {
     match name {
-        Some(name) => format!("hako session stop {name}"),
-        None => "hako server stop".to_string(),
+        Some(name) => format!("omh session stop {name}"),
+        None => "omh server stop".to_string(),
     }
 }
 
@@ -161,11 +161,11 @@ pub fn data_dir_for(name: Option<&str>) -> PathBuf {
 }
 
 pub fn api_socket_path_for(name: Option<&str>) -> PathBuf {
-    data_dir_for(name).join("hako.sock")
+    data_dir_for(name).join("omh.sock")
 }
 
 fn socket_path_app_dir(path: &Path) -> Option<&str> {
-    if path.file_name()?.to_str()? != "hako.sock" {
+    if path.file_name()?.to_str()? != "omh.sock" {
         return None;
     }
 
@@ -188,7 +188,7 @@ fn socket_path_app_dir(path: &Path) -> Option<&str> {
 
 fn socket_path_matches_current_app(path: &Path) -> bool {
     match socket_path_app_dir(path) {
-        Some("hako" | "hako-dev") => {
+        Some("omh" | "omh-dev") => {
             socket_path_app_dir(path) == Some(crate::config::app_dir_name())
         }
         _ => true,
@@ -209,7 +209,7 @@ pub fn active_api_socket_path() -> PathBuf {
 }
 
 pub fn client_socket_path_for(name: Option<&str>) -> PathBuf {
-    data_dir_for(name).join("hako-client.sock")
+    data_dir_for(name).join("omh-client.sock")
 }
 
 pub fn list_sessions() -> std::io::Result<Vec<SessionInfo>> {
@@ -669,7 +669,7 @@ mod tests {
         let _session_env = TestEnvVar::remove(SESSION_ENV_VAR);
         let _explicit_session = clear_explicit_session_guard();
         let args = vec![
-            "hako".to_string(),
+            "omh".to_string(),
             "--session".to_string(),
             "work".to_string(),
             "workspace".to_string(),
@@ -680,7 +680,7 @@ mod tests {
 
         assert_eq!(std::env::var(SESSION_ENV_VAR).as_deref(), Ok("work"));
         assert!(explicit_session_requested());
-        assert_eq!(cleaned, vec!["hako", "workspace", "list"]);
+        assert_eq!(cleaned, vec!["omh", "workspace", "list"]);
     }
 
     #[test]
@@ -689,7 +689,7 @@ mod tests {
         let _session_env = TestEnvVar::remove(SESSION_ENV_VAR);
         let _explicit_session = clear_explicit_session_guard();
         let args = vec![
-            "hako".to_string(),
+            "omh".to_string(),
             "server".to_string(),
             "stop".to_string(),
             "--session=api".to_string(),
@@ -699,7 +699,7 @@ mod tests {
 
         assert_eq!(std::env::var(SESSION_ENV_VAR).as_deref(), Ok("api"));
         assert!(explicit_session_requested());
-        assert_eq!(cleaned, vec!["hako", "server", "stop"]);
+        assert_eq!(cleaned, vec!["omh", "server", "stop"]);
     }
 
     #[test]
@@ -708,7 +708,7 @@ mod tests {
         let _session_env = TestEnvVar::remove(SESSION_ENV_VAR);
         let _explicit_session = clear_explicit_session_guard();
         let args = vec![
-            "hako".to_string(),
+            "omh".to_string(),
             "agent".to_string(),
             "start".to_string(),
             "repro".to_string(),
@@ -731,7 +731,7 @@ mod tests {
         let _session_env = TestEnvVar::remove(SESSION_ENV_VAR);
         let _explicit_session = clear_explicit_session_guard();
         let args = vec![
-            "hako".to_string(),
+            "omh".to_string(),
             "agent".to_string(),
             "start".to_string(),
             "repro".to_string(),
@@ -754,7 +754,7 @@ mod tests {
         let _socket_env = TestEnvVar::set(crate::api::SOCKET_PATH_ENV_VAR, "/tmp/inherited.sock");
         let _explicit_session = clear_explicit_session_guard();
         let args = vec![
-            "hako".to_string(),
+            "omh".to_string(),
             "session".to_string(),
             "attach".to_string(),
             "work".to_string(),
@@ -764,7 +764,7 @@ mod tests {
 
         assert_eq!(std::env::var(SESSION_ENV_VAR).as_deref(), Ok("work"));
         assert!(explicit_session_requested());
-        assert_eq!(cleaned, vec!["hako"]);
+        assert_eq!(cleaned, vec!["omh"]);
     }
 
     #[test]
@@ -773,7 +773,7 @@ mod tests {
         let _session_env = TestEnvVar::remove(SESSION_ENV_VAR);
         let _explicit_session = clear_explicit_session_guard();
         let args = vec![
-            "hako".to_string(),
+            "omh".to_string(),
             "session".to_string(),
             "attach".to_string(),
             "-h".to_string(),
@@ -794,7 +794,7 @@ mod tests {
         let _explicit_session = clear_explicit_session_guard();
         let _socket_env = TestEnvVar::set(crate::api::SOCKET_PATH_ENV_VAR, "/tmp/inherited.sock");
         let args = vec![
-            "hako".to_string(),
+            "omh".to_string(),
             "--session".to_string(),
             DEFAULT_SESSION_NAME.to_string(),
             "workspace".to_string(),
@@ -803,14 +803,14 @@ mod tests {
 
         let cleaned = configure_from_args(&args).unwrap();
 
-        assert_eq!(cleaned, vec!["hako", "workspace", "list"]);
+        assert_eq!(cleaned, vec!["omh", "workspace", "list"]);
         assert!(std::env::var(SESSION_ENV_VAR).is_err());
         assert!(explicit_session_requested());
         assert_eq!(
             active_api_socket_path(),
             config_home
                 .join(crate::config::app_dir_name())
-                .join("hako.sock")
+                .join("omh.sock")
         );
     }
 
@@ -820,14 +820,14 @@ mod tests {
         let _session_env = TestEnvVar::set(SESSION_ENV_VAR, "env-session");
         let _explicit_session = explicit_session_guard(true);
         let args = vec![
-            "hako".to_string(),
+            "omh".to_string(),
             "workspace".to_string(),
             "list".to_string(),
         ];
 
         let cleaned = configure_from_args(&args).unwrap();
 
-        assert_eq!(cleaned, vec!["hako", "workspace", "list"]);
+        assert_eq!(cleaned, vec!["omh", "workspace", "list"]);
         assert_eq!(std::env::var(SESSION_ENV_VAR).as_deref(), Ok("env-session"));
         assert!(!explicit_session_requested());
     }
@@ -841,21 +841,21 @@ mod tests {
         let _session_env = TestEnvVar::set(SESSION_ENV_VAR, DEFAULT_SESSION_NAME);
         let _explicit_session = explicit_session_guard(true);
         let args = vec![
-            "hako".to_string(),
+            "omh".to_string(),
             "workspace".to_string(),
             "list".to_string(),
         ];
 
         let cleaned = configure_from_args(&args).unwrap();
 
-        assert_eq!(cleaned, vec!["hako", "workspace", "list"]);
+        assert_eq!(cleaned, vec!["omh", "workspace", "list"]);
         assert!(std::env::var(SESSION_ENV_VAR).is_err());
         assert!(!explicit_session_requested());
         assert_eq!(
             active_api_socket_path(),
             config_home
                 .join(crate::config::app_dir_name())
-                .join("hako.sock")
+                .join("omh.sock")
         );
     }
 
@@ -864,7 +864,7 @@ mod tests {
         let _guard = env_lock().lock().unwrap();
         let _session_env = TestEnvVar::remove(SESSION_ENV_VAR);
 
-        assert_eq!(local_attach_command(), "hako");
+        assert_eq!(local_attach_command(), "omh");
     }
 
     #[test]
@@ -872,7 +872,7 @@ mod tests {
         let _guard = env_lock().lock().unwrap();
         let _session_env = TestEnvVar::set(SESSION_ENV_VAR, "work");
 
-        assert_eq!(local_attach_command(), "hako session attach work");
+        assert_eq!(local_attach_command(), "omh session attach work");
     }
 
     #[test]
@@ -880,7 +880,7 @@ mod tests {
         let _guard = env_lock().lock().unwrap();
         let _session_env = TestEnvVar::remove(SESSION_ENV_VAR);
 
-        assert_eq!(local_stop_command(), "hako server stop");
+        assert_eq!(local_stop_command(), "omh server stop");
     }
 
     #[test]
@@ -888,7 +888,7 @@ mod tests {
         let _guard = env_lock().lock().unwrap();
         let _session_env = TestEnvVar::set(SESSION_ENV_VAR, "work");
 
-        assert_eq!(local_stop_command(), "hako session stop work");
+        assert_eq!(local_stop_command(), "omh session stop work");
     }
 
     #[test]
@@ -908,7 +908,7 @@ mod tests {
                 .join(crate::config::app_dir_name())
                 .join("sessions")
                 .join("work")
-                .join("hako.sock")
+                .join("omh.sock")
         );
     }
 
@@ -921,14 +921,14 @@ mod tests {
         let _explicit_session = clear_explicit_session_guard();
         let _socket_env = TestEnvVar::set(
             crate::api::SOCKET_PATH_ENV_VAR,
-            config_home.join("hako").join("hako.sock"),
+            config_home.join("omh").join("omh.sock"),
         );
 
         assert_eq!(
             active_api_socket_path(),
             config_home
                 .join(crate::config::app_dir_name())
-                .join("hako.sock")
+                .join("omh.sock")
         );
     }
 
@@ -940,7 +940,7 @@ mod tests {
             .join(crate::config::app_dir_name())
             .join("sessions")
             .join("work")
-            .join("hako.sock");
+            .join("omh.sock");
         let _config_home_env = TestEnvVar::set("XDG_CONFIG_HOME", &config_home);
         let _session_env = TestEnvVar::remove(SESSION_ENV_VAR);
         let _explicit_session = clear_explicit_session_guard();
@@ -967,18 +967,18 @@ mod tests {
         let _guard = env_lock().lock().unwrap();
         let _session_env = TestEnvVar::set(SESSION_ENV_VAR, "bad/name");
         let _explicit_session = clear_explicit_session_guard();
-        let _socket_env = TestEnvVar::set(crate::api::SOCKET_PATH_ENV_VAR, "/tmp/hako.sock");
+        let _socket_env = TestEnvVar::set(crate::api::SOCKET_PATH_ENV_VAR, "/tmp/omh.sock");
         let args = vec![
-            "hako".to_string(),
+            "omh".to_string(),
             "workspace".to_string(),
             "list".to_string(),
         ];
 
         let cleaned = configure_from_args(&args).unwrap();
 
-        assert_eq!(cleaned, vec!["hako", "workspace", "list"]);
+        assert_eq!(cleaned, vec!["omh", "workspace", "list"]);
         assert!(!explicit_session_requested());
-        assert_eq!(active_api_socket_path(), PathBuf::from("/tmp/hako.sock"));
+        assert_eq!(active_api_socket_path(), PathBuf::from("/tmp/omh.sock"));
         assert_eq!(std::env::var(SESSION_ENV_VAR).as_deref(), Ok("bad/name"));
     }
 

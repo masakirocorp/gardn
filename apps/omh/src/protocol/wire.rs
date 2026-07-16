@@ -1,4 +1,4 @@
-//! Wire protocol for hako server/client communication.
+//! Wire protocol for Oh My Herdr server/client communication.
 //!
 //! Defines the message types, framing, version negotiation, and safety
 //! constraints for the binary protocol over Unix domain sockets.
@@ -14,8 +14,8 @@ use serde::{Deserialize, Serialize};
 
 /// Current server/client wire protocol compatibility marker.
 ///
-/// Bump once per Hako release cycle when source becomes incompatible with the
-/// latest Hako release protocol; multiple unreleased incompatible changes share
+/// Bump once per Oh My Herdr release cycle when source becomes incompatible with the
+/// latest Oh My Herdr release protocol; multiple unreleased incompatible changes share
 /// the same bump.
 pub const PROTOCOL_VERSION: u32 = 12;
 
@@ -630,7 +630,7 @@ pub enum ServerMessage {
 
     /// Set the foreground client's outer terminal window title.
     WindowTitle {
-        /// Sanitized title to write with OSC 0. `None` restores Hako's default title.
+        /// Sanitized title to write with OSC 0. `None` restores Oh My Herdr's default title.
         title: Option<String>,
     },
 
@@ -639,7 +639,7 @@ pub enum ServerMessage {
 
     /// Whether the client should currently capture host mouse input.
     MouseCapture {
-        /// True when Hako mouse UI is enabled or the focused pane app requests mouse reporting.
+        /// True when Oh My Herdr mouse UI is enabled or the focused pane app requests mouse reporting.
         enabled: bool,
     },
 
@@ -904,11 +904,11 @@ pub fn check_client_version(client_version: u32) -> VersionCheck {
         VersionCheck::Compatible
     } else if client_version < PROTOCOL_VERSION {
         VersionCheck::Incompatible(format!(
-            "client version {client_version} is older than server version {PROTOCOL_VERSION}; please upgrade your hako client"
+            "client version {client_version} is older than server version {PROTOCOL_VERSION}; please upgrade your Oh My Herdr client"
         ))
     } else {
         VersionCheck::Incompatible(format!(
-            "client version {client_version} is newer than server version {PROTOCOL_VERSION}; please upgrade the hako server"
+            "client version {client_version} is newer than server version {PROTOCOL_VERSION}; please upgrade the Oh My Herdr server"
         ))
     }
 }
@@ -1670,7 +1670,7 @@ mod tests {
         assert_eq!(
             check_client_version(PROTOCOL_VERSION - 1),
             VersionCheck::Incompatible(format!(
-                "client version {} is older than server version {PROTOCOL_VERSION}; please upgrade your hako client",
+                "client version {} is older than server version {PROTOCOL_VERSION}; please upgrade your Oh My Herdr client",
                 PROTOCOL_VERSION - 1
             ))
         );
@@ -1681,7 +1681,7 @@ mod tests {
         assert_eq!(
             check_client_version(PROTOCOL_VERSION + 1),
             VersionCheck::Incompatible(format!(
-                "client version {} is newer than server version {PROTOCOL_VERSION}; please upgrade the hako server",
+                "client version {} is newer than server version {PROTOCOL_VERSION}; please upgrade the Oh My Herdr server",
                 PROTOCOL_VERSION + 1
             ))
         );

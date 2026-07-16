@@ -480,15 +480,15 @@ mod tests {
     #[test]
     fn release_notes_inline_code_spans_are_styled_without_backticks() {
         let palette = Palette::catppuccin();
-        let lines = release_notes_lines("- `hako pane run ...` now works", &palette);
+        let lines = release_notes_lines("- `omh pane run ...` now works", &palette);
 
         assert_eq!(lines.len(), 1);
-        assert_eq!(line_text(&lines[0].1), " • hako pane run ... now works");
+        assert_eq!(line_text(&lines[0].1), " • omh pane run ... now works");
         let code_span = lines[0]
             .1
             .spans
             .iter()
-            .find(|span| span.content.as_ref() == "hako pane run ...")
+            .find(|span| span.content.as_ref() == "omh pane run ...")
             .expect("visible inline code span");
         assert_eq!(code_span.style.fg, Some(palette.accent));
         assert_eq!(code_span.style.bg, Some(palette.surface0));
@@ -513,7 +513,7 @@ mod tests {
     #[test]
     fn release_notes_preview_lines_show_update_steps() {
         let palette = Palette::catppuccin();
-        let lines = release_notes_preview_line_entries("hako update", &palette)
+        let lines = release_notes_preview_line_entries("omh update", &palette)
             .into_iter()
             .map(|(_, line)| line)
             .collect::<Vec<_>>();
@@ -522,11 +522,11 @@ mod tests {
         assert_eq!(line_text(&lines[0]), " ● update ready");
         assert_eq!(
             line_text(&lines[1]),
-            " detach, run hako update, then follow its restart guidance"
+            " detach, run omh update, then follow its restart guidance"
         );
         assert_eq!(lines[0].spans[1].style.fg, Some(palette.accent));
         assert_eq!(lines[0].spans[2].style.fg, Some(palette.text));
-        assert_eq!(lines[1].spans[2].content.as_ref(), "hako update");
+        assert_eq!(lines[1].spans[2].content.as_ref(), "omh update");
         assert_eq!(lines[1].spans[2].style.fg, Some(palette.accent));
         assert_eq!(lines[1].spans[2].style.bg, Some(palette.surface0));
     }
@@ -541,12 +541,12 @@ mod tests {
             preview: true,
         };
 
-        let lines = release_notes_display_lines(&notes, "hako update", &palette);
+        let lines = release_notes_display_lines(&notes, "omh update", &palette);
 
         assert_eq!(line_text(&lines[0].1), " ● update ready");
         assert_eq!(
             line_text(&lines[1].1),
-            " detach, run hako update, then follow its restart guidance"
+            " detach, run omh update, then follow its restart guidance"
         );
         assert_eq!(line_text(&lines[2].1), "");
         assert_eq!(line_text(&lines[3].1), " added");

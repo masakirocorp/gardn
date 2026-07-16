@@ -22,7 +22,7 @@ pub use self::{
         validated_sidebar_bounds, AgentPanelScopeConfig, Config, ConfigReloadReport,
         ConfigReloadStatus, HostCursorModeConfig, NewTerminalCwdConfig, ShellModeConfig,
         SidebarArrangementConfig, SidebarCollapsedModeConfig, ToastClipboardPosition, ToastConfig,
-        ToastDelivery, ToastHakoPosition, MAX_TOAST_DELAY_SECONDS,
+        ToastDelivery, ToastOmhPosition, MAX_TOAST_DELAY_SECONDS,
     },
     sidebar::{
         AgentSidebarToken, AgentsSidebarConfig, SidebarConfig, SidebarInitialStateConfig,
@@ -35,7 +35,7 @@ pub use self::{
 pub(crate) use self::io::upsert_top_level_bool;
 pub(crate) use self::keybinds::parse_key_combo;
 
-pub const CONFIG_PATH_ENV_VAR: &str = "HAKO_CONFIG_PATH";
+pub const CONFIG_PATH_ENV_VAR: &str = "OMH_CONFIG_PATH";
 pub const DEFAULT_SCROLLBACK_LIMIT_BYTES: usize = 10_000_000;
 pub const DEFAULT_MOUSE_SCROLL_LINES: usize = 3;
 pub const DEFAULT_MOBILE_WIDTH_THRESHOLD: u16 = 64;
@@ -96,7 +96,7 @@ impl Config {
         self.validated_keybinds().1
     }
 
-    /// Parsed keybinds for Hako actions.
+    /// Parsed keybinds for Oh My Herdr actions.
     pub fn keybinds(&self) -> Keybinds {
         self.validated_keybinds().3
     }

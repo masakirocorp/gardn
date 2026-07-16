@@ -1,9 +1,9 @@
-//! Headless server mode — runs the hako event loop without a real terminal.
+//! Headless server mode — runs the Oh My Herdr event loop without a real terminal.
 //!
 //! The server:
 //! - Does not enter raw mode or read stdin
-//! - Creates and listens on both `hako.sock` (existing JSON API) and
-//!   `hako-client.sock` (new binary protocol)
+//! - Creates and listens on both `omh.sock` (existing JSON API) and
+//!   `omh-client.sock` (new binary protocol)
 //! - Initializes AppState and all PTYs from session restore or fresh state
 //! - Runs the main event loop (drain events, drain API requests, scheduled tasks)
 //! - Renders to a virtual ratatui Buffer in memory
@@ -151,7 +151,7 @@ const CLIENT_ACCEPT_POLL_INTERVAL: Duration = Duration::from_millis(250);
 // Headless server
 // ---------------------------------------------------------------------------
 
-/// The headless server — runs the hako event loop without a real terminal.
+/// The headless server — runs the Oh My Herdr event loop without a real terminal.
 pub struct HeadlessServer {
     app: app::App,
     api_tx: Option<api::ApiRequestSender>,
@@ -547,7 +547,7 @@ impl HeadlessServer {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
                 format!(
-                    "live handoff supports at most {} panes in one update; close panes or restart hako normally",
+                    "live handoff supports at most {} panes in one update; close panes or restart omh normally",
                     crate::server::handoff::MAX_FDS_PER_HANDOFF
                 ),
             ));
@@ -1177,7 +1177,7 @@ impl HeadlessServer {
                 })
                 .unwrap_or_else(|_| "{}".to_string());
             }
-            config::ToastDelivery::Hako => {
+            config::ToastDelivery::Omh => {
                 let sound = params.sound;
                 let response = self.app.handle_api_request_after_internal_events_drained(
                     api::schema::Request {
@@ -2365,7 +2365,7 @@ impl HeadlessServer {
         let _ = msg.respond_to.send(response);
 
         // Forward new toast state only when a client-local delivery mode is selected.
-        // Hako delivery renders the toast in-frame and must not ask clients to
+        // Oh My Herdr delivery renders the toast in-frame and must not ask clients to
         // show a terminal or system notification.
         let toast_after = self.app.state.toast.clone();
         let forwarded_toast_from_state = if self.app.state.toast_config.delay_seconds == 0
@@ -2917,7 +2917,7 @@ impl HeadlessServer {
             let previous_toast = self.app.state.toast.clone();
             for update in self.app.state.expire_agent_metadata_at(deadline, now) {
                 self.app
-                    .refresh_new_hako_toast_context_for_update(&update, &previous_toast);
+                    .refresh_new_omh_toast_context_for_update(&update, &previous_toast);
                 self.app.emit_pane_state_update(&update);
             }
             self.app.sync_agent_metadata_deadline();
@@ -3133,7 +3133,7 @@ pub fn run_server() -> io::Result<()> {
     let _api_server = match api::start_server(api_tx.clone(), event_hub.clone()) {
         Ok(server) => server,
         Err(err) if err.kind() == io::ErrorKind::AddrInUse => {
-            eprintln!("error: hako server is already running");
+            eprintln!("error: Oh My Herdr server is already running");
             eprintln!("api socket: {}", api::socket_path().display());
             std::process::exit(1);
         }
@@ -3173,7 +3173,7 @@ pub fn run_server() -> io::Result<()> {
         ) {
             Ok(server) => server,
             Err(err) if err.kind() == io::ErrorKind::AddrInUse => {
-                eprintln!("error: hako server is already running");
+                eprintln!("error: Oh My Herdr server is already running");
                 eprintln!("client socket: {}", client_socket_path().display());
                 std::process::exit(1);
             }
@@ -3183,7 +3183,7 @@ pub fn run_server() -> io::Result<()> {
         info!(
             api_socket = %api::socket_path().display(),
             client_socket = %client_socket_path().display(),
-            "hako server started"
+            "Oh My Herdr server started"
         );
         print_ready_message(&api::socket_path(), &client_socket_path());
 
@@ -3234,7 +3234,7 @@ fn run_handoff_import_server(socket_path: &Path, token: &str) -> io::Result<()> 
         app.local_terminal_notifications = false;
         app.local_input_source_switch = false;
         crate::server::handoff::report_restored(&mut received.stream)?;
-        if std::env::var("HAKO_TEST_HANDOFF_IMPORT_FAIL").as_deref() == Ok("after_restored") {
+        if std::env::var("OMH_TEST_HANDOFF_IMPORT_FAIL").as_deref() == Ok("after_restored") {
             return Err(io::Error::other(
                 "test handoff import failure after restored",
             ));
@@ -3292,19 +3292,19 @@ fn run_handoff_import_server(_socket_path: &Path, _token: &str) -> io::Result<()
 }
 
 fn print_ready_message(api_socket: &Path, client_socket: &Path) {
-    eprintln!("hako server running; you can use any hako CLI command in another terminal.");
+    eprintln!("Oh My Herdr server running; you can use any `omh` CLI command in another terminal.");
     eprintln!("api socket: {}", api_socket.display());
     eprintln!("client socket: {}", client_socket.display());
     eprintln!(
         "logs: {}",
-        crate::session::data_dir().join("hako-server.log").display()
+        crate::session::data_dir().join("omh-server.log").display()
     );
-    eprintln!("did you mean to open the Hako TUI? run `hako`; you do not need `hako server`.");
+    eprintln!("did you mean to open the Oh My Herdr TUI? run `omh`; you do not need `omh server`.");
 }
 
 /// Initialize logging for the server process.
 fn init_logging() {
-    crate::logging::init_file_logging("hako-server.log");
+    crate::logging::init_file_logging("omh-server.log");
 }
 
 // ---------------------------------------------------------------------------
@@ -3436,7 +3436,7 @@ mod tests {
                 label: "omp",
                 command: "omp",
                 available: true,
-                path: std::path::PathBuf::from("/tmp/hako-test-omp"),
+                path: std::path::PathBuf::from("/tmp/omh-test-omp"),
                 state: crate::integration::IntegrationStatusKind::Current,
             }];
         server.app.state.command_palette.query = "new agent".to_string();
@@ -3523,7 +3523,7 @@ mod tests {
 
     fn temp_project(name: &str) -> PathBuf {
         let root = std::env::temp_dir().join(format!(
-            "hako-headless-commands-{name}-{}-{}",
+            "omh-headless-commands-{name}-{}-{}",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -3771,7 +3771,7 @@ new_tab = "prefix+t"
     #[test]
     fn local_keybinding_client_keeps_local_keybindings_after_settings_save() {
         let path = std::env::temp_dir().join(format!(
-            "hako-headless-settings-{}-{}.toml",
+            "omh-headless-settings-{}-{}.toml",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -3839,7 +3839,7 @@ next_tab = ""
             .any(|binding| binding.label == "prefix+n"));
         assert!(server.app.state.toast.is_none());
         let content = std::fs::read_to_string(&path).unwrap();
-        assert!(content.contains("delivery = \"hako\""));
+        assert!(content.contains("delivery = \"omh\""));
 
         let _ = std::fs::remove_file(path);
     }
@@ -3847,7 +3847,7 @@ next_tab = ""
     #[test]
     fn invalid_server_keybindings_do_not_cache_local_keybindings_after_settings_save() {
         let path = std::env::temp_dir().join(format!(
-            "hako-headless-invalid-settings-{}-{}.toml",
+            "omh-headless-invalid-settings-{}-{}.toml",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -4203,7 +4203,7 @@ next_tab = ""
         assert!(
             server.handle_internal_event_with_forwarding(AppEvent::HookStateReported {
                 pane_id,
-                source: "hako:pi".into(),
+                source: "omh:pi".into(),
                 agent_label: "pi".into(),
                 state: crate::detect::AgentState::Working,
                 message: None,
@@ -4218,7 +4218,7 @@ next_tab = ""
                 pane_id,
                 source: "user:pi-display".into(),
                 agent_label: Some("pi".into()),
-                applies_to_source: Some("hako:pi".into()),
+                applies_to_source: Some("omh:pi".into()),
                 title: None,
                 display_agent: None,
                 custom_status: Some("short lived".into()),
@@ -4891,7 +4891,7 @@ next_tab = ""
                 command_resolution: crate::agent_resume::AgentResumeCommandResolution::External,
                 preserved_launch_argv: None,
                 env: Vec::new(),
-                dedupe_key: "hako:codex\0codex\0Id\0client-visible-session".into(),
+                dedupe_key: "omh:codex\0codex\0Id\0client-visible-session".into(),
             });
         }
 
@@ -6055,7 +6055,7 @@ next_tab = ""
         server.app.state.ensure_test_terminals();
         server.app.state.active = Some(0);
         server.app.state.mode = crate::app::Mode::Terminal;
-        server.app.state.toast_config.delivery = crate::config::ToastDelivery::Hako;
+        server.app.state.toast_config.delivery = crate::config::ToastDelivery::Omh;
 
         let target_pane = server.app.state.workspaces[1].tabs[0].root_pane;
         let target_terminal = server.app.state.workspaces[1]
@@ -6146,7 +6146,7 @@ next_tab = ""
         server.app.state.ensure_test_terminals();
         server.app.state.active = Some(0);
         server.app.state.mode = crate::app::Mode::Terminal;
-        server.app.state.toast_config.delivery = crate::config::ToastDelivery::Hako;
+        server.app.state.toast_config.delivery = crate::config::ToastDelivery::Omh;
 
         let target_pane = server.app.state.workspaces[1].tabs[0].root_pane;
         let target_terminal = server.app.state.workspaces[1]
@@ -6223,7 +6223,7 @@ next_tab = ""
     }
 
     #[test]
-    fn hako_toast_delivery_keeps_toast_in_frame_without_client_notify() {
+    fn omh_toast_delivery_keeps_toast_in_frame_without_client_notify() {
         let mut server = test_headless_server();
         let (client_tx, client_control_rx, _client_rx) = test_client_writer();
 
@@ -6240,11 +6240,11 @@ next_tab = ""
             ),
         );
         server.foreground_client_id = Some(1);
-        server.app.state.toast_config.delivery = crate::config::ToastDelivery::Hako;
+        server.app.state.toast_config.delivery = crate::config::ToastDelivery::Omh;
 
         let changed = server.handle_internal_event_with_forwarding(AppEvent::UpdateReady {
             version: "9.9.9".to_string(),
-            install_command: "hako update".into(),
+            install_command: "omh update".into(),
         });
 
         assert!(changed);
@@ -6253,7 +6253,7 @@ next_tab = ""
             client_control_rx
                 .recv_timeout(Duration::from_millis(50))
                 .is_err(),
-            "hako delivery should render in-frame instead of forwarding a client-local notification"
+            "omh delivery should render in-frame instead of forwarding a client-local notification"
         );
     }
 
@@ -6279,7 +6279,7 @@ next_tab = ""
 
         let changed = server.handle_internal_event_with_forwarding(AppEvent::UpdateReady {
             version: "9.9.9".to_string(),
-            install_command: "hako update".into(),
+            install_command: "omh update".into(),
         });
 
         assert!(changed);
@@ -6290,7 +6290,7 @@ next_tab = ""
         ) {
             ServerMessage::Notify { kind, message } => {
                 assert_eq!(kind, protocol::NotifyKind::SystemToast);
-                assert_eq!(message, "v9.9.9 available: detach, then run `hako update`");
+                assert_eq!(message, "v9.9.9 available: detach, then run `omh update`");
             }
             other => panic!("expected system toast notify, got {other:?}"),
         }
@@ -6317,7 +6317,7 @@ next_tab = ""
             .get_mut(&terminal_id)
             .unwrap()
             .set_hook_authority(
-                "hako:pi".into(),
+                "omh:pi".into(),
                 "pi".into(),
                 crate::detect::AgentState::Working,
                 None,
@@ -6349,7 +6349,7 @@ next_tab = ""
                 id: "stale".into(),
                 method: api::schema::Method::PaneReportAgent(api::schema::PaneReportAgentParams {
                     pane_id: public_pane_id,
-                    source: "hako:pi".into(),
+                    source: "omh:pi".into(),
                     agent: "pi".into(),
                     state: api::schema::PaneAgentState::Idle,
                     message: None,

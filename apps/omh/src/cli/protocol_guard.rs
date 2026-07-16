@@ -17,7 +17,7 @@ pub(super) fn mismatch_response(
         error: ErrorBody {
             code: "protocol_mismatch".into(),
             message: format!(
-                "Hako CLI protocol {client_protocol} is incompatible with server protocol {server_protocol} (server version {server_version}). Update and restart Hako so the CLI and server use the same release."
+                "Oh My Herdr CLI protocol {client_protocol} is incompatible with server protocol {server_protocol} (server version {server_version}). Update and restart Oh My Herdr so the CLI and server use the same release."
             ),
         },
     })
@@ -78,7 +78,7 @@ mod tests {
             .message
             .contains(&format!("server protocol {server_protocol}")));
         assert!(response.error.message.contains("server version 0.1.0"));
-        assert!(response.error.message.contains("Update and restart Hako"));
+        assert!(response.error.message.contains("Update and restart Oh My Herdr"));
     }
 
     #[test]

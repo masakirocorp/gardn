@@ -16,7 +16,7 @@ pub const MAX_TOAST_DELAY_SECONDS: u64 = 3600;
 pub enum ToastDelivery {
     #[default]
     Off,
-    Hako,
+    Omh,
     Terminal,
     System,
 }
@@ -34,7 +34,7 @@ pub enum HostCursorModeConfig {
     Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, Default, schemars::JsonSchema,
 )]
 #[serde(rename_all = "kebab-case")]
-pub enum ToastHakoPosition {
+pub enum ToastOmhPosition {
     TopLeft,
     TopRight,
     BottomLeft,
@@ -195,14 +195,14 @@ fn parse_right_click_passthrough_modifier(value: &str) -> Option<Option<KeyModif
 pub struct ToastConfig {
     pub delivery: ToastDelivery,
     pub delay_seconds: u64,
-    pub hako: HakoToastConfig,
+    pub omh: OmhToastConfig,
     pub clipboard: ClipboardToastConfig,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(default)]
-pub struct HakoToastConfig {
-    pub position: ToastHakoPosition,
+pub struct OmhToastConfig {
+    pub position: ToastOmhPosition,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
@@ -260,7 +260,7 @@ pub struct TerminalConfig {
 #[serde(default)]
 pub struct SessionConfig {
     /// Resume supported AI-agent panes into their native conversation sessions
-    /// when restoring a Hako session. Default: true.
+    /// when restoring an Oh My Herdr session. Default: true.
     pub resume_agents_on_restore: bool,
 }
 
@@ -275,7 +275,7 @@ impl Default for SessionConfig {
 #[derive(Debug, Deserialize)]
 #[serde(default)]
 pub struct WorktreesConfig {
-    /// Root directory under which Hako creates <repo>/<branch-slug> checkouts.
+    /// Root directory under which Oh My Herdr creates <repo>/<branch-slug> checkouts.
     pub directory: String,
 }
 
@@ -297,7 +297,7 @@ impl Default for GitConfig {
 #[derive(Debug, Clone, Copy, Deserialize)]
 #[serde(default)]
 pub struct UpdateConfig {
-    /// Check GitHub for a newer Hako release in the background. Default: true.
+    /// Check GitHub for a newer Oh My Herdr release in the background. Default: true.
     pub version_check: bool,
     /// Check for remote agent-detection manifest updates in the background. Default: true.
     pub manifest_check: bool,
@@ -430,7 +430,7 @@ pub struct KeysConfig {
     pub open_agent_menu: BindingConfig,
     /// Focus an agent by index 1-9. Unset by default.
     pub focus_agent: BindingConfig,
-    /// Local-client shortcut that sends a clipboard image to a remote Hako session. Default: "ctrl+v".
+    /// Local-client shortcut that sends a clipboard image to a remote Oh My Herdr session. Default: "ctrl+v".
     pub remote_image_paste: String,
     /// Create a new tab in the active workspace. Default: "prefix+c"
     pub new_tab: BindingConfig,
@@ -891,13 +891,13 @@ pub struct UiConfig {
     pub sidebar_min_width: u16,
     /// Maximum sidebar width (columns) when expanded. Default: 36.
     pub sidebar_max_width: u16,
-    /// Terminal width at or below which Hako uses the mobile single-column layout. Default: 64.
+    /// Terminal width at or below which Oh My Herdr uses the mobile single-column layout. Default: 64.
     pub mobile_width_threshold: u16,
     /// Sidebar arrangement on desktop: auto, separate, combined_left, or combined_right.
     pub sidebar_arrangement: SidebarArrangementConfig,
     /// Configurable rows and metadata tokens for spaces and agents.
     pub sidebar: SidebarConfig,
-    /// Capture mouse input for Hako's mouse UI. Default: true.
+    /// Capture mouse input for Oh My Herdr's mouse UI. Default: true.
     pub mouse_capture: bool,
     /// Copy text selected with the mouse. Default: true.
     pub copy_on_select: bool,
@@ -984,7 +984,7 @@ impl Default for RemoteConfig {
 #[derive(Debug, Deserialize)]
 #[serde(default)]
 pub struct ExperimentalConfig {
-    /// Allow launching hako inside an existing hako pane. Default: false.
+    /// Allow launching Oh My Herdr inside an existing Oh My Herdr pane. Default: false.
     pub allow_nested: bool,
     /// Experimental local Kitty graphics rendering for attached clients. Default: false.
     pub kitty_graphics: bool,
@@ -1105,7 +1105,7 @@ impl Default for KeysConfig {
 impl Default for WorktreesConfig {
     fn default() -> Self {
         Self {
-            directory: "~/.hako/worktrees".into(),
+            directory: "~/.omh/worktrees".into(),
         }
     }
 }
@@ -1156,16 +1156,16 @@ impl Default for ToastConfig {
         Self {
             delivery: ToastDelivery::Off,
             delay_seconds: 1,
-            hako: HakoToastConfig::default(),
+            omh: OmhToastConfig::default(),
             clipboard: ClipboardToastConfig::default(),
         }
     }
 }
 
-impl Default for HakoToastConfig {
+impl Default for OmhToastConfig {
     fn default() -> Self {
         Self {
-            position: ToastHakoPosition::BottomRight,
+            position: ToastOmhPosition::BottomRight,
         }
     }
 }
@@ -1190,13 +1190,13 @@ impl<'de> Deserialize<'de> for ToastConfig {
             delivery: Option<ToastDelivery>,
             enabled: Option<bool>,
             delay_seconds: Option<u64>,
-            hako: HakoToastConfig,
+            omh: OmhToastConfig,
             clipboard: ClipboardToastConfig,
         }
 
         let raw = RawToastConfig::deserialize(deserializer)?;
         let legacy_delivery = match raw.enabled {
-            Some(true) => ToastDelivery::Hako,
+            Some(true) => ToastDelivery::Omh,
             Some(false) | None => ToastDelivery::Off,
         };
         let delivery = raw.delivery.unwrap_or(legacy_delivery);
@@ -1210,7 +1210,7 @@ impl<'de> Deserialize<'de> for ToastConfig {
         Ok(Self {
             delivery,
             delay_seconds,
-            hako: raw.hako,
+            omh: raw.omh,
             clipboard: raw.clipboard,
         })
     }
@@ -1378,14 +1378,14 @@ prompt_new_tab_name = false
     #[test]
     fn worktrees_directory_defaults_and_parses() {
         let default_config = Config::default();
-        assert_eq!(default_config.worktrees.directory, "~/.hako/worktrees");
+        assert_eq!(default_config.worktrees.directory, "~/.omh/worktrees");
 
         let toml = r#"
 [worktrees]
-directory = "~/Projects/hako-worktrees"
+directory = "~/Projects/omh-worktrees"
 "#;
         let config: Config = toml::from_str(toml).unwrap();
-        assert_eq!(config.worktrees.directory, "~/Projects/hako-worktrees");
+        assert_eq!(config.worktrees.directory, "~/Projects/omh-worktrees");
     }
 
     #[test]
@@ -1669,7 +1669,7 @@ mouse_scroll_lines = 0
 delivery = "terminal"
 delay_seconds = 2
 
-[ui.toast.hako]
+[ui.toast.omh]
 position = "top-left"
 
 [ui.toast.clipboard]
@@ -1679,7 +1679,7 @@ position = "top-center"
         let config: Config = toml::from_str(toml).unwrap();
         assert_eq!(config.ui.toast.delivery, ToastDelivery::Terminal);
         assert_eq!(config.ui.toast.delay_seconds, 2);
-        assert_eq!(config.ui.toast.hako.position, ToastHakoPosition::TopLeft);
+        assert_eq!(config.ui.toast.omh.position, ToastOmhPosition::TopLeft);
         assert!(!config.ui.toast.clipboard.enabled);
         assert_eq!(
             config.ui.toast.clipboard.position,
@@ -1693,8 +1693,8 @@ position = "top-center"
         assert_eq!(config.ui.toast.delivery, ToastDelivery::Off);
         assert_eq!(config.ui.toast.delay_seconds, 1);
         assert_eq!(
-            config.ui.toast.hako.position,
-            ToastHakoPosition::BottomRight
+            config.ui.toast.omh.position,
+            ToastOmhPosition::BottomRight
         );
         assert!(config.ui.toast.clipboard.enabled);
         assert_eq!(
@@ -1714,13 +1714,13 @@ delivery = "system"
     }
 
     #[test]
-    fn toast_config_legacy_enabled_true_maps_to_hako() {
+    fn toast_config_legacy_enabled_true_maps_to_omh() {
         let toml = r#"
 [ui.toast]
 enabled = true
 "#;
         let config: Config = toml::from_str(toml).unwrap();
-        assert_eq!(config.ui.toast.delivery, ToastDelivery::Hako);
+        assert_eq!(config.ui.toast.delivery, ToastDelivery::Omh);
     }
 
     #[test]

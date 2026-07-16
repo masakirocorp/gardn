@@ -30,7 +30,7 @@ pub(super) fn run_workspace_command(args: &[String]) -> std::io::Result<i32> {
 
 fn workspace_list(args: &[String]) -> std::io::Result<i32> {
     if !args.is_empty() {
-        eprintln!("usage: hako workspace list");
+        eprintln!("usage: omh workspace list");
         return Ok(2);
     }
 
@@ -108,11 +108,11 @@ fn workspace_create(args: &[String]) -> std::io::Result<i32> {
 
 fn workspace_get(args: &[String]) -> std::io::Result<i32> {
     let Some(raw_workspace_id) = args.first() else {
-        eprintln!("usage: hako workspace get <workspace_id>");
+        eprintln!("usage: omh workspace get <workspace_id>");
         return Ok(2);
     };
     if args.len() != 1 {
-        eprintln!("usage: hako workspace get <workspace_id>");
+        eprintln!("usage: omh workspace get <workspace_id>");
         return Ok(2);
     }
 
@@ -126,11 +126,11 @@ fn workspace_get(args: &[String]) -> std::io::Result<i32> {
 
 fn workspace_focus(args: &[String]) -> std::io::Result<i32> {
     let Some(raw_workspace_id) = args.first() else {
-        eprintln!("usage: hako workspace focus <workspace_id>");
+        eprintln!("usage: omh workspace focus <workspace_id>");
         return Ok(2);
     };
     if args.len() != 1 {
-        eprintln!("usage: hako workspace focus <workspace_id>");
+        eprintln!("usage: omh workspace focus <workspace_id>");
         return Ok(2);
     }
 
@@ -144,7 +144,7 @@ fn workspace_focus(args: &[String]) -> std::io::Result<i32> {
 
 fn workspace_rename(args: &[String]) -> std::io::Result<i32> {
     if args.len() < 2 {
-        eprintln!("usage: hako workspace rename <workspace_id> <label>");
+        eprintln!("usage: omh workspace rename <workspace_id> <label>");
         return Ok(2);
     }
 
@@ -159,11 +159,11 @@ fn workspace_rename(args: &[String]) -> std::io::Result<i32> {
 
 fn workspace_close(args: &[String]) -> std::io::Result<i32> {
     let Some(raw_workspace_id) = args.first() else {
-        eprintln!("usage: hako workspace close <workspace_id>");
+        eprintln!("usage: omh workspace close <workspace_id>");
         return Ok(2);
     };
     if args.len() != 1 {
-        eprintln!("usage: hako workspace close <workspace_id>");
+        eprintln!("usage: omh workspace close <workspace_id>");
         return Ok(2);
     }
 
@@ -176,11 +176,11 @@ fn workspace_close(args: &[String]) -> std::io::Result<i32> {
 }
 
 fn print_workspace_help() {
-    eprintln!("hako workspace commands:");
-    eprintln!("  hako workspace list");
-    eprintln!("  hako workspace create [--cwd PATH] [--label TEXT] [--env KEY=VALUE] [--focus] [--no-focus]");
-    eprintln!("  hako workspace get <workspace_id>");
-    eprintln!("  hako workspace focus <workspace_id>");
-    eprintln!("  hako workspace rename <workspace_id> <label>");
-    eprintln!("  hako workspace close <workspace_id>");
+    eprintln!("omh workspace commands:");
+    eprintln!("  omh workspace list");
+    eprintln!("  omh workspace create [--cwd PATH] [--label TEXT] [--env KEY=VALUE] [--focus] [--no-focus]");
+    eprintln!("  omh workspace get <workspace_id>");
+    eprintln!("  omh workspace focus <workspace_id>");
+    eprintln!("  omh workspace rename <workspace_id> <label>");
+    eprintln!("  omh workspace close <workspace_id>");
 }

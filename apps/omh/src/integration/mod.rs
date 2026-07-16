@@ -9,18 +9,17 @@ use serde_json::{json, Map, Value};
 
 use crate::layout::PaneId;
 
-pub(crate) const HAKO_PANE_ID_ENV_VAR: &str = "HAKO_PANE_ID";
-const LEGACY_PI_OMP_EXTENSION_INSTALL_NAME: &str = "hako-agent-state.ts";
-const PI_EXTENSION_INSTALL_NAME: &str = "hako-pi-agent-state.ts";
-const PI_EXTENSION_ASSET: &str = include_str!("assets/pi/hako-agent-state.ts");
+pub(crate) const OMH_PANE_ID_ENV_VAR: &str = "OMH_PANE_ID";
+const PI_EXTENSION_INSTALL_NAME: &str = "omh-pi-agent-state.ts";
+const PI_EXTENSION_ASSET: &str = include_str!("assets/pi/omh-agent-state.ts");
 const PI_INTEGRATION_VERSION: u32 = 5;
-const OMP_EXTENSION_INSTALL_NAME: &str = "hako-omp-agent-state.ts";
-const OMP_EXTENSION_ASSET: &str = include_str!("assets/omp/hako-agent-state.ts");
+const OMP_EXTENSION_INSTALL_NAME: &str = "omh-omp-agent-state.ts";
+const OMP_EXTENSION_ASSET: &str = include_str!("assets/omp/omh-agent-state.ts");
 const OMP_INTEGRATION_VERSION: u32 = 6;
 const PI_CODING_AGENT_DIR_ENV_VAR: &str = "PI_CODING_AGENT_DIR";
 const OMP_CONFIG_DIR_ENV_VAR: &str = "PI_CONFIG_DIR";
-const CLAUDE_HOOK_INSTALL_NAME: &str = "hako-agent-state.sh";
-const CLAUDE_HOOK_ASSET: &str = include_str!("assets/claude/hako-agent-state.sh");
+const CLAUDE_HOOK_INSTALL_NAME: &str = "omh-agent-state.sh";
+const CLAUDE_HOOK_ASSET: &str = include_str!("assets/claude/omh-agent-state.sh");
 const CLAUDE_INTEGRATION_VERSION: u32 = 4;
 const CLAUDE_CONFIG_DIR_ENV_VAR: &str = "CLAUDE_CONFIG_DIR";
 const CLAUDE_HOOK_EVENTS: [(&str, &str, Option<&str>); 13] = [
@@ -42,8 +41,8 @@ const CLAUDE_HOOK_EVENTS: [(&str, &str, Option<&str>); 13] = [
     ),
     ("Notification", "idle", Some("idle_prompt")),
 ];
-const CODEX_HOOK_INSTALL_NAME: &str = "hako-agent-state.sh";
-const CODEX_HOOK_ASSET: &str = include_str!("assets/codex/hako-agent-state.sh");
+const CODEX_HOOK_INSTALL_NAME: &str = "omh-agent-state.sh";
+const CODEX_HOOK_ASSET: &str = include_str!("assets/codex/omh-agent-state.sh");
 const CODEX_INTEGRATION_VERSION: u32 = 2;
 const CODEX_HOOK_EVENTS: [(&str, &str, Option<&str>); 10] = [
     ("SessionStart", "session", None),
@@ -58,12 +57,12 @@ const CODEX_HOOK_EVENTS: [(&str, &str, Option<&str>); 10] = [
     ("PermissionRequest", "blocked", None),
 ];
 const CODEX_HOME_ENV_VAR: &str = "CODEX_HOME";
-const KIMI_HOOK_INSTALL_NAME: &str = "hako-agent-state.sh";
-const KIMI_HOOK_ASSET: &str = include_str!("assets/kimi/hako-agent-state.sh");
+const KIMI_HOOK_INSTALL_NAME: &str = "omh-agent-state.sh";
+const KIMI_HOOK_ASSET: &str = include_str!("assets/kimi/omh-agent-state.sh");
 const KIMI_INTEGRATION_VERSION: u32 = 3;
 const KIMI_CODE_HOME_ENV_VAR: &str = "KIMI_CODE_HOME";
-const KIMI_CONFIG_BLOCK_BEGIN: &str = "# >>> hako kimi integration";
-const KIMI_CONFIG_BLOCK_END: &str = "# <<< hako kimi integration";
+const KIMI_CONFIG_BLOCK_BEGIN: &str = "# >>> omh kimi integration";
+const KIMI_CONFIG_BLOCK_END: &str = "# <<< omh kimi integration";
 const KIMI_MIN_VERSION: &str = "0.8.0";
 const KIMI_HOOK_EVENTS: [(&str, &str); 9] = [
     ("SessionStart", "idle"),
@@ -76,12 +75,12 @@ const KIMI_HOOK_EVENTS: [(&str, &str); 9] = [
     ("SessionEnd", "idle"),
     ("SessionEnd", "release"),
 ];
-const COPILOT_HOOK_INSTALL_NAME: &str = "hako-agent-state.sh";
-const COPILOT_HOOK_ASSET: &str = include_str!("assets/copilot/hako-agent-state.sh");
+const COPILOT_HOOK_INSTALL_NAME: &str = "omh-agent-state.sh";
+const COPILOT_HOOK_ASSET: &str = include_str!("assets/copilot/omh-agent-state.sh");
 const COPILOT_INTEGRATION_VERSION: u32 = 1;
 const COPILOT_HOME_ENV_VAR: &str = "COPILOT_HOME";
-const DEVIN_HOOK_INSTALL_NAME: &str = "hako-agent-state.sh";
-const DEVIN_HOOK_ASSET: &str = include_str!("assets/devin/hako-agent-state.sh");
+const DEVIN_HOOK_INSTALL_NAME: &str = "omh-agent-state.sh";
+const DEVIN_HOOK_ASSET: &str = include_str!("assets/devin/omh-agent-state.sh");
 const DEVIN_INTEGRATION_VERSION: u32 = 2;
 const DEVIN_CONFIG_DIR_ENV_VAR: &str = "DEVIN_CONFIG_DIR";
 const DEVIN_HOOK_EVENTS: [(&str, &str); 6] = [
@@ -100,8 +99,8 @@ const DEVIN_REMOVED_LIFECYCLE_HOOK_EVENTS: [(&str, &str); 6] = [
     ("Stop", "idle"),
     ("SessionEnd", "release"),
 ];
-const DROID_HOOK_INSTALL_NAME: &str = "hako-agent-state.sh";
-const DROID_HOOK_ASSET: &str = include_str!("assets/droid/hako-agent-state.sh");
+const DROID_HOOK_INSTALL_NAME: &str = "omh-agent-state.sh";
+const DROID_HOOK_ASSET: &str = include_str!("assets/droid/omh-agent-state.sh");
 const DROID_INTEGRATION_VERSION: u32 = 3;
 const DROID_HOOK_EVENTS: [(&str, &str); 10] = [
     ("SessionStart", "idle"),
@@ -126,30 +125,30 @@ const DROID_REMOVED_LIFECYCLE_HOOK_EVENTS: [(&str, &str); 9] = [
     ("Stop", "idle"),
     ("SessionEnd", "release"),
 ];
-const OPENCODE_PLUGIN_INSTALL_NAME: &str = "hako-agent-state.js";
-const OPENCODE_PLUGIN_ASSET: &str = include_str!("assets/opencode/hako-agent-state.js");
+const OPENCODE_PLUGIN_INSTALL_NAME: &str = "omh-agent-state.js";
+const OPENCODE_PLUGIN_ASSET: &str = include_str!("assets/opencode/omh-agent-state.js");
 const OPENCODE_INTEGRATION_VERSION: u32 = 6;
-const HERMES_PLUGIN_INSTALL_NAME: &str = "hako-agent-state";
+const HERMES_PLUGIN_INSTALL_NAME: &str = "omh-agent-state";
 const HERMES_PLUGIN_MANIFEST_INSTALL_NAME: &str = "plugin.yaml";
 const HERMES_PLUGIN_INIT_INSTALL_NAME: &str = "__init__.py";
 const HERMES_PLUGIN_MANIFEST_ASSET: &str = include_str!("assets/hermes/plugin.yaml");
 const HERMES_PLUGIN_INIT_ASSET: &str = include_str!("assets/hermes/__init__.py");
 const HERMES_INTEGRATION_VERSION: u32 = 1;
-const QODERCLI_HOOK_INSTALL_NAME: &str = "hako-agent-state.sh";
-const QODERCLI_HOOK_ASSET: &str = include_str!("assets/qodercli/hako-agent-state.sh");
+const QODERCLI_HOOK_INSTALL_NAME: &str = "omh-agent-state.sh";
+const QODERCLI_HOOK_ASSET: &str = include_str!("assets/qodercli/omh-agent-state.sh");
 const QODERCLI_INTEGRATION_VERSION: u32 = 1;
 const QODERCLI_CONFIG_DIR_ENV_VAR: &str = "QODER_CONFIG_DIR";
-const CURSOR_HOOK_INSTALL_NAME: &str = "hako-agent-state.sh";
-const CURSOR_HOOK_ASSET: &str = include_str!("assets/cursor/hako-agent-state.sh");
+const CURSOR_HOOK_INSTALL_NAME: &str = "omh-agent-state.sh";
+const CURSOR_HOOK_ASSET: &str = include_str!("assets/cursor/omh-agent-state.sh");
 const CURSOR_INTEGRATION_VERSION: u32 = 3;
 const CURSOR_CONFIG_DIR_ENV_VAR: &str = "CURSOR_CONFIG_DIR";
-const GROK_HOOK_INSTALL_NAME: &str = "hako-agent-state.sh";
-const GROK_HOOK_CONFIG_INSTALL_NAME: &str = "hako.json";
-const GROK_HOOK_ASSET: &str = include_str!("assets/grok/hako-agent-state.sh");
+const GROK_HOOK_INSTALL_NAME: &str = "omh-agent-state.sh";
+const GROK_HOOK_CONFIG_INSTALL_NAME: &str = "omh.json";
+const GROK_HOOK_ASSET: &str = include_str!("assets/grok/omh-agent-state.sh");
 const GROK_INTEGRATION_VERSION: u32 = 1;
 const GROK_HOME_ENV_VAR: &str = "GROK_HOME";
-const INTEGRATION_VERSION_MARKER: &str = "HAKO_INTEGRATION_VERSION=";
-const INTEGRATION_ID_MARKER: &str = "HAKO_INTEGRATION_ID=";
+const INTEGRATION_VERSION_MARKER: &str = "OMH_INTEGRATION_VERSION=";
+const INTEGRATION_ID_MARKER: &str = "OMH_INTEGRATION_ID=";
 
 #[derive(Debug)]
 pub(crate) struct ClaudeInstallPaths {
@@ -198,7 +197,6 @@ pub(crate) struct OpenCodeInstallPaths {
 #[derive(Debug)]
 pub(crate) struct OmpInstallPaths {
     pub extension_paths: Vec<PathBuf>,
-    pub removed_legacy_pi_extensions: Vec<PathBuf>,
 }
 
 #[derive(Debug)]
@@ -374,7 +372,7 @@ pub(crate) fn apply_pane_base_env(cmd: &mut CommandBuilder) {
 
 pub(crate) fn apply_pane_env(cmd: &mut CommandBuilder, pane_id: PaneId) {
     apply_pane_base_env(cmd);
-    cmd.env(HAKO_PANE_ID_ENV_VAR, format!("p_{}", pane_id.raw()));
+    cmd.env(OMH_PANE_ID_ENV_VAR, format!("p_{}", pane_id.raw()));
 }
 
 pub(crate) const INSTALL_WARNING_PREFIX: &str = "warning:";
@@ -451,7 +449,7 @@ fn enforce_agent_version(requirement: &AgentVersionRequirement) -> io::Result<Op
 
     if found < required {
         return Err(io::Error::other(format!(
-            "{label} {}.{}.{} is too old: hako hooks require {label} {min} or newer. upgrade {label}, then re-run install",
+            "{label} {}.{}.{} is too old: omh hooks require {label} {min} or newer. upgrade {label}, then re-run install",
             found.0,
             found.1,
             found.2,
@@ -541,13 +539,13 @@ pub(crate) fn agent_profile_integration_warning(
         Ok(Some(dir)) => dir,
         Ok(None) => {
             return Some(format!(
-                "{} uses `{}`, but Hako cannot determine its Codex home. Set CODEX_HOME on this profile, or use a codex-* command name.",
+                "{} uses `{}`, but Oh My Herdr cannot determine its Codex home. Set CODEX_HOME on this profile, or use a codex-* command name.",
                 profile.name, profile.command
             ));
         }
         Err(err) => {
             return Some(format!(
-                "{} uses `{}`, but Hako could not inspect its Codex home: {err}",
+                "{} uses `{}`, but Oh My Herdr could not inspect its Codex home: {err}",
                 profile.name, profile.command
             ));
         }
@@ -560,13 +558,13 @@ pub(crate) fn agent_profile_integration_warning(
     match status.state {
         IntegrationStatusKind::Current => None,
         IntegrationStatusKind::NotInstalled => Some(format!(
-            "{} uses {}, but Hako's codex hook is missing for {}. Run `hako integration install codex`, then restart the pane.",
+            "{} uses {}, but Oh My Herdr's codex hook is missing for {}. Run `omh integration install codex`, then restart the pane.",
             profile.name,
             profile.command,
             dir.display()
         )),
         IntegrationStatusKind::Outdated => Some(format!(
-            "{} uses {}, but Hako's codex hook is outdated for {}. Run `hako integration install codex`, then restart the pane.",
+            "{} uses {}, but Oh My Herdr's codex hook is outdated for {}. Run `omh integration install codex`, then restart the pane.",
             profile.name,
             profile.command,
             dir.display()
@@ -700,23 +698,11 @@ fn install_target_inner(target: crate::api::schema::IntegrationTarget) -> io::Re
         }
         crate::api::schema::IntegrationTarget::Omp => {
             let installed = install_omp()?;
-            let mut messages = installed
-                .removed_legacy_pi_extensions
+            installed
+                .extension_paths
                 .into_iter()
-                .map(|path| {
-                    format!(
-                        "removed legacy pi/omp integration from omp extension directory at {}",
-                        path.display()
-                    )
-                })
-                .collect::<Vec<_>>();
-            messages.extend(
-                installed
-                    .extension_paths
-                    .into_iter()
-                    .map(|path| format!("installed omp integration to {}", path.display())),
-            );
-            messages
+                .map(|path| format!("installed omp integration to {}", path.display()))
+                .collect()
         }
         crate::api::schema::IntegrationTarget::Claude => {
             let installed = install_claude()?;
@@ -782,7 +768,7 @@ fn install_target_inner(target: crate::api::schema::IntegrationTarget) -> io::Re
             ];
             if installed.updated_legacy_hooks {
                 messages.push(format!(
-                    "removed legacy hako droid hook entries from {}",
+                    "removed legacy omh droid hook entries from {}",
                     installed.hooks_path.display()
                 ));
             }
@@ -903,12 +889,12 @@ pub(crate) fn uninstall_target(
             }
             if result.updated_settings {
                 messages.push(format!(
-                    "removed hako claude hook entries from {}",
+                    "removed omh claude hook entries from {}",
                     result.settings_path.display()
                 ));
             } else {
                 messages.push(format!(
-                    "no hako claude hook entries found in {}",
+                    "no omh claude hook entries found in {}",
                     result.settings_path.display()
                 ));
             }
@@ -933,12 +919,12 @@ pub(crate) fn uninstall_target(
             }
             if result.updated_config {
                 messages.push(format!(
-                    "removed hako kimi hook entries from {}",
+                    "removed omh kimi hook entries from {}",
                     result.config_path.display()
                 ));
             } else {
                 messages.push(format!(
-                    "no hako kimi hook entries found in {}",
+                    "no omh kimi hook entries found in {}",
                     result.config_path.display()
                 ));
             }
@@ -960,23 +946,23 @@ pub(crate) fn uninstall_target(
             }
             if result.updated_hooks {
                 messages.push(format!(
-                    "removed legacy hako droid hook entries from {}",
+                    "removed legacy omh droid hook entries from {}",
                     result.hooks_path.display()
                 ));
             } else {
                 messages.push(format!(
-                    "no legacy hako droid hook entries found in {}",
+                    "no legacy omh droid hook entries found in {}",
                     result.hooks_path.display()
                 ));
             }
             if result.updated_settings {
                 messages.push(format!(
-                    "removed hako droid hook entries from {}",
+                    "removed omh droid hook entries from {}",
                     result.settings_path.display()
                 ));
             } else {
                 messages.push(format!(
-                    "no hako droid hook entries found in {}",
+                    "no omh droid hook entries found in {}",
                     result.settings_path.display()
                 ));
             }
@@ -1012,12 +998,12 @@ pub(crate) fn uninstall_target(
             }
             if result.updated_settings {
                 messages.push(format!(
-                    "removed hako copilot hook entries from {}",
+                    "removed omh copilot hook entries from {}",
                     result.settings_path.display()
                 ));
             } else {
                 messages.push(format!(
-                    "no hako copilot hook entries found in {}",
+                    "no omh copilot hook entries found in {}",
                     result.settings_path.display()
                 ));
             }
@@ -1039,12 +1025,12 @@ pub(crate) fn uninstall_target(
             }
             if result.updated_settings {
                 messages.push(format!(
-                    "removed hako devin hook entries from {}",
+                    "removed omh devin hook entries from {}",
                     result.settings_path.display()
                 ));
             } else {
                 messages.push(format!(
-                    "no hako devin hook entries found in {}",
+                    "no omh devin hook entries found in {}",
                     result.settings_path.display()
                 ));
             }
@@ -1093,12 +1079,12 @@ pub(crate) fn uninstall_target(
             }
             if result.updated_settings {
                 messages.push(format!(
-                    "removed hako qodercli hook entries from {}",
+                    "removed omh qodercli hook entries from {}",
                     result.settings_path.display()
                 ));
             } else {
                 messages.push(format!(
-                    "no hako qodercli hook entries found in {}",
+                    "no omh qodercli hook entries found in {}",
                     result.settings_path.display()
                 ));
             }
@@ -1120,12 +1106,12 @@ pub(crate) fn uninstall_target(
             }
             if result.updated_hooks {
                 messages.push(format!(
-                    "removed hako cursor hook entries from {}",
+                    "removed omh cursor hook entries from {}",
                     result.hooks_path.display()
                 ));
             } else {
                 messages.push(format!(
-                    "no hako cursor hook entries found in {}",
+                    "no omh cursor hook entries found in {}",
                     result.hooks_path.display()
                 ));
             }
@@ -1408,7 +1394,7 @@ pub(crate) fn integration_update_instructions(
         .iter()
         .map(|target| {
             format!(
-                "`hako integration install {}`",
+                "`omh integration install {}`",
                 integration_target_label(*target)
             )
         })
@@ -1432,7 +1418,7 @@ pub(crate) fn print_outdated_update_notice() -> bool {
         .map(|integration| integration.target)
         .collect::<Vec<_>>();
     eprintln!(
-        "installed hako integrations need updating; {}.",
+        "installed Oh My Herdr integrations need updating; {}.",
         integration_update_instructions(&targets).replace('`', "")
     );
     true
@@ -1528,7 +1514,6 @@ pub(crate) fn install_pi() -> io::Result<PathBuf> {
         )));
     }
     fs::create_dir_all(&dir)?;
-    remove_legacy_pi_omp_extension_from_dir(&dir)?;
     let path = dir.join(PI_EXTENSION_INSTALL_NAME);
     fs::write(&path, PI_EXTENSION_ASSET)?;
     Ok(path)
@@ -1537,7 +1522,6 @@ pub(crate) fn install_pi() -> io::Result<PathBuf> {
 pub(crate) fn install_omp() -> io::Result<OmpInstallPaths> {
     let dirs = omp_install_extension_dirs()?;
     let mut extension_paths = Vec::with_capacity(dirs.len());
-    let mut removed_legacy_pi_extensions = Vec::new();
 
     for dir in dirs {
         let Some(agent_dir) = dir.parent() else {
@@ -1554,32 +1538,12 @@ pub(crate) fn install_omp() -> io::Result<OmpInstallPaths> {
         }
         fs::create_dir_all(&dir)?;
 
-        if remove_legacy_pi_omp_extension_from_dir(&dir)? {
-            removed_legacy_pi_extensions.push(dir.join(LEGACY_PI_OMP_EXTENSION_INSTALL_NAME));
-        }
         let extension_path = dir.join(OMP_EXTENSION_INSTALL_NAME);
         fs::write(&extension_path, OMP_EXTENSION_ASSET)?;
         extension_paths.push(extension_path);
     }
 
-    Ok(OmpInstallPaths {
-        extension_paths,
-        removed_legacy_pi_extensions,
-    })
-}
-fn remove_legacy_pi_omp_extension_from_dir(dir: &Path) -> io::Result<bool> {
-    let legacy_path = dir.join(LEGACY_PI_OMP_EXTENSION_INSTALL_NAME);
-    if !legacy_path.is_file() {
-        return Ok(false);
-    }
-
-    let content = fs::read_to_string(&legacy_path)?;
-    if matches!(parse_integration_id(&content), Some("pi" | "omp")) {
-        fs::remove_file(legacy_path)?;
-        return Ok(true);
-    }
-
-    Ok(false)
+    Ok(OmpInstallPaths { extension_paths })
 }
 
 pub(crate) fn install_claude() -> io::Result<ClaudeInstallPaths> {
@@ -1769,12 +1733,12 @@ fn codex_uninstall_messages(result: CodexUninstallResult) -> Vec<String> {
     }
     if result.updated_hooks {
         messages.push(format!(
-            "removed hako codex hook entries from {}",
+            "removed omh codex hook entries from {}",
             result.hooks_path.display()
         ));
     } else {
         messages.push(format!(
-            "no hako codex hook entries found in {}",
+            "no omh codex hook entries found in {}",
             result.hooks_path.display()
         ));
     }
@@ -2427,7 +2391,7 @@ pub(crate) fn install_qodercli() -> io::Result<QodercliInstallPaths> {
     let quoted_hook_path = shell_single_quote(&hook_path.display().to_string());
 
     // SubagentStop is intentionally *not* mapped to working: the hook script
-    // returns early on it (mirroring assets/claude/hako-agent-state.sh) so
+    // returns early on it (mirroring assets/claude/omh-agent-state.sh) so
     // that recap/away-summary frames cannot revive an idle pane.
     ensure_command_hook(
         hooks,
@@ -2576,7 +2540,7 @@ pub(crate) fn install_grok() -> io::Result<GrokInstallPaths> {
     let group = |action: &str| json!({ "hooks": [command(action)] });
     let working = || vec![group("working")];
     let hook_config = json!({
-        "description": "Hako Grok Build lifecycle integration",
+        "description": "Oh My Herdr Grok Build lifecycle integration",
         "hooks": {
             "SessionStart": [{
                 "hooks": [command("session"), command("idle")]
@@ -3084,7 +3048,7 @@ fn update_hermes_enabled_plugin(content: &str, enabled: bool) -> String {
         if !result.is_empty() {
             result.push('\n');
         }
-        result.push_str("plugins:\n  enabled:\n    - hako-agent-state\n");
+        result.push_str("plugins:\n  enabled:\n    - omh-agent-state\n");
         return result;
     };
 
@@ -3103,10 +3067,10 @@ fn update_hermes_enabled_plugin(content: &str, enabled: bool) -> String {
 
     if let Some(enabled_index) = enabled_index {
         let line = lines[enabled_index].trim();
-        if line == "enabled: []" || line == "enabled: [] # hako" {
+        if line == "enabled: []" || line == "enabled: [] # omh" {
             if enabled {
                 lines[enabled_index] = "  enabled:".to_string();
-                lines.insert(enabled_index + 1, "    - hako-agent-state".to_string());
+                lines.insert(enabled_index + 1, "    - omh-agent-state".to_string());
             }
             return join_yaml_lines(lines, trailing_newline);
         }
@@ -3126,7 +3090,7 @@ fn update_hermes_enabled_plugin(content: &str, enabled: bool) -> String {
 
         match (enabled, existing_item_index) {
             (true, Some(_)) | (false, None) => return content.to_string(),
-            (true, None) => lines.insert(list_start, "    - hako-agent-state".to_string()),
+            (true, None) => lines.insert(list_start, "    - omh-agent-state".to_string()),
             (false, Some(index)) => {
                 lines.remove(index);
             }
@@ -3157,7 +3121,7 @@ fn update_hermes_enabled_plugin(content: &str, enabled: bool) -> String {
             .map(|offset| plugins_index + 1 + offset);
         match (enabled, existing_item_index) {
             (true, Some(_)) | (false, None) => return content.to_string(),
-            (true, None) => lines.insert(flat_list_start, "  - hako-agent-state".to_string()),
+            (true, None) => lines.insert(flat_list_start, "  - omh-agent-state".to_string()),
             (false, Some(index)) => {
                 lines.remove(index);
             }
@@ -3167,7 +3131,7 @@ fn update_hermes_enabled_plugin(content: &str, enabled: bool) -> String {
 
     if enabled {
         lines.insert(plugins_index + 1, "  enabled:".to_string());
-        lines.insert(plugins_index + 2, "    - hako-agent-state".to_string());
+        lines.insert(plugins_index + 2, "    - omh-agent-state".to_string());
         return join_yaml_lines(lines, trailing_newline);
     }
 
@@ -3716,7 +3680,7 @@ mod tests {
     fn enforce_agent_version_warns_when_binary_missing() {
         let requirement = AgentVersionRequirement {
             label: "kimi code",
-            binary: "hako-test-binary-that-does-not-exist",
+            binary: "omh-test-binary-that-does-not-exist",
             args: &["--version"],
             min_version: "0.14.0",
         };
@@ -3775,7 +3739,7 @@ mod tests {
 
     fn unique_base() -> PathBuf {
         std::env::temp_dir().join(format!(
-            "hako-integration-install-test-{}-{}",
+            "omh-integration-install-test-{}-{}",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -3809,7 +3773,7 @@ mod tests {
         )
     }
 
-    fn add_non_hako_codex_hook(codex_dir: &Path, command: &str) {
+    fn add_non_omh_codex_hook(codex_dir: &Path, command: &str) {
         let hooks_path = codex_dir.join("hooks.json");
         let mut hooks_file: Value =
             serde_json::from_str(&fs::read_to_string(&hooks_path).unwrap()).unwrap();
@@ -3951,7 +3915,7 @@ mod tests {
             label: "claude",
             command: "claude",
             available: false,
-            path: PathBuf::from("/tmp/hako-agent-state.sh"),
+            path: PathBuf::from("/tmp/omh-agent-state.sh"),
             state: IntegrationStatusKind::NotInstalled,
         };
         assert!(!recommendation.needs_install());
@@ -3983,7 +3947,7 @@ mod tests {
 
         assert_eq!(path, ext_dir.join(PI_EXTENSION_INSTALL_NAME));
         assert_eq!(content, PI_EXTENSION_ASSET);
-        assert!(content.contains("HAKO_INTEGRATION_VERSION=5"));
+        assert!(content.contains("OMH_INTEGRATION_VERSION=5"));
         assert!(content.contains("Math.max(reportSeq + 1, Date.now() * 1000)"));
 
         let _ = fs::remove_dir_all(base);
@@ -4039,10 +4003,9 @@ mod tests {
         let content = fs::read_to_string(&extension_path).unwrap();
 
         assert_eq!(installed.extension_paths, vec![extension_path]);
-        assert!(installed.removed_legacy_pi_extensions.is_empty());
         assert_eq!(content, OMP_EXTENSION_ASSET);
-        assert!(content.contains("HAKO_INTEGRATION_ID=omp"));
-        assert!(content.contains("HAKO_INTEGRATION_VERSION=6"));
+        assert!(content.contains("OMH_INTEGRATION_ID=omp"));
+        assert!(content.contains("OMH_INTEGRATION_VERSION=6"));
         assert!(content.contains("agent: \"omp\""));
         assert!(!content.contains("agent: \"pi\""));
 
@@ -4050,32 +4013,7 @@ mod tests {
     }
 
     #[test]
-    fn install_omp_removes_legacy_shared_pi_omp_integration_from_extensions_dir() {
-        let _lock = integration_env_lock();
-        let _path_env = clear_integration_path_env();
-        let base = unique_base();
-        let home = base.join("home");
-        let ext_dir = home.join(".omp/agent/extensions");
-        fs::create_dir_all(&ext_dir).unwrap();
-        let legacy_path = ext_dir.join(LEGACY_PI_OMP_EXTENSION_INSTALL_NAME);
-        fs::write(&legacy_path, PI_EXTENSION_ASSET).unwrap();
-        let _home_env = TestEnvVar::set("HOME", &home);
 
-        let installed = install_omp().unwrap();
-        let extension_path = ext_dir.join(OMP_EXTENSION_INSTALL_NAME);
-
-        assert_eq!(installed.extension_paths, vec![extension_path.clone()]);
-        assert_eq!(installed.removed_legacy_pi_extensions, vec![legacy_path]);
-        assert!(extension_path.exists());
-        assert_eq!(
-            fs::read_to_string(&extension_path).unwrap(),
-            OMP_EXTENSION_ASSET
-        );
-
-        let _ = fs::remove_dir_all(base);
-    }
-
-    #[test]
     fn install_pi_and_omp_write_distinct_files_in_same_extension_dir() {
         let _lock = integration_env_lock();
         let _path_env = clear_integration_path_env();
@@ -4096,7 +4034,6 @@ mod tests {
         assert_eq!(installed_omp.extension_paths, vec![omp_path.clone()]);
         assert_eq!(fs::read_to_string(pi_path).unwrap(), PI_EXTENSION_ASSET);
         assert_eq!(fs::read_to_string(omp_path).unwrap(), OMP_EXTENSION_ASSET);
-        assert!(!ext_dir.join(LEGACY_PI_OMP_EXTENSION_INSTALL_NAME).exists());
 
         let _ = fs::remove_dir_all(base);
     }
@@ -4116,7 +4053,6 @@ mod tests {
         let extension_path = ext_dir.join(OMP_EXTENSION_INSTALL_NAME);
 
         assert_eq!(installed.extension_paths, vec![extension_path]);
-        assert!(installed.removed_legacy_pi_extensions.is_empty());
 
         let _ = fs::remove_dir_all(base);
     }
@@ -4183,7 +4119,6 @@ mod tests {
         expected.sort();
 
         assert_eq!(actual, expected);
-        assert!(installed.removed_legacy_pi_extensions.is_empty());
         for path in actual {
             assert_eq!(fs::read_to_string(path).unwrap(), OMP_EXTENSION_ASSET);
         }
@@ -4264,7 +4199,7 @@ mod tests {
         let ext_dir = home.join(".pi/agent/extensions");
         fs::create_dir_all(&ext_dir).unwrap();
         let extension_path = ext_dir.join(PI_EXTENSION_INSTALL_NAME);
-        fs::write(&extension_path, "// installed by hako\n").unwrap();
+        fs::write(&extension_path, "// installed by Oh My Herdr\n").unwrap();
         let _home_env = TestEnvVar::set("HOME", &home);
 
         let outdated = outdated_installed_integrations();
@@ -4292,7 +4227,7 @@ mod tests {
         let extension_path = ext_dir.join(OMP_EXTENSION_INSTALL_NAME);
         fs::write(
             &extension_path,
-            "// HAKO_INTEGRATION_ID=omp\n// HAKO_INTEGRATION_VERSION=4\n",
+            "// OMH_INTEGRATION_ID=omp\n// OMH_INTEGRATION_VERSION=4\n",
         )
         .unwrap();
         let _home_env = TestEnvVar::set("HOME", &home);
@@ -4322,7 +4257,7 @@ mod tests {
         let extension_path = ext_dir.join(PI_EXTENSION_INSTALL_NAME);
         fs::write(
             &extension_path,
-            "// installed by hako\n// HAKO_INTEGRATION_ID=pi\n// HAKO_INTEGRATION_VERSION=1\n",
+            "// installed by Oh My Herdr\n// OMH_INTEGRATION_ID=pi\n// OMH_INTEGRATION_VERSION=1\n",
         )
         .unwrap();
         let _home_env = TestEnvVar::set("HOME", &home);
@@ -4673,7 +4608,7 @@ mod tests {
         let hook_path = claude_hooks_dir.join(CLAUDE_HOOK_INSTALL_NAME);
         fs::write(
             &hook_path,
-            "#!/bin/sh\n# HAKO_INTEGRATION_ID=claude\n# HAKO_INTEGRATION_VERSION=1\n",
+            "#!/bin/sh\n# OMH_INTEGRATION_ID=claude\n# OMH_INTEGRATION_VERSION=1\n",
         )
         .unwrap();
         let _home_env = TestEnvVar::set("HOME", &home);
@@ -4703,7 +4638,7 @@ mod tests {
         let hook_path = codex_dir.join(CODEX_HOOK_INSTALL_NAME);
         fs::write(
             &hook_path,
-            "#!/bin/sh\n# HAKO_INTEGRATION_ID=codex\n# HAKO_INTEGRATION_VERSION=1\n",
+            "#!/bin/sh\n# OMH_INTEGRATION_ID=codex\n# OMH_INTEGRATION_VERSION=1\n",
         )
         .unwrap();
         let _home_env = TestEnvVar::set("HOME", &home);
@@ -4732,7 +4667,7 @@ mod tests {
         let hook_path = devin_dir.join(DEVIN_HOOK_INSTALL_NAME);
         fs::write(
             &hook_path,
-            "#!/bin/sh\n# HAKO_INTEGRATION_ID=devin\n# HAKO_INTEGRATION_VERSION=1\n",
+            "#!/bin/sh\n# OMH_INTEGRATION_ID=devin\n# OMH_INTEGRATION_VERSION=1\n",
         )
         .unwrap();
         let _devin_config_dir_env = TestEnvVar::set(DEVIN_CONFIG_DIR_ENV_VAR, &devin_dir);
@@ -4752,7 +4687,7 @@ mod tests {
     }
 
     #[test]
-    fn uninstall_claude_removes_hako_hooks_and_preserves_others() {
+    fn uninstall_claude_removes_omh_hooks_and_preserves_others() {
         let _lock = integration_env_lock();
         let _path_env = clear_integration_path_env();
         let base = unique_base();
@@ -5027,7 +4962,7 @@ mod tests {
         assert!(warning.contains("codex mk"), "{warning}");
         assert!(warning.contains(".codex-mk"), "{warning}");
         assert!(
-            warning.contains("hako integration install codex"),
+            warning.contains("omh integration install codex"),
             "{warning}"
         );
 
@@ -5178,7 +5113,7 @@ mod tests {
         let _ = fs::remove_dir_all(base);
     }
     #[test]
-    fn uninstall_codex_removes_hako_hooks_and_leaves_config_alone() {
+    fn uninstall_codex_removes_omh_hooks_and_leaves_config_alone() {
         let _lock = integration_env_lock();
         let _path_env = clear_integration_path_env();
         let base = unique_base();
@@ -5261,8 +5196,8 @@ mod tests {
 
         install_target_for_agent_profiles(crate::api::schema::IntegrationTarget::Codex, &catalog)
             .unwrap();
-        add_non_hako_codex_hook(&default_codex_dir, "echo keep default");
-        add_non_hako_codex_hook(&custom_codex_dir, "echo keep custom");
+        add_non_omh_codex_hook(&default_codex_dir, "echo keep default");
+        add_non_omh_codex_hook(&custom_codex_dir, "echo keep custom");
         let custom_config_before =
             fs::read_to_string(custom_codex_dir.join("config.toml")).unwrap();
 
@@ -5312,7 +5247,7 @@ mod tests {
         assert_eq!(
             messages
                 .iter()
-                .filter(|message| { message.starts_with("removed hako codex hook entries from ") })
+                .filter(|message| { message.starts_with("removed omh codex hook entries from ") })
                 .count(),
             2
         );
@@ -5470,7 +5405,7 @@ mod tests {
     }
 
     #[test]
-    fn uninstall_copilot_removes_hako_hooks_and_preserves_others() {
+    fn uninstall_copilot_removes_omh_hooks_and_preserves_others() {
         let _lock = integration_env_lock();
         let _path_env = clear_integration_path_env();
         let base = unique_base();
@@ -5562,7 +5497,7 @@ mod tests {
                 .join(OPENCODE_PLUGIN_INSTALL_NAME)
         );
         assert_eq!(plugin_content, OPENCODE_PLUGIN_ASSET);
-        assert!(plugin_content.contains("HAKO_INTEGRATION_VERSION=6"));
+        assert!(plugin_content.contains("OMH_INTEGRATION_VERSION=6"));
         assert!(plugin_content.contains("Math.max(reportSeq + 1, Date.now() * 1000)"));
         assert!(plugin_content.contains("pane.report_agent_session"));
         assert!(plugin_content.contains("pane.report_agent"));
@@ -5638,7 +5573,7 @@ mod tests {
         );
         assert_eq!(manifest, HERMES_PLUGIN_MANIFEST_ASSET);
         assert_eq!(init, HERMES_PLUGIN_INIT_ASSET);
-        assert!(config.contains("plugins:\n  enabled:\n    - hako-agent-state"));
+        assert!(config.contains("plugins:\n  enabled:\n    - omh-agent-state"));
 
         let _ = fs::remove_dir_all(base);
     }
@@ -5653,7 +5588,7 @@ mod tests {
         fs::create_dir_all(&hermes_dir).unwrap();
         fs::write(
             hermes_dir.join("config.yaml"),
-            "plugins:\n  enabled:\n    - hako-agent-state\n",
+            "plugins:\n  enabled:\n    - omh-agent-state\n",
         )
         .unwrap();
         let _home_env = TestEnvVar::set("HOME", &home);
@@ -5662,7 +5597,7 @@ mod tests {
         install_hermes().unwrap();
 
         let config = fs::read_to_string(hermes_dir.join("config.yaml")).unwrap();
-        assert_eq!(config.matches("hako-agent-state").count(), 1);
+        assert_eq!(config.matches("omh-agent-state").count(), 1);
 
         let _ = fs::remove_dir_all(base);
     }
@@ -5677,7 +5612,7 @@ model: auto
         assert_eq!(
             enabled,
             "plugins:
-  - hako-agent-state
+  - omh-agent-state
   - alpha
   - beta
 model: auto
@@ -5702,7 +5637,7 @@ model: auto
         assert_eq!(
             enabled,
             "plugins:
-  - hako-agent-state
+  - omh-agent-state
   - alpha
   - beta
 "
@@ -5725,7 +5660,7 @@ model: auto
         .unwrap();
         fs::write(
             hermes_dir.join("config.yaml"),
-            "plugins:\n  enabled:\n    - other-plugin\n    - hako-agent-state\n",
+            "plugins:\n  enabled:\n    - other-plugin\n    - omh-agent-state\n",
         )
         .unwrap();
         let _home_env = TestEnvVar::set("HOME", &home);
@@ -5737,7 +5672,7 @@ model: auto
         assert!(result.updated_config);
         assert!(!plugin_dir.exists());
         assert!(config.contains("    - other-plugin"));
-        assert!(!config.contains("hako-agent-state"));
+        assert!(!config.contains("omh-agent-state"));
 
         let _ = fs::remove_dir_all(base);
     }
@@ -5926,7 +5861,7 @@ model: auto
 
         fn run_hook(hook_path: &Path, action: &str, payload: &str) -> Value {
             let socket_path = std::env::temp_dir()
-                .join(format!("hako-grok-{}-{action}.sock", std::process::id()));
+                .join(format!("omh-grok-{}-{action}.sock", std::process::id()));
             let _ = fs::remove_file(&socket_path);
             let listener = UnixListener::bind(&socket_path).unwrap();
             let request = std::thread::spawn(move || {
@@ -5939,9 +5874,9 @@ model: auto
             let mut child = Command::new("sh")
                 .arg(hook_path)
                 .arg(action)
-                .env("HAKO_ENV", "1")
-                .env("HAKO_PANE_ID", "pane-7")
-                .env("HAKO_SOCKET_PATH", &socket_path)
+                .env("OMH_ENV", "1")
+                .env("OMH_PANE_ID", "pane-7")
+                .env("OMH_SOCKET_PATH", &socket_path)
                 .stdin(Stdio::piped())
                 .spawn()
                 .unwrap();
@@ -5971,7 +5906,7 @@ model: auto
             r#"{"hookEventName":"SessionStart","sessionId":"grok-session"}"#,
         );
         assert_eq!(session["method"], "pane.report_agent_session");
-        assert_eq!(session["params"]["source"], "hako:grok");
+        assert_eq!(session["params"]["source"], "omh:grok");
         assert_eq!(session["params"]["agent"], "grok");
         assert_eq!(session["params"]["agent_session_id"], "grok-session");
 
@@ -5991,16 +5926,16 @@ model: auto
         }
 
         let ignored_socket_path =
-            std::env::temp_dir().join(format!("hako-grok-{}-ignored.sock", std::process::id()));
+            std::env::temp_dir().join(format!("omh-grok-{}-ignored.sock", std::process::id()));
         let _ = fs::remove_file(&ignored_socket_path);
         let ignored_listener = UnixListener::bind(&ignored_socket_path).unwrap();
         ignored_listener.set_nonblocking(true).unwrap();
         let mut ignored = Command::new("sh")
             .arg(&installed.hook_path)
             .arg("idle")
-            .env("HAKO_ENV", "1")
-            .env("HAKO_PANE_ID", "pane-7")
-            .env("HAKO_SOCKET_PATH", &ignored_socket_path)
+            .env("OMH_ENV", "1")
+            .env("OMH_PANE_ID", "pane-7")
+            .env("OMH_SOCKET_PATH", &ignored_socket_path)
             .stdin(Stdio::piped())
             .spawn()
             .unwrap();
@@ -6068,9 +6003,9 @@ model: auto
         assert!(OPENCODE_PLUGIN_ASSET
             .contains("type === \"session.created\" || type === \"session.updated\""));
         assert!(CLAUDE_HOOK_ASSET.contains("agent_session_id"));
-        assert!(CODEX_HOOK_ASSET.contains("HAKO_HOOK_INPUT_FILE"));
+        assert!(CODEX_HOOK_ASSET.contains("OMH_HOOK_INPUT_FILE"));
         assert!(CODEX_HOOK_ASSET.contains("agent_session_id"));
-        assert!(COPILOT_HOOK_ASSET.contains("HAKO_HOOK_INPUT_FILE"));
+        assert!(COPILOT_HOOK_ASSET.contains("OMH_HOOK_INPUT_FILE"));
         assert!(COPILOT_HOOK_ASSET.contains("agent_session_id"));
         assert!(KIMI_HOOK_ASSET.contains("agent_session_id"));
         assert!(DROID_HOOK_ASSET.contains("agent_session_id"));
@@ -6087,7 +6022,7 @@ model: auto
         // Qoder hook reads the event from the stdin JSON payload (per
         // https://docs.qoder.com/zh/cli/hooks). Make sure the bundled script
         // never reaches for a QODER_HOOK_EVENT environment variable.
-        assert!(QODERCLI_HOOK_ASSET.contains("HAKO_HOOK_INPUT_FILE"));
+        assert!(QODERCLI_HOOK_ASSET.contains("OMH_HOOK_INPUT_FILE"));
         assert!(QODERCLI_HOOK_ASSET.contains("hook_event_name"));
         assert!(QODERCLI_HOOK_ASSET.contains("agent_session_id"));
         assert!(!QODERCLI_HOOK_ASSET.contains("QODER_HOOK_EVENT"));
@@ -6177,7 +6112,7 @@ model: auto
     }
 
     #[test]
-    fn uninstall_qodercli_removes_hako_hooks_and_preserves_others() {
+    fn uninstall_qodercli_removes_omh_hooks_and_preserves_others() {
         let _lock = integration_env_lock();
         let _path_env = clear_integration_path_env();
         let base = unique_base();
