@@ -1,13 +1,13 @@
 ---
 name: omh
-description: "Control omh from inside it. Manage workspaces and tabs, split panes, spawn agents, read output, and wait for state changes — all via CLI commands that talk to the running omh instance over a local unix socket. Use when running inside omh (OMH_ENV=1)."
+description: "Control Oh My Herdr from inside it. Manage workspaces and tabs, split panes, spawn agents, read output, and wait for state changes — all via CLI commands that talk to the running Oh My Herdr instance over a local unix socket. Use when running inside Oh My Herdr (OMH_ENV=1)."
 ---
 
 # Oh My Herdr — agent skill
 
-before using this skill, check that `OMH_ENV=1`. if it is not set to `1`, say you are not running inside an Oh My Herdr-managed pane and stop. do not inspect or control the focused omh pane from outside omh.
+before using this skill, check that `OMH_ENV=1`. if it is not set to `1`, say you are not running inside an Oh My Herdr-managed pane and stop. do not inspect or control the focused Oh My Herdr pane from outside Oh My Herdr.
 
-you are running inside Oh My Herdr, a terminal-native agent multiplexer. omh gives you workspaces, tabs, and panes — each pane is a real terminal with its own shell, agent, server, or log stream — and you can control all of it from the cli.
+you are running inside Oh My Herdr, a terminal-native agent multiplexer. Oh My Herdr gives you workspaces, tabs, and panes — each pane is a real terminal with its own shell, agent, server, or log stream — and you can control all of it from the cli.
 
 this means you can:
 
@@ -19,7 +19,7 @@ this means you can:
 - wait for another agent to finish
 - spawn more agent instances
 
-the `omh` binary is available in your PATH. its workspace, tab, pane, and wait commands talk to the running omh instance over a local unix socket.
+the `omh` binary is available in your PATH. its workspace, tab, pane, and wait commands talk to the running Oh My Herdr instance over a local unix socket.
 
 if you need the raw protocol or full api reference, read the [socket api docs](https://github.com/masakirocorp/oh-my-herdr/tree/master/docs).
 
@@ -31,7 +31,7 @@ if you need the raw protocol or full api reference, read the [socket api docs](h
 
 **panes** are terminal splits inside a tab. each pane runs its own process — a shell, an agent, a server, anything.
 
-**agent status** is detected automatically by omh. the api exposes one public field for it:
+**agent status** is detected automatically by Oh My Herdr. the api exposes one public field for it:
 
 - `agent_status` — `idle`, `working`, `blocked`, `done`, `unknown`
 
@@ -188,7 +188,7 @@ omh pane run 1-1 "echo hello"
 
 ## workspace management
 
-groups are sidebar filters inside the current session. they do not create separate omh server sockets.
+groups are sidebar filters inside the current session. they do not create separate Oh My Herdr server sockets.
 
 create and focus a group:
 

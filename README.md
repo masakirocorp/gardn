@@ -63,7 +63,7 @@ on first run Oh My Herdr opens a short onboarding flow. after that, restored ses
 
 ## how it compares
 
-|                          | tmux | gui managers | omh |
+|                          | tmux | gui managers | Oh My Herdr |
 |--------------------------|------|--------------|-------|
 | persistent sessions       | ✓    | —            | ✓     |
 | detach / reattach        | ✓    | —            | ✓     |
@@ -90,7 +90,7 @@ ssh you@yourserver
 omh
 ```
 
-or attach from your local terminal through ssh without opening a shell first. your local Oh My Herdr acts as a thin client, connects over ssh, starts or attaches to the remote omh server, and streams the ui back to your terminal. remote attach uses your local keybindings by default; pass `--remote-keybindings server` to use the remote server config instead.
+or attach from your local terminal through ssh without opening a shell first. your local Oh My Herdr acts as a thin client, connects over ssh, starts or attaches to the remote Oh My Herdr server, and streams the ui back to your terminal. remote attach uses your local keybindings by default; pass `--remote-keybindings server` to use the remote server config instead.
 
 ```bash
 omh --remote workbox
@@ -195,7 +195,7 @@ for agents outside the built-in list, Oh My Herdr still works as a terminal mult
 
 ### direct integrations
 
-the built-in pi, omp, copilot, hermes, and qodercli integrations can forward semantic state to omh over the socket api. claude code, codex, kimi, droid, cursor, and opencode integrations report native session identity for restore while omh reads their visible terminal UI for state. install with:
+the built-in pi, omp, copilot, hermes, and qodercli integrations can forward semantic state to Oh My Herdr over the socket api. claude code, codex, kimi, droid, cursor, and opencode integrations report native session identity for restore while Oh My Herdr reads their visible terminal UI for state. install with:
 
 ```bash
 omh integration install pi
