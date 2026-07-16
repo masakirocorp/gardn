@@ -100,8 +100,15 @@ agent, model, tools, extension, prompt, pane, request_log, output_path, workdir,
 timeout = float(timeout_raw)
 master, slave = pty.openpty()
 fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 40, 120, 0, 0))
+argv = [agent, "--model", model]
+if tools == "none":
+    argv.append("--no-tools")
+else:
+    argv.extend(["--tools", tools])
+argv.extend(["--auto-approve", "-e", extension])
+
 proc = subprocess.Popen(
-    [agent, "--model", model, "--tools", tools, "--auto-approve", "-e", extension],
+    argv,
     stdin=slave,
     stdout=slave,
     stderr=slave,
