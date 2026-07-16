@@ -18,8 +18,8 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
 use serde_json::Value;
 use support::{
-    cleanup_test_base, connect_unix_socket, register_runtime_dir, register_spawned_hako_pid,
-    unregister_spawned_hako_pid,
+    cleanup_test_base, connect_unix_socket, register_runtime_dir, register_spawned_omh_pid,
+    unregister_spawned_omh_pid,
 };
 
 fn unique_test_dir() -> PathBuf {
@@ -28,17 +28,17 @@ fn unique_test_dir() -> PathBuf {
         .map(|d| d.as_nanos())
         .unwrap_or(0);
     PathBuf::from(format!(
-        "/tmp/hako-autodetect-test-{}-{nanos}",
+        "/tmp/omh-autodetect-test-{}-{nanos}",
         std::process::id()
     ))
 }
 
-struct SpawnedHako {
+struct SpawnedOmh {
     _master: Box<dyn MasterPty + Send>,
     child: Box<dyn Child + Send + Sync>,
 }
 
-impl Drop for SpawnedHako {
+impl Drop for SpawnedOmh {
     fn drop(&mut self) {
         let pid = self.child.process_id();
         let _ = self.child.kill();
@@ -55,12 +55,12 @@ impl Drop for SpawnedHako {
                 thread::sleep(Duration::from_millis(20));
             }
 
-            unregister_spawned_hako_pid(Some(pid));
+            unregister_spawned_omh_pid(Some(pid));
         }
     }
 }
 
-fn cleanup_spawned_hako(spawned: SpawnedHako, base: PathBuf) {
+fn cleanup_spawned_omh(spawned: SpawnedOmh, base: PathBuf) {
     drop(spawned);
     cleanup_test_base(&base);
 }
@@ -88,11 +88,11 @@ fn spawn_server(
     runtime_dir: &Path,
     api_socket_path: &Path,
     _client_socket_path: &Path,
-) -> SpawnedHako {
-    fs::create_dir_all(config_home.join("hako")).unwrap();
+) -> SpawnedOmh {
+    fs::create_dir_all(config_home.join("omh")).unwrap();
     fs::create_dir_all(runtime_dir).unwrap();
     register_runtime_dir(runtime_dir);
-    fs::write(config_home.join("hako/config.toml"), "onboarding = false\n").unwrap();
+    fs::write(config_home.join("omh/config.toml"), "onboarding = false\n").unwrap();
 
     let pair = native_pty_system()
         .openpty(PtySize {
@@ -103,36 +103,36 @@ fn spawn_server(
         })
         .unwrap();
 
-    let mut cmd = CommandBuilder::new(env!("CARGO_BIN_EXE_hako"));
+    let mut cmd = CommandBuilder::new(env!("CARGO_BIN_EXE_omh"));
     cmd.arg("server");
     cmd.env("XDG_CONFIG_HOME", config_home);
     cmd.env("XDG_RUNTIME_DIR", runtime_dir);
-    cmd.env("HAKO_SOCKET_PATH", api_socket_path);
-    cmd.env_remove("HAKO_CLIENT_SOCKET_PATH");
+    cmd.env("OMH_SOCKET_PATH", api_socket_path);
+    cmd.env_remove("OMH_CLIENT_SOCKET_PATH");
     cmd.env("SHELL", "/bin/sh");
-    cmd.env_remove("HAKO_ENV");
+    cmd.env_remove("OMH_ENV");
 
     let child = pair.slave.spawn_command(cmd).unwrap();
-    register_spawned_hako_pid(child.process_id());
+    register_spawned_omh_pid(child.process_id());
     drop(pair.slave);
 
-    SpawnedHako {
+    SpawnedOmh {
         _master: pair.master,
         child,
     }
 }
 
-/// Spawn `hako` (no subcommand) — the auto-detect launch path.
-fn spawn_hako_auto(
+/// Spawn `omh` (no subcommand) — the auto-detect launch path.
+fn spawn_omh_auto(
     config_home: &Path,
     runtime_dir: &Path,
     api_socket_path: &Path,
     _client_socket_path: &Path,
-) -> SpawnedHako {
-    fs::create_dir_all(config_home.join("hako")).unwrap();
+) -> SpawnedOmh {
+    fs::create_dir_all(config_home.join("omh")).unwrap();
     fs::create_dir_all(runtime_dir).unwrap();
     register_runtime_dir(runtime_dir);
-    fs::write(config_home.join("hako/config.toml"), "onboarding = false\n").unwrap();
+    fs::write(config_home.join("omh/config.toml"), "onboarding = false\n").unwrap();
 
     let pair = native_pty_system()
         .openpty(PtySize {
@@ -143,35 +143,35 @@ fn spawn_hako_auto(
         })
         .unwrap();
 
-    let mut cmd = CommandBuilder::new(env!("CARGO_BIN_EXE_hako"));
+    let mut cmd = CommandBuilder::new(env!("CARGO_BIN_EXE_omh"));
     // No subcommand, no --no-session → auto-detect launch
     cmd.env("XDG_CONFIG_HOME", config_home);
     cmd.env("XDG_RUNTIME_DIR", runtime_dir);
-    cmd.env("HAKO_SOCKET_PATH", api_socket_path);
-    cmd.env_remove("HAKO_CLIENT_SOCKET_PATH");
+    cmd.env("OMH_SOCKET_PATH", api_socket_path);
+    cmd.env_remove("OMH_CLIENT_SOCKET_PATH");
     cmd.env("SHELL", "/bin/sh");
-    cmd.env_remove("HAKO_ENV");
+    cmd.env_remove("OMH_ENV");
 
     let child = pair.slave.spawn_command(cmd).unwrap();
-    register_spawned_hako_pid(child.process_id());
+    register_spawned_omh_pid(child.process_id());
     drop(pair.slave);
 
-    SpawnedHako {
+    SpawnedOmh {
         _master: pair.master,
         child,
     }
 }
 
-/// Spawn `hako --no-session` — the monolithic escape hatch.
-fn spawn_hako_no_session(
+/// Spawn `omh --no-session` — the monolithic escape hatch.
+fn spawn_omh_no_session(
     config_home: &Path,
     runtime_dir: &Path,
     api_socket_path: &Path,
-) -> SpawnedHako {
-    fs::create_dir_all(config_home.join("hako")).unwrap();
+) -> SpawnedOmh {
+    fs::create_dir_all(config_home.join("omh")).unwrap();
     fs::create_dir_all(runtime_dir).unwrap();
     register_runtime_dir(runtime_dir);
-    fs::write(config_home.join("hako/config.toml"), "onboarding = false\n").unwrap();
+    fs::write(config_home.join("omh/config.toml"), "onboarding = false\n").unwrap();
 
     let pair = native_pty_system()
         .openpty(PtySize {
@@ -182,19 +182,19 @@ fn spawn_hako_no_session(
         })
         .unwrap();
 
-    let mut cmd = CommandBuilder::new(env!("CARGO_BIN_EXE_hako"));
+    let mut cmd = CommandBuilder::new(env!("CARGO_BIN_EXE_omh"));
     cmd.arg("--no-session");
     cmd.env("XDG_CONFIG_HOME", config_home);
     cmd.env("XDG_RUNTIME_DIR", runtime_dir);
-    cmd.env("HAKO_SOCKET_PATH", api_socket_path);
+    cmd.env("OMH_SOCKET_PATH", api_socket_path);
     cmd.env("SHELL", "/bin/sh");
-    cmd.env_remove("HAKO_ENV");
+    cmd.env_remove("OMH_ENV");
 
     let child = pair.slave.spawn_command(cmd).unwrap();
-    register_spawned_hako_pid(child.process_id());
+    register_spawned_omh_pid(child.process_id());
     drop(pair.slave);
 
-    SpawnedHako {
+    SpawnedOmh {
         _master: pair.master,
         child,
     }
@@ -249,9 +249,9 @@ fn wait_for_log_contains(path: &Path, needle: &str, timeout: Duration) {
 }
 
 fn run_cli(socket_path: &Path, args: &[&str]) -> std::process::Output {
-    let mut command = Command::new(env!("CARGO_BIN_EXE_hako"));
+    let mut command = Command::new(env!("CARGO_BIN_EXE_omh"));
     command.args(args);
-    command.env("HAKO_SOCKET_PATH", socket_path);
+    command.env("OMH_SOCKET_PATH", socket_path);
     command.output().unwrap()
 }
 
@@ -286,7 +286,7 @@ fn wait_for_pid_exit(pid: u32, timeout: Duration) -> bool {
 // Tests
 // ---------------------------------------------------------------------------
 
-/// Running `hako` with no server present starts a server
+/// Running `omh` with no server present starts a server
 /// and attaches as client.
 #[test]
 fn auto_detect_no_server_spawns_server_and_attaches() {
@@ -294,8 +294,8 @@ fn auto_detect_no_server_spawns_server_and_attaches() {
     let base = unique_test_dir();
     let config_home = base.join("config");
     let runtime_dir = base.join("runtime");
-    let api_socket = runtime_dir.join("hako.sock");
-    let client_socket = runtime_dir.join("hako-client.sock");
+    let api_socket = runtime_dir.join("omh.sock");
+    let client_socket = runtime_dir.join("omh-client.sock");
 
     // Ensure no server is running initially.
     assert!(
@@ -307,8 +307,8 @@ fn auto_detect_no_server_spawns_server_and_attaches() {
         "client socket should not exist initially"
     );
 
-    // Run `hako` (no subcommand) — should auto-detect, spawn server, attach as client.
-    let hako = spawn_hako_auto(&config_home, &runtime_dir, &api_socket, &client_socket);
+    // Run `omh` (no subcommand) — should auto-detect, spawn server, attach as client.
+    let omh = spawn_omh_auto(&config_home, &runtime_dir, &api_socket, &client_socket);
 
     // Wait for both sockets to appear (server was spawned).
     wait_for_socket(&api_socket, Duration::from_secs(10));
@@ -324,7 +324,7 @@ fn auto_detect_no_server_spawns_server_and_attaches() {
     // Verify the client socket accepts connections (server is listening on it).
     let _stream = connect_unix_socket(&client_socket, Duration::from_secs(5));
 
-    let mut client_reader = hako
+    let mut client_reader = omh
         ._master
         .try_clone_reader()
         .expect("clone auto-spawned client PTY reader");
@@ -334,16 +334,16 @@ fn auto_detect_no_server_spawns_server_and_attaches() {
     );
 
     // Verify the client process is running.
-    let client_pid = hako.child.process_id().expect("client should have PID");
+    let client_pid = omh.child.process_id().expect("client should have PID");
     assert!(
         process_exists(client_pid),
         "client process should be running"
     );
 
-    cleanup_spawned_hako(hako, base);
+    cleanup_spawned_omh(omh, base);
 }
 
-/// Running `hako` with a server already running attaches
+/// Running `omh` with a server already running attaches
 /// as client directly (no second server).
 #[test]
 fn auto_detect_server_running_attaches_directly() {
@@ -351,8 +351,8 @@ fn auto_detect_server_running_attaches_directly() {
     let base = unique_test_dir();
     let config_home = base.join("config");
     let runtime_dir = base.join("runtime");
-    let api_socket = runtime_dir.join("hako.sock");
-    let client_socket = runtime_dir.join("hako-client.sock");
+    let api_socket = runtime_dir.join("omh.sock");
+    let client_socket = runtime_dir.join("omh-client.sock");
 
     let server = spawn_server(&config_home, &runtime_dir, &api_socket, &client_socket);
     wait_for_socket(&api_socket, Duration::from_secs(10));
@@ -361,7 +361,7 @@ fn auto_detect_server_running_attaches_directly() {
     let server_pid = server.child.process_id().expect("server should have PID");
     assert!(process_exists(server_pid), "server should be running");
 
-    let client = spawn_hako_auto(&config_home, &runtime_dir, &api_socket, &client_socket);
+    let client = spawn_omh_auto(&config_home, &runtime_dir, &api_socket, &client_socket);
     let mut client_reader = client
         ._master
         .try_clone_reader()
@@ -387,12 +387,12 @@ fn auto_detect_server_running_attaches_directly() {
         "API should still respond to ping: {response}"
     );
 
-    cleanup_spawned_hako(client, PathBuf::from("/nonexistent"));
-    cleanup_spawned_hako(server, base);
+    cleanup_spawned_omh(client, PathBuf::from("/nonexistent"));
+    cleanup_spawned_omh(server, base);
 }
 
 /// Socket path resolution is consistent between server and client.
-/// Both derive the client socket from the `HAKO_SOCKET_PATH` override,
+/// Both derive the client socket from the `OMH_SOCKET_PATH` override,
 /// so overriding the API socket keeps both endpoints aligned.
 #[test]
 fn auto_detect_socket_path_consistency() {
@@ -400,11 +400,11 @@ fn auto_detect_socket_path_consistency() {
     let base = unique_test_dir();
     let config_home = base.join("config");
     let runtime_dir = base.join("runtime");
-    let api_socket = runtime_dir.join("hako.sock");
-    let client_socket = runtime_dir.join("hako-client.sock");
+    let api_socket = runtime_dir.join("omh.sock");
+    let client_socket = runtime_dir.join("omh-client.sock");
 
-    // Run `hako` with custom socket paths.
-    let hako = spawn_hako_auto(&config_home, &runtime_dir, &api_socket, &client_socket);
+    // Run `omh` with custom socket paths.
+    let omh = spawn_omh_auto(&config_home, &runtime_dir, &api_socket, &client_socket);
 
     // Wait for both sockets to appear at the custom paths.
     wait_for_socket(&api_socket, Duration::from_secs(10));
@@ -431,10 +431,10 @@ fn auto_detect_socket_path_consistency() {
     // client socket path).
     let _stream = connect_unix_socket(&client_socket, Duration::from_secs(5));
 
-    cleanup_spawned_hako(hako, base);
+    cleanup_spawned_omh(omh, base);
 }
 
-/// `hako --no-session` bypasses server/client and runs
+/// `omh --no-session` bypasses server/client and runs
 /// monolithically. No server process is spawned. No client socket is created.
 #[test]
 fn no_session_flag_runs_monolithically() {
@@ -442,11 +442,11 @@ fn no_session_flag_runs_monolithically() {
     let base = unique_test_dir();
     let config_home = base.join("config");
     let runtime_dir = base.join("runtime");
-    let api_socket = runtime_dir.join("hako.sock");
-    let client_socket = runtime_dir.join("hako-client.sock");
+    let api_socket = runtime_dir.join("omh.sock");
+    let client_socket = runtime_dir.join("omh-client.sock");
 
-    // Run `hako --no-session` — monolithic mode, no server/client.
-    let hako = spawn_hako_no_session(&config_home, &runtime_dir, &api_socket);
+    // Run `omh --no-session` — monolithic mode, no server/client.
+    let omh = spawn_omh_no_session(&config_home, &runtime_dir, &api_socket);
 
     // Wait for the API socket (monolithic mode creates it).
     wait_for_socket(&api_socket, Duration::from_secs(10));
@@ -468,14 +468,14 @@ fn no_session_flag_runs_monolithically() {
     // Verify the API socket is served by the monolithic process itself,
     // not by a separate server. We can check this by verifying the client
     // PID matches what would be serving the socket — in monolithic mode,
-    // there is only one hako process.
-    let client_pid = hako.child.process_id().expect("should have PID");
+    // there is only one omh process.
+    let client_pid = omh.child.process_id().expect("should have PID");
     assert!(
         process_exists(client_pid),
         "monolithic process should be running"
     );
 
-    cleanup_spawned_hako(hako, base);
+    cleanup_spawned_omh(omh, base);
 }
 
 /// CLI subcommands work through the server's JSON API socket.
@@ -485,15 +485,15 @@ fn cli_subcommands_work_through_server() {
     let base = unique_test_dir();
     let config_home = base.join("config");
     let runtime_dir = base.join("runtime");
-    let api_socket = runtime_dir.join("hako.sock");
-    let client_socket = runtime_dir.join("hako-client.sock");
+    let api_socket = runtime_dir.join("omh.sock");
+    let client_socket = runtime_dir.join("omh-client.sock");
 
     // Start a server.
     let server = spawn_server(&config_home, &runtime_dir, &api_socket, &client_socket);
     wait_for_socket(&api_socket, Duration::from_secs(10));
     wait_for_socket(&client_socket, Duration::from_secs(10));
 
-    // Test `hako workspace list` through the server's API socket.
+    // Test `omh workspace list` through the server's API socket.
     let output = run_cli(&api_socket, &["workspace", "list"]);
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(
@@ -507,7 +507,7 @@ fn cli_subcommands_work_through_server() {
         "workspace list output should contain 'result': {stdout}"
     );
 
-    // Test `hako pane list` through the server's API socket.
+    // Test `omh pane list` through the server's API socket.
     let output = run_cli(&api_socket, &["pane", "list"]);
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(
@@ -520,22 +520,22 @@ fn cli_subcommands_work_through_server() {
         "pane list output should contain 'result': {stdout}"
     );
 
-    cleanup_spawned_hako(server, base);
+    cleanup_spawned_omh(server, base);
 }
 
 /// Verify that the server spawned by auto-detect
-/// persists after the client exits, and a new `hako` can reattach.
+/// persists after the client exits, and a new `omh` can reattach.
 #[test]
 fn auto_detect_server_persists_and_reattaches() {
     let _lock = test_lock();
     let base = unique_test_dir();
     let config_home = base.join("config");
     let runtime_dir = base.join("runtime");
-    let api_socket = runtime_dir.join("hako.sock");
-    let client_socket = runtime_dir.join("hako-client.sock");
+    let api_socket = runtime_dir.join("omh.sock");
+    let client_socket = runtime_dir.join("omh-client.sock");
 
-    // Run `hako` — auto-detect spawns server + attaches client.
-    let mut client1 = spawn_hako_auto(&config_home, &runtime_dir, &api_socket, &client_socket);
+    // Run `omh` — auto-detect spawns server + attaches client.
+    let mut client1 = spawn_omh_auto(&config_home, &runtime_dir, &api_socket, &client_socket);
     wait_for_socket(&api_socket, Duration::from_secs(10));
     wait_for_socket(&client_socket, Duration::from_secs(10));
 
@@ -575,8 +575,8 @@ fn auto_detect_server_persists_and_reattaches() {
         "client socket should still exist after client exit"
     );
 
-    // Run `hako` again — should detect the running server and reattach.
-    let client2 = spawn_hako_auto(&config_home, &runtime_dir, &api_socket, &client_socket);
+    // Run `omh` again — should detect the running server and reattach.
+    let client2 = spawn_omh_auto(&config_home, &runtime_dir, &api_socket, &client_socket);
     let mut client2_reader = client2
         ._master
         .try_clone_reader()
@@ -600,7 +600,7 @@ fn auto_detect_server_persists_and_reattaches() {
         "API should still respond after reattach: {response}"
     );
 
-    cleanup_spawned_hako(client2, PathBuf::from("/nonexistent"));
+    cleanup_spawned_omh(client2, PathBuf::from("/nonexistent"));
     cleanup_test_base(&base);
 }
 
@@ -613,15 +613,15 @@ fn auto_detect_default_socket_path_from_config_dir() {
     let config_home = base.join("config");
     let runtime_dir = base.join("runtime");
 
-    // Don't set HAKO_SOCKET_PATH or HAKO_CLIENT_SOCKET_PATH.
+    // Don't set OMH_SOCKET_PATH or OMH_CLIENT_SOCKET_PATH.
     // The default paths should come from the app config directory, not XDG_RUNTIME_DIR.
     let app_dir_name = if cfg!(debug_assertions) {
-        "hako-dev"
+        "omh-dev"
     } else {
-        "hako"
+        "omh"
     };
-    let api_socket = config_home.join(app_dir_name).join("hako.sock");
-    let client_socket = config_home.join(app_dir_name).join("hako-client.sock");
+    let api_socket = config_home.join(app_dir_name).join("omh.sock");
+    let client_socket = config_home.join(app_dir_name).join("omh-client.sock");
 
     // Spawn server with XDG_RUNTIME_DIR set to a different directory to prove it is ignored.
     fs::create_dir_all(config_home.join(app_dir_name)).unwrap();
@@ -642,20 +642,20 @@ fn auto_detect_default_socket_path_from_config_dir() {
         })
         .unwrap();
 
-    let mut cmd = CommandBuilder::new(env!("CARGO_BIN_EXE_hako"));
+    let mut cmd = CommandBuilder::new(env!("CARGO_BIN_EXE_omh"));
     cmd.arg("server");
     cmd.env("XDG_CONFIG_HOME", &config_home);
     cmd.env("XDG_RUNTIME_DIR", &runtime_dir);
     cmd.env("SHELL", "/bin/sh");
-    cmd.env_remove("HAKO_ENV");
+    cmd.env_remove("OMH_ENV");
     // Explicitly remove socket overrides to test default path resolution.
-    cmd.env_remove("HAKO_SOCKET_PATH");
-    cmd.env_remove("HAKO_CLIENT_SOCKET_PATH");
+    cmd.env_remove("OMH_SOCKET_PATH");
+    cmd.env_remove("OMH_CLIENT_SOCKET_PATH");
 
     let child = pair.slave.spawn_command(cmd).unwrap();
-    register_spawned_hako_pid(child.process_id());
+    register_spawned_omh_pid(child.process_id());
     drop(pair.slave);
-    let server = SpawnedHako {
+    let server = SpawnedOmh {
         _master: pair.master,
         child,
     };
@@ -678,7 +678,7 @@ fn auto_detect_default_socket_path_from_config_dir() {
         "API should respond at config-dir path: {response}"
     );
 
-    cleanup_spawned_hako(server, base);
+    cleanup_spawned_omh(server, base);
 }
 
 #[test]
@@ -687,22 +687,22 @@ fn auto_detect_writes_client_and_server_logs_to_separate_files() {
     let base = unique_test_dir();
     let config_home = base.join("config");
     let runtime_dir = base.join("runtime");
-    let api_socket = runtime_dir.join("hako.sock");
-    let client_socket = runtime_dir.join("hako-client.sock");
+    let api_socket = runtime_dir.join("omh.sock");
+    let client_socket = runtime_dir.join("omh-client.sock");
 
-    let spawned = spawn_hako_auto(&config_home, &runtime_dir, &api_socket, &client_socket);
+    let spawned = spawn_omh_auto(&config_home, &runtime_dir, &api_socket, &client_socket);
     wait_for_socket(&api_socket, Duration::from_secs(10));
     wait_for_socket(&client_socket, Duration::from_secs(10));
 
     let app_dir_name = if cfg!(debug_assertions) {
-        "hako-dev"
+        "omh-dev"
     } else {
-        "hako"
+        "omh"
     };
     let log_dir = config_home.join(app_dir_name);
-    let client_log = log_dir.join("hako-client.log");
-    let server_log = log_dir.join("hako-server.log");
-    let monolith_log = log_dir.join("hako.log");
+    let client_log = log_dir.join("omh-client.log");
+    let server_log = log_dir.join("omh-server.log");
+    let monolith_log = log_dir.join("omh.log");
 
     wait_for_log_contains(
         &client_log,
@@ -718,10 +718,10 @@ fn auto_detect_writes_client_and_server_logs_to_separate_files() {
     let monolith_content = fs::read_to_string(&monolith_log).unwrap_or_default();
     assert!(
         !monolith_content.contains("subsystem=\"client\""),
-        "persistent client logs should not land in hako.log: {monolith_content}"
+        "persistent client logs should not land in omh.log: {monolith_content}"
     );
 
-    cleanup_spawned_hako(spawned, base);
+    cleanup_spawned_omh(spawned, base);
 }
 
 #[test]
@@ -730,18 +730,18 @@ fn no_session_writes_startup_logs_to_monolith_file() {
     let base = unique_test_dir();
     let config_home = base.join("config");
     let runtime_dir = base.join("runtime");
-    let api_socket = runtime_dir.join("hako.sock");
+    let api_socket = runtime_dir.join("omh.sock");
 
-    let spawned = spawn_hako_no_session(&config_home, &runtime_dir, &api_socket);
+    let spawned = spawn_omh_no_session(&config_home, &runtime_dir, &api_socket);
     wait_for_socket(&api_socket, Duration::from_secs(10));
 
     let app_dir_name = if cfg!(debug_assertions) {
-        "hako-dev"
+        "omh-dev"
     } else {
-        "hako"
+        "omh"
     };
     let log_dir = config_home.join(app_dir_name);
-    let monolith_log = log_dir.join("hako.log");
+    let monolith_log = log_dir.join("omh.log");
 
     wait_for_log_contains(
         &monolith_log,
@@ -749,7 +749,7 @@ fn no_session_writes_startup_logs_to_monolith_file() {
         Duration::from_secs(10),
     );
 
-    cleanup_spawned_hako(spawned, base);
+    cleanup_spawned_omh(spawned, base);
 }
 
 #[test]
@@ -758,8 +758,8 @@ fn auto_detect_respects_nested_guard_before_auto_attach() {
     let base = unique_test_dir();
     let config_home = base.join("config");
     let runtime_dir = base.join("runtime");
-    let api_socket = runtime_dir.join("hako.sock");
-    let client_socket = runtime_dir.join("hako-client.sock");
+    let api_socket = runtime_dir.join("omh.sock");
+    let client_socket = runtime_dir.join("omh-client.sock");
 
     let server = spawn_server(&config_home, &runtime_dir, &api_socket, &client_socket);
     wait_for_socket(&api_socket, Duration::from_secs(10));
@@ -779,12 +779,12 @@ fn auto_detect_respects_nested_guard_before_auto_attach() {
         .map(|workspaces| workspaces.len())
         .unwrap_or(0);
 
-    let output = Command::new(env!("CARGO_BIN_EXE_hako"))
+    let output = Command::new(env!("CARGO_BIN_EXE_omh"))
         .env("XDG_CONFIG_HOME", &config_home)
         .env("XDG_RUNTIME_DIR", &runtime_dir)
-        .env("HAKO_SOCKET_PATH", &api_socket)
-        .env_remove("HAKO_CLIENT_SOCKET_PATH")
-        .env("HAKO_ENV", "1")
+        .env("OMH_SOCKET_PATH", &api_socket)
+        .env_remove("OMH_CLIENT_SOCKET_PATH")
+        .env("OMH_ENV", "1")
         .output()
         .unwrap();
 
@@ -794,7 +794,7 @@ fn auto_detect_respects_nested_guard_before_auto_attach() {
     );
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
-        stderr.contains("nested hako is disabled by default"),
+        stderr.contains("nested Oh My Herdr is disabled by default"),
         "stderr should mention nested-launch guard: {stderr}"
     );
 
@@ -816,5 +816,5 @@ fn auto_detect_respects_nested_guard_before_auto_attach() {
         "nested launch should not auto-attach or mutate server state"
     );
 
-    cleanup_spawned_hako(server, base);
+    cleanup_spawned_omh(server, base);
 }

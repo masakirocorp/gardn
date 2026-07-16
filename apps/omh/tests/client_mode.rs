@@ -16,8 +16,8 @@ use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize}
 use serde::Deserialize;
 use support::{
     cleanup_test_base, client_handshake, connect_unix_socket, encode_varint_u16, encode_varint_u32,
-    frame_message, read_server_message, register_runtime_dir, register_spawned_hako_pid,
-    unregister_spawned_hako_pid, wait_for_file, wait_for_socket,
+    frame_message, read_server_message, register_runtime_dir, register_spawned_omh_pid,
+    unregister_spawned_omh_pid, wait_for_file, wait_for_socket,
 };
 
 fn unique_test_dir() -> PathBuf {
@@ -26,23 +26,23 @@ fn unique_test_dir() -> PathBuf {
         .map(|d| d.as_nanos())
         .unwrap_or(0);
     PathBuf::from(format!(
-        "/tmp/hako-client-test-{}-{nanos}",
+        "/tmp/omh-client-test-{}-{nanos}",
         std::process::id()
     ))
 }
 
-struct SpawnedHako {
+struct SpawnedOmh {
     _master: Option<Box<dyn MasterPty + Send>>,
     child: Box<dyn Child + Send + Sync>,
 }
 
-impl SpawnedHako {
+impl SpawnedOmh {
     fn close_master(&mut self) {
         drop(self._master.take());
     }
 }
 
-impl Drop for SpawnedHako {
+impl Drop for SpawnedOmh {
     fn drop(&mut self) {
         let pid = self.child.process_id();
         let _ = self.child.kill();
@@ -60,12 +60,12 @@ impl Drop for SpawnedHako {
                 thread::sleep(Duration::from_millis(20));
             }
 
-            unregister_spawned_hako_pid(Some(pid));
+            unregister_spawned_omh_pid(Some(pid));
         }
     }
 }
 
-fn cleanup_spawned_hako(spawned: SpawnedHako, base: PathBuf) {
+fn cleanup_spawned_omh(spawned: SpawnedOmh, base: PathBuf) {
     drop(spawned);
     cleanup_test_base(&base);
 }
@@ -81,7 +81,7 @@ fn spawn_client_process(
     config_home: &PathBuf,
     runtime_dir: &PathBuf,
     api_socket_path: &PathBuf,
-) -> SpawnedHako {
+) -> SpawnedOmh {
     register_runtime_dir(runtime_dir);
     let pair = native_pty_system()
         .openpty(PtySize {
@@ -92,21 +92,21 @@ fn spawn_client_process(
         })
         .unwrap();
 
-    let mut cmd = CommandBuilder::new(env!("CARGO_BIN_EXE_hako"));
+    let mut cmd = CommandBuilder::new(env!("CARGO_BIN_EXE_omh"));
     cmd.arg("client");
-    cmd.env("HAKO_DISABLE_SOUND", "1");
+    cmd.env("OMH_DISABLE_SOUND", "1");
     cmd.env("XDG_CONFIG_HOME", config_home);
     cmd.env("XDG_RUNTIME_DIR", runtime_dir);
-    cmd.env("HAKO_SOCKET_PATH", api_socket_path);
-    cmd.env_remove("HAKO_CLIENT_SOCKET_PATH");
+    cmd.env("OMH_SOCKET_PATH", api_socket_path);
+    cmd.env_remove("OMH_CLIENT_SOCKET_PATH");
     cmd.env("SHELL", "/bin/sh");
-    cmd.env_remove("HAKO_ENV");
+    cmd.env_remove("OMH_ENV");
 
     let child = pair.slave.spawn_command(cmd).unwrap();
-    register_spawned_hako_pid(child.process_id());
+    register_spawned_omh_pid(child.process_id());
     drop(pair.slave);
 
-    SpawnedHako {
+    SpawnedOmh {
         _master: Some(pair.master),
         child,
     }
@@ -117,11 +117,11 @@ fn spawn_server(
     runtime_dir: &PathBuf,
     api_socket_path: &PathBuf,
     _client_socket_path: &PathBuf,
-) -> SpawnedHako {
-    fs::create_dir_all(config_home.join("hako")).unwrap();
+) -> SpawnedOmh {
+    fs::create_dir_all(config_home.join("omh")).unwrap();
     fs::create_dir_all(runtime_dir).unwrap();
     register_runtime_dir(runtime_dir);
-    fs::write(config_home.join("hako/config.toml"), "onboarding = false\n").unwrap();
+    fs::write(config_home.join("omh/config.toml"), "onboarding = false\n").unwrap();
 
     let pair = native_pty_system()
         .openpty(PtySize {
@@ -132,20 +132,20 @@ fn spawn_server(
         })
         .unwrap();
 
-    let mut cmd = CommandBuilder::new(env!("CARGO_BIN_EXE_hako"));
+    let mut cmd = CommandBuilder::new(env!("CARGO_BIN_EXE_omh"));
     cmd.arg("server");
     cmd.env("XDG_CONFIG_HOME", config_home);
     cmd.env("XDG_RUNTIME_DIR", runtime_dir);
-    cmd.env("HAKO_SOCKET_PATH", api_socket_path);
-    cmd.env_remove("HAKO_CLIENT_SOCKET_PATH");
+    cmd.env("OMH_SOCKET_PATH", api_socket_path);
+    cmd.env_remove("OMH_CLIENT_SOCKET_PATH");
     cmd.env("SHELL", "/bin/sh");
-    cmd.env_remove("HAKO_ENV");
+    cmd.env_remove("OMH_ENV");
 
     let child = pair.slave.spawn_command(cmd).unwrap();
-    register_spawned_hako_pid(child.process_id());
+    register_spawned_omh_pid(child.process_id());
     drop(pair.slave);
 
-    SpawnedHako {
+    SpawnedOmh {
         _master: Some(pair.master),
         child,
     }
@@ -428,8 +428,8 @@ fn client_connects_and_receives_frame() {
     let base = unique_test_dir();
     let config_home = base.join("config");
     let runtime_dir = base.join("runtime");
-    let api_socket = runtime_dir.join("hako.sock");
-    let client_socket = runtime_dir.join("hako-client.sock");
+    let api_socket = runtime_dir.join("omh.sock");
+    let client_socket = runtime_dir.join("omh-client.sock");
 
     let spawned = spawn_server(&config_home, &runtime_dir, &api_socket, &client_socket);
     wait_for_socket(&api_socket, Duration::from_secs(10));
@@ -449,7 +449,7 @@ fn client_connects_and_receives_frame() {
     read_next_frame_payload(&mut stream, Duration::from_secs(10))
         .expect("should receive a frame from server");
 
-    cleanup_spawned_hako(spawned, base);
+    cleanup_spawned_omh(spawned, base);
 }
 
 #[test]
@@ -458,13 +458,13 @@ fn client_sees_headless_startup_configuration_issue_notice() {
     let base = unique_test_dir();
     let config_home = base.join("config");
     let runtime_dir = base.join("runtime");
-    let api_socket = runtime_dir.join("hako.sock");
-    let client_socket = runtime_dir.join("hako-client.sock");
+    let api_socket = runtime_dir.join("omh.sock");
+    let client_socket = runtime_dir.join("omh-client.sock");
 
     let app_dir = if cfg!(debug_assertions) {
-        "hako-dev"
+        "omh-dev"
     } else {
-        "hako"
+        "omh"
     };
     fs::create_dir_all(config_home.join(app_dir)).unwrap();
     fs::write(
@@ -484,20 +484,20 @@ fn client_sees_headless_startup_configuration_issue_notice() {
         })
         .unwrap();
 
-    let mut cmd = CommandBuilder::new(env!("CARGO_BIN_EXE_hako"));
+    let mut cmd = CommandBuilder::new(env!("CARGO_BIN_EXE_omh"));
     cmd.arg("server");
     cmd.env("XDG_CONFIG_HOME", &config_home);
     cmd.env("XDG_RUNTIME_DIR", &runtime_dir);
-    cmd.env("HAKO_SOCKET_PATH", &api_socket);
-    cmd.env_remove("HAKO_CLIENT_SOCKET_PATH");
+    cmd.env("OMH_SOCKET_PATH", &api_socket);
+    cmd.env_remove("OMH_CLIENT_SOCKET_PATH");
     cmd.env("SHELL", "/bin/sh");
-    cmd.env_remove("HAKO_ENV");
+    cmd.env_remove("OMH_ENV");
 
     let child = pair.slave.spawn_command(cmd).unwrap();
-    register_spawned_hako_pid(child.process_id());
+    register_spawned_omh_pid(child.process_id());
     drop(pair.slave);
 
-    let spawned = SpawnedHako {
+    let spawned = SpawnedOmh {
         _master: Some(pair.master),
         child,
     };
@@ -534,7 +534,7 @@ fn client_sees_headless_startup_configuration_issue_notice() {
         "attached client should see startup configuration issue notice"
     );
 
-    cleanup_spawned_hako(spawned, base);
+    cleanup_spawned_omh(spawned, base);
 }
 
 #[test]
@@ -545,8 +545,8 @@ fn client_input_forwarded_to_pane() {
     let base = unique_test_dir();
     let config_home = base.join("config");
     let runtime_dir = base.join("runtime");
-    let api_socket = runtime_dir.join("hako.sock");
-    let client_socket = runtime_dir.join("hako-client.sock");
+    let api_socket = runtime_dir.join("omh.sock");
+    let client_socket = runtime_dir.join("omh-client.sock");
 
     let spawned = spawn_server(&config_home, &runtime_dir, &api_socket, &client_socket);
     wait_for_socket(&api_socket, Duration::from_secs(10));
@@ -580,7 +580,7 @@ fn client_input_forwarded_to_pane() {
         .unwrap()
         .contains("hello"));
 
-    cleanup_spawned_hako(spawned, base);
+    cleanup_spawned_omh(spawned, base);
 }
 
 #[test]
@@ -590,8 +590,8 @@ fn client_resize_sends_message() {
     let base = unique_test_dir();
     let config_home = base.join("config");
     let runtime_dir = base.join("runtime");
-    let api_socket = runtime_dir.join("hako.sock");
-    let client_socket = runtime_dir.join("hako-client.sock");
+    let api_socket = runtime_dir.join("omh.sock");
+    let client_socket = runtime_dir.join("omh-client.sock");
 
     let spawned = spawn_server(&config_home, &runtime_dir, &api_socket, &client_socket);
     wait_for_socket(&api_socket, Duration::from_secs(10));
@@ -633,7 +633,7 @@ fn client_resize_sends_message() {
         "client resize should change rendered frame dimensions"
     );
 
-    cleanup_spawned_hako(spawned, base);
+    cleanup_spawned_omh(spawned, base);
 }
 
 #[test]
@@ -643,8 +643,8 @@ fn server_shutdown_sends_message_to_client() {
     let base = unique_test_dir();
     let config_home = base.join("config");
     let runtime_dir = base.join("runtime");
-    let api_socket = runtime_dir.join("hako.sock");
-    let client_socket = runtime_dir.join("hako-client.sock");
+    let api_socket = runtime_dir.join("omh.sock");
+    let client_socket = runtime_dir.join("omh-client.sock");
 
     let mut spawned = spawn_server(&config_home, &runtime_dir, &api_socket, &client_socket);
     wait_for_socket(&api_socket, Duration::from_secs(10));
@@ -708,21 +708,21 @@ fn server_unreachable_shows_clear_error() {
     let base = unique_test_dir();
     let config_home = base.join("config");
     let runtime_dir = base.join("runtime");
-    let api_socket = runtime_dir.join("hako.sock");
+    let api_socket = runtime_dir.join("omh.sock");
 
-    fs::create_dir_all(config_home.join("hako")).unwrap();
+    fs::create_dir_all(config_home.join("omh")).unwrap();
     fs::create_dir_all(&runtime_dir).unwrap();
     register_runtime_dir(&runtime_dir);
-    fs::write(config_home.join("hako/config.toml"), "onboarding = false\n").unwrap();
+    fs::write(config_home.join("omh/config.toml"), "onboarding = false\n").unwrap();
 
-    let output = std::process::Command::new(env!("CARGO_BIN_EXE_hako"))
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_omh"))
         .arg("client")
-        .env("HAKO_DISABLE_SOUND", "1")
+        .env("OMH_DISABLE_SOUND", "1")
         .env("XDG_CONFIG_HOME", &config_home)
         .env("XDG_RUNTIME_DIR", &runtime_dir)
-        .env("HAKO_SOCKET_PATH", &api_socket)
-        .env_remove("HAKO_CLIENT_SOCKET_PATH")
-        .env_remove("HAKO_ENV")
+        .env("OMH_SOCKET_PATH", &api_socket)
+        .env_remove("OMH_CLIENT_SOCKET_PATH")
+        .env_remove("OMH_ENV")
         .output()
         .expect("client command should run");
 
@@ -736,7 +736,7 @@ fn server_unreachable_shows_clear_error() {
         "stderr should mention connection failure: {stderr}"
     );
     assert!(
-        stderr.contains("Is hako server running?"),
+        stderr.contains("Is the Oh My Herdr server running? Start it with `omh server`."),
         "stderr should include actionable guidance: {stderr}"
     );
     assert!(
@@ -755,8 +755,8 @@ fn server_crash_after_attach_causes_lost_connection_error() {
     let base = unique_test_dir();
     let config_home = base.join("config");
     let runtime_dir = base.join("runtime");
-    let api_socket = runtime_dir.join("hako.sock");
-    let client_socket = runtime_dir.join("hako-client.sock");
+    let api_socket = runtime_dir.join("omh.sock");
+    let client_socket = runtime_dir.join("omh-client.sock");
 
     let mut spawned = spawn_server(&config_home, &runtime_dir, &api_socket, &client_socket);
     wait_for_socket(&api_socket, Duration::from_secs(10));
@@ -878,8 +878,8 @@ fn client_receives_frame_after_pane_output() {
     let base = unique_test_dir();
     let config_home = base.join("config");
     let runtime_dir = base.join("runtime");
-    let api_socket = runtime_dir.join("hako.sock");
-    let client_socket = runtime_dir.join("hako-client.sock");
+    let api_socket = runtime_dir.join("omh.sock");
+    let client_socket = runtime_dir.join("omh-client.sock");
 
     let spawned = spawn_server(&config_home, &runtime_dir, &api_socket, &client_socket);
     wait_for_socket(&api_socket, Duration::from_secs(10));
@@ -916,7 +916,7 @@ fn client_receives_frame_after_pane_output() {
         "post-output frame should contain the echoed marker"
     );
 
-    cleanup_spawned_hako(spawned, base);
+    cleanup_spawned_omh(spawned, base);
 }
 
 #[test]
@@ -927,8 +927,8 @@ fn navigate_mode_keybind_dispatch_in_server() {
     let base = unique_test_dir();
     let config_home = base.join("config");
     let runtime_dir = base.join("runtime");
-    let api_socket = runtime_dir.join("hako.sock");
-    let client_socket = runtime_dir.join("hako-client.sock");
+    let api_socket = runtime_dir.join("omh.sock");
+    let client_socket = runtime_dir.join("omh-client.sock");
 
     let spawned = spawn_server(&config_home, &runtime_dir, &api_socket, &client_socket);
     wait_for_socket(&api_socket, Duration::from_secs(10));
@@ -1004,7 +1004,7 @@ fn navigate_mode_keybind_dispatch_in_server() {
         "prefix+n should focus the next tab through server-side keybinding dispatch"
     );
 
-    cleanup_spawned_hako(spawned, base);
+    cleanup_spawned_omh(spawned, base);
 }
 
 #[test]
@@ -1016,8 +1016,8 @@ fn pane_spawn_cwd_fallback_in_server() {
     let base = unique_test_dir();
     let config_home = base.join("config");
     let runtime_dir = base.join("runtime");
-    let api_socket = runtime_dir.join("hako.sock");
-    let client_socket = runtime_dir.join("hako-client.sock");
+    let api_socket = runtime_dir.join("omh.sock");
+    let client_socket = runtime_dir.join("omh-client.sock");
 
     let spawned = spawn_server(&config_home, &runtime_dir, &api_socket, &client_socket);
     wait_for_socket(&api_socket, Duration::from_secs(10));
@@ -1046,7 +1046,7 @@ fn pane_spawn_cwd_fallback_in_server() {
         "workspace creation should succeed: {response}"
     );
 
-    cleanup_spawned_hako(spawned, base);
+    cleanup_spawned_omh(spawned, base);
 }
 
 #[test]
@@ -1057,8 +1057,8 @@ fn graceful_shutdown_sends_server_shutdown_to_client() {
     let base = unique_test_dir();
     let config_home = base.join("config");
     let runtime_dir = base.join("runtime");
-    let api_socket = runtime_dir.join("hako.sock");
-    let client_socket = runtime_dir.join("hako-client.sock");
+    let api_socket = runtime_dir.join("omh.sock");
+    let client_socket = runtime_dir.join("omh-client.sock");
 
     let mut spawned = spawn_server(&config_home, &runtime_dir, &api_socket, &client_socket);
     wait_for_socket(&api_socket, Duration::from_secs(10));
@@ -1119,13 +1119,13 @@ fn client_receives_notify_on_agent_state_change() {
     let base = unique_test_dir();
     let config_home = base.join("config");
     let runtime_dir = base.join("runtime");
-    let api_socket = runtime_dir.join("hako.sock");
-    let client_socket = runtime_dir.join("hako-client.sock");
+    let api_socket = runtime_dir.join("omh.sock");
+    let client_socket = runtime_dir.join("omh-client.sock");
 
     // Enable toast and sound in config so the server produces notifications.
-    fs::create_dir_all(config_home.join("hako")).unwrap();
+    fs::create_dir_all(config_home.join("omh")).unwrap();
     fs::write(
-        config_home.join("hako/config.toml"),
+        config_home.join("omh/config.toml"),
         "onboarding = false\n[ui.toast]\nenabled = true\n[ui.sound]\nenabled = true\n",
     )
     .unwrap();
@@ -1143,20 +1143,20 @@ fn client_receives_notify_on_agent_state_change() {
         })
         .unwrap();
 
-    let mut cmd = CommandBuilder::new(env!("CARGO_BIN_EXE_hako"));
+    let mut cmd = CommandBuilder::new(env!("CARGO_BIN_EXE_omh"));
     cmd.arg("server");
     cmd.env("XDG_CONFIG_HOME", &config_home);
     cmd.env("XDG_RUNTIME_DIR", &runtime_dir);
-    cmd.env("HAKO_SOCKET_PATH", &api_socket);
-    cmd.env_remove("HAKO_CLIENT_SOCKET_PATH");
+    cmd.env("OMH_SOCKET_PATH", &api_socket);
+    cmd.env_remove("OMH_CLIENT_SOCKET_PATH");
     cmd.env("SHELL", "/bin/sh");
-    cmd.env_remove("HAKO_ENV");
+    cmd.env_remove("OMH_ENV");
 
     let child = pair.slave.spawn_command(cmd).unwrap();
-    register_spawned_hako_pid(child.process_id());
+    register_spawned_omh_pid(child.process_id());
     drop(pair.slave);
 
-    let spawned = SpawnedHako {
+    let spawned = SpawnedOmh {
         _master: Some(pair.master),
         child,
     };
@@ -1199,5 +1199,5 @@ fn client_receives_notify_on_agent_state_change() {
     .expect("blocked agent report should forward request sound notify");
     assert_eq!(attention.message, "agent attention");
 
-    cleanup_spawned_hako(spawned, base);
+    cleanup_spawned_omh(spawned, base);
 }

@@ -16,8 +16,8 @@ use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize}
 use serde_json::Value;
 use support::{
     cleanup_test_base, client_handshake, connect_unix_socket, drain_messages, read_server_message,
-    register_runtime_dir, register_spawned_hako_pid, send_detach, send_input,
-    unregister_spawned_hako_pid, wait_for_file, wait_for_socket, wait_until,
+    register_runtime_dir, register_spawned_omh_pid, send_detach, send_input,
+    unregister_spawned_omh_pid, wait_for_file, wait_for_socket, wait_until,
 };
 
 fn unique_test_dir() -> PathBuf {
@@ -26,17 +26,17 @@ fn unique_test_dir() -> PathBuf {
         .map(|d| d.as_nanos())
         .unwrap_or(0);
     PathBuf::from(format!(
-        "/tmp/hako-detach-test-{}-{nanos}",
+        "/tmp/omh-detach-test-{}-{nanos}",
         std::process::id()
     ))
 }
 
-struct SpawnedHako {
+struct SpawnedOmh {
     _master: Box<dyn MasterPty + Send>,
     child: Box<dyn Child + Send + Sync>,
 }
 
-impl Drop for SpawnedHako {
+impl Drop for SpawnedOmh {
     fn drop(&mut self) {
         let pid = self.child.process_id();
         let _ = self.child.kill();
@@ -53,12 +53,12 @@ impl Drop for SpawnedHako {
                 thread::sleep(Duration::from_millis(20));
             }
 
-            unregister_spawned_hako_pid(Some(pid));
+            unregister_spawned_omh_pid(Some(pid));
         }
     }
 }
 
-fn cleanup_spawned_hako(spawned: SpawnedHako, base: PathBuf) {
+fn cleanup_spawned_omh(spawned: SpawnedOmh, base: PathBuf) {
     drop(spawned);
     cleanup_test_base(&base);
 }
@@ -75,11 +75,11 @@ fn spawn_server(
     runtime_dir: &PathBuf,
     api_socket_path: &PathBuf,
     _client_socket_path: &PathBuf,
-) -> SpawnedHako {
-    fs::create_dir_all(config_home.join("hako")).unwrap();
+) -> SpawnedOmh {
+    fs::create_dir_all(config_home.join("omh")).unwrap();
     fs::create_dir_all(runtime_dir).unwrap();
     register_runtime_dir(runtime_dir);
-    fs::write(config_home.join("hako/config.toml"), "onboarding = false\n").unwrap();
+    fs::write(config_home.join("omh/config.toml"), "onboarding = false\n").unwrap();
 
     let pair = native_pty_system()
         .openpty(PtySize {
@@ -90,20 +90,20 @@ fn spawn_server(
         })
         .unwrap();
 
-    let mut cmd = CommandBuilder::new(env!("CARGO_BIN_EXE_hako"));
+    let mut cmd = CommandBuilder::new(env!("CARGO_BIN_EXE_omh"));
     cmd.arg("server");
     cmd.env("XDG_CONFIG_HOME", config_home);
     cmd.env("XDG_RUNTIME_DIR", runtime_dir);
-    cmd.env("HAKO_SOCKET_PATH", api_socket_path);
-    cmd.env_remove("HAKO_CLIENT_SOCKET_PATH");
+    cmd.env("OMH_SOCKET_PATH", api_socket_path);
+    cmd.env_remove("OMH_CLIENT_SOCKET_PATH");
     cmd.env("SHELL", "/bin/sh");
-    cmd.env_remove("HAKO_ENV");
+    cmd.env_remove("OMH_ENV");
 
     let child = pair.slave.spawn_command(cmd).unwrap();
-    register_spawned_hako_pid(child.process_id());
+    register_spawned_omh_pid(child.process_id());
     drop(pair.slave);
 
-    SpawnedHako {
+    SpawnedOmh {
         _master: pair.master,
         child,
     }
@@ -258,8 +258,8 @@ fn explicit_detach_message_keeps_server_available_for_new_clients() {
     let base = unique_test_dir();
     let config_home = base.join("config");
     let runtime_dir = base.join("runtime");
-    let api_socket = runtime_dir.join("hako.sock");
-    let client_socket = runtime_dir.join("hako-client.sock");
+    let api_socket = runtime_dir.join("omh.sock");
+    let client_socket = runtime_dir.join("omh-client.sock");
 
     let spawned = spawn_server(&config_home, &runtime_dir, &api_socket, &client_socket);
     wait_for_socket(&api_socket, Duration::from_secs(10));
@@ -298,7 +298,7 @@ fn explicit_detach_message_keeps_server_available_for_new_clients() {
     assert_eq!(version, 12);
     assert!(error.is_none(), "{:?}", error);
 
-    cleanup_spawned_hako(spawned, base);
+    cleanup_spawned_omh(spawned, base);
 }
 
 #[test]
@@ -313,8 +313,8 @@ fn reattach_after_detach_shows_current_state() {
     let base = unique_test_dir();
     let config_home = base.join("config");
     let runtime_dir = base.join("runtime");
-    let api_socket = runtime_dir.join("hako.sock");
-    let client_socket = runtime_dir.join("hako-client.sock");
+    let api_socket = runtime_dir.join("omh.sock");
+    let client_socket = runtime_dir.join("omh-client.sock");
 
     let spawned = spawn_server(&config_home, &runtime_dir, &api_socket, &client_socket);
     wait_for_socket(&api_socket, Duration::from_secs(10));
@@ -408,7 +408,7 @@ fn reattach_after_detach_shows_current_state() {
         "workspace should still exist after detach/reattach: {list_response}"
     );
 
-    cleanup_spawned_hako(spawned, base);
+    cleanup_spawned_omh(spawned, base);
 }
 
 #[test]
@@ -425,8 +425,8 @@ fn processes_survive_during_and_after_detach() {
     let base = unique_test_dir();
     let config_home = base.join("config");
     let runtime_dir = base.join("runtime");
-    let api_socket = runtime_dir.join("hako.sock");
-    let client_socket = runtime_dir.join("hako-client.sock");
+    let api_socket = runtime_dir.join("omh.sock");
+    let client_socket = runtime_dir.join("omh-client.sock");
 
     let spawned = spawn_server(&config_home, &runtime_dir, &api_socket, &client_socket);
     wait_for_socket(&api_socket, Duration::from_secs(10));
@@ -502,7 +502,7 @@ fn processes_survive_during_and_after_detach() {
         "reattached client should receive a Frame showing current state"
     );
 
-    cleanup_spawned_hako(spawned, base);
+    cleanup_spawned_omh(spawned, base);
 }
 
 #[test]
@@ -515,8 +515,8 @@ fn server_persists_after_client_connection_drop() {
     let base = unique_test_dir();
     let config_home = base.join("config");
     let runtime_dir = base.join("runtime");
-    let api_socket = runtime_dir.join("hako.sock");
-    let client_socket = runtime_dir.join("hako-client.sock");
+    let api_socket = runtime_dir.join("omh.sock");
+    let client_socket = runtime_dir.join("omh-client.sock");
 
     let spawned = spawn_server(&config_home, &runtime_dir, &api_socket, &client_socket);
     wait_for_socket(&api_socket, Duration::from_secs(10));
@@ -556,7 +556,7 @@ fn server_persists_after_client_connection_drop() {
     assert_eq!(version, 12);
     assert!(error.is_none(), "reattach should succeed: {:?}", error);
 
-    cleanup_spawned_hako(spawned, base);
+    cleanup_spawned_omh(spawned, base);
 }
 
 #[test]
@@ -565,8 +565,8 @@ fn detached_output_preserves_last_attached_pty_size() {
     let base = unique_test_dir();
     let config_home = base.join("config");
     let runtime_dir = base.join("runtime");
-    let api_socket = runtime_dir.join("hako.sock");
-    let client_socket = runtime_dir.join("hako-client.sock");
+    let api_socket = runtime_dir.join("omh.sock");
+    let client_socket = runtime_dir.join("omh-client.sock");
 
     let spawned = spawn_server(&config_home, &runtime_dir, &api_socket, &client_socket);
     wait_for_socket(&api_socket, Duration::from_secs(10));
@@ -614,7 +614,7 @@ fn detached_output_preserves_last_attached_pty_size() {
         "detached renders should not resize live pane PTYs to a fallback size"
     );
 
-    cleanup_spawned_hako(spawned, base);
+    cleanup_spawned_omh(spawned, base);
 }
 
 #[test]
@@ -633,8 +633,8 @@ fn output_accumulated_while_detached_visible_on_reattach() {
     let base = unique_test_dir();
     let config_home = base.join("config");
     let runtime_dir = base.join("runtime");
-    let api_socket = runtime_dir.join("hako.sock");
-    let client_socket = runtime_dir.join("hako-client.sock");
+    let api_socket = runtime_dir.join("omh.sock");
+    let client_socket = runtime_dir.join("omh-client.sock");
 
     let spawned = spawn_server(&config_home, &runtime_dir, &api_socket, &client_socket);
     wait_for_socket(&api_socket, Duration::from_secs(10));
@@ -739,5 +739,5 @@ fn output_accumulated_while_detached_visible_on_reattach() {
         "pane should contain output produced while detached: {read_response}"
     );
 
-    cleanup_spawned_hako(spawned, base);
+    cleanup_spawned_omh(spawned, base);
 }

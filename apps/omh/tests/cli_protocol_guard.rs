@@ -14,16 +14,16 @@ fn unique_test_dir() -> PathBuf {
         .map(|duration| duration.as_nanos())
         .unwrap_or(0);
     PathBuf::from(format!(
-        "/tmp/hako-cli-protocol-{}-{nanos}",
+        "/tmp/omh-cli-protocol-{}-{nanos}",
         std::process::id()
     ))
 }
 
 fn current_protocol() -> u64 {
-    let output = Command::new(env!("CARGO_BIN_EXE_hako"))
+    let output = Command::new(env!("CARGO_BIN_EXE_omh"))
         .args(["status", "client", "--json"])
         .output()
-        .expect("hako status client should run");
+        .expect("Oh My Herdr status client should run");
     assert!(output.status.success());
     serde_json::from_slice::<serde_json::Value>(&output.stdout)
         .expect("client status should be JSON")["protocol"]
@@ -58,18 +58,18 @@ fn write_pong(stream: &mut UnixStream, request: &serde_json::Value, protocol: u6
 }
 
 fn run_cli(socket_path: &Path, args: &[&str]) -> std::process::Output {
-    Command::new(env!("CARGO_BIN_EXE_hako"))
+    Command::new(env!("CARGO_BIN_EXE_omh"))
         .args(args)
-        .env("HAKO_SOCKET_PATH", socket_path)
+        .env("OMH_SOCKET_PATH", socket_path)
         .output()
-        .expect("hako CLI should run")
+        .expect("Oh My Herdr CLI should run")
 }
 
 #[test]
 fn mismatched_cli_reports_json_error_without_dispatching_operation() {
     let base = unique_test_dir();
     fs::create_dir_all(&base).expect("test directory should be created");
-    let socket_path = base.join("hako.sock");
+    let socket_path = base.join("omh.sock");
     let listener = UnixListener::bind(&socket_path).expect("fake server should bind");
     let mismatch = current_protocol() + 1;
 
@@ -105,7 +105,7 @@ fn mismatched_cli_reports_json_error_without_dispatching_operation() {
     assert!(error["error"]["message"]
         .as_str()
         .expect("message should be text")
-        .contains("Update and restart Hako"));
+        .contains("Update and restart Oh My Herdr"));
     assert!(!server.join().expect("fake server should finish"));
 
     fs::remove_dir_all(base).expect("test directory should be removed");
@@ -115,7 +115,7 @@ fn mismatched_cli_reports_json_error_without_dispatching_operation() {
 fn matching_protocol_dispatches_operation_across_version_difference() {
     let base = unique_test_dir();
     fs::create_dir_all(&base).expect("test directory should be created");
-    let socket_path = base.join("hako.sock");
+    let socket_path = base.join("omh.sock");
     let listener = UnixListener::bind(&socket_path).expect("fake server should bind");
     let protocol = current_protocol();
 

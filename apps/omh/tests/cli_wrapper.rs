@@ -13,8 +13,8 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
 use support::{
-    cleanup_test_base, connect_unix_socket, register_runtime_dir, register_spawned_hako_pid,
-    unregister_spawned_hako_pid,
+    cleanup_test_base, connect_unix_socket, register_runtime_dir, register_spawned_omh_pid,
+    unregister_spawned_omh_pid,
 };
 
 fn unique_test_dir() -> PathBuf {
@@ -43,14 +43,14 @@ fn run_git(repo: &Path, args: &[&str]) {
 fn create_committed_repo(path: &Path) {
     fs::create_dir_all(path).unwrap();
     run_git(path, &["init", "--quiet"]);
-    run_git(path, &["config", "user.email", "hako@example.invalid"]);
-    run_git(path, &["config", "user.name", "Hako Test"]);
+    run_git(path, &["config", "user.email", "omh@example.invalid"]);
+    run_git(path, &["config", "user.name", "Oh My Herdr Test"]);
     fs::write(path.join("README.md"), "test\n").unwrap();
     run_git(path, &["add", "README.md"]);
     run_git(path, &["commit", "--quiet", "-m", "initial"]);
 }
 
-struct SpawnedHako {
+struct SpawnedOmh {
     _master: Box<dyn MasterPty + Send>,
     child: Box<dyn Child + Send + Sync>,
 }
@@ -64,11 +64,11 @@ impl Drop for SpawnedServerProcess {
         let pid = self.child.id();
         let _ = self.child.kill();
         let _ = self.child.wait();
-        unregister_spawned_hako_pid(Some(pid));
+        unregister_spawned_omh_pid(Some(pid));
     }
 }
 
-impl Drop for SpawnedHako {
+impl Drop for SpawnedOmh {
     fn drop(&mut self) {
         let pid = self.child.process_id();
         let _ = self.child.kill();
@@ -85,12 +85,12 @@ impl Drop for SpawnedHako {
                 thread::sleep(Duration::from_millis(20));
             }
 
-            unregister_spawned_hako_pid(Some(pid));
+            unregister_spawned_omh_pid(Some(pid));
         }
     }
 }
 
-fn cleanup_spawned_hako(spawned: SpawnedHako, base: PathBuf) {
+fn cleanup_spawned_omh(spawned: SpawnedOmh, base: PathBuf) {
     drop(spawned);
     cleanup_test_base(&base);
 }
@@ -106,8 +106,8 @@ fn wait_for_socket(path: &Path, timeout: Duration) {
     panic!("socket did not appear at {}", path.display());
 }
 
-fn spawn_hako(config_home: &Path, runtime_dir: &Path, socket_path: &Path) -> SpawnedHako {
-    spawn_hako_with_config(
+fn spawn_omh(config_home: &Path, runtime_dir: &Path, socket_path: &Path) -> SpawnedOmh {
+    spawn_omh_with_config(
         config_home,
         runtime_dir,
         socket_path,
@@ -116,12 +116,12 @@ fn spawn_hako(config_home: &Path, runtime_dir: &Path, socket_path: &Path) -> Spa
     )
 }
 
-fn spawn_hako_with_pane_history(
+fn spawn_omh_with_pane_history(
     config_home: &Path,
     runtime_dir: &Path,
     socket_path: &Path,
-) -> SpawnedHako {
-    spawn_hako_with_config(
+) -> SpawnedOmh {
+    spawn_omh_with_config(
         config_home,
         runtime_dir,
         socket_path,
@@ -132,9 +132,9 @@ fn spawn_hako_with_pane_history(
 
 fn app_dir_name() -> &'static str {
     if cfg!(debug_assertions) {
-        "hako-dev"
+        "omh-dev"
     } else {
-        "hako"
+        "omh"
     }
 }
 
@@ -143,7 +143,7 @@ fn named_session_socket(config_home: &Path, session: &str) -> PathBuf {
         .join(app_dir_name())
         .join("sessions")
         .join(session)
-        .join("hako.sock")
+        .join("omh.sock")
 }
 
 fn spawn_named_server(
@@ -160,20 +160,20 @@ fn spawn_named_server(
     )
     .unwrap();
 
-    let mut command = Command::new(env!("CARGO_BIN_EXE_hako"));
+    let mut command = Command::new(env!("CARGO_BIN_EXE_omh"));
     command
         .args(["--session", session, "server"])
         .env("XDG_CONFIG_HOME", config_home)
         .env("XDG_RUNTIME_DIR", runtime_dir)
-        .env_remove("HAKO_SOCKET_PATH")
-        .env_remove("HAKO_CLIENT_SOCKET_PATH")
-        .env_remove("HAKO_ENV")
+        .env_remove("OMH_SOCKET_PATH")
+        .env_remove("OMH_CLIENT_SOCKET_PATH")
+        .env_remove("OMH_ENV")
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null());
 
     let child = command.spawn().unwrap();
-    register_spawned_hako_pid(Some(child.id()));
+    register_spawned_omh_pid(Some(child.id()));
     SpawnedServerProcess { child }
 }
 
@@ -206,20 +206,20 @@ fn run_named_cli_with_env_and_socket_override(
     envs: &[(&str, &Path)],
     socket_override: Option<&Path>,
 ) -> std::process::Output {
-    let mut command = Command::new(env!("CARGO_BIN_EXE_hako"));
+    let mut command = Command::new(env!("CARGO_BIN_EXE_omh"));
     command
         .args(args)
         .env("XDG_CONFIG_HOME", config_home)
         .env("XDG_RUNTIME_DIR", runtime_dir)
-        .env_remove("HAKO_CLIENT_SOCKET_PATH")
-        .env_remove("HAKO_ENV");
+        .env_remove("OMH_CLIENT_SOCKET_PATH")
+        .env_remove("OMH_ENV");
     for (key, value) in envs {
         command.env(key, value);
     }
     if let Some(socket_override) = socket_override {
-        command.env("HAKO_SOCKET_PATH", socket_override);
+        command.env("OMH_SOCKET_PATH", socket_override);
     } else {
-        command.env_remove("HAKO_SOCKET_PATH");
+        command.env_remove("OMH_SOCKET_PATH");
     }
     command.output().unwrap()
 }
@@ -228,7 +228,7 @@ fn run_named_cli_json(config_home: &Path, runtime_dir: &Path, args: &[&str]) -> 
     let output = run_named_cli(config_home, runtime_dir, args);
     assert!(
         output.status.success(),
-        "command failed: hako {}\nstatus: {:?}\nstderr: {}\nstdout: {}",
+        "command failed: omh {}\nstatus: {:?}\nstderr: {}\nstdout: {}",
         args.join(" "),
         output.status.code(),
         String::from_utf8_lossy(&output.stderr),
@@ -237,13 +237,13 @@ fn run_named_cli_json(config_home: &Path, runtime_dir: &Path, args: &[&str]) -> 
     serde_json::from_slice(&output.stdout).unwrap()
 }
 
-fn spawn_hako_with_path(
+fn spawn_omh_with_path(
     config_home: &Path,
     runtime_dir: &Path,
     socket_path: &Path,
     path_override: Option<&Path>,
-) -> SpawnedHako {
-    spawn_hako_with_config(
+) -> SpawnedOmh {
+    spawn_omh_with_config(
         config_home,
         runtime_dir,
         socket_path,
@@ -252,13 +252,13 @@ fn spawn_hako_with_path(
     )
 }
 
-fn spawn_hako_with_config(
+fn spawn_omh_with_config(
     config_home: &Path,
     runtime_dir: &Path,
     socket_path: &Path,
     path_override: Option<&Path>,
     config_toml: &str,
-) -> SpawnedHako {
+) -> SpawnedOmh {
     fs::create_dir_all(config_home.join(app_dir_name())).unwrap();
     fs::create_dir_all(runtime_dir).unwrap();
     register_runtime_dir(runtime_dir);
@@ -277,38 +277,38 @@ fn spawn_hako_with_config(
         })
         .unwrap();
 
-    let mut cmd = CommandBuilder::new(env!("CARGO_BIN_EXE_hako"));
+    let mut cmd = CommandBuilder::new(env!("CARGO_BIN_EXE_omh"));
     cmd.arg("server");
     cmd.env("XDG_CONFIG_HOME", config_home);
     cmd.env("XDG_RUNTIME_DIR", runtime_dir);
-    cmd.env("HAKO_SOCKET_PATH", socket_path);
-    cmd.env_remove("HAKO_CLIENT_SOCKET_PATH");
+    cmd.env("OMH_SOCKET_PATH", socket_path);
+    cmd.env_remove("OMH_CLIENT_SOCKET_PATH");
     cmd.env("SHELL", "/bin/sh");
-    cmd.env_remove("HAKO_ENV");
+    cmd.env_remove("OMH_ENV");
     if let Some(path) = path_override {
         cmd.env("PATH", path);
     }
 
     let child = pair.slave.spawn_command(cmd).unwrap();
-    register_spawned_hako_pid(child.process_id());
-    SpawnedHako {
+    register_spawned_omh_pid(child.process_id());
+    SpawnedOmh {
         _master: pair.master,
         child,
     }
 }
 
 fn run_cli(socket_path: &Path, args: &[&str]) -> std::process::Output {
-    let mut command = Command::new(env!("CARGO_BIN_EXE_hako"));
+    let mut command = Command::new(env!("CARGO_BIN_EXE_omh"));
     command.args(args);
-    command.env("HAKO_SOCKET_PATH", socket_path);
+    command.env("OMH_SOCKET_PATH", socket_path);
     command.output().unwrap()
 }
 
 fn run_cli_in_dir(socket_path: &Path, args: &[&str], current_dir: &Path) -> std::process::Output {
-    let mut command = Command::new(env!("CARGO_BIN_EXE_hako"));
+    let mut command = Command::new(env!("CARGO_BIN_EXE_omh"));
     command.args(args);
     command.current_dir(current_dir);
-    command.env("HAKO_SOCKET_PATH", socket_path);
+    command.env("OMH_SOCKET_PATH", socket_path);
     command.output().unwrap()
 }
 
@@ -325,7 +325,7 @@ fn run_cli_json_in_dir(socket_path: &Path, args: &[&str], current_dir: &Path) ->
 fn parse_cli_json_output(args: &[&str], output: std::process::Output) -> serde_json::Value {
     assert!(
         output.status.success(),
-        "command failed: hako {}\nstatus: {:?}\nstderr: {}\nstdout: {}",
+        "command failed: omh {}\nstatus: {:?}\nstderr: {}\nstdout: {}",
         args.join(" "),
         output.status.code(),
         String::from_utf8_lossy(&output.stderr),
@@ -334,7 +334,7 @@ fn parse_cli_json_output(args: &[&str], output: std::process::Output) -> serde_j
 
     serde_json::from_slice(&output.stdout).unwrap_or_else(|err| {
         panic!(
-            "failed to parse JSON response for `hako {}`: {}\nstdout: {}\nstderr: {}",
+            "failed to parse JSON response for `omh {}`: {}\nstdout: {}\nstderr: {}",
             args.join(" "),
             err,
             String::from_utf8_lossy(&output.stdout),
@@ -537,7 +537,7 @@ fn accept_fake_cli_operation(listener: &UnixListener) -> (UnixStream, String) {
 
 fn run_claude_hook(action: &str, hook_input: &str) -> Option<serde_json::Value> {
     run_shell_hook(
-        "src/integration/assets/claude/hako-agent-state.sh",
+        "src/integration/assets/claude/omh-agent-state.sh",
         &[action],
         hook_input,
     )
@@ -545,7 +545,7 @@ fn run_claude_hook(action: &str, hook_input: &str) -> Option<serde_json::Value> 
 
 fn run_codex_hook(action: &str, hook_input: &str) -> Option<serde_json::Value> {
     run_shell_hook(
-        "src/integration/assets/codex/hako-agent-state.sh",
+        "src/integration/assets/codex/omh-agent-state.sh",
         &[action],
         hook_input,
     )
@@ -553,7 +553,7 @@ fn run_codex_hook(action: &str, hook_input: &str) -> Option<serde_json::Value> {
 
 fn run_copilot_hook(hook_input: &str) -> Option<serde_json::Value> {
     run_shell_hook(
-        "src/integration/assets/copilot/hako-agent-state.sh",
+        "src/integration/assets/copilot/omh-agent-state.sh",
         &[],
         hook_input,
     )
@@ -565,7 +565,7 @@ fn run_devin_hook(
     envs: &[(&str, &str)],
 ) -> Option<serde_json::Value> {
     run_shell_hook_with_env(
-        "src/integration/assets/devin/hako-agent-state.sh",
+        "src/integration/assets/devin/omh-agent-state.sh",
         &[action],
         hook_input,
         envs,
@@ -584,7 +584,7 @@ fn run_shell_hook_with_env(
 ) -> Option<serde_json::Value> {
     let base = unique_test_dir();
     fs::create_dir_all(&base).unwrap();
-    let socket_path = base.join("hako.sock");
+    let socket_path = base.join("omh.sock");
     let listener = UnixListener::bind(&socket_path).unwrap();
 
     let server = thread::spawn(move || {
@@ -615,9 +615,9 @@ fn run_shell_hook_with_env(
     command
         .arg(hook_path)
         .args(args)
-        .env("HAKO_ENV", "1")
-        .env("HAKO_SOCKET_PATH", &socket_path)
-        .env("HAKO_PANE_ID", "p_test")
+        .env("OMH_ENV", "1")
+        .env("OMH_SOCKET_PATH", &socket_path)
+        .env("OMH_PANE_ID", "p_test")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
@@ -744,7 +744,7 @@ fn copilot_hook_reports_prompt_tool_and_session_state() {
     assert_eq!(request["method"], "pane.report_agent");
     assert_eq!(request["params"]["state"], "working");
     assert_eq!(request["params"]["agent_session_id"], "copilot-session");
-    assert_eq!(request["params"]["source"], "hako:copilot");
+    assert_eq!(request["params"]["source"], "omh:copilot");
 
     let request = run_copilot_hook(
         r#"{"hook_event_name":"PreToolUse","session_id":"copilot-session","tool_name":"ask_user"}"#,
@@ -800,12 +800,12 @@ fn devin_hook_reports_session_identity_without_lifecycle_state() {
     let request = run_devin_hook(
         "session",
         r#"{"hook_event_name":"SessionStart","session_id":"devin-session","source":"startup"}"#,
-        &[("HAKO_DEVIN_LIST_JSON", r#"[{"id":"older-session"}]"#)],
+        &[("OMH_DEVIN_LIST_JSON", r#"[{"id":"older-session"}]"#)],
     )
     .expect("session start should report devin session identity");
 
     assert_eq!(request["method"], "pane.report_agent_session");
-    assert_eq!(request["params"]["source"], "hako:devin");
+    assert_eq!(request["params"]["source"], "omh:devin");
     assert_eq!(request["params"]["agent"], "devin");
     assert_eq!(request["params"]["agent_session_id"], "devin-session");
     assert!(request["params"].get("state").is_none());
@@ -819,7 +819,7 @@ fn devin_hook_uses_session_list_only_for_non_prompt_events() {
         &[
             ("DEVIN_PROJECT_DIR", "/tmp/project"),
             (
-                "HAKO_DEVIN_LIST_JSON",
+                "OMH_DEVIN_LIST_JSON",
                 r#"[{"id":"other-session","working_directory":"/tmp/other"},{"id":"devin-session","working_directory":"/tmp/project"}]"#,
             ),
         ],
@@ -835,7 +835,7 @@ fn devin_hook_uses_session_list_only_for_non_prompt_events() {
             &[
                 ("DEVIN_PROJECT_DIR", "/tmp/project"),
                 (
-                    "HAKO_DEVIN_LIST_JSON",
+                    "OMH_DEVIN_LIST_JSON",
                     r#"[{"id":"devin-session","working_directory":"/tmp/project"}]"#,
                 ),
             ],
@@ -848,7 +848,7 @@ fn devin_hook_uses_session_list_only_for_non_prompt_events() {
 fn pane_run_sends_one_send_input_request_with_enter_key() {
     let base = unique_test_dir();
     fs::create_dir_all(&base).unwrap();
-    let socket_path = base.join("hako.sock");
+    let socket_path = base.join("omh.sock");
     let listener = UnixListener::bind(&socket_path).unwrap();
 
     let server = thread::spawn(move || {
@@ -915,7 +915,7 @@ fn pane_run_sends_one_send_input_request_with_enter_key() {
 fn pane_report_metadata_sends_presentation_request() {
     let base = unique_test_dir();
     fs::create_dir_all(&base).unwrap();
-    let socket_path = base.join("hako.sock");
+    let socket_path = base.join("omh.sock");
     let listener = UnixListener::bind(&socket_path).unwrap();
 
     let server = thread::spawn(move || {
@@ -939,7 +939,7 @@ fn pane_report_metadata_sends_presentation_request() {
             "--agent",
             "claude",
             "--applies-to-source",
-            "hako:claude",
+            "omh:claude",
             "--title",
             "Refactor auth",
             "--display-agent",
@@ -964,7 +964,7 @@ fn pane_report_metadata_sends_presentation_request() {
     assert_eq!(request["params"]["pane_id"], "1-1");
     assert_eq!(request["params"]["source"], "user:claude-title");
     assert_eq!(request["params"]["agent"], "claude");
-    assert_eq!(request["params"]["applies_to_source"], "hako:claude");
+    assert_eq!(request["params"]["applies_to_source"], "omh:claude");
     assert_eq!(request["params"]["title"], "Refactor auth");
     assert_eq!(request["params"]["display_agent"], "Claude auth");
     assert_eq!(request["params"]["custom_status"], "middleware");
@@ -1055,13 +1055,13 @@ fn help_commands_exit_successfully() {
     ];
 
     for args in help_cases {
-        let output = Command::new(env!("CARGO_BIN_EXE_hako"))
+        let output = Command::new(env!("CARGO_BIN_EXE_omh"))
             .args(*args)
             .output()
             .unwrap();
         assert!(
             output.status.success(),
-            "hako {} failed: status={:?} stdout={} stderr={}",
+            "omh {} failed: status={:?} stdout={} stderr={}",
             args.join(" "),
             output.status.code(),
             String::from_utf8_lossy(&output.stdout),
@@ -1072,7 +1072,7 @@ fn help_commands_exit_successfully() {
 
 #[test]
 fn root_help_hides_explicit_client_command() {
-    let output = Command::new(env!("CARGO_BIN_EXE_hako"))
+    let output = Command::new(env!("CARGO_BIN_EXE_omh"))
         .arg("--help")
         .output()
         .unwrap();
@@ -1080,7 +1080,7 @@ fn root_help_hides_explicit_client_command() {
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(
-        !stdout.contains("hako client"),
+        !stdout.contains("omh client"),
         "root help should not advertise the internal client command: {stdout}"
     );
 }
@@ -1090,11 +1090,11 @@ fn explicit_client_command_respects_nested_guard() {
     let base = unique_test_dir();
     fs::create_dir_all(&base).unwrap();
 
-    let output = Command::new(env!("CARGO_BIN_EXE_hako"))
+    let output = Command::new(env!("CARGO_BIN_EXE_omh"))
         .arg("client")
-        .env("HAKO_ENV", "1")
+        .env("OMH_ENV", "1")
         .env("XDG_CONFIG_HOME", &base)
-        .env_remove("HAKO_CONFIG_PATH")
+        .env_remove("OMH_CONFIG_PATH")
         .output()
         .unwrap();
 
@@ -1103,16 +1103,16 @@ fn explicit_client_command_respects_nested_guard() {
     assert_eq!(output.status.code(), Some(1));
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
-        stderr.contains("nested hako is disabled by default"),
+        stderr.contains("nested Oh My Herdr is disabled by default"),
         "client should fail at the nested guard before connecting: {stderr}"
     );
 }
 
 #[test]
 fn removed_show_changelog_flag_fails_before_nested_guard() {
-    let output = Command::new(env!("CARGO_BIN_EXE_hako"))
+    let output = Command::new(env!("CARGO_BIN_EXE_omh"))
         .arg("--show-changelog")
-        .env("HAKO_ENV", "1")
+        .env("OMH_ENV", "1")
         .output()
         .unwrap();
 
@@ -1123,7 +1123,7 @@ fn removed_show_changelog_flag_fails_before_nested_guard() {
         "stderr: {stderr}"
     );
     assert!(
-        !stderr.contains("nested hako"),
+        !stderr.contains("nested omh"),
         "unknown flag should be rejected before nested guard: {stderr}"
     );
 }
@@ -1260,7 +1260,7 @@ fn named_sessions_use_separate_servers_and_workspace_state() {
     assert!(alpha_session["socket_path"]
         .as_str()
         .unwrap()
-        .ends_with("/sessions/alpha/hako.sock"));
+        .ends_with("/sessions/alpha/omh.sock"));
     assert!(beta_session["session_dir"]
         .as_str()
         .unwrap()
@@ -1326,24 +1326,24 @@ fn integration_commands_run_locally_when_server_is_missing() {
     register_runtime_dir(&runtime_dir);
     let missing_socket = runtime_dir.join("missing.sock");
 
-    let expected_extension = extensions_dir.join("hako-pi-agent-state.ts");
-    let expected_omp_extension = omp_extensions_dir.join("hako-omp-agent-state.ts");
+    let expected_extension = extensions_dir.join("omh-pi-agent-state.ts");
+    let expected_omp_extension = omp_extensions_dir.join("omh-omp-agent-state.ts");
     assert!(
         !expected_extension.exists(),
         "test setup should start without extension file"
     );
 
-    let workspace_list = Command::new(env!("CARGO_BIN_EXE_hako"))
+    let workspace_list = Command::new(env!("CARGO_BIN_EXE_omh"))
         .args(["workspace", "list"])
-        .env("HAKO_SOCKET_PATH", &missing_socket)
+        .env("OMH_SOCKET_PATH", &missing_socket)
         .env("HOME", &home_dir)
         .output()
         .unwrap();
     assert_eq!(workspace_list.status.code(), Some(1));
 
-    let integration_install = Command::new(env!("CARGO_BIN_EXE_hako"))
+    let integration_install = Command::new(env!("CARGO_BIN_EXE_omh"))
         .args(["integration", "install", "pi"])
-        .env("HAKO_SOCKET_PATH", &missing_socket)
+        .env("OMH_SOCKET_PATH", &missing_socket)
         .env("HOME", &home_dir)
         .output()
         .unwrap();
@@ -1353,9 +1353,9 @@ fn integration_commands_run_locally_when_server_is_missing() {
         "integration install should write local files without a server"
     );
 
-    let omp_integration_install = Command::new(env!("CARGO_BIN_EXE_hako"))
+    let omp_integration_install = Command::new(env!("CARGO_BIN_EXE_omh"))
         .args(["integration", "install", "omp"])
-        .env("HAKO_SOCKET_PATH", &missing_socket)
+        .env("OMH_SOCKET_PATH", &missing_socket)
         .env("HOME", &home_dir)
         .output()
         .unwrap();
@@ -1365,13 +1365,13 @@ fn integration_commands_run_locally_when_server_is_missing() {
         "omp integration install should write local files without a server"
     );
     let omp_content = fs::read_to_string(&expected_omp_extension).unwrap();
-    assert!(omp_content.contains("HAKO_INTEGRATION_ID=omp"));
-    assert!(omp_content.contains("HAKO_INTEGRATION_VERSION=5"));
+    assert!(omp_content.contains("OMH_INTEGRATION_ID=omp"));
+    assert!(omp_content.contains("OMH_INTEGRATION_VERSION=5"));
     assert!(omp_content.contains("agent: \"omp\""));
 
-    let integration_status = Command::new(env!("CARGO_BIN_EXE_hako"))
+    let integration_status = Command::new(env!("CARGO_BIN_EXE_omh"))
         .args(["integration", "status"])
-        .env("HAKO_SOCKET_PATH", &missing_socket)
+        .env("OMH_SOCKET_PATH", &missing_socket)
         .env("HOME", &home_dir)
         .output()
         .unwrap();
@@ -1381,9 +1381,9 @@ fn integration_commands_run_locally_when_server_is_missing() {
     assert!(status_stdout.contains("claude: not installed"));
     assert!(status_stdout.contains("omp: current (v5)"));
 
-    let integration_uninstall = Command::new(env!("CARGO_BIN_EXE_hako"))
+    let integration_uninstall = Command::new(env!("CARGO_BIN_EXE_omh"))
         .args(["integration", "uninstall", "pi"])
-        .env("HAKO_SOCKET_PATH", &missing_socket)
+        .env("OMH_SOCKET_PATH", &missing_socket)
         .env("HOME", &home_dir)
         .output()
         .unwrap();
@@ -1397,9 +1397,9 @@ fn integration_commands_run_locally_when_server_is_missing() {
         "uninstalling pi must not remove the separate omp integration"
     );
 
-    let omp_integration_uninstall = Command::new(env!("CARGO_BIN_EXE_hako"))
+    let omp_integration_uninstall = Command::new(env!("CARGO_BIN_EXE_omh"))
         .args(["integration", "uninstall", "omp"])
-        .env("HAKO_SOCKET_PATH", &missing_socket)
+        .env("OMH_SOCKET_PATH", &missing_socket)
         .env("HOME", &home_dir)
         .output()
         .unwrap();
@@ -1419,8 +1419,8 @@ fn integration_status_outdated_only_prints_action_for_legacy_install() {
     let extensions_dir = home_dir.join(".pi/agent/extensions");
     fs::create_dir_all(&extensions_dir).unwrap();
     fs::write(
-        extensions_dir.join("hako-pi-agent-state.ts"),
-        "// installed by hako\n// HAKO_INTEGRATION_ID=pi\n// HAKO_INTEGRATION_VERSION=1\n",
+        extensions_dir.join("omh-pi-agent-state.ts"),
+        "// installed by Oh My Herdr\n// OMH_INTEGRATION_ID=pi\n// OMH_INTEGRATION_VERSION=1\n",
     )
     .unwrap();
 
@@ -1429,9 +1429,9 @@ fn integration_status_outdated_only_prints_action_for_legacy_install() {
     register_runtime_dir(&runtime_dir);
     let missing_socket = runtime_dir.join("missing.sock");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_hako"))
+    let output = Command::new(env!("CARGO_BIN_EXE_omh"))
         .args(["integration", "status", "--outdated-only"])
-        .env("HAKO_SOCKET_PATH", &missing_socket)
+        .env("OMH_SOCKET_PATH", &missing_socket)
         .env("HOME", &home_dir)
         .output()
         .unwrap();
@@ -1439,8 +1439,8 @@ fn integration_status_outdated_only_prints_action_for_legacy_install() {
     assert_eq!(output.status.code(), Some(0));
     assert!(output.stdout.is_empty());
     let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("installed hako integrations need updating"));
-    assert!(stderr.contains("hako integration install pi"));
+    assert!(stderr.contains("installed Oh My Herdr integrations need updating"));
+    assert!(stderr.contains("omh integration install pi"));
 
     cleanup_test_base(&base);
 }
@@ -1455,9 +1455,9 @@ fn integration_status_rejects_unknown_flags() {
     register_runtime_dir(&runtime_dir);
     let missing_socket = runtime_dir.join("missing.sock");
 
-    let output = Command::new(env!("CARGO_BIN_EXE_hako"))
+    let output = Command::new(env!("CARGO_BIN_EXE_omh"))
         .args(["integration", "status", "--wat"])
-        .env("HAKO_SOCKET_PATH", &missing_socket)
+        .env("OMH_SOCKET_PATH", &missing_socket)
         .env("HOME", &home_dir)
         .output()
         .unwrap();
@@ -1472,9 +1472,9 @@ fn status_commands_report_client_and_server_versions() {
     let base = unique_test_dir();
     let config_home = base.join("config");
     let runtime_dir = base.join("runtime");
-    let socket_path = runtime_dir.join("hako.sock");
+    let socket_path = runtime_dir.join("omh.sock");
 
-    let hako = spawn_hako(&config_home, &runtime_dir, &socket_path);
+    let omh = spawn_omh(&config_home, &runtime_dir, &socket_path);
     wait_for_socket(&socket_path, Duration::from_secs(5));
 
     let full = run_cli(&socket_path, &["status"]);
@@ -1569,7 +1569,7 @@ fn status_commands_report_client_and_server_versions() {
         .as_str()
         .is_some_and(|path| !path.is_empty()));
 
-    cleanup_spawned_hako(hako, base);
+    cleanup_spawned_omh(omh, base);
 }
 
 #[test]
@@ -1608,10 +1608,10 @@ fn server_stop_command_shuts_down_running_server() {
     let base = unique_test_dir();
     let config_home = base.join("config");
     let runtime_dir = base.join("runtime");
-    let socket_path = runtime_dir.join("hako.sock");
-    let client_socket = runtime_dir.join("hako-client.sock");
+    let socket_path = runtime_dir.join("omh.sock");
+    let client_socket = runtime_dir.join("omh-client.sock");
 
-    let mut hako = spawn_hako(&config_home, &runtime_dir, &socket_path);
+    let mut omh = spawn_omh(&config_home, &runtime_dir, &socket_path);
     wait_for_socket(&socket_path, Duration::from_secs(5));
     wait_for_socket(&client_socket, Duration::from_secs(5));
 
@@ -1635,12 +1635,12 @@ fn server_stop_command_shuts_down_running_server() {
         !client_socket.exists() || UnixStream::connect(&client_socket).is_err(),
         "client socket should be removed or stale before server stop returns"
     );
-    let pid = hako.child.process_id();
-    let exit_status = hako.child.wait().unwrap();
-    unregister_spawned_hako_pid(pid);
+    let pid = omh.child.process_id();
+    let exit_status = omh.child.wait().unwrap();
+    unregister_spawned_omh_pid(pid);
     assert!(exit_status.success(), "server stop should exit cleanly");
 
-    cleanup_spawned_hako(hako, base);
+    cleanup_spawned_omh(omh, base);
 }
 
 #[test]
@@ -1648,11 +1648,11 @@ fn server_stop_then_restart_restores_pane_history() {
     let base = unique_test_dir();
     let config_home = base.join("config");
     let runtime_dir = base.join("runtime");
-    let socket_path = runtime_dir.join("hako.sock");
-    let client_socket = runtime_dir.join("hako-client.sock");
+    let socket_path = runtime_dir.join("omh.sock");
+    let client_socket = runtime_dir.join("omh-client.sock");
     let marker = "PERSISTED_HISTORY_AFTER_STOP";
 
-    let mut hako = spawn_hako_with_pane_history(&config_home, &runtime_dir, &socket_path);
+    let mut omh = spawn_omh_with_pane_history(&config_home, &runtime_dir, &socket_path);
     wait_for_socket(&socket_path, Duration::from_secs(5));
     wait_for_socket(&client_socket, Duration::from_secs(5));
 
@@ -1694,13 +1694,13 @@ fn server_stop_then_restart_restores_pane_history() {
         String::from_utf8_lossy(&stopped.stderr)
     );
 
-    let pid = hako.child.process_id();
-    let exit_status = hako.child.wait().unwrap();
-    unregister_spawned_hako_pid(pid);
+    let pid = omh.child.process_id();
+    let exit_status = omh.child.wait().unwrap();
+    unregister_spawned_omh_pid(pid);
     assert!(exit_status.success(), "server stop should exit cleanly");
-    drop(hako);
+    drop(omh);
 
-    let restarted = spawn_hako_with_pane_history(&config_home, &runtime_dir, &socket_path);
+    let restarted = spawn_omh_with_pane_history(&config_home, &runtime_dir, &socket_path);
     wait_for_socket(&socket_path, Duration::from_secs(5));
     wait_for_socket(&client_socket, Duration::from_secs(5));
 
@@ -1732,7 +1732,7 @@ fn server_stop_then_restart_restores_pane_history() {
         "restarted server should restore saved pane history"
     );
 
-    cleanup_spawned_hako(restarted, base);
+    cleanup_spawned_omh(restarted, base);
 }
 
 #[test]
@@ -1740,9 +1740,9 @@ fn workspace_and_pane_management_commands_work() {
     let base = unique_test_dir();
     let config_home = base.join("config");
     let runtime_dir = base.join("runtime");
-    let socket_path = runtime_dir.join("hako.sock");
+    let socket_path = runtime_dir.join("omh.sock");
 
-    let hako = spawn_hako(&config_home, &runtime_dir, &socket_path);
+    let omh = spawn_omh(&config_home, &runtime_dir, &socket_path);
     wait_for_socket(&socket_path, Duration::from_secs(5));
 
     let reloaded = run_cli(&socket_path, &["server", "reload-config"]);
@@ -1849,7 +1849,7 @@ fn workspace_and_pane_management_commands_work() {
         serde_json::from_slice(&closed_workspace.stdout).unwrap();
     assert_eq!(closed_workspace_json["result"]["type"], "ok");
 
-    cleanup_spawned_hako(hako, base);
+    cleanup_spawned_omh(omh, base);
 }
 
 #[test]
@@ -1857,12 +1857,12 @@ fn worktree_management_commands_work() {
     let base = unique_test_dir();
     let config_home = base.join("config");
     let runtime_dir = base.join("runtime");
-    let socket_path = runtime_dir.join("hako.sock");
+    let socket_path = runtime_dir.join("omh.sock");
     let repo = base.join("repo");
     let checkout = base.join("checkout");
     create_committed_repo(&repo);
 
-    let hako = spawn_hako(&config_home, &runtime_dir, &socket_path);
+    let omh = spawn_omh(&config_home, &runtime_dir, &socket_path);
     wait_for_socket(&socket_path, Duration::from_secs(5));
 
     let branch = "worktree/cli-wrapper";
@@ -1975,7 +1975,7 @@ fn worktree_management_commands_work() {
     assert_eq!(force_removed["result"]["forced"], true);
     assert!(!checkout.exists());
 
-    cleanup_spawned_hako(hako, base);
+    cleanup_spawned_omh(omh, base);
 }
 
 #[test]
@@ -1983,7 +1983,7 @@ fn worktree_open_existing_checkout_by_path_and_branch() {
     let base = unique_test_dir();
     let config_home = base.join("config");
     let runtime_dir = base.join("runtime");
-    let socket_path = runtime_dir.join("hako.sock");
+    let socket_path = runtime_dir.join("omh.sock");
     let repo = base.join("repo");
     let checkout = base.join("external-checkout");
     create_committed_repo(&repo);
@@ -2001,7 +2001,7 @@ fn worktree_open_existing_checkout_by_path_and_branch() {
         ],
     );
 
-    let hako = spawn_hako(&config_home, &runtime_dir, &socket_path);
+    let omh = spawn_omh(&config_home, &runtime_dir, &socket_path);
     wait_for_socket(&socket_path, Duration::from_secs(5));
 
     let opened = run_cli_json_in_dir(
@@ -2091,7 +2091,7 @@ fn worktree_open_existing_checkout_by_path_and_branch() {
     );
     assert_eq!(removed["result"]["type"], "worktree_removed");
 
-    cleanup_spawned_hako(hako, base);
+    cleanup_spawned_omh(omh, base);
 }
 
 #[test]
@@ -2130,7 +2130,7 @@ fn worktree_cli_rejects_local_argument_errors_before_socket_use() {
         assert_eq!(
             output.status.code(),
             Some(2),
-            "hako {} should fail as local parse error; stdout={} stderr={}",
+            "omh {} should fail as local parse error; stdout={} stderr={}",
             args.join(" "),
             String::from_utf8_lossy(&output.stdout),
             String::from_utf8_lossy(&output.stderr)
@@ -2145,9 +2145,9 @@ fn tab_management_commands_work() {
     let base = unique_test_dir();
     let config_home = base.join("config");
     let runtime_dir = base.join("runtime");
-    let socket_path = runtime_dir.join("hako.sock");
+    let socket_path = runtime_dir.join("omh.sock");
 
-    let hako = spawn_hako(&config_home, &runtime_dir, &socket_path);
+    let omh = spawn_omh(&config_home, &runtime_dir, &socket_path);
     wait_for_socket(&socket_path, Duration::from_secs(5));
 
     let created = run_cli(
@@ -2204,7 +2204,7 @@ fn tab_management_commands_work() {
     let closed_tab_json: serde_json::Value = serde_json::from_slice(&closed_tab.stdout).unwrap();
     assert_eq!(closed_tab_json["result"]["type"], "ok");
 
-    cleanup_spawned_hako(hako, base);
+    cleanup_spawned_omh(omh, base);
 }
 
 #[test]
@@ -2212,9 +2212,9 @@ fn agent_start_command_works() {
     let base = unique_test_dir();
     let config_home = base.join("config");
     let runtime_dir = base.join("runtime");
-    let socket_path = runtime_dir.join("hako.sock");
+    let socket_path = runtime_dir.join("omh.sock");
 
-    let hako = spawn_hako(&config_home, &runtime_dir, &socket_path);
+    let omh = spawn_omh(&config_home, &runtime_dir, &socket_path);
     wait_for_socket(&socket_path, Duration::from_secs(5));
 
     let started = run_cli_json(
@@ -2261,7 +2261,7 @@ fn agent_start_command_works() {
     let duplicate_json: serde_json::Value = serde_json::from_slice(&duplicate.stderr).unwrap();
     assert_eq!(duplicate_json["error"]["code"], "agent_name_taken");
 
-    cleanup_spawned_hako(hako, base);
+    cleanup_spawned_omh(omh, base);
 }
 
 #[test]
@@ -2269,9 +2269,9 @@ fn agent_commands_work() {
     let base = unique_test_dir();
     let config_home = base.join("config");
     let runtime_dir = base.join("runtime");
-    let socket_path = runtime_dir.join("hako.sock");
+    let socket_path = runtime_dir.join("omh.sock");
 
-    let hako = spawn_hako(&config_home, &runtime_dir, &socket_path);
+    let omh = spawn_omh(&config_home, &runtime_dir, &socket_path);
     wait_for_socket(&socket_path, Duration::from_secs(5));
 
     let created = run_cli(
@@ -2332,7 +2332,7 @@ fn agent_commands_work() {
     let focused = run_cli_json(&socket_path, &["agent", "focus", "reviewer"]);
     assert_eq!(focused["result"]["agent"]["focused"], true);
 
-    cleanup_spawned_hako(hako, base);
+    cleanup_spawned_omh(omh, base);
 }
 
 #[test]
@@ -2340,9 +2340,9 @@ fn pane_close_only_removes_the_target_tab_when_other_tabs_exist() {
     let base = unique_test_dir();
     let config_home = base.join("config");
     let runtime_dir = base.join("runtime");
-    let socket_path = runtime_dir.join("hako.sock");
+    let socket_path = runtime_dir.join("omh.sock");
 
-    let hako = spawn_hako(&config_home, &runtime_dir, &socket_path);
+    let omh = spawn_omh(&config_home, &runtime_dir, &socket_path);
     wait_for_socket(&socket_path, Duration::from_secs(5));
 
     let created = run_cli(
@@ -2392,7 +2392,7 @@ fn pane_close_only_removes_the_target_tab_when_other_tabs_exist() {
     let tabs_json: serde_json::Value = serde_json::from_slice(&tabs.stdout).unwrap();
     assert_eq!(tabs_json["result"]["tabs"].as_array().unwrap().len(), 1);
 
-    cleanup_spawned_hako(hako, base);
+    cleanup_spawned_omh(omh, base);
 }
 
 #[test]
@@ -2400,9 +2400,9 @@ fn pane_close_deletes_the_workspace_when_it_closes_the_last_pane() {
     let base = unique_test_dir();
     let config_home = base.join("config");
     let runtime_dir = base.join("runtime");
-    let socket_path = runtime_dir.join("hako.sock");
+    let socket_path = runtime_dir.join("omh.sock");
 
-    let hako = spawn_hako(&config_home, &runtime_dir, &socket_path);
+    let omh = spawn_omh(&config_home, &runtime_dir, &socket_path);
     wait_for_socket(&socket_path, Duration::from_secs(5));
 
     let created = run_cli(
@@ -2427,7 +2427,7 @@ fn pane_close_deletes_the_workspace_when_it_closes_the_last_pane() {
     let workspaces = workspaces_json["result"]["workspaces"].as_array().unwrap();
     assert!(workspaces.is_empty());
 
-    cleanup_spawned_hako(hako, base);
+    cleanup_spawned_omh(omh, base);
 }
 
 #[test]
@@ -2435,9 +2435,9 @@ fn pane_run_read_and_wait_commands_work() {
     let base = unique_test_dir();
     let config_home = base.join("config");
     let runtime_dir = base.join("runtime");
-    let socket_path = runtime_dir.join("hako.sock");
+    let socket_path = runtime_dir.join("omh.sock");
 
-    let hako = spawn_hako(&config_home, &runtime_dir, &socket_path);
+    let omh = spawn_omh(&config_home, &runtime_dir, &socket_path);
     wait_for_socket(&socket_path, Duration::from_secs(5));
 
     let created = send_request(
@@ -2493,7 +2493,7 @@ fn pane_run_read_and_wait_commands_work() {
     assert!(text.contains("alpha"));
     assert!(text.contains("ready"));
 
-    cleanup_spawned_hako(hako, base);
+    cleanup_spawned_omh(omh, base);
 }
 
 #[test]
@@ -2501,9 +2501,9 @@ fn wait_output_matches_recent_unwrapped_text() {
     let base = unique_test_dir();
     let config_home = base.join("config");
     let runtime_dir = base.join("runtime");
-    let socket_path = runtime_dir.join("hako.sock");
+    let socket_path = runtime_dir.join("omh.sock");
 
-    let hako = spawn_hako(&config_home, &runtime_dir, &socket_path);
+    let omh = spawn_omh(&config_home, &runtime_dir, &socket_path);
     wait_for_socket(&socket_path, Duration::from_secs(5));
 
     let created = run_cli(
@@ -2568,7 +2568,7 @@ fn wait_output_matches_recent_unwrapped_text() {
     let text = String::from_utf8(read.stdout).unwrap();
     assert!(text.contains(token));
 
-    cleanup_spawned_hako(hako, base);
+    cleanup_spawned_omh(omh, base);
 }
 
 #[test]
@@ -2576,9 +2576,9 @@ fn closing_pane_terminates_processes_inside_it() {
     let base = unique_test_dir();
     let config_home = base.join("config");
     let runtime_dir = base.join("runtime");
-    let socket_path = runtime_dir.join("hako.sock");
+    let socket_path = runtime_dir.join("omh.sock");
 
-    let hako = spawn_hako(&config_home, &runtime_dir, &socket_path);
+    let omh = spawn_omh(&config_home, &runtime_dir, &socket_path);
     wait_for_socket(&socket_path, Duration::from_secs(5));
 
     let created = run_cli(
@@ -2629,7 +2629,7 @@ fn closing_pane_terminates_processes_inside_it() {
         "process {pid} survived pane close"
     );
 
-    cleanup_spawned_hako(hako, base);
+    cleanup_spawned_omh(omh, base);
 }
 
 #[test]
@@ -2637,9 +2637,9 @@ fn closing_workspace_terminates_processes_inside_it() {
     let base = unique_test_dir();
     let config_home = base.join("config");
     let runtime_dir = base.join("runtime");
-    let socket_path = runtime_dir.join("hako.sock");
+    let socket_path = runtime_dir.join("omh.sock");
 
-    let hako = spawn_hako(&config_home, &runtime_dir, &socket_path);
+    let omh = spawn_omh(&config_home, &runtime_dir, &socket_path);
     wait_for_socket(&socket_path, Duration::from_secs(5));
 
     let created = run_cli(
@@ -2682,7 +2682,7 @@ fn closing_workspace_terminates_processes_inside_it() {
         "process {pid} survived workspace close"
     );
 
-    cleanup_spawned_hako(hako, base);
+    cleanup_spawned_omh(omh, base);
 }
 
 #[test]
@@ -2690,9 +2690,9 @@ fn workspace_ids_are_stable_and_pane_aliases_stay_compact() {
     let base = unique_test_dir();
     let config_home = base.join("config");
     let runtime_dir = base.join("runtime");
-    let socket_path = runtime_dir.join("hako.sock");
+    let socket_path = runtime_dir.join("omh.sock");
 
-    let hako = spawn_hako(&config_home, &runtime_dir, &socket_path);
+    let omh = spawn_omh(&config_home, &runtime_dir, &socket_path);
     wait_for_socket(&socket_path, Duration::from_secs(5));
 
     let ws1_json = run_cli_json(
@@ -2810,17 +2810,17 @@ fn workspace_ids_are_stable_and_pane_aliases_stay_compact() {
         .collect();
     assert_eq!(pane_ids, vec![ws1_root_pane_id, split_13_id]);
 
-    cleanup_spawned_hako(hako, base);
+    cleanup_spawned_omh(omh, base);
 }
 
 #[test]
-fn pane_shell_gets_hako_socket_and_pane_env() {
+fn pane_shell_gets_omh_socket_and_pane_env() {
     let base = unique_test_dir();
     let config_home = base.join("config");
     let runtime_dir = base.join("runtime");
-    let socket_path = runtime_dir.join("hako.sock");
+    let socket_path = runtime_dir.join("omh.sock");
 
-    let hako = spawn_hako(&config_home, &runtime_dir, &socket_path);
+    let omh = spawn_omh(&config_home, &runtime_dir, &socket_path);
     wait_for_socket(&socket_path, Duration::from_secs(5));
 
     let created = send_request(
@@ -2840,7 +2840,7 @@ fn pane_shell_gets_hako_socket_and_pane_env() {
             "run",
             "1-1",
             &format!(
-                "printf '%s\\n%s\\n' \"$HAKO_SOCKET_PATH\" \"$HAKO_PANE_ID\" > {}",
+                "printf '%s\\n%s\\n' \"$OMH_SOCKET_PATH\" \"$OMH_PANE_ID\" > {}",
                 env_capture.display()
             ),
         ],
@@ -2865,7 +2865,7 @@ fn pane_shell_gets_hako_socket_and_pane_env() {
     );
     assert!(text.contains(":p"), "env file was: {text:?}");
 
-    cleanup_spawned_hako(hako, base);
+    cleanup_spawned_omh(omh, base);
 }
 
 #[test]
@@ -2873,7 +2873,7 @@ fn wait_agent_status_exits_when_idle_status_matches() {
     let base = unique_test_dir();
     let config_home = base.join("config");
     let runtime_dir = base.join("runtime");
-    let socket_path = runtime_dir.join("hako.sock");
+    let socket_path = runtime_dir.join("omh.sock");
     let bin_dir = base.join("bin");
 
     fs::create_dir_all(&bin_dir).unwrap();
@@ -2893,7 +2893,7 @@ fn wait_agent_status_exits_when_idle_status_matches() {
 
     let inherited_path = std::env::var("PATH").unwrap_or_default();
     let path_override = format!("{}:{}", bin_dir.display(), inherited_path);
-    let hako = spawn_hako_with_path(
+    let omh = spawn_omh_with_path(
         &config_home,
         &runtime_dir,
         &socket_path,
@@ -2947,7 +2947,7 @@ fn wait_agent_status_exits_when_idle_status_matches() {
     );
     assert_eq!(waited_json["data"]["agent"], "pi");
 
-    cleanup_spawned_hako(hako, base);
+    cleanup_spawned_omh(omh, base);
 }
 
 #[test]
@@ -2955,17 +2955,17 @@ fn plugin_link_list_unlink_cli_smoke_test() {
     let base = unique_test_dir();
     let config_home = base.join("config");
     let runtime_dir = base.join("runtime");
-    let socket_path = runtime_dir.join("hako.sock");
+    let socket_path = runtime_dir.join("omh.sock");
     let plugin_dir = base.join("plugins").join("layout");
     fs::create_dir_all(&plugin_dir).unwrap();
     fs::write(
-        plugin_dir.join("hako-plugin.toml"),
+        plugin_dir.join("omh-plugin.toml"),
         r#"
 id = "example.layout"
 name = "Layout"
 version = "0.1.0"
-min_hako_version = "0.2.0"
-description = "Apply a preferred Hako layout"
+min_omh_version = "0.2.0"
+description = "Apply a preferred Oh My Herdr layout"
 
 [[actions]]
 id = "apply"
@@ -3008,7 +3008,7 @@ min_herdr_version = "0.7.0"
     )
     .unwrap();
 
-    let hako = spawn_hako(&config_home, &runtime_dir, &socket_path);
+    let omh = spawn_omh(&config_home, &runtime_dir, &socket_path);
     wait_for_socket(&socket_path, Duration::from_secs(5));
     let workspace = run_cli_json(
         &socket_path,
@@ -3090,7 +3090,7 @@ min_herdr_version = "0.7.0"
             "--workspace",
             &workspace_id,
             "--env",
-            "HAKO_ROLE=board",
+            "OMH_ROLE=board",
             "--no-focus",
         ],
     );
@@ -3120,7 +3120,7 @@ min_herdr_version = "0.7.0"
     let listed = run_cli_json(&socket_path, &["plugin", "list", "--json"]);
     assert!(listed["result"]["plugins"].as_array().unwrap().is_empty());
 
-    cleanup_spawned_hako(hako, base);
+    cleanup_spawned_omh(omh, base);
 }
 
 #[test]
@@ -3133,16 +3133,16 @@ fn plugin_install_list_uninstall_offline_cli_smoke_test() {
     fs::create_dir_all(&plugin_dir).unwrap();
     create_committed_repo(&source_repo);
     fs::write(
-        plugin_dir.join("hako-plugin.toml"),
+        plugin_dir.join("omh-plugin.toml"),
         r#"
 id = "example.worktree-bootstrap"
 name = "Worktree Bootstrap"
 version = "0.1.0"
 platforms = ["linux", "macos", "windows"]
-min_hako_version = "0.2.0"
+min_omh_version = "0.2.0"
 
 [[build]]
-command = ["sh", "-c", "echo built > built.txt; if [ -n \"$HAKO_SESSION\" ]; then echo \"$HAKO_SESSION\" > leaked-session.txt; fi"]
+command = ["sh", "-c", "echo built > built.txt; if [ -n \"$OMH_SESSION\" ]; then echo \"$OMH_SESSION\" > leaked-session.txt; fi"]
 
 [[actions]]
 id = "bootstrap"
@@ -3153,7 +3153,7 @@ command = ["sh", "-c", "echo bootstrap"]
     .unwrap();
     run_git(
         &source_repo,
-        &["add", "worktree-bootstrap/hako-plugin.toml"],
+        &["add", "worktree-bootstrap/omh-plugin.toml"],
     );
     run_git(&source_repo, &["commit", "--quiet", "-m", "add plugin"]);
 
@@ -3163,7 +3163,7 @@ command = ["sh", "-c", "echo bootstrap"]
     fs::write(
         &git_config,
         format!(
-            "[url \"file://{}\"]\n    insteadOf = https://github.com/ogulcancelik/hako-plugin-examples.git\n",
+            "[url \"file://{}\"]\n    insteadOf = https://github.com/ogulcancelik/omh-plugin-examples.git\n",
             source_repo.display()
         ),
     )
@@ -3177,12 +3177,12 @@ command = ["sh", "-c", "echo bootstrap"]
             "plugins",
             "plugin",
             "install",
-            "ogulcancelik/hako-plugin-examples/worktree-bootstrap",
+            "ogulcancelik/omh-plugin-examples/worktree-bootstrap",
             "--yes",
         ],
         &[
             ("GIT_CONFIG_GLOBAL", &git_config),
-            ("HAKO_SESSION", Path::new("leaked-session")),
+            ("OMH_SESSION", Path::new("leaked-session")),
         ],
     );
     assert!(
@@ -3201,7 +3201,7 @@ command = ["sh", "-c", "echo bootstrap"]
     assert_eq!(plugin["plugin_id"], "example.worktree-bootstrap");
     assert_eq!(plugin["source"]["kind"], "github");
     assert_eq!(plugin["source"]["owner"], "ogulcancelik");
-    assert_eq!(plugin["source"]["repo"], "hako-plugin-examples");
+    assert_eq!(plugin["source"]["repo"], "omh-plugin-examples");
     assert_eq!(plugin["source"]["subdir"], "worktree-bootstrap");
     assert!(plugin["source"]["resolved_commit"].as_str().is_some());
     let managed_path = PathBuf::from(plugin["source"]["managed_path"].as_str().unwrap());
@@ -3218,7 +3218,7 @@ command = ["sh", "-c", "echo bootstrap"]
             .join("worktree-bootstrap")
             .join("leaked-session.txt")
             .exists(),
-        "build command should not inherit HAKO_SESSION"
+        "build command should not inherit OMH_SESSION"
     );
 
     let uninstall = run_named_cli(
@@ -3257,7 +3257,7 @@ fn wait_agent_status_exits_when_background_agent_finishes() {
     let base = unique_test_dir();
     let config_home = base.join("config");
     let runtime_dir = base.join("runtime");
-    let socket_path = runtime_dir.join("hako.sock");
+    let socket_path = runtime_dir.join("omh.sock");
     let bin_dir = base.join("bin");
 
     fs::create_dir_all(&bin_dir).unwrap();
@@ -3277,7 +3277,7 @@ fn wait_agent_status_exits_when_background_agent_finishes() {
 
     let inherited_path = std::env::var("PATH").unwrap_or_default();
     let path_override = format!("{}:{}", bin_dir.display(), inherited_path);
-    let hako = spawn_hako_with_path(
+    let omh = spawn_omh_with_path(
         &config_home,
         &runtime_dir,
         &socket_path,
@@ -3342,5 +3342,5 @@ fn wait_agent_status_exits_when_background_agent_finishes() {
     );
     assert_eq!(waited_json["data"]["agent"], "pi");
 
-    cleanup_spawned_hako(hako, base);
+    cleanup_spawned_omh(omh, base);
 }

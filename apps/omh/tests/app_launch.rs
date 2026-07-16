@@ -14,14 +14,14 @@ fn unique_test_dir() -> PathBuf {
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_nanos())
         .unwrap_or(0);
-    PathBuf::from(format!("/tmp/hako-launch-{}-{nanos}", std::process::id()))
+    PathBuf::from(format!("/tmp/omh-launch-{}-{nanos}", std::process::id()))
 }
 
 fn app_dir_name() -> &'static str {
     if cfg!(debug_assertions) {
-        "hako-dev"
+        "omh-dev"
     } else {
-        "hako"
+        "omh"
     }
 }
 
@@ -114,12 +114,12 @@ fn stripped_terminal_text(bytes: &[u8]) -> String {
 
 #[test]
 fn app_client_launch_renders_visible_first_frame() {
-    let bin = PathBuf::from(env!("CARGO_BIN_EXE_hako"));
+    let bin = PathBuf::from(env!("CARGO_BIN_EXE_omh"));
     let base = unique_test_dir();
     let config_home = base.join("config");
     let runtime_dir = base.join("runtime");
-    let api_socket_path = base.join("hako.sock");
-    let client_socket_path = base.join("hako-client.sock");
+    let api_socket_path = base.join("omh.sock");
+    let client_socket_path = base.join("omh-client.sock");
     fs::create_dir_all(&runtime_dir).unwrap();
     write_test_config(&config_home);
 
@@ -127,9 +127,9 @@ fn app_client_launch_renders_visible_first_frame() {
         .arg("server")
         .env("XDG_CONFIG_HOME", &config_home)
         .env("XDG_RUNTIME_DIR", &runtime_dir)
-        .env("HAKO_SOCKET_PATH", &api_socket_path)
-        .env_remove("HAKO_CLIENT_SOCKET_PATH")
-        .env_remove("HAKO_ENV")
+        .env("OMH_SOCKET_PATH", &api_socket_path)
+        .env_remove("OMH_CLIENT_SOCKET_PATH")
+        .env_remove("OMH_ENV")
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -153,7 +153,7 @@ fn app_client_launch_renders_visible_first_frame() {
             if let Some(mut stream) = guard.server_child.as_mut().unwrap().stderr.take() {
                 let _ = stream.read_to_string(&mut stderr);
             }
-            panic!("hako server exited before client socket was ready: {status}; stderr: {stderr}");
+            panic!("Oh My Herdr server exited before client socket was ready: {status}; stderr: {stderr}");
         }
         thread::sleep(Duration::from_millis(25));
     }
@@ -190,9 +190,9 @@ fn app_client_launch_renders_visible_first_frame() {
     client_cmd.arg("client");
     client_cmd.env("XDG_CONFIG_HOME", &config_home);
     client_cmd.env("XDG_RUNTIME_DIR", &runtime_dir);
-    client_cmd.env("HAKO_SOCKET_PATH", &api_socket_path);
-    client_cmd.env_remove("HAKO_CLIENT_SOCKET_PATH");
-    client_cmd.env_remove("HAKO_ENV");
+    client_cmd.env("OMH_SOCKET_PATH", &api_socket_path);
+    client_cmd.env_remove("OMH_CLIENT_SOCKET_PATH");
+    client_cmd.env_remove("OMH_ENV");
     client_cmd.env("SHELL", "/bin/sh");
     guard.client_child = Some(client_pair.slave.spawn_command(client_cmd).unwrap());
     guard.client_master = Some(client_pair.master);
@@ -209,11 +209,11 @@ fn app_client_launch_renders_visible_first_frame() {
             }
         }
         if let Some(status) = guard.server_child.as_mut().unwrap().try_wait().unwrap() {
-            panic!("hako server exited before first client frame: {status}");
+            panic!("Oh My Herdr server exited before first client frame: {status}");
         }
     }
 
     let text = stripped_terminal_text(&output);
     drop(guard);
-    panic!("hako client did not render visible first frame; stripped output: {text:?}");
+    panic!("Oh My Herdr client did not render visible first frame; stripped output: {text:?}");
 }
