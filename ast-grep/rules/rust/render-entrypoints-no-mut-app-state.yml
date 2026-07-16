@@ -3,8 +3,8 @@ language: rust
 severity: error
 message: Render entrypoints must draw from immutable AppState; mutate layout/view state in compute_view* instead.
 files:
-  - apps/hako/src/ui.rs
-  - apps/hako/src/ui/**/*.rs
+  - apps/omh/src/ui.rs
+  - apps/omh/src/ui/**/*.rs
 rule:
   any:
     - pattern: 'fn $NAME($ARG: &mut AppState, $$$ARGS) { $$$BODY }'

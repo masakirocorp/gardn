@@ -844,11 +844,11 @@ mod tests {
 
     fn session_fixture(name: &str) -> &'static str {
         match name {
-            "current-hako" => {
-                include_str!("../../tests/fixtures/session/current-hako-session.json")
+            "current-omh" => {
+                include_str!("../../tests/fixtures/session/current-omh-session.json")
             }
-            "current-hako-dev" => {
-                include_str!("../../tests/fixtures/session/current-hako-dev-session.json")
+            "current-omh-dev" => {
+                include_str!("../../tests/fixtures/session/current-omh-dev-session.json")
             }
             "legacy-pre-tabs-v2" => {
                 include_str!("../../tests/fixtures/session/legacy-pre-tabs-v2.json")
@@ -1259,7 +1259,7 @@ mod tests {
 
     #[test]
     fn current_session_fixture_parses() {
-        let snap = parse_snapshot(session_fixture("current-hako")).unwrap();
+        let snap = parse_snapshot(session_fixture("current-omh")).unwrap();
 
         assert_eq!(snap.version, 3);
         assert_eq!(snap.workspaces.len(), 2);
@@ -1280,7 +1280,7 @@ mod tests {
 
     #[test]
     fn current_dev_session_fixture_parses_additive_fields() {
-        let snap = parse_snapshot(session_fixture("current-hako-dev")).unwrap();
+        let snap = parse_snapshot(session_fixture("current-omh-dev")).unwrap();
 
         assert_eq!(snap.version, 3);
         assert_eq!(snap.workspaces.len(), 2);
