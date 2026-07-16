@@ -277,6 +277,7 @@ impl App {
                 "agent profile requires an installed integration",
             ));
         }
+        let launch_env = profile.managed_launch_env();
         let follow_cwd = self.seed_cwd_from_workspace(ws_idx);
         let initial_cwd = self.resolve_new_terminal_cwd(follow_cwd);
         let (rows, cols) = self.state.estimate_pane_size();
@@ -292,12 +293,12 @@ impl App {
                 initial_cwd,
                 crate::pane::PaneShellConfig::new(&default_shell, shell_mode),
                 &profile.command,
-                &profile.env,
+                &launch_env,
                 scrollback_limit_bytes,
                 host_terminal_theme,
             )?;
             terminal.launch_argv = Some(profile.argv.clone());
-            terminal.launch_env = profile.env.clone();
+            terminal.launch_env = launch_env;
             if let Some(tab) = ws.tabs.get_mut(idx) {
                 tab.set_custom_name(profile.name.clone());
             }

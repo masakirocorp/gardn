@@ -107,7 +107,7 @@ Supported built-in detection includes:
 
 - **Manifest rules** — bundled per-agent TOML manifests define screen, OSC title, and OSC progress matching rules for every built-in agent family, including OMP. Screen rules can provide strong visible evidence; OSC-only rules are fallback evidence and do not override hook authority as visible UI.
 - **Manifest updates** — Hako can cache newer remote manifests, reject downgrades or incompatible engine versions, reload local manifests through `hako server reload-agent-manifests`, and report updated detection rules through the normal toast/update path.
-- **Wrapped-process hints** — on Linux and macOS, set `HAKO_AGENT=<agent>` on a host-visible wrapper command when a sandbox or VM hides the real agent process. The hint is scoped to that process, so avoid exporting it globally; upstream-branded hint names are not accepted.
+- **Wrapped-process hints** — Hako-managed profiles automatically set `HAKO_AGENT=<agent>` from the selected supported agent kind, so host-visible wrappers remain detectable on Linux and macOS. Set the hint explicitly only when launching a wrapper manually inside an arbitrary pane. The hint is process-scoped; avoid exporting it globally. Upstream-branded hint names are not accepted.
 
 ### Agent UI
 
@@ -123,7 +123,7 @@ Supported built-in detection includes:
 ### Agent profiles
 
 - **System profiles** — Hako exposes one read-only system profile for each supported integration target.
-- **Custom profiles** — add or edit profile-specific commands from Settings > Agents. Hako persists them to `[agent_profiles]`; known-family wrappers can keep native profile/tooling restore behavior, while `custom` unsupported agents are labeled `custom · launch-only`.
+- **Custom profiles** — add or edit profile-specific commands from Settings > Agents. Hako persists them to `[agent_profiles]`; known-family wrappers automatically receive the selected kind as `HAKO_AGENT`, keep native profile/tooling restore behavior, and cannot override that managed identity through profile environment entries. `custom` unsupported agents are labeled `custom · launch-only`.
 - **Group favorites and defaults** — group settings can promote favorite profiles with `ctrl+f` and set a default with `ctrl+d`. Favorites appear before available profiles while both sections keep the global profile order. When a group default is set, `new agent` starts it directly instead of opening the picker.
 - **New agent launch** — choose `new agent` from the command palette, space context menu, tab context menu, or the tab `+` dropdown. Hako starts the group default or only available profile immediately, or opens a favorites-first profile picker when multiple profiles are available.
 

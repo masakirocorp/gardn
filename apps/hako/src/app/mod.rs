@@ -9621,6 +9621,99 @@ mod tests {
         let _ = std::fs::remove_dir_all(base);
     }
 
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    #[tokio::test]
+    async fn managed_profile_launch_exposes_selected_kind_to_wrapped_process() {
+        let dir = std::env::temp_dir().join(format!(
+            "hako-wrapped-profile-env-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let output = dir.join("agent-hint.txt");
+        let command = format!(
+            "printf %s \"$HAKO_AGENT\" > '{}'; sleep 30",
+            output.display()
+        );
+
+        let mut app = test_app();
+        app.state.workspaces = vec![Workspace::test_new("test")];
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.default_shell = "/bin/sh".to_string();
+        app.state.shell_mode = crate::config::ShellModeConfig::NonLogin;
+        app.state.agent_profiles = crate::agent_profiles::AgentProfileCatalog::from_config(
+            &crate::agent_profiles::AgentProfilesConfig {
+                order: vec!["user:wrapped-claude".to_string()],
+                custom: vec![crate::agent_profiles::UserAgentProfileConfig {
+                    id: "wrapped-claude".to_string(),
+                    name: "wrapped claude".to_string(),
+                    kind: crate::agent_profiles::AgentKind::Claude,
+                    command,
+                    env: std::collections::BTreeMap::from([
+                        (
+                            crate::agent_profiles::AGENT_HINT_ENV_VAR.to_string(),
+                            "codex".to_string(),
+                        ),
+                        ("WRAPPER_PROFILE".to_string(), "claude-code".to_string()),
+                    ]),
+                    enabled: true,
+                }],
+            },
+        );
+        app.state.integration_recommendations = vec![current_integration_for(
+            crate::agent_profiles::AgentKind::Claude,
+        )];
+
+        let tab_idx = app
+            .create_agent_profile_tab(0, "user:wrapped-claude")
+            .expect("managed profile should launch");
+        let root_pane = app.state.workspaces[0].tabs[tab_idx].root_pane;
+        let terminal_id = app.state.workspaces[0]
+            .terminal_id(root_pane)
+            .expect("profile tab should own a terminal")
+            .clone();
+        let launch_env = app
+            .state
+            .terminals
+            .get(&terminal_id)
+            .expect("launched terminal should be registered")
+            .launch_env
+            .clone();
+
+        for _ in 0..40 {
+            if output.exists() {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+        }
+        let recorded_hint = std::fs::read_to_string(&output);
+
+        let runtimes: Vec<_> = app.terminal_runtimes.drain().collect();
+        for (_, runtime) in runtimes {
+            runtime.shutdown();
+        }
+        let _ = std::fs::remove_dir_all(dir);
+
+        assert_eq!(
+            launch_env,
+            vec![
+                ("WRAPPER_PROFILE".into(), "claude-code".into()),
+                (
+                    crate::agent_profiles::AGENT_HINT_ENV_VAR.into(),
+                    "claude".into(),
+                ),
+            ]
+        );
+        assert_eq!(
+            recorded_hint.expect("wrapped process should record HAKO_AGENT"),
+            "claude"
+        );
+    }
+
     #[test]
     fn profile_specific_codex_hook_warning_surfaces_as_launch_toast() {
         let _lock = crate::integration::integration_env_lock();

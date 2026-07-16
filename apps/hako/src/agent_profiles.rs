@@ -1,6 +1,7 @@
 use std::collections::{BTreeMap, HashSet};
 
 use serde::{Deserialize, Serialize};
+pub(crate) const AGENT_HINT_ENV_VAR: &str = "HAKO_AGENT";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -190,6 +191,18 @@ impl AgentProfile {
 
     pub fn is_system(&self) -> bool {
         self.source == AgentProfileSource::System
+    }
+
+    pub(crate) fn managed_launch_env(&self) -> Vec<(String, String)> {
+        let mut env = self.env.clone();
+        env.retain(|(key, _)| key != AGENT_HINT_ENV_VAR);
+        if self.kind.is_supported() {
+            env.push((
+                AGENT_HINT_ENV_VAR.to_string(),
+                self.kind.as_str().to_string(),
+            ));
+        }
+        env
     }
 }
 
