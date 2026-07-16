@@ -1,8 +1,8 @@
 ---
 packages:
-  omh: major
-  omh-docs: major
-  omh-nix: major
+  omh: minor
+  omh-docs: minor
+  omh-nix: minor
 ---
 
 ### Rename the product to Oh My Herdr
