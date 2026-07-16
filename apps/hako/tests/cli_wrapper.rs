@@ -506,6 +506,34 @@ fn send_request(socket_path: &Path, json: &str) -> serde_json::Value {
     reader.read_line(&mut line).unwrap();
     serde_json::from_str(&line).unwrap()
 }
+fn accept_fake_cli_operation(listener: &UnixListener) -> (UnixStream, String) {
+    loop {
+        let (mut stream, _) = listener.accept().unwrap();
+        let mut line = String::new();
+        let mut reader = BufReader::new(stream.try_clone().unwrap());
+        reader.read_line(&mut line).unwrap();
+        let request: serde_json::Value = serde_json::from_str(&line).unwrap();
+        if request["method"] != "ping" {
+            return (stream, line);
+        }
+
+        writeln!(
+            stream,
+            "{}",
+            serde_json::json!({
+                "id": request["id"],
+                "result": {
+                    "type": "pong",
+                    "version": "different-build-same-protocol",
+                    "protocol": 12,
+                    "capabilities": { "live_handoff": true }
+                }
+            })
+        )
+        .unwrap();
+        stream.flush().unwrap();
+    }
+}
 
 fn run_claude_hook(action: &str, hook_input: &str) -> Option<serde_json::Value> {
     run_shell_hook(
@@ -824,10 +852,7 @@ fn pane_run_sends_one_send_input_request_with_enter_key() {
     let listener = UnixListener::bind(&socket_path).unwrap();
 
     let server = thread::spawn(move || {
-        let (mut first_stream, _) = listener.accept().unwrap();
-        let mut first_line = String::new();
-        let mut first_reader = BufReader::new(first_stream.try_clone().unwrap());
-        first_reader.read_line(&mut first_line).unwrap();
+        let (mut first_stream, first_line) = accept_fake_cli_operation(&listener);
         first_stream
             .write_all(br#"{"id":"cli:request","result":{"type":"ok"}}"#)
             .unwrap();
@@ -894,10 +919,7 @@ fn pane_report_metadata_sends_presentation_request() {
     let listener = UnixListener::bind(&socket_path).unwrap();
 
     let server = thread::spawn(move || {
-        let (mut stream, _) = listener.accept().unwrap();
-        let mut line = String::new();
-        let mut reader = BufReader::new(stream.try_clone().unwrap());
-        reader.read_line(&mut line).unwrap();
+        let (mut stream, line) = accept_fake_cli_operation(&listener);
         stream
             .write_all(br#"{"id":"cli:request","result":{"type":"ok"}}"#)
             .unwrap();
