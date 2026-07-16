@@ -75,7 +75,7 @@ pub(crate) fn git_work_summary(cwds: &[PathBuf]) -> Option<GitWorkSummary> {
 }
 
 pub(crate) fn git_work_summary_for_root(root: &Path) -> Option<GitWorkSummary> {
-    let output = std::process::Command::new("git")
+    let output = crate::noninteractive_process::command("git")
         .arg("-C")
         .arg(root)
         .env("GIT_OPTIONAL_LOCKS", "0")
@@ -316,7 +316,7 @@ fn git_ahead_behind_between(
     upstream_oid: &str,
 ) -> Option<(usize, usize)> {
     let range = format!("{head_oid}...{upstream_oid}");
-    let output = std::process::Command::new("git")
+    let output = crate::noninteractive_process::command("git")
         .arg("-C")
         .arg(cwd)
         .args(["rev-list", "--left-right", "--count", &range])

@@ -792,7 +792,7 @@ fn git_checkout(
 }
 
 fn run_git<const N: usize>(cwd: Option<&Path>, args: [&str; N]) -> std::io::Result<()> {
-    let mut command = Command::new("git");
+    let mut command = crate::noninteractive_process::command("git");
     command.args(args);
     if let Some(cwd) = cwd {
         command.current_dir(cwd);
@@ -808,7 +808,7 @@ fn run_git<const N: usize>(cwd: Option<&Path>, args: [&str; N]) -> std::io::Resu
 }
 
 fn git_output<const N: usize>(cwd: &Path, args: [&str; N]) -> std::io::Result<String> {
-    let output = Command::new("git")
+    let output = crate::noninteractive_process::command("git")
         .args(args)
         .current_dir(cwd)
         .stdin(Stdio::null())
@@ -1220,7 +1220,7 @@ fn run_plugin_build_command(
             },
         }));
     };
-    let mut child = Command::new(program);
+    let mut child = crate::noninteractive_process::command(program);
     child
         .args(command.iter().skip(1))
         .current_dir(cwd)

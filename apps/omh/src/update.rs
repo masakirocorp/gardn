@@ -108,7 +108,7 @@ impl ReleaseInfo {
 }
 
 fn fetch_url(url: &str, label: &str) -> Result<Vec<u8>, String> {
-    let output = Command::new("curl")
+    let output = crate::noninteractive_process::curl_command()
         .args([
             "-sSL",
             "--retry",
@@ -254,7 +254,7 @@ fn download_update(release: &ReleaseInfo) -> Result<DownloadedUpdate, String> {
     let tmp_path = parent.join(format!(".omh-update-{}.tmp", std::process::id()));
 
     // Download the exact asset URL (pinned to the release we checked)
-    let status = Command::new("curl")
+    let status = crate::noninteractive_process::curl_command()
         .args(["-sfL", "--max-time", "120", "-o"])
         .arg(&tmp_path)
         .arg(&release.download_url)

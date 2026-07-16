@@ -27,8 +27,8 @@ use windows_sys::{
             Memory::{GlobalAlloc, GlobalLock, GlobalUnlock, GMEM_MOVEABLE},
             Ole::CF_UNICODETEXT,
             Threading::{
-                GetExitCodeProcess, OpenProcess, TerminateProcess, PROCESS_BASIC_INFORMATION,
-                PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_VM_READ,
+                GetExitCodeProcess, OpenProcess, TerminateProcess, CREATE_NO_WINDOW,
+                PROCESS_BASIC_INFORMATION, PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_VM_READ,
             },
         },
         UI::Shell::{CommandLineToArgvW, ShellExecuteW},
@@ -38,6 +38,10 @@ use windows_sys::{
 use super::{ClipboardImage, ForegroundJob, Signal, TcpListenerInfo};
 
 const STILL_ACTIVE: u32 = 259;
+
+pub(crate) fn configure_background_command_platform(command: &mut std::process::Command) {
+    command.creation_flags(CREATE_NO_WINDOW);
+}
 
 pub fn detach_server_daemon_command(command: &mut std::process::Command) {
     command.creation_flags(windows_sys::Win32::System::Threading::CREATE_NEW_PROCESS_GROUP);
@@ -576,6 +580,55 @@ fn read_unicode_string(process: HANDLE, unicode: UNICODE_STRING) -> Option<Strin
 
 #[cfg(test)]
 mod tests {
+    use std::process::{Command, Stdio};
+
+    use windows_sys::Win32::System::Console::{AllocConsole, FreeConsole, GetConsoleWindow};
+
+    const CONSOLE_TEST_CHILD_ENV: &str = "OMH_TEST_CONSOLE_CHILD_MODE";
+
+    #[test]
+    fn background_commands_do_not_open_or_inherit_consoles() {
+        if std::env::var_os(CONSOLE_TEST_CHILD_ENV).is_some() {
+            assert!(
+                unsafe { GetConsoleWindow() }.is_null(),
+                "background child opened or inherited a console"
+            );
+            return;
+        }
+
+        let allocated_console = if unsafe { GetConsoleWindow() }.is_null() {
+            assert_ne!(unsafe { AllocConsole() }, 0, "allocate test console");
+            true
+        } else {
+            false
+        };
+
+        let test_exe = std::env::current_exe().expect("resolve test executable");
+        let mut child = Command::new(test_exe);
+        child
+            .args([
+                "platform::windows::tests::background_commands_do_not_open_or_inherit_consoles",
+                "--exact",
+            ])
+            .env(CONSOLE_TEST_CHILD_ENV, "background")
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
+        super::configure_background_command_platform(&mut child);
+
+        let status = child.status().expect("spawn console isolation test child");
+        assert!(
+            status.success(),
+            "background child opened or inherited a console"
+        );
+
+        if allocated_console {
+            unsafe {
+                FreeConsole();
+            }
+        }
+    }
+
     fn argv_strings(argv: &[std::ffi::OsString]) -> Vec<String> {
         argv.iter()
             .map(|arg| arg.to_string_lossy().into_owned())

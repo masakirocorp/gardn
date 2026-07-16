@@ -4,7 +4,7 @@ use std::{
     fmt, fs,
     io::{Read, Write},
     path::{Path, PathBuf},
-    process::{Command, Stdio},
+    process::Stdio,
     time::{SystemTime, UNIX_EPOCH},
 };
 
@@ -466,7 +466,7 @@ fn catalog_url() -> String {
 
 fn fetch_text(url: &str) -> Result<String, String> {
     let max_fetch_bytes = MAX_FETCH_BYTES.to_string();
-    let mut child = Command::new("curl")
+    let mut child = crate::noninteractive_process::curl_command()
         .args([
             "-sfL",
             "--retry",

@@ -5,7 +5,7 @@
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output};
+use std::process::Output;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use tracing::warn;
@@ -92,7 +92,7 @@ fn temp_sound_path() -> PathBuf {
 
 fn run_player(path: &Path) -> Result<Output, String> {
     if cfg!(target_os = "macos") {
-        Command::new("afplay")
+        crate::noninteractive_process::command("afplay")
             .arg(path)
             .output()
             .map_err(|e| format!("no audio player available: {e}"))
@@ -109,7 +109,7 @@ struct AudioPlayer {
 
 impl AudioPlayer {
     fn output(self, path: &Path) -> std::io::Result<Output> {
-        Command::new(self.program)
+        crate::noninteractive_process::command(self.program)
             .args(self.args)
             .arg(path)
             .output()

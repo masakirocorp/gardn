@@ -424,7 +424,7 @@ fn extract_version_triple(text: &str) -> Option<(u64, u64, u64)> {
 /// can continue, and `Err` when the installed agent is too old.
 fn enforce_agent_version(requirement: &AgentVersionRequirement) -> io::Result<Option<String>> {
     let probe = format!("{} {}", requirement.binary, requirement.args.join(" "));
-    let output = match std::process::Command::new(requirement.binary)
+    let output = match crate::noninteractive_process::command(requirement.binary)
         .args(requirement.args)
         .output()
     {

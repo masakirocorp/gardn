@@ -1076,7 +1076,7 @@ fn remote_shell_resolves_managed_install(stdout: &str) -> bool {
 }
 
 fn download_release_asset(platform: &RemotePlatform) -> io::Result<InstallSource> {
-    let release_output = Command::new("curl")
+    let release_output = crate::noninteractive_process::curl_command()
         .args([
             "-sfL",
             "--retry",
@@ -1127,7 +1127,7 @@ fn download_release_asset(platform: &RemotePlatform) -> io::Result<InstallSource
 
     let dir = private_download_dir(&asset_key)?;
     let path = dir.join("omh.tmp");
-    let status = Command::new("curl")
+    let status = crate::noninteractive_process::curl_command()
         .args(["-sfL", "--max-time", "120", "-o"])
         .arg(&path)
         .arg(url)

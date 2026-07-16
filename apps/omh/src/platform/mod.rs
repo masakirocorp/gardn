@@ -240,6 +240,13 @@ mod fallback;
 #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
 pub use fallback::*;
 
+pub(crate) fn configure_background_command(command: &mut std::process::Command) {
+    configure_background_command_platform(command);
+}
+
+#[cfg(not(target_os = "windows"))]
+fn configure_background_command_platform(_command: &mut std::process::Command) {}
+
 #[cfg(not(any(target_os = "linux", target_os = "macos")))]
 pub fn process_agent_hint(_pid: u32) -> Option<crate::detect::Agent> {
     None
