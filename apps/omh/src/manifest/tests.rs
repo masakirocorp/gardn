@@ -675,6 +675,132 @@ fn grok_current_ui_chrome_distinguishes_blocked_working_and_idle() {
 }
 
 #[test]
+fn grok_osc_signals_precede_screen_fallbacks() {
+    let plain_idle = explain_with_input(
+        Agent::Grok,
+        DetectionInput {
+            screen: "⠋ ⠙ ⠹ startup artwork",
+            osc_title: "grok",
+            osc_progress: "",
+        },
+    );
+    assert_eq!(plain_idle.state, AgentState::Idle);
+    assert!(!plain_idle.visible_idle);
+    assert_eq!(
+        plain_idle
+            .matched_rule
+            .as_ref()
+            .map(|rule| rule.id.as_str()),
+        Some("osc_title_idle")
+    );
+
+    let named_idle = explain_with_input(
+        Agent::Grok,
+        DetectionInput {
+            screen: "",
+            osc_title: "review-session - grok",
+            osc_progress: "",
+        },
+    );
+    assert_eq!(named_idle.state, AgentState::Idle);
+    assert!(!named_idle.visible_idle);
+    assert_eq!(
+        named_idle
+            .matched_rule
+            .as_ref()
+            .map(|rule| rule.id.as_str()),
+        Some("osc_title_idle")
+    );
+
+    let title_working = explain_with_input(
+        Agent::Grok,
+        DetectionInput {
+            screen: "",
+            osc_title: "⠧ Waiting on subagent…",
+            osc_progress: "",
+        },
+    );
+    assert_eq!(title_working.state, AgentState::Working);
+    assert_eq!(
+        title_working
+            .matched_rule
+            .as_ref()
+            .map(|rule| rule.id.as_str()),
+        Some("osc_title_working")
+    );
+    assert!(!title_working.visible_working);
+
+    let progress_working = explain_with_input(
+        Agent::Grok,
+        DetectionInput {
+            screen: "",
+            osc_title: "custom Grok title",
+            osc_progress: "4;1;-1",
+        },
+    );
+    assert_eq!(progress_working.state, AgentState::Working);
+    assert_eq!(
+        progress_working
+            .matched_rule
+            .as_ref()
+            .map(|rule| rule.id.as_str()),
+        Some("osc_progress_working")
+    );
+
+    let progress_idle = explain_with_input(
+        Agent::Grok,
+        DetectionInput {
+            screen: "⠧ stale status [stop]",
+            osc_title: "",
+            osc_progress: "4;0;0",
+        },
+    );
+    assert_eq!(progress_idle.state, AgentState::Idle);
+    assert_eq!(
+        progress_idle
+            .matched_rule
+            .as_ref()
+            .map(|rule| rule.id.as_str()),
+        Some("osc_progress_idle")
+    );
+
+    let permission = explain_with_input(
+        Agent::Grok,
+        DetectionInput {
+            screen: "⠧ stale status [stop]",
+            osc_title: "⚠ Action Required",
+            osc_progress: "4;1;-1",
+        },
+    );
+    assert_eq!(permission.state, AgentState::Blocked);
+    assert_eq!(
+        permission
+            .matched_rule
+            .as_ref()
+            .map(|rule| rule.id.as_str()),
+        Some("osc_title_blocked")
+    );
+
+    let screen_only = explain_with_input(
+        Agent::Grok,
+        DetectionInput {
+            screen: "⠧ Waiting on subagent… 2.8s [stop]",
+            osc_title: "",
+            osc_progress: "",
+        },
+    );
+    assert_eq!(screen_only.state, AgentState::Working);
+    assert!(screen_only.visible_working);
+    assert_eq!(
+        screen_only
+            .matched_rule
+            .as_ref()
+            .map(|rule| rule.id.as_str()),
+        Some("spinner_status_working")
+    );
+}
+
+#[test]
 fn amp_osc_and_footer_chrome_tracks_active_turns() {
     let blocked = explain_with_input(
         Agent::Amp,
