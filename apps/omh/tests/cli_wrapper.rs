@@ -1345,6 +1345,8 @@ fn integration_commands_run_locally_when_server_is_missing() {
         .args(["integration", "install", "pi"])
         .env("OMH_SOCKET_PATH", &missing_socket)
         .env("HOME", &home_dir)
+        .env_remove("PI_CODING_AGENT_DIR")
+        .env_remove("PI_CONFIG_DIR")
         .output()
         .unwrap();
     assert_eq!(integration_install.status.code(), Some(0));
@@ -1357,6 +1359,8 @@ fn integration_commands_run_locally_when_server_is_missing() {
         .args(["integration", "install", "omp"])
         .env("OMH_SOCKET_PATH", &missing_socket)
         .env("HOME", &home_dir)
+        .env_remove("PI_CODING_AGENT_DIR")
+        .env_remove("PI_CONFIG_DIR")
         .output()
         .unwrap();
     assert_eq!(omp_integration_install.status.code(), Some(0));
@@ -1373,18 +1377,22 @@ fn integration_commands_run_locally_when_server_is_missing() {
         .args(["integration", "status"])
         .env("OMH_SOCKET_PATH", &missing_socket)
         .env("HOME", &home_dir)
+        .env_remove("PI_CODING_AGENT_DIR")
+        .env_remove("PI_CONFIG_DIR")
         .output()
         .unwrap();
     assert_eq!(integration_status.status.code(), Some(0));
     let status_stdout = String::from_utf8_lossy(&integration_status.stdout);
     assert!(status_stdout.contains("pi: current (v5)"));
     assert!(status_stdout.contains("claude: not installed"));
-    assert!(status_stdout.contains("omp: current (v5)"));
+    assert!(status_stdout.contains("omp: current (v6)"));
 
     let integration_uninstall = Command::new(env!("CARGO_BIN_EXE_omh"))
         .args(["integration", "uninstall", "pi"])
         .env("OMH_SOCKET_PATH", &missing_socket)
         .env("HOME", &home_dir)
+        .env_remove("PI_CODING_AGENT_DIR")
+        .env_remove("PI_CONFIG_DIR")
         .output()
         .unwrap();
     assert_eq!(integration_uninstall.status.code(), Some(0));
@@ -1401,6 +1409,8 @@ fn integration_commands_run_locally_when_server_is_missing() {
         .args(["integration", "uninstall", "omp"])
         .env("OMH_SOCKET_PATH", &missing_socket)
         .env("HOME", &home_dir)
+        .env_remove("PI_CODING_AGENT_DIR")
+        .env_remove("PI_CONFIG_DIR")
         .output()
         .unwrap();
     assert_eq!(omp_integration_uninstall.status.code(), Some(0));
