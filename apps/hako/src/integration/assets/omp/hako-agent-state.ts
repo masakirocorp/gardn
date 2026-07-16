@@ -2,7 +2,7 @@
 // managed by hako; reinstalling or updating the integration overwrites this file.
 // add custom hooks/plugins beside this file instead of editing it.
 // HAKO_INTEGRATION_ID=omp
-// HAKO_INTEGRATION_VERSION=5
+// HAKO_INTEGRATION_VERSION=6
 // @ts-nocheck
 
 import { createConnection } from "node:net";
@@ -149,7 +149,7 @@ function withSessionRef(params: Record<string, unknown>): Record<string, unknown
     : currentAgentSessionId
       ? { ...params, agent_session_id: currentAgentSessionId }
       : params;
-  return { ...sessionParams, launch_env: launchEnv() };
+  return sessionParams;
 }
 
 function sendState(state: AgentState, message?: string, seq = nextReportSeq()): Promise<void> {
@@ -234,6 +234,7 @@ function reportSession(sessionStartSource = "startup"): Promise<void> {
       agent: "omp",
       seq: nextReportSeq(),
       session_start_source: sessionStartSource,
+      launch_env: launchEnv(),
     }),
   });
 }

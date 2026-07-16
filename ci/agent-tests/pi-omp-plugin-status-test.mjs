@@ -123,6 +123,10 @@ function releases() {
   return requests.filter((request) => request.method === "pane.release_agent");
 }
 
+function sessionReports() {
+  return requests.filter((request) => request.method === "pane.report_agent_session");
+}
+
 function states() {
   return reports().map((request) => request.params.state);
 }
@@ -140,10 +144,23 @@ function assertCommon() {
         || params.agent_session_path.startsWith(`${root}/project/session/`),
       JSON.stringify(request),
     );
-    assert.deepEqual(params.launch_env, {
-      PI_CONFIG_DIR: path.join(root, "config"),
-      PI_CODING_AGENT_DIR: path.join(root, "agent"),
-    });
+    if (expectedAgent === "omp") {
+      assert.equal("launch_env" in params, false, JSON.stringify(request));
+    } else {
+      assert.deepEqual(params.launch_env, {
+        PI_CONFIG_DIR: path.join(root, "config"),
+        PI_CODING_AGENT_DIR: path.join(root, "agent"),
+      });
+    }
+  }
+  if (expectedAgent === "omp") {
+    assert.ok(sessionReports().length > 0, "OMP should report session launch context");
+    for (const request of sessionReports()) {
+      assert.deepEqual(request.params.launch_env, {
+        PI_CONFIG_DIR: path.join(root, "config"),
+        PI_CODING_AGENT_DIR: path.join(root, "agent"),
+      });
+    }
   }
 }
 

@@ -556,7 +556,7 @@ fn restore_tab(
             startup.restore_plan.clone()
         };
         if let Some(plan) = pending_native_agent_restore {
-            let restored_launch_argv = plan.argv.first().cloned().map(|command| vec![command]);
+            let restored_launch_argv = plan.preserved_launch_argv.clone();
             let restored_launch_env = plan.env.clone();
             let terminal_id = TerminalId::alloc();
             let mut terminal = TerminalState::new(terminal_id.clone(), cwd.clone())
@@ -2229,6 +2229,79 @@ mod tests {
             std::thread::sleep(std::time::Duration::from_millis(10));
         }
         let _ = runtime.try_send_bytes(bytes::Bytes::from_static(b"exit\n"));
+    }
+
+    #[test]
+    fn restore_repairs_poisoned_omp_profile_context() {
+        let root = std::env::temp_dir().join(format!(
+            "hako-poisoned-omp-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("system time should be after the Unix epoch")
+                .as_nanos()
+        ));
+        let home = root.join("home");
+        let session_dir = home.join(".omp-mk/agent/sessions/-projects-masakiro-hako");
+        std::fs::create_dir_all(&session_dir).expect("OMP session directory should exist");
+        let session_path = session_dir.join("session.jsonl");
+        std::fs::write(&session_path, b"session").expect("OMP session should exist");
+
+        let _lock = crate::integration::integration_env_lock();
+        let _home = crate::config::TestEnvVar::set("HOME", &home);
+        let mut snapshot =
+            single_pane_snapshot(Some(super::super::snapshot::PaneAgentSessionSnapshot {
+                source: "hako:omp".into(),
+                agent: "omp".into(),
+                kind: crate::agent_resume::AgentSessionRefKind::Path,
+                value: session_path.to_string_lossy().into_owned(),
+            }));
+        let pane = snapshot.workspaces[0].tabs[0]
+            .panes
+            .values_mut()
+            .next()
+            .expect("snapshot should contain one pane");
+        pane.launch_argv = Some(vec!["omp".into()]);
+        pane.launch_env = vec![
+            ("PI_CONFIG_DIR".into(), ".omp".into()),
+            (
+                "PI_CODING_AGENT_DIR".into(),
+                home.join(".omp/agent").to_string_lossy().into_owned(),
+            ),
+        ];
+
+        let (terminals, mut runtimes) = restore_snapshot_for_test(&snapshot, None, true);
+        let terminal = terminals
+            .values()
+            .next()
+            .expect("restored pane should have terminal state");
+        let plan = terminal
+            .pending_agent_resume_plan
+            .as_ref()
+            .expect("OMP session should have a pending native resume");
+
+        assert_eq!(plan.argv.first().map(String::as_str), Some("omp-mk"));
+        assert_eq!(
+            plan.command_resolution,
+            crate::agent_resume::AgentResumeCommandResolution::ShellWrapper
+        );
+        assert!(plan.preserved_launch_argv.is_none());
+        assert!(terminal.launch_argv.is_none());
+        assert_eq!(
+            terminal.launch_env,
+            vec![
+                ("PI_CONFIG_DIR".into(), ".omp-mk".into()),
+                (
+                    "PI_CODING_AGENT_DIR".into(),
+                    home.join(".omp-mk/agent").to_string_lossy().into_owned(),
+                ),
+            ]
+        );
+
+        for (_, runtime) in runtimes.drain() {
+            runtime.shutdown();
+        }
+        let _ = std::fs::remove_dir_all(root);
     }
 
     fn pi_path_agent_session() -> super::super::snapshot::PaneAgentSessionSnapshot {

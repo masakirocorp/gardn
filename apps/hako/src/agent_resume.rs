@@ -19,10 +19,18 @@ pub enum AgentSessionRefKind {
     Path,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AgentResumeCommandResolution {
+    External,
+    ShellWrapper,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AgentResumePlan {
     pub agent: String,
     pub argv: Vec<String>,
+    pub command_resolution: AgentResumeCommandResolution,
+    pub preserved_launch_argv: Option<Vec<String>>,
     pub env: Vec<(String, String)>,
     pub dedupe_key: String,
 }
@@ -205,6 +213,8 @@ pub fn plan(source: &str, agent: &str, session_ref: &AgentSessionRef) -> Option<
     Some(AgentResumePlan {
         agent: agent.to_string(),
         argv,
+        command_resolution: AgentResumeCommandResolution::External,
+        preserved_launch_argv: None,
         env: Vec::new(),
         dedupe_key: dedupe_key(source, agent, session_ref),
     })
@@ -261,11 +271,34 @@ pub fn plan_with_launch_context(
         .filter(|(key, value)| valid_launch_env_key(key) && valid_launch_env_value(value))
         .cloned()
         .collect();
+
+    if source == "hako:omp" && agent == "omp" {
+        if let Some(profile) = omp_profile_from_session_ref(session_ref) {
+            let saved_command = launch_argv
+                .and_then(|argv| argv.first())
+                .filter(|command| valid_launch_command(command));
+            let preserved_command = saved_command
+                .filter(|command| command.as_str() != "omp" || profile.command == "omp");
+            let command = preserved_command
+                .cloned()
+                .unwrap_or_else(|| profile.command.clone());
+            plan.command_resolution = preserved_command
+                .map(|command| resolution_for_saved_command(command))
+                .unwrap_or(AgentResumeCommandResolution::ShellWrapper);
+            plan.preserved_launch_argv = preserved_command.cloned().map(|command| vec![command]);
+            if let Some(planned_command) = plan.argv.first_mut() {
+                *planned_command = command;
+            }
+            plan.env = profile.reconcile_env(&plan.env);
+        }
+    }
+
     if !plan.env.is_empty() {
         plan.dedupe_key = dedupe_key_with_env(&plan.dedupe_key, &plan.env);
     }
     Some(plan)
 }
+
 pub fn plan_with_launch_argv(
     source: &str,
     agent: &str,
@@ -278,11 +311,77 @@ pub fn plan_with_launch_argv(
         .filter(|command| valid_launch_command(command))
         .cloned()
     {
+        plan.command_resolution = resolution_for_saved_command(&command);
+        plan.preserved_launch_argv = Some(vec![command.clone()]);
         if let Some(planned_command) = plan.argv.first_mut() {
             *planned_command = command;
         }
+    } else if source == "hako:omp" && agent == "omp" {
+        if let Some(profile) = omp_profile_from_session_ref(session_ref) {
+            if let Some(planned_command) = plan.argv.first_mut() {
+                *planned_command = profile.command;
+            }
+            plan.command_resolution = AgentResumeCommandResolution::ShellWrapper;
+        }
     }
     Some(plan)
+}
+
+struct OmpProfile {
+    config_dir: String,
+    agent_dir: String,
+    command: String,
+}
+
+impl OmpProfile {
+    fn reconcile_env(&self, env: &[(String, String)]) -> Vec<(String, String)> {
+        let mut reconciled = env
+            .iter()
+            .filter(|(key, _)| key != "PI_CONFIG_DIR" && key != "PI_CODING_AGENT_DIR")
+            .cloned()
+            .collect::<Vec<_>>();
+        reconciled.push(("PI_CONFIG_DIR".to_string(), self.config_dir.clone()));
+        reconciled.push(("PI_CODING_AGENT_DIR".to_string(), self.agent_dir.clone()));
+        reconciled
+    }
+}
+
+fn omp_profile_from_session_ref(session_ref: &AgentSessionRef) -> Option<OmpProfile> {
+    if session_ref.kind != AgentSessionRefKind::Path {
+        return None;
+    }
+    let home = std::env::var_os("HOME").map(std::path::PathBuf::from)?;
+    let relative = Path::new(&session_ref.value).strip_prefix(&home).ok()?;
+    let mut components = relative.components();
+    let config_dir = components.next()?.as_os_str().to_str()?;
+    if components.next()?.as_os_str() != std::ffi::OsStr::new("agent")
+        || components.next()?.as_os_str() != std::ffi::OsStr::new("sessions")
+    {
+        return None;
+    }
+
+    let command = if config_dir == ".omp" {
+        "omp".to_string()
+    } else {
+        let profile = config_dir.strip_prefix(".omp-")?;
+        if profile.is_empty()
+            || !profile
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-'))
+        {
+            return None;
+        }
+        format!("omp-{profile}")
+    };
+    Some(OmpProfile {
+        config_dir: config_dir.to_string(),
+        agent_dir: home
+            .join(config_dir)
+            .join("agent")
+            .to_string_lossy()
+            .into_owned(),
+        command,
+    })
 }
 
 pub fn dedupe_key(source: &str, agent: &str, session_ref: &AgentSessionRef) -> String {
@@ -333,6 +432,14 @@ fn valid_session_path(value: &str) -> bool {
 
 fn valid_launch_command(value: &str) -> bool {
     !value.is_empty() && !value.chars().any(char::is_control)
+}
+
+fn resolution_for_saved_command(command: &str) -> AgentResumeCommandResolution {
+    if Path::new(command).is_absolute() || command.contains(['/', '\\']) {
+        AgentResumeCommandResolution::External
+    } else {
+        AgentResumeCommandResolution::ShellWrapper
+    }
 }
 
 fn valid_launch_env_key(value: &str) -> bool {
@@ -690,6 +797,63 @@ mod tests {
                 ("PI_CODING_AGENT_DIR".to_string(), agent_dir),
             ]
         );
+        assert_eq!(
+            plan.command_resolution,
+            AgentResumeCommandResolution::ShellWrapper
+        );
+        assert_eq!(
+            plan.preserved_launch_argv,
+            Some(vec![shell_resolved_profile])
+        );
+    }
+
+    #[test]
+    fn planner_repairs_poisoned_omp_profile_context_from_session_path() {
+        let home = std::env::var("HOME").expect("HOME should be set in tests");
+        let session_path =
+            format!("{home}/.omp-mk/agent/sessions/-projects-masakiro-hako/session.jsonl");
+        let session_ref = AgentSessionRef::path(session_path.clone()).unwrap();
+
+        let plan = plan_with_launch_context(
+            "hako:omp",
+            "omp",
+            &session_ref,
+            Some(&["omp".to_string()]),
+            &[
+                ("PI_CONFIG_DIR".to_string(), ".omp".to_string()),
+                (
+                    "PI_CODING_AGENT_DIR".to_string(),
+                    format!("{home}/.omp/agent"),
+                ),
+            ],
+        )
+        .unwrap();
+
+        assert_eq!(
+            plan.argv,
+            vec![
+                "omp-mk",
+                "--resume",
+                &session_path,
+                "--session-dir",
+                &format!("{home}/.omp-mk/agent/sessions/-projects-masakiro-hako"),
+            ]
+        );
+        assert_eq!(
+            plan.env,
+            vec![
+                ("PI_CONFIG_DIR".to_string(), ".omp-mk".to_string()),
+                (
+                    "PI_CODING_AGENT_DIR".to_string(),
+                    format!("{home}/.omp-mk/agent"),
+                ),
+            ]
+        );
+        assert_eq!(
+            plan.command_resolution,
+            AgentResumeCommandResolution::ShellWrapper
+        );
+        assert!(plan.preserved_launch_argv.is_none());
     }
 
     #[test]
@@ -707,7 +871,7 @@ mod tests {
                 .unwrap()
                 .argv,
             vec![
-                "omp".to_string(),
+                "omp-profile".to_string(),
                 "--resume".to_string(),
                 session_path,
                 "--session-dir".to_string(),

@@ -16,7 +16,7 @@ const PI_EXTENSION_ASSET: &str = include_str!("assets/pi/hako-agent-state.ts");
 const PI_INTEGRATION_VERSION: u32 = 5;
 const OMP_EXTENSION_INSTALL_NAME: &str = "hako-omp-agent-state.ts";
 const OMP_EXTENSION_ASSET: &str = include_str!("assets/omp/hako-agent-state.ts");
-const OMP_INTEGRATION_VERSION: u32 = 5;
+const OMP_INTEGRATION_VERSION: u32 = 6;
 const PI_CODING_AGENT_DIR_ENV_VAR: &str = "PI_CODING_AGENT_DIR";
 const OMP_CONFIG_DIR_ENV_VAR: &str = "PI_CONFIG_DIR";
 const CLAUDE_HOOK_INSTALL_NAME: &str = "hako-agent-state.sh";
@@ -4042,7 +4042,7 @@ mod tests {
         assert!(installed.removed_legacy_pi_extensions.is_empty());
         assert_eq!(content, OMP_EXTENSION_ASSET);
         assert!(content.contains("HAKO_INTEGRATION_ID=omp"));
-        assert!(content.contains("HAKO_INTEGRATION_VERSION=5"));
+        assert!(content.contains("HAKO_INTEGRATION_VERSION=6"));
         assert!(content.contains("agent: \"omp\""));
         assert!(!content.contains("agent: \"pi\""));
 

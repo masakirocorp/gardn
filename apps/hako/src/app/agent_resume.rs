@@ -1,7 +1,6 @@
 use std::time::Instant;
 
 use crate::app::state::{ToastKind, ToastNotification, ToastTarget};
-use bytes::Bytes;
 
 use super::{App, ClientViewState};
 
@@ -217,24 +216,46 @@ impl App {
         };
         let Some(launch_env) = self
             .find_pane(pane_id)
-            .and_then(|(ws_idx, _)| self.pane_launch_env(ws_idx, pane_id, Vec::new()))
+            .and_then(|(ws_idx, _)| self.pane_launch_env(ws_idx, pane_id, plan.env.clone()))
         else {
             return false;
         };
-
-        let runtime = match crate::terminal::TerminalRuntime::spawn(
-            pane_id,
-            rows,
-            cols,
-            cwd,
-            self.state.pane_scrollback_limit_bytes,
-            host_terminal_theme,
-            crate::pane::PaneShellConfig::new(&self.state.default_shell, self.state.shell_mode),
-            &launch_env,
-            self.event_tx.clone(),
-            self.render_notify.clone(),
-            self.render_dirty.clone(),
-        ) {
+        let shell_config =
+            crate::pane::PaneShellConfig::new(&self.state.default_shell, self.state.shell_mode);
+        let runtime = match plan.command_resolution {
+            crate::agent_resume::AgentResumeCommandResolution::External => {
+                crate::terminal::TerminalRuntime::spawn_argv_command(
+                    pane_id,
+                    rows,
+                    cols,
+                    cwd,
+                    &plan.argv,
+                    &launch_env,
+                    self.state.pane_scrollback_limit_bytes,
+                    host_terminal_theme,
+                    self.event_tx.clone(),
+                    self.render_notify.clone(),
+                    self.render_dirty.clone(),
+                )
+            }
+            crate::agent_resume::AgentResumeCommandResolution::ShellWrapper => {
+                crate::terminal::TerminalRuntime::spawn_profile_command(
+                    pane_id,
+                    rows,
+                    cols,
+                    cwd,
+                    shell_config,
+                    &resume_command,
+                    &launch_env,
+                    self.state.pane_scrollback_limit_bytes,
+                    host_terminal_theme,
+                    self.event_tx.clone(),
+                    self.render_notify.clone(),
+                    self.render_dirty.clone(),
+                )
+            }
+        };
+        let runtime = match runtime {
             Ok(runtime) => runtime,
             Err(err) => {
                 tracing::warn!(
@@ -242,12 +263,12 @@ impl App {
                     terminal = %terminal_id,
                     agent = %plan.agent,
                     err = %err,
-                    "failed to start shell for deferred agent resume"
+                    "failed to launch deferred agent resume"
                 );
                 self.notify_agent_restore_failed(
                     pane_id,
                     &plan,
-                    "restore shell failed",
+                    "restore launch failed",
                     Some(&resume_command),
                 );
                 if let Some(terminal) = self.state.terminals.get_mut(&terminal_id) {
@@ -257,42 +278,11 @@ impl App {
             }
         };
 
-        let mut input = String::with_capacity(resume_command.len() + 1);
-        input.push_str(&resume_command);
-        input.push('\r');
-        if let Err(err) = runtime.try_send_bytes(Bytes::from(input)) {
-            tracing::warn!(
-                pane = pane_id.raw(),
-                terminal = %terminal_id,
-                agent = %plan.agent,
-                err = %err,
-                "failed to send deferred agent resume command to shell"
-            );
-            runtime.shutdown();
-            self.notify_agent_restore_failed(
-                pane_id,
-                &plan,
-                "restore command failed",
-                Some(&resume_command),
-            );
-            if let Some(terminal) = self.state.terminals.get_mut(&terminal_id) {
-                terminal.clear_agent_runtime_identity_after_respawn();
-            }
-            return true;
-        }
-
         self.terminal_runtimes.insert(terminal_id.clone(), runtime);
         if let Some(terminal) = self.state.terminals.get_mut(&terminal_id) {
             terminal.pending_agent_resume_plan = None;
-            if terminal.launch_argv.is_none() {
-                if let Some(command) = plan.argv.first() {
-                    terminal.launch_argv = Some(vec![command.clone()]);
-                }
-            }
-            if terminal.launch_env.is_empty() && !plan.env.is_empty() {
-                terminal.launch_env = plan.env.clone();
-            }
-            terminal.respawn_shell_on_exit = false;
+            terminal.launch_env = plan.env;
+            terminal.respawn_shell_on_exit = true;
         }
         true
     }
@@ -475,6 +465,8 @@ mod tests {
             .pending_agent_resume_plan = Some(crate::agent_resume::AgentResumePlan {
             agent: "test-agent".into(),
             argv,
+            command_resolution: crate::agent_resume::AgentResumeCommandResolution::External,
+            preserved_launch_argv: None,
             env: Vec::new(),
             dedupe_key: format!("test\0{}", output.display()),
         });
@@ -546,9 +538,8 @@ mod tests {
                 "{command_name} restore argv should execute exactly"
             );
             assert_eq!(
-                launch_argv,
-                Some(vec![command.to_string_lossy().to_string()]),
-                "{command_name} restore command should stay persisted for later restores"
+                launch_argv, None,
+                "{command_name} generated restore command must not become saved launch context"
             );
         }
 
@@ -596,6 +587,8 @@ mod tests {
                 "-c".into(),
                 format!("printf %s \"$CODEX_HOME\" > '{}'", output.display()),
             ],
+            command_resolution: crate::agent_resume::AgentResumeCommandResolution::External,
+            preserved_launch_argv: None,
             env: vec![("CODEX_HOME".into(), "/profiles/manual-codex".into())],
             dedupe_key: format!("hako:codex\0codex\0Id\0{}", output.display()),
         });
@@ -620,6 +613,144 @@ mod tests {
                 .launch_env,
             vec![("CODEX_HOME".into(), "/profiles/manual-codex".into())]
         );
+
+        for (_, runtime) in app.terminal_runtimes.drain() {
+            runtime.shutdown();
+        }
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn restored_omp_profile_bypasses_conflicting_default_wrapper() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = temp_restore_dir("restore-omp-profile");
+        let home = dir.join("home");
+        let session_dir = home.join(".omp-mk/agent/sessions/-projects-masakiro-hako");
+        std::fs::create_dir_all(&session_dir).expect("OMP session directory should be created");
+        let session_path = session_dir.join("session.jsonl");
+        std::fs::write(&session_path, b"session").expect("OMP session should exist");
+        let output = dir.join("omp-mk.txt");
+        let hostile_sentinel = dir.join("hostile-omp.txt");
+        let wrapper = dir.join("omp-mk");
+        let wrapper_script = format!(
+            "#!/bin/sh\n\
+             {{ printf '%s\\n' \"$PI_CONFIG_DIR\" \"$PI_CODING_AGENT_DIR\"; \
+             for arg in \"$@\"; do printf '%s\\n' \"$arg\"; done; }} > '{}'\n",
+            output.display(),
+        );
+        std::fs::write(&wrapper, wrapper_script).expect("OMP wrapper should be written");
+        let mut wrapper_permissions = std::fs::metadata(&wrapper)
+            .expect("OMP wrapper should have metadata")
+            .permissions();
+        wrapper_permissions.set_mode(0o755);
+        std::fs::set_permissions(&wrapper, wrapper_permissions)
+            .expect("OMP wrapper should be executable");
+
+        let shell = dir.join("profile-shell");
+        let shell_script = format!(
+            "#!/bin/sh\n\
+             PATH='{}':$PATH\n\
+             export PATH\n\
+             omp() {{ printf hostile > '{}'; }}\n\
+             eval \"$2\"\n",
+            dir.display(),
+            hostile_sentinel.display(),
+        );
+        std::fs::write(&shell, shell_script).expect("profile shell should be written");
+        let mut shell_permissions = std::fs::metadata(&shell)
+            .expect("profile shell should have metadata")
+            .permissions();
+        shell_permissions.set_mode(0o755);
+        std::fs::set_permissions(&shell, shell_permissions)
+            .expect("profile shell should be executable");
+
+        let plan = {
+            let _lock = crate::integration::integration_env_lock();
+            let _home = crate::config::TestEnvVar::set("HOME", &home);
+            crate::agent_resume::plan_with_launch_context(
+                "hako:omp",
+                "omp",
+                &crate::agent_resume::AgentSessionRef::path(
+                    session_path.to_string_lossy().into_owned(),
+                )
+                .expect("OMP session path should be valid"),
+                Some(&["omp".to_string()]),
+                &[
+                    ("PI_CONFIG_DIR".into(), ".omp".into()),
+                    (
+                        "PI_CODING_AGENT_DIR".into(),
+                        home.join(".omp/agent").to_string_lossy().into_owned(),
+                    ),
+                ],
+            )
+            .expect("OMP restore plan should be created")
+        };
+
+        let mut app = test_app();
+        let workspace = crate::workspace::Workspace::test_new("restored");
+        let pane_id = workspace.tabs[0].root_pane;
+        let terminal_id = workspace.terminal_id(pane_id).cloned().unwrap();
+        app.state.view.pane_infos = workspace.tabs[0]
+            .layout
+            .panes(ratatui::layout::Rect::new(0, 0, 100, 30));
+        app.state.workspaces = vec![workspace];
+        app.state.active = Some(0);
+        app.state.ensure_test_terminals();
+        app.state.default_shell = shell.to_string_lossy().into_owned();
+        app.state.shell_mode = crate::config::ShellModeConfig::Login;
+        app.state.host_terminal_theme = crate::terminal_theme::TerminalTheme {
+            foreground: Some(crate::terminal_theme::RgbColor {
+                r: 220,
+                g: 220,
+                b: 220,
+            }),
+            background: Some(crate::terminal_theme::RgbColor {
+                r: 20,
+                g: 20,
+                b: 20,
+            }),
+            ..crate::terminal_theme::TerminalTheme::default()
+        };
+        app.state
+            .terminals
+            .get_mut(&terminal_id)
+            .expect("test terminal should exist")
+            .pending_agent_resume_plan = Some(plan);
+
+        assert!(app.start_pending_agent_resumes(false));
+        for _ in 0..40 {
+            if output.exists() {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+        }
+
+        let recorded =
+            std::fs::read_to_string(&output).expect("omp-mk wrapper should record its launch");
+        assert_eq!(
+            recorded.lines().collect::<Vec<_>>(),
+            [
+                ".omp-mk",
+                home.join(".omp-mk/agent").to_string_lossy().as_ref(),
+                "--resume",
+                session_path.to_string_lossy().as_ref(),
+                "--session-dir",
+                session_dir.to_string_lossy().as_ref(),
+            ]
+        );
+        assert!(
+            !hostile_sentinel.exists(),
+            "the conflicting default omp wrapper must not run"
+        );
+        let terminal = app
+            .state
+            .terminals
+            .get(&terminal_id)
+            .expect("terminal should survive launch");
+        assert!(terminal.launch_argv.is_none());
+        assert!(terminal.respawn_shell_on_exit);
 
         for (_, runtime) in app.terminal_runtimes.drain() {
             runtime.shutdown();
@@ -660,6 +791,8 @@ mod tests {
             .pending_agent_resume_plan = Some(crate::agent_resume::AgentResumePlan {
             agent: "codex".into(),
             argv: Vec::new(),
+            command_resolution: crate::agent_resume::AgentResumeCommandResolution::External,
+            preserved_launch_argv: None,
             env: Vec::new(),
             dedupe_key: "hako:codex\0codex\0Id\0codex-session".into(),
         });
@@ -713,6 +846,8 @@ mod tests {
                 "-c".into(),
                 "printf '%s' 'restored agent: shell quoted | marker'; sleep 5".into(),
             ],
+            command_resolution: crate::agent_resume::AgentResumeCommandResolution::External,
+            preserved_launch_argv: None,
             env: Vec::new(),
             dedupe_key: "hako:codex\0codex\0Id\0codex-session".into(),
         });
@@ -742,12 +877,12 @@ mod tests {
             .get(&terminal_id)
             .expect("terminal should survive launch");
         assert!(terminal.pending_agent_resume_plan.is_none());
-        assert!(!terminal.respawn_shell_on_exit);
+        assert!(terminal.respawn_shell_on_exit);
 
         let runtime = app
             .terminal_runtimes
             .get(&terminal_id)
-            .expect("pending resume should leave a shell runtime");
+            .expect("pending resume should leave an agent runtime");
         let marker = "restored agent: shell quoted | marker";
         for _ in 0..20 {
             if runtime
@@ -763,7 +898,7 @@ mod tests {
                 .snapshot_history()
                 .expect("runtime should expose terminal history")
                 .contains(marker),
-            "deferred restore should inject the resume argv into the restored shell"
+            "deferred restore should execute the resume argv"
         );
 
         for (_, runtime) in app.terminal_runtimes.drain() {
@@ -790,6 +925,8 @@ mod tests {
             .pending_agent_resume_plan = Some(crate::agent_resume::AgentResumePlan {
             agent: "codex".into(),
             argv: vec!["/bin/sh".into(), "-c".into(), "sleep 5".into()],
+            command_resolution: crate::agent_resume::AgentResumeCommandResolution::External,
+            preserved_launch_argv: None,
             env: Vec::new(),
             dedupe_key: "hako:codex\0codex\0Id\0codex-session".into(),
         });
@@ -840,6 +977,8 @@ mod tests {
                 .pending_agent_resume_plan = Some(crate::agent_resume::AgentResumePlan {
                 agent: "codex".into(),
                 argv: vec!["/bin/sh".into(), "-c".into(), "sleep 5".into()],
+                command_resolution: crate::agent_resume::AgentResumeCommandResolution::External,
+                preserved_launch_argv: None,
                 env: Vec::new(),
                 dedupe_key: format!("hako:codex\0codex\0Id\0{terminal_id}"),
             });
@@ -923,6 +1062,8 @@ mod tests {
             .pending_agent_resume_plan = Some(crate::agent_resume::AgentResumePlan {
             agent: "codex".into(),
             argv: vec!["/bin/sh".into(), "-c".into(), "sleep 5".into()],
+            command_resolution: crate::agent_resume::AgentResumeCommandResolution::External,
+            preserved_launch_argv: None,
             env: Vec::new(),
             dedupe_key: "hako:codex\0codex\0Id\0codex-session".into(),
         });
@@ -1007,6 +1148,8 @@ mod tests {
             .pending_agent_resume_plan = Some(crate::agent_resume::AgentResumePlan {
             agent: "codex".into(),
             argv: vec!["/bin/sh".into(), "-c".into(), "sleep 5".into()],
+            command_resolution: crate::agent_resume::AgentResumeCommandResolution::External,
+            preserved_launch_argv: None,
             env: Vec::new(),
             dedupe_key: "hako:codex\0codex\0Id\0codex-session".into(),
         });
@@ -1042,6 +1185,8 @@ mod tests {
         let plan = crate::agent_resume::AgentResumePlan {
             agent: "codex".into(),
             argv: vec!["codex".into(), "resume".into(), "session".into()],
+            command_resolution: crate::agent_resume::AgentResumeCommandResolution::External,
+            preserved_launch_argv: None,
             env: vec![("CODEX_HOME".into(), "/profiles/codex with space".into())],
             dedupe_key: "codex".into(),
         };

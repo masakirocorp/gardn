@@ -254,6 +254,7 @@ if not request_log.exists():
 requests = [json.loads(line) for line in request_log.read_text(encoding="utf-8").splitlines() if line.strip()]
 reports = [req for req in requests if req.get("method") == "pane.report_agent"]
 releases = [req for req in requests if req.get("method") == "pane.release_agent"]
+session_reports = [req for req in requests if req.get("method") == "pane.report_agent_session"]
 
 
 
@@ -327,8 +328,22 @@ def assert_agent(agent, scenario, pane_id, marker_suffix):
         if req in pane_releases:
             release_paths.add(path)
         launch_env = params.get("launch_env")
-        if launch_env != {"PI_CONFIG_DIR": expected_config, "PI_CODING_AGENT_DIR": expected_agent_dir}:
+        if agent == "omp":
+            if launch_env is not None:
+                raise SystemExit(f"{agent}: state/release report must not carry launch_env {launch_env}")
+        elif launch_env != {"PI_CONFIG_DIR": expected_config, "PI_CODING_AGENT_DIR": expected_agent_dir}:
             raise SystemExit(f"{agent}: wrong launch_env {launch_env}")
+    if agent == "omp":
+        pane_session_reports = for_pane(session_reports, pane_id)
+        if not pane_session_reports:
+            raise SystemExit("omp: missing pane.report_agent_session launch context")
+        for req in pane_session_reports:
+            launch_env = req.get("params", {}).get("launch_env")
+            if launch_env != {
+                "PI_CONFIG_DIR": expected_config,
+                "PI_CODING_AGENT_DIR": expected_agent_dir,
+            }:
+                raise SystemExit(f"omp: wrong session launch_env {launch_env}")
     assert_single_session_root(agent, session_paths, release_paths)
 
 

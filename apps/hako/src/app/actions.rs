@@ -3221,7 +3221,9 @@ impl AppState {
                             session_ref,
                             seq,
                         )?;
-                        if terminal.launch_env != launch_env {
+                        let launch_context_may_change =
+                            terminal.launch_env.is_empty() || mutation.session_ref_changed;
+                        if launch_context_may_change && terminal.launch_env != launch_env {
                             terminal.launch_env = launch_env;
                             mutation.session_ref_changed = true;
                         }
@@ -3250,7 +3252,9 @@ impl AppState {
                             seq,
                             session_start_source,
                         )?;
-                        if terminal.launch_env != launch_env {
+                        let launch_context_may_change =
+                            terminal.launch_env.is_empty() || mutation.session_ref_changed;
+                        if launch_context_may_change && terminal.launch_env != launch_env {
                             terminal.launch_env = launch_env;
                             mutation.session_ref_changed = true;
                         }
@@ -5907,12 +5911,34 @@ mod tests {
         );
 
         state.session_dirty = false;
+        let same_session_updates = state.handle_app_event(AppEvent::HookSessionReported {
+            pane_id,
+            source: "hako:pi".into(),
+            agent_label: "pi".into(),
+            seq: Some(22),
+            session_start_source: None,
+            session_ref: crate::agent_resume::AgentSessionRef::path("/tmp/two.jsonl"),
+            launch_env: vec![("PI_CONFIG_DIR".into(), ".wrong-profile".into())],
+        });
+
+        assert!(same_session_updates.is_empty());
+        assert!(!state.session_dirty);
+        let terminal = state
+            .terminals
+            .get(&state.workspaces[0].terminal_id(pane_id).cloned().unwrap())
+            .unwrap();
+        assert_eq!(
+            terminal.launch_env,
+            vec![("PI_CONFIG_DIR".into(), ".pi-profile".into())]
+        );
+
+        state.session_dirty = false;
         let third_updates = state.handle_app_event(AppEvent::HookSessionReported {
             pane_id,
             source: "hako:pi".into(),
             agent_label: "pi".into(),
             session_start_source: None,
-            seq: Some(22),
+            seq: Some(23),
             session_ref: crate::agent_resume::AgentSessionRef::path("/tmp/three.jsonl"),
             launch_env: Vec::new(),
         });

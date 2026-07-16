@@ -4888,6 +4888,8 @@ next_tab = ""
             terminal.pending_agent_resume_plan = Some(crate::agent_resume::AgentResumePlan {
                 agent: "codex".into(),
                 argv: vec!["/bin/sh".into(), "-c".into(), "sleep 5".into()],
+                command_resolution: crate::agent_resume::AgentResumeCommandResolution::External,
+                preserved_launch_argv: None,
                 env: Vec::new(),
                 dedupe_key: "hako:codex\0codex\0Id\0client-visible-session".into(),
             });

@@ -144,8 +144,20 @@ class PiOmpStatusTestValidationTests(unittest.TestCase):
                     "pane_id": pane_id,
                     "source": f"hako:{agent}",
                     "agent": agent,
-                    "launch_env": launch_env,
                 }
+                if agent == "omp":
+                    rpc(
+                        "pane.report_agent_session",
+                        {
+                            **base_params,
+                            "seq": 0,
+                            "session_start_source": "startup",
+                            "agent_session_path": str(parent_session),
+                            "launch_env": launch_env,
+                        },
+                    )
+                else:
+                    base_params["launch_env"] = launch_env
 
                 for seq, (state, session_path) in enumerate(
                     [

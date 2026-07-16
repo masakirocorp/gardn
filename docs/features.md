@@ -134,7 +134,7 @@ Hako resumes supported agents into native agent sessions during session restore 
 - Supported restore sources come from installed integrations that report session references.
 - Duplicate session references are deduplicated during a restore pass.
 - Native agent restore suppresses pane-history replay so the resumed agent owns its conversation history.
-- Restored agents launch through the restored pane shell, preserving pane environment setup before the native resume command runs.
+- Restored agents launch as one-shot executable or shell-wrapper commands with their saved environment. OMP restores reconcile safe `.omp` and `.omp-*` session paths with the matching profile wrapper and environment before launch.
 
 ## Navigation and interaction
 
