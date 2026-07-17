@@ -80,6 +80,14 @@ _Avoid_: Raw metadata, session state
 A repo-level automated check that rejects narrow, mechanically detectable maintenance or test-quality regressions.
 _Avoid_: Review checklist, full test suite
 
+**Public Web Content**:
+Authored marketing pages and user-facing product documentation under `website/**`. It explains released behavior for product users and is distinct from maintainer-facing root `docs/**`.
+_Avoid_: Maintainer documentation, generated reference
+
+**Generated Reference**:
+Disposable, versioned website build content recreated from authoritative Rust contracts, tagged binaries, or release metadata. It mirrors machine shape but is neither authored guidance nor a source of truth.
+_Avoid_: Public prose, compatibility contract
+
 **Config File**:
 The user-editable TOML file that defines Oh My Herdr's persistent product settings. It is a public configuration surface, not a dump of runtime state.
 _Avoid_: Settings cache, state file
