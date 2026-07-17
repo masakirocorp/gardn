@@ -4,6 +4,8 @@ status: accepted
 
 # Keep the public website and documentation static
 
+ADR 0055 supersedes only this record's Astro and Starlight framework selection. The static deployment, content ownership, source-of-truth, generated-content, domain, and dynamic-application boundaries below remain accepted.
+
 Oh My Herdr will keep its public marketing site and product documentation in one Astro 5 package under `website/`. Astro custom pages own `/`, `/download`, and `/releases`; Starlight owns `/docs/**`. The package builds one static asset tree with no application server, database, session store, or server-rendered route.
 
 The canonical product origin serves that static tree. `www` redirects to the canonical origin. The hostname is deployment configuration rather than a source-ownership boundary. `app.<product-domain>` is reserved and must not point at the static site or imply that a hosted product application exists.
