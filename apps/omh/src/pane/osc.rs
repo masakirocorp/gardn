@@ -137,12 +137,12 @@ impl DefaultColorOscTracker {
 }
 
 fn is_default_color_set_osc(body: &[u8]) -> bool {
-    matches!(
-        parse_default_color_event(body),
-        Some(DefaultColorEvent::Set(_))
-    )
+    parse_default_color_events(body)
+        .into_iter()
+        .any(|event| matches!(event, DefaultColorEvent::Set(_)))
 }
 
+#[cfg(test)]
 #[derive(Debug, Default)]
 pub(super) struct DefaultColorEventTracker {
     state: DefaultColorOscTrackerState,
@@ -150,6 +150,7 @@ pub(super) struct DefaultColorEventTracker {
     pending: Vec<DefaultColorEvent>,
 }
 
+#[cfg(test)]
 impl DefaultColorEventTracker {
     pub(super) fn observe(&mut self, bytes: &[u8]) {
         for &byte in bytes {
@@ -226,9 +227,7 @@ impl DefaultColorEventTracker {
     }
 
     fn finalize(&mut self) {
-        if let Some(event) = parse_default_color_event(&self.body) {
-            self.pending.push(event);
-        }
+        self.pending.extend(parse_default_color_events(&self.body));
         self.body.clear();
     }
 
@@ -237,15 +236,19 @@ impl DefaultColorEventTracker {
     }
 }
 
-fn parse_default_color_event(body: &[u8]) -> Option<DefaultColorEvent> {
-    match body {
+pub(super) fn parse_default_color_events(body: &[u8]) -> Vec<DefaultColorEvent> {
+    let single = match body {
         b"10;?" => Some(DefaultColorEvent::Query(DefaultColorQuery::Foreground)),
         b"11;?" => Some(DefaultColorEvent::Query(DefaultColorQuery::Background)),
         b"12;?" => Some(DefaultColorEvent::Query(DefaultColorQuery::Cursor)),
         b"110" | b"110;" => Some(DefaultColorEvent::Reset(DefaultColorQuery::Foreground)),
         b"111" | b"111;" => Some(DefaultColorEvent::Reset(DefaultColorQuery::Background)),
-        _ => parse_palette_color_query(body).or_else(|| parse_default_color_set_event(body)),
+        _ => parse_palette_color_query(body),
+    };
+    if let Some(event) = single {
+        return vec![event];
     }
+    parse_default_color_set_events(body)
 }
 
 fn parse_palette_color_query(body: &[u8]) -> Option<DefaultColorEvent> {
@@ -263,15 +266,33 @@ fn parse_palette_color_query(body: &[u8]) -> Option<DefaultColorEvent> {
         .map(DefaultColorEvent::PaletteQuery)
 }
 
-fn parse_default_color_set_event(body: &[u8]) -> Option<DefaultColorEvent> {
-    let separator = body.iter().position(|byte| *byte == b';')?;
-    let query = match &body[..separator] {
-        b"10" => DefaultColorQuery::Foreground,
-        b"11" => DefaultColorQuery::Background,
-        _ => return None,
+fn parse_default_color_set_events(body: &[u8]) -> Vec<DefaultColorEvent> {
+    let Some(separator) = body.iter().position(|byte| *byte == b';') else {
+        return Vec::new();
     };
-    let value = &body[separator + 1..];
-    (!value.is_empty() && value != b"?").then_some(DefaultColorEvent::Set(query))
+    let start = match &body[..separator] {
+        b"10" => 10,
+        b"11" => 11,
+        b"12" => 12,
+        _ => return Vec::new(),
+    };
+    body[separator + 1..]
+        .split(|byte| *byte == b';')
+        .filter(|value| !value.is_empty())
+        .enumerate()
+        .filter_map(|(offset, value)| {
+            if value == b"?" {
+                return None;
+            }
+            let query = match start + offset {
+                10 => DefaultColorQuery::Foreground,
+                11 => DefaultColorQuery::Background,
+                12 => DefaultColorQuery::Cursor,
+                _ => return None,
+            };
+            Some(DefaultColorEvent::Set(query))
+        })
+        .collect()
 }
 
 /// 256 KiB of base64 ≈ 192 KiB of text — enough for real source-file copies
@@ -805,20 +826,42 @@ pub(super) fn write_host_terminal_theme(
     terminal: &mut crate::ghostty::Terminal,
     theme: crate::terminal_theme::TerminalTheme,
 ) {
-    if let Some(color) = theme.foreground {
-        let sequence = crate::terminal_theme::osc_set_default_color_sequence(
+    write_host_terminal_theme_selective(terminal, theme, true, true);
+}
+
+pub(super) fn write_host_terminal_theme_selective(
+    terminal: &mut crate::ghostty::Terminal,
+    theme: crate::terminal_theme::TerminalTheme,
+    foreground: bool,
+    background: bool,
+) {
+    if foreground {
+        write_host_default_color(
+            terminal,
             crate::terminal_theme::DefaultColorKind::Foreground,
-            color,
+            theme.foreground,
         );
-        terminal.write(sequence.as_bytes());
     }
-    if let Some(color) = theme.background {
-        let sequence = crate::terminal_theme::osc_set_default_color_sequence(
+    if background {
+        write_host_default_color(
+            terminal,
             crate::terminal_theme::DefaultColorKind::Background,
-            color,
+            theme.background,
         );
-        terminal.write(sequence.as_bytes());
     }
+}
+
+fn write_host_default_color(
+    terminal: &mut crate::ghostty::Terminal,
+    kind: crate::terminal_theme::DefaultColorKind,
+    color: Option<crate::terminal_theme::RgbColor>,
+) {
+    let sequence = if let Some(color) = color {
+        crate::terminal_theme::osc_set_default_color_sequence(kind, color)
+    } else {
+        crate::terminal_theme::osc_reset_default_color_sequence(kind).to_string()
+    };
+    terminal.write(sequence.as_bytes());
 }
 
 pub(super) fn restore_host_terminal_theme_if_needed(

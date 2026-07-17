@@ -109,6 +109,13 @@ pub fn osc_set_default_color_sequence(kind: DefaultColorKind, color: RgbColor) -
     )
 }
 
+pub fn osc_reset_default_color_sequence(kind: DefaultColorKind) -> &'static str {
+    match kind {
+        DefaultColorKind::Foreground => "\x1b]110\x1b\\",
+        DefaultColorKind::Background => "\x1b]111\x1b\\",
+    }
+}
+
 fn osc_body(sequence: &str) -> Option<&str> {
     let body = sequence.strip_prefix("\x1b]")?;
     body.strip_suffix("\x1b\\")
