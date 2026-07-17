@@ -112,6 +112,8 @@ pub(crate) struct ClientViewState {
     pub(crate) context_menu: Option<ContextMenuState>,
     pub(crate) selection: Option<crate::selection::Selection>,
     pub(crate) selection_autoscroll: Option<SelectionAutoscroll>,
+    pub(crate) last_pane_click: Option<crate::app::PaneClickState>,
+    pub(crate) selection_highlight_clear_deadline: Option<std::time::Instant>,
     pub(crate) copy_mode: Option<crate::app::state::CopyModeState>,
     pub(crate) drag: Option<DragState>,
     pub(crate) workspace_press: Option<WorkspacePressState>,
@@ -184,6 +186,8 @@ impl ClientViewState {
             context_menu: state.context_menu.clone(),
             selection: state.selection.clone(),
             selection_autoscroll: state.selection_autoscroll.clone(),
+            last_pane_click: None,
+            selection_highlight_clear_deadline: None,
             copy_mode: state.copy_mode.clone(),
             drag: state.drag.clone(),
             workspace_press: state.workspace_press.clone(),
@@ -657,6 +661,27 @@ impl ClientViewState {
             .max(terminal.y + terminal.height)
             .max(mobile_header.y + mobile_header.height);
         ratatui::layout::Rect::new(x, y, right.saturating_sub(x), bottom.saturating_sub(y))
+    }
+
+    pub(crate) fn clear_due_selection_highlight(&mut self, now: std::time::Instant) -> bool {
+        if self
+            .selection_highlight_clear_deadline
+            .is_none_or(|deadline| now < deadline)
+        {
+            return false;
+        }
+
+        self.selection_highlight_clear_deadline = None;
+        if self
+            .selection
+            .as_ref()
+            .is_some_and(|selection| !selection.is_in_progress())
+        {
+            self.selection = None;
+            self.selection_autoscroll = None;
+            return true;
+        }
+        false
     }
 
     pub(crate) fn return_to_active_workspace_mode(&mut self) {

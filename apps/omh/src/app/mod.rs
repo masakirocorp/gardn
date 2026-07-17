@@ -1803,16 +1803,6 @@ impl App {
                     .clamp(self.state.sidebar_min_width, self.state.sidebar_max_width);
                 self.state.mouse_capture = config.ui.mouse_capture;
                 self.state.copy_on_select = config.ui.copy_on_select;
-                if !self.state.copy_on_select {
-                    if self.state.mode == Mode::Copy {
-                        self.state.stop_selection_autoscroll_state();
-                    } else {
-                        self.state.clear_selection();
-                    }
-                    self.last_pane_click = None;
-                    self.selection_autoscroll_deadline = None;
-                    self.selection_highlight_clear_deadline = None;
-                }
                 self.state.right_click_passthrough_modifiers =
                     config.ui.right_click_passthrough_modifiers();
                 if self.state.redraw_on_focus_gained != config.ui.redraw_on_focus_gained {
@@ -2262,6 +2252,9 @@ impl App {
         client_view: &mut ClientViewState,
         key: crate::input::TerminalKey,
     ) -> Option<input::TerminalKeyTarget> {
+        client_view.selection = None;
+        client_view.selection_autoscroll = None;
+        client_view.selection_highlight_clear_deadline = None;
         self.state.update_dismissed = true;
         if self.state.is_prefix_key(key) {
             client_view.mode = Mode::Prefix;
@@ -5560,6 +5553,12 @@ impl App {
         client_view: &mut ClientViewState,
         mouse: crossterm::event::MouseEvent,
     ) {
+        let previous_pane_click = matches!(
+            mouse.kind,
+            crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left)
+        )
+        .then(|| client_view.last_pane_click.take())
+        .flatten();
         if !self.state.mouse_capture {
             self.state
                 .handle_pane_mouse_only_for_view(&self.terminal_runtimes, client_view, mouse);
@@ -5646,6 +5645,9 @@ impl App {
         }
 
         if self.handle_client_view_terminal_mouse_report(client_view, mouse) {
+            return;
+        }
+        if self.handle_client_view_pane_double_click(client_view, mouse, previous_pane_click) {
             return;
         }
         if self.handle_client_view_terminal_pane_left_click(client_view, mouse) {
@@ -6737,7 +6739,7 @@ impl App {
         let Some(mut selection) = client_view.selection.take() else {
             return;
         };
-        if !selection.finish() {
+        if !selection.is_finalized() && !selection.finish() {
             client_view.selection = None;
             client_view.selection_autoscroll = None;
             return;
@@ -6765,6 +6767,116 @@ impl App {
         client_view.selection = Some(selection);
         client_view.selection_autoscroll = None;
     }
+    fn copy_client_view_word(
+        &mut self,
+        client_view: &mut ClientViewState,
+        click: PaneClickState,
+    ) -> bool {
+        let Some(ws_idx) = client_view.active_workspace else {
+            return false;
+        };
+        let Some(info) = client_view
+            .computed
+            .pane_infos
+            .iter()
+            .find(|info| info.id == click.pane_id)
+        else {
+            return false;
+        };
+        if click.viewport_row >= info.inner_rect.height || click.col >= info.inner_rect.width {
+            return false;
+        }
+        let Some(runtime) = self
+            .state
+            .workspaces
+            .get(ws_idx)
+            .and_then(|workspace| workspace.terminal_id(click.pane_id))
+            .and_then(|terminal_id| self.terminal_runtimes.get(terminal_id))
+            .or_else(|| {
+                self.state.runtime_for_pane_in_workspace(
+                    &self.terminal_runtimes,
+                    ws_idx,
+                    click.pane_id,
+                )
+            })
+        else {
+            return false;
+        };
+        let metrics = self.client_view_pane_scroll_metrics(client_view, ws_idx, click.pane_id);
+        let row_selection = crate::selection::Selection::range(
+            click.pane_id,
+            click.viewport_row,
+            0,
+            info.inner_rect.width.saturating_sub(1),
+            metrics,
+        );
+        let Some(row_text) = runtime.extract_selection(&row_selection) else {
+            return false;
+        };
+        let Some((start_col, end_col)) = actions::word_bounds_at_column(&row_text, click.col)
+        else {
+            return false;
+        };
+        let mut selection = crate::selection::Selection::range(
+            click.pane_id,
+            click.viewport_row,
+            start_col,
+            end_col,
+            metrics,
+        );
+        if !selection.finish() {
+            return false;
+        }
+        let Some(text) = runtime
+            .extract_selection(&selection)
+            .filter(|text| !text.is_empty())
+        else {
+            return false;
+        };
+
+        self.state.request_clipboard_write = Some(text.into_bytes());
+        client_view.selection = Some(selection);
+        client_view.selection_autoscroll = None;
+        client_view.selection_highlight_clear_deadline =
+            Some(std::time::Instant::now() + PANE_COPY_HIGHLIGHT_DURATION);
+        true
+    }
+
+    fn handle_client_view_pane_double_click(
+        &mut self,
+        client_view: &mut ClientViewState,
+        mouse: crossterm::event::MouseEvent,
+        previous_click: Option<PaneClickState>,
+    ) -> bool {
+        use crossterm::event::{MouseButton, MouseEventKind};
+
+        if mouse.kind != MouseEventKind::Down(MouseButton::Left)
+            || !mouse.modifiers.is_empty()
+            || client_view.mode != Mode::Terminal
+        {
+            return false;
+        }
+        let Some(info) = client_view
+            .computed
+            .pane_infos
+            .iter()
+            .find(|info| Self::rect_contains(info.inner_rect, mouse.column, mouse.row))
+        else {
+            return false;
+        };
+        let click = PaneClickState {
+            pane_id: info.id,
+            viewport_row: mouse.row - info.inner_rect.y,
+            col: mouse.column - info.inner_rect.x,
+            at: std::time::Instant::now(),
+        };
+        if !previous_click.is_some_and(|previous| previous.is_double_click_for(click)) {
+            client_view.last_pane_click = Some(click);
+            return false;
+        }
+
+        self.copy_client_view_word(client_view, click)
+    }
 
     fn handle_client_view_drag_mouse(
         &mut self,
@@ -6775,6 +6887,7 @@ impl App {
 
         match mouse.kind {
             MouseEventKind::Drag(MouseButton::Left) => {
+                client_view.last_pane_click = None;
                 if client_view.selection.is_some() {
                     self.update_client_view_selection_drag(client_view, mouse.column, mouse.row);
                     return true;
@@ -6990,16 +7103,23 @@ impl App {
             MouseEventKind::Up(MouseButton::Left) => {
                 if let Some(selection) = client_view.selection.as_ref() {
                     let was_click = selection.was_just_click();
-                    let was_already_copied = selection.is_done();
+                    let was_finalized = selection.is_finalized();
+                    if selection.is_visible() {
+                        client_view.last_pane_click = None;
+                    }
                     client_view.workspace_press = None;
                     client_view.group_press = None;
                     client_view.tab_press = None;
                     client_view.drag = None;
                     client_view.selection_autoscroll = None;
-                    if !self.state.copy_on_select || was_click {
+                    if was_click {
                         client_view.selection = None;
-                    } else if !was_already_copied {
+                    } else if was_finalized {
+                        // Double-click copy already finalized this selection.
+                    } else if self.state.copy_on_select {
                         self.copy_client_view_selection(client_view);
+                    } else if let Some(selection) = client_view.selection.as_mut() {
+                        selection.finish();
                     }
                     return true;
                 }
@@ -7348,14 +7468,13 @@ impl App {
 
         let row = mouse.row - info.inner_rect.y;
         let col = mouse.column - info.inner_rect.x;
-        if self.state.copy_on_select {
-            client_view.selection = Some(crate::selection::Selection::anchor(
-                info.id,
-                row,
-                col,
-                self.client_view_pane_scroll_metrics(client_view, ws_idx, info.id),
-            ));
-        }
+        client_view.selection = Some(crate::selection::Selection::anchor(
+            info.id,
+            row,
+            col,
+            self.client_view_pane_scroll_metrics(client_view, ws_idx, info.id),
+        ));
+        client_view.selection_highlight_clear_deadline = None;
         true
     }
 
@@ -10278,15 +10397,18 @@ mod tests {
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         std::fs::write(
             &path,
-            "[terminal]\ndefault_shell = \"nu\"\nshell_mode = \"non_login\"\nnew_cwd = \"home\"\n[keys]\nnew_workspace = \"prefix+g\"\nprefix = \"ctrl+a\"\n[update]\nversion_check = false\nmanifest_check = false\n[ui]\nredraw_on_focus_gained = false\nright_click_passthrough_modifier = \"ctrl\"\n[ui.sidebar]\ninitial_state = \"collapsed\"\ninitial_agent_scope = \"current\"\n[ui.toast]\ndelivery = \"omh\"\n",
+            "[terminal]\ndefault_shell = \"nu\"\nshell_mode = \"non_login\"\nnew_cwd = \"home\"\n[keys]\nnew_workspace = \"prefix+g\"\nprefix = \"ctrl+a\"\n[update]\nversion_check = false\nmanifest_check = false\n[ui]\ncopy_on_select = false\nredraw_on_focus_gained = false\nright_click_passthrough_modifier = \"ctrl\"\n[ui.sidebar]\ninitial_state = \"collapsed\"\ninitial_agent_scope = \"current\"\n[ui.toast]\ndelivery = \"omh\"\n",
         )
         .unwrap();
         let _config_path_env =
             crate::config::TestEnvVar::set(crate::config::CONFIG_PATH_ENV_VAR, &path);
 
         let mut app = test_app();
+        app.state.workspaces = vec![Workspace::test_new("selection")];
         app.next_auto_update_check = Some(Instant::now());
         app.next_agent_manifest_update_check = Some(Instant::now());
+        let pane_id = app.state.workspaces[0].tabs[0].root_pane;
+        app.state.selection = Some(crate::selection::Selection::anchor(pane_id, 0, 0, None));
         let report = app.reload_config();
 
         assert_eq!(report.status, crate::config::ConfigReloadStatus::Applied);
@@ -10325,6 +10447,8 @@ mod tests {
             app.state.right_click_passthrough_modifiers,
             Some(KeyModifiers::CONTROL)
         );
+        assert!(!app.state.copy_on_select);
+        assert!(app.state.selection.is_some());
         assert!(app.state.request_client_config_reload);
         assert_eq!(app.state.default_shell, "nu");
         assert_eq!(
@@ -14117,7 +14241,7 @@ command = "printf literal > '{}'"
         assert!(client
             .selection
             .as_ref()
-            .is_some_and(|selection| selection.is_visible() && selection.is_done()));
+            .is_some_and(|selection| selection.is_visible() && selection.is_finalized()));
         match app.event_rx.try_recv().expect("clipboard write event") {
             crate::events::AppEvent::ClipboardWrite { content } => {
                 assert_eq!(content, b"bcde");
@@ -14137,6 +14261,155 @@ command = "printf literal > '{}'"
         assert!(second_client.selection.is_none());
         assert!(app.event_rx.try_recv().is_err());
         assert!(app.state.request_clipboard_write.is_none());
+    }
+
+    #[tokio::test]
+    async fn route_client_events_for_view_retains_drag_without_auto_copy() {
+        let mut app = test_app();
+        app.state.workspaces = vec![Workspace::test_new("terminal")];
+        app.state.ensure_test_terminals();
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::Terminal;
+        app.state.mouse_capture = true;
+        app.state.copy_on_select = false;
+
+        let root_pane = app.state.workspaces[0].tabs[0].root_pane;
+        app.state.workspaces[0].insert_test_runtime(
+            root_pane,
+            TerminalRuntime::test_with_screen_bytes(80, 4, b"abcdef\r\nsecond\r\nthird\r\nfourth"),
+        );
+        let mut client = ClientViewState::from_default_client_state(&app.state);
+        let second_client = ClientViewState::from_default_client_state(&app.state);
+        compute_client_view(&app, &mut client, ratatui::layout::Rect::new(0, 0, 100, 12));
+        let pane = client
+            .computed
+            .pane_infos
+            .iter()
+            .find(|pane| pane.id == root_pane)
+            .expect("root pane should be rendered");
+        let start_col = pane.inner_rect.x + 1;
+        let row = pane.inner_rect.y;
+        let end_col = pane.inner_rect.x + 4;
+
+        app.route_client_events_for_view(
+            &mut client,
+            vec![
+                raw_mouse(
+                    crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left),
+                    start_col,
+                    row,
+                ),
+                raw_mouse(
+                    crossterm::event::MouseEventKind::Drag(crossterm::event::MouseButton::Left),
+                    end_col,
+                    row,
+                ),
+                raw_mouse(
+                    crossterm::event::MouseEventKind::Up(crossterm::event::MouseButton::Left),
+                    end_col,
+                    row,
+                ),
+            ],
+            true,
+        );
+
+        assert_eq!(
+            client
+                .selection
+                .as_ref()
+                .map(crate::selection::Selection::ordered_cells),
+            Some(((0, 1), (0, 4)))
+        );
+        assert!(client
+            .selection
+            .as_ref()
+            .is_some_and(crate::selection::Selection::is_finalized));
+        assert!(second_client.selection.is_none());
+        assert!(app.event_rx.try_recv().is_err());
+
+        app.copy_client_view_selection(&mut client);
+
+        app.route_client_events_for_view(
+            &mut client,
+            vec![raw_key(
+                KeyCode::Char('x'),
+                KeyModifiers::empty(),
+                KeyEventKind::Press,
+            )],
+            true,
+        );
+        assert!(client.selection.is_none());
+        match app.event_rx.try_recv().expect("clipboard write event") {
+            crate::events::AppEvent::ClipboardWrite { content } => {
+                assert_eq!(content, b"bcde");
+            }
+            event => panic!("unexpected event: {event:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn route_client_events_for_view_double_click_copies_when_auto_copy_is_disabled() {
+        let mut app = test_app();
+        app.state.workspaces = vec![Workspace::test_new("terminal")];
+        app.state.ensure_test_terminals();
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::Terminal;
+        app.state.mouse_capture = true;
+        app.state.copy_on_select = false;
+
+        let root_pane = app.state.workspaces[0].tabs[0].root_pane;
+        app.state.workspaces[0].insert_test_runtime(
+            root_pane,
+            TerminalRuntime::test_with_screen_bytes(80, 4, b"alpha beta\r\nsecond"),
+        );
+        let mut client = ClientViewState::from_default_client_state(&app.state);
+        let second_client = ClientViewState::from_default_client_state(&app.state);
+        compute_client_view(&app, &mut client, ratatui::layout::Rect::new(0, 0, 100, 12));
+        let pane = client
+            .computed
+            .pane_infos
+            .iter()
+            .find(|pane| pane.id == root_pane)
+            .expect("root pane should be rendered");
+        let col = pane.inner_rect.x + 2;
+        let row = pane.inner_rect.y;
+
+        app.route_client_events_for_view(
+            &mut client,
+            vec![
+                raw_mouse(
+                    crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left),
+                    col,
+                    row,
+                ),
+                raw_mouse(
+                    crossterm::event::MouseEventKind::Up(crossterm::event::MouseButton::Left),
+                    col,
+                    row,
+                ),
+                raw_mouse(
+                    crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left),
+                    col,
+                    row,
+                ),
+            ],
+            true,
+        );
+
+        match app.event_rx.try_recv().expect("clipboard write event") {
+            crate::events::AppEvent::ClipboardWrite { content } => {
+                assert_eq!(content, b"alpha");
+            }
+            event => panic!("unexpected event: {event:?}"),
+        }
+        assert!(client
+            .selection
+            .as_ref()
+            .is_some_and(|selection| selection.is_visible() && selection.is_finalized()));
+        assert!(client.selection_highlight_clear_deadline.is_some());
+        assert!(second_client.selection.is_none());
     }
 
     #[test]

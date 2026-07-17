@@ -5,5 +5,5 @@ packages:
 
 ### Add configurable selection copying
 
-Mouse drag and double-click selection copying is controlled by `[ui].copy_on_select` (enabled by default); explicit copy actions remain available when automatic copying is disabled.
-Selections now stay aligned with the visible text when a client is scrolled into terminal history.
+Mouse dragging always leaves pane text selected. `[ui].copy_on_select` controls only whether a drag selection is copied automatically on mouse-up; double-click still selects and copies a word.
+Selections remain client-local and stay aligned with visible text when a client is scrolled into terminal history.

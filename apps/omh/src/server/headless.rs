@@ -360,15 +360,29 @@ impl HeadlessServer {
             }
 
             // 8. Wait for next event.
-            let next_deadline = self
-                .app
-                .next_headless_loop_deadline_with_git_refresh(
+            let client_selection_deadline = self
+                .clients
+                .values()
+                .filter_map(|client| {
+                    client
+                        .view_state
+                        .as_ref()
+                        .and_then(|view| view.selection_highlight_clear_deadline)
+                })
+                .min();
+            let next_deadline = [
+                self.app.next_headless_loop_deadline_with_git_refresh(
                     now,
                     needs_render,
                     self.has_app_client(),
-                )
-                .map(|deadline| deadline.min(now + CLIENT_ACCEPT_POLL_INTERVAL))
-                .or(Some(now + CLIENT_ACCEPT_POLL_INTERVAL));
+                ),
+                client_selection_deadline,
+            ]
+            .into_iter()
+            .flatten()
+            .min()
+            .map(|deadline| deadline.min(now + CLIENT_ACCEPT_POLL_INTERVAL))
+            .or(Some(now + CLIENT_ACCEPT_POLL_INTERVAL));
             let event = {
                 tokio::select! {
                     maybe_api = self.app.api_rx.recv() => match maybe_api {
@@ -2880,6 +2894,11 @@ impl HeadlessServer {
         }
 
         changed |= self.app.clear_due_selection_highlight(now);
+        for client in self.clients.values_mut() {
+            if let Some(view) = client.view_state.as_mut() {
+                changed |= view.clear_due_selection_highlight(now);
+            }
+        }
 
         if self.has_app_client() {
             self.app.start_git_status_refresh_if_due(now);

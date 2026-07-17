@@ -899,7 +899,7 @@ pub struct UiConfig {
     pub sidebar: SidebarConfig,
     /// Capture mouse input for Oh My Herdr's mouse UI. Default: true.
     pub mouse_capture: bool,
-    /// Copy text selected with the mouse. Default: true.
+    /// Automatically copy text selected by mouse drag. Default: true.
     pub copy_on_select: bool,
     /// Modifier that lets right-click gestures pass through to pane apps. Empty disables it.
     pub right_click_passthrough_modifier: RightClickPassthroughModifierConfig,

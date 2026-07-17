@@ -503,7 +503,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn disabling_copy_on_select_ignores_drag_and_double_click() {
+    async fn disabling_copy_on_select_retains_drag_selection_without_copying() {
         let (mut app, info) = app_with_screen_bytes(b"alpha beta");
         app.state.copy_on_select = false;
         let row = info.inner_rect.y;
@@ -518,14 +518,47 @@ mod tests {
         app.handle_mouse(mouse(MouseEventKind::Drag(MouseButton::Left), end_col, row));
         app.handle_mouse(mouse(MouseEventKind::Up(MouseButton::Left), end_col, row));
 
-        assert!(app.state.selection.is_none());
+        assert_visible_selection(&app);
+        assert_eq!(
+            app.state
+                .selection
+                .as_ref()
+                .map(crate::selection::Selection::ordered_cells),
+            Some(((0, 0), (0, 4)))
+        );
+        assert!(app
+            .state
+            .selection
+            .as_ref()
+            .is_some_and(crate::selection::Selection::is_finalized));
+        assert!(app.state.selection_autoscroll.is_none());
         assert!(app.event_rx.try_recv().is_err());
 
-        double_click(&mut app, start_col, row);
-
+        app.handle_mouse(mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            end_col + 2,
+            row,
+        ));
+        app.handle_mouse(mouse(
+            MouseEventKind::Up(MouseButton::Left),
+            end_col + 2,
+            row,
+        ));
         assert!(app.state.selection.is_none());
-        assert!(app.last_pane_click.is_none());
-        assert!(app.event_rx.try_recv().is_err());
+    }
+
+    #[tokio::test]
+    async fn disabling_copy_on_select_keeps_double_click_copy() {
+        let (mut app, info) = app_with_screen_bytes(b"alpha beta");
+        app.state.copy_on_select = false;
+        let col = info.inner_rect.x + 2;
+        let row = info.inner_rect.y;
+
+        double_click(&mut app, col, row);
+
+        assert_eq!(clipboard_write_content(&mut app), b"alpha");
+        assert_visible_selection(&app);
+        assert!(app.selection_highlight_clear_deadline.is_some());
     }
 
     #[tokio::test]

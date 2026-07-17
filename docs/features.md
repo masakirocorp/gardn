@@ -63,8 +63,8 @@ A pane is a terminal runtime inside a tab layout.
 - **Pane history** — persist recent screen history to `session-history.json` by default.
 - **Terminal identity** — panes advertise Oh My Herdr's terminal layer instead of leaking the outer terminal identity.
 - **Snapshot restore** — saved sessions restore groups, active selections, sidebar sizing and arrangement, tabs, pane layouts, focus, zoom, cwd, labels, and agent session references.
-- **Selection copy** — drag-selected pane text copies on mouse-up and keeps the highlight until the next click or keypress.
-- **Automatic selection copy** — `ui.copy_on_select` defaults to `true`; set it to `false` to disable Oh My Herdr's mouse drag and double-click selection copying while leaving explicit copy actions available.
+- **Text selection** — mouse dragging leaves pane text highlighted until the next click or keypress. Keyboard copy mode remains available for explicit selection and copying.
+- **Automatic selection copy** — `ui.copy_on_select` defaults to `true` and copies a drag selection on mouse-up. Set it to `false` to retain the highlight without writing to the clipboard. Double-click always selects and copies the clicked word.
 - **Keyboard protocol encoding** — pane input honors negotiated terminal keyboard protocols, including Kitty CSI u and legacy modified-key sequences.
 
 ## Agent awareness

@@ -2756,7 +2756,7 @@ impl AppState {
             Some(sel) => sel,
             None => return,
         };
-        if !sel.finish() {
+        if !sel.is_finalized() && !sel.finish() {
             return;
         }
 
@@ -2812,7 +2812,7 @@ impl CellSpan {
 /// zero-width marks use display columns, then prefers structured spans that
 /// users expect to copy whole (URLs and quoted paths), and finally falls back
 /// to a separator-delimited token.
-fn word_bounds_at_column(row: &str, col: u16) -> Option<(u16, u16)> {
+pub(super) fn word_bounds_at_column(row: &str, col: u16) -> Option<(u16, u16)> {
     // Map the row into display cells before doing any word-boundary work.
     let cells = text_cells(row);
     let clicked_idx = cell_index_at_column(&cells, col)?;

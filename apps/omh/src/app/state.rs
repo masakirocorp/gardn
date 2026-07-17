@@ -2723,7 +2723,7 @@ pub struct AppState {
     /// Capture mouse input for Oh My Herdr's own mouse UI. When false, Oh My Herdr only
     /// captures mouse while the focused pane app requests mouse reporting.
     pub mouse_capture: bool,
-    /// Copy text selected with the mouse on selection completion. Default: true.
+    /// Automatically copy mouse drag selections on completion. Default: true.
     pub copy_on_select: bool,
     pub right_click_passthrough_modifiers: Option<KeyModifiers>,
     pub right_click_passthrough: Option<RightClickPassthroughGesture>,
