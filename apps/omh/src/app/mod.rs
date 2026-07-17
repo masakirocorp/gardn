@@ -6624,8 +6624,11 @@ impl App {
             .iter()
             .find(|info| info.id == pane_id)?;
         let track = crate::ui::pane_scrollbar_rect(info)?;
-        let metrics =
-            self.client_view_pane_scroll_metrics(client_view.active_workspace?, pane_id)?;
+        let metrics = self.client_view_pane_scroll_metrics(
+            client_view,
+            client_view.active_workspace?,
+            pane_id,
+        )?;
         Some(crate::ui::scrollbar_offset_from_row(
             metrics,
             track,
@@ -6634,14 +6637,14 @@ impl App {
     }
     fn client_view_pane_scroll_metrics(
         &self,
+        client_view: &ClientViewState,
         ws_idx: usize,
         pane_id: crate::layout::PaneId,
     ) -> Option<crate::pane::ScrollMetrics> {
-        self.state
-            .workspaces
-            .get(ws_idx)
-            .and_then(|workspace| workspace.terminal_id(pane_id))
-            .and_then(|terminal_id| self.terminal_runtimes.get(terminal_id))
+        let terminal_id = self.state.workspaces.get(ws_idx)?.terminal_id(pane_id)?;
+        let mut metrics = self
+            .terminal_runtimes
+            .get(terminal_id)
             .and_then(crate::terminal::TerminalRuntime::scroll_metrics)
             .or_else(|| {
                 self.state.pane_scroll_metrics_in_workspace(
@@ -6649,7 +6652,10 @@ impl App {
                     ws_idx,
                     pane_id,
                 )
-            })
+            })?;
+        metrics.offset_from_bottom =
+            crate::app::view_state::terminal_offset_from_bottom(terminal_id, metrics, client_view);
+        Some(metrics)
     }
     fn update_client_view_selection_cursor(
         &self,
@@ -6670,7 +6676,7 @@ impl App {
         else {
             return;
         };
-        let metrics = self.client_view_pane_scroll_metrics(ws_idx, pane_id);
+        let metrics = self.client_view_pane_scroll_metrics(client_view, ws_idx, pane_id);
         if let Some(selection) = client_view.selection.as_mut() {
             selection.drag(screen_col, screen_row, info.inner_rect, metrics);
         }
@@ -6701,7 +6707,7 @@ impl App {
         else {
             return;
         };
-        let metrics = self.client_view_pane_scroll_metrics(ws_idx, pane_id);
+        let metrics = self.client_view_pane_scroll_metrics(client_view, ws_idx, pane_id);
         let was_dragging = client_view
             .selection
             .as_ref()
@@ -7347,7 +7353,7 @@ impl App {
                 info.id,
                 row,
                 col,
-                self.client_view_pane_scroll_metrics(ws_idx, info.id),
+                self.client_view_pane_scroll_metrics(client_view, ws_idx, info.id),
             ));
         }
         true
@@ -12670,6 +12676,75 @@ command = "printf literal > '{}'"
             Some(shared_runtime_offset)
         );
         assert_eq!(app.state.workspace_scroll, 0);
+    }
+
+    #[tokio::test]
+    async fn selecting_scrolled_client_view_copies_visible_text() {
+        use crossterm::event::{MouseButton, MouseEventKind};
+
+        let mut app = test_app();
+        let workspace = Workspace::test_new("selection");
+        let root_pane = workspace.tabs[0].root_pane;
+        let terminal_id = workspace
+            .terminal_id(root_pane)
+            .cloned()
+            .expect("root pane should have terminal id");
+        app.state.workspaces = vec![workspace];
+        app.state.ensure_test_terminals();
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::Terminal;
+        app.state.mouse_capture = true;
+        app.state.copy_on_select = true;
+        app.terminal_runtimes.insert(
+            terminal_id.clone(),
+            TerminalRuntime::test_with_scrollback_bytes(
+                8,
+                3,
+                1024,
+                b"000000\n000001\n000002\n000003\n000004\n000005\n000006\n000007\n",
+            ),
+        );
+
+        let metrics = app
+            .terminal_runtimes
+            .get(&terminal_id)
+            .and_then(TerminalRuntime::scroll_metrics)
+            .expect("scroll metrics should exist");
+        assert_eq!(metrics.offset_from_bottom, 0);
+        let mut client = ClientViewState::from_default_client_state(&app.state);
+        crate::app::view_state::set_terminal_offset_from_bottom(
+            &terminal_id,
+            metrics,
+            metrics.max_offset_from_bottom,
+            &mut client,
+        );
+        compute_client_view(&app, &mut client, ratatui::layout::Rect::new(0, 0, 30, 8));
+        let pane = client
+            .computed
+            .pane_infos
+            .iter()
+            .find(|pane| pane.id == root_pane)
+            .expect("root pane should be rendered");
+        let row = pane.inner_rect.y;
+        let start_col = pane.inner_rect.x;
+
+        app.route_client_events_for_view(
+            &mut client,
+            vec![
+                raw_mouse(MouseEventKind::Down(MouseButton::Left), start_col, row),
+                raw_mouse(MouseEventKind::Drag(MouseButton::Left), start_col + 5, row),
+                raw_mouse(MouseEventKind::Up(MouseButton::Left), start_col + 5, row),
+            ],
+            true,
+        );
+
+        match app.event_rx.try_recv().expect("clipboard write event") {
+            crate::events::AppEvent::ClipboardWrite { content } => {
+                assert_eq!(content, b"000000");
+            }
+            event => panic!("unexpected event: {event:?}"),
+        }
     }
 
     #[tokio::test]
