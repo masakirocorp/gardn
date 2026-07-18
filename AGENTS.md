@@ -34,9 +34,9 @@ This repo is a long-lived Masakiro product fork of `ogulcancelik/herdr`, branded
 - `origin` should point to `masakirocorp/oh-my-herdr`.
 - `upstream` should point to `ogulcancelik/herdr`.
 - Product trunk is `origin/master`.
-- Do not force-push trunk or release branches.
+- Do not force-push trunk or release branches unless the repository or organization owner explicitly authorizes one specific history rewrite in the active conversation. Authorization does not carry forward to later rewrites.
 - Feature branches start from product trunk.
-- Force-push only feature branches, and only with `--force-with-lease`.
+- For any authorized force-push, inspect the commits being replaced and use `--force-with-lease`, never `--force`.
 - Sync upstream through explicit `sync/upstream-YYYY-MM-DD` branches.
 - Merge upstream with merge commits, not rebase or squash.
 - Open upstream-sync PRs into `masakirocorp/oh-my-herdr:master`.
