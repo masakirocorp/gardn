@@ -1,0 +1,94 @@
+@import "tailwindcss";
+@import "fumadocs-ui/css/neutral.css";
+@import "fumadocs-ui/css/preset.css";
+@import "fumapress/css/preset.css";
+
+@theme {
+  --font-sans: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-mono: ui-monospace, "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  --default-font-family: var(--font-sans);
+  --color-omh-ink: oklch(0.175 0.009 145);
+  --color-omh-paper: oklch(0.965 0.005 120);
+  --color-omh-accent: oklch(0.678 0.139 55);
+}
+
+:root {
+  font-synthesis: none;
+  text-underline-position: from-font;
+  text-decoration-thickness: from-font;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+::selection {
+  color: var(--color-omh-ink);
+  background: oklch(0.82 0.11 65);
+}
+
+.omh-page {
+  min-height: calc(100vh - 4rem);
+  background:
+    radial-gradient(circle at 85% 10%, oklch(0.678 0.139 55 / 0.18), transparent 32rem),
+    var(--color-omh-paper);
+  color: var(--color-omh-ink);
+}
+
+.omh-shell {
+  width: min(72rem, calc(100% - 2rem));
+  margin-inline: auto;
+  padding-block: clamp(4rem, 10vw, 8rem);
+}
+
+.omh-eyebrow {
+  font-size: 0.8125rem;
+  font-weight: 650;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.omh-title {
+  max-width: 15ch;
+  margin-block: 1rem;
+  font-size: clamp(2.75rem, 9vw, 6.5rem);
+  font-weight: 700;
+  letter-spacing: -0.045em;
+  line-height: 0.96;
+  text-wrap: balance;
+}
+
+.omh-copy {
+  max-width: 65ch;
+  font-size: clamp(1rem, 2vw, 1.125rem);
+  line-height: 1.6;
+  text-wrap: pretty;
+}
+
+.omh-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-block-start: 2rem;
+}
+
+.omh-action {
+  display: inline-flex;
+  min-height: 2.75rem;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  padding-inline: 1.125rem;
+  font-weight: 650;
+  text-decoration: none;
+}
+
+.omh-action[data-primary="true"] {
+  border-color: var(--color-omh-ink);
+  color: var(--color-omh-paper);
+  background: var(--color-omh-ink);
+}
+
+.omh-action:focus-visible {
+  outline: 3px solid var(--color-omh-accent);
+  outline-offset: 3px;
+}

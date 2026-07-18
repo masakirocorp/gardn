@@ -1,0 +1,41 @@
+{
+  "name": "@omh/website",
+  "private": true,
+  "type": "module",
+  "sideEffects": false,
+  "scripts": {
+    "dev": "waku dev",
+    "build": "waku build",
+    "check": "tsc --noEmit",
+    "lint": "oxlint --deny-warnings .",
+    "format": "oxfmt .",
+    "format:check": "oxfmt --check .",
+    "content:check": "node scripts/check-built-site.mjs",
+    "deploy:check": "wrangler deploy --dry-run",
+    "preview": "wrangler dev",
+    "deploy": "node scripts/require-site-url.mjs && waku build && wrangler deploy"
+  },
+  "dependencies": {
+    "@base-ui/react": "^1.6.0",
+    "fumadocs-core": "^16.11.1",
+    "fumadocs-mdx": "^15.1.0",
+    "fumadocs-ui": "npm:@fumadocs/base-ui@^16.11.1",
+    "fumapress": "0.7.3",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7",
+    "react-server-dom-webpack": "^19.2.7",
+    "waku": "1.0.0-beta.6"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.3.2",
+    "@types/mdx": "^2.0.14",
+    "@types/node": "^26.1.1",
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "oxfmt": "0.59.0",
+    "oxlint": "1.74.0",
+    "tailwindcss": "^4.3.2",
+    "typescript": "^6.0.3",
+    "wrangler": "4.111.0"
+  }
+}

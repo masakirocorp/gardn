@@ -42,6 +42,9 @@ jobs:
       - name: Check Turbo task graph
         run: pnpm turbo run check --dry=json
 
+      - name: Check static website
+        run: pnpm turbo run check --filter=@omh/website
+
       - name: Check Tegami release scope
         run: node scripts/check-tegami-release-scope.mts omh
       - name: Run Tegami release-scope tests

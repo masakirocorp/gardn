@@ -1,7 +1,13 @@
 packages:
   - "apps/*"
   - "packages/*"
+  - "website"
   - "!apps/docs"
   - "!packages/nix"
+
+allowBuilds:
+  esbuild: true
+  sharp: true
+  workerd: true
 
 minimumReleaseAge: 1440
