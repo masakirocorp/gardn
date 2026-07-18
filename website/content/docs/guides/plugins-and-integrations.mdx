@@ -7,6 +7,8 @@ description: Install, inspect, run, and remove Oh My Herdr integrations and plug
 
 This guide shows how to manage built-in agent integrations and Oh My Herdr plugins from the CLI. It assumes that `omh` is already available on your `PATH`.
 
+Use the CLI for normal installation and inspection. Use the [Local API plugin and integration methods](/docs/api/reference/extensions-and-control) when an automation process needs structured results or must invoke plugin actions without parsing terminal output.
+
 > **Trust boundary:** Plugins are not sandboxed. A linked or installed plugin executes as your current user, can read and change anything that user can access, and can launch more processes. A remote plugin's build commands also execute as your current user. Review the repository, the pinned revision, the preview, every command, and every requested pane or action before you continue. Oh My Herdr does not review or endorse plugin code.
 
 ## Manage built-in agent integrations

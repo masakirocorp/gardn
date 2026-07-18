@@ -226,19 +226,71 @@ function renderRequests(schema) {
   const root = schema.schemas.request;
   const defs = root.$defs ?? {};
   const variants = /** @type {SchemaNode[]} */ (root.oneOf);
+  const parameterDefinitions = new Set();
   const sections = variants.map((variant) => {
     const method = variant.properties.method.const;
     const params = variant.properties.params;
     const paramsName = refName(params) ?? typeName(params);
+    if (refName(params)) parameterDefinitions.add(paramsName);
     return `## \`${method}\`\n\nParameters: \`${paramsName}\`\n\n${propertyTable(params, defs)}`;
   });
-  return `${frontmatter("Requests", "Generated Local API request methods and parameter shapes.")}# Requests\n\nEvery request requires a caller-selected string \`id\`, a \`method\`, and the method's \`params\` object. The response echoes the same \`id\`.\n\n${sections.join("\n")}`;
+  const dataTypes = dataTypeSections(defs, parameterDefinitions);
+  const dataTypeReference =
+    dataTypes.length > 0 ? `\n## Data types\n\n${dataTypes.join("\n")}` : "";
+  return `${frontmatter("Requests", "Generated Local API request methods and parameter shapes.")}# Requests\n\nEvery request requires a caller-selected string \`id\`, a \`method\`, and the method's \`params\` object. The response echoes the same \`id\`.\n\n${sections.join("\n")}${dataTypeReference}`;
 }
 
 /** @param {SchemaNode | undefined} definition */
 function unionReferences(definition) {
   return (definition?.oneOf ?? definition?.anyOf ?? []).map(refName).filter(Boolean);
 }
+
+/** @param {SchemaNode} variant @param {SchemaNode} defs */
+function variantName(variant, defs) {
+  const reference = refName(variant);
+  const resolved = reference ? defs[reference] : variant;
+  return resolved?.properties?.type?.const ?? reference ?? resolved?.title ?? typeName(resolved);
+}
+
+/** @param {SchemaNode} definition @param {SchemaNode} defs */
+function definitionBody(definition, defs) {
+  if (definition?.properties && Object.keys(definition.properties).length > 0) {
+    return propertyTable(definition, defs);
+  }
+  /** @type {SchemaNode[] | undefined} */
+  const variants = definition?.oneOf ?? definition?.anyOf;
+  if (variants) {
+    return `Variants:\n\n${variants.map((variant) => `- \`${escapeCell(variantName(variant, defs))}\``).join("\n")}\n`;
+  }
+  return `Type: \`${escapeCell(typeName(definition))}\`\n`;
+}
+
+/**
+ * @param {SchemaNode} defs
+ * @param {Set<string>} excluded
+ */
+function dataTypeSections(defs, excluded) {
+  return Object.entries(defs)
+    .filter(([name, definition]) => !excluded.has(name) && !Array.isArray(definition.enum))
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([name, definition]) => `### \`${name}\`\n\n${definitionBody(definition, defs)}`);
+}
+
+/**
+ * @param {SchemaNode | undefined} definition
+ * @param {SchemaNode} defs
+ * @returns {string[]}
+ */
+function unionSections(definition, defs) {
+  /** @type {SchemaNode[]} */
+  const variants = definition?.oneOf ?? definition?.anyOf ?? [];
+  return variants.map((variant) => {
+    const reference = refName(variant);
+    const resolved = reference ? defs[reference] : variant;
+    return `## \`${variantName(variant, defs)}\`\n\n${propertyTable(resolved, defs)}`;
+  });
+}
+
 
 /**
  * @param {string} title
@@ -249,20 +301,34 @@ function unionReferences(definition) {
 function renderDefinitions(title, description, roots, preferredUnions = []) {
   const sections = [];
   const seen = new Set();
+  const dataTypes = [];
+  const dataTypeNames = new Set();
   for (const root of roots) {
     const defs = root.$defs ?? {};
+    const excluded = new Set(preferredUnions);
     for (const unionName of preferredUnions) {
-      for (const name of unionReferences(defs[unionName])) {
-        if (seen.has(name) || !defs[name]) continue;
-        seen.add(name);
-        sections.push(`## \`${name}\`\n\n${propertyTable(defs[name], defs)}`);
+      const union = defs[unionName];
+      for (const name of unionReferences(union)) excluded.add(name);
+      for (const section of unionSections(union, defs)) {
+        const heading = section.split("\n", 1)[0];
+        if (seen.has(heading)) continue;
+        seen.add(heading);
+        sections.push(section);
       }
+    }
+    for (const section of dataTypeSections(defs, excluded)) {
+      const heading = section.split("\n", 1)[0];
+      if (dataTypeNames.has(heading)) continue;
+      dataTypeNames.add(heading);
+      dataTypes.push(section);
     }
     if (sections.length === 0) {
       sections.push(`## \`${root.title ?? title}\`\n\n${propertyTable(root, defs)}`);
     }
   }
-  return `${frontmatter(title, description)}# ${title}\n\n${sections.join("\n")}`;
+  const dataTypeReference =
+    dataTypes.length > 0 ? `\n## Data types\n\n${dataTypes.join("\n")}` : "";
+  return `${frontmatter(title, description)}# ${title}\n\n${sections.join("\n")}${dataTypeReference}`;
 }
 
 /** @param {SchemaNode} schema */

@@ -7,9 +7,940 @@ description: "Generated successful Local API response result shapes."
 
 # Responses
 
-## `SuccessResponse`
+## `pong`
 
 | Property | Type | Required | Description |
 | --- | --- | --- | --- |
+| `capabilities` | `ServerCapabilities \| null` | no |  |
+| `protocol` | `integer` | yes |  |
+| `type` | `"pong"` | yes |  |
+| `version` | `string` | yes |  |
+
+## `session_snapshot`
+
+| Property | Type | Required | Description |
+| --- | --- | --- | --- |
+| `snapshot` | `SessionSnapshot` | yes |  |
+| `type` | `"session_snapshot"` | yes |  |
+
+## `workspace_info`
+
+| Property | Type | Required | Description |
+| --- | --- | --- | --- |
+| `type` | `"workspace_info"` | yes |  |
+| `workspace` | `WorkspaceInfo` | yes |  |
+
+## `workspace_created`
+
+| Property | Type | Required | Description |
+| --- | --- | --- | --- |
+| `root_pane` | `PaneInfo` | yes |  |
+| `tab` | `TabInfo` | yes |  |
+| `type` | `"workspace_created"` | yes |  |
+| `workspace` | `WorkspaceInfo` | yes |  |
+
+## `workspace_list`
+
+| Property | Type | Required | Description |
+| --- | --- | --- | --- |
+| `type` | `"workspace_list"` | yes |  |
+| `workspaces` | `WorkspaceInfo[]` | yes |  |
+
+## `worktree_list`
+
+| Property | Type | Required | Description |
+| --- | --- | --- | --- |
+| `source` | `WorktreeSourceInfo` | yes |  |
+| `type` | `"worktree_list"` | yes |  |
+| `worktrees` | `WorktreeInfo[]` | yes |  |
+
+## `worktree_created`
+
+| Property | Type | Required | Description |
+| --- | --- | --- | --- |
+| `root_pane` | `PaneInfo` | yes |  |
+| `tab` | `TabInfo` | yes |  |
+| `type` | `"worktree_created"` | yes |  |
+| `workspace` | `WorkspaceInfo` | yes |  |
+| `worktree` | `WorktreeInfo` | yes |  |
+
+## `worktree_opened`
+
+| Property | Type | Required | Description |
+| --- | --- | --- | --- |
+| `already_open` | `boolean` | yes |  |
+| `root_pane` | `PaneInfo` | yes |  |
+| `tab` | `TabInfo` | yes |  |
+| `type` | `"worktree_opened"` | yes |  |
+| `workspace` | `WorkspaceInfo` | yes |  |
+| `worktree` | `WorktreeInfo` | yes |  |
+
+## `worktree_removed`
+
+| Property | Type | Required | Description |
+| --- | --- | --- | --- |
+| `forced` | `boolean` | yes |  |
+| `path` | `string` | yes |  |
+| `type` | `"worktree_removed"` | yes |  |
+| `workspace_id` | `string` | yes |  |
+
+## `group_info`
+
+| Property | Type | Required | Description |
+| --- | --- | --- | --- |
+| `group` | `GroupInfo` | yes |  |
+| `type` | `"group_info"` | yes |  |
+
+## `group_list`
+
+| Property | Type | Required | Description |
+| --- | --- | --- | --- |
+| `groups` | `GroupInfo[]` | yes |  |
+| `type` | `"group_list"` | yes |  |
+
+## `tab_info`
+
+| Property | Type | Required | Description |
+| --- | --- | --- | --- |
+| `tab` | `TabInfo` | yes |  |
+| `type` | `"tab_info"` | yes |  |
+
+## `tab_created`
+
+| Property | Type | Required | Description |
+| --- | --- | --- | --- |
+| `root_pane` | `PaneInfo` | yes |  |
+| `tab` | `TabInfo` | yes |  |
+| `type` | `"tab_created"` | yes |  |
+
+## `tab_list`
+
+| Property | Type | Required | Description |
+| --- | --- | --- | --- |
+| `tabs` | `TabInfo[]` | yes |  |
+| `type` | `"tab_list"` | yes |  |
+
+## `agent_info`
+
+| Property | Type | Required | Description |
+| --- | --- | --- | --- |
+| `agent` | `AgentInfo` | yes |  |
+| `type` | `"agent_info"` | yes |  |
+
+## `agent_started`
+
+| Property | Type | Required | Description |
+| --- | --- | --- | --- |
+| `agent` | `AgentInfo` | yes |  |
+| `argv` | `string[]` | yes |  |
+| `type` | `"agent_started"` | yes |  |
+
+## `agent_list`
+
+| Property | Type | Required | Description |
+| --- | --- | --- | --- |
+| `agents` | `AgentInfo[]` | yes |  |
+| `type` | `"agent_list"` | yes |  |
+
+## `pane_info`
+
+| Property | Type | Required | Description |
+| --- | --- | --- | --- |
+| `pane` | `PaneInfo` | yes |  |
+| `type` | `"pane_info"` | yes |  |
+
+## `pane_list`
+
+| Property | Type | Required | Description |
+| --- | --- | --- | --- |
+| `panes` | `PaneInfo[]` | yes |  |
+| `type` | `"pane_list"` | yes |  |
+
+## `pane_current`
+
+| Property | Type | Required | Description |
+| --- | --- | --- | --- |
+| `pane` | `PaneInfo` | yes |  |
+| `type` | `"pane_current"` | yes |  |
+
+## `pane_swap`
+
+| Property | Type | Required | Description |
+| --- | --- | --- | --- |
+| `swap` | `PaneSwapResult` | yes |  |
+| `type` | `"pane_swap"` | yes |  |
+
+## `pane_zoom`
+
+| Property | Type | Required | Description |
+| --- | --- | --- | --- |
+| `type` | `"pane_zoom"` | yes |  |
+| `zoom` | `PaneZoomResult` | yes |  |
+
+## `pane_layout`
+
+| Property | Type | Required | Description |
+| --- | --- | --- | --- |
+| `layout` | `PaneLayoutSnapshot` | yes |  |
+| `type` | `"pane_layout"` | yes |  |
+
+## `pane_process_info`
+
+| Property | Type | Required | Description |
+| --- | --- | --- | --- |
+| `process_info` | `PaneProcessInfo` | yes |  |
+| `type` | `"pane_process_info"` | yes |  |
+
+## `layout_export`
+
+| Property | Type | Required | Description |
+| --- | --- | --- | --- |
+| `layout` | `LayoutDescription` | yes |  |
+| `type` | `"layout_export"` | yes |  |
+
+## `layout_apply`
+
+| Property | Type | Required | Description |
+| --- | --- | --- | --- |
+| `layout` | `LayoutDescription` | yes |  |
+| `type` | `"layout_apply"` | yes |  |
+
+## `pane_neighbor`
+
+| Property | Type | Required | Description |
+| --- | --- | --- | --- |
+| `neighbor` | `PaneNeighborResult` | yes |  |
+| `type` | `"pane_neighbor"` | yes |  |
+
+## `pane_edges`
+
+| Property | Type | Required | Description |
+| --- | --- | --- | --- |
+| `edges` | `PaneEdgesResult` | yes |  |
+| `type` | `"pane_edges"` | yes |  |
+
+## `pane_focus_direction`
+
+| Property | Type | Required | Description |
+| --- | --- | --- | --- |
+| `focus` | `PaneFocusDirectionResult` | yes |  |
+| `type` | `"pane_focus_direction"` | yes |  |
+
+## `pane_resize`
+
+| Property | Type | Required | Description |
+| --- | --- | --- | --- |
+| `resize` | `PaneResizeResult` | yes |  |
+| `type` | `"pane_resize"` | yes |  |
+
+## `pane_move`
+
+| Property | Type | Required | Description |
+| --- | --- | --- | --- |
+| `move_result` | `PaneMoveResult` | yes |  |
+| `type` | `"pane_move"` | yes |  |
+
+## `pane_read`
+
+| Property | Type | Required | Description |
+| --- | --- | --- | --- |
+| `read` | `PaneReadResult` | yes |  |
+| `type` | `"pane_read"` | yes |  |
+
+## `agent_explain`
+
+| Property | Type | Required | Description |
+| --- | --- | --- | --- |
+| `explain` | `unknown` | yes |  |
+| `type` | `"agent_explain"` | yes |  |
+
+## `subscription_started`
+
+| Property | Type | Required | Description |
+| --- | --- | --- | --- |
+| `type` | `"subscription_started"` | yes |  |
+
+## `wait_matched`
+
+| Property | Type | Required | Description |
+| --- | --- | --- | --- |
+| `event` | `EventEnvelope` | yes |  |
+| `type` | `"wait_matched"` | yes |  |
+
+## `output_matched`
+
+| Property | Type | Required | Description |
+| --- | --- | --- | --- |
+| `matched_line` | `string \| null` | no |  |
+| `pane_id` | `string` | yes |  |
+| `read` | `PaneReadResult` | yes |  |
+| `revision` | `integer` | yes |  |
+| `type` | `"output_matched"` | yes |  |
+
+## `notification_show`
+
+| Property | Type | Required | Description |
+| --- | --- | --- | --- |
+| `reason` | `NotificationShowReason` | yes |  |
+| `shown` | `boolean` | yes |  |
+| `type` | `"notification_show"` | yes |  |
+
+## `client_window_title`
+
+| Property | Type | Required | Description |
+| --- | --- | --- | --- |
+| `changed` | `boolean` | yes |  |
+| `reason` | `ClientWindowTitleReason` | yes |  |
+| `type` | `"client_window_title"` | yes |  |
+
+## `integration_install`
+
+| Property | Type | Required | Description |
+| --- | --- | --- | --- |
+| `details` | `IntegrationInstallResult` | yes |  |
+| `target` | `IntegrationTarget` | yes |  |
+| `type` | `"integration_install"` | yes |  |
+
+## `integration_uninstall`
+
+| Property | Type | Required | Description |
+| --- | --- | --- | --- |
+| `details` | `IntegrationUninstallResult` | yes |  |
+| `target` | `IntegrationTarget` | yes |  |
+| `type` | `"integration_uninstall"` | yes |  |
+
+## `agent_manifest_reload`
+
+| Property | Type | Required | Description |
+| --- | --- | --- | --- |
+| `manifests` | `AgentManifestInfo[]` | yes |  |
+| `type` | `"agent_manifest_reload"` | yes |  |
+
+## `agent_manifest_status`
+
+| Property | Type | Required | Description |
+| --- | --- | --- | --- |
+| `last_check_unix` | `integer \| null` | no |  |
+| `last_result` | `string \| null` | no |  |
+| `manifests` | `AgentManifestInfo[]` | yes |  |
+| `type` | `"agent_manifest_status"` | yes |  |
+
+## `plugin_linked`
+
+| Property | Type | Required | Description |
+| --- | --- | --- | --- |
+| `plugin` | `InstalledPluginInfo` | yes |  |
+| `type` | `"plugin_linked"` | yes |  |
+
+## `plugin_list`
+
+| Property | Type | Required | Description |
+| --- | --- | --- | --- |
+| `plugins` | `InstalledPluginInfo[]` | yes |  |
+| `type` | `"plugin_list"` | yes |  |
+
+## `plugin_unlinked`
+
+| Property | Type | Required | Description |
+| --- | --- | --- | --- |
+| `plugin_id` | `string` | yes |  |
+| `removed` | `boolean` | yes |  |
+| `type` | `"plugin_unlinked"` | yes |  |
+
+## `plugin_enabled`
+
+| Property | Type | Required | Description |
+| --- | --- | --- | --- |
+| `plugin` | `InstalledPluginInfo` | yes |  |
+| `type` | `"plugin_enabled"` | yes |  |
+
+## `plugin_disabled`
+
+| Property | Type | Required | Description |
+| --- | --- | --- | --- |
+| `plugin` | `InstalledPluginInfo` | yes |  |
+| `type` | `"plugin_disabled"` | yes |  |
+
+## `plugin_action_list`
+
+| Property | Type | Required | Description |
+| --- | --- | --- | --- |
+| `actions` | `PluginActionInfo[]` | yes |  |
+| `type` | `"plugin_action_list"` | yes |  |
+
+## `plugin_action_invoked`
+
+| Property | Type | Required | Description |
+| --- | --- | --- | --- |
+| `action` | `PluginActionInfo` | yes |  |
+| `context` | `PluginInvocationContext` | yes |  |
+| `log` | `PluginCommandLogInfo` | yes |  |
+| `type` | `"plugin_action_invoked"` | yes |  |
+
+## `plugin_log_list`
+
+| Property | Type | Required | Description |
+| --- | --- | --- | --- |
+| `logs` | `PluginCommandLogInfo[]` | yes |  |
+| `type` | `"plugin_log_list"` | yes |  |
+
+## `plugin_pane_opened`
+
+| Property | Type | Required | Description |
+| --- | --- | --- | --- |
+| `plugin_pane` | `PluginPaneInfo` | yes |  |
+| `type` | `"plugin_pane_opened"` | yes |  |
+
+## `plugin_pane_focused`
+
+| Property | Type | Required | Description |
+| --- | --- | --- | --- |
+| `plugin_pane` | `PluginPaneInfo` | yes |  |
+| `type` | `"plugin_pane_focused"` | yes |  |
+
+## `plugin_pane_closed`
+
+| Property | Type | Required | Description |
+| --- | --- | --- | --- |
+| `pane_id` | `string` | yes |  |
+| `type` | `"plugin_pane_closed"` | yes |  |
+
+## `config_reload`
+
+| Property | Type | Required | Description |
+| --- | --- | --- | --- |
+| `diagnostics` | `string[]` | yes |  |
+| `status` | `ConfigReloadStatus` | yes |  |
+| `type` | `"config_reload"` | yes |  |
+
+## `ok`
+
+| Property | Type | Required | Description |
+| --- | --- | --- | --- |
+| `type` | `"ok"` | yes |  |
+
+## Data types
+
+### `AgentInfo`
+
+| Property | Type | Required | Description |
+| --- | --- | --- | --- |
+| `agent` | `string \| null` | no |  |
+| `agent_session` | `AgentSessionInfo \| null` | no |  |
+| `agent_status` | `AgentStatus` | yes |  |
+| `custom_status` | `string \| null` | no |  |
+| `cwd` | `string \| null` | no |  |
+| `display_agent` | `string \| null` | no |  |
+| `focused` | `boolean` | yes |  |
+| `foreground_cwd` | `string \| null` | no |  |
+| `name` | `string \| null` | no |  |
+| `pane_id` | `string` | yes |  |
+| `revision` | `integer` | yes |  |
+| `screen_detection_skipped` | `boolean` | no |  |
+| `state_labels` | `object` | no |  |
+| `tab_id` | `string` | yes |  |
+| `terminal_id` | `string` | yes |  |
+| `title` | `string \| null` | no |  |
+| `tokens` | `object` | no |  |
+| `workspace_id` | `string` | yes |  |
+
+### `AgentManifestInfo`
+
+| Property | Type | Required | Description |
+| --- | --- | --- | --- |
+| `active_version` | `string \| null` | no |  |
+| `agent` | `string` | yes |  |
+| `cached_remote_version` | `string \| null` | no |  |
+| `local_override_shadowing_remote` | `boolean` | yes |  |
+| `remote_last_checked_unix` | `integer \| null` | no |  |
+| `remote_update_error` | `string \| null` | no |  |
+| `remote_update_result` | `string \| null` | no |  |
+| `source` | `string` | yes |  |
+| `source_kind` | `string` | yes |  |
+| `warning` | `string \| null` | no |  |
+
+### `AgentSessionInfo`
+
+| Property | Type | Required | Description |
+| --- | --- | --- | --- |
+| `agent` | `string` | yes |  |
+| `kind` | `AgentSessionRefKind` | yes |  |
+| `source` | `string` | yes |  |
+| `value` | `string` | yes |  |
+
+### `EventData`
+
+Variants:
+
+- `workspace_created`
+- `workspace_updated`
+- `workspace_closed`
+- `workspace_renamed`
+- `workspace_focused`
+- `worktree_created`
+- `worktree_opened`
+- `worktree_removed`
+- `tab_created`
+- `tab_closed`
+- `tab_renamed`
+- `tab_focused`
+- `pane_created`
+- `pane_closed`
+- `pane_focused`
+- `pane_moved`
+- `pane_output_changed`
+- `pane_exited`
+- `pane_agent_detected`
+- `pane_agent_status_changed`
+- `layout_updated`
+
+### `EventEnvelope`
+
+| Property | Type | Required | Description |
+| --- | --- | --- | --- |
+| `data` | `EventData` | yes |  |
+| `event` | `EventKind` | yes |  |
+
+### `GroupInfo`
+
+| Property | Type | Required | Description |
+| --- | --- | --- | --- |
+| `focused` | `boolean` | yes |  |
+| `group_id` | `string` | yes |  |
+| `icon` | `string` | yes |  |
+| `name` | `string` | yes |  |
+| `number` | `integer` | yes |  |
+| `workspace_count` | `integer` | yes |  |
+
+### `InstalledPluginInfo`
+
+| Property | Type | Required | Description |
+| --- | --- | --- | --- |
+| `actions` | `PluginManifestAction[]` | no |  |
+| `build` | `PluginManifestBuild[]` | no |  |
+| `description` | `string \| null` | no |  |
+| `enabled` | `boolean` | yes |  |
+| `events` | `PluginManifestEventHook[]` | no |  |
+| `link_handlers` | `PluginManifestLinkHandler[]` | no |  |
+| `manifest_path` | `string` | yes |  |
+| `min_omh_version` | `string` | yes |  |
+| `name` | `string` | yes |  |
+| `panes` | `PluginManifestPane[]` | no |  |
+| `platforms` | `array \| null` | no |  |
+| `plugin_id` | `string` | yes |  |
+| `plugin_root` | `string` | yes |  |
+| `source` | `PluginSourceInfo` | no |  |
+| `version` | `string` | yes |  |
+| `warnings` | `string[]` | no |  |
+
+### `IntegrationInstallResult`
+
+| Property | Type | Required | Description |
+| --- | --- | --- | --- |
+| `messages` | `string[]` | yes |  |
+
+### `IntegrationUninstallResult`
+
+| Property | Type | Required | Description |
+| --- | --- | --- | --- |
+| `messages` | `string[]` | yes |  |
+
+### `LayoutDescription`
+
+| Property | Type | Required | Description |
+| --- | --- | --- | --- |
+| `focused_pane_id` | `string` | yes |  |
+| `root` | `LayoutNode` | yes |  |
+| `tab_id` | `string` | yes |  |
+| `workspace_id` | `string` | yes |  |
+| `zoomed` | `boolean` | yes |  |
+
+### `LayoutNode`
+
+Variants:
+
+- `pane`
+- `split`
+
+### `PaneEdgesResult`
+
+| Property | Type | Required | Description |
+| --- | --- | --- | --- |
+| `down` | `boolean` | yes |  |
+| `layout` | `PaneLayoutSnapshot` | yes |  |
+| `left` | `boolean` | yes |  |
+| `pane_id` | `string` | yes |  |
+| `right` | `boolean` | yes |  |
+| `up` | `boolean` | yes |  |
+
+### `PaneFocusDirectionResult`
+
+| Property | Type | Required | Description |
+| --- | --- | --- | --- |
+| `changed` | `boolean` | yes |  |
+| `focused_pane_id` | `string \| null` | no |  |
+| `layout` | `PaneLayoutSnapshot` | yes |  |
+| `reason` | `PaneFocusDirectionReason \| null` | no |  |
+| `source_pane_id` | `string` | yes |  |
+
+### `PaneInfo`
+
+| Property | Type | Required | Description |
+| --- | --- | --- | --- |
+| `agent` | `string \| null` | no |  |
+| `agent_session` | `AgentSessionInfo \| null` | no |  |
+| `agent_status` | `AgentStatus` | yes |  |
+| `custom_status` | `string \| null` | no |  |
+| `cwd` | `string \| null` | no |  |
+| `display_agent` | `string \| null` | no |  |
+| `focused` | `boolean` | yes |  |
+| `foreground_cwd` | `string \| null` | no |  |
+| `label` | `string \| null` | no |  |
+| `pane_id` | `string` | yes |  |
+| `revision` | `integer` | yes |  |
+| `scroll` | `PaneScrollInfo \| null` | no |  |
+| `state_labels` | `object` | no |  |
+| `tab_id` | `string` | yes |  |
+| `terminal_id` | `string` | yes |  |
+| `title` | `string \| null` | no |  |
+| `tokens` | `object` | no |  |
+| `workspace_id` | `string` | yes |  |
+
+### `PaneLayoutPane`
+
+| Property | Type | Required | Description |
+| --- | --- | --- | --- |
+| `focused` | `boolean` | yes |  |
+| `pane_id` | `string` | yes |  |
+| `rect` | `PaneLayoutRect` | yes |  |
+
+### `PaneLayoutRect`
+
+| Property | Type | Required | Description |
+| --- | --- | --- | --- |
+| `height` | `integer` | yes |  |
+| `width` | `integer` | yes |  |
+| `x` | `integer` | yes |  |
+| `y` | `integer` | yes |  |
+
+### `PaneLayoutSnapshot`
+
+| Property | Type | Required | Description |
+| --- | --- | --- | --- |
+| `area` | `PaneLayoutRect` | yes |  |
+| `focused_pane_id` | `string` | yes |  |
+| `panes` | `PaneLayoutPane[]` | yes |  |
+| `splits` | `PaneLayoutSplit[]` | yes |  |
+| `tab_id` | `string` | yes |  |
+| `workspace_id` | `string` | yes |  |
+| `zoomed` | `boolean` | yes |  |
+
+### `PaneLayoutSplit`
+
+| Property | Type | Required | Description |
+| --- | --- | --- | --- |
+| `direction` | `SplitDirection` | yes |  |
 | `id` | `string` | yes |  |
-| `result` | `ResponseResult` | yes |  |
+| `ratio` | `number` | yes |  |
+| `rect` | `PaneLayoutRect` | yes |  |
+
+### `PaneMoveResult`
+
+| Property | Type | Required | Description |
+| --- | --- | --- | --- |
+| `changed` | `boolean` | yes |  |
+| `closed_tab_id` | `string \| null` | no |  |
+| `closed_workspace_id` | `string \| null` | no |  |
+| `created_tab` | `TabInfo \| null` | no |  |
+| `created_workspace` | `WorkspaceInfo \| null` | no |  |
+| `focused_pane_id` | `string` | yes |  |
+| `pane` | `PaneInfo` | yes |  |
+| `previous_pane_id` | `string` | yes |  |
+| `previous_tab_id` | `string` | yes |  |
+| `previous_workspace_id` | `string` | yes |  |
+| `reason` | `PaneMoveReason \| null` | no |  |
+| `source_layout` | `PaneLayoutSnapshot \| null` | no |  |
+| `target_layout` | `PaneLayoutSnapshot` | yes |  |
+
+### `PaneNeighborResult`
+
+| Property | Type | Required | Description |
+| --- | --- | --- | --- |
+| `direction` | `PaneDirection` | yes |  |
+| `layout` | `PaneLayoutSnapshot` | yes |  |
+| `neighbor_pane_id` | `string \| null` | no |  |
+| `pane_id` | `string` | yes |  |
+
+### `PaneProcessInfo`
+
+| Property | Type | Required | Description |
+| --- | --- | --- | --- |
+| `foreground_process_group_id` | `integer \| null` | no |  |
+| `foreground_processes` | `PaneProcessInfoProcess[]` | no |  |
+| `pane_id` | `string` | yes |  |
+| `shell_pid` | `integer \| null` | no |  |
+| `tty` | `string \| null` | no |  |
+
+### `PaneProcessInfoProcess`
+
+| Property | Type | Required | Description |
+| --- | --- | --- | --- |
+| `argv` | `array \| null` | no |  |
+| `argv0` | `string \| null` | no |  |
+| `cmdline` | `string \| null` | no |  |
+| `cwd` | `string \| null` | no |  |
+| `name` | `string` | yes |  |
+| `pid` | `integer` | yes |  |
+
+### `PaneReadResult`
+
+| Property | Type | Required | Description |
+| --- | --- | --- | --- |
+| `format` | `ReadFormat` | yes |  |
+| `pane_id` | `string` | yes |  |
+| `revision` | `integer` | yes |  |
+| `source` | `ReadSource` | yes |  |
+| `tab_id` | `string` | yes |  |
+| `text` | `string` | yes |  |
+| `truncated` | `boolean` | yes |  |
+| `workspace_id` | `string` | yes |  |
+
+### `PaneResizeResult`
+
+| Property | Type | Required | Description |
+| --- | --- | --- | --- |
+| `changed` | `boolean` | yes |  |
+| `focused_pane_id` | `string` | yes |  |
+| `layout` | `PaneLayoutSnapshot` | yes |  |
+| `pane_id` | `string` | yes |  |
+| `reason` | `PaneResizeReason \| null` | no |  |
+
+### `PaneScrollInfo`
+
+| Property | Type | Required | Description |
+| --- | --- | --- | --- |
+| `max_offset_from_bottom` | `integer` | yes |  |
+| `offset_from_bottom` | `integer` | yes |  |
+| `viewport_rows` | `integer` | yes |  |
+
+### `PaneSwapResult`
+
+| Property | Type | Required | Description |
+| --- | --- | --- | --- |
+| `changed` | `boolean` | yes |  |
+| `focused_pane_id` | `string` | yes |  |
+| `layout` | `PaneLayoutSnapshot` | yes |  |
+| `reason` | `PaneSwapReason \| null` | no |  |
+| `source_pane_id` | `string` | yes |  |
+| `target_pane_id` | `string \| null` | no |  |
+
+### `PaneZoomResult`
+
+| Property | Type | Required | Description |
+| --- | --- | --- | --- |
+| `changed` | `boolean` | yes |  |
+| `focus_changed` | `boolean` | yes |  |
+| `focused_pane_id` | `string` | yes |  |
+| `layout` | `PaneLayoutSnapshot` | yes |  |
+| `pane_id` | `string` | yes |  |
+| `reason` | `PaneZoomReason \| null` | no |  |
+| `zoom_changed` | `boolean` | yes |  |
+| `zoomed` | `boolean` | yes |  |
+
+### `PluginActionInfo`
+
+| Property | Type | Required | Description |
+| --- | --- | --- | --- |
+| `action_id` | `string` | yes |  |
+| `command` | `string[]` | yes |  |
+| `contexts` | `PluginActionContext[]` | no |  |
+| `description` | `string \| null` | no |  |
+| `platforms` | `array \| null` | no |  |
+| `plugin_id` | `string` | yes |  |
+| `title` | `string` | yes |  |
+
+### `PluginCommandLogInfo`
+
+| Property | Type | Required | Description |
+| --- | --- | --- | --- |
+| `action_id` | `string \| null` | no |  |
+| `command` | `string[]` | yes |  |
+| `error` | `string \| null` | no |  |
+| `event` | `string \| null` | no |  |
+| `exit_code` | `integer \| null` | no |  |
+| `finished_unix_ms` | `integer \| null` | no |  |
+| `log_id` | `string` | yes |  |
+| `plugin_id` | `string` | yes |  |
+| `started_unix_ms` | `integer` | yes |  |
+| `status` | `PluginCommandStatus` | yes |  |
+| `stderr` | `string \| null` | no |  |
+| `stdout` | `string \| null` | no |  |
+
+### `PluginInvocationContext`
+
+| Property | Type | Required | Description |
+| --- | --- | --- | --- |
+| `clicked_url` | `string \| null` | no |  |
+| `correlation_id` | `string \| null` | no |  |
+| `focused_pane_agent` | `string \| null` | no |  |
+| `focused_pane_cwd` | `string \| null` | no |  |
+| `focused_pane_id` | `string \| null` | no |  |
+| `focused_pane_status` | `AgentStatus \| null` | no |  |
+| `invocation_source` | `string \| null` | no |  |
+| `link_handler_id` | `string \| null` | no |  |
+| `selected_text` | `string \| null` | no |  |
+| `tab_id` | `string \| null` | no |  |
+| `tab_label` | `string \| null` | no |  |
+| `workspace_cwd` | `string \| null` | no |  |
+| `workspace_id` | `string \| null` | no |  |
+| `workspace_label` | `string \| null` | no |  |
+| `worktree` | `WorkspaceWorktreeInfo \| null` | no |  |
+
+### `PluginManifestAction`
+
+| Property | Type | Required | Description |
+| --- | --- | --- | --- |
+| `command` | `string[]` | yes |  |
+| `contexts` | `PluginActionContext[]` | no |  |
+| `description` | `string \| null` | no |  |
+| `id` | `string` | yes |  |
+| `platforms` | `array \| null` | no |  |
+| `title` | `string` | yes |  |
+
+### `PluginManifestBuild`
+
+| Property | Type | Required | Description |
+| --- | --- | --- | --- |
+| `command` | `string[]` | yes |  |
+| `platforms` | `array \| null` | no |  |
+
+### `PluginManifestEventHook`
+
+| Property | Type | Required | Description |
+| --- | --- | --- | --- |
+| `command` | `string[]` | yes |  |
+| `on` | `string` | yes |  |
+| `platforms` | `array \| null` | no |  |
+
+### `PluginManifestLinkHandler`
+
+| Property | Type | Required | Description |
+| --- | --- | --- | --- |
+| `action` | `string` | yes |  |
+| `id` | `string` | yes |  |
+| `pattern` | `string` | yes |  |
+| `platforms` | `array \| null` | no |  |
+| `title` | `string` | yes |  |
+
+### `PluginManifestPane`
+
+| Property | Type | Required | Description |
+| --- | --- | --- | --- |
+| `command` | `string[]` | yes |  |
+| `description` | `string \| null` | no |  |
+| `id` | `string` | yes |  |
+| `placement` | `PluginPanePlacement` | no |  |
+| `platforms` | `array \| null` | no |  |
+| `title` | `string` | yes |  |
+
+### `PluginPaneInfo`
+
+| Property | Type | Required | Description |
+| --- | --- | --- | --- |
+| `entrypoint` | `string` | yes |  |
+| `pane` | `PaneInfo` | yes |  |
+| `plugin_id` | `string` | yes |  |
+
+### `PluginSourceInfo`
+
+| Property | Type | Required | Description |
+| --- | --- | --- | --- |
+| `installed_unix_ms` | `integer \| null` | no |  |
+| `kind` | `PluginSourceKind` | no |  |
+| `managed_path` | `string \| null` | no |  |
+| `owner` | `string \| null` | no |  |
+| `repo` | `string \| null` | no |  |
+| `requested_ref` | `string \| null` | no |  |
+| `resolved_commit` | `string \| null` | no |  |
+| `subdir` | `string \| null` | no |  |
+
+### `ServerCapabilities`
+
+| Property | Type | Required | Description |
+| --- | --- | --- | --- |
+| `live_handoff` | `boolean` | yes |  |
+
+### `SessionSnapshot`
+
+| Property | Type | Required | Description |
+| --- | --- | --- | --- |
+| `agents` | `AgentInfo[]` | yes |  |
+| `focused_pane_id` | `string \| null` | no |  |
+| `focused_tab_id` | `string \| null` | no |  |
+| `focused_workspace_id` | `string \| null` | no |  |
+| `layouts` | `PaneLayoutSnapshot[]` | yes |  |
+| `panes` | `PaneInfo[]` | yes |  |
+| `protocol` | `integer` | yes |  |
+| `tabs` | `TabInfo[]` | yes |  |
+| `version` | `string` | yes |  |
+| `workspaces` | `WorkspaceInfo[]` | yes |  |
+
+### `TabInfo`
+
+| Property | Type | Required | Description |
+| --- | --- | --- | --- |
+| `agent_status` | `AgentStatus` | yes |  |
+| `focused` | `boolean` | yes |  |
+| `label` | `string` | yes |  |
+| `number` | `integer` | yes |  |
+| `pane_count` | `integer` | yes |  |
+| `tab_id` | `string` | yes |  |
+| `workspace_id` | `string` | yes |  |
+
+### `WorkspaceInfo`
+
+| Property | Type | Required | Description |
+| --- | --- | --- | --- |
+| `active_tab_id` | `string` | yes |  |
+| `agent_status` | `AgentStatus` | yes |  |
+| `focused` | `boolean` | yes |  |
+| `group_id` | `string` | yes |  |
+| `label` | `string` | yes |  |
+| `number` | `integer` | yes |  |
+| `pane_count` | `integer` | yes |  |
+| `tab_count` | `integer` | yes |  |
+| `workspace_id` | `string` | yes |  |
+| `worktree` | `WorkspaceWorktreeInfo \| null` | no |  |
+
+### `WorkspaceWorktreeInfo`
+
+| Property | Type | Required | Description |
+| --- | --- | --- | --- |
+| `checkout_path` | `string` | yes |  |
+| `is_linked_worktree` | `boolean` | yes |  |
+| `repo_key` | `string` | yes |  |
+| `repo_name` | `string` | yes |  |
+| `repo_root` | `string` | yes |  |
+
+### `WorktreeInfo`
+
+| Property | Type | Required | Description |
+| --- | --- | --- | --- |
+| `branch` | `string \| null` | no |  |
+| `is_bare` | `boolean` | yes |  |
+| `is_detached` | `boolean` | yes |  |
+| `is_linked_worktree` | `boolean` | yes |  |
+| `is_prunable` | `boolean` | yes |  |
+| `label` | `string` | yes |  |
+| `open_workspace_id` | `string \| null` | no |  |
+| `path` | `string` | yes |  |
+
+### `WorktreeSourceInfo`
+
+| Property | Type | Required | Description |
+| --- | --- | --- | --- |
+| `repo_key` | `string` | yes |  |
+| `repo_name` | `string` | yes |  |
+| `repo_root` | `string` | yes |  |
+| `source_checkout_path` | `string` | yes |  |
+| `source_workspace_id` | `string \| null` | no |  |

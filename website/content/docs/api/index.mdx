@@ -9,6 +9,17 @@ Oh My Herdr exposes a newline-delimited JSON control interface over a local sock
 
 The Local API is **not HTTP, REST, or OpenAPI**. It is also separate from the binary protocol used by interactive clients for rendering, input, and direct terminal attachment.
 
+## Choose an integration surface
+
+| Surface | Use it for |
+| --- | --- |
+| [`omh` CLI](/docs/reference/cli) | Shell scripts, one-shot operations, and human debugging. Prefer this when a command already exposes the operation you need. |
+| [Agent skill](/docs/guides/plugins-and-integrations) | Teaching an AI coding agent how to operate Oh My Herdr from inside a pane. |
+| [Plugin manifest](/docs/reference/plugin-manifest) | Installing reusable actions, links, event hooks, pane launchers, and agent lifecycle integrations. |
+| Local API | Direct request/response control, complete resource inspection, pane input/output, or long-lived event subscriptions. |
+
+The Local API is the lowest-level public automation surface. It is not automatically safer or more stable than the CLI: callers own socket selection, framing, timeouts, retries, and reconciliation.
+
 ## Transport
 
 A client opens the active session's Local API socket, writes one JSON request followed by a newline, and reads one JSON response line. A normal request uses one connection and has this envelope:
@@ -49,10 +60,18 @@ Additive Local API shape changes can occur within the generated schema version. 
 
 ## Reference
 
-- [Request methods](/docs/api/reference/generated/requests)
-- [Successful responses](/docs/api/reference/generated/responses)
-- [Operational and subscription events](/docs/api/reference/generated/events)
+Start with the authored method guides for behavior, defaults, side effects, errors, and runnable examples:
+
+- [Sessions, workspaces, worktrees, groups, and tabs](/docs/api/reference/resources)
+- [Panes and agents](/docs/api/reference/panes-and-agents)
+- [Extensions, integrations, server control, and subscriptions](/docs/api/reference/extensions-and-control)
+
+Use the generated pages for exhaustive wire shapes from the current binary:
+
+- [Request parameter schemas](/docs/api/reference/generated/requests)
+- [Successful result variants](/docs/api/reference/generated/responses)
+- [Operational and subscription event variants](/docs/api/reference/generated/events)
 - [Error response shape](/docs/api/reference/generated/errors)
 - [Enum values](/docs/api/reference/generated/enums)
-- [Send a request from a local script](/docs/api/workflow)
-- [Error semantics](/docs/api/errors)
+
+For a first integration, continue with [Send a request from a local script](/docs/api/workflow). [Error semantics](/docs/api/errors) explains transport failures, API failures, retries, and streaming recovery.

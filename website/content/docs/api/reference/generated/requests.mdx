@@ -780,3 +780,119 @@ Parameters: `PluginPaneCloseParams`
 | Property | Type | Required | Description |
 | --- | --- | --- | --- |
 | `pane_id` | `string` | yes |  |
+
+## Data types
+
+### `EventMatch`
+
+Variants:
+
+- `object`
+- `object`
+- `object`
+- `object`
+- `object`
+- `object`
+- `object`
+- `object`
+- `object`
+- `object`
+- `object`
+- `object`
+- `object`
+- `object`
+- `object`
+- `object`
+- `object`
+
+### `LayoutNode`
+
+Variants:
+
+- `pane`
+- `split`
+
+### `OutputMatch`
+
+Variants:
+
+- `substring`
+- `regex`
+
+### `PaneMoveDestination`
+
+Variants:
+
+- `tab`
+- `new_tab`
+- `new_workspace`
+
+### `PluginInvocationContext`
+
+| Property | Type | Required | Description |
+| --- | --- | --- | --- |
+| `clicked_url` | `string \| null` | no |  |
+| `correlation_id` | `string \| null` | no |  |
+| `focused_pane_agent` | `string \| null` | no |  |
+| `focused_pane_cwd` | `string \| null` | no |  |
+| `focused_pane_id` | `string \| null` | no |  |
+| `focused_pane_status` | `AgentStatus \| null` | no |  |
+| `invocation_source` | `string \| null` | no |  |
+| `link_handler_id` | `string \| null` | no |  |
+| `selected_text` | `string \| null` | no |  |
+| `tab_id` | `string \| null` | no |  |
+| `tab_label` | `string \| null` | no |  |
+| `workspace_cwd` | `string \| null` | no |  |
+| `workspace_id` | `string \| null` | no |  |
+| `workspace_label` | `string \| null` | no |  |
+| `worktree` | `WorkspaceWorktreeInfo \| null` | no |  |
+
+### `PluginSourceInfo`
+
+| Property | Type | Required | Description |
+| --- | --- | --- | --- |
+| `installed_unix_ms` | `integer \| null` | no |  |
+| `kind` | `PluginSourceKind` | no |  |
+| `managed_path` | `string \| null` | no |  |
+| `owner` | `string \| null` | no |  |
+| `repo` | `string \| null` | no |  |
+| `requested_ref` | `string \| null` | no |  |
+| `resolved_commit` | `string \| null` | no |  |
+| `subdir` | `string \| null` | no |  |
+
+### `Subscription`
+
+Variants:
+
+- `workspace.created`
+- `workspace.updated`
+- `workspace.renamed`
+- `workspace.closed`
+- `workspace.focused`
+- `worktree.created`
+- `worktree.opened`
+- `worktree.removed`
+- `tab.created`
+- `tab.closed`
+- `tab.focused`
+- `tab.renamed`
+- `pane.created`
+- `pane.closed`
+- `pane.focused`
+- `pane.moved`
+- `pane.exited`
+- `pane.agent_detected`
+- `pane.output_matched`
+- `pane.agent_status_changed`
+- `pane.scroll_changed`
+- `layout.updated`
+
+### `WorkspaceWorktreeInfo`
+
+| Property | Type | Required | Description |
+| --- | --- | --- | --- |
+| `checkout_path` | `string` | yes |  |
+| `is_linked_worktree` | `boolean` | yes |  |
+| `repo_key` | `string` | yes |  |
+| `repo_name` | `string` | yes |  |
+| `repo_root` | `string` | yes |  |

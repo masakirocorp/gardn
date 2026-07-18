@@ -1,0 +1,1108 @@
+---
+title: Resources
+description: Session, workspace, worktree, group, and tab Local API methods with params, results, errors, and examples.
+---
+
+# Resources
+
+This page documents the Local API methods that read and mutate the resource tree a session owns: the session itself, workspaces, git worktrees, sidebar groups, and tabs. Methods that act on panes, agents, plugins, and server controls are covered separately.
+
+Every request is one newline-delimited JSON object with `id`, `method`, and `params`. Every response echoes `id` and contains either `result` or `error`. Result objects carry a `type` discriminator; the discriminators named below match the `ResponseResult` variants serialized from `apps/omh/src/api/schema.rs`. See [error semantics](/docs/api/errors) for the error envelope, and the [generated requests](/docs/api/reference/generated/requests), [responses](/docs/api/reference/generated/responses), and [enums](/docs/api/reference/generated/enums) pages for the machine-generated shapes.
+
+## Identifiers and active-target defaults
+
+Several resource methods accept optional selectors that pick a starting point when you omit an explicit id. The rules below are enforced by the handlers in `apps/omh/src/app/api/{workspaces,worktrees,tabs}.rs` and the id parsers in `apps/omh/src/app/ids.rs`.
+
+**Public ids.**
+
+- `workspace_id` is a stable opaque string generated as `w<micros_hex><counter_hex>` (for example `w1943cd2b11a1`). The parsers also accept the legacy `w_<n>` and bare one-based integer forms, but the server always returns the generated `w...` form in results.
+- `group_id` is a stable opaque string generated as `g<micros_hex><counter_hex>` for created groups. The first group is the built-in default and uses the fixed id `default`. The parsers also accept `g_<n>` and a bare one-based integer.
+- `tab_id` is `"<workspace_id>:t<encoded_number>"` where the encoded number uses the 32-symbol alphabet `123456789ABCDEFGHJKMNPQRSTVWXYZ0` (one-based, bijective: tab 1 is `1`, tab 10 is `A`). Closed tab numbers are not reused, so a `tab_id` remains a stable reference for the lifetime of the tab. Legacy `t_<ws>_<tab>` and `"<workspace_id>:<n>"` forms also parse.
+
+**Active-target defaults.** Worktree and tab methods let the caller omit the target workspace. When both an explicit selector and an active fallback are missing, the method returns `invalid_request`.
+
+- Worktree methods (`worktree.list`, `worktree.create`, `worktree.open`) accept `workspace_id` or `cwd` as mutually exclusive selectors. Provide neither and the server uses the active workspace, or the selected workspace in navigate mode. If no workspace is active or selected, the request fails with `invalid_request` and the message `workspace_id or cwd is required when no workspace is active`.
+- `tab.create` uses `workspace_id` when supplied, otherwise the active workspace. With no active workspace it returns `workspace_not_found` and the message `no active workspace`.
+- `workspace.create` derives `cwd` from the workspace creation source and the configured new-terminal cwd policy when `cwd` is omitted. `focus` defaults to `false`, but is treated as `true` when no workspace is active.
+
+## Session
+
+### `session.snapshot`
+
+Return a complete snapshot of the current session: every workspace, tab, pane, layout, and agent known to the server, plus the currently focused workspace, tab, and pane.
+
+Params: none.
+
+Result discriminator: `session_snapshot`. The `snapshot` field is a `SessionSnapshot` with `version` (product version), `protocol` (interactive client wire protocol), optional `focused_workspace_id`, `focused_tab_id`, and `focused_pane_id`, plus arrays of `workspaces`, `tabs`, `panes`, `layouts`, and `agents`. The focused ids are omitted (not `null`) when no workspace is active. Use this as the authoritative reconciliation point after reconnecting an event stream.
+
+Errors: none method-specific. A snapshot of an empty session is valid and returns empty arrays.
+
+Example:
+
+```json
+{ "id": "snap:1", "method": "session.snapshot", "params": {} }
+```
+
+```json
+{
+  "id": "snap:1",
+  "result": {
+    "type": "session_snapshot",
+    "snapshot": {
+      "version": "0.2.18",
+      "protocol": 12,
+      "focused_workspace_id": "w1943cd2b11a1",
+      "focused_tab_id": "w1943cd2b11a1:t1",
+      "focused_pane_id": "w1943cd2b11a1:p1",
+      "workspaces": [
+        {
+          "workspace_id": "w1943cd2b11a1",
+          "group_id": "default",
+          "number": 1,
+          "label": "omh",
+          "focused": true,
+          "pane_count": 1,
+          "tab_count": 1,
+          "active_tab_id": "w1943cd2b11a1:t1",
+          "agent_status": "idle"
+        }
+      ],
+      "tabs": [
+        {
+          "tab_id": "w1943cd2b11a1:t1",
+          "workspace_id": "w1943cd2b11a1",
+          "number": 1,
+          "label": "omh",
+          "focused": true,
+          "pane_count": 1,
+          "agent_status": "idle"
+        }
+      ],
+      "panes": [],
+      "layouts": [],
+      "agents": []
+    }
+  }
+}
+```
+
+## Workspaces
+
+A workspace is a terminal surface that owns tabs. Each workspace belongs to a group, carries a one-based `number` for display, and may be associated with a git worktree checkout.
+
+### `workspace.create`
+
+Create a new workspace with one initial tab and one root pane.
+
+Params:
+
+| Property | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `cwd` | `string \| null` | no | Working directory for the initial pane. Omitted value is derived from the workspace creation source and the configured new-terminal cwd policy. |
+| `focus` | `boolean` | no | Defaults to `false`. Treated as `true` when no workspace is currently active. |
+| `label` | `string \| null` | no | Custom workspace label. A derived label from `cwd` is used when omitted. |
+| `env` | `object` | no | Additional environment variables for the initial pane. Keys must be non-empty and must not contain `=` or NUL bytes; values must not contain NUL bytes. Empty or invalid entries fail with `invalid_env`. Entries are sorted by key before launch. |
+
+Result discriminator: `workspace_created`. Fields: `workspace` (`WorkspaceInfo`), `tab` (`TabInfo`), `root_pane` (`PaneInfo`). The server also emits `workspace.created`, `tab.created`, and `pane.created` events.
+
+Errors:
+
+| Code | When |
+| --- | --- |
+| `invalid_env` | An `env` key is empty, contains `=`, or contains a NUL byte, or a value contains a NUL byte. |
+| `workspace_create_failed` | The workspace could not be created. The message carries the underlying error. |
+
+Example:
+
+```json
+{
+  "id": "ws:create",
+  "method": "workspace.create",
+  "params": { "cwd": "/home/me/src/omh", "label": "omh-docs", "focus": true, "env": { "OMH_TASK": "docs" } }
+}
+```
+
+```json
+{
+  "id": "ws:create",
+  "result": {
+    "type": "workspace_created",
+    "workspace": {
+      "workspace_id": "w1943cf02aa2",
+      "group_id": "default",
+      "number": 2,
+      "label": "omh-docs",
+      "focused": true,
+      "pane_count": 1,
+      "tab_count": 1,
+      "active_tab_id": "w1943cf02aa2:t1",
+      "agent_status": "idle"
+    },
+    "tab": {
+      "tab_id": "w1943cf02aa2:t1",
+      "workspace_id": "w1943cf02aa2",
+      "number": 1,
+      "label": "omh-docs",
+      "focused": true,
+      "pane_count": 1,
+      "agent_status": "idle"
+    },
+    "root_pane": {}
+  }
+}
+```
+
+### `workspace.list`
+
+List every workspace in the session. The result mirrors what `session.snapshot` returns for the `workspaces` array.
+
+Params: none.
+
+Result discriminator: `workspace_list`. Fields: `workspaces` (`WorkspaceInfo[]`). Each entry includes `workspace_id`, `group_id`, one-based `number`, `label`, `focused`, `pane_count`, `tab_count`, `active_tab_id`, `agent_status`, and an optional `worktree` object when the workspace is associated with a git worktree checkout.
+
+Errors: none method-specific.
+
+Example:
+
+```json
+{ "id": "ws:list", "method": "workspace.list", "params": {} }
+```
+
+```json
+{
+  "id": "ws:list",
+  "result": {
+    "type": "workspace_list",
+    "workspaces": [
+      {
+        "workspace_id": "w1943cd2b11a1",
+        "group_id": "default",
+        "number": 1,
+        "label": "omh",
+        "focused": true,
+        "pane_count": 2,
+        "tab_count": 1,
+        "active_tab_id": "w1943cd2b11a1:t1",
+        "agent_status": "working",
+        "worktree": {
+          "repo_key": "8c1f.../omh",
+          "repo_name": "omh",
+          "repo_root": "/home/me/src/omh",
+          "checkout_path": "/home/me/src/omh",
+          "is_linked_worktree": false
+        }
+      }
+    ]
+  }
+}
+```
+
+### `workspace.get`
+
+Return a single workspace by id.
+
+Params:
+
+| Property | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `workspace_id` | `string` | yes | The public workspace id. |
+
+Result discriminator: `workspace_info`. Fields: `workspace` (`WorkspaceInfo`).
+
+Errors:
+
+| Code | When |
+| --- | --- |
+| `workspace_not_found` | No workspace matches `workspace_id`. The message is `workspace <id> not found`. |
+
+Example:
+
+```json
+{ "id": "ws:get", "method": "workspace.get", "params": { "workspace_id": "w1943cd2b11a1" } }
+```
+
+```json
+{
+  "id": "ws:get",
+  "result": {
+    "type": "workspace_info",
+    "workspace": {
+      "workspace_id": "w1943cd2b11a1",
+      "group_id": "default",
+      "number": 1,
+      "label": "omh",
+      "focused": true,
+      "pane_count": 2,
+      "tab_count": 1,
+      "active_tab_id": "w1943cd2b11a1:t1",
+      "agent_status": "working"
+    }
+  }
+}
+```
+
+### `workspace.focus`
+
+Move focus to a workspace. Switching workspace also switches the active group to the group that owns the workspace.
+
+Params:
+
+| Property | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `workspace_id` | `string` | yes | The public workspace id. |
+
+Result discriminator: `workspace_info`. Fields: `workspace` (`WorkspaceInfo`) with `focused` set to `true`. The server also emits a `workspace.focused` event.
+
+Errors:
+
+| Code | When |
+| --- | --- |
+| `workspace_not_found` | No workspace matches `workspace_id`. |
+
+Example:
+
+```json
+{ "id": "ws:focus", "method": "workspace.focus", "params": { "workspace_id": "w1943cd2b11a1" } }
+```
+
+```json
+{
+  "id": "ws:focus",
+  "result": {
+    "type": "workspace_info",
+    "workspace": {
+      "workspace_id": "w1943cd2b11a1",
+      "group_id": "default",
+      "number": 1,
+      "label": "omh",
+      "focused": true,
+      "pane_count": 2,
+      "tab_count": 1,
+      "active_tab_id": "w1943cd2b11a1:t1",
+      "agent_status": "working"
+    }
+  }
+}
+```
+
+### `workspace.rename`
+
+Set or replace a workspace's custom label.
+
+Params:
+
+| Property | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `workspace_id` | `string` | yes | The public workspace id. |
+| `label` | `string` | yes | The new label. An empty string clears the custom override and the server falls back to a derived label. |
+
+Result discriminator: `workspace_info`. Fields: `workspace` (`WorkspaceInfo`) reflecting the new label. The server persists the session and emits a `workspace.renamed` event.
+
+Errors:
+
+| Code | When |
+| --- | --- |
+| `workspace_not_found` | No workspace matches `workspace_id`. |
+
+Example:
+
+```json
+{ "id": "ws:rename", "method": "workspace.rename", "params": { "workspace_id": "w1943cd2b11a1", "label": "docs-api" } }
+```
+
+```json
+{
+  "id": "ws:rename",
+  "result": {
+    "type": "workspace_info",
+    "workspace": {
+      "workspace_id": "w1943cd2b11a1",
+      "group_id": "default",
+      "number": 1,
+      "label": "docs-api",
+      "focused": true,
+      "pane_count": 2,
+      "tab_count": 1,
+      "active_tab_id": "w1943cd2b11a1:t1",
+      "agent_status": "working"
+    }
+  }
+}
+```
+
+### `workspace.close`
+
+Close a workspace and every tab and pane it owns. The server releases the workspace's detached terminal runtimes. If the workspace was associated with a managed linked git worktree, the checkout on disk is left intact; only the Oh My Herdr workspace is removed.
+
+Params:
+
+| Property | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `workspace_id` | `string` | yes | The public workspace id. |
+
+Result discriminator: `ok`. The result object has no fields. The server emits a `workspace.closed` event whose payload includes a final `WorkspaceInfo` snapshot for the just-closed workspace.
+
+Errors:
+
+| Code | When |
+| --- | --- |
+| `workspace_not_found` | No workspace matches `workspace_id`. |
+
+Example:
+
+```json
+{ "id": "ws:close", "method": "workspace.close", "params": { "workspace_id": "w1943cf02aa2" } }
+```
+
+```json
+{ "id": "ws:close", "result": { "type": "ok" } }
+```
+
+### `workspace.move_to_group`
+
+Move a workspace into a different sidebar group.
+
+Params:
+
+| Property | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `workspace_id` | `string` | yes | The public workspace id of the workspace to move. |
+| `group_id` | `string` | yes | The public id of the destination group. |
+
+Result: the method is declared in the schema and parsed by the server, but no handler is wired in the current dispatch table. The request succeeds in validation and then returns `not_implemented` with the message `method not implemented yet`. Do not rely on this method to move workspaces programmatically. Within the running app, group moves are performed by the internal `state.move_workspace_to_group` routine invoked from sidebar drag handling, not from this Local API method. To verify whether a future build wires the handler, check the `Method::WorkspaceMoveToGroup` arm in `apps/omh/src/app/api.rs`.
+
+Errors:
+
+| Code | When |
+| --- | --- |
+| `not_implemented` | Always, for the current server. The method parses but has no handler. |
+
+Example:
+
+```json
+{
+  "id": "ws:move",
+  "method": "workspace.move_to_group",
+  "params": { "workspace_id": "w1943cd2b11a1", "group_id": "g1943cf10c3" }
+}
+```
+
+```json
+{ "id": "ws:move", "error": { "code": "not_implemented", "message": "method not implemented yet" } }
+```
+
+## Worktrees
+
+Worktree methods manage git work trees from a source repository and turn each checkout into an Oh My Herdr workspace. A source is the non-linked checkout that owns the worktree's repository. `workspace_id` and `cwd` are mutually exclusive selectors for the source; provide neither and the active or selected workspace is used.
+
+`worktree.create` and `worktree.remove` run git operations that may take longer than a normal request. In headless mode the server runs them on a background thread and responds only when the git command completes. A second request against the same checkout while one is pending fails with `worktree_operation_in_progress`.
+
+### `worktree.list`
+
+List existing work trees for the repository rooted at the resolved source.
+
+Params:
+
+| Property | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `workspace_id` | `string \| null` | no | Select the source from this workspace. Mutually exclusive with `cwd`. |
+| `cwd` | `string \| null` | no | Select the source from an absolute path inside a git work tree. Mutually exclusive with `workspace_id`. |
+
+When neither selector is supplied, the server uses the active workspace, or the selected workspace in navigate mode. If the workspace is a linked worktree, the source is resolved to its repository root. Listing is allowed from linked worktrees.
+
+Result discriminator: `worktree_list`. Fields: `source` (`WorktreeSourceInfo`) with `repo_key`, `repo_name`, `repo_root`, `source_checkout_path`, and optional `source_workspace_id`; `worktrees` (`WorktreeInfo[]`) where each entry has `path`, optional `branch`, `is_bare`, `is_detached`, `is_prunable`, `is_linked_worktree`, optional `open_workspace_id`, and `label`.
+
+Errors:
+
+| Code | When |
+| --- | --- |
+| `invalid_request` | Both `workspace_id` and `cwd` are supplied, or neither is supplied and no workspace is active or selected, or `cwd` is not absolute. |
+| `workspace_not_found` | `workspace_id` does not match any workspace. |
+| `not_git_worktree` | The resolved path is not inside a git work tree. |
+| `worktree_list_failed` | The underlying `git worktree list` command failed. The message carries the git error. |
+
+Example:
+
+```json
+{ "id": "wt:list", "method": "worktree.list", "params": { "workspace_id": "w1943cd2b11a1" } }
+```
+
+```json
+{
+  "id": "wt:list",
+  "result": {
+    "type": "worktree_list",
+    "source": {
+      "repo_key": "8c1f.../omh",
+      "repo_name": "omh",
+      "repo_root": "/home/me/src/omh",
+      "source_checkout_path": "/home/me/src/omh",
+      "source_workspace_id": "w1943cd2b11a1"
+    },
+    "worktrees": [
+      {
+        "path": "/home/me/src/omh",
+        "branch": "main",
+        "is_bare": false,
+        "is_detached": false,
+        "is_prunable": false,
+        "is_linked_worktree": false,
+        "open_workspace_id": "w1943cd2b11a1",
+        "label": "omh"
+      },
+      {
+        "path": "/home/me/.omh/worktrees/omh/fix-2200",
+        "branch": "fix-2200",
+        "is_bare": false,
+        "is_detached": false,
+        "is_prunable": false,
+        "is_linked_worktree": true,
+        "open_workspace_id": "w1943cf02aa2",
+        "label": "omh"
+      }
+    ]
+  }
+}
+```
+
+### `worktree.create`
+
+Create a new git work tree and open it as a focused or unfocused workspace. The source must be the non-linked repository checkout; a linked worktree workspace cannot seed a new worktree.
+
+Params:
+
+| Property | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `workspace_id` | `string \| null` | no | Source workspace selector. Mutually exclusive with `cwd`. |
+| `cwd` | `string \| null` | no | Absolute path inside a git work tree. Mutually exclusive with `workspace_id`. |
+| `branch` | `string \| null` | no | Branch to create. When omitted, the server generates a namespaced slug of the form `worktree/<adjective>-<noun>-<suffix>` (for example `worktree/brave-river-0000`). An empty branch fails with `invalid_request`. |
+| `base` | `string \| null` | no | Git object to branch from. Defaults to `HEAD`. |
+| `path` | `string \| null` | no | Absolute checkout path. When omitted, the server appends a slug derived from `branch` to `<worktree_directory>/<repo_name>`. Non-absolute paths fail with `invalid_request`. |
+| `label` | `string \| null` | no | Custom label for the new workspace. |
+| `focus` | `boolean` | no | Defaults to `false`. When `true`, the new workspace becomes active. |
+
+Result discriminator: `worktree_created`. Fields: `workspace` (`WorkspaceInfo`), `tab` (`TabInfo`), `root_pane` (`PaneInfo`), `worktree` (`WorktreeInfo`) for the new checkout. The server emits `workspace.created`, `tab.created`, `pane.created`, and `worktree.created` events. If the source repository had no parent workspace, the server creates one and emits its open events first.
+
+Errors:
+
+| Code | When |
+| --- | --- |
+| `invalid_request` | `branch` is empty or whitespace, `path` is not absolute, both selectors are supplied, neither selector is supplied and no workspace is active, `cwd` is not absolute. |
+| `workspace_not_found` | `workspace_id` does not match any workspace. |
+| `not_git_worktree` | The resolved source is not inside a git work tree. |
+| `linked_worktree_source` | The resolved source is a linked worktree. Create and open start from the repo parent workspace. |
+| `worktree_create_failed` | The `git worktree add` command or parent directory creation failed. The message carries the git error. |
+| `worktree_open_failed` | The worktree checkout was created but opening it as a workspace failed. The message is `created worktree but failed to open workspace: <err>`. |
+| `worktree_operation_in_progress` | Another create or remove is already running for the same checkout path. Applies to the headless deferred path. |
+
+Example:
+
+```json
+{
+  "id": "wt:create",
+  "method": "worktree.create",
+  "params": {
+    "workspace_id": "w1943cd2b11a1",
+    "branch": "fix-2200",
+    "base": "HEAD",
+    "label": "fix 2200",
+    "focus": true
+  }
+}
+```
+
+```json
+{
+  "id": "wt:create",
+  "result": {
+    "type": "worktree_created",
+    "workspace": {
+      "workspace_id": "w1943cf02aa2",
+      "group_id": "default",
+      "number": 2,
+      "label": "fix 2200",
+      "focused": true,
+      "pane_count": 1,
+      "tab_count": 1,
+      "active_tab_id": "w1943cf02aa2:t1",
+      "agent_status": "idle"
+    },
+    "tab": {
+      "tab_id": "w1943cf02aa2:t1",
+      "workspace_id": "w1943cf02aa2",
+      "number": 1,
+      "label": "fix 2200",
+      "focused": true,
+      "pane_count": 1,
+      "agent_status": "idle"
+    },
+    "root_pane": {},
+    "worktree": {
+      "path": "/home/me/.omh/worktrees/omh/fix-2200",
+      "branch": "fix-2200",
+      "is_bare": false,
+      "is_detached": false,
+      "is_prunable": false,
+      "is_linked_worktree": true,
+      "open_workspace_id": "w1943cf02aa2",
+      "label": "omh"
+    }
+  }
+}
+```
+
+### `worktree.open`
+
+Open an existing git work tree as a workspace, or focus it if it is already open. Exactly one of `path` or `branch` selects the worktree to open; the two are mutually exclusive and one is required. The source must be a non-linked checkout.
+
+Params:
+
+| Property | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `workspace_id` | `string \| null` | no | Source workspace selector. Mutually exclusive with `cwd`. |
+| `cwd` | `string \| null` | no | Absolute path inside a git work tree. Mutually exclusive with `workspace_id`. |
+| `path` | `string \| null` | no | Absolute checkout path of the worktree to open. Mutually exclusive with `branch`. |
+| `branch` | `string \| null` | no | Branch of an existing non-detached worktree to open. Mutually exclusive with `path`. Ambiguous matches fail with `ambiguous_worktree_branch`. |
+| `label` | `string \| null` | no | Custom label applied to the workspace. When the workspace already existed, this also emits a `workspace.renamed` event. |
+| `focus` | `boolean` | no | Defaults to `false`. When `true`, the opened workspace becomes active. |
+
+Result discriminator: `worktree_opened`. Fields: `workspace` (`WorkspaceInfo`), `tab` (`TabInfo`), `root_pane` (`PaneInfo`), `worktree` (`WorktreeInfo`), and `already_open` (`boolean`). `already_open` is `true` when the checkout was already an open workspace; in that case no new workspace is created, `label` is applied as a rename, and the `tab` and `root_pane` reflect the workspace's active tab. The server emits a `worktree.opened` event.
+
+Errors:
+
+| Code | When |
+| --- | --- |
+| `invalid_request` | Both or neither of `path` and `branch` are supplied, both source selectors are supplied, neither source selector is supplied and no workspace is active, or `cwd` or `path` is not absolute. |
+| `workspace_not_found` | `workspace_id` does not match any workspace. |
+| `not_git_worktree` | The resolved source is not inside a git work tree. |
+| `linked_worktree_source` | The resolved source is a linked worktree. |
+| `worktree_list_failed` | Listing existing worktrees to resolve `path` or `branch` failed. |
+| `worktree_not_found` | No worktree matches `path` or `branch`, or the matched worktree is bare or prunable and cannot be opened. The message is `worktree path not found`, `worktree branch not found`, or `worktree cannot be opened`. |
+| `ambiguous_worktree_branch` | More than one worktree matches `branch`. |
+| `worktree_open_failed` | The worktree resolved but opening it as a workspace failed. |
+
+Example:
+
+```json
+{
+  "id": "wt:open",
+  "method": "worktree.open",
+  "params": { "workspace_id": "w1943cd2b11a1", "branch": "fix-2200", "focus": true }
+}
+```
+
+```json
+{
+  "id": "wt:open",
+  "result": {
+    "type": "worktree_opened",
+    "workspace": {
+      "workspace_id": "w1943cf02aa2",
+      "group_id": "default",
+      "number": 2,
+      "label": "fix-2200",
+      "focused": true,
+      "pane_count": 1,
+      "tab_count": 1,
+      "active_tab_id": "w1943cf02aa2:t1",
+      "agent_status": "idle"
+    },
+    "tab": {
+      "tab_id": "w1943cf02aa2:t1",
+      "workspace_id": "w1943cf02aa2",
+      "number": 1,
+      "label": "fix-2200",
+      "focused": true,
+      "pane_count": 1,
+      "agent_status": "idle"
+    },
+    "root_pane": {},
+    "worktree": {
+      "path": "/home/me/.omh/worktrees/omh/fix-2200",
+      "branch": "fix-2200",
+      "is_bare": false,
+      "is_detached": false,
+      "is_prunable": false,
+      "is_linked_worktree": true,
+      "open_workspace_id": "w1943cf02aa2",
+      "label": "omh"
+    },
+    "already_open": false
+  }
+}
+```
+
+### `worktree.remove`
+
+Remove a linked worktree checkout and close the workspace that hosted it. Only workspaces associated with a managed linked worktree can be removed this way; the source (non-linked) workspace for a repository cannot be removed through this method.
+
+Params:
+
+| Property | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `workspace_id` | `string` | yes | The public id of the workspace backed by the linked worktree to remove. |
+| `force` | `boolean` | no | Defaults to `false`. When `false` and the checkout has dirty or untracked files, the server refuses with `dirty_worktree_requires_force` (on Windows this check always runs; elsewhere the check is driven by the git command's own refusal). |
+
+Result discriminator: `worktree_removed`. Fields: `workspace_id` (`string`), `path` (`string`), `forced` (`boolean`). The server closes the removed workspace, emits a `workspace.closed` event for it, and then emits a `worktree.removed` event. After removing a linked worktree, the server switches focus to the parent (non-linked) workspace for the same repository when one is open.
+
+Errors:
+
+| Code | When |
+| --- | --- |
+| `workspace_not_found` | `workspace_id` does not match any workspace. |
+| `not_linked_worktree` | The workspace exists but is not an Oh My Herdr-managed linked worktree checkout. A non-linked source workspace cannot be removed this way. |
+| `dirty_worktree_requires_force` | `force` is `false` and the checkout has local changes that git refuses to discard. Retry with `force: true` to override. |
+| `worktree_remove_failed` | The `git worktree remove` command failed for a reason other than a dirty checkout. |
+| `worktree_operation_in_progress` | Another create or remove is already running for the same checkout (headless deferred path). |
+
+Example:
+
+```json
+{
+  "id": "wt:remove",
+  "method": "worktree.remove",
+  "params": { "workspace_id": "w1943cf02aa2", "force": false }
+}
+```
+
+```json
+{
+  "id": "wt:remove",
+  "result": {
+    "type": "worktree_removed",
+    "workspace_id": "w1943cf02aa2",
+    "path": "/home/me/.omh/worktrees/omh/fix-2200",
+    "forced": false
+  }
+}
+```
+
+## Groups
+
+Groups are sidebar containers for workspaces. The session starts with one built-in default group whose `group_id` is `default`. Created groups receive generated ids. The server does not emit events for group mutations; callers that need to track group changes must poll `group.list`.
+
+### `group.list`
+
+List every group in the session.
+
+Params: none.
+
+Result discriminator: `group_list`. Fields: `groups` (`GroupInfo[]`) where each entry has `group_id`, one-based `number`, `name`, `icon`, `focused`, and `workspace_count`. Exactly one group has `focused: true`.
+
+Errors: none method-specific.
+
+Example:
+
+```json
+{ "id": "grp:list", "method": "group.list", "params": {} }
+```
+
+```json
+{
+  "id": "grp:list",
+  "result": {
+    "type": "group_list",
+    "groups": [
+      {
+        "group_id": "default",
+        "number": 1,
+        "name": "group 1",
+        "icon": "☀",
+        "focused": true,
+        "workspace_count": 1
+      },
+      {
+        "group_id": "g1943cf10c3",
+        "number": 2,
+        "name": "side",
+        "icon": "☁",
+        "focused": false,
+        "workspace_count": 0
+      }
+    ]
+  }
+}
+```
+
+### `group.focus`
+
+Make a group the active sidebar group. Focusing a group updates the group filter and returns the focused group's current resource summary.
+
+Params:
+
+| Property | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `group_id` | `string` | yes | Public group id or an accepted legacy group selector. |
+
+Result discriminator: `group_info`. The returned `group` has `focused: true`. The session is persisted.
+
+Errors: `group_not_found` when `group_id` does not resolve.
+
+```json
+{ "id": "grp:focus", "method": "group.focus", "params": { "group_id": "g1943cf10c3" } }
+```
+
+### `group.create`
+
+Create a new group. The new group receives a generated `group_id`, the supplied `name`, and the default group icon. It does not become the active group.
+
+Params:
+
+| Property | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `name` | `string` | yes | The group name. |
+
+Result discriminator: `group_info`. Fields: `group` (`GroupInfo`) for the new group, with `focused: false` and `workspace_count: 0`. The session is persisted.
+
+Errors: none method-specific.
+
+Example:
+
+```json
+{ "id": "grp:create", "method": "group.create", "params": { "name": "side" } }
+```
+
+```json
+{
+  "id": "grp:create",
+  "result": {
+    "type": "group_info",
+    "group": {
+      "group_id": "g1943cf10c3",
+      "number": 2,
+      "name": "side",
+      "icon": "☀",
+      "focused": false,
+      "workspace_count": 0
+    }
+  }
+}
+```
+
+### `group.rename`
+
+Rename a group.
+
+Params:
+
+| Property | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `group_id` | `string` | yes | The public group id. |
+| `name` | `string` | yes | The new name. |
+
+Result discriminator: `group_info`. Fields: `group` (`GroupInfo`) with the updated `name`. The session is persisted.
+
+Errors:
+
+| Code | When |
+| --- | --- |
+| `group_not_found` | No group matches `group_id`. The message is `group <id> not found`. |
+
+Example:
+
+```json
+{ "id": "grp:rename", "method": "group.rename", "params": { "group_id": "g1943cf10c3", "name": "experiments" } }
+```
+
+```json
+{
+  "id": "grp:rename",
+  "result": {
+    "type": "group_info",
+    "group": {
+      "group_id": "g1943cf10c3",
+      "number": 2,
+      "name": "experiments",
+      "icon": "☀",
+      "focused": false,
+      "workspace_count": 0
+    }
+  }
+}
+```
+
+### `group.delete`
+
+Delete a group. Deleting a group closes every workspace that belongs to it and releases those workspaces' terminal runtimes. The last remaining group cannot be deleted.
+
+Params:
+
+| Property | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `group_id` | `string` | yes | The public group id. |
+
+Result discriminator: `ok`. The result object has no fields. If the deleted group was active, focus moves to the first remaining group. The session is persisted.
+
+Errors:
+
+| Code | When |
+| --- | --- |
+| `group_not_found` | No group matches `group_id`. |
+| `group_delete_failed` | The group is the only remaining group. The message is `cannot delete the last group`. |
+
+Example:
+
+```json
+{ "id": "grp:delete", "method": "group.delete", "params": { "group_id": "g1943cf10c3" } }
+```
+
+```json
+{ "id": "grp:delete", "result": { "type": "ok" } }
+```
+
+## Tabs
+
+A tab belongs to exactly one workspace and owns a pane layout. The `tab_id` encodes both the workspace and the tab's stable one-based number.
+
+### `tab.list`
+
+List tabs. With no `workspace_id`, every tab in every workspace is returned.
+
+Params:
+
+| Property | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `workspace_id` | `string \| null` | no | Restrict the list to tabs in this workspace. |
+
+Result discriminator: `tab_list`. Fields: `tabs` (`TabInfo[]`) where each entry has `tab_id`, `workspace_id`, one-based `number`, `label`, `focused`, `pane_count`, and `agent_status`.
+
+Errors:
+
+| Code | When |
+| --- | --- |
+| `workspace_not_found` | `workspace_id` is supplied and does not match any workspace. |
+
+Example:
+
+```json
+{ "id": "tab:list", "method": "tab.list", "params": { "workspace_id": "w1943cd2b11a1" } }
+```
+
+```json
+{
+  "id": "tab:list",
+  "result": {
+    "type": "tab_list",
+    "tabs": [
+      {
+        "tab_id": "w1943cd2b11a1:t1",
+        "workspace_id": "w1943cd2b11a1",
+        "number": 1,
+        "label": "omh",
+        "focused": true,
+        "pane_count": 2,
+        "agent_status": "working"
+      }
+    ]
+  }
+}
+```
+
+### `tab.get`
+
+Return a single tab by id.
+
+Params:
+
+| Property | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `tab_id` | `string` | yes | The public tab id, including the workspace prefix. |
+
+Result discriminator: `tab_info`. Fields: `tab` (`TabInfo`).
+
+Errors:
+
+| Code | When |
+| --- | --- |
+| `tab_not_found` | `tab_id` does not resolve to a tab in an existing workspace. |
+
+Example:
+
+```json
+{ "id": "tab:get", "method": "tab.get", "params": { "tab_id": "w1943cd2b11a1:t1" } }
+```
+
+```json
+{
+  "id": "tab:get",
+  "result": {
+    "type": "tab_info",
+    "tab": {
+      "tab_id": "w1943cd2b11a1:t1",
+      "workspace_id": "w1943cd2b11a1",
+      "number": 1,
+      "label": "omh",
+      "focused": true,
+      "pane_count": 2,
+      "agent_status": "working"
+    }
+  }
+}
+```
+
+### `tab.create`
+
+Create a new tab in a workspace. The tab is created with one root pane. When `workspace_id` is omitted, the active workspace is used; with no active workspace the request fails.
+
+Params:
+
+| Property | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `workspace_id` | `string \| null` | no | Target workspace. Defaults to the active workspace. |
+| `cwd` | `string \| null` | no | Working directory for the root pane. Defaults to the focused pane's cwd in the target workspace, then the process cwd, then `/`. |
+| `focus` | `boolean` | no | Defaults to `false`. When `true`, the new tab becomes active in its workspace and the workspace becomes active. |
+| `label` | `string \| null` | no | Custom tab label. |
+| `env` | `object` | no | Additional environment variables for the root pane. Same validation rules as `workspace.create`. |
+
+Result discriminator: `tab_created`. Fields: `tab` (`TabInfo`), `root_pane` (`PaneInfo`). The server persists the session and emits `tab.created` and `pane.created` events.
+
+Errors:
+
+| Code | When |
+| --- | --- |
+| `workspace_not_found` | `workspace_id` is supplied and does not match any workspace, or `workspace_id` is omitted and no workspace is active. The no-active message is `no active workspace`. |
+| `invalid_env` | An `env` entry is invalid. See `workspace.create`. |
+| `tab_create_failed` | The tab or root pane could not be created. The message carries the underlying error. |
+
+Example:
+
+```json
+{
+  "id": "tab:create",
+  "method": "tab.create",
+  "params": { "workspace_id": "w1943cd2b11a1", "label": "logs", "focus": true, "env": { "RUST_LOG": "debug" } }
+}
+```
+
+```json
+{
+  "id": "tab:create",
+  "result": {
+    "type": "tab_created",
+    "tab": {
+      "tab_id": "w1943cd2b11a1:t2",
+      "workspace_id": "w1943cd2b11a1",
+      "number": 2,
+      "label": "logs",
+      "focused": true,
+      "pane_count": 1,
+      "agent_status": "idle"
+    },
+    "root_pane": {}
+  }
+}
+```
+
+### `tab.focus`
+
+Move focus to a tab. Focusing a tab also switches the owning workspace to active.
+
+Params:
+
+| Property | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `tab_id` | `string` | yes | The public tab id. |
+
+Result discriminator: `tab_info`. Fields: `tab` (`TabInfo`) with `focused: true`. The server emits a `tab.focused` event.
+
+Errors:
+
+| Code | When |
+| --- | --- |
+| `tab_not_found` | `tab_id` does not resolve to a tab. |
+
+Example:
+
+```json
+{ "id": "tab:focus", "method": "tab.focus", "params": { "tab_id": "w1943cd2b11a1:t2" } }
+```
+
+```json
+{
+  "id": "tab:focus",
+  "result": {
+    "type": "tab_info",
+    "tab": {
+      "tab_id": "w1943cd2b11a1:t2",
+      "workspace_id": "w1943cd2b11a1",
+      "number": 2,
+      "label": "logs",
+      "focused": true,
+      "pane_count": 1,
+      "agent_status": "idle"
+    }
+  }
+}
+```
+
+### `tab.rename`
+
+Set or replace a tab's custom label.
+
+Params:
+
+| Property | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `tab_id` | `string` | yes | The public tab id. |
+| `label` | `string` | yes | The new label. |
+
+Result discriminator: `tab_info`. Fields: `tab` (`TabInfo`) reflecting the new label. The server persists the session and emits a `tab.renamed` event.
+
+Errors:
+
+| Code | When |
+| --- | --- |
+| `tab_not_found` | `tab_id` does not resolve to a tab. |
+
+Example:
+
+```json
+{ "id": "tab:rename", "method": "tab.rename", "params": { "tab_id": "w1943cd2b11a1:t2", "label": "build" } }
+```
+
+```json
+{
+  "id": "tab:rename",
+  "result": {
+    "type": "tab_info",
+    "tab": {
+      "tab_id": "w1943cd2b11a1:t2",
+      "workspace_id": "w1943cd2b11a1",
+      "number": 2,
+      "label": "build",
+      "focused": true,
+      "pane_count": 1,
+      "agent_status": "idle"
+    }
+  }
+}
+```
+
+### `tab.close`
+
+Close a tab and release the terminals it owned. The owning workspace persists even if the closed tab was its last; the workspace then has zero tabs until a new one is created.
+
+Params:
+
+| Property | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `tab_id` | `string` | yes | The public tab id. |
+
+Result discriminator: `ok`. The result object has no fields. The server persists the session and emits a `tab.closed` event whose payload carries the closed `tab_id` and its `workspace_id`.
+
+Errors:
+
+| Code | When |
+| --- | --- |
+| `tab_not_found` | `tab_id` does not resolve to a tab. |
+| `tab_close_failed` | The tab could not be closed. This is only reachable when the tab disappeared between id resolution and the close call. |
+
+Example:
+
+```json
+{ "id": "tab:close", "method": "tab.close", "params": { "tab_id": "w1943cd2b11a1:t2" } }
+```
+
+```json
+{ "id": "tab:close", "result": { "type": "ok" } }
+```

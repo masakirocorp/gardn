@@ -38,7 +38,19 @@ function validSchema() {
       event: {
         title: "EventEnvelope",
         $defs: {
-          EventData: { oneOf: [{ $ref: "#/$defs/WorkspaceCreated" }] },
+          EventData: {
+            oneOf: [
+              { $ref: "#/$defs/WorkspaceCreated" },
+              {
+                type: "object",
+                properties: {
+                  type: { const: "workspace_closed" },
+                  workspace_id: { type: "string" },
+                },
+                required: ["type", "workspace_id"],
+              },
+            ],
+          },
           WorkspaceCreated: {
             type: "object",
             properties: { type: { const: "workspace_created" }, workspace_id: { type: "string" } },
@@ -64,11 +76,32 @@ function validSchema() {
       response: {
         title: "SuccessResponse",
         $defs: {
-          ResponseResult: { oneOf: [{ $ref: "#/$defs/Pong" }] },
+          ResponseResult: {
+            oneOf: [
+              { $ref: "#/$defs/Pong" },
+              {
+                type: "object",
+                properties: {
+                  type: { const: "ok" },
+                  changed: { type: "boolean" },
+                },
+                required: ["type", "changed"],
+              },
+            ],
+          },
           Pong: {
             type: "object",
-            properties: { type: { const: "pong" }, version: { type: "string" } },
-            required: ["type", "version"],
+            properties: {
+              type: { const: "pong" },
+              version: { type: "string" },
+              capabilities: { $ref: "#/$defs/ServerCapabilities" },
+            },
+            required: ["type", "version", "capabilities"],
+          },
+          ServerCapabilities: {
+            type: "object",
+            properties: { live_handoff: { type: "boolean" } },
+            required: ["live_handoff"],
           },
         },
       },
@@ -136,6 +169,20 @@ test("binary-driven generation writes deterministic versioned reference", async 
       "utf8",
     ),
     /`ping`/,
+  );
+  assert.match(
+    await readFile(
+      path.join(root, "content", "docs", "api", "reference", "generated", "responses.mdx"),
+      "utf8",
+    ),
+    /## `ok`[\s\S]*`changed`[\s\S]*### `ServerCapabilities`[\s\S]*`live_handoff`/,
+  );
+  assert.match(
+    await readFile(
+      path.join(root, "content", "docs", "api", "reference", "generated", "events.mdx"),
+      "utf8",
+    ),
+    /## `workspace_closed`[\s\S]*`workspace_id`/,
   );
 
   const checked = run(["--binary", binary, "--root", root, "--check"]);
