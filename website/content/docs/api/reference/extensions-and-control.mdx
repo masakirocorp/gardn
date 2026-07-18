@@ -5,7 +5,7 @@ description: Local API methods for server control, notifications, window titles,
 
 # Extensions and control
 
-Reference for the extension and control methods in the Local API: server control, notifications, window titles, integrations, plugins, configuration diagnostics, and event subscriptions. Workspace, tab, agent, and pane methods are documented on [Resources](/docs/api/reference/resources) and [Panes and agents](/docs/api/reference/panes-and-agents). For the canonical wire shapes see the [generated reference](/docs/api/reference/generated). For the error envelope see [Error semantics](/docs/api/errors). Transport and the request envelope are described in the [Local API overview](/docs/api).
+The extension and control methods cover server control, notifications, window titles, integrations, plugins, configuration diagnostics, and event subscriptions. Workspace, tab, agent, and pane methods are documented on [Resources](/docs/api/reference/resources) and [Panes and agents](/docs/api/reference/panes-and-agents). Canonical wire shapes live in the [generated reference](/docs/api/reference/generated); [Error semantics](/docs/api/errors) documents the error envelope, and transport and the request envelope are described in the [Local API overview](/docs/api).
 
 > **Trust boundary.** The Local API is a local-user control surface. Any process that can open its socket can ask Oh My Herdr to stop or replace the server, write integration and plugin files, spawn plugin commands and panes as the current user, send content to a client, or hold a long-lived event stream. Treat the socket and every caller as trusted only when that is intended.
 

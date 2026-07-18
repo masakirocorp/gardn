@@ -5,9 +5,9 @@ description: Authored method reference for pane.* and agent.* Local API methods.
 
 # Panes and agents
 
-Reference for the `agent.*`, `pane.*`, and `layout.*` Local API methods: targeting rules, input and read semantics, layout identity consequences, and success discriminators. For the raw parameter and result shapes see the generated [requests](/docs/api/reference/generated/requests), [responses](/docs/api/reference/generated/responses), and [enums](/docs/api/reference/generated/enums) (`PaneDirection`, `SplitDirection`, `ReadSource`, `ReadFormat`, `PaneAgentState`, `PaneZoomMode`, `PaneMoveReason`, `PaneSwapReason`, `PaneResizeReason`, `PaneZoomReason`, `PaneFocusDirectionReason`). For the error envelope see [Error semantics](/docs/api/errors). Transport and the request envelope are described in the [Local API overview](/docs/api).
+The `agent.*`, `pane.*`, and `layout.*` Local API methods cover pane targeting, input and read semantics, layout identity consequences, and success discriminators. Raw parameter and result shapes live in the generated [requests](/docs/api/reference/generated/requests), [responses](/docs/api/reference/generated/responses), and [enums](/docs/api/reference/generated/enums) (`PaneDirection`, `SplitDirection`, `ReadSource`, `ReadFormat`, `PaneAgentState`, `PaneZoomMode`, `PaneMoveReason`, `PaneSwapReason`, `PaneResizeReason`, `PaneZoomReason`, `PaneFocusDirectionReason`). [Error semantics](/docs/api/errors) documents the error envelope; transport and the request envelope are described in the [Local API overview](/docs/api).
 
-`pane.wait_for_output` is the one method on this page that holds its connection open; see its entry.
+`pane.wait_for_output` is the only method below that holds its connection open; see its entry.
 
 ## Method index
 
@@ -645,7 +645,7 @@ Errors: `invalid_pane_swap`, `pane_not_found` (directional source).
 
 ### pane.move
 
-Move a pane to a destination: an existing tab (split into it), a new tab in an existing workspace, or a new workspace. This is the most identity-affecting pane method.
+Move a pane to a destination: an existing tab (split into it), a new tab in an existing workspace, or a new workspace.
 
 | Property      | Type                  | Required | Default | Behavior                                                                     |
 | ------------- | --------------------- | -------- | ------- | ---------------------------------------------------------------------------- |
@@ -826,7 +826,7 @@ Errors: `pane_not_found`, `pane_layout_unavailable`.
 
 ### pane.edges
 
-Report whether the resolved pane touches each edge of the terminal area. This is a read-side companion to `pane.neighbor`: it tells you a pane is on the border without naming a neighbor.
+Report whether the resolved pane touches each edge of the terminal area. As the read-side counterpart of `pane.neighbor`, it tells you a pane is on the border without naming a neighbor.
 
 | Property  | Type             | Required | Default                              |
 | --------- | ---------------- | -------- | ------------------------------------ |
