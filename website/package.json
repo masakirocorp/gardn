@@ -17,7 +17,7 @@
     "content:check": "node scripts/check-built-site.mjs",
     "deploy:check": "wrangler deploy --dry-run",
     "preview": "wrangler dev",
-    "deploy": "node scripts/require-site-url.mjs && pnpm build && wrangler deploy"
+    "deploy": "pnpm build && wrangler deploy"
   },
   "dependencies": {
     "@base-ui/react": "^1.6.0",

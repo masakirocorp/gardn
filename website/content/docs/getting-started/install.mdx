@@ -1,11 +1,11 @@
 ---
 title: Install Oh My Herdr
-description: Install Oh My Herdr from the tagged source checkout or the Nix flake.
+description: Install Oh My Herdr from the current source checkout or Nix flake.
 ---
 
 # Install Oh My Herdr
 
-This guide installs Oh My Herdr 0.2.18 from source or from the tagged Nix flake.
+This guide installs the current pre-public Oh My Herdr source.
 
 > **Release availability:** Verified `omh-*` release downloads are not publicly available yet. Use one of the source-based paths below and check the [download status](/download) page before relying on a release artifact.
 
@@ -16,18 +16,17 @@ Install Rust and Cargo, then run these commands from the repository root:
 ```bash
 git clone https://github.com/masakirocorp/oh-my-herdr.git
 cd oh-my-herdr
-git checkout v0.2.18
 cargo install --path apps/omh
 ```
 
-`cargo install --path apps/omh` is a checkout command: run it from the cloned repository root, where the workspace and `apps/omh` package are present. It installs the `omh` executable into Cargo's normal binary directory.
+`cargo install --path apps/omh` must run from the cloned repository root, where the workspace and `apps/omh` package are present. It installs the `omh` executable into Cargo's normal binary directory. The default branch is pre-public and may change; pin a reviewed commit before using this command in automation.
 
 ## Install with Nix
 
-The repository flake builds the tagged source and exposes the `omh` package:
+The current repository flake exposes the `omh` package:
 
 ```bash
-nix profile install "github:masakirocorp/oh-my-herdr/v0.2.18#omh"
+nix profile install "github:masakirocorp/oh-my-herdr#omh"
 ```
 
 This Nix package is declared for x86_64 and aarch64 Linux and macOS. The Nix path does not provide a Windows installation.
@@ -40,6 +39,6 @@ Verify the executable and version:
 omh --version
 ```
 
-For the tagged source above, the output starts with `omh 0.2.18`.
+The output starts with `omh` followed by the current source version.
 
 Continue with the [quick-start tutorial](/docs/getting-started/quick-start), or return to the [download status](/download) page for release availability.

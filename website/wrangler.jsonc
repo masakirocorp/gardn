@@ -3,6 +3,7 @@
   "name": "oh-my-herdr-website",
   "compatibility_date": "2026-07-17",
   "preview_urls": true,
+  "routes": [{ "pattern": "ohmyherdr.com", "custom_domain": true }],
   "assets": {
     "directory": "./dist/public",
     "html_handling": "drop-trailing-slash",

@@ -34,7 +34,7 @@ export default function DownloadPage() {
             Start from source. Downloads stay gated.
           </h1>
           <p className="omh-copy omh-copy-large">
-            The product is pre-public. Build the tagged source or use the Nix flake today; binary
+            The product is pre-public. Build the current source or use the Nix flake today; binary
             buttons will appear only after every advertised artifact passes the release gate.
           </p>
           <div className="omh-actions">
@@ -58,8 +58,8 @@ export default function DownloadPage() {
               Two source-backed paths
             </h2>
             <p className="omh-copy">
-              Both paths are pinned to the documented source version. Read the installation guide
-              before relying on either command in automation.
+              Both paths follow the current repository source. Read the installation guide before
+              pinning either command for automation.
             </p>
           </div>
           <div className="omh-card-grid omh-install-grid">
@@ -68,11 +68,10 @@ export default function DownloadPage() {
                 01
               </p>
               <h3>Build with Cargo</h3>
-              <p>Clone the tagged repository and install the workspace binary from its package.</p>
+              <p>Clone the current repository and install the workspace binary from its package.</p>
               <pre className="omh-command" aria-label="Cargo source installation commands">
                 <code>{`git clone https://github.com/masakirocorp/oh-my-herdr.git
 cd oh-my-herdr
-git checkout v0.2.18
 cargo install --path apps/omh`}</code>
               </pre>
             </article>
@@ -85,7 +84,7 @@ cargo install --path apps/omh`}</code>
               <pre className="omh-command" aria-label="Nix source installation command">
                 <code>
                   {`nix profile install \\
-  "github:masakirocorp/oh-my-herdr/v0.2.18#omh"`}
+  "github:masakirocorp/oh-my-herdr#omh"`}
                 </code>
               </pre>
             </article>

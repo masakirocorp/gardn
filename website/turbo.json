@@ -2,7 +2,7 @@
   "extends": ["//"],
   "tasks": {
     "build": {
-      "env": ["OMH_API_BINARY", "SITE_URL"],
+      "env": ["OMH_API_BINARY"],
       "outputs": ["dist/**"]
     },
     "check": {

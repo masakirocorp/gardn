@@ -96,8 +96,8 @@ export default function ReleasesPage() {
           </div>
           <div className="omh-gate-copy">
             <p>
-              The documented source tag and Nix flake are the available installation paths. Old or
-              private artifacts are not evidence of public availability.
+              The documented source checkout and Nix flake are the available installation paths. Old
+              or private artifacts are not evidence of public availability.
             </p>
             <p>
               If preserving live panes matters, read the update guide before replacing a running

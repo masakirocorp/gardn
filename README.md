@@ -10,12 +10,12 @@ This repository is Masakiro's long-lived product fork of [Herdr](https://github.
 
 ## Documentation
 
-- [Public documentation](https://oh-my-herdr-website.masakiro.workers.dev/docs)
-- [Installation status](https://oh-my-herdr-website.masakiro.workers.dev/download)
-- [Quick start](https://oh-my-herdr-website.masakiro.workers.dev/docs/getting-started/quick-start)
-- [Configuration reference](https://oh-my-herdr-website.masakiro.workers.dev/docs/reference/configuration)
-- [CLI reference](https://oh-my-herdr-website.masakiro.workers.dev/docs/reference/cli)
-- [Local API](https://oh-my-herdr-website.masakiro.workers.dev/docs/api)
+- [Public documentation](https://ohmyherdr.com/docs)
+- [Installation status](https://ohmyherdr.com/download)
+- [Quick start](https://ohmyherdr.com/docs/getting-started/quick-start)
+- [Configuration reference](https://ohmyherdr.com/docs/reference/configuration)
+- [CLI reference](https://ohmyherdr.com/docs/reference/cli)
+- [Local API](https://ohmyherdr.com/docs/api)
 
 The public manual lives under `website/content/**`. Maintainer documentation and architecture decisions remain under `docs/**`.
 
@@ -35,7 +35,7 @@ cargo install --path apps/omh
 omh --version
 ```
 
-The crate is not published to crates.io. See the [installation guide](https://oh-my-herdr-website.masakiro.workers.dev/docs/getting-started/install) for supported alternatives and current release status.
+The crate is not published to crates.io. See the [installation guide](https://ohmyherdr.com/docs/getting-started/install) for supported alternatives and current release status.
 
 ## Develop
 

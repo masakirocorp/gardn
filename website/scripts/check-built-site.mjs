@@ -124,6 +124,12 @@ for (const [label, candidates] of routes) {
   if (html.includes("My Page") || html.includes("Hello World")) {
     failures.push(`${label}: generated placeholder content leaked into the build`);
   }
+  if (label !== "404" && !html.includes("https://ohmyherdr.com")) {
+    failures.push(`${label}: canonical and social metadata must use the production origin`);
+  }
+  if (html.includes("oh-my-herdr.invalid") || html.includes(".workers.dev")) {
+    failures.push(`${label}: non-production origin leaked into public metadata`);
+  }
   for (const forbidden of [
     "Hako",
     "--handoff-import",
