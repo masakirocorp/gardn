@@ -45,6 +45,16 @@ const routes = new Map([
   ["releases", ["releases.html", "releases/index.html"]],
   ["docs", ["docs.html", "docs/index.html"]],
   ["docs concepts", ["docs/concepts.html", "docs/concepts/index.html"]],
+  ["docs Local API", ["docs/api.html", "docs/api/index.html"]],
+  ["docs Local API workflow", ["docs/api/workflow.html", "docs/api/workflow/index.html"]],
+  ["docs Local API errors", ["docs/api/errors.html", "docs/api/errors/index.html"]],
+  [
+    "docs Local API requests",
+    [
+      "docs/api/reference/generated/requests.html",
+      "docs/api/reference/generated/requests/index.html",
+    ],
+  ],
   ["404", ["404.html", "404/index.html"]],
 ]);
 
@@ -60,6 +70,34 @@ for (const [label, candidates] of routes) {
   if (!html.includes('name="description"')) failures.push(`${label}: missing description metadata`);
   if (html.includes("My Page") || html.includes("Hello World")) {
     failures.push(`${label}: generated placeholder content leaked into the build`);
+  }
+}
+
+const generatedSchema = JSON.parse(
+  await readFile(path.join(websiteRoot, ".generated", "api", "schema.json"), "utf8"),
+);
+const versionedSchemaFile = findFile("versioned Local API schema", [
+  `api/${generatedSchema.product_version}/schema.json`,
+]);
+if (versionedSchemaFile) {
+  const publishedSchema = await readFile(path.join(publicRoot, versionedSchemaFile), "utf8");
+  const sourceSchema = `${JSON.stringify(
+    JSON.parse(await readFile(path.join(websiteRoot, ".generated", "api", "schema.json"), "utf8")),
+    null,
+    2,
+  )}\n`;
+  if (publishedSchema !== sourceSchema) {
+    failures.push("versioned Local API schema does not match the generated source");
+  }
+  for (const internalName of [
+    "ClientMessage",
+    "ServerMessage",
+    "SemanticFrame",
+    "HandoffManifest",
+  ]) {
+    if (publishedSchema.includes(`"${internalName}"`)) {
+      failures.push(`versioned Local API schema exposes internal contract ${internalName}`);
+    }
   }
 }
 

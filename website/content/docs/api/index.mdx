@@ -1,0 +1,58 @@
+---
+title: Local API
+description: Transport, lifecycle, trust, and compatibility boundaries for local automation.
+---
+
+# Local API
+
+Oh My Herdr exposes a newline-delimited JSON control interface over a local socket. It is intended for same-user automation on the machine running the Oh My Herdr server.
+
+The Local API is **not HTTP, REST, or OpenAPI**. It is also separate from the binary protocol used by interactive clients for rendering, input, and direct terminal attachment.
+
+## Transport
+
+A client opens the active session's Local API socket, writes one JSON request followed by a newline, and reads one JSON response line. A normal request uses one connection and has this envelope:
+
+```json
+{ "id": "example:ping", "method": "ping", "params": {} }
+```
+
+The response echoes the caller-selected `id`:
+
+```json
+{ "id": "example:ping", "result": { "type": "pong", "version": "0.2.18", "protocol": 12 } }
+```
+
+`events.subscribe` is the exception to the one-response lifecycle. The server first returns a successful subscription acknowledgement, then keeps the connection open and writes matching event lines until either side closes it.
+
+Each request is limited to 1 MiB. The server waits up to five seconds for the initial request, for an app-handled response, and for each stream write. Individual wait operations can expose their own caller-selected timeout.
+
+## Socket selection
+
+Commands normally resolve the socket for the active Oh My Herdr session. `--session <name>` selects a named session before command dispatch. `OMH_SOCKET_PATH` can select an accepted Local API socket path when no explicit session overrides it.
+
+Use `omh status --json` to inspect the active server and socket rather than reconstructing platform-specific data directories.
+
+## Trust model
+
+The Local API has no network listener, bearer token, or per-method authorization layer. On Unix, Oh My Herdr creates the socket with mode `0600`. Any process that can connect acts with the user's Oh My Herdr authority and can read terminal content, send input, start processes, change workspace state, or stop the server.
+
+Treat the socket path and access to the local user account as security-sensitive. Do not forward the socket to another machine, expose it through a web server, or give untrusted plugins or subprocesses access unless they should receive the same authority.
+
+## Compatibility
+
+The generated reference is versioned by the Oh My Herdr product version that produced it. Use the immutable schema URL for the version you target. The `latest` alias is updated only by a successful release deployment.
+
+The `protocol` value reported by `ping` and schema metadata is the **interactive client wire protocol** version. It helps callers determine whether a binary can attach to a running server, but it does not turn Local API JSON into that binary protocol.
+
+Additive Local API shape changes can occur within the generated schema version. Consumers should ignore unknown object properties and result variants unless they need them. A `schema_version` change means schema consumers must review the generator contract before accepting the new document.
+
+## Reference
+
+- [Request methods](/docs/api/reference/generated/requests)
+- [Successful responses](/docs/api/reference/generated/responses)
+- [Operational and subscription events](/docs/api/reference/generated/events)
+- [Error response shape](/docs/api/reference/generated/errors)
+- [Enum values](/docs/api/reference/generated/enums)
+- [Send a request from a local script](/docs/api/workflow)
+- [Error semantics](/docs/api/errors)

@@ -2,11 +2,23 @@
   "extends": ["//"],
   "tasks": {
     "build": {
-      "env": ["SITE_URL"],
+      "env": ["OMH_API_BINARY", "SITE_URL"],
       "outputs": ["dist/**"]
     },
     "check": {
-      "dependsOn": ["build", "content:check", "deploy:check", "format:check", "lint"]
+      "dependsOn": [
+        "api:check",
+        "build",
+        "content:check",
+        "deploy:check",
+        "format:check",
+        "lint",
+        "test"
+      ]
+    },
+    "api:check": {
+      "dependsOn": ["build"],
+      "outputs": []
     },
     "content:check": {
       "dependsOn": ["build"]
@@ -22,6 +34,9 @@
       "outputs": []
     },
     "lint": {
+      "outputs": []
+    },
+    "test": {
       "outputs": []
     }
   }

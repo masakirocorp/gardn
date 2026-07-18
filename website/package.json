@@ -5,15 +5,19 @@
   "sideEffects": false,
   "scripts": {
     "dev": "waku dev",
-    "build": "waku build",
+    "api:generate": "node scripts/generate-api-reference.mjs",
+    "api:check": "node scripts/generate-api-reference.mjs --check",
+    "api:generate:latest": "node scripts/generate-api-reference.mjs --publish-latest",
+    "build": "pnpm api:generate && waku build",
     "check": "tsc --noEmit",
     "lint": "oxlint --deny-warnings .",
     "format": "oxfmt .",
     "format:check": "oxfmt --check .",
+    "test": "node --test scripts/*.test.mjs",
     "content:check": "node scripts/check-built-site.mjs",
     "deploy:check": "wrangler deploy --dry-run",
     "preview": "wrangler dev",
-    "deploy": "node scripts/require-site-url.mjs && waku build && wrangler deploy"
+    "deploy": "node scripts/require-site-url.mjs && pnpm build && wrangler deploy"
   },
   "dependencies": {
     "@base-ui/react": "^1.6.0",

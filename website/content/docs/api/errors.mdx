@@ -1,0 +1,49 @@
+---
+title: Local API errors
+description: Error envelope, request correlation, timeouts, and recovery behavior.
+---
+
+# Local API errors
+
+A rejected request returns one newline-delimited JSON object with an `error` member instead of `result`:
+
+```json
+{
+  "id": "example:read",
+  "error": {
+    "code": "pane_not_found",
+    "message": "pane p_1 not found"
+  }
+}
+```
+
+`id` normally matches the request. A request that cannot be decoded has an empty `id` because the server cannot safely recover the caller's identifier.
+
+## Error fields
+
+| Field           | Meaning                                                                                         |
+| --------------- | ----------------------------------------------------------------------------------------------- |
+| `id`            | Caller-selected request identifier, or an empty string when decoding failed before correlation. |
+| `error.code`    | Stable machine-oriented category. Handle this value in automation.                              |
+| `error.message` | Human-oriented context. Display or log it; do not parse it as a protocol.                       |
+
+## Common categories
+
+| Category          | Meaning                                                                         | Recovery                                                                                      |
+| ----------------- | ------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| `invalid_request` | The first line was not a valid request envelope or parameter shape.             | Correct the request using the schema for the target product version.                          |
+| `*_not_found`     | A workspace, tab, pane, agent, group, plugin, or other target no longer exists. | Refresh state and choose a current identifier.                                                |
+| `invalid_regex`   | A wait or subscription pattern could not be compiled.                           | Correct the pattern before retrying.                                                          |
+| `timeout`         | A wait condition did not become true before its requested deadline.             | Reconcile current state, then retry only if the operation is safe to repeat.                  |
+| `unsupported_*`   | The running mode or platform does not provide the requested operation.          | Inspect `ping` capabilities or use a supported mode.                                          |
+| `internal_error`  | The server could not complete or encode the operation.                          | Preserve the code and message, inspect logs, and avoid blind retries for mutating operations. |
+
+Method-specific codes are not a closed enum in schema version 1. Consumers must retain unknown codes and use the error envelope rather than assuming the categories above are exhaustive.
+
+## Connection failures
+
+A missing socket, refused connection, empty response, invalid JSON response, or connection timeout is a transport failure rather than an API error envelope. Check that the intended session is running and that the client resolved the same socket path. Do not assume a mutating request failed merely because the response was lost; reconcile state before retrying.
+
+## Streaming failures
+
+`events.subscribe` validates every requested subscription before acknowledging the stream. A validation error returns an error response and closes the connection. After acknowledgement, an error line with an empty `id` indicates that the server could not encode or maintain the event stream; reconnect and reconcile against current state.

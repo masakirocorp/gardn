@@ -2255,16 +2255,57 @@ pub struct SessionSnapshot {
     pub agents: Vec<AgentInfo>,
 }
 
+fn generated_request_schema() -> serde_json::Value {
+    let mut schema = match serde_json::to_value(schemars::schema_for!(Request)) {
+        Ok(schema) => schema,
+        Err(error) => panic!("failed to serialize generated Local API request schema: {error}"),
+    };
+    let Some(variants) = schema
+        .get_mut("oneOf")
+        .and_then(serde_json::Value::as_array_mut)
+    else {
+        panic!("generated Local API request schema is missing request variants");
+    };
+
+    for variant in variants {
+        let Some(properties) = variant
+            .get_mut("properties")
+            .and_then(serde_json::Value::as_object_mut)
+        else {
+            panic!("generated Local API request variant is missing properties");
+        };
+        properties.insert(
+            "id".to_string(),
+            serde_json::json!({
+                "description": "Caller-provided identifier echoed by the response.",
+                "type": "string",
+            }),
+        );
+
+        let Some(required) = variant
+            .get_mut("required")
+            .and_then(serde_json::Value::as_array_mut)
+        else {
+            panic!("generated Local API request variant is missing required properties");
+        };
+        required.push(serde_json::Value::String("id".to_string()));
+        required.sort_by(|left, right| left.as_str().cmp(&right.as_str()));
+    }
+
+    schema
+}
+
 /// Return the socket API schema used by CLI and tooling consumers.
 pub fn generated_schema() -> serde_json::Value {
     serde_json::json!({
         "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "product_version": crate::build_info::BASE_VERSION,
         "protocol": crate::protocol::PROTOCOL_VERSION,
         "schema_version": 1,
         "schemas": {
             "error_response": schemars::schema_for!(ErrorResponse),
             "event": schemars::schema_for!(EventEnvelope),
-            "request": schemars::schema_for!(Request),
+            "request": generated_request_schema(),
             "response": schemars::schema_for!(SuccessResponse),
             "subscription_event": schemars::schema_for!(SubscriptionEventEnvelope),
         },
@@ -2273,6 +2314,30 @@ pub fn generated_schema() -> serde_json::Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn generated_schema_describes_request_ids_and_product_version() {
+        let schema = generated_schema();
+        assert_eq!(
+            schema
+                .get("product_version")
+                .and_then(serde_json::Value::as_str),
+            Some(crate::build_info::BASE_VERSION)
+        );
+
+        let variants = schema["schemas"]["request"]["oneOf"]
+            .as_array()
+            .expect("request schema should contain method variants");
+        assert!(!variants.is_empty());
+        for variant in variants {
+            assert_eq!(variant["properties"]["id"]["type"], "string");
+            assert!(variant["required"]
+                .as_array()
+                .expect("request variant should list required properties")
+                .iter()
+                .any(|property| property == "id"));
+        }
+    }
 
     #[test]
     fn request_round_trips_for_pane_read() {

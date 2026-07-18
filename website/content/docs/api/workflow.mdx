@@ -1,0 +1,60 @@
+---
+title: Send a Local API request
+description: Connect to an Oh My Herdr Unix socket and correlate one JSON response.
+---
+
+# Send a Local API request
+
+This guide shows how to send a `ping` request from a local Unix script. Use the normal `omh` CLI when it already exposes the operation you need; direct socket access is for integrations that need the JSON contract.
+
+## Prerequisites
+
+- A running persistent Oh My Herdr session on macOS or Linux.
+- Python 3.
+- The Local API socket path for that session.
+
+Select a named session before starting Oh My Herdr if the integration should not target the default session:
+
+```sh
+omh --session work
+```
+
+Obtain the socket path from `omh status --json`, then provide it to the script as `OMH_SOCKET_PATH`.
+
+## Send `ping`
+
+```python
+import json
+import os
+import socket
+
+request = {
+    "id": "example:ping",
+    "method": "ping",
+    "params": {},
+}
+
+with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
+    client.connect(os.environ["OMH_SOCKET_PATH"])
+    client.sendall(json.dumps(request, separators=(",", ":")).encode() + b"\n")
+
+    response_line = client.makefile("rb").readline()
+    if not response_line:
+        raise RuntimeError("Oh My Herdr closed the Local API connection without a response")
+
+response = json.loads(response_line)
+if response.get("id") != request["id"]:
+    raise RuntimeError("Local API response id did not match the request")
+if "error" in response:
+    raise RuntimeError(f"{response['error']['code']}: {response['error']['message']}")
+
+print(response["result"])
+```
+
+The result identifies the running Oh My Herdr version, the interactive client protocol version, and any advertised server capabilities.
+
+## Subscribe to events
+
+For `events.subscribe`, keep the socket open after reading the first response. Treat the first successful response as the subscription acknowledgement; every subsequent non-empty line is an event.
+
+Subscriptions do not provide durable offsets. Workspace, tab, pane, and layout events may replay only while they remain in the server's bounded in-memory history. Output and agent-status subscriptions observe current pane state instead of that history. Reconnect by establishing a new subscription and reconciling against a fresh snapshot.

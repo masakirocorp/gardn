@@ -320,6 +320,8 @@ Oh My Herdr exposes the same runtime model through the CLI and local Unix socket
 
 The socket API supports typed request/response calls and event subscriptions. It is the local JSON control plane; interactive render streaming and terminal attach use the separate client wire-protocol socket.
 
+The public website combines authored transport, lifecycle, trust, compatibility, workflow, and error guidance with deterministic shape reference generated from a specified `omh` binary. Published schema JSON is immutable at `/api/<product-version>/schema.json`; the `/api/latest/schema.json` alias is reserved for release deployment. Generated Local API material excludes the separate internal client wire and handoff protocols.
+
 API-visible domains include:
 
 - server control

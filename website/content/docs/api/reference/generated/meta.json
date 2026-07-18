@@ -1,0 +1,11 @@
+{
+  "title": "Shape reference",
+  "pages": [
+    "index",
+    "requests",
+    "responses",
+    "events",
+    "errors",
+    "enums"
+  ]
+}
