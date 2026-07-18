@@ -11,12 +11,12 @@ The Local API is **not HTTP, REST, or OpenAPI**. It is also separate from the bi
 
 ## Choose an integration surface
 
-| Surface | Use it for |
-| --- | --- |
-| [`omh` CLI](/docs/reference/cli) | Shell scripts, one-shot operations, and human debugging. Prefer this when a command already exposes the operation you need. |
-| [Agent skill](/docs/guides/plugins-and-integrations) | Teaching an AI coding agent how to operate Oh My Herdr from inside a pane. |
-| [Plugin manifest](/docs/reference/plugin-manifest) | Installing reusable actions, links, event hooks, pane launchers, and agent lifecycle integrations. |
-| Local API | Direct request/response control, complete resource inspection, pane input/output, or long-lived event subscriptions. |
+| Surface                                              | Use it for                                                                                                                  |
+| ---------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| [`omh` CLI](/docs/reference/cli)                     | Shell scripts, one-shot operations, and human debugging. Prefer this when a command already exposes the operation you need. |
+| [Agent skill](/docs/guides/plugins-and-integrations) | Teaching an AI coding agent how to operate Oh My Herdr from inside a pane.                                                  |
+| [Plugin manifest](/docs/reference/plugin-manifest)   | Installing reusable actions, links, event hooks, pane launchers, and agent lifecycle integrations.                          |
+| Local API                                            | Direct request/response control, complete resource inspection, pane input/output, or long-lived event subscriptions.        |
 
 The Local API is the lowest-level public automation surface. It is not automatically safer or more stable than the CLI: callers own socket selection, framing, timeouts, retries, and reconciliation.
 

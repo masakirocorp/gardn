@@ -55,23 +55,23 @@ A response with `error` means the request was rejected before any state change. 
 
 ## Common error categories
 
-| Category | Produced by | Meaning |
-| --- | --- | --- |
-| `pane_not_found` | Every pane method that takes `pane_id` or `target_pane_id`. | The pane id did not parse or no longer exists. The message is `pane <id> not found` or `pane not found` for the omitted-pane fallback. |
-| `agent_not_found` | `agent.get`, `agent.focus`, `agent.read`, `agent.send`, `agent.rename`, `agent.explain`. | `target` did not resolve to any agent terminal. |
-| `agent_target_ambiguous` | Same as `agent_not_found`. | `target` matched multiple terminals. The message lists `terminal_id`, `pane_id`, `workspace_id`, `tab_id`, `cwd`, and `status` for each candidate. |
-| `agent_name_taken` | `agent.start`, `agent.rename`. | Another agent terminal already owns the requested name. The message lists competing terminals. |
-| `invalid_agent` | `pane.report_agent`, `pane.report_agent_session`, `pane.release_agent`. | The reported `agent` label was empty after trimming. |
-| `invalid_pane_swap` | `pane.swap`. | The caller supplied both a direction and explicit source/target ids, or neither. |
-| `invalid_metadata_*` | `pane.report_metadata`. | Source, ttl, tokens, or set/clear combinations were invalid. See [pane.report_metadata](#panereport_metadata). |
-| `pane_layout_unavailable` | Layout-reading methods and `pane.move`. | The layout snapshot could not be produced for the resolved tab. |
-| `confirmation_required` | `pane.close`. | Closing the pane would also close a worktree group the server will not implicitly remove. |
-| `pane_send_failed` / `agent_send_failed` | `pane.send_text`, `pane.send_keys`, `pane.send_input`, `agent.send`. | The runtime writer reported an error. |
-| `invalid_key` | `pane.send_keys`, `pane.send_input`. | A requested key could not be parsed. The message is `unsupported key <key>`. |
-| `invalid_regex` | `pane.wait_for_output`. | A `regex` match pattern failed to compile. |
-| `timeout` | `pane.wait_for_output`. | The match did not occur before the caller-supplied deadline. See [pane.wait_for_output](#panewait_for_output). |
-| `invalid_env` | `agent.start`, `pane.split`. | An `env` key was empty, contained `=`, or contained a NUL byte; or a value contained a NUL byte. |
-| `invalid_request` | All. | The request envelope or parameter shape failed to deserialize. `id` may be empty. |
+| Category                                 | Produced by                                                                              | Meaning                                                                                                                                            |
+| ---------------------------------------- | ---------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pane_not_found`                         | Every pane method that takes `pane_id` or `target_pane_id`.                              | The pane id did not parse or no longer exists. The message is `pane <id> not found` or `pane not found` for the omitted-pane fallback.             |
+| `agent_not_found`                        | `agent.get`, `agent.focus`, `agent.read`, `agent.send`, `agent.rename`, `agent.explain`. | `target` did not resolve to any agent terminal.                                                                                                    |
+| `agent_target_ambiguous`                 | Same as `agent_not_found`.                                                               | `target` matched multiple terminals. The message lists `terminal_id`, `pane_id`, `workspace_id`, `tab_id`, `cwd`, and `status` for each candidate. |
+| `agent_name_taken`                       | `agent.start`, `agent.rename`.                                                           | Another agent terminal already owns the requested name. The message lists competing terminals.                                                     |
+| `invalid_agent`                          | `pane.report_agent`, `pane.report_agent_session`, `pane.release_agent`.                  | The reported `agent` label was empty after trimming.                                                                                               |
+| `invalid_pane_swap`                      | `pane.swap`.                                                                             | The caller supplied both a direction and explicit source/target ids, or neither.                                                                   |
+| `invalid_metadata_*`                     | `pane.report_metadata`.                                                                  | Source, ttl, tokens, or set/clear combinations were invalid. See [pane.report_metadata](#panereport_metadata).                                     |
+| `pane_layout_unavailable`                | Layout-reading methods and `pane.move`.                                                  | The layout snapshot could not be produced for the resolved tab.                                                                                    |
+| `confirmation_required`                  | `pane.close`.                                                                            | Closing the pane would also close a worktree group the server will not implicitly remove.                                                          |
+| `pane_send_failed` / `agent_send_failed` | `pane.send_text`, `pane.send_keys`, `pane.send_input`, `agent.send`.                     | The runtime writer reported an error.                                                                                                              |
+| `invalid_key`                            | `pane.send_keys`, `pane.send_input`.                                                     | A requested key could not be parsed. The message is `unsupported key <key>`.                                                                       |
+| `invalid_regex`                          | `pane.wait_for_output`.                                                                  | A `regex` match pattern failed to compile.                                                                                                         |
+| `timeout`                                | `pane.wait_for_output`.                                                                  | The match did not occur before the caller-supplied deadline. See [pane.wait_for_output](#panewait_for_output).                                     |
+| `invalid_env`                            | `agent.start`, `pane.split`.                                                             | An `env` key was empty, contained `=`, or contained a NUL byte; or a value contained a NUL byte.                                                   |
+| `invalid_request`                        | All.                                                                                     | The request envelope or parameter shape failed to deserialize. `id` may be empty.                                                                  |
 
 Method-specific codes are not a closed enum. Consumers must retain unknown codes.
 
@@ -81,26 +81,44 @@ Method-specific codes are not a closed enum. Consumers must retain unknown codes
 
 List every agent terminal across all workspaces and tabs.
 
-| Method | Params | Result |
-| --- | --- | --- |
-| `agent.list` | none | `AgentList { agents: AgentInfo[] }` |
+| Method       | Params | Result                              |
+| ------------ | ------ | ----------------------------------- |
+| `agent.list` | none   | `AgentList { agents: AgentInfo[] }` |
 
 `agents` contains one `AgentInfo` per pane whose terminal is marked as an agent terminal, in workspace then tab then traversal order. Empty when no agents exist.
 
 ```json
-{"id":"ex:agent-list","method":"agent.list","params":{}}
+{ "id": "ex:agent-list", "method": "agent.list", "params": {} }
 ```
 
 ```json
-{"id":"ex:agent-list","result":{"type":"agent_list","agents":[{"terminal_id":"term_1943cd2b11a1","name":"builder","agent":"claude","agent_status":"working","workspace_id":"w1943cd2b11a1","tab_id":"w1943cd2b11a1:t1","pane_id":"w1943cd2b11a1:p2","focused":false,"revision":12}]}}
+{
+  "id": "ex:agent-list",
+  "result": {
+    "type": "agent_list",
+    "agents": [
+      {
+        "terminal_id": "term_1943cd2b11a1",
+        "name": "builder",
+        "agent": "claude",
+        "agent_status": "working",
+        "workspace_id": "w1943cd2b11a1",
+        "tab_id": "w1943cd2b11a1:t1",
+        "pane_id": "w1943cd2b11a1:p2",
+        "focused": false,
+        "revision": 12
+      }
+    ]
+  }
+}
 ```
 
 ### agent.get
 
 Resolve a target and return its `AgentInfo`. See [Agent targets](#agent-targets) for resolution and ambiguity behavior.
 
-| Method | Params | Result |
-| --- | --- | --- |
+| Method      | Params                           | Result                |
+| ----------- | -------------------------------- | --------------------- |
 | `agent.get` | `AgentTarget` (`target: string`) | `AgentInfo { agent }` |
 
 Errors: `agent_not_found`, `agent_target_ambiguous`.
@@ -109,8 +127,8 @@ Errors: `agent_not_found`, `agent_target_ambiguous`.
 
 Resolve a target, switch the active workspace and tab to the containing pane, focus the pane, set the server mode to `Terminal`, mark the active tab as seen, and return the resulting `AgentInfo`.
 
-| Method | Params | Result |
-| --- | --- | --- |
+| Method        | Params        | Result                |
+| ------------- | ------------- | --------------------- |
 | `agent.focus` | `AgentTarget` | `AgentInfo { agent }` |
 
 `agent.focus` always performs the focus switch even if the pane was already focused. The returned `focused` reflects post-call state.
@@ -121,20 +139,20 @@ Errors: `agent_not_found`, `agent_target_ambiguous`.
 
 Start a named agent terminal. The new terminal is registered with the supplied `name` as both its agent name and manual label; the `name` must be unique across agent terminals.
 
-| Method | Params | Required | Default |
-| --- | --- | --- | --- |
-| `agent.start` | `AgentStartParams` | — | — |
+| Method        | Params             | Required | Default |
+| ------------- | ------------------ | -------- | ------- |
+| `agent.start` | `AgentStartParams` | —        | —       |
 
-| Property | Type | Required | Default | Behavior |
-| --- | --- | --- | --- | --- |
-| `name` | `string` | yes | — | Trimmed; empty becomes `invalid_agent_name`. Must not duplicate an existing agent name or `agent_name_taken` is returned. |
-| `argv` | `string[]` | yes | — | Command and arguments. Empty produces `invalid_agent_argv`. |
-| `cwd` | `string \| null` | no | process cwd (fallback `/`) | Working directory for the new terminal. |
-| `workspace_id` | `string \| null` | no | active workspace | Selects the target workspace. When `tab_id` is also set, both must reference the same workspace or `agent_placement_conflict` is returned. |
-| `tab_id` | `string \| null` | no | active tab of the resolved workspace | Split from this tab's focused pane. |
-| `split` | `"right" \| "down" \| null` | no | `"right"` | Direction of the split from the focused pane. |
-| `focus` | `boolean` | no | `false` | Focus the new pane after creation and switch the active workspace/tab. |
-| `env` | `object` | no | `{}` | Extra environment variables. See [env behavior](#env-behavior). |
+| Property       | Type                        | Required | Default                              | Behavior                                                                                                                                   |
+| -------------- | --------------------------- | -------- | ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `name`         | `string`                    | yes      | —                                    | Trimmed; empty becomes `invalid_agent_name`. Must not duplicate an existing agent name or `agent_name_taken` is returned.                  |
+| `argv`         | `string[]`                  | yes      | —                                    | Command and arguments. Empty produces `invalid_agent_argv`.                                                                                |
+| `cwd`          | `string \| null`            | no       | process cwd (fallback `/`)           | Working directory for the new terminal.                                                                                                    |
+| `workspace_id` | `string \| null`            | no       | active workspace                     | Selects the target workspace. When `tab_id` is also set, both must reference the same workspace or `agent_placement_conflict` is returned. |
+| `tab_id`       | `string \| null`            | no       | active tab of the resolved workspace | Split from this tab's focused pane.                                                                                                        |
+| `split`        | `"right" \| "down" \| null` | no       | `"right"`                            | Direction of the split from the focused pane.                                                                                              |
+| `focus`        | `boolean`                   | no       | `false`                              | Focus the new pane after creation and switch the active workspace/tab.                                                                     |
+| `env`          | `object`                    | no       | `{}`                                 | Extra environment variables. See [env behavior](#env-behavior).                                                                            |
 
 Placement rules:
 
@@ -148,11 +166,39 @@ Result: `AgentStarted { agent: AgentInfo, argv: string[] }`. `argv` echoes the s
 Errors: `invalid_agent_name`, `invalid_agent_argv`, `agent_name_taken`, `agent_placement_not_found`, `agent_placement_conflict`, `agent_start_failed`, `invalid_env`.
 
 ```json
-{"id":"ex:start","method":"agent.start","params":{"name":"builder","argv":["claude","--no-tips"],"cwd":"/repo","split":"down","focus":true,"env":{"CLAUDE_BUDGET":"200"}}}
+{
+  "id": "ex:start",
+  "method": "agent.start",
+  "params": {
+    "name": "builder",
+    "argv": ["claude", "--no-tips"],
+    "cwd": "/repo",
+    "split": "down",
+    "focus": true,
+    "env": { "CLAUDE_BUDGET": "200" }
+  }
+}
 ```
 
 ```json
-{"id":"ex:start","result":{"type":"agent_started","agent":{"terminal_id":"term_1943cd2b22b2","name":"builder","agent_status":"unknown","screen_detection_skipped":false,"workspace_id":"w1943cd2b11a1","tab_id":"w1943cd2b11a1:t1","pane_id":"w1943cd2b11a1:p3","focused":true,"revision":0},"argv":["claude","--no-tips"]}}
+{
+  "id": "ex:start",
+  "result": {
+    "type": "agent_started",
+    "agent": {
+      "terminal_id": "term_1943cd2b22b2",
+      "name": "builder",
+      "agent_status": "unknown",
+      "screen_detection_skipped": false,
+      "workspace_id": "w1943cd2b11a1",
+      "tab_id": "w1943cd2b11a1:t1",
+      "pane_id": "w1943cd2b11a1:p3",
+      "focused": true,
+      "revision": 0
+    },
+    "argv": ["claude", "--no-tips"]
+  }
+}
 ```
 
 ### agent.read
@@ -163,13 +209,13 @@ Read output from the terminal behind an agent target. Identical to [pane.read](#
 - The result `pane_id` falls back to the original `target` string when a public pane id cannot be resolved.
 - `revision` is always `0` and `truncated` is always `false` in the current implementation. These fields exist for forward compatibility; do not treat them as a content revision.
 
-| Property | Type | Required | Default |
-| --- | --- | --- | --- |
-| `target` | `string` | yes | — |
-| `source` | `ReadSource` | yes | — |
-| `lines` | `integer \| null` | no | `80`, clamped to `1000` |
-| `format` | `ReadFormat` | no | `"text"` |
-| `strip_ansi` | `boolean` | no | `true` |
+| Property     | Type              | Required | Default                 |
+| ------------ | ----------------- | -------- | ----------------------- |
+| `target`     | `string`          | yes      | —                       |
+| `source`     | `ReadSource`      | yes      | —                       |
+| `lines`      | `integer \| null` | no       | `80`, clamped to `1000` |
+| `format`     | `ReadFormat`      | no       | `"text"`                |
+| `strip_ansi` | `boolean`         | no       | `true`                  |
 
 See [pane.read](#paneread) for the source matrix and line semantics. Errors: `agent_not_found`, `agent_target_ambiguous`.
 
@@ -177,31 +223,35 @@ See [pane.read](#paneread) for the source matrix and line semantics. Errors: `ag
 
 Write raw bytes from a string to the terminal behind an agent target. The bytes are written as-is without key parsing and without bracketed paste wrapping. This is the lowest-level send primitive and is appropriate for streaming agent input that should not be reparsed.
 
-| Property | Type | Required |
-| --- | --- | --- |
-| `target` | `string` | yes |
-| `text` | `string` | yes |
+| Property | Type     | Required |
+| -------- | -------- | -------- |
+| `target` | `string` | yes      |
+| `text`   | `string` | yes      |
 
 Result: `Ok {}`. A failed write returns `agent_send_failed` with the runtime error message.
 
 Errors: `agent_not_found`, `agent_target_ambiguous`, `agent_send_failed`.
 
 ```json
-{"id":"ex:send","method":"agent.send","params":{"target":"builder","text":"summarize the failing tests and propose a fix\n"}}
+{
+  "id": "ex:send",
+  "method": "agent.send",
+  "params": { "target": "builder", "text": "summarize the failing tests and propose a fix\n" }
+}
 ```
 
 ```json
-{"id":"ex:send","result":{"type":"ok"}}
+{ "id": "ex:send", "result": { "type": "ok" } }
 ```
 
 ### agent.rename
 
 Set or clear the agent name (and manual label) on the terminal behind an agent target. The terminal identity, pane, and process are unchanged.
 
-| Property | Type | Required | Default |
-| --- | --- | --- | --- |
-| `target` | `string` | yes | — |
-| `name` | `string \| null` | no | clears the agent name |
+| Property | Type             | Required | Default               |
+| -------- | ---------------- | -------- | --------------------- |
+| `target` | `string`         | yes      | —                     |
+| `name`   | `string \| null` | no       | clears the agent name |
 
 The supplied `name` is trimmed. An empty string or `null` clears both the agent name and the manual label. A non-empty `name` that conflicts with another agent terminal returns `agent_name_taken`. To clear the name while preserving the terminal, pass `null` explicitly.
 
@@ -213,8 +263,8 @@ Errors: `agent_not_found`, `agent_target_ambiguous`, `agent_name_taken`.
 
 Return a debug object describing how agent detection resolved for the target's terminal. The result is a free-form `serde_json::Value` shaped by the detection module, not the schema enum shape used by other methods.
 
-| Method | Params | Result |
-| --- | --- | --- |
+| Method          | Params        | Result                             |
+| --------------- | ------------- | ---------------------------------- |
 | `agent.explain` | `AgentTarget` | `AgentExplain { explain: object }` |
 
 Two outcomes:
@@ -232,18 +282,18 @@ Errors: `agent_not_found`, `agent_target_ambiguous`, `agent_explain_unavailable`
 
 Three pane methods send input, with different encodings:
 
-| Method | Encodes | Order |
-| --- | --- | --- |
-| `pane.send_text` | Raw bytes from `text`. | text only. |
-| `pane.send_keys` | Each entry in `keys` as a key combo via the terminal's key encoder. | keys in array order. |
-| `pane.send_input` | `text` first (encoded as in `pane.send_text`), then `keys`. | text then keys. |
+| Method            | Encodes                                                             | Order                |
+| ----------------- | ------------------------------------------------------------------- | -------------------- |
+| `pane.send_text`  | Raw bytes from `text`.                                              | text only.           |
+| `pane.send_keys`  | Each entry in `keys` as a key combo via the terminal's key encoder. | keys in array order. |
+| `pane.send_input` | `text` first (encoded as in `pane.send_text`), then `keys`.         | text then keys.      |
 
 ### pane.send_text
 
-| Property | Type | Required |
-| --- | --- | --- |
-| `pane_id` | `string` | yes |
-| `text` | `string` | yes |
+| Property  | Type     | Required |
+| --------- | -------- | -------- |
+| `pane_id` | `string` | yes      |
+| `text`    | `string` | yes      |
 
 `text` is written as raw UTF-8 bytes. No bracketed paste wrapping is applied. To paste content through a terminal that has bracketed paste enabled, use `pane.send_input` so the runtime wraps the `text` field as a paste sequence.
 
@@ -253,10 +303,10 @@ Errors: `pane_not_found`, `pane_send_failed`.
 
 ### pane.send_keys
 
-| Property | Type | Required |
-| --- | --- | --- |
-| `pane_id` | `string` | yes |
-| `keys` | `string[]` | yes |
+| Property  | Type       | Required |
+| --------- | ---------- | -------- |
+| `pane_id` | `string`   | yes      |
+| `keys`    | `string[]` | yes      |
 
 Each entry is a key combo string parsed by the config key parser, with two aliases: `C-c` and `c-c` normalize to `ctrl+c`, and a bare `+` parses to the `plus` key. Each parsed `KeyEvent` is encoded for the target terminal and written in array order. The first unparseable key produces `invalid_key` and no later keys are sent.
 
@@ -266,11 +316,11 @@ Errors: `pane_not_found`, `invalid_key`, `pane_send_failed`.
 
 ### pane.send_input
 
-| Property | Type | Required | Default |
-| --- | --- | --- | --- |
-| `pane_id` | `string` | yes | — |
-| `text` | `string` | no | `""` |
-| `keys` | `string[]` | no | `[]` |
+| Property  | Type       | Required | Default |
+| --------- | ---------- | -------- | ------- |
+| `pane_id` | `string`   | yes      | —       |
+| `text`    | `string`   | no       | `""`    |
+| `keys`    | `string[]` | no       | `[]`    |
 
 Both fields are optional but at least one should be supplied for a useful request. The `text` field is encoded by `encode_api_text`: when the terminal's input state has bracketed paste active, the text is wrapped as `\x1b[200~<text>\x1b[201~`; otherwise it is sent as raw bytes. Keys are then sent in array order with the same encoding as `pane.send_keys`. Each failed write returns `pane_send_failed` immediately and stops the remaining keys.
 
@@ -282,22 +332,22 @@ Errors: `pane_not_found`, `invalid_key`, `pane_send_failed`.
 
 Read pane content from one of four sources. `pane_id` is required.
 
-| Property | Type | Required | Default |
-| --- | --- | --- | --- |
-| `pane_id` | `string` | yes | — |
-| `source` | `ReadSource` | yes | — |
-| `lines` | `integer \| null` | no | `80`, clamped to a maximum of `1000` |
-| `format` | `ReadFormat` | no | `"text"` |
-| `strip_ansi` | `boolean` | no | `true` |
+| Property     | Type              | Required | Default                              |
+| ------------ | ----------------- | -------- | ------------------------------------ |
+| `pane_id`    | `string`          | yes      | —                                    |
+| `source`     | `ReadSource`      | yes      | —                                    |
+| `lines`      | `integer \| null` | no       | `80`, clamped to a maximum of `1000` |
+| `format`     | `ReadFormat`      | no       | `"text"`                             |
+| `strip_ansi` | `boolean`         | no       | `true`                               |
 
 Read sources:
 
-| `source` | Content |
-| --- | --- |
-| `"visible"` | The current terminal viewport. Line wrapping is applied. Format `"ansi"` returns the raw ANSI bytes of the viewport; `"text"` returns the visible text with ANSI stripped. |
-| `"recent"` | Up to `lines` recent wrapped lines from the scrollback. Format `"ansi"` returns recent ANSI; `"text"` returns recent text. |
-| `"recent_unwrapped"` | Up to `lines` recent logical lines with wrapping undone. Format `"ansi"` returns the unwrapped ANSI stream; `"text"` returns unwrapped text. |
-| `"detection"` | The detection text the agent state machine consumes. Always returned as text regardless of `format`; the `ansi` format has no effect on this source. |
+| `source`             | Content                                                                                                                                                                    |
+| -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `"visible"`          | The current terminal viewport. Line wrapping is applied. Format `"ansi"` returns the raw ANSI bytes of the viewport; `"text"` returns the visible text with ANSI stripped. |
+| `"recent"`           | Up to `lines` recent wrapped lines from the scrollback. Format `"ansi"` returns recent ANSI; `"text"` returns recent text.                                                 |
+| `"recent_unwrapped"` | Up to `lines` recent logical lines with wrapping undone. Format `"ansi"` returns the unwrapped ANSI stream; `"text"` returns unwrapped text.                               |
+| `"detection"`        | The detection text the agent state machine consumes. Always returned as text regardless of `format`; the `ansi` format has no effect on this source.                       |
 
 Line handling: `lines.unwrap_or(80).min(1000)` for both `agent.read` and `pane.read`. The default is `80` lines even though the field is otherwise optional. Values above `1000` are clamped to `1000`; values of `0` or below are sent to the pane runtime and may return an empty string.
 
@@ -308,32 +358,51 @@ Result: `PaneRead { read: PaneReadResult }` with `pane_id` echoed, `workspace_id
 Errors: `pane_not_found`.
 
 ```json
-{"id":"ex:read","method":"pane.read","params":{"pane_id":"w1943cd2b11a1:p2","source":"recent","lines":40,"format":"text"}}
+{
+  "id": "ex:read",
+  "method": "pane.read",
+  "params": { "pane_id": "w1943cd2b11a1:p2", "source": "recent", "lines": 40, "format": "text" }
+}
 ```
 
 ```json
-{"id":"ex:read","result":{"type":"pane_read","read":{"pane_id":"w1943cd2b11a1:p2","workspace_id":"w1943cd2b11a1","tab_id":"w1943cd2b11a1:t1","source":"recent","format":"text","text":"$ ls\nsrc docs\n","revision":0,"truncated":false}}}
+{
+  "id": "ex:read",
+  "result": {
+    "type": "pane_read",
+    "read": {
+      "pane_id": "w1943cd2b11a1:p2",
+      "workspace_id": "w1943cd2b11a1",
+      "tab_id": "w1943cd2b11a1:t1",
+      "source": "recent",
+      "format": "text",
+      "text": "$ ls\nsrc docs\n",
+      "revision": 0,
+      "truncated": false
+    }
+  }
+}
 ```
 
 ### pane.wait_for_output
 
 Block on a pane until its output matches a substring or regex. This is a streaming method: the server responds once, either with a match or with an error, after polling the pane output.
 
-| Property | Type | Required | Default |
-| --- | --- | --- | --- |
-| `pane_id` | `string` | yes | — |
-| `source` | `ReadSource` | yes | — |
-| `match` | `OutputMatch` | yes | — |
-| `lines` | `integer \| null` | no | `80` (passed through to the underlying read) |
-| `timeout_ms` | `integer \| null` | no | no timeout (waits indefinitely until match or disconnect) |
-| `strip_ansi` | `boolean` | no | `true` |
+| Property     | Type              | Required | Default                                                   |
+| ------------ | ----------------- | -------- | --------------------------------------------------------- |
+| `pane_id`    | `string`          | yes      | —                                                         |
+| `source`     | `ReadSource`      | yes      | —                                                         |
+| `match`      | `OutputMatch`     | yes      | —                                                         |
+| `lines`      | `integer \| null` | no       | `80` (passed through to the underlying read)              |
+| `timeout_ms` | `integer \| null` | no       | no timeout (waits indefinitely until match or disconnect) |
+| `strip_ansi` | `boolean`         | no       | `true`                                                    |
 
 `match` is a tagged object:
 
-| `match.type` | Other field | Behavior |
-| --- | --- | --- |
-| `"substring"` | `value: string` | The first line containing `value` anywhere is returned as `matched_line`. |
-| `"regex"` | `value: string` | The first line matching the regex is returned. An unparseable pattern returns `invalid_regex` immediately with the regex error message. |
+| `match.type`  | Other field     | Behavior                                                                                                                                |
+| ------------- | --------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `"substring"` | `value: string` | The first line containing `value` anywhere is returned as `matched_line`.                                                               |
+| `"regex"`     | `value: string` | The first line matching the regex is returned. An unparseable pattern returns `invalid_regex` immediately with the regex error message. |
 
 Match behavior:
 
@@ -349,20 +418,47 @@ Match behavior:
 Errors: `invalid_regex`, `timeout`, plus any error from the underlying `pane.read` (typically `pane_not_found`), with `id` rewritten to the outer request id.
 
 ```json
-{"id":"ex:wait","method":"pane.wait_for_output","params":{"pane_id":"w1943cd2b11a1:p2","source":"recent","match":{"type":"substring","value":"Tests: 0 failed"},"timeout_ms":30000}}
+{
+  "id": "ex:wait",
+  "method": "pane.wait_for_output",
+  "params": {
+    "pane_id": "w1943cd2b11a1:p2",
+    "source": "recent",
+    "match": { "type": "substring", "value": "Tests: 0 failed" },
+    "timeout_ms": 30000
+  }
+}
 ```
 
 ```json
-{"id":"ex:wait","result":{"type":"output_matched","pane_id":"w1943cd2b11a1:p2","revision":0,"matched_line":"Tests: 0 failed in 3.4s","read":{"pane_id":"w1943cd2b11a1:p2","workspace_id":"w1943cd2b11a1","tab_id":"w1943cd2b11a1:t1","source":"recent_unwrapped","format":"text","text":"$ cargo test\nTests: 0 failed in 3.4s\n","revision":0,"truncated":false}}}
+{
+  "id": "ex:wait",
+  "result": {
+    "type": "output_matched",
+    "pane_id": "w1943cd2b11a1:p2",
+    "revision": 0,
+    "matched_line": "Tests: 0 failed in 3.4s",
+    "read": {
+      "pane_id": "w1943cd2b11a1:p2",
+      "workspace_id": "w1943cd2b11a1",
+      "tab_id": "w1943cd2b11a1:t1",
+      "source": "recent_unwrapped",
+      "format": "text",
+      "text": "$ cargo test\nTests: 0 failed in 3.4s\n",
+      "revision": 0,
+      "truncated": false
+    }
+  }
+}
 ```
 
 ### pane.list
 
 List panes, optionally filtered to a workspace.
 
-| Property | Type | Required | Default |
-| --- | --- | --- | --- |
-| `workspace_id` | `string \| null` | no | all workspaces |
+| Property       | Type             | Required | Default        |
+| -------------- | ---------------- | -------- | -------------- |
+| `workspace_id` | `string \| null` | no       | all workspaces |
 
 With `workspace_id` omitted, panes from all workspaces are returned in workspace then tab then traversal order. With `workspace_id` set to an unknown workspace, the result is `workspace_not_found`.
 
@@ -374,9 +470,9 @@ Errors: `workspace_not_found`.
 
 Return the `PaneInfo` for a single pane.
 
-| Property | Type | Required |
-| --- | --- | --- |
-| `pane_id` | `string` | yes |
+| Property  | Type     | Required |
+| --------- | -------- | -------- |
+| `pane_id` | `string` | yes      |
 
 Result: `PaneInfo { pane }`.
 
@@ -386,9 +482,9 @@ Errors: `pane_not_found`.
 
 Return the `PaneInfo` for the current pane. The optional `caller_pane_id` overrides resolution: when present, the server parses and returns that pane instead of the active one. When the resolved pane does not exist, the error is `pane_not_found` with the generic message `pane not found`.
 
-| Property | Type | Required | Default |
-| --- | --- | --- | --- |
-| `caller_pane_id` | `string \| null` | no | focused pane of the active workspace |
+| Property         | Type             | Required | Default                              |
+| ---------------- | ---------------- | -------- | ------------------------------------ |
+| `caller_pane_id` | `string \| null` | no       | focused pane of the active workspace |
 
 Result: `PaneCurrent { pane }`.
 
@@ -398,9 +494,9 @@ Errors: `pane_not_found`.
 
 Focus a specific pane, switch the active workspace and tab to the containing one, mark the active tab as seen, and set the server mode to `Terminal`.
 
-| Property | Type | Required |
-| --- | --- | --- |
-| `pane_id` | `string` | yes |
+| Property  | Type     | Required |
+| --------- | -------- | -------- |
+| `pane_id` | `string` | yes      |
 
 Result: `PaneInfo { pane }`.
 
@@ -410,10 +506,10 @@ Errors: `pane_not_found`.
 
 Set or clear the manual label on a pane. The terminal identity and agent name are unchanged. `label` is trimmed; empty or null clears the manual label. The pane keeps its `agent`, `title`, and `display_agent` fields.
 
-| Property | Type | Required | Default |
-| --- | --- | --- | --- |
-| `pane_id` | `string` | yes | — |
-| `label` | `string \| null` | no | clears the label |
+| Property  | Type             | Required | Default          |
+| --------- | ---------------- | -------- | ---------------- |
+| `pane_id` | `string`         | yes      | —                |
+| `label`   | `string \| null` | no       | clears the label |
 
 Result: `PaneInfo { pane }`.
 
@@ -423,15 +519,15 @@ Errors: `pane_not_found`.
 
 Split a pane into two, creating a new shell pane beside the existing one. The new pane runs the default shell (not an arbitrary command); use `agent.start` or layout apply for custom commands.
 
-| Property | Type | Required | Default | Behavior |
-| --- | --- | --- | --- | --- |
-| `target_pane_id` | `string \| null` | no | focused pane of resolved workspace | The pane to split. |
-| `workspace_id` | `string \| null` | no | active workspace | Used only when `target_pane_id` is omitted, to select the workspace whose focused pane is split. |
-| `direction` | `"right" \| "down"` | yes | — | `right` splits horizontally (new pane on the right); `down` splits vertically (new pane below). |
-| `ratio` | `number \| null` | no | implementation default near `0.5` | First-pane ratio of the new split, clamped to `[0.1, 0.9]`. |
-| `cwd` | `string \| null` | no | resolved from the source pane's effective cwd when available | Working directory for the new pane. |
-| `env` | `object` | no | `{}` | Extra environment variables. See [env behavior](#env-behavior). |
-| `focus` | `boolean` | no | `false` | Focus the new pane and switch the active workspace and tab. |
+| Property         | Type                | Required | Default                                                      | Behavior                                                                                         |
+| ---------------- | ------------------- | -------- | ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------ |
+| `target_pane_id` | `string \| null`    | no       | focused pane of resolved workspace                           | The pane to split.                                                                               |
+| `workspace_id`   | `string \| null`    | no       | active workspace                                             | Used only when `target_pane_id` is omitted, to select the workspace whose focused pane is split. |
+| `direction`      | `"right" \| "down"` | yes      | —                                                            | `right` splits horizontally (new pane on the right); `down` splits vertically (new pane below).  |
+| `ratio`          | `number \| null`    | no       | implementation default near `0.5`                            | First-pane ratio of the new split, clamped to `[0.1, 0.9]`.                                      |
+| `cwd`            | `string \| null`    | no       | resolved from the source pane's effective cwd when available | Working directory for the new pane.                                                              |
+| `env`            | `object`            | no       | `{}`                                                         | Extra environment variables. See [env behavior](#env-behavior).                                  |
+| `focus`          | `boolean`           | no       | `false`                                                      | Focus the new pane and switch the active workspace and tab.                                      |
 
 Target resolution order: explicit `target_pane_id`, then `workspace_id`'s focused pane, then `resolve_optional_pane(None)` (the focused pane of the active workspace). Failure returns `pane_not_found` with `target_pane_id` or `active pane` as the target string in the message.
 
@@ -442,20 +538,38 @@ Result: `PaneInfo { pane }` for the new pane.
 Errors: `pane_not_found`, `invalid_env`, `pane_split_failed`.
 
 ```json
-{"id":"ex:split","method":"pane.split","params":{"direction":"down","ratio":0.4,"cwd":"/repo","focus":true}}
+{
+  "id": "ex:split",
+  "method": "pane.split",
+  "params": { "direction": "down", "ratio": 0.4, "cwd": "/repo", "focus": true }
+}
 ```
 
 ```json
-{"id":"ex:split","result":{"type":"pane_info","pane":{"pane_id":"w1943cd2b11a1:p4","terminal_id":"term_1943cd2b33c3","workspace_id":"w1943cd2b11a1","tab_id":"w1943cd2b11a1:t1","focused":true,"agent_status":"idle","revision":0}}}
+{
+  "id": "ex:split",
+  "result": {
+    "type": "pane_info",
+    "pane": {
+      "pane_id": "w1943cd2b11a1:p4",
+      "terminal_id": "term_1943cd2b33c3",
+      "workspace_id": "w1943cd2b11a1",
+      "tab_id": "w1943cd2b11a1:t1",
+      "focused": true,
+      "agent_status": "idle",
+      "revision": 0
+    }
+  }
+}
 ```
 
 ### pane.close
 
 Close a pane. When the pane is the last pane in its tab, the tab closes. When the pane is the last pane in its workspace and the workspace is a worktree group the server protects from implicit close, the call returns `confirmation_required`.
 
-| Property | Type | Required |
-| --- | --- | --- |
-| `pane_id` | `string` | yes |
+| Property  | Type     | Required |
+| --------- | -------- | -------- |
+| `pane_id` | `string` | yes      |
 
 On success the server emits `pane_closed` for the pane, and when applicable `workspace_closed` plus `layout_updated` for the remaining tab. The result is `Ok {}` with no payload. Use `pane.list` or `events.subscribe` to observe the closed state.
 
@@ -470,12 +584,12 @@ Swap two panes within a tabulated layout. Two modes, mutually exclusive:
 
 Supplying both a `direction` and explicit ids, or supplying neither, returns `invalid_pane_swap` with message `provide either direction with optional pane_id, or source_pane_id and target_pane_id`.
 
-| Property | Type | Required | Default |
-| --- | --- | --- | --- |
-| `pane_id` | `string \| null` | no | active pane (directional mode source) |
-| `direction` | `"left" \| "right" \| "up" \| "down" \| null` | no | — |
-| `source_pane_id` | `string \| null` | no | — |
-| `target_pane_id` | `string \| null` | no | — |
+| Property         | Type                                          | Required | Default                               |
+| ---------------- | --------------------------------------------- | -------- | ------------------------------------- |
+| `pane_id`        | `string \| null`                              | no       | active pane (directional mode source) |
+| `direction`      | `"left" \| "right" \| "up" \| "down" \| null` | no       | —                                     |
+| `source_pane_id` | `string \| null`                              | no       | —                                     |
+| `target_pane_id` | `string \| null`                              | no       | —                                     |
 
 Directional mode: resolve the source from `pane_id` (or the focused pane of the active workspace when omitted), find the neighbor in `direction`, and swap layout positions. No neighbor produces `changed: false` and `reason: "no_neighbor"`.
 
@@ -489,19 +603,19 @@ Errors: `invalid_pane_swap`, `pane_not_found` (directional source).
 
 Move a pane to a destination: an existing tab (split into it), a new tab in an existing workspace, or a new workspace. This is the most identity-affecting pane method.
 
-| Property | Type | Required | Default | Behavior |
-| --- | --- | --- | --- | --- |
-| `pane_id` | `string` | yes | — | The pane to move. |
-| `destination` | `PaneMoveDestination` | yes | — | Tagged union; see below. |
-| `focus` | `boolean` | no | `false` | Focus the moved pane in its destination and switch the active workspace/tab. |
+| Property      | Type                  | Required | Default | Behavior                                                                     |
+| ------------- | --------------------- | -------- | ------- | ---------------------------------------------------------------------------- |
+| `pane_id`     | `string`              | yes      | —       | The pane to move.                                                            |
+| `destination` | `PaneMoveDestination` | yes      | —       | Tagged union; see below.                                                     |
+| `focus`       | `boolean`             | no       | `false` | Focus the moved pane in its destination and switch the active workspace/tab. |
 
 `destination` variants:
 
-| `destination.type` | Fields | Behavior |
-| --- | --- | --- |
-| `"tab"` | `tab_id`, `target_pane_id?`, `split: SplitDirection`, `ratio?: number` | Move into an existing tab. `target_pane_id` defaults to the tab's focused pane. `ratio` defaults to `0.5` and is clamped to `[0.1, 0.9]` at insert time. `split` is the direction used to insert the moved pane beside `target_pane_id`. |
-| `"new_tab"` | `workspace_id?`, `label?` | Create a new tab in the existing (or explicitly selected) workspace and move the pane into it as the root. |
-| `"new_workspace"` | `label?`, `tab_label?` | Create a new workspace and tab and move the pane into it. The new workspace's cwd is taken from the moved pane's terminal cwd. |
+| `destination.type` | Fields                                                                 | Behavior                                                                                                                                                                                                                                 |
+| ------------------ | ---------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `"tab"`            | `tab_id`, `target_pane_id?`, `split: SplitDirection`, `ratio?: number` | Move into an existing tab. `target_pane_id` defaults to the tab's focused pane. `ratio` defaults to `0.5` and is clamped to `[0.1, 0.9]` at insert time. `split` is the direction used to insert the moved pane beside `target_pane_id`. |
+| `"new_tab"`        | `workspace_id?`, `label?`                                              | Create a new tab in the existing (or explicitly selected) workspace and move the pane into it as the root.                                                                                                                               |
+| `"new_workspace"`  | `label?`, `tab_label?`                                                 | Create a new workspace and tab and move the pane into it. The new workspace's cwd is taken from the moved pane's terminal cwd.                                                                                                           |
 
 Identity consequences:
 
@@ -518,21 +632,69 @@ Result: `PaneMove { move_result: PaneMoveResult }` with `changed`, optional `rea
 Errors: `pane_not_found`, `tab_not_found`, `workspace_not_found`, `target_pane_not_found`, `pane_layout_unavailable`, `pane_move_failed`.
 
 ```json
-{"id":"ex:move","method":"pane.move","params":{"pane_id":"w1943cd2b22b2:p1","destination":{"type":"tab","tab_id":"w1943cd2b11a1:t1","target_pane_id":"w1943cd2b11a1:p1","split":"right","ratio":0.3},"focus":true}}
+{
+  "id": "ex:move",
+  "method": "pane.move",
+  "params": {
+    "pane_id": "w1943cd2b22b2:p1",
+    "destination": {
+      "type": "tab",
+      "tab_id": "w1943cd2b11a1:t1",
+      "target_pane_id": "w1943cd2b11a1:p1",
+      "split": "right",
+      "ratio": 0.3
+    },
+    "focus": true
+  }
+}
 ```
 
 ```json
-{"id":"ex:move","result":{"type":"pane_move","move_result":{"changed":true,"reason":null,"previous_pane_id":"w1943cd2b22b2:p1","previous_workspace_id":"w1943cd2b22b2","previous_tab_id":"w1943cd2b22b2:t1","pane":{"pane_id":"w1943cd2b11a1:p2","terminal_id":"term_1943cd2b44d4","workspace_id":"w1943cd2b11a1","tab_id":"w1943cd2b11a1:t1","focused":true,"agent_status":"idle","revision":0},"source_layout":null,"target_layout":{"workspace_id":"w1943cd2b11a1","tab_id":"w1943cd2b11a1:t1","zoomed":false,"focused_pane_id":"w1943cd2b11a1:p2","panes":[]},"created_workspace":null,"created_tab":null,"closed_workspace_id":"w1943cd2b22b2","closed_tab_id":"w1943cd2b22b2:t1","focused_pane_id":"w1943cd2b11a1:p2"}}}
+{
+  "id": "ex:move",
+  "result": {
+    "type": "pane_move",
+    "move_result": {
+      "changed": true,
+      "reason": null,
+      "previous_pane_id": "w1943cd2b22b2:p1",
+      "previous_workspace_id": "w1943cd2b22b2",
+      "previous_tab_id": "w1943cd2b22b2:t1",
+      "pane": {
+        "pane_id": "w1943cd2b11a1:p2",
+        "terminal_id": "term_1943cd2b44d4",
+        "workspace_id": "w1943cd2b11a1",
+        "tab_id": "w1943cd2b11a1:t1",
+        "focused": true,
+        "agent_status": "idle",
+        "revision": 0
+      },
+      "source_layout": null,
+      "target_layout": {
+        "workspace_id": "w1943cd2b11a1",
+        "tab_id": "w1943cd2b11a1:t1",
+        "zoomed": false,
+        "focused_pane_id": "w1943cd2b11a1:p2",
+        "panes": []
+      },
+      "created_workspace": null,
+      "created_tab": null,
+      "closed_workspace_id": "w1943cd2b22b2",
+      "closed_tab_id": "w1943cd2b22b2:t1",
+      "focused_pane_id": "w1943cd2b11a1:p2"
+    }
+  }
+}
 ```
 
 ### pane.zoom
 
 Zoom a tab to show only the target pane, or manipulate the zoom state.
 
-| Property | Type | Required | Default |
-| --- | --- | --- | --- |
-| `pane_id` | `string \| null` | no | focused pane of the active workspace |
-| `mode` | `"toggle" \| "on" \| "off"` | no | `"toggle"` |
+| Property  | Type                        | Required | Default                              |
+| --------- | --------------------------- | -------- | ------------------------------------ |
+| `pane_id` | `string \| null`            | no       | focused pane of the active workspace |
+| `mode`    | `"toggle" \| "on" \| "off"` | no       | `"toggle"`                           |
 
 `mode` behavior:
 
@@ -550,9 +712,9 @@ Errors: `pane_not_found`, `pane_layout_unavailable`.
 
 Return the layout snapshot for the tab that contains the resolved pane.
 
-| Property | Type | Required | Default |
-| --- | --- | --- | --- |
-| `pane_id` | `string \| null` | no | focused pane of the active workspace |
+| Property  | Type             | Required | Default                              |
+| --------- | ---------------- | -------- | ------------------------------------ |
+| `pane_id` | `string \| null` | no       | focused pane of the active workspace |
 
 The snapshot's `zoomed` reflects the containing tab's zoom flag. The `area` falls back to `80x24` when the recorded terminal area is zero (headless or pre-layout). When the layout cannot be produced, returns `pane_layout_unavailable`.
 
@@ -564,9 +726,9 @@ Errors: `pane_not_found`, `pane_layout_unavailable`.
 
 Return process information for the runtime behind the resolved pane.
 
-| Property | Type | Required | Default |
-| --- | --- | --- | --- |
-| `pane_id` | `string \| null` | no | focused pane of the active workspace |
+| Property  | Type             | Required | Default                              |
+| --------- | ---------------- | -------- | ------------------------------------ |
+| `pane_id` | `string \| null` | no       | focused pane of the active workspace |
 
 The result contains:
 
@@ -586,10 +748,10 @@ Errors: `pane_not_found`.
 
 Return the nearest pane in a direction from a source pane and the containing tab's layout snapshot.
 
-| Property | Type | Required | Default |
-| --- | --- | --- | --- |
-| `pane_id` | `string \| null` | no | focused pane of the active workspace |
-| `direction` | `"left" \| "right" \| "up" \| "down"` | yes | — |
+| Property    | Type                                  | Required | Default                              |
+| ----------- | ------------------------------------- | -------- | ------------------------------------ |
+| `pane_id`   | `string \| null`                      | no       | focused pane of the active workspace |
+| `direction` | `"left" \| "right" \| "up" \| "down"` | yes      | —                                    |
 
 The neighbor is computed geometrically from the layout rect of the source pane within the tab; it does not consider panes in other tabs. When no pane lies in that direction, `neighbor_pane_id` is `null` and the response is still a success.
 
@@ -601,11 +763,11 @@ Errors: `pane_not_found`, `pane_layout_unavailable`.
 
 Resize the split adjacent to the resolved pane in a direction by a fraction of the available space.
 
-| Property | Type | Required | Default | Behavior |
-| --- | --- | --- | --- | --- |
-| `pane_id` | `string \| null` | no | focused pane of the active workspace | — |
-| `direction` | `"left" \| "right" \| "up" \| "down"` | yes | — | `left`/`right` adjust horizontal splits; `up`/`down` adjust vertical splits. |
-| `amount` | `number \| null` | no | `0.05` | Fraction of the terminal area to shift the split by. Non-finite values fall back to `0.05`. `abs` is applied and the result is clamped to `<= 0.5`. Direction semantics below. |
+| Property    | Type                                  | Required | Default                              | Behavior                                                                                                                                                                       |
+| ----------- | ------------------------------------- | -------- | ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `pane_id`   | `string \| null`                      | no       | focused pane of the active workspace | —                                                                                                                                                                              |
+| `direction` | `"left" \| "right" \| "up" \| "down"` | yes      | —                                    | `left`/`right` adjust horizontal splits; `up`/`down` adjust vertical splits.                                                                                                   |
+| `amount`    | `number \| null`                      | no       | `0.05`                               | Fraction of the terminal area to shift the split by. Non-finite values fall back to `0.05`. `abs` is applied and the result is clamped to `<= 0.5`. Direction semantics below. |
 
 No-op conditions:
 
@@ -622,9 +784,9 @@ Errors: `pane_not_found`, `pane_layout_unavailable`.
 
 Report whether the resolved pane touches each edge of the terminal area. This is a read-side companion to `pane.neighbor`: it tells you a pane is on the border without naming a neighbor.
 
-| Property | Type | Required | Default |
-| --- | --- | --- | --- |
-| `pane_id` | `string \| null` | no | focused pane of the active workspace |
+| Property  | Type             | Required | Default                              |
+| --------- | ---------------- | -------- | ------------------------------------ |
+| `pane_id` | `string \| null` | no       | focused pane of the active workspace |
 
 The result reports `left`, `right`, `up`, `down` booleans for whether the pane's layout rect abuts the corresponding edge of the tab's terminal area. Edge comparisons use `<=` against the tab area origin and `>=` for the far edge, so a full-width pane returns `left: true` and `right: true` together. The response includes the current `layout` snapshot, the same shape returned by `pane.layout`.
 
@@ -636,17 +798,16 @@ Errors: `pane_not_found`, `pane_layout_unavailable`.
 
 Focus the nearest pane in a direction from a source pane. Unlike `pane.focus`, this navigates geometrically within the current tab; unlike `pane.neighbor`, it also changes focus.
 
-| Property | Type | Required | Default |
-| --- | --- | --- | --- |
-| `pane_id` | `string \| null` | no | focused pane of the active workspace |
-| `direction` | `"left" \| "right" \| "up" \| "down"` | yes | — |
+| Property    | Type                                  | Required | Default                              |
+| ----------- | ------------------------------------- | -------- | ------------------------------------ |
+| `pane_id`   | `string \| null`                      | no       | focused pane of the active workspace |
+| `direction` | `"left" \| "right" \| "up" \| "down"` | yes      | —                                    |
 
 When a neighbor exists in `direction`, the server focuses that pane, switches the active tab to the containing tab, sets the server mode to `Terminal`, and returns `changed: true`. When no pane lies in that direction, the server leaves focus unchanged and returns `changed: false` with `reason: "no_neighbor"`. The containing tab's `layout` is returned in both cases. When the focus actually changes, the server emits `layout_updated`.
 
 Result: `PaneFocusDirection { focus: PaneFocusDirectionResult }` with `changed`, optional `reason`, `source_pane_id`, optional `focused_pane_id`, and the current `layout`.
 
 Errors: `pane_not_found`, `pane_layout_unavailable`.
-
 
 ## Portable layouts
 
@@ -656,30 +817,30 @@ Errors: `pane_not_found`, `pane_layout_unavailable`.
 
 Export one tab as a `LayoutDescription`.
 
-| Property | Type | Required | Default |
-| --- | --- | --- | --- |
-| `tab_id` | `string \| null` | no | active tab |
-| `pane_id` | `string \| null` | no | — |
+| Property  | Type             | Required | Default    |
+| --------- | ---------------- | -------- | ---------- |
+| `tab_id`  | `string \| null` | no       | active tab |
+| `pane_id` | `string \| null` | no       | —          |
 
 Supply either `tab_id` or `pane_id`, not both. A pane selects its containing tab. Omitting both selects the active tab. Supplying both, an unknown id, or having no active tab returns `layout_not_found`.
 
 Result: `LayoutExport { layout: LayoutDescription }`. The tree's `pane_id` values identify the source panes but are descriptive only when reapplied. Each pane may include its label, current cwd, and original launch `command`; `env` is empty because runtime environment is not exported.
 
 ```json
-{"id":"layout:export","method":"layout.export","params":{"tab_id":"w1943cd2b11a1:t1"}}
+{ "id": "layout:export", "method": "layout.export", "params": { "tab_id": "w1943cd2b11a1:t1" } }
 ```
 
 ### layout.apply
 
 Create a tab from a portable `LayoutNode` tree, or atomically replace an existing tab with the new one.
 
-| Property | Type | Required | Default |
-| --- | --- | --- | --- |
-| `root` | `LayoutNode` | yes | — |
-| `workspace_id` | `string \| null` | no | active workspace |
-| `tab_id` | `string \| null` | no | — |
-| `tab_label` | `string \| null` | no | replaced tab's label, otherwise none |
-| `focus` | `boolean` | no | `false` |
+| Property       | Type             | Required | Default                              |
+| -------------- | ---------------- | -------- | ------------------------------------ |
+| `root`         | `LayoutNode`     | yes      | —                                    |
+| `workspace_id` | `string \| null` | no       | active workspace                     |
+| `tab_id`       | `string \| null` | no       | —                                    |
+| `tab_label`    | `string \| null` | no       | replaced tab's label, otherwise none |
+| `focus`        | `boolean`        | no       | `false`                              |
 
 Use either `workspace_id` to add a tab or `tab_id` to replace a tab, never both. When replacing the active tab, the new tab is focused regardless of `focus`. The server builds the replacement first and closes the old tab only after the new tree succeeds.
 
@@ -695,7 +856,27 @@ Result: `LayoutApply { layout: LayoutDescription }`.
 Errors: `invalid_target`, `workspace_not_found`, `tab_not_found`, `invalid_layout`, `invalid_env`, `layout_apply_failed`.
 
 ```json
-{"id":"layout:apply","method":"layout.apply","params":{"workspace_id":"w1943cd2b11a1","tab_label":"review","focus":true,"root":{"type":"split","direction":"right","ratio":0.65,"first":{"type":"pane","label":"editor","cwd":"/repo"},"second":{"type":"pane","label":"tests","cwd":"/repo","command":["sh","-lc","just test"]}}}}
+{
+  "id": "layout:apply",
+  "method": "layout.apply",
+  "params": {
+    "workspace_id": "w1943cd2b11a1",
+    "tab_label": "review",
+    "focus": true,
+    "root": {
+      "type": "split",
+      "direction": "right",
+      "ratio": 0.65,
+      "first": { "type": "pane", "label": "editor", "cwd": "/repo" },
+      "second": {
+        "type": "pane",
+        "label": "tests",
+        "cwd": "/repo",
+        "command": ["sh", "-lc", "just test"]
+      }
+    }
+  }
+}
 ```
 
 ## Agent hook reporting
@@ -706,45 +887,58 @@ Three methods let integration hooks push agent state into a pane's terminal meta
 
 Report an agent state transition for a pane.
 
-| Property | Type | Required | Default |
-| --- | --- | --- | --- |
-| `pane_id` | `string` | yes | — |
-| `source` | `string` | yes | — | Free-form, conventionally `omh:<agent>` or `<integration>:<agent>`. Used by the resume subsystem to correlate reports. |
-| `agent` | `string` | yes | — | Agent label; trimmed, normalized through `parse_agent_label` when known, kept verbatim otherwise. Empty produces `invalid_agent`. |
-| `state` | `"idle" \| "working" \| "blocked" \| "unknown"` | yes | — | Maps directly to the internal `AgentState`. |
-| `message` | `string \| null` | no | `null` | Optional human-oriented message attached to the report. |
-| `custom_status` | `string \| null` | no | `null` | Trimmed and filtered to at most 32 non-control characters. |
-| `seq` | `integer \| null` | no | `null` | Monotonic sequence used for ordering concurrent reports. |
-| `agent_session_id` | `string \| null` | no | `null` | Together with `agent_session_path` identifies the session for resume; one of the two is the session reference. |
-| `agent_session_path` | `string \| null` | no | `null` | — |
-| `launch_env` | `object` | no | `{}` | Environment captured at agent launch, forwarded to the resume subsystem. |
+| Property             | Type                                            | Required | Default |
+| -------------------- | ----------------------------------------------- | -------- | ------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| `pane_id`            | `string`                                        | yes      | —       |
+| `source`             | `string`                                        | yes      | —       | Free-form, conventionally `omh:<agent>` or `<integration>:<agent>`. Used by the resume subsystem to correlate reports.            |
+| `agent`              | `string`                                        | yes      | —       | Agent label; trimmed, normalized through `parse_agent_label` when known, kept verbatim otherwise. Empty produces `invalid_agent`. |
+| `state`              | `"idle" \| "working" \| "blocked" \| "unknown"` | yes      | —       | Maps directly to the internal `AgentState`.                                                                                       |
+| `message`            | `string \| null`                                | no       | `null`  | Optional human-oriented message attached to the report.                                                                           |
+| `custom_status`      | `string \| null`                                | no       | `null`  | Trimmed and filtered to at most 32 non-control characters.                                                                        |
+| `seq`                | `integer \| null`                               | no       | `null`  | Monotonic sequence used for ordering concurrent reports.                                                                          |
+| `agent_session_id`   | `string \| null`                                | no       | `null`  | Together with `agent_session_path` identifies the session for resume; one of the two is the session reference.                    |
+| `agent_session_path` | `string \| null`                                | no       | `null`  | —                                                                                                                                 |
+| `launch_env`         | `object`                                        | no       | `{}`    | Environment captured at agent launch, forwarded to the resume subsystem.                                                          |
 
 Result: `Ok {}`.
 
 Errors: `pane_not_found`, `invalid_agent`.
 
 ```json
-{"id":"ex:report-agent","method":"pane.report_agent","params":{"pane_id":"w1943cd2b11a1:p2","source":"omh:claude","agent":"claude","state":"blocked","message":"awaiting human review of migration plan","custom_status":"needs decision","agent_session_id":"sess-abc","seq":7}}
+{
+  "id": "ex:report-agent",
+  "method": "pane.report_agent",
+  "params": {
+    "pane_id": "w1943cd2b11a1:p2",
+    "source": "omh:claude",
+    "agent": "claude",
+    "state": "blocked",
+    "message": "awaiting human review of migration plan",
+    "custom_status": "needs decision",
+    "agent_session_id": "sess-abc",
+    "seq": 7
+  }
+}
 ```
 
 ```json
-{"id":"ex:report-agent","result":{"type":"ok"}}
+{ "id": "ex:report-agent", "result": { "type": "ok" } }
 ```
 
 ### pane.report_agent_session
 
 Report that an agent session started or resumed for a pane. Same field shape as `pane.report_agent` minus `state`, `message`, and `custom_status`, plus `session_start_source`.
 
-| Property | Type | Required | Default |
-| --- | --- | --- | --- |
-| `pane_id` | `string` | yes | — |
-| `source` | `string` | yes | — |
-| `agent` | `string` | yes | — |
-| `seq` | `integer \| null` | no | `null` |
-| `agent_session_id` | `string \| null` | no | `null` |
-| `agent_session_path` | `string \| null` | no | `null` |
-| `launch_env` | `object` | no | `{}` |
-| `session_start_source` | `string \| null` | no | `null` | Normalized by the resume subsystem; conventional values include `"launch"` and `"resume"`. |
+| Property               | Type              | Required | Default |
+| ---------------------- | ----------------- | -------- | ------- | ------------------------------------------------------------------------------------------ |
+| `pane_id`              | `string`          | yes      | —       |
+| `source`               | `string`          | yes      | —       |
+| `agent`                | `string`          | yes      | —       |
+| `seq`                  | `integer \| null` | no       | `null`  |
+| `agent_session_id`     | `string \| null`  | no       | `null`  |
+| `agent_session_path`   | `string \| null`  | no       | `null`  |
+| `launch_env`           | `object`          | no       | `{}`    |
+| `session_start_source` | `string \| null`  | no       | `null`  | Normalized by the resume subsystem; conventional values include `"launch"` and `"resume"`. |
 
 Result: `Ok {}`.
 
@@ -754,14 +948,14 @@ Errors: `pane_not_found`, `invalid_agent`.
 
 Tell the server that an agent has released its authority over a pane. The server routes the release to the hook authority subsystem and clears the corresponding agent session.
 
-| Property | Type | Required | Default |
-| --- | --- | --- | --- |
-| `pane_id` | `string` | yes | — |
-| `source` | `string` | yes | — |
-| `agent` | `string` | yes | — |
-| `agent_session_id` | `string \| null` | no | `null` |
-| `agent_session_path` | `string \| null` | no | `null` |
-| `seq` | `integer \| null` | no | `null` |
+| Property             | Type              | Required | Default |
+| -------------------- | ----------------- | -------- | ------- |
+| `pane_id`            | `string`          | yes      | —       |
+| `source`             | `string`          | yes      | —       |
+| `agent`              | `string`          | yes      | —       |
+| `agent_session_id`   | `string \| null`  | no       | `null`  |
+| `agent_session_path` | `string \| null`  | no       | `null`  |
+| `seq`                | `integer \| null` | no       | `null`  |
 
 Result: `Ok {}`.
 
@@ -771,11 +965,11 @@ Errors: `pane_not_found`, `invalid_agent`.
 
 Clear agent authority for a pane without naming the agent. This is the lighter-weight release: the server drops hook authority metadata regardless of which hook set it.
 
-| Property | Type | Required | Default |
-| --- | --- | --- | --- |
-| `pane_id` | `string` | yes | — |
-| `source` | `string \| null` | no | `null` |
-| `seq` | `integer \| null` | no | `null` |
+| Property  | Type              | Required | Default |
+| --------- | ----------------- | -------- | ------- |
+| `pane_id` | `string`          | yes      | —       |
+| `source`  | `string \| null`  | no       | `null`  |
+| `seq`     | `integer \| null` | no       | `null`  |
 
 `source` is optional and only forwarded for correlation; it does not affect which authority is cleared.
 
@@ -787,23 +981,23 @@ Errors: `pane_not_found`.
 
 Set or clear presentation metadata (title, display agent, custom status, state labels, tokens) on a pane's terminal. This method is the underlying mechanism plugin integrations use to surface richer status than agent-state alone.
 
-| Property | Type | Required | Default | Behavior |
-| --- | --- | --- | --- | --- |
-| `pane_id` | `string` | yes | — | — |
-| `source` | `string` | yes | — | Normalized: trimmed, control chars removed, at most 80 chars, must be non-empty or `invalid_metadata_source`. |
-| `agent` | `string \| null` | no | `null` | Optional agent label; normalized through `normalize_reported_agent_label`. Empty produces `invalid_agent`. |
-| `applies_to_source` | `string \| null` | no | `null` | When set, the metadata applies to reports from that source. Validated with the same rules as `source`. |
-| `title` | `string \| null` | no | `null` | Trimmed, control chars removed, at most 80 chars. |
-| `display_agent` | `string \| null` | no | `null` | Same normalization as `title`. |
-| `custom_status` | `string \| null` | no | `null` | Trimmed, non-control, at most 32 chars. |
-| `state_labels` | `object` | no | `{}` | Map of state name to label. State names are lowercased and must be one of `idle`, `working`, `blocked`, `done`, `unknown`. Unknown state produces `invalid_state_label`. |
-| `tokens` | `object` | no | `{}` | Map of token key to optional value. Keys are at most 32 chars, alphanumeric plus `_` and `-`. A request may update at most 16 tokens; a resource may hold at most 32 tokens total. Values, when present, are trimmed to 80 non-control chars. |
-| `clear_title` | `boolean` | no | `false` | Clear the title. Cannot be combined with `title` on the same request. |
-| `clear_display_agent` | `boolean` | no | `false` | Clear `display_agent`; not combinable with `display_agent`. |
-| `clear_custom_status` | `boolean` | no | `false` | Clear `custom_status`; not combinable with `custom_status`. |
-| `clear_state_labels` | `boolean` | no | `false` | Clear all state labels; not combinable with a non-empty `state_labels`. |
-| `seq` | `integer \| null` | no | `null` | Ordering sequence. |
-| `ttl_ms` | `integer \| null` | no | `null` | Time-to-live for the metadata. Clamped to `[1, 86_400_000]` ms. Out of range produces `invalid_metadata_ttl`. |
+| Property              | Type              | Required | Default | Behavior                                                                                                                                                                                                                                      |
+| --------------------- | ----------------- | -------- | ------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pane_id`             | `string`          | yes      | —       | —                                                                                                                                                                                                                                             |
+| `source`              | `string`          | yes      | —       | Normalized: trimmed, control chars removed, at most 80 chars, must be non-empty or `invalid_metadata_source`.                                                                                                                                 |
+| `agent`               | `string \| null`  | no       | `null`  | Optional agent label; normalized through `normalize_reported_agent_label`. Empty produces `invalid_agent`.                                                                                                                                    |
+| `applies_to_source`   | `string \| null`  | no       | `null`  | When set, the metadata applies to reports from that source. Validated with the same rules as `source`.                                                                                                                                        |
+| `title`               | `string \| null`  | no       | `null`  | Trimmed, control chars removed, at most 80 chars.                                                                                                                                                                                             |
+| `display_agent`       | `string \| null`  | no       | `null`  | Same normalization as `title`.                                                                                                                                                                                                                |
+| `custom_status`       | `string \| null`  | no       | `null`  | Trimmed, non-control, at most 32 chars.                                                                                                                                                                                                       |
+| `state_labels`        | `object`          | no       | `{}`    | Map of state name to label. State names are lowercased and must be one of `idle`, `working`, `blocked`, `done`, `unknown`. Unknown state produces `invalid_state_label`.                                                                      |
+| `tokens`              | `object`          | no       | `{}`    | Map of token key to optional value. Keys are at most 32 chars, alphanumeric plus `_` and `-`. A request may update at most 16 tokens; a resource may hold at most 32 tokens total. Values, when present, are trimmed to 80 non-control chars. |
+| `clear_title`         | `boolean`         | no       | `false` | Clear the title. Cannot be combined with `title` on the same request.                                                                                                                                                                         |
+| `clear_display_agent` | `boolean`         | no       | `false` | Clear `display_agent`; not combinable with `display_agent`.                                                                                                                                                                                   |
+| `clear_custom_status` | `boolean`         | no       | `false` | Clear `custom_status`; not combinable with `custom_status`.                                                                                                                                                                                   |
+| `clear_state_labels`  | `boolean`         | no       | `false` | Clear all state labels; not combinable with a non-empty `state_labels`.                                                                                                                                                                       |
+| `seq`                 | `integer \| null` | no       | `null`  | Ordering sequence.                                                                                                                                                                                                                            |
+| `ttl_ms`              | `integer \| null` | no       | `null`  | Time-to-live for the metadata. Clamped to `[1, 86_400_000]` ms. Out of range produces `invalid_metadata_ttl`.                                                                                                                                 |
 
 Validation rules:
 
@@ -817,11 +1011,23 @@ Result: `Ok {}`.
 Errors: `pane_not_found`, `invalid_agent`, `invalid_metadata_source`, `invalid_metadata_ttl`, `invalid_metadata_tokens`, `invalid_state_label`, `invalid_metadata_request`.
 
 ```json
-{"id":"ex:report","method":"pane.report_metadata","params":{"pane_id":"w1943cd2b11a1:p2","source":"omh:claude","title":"migration review","custom_status":"awaiting input","state_labels":{"blocked":"needs decision"},"tokens":{"branch":"migrate-2","pr":"1247"},"seq":42}}
+{
+  "id": "ex:report",
+  "method": "pane.report_metadata",
+  "params": {
+    "pane_id": "w1943cd2b11a1:p2",
+    "source": "omh:claude",
+    "title": "migration review",
+    "custom_status": "awaiting input",
+    "state_labels": { "blocked": "needs decision" },
+    "tokens": { "branch": "migrate-2", "pr": "1247" },
+    "seq": 42
+  }
+}
 ```
 
 ```json
-{"id":"ex:report","result":{"type":"ok"}}
+{ "id": "ex:report", "result": { "type": "ok" } }
 ```
 
 ## Env behavior
@@ -841,51 +1047,51 @@ The `env` object is merged on top of the process environment. It does not replac
 
 ### Agent methods
 
-| Method | Params | Result |
-| --- | --- | --- |
-| [`agent.list`](#agentlist) | none | `AgentList` |
-| [`agent.get`](#agentget) | `AgentTarget` | `AgentInfo` |
-| [`agent.start`](#agentstart) | `AgentStartParams` | `AgentStarted` |
-| [`agent.focus`](#agentfocus) | `AgentTarget` | `AgentInfo` |
-| [`agent.read`](#agentread) | `AgentReadParams` | `PaneRead` |
-| [`agent.send`](#agentsend) | `AgentSendParams` | `Ok` |
-| [`agent.rename`](#agentrename) | `AgentRenameParams` | `AgentInfo` |
-| [`agent.explain`](#agentexplain) | `AgentTarget` | `AgentExplain` |
+| Method                           | Params              | Result         |
+| -------------------------------- | ------------------- | -------------- |
+| [`agent.list`](#agentlist)       | none                | `AgentList`    |
+| [`agent.get`](#agentget)         | `AgentTarget`       | `AgentInfo`    |
+| [`agent.start`](#agentstart)     | `AgentStartParams`  | `AgentStarted` |
+| [`agent.focus`](#agentfocus)     | `AgentTarget`       | `AgentInfo`    |
+| [`agent.read`](#agentread)       | `AgentReadParams`   | `PaneRead`     |
+| [`agent.send`](#agentsend)       | `AgentSendParams`   | `Ok`           |
+| [`agent.rename`](#agentrename)   | `AgentRenameParams` | `AgentInfo`    |
+| [`agent.explain`](#agentexplain) | `AgentTarget`       | `AgentExplain` |
 
 ### Pane methods
 
-| Method | Params | Result |
-| --- | --- | --- |
-| [`pane.list`](#panelist) | `PaneListParams` | `PaneList` |
-| [`pane.get`](#paneget) | `PaneTarget` | `PaneInfo` |
-| [`pane.current`](#panecurrent) | `PaneCurrentParams` | `PaneCurrent` |
-| [`pane.split`](#panesplit) | `PaneSplitParams` | `PaneInfo` |
-| [`pane.close`](#paneclose) | `PaneTarget` | `Ok` |
-| [`pane.focus`](#panefocus) | `PaneTarget` | `PaneInfo` |
-| [`pane.send_text`](#panesend_text) | `PaneSendTextParams` | `Ok` |
-| [`pane.send_input`](#panesend_input) | `PaneSendInputParams` | `Ok` |
-| [`pane.send_keys`](#panesend_keys) | `PaneSendKeysParams` | `Ok` |
-| [`pane.read`](#paneread) | `PaneReadParams` | `PaneRead` |
-| [`pane.wait_for_output`](#panewait_for_output) | `PaneWaitForOutputParams` | `OutputMatched` |
-| [`pane.swap`](#paneswap) | `PaneSwapParams` | `PaneSwap` |
-| [`pane.zoom`](#panezoom) | `PaneZoomParams` | `PaneZoom` |
-| [`pane.layout`](#panelayout) | `PaneLayoutParams` | `PaneLayout` |
-| [`pane.process_info`](#paneprocess_info) | `PaneProcessInfoParams` | `PaneProcessInfo` |
-| [`pane.move`](#panemove) | `PaneMoveParams` | `PaneMove` |
-| [`pane.neighbor`](#paneneighbor) | `PaneNeighborParams` | `PaneNeighbor` |
-| [`pane.edges`](#paneedges) | `PaneEdgesParams` | `PaneEdges` |
-| [`pane.focus_direction`](#panefocus_direction) | `PaneFocusDirectionParams` | `PaneFocusDirection` |
-| [`pane.resize`](#paneresize) | `PaneResizeParams` | `PaneResize` |
-| [`pane.rename`](#panerename) | `PaneRenameParams` | `PaneInfo` |
-| [`pane.report_agent`](#panereport_agent) | `PaneReportAgentParams` | `Ok` |
-| [`pane.report_agent_session`](#panereport_agent_session) | `PaneReportAgentSessionParams` | `Ok` |
-| [`pane.clear_agent_authority`](#paneclear_agent_authority) | `PaneClearAgentAuthorityParams` | `Ok` |
-| [`pane.release_agent`](#panerelease_agent) | `PaneReleaseAgentParams` | `Ok` |
-| [`pane.report_metadata`](#panereport_metadata) | `PaneReportMetadataParams` | `Ok` |
+| Method                                                     | Params                          | Result               |
+| ---------------------------------------------------------- | ------------------------------- | -------------------- |
+| [`pane.list`](#panelist)                                   | `PaneListParams`                | `PaneList`           |
+| [`pane.get`](#paneget)                                     | `PaneTarget`                    | `PaneInfo`           |
+| [`pane.current`](#panecurrent)                             | `PaneCurrentParams`             | `PaneCurrent`        |
+| [`pane.split`](#panesplit)                                 | `PaneSplitParams`               | `PaneInfo`           |
+| [`pane.close`](#paneclose)                                 | `PaneTarget`                    | `Ok`                 |
+| [`pane.focus`](#panefocus)                                 | `PaneTarget`                    | `PaneInfo`           |
+| [`pane.send_text`](#panesend_text)                         | `PaneSendTextParams`            | `Ok`                 |
+| [`pane.send_input`](#panesend_input)                       | `PaneSendInputParams`           | `Ok`                 |
+| [`pane.send_keys`](#panesend_keys)                         | `PaneSendKeysParams`            | `Ok`                 |
+| [`pane.read`](#paneread)                                   | `PaneReadParams`                | `PaneRead`           |
+| [`pane.wait_for_output`](#panewait_for_output)             | `PaneWaitForOutputParams`       | `OutputMatched`      |
+| [`pane.swap`](#paneswap)                                   | `PaneSwapParams`                | `PaneSwap`           |
+| [`pane.zoom`](#panezoom)                                   | `PaneZoomParams`                | `PaneZoom`           |
+| [`pane.layout`](#panelayout)                               | `PaneLayoutParams`              | `PaneLayout`         |
+| [`pane.process_info`](#paneprocess_info)                   | `PaneProcessInfoParams`         | `PaneProcessInfo`    |
+| [`pane.move`](#panemove)                                   | `PaneMoveParams`                | `PaneMove`           |
+| [`pane.neighbor`](#paneneighbor)                           | `PaneNeighborParams`            | `PaneNeighbor`       |
+| [`pane.edges`](#paneedges)                                 | `PaneEdgesParams`               | `PaneEdges`          |
+| [`pane.focus_direction`](#panefocus_direction)             | `PaneFocusDirectionParams`      | `PaneFocusDirection` |
+| [`pane.resize`](#paneresize)                               | `PaneResizeParams`              | `PaneResize`         |
+| [`pane.rename`](#panerename)                               | `PaneRenameParams`              | `PaneInfo`           |
+| [`pane.report_agent`](#panereport_agent)                   | `PaneReportAgentParams`         | `Ok`                 |
+| [`pane.report_agent_session`](#panereport_agent_session)   | `PaneReportAgentSessionParams`  | `Ok`                 |
+| [`pane.clear_agent_authority`](#paneclear_agent_authority) | `PaneClearAgentAuthorityParams` | `Ok`                 |
+| [`pane.release_agent`](#panerelease_agent)                 | `PaneReleaseAgentParams`        | `Ok`                 |
+| [`pane.report_metadata`](#panereport_metadata)             | `PaneReportMetadataParams`      | `Ok`                 |
 
 ### Layout methods
 
-| Method | Params | Result |
-| --- | --- | --- |
+| Method                           | Params               | Result         |
+| -------------------------------- | -------------------- | -------------- |
 | [`layout.export`](#layoutexport) | `LayoutExportParams` | `LayoutExport` |
-| [`layout.apply`](#layoutapply) | `LayoutApplyParams` | `LayoutApply` |
+| [`layout.apply`](#layoutapply)   | `LayoutApplyParams`  | `LayoutApply`  |

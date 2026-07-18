@@ -45,8 +45,8 @@ Requests server shutdown. The application sets its quit flag and returns before 
 
 **Success:** `ResponseResult::Ok`, discriminator `"ok"`.
 
-| Error | Meaning |
-| --- | --- |
+| Error                | Meaning                                                                                    |
+| -------------------- | ------------------------------------------------------------------------------------------ |
 | `server_unavailable` | A headless server is already shutting down, or the API cannot dispatch to the application. |
 
 ```json
@@ -60,11 +60,11 @@ Replaces a running **headless Unix** server with another Oh My Herdr process whi
 
 **Params:** `ServerLiveHandoffParams`.
 
-| Property | Type | Default | Description |
-| --- | --- | --- | --- |
-| `import_exe` | `string \| null` | `null` | Replacement executable. If omitted, the current executable path is used. |
-| `expected_protocol` | `integer \| null` | `null` | If present, the replacement must speak this client protocol number. |
-| `expected_version` | `string \| null` | `null` | If present, the replacement must report this Oh My Herdr version. |
+| Property            | Type              | Default | Description                                                              |
+| ------------------- | ----------------- | ------- | ------------------------------------------------------------------------ |
+| `import_exe`        | `string \| null`  | `null`  | Replacement executable. If omitted, the current executable path is used. |
+| `expected_protocol` | `integer \| null` | `null`  | If present, the replacement must speak this client protocol number.      |
+| `expected_version`  | `string \| null`  | `null`  | If present, the replacement must report this Oh My Herdr version.        |
 
 **Success:** `ResponseResult::Ok`, discriminator `"ok"`. The response is written before the old server exits; the connection then closes as part of the handoff.
 
@@ -77,11 +77,11 @@ Preconditions and execution boundary:
 - `expected_protocol` and `expected_version` are placed in the handoff manifest and validated by the replacement. A mismatch is a `handoff_failed` response from the old server.
 - The API and client socket files are removed when the replacement takes ownership. Clients must reconnect rather than retrying on the closed connection.
 
-| Error | Meaning |
-| --- | --- |
-| `unsupported_in_app_mode` | The request reached an interactive App rather than the headless server. |
-| `handoff_failed` | Unix handoff could not bind its socket, exceeded the 64-pane limit, could not spawn the import process, could not pause or duplicate a pane runtime, failed token/manifest validation, failed runtime restoration, or the replacement did not become ready or commit. The message identifies the failed step. |
-| `server_unavailable` | Shutdown was already in progress or the request could not be dispatched. |
+| Error                     | Meaning                                                                                                                                                                                                                                                                                                       |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `unsupported_in_app_mode` | The request reached an interactive App rather than the headless server.                                                                                                                                                                                                                                       |
+| `handoff_failed`          | Unix handoff could not bind its socket, exceeded the 64-pane limit, could not spawn the import process, could not pause or duplicate a pane runtime, failed token/manifest validation, failed runtime restoration, or the replacement did not become ready or commit. The message identifies the failed step. |
+| `server_unavailable`      | Shutdown was already in progress or the request could not be dispatched.                                                                                                                                                                                                                                      |
 
 ```json
 {"id":"handoff-1","method":"server.live_handoff","params":{"expected_version":"0.2.18"}}
@@ -96,17 +96,17 @@ Loads `config.toml` and applies the live configuration without restarting the se
 
 **Success:** `ResponseResult::ConfigReload`, discriminator `"config_reload"`.
 
-| Field | Type | Meaning |
-| --- | --- | --- |
-| `status` | `"applied" \| "partial" \| "failed"` | Whether the loaded configuration was fully applied. |
-| `diagnostics` | `string[]` | Human-readable load, parse, validation, or retained-value diagnostics. |
+| Field         | Type                                 | Meaning                                                                |
+| ------------- | ------------------------------------ | ---------------------------------------------------------------------- |
+| `status`      | `"applied" \| "partial" \| "failed"` | Whether the loaded configuration was fully applied.                    |
+| `diagnostics` | `string[]`                           | Human-readable load, parse, validation, or retained-value diagnostics. |
 
 `applied` has an empty diagnostics array and clears the current configuration issue. `partial` means the file loaded but one or more values or sections were rejected; accepted values are applied and rejected values retain their previous settings. `failed` means the file could not be loaded or parsed into usable state; the previous configuration remains active. Diagnostic strings are display text, not a stable machine-readable sub-protocol. There is no `config.*` success discriminator.
 
-| Error | Meaning |
-| --- | --- |
+| Error                 | Meaning                                                                                   |
+| --------------------- | ----------------------------------------------------------------------------------------- |
 | `serialization_error` | Headless mode could not encode the reload result; this fallback error uses an empty `id`. |
-| `server_unavailable` | Shutdown was already in progress or the request could not be dispatched. |
+| `server_unavailable`  | Shutdown was already in progress or the request could not be dispatched.                  |
 
 ```json
 {"id":"reload-1","method":"server.reload_config","params":{}}
@@ -121,16 +121,16 @@ Returns the currently loaded agent-manifest summaries and the persisted remote-u
 
 **Success:** `ResponseResult::AgentManifestStatus`, discriminator `"agent_manifest_status"`.
 
-| Field | Type | Default | Description |
-| --- | --- | --- | --- |
-| `last_check_unix` | `integer \| null` | omitted | Last remote manifest check time. |
-| `last_result` | `string \| null` | omitted | Last remote update result. |
-| `manifests` | `AgentManifestInfo[]` | `[]` when none are loaded | One summary per agent. |
+| Field             | Type                  | Default                   | Description                      |
+| ----------------- | --------------------- | ------------------------- | -------------------------------- |
+| `last_check_unix` | `integer \| null`     | omitted                   | Last remote manifest check time. |
+| `last_result`     | `string \| null`      | omitted                   | Last remote update result.       |
+| `manifests`       | `AgentManifestInfo[]` | `[]` when none are loaded | One summary per agent.           |
 
 Each `AgentManifestInfo` contains `agent`, `source`, `source_kind`, `local_override_shadowing_remote`, and optional `active_version`, `cached_remote_version`, `remote_update_result`, `remote_update_error`, `remote_last_checked_unix`, and `warning`.
 
-| Error | Meaning |
-| --- | --- |
+| Error                | Meaning                                                                  |
+| -------------------- | ------------------------------------------------------------------------ |
 | `server_unavailable` | Shutdown was already in progress or the request could not be dispatched. |
 
 ```json
@@ -146,8 +146,8 @@ Reloads agent manifests from disk, replaces the in-memory summaries, and resets 
 
 **Success:** `ResponseResult::AgentManifestReload`, discriminator `"agent_manifest_reload"`, with `manifests: AgentManifestInfo[]`.
 
-| Error | Meaning |
-| --- | --- |
+| Error                | Meaning                                                                  |
+| -------------------- | ------------------------------------------------------------------------ |
 | `server_unavailable` | Shutdown was already in progress or the request could not be dispatched. |
 
 ```json
@@ -165,28 +165,28 @@ Shows a notification using the configured `toast.delivery` mode.
 
 **Params:** `NotificationShowParams`.
 
-| Property | Type | Default | Description |
-| --- | --- | --- | --- |
-| `title` | `string` | required | Control characters are removed, whitespace is collapsed, the value is trimmed, and the result is capped at 80 characters. An empty result is invalid. |
-| `body` | `string \| null` | `null` | Sanitized like `title`, capped at 240 characters. A value that sanitizes to empty is treated as absent. |
-| `position` | `ToastOmhPosition \| null` | `null` | Optional built-in toast position: `top-left`, `top-right`, `bottom-left`, or `bottom-right`. It has no effect for terminal/system delivery. |
-| `sound` | `NotificationShowSound` | `"none"` | `"none"`, `"done"`, or `"request"`. Sound is played/forwarded only when local sound playback and the configured sound set allow it. |
+| Property   | Type                       | Default  | Description                                                                                                                                           |
+| ---------- | -------------------------- | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `title`    | `string`                   | required | Control characters are removed, whitespace is collapsed, the value is trimmed, and the result is capped at 80 characters. An empty result is invalid. |
+| `body`     | `string \| null`           | `null`   | Sanitized like `title`, capped at 240 characters. A value that sanitizes to empty is treated as absent.                                               |
+| `position` | `ToastOmhPosition \| null` | `null`   | Optional built-in toast position: `top-left`, `top-right`, `bottom-left`, or `bottom-right`. It has no effect for terminal/system delivery.           |
+| `sound`    | `NotificationShowSound`    | `"none"` | `"none"`, `"done"`, or `"request"`. Sound is played/forwarded only when local sound playback and the configured sound set allow it.                   |
 
 **Success:** `ResponseResult::NotificationShow`, discriminator `"notification_show"`, with `shown: boolean` and `reason`.
 
-| `reason` | `shown` | Meaning |
-| --- | --- | --- |
-| `shown` | `true` | A toast or foreground notification sink accepted the notification. |
-| `disabled` | `false` | `toast.delivery` is `off`. |
-| `busy` | `false` | Built-in Oh My Herdr delivery already has a toast. |
-| `rate_limited` | `false` | Another API notification was shown less than 250 ms ago. |
+| `reason`               | `shown` | Meaning                                                                                              |
+| ---------------------- | ------- | ---------------------------------------------------------------------------------------------------- |
+| `shown`                | `true`  | A toast or foreground notification sink accepted the notification.                                   |
+| `disabled`             | `false` | `toast.delivery` is `off`.                                                                           |
+| `busy`                 | `false` | Built-in Oh My Herdr delivery already has a toast.                                                   |
+| `rate_limited`         | `false` | Another API notification was shown less than 250 ms ago.                                             |
 | `no_foreground_client` | `false` | Terminal/system delivery has no foreground client, or its notification helper returned false/failed. |
 
 Built-in `omh` delivery checks `busy` before the rate limit, stores the toast in App state, and can play the requested sound. `terminal` and `system` delivery rate-limit first and then send to the foreground client (headless) or invoke the configured helper (interactive).
 
-| Error | Meaning |
-| --- | --- |
-| `invalid_params` | `title` is empty after sanitization (`"notification title is empty"`). |
+| Error                | Meaning                                                                  |
+| -------------------- | ------------------------------------------------------------------------ |
+| `invalid_params`     | `title` is empty after sanitization (`"notification title is empty"`).   |
 | `server_unavailable` | Shutdown was already in progress or the request could not be dispatched. |
 
 ```json
@@ -200,15 +200,15 @@ Sets the title of the current foreground client window.
 
 **Params:** `ClientWindowTitleSetParams`.
 
-| Property | Type | Default | Description |
-| --- | --- | --- | --- |
-| `title` | `string` | required | Control characters including terminal title-control characters are removed, the value is trimmed, and the result is capped at 200 characters. An empty result is invalid. |
+| Property | Type     | Default  | Description                                                                                                                                                               |
+| -------- | -------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `title`  | `string` | required | Control characters including terminal title-control characters are removed, the value is trimmed, and the result is capped at 200 characters. An empty result is invalid. |
 
 **Success:** `ResponseResult::ClientWindowTitle`, discriminator `"client_window_title"`, with `changed: boolean` and `reason: "set"` or `"no_foreground_client"`.
 
-| Error | Meaning |
-| --- | --- |
-| `invalid_params` | `title` is empty after sanitization (`"window title is empty"`). |
+| Error                | Meaning                                                                  |
+| -------------------- | ------------------------------------------------------------------------ |
+| `invalid_params`     | `title` is empty after sanitization (`"window title is empty"`).         |
 | `server_unavailable` | Shutdown was already in progress or the request could not be dispatched. |
 
 ```json
@@ -245,34 +245,34 @@ Installs the selected target. Codex is special: the API calls the agent-profile 
 
 Target installation writes these kinds of assets:
 
-| Target | Installed asset reported in `details.messages` |
-| --- | --- |
-| `pi` | Pi extension. |
-| `omp` | One or more Oh My Herdr extensions. |
-| `claude` | Claude hook and settings entry. |
-| `codex` | Codex hook plus Codex hooks/config entries, for the default and enabled profile homes. |
-| `copilot` | Copilot hook and settings entry. |
-| `devin` | Devin hook and settings entry. |
-| `kimi` | Kimi hook and config entry. |
-| `droid` | Droid hook and hooks entry; legacy Oh My Herdr Droid entries may also be removed. |
-| `opencode` | OpenCode plugin. |
-| `hermes` | Hermes plugin directory and enabled config entry. |
-| `qodercli` | Qoder CLI hook and settings entry. |
-| `cursor` | Cursor hook and hooks entry. |
-| `grok` | Grok hook and hook config. |
+| Target     | Installed asset reported in `details.messages`                                         |
+| ---------- | -------------------------------------------------------------------------------------- |
+| `pi`       | Pi extension.                                                                          |
+| `omp`      | One or more Oh My Herdr extensions.                                                    |
+| `claude`   | Claude hook and settings entry.                                                        |
+| `codex`    | Codex hook plus Codex hooks/config entries, for the default and enabled profile homes. |
+| `copilot`  | Copilot hook and settings entry.                                                       |
+| `devin`    | Devin hook and settings entry.                                                         |
+| `kimi`     | Kimi hook and config entry.                                                            |
+| `droid`    | Droid hook and hooks entry; legacy Oh My Herdr Droid entries may also be removed.      |
+| `opencode` | OpenCode plugin.                                                                       |
+| `hermes`   | Hermes plugin directory and enabled config entry.                                      |
+| `qodercli` | Qoder CLI hook and settings entry.                                                     |
+| `cursor`   | Cursor hook and hooks entry.                                                           |
+| `grok`     | Grok hook and hook config.                                                             |
 
 **Params:** `IntegrationInstallParams`.
 
-| Property | Type | Default | Description |
-| --- | --- | --- | --- |
+| Property | Type                | Default  | Description              |
+| -------- | ------------------- | -------- | ------------------------ |
 | `target` | `IntegrationTarget` | required | One of the values above. |
 
 **Success:** `ResponseResult::IntegrationInstall`, discriminator `"integration_install"`, with `target` and `details.messages: string[]`.
 
-| Error | Meaning |
-| --- | --- |
+| Error                        | Meaning                                                                                                                       |
+| ---------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
 | `integration_install_failed` | Unsupported platform, missing/old required agent, missing config directory, failed config edit, or another install I/O error. |
-| `server_unavailable` | Shutdown was already in progress or the request could not be dispatched. |
+| `server_unavailable`         | Shutdown was already in progress or the request could not be dispatched.                                                      |
 
 ```json
 {"id":"integration-1","method":"integration.install","params":{"target":"codex"}}
@@ -285,18 +285,18 @@ Removes Oh My Herdr-managed assets and entries for the selected target. It does 
 
 **Params:** `IntegrationUninstallParams`.
 
-| Property | Type | Default | Description |
-| --- | --- | --- | --- |
+| Property | Type                | Default  | Description              |
+| -------- | ------------------- | -------- | ------------------------ |
 | `target` | `IntegrationTarget` | required | One of the values above. |
 
 The API handler calls the single-target uninstall path. In particular, unlike `integration.install` for Codex, API uninstall removes the default Codex installation only; it does not iterate enabled Codex profile homes.
 
 **Success:** `ResponseResult::IntegrationUninstall`, discriminator `"integration_uninstall"`, with `target` and `details.messages: string[]`.
 
-| Error | Meaning |
-| --- | --- |
-| `integration_uninstall_failed` | Failed to remove a managed file or edit agent configuration. |
-| `server_unavailable` | Shutdown was already in progress or the request could not be dispatched. |
+| Error                          | Meaning                                                                  |
+| ------------------------------ | ------------------------------------------------------------------------ |
+| `integration_uninstall_failed` | Failed to remove a managed file or edit agent configuration.             |
+| `server_unavailable`           | Shutdown was already in progress or the request could not be dispatched. |
 
 ```json
 {"id":"integration-2","method":"integration.uninstall","params":{"target":"claude"}}
@@ -317,32 +317,32 @@ Loads and registers one plugin manifest. If the ID is already registered, the ne
 
 **Params:** `PluginLinkParams`.
 
-| Property | Type | Default | Description |
-| --- | --- | --- | --- |
-| `path` | `string` | required | Plugin directory or direct manifest path. |
-| `enabled` | `boolean` | `true` | Whether actions, event hooks, and panes may run. |
-| `source` | `PluginSourceInfo \| null` | `null` | Optional provenance. `kind` is `local` (default) or `github`; optional fields are `owner`, `repo`, `subdir`, `requested_ref`, `resolved_commit`, `managed_path`, and `installed_unix_ms`. GitHub sources require a canonical `managed_path` under the managed plugin directory matching the plugin ID. |
+| Property  | Type                       | Default  | Description                                                                                                                                                                                                                                                                                            |
+| --------- | -------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `path`    | `string`                   | required | Plugin directory or direct manifest path.                                                                                                                                                                                                                                                              |
+| `enabled` | `boolean`                  | `true`   | Whether actions, event hooks, and panes may run.                                                                                                                                                                                                                                                       |
+| `source`  | `PluginSourceInfo \| null` | `null`   | Optional provenance. `kind` is `local` (default) or `github`; optional fields are `owner`, `repo`, `subdir`, `requested_ref`, `resolved_commit`, `managed_path`, and `installed_unix_ms`. GitHub sources require a canonical `managed_path` under the managed plugin directory matching the plugin ID. |
 
 Manifest validation also requires non-empty `name`, `version`, and semantic `min_omh_version` (or compatible legacy `min_herdr_version`), non-empty command argv, valid platform names, unique action/pane/link-handler IDs, valid link-handler regexes, and link handlers that reference an existing action. Unknown event names are retained as warnings; only known hook event kinds execute.
 
 **Success:** `ResponseResult::PluginLinked`, discriminator `"plugin_linked"`, with `plugin: InstalledPluginInfo`.
 
-| Error | Meaning |
-| --- | --- |
-| `plugin_manifest_not_found` | The path could not be canonicalized. |
-| `invalid_plugin_manifest_path` | The canonical manifest has no parent directory. |
-| `plugin_manifest_read_failed` | The manifest could not be read. |
-| `plugin_manifest_parse_failed` | TOML parsing failed. |
-| `invalid_plugin_id`, `invalid_plugin_name`, `invalid_plugin_version`, `invalid_plugin_min_omh_version` | A required identity/version field is invalid. |
-| `plugin_requires_newer_omh` | The manifest requires a newer Oh My Herdr or incompatible legacy plugin API. |
-| `invalid_plugin_platform` | A platform name is unknown or `platforms` is an empty array. |
-| `invalid_plugin_command` | A command is empty or contains an empty argv string. |
-| `invalid_plugin_action_id`, `invalid_plugin_action_title`, `invalid_plugin_pane_id`, `invalid_plugin_pane_title`, `invalid_plugin_event` | A manifest member has an invalid ID, title, or event name. |
-| `duplicate_plugin_action_id`, `duplicate_plugin_pane_id`, `duplicate_plugin_link_handler_id` | A manifest contains duplicate IDs. |
-| `invalid_plugin_link_handler_pattern`, `invalid_plugin_link_handler_action` | A link-handler pattern or action reference is invalid. |
-| `invalid_plugin_source` | Supplied provenance is inconsistent or its managed path is invalid. |
-| `plugin_registry_save_failed` | `plugins.json` could not be written; the previous record is restored. |
-| `server_unavailable` | Shutdown was already in progress or the request could not be dispatched. |
+| Error                                                                                                                                    | Meaning                                                                      |
+| ---------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| `plugin_manifest_not_found`                                                                                                              | The path could not be canonicalized.                                         |
+| `invalid_plugin_manifest_path`                                                                                                           | The canonical manifest has no parent directory.                              |
+| `plugin_manifest_read_failed`                                                                                                            | The manifest could not be read.                                              |
+| `plugin_manifest_parse_failed`                                                                                                           | TOML parsing failed.                                                         |
+| `invalid_plugin_id`, `invalid_plugin_name`, `invalid_plugin_version`, `invalid_plugin_min_omh_version`                                   | A required identity/version field is invalid.                                |
+| `plugin_requires_newer_omh`                                                                                                              | The manifest requires a newer Oh My Herdr or incompatible legacy plugin API. |
+| `invalid_plugin_platform`                                                                                                                | A platform name is unknown or `platforms` is an empty array.                 |
+| `invalid_plugin_command`                                                                                                                 | A command is empty or contains an empty argv string.                         |
+| `invalid_plugin_action_id`, `invalid_plugin_action_title`, `invalid_plugin_pane_id`, `invalid_plugin_pane_title`, `invalid_plugin_event` | A manifest member has an invalid ID, title, or event name.                   |
+| `duplicate_plugin_action_id`, `duplicate_plugin_pane_id`, `duplicate_plugin_link_handler_id`                                             | A manifest contains duplicate IDs.                                           |
+| `invalid_plugin_link_handler_pattern`, `invalid_plugin_link_handler_action`                                                              | A link-handler pattern or action reference is invalid.                       |
+| `invalid_plugin_source`                                                                                                                  | Supplied provenance is inconsistent or its managed path is invalid.          |
+| `plugin_registry_save_failed`                                                                                                            | `plugins.json` could not be written; the previous record is restored.        |
+| `server_unavailable`                                                                                                                     | Shutdown was already in progress or the request could not be dispatched.     |
 
 ```json
 {"id":"link-1","method":"plugin.link","params":{"path":"/home/me/plugins/worktree-bootstrap"}}
@@ -355,15 +355,15 @@ Lists registered plugins in ascending `plugin_id` order. A manifest-unavailable 
 
 **Params:** `PluginListParams`.
 
-| Property | Type | Default | Description |
-| --- | --- | --- | --- |
-| `plugin_id` | `string \| null` | `null` | Optional normalized plugin ID filter. |
+| Property    | Type             | Default | Description                           |
+| ----------- | ---------------- | ------- | ------------------------------------- |
+| `plugin_id` | `string \| null` | `null`  | Optional normalized plugin ID filter. |
 
 **Success:** `ResponseResult::PluginList`, discriminator `"plugin_list"`, with `plugins: InstalledPluginInfo[]`.
 
-| Error | Meaning |
-| --- | --- |
-| `invalid_plugin_id` | A supplied filter is not a valid plugin ID. |
+| Error                | Meaning                                                                  |
+| -------------------- | ------------------------------------------------------------------------ |
+| `invalid_plugin_id`  | A supplied filter is not a valid plugin ID.                              |
 | `server_unavailable` | Shutdown was already in progress or the request could not be dispatched. |
 
 ```json
@@ -379,11 +379,11 @@ Removes a plugin record from the registry. It does not delete the plugin directo
 
 **Success:** `ResponseResult::PluginUnlinked`, discriminator `"plugin_unlinked"`, with `plugin_id` and `removed: boolean`. An unknown but valid ID succeeds with `removed: false`.
 
-| Error | Meaning |
-| --- | --- |
-| `invalid_plugin_id` | The ID is invalid. |
+| Error                         | Meaning                                                                           |
+| ----------------------------- | --------------------------------------------------------------------------------- |
+| `invalid_plugin_id`           | The ID is invalid.                                                                |
 | `plugin_registry_save_failed` | Registry persistence failed; the plugin record and pane attribution are restored. |
-| `server_unavailable` | Shutdown was already in progress or the request could not be dispatched. |
+| `server_unavailable`          | Shutdown was already in progress or the request could not be dispatched.          |
 
 ```json
 {"id":"unlink-1","method":"plugin.unlink","params":{"plugin_id":"worktree-bootstrap"}}
@@ -398,12 +398,12 @@ Sets a registered plugin's `enabled` flag to `true`. The flag is persisted. Enab
 
 **Success:** `ResponseResult::PluginEnabled`, discriminator `"plugin_enabled"`, with the updated `plugin: InstalledPluginInfo`.
 
-| Error | Meaning |
-| --- | --- |
-| `invalid_plugin_id` | The ID is invalid. |
-| `plugin_not_found` | No registered plugin has that ID. |
-| `plugin_registry_save_failed` | Persistence failed; the previous flag is restored. |
-| `server_unavailable` | Shutdown was already in progress or the request could not be dispatched. |
+| Error                         | Meaning                                                                  |
+| ----------------------------- | ------------------------------------------------------------------------ |
+| `invalid_plugin_id`           | The ID is invalid.                                                       |
+| `plugin_not_found`            | No registered plugin has that ID.                                        |
+| `plugin_registry_save_failed` | Persistence failed; the previous flag is restored.                       |
+| `server_unavailable`          | Shutdown was already in progress or the request could not be dispatched. |
 
 ### `plugin.disable`
 
@@ -426,15 +426,15 @@ Lists actions from available manifests, sorted by qualified ID (`plugin_id.actio
 
 **Params:** `PluginActionListParams`.
 
-| Property | Type | Default | Description |
-| --- | --- | --- | --- |
-| `plugin_id` | `string \| null` | `null` | Optional normalized plugin ID filter. |
+| Property    | Type             | Default | Description                           |
+| ----------- | ---------------- | ------- | ------------------------------------- |
+| `plugin_id` | `string \| null` | `null`  | Optional normalized plugin ID filter. |
 
 **Success:** `ResponseResult::PluginActionList`, discriminator `"plugin_action_list"`, with `actions: PluginActionInfo[]`. Each action has `plugin_id`, `action_id`, `title`, optional `description`, `contexts` (`global`, `workspace`, `tab`, `pane`, `selection`), `command`, and optional `platforms`.
 
-| Error | Meaning |
-| --- | --- |
-| `invalid_plugin_id` | A supplied filter is invalid. |
+| Error                | Meaning                                                                  |
+| -------------------- | ------------------------------------------------------------------------ |
+| `invalid_plugin_id`  | A supplied filter is invalid.                                            |
 | `server_unavailable` | Shutdown was already in progress or the request could not be dispatched. |
 
 ```json
@@ -448,11 +448,11 @@ Starts a manifest action asynchronously as the current user, with the plugin roo
 
 **Params:** `PluginActionInvokeParams`.
 
-| Property | Type | Default | Description |
-| --- | --- | --- | --- |
-| `action_id` | `string` | required | With `plugin_id`, a local action ID. Without `plugin_id`, either a local ID or a qualified `plugin_id.action_id`. |
-| `plugin_id` | `string \| null` | `null` | Restricts lookup to one plugin. |
-| `context` | `PluginInvocationContext \| null` | `null` | Optional caller context merged over server-derived active workspace/tab/focused-pane context. |
+| Property    | Type                              | Default  | Description                                                                                                       |
+| ----------- | --------------------------------- | -------- | ----------------------------------------------------------------------------------------------------------------- |
+| `action_id` | `string`                          | required | With `plugin_id`, a local action ID. Without `plugin_id`, either a local ID or a qualified `plugin_id.action_id`. |
+| `plugin_id` | `string \| null`                  | `null`   | Restricts lookup to one plugin.                                                                                   |
+| `context`   | `PluginInvocationContext \| null` | `null`   | Optional caller context merged over server-derived active workspace/tab/focused-pane context.                     |
 
 With `plugin_id`, the plugin and local action ID are normalized and looked up directly. Without it, the trimmed action string is matched against local and qualified IDs: no match is `plugin_action_not_found`, and multiple matches are `ambiguous_plugin_action`. Caller-supplied non-null context fields take precedence; the request ID supplies `correlation_id` when none is supplied. Context fields are optional: `workspace_id`, `workspace_label`, `workspace_cwd`, `worktree`, `tab_id`, `tab_label`, `focused_pane_id`, `focused_pane_cwd`, `focused_pane_agent`, `focused_pane_status`, `selected_text`, `invocation_source`, `correlation_id`, `clicked_url`, and `link_handler_id`.
 
@@ -460,20 +460,20 @@ Execution requires an available manifest, `enabled: true`, and an effective plat
 
 **Success:** `ResponseResult::PluginActionInvoked`, discriminator `"plugin_action_invoked"`, with `action: PluginActionInfo`, merged `context`, and `log: PluginCommandLogInfo`. The initial log has `status: "running"`, `finished_unix_ms: null`, `exit_code: null`, `stdout: null`, `stderr: null`, and `error: null`.
 
-| Error | Meaning |
-| --- | --- |
-| `invalid_plugin_id` | Supplied `plugin_id` is invalid. |
-| `invalid_plugin_action_id` | With `plugin_id`, `action_id` is not a valid local ID. |
-| `plugin_not_found` | The requested plugin is not registered. |
-| `plugin_manifest_unavailable` | The selected plugin's manifest is unavailable. |
-| `plugin_action_not_found` | No action matches. |
-| `ambiguous_plugin_action` | A local action ID matches more than one plugin; include `plugin_id`. |
-| `plugin_disabled` | The plugin is disabled. |
-| `platform_unsupported` | The effective action/plugin platform list excludes the host. |
-| `invalid_plugin_command` | The command is empty or contains an empty argv string. |
-| `invalid_plugin_context` | The merged context could not be serialized. |
+| Error                          | Meaning                                                                        |
+| ------------------------------ | ------------------------------------------------------------------------------ |
+| `invalid_plugin_id`            | Supplied `plugin_id` is invalid.                                               |
+| `invalid_plugin_action_id`     | With `plugin_id`, `action_id` is not a valid local ID.                         |
+| `plugin_not_found`             | The requested plugin is not registered.                                        |
+| `plugin_manifest_unavailable`  | The selected plugin's manifest is unavailable.                                 |
+| `plugin_action_not_found`      | No action matches.                                                             |
+| `ambiguous_plugin_action`      | A local action ID matches more than one plugin; include `plugin_id`.           |
+| `plugin_disabled`              | The plugin is disabled.                                                        |
+| `platform_unsupported`         | The effective action/plugin platform list excludes the host.                   |
+| `invalid_plugin_command`       | The command is empty or contains an empty argv string.                         |
+| `invalid_plugin_context`       | The merged context could not be serialized.                                    |
 | `plugin_command_limit_reached` | 32 commands are already running. A failed log record is added for the attempt. |
-| `server_unavailable` | Shutdown was already in progress or the request could not be dispatched. |
+| `server_unavailable`           | Shutdown was already in progress or the request could not be dispatched.       |
 
 ```json
 {"id":"invoke-1","method":"plugin.action.invoke","params":{"plugin_id":"worktree-bootstrap","action_id":"bootstrap","context":{"invocation_source":"api"}}}
@@ -486,18 +486,18 @@ Returns recent plugin command records. The in-memory log retains at most 200 rec
 
 **Params:** `PluginLogListParams`.
 
-| Property | Type | Default | Description |
-| --- | --- | --- | --- |
-| `plugin_id` | `string \| null` | `null` | Optional normalized plugin ID filter. |
-| `limit` | `integer \| null` | `50` | Clamped to 1 through 200. |
+| Property    | Type              | Default | Description                           |
+| ----------- | ----------------- | ------- | ------------------------------------- |
+| `plugin_id` | `string \| null`  | `null`  | Optional normalized plugin ID filter. |
+| `limit`     | `integer \| null` | `50`    | Clamped to 1 through 200.             |
 
 Each `PluginCommandLogInfo` contains `log_id`, `plugin_id`, optional `action_id`, optional event name `event`, `command`, `status` (`running`, `succeeded`, or `failed`), `started_unix_ms`, optional `finished_unix_ms`, `exit_code`, `stdout`, `stderr`, and `error`. Event-hook records set `event` and leave `action_id` absent. Spawn failures have no exit code; output fields are empty strings after a failed spawn. A limit-reached record has `error` set.
 
 **Success:** `ResponseResult::PluginLogList`, discriminator `"plugin_log_list"`, with `logs: PluginCommandLogInfo[]`.
 
-| Error | Meaning |
-| --- | --- |
-| `invalid_plugin_id` | A supplied filter is invalid. |
+| Error                | Meaning                                                                  |
+| -------------------- | ------------------------------------------------------------------------ |
+| `invalid_plugin_id`  | A supplied filter is invalid.                                            |
 | `server_unavailable` | Shutdown was already in progress or the request could not be dispatched. |
 
 ```json
@@ -511,46 +511,46 @@ Opens a pane declared by a plugin manifest. The process runs as the current user
 
 **Params:** `PluginPaneOpenParams`.
 
-| Property | Type | Default | Description |
-| --- | --- | --- | --- |
-| `plugin_id` | `string` | required | Normalized plugin ID. |
-| `entrypoint` | `string` | required | Local pane ID declared in the manifest. |
-| `placement` | `PluginPanePlacement \| null` | manifest placement, otherwise `overlay` | `overlay`, `split`, `tab`, or `zoomed`. |
-| `workspace_id` | `string \| null` | `null` | Only used by `tab`; selects the workspace for a new tab. |
-| `target_pane_id` | `string \| null` | current public pane for split/zoomed | Existing pane to split. |
-| `direction` | `SplitDirection \| null` | `right` for split/zoomed | `right` or `down`. |
-| `cwd` | `string \| null` | plugin root | Working directory override. |
-| `focus` | `boolean` | `false` | Focuses split/tab panes when true. Zoomed placement always focuses. Overlay placement ignores this field. |
-| `env` | `object` | `{}` | Extra environment entries. Keys may not be empty, contain `=`, or contain NUL; values may not contain NUL. |
+| Property         | Type                          | Default                                 | Description                                                                                                |
+| ---------------- | ----------------------------- | --------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `plugin_id`      | `string`                      | required                                | Normalized plugin ID.                                                                                      |
+| `entrypoint`     | `string`                      | required                                | Local pane ID declared in the manifest.                                                                    |
+| `placement`      | `PluginPanePlacement \| null` | manifest placement, otherwise `overlay` | `overlay`, `split`, `tab`, or `zoomed`.                                                                    |
+| `workspace_id`   | `string \| null`              | `null`                                  | Only used by `tab`; selects the workspace for a new tab.                                                   |
+| `target_pane_id` | `string \| null`              | current public pane for split/zoomed    | Existing pane to split.                                                                                    |
+| `direction`      | `SplitDirection \| null`      | `right` for split/zoomed                | `right` or `down`.                                                                                         |
+| `cwd`            | `string \| null`              | plugin root                             | Working directory override.                                                                                |
+| `focus`          | `boolean`                     | `false`                                 | Focuses split/tab panes when true. Zoomed placement always focuses. Overlay placement ignores this field.  |
+| `env`            | `object`                      | `{}`                                    | Extra environment entries. Keys may not be empty, contain `=`, or contain NUL; values may not contain NUL. |
 
 Placement constraints:
 
-| Placement | Allowed targeting fields and behavior |
-| --- | --- |
-| `overlay` | Rejects `workspace_id`, `target_pane_id`, and `direction`; opens against the active pane/workspace. |
-| `split` | Rejects `workspace_id`; uses `target_pane_id` or the current public pane, and defaults `direction` to `right`. |
-| `zoomed` | Same target and direction rules as `split`, then marks the tab zoomed and focuses it. |
-| `tab` | Allows `workspace_id` but rejects `target_pane_id` and `direction`; creates a tab in the named workspace or active workspace. |
+| Placement | Allowed targeting fields and behavior                                                                                         |
+| --------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| `overlay` | Rejects `workspace_id`, `target_pane_id`, and `direction`; opens against the active pane/workspace.                           |
+| `split`   | Rejects `workspace_id`; uses `target_pane_id` or the current public pane, and defaults `direction` to `right`.                |
+| `zoomed`  | Same target and direction rules as `split`, then marks the tab zoomed and focuses it.                                         |
+| `tab`     | Allows `workspace_id` but rejects `target_pane_id` and `direction`; creates a tab in the named workspace or active workspace. |
 
 The plugin manifest's pane platform list overrides its plugin platform list. The launch environment removes caller attempts to set protected `OMH_*`/`HERDR_*` keys (`PLUGIN_ID`, `PLUGIN_ROOT`, `PLUGIN_CONFIG_DIR`, `PLUGIN_STATE_DIR`, `PLUGIN_ENTRYPOINT_ID`, `PLUGIN_CONTEXT_JSON`, and `BIN_PATH`) and replaces them with server values. The environment also includes the pane context JSON and entrypoint ID.
 
 **Success:** `ResponseResult::PluginPaneOpened`, discriminator `"plugin_pane_opened"`, with `plugin_pane: PluginPaneInfo` containing `plugin_id`, `entrypoint`, and the standard `pane: PaneInfo` descriptor.
 
-| Error | Meaning |
-| --- | --- |
-| `invalid_plugin_id`, `plugin_not_found`, `plugin_manifest_unavailable`, `plugin_disabled` | Plugin lookup or lifecycle gate failed. |
-| `invalid_plugin_entrypoint` | Entrypoint is not a valid local identifier. |
-| `plugin_pane_not_found` | Entrypoint is not declared by the manifest. |
-| `platform_unsupported` | Effective pane/plugin platform list excludes the host. |
-| `invalid_params` | Fields conflict with placement. |
-| `no_active_pane` | Split/zoomed omitted `target_pane_id` and has no current pane. |
-| `pane_not_found` | A supplied or resolved split/zoomed target does not exist. |
-| `no_active_workspace` | Tab placement omitted `workspace_id` and has no active workspace. |
-| `workspace_not_found` | A supplied tab workspace does not exist. |
-| `plugin_pane_open_failed` | Pane process spawn failed or the pane disappeared before response encoding. |
-| `invalid_plugin_context` | Pane context could not be serialized. |
-| `invalid_env` | An environment key/value violates the launch environment rules. |
-| `server_unavailable` | Shutdown was already in progress or the request could not be dispatched. |
+| Error                                                                                     | Meaning                                                                     |
+| ----------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| `invalid_plugin_id`, `plugin_not_found`, `plugin_manifest_unavailable`, `plugin_disabled` | Plugin lookup or lifecycle gate failed.                                     |
+| `invalid_plugin_entrypoint`                                                               | Entrypoint is not a valid local identifier.                                 |
+| `plugin_pane_not_found`                                                                   | Entrypoint is not declared by the manifest.                                 |
+| `platform_unsupported`                                                                    | Effective pane/plugin platform list excludes the host.                      |
+| `invalid_params`                                                                          | Fields conflict with placement.                                             |
+| `no_active_pane`                                                                          | Split/zoomed omitted `target_pane_id` and has no current pane.              |
+| `pane_not_found`                                                                          | A supplied or resolved split/zoomed target does not exist.                  |
+| `no_active_workspace`                                                                     | Tab placement omitted `workspace_id` and has no active workspace.           |
+| `workspace_not_found`                                                                     | A supplied tab workspace does not exist.                                    |
+| `plugin_pane_open_failed`                                                                 | Pane process spawn failed or the pane disappeared before response encoding. |
+| `invalid_plugin_context`                                                                  | Pane context could not be serialized.                                       |
+| `invalid_env`                                                                             | An environment key/value violates the launch environment rules.             |
+| `server_unavailable`                                                                      | Shutdown was already in progress or the request could not be dispatched.    |
 
 ```json
 {"id":"pane-1","method":"plugin.pane.open","params":{"plugin_id":"worktree-bootstrap","entrypoint":"log-tail","placement":"split","target_pane_id":"w1943cd2b11a1:p1","direction":"right","focus":true}}
@@ -565,10 +565,10 @@ Focuses a pane currently attributed to a plugin and switches the App to terminal
 
 **Success:** `ResponseResult::PluginPaneFocused`, discriminator `"plugin_pane_focused"`, with the attributed `plugin_pane` record.
 
-| Error | Meaning |
-| --- | --- |
-| `plugin_pane_not_found` | The ID is not a current public pane or has no plugin attribution. |
-| `server_unavailable` | Shutdown was already in progress or the request could not be dispatched. |
+| Error                   | Meaning                                                                  |
+| ----------------------- | ------------------------------------------------------------------------ |
+| `plugin_pane_not_found` | The ID is not a current public pane or has no plugin attribution.        |
+| `server_unavailable`    | Shutdown was already in progress or the request could not be dispatched. |
 
 ```json
 {"id":"pane-focus-1","method":"plugin.pane.focus","params":{"pane_id":"w1943cd2b11a1:p2"}}
@@ -583,12 +583,12 @@ Closes a pane attributed to a plugin and removes its attribution. The underlying
 
 **Success:** `ResponseResult::PluginPaneClosed`, discriminator `"plugin_pane_closed"`, with `pane_id` only.
 
-| Error | Meaning |
-| --- | --- |
-| `plugin_pane_not_found` | The ID is not a current public pane or has no plugin attribution. |
-| `pane_not_found` | The underlying pane disappeared. |
+| Error                   | Meaning                                                                    |
+| ----------------------- | -------------------------------------------------------------------------- |
+| `plugin_pane_not_found` | The ID is not a current public pane or has no plugin attribution.          |
+| `pane_not_found`        | The underlying pane disappeared.                                           |
 | `confirmation_required` | The standard close path requires confirmation for an implicit group close. |
-| `server_unavailable` | Shutdown was already in progress or the request could not be dispatched. |
+| `server_unavailable`    | Shutdown was already in progress or the request could not be dispatched.   |
 
 ```json
 {"id":"pane-close-1","method":"plugin.pane.close","params":{"pane_id":"w1943cd2b11a1:p2"}}
@@ -603,14 +603,14 @@ Opens the only Local API method that keeps its socket open for a stream. The ser
 
 **Params:** `EventsSubscribeParams`.
 
-| Property | Type | Default | Description |
-| --- | --- | --- | --- |
+| Property        | Type             | Default  | Description                                              |
+| --------------- | ---------------- | -------- | -------------------------------------------------------- |
 | `subscriptions` | `Subscription[]` | required | Tagged entries whose `type` selects a subscription kind. |
 
 **Acknowledgement:** `ResponseResult::SubscriptionStarted`, discriminator `"subscription_started"`. Exactly one acknowledgement line is written before normal event lines:
 
 ```json
-{"id":"sub-1","result":{"type":"subscription_started"}}
+{ "id": "sub-1", "result": { "type": "subscription_started" } }
 ```
 
 The stream polls every 100 ms. Event writes have a five-second socket write timeout. It remains open until the client closes it, the server stops, or a write/disconnect failure ends it. Unix clients are probed for disconnect between polls; Windows relies on writes to detect disconnects. There are no durable offsets. Plain events use a bounded in-memory history of the most recent 512 events, and a new plain subscription starts at sequence zero, so retained matching history may be emitted immediately. Stateful pane subscriptions poll current pane state and do not replay an old session. Reconnect and reconcile with a fresh `workspace.list`, `tab.list`, or `pane.list` snapshot when loss matters.
@@ -621,32 +621,35 @@ A validation error is sent without an acknowledgement and the connection closes.
 
 These entries have no fields other than `type`. Their emitted line is an `EventEnvelope` with `event` serialized as the snake_case `EventKind` value and `data.type` carrying the same discriminator.
 
-| Subscription `type` | `data` payload |
-| --- | --- |
-| `workspace.created` | `type: "workspace_created"`, `workspace: WorkspaceInfo`. |
-| `workspace.updated` | `type: "workspace_updated"`, `workspace: WorkspaceInfo`. |
-| `workspace.renamed` | `type: "workspace_renamed"`, `workspace_id`, `label`. |
-| `workspace.closed` | `type: "workspace_closed"`, `workspace_id`, optional `workspace: WorkspaceInfo`. |
-| `workspace.focused` | `type: "workspace_focused"`, `workspace_id`. |
-| `worktree.created` | `type: "worktree_created"`, `workspace: WorkspaceInfo`, `worktree: WorktreeInfo`. |
-| `worktree.opened` | `type: "worktree_opened"`, `workspace: WorkspaceInfo`, `worktree: WorktreeInfo`, `already_open: boolean`. |
-| `worktree.removed` | `type: "worktree_removed"`, `workspace_id`, `worktree: WorktreeInfo`, `forced: boolean`. |
-| `tab.created` | `type: "tab_created"`, `tab: TabInfo`. |
-| `tab.closed` | `type: "tab_closed"`, `tab_id`, `workspace_id`. |
-| `tab.renamed` | `type: "tab_renamed"`, `tab_id`, `workspace_id`, `label`. |
-| `tab.focused` | `type: "tab_focused"`, `tab_id`, `workspace_id`. |
-| `pane.created` | `type: "pane_created"`, `pane: PaneInfo`. |
-| `pane.closed` | `type: "pane_closed"`, `pane_id`, `workspace_id`. |
-| `pane.focused` | `type: "pane_focused"`, `pane_id`, `workspace_id`. |
-| `pane.moved` | `type: "pane_moved"`, `previous_pane_id`, `previous_workspace_id`, `previous_tab_id`, `pane: PaneInfo`, optional `created_workspace`, `created_tab`, `closed_workspace_id`, and `closed_tab_id`. |
-| `pane.exited` | `type: "pane_exited"`, `pane_id`, `workspace_id`. |
-| `pane.agent_detected` | `type: "pane_agent_detected"`, `pane_id`, `workspace_id`, optional `agent`. |
-| `layout.updated` | `type: "layout_updated"`, `layout: PaneLayoutSnapshot`. |
+| Subscription `type`   | `data` payload                                                                                                                                                                                   |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `workspace.created`   | `type: "workspace_created"`, `workspace: WorkspaceInfo`.                                                                                                                                         |
+| `workspace.updated`   | `type: "workspace_updated"`, `workspace: WorkspaceInfo`.                                                                                                                                         |
+| `workspace.renamed`   | `type: "workspace_renamed"`, `workspace_id`, `label`.                                                                                                                                            |
+| `workspace.closed`    | `type: "workspace_closed"`, `workspace_id`, optional `workspace: WorkspaceInfo`.                                                                                                                 |
+| `workspace.focused`   | `type: "workspace_focused"`, `workspace_id`.                                                                                                                                                     |
+| `worktree.created`    | `type: "worktree_created"`, `workspace: WorkspaceInfo`, `worktree: WorktreeInfo`.                                                                                                                |
+| `worktree.opened`     | `type: "worktree_opened"`, `workspace: WorkspaceInfo`, `worktree: WorktreeInfo`, `already_open: boolean`.                                                                                        |
+| `worktree.removed`    | `type: "worktree_removed"`, `workspace_id`, `worktree: WorktreeInfo`, `forced: boolean`.                                                                                                         |
+| `tab.created`         | `type: "tab_created"`, `tab: TabInfo`.                                                                                                                                                           |
+| `tab.closed`          | `type: "tab_closed"`, `tab_id`, `workspace_id`.                                                                                                                                                  |
+| `tab.renamed`         | `type: "tab_renamed"`, `tab_id`, `workspace_id`, `label`.                                                                                                                                        |
+| `tab.focused`         | `type: "tab_focused"`, `tab_id`, `workspace_id`.                                                                                                                                                 |
+| `pane.created`        | `type: "pane_created"`, `pane: PaneInfo`.                                                                                                                                                        |
+| `pane.closed`         | `type: "pane_closed"`, `pane_id`, `workspace_id`.                                                                                                                                                |
+| `pane.focused`        | `type: "pane_focused"`, `pane_id`, `workspace_id`.                                                                                                                                               |
+| `pane.moved`          | `type: "pane_moved"`, `previous_pane_id`, `previous_workspace_id`, `previous_tab_id`, `pane: PaneInfo`, optional `created_workspace`, `created_tab`, `closed_workspace_id`, and `closed_tab_id`. |
+| `pane.exited`         | `type: "pane_exited"`, `pane_id`, `workspace_id`.                                                                                                                                                |
+| `pane.agent_detected` | `type: "pane_agent_detected"`, `pane_id`, `workspace_id`, optional `agent`.                                                                                                                      |
+| `layout.updated`      | `type: "layout_updated"`, `layout: PaneLayoutSnapshot`.                                                                                                                                          |
 
 A plain event example:
 
 ```json
-{"event":"workspace_focused","data":{"type":"workspace_focused","workspace_id":"w1943cd2b11a1"}}
+{
+  "event": "workspace_focused",
+  "data": { "type": "workspace_focused", "workspace_id": "w1943cd2b11a1" }
+}
 ```
 
 `pane.output_changed` is an `EventKind` used in the general event model and by `events.wait` matching, but it is not a valid `events.subscribe` `type`.
@@ -655,11 +658,11 @@ A plain event example:
 
 These entries perform a validation probe before the acknowledgement and poll the pane every cycle.
 
-| `type` | Required fields | Optional/default fields | Emission |
-| --- | --- | --- | --- |
-| `pane.output_matched` | `pane_id`, `source`, `match` | `lines: integer \| null`; `strip_ansi: true` | Emits on the transition from no match to a matching line. It emits again only after a poll finds no match and a later poll matches. |
-| `pane.agent_status_changed` | `pane_id` | `agent_status: AgentStatus \| null` | Emits on status or presentation changes. Presentation includes title, display agent, custom status, state labels, and tokens. With a filter, the initial current state emits once when it already matches. |
-| `pane.scroll_changed` | `pane_id` | none | Emits when the pane scroll snapshot changes; the validation snapshot is the baseline. |
+| `type`                      | Required fields              | Optional/default fields                      | Emission                                                                                                                                                                                                   |
+| --------------------------- | ---------------------------- | -------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pane.output_matched`       | `pane_id`, `source`, `match` | `lines: integer \| null`; `strip_ansi: true` | Emits on the transition from no match to a matching line. It emits again only after a poll finds no match and a later poll matches.                                                                        |
+| `pane.agent_status_changed` | `pane_id`                    | `agent_status: AgentStatus \| null`          | Emits on status or presentation changes. Presentation includes title, display agent, custom status, state labels, and tokens. With a filter, the initial current state emits once when it already matches. |
+| `pane.scroll_changed`       | `pane_id`                    | none                                         | Emits when the pane scroll snapshot changes; the validation snapshot is the baseline.                                                                                                                      |
 
 `source` is `visible`, `recent`, `recent_unwrapped`, or `detection`. For `pane.output_matched`, the validation probe uses the supplied source, while polling maps `recent` to `recent_unwrapped`. `lines` is passed to the pane read operation; the underlying read defaults to 80 lines and caps the value at 1000. `match` is either `{"type":"substring","value":"..."}` or `{"type":"regex","value":"..."}`. Substring matching checks whether any text line contains the value. Regex matching uses Rust regular expressions and is compiled during validation; an invalid pattern returns `invalid_regex` before acknowledgement. `strip_ansi` defaults to true.
 
@@ -691,32 +694,32 @@ The schema defines `events.wait` with a one-shot `EventsWaitParams` object, but 
 
 **Params:** `EventsWaitParams`.
 
-| Property | Type | Default | Description |
-| --- | --- | --- | --- |
-| `match_event` | `EventMatch` | required | Tagged by `event`; the supported schema variants are listed below. |
-| `timeout_ms` | `integer \| null` | `null` | Intended timeout field; currently unused because the method is not implemented. |
+| Property      | Type              | Default  | Description                                                                     |
+| ------------- | ----------------- | -------- | ------------------------------------------------------------------------------- |
+| `match_event` | `EventMatch`      | required | Tagged by `event`; the supported schema variants are listed below.              |
+| `timeout_ms`  | `integer \| null` | `null`   | Intended timeout field; currently unused because the method is not implemented. |
 
 `EventMatch` variants are:
 
-| `event` | Fields |
-| --- | --- |
-| `workspace_created` | optional `workspace_id`. |
-| `workspace_updated` | `workspace_id`. |
-| `workspace_closed` | `workspace_id`. |
-| `workspace_renamed` | `workspace_id`, optional `label`. |
-| `workspace_focused` | `workspace_id`. |
-| `tab_created` | optional `tab_id`, optional `workspace_id`. |
-| `tab_closed` | `tab_id`. |
-| `tab_renamed` | `tab_id`, optional `label`. |
-| `tab_focused` | `tab_id`. |
-| `pane_created` | optional `pane_id`, optional `workspace_id`. |
-| `pane_closed` | `pane_id`. |
-| `pane_focused` | `pane_id`. |
-| `pane_moved` | `pane_id`. |
-| `pane_output_changed` | `pane_id`, optional `min_revision`. |
-| `pane_exited` | `pane_id`. |
-| `pane_agent_detected` | `pane_id`, optional `agent`. |
-| `pane_agent_status_changed` | `pane_id`, `agent_status`. |
+| `event`                     | Fields                                       |
+| --------------------------- | -------------------------------------------- |
+| `workspace_created`         | optional `workspace_id`.                     |
+| `workspace_updated`         | `workspace_id`.                              |
+| `workspace_closed`          | `workspace_id`.                              |
+| `workspace_renamed`         | `workspace_id`, optional `label`.            |
+| `workspace_focused`         | `workspace_id`.                              |
+| `tab_created`               | optional `tab_id`, optional `workspace_id`.  |
+| `tab_closed`                | `tab_id`.                                    |
+| `tab_renamed`               | `tab_id`, optional `label`.                  |
+| `tab_focused`               | `tab_id`.                                    |
+| `pane_created`              | optional `pane_id`, optional `workspace_id`. |
+| `pane_closed`               | `pane_id`.                                   |
+| `pane_focused`              | `pane_id`.                                   |
+| `pane_moved`                | `pane_id`.                                   |
+| `pane_output_changed`       | `pane_id`, optional `min_revision`.          |
+| `pane_exited`               | `pane_id`.                                   |
+| `pane_agent_detected`       | `pane_id`, optional `agent`.                 |
+| `pane_agent_status_changed` | `pane_id`, `agent_status`.                   |
 
 **Current result:** no success discriminator is produced. The current response is:
 

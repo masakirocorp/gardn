@@ -291,7 +291,6 @@ function unionSections(definition, defs) {
   });
 }
 
-
 /**
  * @param {string} title
  * @param {string} description
