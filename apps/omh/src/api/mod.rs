@@ -65,6 +65,7 @@ pub(crate) fn request_changes_ui(request: &Request) -> bool {
 pub struct ApiRequestMessage {
     pub request: Request,
     pub respond_to: std::sync::mpsc::Sender<String>,
+    pub response_written: Option<std::sync::mpsc::Receiver<()>>,
 }
 
 pub type ApiRequestSender = mpsc::UnboundedSender<ApiRequestMessage>;

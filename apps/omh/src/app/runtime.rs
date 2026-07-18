@@ -86,6 +86,7 @@ impl App {
         let crate::api::ApiRequestMessage {
             request,
             respond_to,
+            response_written: _,
         } = msg;
         let changed = crate::api::request_changes_ui(&request);
         if self.handle_deferred_worktree_api_request(request.clone(), respond_to.clone()) {

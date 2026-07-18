@@ -134,6 +134,11 @@ fn restrict_socket_permissions(path: &Path) -> std::io::Result<()> {
     crate::ipc::restrict_socket_permissions(path, SOCKET_PERMISSION_MODE)
 }
 
+struct HandledResponse {
+    body: String,
+    response_written: Option<std::sync::mpsc::Sender<()>>,
+}
+
 fn handle_connection(
     mut stream: LocalStream,
     api_tx: &ApiRequestSender,
@@ -234,12 +239,15 @@ fn handle_connection(
                 api_tx,
                 capabilities,
             );
-            let result = write_text_line_allow_disconnect(&mut stream, &response);
+            let result = write_text_line_allow_disconnect(&mut stream, &response.body);
+            if let Some(response_written) = response.response_written {
+                let _ = response_written.send(());
+            }
             match &result {
                 Ok(()) => crate::logging::api_request_completed(
                     &request_id,
                     method,
-                    api_response_outcome(&response),
+                    api_response_outcome(&response.body),
                     changes_ui,
                 ),
                 Err(err) => {
@@ -255,20 +263,23 @@ fn handle_request(
     request: Request,
     api_tx: &ApiRequestSender,
     capabilities: Option<ServerCapabilities>,
-) -> String {
+) -> HandledResponse {
     match request.method {
-        Method::Ping(_) => serde_json::to_string(&SuccessResponse {
-            id: request.id,
-            result: ResponseResult::Pong {
-                version: crate::build_info::version(),
-                protocol: crate::protocol::PROTOCOL_VERSION,
-                capabilities,
-            },
-        })
-        .unwrap_or_else(|_| {
-            r#"{"id":"","error":{"code":"internal_error","message":"failed to encode response"}}"#
-                .to_string()
-        }),
+        Method::Ping(_) => HandledResponse {
+            body: serde_json::to_string(&SuccessResponse {
+                id: request.id,
+                result: ResponseResult::Pong {
+                    version: crate::build_info::version(),
+                    protocol: crate::protocol::PROTOCOL_VERSION,
+                    capabilities,
+                },
+            })
+            .unwrap_or_else(|_| {
+                r#"{"id":"","error":{"code":"internal_error","message":"failed to encode response"}}"#
+                    .to_string()
+            }),
+            response_written: None,
+        },
         _ => dispatch_to_app(request, api_tx),
     }
 }
@@ -589,8 +600,12 @@ fn is_connection_closed_error(err: &std::io::Error) -> bool {
     )
 }
 
-fn dispatch_to_app(request: Request, api_tx: &ApiRequestSender) -> String {
-    dispatch_to_app_with_timeout(request, api_tx, None)
+fn dispatch_to_app(request: Request, api_tx: &ApiRequestSender) -> HandledResponse {
+    let (response_written, response_written_rx) = std::sync::mpsc::channel();
+    HandledResponse {
+        body: dispatch_to_app_inner(request, api_tx, None, Some(response_written_rx)),
+        response_written: Some(response_written),
+    }
 }
 
 pub(super) fn dispatch_to_app_with_timeout(
@@ -598,11 +613,21 @@ pub(super) fn dispatch_to_app_with_timeout(
     api_tx: &ApiRequestSender,
     timeout: Option<Duration>,
 ) -> String {
+    dispatch_to_app_inner(request, api_tx, timeout, None)
+}
+
+fn dispatch_to_app_inner(
+    request: Request,
+    api_tx: &ApiRequestSender,
+    timeout: Option<Duration>,
+    response_written: Option<std::sync::mpsc::Receiver<()>>,
+) -> String {
     let request_id = request.id.clone();
     let (respond_to, response_rx) = std::sync::mpsc::channel();
     if let Err(err) = api_tx.send(ApiRequestMessage {
         request,
         respond_to,
+        response_written,
     }) {
         return error_response_json(
             request_id,
@@ -810,7 +835,7 @@ mod tests {
             Some(ServerCapabilities { live_handoff: true }),
         );
 
-        let parsed: SuccessResponse = serde_json::from_str(&response).unwrap();
+        let parsed: SuccessResponse = serde_json::from_str(&response.body).unwrap();
         assert_eq!(parsed.id, "req_1");
         assert!(matches!(parsed.result, ResponseResult::Pong { .. }));
     }
@@ -847,8 +872,47 @@ mod tests {
             .unwrap();
 
         let response = thread.join().unwrap();
-        let parsed: SuccessResponse = serde_json::from_str(&response).unwrap();
+        let parsed: SuccessResponse = serde_json::from_str(&response.body).unwrap();
         assert_eq!(parsed.id, "req_2");
+    }
+
+    #[test]
+    fn request_reports_when_response_reaches_socket() {
+        let (api_tx, mut api_rx) = mpsc::unbounded_channel::<ApiRequestMessage>();
+        let (mut client, server, _path) = local_stream_pair("api-response-written");
+        client
+            .write_all(br#"{"id":"req_written","method":"workspace.list","params":{}}"#)
+            .unwrap();
+        client.write_all(b"\n").unwrap();
+        client.flush().unwrap();
+
+        let running = Arc::new(AtomicBool::new(true));
+        let server_running = Arc::clone(&running);
+        let event_hub = EventHub::default();
+        let server_thread = std::thread::spawn(move || {
+            handle_connection(server, &api_tx, &event_hub, &server_running, None)
+        });
+
+        let msg = api_rx.blocking_recv().unwrap();
+        let response_written = msg.response_written.unwrap();
+        msg.respond_to
+            .send(
+                serde_json::to_string(&SuccessResponse {
+                    id: "req_written".into(),
+                    result: ResponseResult::Ok {},
+                })
+                .unwrap(),
+            )
+            .unwrap();
+        response_written
+            .recv_timeout(Duration::from_secs(2))
+            .unwrap();
+
+        let mut line = String::new();
+        BufReader::new(client).read_line(&mut line).unwrap();
+        let response: SuccessResponse = serde_json::from_str(&line).unwrap();
+        assert_eq!(response.id, "req_written");
+        server_thread.join().unwrap().unwrap();
     }
 
     #[test]

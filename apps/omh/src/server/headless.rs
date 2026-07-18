@@ -60,6 +60,8 @@ use crate::server::client_transport::ClientWriter;
 #[cfg(test)]
 use std::fs;
 
+const LIVE_HANDOFF_RESPONSE_TIMEOUT: Duration = Duration::from_secs(5);
+
 fn sanitize_notification_text(value: &str, max_chars: usize) -> Option<String> {
     let mut out = String::new();
     let mut pending_space = false;
@@ -2239,7 +2241,9 @@ impl HeadlessServer {
         }
 
         if let api::schema::Method::ServerLiveHandoff(params) = &msg.request.method {
-            let response = match self.perform_live_handoff(params.clone()) {
+            let handoff_result = self.perform_live_handoff(params.clone());
+            let handoff_succeeded = handoff_result.is_ok();
+            let response = match handoff_result {
                 Ok(()) => serde_json::to_string(&api::schema::SuccessResponse {
                     id: msg.request.id,
                     result: api::schema::ResponseResult::Ok {},
@@ -2253,7 +2257,17 @@ impl HeadlessServer {
                 }),
             }
             .unwrap_or_else(|_| "{}".to_string());
-            let _ = msg.respond_to.send(response);
+            let response_sent = msg.respond_to.send(response).is_ok();
+            if handoff_succeeded
+                && response_sent
+                && msg.response_written.is_some_and(|response_written| {
+                    response_written
+                        .recv_timeout(LIVE_HANDOFF_RESPONSE_TIMEOUT)
+                        .is_err()
+                })
+            {
+                warn!("live handoff response was not written before the old server exited");
+            }
             return true;
         }
 
@@ -5844,6 +5858,7 @@ next_tab = ""
                     ),
                 },
                 respond_to,
+                response_written: None,
             })
         );
 
@@ -6380,6 +6395,7 @@ next_tab = ""
                 }),
             },
             respond_to,
+            response_written: None,
         });
 
         assert!(changed);
