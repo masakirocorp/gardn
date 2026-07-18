@@ -1,0 +1,162 @@
+---
+title: Install and operate plugins and integrations
+description: Install, inspect, run, and remove Oh My Herdr integrations and plugins without losing sight of their trust boundaries.
+---
+
+# Install and operate plugins and integrations
+
+This guide shows how to manage built-in agent integrations and Oh My Herdr plugins from the CLI. It assumes that `omh` is already available on your `PATH`.
+
+> **Trust boundary:** Plugins are not sandboxed. A linked or installed plugin executes as your current user, can read and change anything that user can access, and can launch more processes. A remote plugin's build commands also execute as your current user. Review the repository, the pinned revision, the preview, every command, and every requested pane or action before you continue. Oh My Herdr does not review or endorse plugin code.
+
+## Manage built-in agent integrations
+
+The built-in integration writes hooks, extensions, or agent configuration entries into the target agent's own configuration area. The supported targets are `pi`, `omp`, `claude`, `codex`, `devin`, `kimi`, `droid`, `copilot`, `opencode`, `hermes`, `qodercli`, `cursor`, and `grok`.
+
+1. Check what is installed and whether its embedded version is current:
+
+   ```bash
+   omh integration status
+   ```
+
+   The output includes the target, `not installed`, `current`, or `outdated`, the expected version when applicable, and the path inspected. To print only outdated installed integrations, run `omh integration status --outdated-only`.
+
+2. Install one target:
+
+   ```bash
+   omh integration install codex
+   ```
+
+   Replace `codex` with one supported target. Install checks agent availability and, for targets with a minimum agent version, reports an error or warning when that check cannot succeed. Some targets are unsupported on Windows; use the command's error and the status output for the current platform rather than assuming that every target is portable.
+
+3. Restart the affected agent pane after installing or updating an integration. Existing agent processes do not automatically reload their hook or extension configuration.
+
+4. Remove the Oh My Herdr integration when it is no longer needed:
+
+   ```bash
+   omh integration uninstall codex
+   ```
+
+   Uninstall removes Oh My Herdr-managed hook or extension files and removes Oh My Herdr-owned entries from supported agent configuration files. It does not uninstall the agent itself. It has no confirmation prompt.
+
+Integration paths are platform-aware. By default, Oh My Herdr uses `$XDG_CONFIG_HOME/omh` (or `~/.config/omh`) on Unix-like systems and `%APPDATA%\\omh` on Windows; `OMH_CONFIG_PATH` can select a specific `config.toml`. Agent-specific environment variables such as `CODEX_HOME`, `CLAUDE_CONFIG_DIR`, `COPILOT_HOME`, `KIMI_CODE_HOME`, `QODER_CONFIG_DIR`, and `CURSOR_CONFIG_DIR` can move the corresponding agent configuration. The command output is the authoritative path.
+
+> **Managed files:** Re-running an integration install rewrites the Oh My Herdr-managed hook, extension, or plugin file at its reported path. Do not edit that file to customize behavior; put custom configuration beside it or remove the integration first. A later install or update can overwrite it.
+
+## Link a local plugin
+
+Linking registers an existing directory; it does not copy the directory and does not run a build command.
+
+```bash
+omh plugin link /absolute/path/to/plugin
+```
+
+The directory (or a direct manifest path) must contain a valid `omh-plugin.toml`; the legacy `herdr-plugin.toml` filename is accepted only for compatibility. Use `--disabled` to register without running its actions or event hooks:
+
+```bash
+omh plugin link /absolute/path/to/plugin --disabled
+```
+
+Inspect the registry and manifest warnings with:
+
+```bash
+omh plugin list
+omh plugin list --json
+```
+
+Enable, disable, or remove the registry entry as needed:
+
+```bash
+omh plugin enable PLUGIN_ID
+omh plugin disable PLUGIN_ID
+omh plugin unlink PLUGIN_ID
+```
+
+`unlink` removes the registry entry and plugin pane attribution, but leaves the local source directory untouched. A running plugin pane is not killed by unlinking; it remains a normal terminal pane. See the [plugin manifest reference](/docs/reference/plugin-manifest) for the fields Oh My Herdr validates.
+
+## Install a GitHub plugin
+
+Remote installation accepts only GitHub shorthand in the form `owner/repo` or `owner/repo/subdir/...`; URL and SSH forms are rejected. The optional subdirectory selects the manifest root within the checkout.
+
+Use a reviewed, immutable ref in normal operation:
+
+```bash
+omh plugin install OWNER/REPO/plugin --ref v1.2.3
+```
+
+`--ref` is fetched directly from GitHub and the resolved commit is shown in the preview. A branch name is allowed by the CLI but is mutable; pin a tag that your review covers or, preferably, a full commit ID. Do not omit the ref for a trust-sensitive install unless you have deliberately reviewed the repository's current default revision.
+
+The install sequence is:
+
+1. Oh My Herdr shallow-fetches the repository, checks out the requested ref (or `HEAD` when no ref is given), and resolves the checked-out commit.
+2. It parses the manifest and prints a preview containing the plugin id, name, version, source, resolved commit, build/action/event/pane/link-handler counts, every command, platform skips, warnings, and any existing plugin that would be replaced.
+3. In an interactive terminal it asks `Install this plugin? [y/N]`. Answering anything other than `y` cancels before build execution.
+4. It runs supported `[[build]]` commands from the manifest root as your current user. Build commands are direct argv, not a sandbox; they may write files, run network tools, or execute arbitrary code. Each command's stdout and stderr are capped to the last 64 KiB in a failure report.
+5. It validates that the build did not change `omh-plugin.toml`, then moves the checkout into Oh My Herdr's managed plugin data and registers it.
+
+Non-interactive input must use `--yes`:
+
+```bash
+omh plugin install OWNER/REPO/plugin --ref 0123456789abcdef0123456789abcdef01234567 --yes
+```
+
+`--yes` bypasses both the preview confirmation and the human review gate; it does not make code safer. Use it only in a controlled automation environment that has already inspected the exact source and ref. If an existing plugin with the same id is locally linked, installation stops and asks you to unlink it first. A GitHub plugin can replace an existing GitHub installation; the preview identifies that replacement.
+
+If a build fails, the install is not completed. The error reports the plugin, build index, working directory, argv, exit status, and capped stdout/stderr. A build that edits the manifest also aborts installation.
+
+## Run actions and panes
+
+Actions and panes run only while the plugin is enabled and the current platform is supported.
+
+1. List actions, optionally for one plugin:
+
+   ```bash
+   omh plugin action list
+   omh plugin action list --plugin PLUGIN_ID
+   ```
+
+2. Invoke an action by id. Use the qualified `PLUGIN_ID.ACTION_ID` form when more than one plugin exposes the same action id:
+
+   ```bash
+   omh plugin action invoke PLUGIN_ID.ACTION_ID
+   ```
+
+   An invocation receives the current workspace, tab, focused pane, selection, and invocation-source context when those values exist. An action from a disabled plugin is rejected.
+
+3. Open a declared pane entrypoint:
+
+   ```bash
+   omh plugin pane open --plugin PLUGIN_ID --entrypoint ENTRYPOINT_ID --placement overlay
+   ```
+
+   The supported placements are `overlay`, `split`, `tab`, and `zoomed`. `split` can use `--target-pane PANE_ID` and `--direction right|down`; `tab` can use `--workspace WORKSPACE_ID`. `--cwd PATH` overrides the default plugin-root working directory, and repeated `--env KEY=VALUE` adds launch environment values.
+
+4. Focus or close a pane by its pane id:
+
+   ```bash
+   omh plugin pane focus PANE_ID
+   omh plugin pane close PANE_ID
+   ```
+
+Plugin panes are ordinary Oh My Herdr terminal panes. Their process is started with the plugin root as the default working directory, and Oh My Herdr replaces protected identity, path, and context environment keys with the real values. Do not attempt to spoof those values through `--env`.
+
+Enabled event hooks run automatically for supported workspace, worktree, tab, pane, and agent-status lifecycle events. Link handlers dispatch their declared action when a matching pane URL is clicked. Event and action commands execute asynchronously; inspect their runtime records with:
+
+```bash
+omh plugin log list --plugin PLUGIN_ID --limit 200
+```
+
+The log list is bounded and keeps only recent in-memory session records. A failed action or hook does not roll back the workspace change that triggered it.
+
+## Uninstall a plugin and understand the data effect
+
+Uninstall by id or by the installed GitHub source shorthand:
+
+```bash
+omh plugin uninstall PLUGIN_ID
+omh plugin uninstall OWNER/REPO/plugin
+```
+
+Uninstall removes the registry entry and, for a GitHub installation, deletes the managed checkout after verifying that it is the expected managed path. It does not delete a linked local directory. It also does not remove the per-plugin config and state directories exposed through `OMH_PLUGIN_CONFIG_DIR` and `OMH_PLUGIN_STATE_DIR`; remove those directories yourself only after checking their contents. Running panes keep running like unlink; their plugin attribution is removed, and no new actions or hooks can start after the plugin is gone.
+
+For a concise failure-oriented workflow, continue with [Troubleshoot sessions, agents, integrations, and plugins](/docs/guides/troubleshooting).

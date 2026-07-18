@@ -1,0 +1,90 @@
+---
+title: Quick start
+description: Launch Oh My Herdr, run an agent, work across panes and tabs, and reconnect to the same session.
+---
+
+# Quick start
+
+In this tutorial, we will launch Oh My Herdr, create a workspace, start an available agent profile, split the view, create a tab, read the agent status, detach, and reattach to the same session.
+
+Before you begin, complete the [installation guide](/docs/getting-started/install) and make sure at least one supported agent command is installed and usable in your shell. The agent picker shows profiles that Oh My Herdr can launch; use the first available profile it lists.
+
+## 1. Launch Oh My Herdr
+
+Run:
+
+```bash
+omh
+```
+
+On the first launch, Oh My Herdr displays onboarding. Press **Enter** on **Continue**. Onboarding then opens Settings at the Integrations section so you can review the detected agent setup. Press **Esc** to close Settings when you are ready to continue.
+
+**Checkpoint:** The terminal view shows a workspace sidebar and a pane. A fresh session starts in navigate mode.
+
+## 2. Create a workspace
+
+Use the default prefix followed by the new-workspace key:
+
+1. Press **Ctrl+B**.
+2. Release the keys, then press **Shift+N**.
+
+**Checkpoint:** A new workspace appears in the sidebar with an initial terminal pane selected.
+
+## 3. Start an agent
+
+Open the command palette and launch the first available agent profile:
+
+1. Press **Ctrl+B**, then **Space**.
+2. Type `new agent`.
+3. Press **Enter**.
+4. In the agent profile picker, select the first available profile and press **Enter**.
+
+Oh My Herdr opens the agent in a new tab in the active workspace.
+
+**Checkpoint:** The new tab contains the agent's terminal, and its name appears in the agent panel or sidebar. If the picker has no available profile, install an agent command first and restart this step.
+
+## 4. Split the pane and create another tab
+
+First split the agent tab:
+
+1. Press **Ctrl+B**.
+2. Press `v`.
+
+Then create another tab:
+
+1. Press **Ctrl+B**.
+2. Press `c`.
+
+**Checkpoint:** The agent tab has two panes, and the tab strip now includes a separate new tab. Press **Ctrl+B**, then `p` to return to the previous tab if you want the agent visible again.
+
+## 5. Scan agent status
+
+Look at the agent panel in the sidebar. The visible status labels are:
+
+- **working** — the agent is active.
+- **blocked** — the agent needs input or approval.
+- **done** — the agent finished and has not been seen yet.
+- **idle** — the agent is finished and has been seen.
+
+**Checkpoint:** You can identify the agent's current label without opening its pane.
+
+## 6. Detach
+
+Use the default detach sequence:
+
+1. Press **Ctrl+B**.
+2. Press `q`.
+
+**Checkpoint:** The TUI closes and your shell prompt returns. Detaching leaves the session server and its panes running.
+
+## 7. Reattach
+
+From the shell, run:
+
+```bash
+omh
+```
+
+**Checkpoint:** Oh My Herdr reconnects to the default session. Your workspace, tabs, panes, and still-running agent are visible again.
+
+For the vocabulary behind these objects, see [Product concepts](/docs/concepts). For updating a running session without stopping its panes, see [Updates and handoff](/docs/guides/updates-and-handoff).

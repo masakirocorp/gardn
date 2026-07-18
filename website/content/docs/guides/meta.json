@@ -1,0 +1,11 @@
+{
+  "title": "Task guides",
+  "pages": [
+    "workspaces-and-navigation",
+    "copy-and-terminal",
+    "remote",
+    "plugins-and-integrations",
+    "updates-and-handoff",
+    "troubleshooting"
+  ]
+}

@@ -1,24 +1,54 @@
 ---
 title: Product concepts
-description: The stable vocabulary used across Oh My Herdr documentation.
+description: The stable vocabulary used across Oh My Herdr sessions.
 ---
 
 # Product concepts
 
-## Space
+Oh My Herdr organizes work into a persistent session. A session contains spaces, groups, tabs, panes, terminals, and agents. The terms below describe how those objects fit together.
 
-A named working area that groups related tabs, panes, and agent changes for one project or task.
+## Space and workspace
+
+A **space** is the user-facing name for a **workspace**: a project or task area with its own tabs and panes. The UI may say “space,” while commands and status output use “workspace.” They refer to the same persistent area.
+
+Spaces commonly follow a repository or directory, but a space is not limited to one agent. It is the place where related terminal work is kept together.
+
+## Group
+
+A **group** collects spaces inside one session. Groups make it possible to filter and organize the sidebar without moving a space out of the session. A space belongs to one group at a time.
 
 ## Tab
 
-A workspace subdivision containing one or more panes.
+A **tab** is a working context inside a space. It contains one or more panes and can have its own label. Starting an agent from the agent picker opens it in a new tab, so an agent can have a dedicated context alongside shell or review tabs.
 
 ## Pane
 
-A terminal surface attached to a running shell or coding agent.
+A **pane** is one terminal surface in a tab. A tab can split into multiple panes, and each pane can host a shell, an agent, or another terminal program. Pane focus is independent from which tab is selected.
 
-## Agent
+## Terminal and runtime
 
-A coding assistant process detected or managed inside a pane.
+A **terminal** is the text surface that displays a pane's current screen and scrollback. Its **runtime** is the live shell or agent process behind that surface. This distinction explains why a client can disconnect while the work in a pane continues: the terminal and runtime belong to the session rather than to one terminal window.
 
-This page is a content-architecture placeholder. Task-oriented installation, configuration, remote-use, plugin, and Local API guidance belongs to the dedicated documentation work.
+## Agent and profile
+
+An **agent** is a coding assistant running in a pane. Oh My Herdr observes the agent's terminal and presents a state such as working, blocked, done, or idle.
+
+An **agent profile** is a launchable description for an agent command. Profiles provide the command and any required integration context; the agent profile picker lists profiles available in the current space.
+
+## Shared session and client view
+
+The **session** owns the spaces, groups, tabs, panes, terminals, runtimes, and agent state. A running session can have more than one attached client.
+
+Each **client view** is the local presentation of that shared session. Its selected workspace, tab, focused pane, navigation mode, overlays, and scroll position can differ between attached clients. Changing a client view does not create a second copy of the session.
+
+## Persistence and restore
+
+Oh My Herdr saves the session structure locally so a later launch can restore spaces, groups, tabs, pane layouts, working directories, and selected UI state. A full restore creates a fresh shell in each saved working directory; it is not a replay of every process that was running before shutdown.
+
+Agent conversation restore is a separate capability. It is enabled by default, but it requires an official integration to have reported a valid session reference. Without that reference, the pane can return as a shell or require the agent to be started manually. See [Updates and handoff](/docs/guides/updates-and-handoff) for the safe distinction between a live handoff and a full restore.
+
+## Named sessions
+
+A **named session** is a separate persistent Oh My Herdr session selected by name. Each named session has its own spaces, groups, tabs, panes, running processes, and restore state; named sessions do not replace spaces inside one session.
+
+The default session is addressed by `omh`. A named session is addressed by `omh session attach <name>`, which lets separate projects or operating contexts remain isolated while using the same Oh My Herdr installation.

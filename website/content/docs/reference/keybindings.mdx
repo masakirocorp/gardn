@@ -1,0 +1,173 @@
+---
+title: Keybindings reference
+description: Default Oh My Herdr keybindings, modes, configuration syntax, and terminal caveats.
+---
+
+# Keybindings reference
+
+This reference describes the built-in v2 keybindings. The default prefix is `ctrl+b`: press it first, then the listed key. A blank default is unset; it does not mean that an alternate shortcut is guaranteed. Use the [workspaces and navigation guide](/docs/guides/workspaces-and-navigation) for task-oriented examples.
+
+## Application and workspace actions
+
+| Action                    | Default          |
+| ------------------------- | ---------------- |
+| Open keybinding help      | `prefix+?`       |
+| Open settings             | `prefix+s`       |
+| Create workspace          | `prefix+shift+n` |
+| Rename workspace          | `prefix+shift+w` |
+| Close workspace           | `prefix+shift+d` |
+| Open workspace picker     | `prefix+w`       |
+| Open navigator            | `prefix+g`       |
+| Detach or quit            | `prefix+q`       |
+| Reload configuration      | `prefix+shift+r` |
+| Focus notification target | `prefix+o`       |
+| Open command palette      | `prefix+space`   |
+| Previous workspace        | unset            |
+| Next workspace            | unset            |
+
+Closing a workspace can terminate its pane processes and is confirmed by default. Detach leaves a running server available; it is not the same as closing a workspace.
+
+## Groups, agents, and remote actions
+
+| Action                                          | Default           |
+| ----------------------------------------------- | ----------------- |
+| Open group menu                                 | unset             |
+| Create group                                    | unset             |
+| Rename group                                    | unset             |
+| Delete group                                    | unset             |
+| Toggle group filter                             | unset             |
+| Previous group                                  | unset             |
+| Next group                                      | unset             |
+| Switch group 1–10                               | `prefix+alt+1..0` |
+| Previous agent                                  | unset             |
+| Next agent                                      | unset             |
+| Open agent menu                                 | unset             |
+| Focus agent 1–9                                 | unset             |
+| Paste a local clipboard image in `omh --remote` | `ctrl+v`          |
+
+The remote image binding is active only for a remote app attach. Set `keys.remote_image_paste = ""` to disable the raw-key image-paste path. Image paste and remote use are covered in the [remote guide](/docs/guides/remote).
+
+## Tabs
+
+| Action                | Default             |
+| --------------------- | ------------------- |
+| Create tab            | `prefix+c`          |
+| Rename tab            | `prefix+shift+t`    |
+| Previous tab          | `prefix+p`          |
+| Next tab              | `prefix+n`          |
+| Switch tab 1–10       | `prefix+1..0`       |
+| Switch workspace 1–10 | `prefix+shift+1..0` |
+| Close tab             | `prefix+shift+x`    |
+
+## Panes and layout
+
+| Action               | Default            |
+| -------------------- | ------------------ |
+| Rename pane          | `prefix+shift+p`   |
+| Edit scrollback      | `prefix+e`         |
+| Enter copy mode      | `prefix+[`         |
+| Focus pane left      | `prefix+h`         |
+| Focus pane down      | `prefix+j`         |
+| Focus pane up        | `prefix+k`         |
+| Focus pane right     | `prefix+l`         |
+| Cycle pane next      | `prefix+tab`       |
+| Cycle pane previous  | `prefix+shift+tab` |
+| Focus last pane      | unset              |
+| Split vertically     | `prefix+v`         |
+| Split horizontally   | `prefix+minus`     |
+| Close pane           | `prefix+x`         |
+| Zoom pane            | `prefix+z`         |
+| Resize mode          | `prefix+r`         |
+| Toggle left sidebar  | `prefix+b`         |
+| Toggle right sidebar | unset              |
+
+## Navigate mode
+
+Enter navigate mode with `prefix+g`. These local movement bindings are handled while that mode is open and are separate from the prefix pane-focus bindings.
+
+| Action                        | Default                 |
+| ----------------------------- | ----------------------- |
+| Move workspace selection up   | `up`                    |
+| Move workspace selection down | `down`                  |
+| Focus pane left               | `h` or `left`           |
+| Focus pane down               | `j` or `down`           |
+| Focus pane up                 | `k` or `up`             |
+| Focus pane right              | `l` or `right`          |
+| Switch selected workspace     | `enter`                 |
+| Switch visible workspace 1–10 | `1..0`                  |
+| Cycle pane next               | `tab`                   |
+| Cycle pane previous           | `shift+tab`             |
+| Leave navigate mode           | `esc` or the prefix key |
+
+`enter`, `tab`, `shift+tab`, `esc`, the prefix key, and unmodified `1..0` are reserved by navigate mode and cannot be used as its indexed movement bindings. When navigate mode is active, the arrow aliases for left and right are always available even if the configured `h` or `l` binding changes.
+
+## Copy mode
+
+Enter copy mode with `prefix+[`. These keys are mode-local and operate on the focused pane's scrollback.
+
+| Action                         | Default                                  |
+| ------------------------------ | ---------------------------------------- |
+| Leave without copying          | `q`                                      |
+| Copy selection and leave       | `y` or `enter`                           |
+| Start character selection      | `v` or `space`                           |
+| Select current line            | `shift+v`                                |
+| Move cursor left/down/up/right | `h`/`j`/`k`/`l` or arrow keys            |
+| Scroll one page up/down        | `pageup`/`pagedown` or `ctrl+b`/`ctrl+f` |
+| Scroll half page up/down       | `ctrl+u`/`ctrl+d`                        |
+| History top/bottom             | `g`/`shift+g`                            |
+| Line start/end                 | `0`/`$`                                  |
+| First non-blank character      | `^`                                      |
+| Next/previous word start       | `w`/`b`                                  |
+| Next word end                  | `e`                                      |
+| Previous/next paragraph        | `{`/`}`                                  |
+| Search forward/backward        | `/`/`?`                                  |
+| Repeat search forward/backward | `n`/`shift+n`                            |
+| Clear selection or search      | `esc`                                    |
+
+While the search prompt is open, `enter` submits, `esc` cancels, `backspace` removes a character, and `ctrl+u` clears the query.
+
+## Configure bindings
+
+Key configuration is TOML under `[keys]`. The prefix itself can be a plain key, a function key, `esc`, or a modified key:
+
+```toml
+[keys]
+prefix = "ctrl+b"
+command_palette = "prefix+space"
+focus_pane_left = "prefix+h"
+settings = "ctrl+alt+s"
+```
+
+A value beginning with `prefix+` is a prefix-mode action. A value such as `ctrl+alt+s` is a direct terminal-mode shortcut. Accepted syntax includes plain keys, `ctrl`, `shift`, `alt`, `cmd`/`super` modifiers, special keys such as `enter`, `tab`, `esc`, arrows, and named punctuation such as `minus`, `comma`, `plus`, and `backtick`. Ranges such as `prefix+1..0` expand to the ten number keys.
+
+Custom commands use the same binding syntax:
+
+```toml
+[[keys.command]]
+key = "prefix+g"
+type = "pane"
+command = "lazygit"
+description = "open lazygit"
+```
+
+`type = "pane"` opens a temporary pane and closes it when the command exits. `type = "shell"` runs the command detached in the background. On Windows, command strings run through `cmd.exe /d /c`. Custom commands run with the focused workspace, tab, and pane context when a pane target exists.
+
+The legacy `[keys.indexed]` table is still parsed, but new configurations should use `switch_tab`, `switch_workspace`, `switch_group`, and `focus_agent`.
+
+## Reset customized keys
+
+To remove customized keybinding sections and restore built-in v2 defaults:
+
+```sh
+omh config reset-keys
+```
+
+This command creates a timestamped backup, removes `[keys]`, `[keys.indexed]`, and `[[keys.command]]`, and leaves other configuration sections in place. It is a destructive configuration edit: keep the printed backup path if you may need to restore the old bindings. Restart Oh My Herdr or run `omh server reload-config` for a running server to apply the defaults. The command refuses to rewrite an invalid or unsafe TOML file; fix it manually in that case.
+
+## Terminal caveats
+
+- The outer terminal or tmux may intercept control, Alt/Option, Command/Super, or punctuation-modified keys before Oh My Herdr receives them.
+- The source configuration describes `cmd`/`super` and punctuation-modified bindings as terminal-dependent; direct `ctrl+letter`, function keys, and explicit modified chords are generally the most reliable choices.
+- A direct printable binding is unsafe because it would intercept ordinary text input and is rejected by configuration validation. Prefer a prefix action or an explicit modified chord.
+- Prefix actions require the prefix first. If a key is not a registered prefix action, prefix mode ends; the terminal-dependent result may vary with the outer terminal and tmux.
+- Copy and navigate modes have reserved keys that are not ordinary terminal-mode bindings. Use the mode tables above rather than inferring that a configured terminal-mode action also applies inside a mode.

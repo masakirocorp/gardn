@@ -1,0 +1,4 @@
+{
+  "title": "Product reference",
+  "pages": ["cli", "configuration", "keybindings", "plugin-manifest", "platforms"]
+}

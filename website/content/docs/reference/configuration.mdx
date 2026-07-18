@@ -1,0 +1,361 @@
+---
+title: Configuration reference
+description: Configuration file locations, reload behavior, sections, keys, defaults, and diagnostics for Oh My Herdr.
+---
+
+# Configuration reference
+
+Oh My Herdr reads a TOML configuration file. This page describes version 0.2.18 configuration behavior and defaults. The generated template is available with [`omh --default-config`](/docs/reference/cli#global-session-and-remote-options).
+
+## File and state paths
+
+### Configuration path precedence
+
+The configuration file is selected in this order:
+
+| Priority | Condition                           | Path                                                  |
+| -------- | ----------------------------------- | ----------------------------------------------------- |
+| 1        | `OMH_CONFIG_PATH` is set            | The exact path in `OMH_CONFIG_PATH`.                  |
+| 2        | `XDG_CONFIG_HOME` is set            | `$XDG_CONFIG_HOME/omh/config.toml` on release builds. |
+| 3        | Windows and `APPDATA` is set        | `%APPDATA%/omh/config.toml`.                          |
+| 4        | `HOME` is set                       | `$HOME/.config/omh/config.toml`.                      |
+| 5        | No preceding directory is available | A temporary-directory fallback under `omh` is used.   |
+
+A debug source build uses the application directory name `omh-dev` in these derived paths. A release build uses `omh`.
+
+`OMH_CONFIG_PATH` wins over all directory variables and may point outside the derived configuration directory. Relative paths in `ui.sound.path`, `ui.sound.done_path`, and `ui.sound.request_path` are resolved relative to the selected configuration file's parent directory.
+
+### State paths
+
+State uses a separate platform path and has no `OMH_CONFIG_PATH` override:
+
+| Platform/condition                  | State directory                                           |
+| ----------------------------------- | --------------------------------------------------------- |
+| `XDG_STATE_HOME` is set             | `$XDG_STATE_HOME/omh`                                     |
+| Windows and `LOCALAPPDATA` is set   | `%LOCALAPPDATA%/omh/state`                                |
+| `HOME` is set                       | `$HOME/.local/state/omh`                                  |
+| No preceding directory is available | A temporary-directory fallback under `omh-state` is used. |
+
+The configuration directory contains the default session snapshot at `session.json`. Named session data is under `sessions/<name>/`. The state directory stores state such as plugin state, agent-detection manifest caches, and product-announcement state. The exact files in those directories are runtime data, not configuration keys.
+
+## Loading, missing files, and diagnostics
+
+- A missing configuration file loads built-in defaults and produces no diagnostic.
+- A configuration read error loads built-in defaults and records a read diagnostic.
+- A TOML parse error loads built-in defaults and records a parse diagnostic.
+- A valid file with an unknown top-level table records a diagnostic. The loader does not promise strict schema validation for every unknown key or nested value.
+- Invalid values can produce diagnostics while the corresponding value or section falls back to a default or remains unchanged during a live reload.
+
+`omh config check` reads the selected file and prints either `config: ok` or each diagnostic. It returns `0` when no diagnostics are reported and `1` when diagnostics are reported. A usage error returns `2`. See the [CLI reference](/docs/reference/cli#config).
+
+## Reload and startup application
+
+Configuration reload is available through `omh server reload-config` and the configured in-app reload action (default `prefix+shift+r`). The server returns one of these statuses:
+
+| Status    | Condition                                                              | Application behavior                                                                       |
+| --------- | ---------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| `applied` | The file loaded without diagnostics.                                   | All reloadable sections are applied.                                                       |
+| `partial` | The file loaded with diagnostics or one or more sections were invalid. | Valid reloadable sections are applied; invalid sections retain their previous live values. |
+| `failed`  | The file could not be read or parsed as a reloadable TOML document.    | The current live configuration is retained.                                                |
+
+`omh server reload-config` prints the JSON response. A successful API response, including a report whose status is `partial`, exits `0`; a server/API error exits `1`. The in-app reload reports the same status in its configuration diagnostics surface.
+
+| Section or key                                               | Startup                     | Live reload                    | Scope of a live change                                                                                      |
+| ------------------------------------------------------------ | --------------------------- | ------------------------------ | ----------------------------------------------------------------------------------------------------------- |
+| `onboarding`                                                 | Applied                     | No standalone live application | Controls whether the onboarding surface is shown at startup.                                                |
+| `theme`                                                      | Applied                     | Yes                            | Global theme names, mode, terminal accents, and custom colors.                                              |
+| `terminal`                                                   | Applied                     | Yes                            | Defaults used by newly created panes, tabs, and workspaces; existing shells are not rewritten.              |
+| `session.resume_agents_on_restore`                           | Applied                     | Copied into runtime state      | Controls agent restoration when session data is restored; it does not rewrite already running panes.        |
+| `keys`                                                       | Applied                     | Yes                            | Prefix and action bindings for the running app/server.                                                      |
+| `ui`                                                         | Applied                     | Yes                            | Live UI defaults and current server-side UI settings. Client-local initial view state remains client-local. |
+| `ui.sidebar.initial_state`, `ui.sidebar.initial_agent_scope` | Applied                     | Yes for future client defaults | Values are the initial view defaults for newly connected clients.                                           |
+| `advanced`                                                   | Applied                     | Yes                            | Scrollback limit used by pane terminals. Existing retained output is not expanded retroactively.            |
+| `worktrees`                                                  | Applied                     | Yes                            | Worktree root used by future worktree operations. Existing checkouts are not moved.                         |
+| `git`                                                        | Applied                     | No                             | `diff_command` is captured by the running app at startup.                                                   |
+| `update`                                                     | Applied                     | Yes                            | Background version and manifest check scheduling.                                                           |
+| `agent_profiles`                                             | Applied                     | Yes                            | Profile catalog and integration recommendations; running processes are unchanged.                           |
+| `remote`                                                     | Applied for a remote launch | No for an existing bridge      | `manage_ssh_config` is read when a remote SSH launch starts.                                                |
+| `experimental`                                               | Applied                     | Yes                            | Experimental runtime toggles, pane history, IME cursor behavior, and macOS input-source behavior.           |
+
+Reload is section-oriented rather than an all-or-nothing schema validation pass. For example, a bad `[keys]` section can leave current keybindings in place while a valid `[theme]` section is applied. Invalid `[ui]` sidebar bounds (`sidebar_min_width > sidebar_max_width`) retain the previous UI section. Sound-file diagnostics and keybinding diagnostics can produce `partial` while other valid settings are applied.
+
+## Top-level settings
+
+### `onboarding`
+
+| Key          | Type              | Default                    | Description                                                           |
+| ------------ | ----------------- | -------------------------- | --------------------------------------------------------------------- |
+| `onboarding` | boolean or `null` | missing (`true` effective) | When `true` or missing, show onboarding at startup. `false` skips it. |
+
+### `[theme]`
+
+| Key                     | Type                                                   | Default  | Description                                                                                                      |
+| ----------------------- | ------------------------------------------------------ | -------- | ---------------------------------------------------------------------------------------------------------------- |
+| `name`                  | string or `null`                                       | `null`   | Legacy single theme name. When `light` or `dark` is absent, it supplies the corresponding appearance when valid. |
+| `light`                 | string or `null`                                       | `null`   | Built-in theme for light appearance. Effective fallback: `catppuccin-latte`.                                     |
+| `dark`                  | string or `null`                                       | `null`   | Built-in theme for dark appearance. Effective fallback: `catppuccin`.                                            |
+| `mode`                  | `system`, `light`, or `dark`                           | `system` | Resolves the active light/dark appearance. `system` follows the host terminal appearance when available.         |
+| `terminal_accent`       | `blue`, `magenta`, `cyan`, `green`, `yellow`, or `red` | `blue`   | ANSI accent used when no appearance-specific terminal accent is set.                                             |
+| `terminal_light_accent` | terminal accent or `null`                              | `null`   | ANSI accent for light appearance; falls back to `terminal_accent`.                                               |
+| `terminal_dark_accent`  | terminal accent or `null`                              | `null`   | ANSI accent for dark appearance; falls back to `terminal_accent`.                                                |
+| `[theme.custom]`        | table                                                  | `null`   | Optional token overrides applied on top of the selected built-in theme.                                          |
+
+The built-in `name`, `light`, and `dark` values are theme names such as `catppuccin`, `catppuccin-latte`, `dracula`, `nord`, `gruvbox`, `tokyo-night`, and the other names included in [`omh --default-config`](/docs/reference/cli#global-session-and-remote-options). A name is resolved separately for light and dark appearance.
+
+#### `[theme.custom]` keys
+
+Each custom color is a string. Accepted color forms are `#rrggbb`, `#rgb`, a named color, `rgb(r,g,b)`, and reset aliases where supported.
+
+| Key           | Default |
+| ------------- | ------- |
+| `accent`      | `null`  |
+| `panel_bg`    | `null`  |
+| `surface0`    | `null`  |
+| `surface1`    | `null`  |
+| `surface_dim` | `null`  |
+| `overlay0`    | `null`  |
+| `overlay1`    | `null`  |
+| `text`        | `null`  |
+| `subtext0`    | `null`  |
+| `mauve`       | `null`  |
+| `green`       | `null`  |
+| `yellow`      | `null`  |
+| `red`         | `null`  |
+| `blue`        | `null`  |
+| `teal`        | `null`  |
+| `peach`       | `null`  |
+
+### `[terminal]`
+
+| Key             | Type                                          | Default  | Description                                                                                                                                                                                                      |
+| --------------- | --------------------------------------------- | -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `default_shell` | string                                        | `""`     | Executable for new interactive panes. Empty uses `SHELL`, then `/bin/sh`.                                                                                                                                        |
+| `shell_mode`    | `auto`, `login`, or `non_login`               | `auto`   | Startup mode for new pane shells. `auto` uses login shells on macOS and current behavior elsewhere.                                                                                                              |
+| `new_cwd`       | `follow`, `home`, `current`, or a path string | `follow` | Working-directory policy for new panes, tabs, and workspaces when no explicit `--cwd` is supplied. `follow` inherits the source; `home` uses the home directory; `current` uses Oh My Herdr's process directory. |
+
+### `[session]`
+
+| Key                        | Type    | Default | Description                                                                                                                                                            |
+| -------------------------- | ------- | ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `resume_agents_on_restore` | boolean | `true`  | Resume supported AI-agent panes into native conversation sessions when restoring session data. The required session references are supplied by supported integrations. |
+
+### `[keys]`
+
+Key binding syntax and the full interactive binding surface are described in the [keybinding reference](/docs/reference/keybindings). A binding accepts one string or an array of strings. Empty strings and empty arrays leave optional actions unset.
+
+| Key                        | Default             | Description                                                                                 |
+| -------------------------- | ------------------- | ------------------------------------------------------------------------------------------- |
+| `prefix`                   | `ctrl+b`            | Prefix key that enters prefix mode.                                                         |
+| `help`                     | `prefix+?`          | Open keybinding help.                                                                       |
+| `settings`                 | `prefix+s`          | Open settings.                                                                              |
+| `new_workspace`            | `prefix+shift+n`    | Create a workspace.                                                                         |
+| `rename_workspace`         | `prefix+shift+w`    | Rename the selected workspace.                                                              |
+| `close_workspace`          | `prefix+shift+d`    | Close the selected workspace.                                                               |
+| `workspace_picker`         | `prefix+w`          | Open workspace navigation.                                                                  |
+| `goto`                     | `prefix+g`          | Open the session navigator.                                                                 |
+| `navigate_workspace_up`    | `up`                | Move workspace selection up in navigate mode.                                               |
+| `navigate_workspace_down`  | `down`              | Move workspace selection down in navigate mode.                                             |
+| `navigate_pane_left`       | `h`                 | Focus left in navigate mode; left arrow is also an alias.                                   |
+| `navigate_pane_down`       | `j`                 | Focus down in navigate mode.                                                                |
+| `navigate_pane_up`         | `k`                 | Focus up in navigate mode.                                                                  |
+| `navigate_pane_right`      | `l`                 | Focus right in navigate mode; right arrow is also an alias.                                 |
+| `detach`                   | `prefix+q`          | Detach from the client/server view or exit no-session mode.                                 |
+| `reload_config`            | `prefix+shift+r`    | Reload `config.toml`.                                                                       |
+| `open_notification_target` | `prefix+o`          | Focus the visible notification target.                                                      |
+| `command_palette`          | `prefix+space`      | Open the command palette.                                                                   |
+| `previous_workspace`       | unset               | Select the previous workspace.                                                              |
+| `next_workspace`           | unset               | Select the next workspace.                                                                  |
+| `open_group_menu`          | unset               | Open the group menu.                                                                        |
+| `new_group`                | unset               | Create a group.                                                                             |
+| `rename_group`             | unset               | Rename the active group.                                                                    |
+| `delete_group`             | unset               | Delete the active group.                                                                    |
+| `toggle_group_filter`      | unset               | Toggle current-group/all-group filtering.                                                   |
+| `previous_group`           | unset               | Focus the previous group.                                                                   |
+| `next_group`               | unset               | Focus the next group.                                                                       |
+| `switch_group`             | `prefix+alt+1..0`   | Switch to groups 1–10.                                                                      |
+| `previous_agent`           | unset               | Focus the previous agent in the agent panel.                                                |
+| `next_agent`               | unset               | Focus the next agent in the agent panel.                                                    |
+| `open_agent_menu`          | unset               | Open the agent-scope menu.                                                                  |
+| `focus_agent`              | unset               | Focus an agent by index 1–9.                                                                |
+| `remote_image_paste`       | `ctrl+v`            | Local-client shortcut for sending a clipboard image to a remote session. Empty disables it. |
+| `new_tab`                  | `prefix+c`          | Create a tab.                                                                               |
+| `rename_tab`               | `prefix+shift+t`    | Rename the active tab.                                                                      |
+| `previous_tab`             | `prefix+p`          | Select the previous tab.                                                                    |
+| `next_tab`                 | `prefix+n`          | Select the next tab.                                                                        |
+| `switch_tab`               | `prefix+1..0`       | Switch to tabs 1–10.                                                                        |
+| `switch_workspace`         | `prefix+shift+1..0` | Switch to workspaces 1–10.                                                                  |
+| `close_tab`                | `prefix+shift+x`    | Close the active tab.                                                                       |
+| `rename_pane`              | `prefix+shift+p`    | Rename the focused pane.                                                                    |
+| `edit_scrollback`          | `prefix+e`          | Open focused-pane scrollback in `EDITOR`.                                                   |
+| `copy_mode`                | `prefix+[`          | Enter keyboard copy mode.                                                                   |
+| `focus_pane_left`          | `prefix+h`          | Focus the pane to the left.                                                                 |
+| `focus_pane_down`          | `prefix+j`          | Focus the pane below.                                                                       |
+| `focus_pane_up`            | `prefix+k`          | Focus the pane above.                                                                       |
+| `focus_pane_right`         | `prefix+l`          | Focus the pane to the right.                                                                |
+| `cycle_pane_next`          | `prefix+tab`        | Cycle to the next pane.                                                                     |
+| `cycle_pane_previous`      | `prefix+shift+tab`  | Cycle to the previous pane.                                                                 |
+| `last_pane`                | unset               | Focus the last-focused pane across workspaces and tabs.                                     |
+| `split_vertical`           | `prefix+v`          | Split vertically.                                                                           |
+| `split_horizontal`         | `prefix+minus`      | Split horizontally.                                                                         |
+| `close_pane`               | `prefix+x`          | Close the focused pane.                                                                     |
+| `zoom`                     | `prefix+z`          | Toggle pane zoom. `fullscreen` is a legacy alias for this key.                              |
+| `resize_mode`              | `prefix+r`          | Enter resize mode.                                                                          |
+| `toggle_sidebar`           | `prefix+b`          | Toggle the left/sidebar view.                                                               |
+| `toggle_right_sidebar`     | unset               | Toggle the right sidebar.                                                                   |
+| `[keys.indexed]`           | table               | Legacy indexed shortcuts; `tabs`, `workspaces`, and `agents` default to unset.              |
+| `[[keys.command]]`         | empty list          | Add a custom command binding.                                                               |
+
+`[keys.indexed]` contains:
+
+| Key          | Default | Description                                              |
+| ------------ | ------- | -------------------------------------------------------- |
+| `tabs`       | unset   | Modifier combination for direct tab shortcuts 1–9.       |
+| `workspaces` | unset   | Modifier combination for direct workspace shortcuts 1–9. |
+| `agents`     | unset   | Modifier combination for direct agent shortcuts 1–9.     |
+
+Each `[[keys.command]]` entry contains:
+
+| Key           | Type                                | Default | Description                                                                             |
+| ------------- | ----------------------------------- | ------- | --------------------------------------------------------------------------------------- |
+| `key`         | binding or list of bindings         | unset   | Trigger binding. `prefix+...` is a prefix-mode trigger; a modified chord can be direct. |
+| `command`     | string                              | `""`    | Command text or plugin action identifier, according to `type`.                          |
+| `type`        | `shell`, `pane`, or `plugin_action` | `shell` | Run a detached shell command, run in a temporary pane, or invoke a plugin action.       |
+| `description` | string or `null`                    | `null`  | Optional custom description.                                                            |
+
+### `[ui]`
+
+| Key                                 | Type                                                     | Default                | Description                                                                                                                                                                 |
+| ----------------------------------- | -------------------------------------------------------- | ---------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `sidebar_width`                     | integer                                                  | `26`                   | Default expanded sidebar width in columns.                                                                                                                                  |
+| `sidebar_min_width`                 | integer                                                  | `18`                   | Minimum expanded sidebar width.                                                                                                                                             |
+| `sidebar_max_width`                 | integer                                                  | `36`                   | Maximum expanded sidebar width.                                                                                                                                             |
+| `mobile_width_threshold`            | integer                                                  | `64`                   | Terminal width at or below which the mobile single-column layout is used.                                                                                                   |
+| `sidebar_arrangement`               | `auto`, `separate`, `combined_left`, or `combined_right` | `auto`                 | Desktop sidebar arrangement.                                                                                                                                                |
+| `mouse_capture`                     | boolean                                                  | `true`                 | Capture mouse input for the Oh My Herdr UI.                                                                                                                                 |
+| `copy_on_select`                    | boolean                                                  | `true`                 | Copy text selected by mouse drag.                                                                                                                                           |
+| `host_cursor`                       | `auto`, `native`, or `drawn`                             | `auto`                 | Host-terminal cursor policy.                                                                                                                                                |
+| `right_click_passthrough_modifier`  | modifier string or empty                                 | empty                  | Modifier that forwards right-click hold/drag gestures to pane apps. Supported modifiers include `ctrl`, `alt`, `cmd`, `super`, `meta`, and `hyper`, including combinations. |
+| `redraw_on_focus_gained`            | boolean                                                  | `true`                 | Force a full host-terminal redraw when the outer terminal regains focus.                                                                                                    |
+| `mouse_scroll_lines`                | positive integer or `null`                               | `null` (effective `3`) | Lines scrolled per mouse-wheel notch.                                                                                                                                       |
+| `confirm_close`                     | boolean                                                  | `true`                 | Ask for confirmation before closing a workspace.                                                                                                                            |
+| `prompt_new_tab_name`               | boolean                                                  | `true`                 | Ask for a tab name before creating a tab.                                                                                                                                   |
+| `show_agent_labels_on_pane_borders` | boolean                                                  | `false`                | Show detected/reported agent labels in split-pane borders when no manual label is set.                                                                                      |
+| `pane_borders`                      | boolean                                                  | `true`                 | Draw borders around split panes.                                                                                                                                            |
+| `pane_gaps`                         | boolean                                                  | `true`                 | Keep split panes visually separated from divider borders.                                                                                                                   |
+| `hide_tab_bar_when_single_tab`      | boolean                                                  | `false`                | Hide the tab row when the active workspace has one tab.                                                                                                                     |
+| `sidebar_collapsed_mode`            | `compact` or `hidden`                                    | `compact`              | Render a narrow rail or zero-width area when collapsed.                                                                                                                     |
+| `accent`                            | color string                                             | `cyan`                 | Accent for highlights, borders, and navigation UI. Supports hex, named colors, and `rgb(r,g,b)`.                                                                            |
+| `[ui.toast]`                        | table                                                    | see below              | Background notification popup configuration.                                                                                                                                |
+| `[ui.sound]`                        | table                                                    | see below              | Background agent-state sound configuration.                                                                                                                                 |
+| `[ui.sidebar]`                      | table                                                    | see below              | Sidebar initial view and row layout configuration.                                                                                                                          |
+
+#### `[ui.sidebar]`
+
+| Key                                 | Type                                 | Default                         | Description                                                                     |
+| ----------------------------------- | ------------------------------------ | ------------------------------- | ------------------------------------------------------------------------------- |
+| `initial_state`                     | `expanded` or `collapsed`            | `expanded`                      | Initial sidebar state for each newly connected client.                          |
+| `initial_agent_scope`               | `all`, `group`, or `current`         | `all`                           | Initial agent panel scope: all agents, the current group, or the current space. |
+| `[ui.sidebar.agents].rows`          | array of token arrays                | `[["workspace"]]`               | Default rows and tokens for agent entries.                                      |
+| `[ui.sidebar.agents].rows_by_agent` | table of string keys to token arrays | `{}`                            | Per-agent layout overrides keyed by canonical agent ID.                         |
+| `[ui.sidebar.spaces].rows`          | array of token arrays                | `[["state_icon", "workspace"]]` | Rows and tokens for space entries.                                              |
+
+Agent-row tokens are `state_icon`, `state_text`, `workspace`, `tab`, `pane`, `agent`, `terminal_title`, `terminal_title_stripped`, and custom tokens beginning with `$`. Space-row tokens are `state_icon`, `state_text`, `workspace`, `branch`, `git_status`, and custom tokens beginning with `$`. A layout can contain at most 16 rows and 16 tokens per row. Unknown built-in tokens, invalid custom token names, and unknown canonical agent IDs are diagnostics.
+
+#### `[ui.toast]`
+
+| Key                             | Type                                                                                     | Default         | Description                                                                                                         |
+| ------------------------------- | ---------------------------------------------------------------------------------------- | --------------- | ------------------------------------------------------------------------------------------------------------------- |
+| `delivery`                      | `off`, `omh`, `terminal`, or `system`                                                    | `off`           | Disable popups, show in-app toasts, request an outer-terminal notification, or request the OS notification service. |
+| `delay_seconds`                 | integer from `0` to `3600`                                                               | `1`             | Delay before a background notification is delivered.                                                                |
+| `[ui.toast.omh].position`       | `top-left`, `top-right`, `bottom-left`, or `bottom-right`                                | `bottom-right`  | In-app toast position.                                                                                              |
+| `[ui.toast.clipboard].enabled`  | boolean                                                                                  | `true`          | Enable clipboard toast notifications.                                                                               |
+| `[ui.toast.clipboard].position` | `top-left`, `top-center`, `top-right`, `bottom-left`, `bottom-center`, or `bottom-right` | `bottom-center` | Clipboard toast position.                                                                                           |
+
+The legacy `ui.toast.enabled` boolean is accepted for compatibility and maps to `delivery = "omh"` when true or `delivery = "off"` when false, unless an explicit `delivery` is present.
+
+#### `[ui.sound]`
+
+| Key                 | Type           | Default            | Description                                                                                           |
+| ------------------- | -------------- | ------------------ | ----------------------------------------------------------------------------------------------------- |
+| `enabled`           | boolean        | `true`             | Enable background agent-state sounds.                                                                 |
+| `path`              | path or `null` | `null`             | One MP3 file used for all sound notifications. Relative paths use the configuration file's directory. |
+| `done_path`         | path or `null` | `null`             | MP3 for done notifications; falls back to `path`.                                                     |
+| `request_path`      | path or `null` | `null`             | MP3 for request/attention notifications; falls back to `path`.                                        |
+| `[ui.sound.agents]` | table          | per-agent defaults | Per-agent sound overrides.                                                                            |
+
+Agent sound override keys are `pi`, `claude`, `codex`, `gemini`, `cursor`, `agy`, `cline`, `open_code`, `github_copilot`, `devin`, `kimi`, `kiro`, `droid`, `amp`, `grok`, `hermes`, `kilo`, `qodercli`, and `maki`. Each accepts `default`, `on`, or `off`; every key defaults to `default` except `droid`, which defaults to `off`. Sound paths must resolve to existing MP3 files; invalid, missing, or non-MP3 files are diagnostics and use the default sound.
+
+### `[worktrees]`
+
+| Key         | Type        | Default            | Description                                                                                                             |
+| ----------- | ----------- | ------------------ | ----------------------------------------------------------------------------------------------------------------------- |
+| `directory` | path string | `~/.omh/worktrees` | Root directory under which Oh My Herdr creates `<repo>/<branch-slug>` checkouts. `~` is expanded when the path is used. |
+
+### `[git]`
+
+| Key            | Type   | Default   | Description                                                                                                                             |
+| -------------- | ------ | --------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `diff_command` | string | `lazygit` | Command launched by the open-git-diff action in the selected repository root. The command is interpreted by the project-command runner. |
+
+### `[update]`
+
+| Key              | Type    | Default | Description                                                          |
+| ---------------- | ------- | ------- | -------------------------------------------------------------------- |
+| `version_check`  | boolean | `true`  | Check GitHub for a newer Oh My Herdr release in the background.      |
+| `manifest_check` | boolean | `true`  | Check for remote agent-detection manifest updates in the background. |
+
+### `[agent_profiles]`
+
+| Key      | Type             | Default | Description                                                                                                                                                   |
+| -------- | ---------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `order`  | array of strings | `[]`    | Optional global profile order. System IDs use the form `system:<kind>`; custom IDs are normalized to `user:<id>`. Unlisted profiles follow the catalog order. |
+| `custom` | array of tables  | `[]`    | User-defined agent profiles.                                                                                                                                  |
+
+Each `[[agent_profiles.custom]]` entry has:
+
+| Key       | Type             | Default  | Description                                                                                                     |
+| --------- | ---------------- | -------- | --------------------------------------------------------------------------------------------------------------- |
+| `id`      | string           | required | Stable custom profile ID.                                                                                       |
+| `name`    | string           | required | Display name.                                                                                                   |
+| `kind`    | agent kind       | required | Agent kind, including supported system kinds or `custom`.                                                       |
+| `command` | string           | required | Command parsed into an argument vector. Shell pipes, redirects, globbing, and `$VAR` expansion are not applied. |
+| `env`     | table of strings | `{}`     | Environment variables added to the profile process.                                                             |
+| `enabled` | boolean          | `true`   | Whether the custom profile is available for launch.                                                             |
+
+System profiles are catalogued from detected supported agent kinds. A custom profile with an invalid command or invalid environment entries is retained as a profile diagnostic and is not launchable.
+
+### `[remote]`
+
+| Key                 | Type    | Default | Description                                                                                                                                                                               |
+| ------------------- | ------- | ------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `manage_ssh_config` | boolean | `true`  | For `omh --remote`, use a generated SSH configuration that includes the user's SSH configuration and keepalive fallbacks. `false` runs plain SSH with the user's configuration unchanged. |
+
+This setting is read when a remote bridge starts. It does not change an already running SSH bridge through configuration reload.
+
+### `[advanced]`
+
+| Key                      | Type             | Default    | Description                                                                                                      |
+| ------------------------ | ---------------- | ---------- | ---------------------------------------------------------------------------------------------------------------- |
+| `scrollback_limit_bytes` | positive integer | `10000000` | Maximum retained scrollback buffer per pane terminal. The legacy key `scrollback_lines` is accepted as an alias. |
+
+### `[experimental]`
+
+These settings are experimental runtime controls. Their names and behavior can change between releases.
+
+| Key                                   | Type                                                                             | Default        | Description                                                                                                                                                                            |
+| ------------------------------------- | -------------------------------------------------------------------------------- | -------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `allow_nested`                        | boolean                                                                          | `false`        | Allow launching Oh My Herdr inside an Oh My Herdr-managed pane.                                                                                                                        |
+| `kitty_graphics`                      | boolean                                                                          | `false`        | Enable local Kitty graphics rendering for attached clients.                                                                                                                            |
+| `pane_history`                        | boolean                                                                          | `true`         | Persist pane screen history to `session-history.json`. Disabling it clears persisted history during live reload.                                                                       |
+| `reveal_hidden_cursor_for_cjk_ime`    | boolean                                                                          | `false`        | Expose a focused pane's cursor anchor to the outer terminal for macOS native input methods even when the pane hides its cursor.                                                        |
+| `cjk_ime_agents`                      | array of strings                                                                 | `[]`           | Optional case-insensitive allow-list for `reveal_hidden_cursor_for_cjk_ime`. Empty applies to any focused pane; unknown names are ignored.                                             |
+| `cjk_ime_cursor_shape`                | `block`, `steady_block`, `underline`, `steady_underline`, `bar`, or `steady_bar` | `steady_block` | Cursor shape used for the CJK IME anchor.                                                                                                                                              |
+| `switch_ascii_input_source_in_prefix` | boolean                                                                          | `false`        | On macOS, temporarily switch to an ASCII-capable input source during prefix mode and restore the previous source afterward. It is a no-op on other platforms and best-effort on macOS. |
+
+Accepted `cjk_ime_agents` names are `pi`, `claude`, `codex`, `gemini`, `cursor`, `cline`, `opencode`, `copilot`, `devin`, `kimi`, `kiro`, `droid`, `amp`, `grok`, `hermes`, `kilo`, `qodercli`, `qoder`, and `maki`.
+
+## Diagnostics and invalid sections
+
+Diagnostics identify read failures, TOML parse failures, unknown top-level tables, invalid key combinations, invalid sidebar bounds, invalid sound files, and other value problems detected by the current loader. Diagnostics are not a statement that every unknown nested key is rejected by a strict schema validator.
+
+During a live reload, a syntactically unreadable file has status `failed` and leaves the current live configuration intact. A readable file with invalid sections has status `partial`: valid sections may apply, while the invalid section keeps its previous live value. A file with no diagnostics has status `applied`.

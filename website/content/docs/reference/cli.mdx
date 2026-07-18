@@ -1,0 +1,286 @@
+---
+title: CLI reference
+description: Command families, options, output, and exit statuses for the Oh My Herdr command-line interface.
+---
+
+# CLI reference
+
+This reference describes the public `omh` command families in version 0.2.18. The default launch command starts or attaches to the persistent local session. Commands that operate on an existing server use its local API socket.
+
+For product vocabulary, see [Product concepts](/docs/concepts). Configuration keys are documented in the [configuration reference](/docs/reference/configuration).
+
+## Invocation and output
+
+The general form is:
+
+```text
+omh [global-options] <family> <subcommand> [options] [arguments]
+```
+
+`--session <name>` may appear on a launch or command invocation. It is consumed before command dispatch and selects the named persistent session. `--session=name` is equivalent. `OMH_SESSION` supplies the session name when `--session` is absent. The name `default` targets the default session.
+
+Commands that return API objects print one JSON object on standard output. An API error response is printed as JSON on standard error. Commands that read pane text write that text to standard output; commands that send input or perform a mutation normally produce no output on success. Help and usage text is written to standard error by family help handlers. `--help`, `--version`, and `--default-config` write their results to standard output.
+
+Exit status is:
+
+| Status | Meaning                                                                                                                                                                         |
+| ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `0`    | The command completed successfully. `config check` also uses `0` when it finds no diagnostics.                                                                                  |
+| `1`    | A runtime, I/O, server/API, integration, or remote-operation error occurred. `config check` uses `1` when it reports diagnostics. API responses with an `error` member use `1`. |
+| `2`    | The command's arguments or options are invalid, incomplete, or unknown.                                                                                                         |
+
+A top-level unknown command or option in the normal launch path is reported as an error and currently exits `1`; family-level usage errors return `2`.
+
+## Global, session, and remote options
+
+These options apply to the launch command rather than to a family subcommand:
+
+| Option                                 | Default                    | Description                                                                            |
+| -------------------------------------- | -------------------------- | -------------------------------------------------------------------------------------- |
+| `--no-session`                         | off                        | Run the monolithic local process without the normal server/client session launcher.    |
+| `--session <name>`                     | `default` or `OMH_SESSION` | Use or create the named persistent session.                                            |
+| `--remote <ssh-target>`                | unset                      | Attach through SSH to a remote Oh My Herdr server. The target is an SSH target string. |
+| `--remote-keybindings <local\|server>` | `local`                    | With `--remote`, use local client keybindings or the remote server's keybindings.      |
+| `--handoff`                            | off                        | Opt into live handoff for supported update or remote attach operations.                |
+| `--default-config`                     | off                        | Print the built-in TOML configuration and exit.                                        |
+| `--version`, `-V`                      | off                        | Print the `omh` version and exit.                                                      |
+| `--help`, `-h`                         | off                        | Print launch and family help and exit.                                                 |
+
+`--remote-keybindings` requires `--remote`. On Windows, remote SSH sessions are not supported by the current source implementation; the option parser still accepts only `local` and `server`. Remote launches read `[remote].manage_ssh_config` when the SSH launch starts. See [remote configuration](/docs/reference/configuration#remote).
+
+The separator `--` ends `omh` option parsing for child command arguments. In `omh agent start`, everything after `--` is the child argument vector. In `keys.command`, command text is interpreted according to the configured command type; shell expansion is not applied to agent-profile command strings.
+
+## Command families
+
+### `server`
+
+| Syntax                              | Description                                                                     |
+| ----------------------------------- | ------------------------------------------------------------------------------- |
+| `omh server`                        | Run as a headless server.                                                       |
+| `omh server stop`                   | Stop the running server through the local API socket.                           |
+| `omh server reload-config`          | Reload the configuration file in the running server and return a reload report. |
+| `omh server agent-manifests`        | List active agent-detection manifest summaries.                                 |
+| `omh server reload-agent-manifests` | Reload local agent-detection manifests.                                         |
+
+The live handoff and import paths are runtime handoff plumbing rather than public command interfaces in this reference.
+
+### `api`
+
+| Syntax                         | Description                                                       |
+| ------------------------------ | ----------------------------------------------------------------- |
+| `omh api schema`               | Print a compact API schema summary.                               |
+| `omh api schema --json`        | Print the generated API schema as formatted JSON.                 |
+| `omh api schema --output PATH` | Write the generated API schema to `PATH`.                         |
+| `omh api snapshot`             | Request a snapshot of the current session and print the response. |
+
+### `status`
+
+| Syntax                       | Description                                                                                                                        |
+| ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `omh status`                 | Show local client, running server, and restart-needed status in text form. A server that is not running is shown as `not running`. |
+| `omh status --json`          | Print the combined status as JSON.                                                                                                 |
+| `omh status server [--json]` | Show running-server status in text or JSON.                                                                                        |
+| `omh status client [--json]` | Show local client version, protocol, and binary path in text or JSON.                                                              |
+
+### `group`
+
+| Syntax                               | Description              |
+| ------------------------------------ | ------------------------ |
+| `omh group list`                     | List groups.             |
+| `omh group create <name>`            | Create a group.          |
+| `omh group focus <group_id>`         | Focus a group.           |
+| `omh group switch <group_id>`        | Alias for `group focus`. |
+| `omh group rename <group_id> <name>` | Rename a group.          |
+| `omh group delete <group_id>`        | Delete a group.          |
+
+> **Destructive operation:** `group delete` removes the selected group and its group membership. The command does not use a `--force` option.
+
+### `config`
+
+| Syntax                  | Description                                                                                                  |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------ |
+| `omh config check`      | Read the selected configuration file, print `config: ok` or diagnostics, and return `0` or `1` respectively. |
+| `omh config reset-keys` | Back up the configuration file and remove custom keybinding sections so built-in v2 keybindings apply.       |
+
+> **Destructive operation:** `config reset-keys` changes `config.toml` and removes custom keybinding configuration after creating its backup. Other configuration sections are retained.
+
+### `workspace`
+
+| Syntax                                                                                      | Description                                                                                                                  |
+| ------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `omh workspace list`                                                                        | List workspaces.                                                                                                             |
+| `omh workspace create [--cwd PATH] [--label TEXT] [--env KEY=VALUE] [--focus] [--no-focus]` | Create a workspace, optionally setting its starting directory, label, environment, and focus state. `--env` may be repeated. |
+| `omh workspace get <workspace_id>`                                                          | Get one workspace.                                                                                                           |
+| `omh workspace focus <workspace_id>`                                                        | Focus a workspace.                                                                                                           |
+| `omh workspace rename <workspace_id> <label>`                                               | Set a workspace label.                                                                                                       |
+| `omh workspace close <workspace_id>`                                                        | Close a workspace.                                                                                                           |
+
+> **Destructive operation:** `workspace close` closes the workspace and its contained tabs and panes according to the running session's close behavior.
+
+### `worktree`
+
+`--workspace ID` and `--cwd PATH` select the source repository; they are mutually exclusive. Relative paths are resolved from the current process directory and `~` is expanded.
+
+| Syntax                                                                                                                                        | Description                                                                                      |
+| --------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| `omh worktree list [--workspace ID \| --cwd PATH] [--json]`                                                                                   | List existing worktrees for a repository source.                                                 |
+| `omh worktree create [--workspace ID \| --cwd PATH] [--branch NAME] [--base REF] [--path PATH] [--label TEXT] [--focus\|--no-focus] [--json]` | Create a worktree-backed workspace.                                                              |
+| `omh worktree open [--workspace ID \| --cwd PATH] (--path PATH \| --branch NAME) [--label TEXT] [--focus\|--no-focus] [--json]`               | Open an existing worktree by path or branch. Exactly one of `--path` and `--branch` is required. |
+| `omh worktree remove --workspace ID [--force] [--json]`                                                                                       | Remove the worktree associated with a workspace.                                                 |
+
+> **Destructive operation:** `worktree remove` removes the associated Git worktree. `--force` passes the force removal request when the worktree has changes or other Git removal checks apply.
+
+### `notification`
+
+| Syntax                                                                                                                                  | Description                                                                                                 |
+| --------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| `omh notification show <title> [--body TEXT] [--position top-left\|top-right\|bottom-left\|bottom-right] [--sound none\|done\|request]` | Request an in-app or configured notification. `--sound` selects no sound, a done sound, or a request sound. |
+
+### `tab`
+
+| Syntax                                                                                                          | Description                             |
+| --------------------------------------------------------------------------------------------------------------- | --------------------------------------- |
+| `omh tab list [--workspace WORKSPACE_ID]`                                                                       | List tabs, optionally in one workspace. |
+| `omh tab create [--workspace WORKSPACE_ID] [--cwd PATH] [--label TEXT] [--env KEY=VALUE] [--focus\|--no-focus]` | Create a tab. `--env` may be repeated.  |
+| `omh tab get <tab_id>`                                                                                          | Get one tab.                            |
+| `omh tab focus <tab_id>`                                                                                        | Focus a tab.                            |
+| `omh tab rename <tab_id> <label>`                                                                               | Set a tab label.                        |
+| `omh tab close <tab_id>`                                                                                        | Close a tab.                            |
+
+> **Destructive operation:** `tab close` closes the tab and its panes.
+
+### `agent`
+
+An agent target may be a terminal ID, a unique agent name, a detected or reported agent label, or a legacy pane ID.
+
+| Syntax                                                                                                                                       | Description                                                                                          |
+| -------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| `omh agent list`                                                                                                                             | List detected and reported agents.                                                                   |
+| `omh agent get <target>`                                                                                                                     | Get an agent's state and metadata.                                                                   |
+| `omh agent read <target> [--source visible\|recent\|recent-unwrapped] [--lines N] [--format text\|ansi] [--ansi]`                            | Read an agent's pane output. `--ansi` preserves ANSI formatting; the default text format strips it.  |
+| `omh agent send <target> <text>`                                                                                                             | Send literal text to an agent pane without pressing Enter.                                           |
+| `omh agent rename <target> <name>\|--clear`                                                                                                  | Set or clear an agent display name.                                                                  |
+| `omh agent focus <target>`                                                                                                                   | Focus the agent's pane.                                                                              |
+| `omh agent wait <target> --status idle\|working\|blocked\|unknown [--timeout MS]`                                                            | Wait for the requested agent state.                                                                  |
+| `omh agent attach <target> [--takeover]`                                                                                                     | Attach the client to an agent terminal; `--takeover` requests takeover of an existing direct attach. |
+| `omh agent start <name> [--cwd PATH] [--workspace ID] [--tab ID] [--split right\|down] [--env KEY=VALUE] [--focus\|--no-focus] -- <argv...>` | Start a named agent process in a pane. The arguments after `--` form the process argument vector.    |
+| `omh agent explain <target> [--json]`                                                                                                        | Show detection and manifest explanation for an agent target.                                         |
+| `omh agent explain --file PATH --agent LABEL [--json]`                                                                                       | Explain how `LABEL` would be detected from a manifest input file.                                    |
+
+`agent send` writes literal text. It does not request shell parsing or an Enter key. Use [`pane run`](#pane) when the intended input is command text followed by Enter.
+
+### `terminal`
+
+| Syntax                                           | Description                                                                                       |
+| ------------------------------------------------ | ------------------------------------------------------------------------------------------------- |
+| `omh terminal attach <terminal_id> [--takeover]` | Attach directly to a terminal by ID; `--takeover` requests takeover of an existing direct attach. |
+| `omh terminal title set <title>`                 | Set the outer client window title.                                                                |
+| `omh terminal title clear`                       | Clear the outer client window title.                                                              |
+
+A direct terminal attach can be detached with the configured detach key (default `prefix+q`).
+
+### `pane`
+
+For commands accepting `[--pane ID|--current]`, omitting the selector uses the current pane where the command supports a current-pane default.
+
+| Syntax                                                                                                                                          | Description                                                               |
+| ----------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- | ------------------------------------------------------------- |
+| `omh pane list [--workspace WORKSPACE_ID]`                                                                                                      | List panes, optionally in one workspace.                                  |
+| `omh pane current [--pane ID                                                                                                                    | --current]`                                                               | Resolve the current pane, using `OMH_PANE_ID` when available. |
+| `omh pane get <pane_id>`                                                                                                                        | Get one pane.                                                             |
+| `omh pane layout [--pane ID                                                                                                                     | --current]`                                                               | Get the pane layout.                                          |
+| `omh pane process-info [--pane ID                                                                                                               | --current]`                                                               | Get process information.                                      |
+| `omh pane neighbor --direction left\|right\|up\|down [--pane ID                                                                                 | --current]`                                                               | Resolve a neighboring pane.                                   |
+| `omh pane edges [--pane ID                                                                                                                      | --current]`                                                               | Report pane edge state.                                       |
+| `omh pane focus --direction left\|right\|up\|down [--pane ID                                                                                    | --current]`                                                               | Focus a neighboring pane.                                     |
+| `omh pane resize --direction left\|right\|up\|down [--amount FLOAT] [--pane ID                                                                  | --current]`                                                               | Resize toward a direction.                                    |
+| `omh pane zoom [<pane_id>\|--pane ID\|--current] [--toggle\|--on\|--off]`                                                                       | Toggle, enable, or disable pane zoom.                                     |
+| `omh pane read <pane_id> [--source visible\|recent\|recent-unwrapped] [--lines N] [--format text\|ansi] [--ansi\|--raw]`                        | Read pane output. `--raw` preserves ANSI bytes; default text strips them. |
+| `omh pane rename <pane_id> <label>\|--clear`                                                                                                    | Set or clear a pane label.                                                |
+| `omh pane split [<pane_id>\|--pane ID\|--current] --direction right\|down [--ratio FLOAT] [--cwd PATH] [--env KEY=VALUE] [--focus\|--no-focus]` | Split a pane and create a terminal in the new pane.                       |
+| `omh pane swap --direction left\|right\|up\|down [--pane ID\|--current]`                                                                        | Swap a pane with its directional neighbor.                                |
+| `omh pane swap --source-pane ID --target-pane ID`                                                                                               | Swap two explicitly selected panes.                                       |
+| `omh pane move <pane_id> --tab <tab_id> --split right\|down [--target-pane ID] [--ratio FLOAT] [--focus\|--no-focus]`                           | Move a pane into an existing tab.                                         |
+| `omh pane move <pane_id> --new-tab [--workspace ID] [--label TEXT] [--focus\|--no-focus]`                                                       | Move a pane into a new tab.                                               |
+| `omh pane move <pane_id> --new-workspace [--label TEXT] [--tab-label TEXT] [--focus\|--no-focus]`                                               | Move a pane into a new workspace and tab.                                 |
+| `omh pane close <pane_id>`                                                                                                                      | Close a pane.                                                             |
+| `omh pane send-text <pane_id> <text>`                                                                                                           | Send literal text without an Enter key.                                   |
+| `omh pane send-keys <pane_id> <key> [key ...]`                                                                                                  | Send one or more named key events.                                        |
+| `omh pane run <pane_id> <command>`                                                                                                              | Send command text followed by an Enter key.                               |
+
+> **Destructive operation:** `pane close` closes the pane and can terminate the terminal process it owns.
+
+`send-text` and `send-keys` are input operations. `pane run` does not execute a command in a separate process itself: it writes the supplied text to the pane and sends `Enter`, allowing the foreground application or shell to interpret it.
+
+### `plugin`
+
+| Syntax                                                                                                                                                                                                          | Description                                                                                                                 |
+| --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| `omh plugin install <owner>/<repo>[/subdir...] [--ref REF] [--yes]`                                                                                                                                             | Install a plugin from a GitHub repository or subdirectory. `--ref` selects a ref; `--yes` accepts the install confirmation. |
+| `omh plugin uninstall <plugin_id\|owner/repo[/subdir...]>`                                                                                                                                                      | Uninstall a plugin by ID or source.                                                                                         |
+| `omh plugin link <path> [--disabled]`                                                                                                                                                                           | Link a local plugin directory; `--disabled` links it without enabling it.                                                   |
+| `omh plugin list [--plugin ID] [--json]`                                                                                                                                                                        | List installed plugins or one plugin.                                                                                       |
+| `omh plugin unlink <plugin_id>`                                                                                                                                                                                 | Remove a linked plugin registration.                                                                                        |
+| `omh plugin enable <plugin_id>`                                                                                                                                                                                 | Enable a plugin.                                                                                                            |
+| `omh plugin disable <plugin_id>`                                                                                                                                                                                | Disable a plugin.                                                                                                           |
+| `omh plugin action list [--plugin ID]`                                                                                                                                                                          | List available plugin actions.                                                                                              |
+| `omh plugin action invoke <action_id> [--plugin ID]`                                                                                                                                                            | Invoke a plugin action.                                                                                                     |
+| `omh plugin log list [--plugin ID] [--limit N]`                                                                                                                                                                 | List plugin log entries.                                                                                                    |
+| `omh plugin pane open --plugin ID --entrypoint ID [--placement overlay\|split\|tab\|zoomed] [--workspace ID] [--target-pane ID] [--direction right\|down] [--cwd PATH] [--env KEY=VALUE] [--focus\|--no-focus]` | Open a plugin pane entrypoint.                                                                                              |
+| `omh plugin pane focus <pane_id>`                                                                                                                                                                               | Focus a plugin-created pane.                                                                                                |
+| `omh plugin pane close <pane_id>`                                                                                                                                                                               | Close a plugin-created pane.                                                                                                |
+
+> **Trust boundary:** `plugin install` retrieves and installs plugin content from the named GitHub source. `plugin link` gives a local directory plugin registration. Plugin actions and plugin panes run according to the plugin's declared capabilities and the selected target.
+
+> **Destructive operation:** `plugin uninstall` removes an installed plugin; `plugin unlink` removes a linked plugin registration; `plugin pane close` closes the selected plugin pane.
+
+### `wait`
+
+| Syntax                                                                                                                               | Description                                                                                               |
+| ------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------- |
+| `omh wait output <pane_id> --match <text> [--source visible\|recent\|recent-unwrapped] [--lines N] [--timeout MS] [--regex] [--raw]` | Wait until pane output matches text or a regular expression. `--raw` preserves ANSI data during matching. |
+| `omh wait agent-status <pane_id> --status idle\|working\|blocked\|done\|unknown [--timeout MS]`                                      | Wait until the pane's agent status matches.                                                               |
+
+### `integration`
+
+| Syntax                                     | Description                                                       |
+| ------------------------------------------ | ----------------------------------------------------------------- |
+| `omh integration status [--outdated-only]` | List integration status, or print only an outdated-update notice. |
+| `omh integration install <target>`         | Install the integration for one target.                           |
+| `omh integration uninstall <target>`       | Remove the integration for one target.                            |
+
+Targets are `pi`, `omp`, `claude`, `codex`, `copilot`, `devin`, `kimi`, `droid`, `opencode`, `hermes`, `qodercli`, `cursor`, and `grok`.
+
+> **Trust boundary:** integration installation and removal write files used by the selected agent. The target name determines which integration is changed.
+
+> **Destructive operation:** `integration uninstall` removes the selected integration files.
+
+### `session`
+
+| Syntax                               | Description                                                  |
+| ------------------------------------ | ------------------------------------------------------------ |
+| `omh session list [--json]`          | List named sessions in text or JSON.                         |
+| `omh session attach <name>`          | Attach to a named session.                                   |
+| `omh session stop <name> [--json]`   | Stop a named session. `default` selects the default session. |
+| `omh session delete <name> [--json]` | Stop and remove a named session's persisted session data.    |
+
+> **Destructive operation:** `session stop` stops the session process. `session delete` also removes its persisted session data. The `default` session is stopped with `omh server stop`; `session delete default` is not the default-session stop command.
+
+## Input and command execution
+
+Literal input and command execution are distinct operations:
+
+| Operation                            | Input sent                | Enter sent                    | Interpreter                                                   |
+| ------------------------------------ | ------------------------- | ----------------------------- | ------------------------------------------------------------- |
+| `pane send-text`, `agent send`       | The supplied text         | No                            | The foreground pane application receives literal input.       |
+| `pane send-keys`                     | Named key events          | Only for a supplied Enter key | The foreground pane application receives key events.          |
+| `pane run`                           | The supplied command text | Yes, automatically            | The foreground pane application or shell interprets the text. |
+| `agent start`                        | `argv` after `--`         | Not applicable                | A new process is started with the supplied argument vector.   |
+| `keys.command` with `type = "shell"` | Configured command string | Not applicable                | A detached shell command is run.                              |
+| `keys.command` with `type = "pane"`  | Configured command string | Not applicable                | A temporary pane runs the command and closes when it exits.   |
+
+No `omh` input command adds shell quoting, pipelines, redirects, globbing, or variable expansion to text sent through `send-text`, `agent send`, or `pane run`. The receiving shell or application may interpret text after it receives it.
+
+## Public and omitted interfaces
+
+This page covers the public command families listed above. Internal client launchers, raw handoff imports and manifests, and agent-report metadata plumbing are intentionally omitted.

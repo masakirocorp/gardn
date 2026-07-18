@@ -45,6 +45,55 @@ const routes = new Map([
   ["releases", ["releases.html", "releases/index.html"]],
   ["docs", ["docs.html", "docs/index.html"]],
   ["docs concepts", ["docs/concepts.html", "docs/concepts/index.html"]],
+  [
+    "docs install",
+    ["docs/getting-started/install.html", "docs/getting-started/install/index.html"],
+  ],
+  [
+    "docs quick start",
+    ["docs/getting-started/quick-start.html", "docs/getting-started/quick-start/index.html"],
+  ],
+  [
+    "docs workspace navigation",
+    [
+      "docs/guides/workspaces-and-navigation.html",
+      "docs/guides/workspaces-and-navigation/index.html",
+    ],
+  ],
+  [
+    "docs copy and terminal",
+    ["docs/guides/copy-and-terminal.html", "docs/guides/copy-and-terminal/index.html"],
+  ],
+  ["docs remote", ["docs/guides/remote.html", "docs/guides/remote/index.html"]],
+  [
+    "docs plugins and integrations",
+    [
+      "docs/guides/plugins-and-integrations.html",
+      "docs/guides/plugins-and-integrations/index.html",
+    ],
+  ],
+  [
+    "docs updates and handoff",
+    ["docs/guides/updates-and-handoff.html", "docs/guides/updates-and-handoff/index.html"],
+  ],
+  [
+    "docs troubleshooting",
+    ["docs/guides/troubleshooting.html", "docs/guides/troubleshooting/index.html"],
+  ],
+  ["docs CLI", ["docs/reference/cli.html", "docs/reference/cli/index.html"]],
+  [
+    "docs configuration",
+    ["docs/reference/configuration.html", "docs/reference/configuration/index.html"],
+  ],
+  [
+    "docs keybindings",
+    ["docs/reference/keybindings.html", "docs/reference/keybindings/index.html"],
+  ],
+  [
+    "docs plugin manifest",
+    ["docs/reference/plugin-manifest.html", "docs/reference/plugin-manifest/index.html"],
+  ],
+  ["docs platforms", ["docs/reference/platforms.html", "docs/reference/platforms/index.html"]],
   ["docs Local API", ["docs/api.html", "docs/api/index.html"]],
   ["docs Local API workflow", ["docs/api/workflow.html", "docs/api/workflow/index.html"]],
   ["docs Local API errors", ["docs/api/errors.html", "docs/api/errors/index.html"]],
@@ -70,6 +119,17 @@ for (const [label, candidates] of routes) {
   if (!html.includes('name="description"')) failures.push(`${label}: missing description metadata`);
   if (html.includes("My Page") || html.includes("Hello World")) {
     failures.push(`${label}: generated placeholder content leaked into the build`);
+  }
+  for (const forbidden of [
+    "Hako",
+    "--handoff-import",
+    "remote-client-bridge",
+    "ClientMessage",
+    "ServerMessage",
+    "HandoffManifest",
+    "cargo install oh-my-herdr",
+  ]) {
+    if (html.includes(forbidden)) failures.push(`${label}: unsupported public claim ${forbidden}`);
   }
 }
 

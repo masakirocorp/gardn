@@ -1,0 +1,111 @@
+---
+title: Use Oh My Herdr over SSH
+description: Attach a local client to a remote Oh My Herdr server over an SSH target.
+---
+
+# Use Oh My Herdr over SSH
+
+Use this how-to when the workspaces and panes should run on another Unix host. A plain SSH shell and an Oh My Herdr remote client are different paths:
+
+- `ssh workbox` gives you the host's ordinary shell.
+- `omh --remote workbox` runs a local client whose terminal session is bridged to Oh My Herdr on `workbox`.
+
+Remote support requires a Unix local client. Supported remote binaries are Linux and macOS on `x86_64` or `aarch64`; Windows is not a supported remote host for this path. See [platforms](/docs/reference/platforms) for the support boundary.
+
+## Prepare SSH access
+
+1. Add a host alias to `~/.ssh/config` if you want stable target settings:
+
+   ```text
+   Host workbox
+       HostName workbox.example.com
+       User alice
+       IdentityFile ~/.ssh/id_ed25519
+   ```
+
+2. Verify the shell path first:
+
+   ```sh
+   ssh workbox
+   ```
+
+3. If the key has a passphrase, load it into your SSH agent before starting the bridge:
+
+   ```sh
+   ssh-add ~/.ssh/id_ed25519
+   ```
+
+The first connection may ask you to verify the host key. Confirm it only when the host identity is expected and trusted.
+
+## Attach through the bridge
+
+Run the bridge from the local machine:
+
+```sh
+omh --remote workbox
+```
+
+You can combine it with a named session:
+
+```sh
+omh --remote workbox --session project
+```
+
+By default, Oh My Herdr manages the SSH configuration used by the bridge. It starts with your `~/.ssh/config` and adds a fallback `Host *` block with `ServerAliveInterval 15` and `ServerAliveCountMax 4`, so explicit keepalive values in your SSH configuration win. To use your SSH configuration unchanged, set:
+
+```toml
+[remote]
+manage_ssh_config = false
+```
+
+This setting changes only bridge SSH setup; it does not grant access to the host or bypass SSH authentication.
+
+## Install or build the remote binary
+
+The remote host needs a matching Oh My Herdr version. The bridge can use a matching binary already installed in the remote user's `~/.local/bin/omh`; when an install is needed it asks before writing there. Treat that prompt as a trust boundary and approve it only for a host you control.
+
+Verified public `omh-*` release downloads are not currently available, so do not rely on the automatic release-download path for a new remote host. Build from the source checkout instead:
+
+```sh
+cargo build --release --package omh
+```
+
+The resulting `target/release/omh` must be built for the remote host's operating system and architecture. A Nix source build is also available from the repository root:
+
+```sh
+nix build .#omh
+```
+
+To have the bridge install a matching source-built binary, set `OMH_REMOTE_BINARY` to that file:
+
+```sh
+OMH_REMOTE_BINARY="$PWD/target/release/omh" omh --remote workbox
+```
+
+For a Nix build, use `OMH_REMOTE_BINARY="$PWD/result/bin/omh"` instead. The override file must be a binary built for the remote host.
+
+Use the resulting `result/bin/omh` (or a matching target build) as the remote binary source when building or installing on the remote host. Do not copy a macOS binary to Linux, or an `x86_64` binary to `aarch64`.
+
+## Choose where keybindings run
+
+Remote app attach uses local keybindings by default. To run the app keybindings from the remote configuration instead, use:
+
+```sh
+omh --remote workbox --remote-keybindings server
+```
+
+`--remote-keybindings` accepts only `local` or `server`. This choice affects app key dispatch; the local terminal still has to deliver the key events to the client.
+
+When the remote client is active, the default `keys.remote_image_paste = "ctrl+v"` binding can forward an image from the local clipboard. Set it to an empty value to disable raw-key image paste. Image forwarding requires a supported local clipboard helper and sends the image to the focused remote pane; treat clipboard contents as data leaving the local machine.
+
+## Update or take over a running server
+
+If the remote server version differs, a normal attach may require a remote server restart. Restarting can interrupt the running panes. Use the explicit handoff opt-in when the server and client support live handoff:
+
+```sh
+omh --remote workbox --handoff
+```
+
+Read the prompt and status carefully. A successful handoff keeps eligible live processes; unsupported or failed handoff falls back to the safer restart path and reports the failure. Never approve a restart or fallback when preserving the remote processes is required; cancel and resolve the version or capability mismatch first.
+
+For direct access to a detached local server, use `omh session attach <name>`. To attach directly to an agent or terminal on that server, use `omh agent attach <target> [--takeover]` or `omh terminal attach <terminal-id> [--takeover]`. `--takeover` transfers terminal ownership and can disconnect the current client, so use it only when you intentionally want to take control.

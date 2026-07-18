@@ -1,0 +1,164 @@
+---
+title: Plugin manifest reference
+description: Field-by-field reference for the Oh My Herdr plugin manifest, command execution model, compatibility checks, and runtime limits.
+---
+
+# Plugin manifest reference
+
+This page specifies the manifest format accepted by Oh My Herdr plugin v1. It describes what Oh My Herdr validates and supplies; it is not an endorsement of any plugin or command.
+
+> **Trust boundary:** A manifest is executable configuration. Every build, action, event, and pane `command` runs as the current user, without a plugin sandbox. Commands can read or modify any resource that user can access and can start other processes. Review the complete manifest and its source before linking or installing it. The install preview and `--yes` behavior are described in [Install and operate plugins and integrations](/docs/guides/plugins-and-integrations).
+
+## Manifest file and top-level fields
+
+The preferred filename is `omh-plugin.toml` at the plugin root. When a directory does not contain that file, Oh My Herdr accepts `herdr-plugin.toml` as a legacy compatibility alias. The alias is not a second format and is not a recommendation for new plugins.
+
+The top-level table has these fields:
+
+| Field             | TOML type        | Required | Meaning                                                                                                                                                                      |
+| ----------------- | ---------------- | -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `id`              | string           | yes      | Stable plugin identifier. It is trimmed, must be non-empty, and may contain ASCII letters, digits, `:`, `.`, `_`, and `-`; maximum 120 characters.                           |
+| `name`            | string           | yes      | Human-readable plugin name. It is trimmed and must be non-empty.                                                                                                             |
+| `version`         | string           | yes      | Plugin version label. It is trimmed and must be non-empty; Oh My Herdr does not require this field to be a semantic version.                                                 |
+| `min_omh_version` | string           | yes      | Semantic Oh My Herdr version required by the plugin. It must parse as a version and cannot be newer than the running Oh My Herdr release.                                    |
+| `description`     | string           | no       | Optional trimmed description. Blank descriptions are discarded.                                                                                                              |
+| `platforms`       | array of strings | no       | Plugin-level platform allowlist: `linux`, `macos`, or `windows`. Omit it when support is not declared; Oh My Herdr warns that support is unknown. An empty array is invalid. |
+| `build`           | array of tables  | no       | Build commands run during a remote GitHub install, before the checkout is moved into managed plugin storage.                                                                 |
+| `actions`         | array of tables  | no       | User-invokable commands, optionally scoped by action context and platform.                                                                                                   |
+| `events`          | array of tables  | no       | Lifecycle hook commands.                                                                                                                                                     |
+| `panes`           | array of tables  | no       | Terminal pane entrypoints.                                                                                                                                                   |
+| `link_handlers`   | array of tables  | no       | URL-pattern handlers that dispatch an existing action.                                                                                                                       |
+
+`min_omh_version` is the preferred compatibility key. The legacy `min_herdr_version` key is accepted only as a compatibility alias when `min_omh_version` is absent; it is checked against the supported legacy Herdr plugin API compatibility version, currently `0.7.0`. If both keys are present, `min_omh_version` takes precedence. A missing minimum-version field is invalid.
+
+This fixture shows the shape of the fields without asserting that its commands are appropriate for a particular plugin:
+
+```toml
+id = "example.smoke"
+name = "Smoke Plugin"
+version = "0.1.0"
+min_omh_version = "0.1.0"
+description = "Portable plugin smoke fixture"
+platforms = ["linux", "macos", "windows"]
+
+[[actions]]
+id = "workspace-list"
+title = "List workspaces"
+contexts = ["workspace"]
+command = ["omh", "workspace", "list"]
+
+[[events]]
+on = "worktree.created"
+command = ["omh", "plugin", "log", "list", "--plugin", "example.smoke"]
+
+[[panes]]
+id = "board"
+title = "Board"
+placement = "overlay"
+command = ["omh", "workspace", "list"]
+```
+
+## Command tables
+
+Every command is a non-empty TOML string array. Oh My Herdr trims each argument and rejects an empty argument. The first string is the executable; later strings are argv arguments. The array is passed directly to process spawning—there is no shell parsing, shell interpolation, implicit `sh -c`, or automatic quoting.
+
+| Table               | Required fields                    | Optional fields                         |
+| ------------------- | ---------------------------------- | --------------------------------------- |
+| `[[build]]`         | `command`                          | `platforms`                             |
+| `[[actions]]`       | `id`, `title`, `command`           | `description`, `contexts`, `platforms`  |
+| `[[events]]`        | `on`, `command`                    | `platforms`                             |
+| `[[panes]]`         | `id`, `title`, `command`           | `description`, `platforms`, `placement` |
+| `[[link_handlers]]` | `id`, `title`, `pattern`, `action` | `platforms`                             |
+
+### `[[build]]`
+
+`build` entries are used by the GitHub installer only. `platforms`, when present, limits the build to the listed host platforms. The command runs with the manifest root as its working directory and with the current user's permissions. Build stdout and stderr are capped at 64 KiB in the failure record. Oh My Herdr checks that the manifest is unchanged after the build; a changed manifest aborts installation.
+
+### `[[actions]]`
+
+- `id` is a trimmed, non-empty local identifier of at most 120 characters. It may contain ASCII letters, digits, `:`, `_`, and `-`; action IDs must be unique within the plugin.
+- `title` is a trimmed, non-empty display title.
+- `description` is optional.
+- `contexts` is an optional array of `global`, `workspace`, `tab`, `pane`, or `selection`. It describes where the action can be offered. An action invocation can receive workspace, tab, focused-pane, selected-text, agent-state, invocation-source, correlation, or clicked-link context when those values exist.
+- `platforms` overrides the plugin-level platform list when present.
+- `command` is the direct argv command to run asynchronously.
+
+A CLI invocation can identify an action as `PLUGIN_ID.ACTION_ID`; the qualified form disambiguates identical local action IDs from different plugins.
+
+### `[[events]]`
+
+- `on` is a non-empty lifecycle event name.
+- `platforms` overrides the plugin-level list when present.
+- `command` is the direct argv command to run asynchronously.
+
+The supported event names are:
+
+- `workspace.created`, `workspace.updated`, `workspace.closed`, `workspace.renamed`, `workspace.focused`
+- `worktree.created`, `worktree.opened`, `worktree.removed`
+- `tab.created`, `tab.closed`, `tab.renamed`, `tab.focused`
+- `pane.created`, `pane.closed`, `pane.focused`, `pane.moved`, `pane.exited`
+- `pane.agent_detected`, `pane.agent_status_changed`
+
+`layout.updated` is an internal event name but is not in the plugin hook allowlist. An unknown event is retained with a warning and is not a supported hook target.
+
+### `[[panes]]`
+
+- `id` is a unique local entrypoint identifier using the same character and length rules as an action ID.
+- `title` is a trimmed, non-empty pane title.
+- `description` is optional.
+- `platforms` overrides the plugin-level list when present.
+- `placement` defaults to `overlay` and may be `overlay`, `split`, `tab`, or `zoomed`.
+- `command` is the direct argv command for the pane process.
+
+The pane command's default working directory is the plugin root. A pane-open request can select a working-directory override, placement, focus behavior, split target/direction, workspace, and additional environment entries. Oh My Herdr rejects placement parameters that do not apply to the selected placement.
+
+### `[[link_handlers]]`
+
+- `id` is a unique local identifier.
+- `title` is a trimmed, non-empty display title.
+- `pattern` is a non-empty regular expression; malformed regular expressions are invalid.
+- `action` is an existing action ID in the same manifest.
+- `platforms` overrides the plugin-level list when present.
+
+A link handler does not contain a command. It dispatches its referenced action with the clicked URL and handler ID in the invocation context when the pattern matches.
+
+## Platform resolution and compatibility
+
+Valid platform names are lowercase `linux`, `macos`, and `windows`. A non-empty `platforms` list at the plugin level is inherited by a build, action, event, pane, or link handler that does not declare its own list. An item's list replaces, rather than extends, the plugin list. An item whose effective list does not contain the current host platform is rejected or skipped as unsupported before launch; a build is skipped on that platform, while an action or pane request returns a platform error. The manifest loader cannot infer support when the plugin-level list is omitted, so it emits an unknown-platform warning.
+
+The current compatibility key is `min_omh_version`. A required version newer than the running release is rejected. Legacy `min_herdr_version` is accepted solely for ecosystem compatibility and does not make the legacy product identity the public manifest format.
+
+## Execution environment and protected context
+
+Builds and runtime commands use the plugin root as their working directory unless a pane request supplies `cwd`. Runtime action and event commands receive a protected environment containing the plugin identity and context, including:
+
+- `OMH_PLUGIN_ID`, `OMH_PLUGIN_ROOT`, `OMH_PLUGIN_CONFIG_DIR`, and `OMH_PLUGIN_STATE_DIR`;
+- `OMH_PLUGIN_CONTEXT_JSON`, containing the invocation or lifecycle context;
+- `OMH_BIN_PATH` and `OMH_SOCKET_PATH`, pointing to the running Oh My Herdr executable and local API socket when available;
+- action/event metadata such as `OMH_PLUGIN_ACTION_ID`, `OMH_PLUGIN_EVENT`, and `OMH_PLUGIN_EVENT_JSON` when applicable;
+- `OMH_WORKSPACE_ID`, `OMH_TAB_ID`, `OMH_PANE_ID`, `OMH_PLUGIN_CLICKED_URL`, and `OMH_PLUGIN_LINK_HANDLER_ID` when those context values exist.
+
+`OMH_PLUGIN_CONFIG_DIR` and `OMH_PLUGIN_STATE_DIR` are per-plugin directories for configuration and state. Oh My Herdr also supplies `OMH_ENV=1` and `HERDR_ENV=1`. `HERDR_*` names are compatibility aliases for the corresponding `OMH_*` values.
+
+For pane launches, request-supplied environment keys that identify the plugin, root, config/state directories, entrypoint, context, or binary (`OMH_*` and their `HERDR_*` aliases) are discarded and replaced with protected values. Environment keys must not be empty, contain `=`, or contain NUL bytes; values must not contain NUL bytes. These checks prevent malformed entries, not arbitrary plugin code execution.
+
+## Installation, scope, and persistence
+
+A linked plugin stores its source path in the registry; linking does not copy the directory or run a build. A GitHub plugin is checked out under managed plugin storage, records its owner/repository/subdirectory/ref and resolved commit, and is registered after the preview, confirmation, and optional build succeed. A GitHub install can replace an existing GitHub installation with the same plugin identity, but cannot silently replace a locally linked plugin.
+
+The registry (`plugins.json`) and managed GitHub checkout are stored in the active session data directory. With no named session, that is the default Oh My Herdr config/data directory; with a named session, it is the `sessions/SESSION_NAME` child. Consequently, installation and enablement are scoped to the active session's registry, while plugin command logs and plugin-pane attribution are runtime state for that session. Per-plugin config and state directories are derived from the active config/state directories and remain after uninstall; uninstall removes a managed GitHub checkout but does not delete those directories. Unlinking does not delete a linked source directory.
+
+## Runtime limits and security posture
+
+Oh My Herdr v1 intentionally provides trust and process boundaries, not a sandbox:
+
+- at most 32 plugin commands may be in flight concurrently;
+- stdout and stderr captured for a plugin command are capped at 64 KiB each;
+- only the latest 200 command log records are retained in the session;
+- actions and event hooks run asynchronously, and a failed hook does not roll back the workspace change that triggered it;
+- disabling or unlinking prevents new actions and hooks, but a running plugin process or pane is not automatically killed by unlinking;
+- manifest identity, compatibility, command, duplicate-ID, event, platform, and link-handler references are validated before use.
+
+Windows support in v1 is best-effort. Platform names and command/path resolution are Windows-aware, but raw socket and process-lifecycle parity with Unix-like hosts is not promised beyond behavior that has been tested on the current release. Do not infer Windows support from an omitted `platforms` field; declare it explicitly and test the commands on that host.
+
+For failure symptoms and bounded diagnostics, see [Troubleshoot Oh My Herdr](/docs/guides/troubleshooting).

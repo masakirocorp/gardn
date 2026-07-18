@@ -1,0 +1,59 @@
+---
+title: Copy and terminal interaction
+description: Select terminal text, use copy mode, and pass mouse input to pane applications.
+---
+
+# Copy and terminal interaction
+
+Use this how-to to move text between an Oh My Herdr pane and the host clipboard without losing the pane application's mouse controls. For platform-specific clipboard requirements, see [platforms](/docs/reference/platforms).
+
+## Select and copy with the mouse
+
+- Drag across terminal cells to select text. With the default `ui.copy_on_select = true`, releasing the drag copies the selection.
+- Double-click a word to copy it. Double-click copying still works when `copy_on_select` is false.
+- Set `copy_on_select = false` when you want drag selection to remain visible without immediately copying it.
+
+Put this in the `[ui]` section of your configuration:
+
+```toml
+[ui]
+copy_on_select = false
+```
+
+A mouse selection is based on the terminal's screen-buffer coordinates, so it remains anchored to the selected content as the pane scrolls.
+
+## Use keyboard copy mode
+
+1. Press the default prefix, `ctrl+b`, then `[`. This enters copy mode.
+2. Move the copy cursor with `h`, `j`, `k`, `l` or the arrow keys. `pageup`, `pagedown`, `ctrl+b`, and `ctrl+f` scroll by a page; `ctrl+u` and `ctrl+d` scroll by a half page.
+3. Start a character selection with `v` or `space`, or select the current line with `shift+v`.
+4. Extend and move the selection with the cursor and word keys. Use `g`/`shift+g` for the history top/bottom, `0`, `^`, and `$` for line positions, and `w`, `b`, and `e` for word motion.
+5. Press `y` or `enter` to copy the selection and leave copy mode. Press `q` to leave without copying.
+
+To search the scrollback while in copy mode, press `/` for a forward search or `?` for a backward search, type a query, and press `enter`. `n` repeats in the search direction; `shift+n` repeats in the opposite direction. Press `esc` once to clear an active selection or search, and again when there is nothing to clear to leave copy mode.
+
+These copy-mode keys are mode-local and are not terminal application input. The complete configurable binding list is in the [keybinding reference](/docs/reference/keybindings).
+
+## Give mouse input to a pane application
+
+Oh My Herdr captures mouse input for its own UI by default (`ui.mouse_capture = true`). A pane application that requests terminal mouse reporting can still receive supported mouse events. Set the option below to `false` when you want the outer terminal to handle normal clicks, such as command-clicking URLs; pane applications that request mouse reporting can still receive mouse input.
+
+```toml
+[ui]
+mouse_capture = false
+```
+
+When the pane application has mouse reporting enabled, click, drag, motion, and wheel events that are not consumed by Oh My Herdr are encoded and forwarded to that pane. A right-click normally opens the Oh My Herdr pane menu. To pass right-click press, drag, and release gestures to the pane application instead, configure a modifier (for example `ctrl`):
+
+```toml
+[ui]
+right_click_passthrough_modifier = "ctrl"
+```
+
+The modifier is held while making the right-click gesture. `shift` is intentionally unsupported because terminals commonly reserve shift-modified mouse events. Empty, `off`, `none`, or `disabled` keeps passthrough disabled.
+
+## Edit scrollback in an editor
+
+Choose **edit scrollback** from the command palette, or use the default `ctrl+b`, then `e`. Oh My Herdr writes the focused pane's scrollback to a temporary file, opens it with the platform editor command, and removes the temporary file when the editor exits. On Unix-like platforms it uses `$VISUAL`, then `$EDITOR`, then `vi`; on Windows it uses `$VISUAL`, then `$EDITOR`, then Notepad. If the editor command cannot be started, the pane remains available and the application reports the error.
+
+Scrollback editing is a snapshot for editing or copying; it does not send edited text back into the running pane process.
