@@ -8,8 +8,13 @@
   --font-mono: ui-monospace, "SFMono-Regular", Consolas, "Liberation Mono", monospace;
   --default-font-family: var(--font-sans);
   --color-omh-ink: oklch(0.175 0.009 145);
+  --color-omh-ink-2: oklch(0.32 0.02 145);
   --color-omh-paper: oklch(0.965 0.005 120);
+  --color-omh-paper-2: oklch(0.935 0.005 120);
+  --color-omh-paper-3: oklch(0.88 0.005 120);
   --color-omh-accent: oklch(0.678 0.139 55);
+  --color-omh-accent-2: oklch(0.82 0.11 65);
+  --color-omh-muted: oklch(0.55 0.02 145);
 }
 
 :root {
@@ -18,19 +23,39 @@
   text-decoration-thickness: from-font;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  --color-omh-rule: oklch(0.175 0.009 145 / 0.14);
+  --color-omh-rule-strong: oklch(0.175 0.009 145 / 0.28);
+}
+
+.dark .omh-page {
+  --color-omh-ink: oklch(0.94 0.005 120);
+  --color-omh-ink-2: oklch(0.77 0.01 120);
+  --color-omh-paper: oklch(0.14 0.009 145);
+  --color-omh-paper-2: oklch(0.18 0.01 145);
+  --color-omh-paper-3: oklch(0.23 0.01 145);
+  --color-omh-muted: oklch(0.68 0.01 120);
+  --color-omh-rule: oklch(0.94 0.005 120 / 0.14);
+  --color-omh-rule-strong: oklch(0.94 0.005 120 / 0.28);
 }
 
 ::selection {
   color: var(--color-omh-ink);
-  background: oklch(0.82 0.11 65);
+  background: var(--color-omh-accent-2);
 }
 
 .omh-page {
   min-height: calc(100vh - 4rem);
   background:
-    radial-gradient(circle at 85% 10%, oklch(0.678 0.139 55 / 0.18), transparent 32rem),
+    radial-gradient(circle at 92% 0%, oklch(0.678 0.139 55 / 0.06), transparent 24rem),
     var(--color-omh-paper);
   color: var(--color-omh-ink);
+}
+
+.omh-page a:focus-visible,
+.omh-page button:focus-visible,
+.omh-page [tabindex]:focus-visible {
+  outline: 3px solid var(--color-omh-accent);
+  outline-offset: 3px;
 }
 
 .omh-shell {
@@ -39,11 +64,18 @@
   padding-block: clamp(4rem, 10vw, 8rem);
 }
 
+.omh-section {
+  width: min(72rem, calc(100% - 2rem));
+  margin-inline: auto;
+  padding-block: clamp(3rem, 8vw, 6rem);
+}
+
 .omh-eyebrow {
   font-size: 0.8125rem;
   font-weight: 650;
   letter-spacing: 0.12em;
   text-transform: uppercase;
+  color: var(--color-omh-accent);
 }
 
 .omh-title {
@@ -56,11 +88,26 @@
   text-wrap: balance;
 }
 
+.omh-section-title {
+  max-width: 25ch;
+  margin-block-end: 1.5rem;
+  font-size: clamp(1.75rem, 4vw, 2.75rem);
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  line-height: 1.05;
+  text-wrap: balance;
+}
+
 .omh-copy {
   max-width: 65ch;
   font-size: clamp(1rem, 2vw, 1.125rem);
   line-height: 1.6;
   text-wrap: pretty;
+  color: var(--color-omh-ink-2);
+}
+
+.omh-copy + .omh-copy {
+  margin-block-start: 1rem;
 }
 
 .omh-actions {
@@ -73,6 +120,7 @@
 .omh-action {
   display: inline-flex;
   min-height: 2.75rem;
+  min-width: 2.75rem;
   align-items: center;
   justify-content: center;
   border: 1px solid currentColor;
@@ -80,6 +128,11 @@
   padding-inline: 1.125rem;
   font-weight: 650;
   text-decoration: none;
+  transition:
+    transform 100ms ease-out,
+    background-color 200ms ease,
+    border-color 200ms ease,
+    color 200ms ease;
 }
 
 .omh-action[data-primary="true"] {
@@ -88,7 +141,567 @@
   background: var(--color-omh-ink);
 }
 
+.omh-action[data-primary="true"]:hover {
+  border-color: var(--color-omh-ink-2);
+  background: var(--color-omh-ink-2);
+}
+
+.omh-action:hover {
+  border-color: var(--color-omh-accent);
+  color: var(--color-omh-accent);
+}
+
 .omh-action:focus-visible {
   outline: 3px solid var(--color-omh-accent);
   outline-offset: 3px;
+}
+
+.omh-action:active {
+  transform: scale(0.98);
+}
+
+.omh-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(20rem, 1fr));
+  gap: 1rem;
+}
+
+.omh-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  border: 1px solid var(--color-omh-rule);
+  border-radius: 0.5rem;
+  padding: 1.25rem;
+  background: var(--color-omh-paper);
+  transition: border-color 0.2s ease;
+}
+
+.omh-card:hover {
+  border-color: var(--color-omh-accent);
+}
+
+.omh-card-title {
+  font-size: 1.125rem;
+  font-weight: 650;
+  line-height: 1.2;
+}
+
+.omh-card-title a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.omh-card-title a::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+}
+
+.omh-card-title a:focus-visible {
+  outline: none;
+}
+
+.omh-card-title a:focus-visible::after {
+  outline: 3px solid var(--color-omh-accent);
+  outline-offset: 3px;
+  border-radius: 0.5rem;
+}
+
+.omh-card-copy {
+  font-size: 0.9375rem;
+  line-height: 1.55;
+  color: var(--color-omh-ink-2);
+}
+
+.omh-card-link {
+  align-self: flex-start;
+  margin-block-start: auto;
+  padding-block-start: 0.75rem;
+  font-size: 0.875rem;
+  font-weight: 650;
+  color: var(--color-omh-accent);
+  text-decoration: none;
+}
+
+.omh-card-link:hover {
+  text-decoration: underline;
+}
+
+.omh-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.125rem 0.5rem;
+  border: 1px solid var(--color-omh-rule);
+  border-radius: 999px;
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  font-weight: 650;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.omh-status::before {
+  content: "";
+  width: 0.375rem;
+  height: 0.375rem;
+  border-radius: 999px;
+  background: currentColor;
+}
+
+.omh-status--live {
+  color: var(--color-omh-accent);
+  border-color: oklch(0.678 0.139 55 / 0.35);
+}
+
+.omh-status--working {
+  color: oklch(0.65 0.12 55);
+  border-color: oklch(0.65 0.12 55 / 0.35);
+}
+
+.omh-status--idle {
+  color: var(--color-omh-muted);
+  border-color: var(--color-omh-rule);
+}
+
+.omh-command {
+  display: inline-block;
+  font-family: var(--font-mono);
+  font-size: 0.875em;
+  background: var(--color-omh-paper-2);
+  border: 1px solid var(--color-omh-rule);
+  border-radius: 0.25rem;
+  padding: 0.125rem 0.375rem;
+  color: var(--color-omh-ink);
+  white-space: nowrap;
+}
+
+.omh-footer {
+  border-top: 1px solid var(--color-omh-rule);
+  padding-block: 2rem;
+  text-align: center;
+  font-size: 0.875rem;
+  color: var(--color-omh-ink-2);
+}
+
+.omh-hero {
+  position: relative;
+}
+
+.omh-hero-status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+  margin-block-start: 1.5rem;
+  font-size: 0.9375rem;
+  color: var(--color-omh-ink-2);
+}
+
+.omh-schematic {
+  margin-block: clamp(2rem, 5vw, 3rem);
+  border: 1.5px solid var(--color-omh-ink);
+  border-radius: 0.75rem;
+  overflow: hidden;
+  background: var(--color-omh-paper-2);
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+  line-height: 1.5;
+}
+
+.omh-schematic-titlebar {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.875rem;
+  background: var(--color-omh-ink);
+  color: var(--color-omh-paper);
+}
+
+.omh-schematic-dot {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 999px;
+  background: var(--color-omh-accent);
+}
+
+.omh-schematic-title {
+  font-weight: 650;
+  letter-spacing: 0.02em;
+}
+
+.omh-schematic-body {
+  display: grid;
+  grid-template-columns: 10rem 1fr;
+  min-height: 16rem;
+}
+
+.omh-schematic-sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  border-right: 1px solid var(--color-omh-rule-strong);
+  padding: 0.75rem;
+  background: var(--color-omh-paper-3);
+}
+
+.omh-schematic-main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.omh-schematic-group {
+  padding-block: 0.25rem;
+  font-size: 0.6875rem;
+  font-weight: 650;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--color-omh-muted);
+  border-bottom: 1px solid var(--color-omh-rule);
+}
+
+.omh-schematic-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+}
+
+.omh-schematic-list li {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.25rem 0.5rem;
+  border-radius: 0.25rem;
+  color: var(--color-omh-ink-2);
+}
+
+.omh-schematic-list .is-active {
+  background: var(--color-omh-paper);
+  color: var(--color-omh-ink);
+  border-left: 2px solid var(--color-omh-accent);
+  margin-left: -2px;
+}
+
+.omh-schematic-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid var(--color-omh-rule);
+}
+
+.omh-schematic-tab {
+  padding: 0.25rem 0.75rem;
+  border: 1px solid transparent;
+  border-radius: 0.25rem;
+  color: var(--color-omh-ink-2);
+}
+
+.omh-schematic-tab.is-active {
+  border-color: var(--color-omh-rule-strong);
+  background: var(--color-omh-paper);
+  color: var(--color-omh-ink);
+}
+
+.omh-schematic-panes {
+  flex: 1;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.5rem;
+  padding: 0.75rem;
+  min-height: 10rem;
+}
+
+.omh-schematic-pane {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  border: 1px dashed var(--color-omh-rule);
+  border-radius: 0.25rem;
+  padding: 0.75rem;
+  text-align: center;
+  color: var(--color-omh-ink-2);
+  overflow-wrap: break-word;
+}
+
+.omh-schematic-statusbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  padding: 0.5rem 0.75rem;
+  border-top: 1px solid var(--color-omh-rule);
+  background: var(--color-omh-paper-3);
+  color: var(--color-omh-ink-2);
+}
+
+.omh-schematic-caption {
+  margin-block-start: 0.75rem;
+  font-size: 0.875rem;
+  color: var(--color-omh-ink-2);
+}
+
+.omh-workflow {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+  gap: 1.25rem;
+  counter-reset: omh-workflow;
+}
+
+.omh-workflow-step {
+  border-top: 2px solid var(--color-omh-rule);
+  padding-block-start: 1rem;
+}
+
+.omh-workflow-step::before {
+  counter-increment: omh-workflow;
+  content: counter(omh-workflow, decimal-leading-zero);
+  display: block;
+  margin-block-end: 0.75rem;
+  font-family: var(--font-mono);
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--color-omh-accent);
+  line-height: 1;
+}
+
+.omh-workflow-step-title {
+  font-size: 1.125rem;
+  font-weight: 650;
+  line-height: 1.25;
+  margin-block: 0 0.375rem;
+}
+
+.omh-workflow-step-copy {
+  font-size: 0.9375rem;
+  line-height: 1.55;
+  color: var(--color-omh-ink-2);
+}
+
+.omh-workflow-step-link {
+  display: inline-block;
+  margin-block-start: 0.75rem;
+  font-size: 0.875rem;
+  font-weight: 650;
+  color: var(--color-omh-accent);
+  text-decoration: none;
+}
+
+.omh-workflow-step-link:hover {
+  text-decoration: underline;
+}
+
+.omh-platform {
+  border: 1px solid var(--color-omh-rule);
+  border-radius: 0.5rem;
+  padding: 1.25rem;
+  background: var(--color-omh-paper-2);
+}
+
+.omh-platform-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-block-start: 1rem;
+  font-size: 0.9375rem;
+  overflow-wrap: break-word;
+}
+
+.omh-platform-table th,
+.omh-platform-table td {
+  padding: 0.625rem;
+  border: 1px solid var(--color-omh-rule);
+  text-align: left;
+  vertical-align: top;
+}
+
+.omh-platform-table th {
+  font-weight: 650;
+  background: var(--color-omh-paper-3);
+}
+
+.omh-platform-table td:first-child {
+  font-weight: 650;
+}
+
+.omh-status-page .omh-title {
+  max-width: 12ch;
+}
+
+.omh-status-hero {
+  border-bottom: 1px solid var(--color-omh-rule);
+}
+
+.omh-status-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.omh-status[data-tone="holding"] {
+  color: var(--color-omh-accent);
+  border-color: oklch(0.678 0.139 55 / 0.35);
+}
+
+.omh-copy-large {
+  font-size: clamp(1.0625rem, 2vw, 1.25rem);
+}
+
+.omh-section-intro {
+  display: grid;
+  max-width: 48rem;
+  margin-block-end: 2rem;
+}
+
+.omh-status-page .omh-card {
+  min-height: 18rem;
+}
+
+.omh-status-page .omh-card h3 {
+  margin-block: 1rem 0.75rem;
+  font-size: 1.375rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+}
+
+.omh-status-page .omh-card p:not(.omh-card-index) {
+  color: var(--color-omh-ink-2);
+  line-height: 1.55;
+}
+
+.omh-card-index {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-omh-accent);
+}
+
+.omh-install-grid .omh-command {
+  display: block;
+  width: 100%;
+  margin-block-start: auto;
+  padding: 1rem;
+  overflow-x: auto;
+  font-size: 0.75rem;
+  line-height: 1.6;
+  white-space: pre;
+}
+
+.omh-gate {
+  display: grid;
+  grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
+  gap: clamp(2rem, 7vw, 6rem);
+  width: min(72rem, calc(100% - 2rem));
+  margin-block-end: clamp(3rem, 8vw, 6rem);
+  padding-inline: clamp(1.5rem, 5vw, 4rem);
+  border-radius: 0.75rem;
+  color: var(--color-omh-paper);
+  background: var(--color-omh-ink);
+}
+
+.omh-gate .omh-eyebrow {
+  color: var(--color-omh-accent-2);
+}
+
+.omh-gate .omh-section-title {
+  color: var(--color-omh-paper);
+}
+
+.omh-gate-copy {
+  display: grid;
+  align-content: start;
+  gap: 1rem;
+  color: var(--color-omh-paper-2);
+  line-height: 1.6;
+  text-wrap: pretty;
+}
+
+.omh-gate .omh-actions {
+  margin-block-start: 1rem;
+}
+
+.omh-gate .omh-action {
+  color: var(--color-omh-paper);
+}
+
+.omh-gate .omh-action:hover {
+  border-color: var(--color-omh-accent-2);
+  color: var(--color-omh-accent-2);
+}
+
+@media (max-width: 40rem) {
+  .omh-schematic-body {
+    grid-template-columns: 1fr;
+  }
+
+  .omh-schematic-sidebar {
+    border-right: none;
+    border-bottom: 1px solid var(--color-omh-rule-strong);
+  }
+
+  .omh-schematic-panes {
+    grid-template-columns: 1fr;
+  }
+
+  .omh-title {
+    max-width: none;
+  }
+
+  .omh-card-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .omh-gate {
+    grid-template-columns: 1fr;
+  }
+}
+
+@keyframes omh-enter {
+  from {
+    opacity: 0;
+    transform: translateY(0.75rem);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .omh-page > section,
+  .omh-page > footer {
+    animation: omh-enter 420ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+
+  .omh-page > :nth-child(2) {
+    animation-delay: 60ms;
+  }
+
+  .omh-page > :nth-child(3) {
+    animation-delay: 120ms;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .omh-page *,
+  .omh-page *::before,
+  .omh-page *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }

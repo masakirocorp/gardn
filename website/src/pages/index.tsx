@@ -1,5 +1,14 @@
 import { Link } from "fumapress/client";
 import { canonicalUrl } from "../site-url";
+import {
+  CTASection,
+  FeatureGrid,
+  Footer,
+  Hero,
+  PlatformCard,
+  Schematic,
+  Workflow,
+} from "../marketing";
 
 export default function HomePage() {
   return (
@@ -7,34 +16,276 @@ export default function HomePage() {
       <title>Oh My Herdr — Terminal workspace management for AI coding agents</title>
       <meta
         name="description"
-        content="Run coding agents in durable terminal workspaces with local-first coordination."
+        content="Run AI coding agents, shells, and project context in persistent terminal workspaces that survive disconnects."
       />
       <meta property="og:title" content="Oh My Herdr" />
       <meta
         property="og:description"
         content="Terminal workspace management for AI coding agents."
       />
+      <meta name="twitter:title" content="Oh My Herdr" />
+      <meta
+        name="twitter:description"
+        content="Run AI coding agents, shells, and project context in persistent terminal workspaces."
+      />
       <link rel="canonical" href={canonicalUrl("/")} />
       <meta property="og:url" content={canonicalUrl("/")} />
+
       <main className="omh-page">
-        <section className="omh-shell" aria-labelledby="page-title">
-          <p className="omh-eyebrow">Local-first agent workspace</p>
-          <h1 id="page-title" className="omh-title">
-            Keep the terminal work. Lose the terminal sprawl.
-          </h1>
-          <p className="omh-copy">
-            Oh My Herdr organizes coding agents, shells, and project context into durable spaces,
-            tabs, and panes. This scaffold reserves the product story for verified public content.
+        <Hero
+          eyebrow="Terminal workspace manager"
+          title="Keep the terminal work. Lose the terminal sprawl."
+          actions={
+            <>
+              <Link className="omh-action" data-primary="true" href="/docs">
+                Read the documentation
+              </Link>
+              <Link className="omh-action" href="/docs/getting-started/install">
+                Install from source
+              </Link>
+            </>
+          }
+          status={
+            <>
+              <span className="omh-status omh-status--live">pre-public</span>
+              <span>
+                Verified release downloads are not yet available. Check the{" "}
+                <Link href="/download">download status</Link> page.
+              </span>
+            </>
+          }
+        >
+          <p>
+            Oh My Herdr organizes AI coding agents, shells, and project context into persistent
+            terminal spaces. Workspaces, tabs, and panes live inside a session server that survives
+            client disconnects, so you can detach, reattach from another terminal, and pick up where
+            you left off without losing the live processes behind each pane.
           </p>
-          <div className="omh-actions">
-            <Link className="omh-action" data-primary="true" href="/docs">
-              Read the documentation
-            </Link>
-            <Link className="omh-action" href="/download">
-              Download status
-            </Link>
-          </div>
-        </section>
+        </Hero>
+
+        <Schematic
+          title="The session owns your work; clients are just views"
+          caption={
+            <>
+              Spaces, groups, tabs, pane layouts, runtimes, and agent state belong to the session. A
+              client only renders its own view. Read the{" "}
+              <Link href="/docs/concepts">product concepts</Link> for the full vocabulary.
+            </>
+          }
+        />
+
+        <Workflow
+          title="From launch to reattach"
+          steps={[
+            {
+              title: "Launch Oh My Herdr",
+              copy: (
+                <>
+                  Run <span className="omh-command">omh</span> to start or attach to the default
+                  session. First-launch onboarding walks through the basics.
+                </>
+              ),
+              href: "/docs/getting-started/quick-start",
+              label: "Complete the quick start",
+            },
+            {
+              title: "Create a space",
+              copy: (
+                <>
+                  Press <span className="omh-command">ctrl+b</span>, then{" "}
+                  <span className="omh-command">shift+n</span> to create a workspace. Spaces keep
+                  related tabs, panes, and context together.
+                </>
+              ),
+              href: "/docs/guides/workspaces-and-navigation",
+              label: "Organize workspaces",
+            },
+            {
+              title: "Start an agent",
+              copy: (
+                <>
+                  Open the command palette with <span className="omh-command">ctrl+b</span>,{" "}
+                  <span className="omh-command">space</span>, then choose{" "}
+                  <span className="omh-command">new agent</span> to launch a supported profile.
+                </>
+              ),
+              href: "/docs/guides/plugins-and-integrations",
+              label: "Manage integrations",
+            },
+            {
+              title: "Split, tab, and resize",
+              copy: (
+                <>
+                  Split panes with <span className="omh-command">ctrl+b</span>,{" "}
+                  <span className="omh-command">v</span>, add tabs with{" "}
+                  <span className="omh-command">ctrl+b</span>,{" "}
+                  <span className="omh-command">c</span>, and drag borders to resize.
+                </>
+              ),
+              href: "/docs/guides/workspaces-and-navigation",
+              label: "Learn navigation",
+            },
+            {
+              title: "Detach and reconnect",
+              copy: (
+                <>
+                  Press <span className="omh-command">ctrl+b</span>,{" "}
+                  <span className="omh-command">q</span> to detach. The session server keeps your
+                  panes running. Run <span className="omh-command">omh</span> again to reconnect.
+                </>
+              ),
+              href: "/docs/guides/updates-and-handoff",
+              label: "Understand handoff",
+            },
+          ]}
+        />
+
+        <FeatureGrid
+          title="What the workspace does"
+          features={[
+            {
+              title: "Spaces and groups",
+              copy: (
+                <>
+                  Organize work into persistent spaces, group them in the sidebar, and collapse or
+                  filter by group without moving context out of the session.
+                </>
+              ),
+              href: "/docs/guides/workspaces-and-navigation",
+            },
+            {
+              title: "Tabs and panes",
+              copy: (
+                <>
+                  Split, focus, zoom, resize, and move panes between tabs and workspaces. Pane
+                  scrollback, selection, and keyboard protocols follow the terminal contract.
+                </>
+              ),
+              href: "/docs/guides/copy-and-terminal",
+            },
+            {
+              title: "Agent awareness",
+              copy: (
+                <>
+                  Detects coding agents running inside panes and surfaces states such as working,
+                  blocked, done, and idle. Integrations can report native session identity for
+                  restore.
+                </>
+              ),
+              href: "/docs/concepts",
+            },
+            {
+              title: "Remote attach",
+              copy: (
+                <>
+                  Attach to a session over SSH with{" "}
+                  <span className="omh-command">omh --remote</span>. The remote host can bootstrap a
+                  matching binary before the client connects.
+                </>
+              ),
+              href: "/docs/guides/remote",
+            },
+            {
+              title: "Plugins and integrations",
+              copy: (
+                <>
+                  Install built-in agent hooks, link local plugins, or install reviewed GitHub
+                  plugins. Plugins run unsandboxed as your user, so review before confirming.
+                </>
+              ),
+              href: "/docs/guides/plugins-and-integrations",
+            },
+            {
+              title: "Live updates and handoff",
+              copy: (
+                <>
+                  On compatible Unix servers,{" "}
+                  <span className="omh-command">omh update --handoff</span> moves live pane PTYs
+                  into a newly installed server without stopping running processes.
+                </>
+              ),
+              href: "/docs/guides/updates-and-handoff",
+            },
+          ]}
+        />
+
+        <PlatformCard
+          title="Pre-public status"
+          rows={[
+            {
+              platform: "macOS",
+              architectures: "x86_64, aarch64",
+              role: "Local client and remote host",
+            },
+            {
+              platform: "Linux",
+              architectures: "x86_64, aarch64",
+              role: "Local client and remote host",
+            },
+            {
+              platform: "Windows",
+              architectures: "x86_64",
+              role: "Local client only; not a remote host",
+            },
+            {
+              platform: "WSL",
+              architectures: "x86_64, aarch64",
+              role: "Follows the Linux path",
+            },
+          ]}
+          actions={
+            <>
+              <Link className="omh-action" data-primary="true" href="/docs/getting-started/install">
+                Install from source
+              </Link>
+              <Link className="omh-action" href="/download">
+                Download status
+              </Link>
+              <Link className="omh-action" href="/docs/reference/platforms">
+                Platform reference
+              </Link>
+            </>
+          }
+        >
+          <p>
+            Oh My Herdr is pre-public. Verified release downloads are not yet available, so install
+            from the source checkout or the Nix flake. The local client runs on macOS, Linux, and
+            Windows; the remote bridge is limited to Unix local clients and Linux or macOS remote
+            hosts.
+          </p>
+        </PlatformCard>
+
+        <CTASection
+          title="Start with the docs or the source"
+          actions={
+            <>
+              <Link className="omh-action" data-primary="true" href="/docs">
+                Read the documentation
+              </Link>
+              <Link className="omh-action" href="/docs/getting-started/quick-start">
+                Open the quick start
+              </Link>
+              <a
+                className="omh-action"
+                href="https://github.com/masakirocorp/oh-my-herdr"
+                rel="noopener noreferrer"
+                target="_blank"
+              >
+                View source on GitHub
+              </a>
+            </>
+          }
+        >
+          <p>
+            The documentation is verified against the current source and local API schema. The
+            source repository is the best place to follow development, inspect the release process,
+            or install from the latest tag.
+          </p>
+        </CTASection>
+
+        <Footer>
+          <p>Oh My Herdr — a terminal workspace manager for AI coding agents.</p>
+        </Footer>
       </main>
     </>
   );

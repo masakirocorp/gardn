@@ -1,4 +1,5 @@
 import { defineConfig } from "fumapress";
+import { createRootLayout } from "fumapress/layouts/root";
 import { fumadocsMdx } from "fumapress/adapters/mdx";
 import { flexsearchPlugin } from "fumapress/plugins/flexsearch";
 import { linkValidationPlugin } from "fumapress/plugins/link-validation";
@@ -33,7 +34,24 @@ export default defineConfig({
             property="og:description"
             content="Terminal workspace management for AI coding agents."
           />
-          <meta name="twitter:card" content="summary" />
+          <meta property="og:image" content={canonicalUrl("/social-card.png")} />
+          <meta property="og:image:width" content="1200" />
+          <meta property="og:image:height" content="630" />
+          <meta
+            property="og:image:alt"
+            content="Oh My Herdr — terminal workspace management for AI coding agents"
+          />
+          <meta name="twitter:card" content="summary_large_image" />
+          <meta name="twitter:title" content="Oh My Herdr" />
+          <meta
+            name="twitter:description"
+            content="Terminal workspace management for AI coding agents."
+          />
+          <meta name="twitter:image" content={canonicalUrl("/social-card.png")} />
+          <meta
+            name="twitter:image:alt"
+            content="Oh My Herdr — terminal workspace management for AI coding agents"
+          />
           <meta name="theme-color" content="oklch(0.175 0.009 145)" />
           <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
         </>
@@ -50,7 +68,10 @@ export default defineConfig({
     },
   },
 })
-  .layouts({ notFound: NotFoundPage })
+  .layouts({
+    root: createRootLayout({ providerProps: { theme: { defaultTheme: "dark" } } }),
+    notFound: NotFoundPage,
+  })
   .plugins(
     flexsearchPlugin(),
     llmsPlugin(),

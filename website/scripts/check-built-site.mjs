@@ -107,11 +107,15 @@ const routes = new Map([
   ["404", ["404.html", "404/index.html"]],
 ]);
 
+/** @type {Map<string, string>} */
+const routeHtml = new Map();
+
 for (const [label, candidates] of routes) {
   const routeFile = findFile(label, candidates);
   if (!routeFile) continue;
 
   const html = await readFile(path.join(publicRoot, routeFile), "utf8");
+  routeHtml.set(label, html);
   if (!html.includes("Oh My Herdr")) failures.push(`${label}: missing product identity`);
   if (label !== "404" && !html.includes('rel="canonical"')) {
     failures.push(`${label}: missing canonical URL`);
@@ -130,6 +134,41 @@ for (const [label, candidates] of routes) {
     "cargo install oh-my-herdr",
   ]) {
     if (html.includes(forbidden)) failures.push(`${label}: unsupported public claim ${forbidden}`);
+  }
+}
+
+for (const label of ["home", "download", "releases"]) {
+  const html = routeHtml.get(label);
+  if (!html) continue;
+
+  for (const metadata of [
+    'property="og:title"',
+    'property="og:description"',
+    'property="og:image"',
+    'name="twitter:card"',
+    'name="twitter:title"',
+    'name="twitter:description"',
+    'name="twitter:image"',
+  ]) {
+    if (!html.includes(metadata)) failures.push(`${label}: missing social metadata ${metadata}`);
+  }
+}
+
+for (const label of ["download", "releases"]) {
+  const html = routeHtml.get(label);
+  if (!html) continue;
+
+  for (const unavailableArtifact of [
+    "/releases/download/",
+    "omh-linux-x86_64",
+    "omh-linux-aarch64",
+    "omh-macos-x86_64",
+    "omh-macos-aarch64",
+    "omh-windows-x86_64.exe",
+  ]) {
+    if (html.includes(unavailableArtifact)) {
+      failures.push(`${label}: unavailable artifact control ${unavailableArtifact}`);
+    }
   }
 }
 
