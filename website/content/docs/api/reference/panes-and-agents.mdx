@@ -5,18 +5,62 @@ description: Authored method reference for pane.* and agent.* Local API methods.
 
 # Panes and agents
 
-This is the authored reference for the `agent.*` and `pane.*` Local API request methods. It documents behavior that the generated schema cannot express: targeting rules, input and read semantics, layout identity consequences, and exact success discriminators.
+Reference for the `agent.*`, `pane.*`, and `layout.*` Local API methods: targeting rules, input and read semantics, layout identity consequences, and success discriminators. For the raw parameter and result shapes see the generated [requests](/docs/api/reference/generated/requests), [responses](/docs/api/reference/generated/responses), and [enums](/docs/api/reference/generated/enums) (`PaneDirection`, `SplitDirection`, `ReadSource`, `ReadFormat`, `PaneAgentState`, `PaneZoomMode`, `PaneMoveReason`, `PaneSwapReason`, `PaneResizeReason`, `PaneZoomReason`, `PaneFocusDirectionReason`). For the error envelope see [Error semantics](/docs/api/errors). Transport and the request envelope are described in the [Local API overview](/docs/api).
 
-For the raw parameter and result shapes, see the generated reference:
+`pane.wait_for_output` is the one method on this page that holds its connection open; see its entry.
 
-- [Request methods](/docs/api/reference/generated/requests)
-- [Successful responses](/docs/api/reference/generated/responses)
-- [Enum values](/docs/api/reference/generated/enums) (`PaneDirection`, `SplitDirection`, `ReadSource`, `ReadFormat`, `PaneAgentState`, `PaneZoomMode`, `PaneMoveReason`, `PaneSwapReason`, `PaneResizeReason`, `PaneZoomReason`, `PaneFocusDirectionReason`)
-- [Error semantics](/docs/api/errors)
+## Method index
 
-Transport, request envelope, trust model, and the one-request/one-response lifecycle are described in the [Local API overview](/docs/api).
+### Agent methods
 
-Unless a method says otherwise, it follows the standard response lifecycle: one newline-delimited JSON request, one newline-delimited JSON response that echoes the caller-supplied `id`. `pane.wait_for_output` and `events.subscribe` keep the connection open; see their sections.
+| Method                           | Params              | Result         |
+| -------------------------------- | ------------------- | -------------- |
+| [`agent.list`](#agentlist)       | none                | `AgentList`    |
+| [`agent.get`](#agentget)         | `AgentTarget`       | `AgentInfo`    |
+| [`agent.start`](#agentstart)     | `AgentStartParams`  | `AgentStarted` |
+| [`agent.focus`](#agentfocus)     | `AgentTarget`       | `AgentInfo`    |
+| [`agent.read`](#agentread)       | `AgentReadParams`   | `PaneRead`     |
+| [`agent.send`](#agentsend)       | `AgentSendParams`   | `Ok`           |
+| [`agent.rename`](#agentrename)   | `AgentRenameParams` | `AgentInfo`    |
+| [`agent.explain`](#agentexplain) | `AgentTarget`       | `AgentExplain` |
+
+### Pane methods
+
+| Method                                                     | Params                          | Result               |
+| ---------------------------------------------------------- | ------------------------------- | -------------------- |
+| [`pane.list`](#panelist)                                   | `PaneListParams`                | `PaneList`           |
+| [`pane.get`](#paneget)                                     | `PaneTarget`                    | `PaneInfo`           |
+| [`pane.current`](#panecurrent)                             | `PaneCurrentParams`             | `PaneCurrent`        |
+| [`pane.split`](#panesplit)                                 | `PaneSplitParams`               | `PaneInfo`           |
+| [`pane.close`](#paneclose)                                 | `PaneTarget`                    | `Ok`                 |
+| [`pane.focus`](#panefocus)                                 | `PaneTarget`                    | `PaneInfo`           |
+| [`pane.send_text`](#panesend_text)                         | `PaneSendTextParams`            | `Ok`                 |
+| [`pane.send_input`](#panesend_input)                       | `PaneSendInputParams`           | `Ok`                 |
+| [`pane.send_keys`](#panesend_keys)                         | `PaneSendKeysParams`            | `Ok`                 |
+| [`pane.read`](#paneread)                                   | `PaneReadParams`                | `PaneRead`           |
+| [`pane.wait_for_output`](#panewait_for_output)             | `PaneWaitForOutputParams`       | `OutputMatched`      |
+| [`pane.swap`](#paneswap)                                   | `PaneSwapParams`                | `PaneSwap`           |
+| [`pane.zoom`](#panezoom)                                   | `PaneZoomParams`                | `PaneZoom`           |
+| [`pane.layout`](#panelayout)                               | `PaneLayoutParams`              | `PaneLayout`         |
+| [`pane.process_info`](#paneprocess_info)                   | `PaneProcessInfoParams`         | `PaneProcessInfo`    |
+| [`pane.move`](#panemove)                                   | `PaneMoveParams`                | `PaneMove`           |
+| [`pane.neighbor`](#paneneighbor)                           | `PaneNeighborParams`            | `PaneNeighbor`       |
+| [`pane.edges`](#paneedges)                                 | `PaneEdgesParams`               | `PaneEdges`          |
+| [`pane.focus_direction`](#panefocus_direction)             | `PaneFocusDirectionParams`      | `PaneFocusDirection` |
+| [`pane.resize`](#paneresize)                               | `PaneResizeParams`              | `PaneResize`         |
+| [`pane.rename`](#panerename)                               | `PaneRenameParams`              | `PaneInfo`           |
+| [`pane.report_agent`](#panereport_agent)                   | `PaneReportAgentParams`         | `Ok`                 |
+| [`pane.report_agent_session`](#panereport_agent_session)   | `PaneReportAgentSessionParams`  | `Ok`                 |
+| [`pane.clear_agent_authority`](#paneclear_agent_authority) | `PaneClearAgentAuthorityParams` | `Ok`                 |
+| [`pane.release_agent`](#panerelease_agent)                 | `PaneReleaseAgentParams`        | `Ok`                 |
+| [`pane.report_metadata`](#panereport_metadata)             | `PaneReportMetadataParams`      | `Ok`                 |
+
+### Layout methods
+
+| Method                           | Params               | Result         |
+| -------------------------------- | -------------------- | -------------- |
+| [`layout.export`](#layoutexport) | `LayoutExportParams` | `LayoutExport` |
+| [`layout.apply`](#layoutapply)   | `LayoutApplyParams`  | `LayoutApply`  |
 
 ## Identifier semantics
 
@@ -46,10 +90,10 @@ Only terminals marked as agent terminals are returned by `agent.list` and accept
 
 ### Exact success discriminators
 
-Every mutating pane method returns a result object with a `changed` boolean. Treat `changed` as the authoritative success discriminator for whether state was actually modified:
+Every mutating pane method returns a result object with a `changed` boolean. Treat `changed` as the authoritative signal of whether state was modified:
 
-- `true` — the request modified workspace state. The server emits a `layout_updated` event (and possibly `pane_moved`, `pane_created`, `pane_closed`, `tab_created`, `tab_closed`, `workspace_created`, `workspace_closed` for `pane.move`).
-- `false` — the request was accepted but had no effect, paired with `reason` when the method exposes one. The response is still `result`, not `error`.
+- `true`: the request modified workspace state. The server emits a `layout_updated` event (and possibly `pane_moved`, `pane_created`, `pane_closed`, `tab_created`, `tab_closed`, `workspace_created`, `workspace_closed` for `pane.move`).
+- `false`: the request was accepted but had no effect, paired with `reason` when the method exposes one. The response is still `result`, not `error`.
 
 A response with `error` means the request was rejected before any state change. The discriminators below call out the `reason` enum value for each no-op path.
 
@@ -322,7 +366,7 @@ Errors: `pane_not_found`, `invalid_key`, `pane_send_failed`.
 | `text`    | `string`   | no       | `""`    |
 | `keys`    | `string[]` | no       | `[]`    |
 
-Both fields are optional but at least one should be supplied for a useful request. The `text` field is encoded by `encode_api_text`: when the terminal's input state has bracketed paste active, the text is wrapped as `\x1b[200~<text>\x1b[201~`; otherwise it is sent as raw bytes. Keys are then sent in array order with the same encoding as `pane.send_keys`. Each failed write returns `pane_send_failed` immediately and stops the remaining keys.
+Both fields are optional but at least one should be supplied for a useful request. When the terminal's input state has bracketed paste active, the `text` field is wrapped as `\x1b[200~<text>\x1b[201~`; otherwise it is sent as raw bytes. Keys are then sent in array order with the same encoding as `pane.send_keys`. Each failed write returns `pane_send_failed` immediately and stops the remaining keys.
 
 Result: `Ok {}`.
 
@@ -480,7 +524,7 @@ Errors: `pane_not_found`.
 
 ### pane.current
 
-Return the `PaneInfo` for the current pane. The optional `caller_pane_id` overrides resolution: when present, the server parses and returns that pane instead of the active one. When the resolved pane does not exist, the error is `pane_not_found` with the generic message `pane not found`.
+Return the `PaneInfo` for the current pane. The optional `caller_pane_id` overrides resolution: when present, the server parses and returns that pane, not the active one. When the resolved pane does not exist, the error is `pane_not_found` with the generic message `pane not found`.
 
 | Property         | Type             | Required | Default                              |
 | ---------------- | ---------------- | -------- | ------------------------------------ |
@@ -619,7 +663,7 @@ Move a pane to a destination: an existing tab (split into it), a new tab in an e
 
 Identity consequences:
 
-- The moved pane keeps its underlying pane id and terminal id across workspace boundaries, but the public `pane_id` changes when the move crosses workspaces. The previous public id is registered as an alias of the new id; `parse_pane_id` with the previous id still resolves to the moved pane.
+- The moved pane keeps its underlying pane id and terminal id across workspace boundaries. The public `pane_id` changes when the move crosses workspaces. The previous public id is registered as an alias of the new id, so requests that use the previous id still resolve to the moved pane.
 - When the source workspace becomes empty as a result of the move, it is closed. `closed_workspace_id` is set to the previous workspace id, `closed_tab_id` is set when the source tab closes, and the server emits `workspace_closed`, `tab_closed` as appropriate.
 - A move to a tab in the same workspace and tab as the source is a no-op and returns `changed: false` with `reason: "same_tab"`.
 - A move to or from a zoomed tab is a no-op and returns `changed: false` with `reason: "zoomed_tab"`. The zoom state protects the destination, so a caller that wants the move to take effect must unzoom first.
@@ -736,7 +780,7 @@ The result contains:
 - `shell_pid`: the runtime's child pid when non-zero, else `null`.
 - `foreground_process_group_id`: the foreground process group id when a foreground job was detected, else `null`.
 - `tty`: always `null` in the current implementation; reserved for future use.
-- `foreground_processes`: the processes in the detected foreground job. Each entry has `pid`, `name`, optional `argv0`, optional `argv`, optional `cmdline`, and optional `cwd` (resolved via `process_cwd`; absence is not an error). Empty when no foreground job is detected.
+- `foreground_processes`: the processes in the detected foreground job. Each entry has `pid`, `name`, optional `argv0`, optional `argv`, optional `cmdline`, and optional `cwd` (resolved from the process; absence is not an error). Empty when no foreground job is detected.
 
 `shell_pid` is `null` before the shell has spawned and after it exits. `foreground_processes` is the live foreground job at request time, so a busy shell can return zero entries between commands.
 
@@ -772,7 +816,7 @@ Resize the split adjacent to the resolved pane in a direction by a fraction of t
 No-op conditions:
 
 - The containing tab has only one pane: `changed: false`, `reason: "unchanged"`.
-- The split ratio does not actually change after clamping (e.g., already at `0.1`/`0.9` bounds): `changed: false`, `reason: "unchanged"`.
+- The split ratio does not change after clamping (e.g., already at `0.1`/`0.9` bounds): `changed: false`, `reason: "unchanged"`.
 
 Direction interpretation: the `direction` selects which split to resize, not which way the boundary moves. For a given direction, the server finds the adjacent split in that direction of the focused pane and applies `amount` toward growing or shrinking the source pane region. The exact grow/shrink sign is internal to the layout engine; callers should treat `direction` as selecting the target split and `amount` as the magnitude, then read the resulting `layout.splits[].ratio` to confirm the effect.
 
@@ -803,7 +847,7 @@ Focus the nearest pane in a direction from a source pane. Unlike `pane.focus`, t
 | `pane_id`   | `string \| null`                      | no       | focused pane of the active workspace |
 | `direction` | `"left" \| "right" \| "up" \| "down"` | yes      | —                                    |
 
-When a neighbor exists in `direction`, the server focuses that pane, switches the active tab to the containing tab, sets the server mode to `Terminal`, and returns `changed: true`. When no pane lies in that direction, the server leaves focus unchanged and returns `changed: false` with `reason: "no_neighbor"`. The containing tab's `layout` is returned in both cases. When the focus actually changes, the server emits `layout_updated`.
+When a neighbor exists in `direction`, the server focuses that pane, switches the active tab to the containing tab, sets the server mode to `Terminal`, and returns `changed: true`. When no pane lies in that direction, the server leaves focus unchanged and returns `changed: false` with `reason: "no_neighbor"`. The containing tab's `layout` is returned in both cases. When the focus changes, the server emits `layout_updated`.
 
 Result: `PaneFocusDirection { focus: PaneFocusDirectionResult }` with `changed`, optional `reason`, `source_pane_id`, optional `focused_pane_id`, and the current `layout`.
 
@@ -888,17 +932,17 @@ Three methods let integration hooks push agent state into a pane's terminal meta
 Report an agent state transition for a pane.
 
 | Property             | Type                                            | Required | Default |
-| -------------------- | ----------------------------------------------- | -------- | ------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| -------------------- | ----------------------------------------------- | -------- | ------- | ---------------------------------------------------------------------------------------------------------------------- |
 | `pane_id`            | `string`                                        | yes      | —       |
-| `source`             | `string`                                        | yes      | —       | Free-form, conventionally `omh:<agent>` or `<integration>:<agent>`. Used by the resume subsystem to correlate reports.            |
-| `agent`              | `string`                                        | yes      | —       | Agent label; trimmed, normalized through `parse_agent_label` when known, kept verbatim otherwise. Empty produces `invalid_agent`. |
-| `state`              | `"idle" \| "working" \| "blocked" \| "unknown"` | yes      | —       | Maps directly to the internal `AgentState`.                                                                                       |
-| `message`            | `string \| null`                                | no       | `null`  | Optional human-oriented message attached to the report.                                                                           |
-| `custom_status`      | `string \| null`                                | no       | `null`  | Trimmed and filtered to at most 32 non-control characters.                                                                        |
-| `seq`                | `integer \| null`                               | no       | `null`  | Monotonic sequence used for ordering concurrent reports.                                                                          |
-| `agent_session_id`   | `string \| null`                                | no       | `null`  | Together with `agent_session_path` identifies the session for resume; one of the two is the session reference.                    |
-| `agent_session_path` | `string \| null`                                | no       | `null`  | —                                                                                                                                 |
-| `launch_env`         | `object`                                        | no       | `{}`    | Environment captured at agent launch, forwarded to the resume subsystem.                                                          |
+| `source`             | `string`                                        | yes      | —       | Free-form, conventionally `omh:<agent>` or `<integration>:<agent>`. Used by the resume subsystem to correlate reports. |
+| `agent`              | `string`                                        | yes      | —       | Agent label; trimmed and normalized when known, kept verbatim otherwise. Empty produces `invalid_agent`.               |
+| `state`              | `"idle" \| "working" \| "blocked" \| "unknown"` | yes      | —       | Maps directly to the internal `AgentState`.                                                                            |
+| `message`            | `string \| null`                                | no       | `null`  | Optional human-oriented message attached to the report.                                                                |
+| `custom_status`      | `string \| null`                                | no       | `null`  | Trimmed and filtered to at most 32 non-control characters.                                                             |
+| `seq`                | `integer \| null`                               | no       | `null`  | Monotonic sequence used for ordering concurrent reports.                                                               |
+| `agent_session_id`   | `string \| null`                                | no       | `null`  | Together with `agent_session_path` identifies the session for resume; one of the two is the session reference.         |
+| `agent_session_path` | `string \| null`                                | no       | `null`  | —                                                                                                                      |
+| `launch_env`         | `object`                                        | no       | `{}`    | Environment captured at agent launch, forwarded to the resume subsystem.                                               |
 
 Result: `Ok {}`.
 
@@ -985,7 +1029,7 @@ Set or clear presentation metadata (title, display agent, custom status, state l
 | --------------------- | ----------------- | -------- | ------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `pane_id`             | `string`          | yes      | —       | —                                                                                                                                                                                                                                             |
 | `source`              | `string`          | yes      | —       | Normalized: trimmed, control chars removed, at most 80 chars, must be non-empty or `invalid_metadata_source`.                                                                                                                                 |
-| `agent`               | `string \| null`  | no       | `null`  | Optional agent label; normalized through `normalize_reported_agent_label`. Empty produces `invalid_agent`.                                                                                                                                    |
+| `agent`               | `string \| null`  | no       | `null`  | Optional agent label; normalized the same way as a reported agent label. Empty produces `invalid_agent`.                                                                                                                                      |
 | `applies_to_source`   | `string \| null`  | no       | `null`  | When set, the metadata applies to reports from that source. Validated with the same rules as `source`.                                                                                                                                        |
 | `title`               | `string \| null`  | no       | `null`  | Trimmed, control chars removed, at most 80 chars.                                                                                                                                                                                             |
 | `display_agent`       | `string \| null`  | no       | `null`  | Same normalization as `title`.                                                                                                                                                                                                                |
@@ -1032,7 +1076,7 @@ Errors: `pane_not_found`, `invalid_agent`, `invalid_metadata_source`, `invalid_m
 
 ## Env behavior
 
-`agent.start` and `pane.split` accept an `env` object passed through `normalize_launch_env`:
+`agent.start` and `pane.split` accept an `env` object with these validation rules:
 
 - Keys must not be empty.
 - Keys must not contain `=`.
@@ -1042,56 +1086,3 @@ Errors: `pane_not_found`, `invalid_agent`, `invalid_metadata_source`, `invalid_m
 Entries are sorted by key before being passed to the spawned process. A violation returns `invalid_env` with a descriptive message.
 
 The `env` object is merged on top of the process environment. It does not replace the inherited environment.
-
-## Method index
-
-### Agent methods
-
-| Method                           | Params              | Result         |
-| -------------------------------- | ------------------- | -------------- |
-| [`agent.list`](#agentlist)       | none                | `AgentList`    |
-| [`agent.get`](#agentget)         | `AgentTarget`       | `AgentInfo`    |
-| [`agent.start`](#agentstart)     | `AgentStartParams`  | `AgentStarted` |
-| [`agent.focus`](#agentfocus)     | `AgentTarget`       | `AgentInfo`    |
-| [`agent.read`](#agentread)       | `AgentReadParams`   | `PaneRead`     |
-| [`agent.send`](#agentsend)       | `AgentSendParams`   | `Ok`           |
-| [`agent.rename`](#agentrename)   | `AgentRenameParams` | `AgentInfo`    |
-| [`agent.explain`](#agentexplain) | `AgentTarget`       | `AgentExplain` |
-
-### Pane methods
-
-| Method                                                     | Params                          | Result               |
-| ---------------------------------------------------------- | ------------------------------- | -------------------- |
-| [`pane.list`](#panelist)                                   | `PaneListParams`                | `PaneList`           |
-| [`pane.get`](#paneget)                                     | `PaneTarget`                    | `PaneInfo`           |
-| [`pane.current`](#panecurrent)                             | `PaneCurrentParams`             | `PaneCurrent`        |
-| [`pane.split`](#panesplit)                                 | `PaneSplitParams`               | `PaneInfo`           |
-| [`pane.close`](#paneclose)                                 | `PaneTarget`                    | `Ok`                 |
-| [`pane.focus`](#panefocus)                                 | `PaneTarget`                    | `PaneInfo`           |
-| [`pane.send_text`](#panesend_text)                         | `PaneSendTextParams`            | `Ok`                 |
-| [`pane.send_input`](#panesend_input)                       | `PaneSendInputParams`           | `Ok`                 |
-| [`pane.send_keys`](#panesend_keys)                         | `PaneSendKeysParams`            | `Ok`                 |
-| [`pane.read`](#paneread)                                   | `PaneReadParams`                | `PaneRead`           |
-| [`pane.wait_for_output`](#panewait_for_output)             | `PaneWaitForOutputParams`       | `OutputMatched`      |
-| [`pane.swap`](#paneswap)                                   | `PaneSwapParams`                | `PaneSwap`           |
-| [`pane.zoom`](#panezoom)                                   | `PaneZoomParams`                | `PaneZoom`           |
-| [`pane.layout`](#panelayout)                               | `PaneLayoutParams`              | `PaneLayout`         |
-| [`pane.process_info`](#paneprocess_info)                   | `PaneProcessInfoParams`         | `PaneProcessInfo`    |
-| [`pane.move`](#panemove)                                   | `PaneMoveParams`                | `PaneMove`           |
-| [`pane.neighbor`](#paneneighbor)                           | `PaneNeighborParams`            | `PaneNeighbor`       |
-| [`pane.edges`](#paneedges)                                 | `PaneEdgesParams`               | `PaneEdges`          |
-| [`pane.focus_direction`](#panefocus_direction)             | `PaneFocusDirectionParams`      | `PaneFocusDirection` |
-| [`pane.resize`](#paneresize)                               | `PaneResizeParams`              | `PaneResize`         |
-| [`pane.rename`](#panerename)                               | `PaneRenameParams`              | `PaneInfo`           |
-| [`pane.report_agent`](#panereport_agent)                   | `PaneReportAgentParams`         | `Ok`                 |
-| [`pane.report_agent_session`](#panereport_agent_session)   | `PaneReportAgentSessionParams`  | `Ok`                 |
-| [`pane.clear_agent_authority`](#paneclear_agent_authority) | `PaneClearAgentAuthorityParams` | `Ok`                 |
-| [`pane.release_agent`](#panerelease_agent)                 | `PaneReleaseAgentParams`        | `Ok`                 |
-| [`pane.report_metadata`](#panereport_metadata)             | `PaneReportMetadataParams`      | `Ok`                 |
-
-### Layout methods
-
-| Method                           | Params               | Result         |
-| -------------------------------- | -------------------- | -------------- |
-| [`layout.export`](#layoutexport) | `LayoutExportParams` | `LayoutExport` |
-| [`layout.apply`](#layoutapply)   | `LayoutApplyParams`  | `LayoutApply`  |

@@ -5,17 +5,17 @@ description: Session, workspace, worktree, group, and tab Local API methods with
 
 # Resources
 
-This page documents the Local API methods that read and mutate the resource tree a session owns: the session itself, workspaces, git worktrees, sidebar groups, and tabs. Methods that act on panes, agents, plugins, and server controls are covered separately.
+Reference for the Local API methods that read and mutate the resource tree a session owns: the session, workspaces, git worktrees, sidebar groups, and tabs. Pane, agent, plugin, and server-control methods live on [Panes and agents](/docs/api/reference/panes-and-agents) and [Extensions and control](/docs/api/reference/extensions-and-control).
 
-Every request is one newline-delimited JSON object with `id`, `method`, and `params`. Every response echoes `id` and contains either `result` or `error`. Result objects carry a `type` discriminator; the discriminators named below match the `ResponseResult` variants serialized from `apps/omh/src/api/schema.rs`. See [error semantics](/docs/api/errors) for the error envelope, and the [generated requests](/docs/api/reference/generated/requests), [responses](/docs/api/reference/generated/responses), and [enums](/docs/api/reference/generated/enums) pages for the machine-generated shapes.
+Each entry lists params, the result discriminator, method-specific errors, and a runnable example. Result objects carry a `type` discriminator. For the error envelope see [Error semantics](/docs/api/errors). For the machine-generated shapes see the generated [requests](/docs/api/reference/generated/requests), [responses](/docs/api/reference/generated/responses), and [enums](/docs/api/reference/generated/enums).
 
 ## Identifiers and active-target defaults
 
-Several resource methods accept optional selectors that pick a starting point when you omit an explicit id. The rules below are enforced by the handlers in `apps/omh/src/app/api/{workspaces,worktrees,tabs}.rs` and the id parsers in `apps/omh/src/app/ids.rs`.
+Several resource methods accept optional selectors that pick a starting point when you omit an explicit id.
 
 **Public ids.**
 
-- `workspace_id` is a stable opaque string generated as `w<micros_hex><counter_hex>` (for example `w1943cd2b11a1`). The parsers also accept the legacy `w_<n>` and bare one-based integer forms, but the server always returns the generated `w...` form in results.
+- `workspace_id` is a stable opaque string generated as `w<micros_hex><counter_hex>` (for example `w1943cd2b11a1`). The parsers also accept the legacy `w_<n>` and bare one-based integer forms. Results always use the generated `w...` form.
 - `group_id` is a stable opaque string generated as `g<micros_hex><counter_hex>` for created groups. The first group is the built-in default and uses the fixed id `default`. The parsers also accept `g_<n>` and a bare one-based integer.
 - `tab_id` is `"<workspace_id>:t<encoded_number>"` where the encoded number uses the 32-symbol alphabet `123456789ABCDEFGHJKMNPQRSTVWXYZ0` (one-based, bijective: tab 1 is `1`, tab 10 is `A`). Closed tab numbers are not reused, so a `tab_id` remains a stable reference for the lifetime of the tab. Legacy `t_<ws>_<tab>` and `"<workspace_id>:<n>"` forms also parse.
 
@@ -23,7 +23,7 @@ Several resource methods accept optional selectors that pick a starting point wh
 
 - Worktree methods (`worktree.list`, `worktree.create`, `worktree.open`) accept `workspace_id` or `cwd` as mutually exclusive selectors. Provide neither and the server uses the active workspace, or the selected workspace in navigate mode. If no workspace is active or selected, the request fails with `invalid_request` and the message `workspace_id or cwd is required when no workspace is active`.
 - `tab.create` uses `workspace_id` when supplied, otherwise the active workspace. With no active workspace it returns `workspace_not_found` and the message `no active workspace`.
-- `workspace.create` derives `cwd` from the workspace creation source and the configured new-terminal cwd policy when `cwd` is omitted. `focus` defaults to `false`, but is treated as `true` when no workspace is active.
+- `workspace.create` derives `cwd` from the workspace creation source and the configured new-terminal cwd policy when `cwd` is omitted. `focus` defaults to `false`, and is treated as `true` when no workspace is active.
 
 ## Session
 
@@ -378,7 +378,7 @@ Params:
 | `workspace_id` | `string` | yes      | The public workspace id of the workspace to move. |
 | `group_id`     | `string` | yes      | The public id of the destination group.           |
 
-Result: the method is declared in the schema and parsed by the server, but no handler is wired in the current dispatch table. The request succeeds in validation and then returns `not_implemented` with the message `method not implemented yet`. Do not rely on this method to move workspaces programmatically. Within the running app, group moves are performed by the internal `state.move_workspace_to_group` routine invoked from sidebar drag handling, not from this Local API method. To verify whether a future build wires the handler, check the `Method::WorkspaceMoveToGroup` arm in `apps/omh/src/app/api.rs`.
+Result: the method is declared in the schema and parsed by the server. The current dispatch table has no handler for it, so the request passes validation and then returns `not_implemented` with the message `method not implemented yet`. Do not rely on it to move workspaces programmatically. In the running app, group moves are performed by sidebar drag handling, not by this Local API method.
 
 Errors:
 
@@ -745,7 +745,11 @@ Params:
 
 Result discriminator: `group_info`. The returned `group` has `focused: true`. The session is persisted.
 
-Errors: `group_not_found` when `group_id` does not resolve.
+Errors:
+
+| Code              | When                         |
+| ----------------- | ---------------------------- |
+| `group_not_found` | `group_id` does not resolve. |
 
 ```json
 { "id": "grp:focus", "method": "group.focus", "params": { "group_id": "g1943cf10c3" } }

@@ -5,16 +5,15 @@ description: Local API methods for server control, notifications, window titles,
 
 # Extensions and control
 
-This page is the authored reference for the extension and control methods in the Local API. Workspace, tab, agent, and pane methods are documented separately. The [generated request, response, enum, and event shapes](/docs/api/reference/generated) are the canonical wire-shape reference.
-
-A request is one newline-delimited JSON object containing a caller-selected string `id`, a `method`, and that method's `params`. A normal response echoes `id` and contains `result`; an error response contains `error.code` and `error.message`. Subscription event lines do not contain `id`.
+Reference for the extension and control methods in the Local API: server control, notifications, window titles, integrations, plugins, configuration diagnostics, and event subscriptions. Workspace, tab, agent, and pane methods are documented on [Resources](/docs/api/reference/resources) and [Panes and agents](/docs/api/reference/panes-and-agents). For the canonical wire shapes see the [generated reference](/docs/api/reference/generated). For the error envelope see [Error semantics](/docs/api/errors). Transport and the request envelope are described in the [Local API overview](/docs/api).
 
 > **Trust boundary.** The Local API is a local-user control surface. Any process that can open its socket can ask Oh My Herdr to stop or replace the server, write integration and plugin files, spawn plugin commands and panes as the current user, send content to a client, or hold a long-lived event stream. Treat the socket and every caller as trusted only when that is intended.
 
-## Method inventory
+## Methods
 
-The schema currently defines these methods in the namespaces covered here:
+The schema defines these methods in the namespaces covered here:
 
+- `ping`.
 - `server.stop`, `server.live_handoff`, `server.reload_config`, `server.agent_manifests`, and `server.reload_agent_manifests`.
 - `notification.show`.
 - `client.window_title.set` and `client.window_title.clear`.
@@ -22,11 +21,11 @@ The schema currently defines these methods in the namespaces covered here:
 - `plugin.link`, `plugin.list`, `plugin.unlink`, `plugin.enable`, `plugin.disable`, `plugin.action.list`, `plugin.action.invoke`, `plugin.log.list`, `plugin.pane.open`, `plugin.pane.focus`, and `plugin.pane.close`.
 - `events.subscribe` and `events.wait`.
 
-### `ping`
+## `ping`
 
 Returns the server version, client protocol number, and capability flags. `server.live_handoff` clients should inspect `capabilities.live_handoff` before attempting a handoff.
 
-**Params:** `PingParams` — `{}`; no properties.
+**Params:** `PingParams`, no properties.
 
 **Success:** `ResponseResult::Pong`, discriminator `"pong"`, with `version: string`, `protocol: integer`, and optional `capabilities: ServerCapabilities`. `ServerCapabilities` currently contains `live_handoff: boolean`.
 
@@ -41,7 +40,7 @@ Returns the server version, client protocol number, and capability flags. `serve
 
 Requests server shutdown. The application sets its quit flag and returns before the event loop exits. In headless mode, requests received after shutdown has begun are rejected with `server_unavailable`.
 
-**Params:** `EmptyParams` — `{}`; no properties.
+**Params:** `EmptyParams`, no properties.
 
 **Success:** `ResponseResult::Ok`, discriminator `"ok"`.
 
@@ -75,11 +74,11 @@ Preconditions and execution boundary:
 - At most 64 pane file descriptors can be transferred in one handoff. The request fails before transfer when more are attached.
 - The server creates a private handoff socket, disconnects clients and rejects pending client connections, pauses pane readers, captures the session and runtime state, starts the import process, transfers pane descriptors, waits for `restored` and `ready`, then sends `committed`. The old server exits only after commit. A failure before commit kills the import process and restores the old server's readers and public sockets where possible.
 - `expected_protocol` and `expected_version` are placed in the handoff manifest and validated by the replacement. A mismatch is a `handoff_failed` response from the old server.
-- The API and client socket files are removed when the replacement takes ownership. Clients must reconnect rather than retrying on the closed connection.
+- The API and client socket files are removed when the replacement takes ownership. The closed connection does not accept retries; clients must reconnect.
 
 | Error                     | Meaning                                                                                                                                                                                                                                                                                                       |
 | ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `unsupported_in_app_mode` | The request reached an interactive App rather than the headless server.                                                                                                                                                                                                                                       |
+| `unsupported_in_app_mode` | The request reached an interactive App, not the headless server.                                                                                                                                                                                                                                              |
 | `handoff_failed`          | Unix handoff could not bind its socket, exceeded the 64-pane limit, could not spawn the import process, could not pause or duplicate a pane runtime, failed token/manifest validation, failed runtime restoration, or the replacement did not become ready or commit. The message identifies the failed step. |
 | `server_unavailable`      | Shutdown was already in progress or the request could not be dispatched.                                                                                                                                                                                                                                      |
 
@@ -92,7 +91,7 @@ Preconditions and execution boundary:
 
 Loads `config.toml` and applies the live configuration without restarting the server. In headless mode, the server keybinding set is restored before the disk configuration is applied; this keeps server-owned keybindings distinct from a client's local keybindings.
 
-**Params:** `EmptyParams` — `{}`.
+**Params:** `EmptyParams`, no properties.
 
 **Success:** `ResponseResult::ConfigReload`, discriminator `"config_reload"`.
 
@@ -117,7 +116,7 @@ Loads `config.toml` and applies the live configuration without restarting the se
 
 Returns the currently loaded agent-manifest summaries and the persisted remote-update status. It refreshes the App's summary view from its loaded manifest state; it does not reload manifest files. Use `server.reload_agent_manifests` to reload them.
 
-**Params:** `EmptyParams` — `{}`.
+**Params:** `EmptyParams`, no properties.
 
 **Success:** `ResponseResult::AgentManifestStatus`, discriminator `"agent_manifest_status"`.
 
@@ -142,7 +141,7 @@ Each `AgentManifestInfo` contains `agent`, `source`, `source_kind`, `local_overr
 
 Reloads agent manifests from disk, replaces the in-memory summaries, and resets all agent-detection runtimes so subsequent detection uses the new manifests.
 
-**Params:** `EmptyParams` — `{}`.
+**Params:** `EmptyParams`, no properties.
 
 **Success:** `ResponseResult::AgentManifestReload`, discriminator `"agent_manifest_reload"`, with `manifests: AgentManifestInfo[]`.
 
@@ -220,7 +219,7 @@ Sets the title of the current foreground client window.
 
 Clears the title previously set through the API on the current foreground client.
 
-**Params:** `EmptyParams` — `{}`.
+**Params:** `EmptyParams`, no properties.
 
 **Success:** `ResponseResult::ClientWindowTitle`, discriminator `"client_window_title"`. A delivered clear is `{"changed":true,"reason":"cleared"}`; without a foreground client it is `{"changed":false,"reason":"no_foreground_client"}`.
 
@@ -281,7 +280,7 @@ Target installation writes these kinds of assets:
 
 ### `integration.uninstall`
 
-Removes Oh My Herdr-managed assets and entries for the selected target. It does not uninstall the agent and does not ask for confirmation. A target with nothing installed reports a message rather than being an error.
+Removes Oh My Herdr-managed assets and entries for the selected target. It does not uninstall the agent and does not ask for confirmation. A target with nothing installed reports a message; it is not an error.
 
 **Params:** `IntegrationUninstallParams`.
 
@@ -375,7 +374,7 @@ Lists registered plugins in ascending `plugin_id` order. A manifest-unavailable 
 
 Removes a plugin record from the registry. It does not delete the plugin directory. Existing plugin panes keep running as ordinary panes; the plugin attribution records are removed, so those panes can no longer be focused or closed through the plugin pane methods.
 
-**Params:** `PluginUnlinkParams` — `plugin_id: string`.
+**Params:** `PluginUnlinkParams`, with `plugin_id: string`.
 
 **Success:** `ResponseResult::PluginUnlinked`, discriminator `"plugin_unlinked"`, with `plugin_id` and `removed: boolean`. An unknown but valid ID succeeds with `removed: false`.
 
@@ -394,7 +393,7 @@ Removes a plugin record from the registry. It does not delete the plugin directo
 
 Sets a registered plugin's `enabled` flag to `true`. The flag is persisted. Enabling does not run actions, hooks, or panes immediately.
 
-**Params:** `PluginSetEnabledParams` — `plugin_id: string`.
+**Params:** `PluginSetEnabledParams`, with `plugin_id: string`.
 
 **Success:** `ResponseResult::PluginEnabled`, discriminator `"plugin_enabled"`, with the updated `plugin: InstalledPluginInfo`.
 
@@ -407,9 +406,9 @@ Sets a registered plugin's `enabled` flag to `true`. The flag is persisted. Enab
 
 ### `plugin.disable`
 
-Sets a registered plugin's `enabled` flag to `false`. The plugin remains registered and listable, but action invocation, event hooks, and pane opening are rejected until it is enabled again. Existing panes are not automatically closed.
+Sets a registered plugin's `enabled` flag to `false`. The plugin remains registered and listable; action invocation, event hooks, and pane opening are rejected until it is enabled again. Existing panes are not automatically closed.
 
-**Params:** `PluginSetEnabledParams` — `plugin_id: string`.
+**Params:** `PluginSetEnabledParams`, with `plugin_id: string`.
 
 **Success:** `ResponseResult::PluginDisabled`, discriminator `"plugin_disabled"`, with the updated `plugin: InstalledPluginInfo`.
 
@@ -561,7 +560,7 @@ The plugin manifest's pane platform list overrides its plugin platform list. The
 
 Focuses a pane currently attributed to a plugin and switches the App to terminal mode.
 
-**Params:** `PluginPaneFocusParams` — `pane_id: string`.
+**Params:** `PluginPaneFocusParams`, with `pane_id: string`.
 
 **Success:** `ResponseResult::PluginPaneFocused`, discriminator `"plugin_pane_focused"`, with the attributed `plugin_pane` record.
 
@@ -579,7 +578,7 @@ Focuses a pane currently attributed to a plugin and switches the App to terminal
 
 Closes a pane attributed to a plugin and removes its attribution. The underlying standard pane-close path runs, so it can also return standard close errors such as `confirmation_required` when closing the pane would implicitly close a protected worktree group.
 
-**Params:** `PluginPaneCloseParams` — `pane_id: string`.
+**Params:** `PluginPaneCloseParams`, with `pane_id: string`.
 
 **Success:** `ResponseResult::PluginPaneClosed`, discriminator `"plugin_pane_closed"`, with `pane_id` only.
 
@@ -612,6 +611,8 @@ Opens the only Local API method that keeps its socket open for a stream. The ser
 ```json
 { "id": "sub-1", "result": { "type": "subscription_started" } }
 ```
+
+Event lines after the acknowledgement do not carry an `id`.
 
 The stream polls every 100 ms. Event writes have a five-second socket write timeout. It remains open until the client closes it, the server stops, or a write/disconnect failure ends it. Unix clients are probed for disconnect between polls; Windows relies on writes to detect disconnects. There are no durable offsets. Plain events use a bounded in-memory history of the most recent 512 events, and a new plain subscription starts at sequence zero, so retained matching history may be emitted immediately. Stateful pane subscriptions poll current pane state and do not replay an old session. Reconnect and reconcile with a fresh `workspace.list`, `tab.list`, or `pane.list` snapshot when loss matters.
 
@@ -652,7 +653,7 @@ A plain event example:
 }
 ```
 
-`pane.output_changed` is an `EventKind` used in the general event model and by `events.wait` matching, but it is not a valid `events.subscribe` `type`.
+`pane.output_changed` is an `EventKind` used in the general event model and by `events.wait` matching. It is not a valid `events.subscribe` `type`.
 
 #### Stateful pane subscriptions
 
@@ -690,7 +691,7 @@ A pane validation failure has no acknowledgement:
 
 ### `events.wait`
 
-The schema defines `events.wait` with a one-shot `EventsWaitParams` object, but the current API dispatch has no handler for it. It therefore returns `not_implemented`; `timeout_ms` does not currently make it wait.
+The schema defines `events.wait` with a one-shot `EventsWaitParams` object. The current API dispatch has no handler for it; the method returns `not_implemented` and `timeout_ms` does not make it wait.
 
 **Params:** `EventsWaitParams`.
 

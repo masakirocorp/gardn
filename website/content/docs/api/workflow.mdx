@@ -5,7 +5,7 @@ description: Connect to an Oh My Herdr Unix socket and correlate one JSON respon
 
 # Send a Local API request
 
-This guide shows how to send a `ping` request from a local Unix script. Use the normal `omh` CLI when it already exposes the operation you need; direct socket access is for integrations that need the JSON contract.
+This guide shows how to send a `ping` request from a local Unix script and read its JSON response. Use the `omh` CLI when it already exposes the operation you need; direct socket access is for integrations that need the JSON contract.
 
 ## Prerequisites
 
@@ -13,13 +13,13 @@ This guide shows how to send a `ping` request from a local Unix script. Use the 
 - Python 3.
 - The Local API socket path for that session.
 
-Select a named session before starting Oh My Herdr if the integration should not target the default session:
+To target a named session, start it with `--session`:
 
 ```sh
 omh --session work
 ```
 
-Obtain the socket path from `omh status --json`, then provide it to the script as `OMH_SOCKET_PATH`.
+Get the socket path from `omh status --json` and provide it to the script as `OMH_SOCKET_PATH`.
 
 ## Send `ping`
 
@@ -53,8 +53,6 @@ print(response["result"])
 
 The result identifies the running Oh My Herdr version, the interactive client protocol version, and any advertised server capabilities.
 
-## Subscribe to events
+## Keep the socket open for events
 
-For `events.subscribe`, keep the socket open after reading the first response. Treat the first successful response as the subscription acknowledgement; every subsequent non-empty line is an event.
-
-Subscriptions do not provide durable offsets. Workspace, tab, pane, and layout events may replay only while they remain in the server's bounded in-memory history. Output and agent-status subscriptions observe current pane state instead of that history. Reconnect by establishing a new subscription and reconciling against a fresh snapshot.
+`events.subscribe` is the one Local API method that holds the connection open. Read the first response as the subscription acknowledgement, then keep reading for event lines. See [`events.subscribe`](/docs/api/reference/extensions-and-control#eventssubscribe) for the stream lifecycle, and [Error semantics](/docs/api/errors) for transport and streaming recovery.

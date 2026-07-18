@@ -5,7 +5,7 @@ description: Error envelope, request correlation, timeouts, and recovery behavio
 
 # Local API errors
 
-A rejected request returns one newline-delimited JSON object with an `error` member instead of `result`:
+A rejected request returns one newline-delimited JSON object with an `error` member where a successful response would carry `result`:
 
 ```json
 {
@@ -38,12 +38,12 @@ A rejected request returns one newline-delimited JSON object with an `error` mem
 | `unsupported_*`   | The running mode or platform does not provide the requested operation.          | Inspect `ping` capabilities or use a supported mode.                                          |
 | `internal_error`  | The server could not complete or encode the operation.                          | Preserve the code and message, inspect logs, and avoid blind retries for mutating operations. |
 
-Method-specific codes are not a closed enum in schema version 1. Consumers must retain unknown codes and use the error envelope rather than assuming the categories above are exhaustive.
+Method-specific codes are not a closed enum in schema version 1. Retain unknown codes and use the error envelope; do not treat the categories above as exhaustive.
 
 ## Connection failures
 
-A missing socket, refused connection, empty response, invalid JSON response, or connection timeout is a transport failure rather than an API error envelope. Check that the intended session is running and that the client resolved the same socket path. Do not assume a mutating request failed merely because the response was lost; reconcile state before retrying.
+A missing socket, refused connection, empty response, invalid JSON response, or connection timeout is a transport failure. It does not produce an API error envelope. Check that the intended session is running and that the client resolved the same socket path. A lost response does not tell you whether a mutating request completed; reconcile state before retrying.
 
 ## Streaming failures
 
-`events.subscribe` validates every requested subscription before acknowledging the stream. A validation error returns an error response and closes the connection. After acknowledgement, an error line with an empty `id` indicates that the server could not encode or maintain the event stream; reconnect and reconcile against current state.
+`events.subscribe` validates every requested subscription before acknowledging the stream. A validation error returns an error response and closes the connection. After acknowledgement, an error line with an empty `id` means the server could not encode or maintain the event stream; reconnect and reconcile against current state.
