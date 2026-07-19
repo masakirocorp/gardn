@@ -882,6 +882,7 @@ impl App {
                 tab_scroll_left_hit_area: Rect::default(),
                 tab_scroll_right_hit_area: Rect::default(),
                 new_tab_hit_area: Rect::default(),
+                context_bar: state::ContextBarView::default(),
                 terminal_area: Rect::default(),
                 mobile_header_rect: Rect::default(),
                 mobile_menu_hit_area: Rect::default(),
@@ -5600,6 +5601,9 @@ impl App {
         if self.handle_client_view_agent_profile_picker_mouse(client_view, mouse) {
             return;
         }
+        if self.handle_client_view_context_bar_mouse(client_view, mouse) {
+            return;
+        }
         if self.handle_client_view_context_menu_mouse(client_view, mouse) {
             return;
         }
@@ -8228,6 +8232,79 @@ impl App {
             leading_separator,
         );
         Self::rect_contains(rect, mouse.column, mouse.row)
+    }
+    fn open_client_view_context_navigator(
+        &self,
+        client_view: &mut ClientViewState,
+        target: state::NavigatorTarget,
+    ) {
+        client_view.navigator = state::NavigatorState::default();
+        if let state::NavigatorTarget::Tab { ws_idx, .. } = target {
+            if let Some(workspace) = self.state.workspaces.get(ws_idx) {
+                client_view
+                    .navigator
+                    .expanded_workspaces
+                    .insert(workspace.id.clone());
+            }
+        }
+        client_view.mode = Mode::Navigator;
+        let selected = self
+            .navigator_view_rows(client_view)
+            .iter()
+            .position(|row| row.target == target)
+            .unwrap_or(0);
+        client_view.navigator.list.select(selected);
+        client_view.navigator.list.hide();
+        self.ensure_client_view_navigator_selection_visible(client_view);
+    }
+
+    fn handle_client_view_context_bar_mouse(
+        &self,
+        client_view: &mut ClientViewState,
+        mouse: crossterm::event::MouseEvent,
+    ) -> bool {
+        if client_view.computed.layout != state::ViewLayout::Desktop
+            || !matches!(
+                mouse.kind,
+                crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left)
+            )
+        {
+            return false;
+        }
+        let Some(target) = client_view
+            .computed
+            .context_bar
+            .target_at(mouse.column, mouse.row)
+        else {
+            return false;
+        };
+
+        match target {
+            state::ContextBarTarget::Group => Self::open_client_view_group_menu(client_view),
+            state::ContextBarTarget::Workspace => {
+                let Some(ws_idx) = client_view.active_workspace else {
+                    return true;
+                };
+                self.open_client_view_context_navigator(
+                    client_view,
+                    state::NavigatorTarget::Workspace { ws_idx },
+                );
+            }
+            state::ContextBarTarget::Tab => {
+                let Some(ws_idx) = client_view.active_workspace else {
+                    return true;
+                };
+                let Some(tab_idx) = client_view.active_tab_index_for_workspace(&self.state, ws_idx)
+                else {
+                    return true;
+                };
+                self.open_client_view_context_navigator(
+                    client_view,
+                    state::NavigatorTarget::Tab { ws_idx, tab_idx },
+                );
+            }
+        }
+        true
     }
 
     fn open_client_view_group_menu(client_view: &mut ClientViewState) {
@@ -16461,6 +16538,107 @@ command = "printf literal > '{}'"
         assert_eq!(client.mode, Mode::GroupMenu);
         assert_eq!(other_client.mode, Mode::Terminal);
         assert_eq!(app.state.mode, Mode::Terminal);
+    }
+
+    #[test]
+    fn route_client_events_for_view_context_bar_opens_local_navigation_surfaces() {
+        let mut app = test_app();
+        app.state.groups[0].name = "studio".into();
+        let mut workspace = Workspace::test_new("ignored");
+        workspace.custom_name = Some("website".into());
+        workspace.tabs[0].custom_name = Some("release".into());
+        workspace.test_add_tab(Some("logs"));
+        app.state.workspaces = vec![workspace];
+        app.state.ensure_test_terminals();
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::Terminal;
+        app.state.mouse_capture = true;
+
+        let area = ratatui::layout::Rect::new(0, 0, 120, 30);
+        let mut client = ClientViewState::from_default_client_state(&app.state);
+        let other_client = ClientViewState::from_default_client_state(&app.state);
+        compute_client_view(&app, &mut client, area);
+
+        let group = client.computed.context_bar.segments[0].rect;
+        app.route_client_events_for_view(
+            &mut client,
+            vec![raw_mouse(
+                crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left),
+                group.x,
+                group.y,
+            )],
+            true,
+        );
+        assert_eq!(client.mode, Mode::GroupMenu);
+        assert_eq!(other_client.mode, Mode::Terminal);
+        assert_eq!(app.state.mode, Mode::Terminal);
+
+        client.mode = Mode::Terminal;
+        let workspace = client.computed.context_bar.segments[1].rect;
+        app.route_client_events_for_view(
+            &mut client,
+            vec![raw_mouse(
+                crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left),
+                workspace.x,
+                workspace.y,
+            )],
+            true,
+        );
+        let workspace_target = app
+            .navigator_view_rows(&client)
+            .get(client.navigator.list.selected)
+            .map(|row| row.target.clone());
+        assert_eq!(
+            workspace_target,
+            Some(state::NavigatorTarget::Workspace { ws_idx: 0 })
+        );
+
+        client.mode = Mode::Terminal;
+        let tab = client.computed.context_bar.segments[2].rect;
+        app.route_client_events_for_view(
+            &mut client,
+            vec![raw_mouse(
+                crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left),
+                tab.x,
+                tab.y,
+            )],
+            true,
+        );
+        let tab_target = app
+            .navigator_view_rows(&client)
+            .get(client.navigator.list.selected)
+            .map(|row| row.target.clone());
+        assert_eq!(
+            tab_target,
+            Some(state::NavigatorTarget::Tab {
+                ws_idx: 0,
+                tab_idx: 0,
+            })
+        );
+        assert_eq!(other_client.mode, Mode::Terminal);
+        assert_eq!(app.state.mode, Mode::Terminal);
+    }
+
+    #[test]
+    fn context_bar_mouse_opens_group_menu_in_local_app() {
+        let mut app = test_app();
+        app.state.workspaces = vec![Workspace::test_new("website")];
+        app.state.ensure_test_terminals();
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::Terminal;
+        crate::ui::compute_view(&mut app.state, ratatui::layout::Rect::new(0, 0, 120, 30));
+        let group = app.state.view.context_bar.segments[0].rect;
+
+        app.handle_mouse(crossterm::event::MouseEvent {
+            kind: crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left),
+            column: group.x,
+            row: group.y,
+            modifiers: crossterm::event::KeyModifiers::NONE,
+        });
+
+        assert_eq!(app.state.mode, Mode::GroupMenu);
     }
     #[test]
     fn client_group_selector_displays_selected_group_at_click_target() {

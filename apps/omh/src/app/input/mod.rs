@@ -254,6 +254,9 @@ impl App {
         if self.handle_overlay_mouse(mouse) {
             return;
         }
+        if self.handle_context_bar_mouse(mouse) {
+            return;
+        }
 
         if self.state.mode == Mode::CommandPalette {
             match mouse.kind {
@@ -697,6 +700,61 @@ impl App {
             self.selection_autoscroll_deadline =
                 Some(std::time::Instant::now() + super::SELECTION_AUTOSCROLL_INTERVAL);
         }
+    }
+
+    fn handle_context_bar_mouse(&mut self, mouse: MouseEvent) -> bool {
+        if self.state.mode != Mode::Terminal
+            || !matches!(mouse.kind, MouseEventKind::Down(MouseButton::Left))
+        {
+            return false;
+        }
+        let Some(target) = self
+            .state
+            .view
+            .context_bar
+            .target_at(mouse.column, mouse.row)
+        else {
+            return false;
+        };
+
+        match target {
+            crate::app::state::ContextBarTarget::Group => {
+                modal::open_group_menu(&mut self.state);
+            }
+            crate::app::state::ContextBarTarget::Workspace
+            | crate::app::state::ContextBarTarget::Tab => {
+                let Some(ws_idx) = self.state.active else {
+                    return true;
+                };
+                let navigator_target = match target {
+                    crate::app::state::ContextBarTarget::Workspace => {
+                        crate::app::state::NavigatorTarget::Workspace { ws_idx }
+                    }
+                    crate::app::state::ContextBarTarget::Tab => {
+                        let Some(tab_idx) = self
+                            .state
+                            .workspaces
+                            .get(ws_idx)
+                            .map(|workspace| workspace.active_tab_index())
+                        else {
+                            return true;
+                        };
+                        crate::app::state::NavigatorTarget::Tab { ws_idx, tab_idx }
+                    }
+                    crate::app::state::ContextBarTarget::Group => return true,
+                };
+                self.state.open_navigator();
+                let selected = self
+                    .state
+                    .navigator_rows_from(&self.terminal_runtimes)
+                    .iter()
+                    .position(|row| row.target == navigator_target)
+                    .unwrap_or(self.state.navigator.list.selected);
+                self.state.navigator.list.select(selected);
+                self.state.navigator.scroll = selected;
+            }
+        }
+        true
     }
 
     fn handle_modified_url_click(&mut self, mouse: MouseEvent) -> bool {

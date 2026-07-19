@@ -1,7 +1,8 @@
 use ratatui::{
     layout::{Constraint, Layout, Rect},
     style::{Modifier, Style},
-    text::Span,
+    text::{Line, Span},
+    widgets::Paragraph,
     Frame,
 };
 
@@ -171,6 +172,242 @@ pub(crate) const MAX_SIDEBAR_WIDTH: u16 = 36;
 pub(crate) const MIN_RIGHT_SIDEBAR_WIDTH: u16 = 18;
 pub(crate) const MAX_RIGHT_SIDEBAR_WIDTH: u16 = 36;
 
+const CONTEXT_BAR_SEPARATOR: &str = " / ";
+
+fn desktop_content_areas(area: Rect) -> (Rect, Rect) {
+    if area.height <= 1 {
+        return (area, Rect::default());
+    }
+    let [content, context_bar] =
+        Layout::vertical([Constraint::Min(1), Constraint::Length(1)]).areas(area);
+    (content, context_bar)
+}
+
+fn count_label(count: usize, singular: &str, plural: &str) -> String {
+    format!("{count} {}", if count == 1 { singular } else { plural })
+}
+
+fn compute_context_bar(
+    app: &AppState,
+    terminal_runtimes: &TerminalRuntimeRegistry,
+    active_workspace: Option<usize>,
+    active_group: usize,
+    active_tab: Option<usize>,
+    rect: Rect,
+) -> crate::app::state::ContextBarView {
+    use crate::app::state::{ContextBarSegment, ContextBarTarget, ContextBarView};
+
+    if rect.width < 2 || rect.height == 0 {
+        return ContextBarView::default();
+    }
+
+    let group_count = app.groups.len();
+    let workspace_count = app.workspaces.len();
+    let tab_count = app
+        .workspaces
+        .iter()
+        .map(|workspace| workspace.tabs.len())
+        .sum::<usize>();
+    let count_variants = [
+        format!(
+            "{} · {} · {}",
+            count_label(group_count, "group", "groups"),
+            count_label(workspace_count, "space", "spaces"),
+            count_label(tab_count, "tab", "tabs")
+        ),
+        format!(
+            "{} · {}",
+            count_label(group_count, "group", "groups"),
+            count_label(workspace_count, "space", "spaces")
+        ),
+        count_label(group_count, "group", "groups"),
+        String::new(),
+    ];
+
+    let workspace = active_workspace.and_then(|index| app.workspaces.get(index));
+    let group = workspace
+        .and_then(|workspace| app.group_index_by_id(&workspace.group_id))
+        .or_else(|| (active_group < app.groups.len()).then_some(active_group))
+        .and_then(|index| app.groups.get(index));
+    let mut labels = Vec::with_capacity(3);
+    if let Some(group) = group {
+        labels.push((
+            ContextBarTarget::Group,
+            format!("{} {}", group.icon, group.name),
+        ));
+    }
+    if let Some(workspace) = workspace {
+        labels.push((
+            ContextBarTarget::Workspace,
+            workspace.display_name_from(&app.terminals, terminal_runtimes),
+        ));
+        if let Some(tab_idx) = active_tab.filter(|index| *index < workspace.tabs.len()) {
+            if let Some(label) = workspace.tab_display_name(tab_idx) {
+                labels.push((ContextBarTarget::Tab, label));
+            }
+        }
+    }
+
+    let inner_width = rect.width.saturating_sub(2) as usize;
+    let separator_width = CONTEXT_BAR_SEPARATOR.len() * labels.len().saturating_sub(1);
+    let full_path_width = labels
+        .iter()
+        .map(|(_, label)| text::display_width(label))
+        .sum::<usize>()
+        .saturating_add(separator_width);
+    let counts = count_variants
+        .into_iter()
+        .find(|counts| {
+            let counts_width = text::display_width(counts);
+            let gap = usize::from(!counts.is_empty() && !labels.is_empty()) * 2;
+            counts_width
+                .saturating_add(gap)
+                .saturating_add(full_path_width)
+                <= inner_width
+        })
+        .unwrap_or_default();
+    let counts_width = text::display_width(&counts);
+    let gap = usize::from(!counts.is_empty() && !labels.is_empty()) * 2;
+    let path_available = inner_width.saturating_sub(counts_width.saturating_add(gap));
+
+    while labels.len() > 1
+        && labels
+            .len()
+            .saturating_add(CONTEXT_BAR_SEPARATOR.len() * labels.len().saturating_sub(1))
+            > path_available
+    {
+        labels.remove(0);
+    }
+    if !labels.is_empty() && path_available > 0 {
+        let separators = CONTEXT_BAR_SEPARATOR.len() * labels.len().saturating_sub(1);
+        let label_budget = path_available.saturating_sub(separators);
+        let mut widths = labels
+            .iter()
+            .map(|(_, label)| text::display_width(label))
+            .collect::<Vec<_>>();
+        while widths.iter().sum::<usize>() > label_budget {
+            let Some((index, _)) = widths
+                .iter()
+                .enumerate()
+                .filter(|(_, width)| **width > 1)
+                .max_by_key(|(_, width)| **width)
+            else {
+                break;
+            };
+            widths[index] -= 1;
+        }
+        for ((_, label), width) in labels.iter_mut().zip(widths) {
+            *label = text::truncate_end(label, width);
+        }
+    } else {
+        labels.clear();
+    }
+
+    let path_width = labels
+        .iter()
+        .map(|(_, label)| text::display_width(label))
+        .sum::<usize>()
+        .saturating_add(CONTEXT_BAR_SEPARATOR.len() * labels.len().saturating_sub(1));
+    let path_x = rect
+        .x
+        .saturating_add(rect.width)
+        .saturating_sub(path_width.min(u16::MAX as usize) as u16)
+        .saturating_sub(1);
+    let mut cursor = path_x;
+    let segments = labels
+        .into_iter()
+        .enumerate()
+        .map(|(index, (target, label))| {
+            if index > 0 {
+                cursor = cursor.saturating_add(CONTEXT_BAR_SEPARATOR.len() as u16);
+            }
+            let width = text::display_width_u16(&label);
+            let segment = ContextBarSegment {
+                target,
+                label,
+                rect: Rect::new(cursor, rect.y, width, 1),
+            };
+            cursor = cursor.saturating_add(width);
+            segment
+        })
+        .collect();
+    let counts_rect = if counts.is_empty() {
+        Rect::default()
+    } else {
+        Rect::new(rect.x.saturating_add(1), rect.y, counts_width as u16, 1)
+    };
+
+    ContextBarView {
+        rect,
+        counts,
+        counts_rect,
+        segments,
+    }
+}
+
+fn render_context_bar(
+    app: &AppState,
+    context_bar: &crate::app::state::ContextBarView,
+    frame: &mut Frame,
+) {
+    if context_bar.rect == Rect::default() {
+        return;
+    }
+    fill_rect(
+        frame,
+        context_bar.rect,
+        Style::default()
+            .fg(app.palette.overlay1)
+            .bg(app.palette.surface0),
+    );
+    if context_bar.counts_rect != Rect::default() {
+        frame.render_widget(
+            Paragraph::new(context_bar.counts.as_str()).style(
+                Style::default()
+                    .fg(app.palette.overlay1)
+                    .bg(app.palette.surface0),
+            ),
+            context_bar.counts_rect,
+        );
+    }
+    for (index, segment) in context_bar.segments.iter().enumerate() {
+        if index > 0 {
+            let separator = Rect::new(
+                segment
+                    .rect
+                    .x
+                    .saturating_sub(CONTEXT_BAR_SEPARATOR.len() as u16),
+                segment.rect.y,
+                CONTEXT_BAR_SEPARATOR.len() as u16,
+                1,
+            );
+            frame.render_widget(
+                Paragraph::new(CONTEXT_BAR_SEPARATOR).style(
+                    Style::default()
+                        .fg(app.palette.overlay0)
+                        .bg(app.palette.surface0),
+                ),
+                separator,
+            );
+        }
+        let style = if index + 1 == context_bar.segments.len() {
+            Style::default()
+                .fg(app.palette.text)
+                .bg(app.palette.surface0)
+                .add_modifier(Modifier::BOLD | Modifier::UNDERLINED)
+        } else {
+            Style::default()
+                .fg(app.palette.overlay1)
+                .bg(app.palette.surface0)
+                .add_modifier(Modifier::UNDERLINED)
+        };
+        frame.render_widget(
+            Paragraph::new(Line::from(segment.label.as_str())).style(style),
+            segment.rect,
+        );
+    }
+}
+
 // Braille spinner frames — smooth rotation
 const SPINNERS: &[&str] = &["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
@@ -275,6 +512,7 @@ fn compute_view_for_client_internal(
         );
         return;
     }
+    let (content_area, context_bar_rect) = desktop_content_areas(area);
 
     let sidebar_w = if client_view.sidebar_collapsed {
         COLLAPSED_WIDTH
@@ -309,15 +547,17 @@ fn compute_view_for_client_internal(
             Constraint::Min(1),
             Constraint::Length(right_sidebar_w),
         ])
-        .areas(area);
+        .areas(content_area);
         (sidebar_area, main_area, right_sidebar_area)
     } else if combined_right {
         let [main_area, sidebar_area] =
-            Layout::horizontal([Constraint::Min(1), Constraint::Length(sidebar_w)]).areas(area);
+            Layout::horizontal([Constraint::Min(1), Constraint::Length(sidebar_w)])
+                .areas(content_area);
         (sidebar_area, main_area, Rect::default())
     } else {
         let [sidebar_area, main_area] =
-            Layout::horizontal([Constraint::Length(sidebar_w), Constraint::Min(1)]).areas(area);
+            Layout::horizontal([Constraint::Length(sidebar_w), Constraint::Min(1)])
+                .areas(content_area);
         (sidebar_area, main_area, Rect::default())
     };
 
@@ -448,6 +688,18 @@ fn compute_view_for_client_internal(
         })
         .unwrap_or_default();
 
+    let active_tab = client_view
+        .active_workspace
+        .and_then(|ws_idx| client_view.active_tab_index_for_workspace(app, ws_idx));
+    let context_bar = compute_context_bar(
+        app,
+        terminal_runtimes,
+        client_view.active_workspace,
+        client_view.active_group,
+        active_tab,
+        context_bar_rect,
+    );
+
     client_view.computed = crate::app::ViewState {
         layout: ViewLayout::Desktop,
         sidebar_rect: sidebar_area,
@@ -461,6 +713,7 @@ fn compute_view_for_client_internal(
         tab_scroll_left_hit_area: tab_bar_view.scroll_left_hit_area,
         tab_scroll_right_hit_area: tab_bar_view.scroll_right_hit_area,
         new_tab_hit_area: tab_bar_view.new_tab_hit_area,
+        context_bar,
         terminal_area,
         mobile_header_rect: Rect::default(),
         mobile_menu_hit_area: Rect::default(),
@@ -515,6 +768,7 @@ fn compute_view_internal(
         compute_mobile_view(app, terminal_runtimes, area, resize_panes, cell_size);
         return;
     }
+    let (content_area, context_bar_rect) = desktop_content_areas(area);
 
     let sidebar_w = if app.sidebar_collapsed {
         COLLAPSED_WIDTH
@@ -547,15 +801,17 @@ fn compute_view_internal(
             Constraint::Min(1),
             Constraint::Length(right_sidebar_w),
         ])
-        .areas(area);
+        .areas(content_area);
         (sidebar_area, main_area, right_sidebar_area)
     } else if combined_right {
         let [main_area, sidebar_area] =
-            Layout::horizontal([Constraint::Min(1), Constraint::Length(sidebar_w)]).areas(area);
+            Layout::horizontal([Constraint::Min(1), Constraint::Length(sidebar_w)])
+                .areas(content_area);
         (sidebar_area, main_area, Rect::default())
     } else {
         let [sidebar_area, main_area] =
-            Layout::horizontal([Constraint::Length(sidebar_w), Constraint::Min(1)]).areas(area);
+            Layout::horizontal([Constraint::Length(sidebar_w), Constraint::Min(1)])
+                .areas(content_area);
         (sidebar_area, main_area, Rect::default())
     };
 
@@ -667,6 +923,19 @@ fn compute_view_internal(
         })
         .unwrap_or_default();
 
+    let active_tab = app
+        .active
+        .and_then(|ws_idx| app.workspaces.get(ws_idx))
+        .map(|workspace| workspace.active_tab_index());
+    let context_bar = compute_context_bar(
+        app,
+        terminal_runtimes,
+        app.active,
+        app.active_group,
+        active_tab,
+        context_bar_rect,
+    );
+
     app.view = crate::app::ViewState {
         layout: ViewLayout::Desktop,
         sidebar_rect: sidebar_area,
@@ -680,6 +949,7 @@ fn compute_view_internal(
         tab_scroll_left_hit_area: tab_bar_view.scroll_left_hit_area,
         tab_scroll_right_hit_area: tab_bar_view.scroll_right_hit_area,
         new_tab_hit_area: tab_bar_view.new_tab_hit_area,
+        context_bar,
         terminal_area,
         mobile_header_rect: Rect::default(),
         mobile_menu_hit_area: Rect::default(),
@@ -755,6 +1025,7 @@ fn compute_mobile_view(
         tab_scroll_left_hit_area: Rect::default(),
         tab_scroll_right_hit_area: Rect::default(),
         new_tab_hit_area: Rect::default(),
+        context_bar: crate::app::state::ContextBarView::default(),
         terminal_area,
         mobile_header_rect: header_rect,
         mobile_menu_hit_area: header_hits.menu,
@@ -841,6 +1112,7 @@ fn compute_mobile_view_for_client(
         tab_scroll_left_hit_area: Rect::default(),
         tab_scroll_right_hit_area: Rect::default(),
         new_tab_hit_area: Rect::default(),
+        context_bar: crate::app::state::ContextBarView::default(),
         terminal_area,
         mobile_header_rect: header_rect,
         mobile_menu_hit_area: header_hits.menu,
@@ -886,6 +1158,7 @@ pub fn render_with_runtime_registry(
     if right_sidebar_area != Rect::default() {
         render_right_sidebar(app, terminal_runtimes, frame, right_sidebar_area);
     }
+    render_context_bar(app, &app.view.context_bar, frame);
 
     // Ambient notifications sit above panes, but below interactive overlays.
     render_notifications(app, frame, terminal_area);
@@ -965,6 +1238,7 @@ pub fn render_with_runtime_registry_for_view(
             right_sidebar_area,
         );
     }
+    render_context_bar(app, &client_view.computed.context_bar, frame);
 
     render_notifications_for_view(app, client_view, frame, terminal_area);
 
@@ -1238,7 +1512,120 @@ mod tests {
     }
 
     #[test]
-    fn desktop_layout_uses_full_terminal_frame_without_outer_inset() {
+    fn desktop_context_bar_renders_topology_and_active_path() {
+        let mut app = crate::app::state::AppState::test_new();
+        app.groups[0].name = "studio".into();
+        let mut workspace = Workspace::test_new("ignored");
+        workspace.custom_name = Some("website".into());
+        workspace.tabs[0].custom_name = Some("release".into());
+        app.workspaces = vec![workspace];
+        app.active = Some(0);
+        app.selected = 0;
+        app.mode = Mode::Terminal;
+
+        compute_view(&mut app, Rect::new(0, 0, 100, 20));
+
+        assert_eq!(app.view.context_bar.rect, Rect::new(0, 19, 100, 1));
+        assert_eq!(
+            app.view.terminal_area.y + app.view.terminal_area.height,
+            app.view.context_bar.rect.y
+        );
+
+        let backend = TestBackend::new(100, 20);
+        let mut terminal = Terminal::new(backend).expect("test terminal");
+        terminal.draw(|frame| render(&app, frame)).expect("render");
+        let line = (0..100)
+            .map(|x| terminal.backend().buffer()[(x, 19)].symbol())
+            .collect::<String>();
+
+        assert!(line.contains("1 group · 1 space · 1 tab"), "{line:?}");
+        assert!(line.contains("studio / website / release"), "{line:?}");
+    }
+
+    #[test]
+    fn context_bar_uses_each_clients_active_workspace() {
+        let mut app = crate::app::state::AppState::test_new();
+        let mut first = Workspace::test_new("ignored");
+        first.custom_name = Some("frontend".into());
+        first.tabs[0].custom_name = Some("dev".into());
+        let mut second = Workspace::test_new("ignored");
+        second.custom_name = Some("backend".into());
+        second.tabs[0].custom_name = Some("logs".into());
+        app.workspaces = vec![first, second];
+        app.active = Some(0);
+        app.selected = 0;
+
+        let terminal_runtimes = TerminalRuntimeRegistry::new();
+        let mut first_client = ClientViewState::from_default_client_state(&app);
+        let mut second_client = ClientViewState::from_default_client_state(&app);
+        second_client.active_workspace = Some(1);
+        second_client.selected_workspace = 1;
+
+        compute_view_for_client_without_resizing_panes(
+            &app,
+            &mut first_client,
+            &terminal_runtimes,
+            Rect::new(0, 0, 100, 20),
+        );
+        compute_view_for_client_without_resizing_panes(
+            &app,
+            &mut second_client,
+            &terminal_runtimes,
+            Rect::new(0, 0, 100, 20),
+        );
+
+        let first_path = first_client
+            .computed
+            .context_bar
+            .segments
+            .iter()
+            .map(|segment| segment.label.as_str())
+            .collect::<Vec<_>>()
+            .join(" / ");
+        let second_path = second_client
+            .computed
+            .context_bar
+            .segments
+            .iter()
+            .map(|segment| segment.label.as_str())
+            .collect::<Vec<_>>()
+            .join(" / ");
+
+        assert!(first_path.contains("frontend"), "{first_path:?}");
+        assert!(!first_path.contains("backend"), "{first_path:?}");
+        assert!(second_path.contains("backend"), "{second_path:?}");
+        assert!(!second_path.contains("frontend"), "{second_path:?}");
+        assert_eq!(app.active, Some(0));
+    }
+
+    #[test]
+    fn narrow_desktop_context_bar_keeps_path_inside_its_row() {
+        let mut app = crate::app::state::AppState::test_new();
+        app.mobile_width_threshold = 0;
+        app.groups[0].name = "engineering-platform".into();
+        let mut workspace = Workspace::test_new("ignored");
+        workspace.custom_name = Some("customer-operations".into());
+        workspace.tabs[0].custom_name = Some("production-observability".into());
+        app.workspaces = vec![workspace];
+        app.active = Some(0);
+        app.selected = 0;
+
+        compute_view(&mut app, Rect::new(0, 0, 38, 12));
+
+        let context = &app.view.context_bar;
+        assert_eq!(context.rect, Rect::new(0, 11, 38, 1));
+        assert_eq!(
+            context.segments.last().map(|segment| segment.target),
+            Some(crate::app::state::ContextBarTarget::Tab)
+        );
+        assert!(context.segments.iter().all(|segment| {
+            segment.rect.width > 0
+                && segment.rect.x + segment.rect.width <= context.rect.x + context.rect.width
+        }));
+    }
+
+    #[test]
+    fn desktop_layout_reserves_context_row_without_outer_inset() {
         let mut app = crate::app::state::AppState::test_new();
         app.workspaces = vec![Workspace::test_new("one")];
         app.active = Some(0);
@@ -1251,13 +1638,20 @@ mod tests {
         assert_eq!(app.view.layout, ViewLayout::Desktop);
         assert_eq!(app.view.sidebar_rect.x, area.x);
         assert_eq!(app.view.sidebar_rect.y, area.y);
-        assert_eq!(app.view.sidebar_rect.height, area.height);
+        assert_eq!(
+            app.view.sidebar_rect.y + app.view.sidebar_rect.height,
+            app.view.context_bar.rect.y
+        );
         assert_eq!(
             app.view.terminal_area.x + app.view.terminal_area.width,
             area.width
         );
         assert_eq!(
             app.view.terminal_area.y + app.view.terminal_area.height,
+            app.view.context_bar.rect.y
+        );
+        assert_eq!(
+            app.view.context_bar.rect.y + app.view.context_bar.rect.height,
             area.height
         );
     }

@@ -1440,6 +1440,41 @@ pub enum ViewLayout {
     Mobile,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ContextBarTarget {
+    Group,
+    Workspace,
+    Tab,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ContextBarSegment {
+    pub(crate) target: ContextBarTarget,
+    pub(crate) label: String,
+    pub(crate) rect: Rect,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) struct ContextBarView {
+    pub(crate) rect: Rect,
+    pub(crate) counts: String,
+    pub(crate) counts_rect: Rect,
+    pub(crate) segments: Vec<ContextBarSegment>,
+}
+
+impl ContextBarView {
+    pub(crate) fn target_at(&self, col: u16, row: u16) -> Option<ContextBarTarget> {
+        self.segments.iter().find_map(|segment| {
+            let rect = segment.rect;
+            (col >= rect.x
+                && col < rect.x.saturating_add(rect.width)
+                && row >= rect.y
+                && row < rect.y.saturating_add(rect.height))
+            .then_some(segment.target)
+        })
+    }
+}
+
 #[derive(Clone)]
 pub struct ViewState {
     pub layout: ViewLayout,
@@ -1454,6 +1489,7 @@ pub struct ViewState {
     pub tab_scroll_left_hit_area: Rect,
     pub tab_scroll_right_hit_area: Rect,
     pub new_tab_hit_area: Rect,
+    pub context_bar: ContextBarView,
     pub terminal_area: Rect,
     pub mobile_header_rect: Rect,
     pub mobile_menu_hit_area: Rect,
@@ -3420,6 +3456,7 @@ impl AppState {
                 tab_scroll_left_hit_area: Rect::default(),
                 tab_scroll_right_hit_area: Rect::default(),
                 new_tab_hit_area: Rect::default(),
+                context_bar: ContextBarView::default(),
                 terminal_area: Rect::default(),
                 mobile_header_rect: Rect::default(),
                 mobile_menu_hit_area: Rect::default(),

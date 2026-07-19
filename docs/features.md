@@ -30,6 +30,7 @@ A workspace contains tabs, panes, cwd metadata, and agent state rollups.
 - **Configurable sidebar metadata** — `[ui.sidebar.agents]` and `[ui.sidebar.spaces]` rows accept built-in tokens and `$custom` metadata reported through the socket API; defaults preserve compact workspace and agent labels across expanded, collapsed, and mobile views.
 - **New-client sidebar defaults** — every app client starts with all spaces visible. `ui.sidebar.initial_state` and `ui.sidebar.initial_agent_scope` choose its initial expansion and agent scope; defaults are `expanded` and `all`, and one client's runtime changes never seed another client.
 - **Workspace navigator** — search and filter workspaces, tabs, and panes by text or state.
+- **Desktop context bar** — a persistent bottom row shows live group, workspace, and tab counts beside the attached client's active group / workspace / tab path. Click a path segment to open the existing group menu or workspace navigator; narrow terminals drop counts before shortening the active path.
 - **Workspace groups** — group workspaces, filter the sidebar by group, collapse groups, and assign per-group ANSI accent colors that tint group labels, tabs, menus, and related group UI.
 - **Group lifecycle** — create, rename, delete, focus, and switch groups from the TUI, CLI, or socket API; reorder groups by dragging headers in the all-groups sidebar.
 - **Group icons** — group creation and rename flows can choose from a curated set of 20 distinct icons.
