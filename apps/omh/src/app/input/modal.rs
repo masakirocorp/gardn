@@ -281,6 +281,12 @@ pub(crate) fn handle_navigator_key(state: &mut AppState, key: KeyEvent) {
             state.navigator.state_filter = Some(NavigatorStateFilter::Done);
             state.clamp_navigator_selection();
         }
+        KeyCode::Char('e') if key.modifiers.is_empty() => {
+            state.expand_all_navigator_branches();
+        }
+        KeyCode::Char('c') if key.modifiers.is_empty() => {
+            state.collapse_all_navigator_branches();
+        }
         KeyCode::Char('j') | KeyCode::Down => state.move_navigator_selection(1),
         KeyCode::Char('k') | KeyCode::Up => state.move_navigator_selection(-1),
         KeyCode::Char('d') if key.modifiers == KeyModifiers::CONTROL => {
@@ -288,7 +294,7 @@ pub(crate) fn handle_navigator_key(state: &mut AppState, key: KeyEvent) {
         }
         KeyCode::Char('u') if key.modifiers == KeyModifiers::CONTROL => state
             .move_navigator_selection(-((state.navigator_body_rect().height / 2).max(1) as isize)),
-        KeyCode::Char(' ') => state.toggle_selected_navigator_workspace(),
+        KeyCode::Char(' ') => state.toggle_selected_navigator_branch(),
         KeyCode::Home => {
             state.navigator.list.select(0);
             state.ensure_navigator_selection_visible();
@@ -2170,5 +2176,49 @@ mod tests {
         assert_eq!(state.selected, 0);
         assert_eq!(state.mode, Mode::ConfirmClose);
         assert_eq!(state.workspaces.len(), 2);
+    }
+    #[test]
+    fn navigator_bulk_expansion_keys_change_the_visible_hierarchy() {
+        let mut state = state_with_workspaces(&["home", "api"]);
+        state.navigator.expanded_groups =
+            state.groups.iter().map(|group| group.id.clone()).collect();
+        state.navigator.expanded_workspaces = state
+            .workspaces
+            .iter()
+            .map(|workspace| workspace.id.clone())
+            .collect();
+
+        handle_navigator_key(
+            &mut state,
+            KeyEvent::new(KeyCode::Char('c'), KeyModifiers::empty()),
+        );
+
+        let collapsed_rows = state.navigator_rows();
+        assert!(
+            collapsed_rows
+                .iter()
+                .all(|row| row.is_group && !row.expanded),
+            "C should leave only collapsed group roots visible"
+        );
+
+        handle_navigator_key(
+            &mut state,
+            KeyEvent::new(KeyCode::Char('e'), KeyModifiers::empty()),
+        );
+
+        let expanded_rows = state.navigator_rows();
+        assert!(
+            expanded_rows
+                .iter()
+                .filter(|row| row.is_group || row.is_workspace)
+                .all(|row| row.expanded),
+            "E should visibly expand every branch"
+        );
+        assert!(
+            expanded_rows
+                .iter()
+                .any(|row| matches!(row.target, crate::app::state::NavigatorTarget::Pane { .. })),
+            "expanded workspace branches should reveal their panes"
+        );
     }
 }

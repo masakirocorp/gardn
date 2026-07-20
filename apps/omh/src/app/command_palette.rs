@@ -9,6 +9,7 @@ use crate::{
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum CommandPaletteAction {
+    OpenNavigator,
     NewWorkspace,
     RenameWorkspace,
     CloseWorkspace,
@@ -126,6 +127,11 @@ pub(crate) fn command_palette_commands(state: &AppState) -> Vec<CommandPaletteCo
             CommandPaletteAction::PreviousWorkspace,
         ),
         CommandPaletteCommand::new("next space", "spaces", CommandPaletteAction::NextWorkspace),
+        CommandPaletteCommand::new(
+            "open workspace navigator",
+            "spaces",
+            CommandPaletteAction::OpenNavigator,
+        ),
         CommandPaletteCommand::new("new tab", "tabs", CommandPaletteAction::NewTab),
         CommandPaletteCommand::new("rename tab", "tabs", CommandPaletteAction::RenameTab),
         CommandPaletteCommand::new("previous tab", "tabs", CommandPaletteAction::PreviousTab),
@@ -352,6 +358,7 @@ fn command_palette_key_label(state: &AppState, action: &CommandPaletteAction) ->
     let kb = &state.keybinds;
     let label = |bindings: &crate::config::ActionKeybinds| bindings.label();
     match action {
+        CommandPaletteAction::OpenNavigator => label(&kb.workspace_picker),
         CommandPaletteAction::NewWorkspace => label(&kb.new_workspace),
         CommandPaletteAction::RenameWorkspace => label(&kb.rename_workspace),
         CommandPaletteAction::CloseWorkspace => label(&kb.close_workspace),
@@ -545,5 +552,18 @@ mod tests {
             .collect::<Vec<_>>();
 
         assert_eq!(workspace_actions, vec![1]);
+    }
+
+    #[test]
+    fn palette_includes_workspace_navigator_with_its_keybinding() {
+        let state = AppState::test_new();
+
+        let command = command_palette_filtered_commands_for_query(&state, "workspace navigator")
+            .into_iter()
+            .next()
+            .expect("workspace navigator command");
+
+        assert_eq!(command.action, CommandPaletteAction::OpenNavigator);
+        assert_eq!(command.key_label, state.keybinds.workspace_picker.label());
     }
 }

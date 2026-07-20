@@ -719,43 +719,53 @@ impl App {
             return false;
         };
 
-        match target {
+        let Some(ws_idx) = self.state.active else {
+            return true;
+        };
+        let navigator_target = match target {
             crate::app::state::ContextBarTarget::Group => {
-                modal::open_group_menu(&mut self.state);
+                crate::app::state::NavigatorTarget::Group {
+                    group_idx: self.state.active_group,
+                }
             }
-            crate::app::state::ContextBarTarget::Workspace
-            | crate::app::state::ContextBarTarget::Tab => {
-                let Some(ws_idx) = self.state.active else {
+            crate::app::state::ContextBarTarget::Workspace => {
+                crate::app::state::NavigatorTarget::Workspace { ws_idx }
+            }
+            crate::app::state::ContextBarTarget::Tab => {
+                let Some(tab_idx) = self
+                    .state
+                    .workspaces
+                    .get(ws_idx)
+                    .map(|workspace| workspace.active_tab_index())
+                else {
                     return true;
                 };
-                let navigator_target = match target {
-                    crate::app::state::ContextBarTarget::Workspace => {
-                        crate::app::state::NavigatorTarget::Workspace { ws_idx }
-                    }
-                    crate::app::state::ContextBarTarget::Tab => {
-                        let Some(tab_idx) = self
-                            .state
-                            .workspaces
-                            .get(ws_idx)
-                            .map(|workspace| workspace.active_tab_index())
-                        else {
-                            return true;
-                        };
-                        crate::app::state::NavigatorTarget::Tab { ws_idx, tab_idx }
-                    }
-                    crate::app::state::ContextBarTarget::Group => return true,
-                };
-                self.state.open_navigator();
-                let selected = self
-                    .state
-                    .navigator_rows_from(&self.terminal_runtimes)
-                    .iter()
-                    .position(|row| row.target == navigator_target)
-                    .unwrap_or(self.state.navigator.list.selected);
-                self.state.navigator.list.select(selected);
-                self.state.navigator.scroll = selected;
+                crate::app::state::NavigatorTarget::Tab { ws_idx, tab_idx }
             }
-        }
+            crate::app::state::ContextBarTarget::Pane => {
+                let Some(workspace) = self.state.workspaces.get(ws_idx) else {
+                    return true;
+                };
+                let tab_idx = workspace.active_tab_index();
+                let Some(pane_id) = workspace.focused_pane_id() else {
+                    return true;
+                };
+                crate::app::state::NavigatorTarget::Pane {
+                    ws_idx,
+                    tab_idx,
+                    pane_id,
+                }
+            }
+        };
+        self.state.open_navigator();
+        let selected = self
+            .state
+            .navigator_rows_from(&self.terminal_runtimes)
+            .iter()
+            .position(|row| row.target == navigator_target)
+            .unwrap_or(self.state.navigator.list.selected);
+        self.state.navigator.list.select(selected);
+        self.state.navigator.scroll = selected;
         true
     }
 

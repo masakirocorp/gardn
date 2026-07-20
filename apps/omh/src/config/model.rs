@@ -141,7 +141,6 @@ impl SidebarArrangementConfig {
 #[serde(rename_all = "lowercase")]
 pub enum ContextBarVisibilityConfig {
     #[default]
-    Auto,
     Always,
     Never,
 }
@@ -149,15 +148,13 @@ pub enum ContextBarVisibilityConfig {
 impl ContextBarVisibilityConfig {
     pub(crate) fn next(self) -> Self {
         match self {
-            Self::Auto => Self::Always,
             Self::Always => Self::Never,
-            Self::Never => Self::Auto,
+            Self::Never => Self::Always,
         }
     }
 
     pub(crate) const fn label(self) -> &'static str {
         match self {
-            Self::Auto => "auto",
             Self::Always => "always",
             Self::Never => "never",
         }
@@ -927,7 +924,7 @@ pub struct UiConfig {
     pub mobile_width_threshold: u16,
     /// Sidebar arrangement on desktop: auto, separate, combined_left, or combined_right.
     pub sidebar_arrangement: SidebarArrangementConfig,
-    /// Bottom context bar visibility. Auto hides it while the spaces sidebar is expanded.
+    /// Bottom context bar visibility.
     pub context_bar: ContextBarVisibilityConfig,
     /// Configurable rows and metadata tokens for spaces and agents.
     pub sidebar: SidebarConfig,
@@ -1153,7 +1150,7 @@ impl Default for UiConfig {
             sidebar_max_width: 36,
             mobile_width_threshold: DEFAULT_MOBILE_WIDTH_THRESHOLD,
             sidebar_arrangement: SidebarArrangementConfig::Auto,
-            context_bar: ContextBarVisibilityConfig::Auto,
+            context_bar: ContextBarVisibilityConfig::Always,
             sidebar: SidebarConfig::default(),
             mouse_capture: true,
             copy_on_select: true,
@@ -1528,7 +1525,7 @@ cjk_ime_agents = ["claude", "codex"]
         assert_eq!(default_config.ui.sidebar_max_width, 36);
         assert_eq!(
             default_config.ui.context_bar,
-            ContextBarVisibilityConfig::Auto
+            ContextBarVisibilityConfig::Always
         );
 
         assert_eq!(

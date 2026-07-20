@@ -1445,10 +1445,7 @@ pub(crate) fn execute_navigate_action_in_context(
             leave_navigate_mode(state);
         }
         NavigateAction::ToggleContextBar => {
-            let visible = state.context_bar_is_visible(
-                state.sidebar_collapsed,
-                state.context_bar_visibility_override,
-            );
+            let visible = state.context_bar_is_visible(state.context_bar_visibility_override);
             state.context_bar_visibility_override = Some(!visible);
             leave_navigate_mode(state);
         }

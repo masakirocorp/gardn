@@ -250,9 +250,8 @@ diff_command = "lazygit"
 # Terminal width at or below which Oh My Herdr uses the mobile single-column layout.
 # Increase this for foldables, tablets, or wide phone terminals.
 # mobile_width_threshold = 64
-# Bottom context bar: "auto" hides it while the spaces sidebar is expanded.
-# Values: "auto", "always", or "never".
-# context_bar = "auto"
+# Bottom context bar visibility: "always" or "never".
+# context_bar = "always"
 
 
 

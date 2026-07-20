@@ -1452,6 +1452,7 @@ pub(crate) enum ContextBarTarget {
     Group,
     Workspace,
     Tab,
+    Pane,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1561,6 +1562,9 @@ impl Mode {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum NavigatorTarget {
+    Group {
+        group_idx: usize,
+    },
     Workspace {
         ws_idx: usize,
     },
@@ -1584,6 +1588,7 @@ pub(crate) struct NavigatorRow {
     pub status: AgentState,
     pub seen: bool,
     pub is_current: bool,
+    pub is_group: bool,
     pub is_workspace: bool,
     pub is_tab: bool,
     pub expanded: bool,
@@ -1605,6 +1610,7 @@ pub(crate) struct NavigatorState {
     pub scroll: usize,
     pub search_focused: bool,
     pub state_filter: Option<NavigatorStateFilter>,
+    pub expanded_groups: std::collections::HashSet<String>,
     pub expanded_workspaces: std::collections::HashSet<String>,
 }
 
@@ -3055,16 +3061,11 @@ impl AppState {
         toggle_string_key(&mut self.collapsed_agent_sections, section_key);
     }
 
-    pub(crate) fn context_bar_is_visible(
-        &self,
-        sidebar_collapsed: bool,
-        visibility_override: Option<bool>,
-    ) -> bool {
-        visibility_override.unwrap_or(match self.context_bar_visibility {
-            crate::config::ContextBarVisibilityConfig::Auto => sidebar_collapsed,
-            crate::config::ContextBarVisibilityConfig::Always => true,
-            crate::config::ContextBarVisibilityConfig::Never => false,
-        })
+    pub(crate) fn context_bar_is_visible(&self, visibility_override: Option<bool>) -> bool {
+        visibility_override.unwrap_or(matches!(
+            self.context_bar_visibility,
+            crate::config::ContextBarVisibilityConfig::Always
+        ))
     }
 
     pub fn sidebar_visible_workspace_indices(&self) -> Vec<usize> {
@@ -3515,7 +3516,7 @@ impl AppState {
             right_sidebar_width: 28,
             right_sidebar_collapsed: false,
             sidebar_arrangement: crate::config::SidebarArrangementConfig::Auto,
-            context_bar_visibility: crate::config::ContextBarVisibilityConfig::Auto,
+            context_bar_visibility: crate::config::ContextBarVisibilityConfig::Always,
             context_bar_visibility_override: None,
             sidebar_config: crate::config::SidebarConfig::default(),
             sidebar_section_split: 0.5,

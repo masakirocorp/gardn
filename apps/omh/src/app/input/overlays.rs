@@ -5,7 +5,7 @@ use ratatui::{
 };
 
 use crate::app::{
-    state::{AppState, DragState, DragTarget, Mode, NavigatorTarget},
+    state::{AppState, DragState, DragTarget, Mode},
     App, ClientViewState,
 };
 
@@ -128,13 +128,22 @@ impl App {
         if self.state.mode == Mode::Navigator {
             match mouse.kind {
                 MouseEventKind::Moved => {
-                    let hovered = self.state.navigator_row_index_at(mouse.column, mouse.row);
-                    self.state.navigator.list.hover(hovered);
-                    if hovered.is_some() {
-                        self.state.ensure_navigator_selection_visible();
+                    if self.state.navigator_popup_contains(mouse.column, mouse.row) {
+                        let hovered = self.state.navigator_row_index_at(mouse.column, mouse.row);
+                        self.state.navigator.list.hover(hovered);
+                        if hovered.is_some() {
+                            self.state.ensure_navigator_selection_visible();
+                        }
                     }
                 }
                 MouseEventKind::Down(MouseButton::Left) => {
+                    if self
+                        .state
+                        .navigator_close_button_at(mouse.column, mouse.row)
+                    {
+                        leave_modal(&mut self.state);
+                        return true;
+                    }
                     if self
                         .state
                         .navigator_search_contains(mouse.column, mouse.row)
@@ -145,17 +154,13 @@ impl App {
                         self.state.navigator_row_index_at(mouse.column, mouse.row)
                     {
                         self.state.navigator.list.select(idx);
-                        let target = self
+                        let is_branch = self
                             .state
                             .navigator_rows()
                             .get(idx)
-                            .map(|row| (row.target.clone(), row.is_workspace));
-                        if let Some((NavigatorTarget::Workspace { .. }, true)) = target {
-                            if self.state.navigator_row_caret_at(mouse.column) {
-                                self.state.toggle_selected_navigator_workspace();
-                            } else {
-                                self.state.accept_navigator_selection();
-                            }
+                            .is_some_and(|row| row.is_group || row.is_workspace);
+                        if is_branch && self.state.navigator_row_caret_at(mouse.column) {
+                            self.state.toggle_selected_navigator_branch();
                         } else {
                             self.state.accept_navigator_selection();
                         }
@@ -491,61 +496,24 @@ impl AppState {
     }
 
     pub(crate) fn navigator_popup_rect(&self) -> Rect {
-        let area = self.screen_rect();
-        let margin_x = (area.width / 16).max(2);
-        let margin_y = (area.height / 10).max(1);
-        let width = area.width.saturating_sub(margin_x.saturating_mul(2));
-        let height = area.height.saturating_sub(margin_y.saturating_mul(2));
-        Rect::new(
-            area.x + margin_x,
-            area.y + margin_y,
-            width.max(4),
-            height.max(4),
-        )
-    }
-
-    pub(crate) fn navigator_inner_rect(&self) -> Rect {
-        Block::default()
-            .borders(Borders::ALL)
-            .inner(self.navigator_popup_rect())
+        crate::ui::navigator_popup_rect(self.screen_rect())
     }
 
     pub(crate) fn navigator_search_rect(&self) -> Rect {
-        let inner = self.navigator_inner_rect();
-        Rect::new(inner.x, inner.y, inner.width, inner.height.min(1))
+        crate::ui::navigator_layout(self.screen_rect())
+            .map(|layout| layout.search)
+            .unwrap_or_default()
     }
 
     pub(crate) fn navigator_body_rect(&self) -> Rect {
-        let inner = self.navigator_inner_rect();
-        if inner.height <= 4 {
-            return Rect::default();
-        }
-        Rect::new(
-            inner.x,
-            inner.y + 2,
-            inner.width,
-            inner.height.saturating_sub(4),
-        )
+        crate::ui::navigator_layout(self.screen_rect())
+            .map(|layout| layout.body)
+            .unwrap_or_default()
     }
 
-    pub(crate) fn navigator_detail_rect(&self) -> Rect {
-        let inner = self.navigator_inner_rect();
-        Rect::new(
-            inner.x,
-            inner.y + inner.height.saturating_sub(2),
-            inner.width,
-            inner.height.min(1),
-        )
-    }
-
-    pub(crate) fn navigator_footer_rect(&self) -> Rect {
-        let inner = self.navigator_inner_rect();
-        Rect::new(
-            inner.x,
-            inner.y + inner.height.saturating_sub(1),
-            inner.width,
-            inner.height.min(1),
-        )
+    pub(crate) fn navigator_close_button_at(&self, col: u16, row: u16) -> bool {
+        crate::ui::navigator_layout(self.screen_rect())
+            .is_some_and(|layout| rect_contains(layout.close, col, row))
     }
 
     pub(crate) fn navigator_popup_contains(&self, col: u16, row: u16) -> bool {

@@ -2653,46 +2653,20 @@ impl App {
             .navigator_rows_for_view(client_view, &self.terminal_runtimes)
     }
 
-    fn client_view_navigator_popup_rect(client_view: &ClientViewState) -> Rect {
-        let area = client_view.screen_rect();
-        let margin_x = (area.width / 16).max(2);
-        let margin_y = (area.height / 10).max(1);
-        Rect::new(
-            area.x + margin_x,
-            area.y + margin_y,
-            area.width.saturating_sub(margin_x.saturating_mul(2)).max(4),
-            area.height
-                .saturating_sub(margin_y.saturating_mul(2))
-                .max(4),
-        )
+    fn client_view_navigator_popup_rect(&self, client_view: &ClientViewState) -> Rect {
+        crate::ui::navigator_popup_rect(client_view.screen_rect())
     }
 
-    fn client_view_navigator_inner_rect(client_view: &ClientViewState) -> Rect {
-        let popup = Self::client_view_navigator_popup_rect(client_view);
-        Rect::new(
-            popup.x.saturating_add(1),
-            popup.y.saturating_add(1),
-            popup.width.saturating_sub(2),
-            popup.height.saturating_sub(2),
-        )
+    fn client_view_navigator_search_rect(&self, client_view: &ClientViewState) -> Rect {
+        crate::ui::navigator_layout(client_view.screen_rect())
+            .map(|layout| layout.search)
+            .unwrap_or_default()
     }
 
-    fn client_view_navigator_search_rect(client_view: &ClientViewState) -> Rect {
-        let inner = Self::client_view_navigator_inner_rect(client_view);
-        Rect::new(inner.x, inner.y, inner.width, inner.height.min(1))
-    }
-
-    fn client_view_navigator_body_rect(client_view: &ClientViewState) -> Rect {
-        let inner = Self::client_view_navigator_inner_rect(client_view);
-        if inner.height <= 4 {
-            return Rect::default();
-        }
-        Rect::new(
-            inner.x,
-            inner.y + 2,
-            inner.width,
-            inner.height.saturating_sub(4),
-        )
+    fn client_view_navigator_body_rect(&self, client_view: &ClientViewState) -> Rect {
+        crate::ui::navigator_layout(client_view.screen_rect())
+            .map(|layout| layout.body)
+            .unwrap_or_default()
     }
 
     fn client_view_navigator_row_index_at(
@@ -2701,7 +2675,7 @@ impl App {
         col: u16,
         row: u16,
     ) -> Option<usize> {
-        let body = Self::client_view_navigator_body_rect(client_view);
+        let body = self.client_view_navigator_body_rect(client_view);
         if !Self::rect_contains(body, col, row) {
             return None;
         }
@@ -2720,7 +2694,7 @@ impl App {
     }
 
     fn ensure_client_view_navigator_selection_visible(&self, client_view: &mut ClientViewState) {
-        let viewport = Self::client_view_navigator_body_rect(client_view).height as usize;
+        let viewport = self.client_view_navigator_body_rect(client_view).height as usize;
         if viewport == 0 {
             client_view.navigator.scroll = 0;
             return;
@@ -2756,33 +2730,129 @@ impl App {
         self.ensure_client_view_navigator_selection_visible(client_view);
     }
 
-    fn toggle_client_view_navigator_workspace(&self, client_view: &mut ClientViewState) {
-        let Some(row) = self
-            .navigator_view_rows(client_view)
-            .get(client_view.navigator.list.selected)
-            .cloned()
-        else {
-            return;
-        };
-        let state::NavigatorTarget::Workspace { ws_idx } = row.target else {
-            return;
-        };
-        let Some(workspace_id) = self.state.workspaces.get(ws_idx).map(|ws| ws.id.clone()) else {
-            return;
-        };
-        if !client_view
+    fn toggle_client_view_navigator_branch(&self, client_view: &mut ClientViewState) {
+        let selected = client_view
             .navigator
-            .expanded_workspaces
-            .remove(&workspace_id)
-        {
-            client_view
-                .navigator
-                .expanded_workspaces
-                .insert(workspace_id);
+            .list
+            .visible()
+            .unwrap_or(client_view.navigator.list.selected);
+        client_view.navigator.list.select(selected);
+        let Some(row) = self.navigator_view_rows(client_view).get(selected).cloned() else {
+            return;
+        };
+        match row.target {
+            state::NavigatorTarget::Group { group_idx } => {
+                let Some(group_id) = self
+                    .state
+                    .groups
+                    .get(group_idx)
+                    .map(|group| group.id.clone())
+                else {
+                    return;
+                };
+                if !client_view.navigator.expanded_groups.remove(&group_id) {
+                    client_view.navigator.expanded_groups.insert(group_id);
+                }
+            }
+            state::NavigatorTarget::Workspace { ws_idx } => {
+                let Some(workspace_id) = self
+                    .state
+                    .workspaces
+                    .get(ws_idx)
+                    .map(|workspace| workspace.id.clone())
+                else {
+                    return;
+                };
+                if !client_view
+                    .navigator
+                    .expanded_workspaces
+                    .remove(&workspace_id)
+                {
+                    client_view
+                        .navigator
+                        .expanded_workspaces
+                        .insert(workspace_id);
+                }
+            }
+            state::NavigatorTarget::Tab { .. } | state::NavigatorTarget::Pane { .. } => return,
         }
         self.clamp_client_view_navigator_selection(client_view);
     }
 
+    fn expand_all_client_view_navigator_branches(&self, client_view: &mut ClientViewState) {
+        let selected_target = self
+            .navigator_view_rows(client_view)
+            .get(
+                client_view
+                    .navigator
+                    .list
+                    .visible()
+                    .unwrap_or(client_view.navigator.list.selected),
+            )
+            .map(|row| row.target.clone());
+        client_view.navigator.query.clear();
+        client_view.navigator.state_filter = None;
+        client_view.navigator.expanded_groups = self
+            .state
+            .groups
+            .iter()
+            .map(|group| group.id.clone())
+            .collect();
+        client_view.navigator.expanded_workspaces = self
+            .state
+            .workspaces
+            .iter()
+            .map(|workspace| workspace.id.clone())
+            .collect();
+        let selected = selected_target
+            .and_then(|target| {
+                self.navigator_view_rows(client_view)
+                    .iter()
+                    .position(|row| row.target == target)
+            })
+            .unwrap_or(0);
+        client_view.navigator.list.select(selected);
+        self.ensure_client_view_navigator_selection_visible(client_view);
+    }
+
+    fn collapse_all_client_view_navigator_branches(&self, client_view: &mut ClientViewState) {
+        let selected_group = self
+            .navigator_view_rows(client_view)
+            .get(
+                client_view
+                    .navigator
+                    .list
+                    .visible()
+                    .unwrap_or(client_view.navigator.list.selected),
+            )
+            .and_then(|row| match row.target {
+                state::NavigatorTarget::Group { group_idx } => Some(group_idx),
+                state::NavigatorTarget::Workspace { ws_idx }
+                | state::NavigatorTarget::Tab { ws_idx, .. }
+                | state::NavigatorTarget::Pane { ws_idx, .. } => self
+                    .state
+                    .workspaces
+                    .get(ws_idx)
+                    .and_then(|workspace| self.state.group_index_by_id(&workspace.group_id)),
+            })
+            .unwrap_or(client_view.active_group);
+        client_view.navigator.query.clear();
+        client_view.navigator.state_filter = None;
+        client_view.navigator.expanded_groups.clear();
+        client_view.navigator.expanded_workspaces.clear();
+        let selected = self
+            .navigator_view_rows(client_view)
+            .iter()
+            .position(|row| {
+                matches!(
+                    row.target,
+                    state::NavigatorTarget::Group { group_idx } if group_idx == selected_group
+                )
+            })
+            .unwrap_or(0);
+        client_view.navigator.list.select(selected);
+        self.ensure_client_view_navigator_selection_visible(client_view);
+    }
     fn move_client_view_navigator_selection(
         &self,
         client_view: &mut ClientViewState,
@@ -2909,6 +2979,12 @@ impl App {
                 client_view.navigator.state_filter = Some(state::NavigatorStateFilter::Done);
                 self.clamp_client_view_navigator_selection(client_view);
             }
+            crossterm::event::KeyCode::Char('e') if key.modifiers.is_empty() => {
+                self.expand_all_client_view_navigator_branches(client_view);
+            }
+            crossterm::event::KeyCode::Char('c') if key.modifiers.is_empty() => {
+                self.collapse_all_client_view_navigator_branches(client_view);
+            }
             crossterm::event::KeyCode::Char('j') | crossterm::event::KeyCode::Down => {
                 self.move_client_view_navigator_selection(client_view, 1)
             }
@@ -2926,7 +3002,7 @@ impl App {
                 self.move_client_view_navigator_selection(client_view, -5)
             }
             crossterm::event::KeyCode::Char(' ') => {
-                self.toggle_client_view_navigator_workspace(client_view);
+                self.toggle_client_view_navigator_branch(client_view);
             }
             crossterm::event::KeyCode::Home => {
                 client_view.navigator.list.select(0);
@@ -3489,10 +3565,16 @@ impl App {
     }
 
     fn accept_client_view_navigator_selection(&mut self, client_view: &mut ClientViewState) {
+        let selected = client_view
+            .navigator
+            .list
+            .visible()
+            .unwrap_or(client_view.navigator.list.selected);
+        client_view.navigator.list.select(selected);
         let Some(row) = self
             .state
             .navigator_rows_for_view(client_view, &self.terminal_runtimes)
-            .get(client_view.navigator.list.selected)
+            .get(selected)
             .cloned()
         else {
             return;
@@ -3575,12 +3657,31 @@ impl App {
         target: state::NavigatorTarget,
     ) -> bool {
         match target {
+            state::NavigatorTarget::Group { group_idx } => {
+                if group_idx >= self.state.groups.len() {
+                    return false;
+                }
+                self.switch_client_view_group(client_view, group_idx);
+                if client_view.active_workspace.is_none() {
+                    client_view.mode = Mode::Navigate;
+                    return false;
+                }
+                true
+            }
             state::NavigatorTarget::Workspace { ws_idx } => {
                 if self.state.workspaces.get(ws_idx).is_none() {
                     return false;
                 }
                 client_view.active_workspace = Some(ws_idx);
                 client_view.selected_workspace = ws_idx;
+                if let Some(group_idx) = self
+                    .state
+                    .groups
+                    .iter()
+                    .position(|group| group.id == self.state.workspaces[ws_idx].group_id)
+                {
+                    client_view.active_group = group_idx;
+                }
                 true
             }
             state::NavigatorTarget::Tab { ws_idx, tab_idx } => {
@@ -3592,6 +3693,14 @@ impl App {
                 }
                 client_view.active_workspace = Some(ws_idx);
                 client_view.selected_workspace = ws_idx;
+                if let Some(group_idx) = self
+                    .state
+                    .groups
+                    .iter()
+                    .position(|group| group.id == workspace.group_id)
+                {
+                    client_view.active_group = group_idx;
+                }
                 client_view
                     .active_tabs
                     .insert(workspace.id.clone(), tab_idx);
@@ -3614,6 +3723,14 @@ impl App {
                 }
                 client_view.active_workspace = Some(ws_idx);
                 client_view.selected_workspace = ws_idx;
+                if let Some(group_idx) = self
+                    .state
+                    .groups
+                    .iter()
+                    .position(|group| group.id == workspace.group_id)
+                {
+                    client_view.active_group = group_idx;
+                }
                 client_view
                     .active_tabs
                     .insert(workspace.id.clone(), tab_idx);
@@ -3668,6 +3785,13 @@ impl App {
         action: crate::app::command_palette::CommandPaletteAction,
     ) {
         match action {
+            crate::app::command_palette::CommandPaletteAction::OpenNavigator => {
+                self.execute_client_view_navigate_action(
+                    client_view,
+                    input::NavigateAction::WorkspacePicker,
+                    input::ActionContext::Navigate,
+                );
+            }
             crate::app::command_palette::CommandPaletteAction::NewWorkspace => {
                 self.create_workspace_for_client_view(client_view);
             }
@@ -3824,10 +3948,9 @@ impl App {
                 Self::leave_client_view_command_mode(client_view);
             }
             crate::app::command_palette::CommandPaletteAction::ToggleContextBar => {
-                let visible = self.state.context_bar_is_visible(
-                    client_view.sidebar_collapsed,
-                    client_view.context_bar_visibility_override,
-                );
+                let visible = self
+                    .state
+                    .context_bar_is_visible(client_view.context_bar_visibility_override);
                 client_view.context_bar_visibility_override = Some(!visible);
                 Self::leave_client_view_command_mode(client_view);
             }
@@ -5260,8 +5383,15 @@ impl App {
                 }
             }
             input::NavigateAction::WorkspacePicker => {
-                client_view.navigator = state::NavigatorState::default();
-                client_view.mode = Mode::Navigator;
+                if let Some(ws_idx) = client_view.active_workspace {
+                    self.open_client_view_context_navigator(
+                        client_view,
+                        state::NavigatorTarget::Workspace { ws_idx },
+                    );
+                } else {
+                    client_view.navigator = state::NavigatorState::default();
+                    client_view.mode = Mode::Navigator;
+                }
             }
             input::NavigateAction::NewGroup => {
                 self.open_client_view_new_group_dialog(client_view);
@@ -5343,10 +5473,9 @@ impl App {
                 Self::leave_client_view_command_mode(client_view);
             }
             input::NavigateAction::ToggleContextBar => {
-                let visible = self.state.context_bar_is_visible(
-                    client_view.sidebar_collapsed,
-                    client_view.context_bar_visibility_override,
-                );
+                let visible = self
+                    .state
+                    .context_bar_is_visible(client_view.context_bar_visibility_override);
                 client_view.context_bar_visibility_override = Some(!visible);
                 Self::leave_client_view_command_mode(client_view);
             }
@@ -5506,15 +5635,27 @@ impl App {
 
         match mouse.kind {
             crossterm::event::MouseEventKind::Moved => {
-                let hovered =
-                    self.client_view_navigator_row_index_at(client_view, mouse.column, mouse.row);
-                client_view.navigator.list.hover(hovered);
-                if hovered.is_some() {
-                    self.ensure_client_view_navigator_selection_visible(client_view);
+                let popup = self.client_view_navigator_popup_rect(client_view);
+                if Self::rect_contains(popup, mouse.column, mouse.row) {
+                    let hovered = self.client_view_navigator_row_index_at(
+                        client_view,
+                        mouse.column,
+                        mouse.row,
+                    );
+                    client_view.navigator.list.hover(hovered);
+                    if hovered.is_some() {
+                        self.ensure_client_view_navigator_selection_visible(client_view);
+                    }
                 }
             }
             crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left) => {
-                let search = Self::client_view_navigator_search_rect(client_view);
+                if crate::ui::navigator_layout(client_view.screen_rect()).is_some_and(|layout| {
+                    Self::rect_contains(layout.close, mouse.column, mouse.row)
+                }) {
+                    Self::leave_client_view_command_mode(client_view);
+                    return true;
+                }
+                let search = self.client_view_navigator_search_rect(client_view);
                 if Self::rect_contains(search, mouse.column, mouse.row) {
                     client_view.navigator.list.hover(None);
                     client_view.navigator.search_focused = true;
@@ -5522,18 +5663,18 @@ impl App {
                     self.client_view_navigator_row_index_at(client_view, mouse.column, mouse.row)
                 {
                     client_view.navigator.list.select(idx);
-                    let is_workspace = self
+                    let is_branch = self
                         .navigator_view_rows(client_view)
                         .get(idx)
-                        .is_some_and(|row| row.is_workspace);
-                    let body = Self::client_view_navigator_body_rect(client_view);
-                    if is_workspace && mouse.column <= body.x.saturating_add(3) {
-                        self.toggle_client_view_navigator_workspace(client_view);
+                        .is_some_and(|row| row.is_group || row.is_workspace);
+                    let body = self.client_view_navigator_body_rect(client_view);
+                    if is_branch && mouse.column <= body.x.saturating_add(3) {
+                        self.toggle_client_view_navigator_branch(client_view);
                     } else {
                         self.accept_client_view_navigator_selection(client_view);
                     }
                 } else if Self::rect_contains(
-                    Self::client_view_navigator_popup_rect(client_view),
+                    self.client_view_navigator_popup_rect(client_view),
                     mouse.column,
                     mouse.row,
                 ) {
@@ -5551,7 +5692,7 @@ impl App {
                 self.clamp_client_view_navigator_selection(client_view);
             }
             crossterm::event::MouseEventKind::ScrollDown => {
-                let viewport = Self::client_view_navigator_body_rect(client_view).height as usize;
+                let viewport = self.client_view_navigator_body_rect(client_view).height as usize;
                 let max = self
                     .navigator_view_rows(client_view)
                     .len()
@@ -8259,7 +8400,25 @@ impl App {
         target: state::NavigatorTarget,
     ) {
         client_view.navigator = state::NavigatorState::default();
-        if let state::NavigatorTarget::Tab { ws_idx, .. } = target {
+        let group_idx = match target {
+            state::NavigatorTarget::Group { group_idx } => Some(group_idx),
+            state::NavigatorTarget::Workspace { ws_idx }
+            | state::NavigatorTarget::Tab { ws_idx, .. }
+            | state::NavigatorTarget::Pane { ws_idx, .. } => self
+                .state
+                .workspaces
+                .get(ws_idx)
+                .and_then(|workspace| self.state.group_index_by_id(&workspace.group_id)),
+        };
+        if let Some(group) = group_idx.and_then(|group_idx| self.state.groups.get(group_idx)) {
+            client_view
+                .navigator
+                .expanded_groups
+                .insert(group.id.clone());
+        }
+        if let state::NavigatorTarget::Tab { ws_idx, .. }
+        | state::NavigatorTarget::Pane { ws_idx, .. } = target
+        {
             if let Some(workspace) = self.state.workspaces.get(ws_idx) {
                 client_view
                     .navigator
@@ -8274,7 +8433,6 @@ impl App {
             .position(|row| row.target == target)
             .unwrap_or(0);
         client_view.navigator.list.select(selected);
-        client_view.navigator.list.hide();
         self.ensure_client_view_navigator_selection_visible(client_view);
     }
 
@@ -8299,31 +8457,35 @@ impl App {
             return false;
         };
 
-        match target {
-            state::ContextBarTarget::Group => Self::open_client_view_group_menu(client_view),
-            state::ContextBarTarget::Workspace => {
-                let Some(ws_idx) = client_view.active_workspace else {
-                    return true;
-                };
-                self.open_client_view_context_navigator(
-                    client_view,
-                    state::NavigatorTarget::Workspace { ws_idx },
-                );
-            }
+        let Some(ws_idx) = client_view.active_workspace else {
+            return true;
+        };
+        let navigator_target = match target {
+            state::ContextBarTarget::Group => state::NavigatorTarget::Group {
+                group_idx: client_view.active_group,
+            },
+            state::ContextBarTarget::Workspace => state::NavigatorTarget::Workspace { ws_idx },
             state::ContextBarTarget::Tab => {
-                let Some(ws_idx) = client_view.active_workspace else {
-                    return true;
-                };
                 let Some(tab_idx) = client_view.active_tab_index_for_workspace(&self.state, ws_idx)
                 else {
                     return true;
                 };
-                self.open_client_view_context_navigator(
-                    client_view,
-                    state::NavigatorTarget::Tab { ws_idx, tab_idx },
-                );
+                state::NavigatorTarget::Tab { ws_idx, tab_idx }
             }
-        }
+            state::ContextBarTarget::Pane => {
+                let Some((tab_idx, pane_id)) =
+                    client_view.focused_pane_for_workspace(&self.state, ws_idx)
+                else {
+                    return true;
+                };
+                state::NavigatorTarget::Pane {
+                    ws_idx,
+                    tab_idx,
+                    pane_id,
+                }
+            }
+        };
+        self.open_client_view_context_navigator(client_view, navigator_target);
         true
     }
 
@@ -14907,11 +15069,11 @@ command = "printf literal > '{}'"
         let area = ratatui::layout::Rect::new(0, 0, 100, 30);
         compute_client_view(&app, &mut client, area);
         compute_client_view(&app, &mut other_client, area);
-        assert_eq!(
+        assert_ne!(
             client.computed.context_bar.rect,
             ratatui::layout::Rect::default()
         );
-        assert_eq!(
+        assert_ne!(
             other_client.computed.context_bar.rect,
             ratatui::layout::Rect::default()
         );
@@ -14931,11 +15093,11 @@ command = "printf literal > '{}'"
         compute_client_view(&app, &mut client, area);
         compute_client_view(&app, &mut other_client, area);
 
-        assert_ne!(
+        assert_eq!(
             client.computed.context_bar.rect,
             ratatui::layout::Rect::default()
         );
-        assert_eq!(
+        assert_ne!(
             other_client.computed.context_bar.rect,
             ratatui::layout::Rect::default()
         );
@@ -15006,6 +15168,28 @@ command = "printf literal > '{}'"
             )],
             true,
         );
+    }
+
+    #[test]
+    fn route_client_events_for_view_command_palette_opens_workspace_navigator_locally() {
+        let mut app = test_app();
+        app.state.workspaces = vec![Workspace::test_new("shell")];
+        app.state.ensure_test_terminals();
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::Terminal;
+
+        let mut client = ClientViewState::from_default_client_state(&app.state);
+        route_client_command_palette_enter(&mut app, &mut client, "workspace navigator");
+
+        assert_eq!(client.mode, Mode::Navigator);
+        assert_eq!(app.state.mode, Mode::Terminal);
+        assert!(matches!(
+            app.navigator_view_rows(&client)
+                .get(client.navigator.list.selected)
+                .map(|row| &row.target),
+            Some(state::NavigatorTarget::Workspace { ws_idx: 0 })
+        ));
     }
 
     #[tokio::test]
@@ -15116,7 +15300,16 @@ command = "printf literal > '{}'"
 
         let mut client = ClientViewState::from_default_client_state(&app.state);
         client.mode = Mode::Navigator;
-        client.navigator.list.selected = 1;
+        client
+            .navigator
+            .expanded_groups
+            .insert(app.state.groups[0].id.clone());
+        let target = app
+            .navigator_view_rows(&client)
+            .iter()
+            .position(|row| matches!(row.target, state::NavigatorTarget::Workspace { ws_idx: 1 }))
+            .expect("second workspace row");
+        client.navigator.list.select(target);
 
         app.route_client_events_for_view(
             &mut client,
@@ -15540,7 +15733,16 @@ command = "printf literal > '{}'"
 
         let mut client = ClientViewState::from_default_client_state(&app.state);
         client.mode = Mode::Navigator;
-        client.navigator.list.selected = 1;
+        client
+            .navigator
+            .expanded_groups
+            .insert(app.state.groups[0].id.clone());
+        let target = app
+            .navigator_view_rows(&client)
+            .iter()
+            .position(|row| matches!(row.target, state::NavigatorTarget::Workspace { ws_idx: 1 }))
+            .expect("second workspace row");
+        client.navigator.list.select(target);
 
         app.route_client_events_for_view(
             &mut client,
@@ -16611,13 +16813,14 @@ command = "printf literal > '{}'"
     }
 
     #[test]
-    fn route_client_events_for_view_context_bar_opens_local_navigation_surfaces() {
+    fn route_client_events_for_view_context_bar_opens_one_local_navigator() {
         let mut app = test_app();
         app.state.context_bar_visibility = crate::config::ContextBarVisibilityConfig::Always;
         app.state.groups[0].name = "studio".into();
         let mut workspace = Workspace::test_new("ignored");
         workspace.custom_name = Some("website".into());
         workspace.tabs[0].custom_name = Some("release".into());
+        let focused_pane = workspace.test_split(ratatui::layout::Direction::Horizontal);
         workspace.test_add_tab(Some("logs"));
         app.state.workspaces = vec![workspace];
         app.state.ensure_test_terminals();
@@ -16631,68 +16834,55 @@ command = "printf literal > '{}'"
         let other_client = ClientViewState::from_default_client_state(&app.state);
         compute_client_view(&app, &mut client, area);
 
-        let group = client.computed.context_bar.segments[0].rect;
-        app.route_client_events_for_view(
-            &mut client,
-            vec![raw_mouse(
-                crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left),
-                group.x,
-                group.y,
-            )],
-            true,
-        );
-        assert_eq!(client.mode, Mode::GroupMenu);
-        assert_eq!(other_client.mode, Mode::Terminal);
-        assert_eq!(app.state.mode, Mode::Terminal);
-
-        client.mode = Mode::Terminal;
-        let workspace = client.computed.context_bar.segments[1].rect;
-        app.route_client_events_for_view(
-            &mut client,
-            vec![raw_mouse(
-                crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left),
-                workspace.x,
-                workspace.y,
-            )],
-            true,
-        );
-        let workspace_target = app
-            .navigator_view_rows(&client)
-            .get(client.navigator.list.selected)
-            .map(|row| row.target.clone());
-        assert_eq!(
-            workspace_target,
-            Some(state::NavigatorTarget::Workspace { ws_idx: 0 })
-        );
-
-        client.mode = Mode::Terminal;
-        let tab = client.computed.context_bar.segments[2].rect;
-        app.route_client_events_for_view(
-            &mut client,
-            vec![raw_mouse(
-                crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left),
-                tab.x,
-                tab.y,
-            )],
-            true,
-        );
-        let tab_target = app
-            .navigator_view_rows(&client)
-            .get(client.navigator.list.selected)
-            .map(|row| row.target.clone());
-        assert_eq!(
-            tab_target,
-            Some(state::NavigatorTarget::Tab {
+        let expected_targets = [
+            state::NavigatorTarget::Group { group_idx: 0 },
+            state::NavigatorTarget::Workspace { ws_idx: 0 },
+            state::NavigatorTarget::Tab {
                 ws_idx: 0,
                 tab_idx: 0,
-            })
+            },
+            state::NavigatorTarget::Pane {
+                ws_idx: 0,
+                tab_idx: 0,
+                pane_id: focused_pane,
+            },
+        ];
+        assert_eq!(
+            client.computed.context_bar.segments.len(),
+            expected_targets.len()
         );
-        assert_eq!(other_client.mode, Mode::Terminal);
-        assert_eq!(app.state.mode, Mode::Terminal);
+
+        for (segment_index, expected_target) in expected_targets.into_iter().enumerate() {
+            client.mode = Mode::Terminal;
+            let segment = client.computed.context_bar.segments[segment_index].rect;
+            app.route_client_events_for_view(
+                &mut client,
+                vec![raw_mouse(
+                    crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left),
+                    segment.x,
+                    segment.y,
+                )],
+                true,
+            );
+
+            let selected_target = app
+                .navigator_view_rows(&client)
+                .get(client.navigator.list.selected)
+                .map(|row| row.target.clone());
+            assert_eq!(selected_target, Some(expected_target));
+            assert_eq!(
+                client.navigator.list.visible(),
+                Some(client.navigator.list.selected),
+                "breadcrumb target should open highlighted"
+            );
+            assert_eq!(client.mode, Mode::Navigator);
+            assert_eq!(other_client.mode, Mode::Terminal);
+            assert_eq!(app.state.mode, Mode::Terminal);
+        }
     }
 
     #[test]
-    fn context_bar_mouse_opens_group_menu_in_local_app() {
+    fn context_bar_group_opens_group_row_in_local_app() {
         let mut app = test_app();
         app.state.context_bar_visibility = crate::config::ContextBarVisibilityConfig::Always;
         app.state.workspaces = vec![Workspace::test_new("website")];
@@ -16710,7 +16900,16 @@ command = "printf literal > '{}'"
             modifiers: crossterm::event::KeyModifiers::NONE,
         });
 
-        assert_eq!(app.state.mode, Mode::GroupMenu);
+        let selected_target = app
+            .state
+            .navigator_rows_from(&app.terminal_runtimes)
+            .get(app.state.navigator.list.selected)
+            .map(|row| row.target.clone());
+        assert_eq!(
+            selected_target,
+            Some(state::NavigatorTarget::Group { group_idx: 0 })
+        );
+        assert_eq!(app.state.mode, Mode::Navigator);
     }
     #[test]
     fn client_group_selector_displays_selected_group_at_click_target() {
@@ -17754,9 +17953,18 @@ command = "printf literal > '{}'"
         let mut client = ClientViewState::from_default_client_state(&app.state);
         client.mode = Mode::Navigator;
         client.navigator.list = state::ModalListState::hidden(0);
+        client
+            .navigator
+            .expanded_groups
+            .insert(app.state.groups[0].id.clone());
         compute_client_view(&app, &mut client, ratatui::layout::Rect::new(0, 0, 120, 30));
-        let body = App::client_view_navigator_body_rect(&client);
-        let second_workspace_row = body.y + 1;
+        let body = app.client_view_navigator_body_rect(&client);
+        let second_workspace_index = app
+            .navigator_view_rows(&client)
+            .iter()
+            .position(|row| matches!(row.target, state::NavigatorTarget::Workspace { ws_idx: 1 }))
+            .expect("second workspace row");
+        let second_workspace_row = body.y + second_workspace_index as u16;
         let row_col = body.x + 5;
 
         app.route_client_events_for_view(
@@ -17769,7 +17977,10 @@ command = "printf literal > '{}'"
             true,
         );
         assert_eq!(client.navigator.list.selected, 0);
-        assert_eq!(client.navigator.list.visible(), Some(1));
+        assert_eq!(
+            client.navigator.list.visible(),
+            Some(second_workspace_index)
+        );
 
         app.route_client_events_for_view(
             &mut client,
@@ -17787,6 +17998,265 @@ command = "printf literal > '{}'"
             Some(0),
             "navigator click remains local to the invoking client"
         );
+    }
+
+    #[test]
+    fn route_client_events_for_view_space_toggles_the_hovered_navigator_branch() {
+        let mut app = test_app();
+        app.state.workspaces = vec![Workspace::test_new("first"), Workspace::test_new("second")];
+        app.state.ensure_test_terminals();
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::Terminal;
+        app.state.mouse_capture = true;
+
+        let mut client = ClientViewState::from_default_client_state(&app.state);
+        client.mode = Mode::Navigator;
+        client.navigator.list = state::ModalListState::hidden(0);
+        client
+            .navigator
+            .expanded_groups
+            .insert(app.state.groups[0].id.clone());
+        compute_client_view(&app, &mut client, ratatui::layout::Rect::new(0, 0, 120, 30));
+        let body = app.client_view_navigator_body_rect(&client);
+        let second_workspace_index = app
+            .navigator_view_rows(&client)
+            .iter()
+            .position(|row| matches!(row.target, state::NavigatorTarget::Workspace { ws_idx: 1 }))
+            .expect("second workspace row");
+        let second_workspace_id = app.state.workspaces[1].id.clone();
+
+        app.route_client_events_for_view(
+            &mut client,
+            vec![
+                raw_mouse(
+                    crossterm::event::MouseEventKind::Moved,
+                    body.x + 5,
+                    body.y + second_workspace_index as u16,
+                ),
+                raw_key(
+                    KeyCode::Char(' '),
+                    KeyModifiers::empty(),
+                    KeyEventKind::Press,
+                ),
+            ],
+            true,
+        );
+
+        assert!(
+            client
+                .navigator
+                .expanded_workspaces
+                .contains(&second_workspace_id),
+            "Space should expand the navigator branch that is visibly highlighted"
+        );
+        assert_eq!(
+            client.navigator.list.visible(),
+            Some(second_workspace_index)
+        );
+    }
+
+    #[test]
+    fn route_client_events_for_view_e_expands_every_navigator_branch() {
+        let mut app = test_app();
+        let work_group = app.state.create_group("work".to_string());
+        let mut home = Workspace::test_new("home");
+        home.group_id = app.state.groups[0].id.clone();
+        let mut api = Workspace::test_new("api");
+        api.group_id = app.state.groups[work_group].id.clone();
+        app.state.workspaces = vec![home, api];
+        app.state.ensure_test_terminals();
+
+        let mut client = ClientViewState::from_default_client_state(&app.state);
+        client.mode = Mode::Navigator;
+        client.navigator.expanded_groups.clear();
+        client.navigator.expanded_workspaces.clear();
+        let work_group_row = app
+            .navigator_view_rows(&client)
+            .iter()
+            .position(|row| {
+                matches!(
+                    row.target,
+                    state::NavigatorTarget::Group { group_idx } if group_idx == work_group
+                )
+            })
+            .expect("work group row");
+        client.navigator.list.select(work_group_row);
+
+        app.route_client_events_for_view(
+            &mut client,
+            vec![raw_key(
+                KeyCode::Char('e'),
+                KeyModifiers::empty(),
+                KeyEventKind::Press,
+            )],
+            true,
+        );
+
+        let rows = app.navigator_view_rows(&client);
+        assert!(
+            rows.iter()
+                .filter(|row| row.is_group || row.is_workspace)
+                .all(|row| row.expanded),
+            "every expandable branch should be visibly expanded"
+        );
+        assert!(
+            rows.iter()
+                .any(|row| matches!(row.target, state::NavigatorTarget::Pane { .. })),
+            "expanded workspace branches should reveal their panes"
+        );
+        assert!(matches!(
+            rows.get(client.navigator.list.selected)
+                .map(|row| &row.target),
+            Some(state::NavigatorTarget::Group { group_idx }) if *group_idx == work_group
+        ));
+    }
+
+    #[test]
+    fn route_client_events_for_view_c_collapses_every_navigator_branch() {
+        let mut app = test_app();
+        let work_group = app.state.create_group("work".to_string());
+        let mut home = Workspace::test_new("home");
+        home.group_id = app.state.groups[0].id.clone();
+        let mut api = Workspace::test_new("api");
+        api.group_id = app.state.groups[work_group].id.clone();
+        app.state.workspaces = vec![home, api];
+        app.state.ensure_test_terminals();
+
+        let mut client = ClientViewState::from_default_client_state(&app.state);
+        client.mode = Mode::Navigator;
+        client.navigator.expanded_groups = app
+            .state
+            .groups
+            .iter()
+            .map(|group| group.id.clone())
+            .collect();
+        client.navigator.expanded_workspaces = app
+            .state
+            .workspaces
+            .iter()
+            .map(|workspace| workspace.id.clone())
+            .collect();
+        let api_row = app
+            .navigator_view_rows(&client)
+            .iter()
+            .position(|row| matches!(row.target, state::NavigatorTarget::Workspace { ws_idx: 1 }))
+            .expect("api workspace row");
+        client.navigator.list.select(api_row);
+
+        app.route_client_events_for_view(
+            &mut client,
+            vec![raw_key(
+                KeyCode::Char('c'),
+                KeyModifiers::empty(),
+                KeyEventKind::Press,
+            )],
+            true,
+        );
+
+        let rows = app.navigator_view_rows(&client);
+        assert_eq!(rows.len(), app.state.groups.len());
+        assert!(
+            rows.iter().all(|row| row.is_group && !row.expanded),
+            "collapse all should leave only collapsed group roots visible"
+        );
+        assert!(matches!(
+            rows.get(client.navigator.list.selected)
+                .map(|row| &row.target),
+            Some(state::NavigatorTarget::Group { group_idx }) if *group_idx == work_group
+        ));
+    }
+
+    #[test]
+    fn navigator_disclosure_expands_group_while_name_opens_it() {
+        let mut app = test_app();
+        let work_group = app.state.create_group("work".to_string());
+        let mut home = Workspace::test_new("home");
+        home.group_id = app.state.groups[0].id.clone();
+        let mut api = Workspace::test_new("api");
+        api.group_id = app.state.groups[work_group].id.clone();
+        app.state.workspaces = vec![home, api];
+        app.state.ensure_test_terminals();
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mouse_capture = true;
+
+        let mut client = ClientViewState::from_default_client_state(&app.state);
+        client.mode = Mode::Navigator;
+        compute_client_view(&app, &mut client, ratatui::layout::Rect::new(0, 0, 120, 30));
+        let body = app.client_view_navigator_body_rect(&client);
+        let group_row = app
+            .navigator_view_rows(&client)
+            .iter()
+            .position(|row| {
+                matches!(
+                    row.target,
+                    state::NavigatorTarget::Group { group_idx } if group_idx == work_group
+                )
+            })
+            .expect("work group row");
+        let row = body.y + group_row as u16;
+
+        app.route_client_events_for_view(
+            &mut client,
+            vec![raw_mouse(
+                crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left),
+                body.x + 1,
+                row,
+            )],
+            true,
+        );
+
+        assert_eq!(client.mode, Mode::Navigator);
+        assert!(app
+            .navigator_view_rows(&client)
+            .iter()
+            .any(|row| { matches!(row.target, state::NavigatorTarget::Workspace { ws_idx: 1 }) }));
+
+        app.route_client_events_for_view(
+            &mut client,
+            vec![raw_mouse(
+                crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left),
+                body.x + 8,
+                row,
+            )],
+            true,
+        );
+
+        assert_eq!(client.mode, Mode::Terminal);
+        assert_eq!(client.active_group, work_group);
+        assert_eq!(client.active_workspace, Some(1));
+        assert_eq!(app.state.active, Some(0));
+    }
+
+    #[test]
+    fn navigator_modal_close_button_closes_only_the_invoking_client() {
+        let mut app = test_app();
+        app.state.workspaces = vec![Workspace::test_new("shell")];
+        app.state.ensure_test_terminals();
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::Terminal;
+        app.state.mouse_capture = true;
+        let mut client = ClientViewState::from_default_client_state(&app.state);
+        client.mode = Mode::Navigator;
+        compute_client_view(&app, &mut client, ratatui::layout::Rect::new(0, 0, 120, 40));
+        let close = crate::ui::navigator_layout(client.screen_rect())
+            .expect("navigator layout")
+            .close;
+
+        app.route_client_events_for_view(
+            &mut client,
+            vec![raw_mouse(
+                crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left),
+                close.x,
+                close.y,
+            )],
+            true,
+        );
+
+        assert_eq!(client.mode, Mode::Terminal);
+        assert_eq!(app.state.mode, Mode::Terminal);
     }
 
     #[test]

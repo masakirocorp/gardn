@@ -63,6 +63,7 @@ use self::mobile::{
     render_mobile_header_for_view, render_mobile_panel, render_mobile_panel_for_view,
     render_mobile_toast_banner,
 };
+pub(crate) use self::navigator::{navigator_layout, navigator_popup_rect};
 use self::navigator::{render_navigator_overlay, render_navigator_overlay_for_view};
 pub(crate) use self::onboarding::onboarding_welcome_continue_rect;
 use self::onboarding::render_onboarding_overlay;
@@ -193,6 +194,7 @@ fn compute_context_bar(
     active_workspace: Option<usize>,
     active_group: usize,
     active_tab: Option<usize>,
+    focused_pane: Option<crate::layout::PaneId>,
     rect: Rect,
 ) -> crate::app::state::ContextBarView {
     use crate::app::state::{ContextBarSegment, ContextBarTarget, ContextBarView};
@@ -229,7 +231,7 @@ fn compute_context_bar(
         .and_then(|workspace| app.group_index_by_id(&workspace.group_id))
         .or_else(|| (active_group < app.groups.len()).then_some(active_group))
         .and_then(|index| app.groups.get(index));
-    let mut labels = Vec::with_capacity(3);
+    let mut labels = Vec::with_capacity(4);
     if let Some(group) = group {
         labels.push((
             ContextBarTarget::Group,
@@ -244,6 +246,27 @@ fn compute_context_bar(
         if let Some(tab_idx) = active_tab.filter(|index| *index < workspace.tabs.len()) {
             if let Some(label) = workspace.tab_display_name(tab_idx) {
                 labels.push((ContextBarTarget::Tab, label));
+            }
+        }
+        if let Some(tab_idx) = active_tab.filter(|index| *index < workspace.tabs.len()) {
+            let tab = &workspace.tabs[tab_idx];
+            if tab.panes.len() > 1 {
+                if let Some(pane_id) =
+                    focused_pane.filter(|pane_id| tab.panes.contains_key(pane_id))
+                {
+                    let label = workspace
+                        .pane_state(pane_id)
+                        .and_then(|pane| app.terminals.get(&pane.attached_terminal_id))
+                        .and_then(|terminal| terminal.manual_label.clone())
+                        .or_else(|| {
+                            workspace
+                                .public_pane_number(pane_id)
+                                .map(|number| format!("pane {number}"))
+                        });
+                    if let Some(label) = label {
+                        labels.push((ContextBarTarget::Pane, label));
+                    }
+                }
             }
         }
     }
@@ -511,10 +534,7 @@ fn compute_view_for_client_internal(
         );
         return;
     }
-    let show_context_bar = app.context_bar_is_visible(
-        client_view.sidebar_collapsed,
-        client_view.context_bar_visibility_override,
-    );
+    let show_context_bar = app.context_bar_is_visible(client_view.context_bar_visibility_override);
     let (content_area, context_bar_rect) = desktop_content_areas(area, show_context_bar);
 
     let sidebar_w = if client_view.sidebar_collapsed {
@@ -694,12 +714,17 @@ fn compute_view_for_client_internal(
     let active_tab = client_view
         .active_workspace
         .and_then(|ws_idx| client_view.active_tab_index_for_workspace(app, ws_idx));
+    let focused_pane = client_view
+        .active_workspace
+        .and_then(|ws_idx| client_view.focused_pane_for_workspace(app, ws_idx))
+        .map(|(_, pane_id)| pane_id);
     let context_bar = compute_context_bar(
         app,
         terminal_runtimes,
         client_view.active_workspace,
         client_view.active_group,
         active_tab,
+        focused_pane,
         context_bar_rect,
     );
 
@@ -771,8 +796,7 @@ fn compute_view_internal(
         compute_mobile_view(app, terminal_runtimes, area, resize_panes, cell_size);
         return;
     }
-    let show_context_bar =
-        app.context_bar_is_visible(app.sidebar_collapsed, app.context_bar_visibility_override);
+    let show_context_bar = app.context_bar_is_visible(app.context_bar_visibility_override);
     let (content_area, context_bar_rect) = desktop_content_areas(area, show_context_bar);
 
     let sidebar_w = if app.sidebar_collapsed {
@@ -932,12 +956,17 @@ fn compute_view_internal(
         .active
         .and_then(|ws_idx| app.workspaces.get(ws_idx))
         .map(|workspace| workspace.active_tab_index());
+    let focused_pane = app
+        .active
+        .and_then(|ws_idx| app.workspaces.get(ws_idx))
+        .and_then(crate::workspace::Workspace::focused_pane_id);
     let context_bar = compute_context_bar(
         app,
         terminal_runtimes,
         app.active,
         app.active_group,
         active_tab,
+        focused_pane,
         context_bar_rect,
     );
 
@@ -1554,6 +1583,46 @@ mod tests {
     }
 
     #[test]
+    fn context_bar_identifies_the_focused_pane_in_a_split_tab() {
+        let mut app = crate::app::state::AppState::test_new();
+        app.groups[0].name = "studio".into();
+        let mut workspace = Workspace::test_new("website");
+        workspace.tabs[0].custom_name = Some("release".into());
+        let focused_pane = workspace.test_split(ratatui::layout::Direction::Horizontal);
+        app.workspaces = vec![workspace];
+        app.ensure_test_terminals();
+        let terminal_id = app.workspaces[0].tabs[0].panes[&focused_pane]
+            .attached_terminal_id
+            .clone();
+        app.terminals
+            .get_mut(&terminal_id)
+            .expect("focused terminal")
+            .manual_label = Some("deploy".into());
+        app.active = Some(0);
+        app.selected = 0;
+
+        compute_view(&mut app, Rect::new(0, 0, 100, 20));
+
+        let path = app
+            .view
+            .context_bar
+            .segments
+            .iter()
+            .map(|segment| segment.label.as_str())
+            .collect::<Vec<_>>()
+            .join(" / ");
+        assert!(path.ends_with("release / deploy"), "{path:?}");
+        assert_eq!(
+            app.view
+                .context_bar
+                .segments
+                .last()
+                .map(|segment| segment.target),
+            Some(crate::app::state::ContextBarTarget::Pane)
+        );
+    }
+
+    #[test]
     fn context_bar_uses_each_clients_active_workspace() {
         let mut app = crate::app::state::AppState::test_new();
         app.context_bar_visibility = crate::config::ContextBarVisibilityConfig::Always;
@@ -1638,7 +1707,7 @@ mod tests {
     }
 
     #[test]
-    fn context_bar_visibility_policy_controls_each_clients_terminal_height() {
+    fn context_bar_visibility_is_independent_of_sidebar_state() {
         let mut app = crate::app::state::AppState::test_new();
         app.mobile_width_threshold = 0;
         app.workspaces = vec![Workspace::test_new("one")];
@@ -1662,15 +1731,14 @@ mod tests {
             &terminal_runtimes,
             area,
         );
-        assert_eq!(expanded_client.computed.context_bar.rect, Rect::default());
+
         assert_eq!(
-            collapsed_client.computed.context_bar.rect,
+            expanded_client.computed.context_bar.rect,
             Rect::new(0, 19, 80, 1)
         );
         assert_eq!(
-            expanded_client.computed.terminal_area.y
-                + expanded_client.computed.terminal_area.height,
-            area.height
+            collapsed_client.computed.context_bar.rect,
+            Rect::new(0, 19, 80, 1)
         );
 
         app.context_bar_visibility = crate::config::ContextBarVisibilityConfig::Never;
@@ -1681,18 +1749,6 @@ mod tests {
             area,
         );
         assert_eq!(collapsed_client.computed.context_bar.rect, Rect::default());
-
-        app.context_bar_visibility = crate::config::ContextBarVisibilityConfig::Always;
-        compute_view_for_client_without_resizing_panes(
-            &app,
-            &mut expanded_client,
-            &terminal_runtimes,
-            area,
-        );
-        assert_eq!(
-            expanded_client.computed.context_bar.rect,
-            Rect::new(0, 19, 80, 1)
-        );
     }
 
     #[test]

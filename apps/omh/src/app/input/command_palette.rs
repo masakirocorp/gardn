@@ -618,6 +618,10 @@ fn open_new_agent_from_palette(app: &mut App) {
 
 pub(crate) fn execute_command_palette_action(app: &mut App, action: CommandPaletteAction) {
     match action {
+        CommandPaletteAction::OpenNavigator => {
+            app.state.open_navigator();
+            return;
+        }
         CommandPaletteAction::NewWorkspace => {
             app.execute_tui_navigate_action(
                 super::navigate::NavigateAction::NewWorkspace,
@@ -774,10 +778,9 @@ pub(crate) fn execute_command_palette_action(app: &mut App, action: CommandPalet
             app.state.mark_session_dirty();
         }
         CommandPaletteAction::ToggleContextBar => {
-            let visible = app.state.context_bar_is_visible(
-                app.state.sidebar_collapsed,
-                app.state.context_bar_visibility_override,
-            );
+            let visible = app
+                .state
+                .context_bar_is_visible(app.state.context_bar_visibility_override);
             app.state.context_bar_visibility_override = Some(!visible);
         }
         CommandPaletteAction::ToggleRightSidebar => {
@@ -946,6 +949,17 @@ mod tests {
         assert!(commands
             .iter()
             .all(|command| command.title.contains("right") || command.group.contains("right")));
+    }
+
+    #[test]
+    fn command_palette_enter_opens_workspace_navigator() {
+        let mut app = app_with_space();
+        app.state.command_palette.query = "workspace navigator".to_string();
+
+        app.handle_command_palette_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::empty()));
+
+        assert_eq!(app.state.mode, Mode::Navigator);
+        assert!(app.state.navigator.list.visible().is_some());
     }
 
     #[test]

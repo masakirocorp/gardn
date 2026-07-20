@@ -3803,7 +3803,7 @@ mod tests {
                 sidebar_min_width: 18,
                 sidebar_max_width: 36,
                 sidebar_arrangement: SidebarArrangementConfig::Auto,
-                context_bar_visibility: ContextBarVisibilityConfig::Auto,
+                context_bar_visibility: ContextBarVisibilityConfig::Always,
                 sidebar_initial_state: SidebarInitialStateConfig::Expanded,
                 sidebar_initial_agent_scope: AgentPanelScopeConfig::All,
                 worktree_directory: None,
@@ -4055,12 +4055,12 @@ mod tests {
 
         assert_eq!(
             state.settings.pending_context_bar_visibility,
-            Some(ContextBarVisibilityConfig::Always)
+            Some(ContextBarVisibilityConfig::Never)
         );
         assert!(matches!(
             action,
             Some(SettingsAction::SaveSettings {
-                context_bar_visibility: ContextBarVisibilityConfig::Always,
+                context_bar_visibility: ContextBarVisibilityConfig::Never,
                 ..
             })
         ));

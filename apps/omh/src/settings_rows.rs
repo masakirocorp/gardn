@@ -816,7 +816,7 @@ fn layout_rows_with_base(
             value_option(
                 base + 4,
                 "context bar",
-                "automatic, always visible, or hidden",
+                "always visible or hidden",
                 context_bar_visibility.label(),
             ),
             value_option(

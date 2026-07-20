@@ -1,5 +1,5 @@
 use ratatui::{
-    layout::Rect,
+    layout::{Constraint, Layout, Rect},
     style::{Modifier, Style},
     text::{Line, Span},
     widgets::{Clear, Paragraph},
@@ -10,33 +10,95 @@ use super::{
     scrollbar::{render_scrollbar, should_show_scrollbar},
     status::{agent_icon, state_label_color},
     text::middle_elide,
-    widgets::{panel_contrast_fg, render_panel_shell},
+    widgets::{
+        modal_close_button_rect, modal_frame_areas, modal_hint_line_count, modal_stack_areas,
+        panel_contrast_fg, render_modal_divider, render_modal_frame, ModalFrameSpec,
+    },
 };
 use crate::app::{
     state::{AppState, NavigatorRow, NavigatorStateFilter, NavigatorTarget},
     view_state::ClientViewState,
 };
 
+const NAVIGATOR_WIDTH: u16 = 92;
+const NAVIGATOR_HEIGHT: u16 = 30;
+const NAVIGATOR_HEADER_ROWS: u16 = 4;
+const NAVIGATOR_HINTS: &[(&str, &str)] = &[
+    ("expand", "space · all e/c"),
+    ("open", "enter / click"),
+    ("search", "/"),
+    ("move", "↑↓"),
+];
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct NavigatorLayout {
+    pub popup: Rect,
+    pub search: Rect,
+    pub header_divider: Rect,
+    pub body: Rect,
+    pub detail_divider: Rect,
+    pub detail: Rect,
+    pub close: Rect,
+}
+
+fn navigator_frame_spec() -> ModalFrameSpec<'static> {
+    ModalFrameSpec {
+        title: "workspace navigator",
+        width: NAVIGATOR_WIDTH,
+        height: NAVIGATOR_HEIGHT,
+        header_rows: NAVIGATOR_HEADER_ROWS,
+        footer_hints: NAVIGATOR_HINTS,
+        footer_max_rows: 2,
+        reserve_footer_gap: 1,
+        show_close: true,
+    }
+}
+
+pub(crate) fn navigator_layout(area: Rect) -> Option<NavigatorLayout> {
+    let frame = modal_frame_areas(area, navigator_frame_spec())?;
+    let footer_rows = modal_hint_line_count(frame.inner.width, NAVIGATOR_HINTS, 2);
+    let stack = modal_stack_areas(frame.inner, NAVIGATOR_HEADER_ROWS, footer_rows, 0, 1);
+    let header = Layout::vertical([
+        Constraint::Length(1),
+        Constraint::Length(1),
+        Constraint::Length(1),
+        Constraint::Length(1),
+    ])
+    .areas::<4>(stack.header);
+    let content = Layout::vertical([
+        Constraint::Min(1),
+        Constraint::Length(1),
+        Constraint::Length(1),
+    ])
+    .areas::<3>(stack.content);
+    Some(NavigatorLayout {
+        popup: frame.popup,
+        search: header[2],
+        header_divider: header[3],
+        body: content[0],
+        detail_divider: content[1],
+        detail: content[2],
+        close: modal_close_button_rect(header[0]),
+    })
+}
+
 pub(super) fn render_navigator_overlay(app: &AppState, frame: &mut Frame) {
-    let popup = app.navigator_popup_rect();
-    let Some(inner) = render_panel_shell(frame, popup, app.palette.accent, app.palette.panel_bg)
-    else {
+    let area = app.screen_rect();
+    super::dim_background(frame, area);
+    let Some(layout) = navigator_layout(area) else {
         return;
     };
-
-    let search = app.navigator_search_rect();
-    let body = app.navigator_body_rect();
-    let detail = app.navigator_detail_rect();
-    let footer = app.navigator_footer_rect();
-    render_search(app, frame, search);
-
-    if body.height > 0 {
-        render_separator(frame, Rect::new(inner.x, search.y + 1, inner.width, 1), app);
-        render_rows(app, frame, body);
-        render_navigator_scrollbar(app, frame, body);
+    if render_modal_frame(frame, area, &app.palette, navigator_frame_spec()).is_none() {
+        return;
     }
-    render_detail(app, frame, detail);
-    render_footer(app, frame, footer);
+    render_search(app, frame, layout.search);
+    render_modal_divider(frame, layout.header_divider, &app.palette);
+    if layout.body.height > 0 {
+        render_rows(app, frame, layout.body);
+        render_navigator_scrollbar(app, frame, layout.body);
+    }
+    render_modal_divider(frame, layout.detail_divider, &app.palette);
+    render_detail(app, frame, layout.detail);
 }
 
 pub(super) fn render_navigator_overlay_for_view(
@@ -45,69 +107,53 @@ pub(super) fn render_navigator_overlay_for_view(
     terminal_runtimes: &crate::terminal::TerminalRuntimeRegistry,
     frame: &mut Frame,
 ) {
-    let screen = view.screen_rect();
-    let popup = navigator_popup_rect(screen);
-    let Some(inner) = render_panel_shell(frame, popup, app.palette.accent, app.palette.panel_bg)
-    else {
+    let area = view.screen_rect();
+    super::dim_background(frame, area);
+    let Some(layout) = navigator_layout(area) else {
         return;
     };
-    let search = Rect::new(inner.x, inner.y, inner.width, inner.height.min(1));
-    let body = if inner.height <= 4 {
-        Rect::default()
-    } else {
-        Rect::new(
-            inner.x,
-            inner.y + 2,
-            inner.width,
-            inner.height.saturating_sub(4),
-        )
-    };
-    let detail = Rect::new(
-        inner.x,
-        inner.y + inner.height.saturating_sub(2),
-        inner.width,
-        inner.height.min(1),
-    );
-    let footer = Rect::new(
-        inner.x,
-        inner.y + inner.height.saturating_sub(1),
-        inner.width,
-        inner.height.min(1),
-    );
-    render_search_for_navigator(app, &view.navigator, frame, search);
+    if render_modal_frame(frame, area, &app.palette, navigator_frame_spec()).is_none() {
+        return;
+    }
     let rows = app.navigator_rows_for_view(view, terminal_runtimes);
+    render_search_for_navigator(app, &view.navigator, frame, layout.search);
+    render_modal_divider(frame, layout.header_divider, &app.palette);
     let visible = view.navigator.list.visible();
-    if body.height > 0 {
-        render_separator(frame, Rect::new(inner.x, search.y + 1, inner.width, 1), app);
+    if layout.body.height > 0 {
         let start = view.navigator.scroll.min(rows.len());
-        let end = rows.len().min(start.saturating_add(body.height as usize));
+        let end = rows
+            .len()
+            .min(start.saturating_add(layout.body.height as usize));
         for (visible_idx, row) in rows[start..end].iter().enumerate() {
             let idx = start + visible_idx;
             render_row(
                 app,
                 frame,
-                Rect::new(body.x, body.y + visible_idx as u16, body.width, 1),
+                Rect::new(
+                    layout.body.x,
+                    layout.body.y + visible_idx as u16,
+                    layout.body.width,
+                    1,
+                ),
                 row,
                 Some(idx) == visible,
             );
         }
-        render_navigator_scrollbar_for_view(app, &view.navigator, frame, body, rows.len());
+        render_navigator_scrollbar_for_view(app, &view.navigator, frame, layout.body, rows.len());
     }
-    render_navigator_detail_for_view(app, frame, detail, visible.and_then(|idx| rows.get(idx)));
-    render_footer(app, frame, footer);
+    render_modal_divider(frame, layout.detail_divider, &app.palette);
+    render_navigator_detail_for_view(
+        app,
+        frame,
+        layout.detail,
+        visible.and_then(|idx| rows.get(idx)),
+    );
 }
 
-fn navigator_popup_rect(area: Rect) -> Rect {
-    let margin_x = (area.width / 16).max(2);
-    let margin_y = (area.height / 10).max(1);
-    let width = area.width.saturating_sub(margin_x.saturating_mul(2));
-    let height = area.height.saturating_sub(margin_y.saturating_mul(2));
-    Rect::new(
-        area.x + margin_x,
-        area.y + margin_y,
-        width.max(4),
-        height.max(4),
-    )
+pub(crate) fn navigator_popup_rect(area: Rect) -> Rect {
+    navigator_layout(area)
+        .map(|layout| layout.popup)
+        .unwrap_or_default()
 }
 
 fn render_search_for_navigator(
@@ -128,6 +174,7 @@ fn render_search_for_navigator(
         .flat_map(|workspace| workspace.tabs.iter())
         .map(|tab| tab.panes.len())
         .sum::<usize>();
+    let count = count_label(count, "pane", "panes");
     let mut spans = vec![Span::styled(" / ", focus_style)];
     let query = navigator.query.trim();
     match navigator.state_filter {
@@ -164,14 +211,14 @@ fn render_search_for_navigator(
             app,
         ),
         None if query.is_empty() => spans.push(Span::styled(
-            "search panes",
+            "search groups, spaces, tabs, panes",
             Style::default().fg(p.overlay0),
         )),
         None => spans.push(Span::styled(query.to_string(), Style::default().fg(p.text))),
     }
     spans.push(Span::styled(
         format!(
-            "{count:>width$} panes",
+            "{count:>width$}",
             width = area.width.saturating_sub(16) as usize
         ),
         Style::default().fg(p.overlay0),
@@ -218,7 +265,6 @@ fn render_navigator_detail_for_view(
     if area.height == 0 || area.width == 0 {
         return;
     }
-    render_separator(frame, area, app);
     let Some(row) = row else {
         return;
     };
@@ -245,6 +291,7 @@ fn render_search(app: &AppState, frame: &mut Frame, area: Rect) {
         .flat_map(|workspace| workspace.tabs.iter())
         .map(|tab| tab.panes.len())
         .sum::<usize>();
+    let count = count_label(count, "pane", "panes");
     let mut spans = vec![Span::styled(" / ", focus_style)];
     let query = app.navigator.query.trim();
     match app.navigator.state_filter {
@@ -281,14 +328,14 @@ fn render_search(app: &AppState, frame: &mut Frame, area: Rect) {
             app,
         ),
         None if query.is_empty() => spans.push(Span::styled(
-            "search panes",
+            "search groups, spaces, tabs, panes",
             Style::default().fg(p.overlay0),
         )),
         None => spans.push(Span::styled(query.to_string(), Style::default().fg(p.text))),
     }
     spans.push(Span::styled(
         format!(
-            "{count:>width$} panes",
+            "{count:>width$}",
             width = area.width.saturating_sub(16) as usize
         ),
         Style::default().fg(p.overlay0),
@@ -315,17 +362,6 @@ fn push_state_chip(
     ));
 }
 
-fn render_separator(frame: &mut Frame, area: Rect, app: &AppState) {
-    if area.height == 0 || area.width == 0 {
-        return;
-    }
-    let line = "─".repeat(area.width as usize);
-    frame.render_widget(
-        Paragraph::new(line).style(Style::default().fg(app.palette.surface1)),
-        area,
-    );
-}
-
 fn render_rows(app: &AppState, frame: &mut Frame, body: Rect) {
     let rows = app.navigator_rows();
     let start = app.navigator.scroll.min(rows.len());
@@ -341,6 +377,7 @@ fn render_rows(app: &AppState, frame: &mut Frame, body: Rect) {
 
 fn render_row(app: &AppState, frame: &mut Frame, rect: Rect, row: &NavigatorRow, selected: bool) {
     let p = &app.palette;
+    let group_accent = navigator_row_group_idx(app, row).map(|idx| app.group_accent_color(idx));
     frame.render_widget(Clear, rect);
     let base_style = if selected {
         Style::default().bg(p.accent).fg(panel_contrast_fg(p))
@@ -354,6 +391,13 @@ fn render_row(app: &AppState, frame: &mut Frame, rect: Rect, row: &NavigatorRow,
     };
     let text_style = if selected {
         base_style.add_modifier(Modifier::BOLD)
+    } else if row.is_group {
+        Style::default()
+            .fg(group_accent.unwrap_or(p.text))
+            .bg(p.panel_bg)
+            .add_modifier(Modifier::BOLD)
+    } else if row.is_workspace {
+        Style::default().fg(p.text).bg(p.panel_bg)
     } else if row.is_current {
         Style::default()
             .fg(p.text)
@@ -362,14 +406,18 @@ fn render_row(app: &AppState, frame: &mut Frame, rect: Rect, row: &NavigatorRow,
     } else {
         Style::default().fg(p.subtext0).bg(p.panel_bg)
     };
-    let (status_icon, status_style) = agent_icon(row.status, row.seen, app.spinner_tick, p);
-    let status_style = if selected {
-        base_style.add_modifier(Modifier::BOLD)
-    } else {
-        status_style.bg(p.panel_bg)
-    };
+    let is_branch = row.is_group || row.is_workspace;
+    let status = (!is_branch && row.status != crate::detect::AgentState::Unknown).then(|| {
+        let (icon, style) = agent_icon(row.status, row.seen, app.spinner_tick, p);
+        let style = if selected {
+            base_style.add_modifier(Modifier::BOLD)
+        } else {
+            style.bg(p.panel_bg)
+        };
+        (icon, style)
+    });
 
-    let prefix = if row.is_workspace {
+    let prefix = if row.is_group || row.is_workspace {
         if row.expanded {
             "▾"
         } else {
@@ -380,24 +428,39 @@ fn render_row(app: &AppState, frame: &mut Frame, rect: Rect, row: &NavigatorRow,
     } else {
         "  "
     };
-    let current = if row.is_current { "◆" } else { " " };
-    let marker = if selected { "→" } else { " " };
+    let prefix_style = if selected {
+        base_style
+    } else if is_branch {
+        Style::default()
+            .fg(group_accent.unwrap_or(p.overlay0))
+            .bg(p.panel_bg)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        dim_style
+    };
     let indent = "  ".repeat(row.depth as usize);
-    let left_fixed = format!(" {indent}{prefix} {marker} {current} ");
+    let left_fixed = format!(" {indent}{prefix} ");
     let meta_width = metadata_width(rect.width);
+    let status_width = status
+        .as_ref()
+        .map_or(0, |(icon, _)| icon.chars().count().saturating_add(1) as u16);
     let left_budget = rect
         .width
         .saturating_sub(meta_width)
         .saturating_sub(left_fixed.chars().count() as u16)
+        .saturating_sub(status_width)
         .saturating_sub(3) as usize;
     let title = truncate_text(&row.label, left_budget);
 
-    let spans = vec![
-        Span::styled(left_fixed, dim_style),
-        Span::styled(status_icon, status_style),
-        Span::raw(" "),
-        Span::styled(title, text_style),
-    ];
+    let mut spans = Vec::with_capacity(6);
+    spans.push(Span::styled(format!(" {indent}"), dim_style));
+    spans.push(Span::styled(prefix, prefix_style));
+    spans.push(Span::raw(" "));
+    if let Some((status_icon, status_style)) = status {
+        spans.push(Span::styled(status_icon, status_style));
+        spans.push(Span::raw(" "));
+    }
+    spans.push(Span::styled(title, text_style));
     frame.render_widget(Paragraph::new(Line::from(spans)).style(base_style), rect);
 
     if meta_width > 0 {
@@ -410,7 +473,7 @@ fn render_row(app: &AppState, frame: &mut Frame, rect: Rect, row: &NavigatorRow,
         let meta = truncate_text(&row.meta, meta_width.saturating_sub(2) as usize);
         let meta_style = if selected {
             base_style
-        } else if row.is_workspace || row.is_tab {
+        } else if row.is_group || row.is_workspace || row.is_tab {
             Style::default().fg(p.overlay0).bg(p.panel_bg)
         } else {
             Style::default()
@@ -421,6 +484,18 @@ fn render_row(app: &AppState, frame: &mut Frame, rect: Rect, row: &NavigatorRow,
             Paragraph::new(format!(" {meta}")).style(meta_style),
             meta_rect,
         );
+    }
+}
+
+fn navigator_row_group_idx(app: &AppState, row: &NavigatorRow) -> Option<usize> {
+    match &row.target {
+        NavigatorTarget::Group { group_idx } => Some(*group_idx),
+        NavigatorTarget::Workspace { ws_idx }
+        | NavigatorTarget::Tab { ws_idx, .. }
+        | NavigatorTarget::Pane { ws_idx, .. } => app
+            .workspaces
+            .get(*ws_idx)
+            .and_then(|workspace| app.group_index_by_id(&workspace.group_id)),
     }
 }
 
@@ -470,7 +545,6 @@ fn render_detail(app: &AppState, frame: &mut Frame, area: Rect) {
     if area.height == 0 || area.width == 0 {
         return;
     }
-    render_separator(frame, area, app);
     let detail = selected_detail(app);
     if detail.is_empty() {
         return;
@@ -492,6 +566,11 @@ fn selected_detail(app: &AppState) -> String {
 
 fn detail_for_row(app: &AppState, row: &NavigatorRow) -> String {
     match row.target {
+        NavigatorTarget::Group { group_idx } => app
+            .groups
+            .get(group_idx)
+            .map(|group| format!("{} {} · {}", group.icon, group.name, row.meta))
+            .unwrap_or_default(),
         NavigatorTarget::Workspace { ws_idx } => workspace_detail(app, ws_idx, &row.meta),
         NavigatorTarget::Tab { ws_idx, tab_idx } => tab_detail(app, ws_idx, tab_idx, &row.meta),
         NavigatorTarget::Pane {
@@ -509,7 +588,7 @@ fn workspace_detail(app: &AppState, ws_idx: usize, activity: &str) -> String {
     let terminal_runtimes = crate::terminal::TerminalRuntimeRegistry::new();
     let label = ws.display_name_from(&app.terminals, &terminal_runtimes);
     let pane_count = ws.tabs.iter().map(|tab| tab.panes.len()).sum::<usize>();
-    let mut parts = vec![label, format!("{pane_count} panes")];
+    let mut parts = vec![label, count_label(pane_count, "pane", "panes")];
     if !activity.is_empty() {
         parts.push(activity.to_string());
     }
@@ -527,7 +606,7 @@ fn tab_detail(app: &AppState, ws_idx: usize, tab_idx: usize, meta: &str) -> Stri
     let mut parts = vec![
         ws.display_name_from(&app.terminals, &terminal_runtimes),
         format!("tab: {}", tab.display_name()),
-        format!("{} panes", tab.panes.len()),
+        count_label(tab.panes.len(), "pane", "panes"),
     ];
     if !meta.is_empty() {
         parts.push(meta.to_string());
@@ -617,26 +696,8 @@ fn display_state(state: crate::detect::AgentState, seen: bool) -> &'static str {
     }
 }
 
-fn render_footer(app: &AppState, frame: &mut Frame, area: Rect) {
-    if area.height == 0 {
-        return;
-    }
-    let p = &app.palette;
-    let key = Style::default().fg(p.accent).add_modifier(Modifier::BOLD);
-    let dim = Style::default().fg(p.overlay0);
-    let line = Line::from(vec![
-        Span::styled(" enter", key),
-        Span::styled(" switch  ", dim),
-        Span::styled("/", key),
-        Span::styled(" search  ", dim),
-        Span::styled("b/w/i/d/a", key),
-        Span::styled(" states  ", dim),
-        Span::styled("j/k/↑↓", key),
-        Span::styled(" move  ", dim),
-        Span::styled("esc", key),
-        Span::styled(" close", dim),
-    ]);
-    frame.render_widget(Paragraph::new(line), area);
+fn count_label(count: usize, singular: &str, plural: &str) -> String {
+    format!("{count} {}", if count == 1 { singular } else { plural })
 }
 
 fn truncate_text(text: &str, max_width: usize) -> String {
@@ -673,6 +734,12 @@ mod tests {
 
         let mut view = ClientViewState::from_default_client_state(&app);
         view.navigator.query = "client-selected".to_string();
+        let selected = app
+            .navigator_rows_for_view(&view, &crate::terminal::TerminalRuntimeRegistry::new())
+            .iter()
+            .position(|row| matches!(row.target, NavigatorTarget::Workspace { ws_idx: 1 }))
+            .expect("client-selected workspace row");
+        view.navigator.list.select(selected);
         view.navigator.list.show();
 
         let terminal_runtimes = crate::terminal::TerminalRuntimeRegistry::new();
@@ -684,10 +751,115 @@ mod tests {
 
         let text = buffer_text(terminal.backend().buffer(), 120, 30);
         assert!(
-            text.contains("client-selected-workspace · 1 panes"),
+            text.contains("client-selected-workspace · 1 pane"),
             "client navigator detail: {text:?}"
         );
-        assert!(!text.contains("app-selected-workspace · 1 panes"));
+        assert!(!text.contains("app-selected-workspace · 1 pane"));
+        assert!(
+            text.contains("workspace navigator"),
+            "modal title: {text:?}"
+        );
+        assert!(text.contains("esc close"), "modal close action: {text:?}");
+        assert!(
+            text.contains("expand space · all e/c"),
+            "modal footer hints: {text:?}"
+        );
+    }
+
+    #[test]
+    fn navigator_branch_rows_only_show_disclosure_and_group_identity() {
+        let app = AppState::test_new();
+        let row = NavigatorRow {
+            target: NavigatorTarget::Group { group_idx: 0 },
+            depth: 0,
+            label: "✿ Research Lab".to_string(),
+            meta: String::new(),
+            status: crate::detect::AgentState::Unknown,
+            seen: true,
+            is_current: true,
+            is_group: true,
+            is_workspace: false,
+            is_tab: false,
+            expanded: true,
+            search_text: String::new(),
+        };
+        let backend = TestBackend::new(80, 1);
+        let mut terminal = Terminal::new(backend).expect("test backend");
+        terminal
+            .draw(|frame| render_row(&app, frame, frame.area(), &row, true))
+            .expect("render branch row");
+
+        let text = buffer_text(terminal.backend().buffer(), 80, 1);
+        assert!(text.contains("▾ ✿ Research Lab"), "branch row: {text:?}");
+        assert!(!text.contains(['→', '◆', '○']), "branch row: {text:?}");
+    }
+
+    #[test]
+    fn navigator_uses_group_accent_without_coloring_descendant_labels() {
+        let mut app = AppState::test_new();
+        app.set_group_accent(0, Some(crate::config::TerminalAccent::Magenta));
+        let accent = app.group_accent_color(0);
+        let mut workspace = Workspace::test_new("Agent Experiments");
+        workspace.group_id = app.groups[0].id.clone();
+        app.workspaces = vec![workspace];
+        let group_row = NavigatorRow {
+            target: NavigatorTarget::Group { group_idx: 0 },
+            depth: 0,
+            label: "✿ Research Lab".to_string(),
+            meta: String::new(),
+            status: crate::detect::AgentState::Unknown,
+            seen: true,
+            is_current: false,
+            is_group: true,
+            is_workspace: false,
+            is_tab: false,
+            expanded: true,
+            search_text: String::new(),
+        };
+        let workspace_row = NavigatorRow {
+            target: NavigatorTarget::Workspace { ws_idx: 0 },
+            depth: 1,
+            label: "Agent Experiments".to_string(),
+            meta: String::new(),
+            status: crate::detect::AgentState::Unknown,
+            seen: true,
+            is_current: false,
+            is_group: false,
+            is_workspace: true,
+            is_tab: false,
+            expanded: false,
+            search_text: String::new(),
+        };
+        let backend = TestBackend::new(80, 2);
+        let mut terminal = Terminal::new(backend).expect("test backend");
+        terminal
+            .draw(|frame| {
+                render_row(&app, frame, Rect::new(0, 0, 80, 1), &group_row, false);
+                render_row(&app, frame, Rect::new(0, 1, 80, 1), &workspace_row, false);
+            })
+            .expect("render colored hierarchy");
+
+        let buffer = terminal.backend().buffer();
+        assert_eq!(buffer[(3, 0)].style().fg, Some(accent));
+        assert_eq!(buffer[(3, 1)].style().fg, Some(accent));
+        assert_eq!(buffer[(5, 1)].style().fg, Some(app.palette.text));
+    }
+
+    #[test]
+    fn navigator_uses_the_tall_shared_modal_frame() {
+        let layout = navigator_layout(Rect::new(0, 0, 120, 40)).expect("navigator layout");
+        assert_eq!(layout.popup, Rect::new(14, 5, 92, 30));
+        assert_eq!(layout.search, Rect::new(15, 8, 90, 1));
+        assert_eq!(layout.header_divider, Rect::new(15, 9, 90, 1));
+        assert_eq!(layout.body, Rect::new(15, 11, 90, 19));
+        assert_eq!(layout.detail_divider, Rect::new(15, 30, 90, 1));
+        assert_eq!(layout.detail, Rect::new(15, 31, 90, 1));
+        assert_eq!(layout.close.y, 6);
+
+        assert_eq!(
+            navigator_popup_rect(Rect::new(0, 0, 80, 14)),
+            Rect::new(2, 1, 76, 12)
+        );
     }
 
     fn buffer_text(buffer: &Buffer, width: u16, height: u16) -> String {

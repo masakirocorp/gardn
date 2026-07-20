@@ -266,17 +266,22 @@ impl AppState {
         self.navigator.search_focused = false;
         self.navigator.state_filter = None;
         self.navigator.scroll = 0;
+        self.navigator.expanded_groups.clear();
         self.navigator.expanded_workspaces.clear();
 
-        for ws in &self.workspaces {
-            self.navigator.expanded_workspaces.insert(ws.id.clone());
+        if let Some(group) = self.groups.get(self.active_group) {
+            self.navigator.expanded_groups.insert(group.id.clone());
+        }
+        if let Some(workspace) = self.active.and_then(|ws_idx| self.workspaces.get(ws_idx)) {
+            self.navigator
+                .expanded_workspaces
+                .insert(workspace.id.clone());
         }
 
         self.mode = Mode::Navigator;
         self.navigator
             .list
             .select(self.current_navigator_row_index().unwrap_or(0));
-        self.navigator.list.hide();
         self.ensure_navigator_selection_visible();
     }
     #[cfg(test)]
@@ -288,10 +293,16 @@ impl AppState {
         self.navigator.search_focused = false;
         self.navigator.state_filter = None;
         self.navigator.scroll = 0;
+        self.navigator.expanded_groups.clear();
         self.navigator.expanded_workspaces.clear();
 
-        for ws in &self.workspaces {
-            self.navigator.expanded_workspaces.insert(ws.id.clone());
+        if let Some(group) = self.groups.get(self.active_group) {
+            self.navigator.expanded_groups.insert(group.id.clone());
+        }
+        if let Some(workspace) = self.active.and_then(|ws_idx| self.workspaces.get(ws_idx)) {
+            self.navigator
+                .expanded_workspaces
+                .insert(workspace.id.clone());
         }
 
         self.mode = Mode::Navigator;
@@ -299,7 +310,6 @@ impl AppState {
             self.current_navigator_row_index_from(terminal_runtimes)
                 .unwrap_or(0),
         );
-        self.navigator.list.hide();
         self.ensure_navigator_selection_visible();
     }
 
@@ -313,26 +323,146 @@ impl AppState {
         view: &ClientViewState,
         terminal_runtimes: &crate::terminal::TerminalRuntimeRegistry,
     ) -> Vec<NavigatorRow> {
-        self.navigator_rows_with(&view.navigator, view.active_workspace, terminal_runtimes)
+        self.navigator_rows_with(
+            &view.navigator,
+            view.active_workspace,
+            view.active_group,
+            terminal_runtimes,
+        )
     }
 
     pub(crate) fn navigator_rows_from(
         &self,
         terminal_runtimes: &crate::terminal::TerminalRuntimeRegistry,
     ) -> Vec<NavigatorRow> {
-        self.navigator_rows_with(&self.navigator, self.active, terminal_runtimes)
+        self.navigator_rows_with(
+            &self.navigator,
+            self.active,
+            self.active_group,
+            terminal_runtimes,
+        )
     }
 
     fn navigator_rows_with(
         &self,
         navigator: &super::state::NavigatorState,
         active_workspace: Option<usize>,
+        active_group: usize,
         terminal_runtimes: &crate::terminal::TerminalRuntimeRegistry,
     ) -> Vec<NavigatorRow> {
         let query = navigator.query.trim().to_lowercase();
         let query_kind = navigator_query_kind(&query, navigator.state_filter);
         let mut rows = Vec::new();
-        for (ws_idx, ws) in self.workspaces.iter().enumerate() {
+
+        for (group_idx, group) in self.groups.iter().enumerate() {
+            let workspace_indices = self
+                .workspaces
+                .iter()
+                .enumerate()
+                .filter_map(|(ws_idx, workspace)| {
+                    (workspace.group_id == group.id).then_some(ws_idx)
+                })
+                .collect::<Vec<_>>();
+            let pane_count = workspace_indices
+                .iter()
+                .filter_map(|&ws_idx| self.workspaces.get(ws_idx))
+                .flat_map(|workspace| workspace.tabs.iter())
+                .map(|tab| tab.panes.len())
+                .sum::<usize>();
+            let activity = activity_summary_for_panes(
+                workspace_indices
+                    .iter()
+                    .filter_map(|&ws_idx| self.workspaces.get(ws_idx))
+                    .flat_map(|workspace| workspace.tabs.iter())
+                    .flat_map(|tab| tab.panes.values()),
+                &self.terminals,
+            );
+            let topology = format!(
+                "{} · {}",
+                count_label(workspace_indices.len(), "space", "spaces"),
+                count_label(pane_count, "pane", "panes")
+            );
+            let meta = if activity.is_empty() {
+                topology
+            } else {
+                format!("{topology} · {activity}")
+            };
+            let search_text = format!("{} {} {meta}", group.icon, group.name).to_lowercase();
+            let (status, seen) = aggregate_state_for_panes(
+                workspace_indices
+                    .iter()
+                    .filter_map(|&ws_idx| self.workspaces.get(ws_idx))
+                    .flat_map(|workspace| workspace.tabs.iter())
+                    .flat_map(|tab| tab.panes.values()),
+                &self.terminals,
+            );
+            let group_matches = match query_kind {
+                NavigatorQueryKind::Empty => true,
+                NavigatorQueryKind::State(filter) => {
+                    navigator_state_filter_matches(filter, status, seen)
+                }
+                NavigatorQueryKind::Text => navigator_matches(&query, &search_text),
+            };
+            let child_query_kind =
+                if group_matches && matches!(query_kind, NavigatorQueryKind::Text) {
+                    NavigatorQueryKind::Empty
+                } else {
+                    query_kind
+                };
+            let child_query = if matches!(child_query_kind, NavigatorQueryKind::Empty) {
+                ""
+            } else {
+                &query
+            };
+            let child_rows = self.navigator_workspace_rows(
+                navigator,
+                active_workspace,
+                terminal_runtimes,
+                child_query_kind,
+                child_query,
+                &workspace_indices,
+            );
+            if !group_matches && child_rows.is_empty() {
+                continue;
+            }
+
+            let expanded = !matches!(query_kind, NavigatorQueryKind::Empty)
+                || navigator.expanded_groups.contains(&group.id);
+            rows.push(NavigatorRow {
+                target: NavigatorTarget::Group { group_idx },
+                depth: 0,
+                label: format!("{} {}", group.icon, group.name),
+                meta,
+                status,
+                seen,
+                is_current: group_idx == active_group,
+                is_group: true,
+                is_workspace: false,
+                is_tab: false,
+                expanded,
+                search_text,
+            });
+            if expanded {
+                rows.extend(child_rows);
+            }
+        }
+        rows
+    }
+
+    fn navigator_workspace_rows(
+        &self,
+        navigator: &super::state::NavigatorState,
+        active_workspace: Option<usize>,
+        terminal_runtimes: &crate::terminal::TerminalRuntimeRegistry,
+        query_kind: NavigatorQueryKind,
+        query: &str,
+        workspace_indices: &[usize],
+    ) -> Vec<NavigatorRow> {
+        let mut rows = Vec::new();
+        for &ws_idx in workspace_indices {
+            let Some(ws) = self.workspaces.get(ws_idx) else {
+                continue;
+            };
             let workspace_label = ws.display_name_from(&self.terminals, terminal_runtimes);
             let activity = workspace_activity_summary(ws, &self.terminals);
             let workspace_search_text = format!("{workspace_label} {activity}").to_lowercase();
@@ -342,10 +472,10 @@ impl AppState {
                     let (state, seen) = ws.aggregate_state(&self.terminals);
                     navigator_state_filter_matches(filter, state, seen)
                 }
-                NavigatorQueryKind::Text => navigator_matches(&query, &workspace_search_text),
+                NavigatorQueryKind::Text => navigator_matches(query, &workspace_search_text),
             };
 
-            let child_rows = self.navigator_child_rows(ws_idx, query_kind, &query);
+            let mut child_rows = self.navigator_child_rows(ws_idx, query_kind, query);
             if !workspace_matches && child_rows.is_empty() {
                 continue;
             }
@@ -356,18 +486,22 @@ impl AppState {
             let pane_count = ws.tabs.iter().map(|tab| tab.panes.len()).sum::<usize>();
             rows.push(NavigatorRow {
                 target: NavigatorTarget::Workspace { ws_idx },
-                depth: 0,
+                depth: 1,
                 label: format!("{workspace_label} ({pane_count})"),
                 meta: activity,
                 status: state,
                 seen,
                 is_current: active_workspace == Some(ws_idx),
+                is_group: false,
                 is_workspace: true,
                 is_tab: false,
                 expanded,
                 search_text: workspace_search_text,
             });
             if expanded {
+                for row in &mut child_rows {
+                    row.depth = row.depth.saturating_add(1);
+                }
                 rows.extend(child_rows);
             }
         }
@@ -427,10 +561,11 @@ impl AppState {
         let (status, seen) = tab_aggregate_state(tab, &self.terminals);
         let activity = tab_activity_summary(tab, &self.terminals);
         let pane_count = tab.panes.len();
+        let pane_count = count_label(pane_count, "pane", "panes");
         let meta = if activity.is_empty() {
-            format!("{pane_count} panes")
+            pane_count
         } else {
-            format!("{pane_count} panes · {activity}")
+            format!("{pane_count} · {activity}")
         };
         let search_text = format!("{label} {meta}").to_lowercase();
         NavigatorRow {
@@ -441,6 +576,7 @@ impl AppState {
             status,
             seen,
             is_current: false,
+            is_group: false,
             is_workspace: false,
             is_tab: true,
             expanded: true,
@@ -519,6 +655,7 @@ impl AppState {
                 status: state,
                 seen: pane.seen,
                 is_current,
+                is_group: false,
                 is_workspace: false,
                 is_tab: false,
                 expanded: false,
@@ -602,34 +739,113 @@ impl AppState {
         self.ensure_navigator_selection_visible();
     }
 
-    pub(crate) fn toggle_selected_navigator_workspace(&mut self) {
-        let Some(row) = self
-            .navigator_rows()
-            .get(self.navigator.list.selected)
-            .cloned()
-        else {
+    pub(crate) fn toggle_selected_navigator_branch(&mut self) {
+        let selected = self
+            .navigator
+            .list
+            .visible()
+            .unwrap_or(self.navigator.list.selected);
+        self.navigator.list.select(selected);
+        let Some(row) = self.navigator_rows().get(selected).cloned() else {
             return;
         };
-        let NavigatorTarget::Workspace { ws_idx } = row.target else {
-            return;
-        };
-        let Some(workspace_id) = self.workspaces.get(ws_idx).map(|ws| ws.id.clone()) else {
-            return;
-        };
-        if self.navigator.expanded_workspaces.contains(&workspace_id) {
-            self.navigator.expanded_workspaces.remove(&workspace_id);
-        } else {
-            self.navigator.expanded_workspaces.insert(workspace_id);
+        match row.target {
+            NavigatorTarget::Group { group_idx } => {
+                let Some(group_id) = self.groups.get(group_idx).map(|group| group.id.clone())
+                else {
+                    return;
+                };
+                if !self.navigator.expanded_groups.remove(&group_id) {
+                    self.navigator.expanded_groups.insert(group_id);
+                }
+            }
+            NavigatorTarget::Workspace { ws_idx } => {
+                let Some(workspace_id) = self.workspaces.get(ws_idx).map(|ws| ws.id.clone()) else {
+                    return;
+                };
+                if !self.navigator.expanded_workspaces.remove(&workspace_id) {
+                    self.navigator.expanded_workspaces.insert(workspace_id);
+                }
+            }
+            NavigatorTarget::Tab { .. } | NavigatorTarget::Pane { .. } => return,
         }
         self.clamp_navigator_selection();
     }
 
-    pub(crate) fn accept_navigator_selection(&mut self) -> bool {
-        let Some(row) = self
+    pub(crate) fn expand_all_navigator_branches(&mut self) {
+        let selected_target = self
             .navigator_rows()
-            .get(self.navigator.list.selected)
-            .cloned()
-        else {
+            .get(
+                self.navigator
+                    .list
+                    .visible()
+                    .unwrap_or(self.navigator.list.selected),
+            )
+            .map(|row| row.target.clone());
+        self.navigator.query.clear();
+        self.navigator.state_filter = None;
+        self.navigator.expanded_groups = self.groups.iter().map(|group| group.id.clone()).collect();
+        self.navigator.expanded_workspaces = self
+            .workspaces
+            .iter()
+            .map(|workspace| workspace.id.clone())
+            .collect();
+        let selected = selected_target
+            .and_then(|target| {
+                self.navigator_rows()
+                    .iter()
+                    .position(|row| row.target == target)
+            })
+            .unwrap_or(0);
+        self.navigator.list.select(selected);
+        self.ensure_navigator_selection_visible();
+    }
+
+    pub(crate) fn collapse_all_navigator_branches(&mut self) {
+        let selected_group = self
+            .navigator_rows()
+            .get(
+                self.navigator
+                    .list
+                    .visible()
+                    .unwrap_or(self.navigator.list.selected),
+            )
+            .and_then(|row| match row.target {
+                NavigatorTarget::Group { group_idx } => Some(group_idx),
+                NavigatorTarget::Workspace { ws_idx }
+                | NavigatorTarget::Tab { ws_idx, .. }
+                | NavigatorTarget::Pane { ws_idx, .. } => self
+                    .workspaces
+                    .get(ws_idx)
+                    .and_then(|workspace| self.group_index_by_id(&workspace.group_id)),
+            })
+            .unwrap_or(self.active_group);
+        self.navigator.query.clear();
+        self.navigator.state_filter = None;
+        self.navigator.expanded_groups.clear();
+        self.navigator.expanded_workspaces.clear();
+        let selected = self
+            .navigator_rows()
+            .iter()
+            .position(|row| {
+                matches!(
+                    row.target,
+                    NavigatorTarget::Group { group_idx } if group_idx == selected_group
+                )
+            })
+            .unwrap_or(0);
+        self.navigator.list.select(selected);
+        self.ensure_navigator_selection_visible();
+    }
+
+    pub(crate) fn accept_navigator_selection(&mut self) -> bool {
+        let selected = self
+            .navigator
+            .list
+            .visible()
+            .unwrap_or(self.navigator.list.selected);
+        self.navigator.list.select(selected);
+        let Some(row) = self.navigator_rows().get(selected).cloned() else {
             return false;
         };
         self.focus_navigator_target(row.target)
@@ -637,6 +853,18 @@ impl AppState {
 
     pub(crate) fn focus_navigator_target(&mut self, target: NavigatorTarget) -> bool {
         match target {
+            NavigatorTarget::Group { group_idx } => {
+                if group_idx >= self.groups.len() {
+                    return false;
+                }
+                self.switch_group(group_idx);
+                self.mode = if self.active.is_some() {
+                    Mode::Terminal
+                } else {
+                    Mode::Navigate
+                };
+                true
+            }
             NavigatorTarget::Workspace { ws_idx } => {
                 if ws_idx >= self.workspaces.len() {
                     return false;
@@ -739,6 +967,9 @@ fn launch_label(argv: Option<&Vec<String>>) -> Option<String> {
         .map(str::to_string)
         .or_else(|| Some(command.clone()))
 }
+fn count_label(count: usize, singular: &str, plural: &str) -> String {
+    format!("{count} {}", if count == 1 { singular } else { plural })
+}
 
 fn unix_secs_for_activity_instant(activity_at: std::time::Instant) -> u64 {
     let now_instant = std::time::Instant::now();
@@ -776,9 +1007,19 @@ fn tab_aggregate_state(
         crate::terminal::TerminalState,
     >,
 ) -> (AgentState, bool) {
+    aggregate_state_for_panes(tab.panes.values(), terminals)
+}
+
+fn aggregate_state_for_panes<'a>(
+    panes: impl Iterator<Item = &'a crate::pane::PaneState>,
+    terminals: &std::collections::HashMap<
+        crate::terminal::TerminalId,
+        crate::terminal::TerminalState,
+    >,
+) -> (AgentState, bool) {
     let mut aggregate = AgentState::Unknown;
     let mut seen = true;
-    for pane in tab.panes.values() {
+    for pane in panes {
         let Some(terminal) = terminals.get(&pane.attached_terminal_id) else {
             continue;
         };
@@ -4118,6 +4359,10 @@ mod tests {
         state.ensure_test_terminals();
 
         state.open_navigator();
+        state
+            .navigator
+            .expanded_workspaces
+            .insert(state.workspaces[1].id.clone());
         let rows = state.navigator_rows();
 
         assert!(!rows
@@ -4137,6 +4382,45 @@ mod tests {
                 tab_idx: 1
             }
         )));
+    }
+
+    #[test]
+    fn navigator_groups_expand_independently() {
+        let mut state = app_with_workspaces(&["home"]);
+        let work_group = state.create_group("work".to_string());
+        let mut work = Workspace::test_new("api");
+        work.group_id = state.groups[work_group].id.clone();
+        state.workspaces.push(work);
+        state.ensure_test_terminals();
+
+        state.open_navigator();
+        let collapsed_rows = state.navigator_rows();
+        assert!(collapsed_rows.iter().any(|row| {
+            matches!(
+                row.target,
+                NavigatorTarget::Group { group_idx } if group_idx == work_group
+            )
+        }));
+        assert!(!collapsed_rows
+            .iter()
+            .any(|row| matches!(row.target, NavigatorTarget::Workspace { ws_idx: 1 })));
+
+        let work_group_row = collapsed_rows
+            .iter()
+            .position(|row| {
+                matches!(
+                    row.target,
+                    NavigatorTarget::Group { group_idx } if group_idx == work_group
+                )
+            })
+            .expect("work group row");
+        state.navigator.list.select(work_group_row);
+        state.toggle_selected_navigator_branch();
+
+        assert!(state
+            .navigator_rows()
+            .iter()
+            .any(|row| matches!(row.target, NavigatorTarget::Workspace { ws_idx: 1 })));
     }
 
     #[tokio::test]
@@ -4197,8 +4481,11 @@ mod tests {
         }
         let _ = std::fs::remove_dir_all(root);
 
-        assert_eq!(rows.len(), 1);
-        assert_eq!(rows[0].label, "omh (1)");
+        let workspace_row = rows
+            .iter()
+            .find(|row| matches!(row.target, NavigatorTarget::Workspace { ws_idx: 0 }))
+            .expect("matching workspace row");
+        assert_eq!(workspace_row.label, "omh (1)");
     }
 
     #[test]
@@ -4233,6 +4520,10 @@ mod tests {
         let mut state = app_with_workspaces(&["one", "two"]);
         let target = state.workspaces[1].tabs[0].root_pane;
         state.open_navigator();
+        state
+            .navigator
+            .expanded_workspaces
+            .insert(state.workspaces[1].id.clone());
         let target_idx = state
             .navigator_rows()
             .iter()
@@ -4253,11 +4544,11 @@ mod tests {
     }
 
     #[test]
-    fn navigator_keyboard_restores_visible_selection_after_pointer_exit() {
+    fn navigator_keyboard_restores_selection_after_pointer_exit() {
         let mut state = app_with_workspaces(&["one", "two"]);
         state.open_navigator();
         let anchor = state.navigator.list.selected;
-        assert_eq!(state.navigator.list.visible(), None);
+        assert_eq!(state.navigator.list.visible(), Some(anchor));
         let hovered = usize::from(anchor == 0);
         state.navigator.list.hover(Some(hovered));
         assert_eq!(state.navigator.list.selected, anchor);
