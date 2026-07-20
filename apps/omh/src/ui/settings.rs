@@ -298,7 +298,7 @@ fn settings_section_title(app: &AppState, section: SettingsSection) -> &'static 
 fn settings_section_description(app: &AppState, section: SettingsSection) -> &'static str {
     match section {
         SettingsSection::Theme if app.settings.group_settings_target.is_some() => {
-            "choose an ANSI accent for this group, or inherit the global accent"
+            "choose a theme accent for this group, or inherit the global accent"
         }
         SettingsSection::Theme => "configure theme, sidebar layout, and pane appearance",
         SettingsSection::Layout => "set sidebar width bounds",
@@ -559,7 +559,7 @@ fn settings_section_description_for(
 ) -> &'static str {
     match section {
         SettingsSection::Theme if settings.group_settings_target.is_some() => {
-            "choose an ANSI accent for this group, or inherit the global accent"
+            "choose a theme accent for this group, or inherit the global accent"
         }
         SettingsSection::Theme => "configure theme, sidebar layout, and pane appearance",
         SettingsSection::Layout => "set sidebar width bounds",

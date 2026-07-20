@@ -1210,8 +1210,7 @@ fn preview_group_accent(state: &mut AppState, accent: Option<TerminalAccent>) {
     state.palette = state.global_palette.clone();
     state.theme_name = state.global_theme_name.clone();
     if let Some(accent) = accent {
-        state.palette.accent =
-            crate::app::state::Palette::terminal_accent_color(state.host_terminal_theme, accent);
+        state.palette.accent = state.global_palette.theme_accent_color(accent);
     }
 }
 fn close_settings(state: &mut AppState) {

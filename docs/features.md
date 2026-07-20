@@ -31,7 +31,7 @@ A workspace contains tabs, panes, cwd metadata, and agent state rollups.
 - **New-client sidebar defaults** — every app client starts with all spaces visible. `ui.sidebar.initial_state` and `ui.sidebar.initial_agent_scope` choose its initial expansion and agent scope; defaults are `expanded` and `all`, and one client's runtime changes never seed another client.
 - **Workspace navigator** — search and filter workspaces, tabs, and panes by text or state.
 - **Desktop context bar** — a persistent bottom row shows live group, workspace, and tab counts beside the attached client's active group / workspace / tab path. Click a path segment to open the existing group menu or workspace navigator; narrow terminals drop counts before shortening the active path.
-- **Workspace groups** — group workspaces, filter the sidebar by group, collapse groups, and assign per-group ANSI accent colors that tint group labels, tabs, menus, and related group UI.
+- **Workspace groups** — group workspaces, filter the sidebar by group, collapse groups, and assign per-group theme accent colors that tint group labels, tabs, menus, and related group UI.
 - **Group lifecycle** — create, rename, delete, focus, and switch groups from the TUI, CLI, or socket API; reorder groups by dragging headers in the all-groups sidebar.
 - **Group icons** — group creation and rename flows can choose from a curated set of 20 distinct icons.
 - **Move between groups** — move workspaces between groups from the TUI/sidebar group workflows.
@@ -353,7 +353,7 @@ Oh My Herdr supports terminal-derived colors and built-in palettes.
 - **Light and dark palette selection** — choose separate palettes when system mode is enabled.
 - **Live system sync** — in system mode, Oh My Herdr follows foreground host-terminal light/dark color changes while it is running and refreshes pane terminal defaults.
 - **Custom token overrides** — override individual theme colors.
-- **Group settings** — rename or delete groups, assign per-group ANSI accent colors, choose favorite/default agent profiles, or inherit the global accent from the group settings modal.
+- **Group settings** — rename or delete groups, assign per-group theme accent colors, choose favorite/default agent profiles, or inherit the global accent from the group settings modal.
 - **Accent color** — configure highlight, border, and navigation accent color; when following terminal colors, choose separate terminal ANSI accents for light and dark appearances.
 
 ### Sound and toasts

@@ -330,8 +330,15 @@ impl Palette {
         Color::Rgb(color.r, color.g, color.b)
     }
 
-    pub fn terminal_accent_color(theme: TerminalTheme, accent: TerminalAccent) -> Color {
-        Self::terminal_palette_color(theme, accent.ansi_index(), accent.fallback_color())
+    pub fn theme_accent_color(&self, accent: TerminalAccent) -> Color {
+        match accent {
+            TerminalAccent::Blue => self.blue,
+            TerminalAccent::Magenta => self.mauve,
+            TerminalAccent::Cyan => self.teal,
+            TerminalAccent::Green => self.green,
+            TerminalAccent::Yellow => self.yellow,
+            TerminalAccent::Red => self.red,
+        }
     }
 
     fn terminal_palette_color(theme: TerminalTheme, index: usize, fallback: Color) -> Color {
@@ -2983,7 +2990,7 @@ impl AppState {
         self.groups
             .get(group_idx)
             .and_then(|group| group.accent)
-            .map(|accent| Palette::terminal_accent_color(self.host_terminal_theme, accent))
+            .map(|accent| self.global_palette.theme_accent_color(accent))
             .unwrap_or(self.global_palette.accent)
     }
 

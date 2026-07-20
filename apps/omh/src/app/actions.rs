@@ -4756,7 +4756,7 @@ mod tests {
         assert_eq!(state.palette.accent, state.global_palette.accent);
         assert_eq!(
             state.active_workspace_accent_color(),
-            ratatui::style::Color::LightRed
+            state.global_palette.red
         );
         assert_eq!(state.palette.panel_bg, state.global_palette.panel_bg);
     }
@@ -4777,7 +4777,7 @@ mod tests {
         assert_eq!(state.palette.accent, state.global_palette.accent);
         assert_eq!(
             state.active_workspace_accent_color(),
-            ratatui::style::Color::LightRed
+            state.global_palette.red
         );
 
         state.switch_workspace(0);
