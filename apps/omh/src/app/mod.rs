@@ -920,6 +920,8 @@ impl App {
             right_sidebar_width,
             right_sidebar_collapsed,
             sidebar_arrangement: config.ui.sidebar_arrangement,
+            context_bar_visibility: config.ui.context_bar,
+            context_bar_visibility_override: None,
             sidebar_config: config.ui.sidebar.clone(),
             sidebar_section_split,
             activity_agents_expanded: true,
@@ -1006,6 +1008,7 @@ impl App {
                 pending_sidebar_min_width: None,
                 pending_sidebar_max_width: None,
                 pending_sidebar_arrangement: None,
+                pending_context_bar_visibility: None,
                 pending_sidebar_initial_state: None,
                 pending_sidebar_initial_agent_scope: None,
                 pending_worktree_directory: None,
@@ -1796,6 +1799,7 @@ impl App {
                 self.state.sidebar_max_width = config.ui.sidebar_max_width;
                 self.state.mobile_width_threshold = config.ui.mobile_width_threshold;
                 self.state.sidebar_arrangement = config.ui.sidebar_arrangement;
+                self.state.context_bar_visibility = config.ui.context_bar;
                 // Re-clamp the live width to the new bounds. No source guard — bounds
                 // always apply, including to widths owned by Persisted or Manual.
                 self.state.sidebar_width = self
@@ -3819,6 +3823,14 @@ impl App {
                 client_view.sidebar_collapsed = !client_view.sidebar_collapsed;
                 Self::leave_client_view_command_mode(client_view);
             }
+            crate::app::command_palette::CommandPaletteAction::ToggleContextBar => {
+                let visible = self.state.context_bar_is_visible(
+                    client_view.sidebar_collapsed,
+                    client_view.context_bar_visibility_override,
+                );
+                client_view.context_bar_visibility_override = Some(!visible);
+                Self::leave_client_view_command_mode(client_view);
+            }
             crate::app::command_palette::CommandPaletteAction::DetachOrQuit => {
                 input::request_detach(&mut self.state);
                 Self::leave_client_view_command_mode(client_view);
@@ -5328,6 +5340,14 @@ impl App {
             }
             input::NavigateAction::ToggleSidebar => {
                 client_view.sidebar_collapsed = !client_view.sidebar_collapsed;
+                Self::leave_client_view_command_mode(client_view);
+            }
+            input::NavigateAction::ToggleContextBar => {
+                let visible = self.state.context_bar_is_visible(
+                    client_view.sidebar_collapsed,
+                    client_view.context_bar_visibility_override,
+                );
+                client_view.context_bar_visibility_override = Some(!visible);
                 Self::leave_client_view_command_mode(client_view);
             }
             input::NavigateAction::ToggleRightSidebar => {
@@ -14872,6 +14892,56 @@ command = "printf literal > '{}'"
         assert_eq!(app.state.mode, Mode::Terminal);
         assert_eq!(client.mode, Mode::Terminal);
     }
+    #[test]
+    fn route_client_events_for_view_toggle_context_bar_is_client_local() {
+        let mut app = test_app();
+        app.state.workspaces = vec![Workspace::test_new("test")];
+        app.state.ensure_test_terminals();
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::Terminal;
+        app.state.sidebar_collapsed = false;
+
+        let mut client = ClientViewState::from_default_client_state(&app.state);
+        let mut other_client = ClientViewState::from_default_client_state(&app.state);
+        let area = ratatui::layout::Rect::new(0, 0, 100, 30);
+        compute_client_view(&app, &mut client, area);
+        compute_client_view(&app, &mut other_client, area);
+        assert_eq!(
+            client.computed.context_bar.rect,
+            ratatui::layout::Rect::default()
+        );
+        assert_eq!(
+            other_client.computed.context_bar.rect,
+            ratatui::layout::Rect::default()
+        );
+
+        app.route_client_events_for_view(
+            &mut client,
+            vec![
+                raw_key(
+                    KeyCode::Char('b'),
+                    KeyModifiers::CONTROL,
+                    KeyEventKind::Press,
+                ),
+                raw_key(KeyCode::Down, KeyModifiers::empty(), KeyEventKind::Press),
+            ],
+            true,
+        );
+        compute_client_view(&app, &mut client, area);
+        compute_client_view(&app, &mut other_client, area);
+
+        assert_ne!(
+            client.computed.context_bar.rect,
+            ratatui::layout::Rect::default()
+        );
+        assert_eq!(
+            other_client.computed.context_bar.rect,
+            ratatui::layout::Rect::default()
+        );
+        assert_eq!(app.state.context_bar_visibility_override, None);
+        assert_eq!(client.mode, Mode::Terminal);
+    }
 
     #[test]
     fn route_client_events_for_view_command_palette_diff_key_sequence_queues_shared_git_diff() {
@@ -16543,6 +16613,7 @@ command = "printf literal > '{}'"
     #[test]
     fn route_client_events_for_view_context_bar_opens_local_navigation_surfaces() {
         let mut app = test_app();
+        app.state.context_bar_visibility = crate::config::ContextBarVisibilityConfig::Always;
         app.state.groups[0].name = "studio".into();
         let mut workspace = Workspace::test_new("ignored");
         workspace.custom_name = Some("website".into());
@@ -16623,6 +16694,7 @@ command = "printf literal > '{}'"
     #[test]
     fn context_bar_mouse_opens_group_menu_in_local_app() {
         let mut app = test_app();
+        app.state.context_bar_visibility = crate::config::ContextBarVisibilityConfig::Always;
         app.state.workspaces = vec![Workspace::test_new("website")];
         app.state.ensure_test_terminals();
         app.state.active = Some(0);

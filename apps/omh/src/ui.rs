@@ -174,8 +174,8 @@ pub(crate) const MAX_RIGHT_SIDEBAR_WIDTH: u16 = 36;
 
 const CONTEXT_BAR_SEPARATOR: &str = " / ";
 
-fn desktop_content_areas(area: Rect) -> (Rect, Rect) {
-    if area.height <= 1 {
+fn desktop_content_areas(area: Rect, show_context_bar: bool) -> (Rect, Rect) {
+    if !show_context_bar || area.height <= 1 {
         return (area, Rect::default());
     }
     let [content, context_bar] =
@@ -303,16 +303,7 @@ fn compute_context_bar(
         labels.clear();
     }
 
-    let path_width = labels
-        .iter()
-        .map(|(_, label)| text::display_width(label))
-        .sum::<usize>()
-        .saturating_add(CONTEXT_BAR_SEPARATOR.len() * labels.len().saturating_sub(1));
-    let path_x = rect
-        .x
-        .saturating_add(rect.width)
-        .saturating_sub(path_width.min(u16::MAX as usize) as u16)
-        .saturating_sub(1);
+    let path_x = rect.x.saturating_add(1);
     let mut cursor = path_x;
     let segments = labels
         .into_iter()
@@ -334,7 +325,15 @@ fn compute_context_bar(
     let counts_rect = if counts.is_empty() {
         Rect::default()
     } else {
-        Rect::new(rect.x.saturating_add(1), rect.y, counts_width as u16, 1)
+        Rect::new(
+            rect.x
+                .saturating_add(rect.width)
+                .saturating_sub(counts_width as u16)
+                .saturating_sub(1),
+            rect.y,
+            counts_width as u16,
+            1,
+        )
     };
 
     ContextBarView {
@@ -512,7 +511,11 @@ fn compute_view_for_client_internal(
         );
         return;
     }
-    let (content_area, context_bar_rect) = desktop_content_areas(area);
+    let show_context_bar = app.context_bar_is_visible(
+        client_view.sidebar_collapsed,
+        client_view.context_bar_visibility_override,
+    );
+    let (content_area, context_bar_rect) = desktop_content_areas(area, show_context_bar);
 
     let sidebar_w = if client_view.sidebar_collapsed {
         COLLAPSED_WIDTH
@@ -768,7 +771,9 @@ fn compute_view_internal(
         compute_mobile_view(app, terminal_runtimes, area, resize_panes, cell_size);
         return;
     }
-    let (content_area, context_bar_rect) = desktop_content_areas(area);
+    let show_context_bar =
+        app.context_bar_is_visible(app.sidebar_collapsed, app.context_bar_visibility_override);
+    let (content_area, context_bar_rect) = desktop_content_areas(area, show_context_bar);
 
     let sidebar_w = if app.sidebar_collapsed {
         COLLAPSED_WIDTH
@@ -1514,6 +1519,7 @@ mod tests {
     #[test]
     fn desktop_context_bar_renders_topology_and_active_path() {
         let mut app = crate::app::state::AppState::test_new();
+        app.context_bar_visibility = crate::config::ContextBarVisibilityConfig::Always;
         app.groups[0].name = "studio".into();
         let mut workspace = Workspace::test_new("ignored");
         workspace.custom_name = Some("website".into());
@@ -1540,11 +1546,17 @@ mod tests {
 
         assert!(line.contains("1 group · 1 space · 1 tab"), "{line:?}");
         assert!(line.contains("studio / website / release"), "{line:?}");
+        let path_start = line
+            .find("studio / website / release")
+            .expect("active path");
+        let counts_start = line.find("1 group · 1 space · 1 tab").expect("counts");
+        assert!(path_start < counts_start, "{line:?}");
     }
 
     #[test]
     fn context_bar_uses_each_clients_active_workspace() {
         let mut app = crate::app::state::AppState::test_new();
+        app.context_bar_visibility = crate::config::ContextBarVisibilityConfig::Always;
         let mut first = Workspace::test_new("ignored");
         first.custom_name = Some("frontend".into());
         first.tabs[0].custom_name = Some("dev".into());
@@ -1601,6 +1613,7 @@ mod tests {
     #[test]
     fn narrow_desktop_context_bar_keeps_path_inside_its_row() {
         let mut app = crate::app::state::AppState::test_new();
+        app.context_bar_visibility = crate::config::ContextBarVisibilityConfig::Always;
         app.mobile_width_threshold = 0;
         app.groups[0].name = "engineering-platform".into();
         let mut workspace = Workspace::test_new("ignored");
@@ -1625,8 +1638,67 @@ mod tests {
     }
 
     #[test]
+    fn context_bar_visibility_policy_controls_each_clients_terminal_height() {
+        let mut app = crate::app::state::AppState::test_new();
+        app.mobile_width_threshold = 0;
+        app.workspaces = vec![Workspace::test_new("one")];
+        app.active = Some(0);
+        app.selected = 0;
+        let terminal_runtimes = TerminalRuntimeRegistry::new();
+        let area = Rect::new(0, 0, 80, 20);
+
+        let mut expanded_client = ClientViewState::from_default_client_state(&app);
+        let mut collapsed_client = ClientViewState::from_default_client_state(&app);
+        collapsed_client.sidebar_collapsed = true;
+        compute_view_for_client_without_resizing_panes(
+            &app,
+            &mut expanded_client,
+            &terminal_runtimes,
+            area,
+        );
+        compute_view_for_client_without_resizing_panes(
+            &app,
+            &mut collapsed_client,
+            &terminal_runtimes,
+            area,
+        );
+        assert_eq!(expanded_client.computed.context_bar.rect, Rect::default());
+        assert_eq!(
+            collapsed_client.computed.context_bar.rect,
+            Rect::new(0, 19, 80, 1)
+        );
+        assert_eq!(
+            expanded_client.computed.terminal_area.y
+                + expanded_client.computed.terminal_area.height,
+            area.height
+        );
+
+        app.context_bar_visibility = crate::config::ContextBarVisibilityConfig::Never;
+        compute_view_for_client_without_resizing_panes(
+            &app,
+            &mut collapsed_client,
+            &terminal_runtimes,
+            area,
+        );
+        assert_eq!(collapsed_client.computed.context_bar.rect, Rect::default());
+
+        app.context_bar_visibility = crate::config::ContextBarVisibilityConfig::Always;
+        compute_view_for_client_without_resizing_panes(
+            &app,
+            &mut expanded_client,
+            &terminal_runtimes,
+            area,
+        );
+        assert_eq!(
+            expanded_client.computed.context_bar.rect,
+            Rect::new(0, 19, 80, 1)
+        );
+    }
+
+    #[test]
     fn desktop_layout_reserves_context_row_without_outer_inset() {
         let mut app = crate::app::state::AppState::test_new();
+        app.context_bar_visibility = crate::config::ContextBarVisibilityConfig::Always;
         app.workspaces = vec![Workspace::test_new("one")];
         app.active = Some(0);
         app.selected = 0;

@@ -2123,6 +2123,7 @@ pub struct SettingsState {
     /// Pending maximum expanded sidebar width while settings is open.
     pub pending_sidebar_max_width: Option<u16>,
     pub pending_sidebar_arrangement: Option<crate::config::SidebarArrangementConfig>,
+    pub pending_context_bar_visibility: Option<crate::config::ContextBarVisibilityConfig>,
     /// Pending default expansion state for newly attached clients.
     pub pending_sidebar_initial_state: Option<crate::config::SidebarInitialStateConfig>,
     /// Pending default agent scope for newly attached clients.
@@ -2750,6 +2751,9 @@ pub struct AppState {
     pub right_sidebar_width: u16,
     pub right_sidebar_collapsed: bool,
     pub sidebar_arrangement: crate::config::SidebarArrangementConfig,
+    pub context_bar_visibility: crate::config::ContextBarVisibilityConfig,
+    /// Per-process override used by the monolithic client. Attached clients own this separately.
+    pub context_bar_visibility_override: Option<bool>,
     /// Sidebar row/token layout loaded from `[ui.sidebar]`.
     pub sidebar_config: crate::config::SidebarConfig,
     /// Ratio of sidebar height allocated to the workspaces section when activity
@@ -3049,6 +3053,18 @@ impl AppState {
 
     pub fn toggle_agent_section(&mut self, section_key: String) {
         toggle_string_key(&mut self.collapsed_agent_sections, section_key);
+    }
+
+    pub(crate) fn context_bar_is_visible(
+        &self,
+        sidebar_collapsed: bool,
+        visibility_override: Option<bool>,
+    ) -> bool {
+        visibility_override.unwrap_or(match self.context_bar_visibility {
+            crate::config::ContextBarVisibilityConfig::Auto => sidebar_collapsed,
+            crate::config::ContextBarVisibilityConfig::Always => true,
+            crate::config::ContextBarVisibilityConfig::Never => false,
+        })
     }
 
     pub fn sidebar_visible_workspace_indices(&self) -> Vec<usize> {
@@ -3499,6 +3515,8 @@ impl AppState {
             right_sidebar_width: 28,
             right_sidebar_collapsed: false,
             sidebar_arrangement: crate::config::SidebarArrangementConfig::Auto,
+            context_bar_visibility: crate::config::ContextBarVisibilityConfig::Auto,
+            context_bar_visibility_override: None,
             sidebar_config: crate::config::SidebarConfig::default(),
             sidebar_section_split: 0.5,
             activity_agents_expanded: true,
@@ -3582,6 +3600,7 @@ impl AppState {
                 pending_confirm_close: None,
                 pending_prompt_new_tab_name: None,
                 pending_new_terminal_cwd: None,
+                pending_context_bar_visibility: None,
                 pending_mouse_scroll_lines: None,
                 pending_sidebar_width: None,
                 pending_sidebar_arrangement: None,

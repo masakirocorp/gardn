@@ -1106,6 +1106,7 @@ pub(crate) enum NavigateAction {
     EditScrollback,
     CopyMode,
     Zoom,
+    ToggleContextBar,
     EnterResizeMode,
     ToggleSidebar,
     ToggleRightSidebar,
@@ -1235,6 +1236,7 @@ pub(crate) fn non_indexed_action_for_key(
         (&kb.zoom, NavigateAction::Zoom),
         (&kb.resize_mode, NavigateAction::EnterResizeMode),
         (&kb.toggle_sidebar, NavigateAction::ToggleSidebar),
+        (&kb.toggle_context_bar, NavigateAction::ToggleContextBar),
         (&kb.toggle_right_sidebar, NavigateAction::ToggleRightSidebar),
         (&kb.command_palette, NavigateAction::OpenCommandPalette),
         (&kb.reload_config, NavigateAction::ReloadConfig),
@@ -1440,6 +1442,14 @@ pub(crate) fn execute_navigate_action_in_context(
         NavigateAction::ToggleSidebar => {
             state.sidebar_collapsed = !state.sidebar_collapsed;
             state.mark_session_dirty();
+            leave_navigate_mode(state);
+        }
+        NavigateAction::ToggleContextBar => {
+            let visible = state.context_bar_is_visible(
+                state.sidebar_collapsed,
+                state.context_bar_visibility_override,
+            );
+            state.context_bar_visibility_override = Some(!visible);
             leave_navigate_mode(state);
         }
         NavigateAction::ToggleRightSidebar => {

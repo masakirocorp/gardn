@@ -591,6 +591,7 @@ impl App {
                         sidebar_min_width,
                         sidebar_max_width,
                         sidebar_arrangement,
+                        context_bar_visibility,
                         sidebar_initial_state,
                         sidebar_initial_agent_scope,
                         worktree_directory,
@@ -614,6 +615,7 @@ impl App {
                             sidebar_max_width,
                         );
                         self.save_sidebar_arrangement(sidebar_arrangement);
+                        self.save_context_bar_visibility(context_bar_visibility);
                         self.save_sidebar_initial_view(
                             sidebar_initial_state,
                             sidebar_initial_agent_scope,

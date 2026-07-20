@@ -203,6 +203,7 @@ const DEFAULT_CONFIG: &str = r##"# Oh My Herdr configuration
 # zoom = "prefix+z"       # legacy alias: fullscreen
 # resize_mode = "prefix+r"
 # toggle_sidebar = "prefix+b"
+# toggle_context_bar = "prefix+down"
 # toggle_right_sidebar = "" # optional, unset by default
 
 # Navigate-mode movement. These local shortcuts win while navigate mode is open.
@@ -249,6 +250,10 @@ diff_command = "lazygit"
 # Terminal width at or below which Oh My Herdr uses the mobile single-column layout.
 # Increase this for foldables, tablets, or wide phone terminals.
 # mobile_width_threshold = 64
+# Bottom context bar: "auto" hides it while the spaces sidebar is expanded.
+# Values: "auto", "always", or "never".
+# context_bar = "auto"
+
 
 
 # Capture mouse input for Oh My Herdr's mouse UI.

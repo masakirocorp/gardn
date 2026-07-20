@@ -198,6 +198,24 @@ impl App {
             self.apply_config_from_disk(false);
         }
     }
+    pub(super) fn save_context_bar_visibility(
+        &mut self,
+        visibility: crate::config::ContextBarVisibilityConfig,
+    ) {
+        self.state.context_bar_visibility = visibility;
+        self.state.settings.pending_context_bar_visibility = Some(visibility);
+        if self.update_config_file("context bar visibility", |content| {
+            crate::config::upsert_section_value(
+                content,
+                "ui",
+                "context_bar",
+                &format!("{:?}", visibility.label()),
+            )
+        }) {
+            self.apply_config_from_disk(false);
+        }
+    }
+
     pub(super) fn save_sidebar_initial_view(
         &mut self,
         initial_state: crate::config::SidebarInitialStateConfig,

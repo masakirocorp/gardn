@@ -745,7 +745,7 @@ fn appearance_rows(app: &AppState, settings: &SettingsState) -> Vec<SettingsList
     rows.extend(setting_group(
         "panes",
         [option(
-            layout_base + 6,
+            layout_base + 7,
             "agent border labels",
             "show detected agent names in split pane borders",
             settings
@@ -777,6 +777,9 @@ fn layout_rows_with_base(
     let arrangement = settings
         .pending_sidebar_arrangement
         .unwrap_or(app.sidebar_arrangement);
+    let context_bar_visibility = settings
+        .pending_context_bar_visibility
+        .unwrap_or(app.context_bar_visibility);
     let initial_state = settings
         .pending_sidebar_initial_state
         .unwrap_or(app.sidebar_config.initial_state);
@@ -812,12 +815,18 @@ fn layout_rows_with_base(
             ),
             value_option(
                 base + 4,
+                "context bar",
+                "automatic, always visible, or hidden",
+                context_bar_visibility.label(),
+            ),
+            value_option(
+                base + 5,
                 "initial sidebar state",
                 "expanded or collapsed when a new client connects",
                 initial_state.label(),
             ),
             value_option(
-                base + 5,
+                base + 6,
                 "initial agent scope",
                 "agents shown when a new client connects",
                 initial_agent_scope.label(),

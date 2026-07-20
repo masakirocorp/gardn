@@ -46,6 +46,7 @@ pub(crate) enum CommandPaletteAction {
     NextAgent,
     OpenGitDiff,
     ToggleSidebar,
+    ToggleContextBar,
     ToggleRightSidebar,
     OpenGlobalMenu,
     OpenSettings,
@@ -236,6 +237,11 @@ pub(crate) fn command_palette_commands(state: &AppState) -> Vec<CommandPaletteCo
             CommandPaletteAction::ToggleSidebar,
         ),
         CommandPaletteCommand::new(
+            "toggle context bar",
+            "layout",
+            CommandPaletteAction::ToggleContextBar,
+        ),
+        CommandPaletteCommand::new(
             "toggle right sidebar",
             "layout",
             CommandPaletteAction::ToggleRightSidebar,
@@ -390,6 +396,7 @@ fn command_palette_key_label(state: &AppState, action: &CommandPaletteAction) ->
         CommandPaletteAction::NextAgent => label(&kb.next_agent),
         CommandPaletteAction::OpenGitDiff => None,
         CommandPaletteAction::ToggleSidebar => label(&kb.toggle_sidebar),
+        CommandPaletteAction::ToggleContextBar => label(&kb.toggle_context_bar),
         CommandPaletteAction::ToggleRightSidebar => label(&kb.toggle_right_sidebar),
         CommandPaletteAction::OpenSettings => label(&kb.settings),
         CommandPaletteAction::OpenKeybinds => label(&kb.help),

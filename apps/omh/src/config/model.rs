@@ -137,6 +137,32 @@ impl SidebarArrangementConfig {
         }
     }
 }
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum ContextBarVisibilityConfig {
+    #[default]
+    Auto,
+    Always,
+    Never,
+}
+
+impl ContextBarVisibilityConfig {
+    pub(crate) fn next(self) -> Self {
+        match self {
+            Self::Auto => Self::Always,
+            Self::Always => Self::Never,
+            Self::Never => Self::Auto,
+        }
+    }
+
+    pub(crate) const fn label(self) -> &'static str {
+        match self {
+            Self::Auto => "auto",
+            Self::Always => "always",
+            Self::Never => "never",
+        }
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct RightClickPassthroughModifierConfig(Option<KeyModifiers>);
@@ -454,6 +480,8 @@ pub struct KeysConfig {
     pub copy_mode: BindingConfig,
     /// Focus the pane to the left. Default: "prefix+h".
     pub focus_pane_left: BindingConfig,
+    /// Toggle the bottom context bar for this client. Default: "prefix+down".
+    pub toggle_context_bar: BindingConfig,
     /// Focus the pane below. Default: "prefix+j".
     pub focus_pane_down: BindingConfig,
     /// Focus the pane above. Default: "prefix+k".
@@ -580,6 +608,8 @@ pub(crate) struct KeysConfigOverlay {
     #[serde(skip_serializing_if = "Option::is_none")]
     copy_mode: Option<BindingConfig>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    toggle_context_bar: Option<BindingConfig>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     focus_pane_left: Option<BindingConfig>,
     #[serde(skip_serializing_if = "Option::is_none")]
     focus_pane_down: Option<BindingConfig>,
@@ -660,6 +690,7 @@ impl<'de> Deserialize<'de> for KeysConfig {
         apply_field!(switch_group);
         apply_field!(previous_agent);
         apply_field!(next_agent);
+        apply_field!(toggle_context_bar);
         apply_field!(open_agent_menu);
         apply_field!(focus_agent);
         apply_field!(remote_image_paste);
@@ -753,6 +784,7 @@ impl KeysConfig {
         copy_effective_action_field!(next_group, keybinds.next_group);
         copy_effective_indexed_field!(switch_group, keybinds.switch_group);
         copy_effective_action_field!(previous_agent, keybinds.previous_agent);
+        copy_effective_action_field!(toggle_context_bar, keybinds.toggle_context_bar);
         copy_effective_action_field!(next_agent, keybinds.next_agent);
         copy_effective_action_field!(open_agent_menu, keybinds.open_agent_menu);
         copy_effective_indexed_field!(focus_agent, keybinds.focus_agent);
@@ -895,6 +927,8 @@ pub struct UiConfig {
     pub mobile_width_threshold: u16,
     /// Sidebar arrangement on desktop: auto, separate, combined_left, or combined_right.
     pub sidebar_arrangement: SidebarArrangementConfig,
+    /// Bottom context bar visibility. Auto hides it while the spaces sidebar is expanded.
+    pub context_bar: ContextBarVisibilityConfig,
     /// Configurable rows and metadata tokens for spaces and agents.
     pub sidebar: SidebarConfig,
     /// Capture mouse input for Oh My Herdr's mouse UI. Default: true.
@@ -1066,6 +1100,7 @@ impl Default for KeysConfig {
             previous_group: BindingConfig::empty(),
             next_group: BindingConfig::empty(),
             switch_group: BindingConfig::one("prefix+alt+1..0"),
+            toggle_context_bar: BindingConfig::one("prefix+down"),
             previous_agent: BindingConfig::empty(),
             next_agent: BindingConfig::empty(),
             open_agent_menu: BindingConfig::empty(),
@@ -1118,6 +1153,7 @@ impl Default for UiConfig {
             sidebar_max_width: 36,
             mobile_width_threshold: DEFAULT_MOBILE_WIDTH_THRESHOLD,
             sidebar_arrangement: SidebarArrangementConfig::Auto,
+            context_bar: ContextBarVisibilityConfig::Auto,
             sidebar: SidebarConfig::default(),
             mouse_capture: true,
             copy_on_select: true,
@@ -1490,6 +1526,10 @@ cjk_ime_agents = ["claude", "codex"]
         let default_config = Config::default();
         assert_eq!(default_config.ui.sidebar_min_width, 18);
         assert_eq!(default_config.ui.sidebar_max_width, 36);
+        assert_eq!(
+            default_config.ui.context_bar,
+            ContextBarVisibilityConfig::Auto
+        );
 
         assert_eq!(
             default_config.ui.mobile_width_threshold,
@@ -1500,11 +1540,13 @@ cjk_ime_agents = ["claude", "codex"]
 sidebar_min_width = 12
 sidebar_max_width = 80
 mobile_width_threshold = 96
+context_bar = "never"
 "#;
         let config: Config = toml::from_str(toml).unwrap();
         assert_eq!(config.ui.sidebar_min_width, 12);
         assert_eq!(config.ui.sidebar_max_width, 80);
         assert_eq!(config.ui.mobile_width_threshold, 96);
+        assert_eq!(config.ui.context_bar, ContextBarVisibilityConfig::Never);
     }
 
     #[test]

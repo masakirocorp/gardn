@@ -12,8 +12,9 @@ use crate::{
         App, Mode,
     },
     config::{
-        AgentPanelScopeConfig, NewTerminalCwdConfig, SidebarArrangementConfig,
-        SidebarInitialStateConfig, TerminalAccent, ThemeMode, ToastDelivery,
+        AgentPanelScopeConfig, ContextBarVisibilityConfig, NewTerminalCwdConfig,
+        SidebarArrangementConfig, SidebarInitialStateConfig, TerminalAccent, ThemeMode,
+        ToastDelivery,
     },
     settings_rows::{
         option_count, option_hit_for_visual_row, option_index_for_visual_row, rows_for_section,
@@ -45,6 +46,7 @@ pub(crate) enum SettingsAction {
         sidebar_max_width: u16,
         worktree_directory: Option<String>,
         sidebar_arrangement: SidebarArrangementConfig,
+        context_bar_visibility: ContextBarVisibilityConfig,
         sidebar_initial_state: SidebarInitialStateConfig,
         sidebar_initial_agent_scope: AgentPanelScopeConfig,
         agent_border_labels: bool,
@@ -108,6 +110,7 @@ impl App {
                 sidebar_min_width,
                 sidebar_max_width,
                 sidebar_arrangement,
+                context_bar_visibility,
                 sidebar_initial_state,
                 sidebar_initial_agent_scope,
                 agent_border_labels,
@@ -127,6 +130,7 @@ impl App {
                 self.save_mouse_scroll_lines(mouse_scroll_lines);
                 self.save_sidebar_widths(sidebar_width, sidebar_min_width, sidebar_max_width);
                 self.save_sidebar_arrangement(sidebar_arrangement);
+                self.save_context_bar_visibility(context_bar_visibility);
                 self.save_sidebar_initial_view(sidebar_initial_state, sidebar_initial_agent_scope);
                 if let Some(directory) = worktree_directory {
                     self.save_worktree_directory(&directory);
@@ -1087,6 +1091,13 @@ fn pending_sidebar_arrangement(state: &AppState) -> SidebarArrangementConfig {
         .pending_sidebar_arrangement
         .unwrap_or(state.sidebar_arrangement)
 }
+fn pending_context_bar_visibility(state: &AppState) -> ContextBarVisibilityConfig {
+    state
+        .settings
+        .pending_context_bar_visibility
+        .unwrap_or(state.context_bar_visibility)
+}
+
 fn pending_sidebar_initial_state(state: &AppState) -> SidebarInitialStateConfig {
     state
         .settings
@@ -1356,6 +1367,7 @@ fn clear_settings_pending(state: &mut AppState) {
     state.settings.pending_sidebar_min_width = None;
     state.settings.pending_sidebar_max_width = None;
     state.settings.pending_sidebar_arrangement = None;
+    state.settings.pending_context_bar_visibility = None;
     state.settings.pending_sidebar_initial_state = None;
     state.settings.pending_sidebar_initial_agent_scope = None;
     state.settings.pending_worktree_directory = None;
@@ -1390,6 +1402,7 @@ fn current_settings_action(state: &AppState) -> SettingsAction {
         sidebar_min_width: pending_sidebar_min_width(state),
         sidebar_max_width: pending_sidebar_max_width(state),
         sidebar_arrangement: pending_sidebar_arrangement(state),
+        context_bar_visibility: pending_context_bar_visibility(state),
         sidebar_initial_state: pending_sidebar_initial_state(state),
         sidebar_initial_agent_scope: pending_sidebar_initial_agent_scope(state),
         worktree_directory: state.settings.pending_worktree_directory.clone(),
@@ -1469,10 +1482,14 @@ fn select_pending_layout_setting_at(state: &mut AppState, selected: usize) {
                 Some(pending_sidebar_arrangement(state).next());
         }
         4 => {
+            state.settings.pending_context_bar_visibility =
+                Some(pending_context_bar_visibility(state).next());
+        }
+        5 => {
             state.settings.pending_sidebar_initial_state =
                 Some(pending_sidebar_initial_state(state).next());
         }
-        5 => {
+        6 => {
             state.settings.pending_sidebar_initial_agent_scope =
                 Some(pending_sidebar_initial_agent_scope(state).next());
         }
@@ -1490,8 +1507,8 @@ fn select_pending_appearance_setting(state: &mut AppState) -> Option<SettingsAct
 
     let appearance_selected = selected - theme_count;
     match appearance_selected {
-        0..=5 => select_pending_layout_setting_at(state, appearance_selected),
-        6 => {
+        0..=6 => select_pending_layout_setting_at(state, appearance_selected),
+        7 => {
             state.settings.pending_agent_border_labels = Some(!pending_agent_border_labels(state));
         }
         _ => {}
@@ -2154,6 +2171,7 @@ pub(crate) fn prepare_general_settings_state(
     settings.pending_sidebar_min_width = Some(state.sidebar_min_width);
     settings.pending_sidebar_max_width = Some(state.sidebar_max_width);
     settings.pending_sidebar_arrangement = Some(state.sidebar_arrangement);
+    settings.pending_context_bar_visibility = Some(state.context_bar_visibility);
     settings.pending_sidebar_initial_state = Some(state.sidebar_config.initial_state);
     settings.pending_sidebar_initial_agent_scope = Some(state.sidebar_config.initial_agent_scope);
     settings.pending_worktree_directory = None;
@@ -2214,6 +2232,7 @@ fn reset_settings_for_scoped_editor(state: &AppState, settings: &mut SettingsSta
     settings.pending_sidebar_min_width = None;
     settings.pending_sidebar_max_width = None;
     settings.pending_sidebar_arrangement = None;
+    settings.pending_context_bar_visibility = None;
     settings.pending_sidebar_initial_state = None;
     settings.pending_sidebar_initial_agent_scope = None;
     settings.pending_worktree_directory = None;
@@ -2309,6 +2328,7 @@ pub(crate) fn open_group_settings(state: &mut AppState, group_idx: usize) {
     state.settings.pending_sidebar_min_width = None;
     state.settings.pending_sidebar_max_width = None;
     state.settings.pending_sidebar_arrangement = None;
+    state.settings.pending_context_bar_visibility = None;
     state.settings.pending_sidebar_initial_state = None;
     state.settings.pending_sidebar_initial_agent_scope = None;
     state.settings.pending_worktree_directory = None;
@@ -2353,6 +2373,7 @@ pub(crate) fn open_workspace_settings(state: &mut AppState, ws_idx: usize) {
     state.settings.pending_sidebar_min_width = None;
     state.settings.pending_sidebar_max_width = None;
     state.settings.pending_sidebar_arrangement = None;
+    state.settings.pending_context_bar_visibility = None;
     state.settings.pending_sidebar_initial_state = None;
     state.settings.pending_sidebar_initial_agent_scope = None;
     state.settings.pending_worktree_directory = None;
@@ -3782,6 +3803,7 @@ mod tests {
                 sidebar_min_width: 18,
                 sidebar_max_width: 36,
                 sidebar_arrangement: SidebarArrangementConfig::Auto,
+                context_bar_visibility: ContextBarVisibilityConfig::Auto,
                 sidebar_initial_state: SidebarInitialStateConfig::Expanded,
                 sidebar_initial_agent_scope: AgentPanelScopeConfig::All,
                 worktree_directory: None,
@@ -4019,6 +4041,30 @@ mod tests {
             }
         ));
     }
+    #[test]
+    fn settings_layout_cycles_context_bar_visibility() {
+        let mut state = state_with_workspaces(&["test"]);
+        open_settings_at(&mut state, SettingsSection::Layout);
+        state.settings.list.show();
+        state.settings.list.select(4);
+
+        let action = update_settings_state(
+            &mut state,
+            KeyEvent::new(KeyCode::Char(' '), KeyModifiers::empty()),
+        );
+
+        assert_eq!(
+            state.settings.pending_context_bar_visibility,
+            Some(ContextBarVisibilityConfig::Always)
+        );
+        assert!(matches!(
+            action,
+            Some(SettingsAction::SaveSettings {
+                context_bar_visibility: ContextBarVisibilityConfig::Always,
+                ..
+            })
+        ));
+    }
 
     #[test]
     fn settings_layout_changes_future_client_sidebar_defaults() {
@@ -4028,12 +4074,12 @@ mod tests {
         open_settings_at(&mut state, SettingsSection::Layout);
         state.settings.list.show();
 
-        state.settings.list.select(4);
+        state.settings.list.select(5);
         update_settings_state(
             &mut state,
             KeyEvent::new(KeyCode::Char(' '), KeyModifiers::empty()),
         );
-        state.settings.list.select(5);
+        state.settings.list.select(6);
         let action = update_settings_state(
             &mut state,
             KeyEvent::new(KeyCode::Char(' '), KeyModifiers::empty()),
