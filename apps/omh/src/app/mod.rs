@@ -17594,6 +17594,20 @@ command = "printf literal > '{}'"
             Some(agent_pane)
         );
         assert_eq!(client.mode, Mode::Terminal);
+        let expected_active_bg = app.state.palette.surface_dim;
+        let (buffer, _, _) = crate::server::render_stream::render_virtual_for_client_view(
+            &mut app.state,
+            &mut client,
+            &app.terminal_runtimes,
+            ratatui::layout::Rect::new(0, 0, 140, 30),
+            false,
+            crate::kitty_graphics::HostCellSize::default(),
+        );
+        assert_eq!(
+            buffer[(body.x + 2, agent_detail_row)].style().bg,
+            Some(expected_active_bg),
+            "focused agent row should use the active background"
+        );
         assert_eq!(app.state.workspaces[0].active_tab_index(), first_tab);
         assert_eq!(
             app.state.workspaces[0].tabs[first_tab].layout.focused(),

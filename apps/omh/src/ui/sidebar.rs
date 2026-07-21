@@ -1785,16 +1785,28 @@ fn render_collapsed_agent_section_header(
     );
 }
 
+fn agent_entry_is_active_for_view(
+    app: &AppState,
+    view: &ClientViewState,
+    entry: &AgentPanelEntry,
+) -> bool {
+    view.active_workspace == Some(entry.ws_idx)
+        && view.focused_pane_for_workspace(app, entry.ws_idx)
+            == Some((entry.tab_idx, entry.pane_id))
+}
+
 fn render_collapsed_agent_entry(
     app: &AppState,
     frame: &mut Frame,
     entry: &AgentPanelEntry,
     ordinal: usize,
+    scope: AgentPanelScope,
+    is_active: bool,
     rows: Rect,
     row_y: u16,
     p: &Palette,
 ) {
-    let num_style = if app.agent_panel_scope == AgentPanelScope::AllWorkspaces {
+    let num_style = if scope == AgentPanelScope::AllWorkspaces {
         entry
             .group_context_idx
             .map(|group_idx| Style::default().fg(app.group_accent_color(group_idx)))
@@ -1802,8 +1814,13 @@ fn render_collapsed_agent_entry(
     } else {
         Style::default().fg(p.overlay0)
     };
+    let row_style = if is_active {
+        Style::default().bg(p.surface_dim)
+    } else {
+        Style::default()
+    };
     frame.render_widget(
-        Paragraph::new(Span::styled(format!("  {ordinal}"), num_style)),
+        Paragraph::new(Span::styled(format!("  {ordinal}"), num_style)).style(row_style),
         Rect::new(rows.x, row_y, rows.width, 1),
     );
 }
@@ -1859,7 +1876,17 @@ fn render_collapsed_agent_panel(
                 if row_y >= rows.y + rows.height {
                     return;
                 }
-                render_collapsed_agent_entry(app, frame, entry, ordinal, rows, row_y, p);
+                render_collapsed_agent_entry(
+                    app,
+                    frame,
+                    entry,
+                    ordinal,
+                    app.agent_panel_scope,
+                    app.is_active_pane(entry.ws_idx, entry.tab_idx, entry.pane_id),
+                    rows,
+                    row_y,
+                    p,
+                );
                 row_y = row_y.saturating_add(1);
             }
             ordinal = ordinal.saturating_add(1);
@@ -1923,17 +1950,16 @@ fn render_collapsed_agent_panel_for_view(
                 if row_y >= rows.y + rows.height {
                     return;
                 }
-                let num_style = if view.agent_panel_scope == AgentPanelScope::AllWorkspaces {
-                    entry
-                        .group_context_idx
-                        .map(|group_idx| Style::default().fg(app.group_accent_color(group_idx)))
-                        .unwrap_or_else(|| Style::default().fg(p.overlay0))
-                } else {
-                    Style::default().fg(p.overlay0)
-                };
-                frame.render_widget(
-                    Paragraph::new(Span::styled(format!("  {ordinal}"), num_style)),
-                    Rect::new(rows.x, row_y, rows.width, 1),
+                render_collapsed_agent_entry(
+                    app,
+                    frame,
+                    entry,
+                    ordinal,
+                    view.agent_panel_scope,
+                    agent_entry_is_active_for_view(app, view, entry),
+                    rows,
+                    row_y,
+                    p,
                 );
                 row_y = row_y.saturating_add(1);
             }
@@ -3561,11 +3587,11 @@ fn render_agent_entry(
     show_status: bool,
     show_agent_label: bool,
     detail: &AgentPanelEntry,
+    is_active: bool,
     area: Rect,
     row_y: u16,
 ) {
     let p = &app.palette;
-    let is_active = app.is_active_pane(detail.ws_idx, detail.tab_idx, detail.pane_id);
     let row_style = if is_active {
         Style::default().bg(p.surface_dim)
     } else {
@@ -4027,6 +4053,7 @@ fn render_agent_detail_from(
                 show_status,
                 show_agent_labels,
                 detail,
+                app.is_active_pane(detail.ws_idx, detail.tab_idx, detail.pane_id),
                 body,
                 row_y,
             );
@@ -4158,6 +4185,7 @@ fn render_agent_detail_from_for_view(
                 show_status,
                 show_agent_labels,
                 detail,
+                agent_entry_is_active_for_view(app, client_view, detail),
                 body,
                 row_y,
             );
@@ -5964,6 +5992,10 @@ mod tests {
         assert_eq!(rows[1], "│───");
         assert_eq!(buffer[(content.x, triage_header_row)].symbol(), "▾");
         assert_eq!(buffer[(content.x + 2, triage_agent_row)].symbol(), "1");
+        assert_eq!(
+            buffer[(content.x + 2, triage_agent_row)].style().bg,
+            Some(app.palette.surface_dim)
+        );
         assert_eq!(buffer[(content.x, working_header_row)].symbol(), "▾");
         assert_eq!(
             buffer[(content.x + 2, working_header_row)].symbol(),

@@ -27,6 +27,7 @@ A workspace contains tabs, panes, cwd metadata, and agent state rollups.
 
 - **Workspace creation and focus** — create, focus, rename, close, list, and inspect workspaces from the TUI, CLI, or socket API.
 - **Workspace sidebar** — expanded workspace rows show the workspace name, activity state, and git/cwd summary.
+- **Agent sidebar** — agent rows focus their workspace, tab, and pane when clicked and highlight the active agent row for the attached client.
 - **Collapsed sidebar rail** — collapsed sidebars keep group boundaries and agent status categories visible: group rows switch directly to that group's remembered workspace, space rows switch directly to a workspace, and activity counts open filtered agent pickers. Compact agent rows sit under expandable triage, working, and idle status headers. Hovering or keyboard-selecting a compact space row reveals its accented group, full space name, and color-coded status. At the bottom of the rail, the help launcher sits directly above the expand control.
 - **Configurable sidebar metadata** — `[ui.sidebar.agents]` and `[ui.sidebar.spaces]` rows accept built-in tokens and `$custom` metadata reported through the socket API; defaults preserve compact workspace and agent labels across expanded, collapsed, and mobile views.
 - **New-client sidebar defaults** — every app client starts with all spaces visible. `ui.sidebar.initial_state` and `ui.sidebar.initial_agent_scope` choose its initial expansion and agent scope; defaults are `expanded` and `all`, and one client's runtime changes never seed another client.
