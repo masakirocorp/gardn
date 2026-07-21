@@ -2486,7 +2486,12 @@ impl App {
                     );
                 }
             }
-            Mode::Onboarding | Mode::Prefix | Mode::Terminal => {}
+            Mode::Onboarding => {
+                if key.code == crossterm::event::KeyCode::Enter {
+                    self.complete_onboarding_for_client_view(client_view);
+                }
+            }
+            Mode::Prefix | Mode::Terminal => {}
         }
     }
 
@@ -3756,6 +3761,22 @@ impl App {
         };
         client_view.agent_panel_scroll = 0;
         Self::leave_client_view_command_mode(client_view);
+    }
+
+    fn complete_onboarding_for_client_view(&mut self, client_view: &mut ClientViewState) {
+        self.mark_onboarding_complete();
+        self.refresh_integration_recommendations();
+        if self.state.mode == Mode::Onboarding {
+            self.state.mode = if self.state.active.is_some() {
+                Mode::Terminal
+            } else {
+                Mode::Navigate
+            };
+        }
+        self.open_client_view_settings_at(
+            client_view,
+            crate::app::state::SettingsSection::Integrations,
+        );
     }
 
     fn open_client_view_settings(&self, client_view: &mut ClientViewState) {
@@ -5711,6 +5732,37 @@ impl App {
         true
     }
 
+    fn handle_client_view_onboarding_mouse(
+        &mut self,
+        client_view: &mut ClientViewState,
+        mouse: crossterm::event::MouseEvent,
+    ) -> bool {
+        if client_view.mode != Mode::Onboarding {
+            return false;
+        }
+        if !matches!(
+            mouse.kind,
+            crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left)
+        ) {
+            return true;
+        }
+
+        let Some(popup) = crate::ui::centered_popup_rect(client_view.screen_rect(), 64, 16) else {
+            return true;
+        };
+        let inner = ratatui::widgets::Block::default()
+            .borders(ratatui::widgets::Borders::ALL)
+            .inner(popup);
+        let actions = crate::ui::modal_stack_areas(inner, 2, 0, 1, 1)
+            .actions
+            .unwrap_or_default();
+        let continue_button = crate::ui::onboarding_welcome_continue_rect(actions);
+        if Self::rect_contains(continue_button, mouse.column, mouse.row) {
+            self.complete_onboarding_for_client_view(client_view);
+        }
+        true
+    }
+
     fn handle_client_view_text_modal_key(
         &mut self,
         client_view: &mut ClientViewState,
@@ -5858,6 +5910,9 @@ impl App {
             return;
         }
 
+        if self.handle_client_view_onboarding_mouse(client_view, mouse) {
+            return;
+        }
         if self.handle_client_view_overlay_mouse(client_view, mouse) {
             return;
         }
@@ -13079,6 +13134,69 @@ command = "printf literal > '{}'"
             app.state.settings.section,
             state::SettingsSection::Integrations
         );
+    }
+
+    #[test]
+    fn route_client_events_for_view_advances_onboarding_with_enter() {
+        let mut app = test_app();
+        app.state.workspaces = vec![Workspace::test_new("test")];
+        app.state.active = Some(0);
+        app.state.mode = Mode::Onboarding;
+        let mut client = ClientViewState::from_default_client_state(&app.state);
+
+        app.route_client_events_for_view(
+            &mut client,
+            vec![raw_key(
+                KeyCode::Enter,
+                KeyModifiers::empty(),
+                KeyEventKind::Press,
+            )],
+            true,
+        );
+
+        assert_eq!(client.mode, Mode::Settings);
+        assert_eq!(
+            client.settings.section,
+            state::SettingsSection::Integrations
+        );
+        assert_eq!(app.state.mode, Mode::Terminal);
+    }
+
+    #[test]
+    fn route_client_events_for_view_advances_onboarding_with_continue_click() {
+        let mut app = test_app();
+        app.state.workspaces = vec![Workspace::test_new("test")];
+        app.state.active = Some(0);
+        app.state.mode = Mode::Onboarding;
+        app.state.mouse_capture = true;
+        let mut client = ClientViewState::from_default_client_state(&app.state);
+        compute_client_view(&app, &mut client, ratatui::layout::Rect::new(0, 0, 120, 30));
+        let popup =
+            crate::ui::centered_popup_rect(client.screen_rect(), 64, 16).expect("onboarding popup");
+        let inner = ratatui::widgets::Block::default()
+            .borders(ratatui::widgets::Borders::ALL)
+            .inner(popup);
+        let actions = crate::ui::modal_stack_areas(inner, 2, 0, 1, 1)
+            .actions
+            .expect("onboarding actions");
+        let continue_button = crate::ui::onboarding_welcome_continue_rect(actions);
+
+        app.route_client_events_for_view(
+            &mut client,
+            vec![raw_mouse(
+                crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left),
+                continue_button.x,
+                continue_button.y,
+            )],
+            true,
+        );
+
+        assert_eq!(client.mode, Mode::Settings);
+        assert_eq!(
+            client.settings.section,
+            state::SettingsSection::Integrations
+        );
+        assert_eq!(app.state.mode, Mode::Terminal);
     }
 
     #[test]
