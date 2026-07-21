@@ -925,12 +925,22 @@ impl AppState {
         &self,
         row: u16,
     ) -> Option<crate::ui::AgentPanelHeaderTarget> {
-        if self.sidebar_collapsed && self.view.right_sidebar_rect == Rect::default() {
-            let (_, _, detail_area) = crate::ui::collapsed_sidebar_sections_for_split(
-                self.view.sidebar_rect,
-                true,
-                self.sidebar_section_split,
-            );
+        let collapsed_area =
+            if self.view.right_sidebar_rect != Rect::default() && self.right_sidebar_collapsed {
+                Some(crate::ui::right_sidebar_content_rect(
+                    self.view.right_sidebar_rect,
+                ))
+            } else if self.sidebar_collapsed && self.view.right_sidebar_rect == Rect::default() {
+                let (_, _, detail_area) = crate::ui::collapsed_sidebar_sections_for_split(
+                    self.view.sidebar_rect,
+                    true,
+                    self.sidebar_section_split,
+                );
+                Some(detail_area)
+            } else {
+                None
+            };
+        if let Some(detail_area) = collapsed_area {
             return crate::ui::collapsed_agent_panel_header_target_at_row(self, detail_area, row);
         }
 
@@ -949,8 +959,24 @@ impl AppState {
         &self,
         row: u16,
     ) -> Option<(usize, usize, crate::layout::PaneId)> {
-        if self.sidebar_collapsed && self.view.right_sidebar_rect == Rect::default() {
-            return None;
+        let collapsed_area =
+            if self.view.right_sidebar_rect != Rect::default() && self.right_sidebar_collapsed {
+                Some(crate::ui::right_sidebar_content_rect(
+                    self.view.right_sidebar_rect,
+                ))
+            } else if self.sidebar_collapsed && self.view.right_sidebar_rect == Rect::default() {
+                let (_, _, detail_area) = crate::ui::collapsed_sidebar_sections_for_split(
+                    self.view.sidebar_rect,
+                    true,
+                    self.sidebar_section_split,
+                );
+                Some(detail_area)
+            } else {
+                None
+            };
+        if let Some(detail_area) = collapsed_area {
+            return crate::ui::collapsed_agent_panel_entry_at_row(self, detail_area, row)
+                .map(|detail| (detail.ws_idx, detail.tab_idx, detail.pane_id));
         }
 
         let detail_area = self.agent_panel_rect();
@@ -2220,10 +2246,10 @@ mod tests {
         let menu_rect_after_scope_click = app.state.agent_menu_rect();
 
         app.state.mode = Mode::Terminal;
-        let triage_agent_row = detail_area.y + 2;
+        let triage_agent_row = detail_area.y + 3;
         app.handle_mouse(mouse(
             MouseEventKind::Down(MouseButton::Left),
-            detail_area.x,
+            detail_area.x + 2,
             triage_agent_row,
         ));
 

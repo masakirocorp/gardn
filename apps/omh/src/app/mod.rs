@@ -8233,7 +8233,13 @@ impl App {
         row: u16,
     ) -> Option<crate::ui::AgentPanelHeaderTarget> {
         let view = client_view;
-        if client_view.sidebar_collapsed
+        let collapsed_detail_area = if client_view.computed.right_sidebar_rect != Rect::default()
+            && client_view.right_sidebar_collapsed
+        {
+            Some(crate::ui::right_sidebar_content_rect(
+                client_view.computed.right_sidebar_rect,
+            ))
+        } else if client_view.sidebar_collapsed
             && client_view.computed.right_sidebar_rect == Rect::default()
         {
             let (_, _, detail_area) = crate::ui::collapsed_sidebar_sections_for_split(
@@ -8241,10 +8247,21 @@ impl App {
                 true,
                 client_view.sidebar_section_split,
             );
+            Some(detail_area)
+        } else {
+            None
+        };
+        if let Some(detail_area) = collapsed_detail_area {
             if !Self::rect_contains(detail_area, column, row) {
                 return None;
             }
-            return None;
+            return crate::ui::collapsed_agent_panel_header_target_at_row_for_view(
+                &self.state,
+                &self.terminal_runtimes,
+                view,
+                detail_area,
+                row,
+            );
         }
 
         let area = self.client_view_agent_panel_rect(client_view);
@@ -17409,6 +17426,67 @@ command = "printf literal > '{}'"
             None,
             "collapsed triage section should not expose the child agent row to client-local hit testing"
         );
+    }
+
+    #[test]
+    fn route_client_events_for_view_collapsed_agent_status_header_toggle_is_client_local() {
+        let mut app = test_app();
+        let mut workspace = Workspace::test_new("triage");
+        let pane = workspace.tabs[0].root_pane;
+        let pane_state = workspace.tabs[0].panes.get_mut(&pane).expect("root pane");
+        pane_state.detected_agent = Some(Agent::Claude);
+        pane_state.state = AgentState::Blocked;
+        app.state.workspaces = vec![workspace];
+        app.state.ensure_test_terminals();
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::Terminal;
+        app.state.mouse_capture = true;
+        app.state.agent_panel_scope = state::AgentPanelScope::AllWorkspaces;
+        app.state.sidebar_arrangement = crate::config::SidebarArrangementConfig::CombinedLeft;
+
+        let area = ratatui::layout::Rect::new(0, 0, 120, 30);
+        let mut first_client = ClientViewState::from_default_client_state(&app.state);
+        first_client.sidebar_collapsed = true;
+        let second_client = ClientViewState::from_default_client_state(&app.state);
+        compute_client_view(&app, &mut first_client, area);
+        let (_, _, detail_area) = crate::ui::collapsed_sidebar_sections_for_split(
+            first_client.computed.sidebar_rect,
+            true,
+            first_client.sidebar_section_split,
+        );
+        let triage_row = (detail_area.y..detail_area.y + detail_area.height)
+            .find(|row| {
+                crate::ui::collapsed_agent_panel_header_target_at_row_for_view(
+                    &app.state,
+                    &app.terminal_runtimes,
+                    &first_client,
+                    detail_area,
+                    *row,
+                )
+                .is_some_and(|target| target.section == "triage")
+            })
+            .expect("compact triage status header");
+
+        app.route_client_events_for_view(
+            &mut first_client,
+            vec![raw_mouse(
+                crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left),
+                detail_area.x + 1,
+                triage_row,
+            )],
+            true,
+        );
+
+        assert!(first_client
+            .collapsed_agent_sections
+            .iter()
+            .any(|section| section == "triage"));
+        assert!(!second_client
+            .collapsed_agent_sections
+            .iter()
+            .any(|section| section == "triage"));
+        assert!(!app.state.agent_section_collapsed("triage"));
     }
 
     #[test]

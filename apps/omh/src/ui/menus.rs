@@ -6,7 +6,10 @@ use ratatui::{
     Frame,
 };
 
-use super::widgets::{panel_contrast_fg, render_panel_shell};
+use super::{
+    text::display_width,
+    widgets::{panel_contrast_fg, render_panel_shell},
+};
 use crate::app::{state::ContextMenuState, AppState, ClientViewState};
 
 fn count_suffix(text: &str) -> Option<(&str, &str)> {
@@ -104,7 +107,7 @@ fn group_menu_all_line(app: &AppState, selected: bool, width: u16) -> Line<'stat
     Line::from(vec![
         Span::styled(left.clone(), text_style),
         Span::styled(
-            right_aligned_count_gap(width, left.chars().count(), count.chars().count()),
+            right_aligned_count_gap(width, display_width(&left), display_width(&count)),
             text_style,
         ),
         Span::styled(count, count_style),
@@ -165,15 +168,17 @@ fn group_menu_group_line_for_selection(
     } else {
         Style::default().fg(app.palette.overlay0)
     };
+    let icon_width = display_width(&group.icon);
+    let icon_padding = " ".repeat(2usize.saturating_sub(icon_width));
     let left_width =
-        marker.chars().count() + 1 + group.icon.chars().count() + 1 + group.name.chars().count();
+        display_width(marker) + 1 + icon_width + icon_padding.len() + display_width(&group.name);
     Line::from(vec![
         Span::styled(format!("{marker} "), group_style),
         Span::styled(group.icon.clone(), group_style),
-        Span::styled(" ", group_style),
+        Span::styled(icon_padding, group_style),
         Span::styled(group.name.clone(), group_style),
         Span::styled(
-            right_aligned_count_gap(width, left_width, count.chars().count()),
+            right_aligned_count_gap(width, left_width, display_width(&count)),
             group_style,
         ),
         Span::styled(count, count_style),
@@ -1263,6 +1268,38 @@ mod tests {
             Some(app.group_accent_color(group_idx))
         );
         assert_eq!(line.spans[5].content.as_ref(), "0");
+    }
+
+    #[test]
+    fn group_menu_alignment_uses_terminal_width_for_wide_icons() {
+        let mut app = AppState::test_new();
+        let group_idx = app.create_group("Archive".to_string());
+        app.groups[group_idx].icon = "⚓".to_string();
+
+        let wide_line = group_menu_group_line(&app, group_idx, false, 18);
+        let wide_name_start = wide_line
+            .spans
+            .iter()
+            .take(3)
+            .map(|span| display_width(span.content.as_ref()))
+            .sum::<usize>();
+        let rendered_width = wide_line
+            .spans
+            .iter()
+            .map(|span| display_width(span.content.as_ref()))
+            .sum::<usize>();
+
+        app.groups[group_idx].icon = "■".to_string();
+        let narrow_line = group_menu_group_line(&app, group_idx, false, 18);
+        let narrow_name_start = narrow_line
+            .spans
+            .iter()
+            .take(3)
+            .map(|span| display_width(span.content.as_ref()))
+            .sum::<usize>();
+
+        assert_eq!(wide_name_start, narrow_name_start);
+        assert_eq!(rendered_width, 17);
     }
     #[test]
     fn client_group_menu_group_line_uses_group_accent() {
