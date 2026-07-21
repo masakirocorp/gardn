@@ -17,6 +17,8 @@ Use this how-to when you are arranging an active Oh My Herdr session. For the co
 
 Deleting a group is destructive: the application asks for confirmation and does not allow deleting the last group. Closing a workspace asks for confirmation by default and closes the workspace's tabs and panes when accepted.
 
+When the sidebar is collapsed, its compact rail keeps groups and agent-status sections visible. Click a group or workspace row to switch directly, click an activity count to open the matching filtered agent picker, and use the help and expand controls at the bottom of the rail.
+
 ## Work with tabs
 
 Click a tab in the tab bar to focus it. Drag a tab to reorder it within the active workspace. Scroll over the tab bar to move to the previous or next tab. Right-click a tab for its context menu.
@@ -33,7 +35,15 @@ To use the keyboard, open the command palette with `ctrl+b`, then `space`, and s
 
 The default shortcuts are `ctrl+b`, then `v` for a vertical split, `-` for a horizontal split, `h`/`j`/`k`/`l` for directional focus, `z` for zoom, and `r` for resize mode. In resize mode, use `h`/`left`, `j`/`down`, `k`/`up`, or `l`/`right`; press `enter` to accept or `esc` to leave the mode.
 
-## Use the navigator
+## Use the workspace navigator and context bar
+
+On desktop, the bottom context bar shows the active group, workspace, tab, and focused pane alongside live group, workspace, and tab counts. Click a visible path segment to open the workspace navigator at that group, workspace, tab, or pane.
+
+Press the default `ctrl+b`, then `w` to open the workspace navigator directly. Search by name or filter by state, use the disclosure arrows or `space` to expand or collapse the highlighted branch, press `e` to expand the full tree, or press `c` to collapse it to group roots.
+
+Use `ctrl+b`, then `down` to hide or restore the context bar for only the attached client. To set its persistent default, set `ui.context_bar` to `always` or `never`.
+
+## Use the session navigator
 
 Press the default `ctrl+b`, then `g` to open the navigator. Use `up` and `down` to move through visible workspaces. Use `h`, `j`, `k`, and `l` (with left and right arrow aliases) to focus panes. Press `enter` to switch to the selected workspace, or press a number to choose one of the first ten visible workspaces. `tab` cycles panes. Press `esc` or the prefix key to leave the navigator.
 

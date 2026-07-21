@@ -1,6 +1,7 @@
 ---
 packages:
   omh: patch
+  omh-docs: patch
 ---
 
 ### Add a responsive workspace context bar
