@@ -2067,6 +2067,38 @@ fn sidebar_is_combined_right(app: &AppState) -> bool {
         && app.sidebar_arrangement == crate::config::SidebarArrangementConfig::CombinedRight
 }
 
+fn render_collapsed_group_row(
+    frame: &mut Frame,
+    row: Rect,
+    chevron: &str,
+    icon: &str,
+    chevron_style: Style,
+    icon_style: Style,
+) {
+    if row.width < 2 {
+        return;
+    }
+    frame.render_widget(
+        Paragraph::new(Span::styled(chevron.to_string(), chevron_style)),
+        Rect::new(row.x, row.y, 1, 1),
+    );
+
+    let available = row.width.saturating_sub(1);
+    let icon_width = display_width(icon).min(u16::MAX as usize) as u16;
+    if icon_width == 0 || icon_width > available {
+        return;
+    }
+    frame.render_widget(
+        Paragraph::new(Span::styled(icon.to_string(), icon_style)),
+        Rect::new(
+            row.x + row.width.saturating_sub(icon_width),
+            row.y,
+            icon_width,
+            1,
+        ),
+    );
+}
+
 pub(super) fn render_sidebar_collapsed(app: &AppState, frame: &mut Frame, area: Rect) {
     let is_navigating = matches!(app.mode, Mode::Navigate);
     let show_agent_detail = app.view.right_sidebar_rect == Rect::default();
@@ -2161,13 +2193,13 @@ pub(super) fn render_sidebar_collapsed(app: &AppState, frame: &mut Frame, area: 
                 let group_style = Style::default()
                     .fg(app.group_accent_color(group_idx))
                     .add_modifier(Modifier::BOLD);
-                frame.render_widget(
-                    Paragraph::new(Line::from(vec![
-                        Span::styled(chevron, Style::default().fg(p.overlay1)),
-                        Span::styled(" ", Style::default()),
-                        Span::styled(group.icon.clone(), group_style),
-                    ])),
+                render_collapsed_group_row(
+                    frame,
                     Rect::new(workspace_rows.x, y, workspace_rows.width, 1),
+                    chevron,
+                    &group.icon,
+                    Style::default().fg(p.overlay1),
+                    group_style,
                 );
             }
             CollapsedWorkspaceRowEntry::Workspace { ws_idx, ordinal } => {
@@ -2337,13 +2369,13 @@ pub(super) fn render_sidebar_collapsed_for_view(
                     let group_style = Style::default()
                         .fg(app.group_accent_color(group_idx))
                         .add_modifier(Modifier::BOLD);
-                    frame.render_widget(
-                        Paragraph::new(Line::from(vec![
-                            Span::styled(chevron, Style::default().fg(p.overlay1)),
-                            Span::raw(" "),
-                            Span::styled(group.icon.clone(), group_style),
-                        ])),
+                    render_collapsed_group_row(
+                        frame,
                         Rect::new(rows.x, y, rows.width, 1),
+                        chevron,
+                        &group.icon,
+                        Style::default().fg(p.overlay1),
+                        group_style,
                     );
                 }
                 CollapsedWorkspaceRowEntry::Workspace { ws_idx, ordinal } => {
@@ -4467,6 +4499,34 @@ mod tests {
         assert_eq!(
             buffer[(x, y)].style().fg,
             Some(app.group_accent_color(group_idx))
+        );
+    }
+
+    #[test]
+    fn collapsed_four_column_rail_renders_wide_group_icons() {
+        let mut app = crate::app::state::AppState::test_new();
+        app.groups[0].name = "Archive".to_string();
+        app.groups[0].icon = "⚓".to_string();
+        app.group_filter_enabled = false;
+        let mut view = ClientViewState::from_default_client_state(&app);
+        view.group_filter_enabled = false;
+        let runtimes = TerminalRuntimeRegistry::new();
+
+        let area = Rect::new(0, 0, 4, 8);
+        let backend = TestBackend::new(area.width, area.height);
+        let mut terminal = Terminal::new(backend).expect("test backend");
+        terminal
+            .draw(|frame| {
+                render_sidebar_collapsed_for_view(&app, &runtimes, &view, frame, area);
+            })
+            .expect("render collapsed client sidebar");
+
+        let (x, y) =
+            first_cell_with_symbol(terminal.backend().buffer(), area.width, area.height, "⚓")
+                .expect("wide group icon should remain visible inside the four-column rail");
+        assert_eq!(
+            terminal.backend().buffer()[(x, y)].style().fg,
+            Some(app.group_accent_color(0))
         );
     }
 
