@@ -597,12 +597,12 @@ impl AppState {
             return Vec::new();
         };
         let mut rows = Vec::new();
-        for pane_id in tab.layout.pane_ids() {
+        for (pane_idx, pane_id) in tab.layout.pane_ids().into_iter().enumerate() {
             let Some(pane) = tab.panes.get(&pane_id) else {
                 continue;
             };
             let terminal = self.terminals.get(&pane.attached_terminal_id);
-            let pane_number = ws.public_pane_number(pane_id).unwrap_or(0);
+            let pane_number = pane_idx + 1;
             let label = terminal
                 .and_then(|terminal| terminal.effective_title())
                 .or_else(|| {
@@ -4513,6 +4513,28 @@ mod tests {
             row.target,
             NavigatorTarget::Pane { pane_id, .. } if pane_id == agent
         ) && row.meta.contains("claude")));
+    }
+
+    #[test]
+    fn navigator_rows_renumber_unnamed_panes_after_one_closes() {
+        let mut state = app_with_workspaces(&["one"]);
+        let closed_pane = state.workspaces[0].test_split(Direction::Horizontal);
+        let last_pane = state.workspaces[0].test_split(Direction::Horizontal);
+        assert!(!state.workspaces[0].close_pane(closed_pane));
+        state.open_navigator();
+
+        let rows = state.navigator_rows();
+        let last_pane_row = rows
+            .iter()
+            .find(|row| {
+                matches!(
+                    row.target,
+                    NavigatorTarget::Pane { pane_id, .. } if pane_id == last_pane
+                )
+            })
+            .expect("remaining pane row");
+
+        assert_eq!(last_pane_row.label, "pane 2");
     }
 
     #[test]

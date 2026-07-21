@@ -266,7 +266,7 @@ fn agent_panel_pane_disambiguator(app: &AppState, entry: &AgentPanelEntry) -> Op
         .and_then(|terminal| terminal.manual_label.clone())
         .or_else(|| {
             workspace
-                .public_pane_number(entry.pane_id)
+                .pane_display_number(entry.pane_id)
                 .map(|number| format!("pane {number}"))
         })
 }
@@ -5228,15 +5228,17 @@ mod tests {
     }
 
     #[test]
-    fn agent_panel_disambiguates_agents_in_the_same_tab_by_pane() {
+    fn agent_panel_renumbers_unnamed_panes_after_one_closes() {
         let mut app = crate::app::state::AppState::test_new();
         let mut workspace = Workspace::test_new("personal");
         let first_pane = workspace.tabs[0].root_pane;
-        let second_pane = workspace.test_split(ratatui::layout::Direction::Horizontal);
+        let closed_pane = workspace.test_split(ratatui::layout::Direction::Horizontal);
+        let last_pane = workspace.test_split(ratatui::layout::Direction::Horizontal);
+        assert!(!workspace.close_pane(closed_pane));
         app.workspaces = vec![workspace];
         app.ensure_test_terminals();
 
-        for (pane_id, agent) in [(first_pane, Agent::Codex), (second_pane, Agent::Claude)] {
+        for (pane_id, agent) in [(first_pane, Agent::Codex), (last_pane, Agent::Claude)] {
             let terminal_id = app.workspaces[0].tabs[0].panes[&pane_id]
                 .attached_terminal_id
                 .clone();

@@ -631,8 +631,16 @@ fn pane_detail(
     if ws.tabs.len() > 1 {
         parts.push(format!("tab: {}", tab.display_name()));
     }
-    if let Some(pane_number) = ws.public_pane_number(pane_id) {
-        parts.push(format!("pane {pane_number}"));
+    let pane_label = tab
+        .terminal_id(pane_id)
+        .and_then(|terminal_id| app.terminals.get(terminal_id))
+        .and_then(|terminal| terminal.manual_label.clone())
+        .or_else(|| {
+            ws.pane_display_number(pane_id)
+                .map(|number| format!("pane {number}"))
+        });
+    if let Some(pane_label) = pane_label {
+        parts.push(pane_label);
     }
     if let Some(terminal_id) = tab.terminal_id(pane_id) {
         if let Some(terminal) = app.terminals.get(terminal_id) {
@@ -764,6 +772,49 @@ mod tests {
             text.contains("expand space · all e/c"),
             "modal footer hints: {text:?}"
         );
+    }
+
+    #[test]
+    fn navigator_detail_renumbers_unnamed_panes_after_one_closes() {
+        let mut app = AppState::test_new();
+        let mut workspace = Workspace::test_new("personal");
+        let closed_pane = workspace.test_split(ratatui::layout::Direction::Horizontal);
+        let last_pane = workspace.test_split(ratatui::layout::Direction::Horizontal);
+        assert!(!workspace.close_pane(closed_pane));
+        workspace.tabs[0].layout.focus_pane(last_pane);
+        app.workspaces = vec![workspace];
+        app.active = Some(0);
+        app.selected = 0;
+        let area = Rect::new(0, 0, 120, 30);
+        crate::ui::compute_view(&mut app, area);
+        app.open_navigator();
+
+        let mut view = ClientViewState::from_default_client_state(&app);
+        let terminal_runtimes = crate::terminal::TerminalRuntimeRegistry::new();
+        let selected = app
+            .navigator_rows_for_view(&view, &terminal_runtimes)
+            .iter()
+            .position(|row| {
+                matches!(
+                    row.target,
+                    NavigatorTarget::Pane { pane_id, .. } if pane_id == last_pane
+                )
+            })
+            .expect("remaining pane row");
+        view.navigator.list.select(selected);
+        view.navigator.list.show();
+
+        let backend = TestBackend::new(area.width, area.height);
+        let mut terminal = Terminal::new(backend).expect("test backend");
+        terminal
+            .draw(|frame| render_navigator_overlay_for_view(&app, &view, &terminal_runtimes, frame))
+            .expect("render navigator");
+
+        let layout = navigator_layout(area).expect("navigator layout");
+        let detail = (layout.detail.x..layout.detail.x + layout.detail.width)
+            .map(|x| terminal.backend().buffer()[(x, layout.detail.y)].symbol())
+            .collect::<String>();
+        assert!(detail.contains("personal · pane 2"), "{detail:?}");
     }
 
     #[test]

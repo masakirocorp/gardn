@@ -264,7 +264,7 @@ fn compute_context_bar(
                         .and_then(|terminal| terminal.manual_label.clone())
                         .or_else(|| {
                             workspace
-                                .public_pane_number(pane_id)
+                                .pane_display_number(pane_id)
                                 .map(|number| format!("pane {number}"))
                         });
                     if let Some(label) = label {
@@ -1629,6 +1629,30 @@ mod tests {
                 .last()
                 .map(|segment| segment.target),
             Some(crate::app::state::ContextBarTarget::Pane)
+        );
+    }
+
+    #[test]
+    fn context_bar_renumbers_unnamed_panes_after_one_closes() {
+        let mut app = crate::app::state::AppState::test_new();
+        let mut workspace = Workspace::test_new("website");
+        let closed_pane = workspace.test_split(ratatui::layout::Direction::Horizontal);
+        let focused_pane = workspace.test_split(ratatui::layout::Direction::Horizontal);
+        assert!(!workspace.close_pane(closed_pane));
+        workspace.tabs[0].layout.focus_pane(focused_pane);
+        app.workspaces = vec![workspace];
+        app.active = Some(0);
+        app.selected = 0;
+
+        compute_view(&mut app, Rect::new(0, 0, 100, 20));
+
+        assert_eq!(
+            app.view
+                .context_bar
+                .segments
+                .last()
+                .map(|segment| segment.label.as_str()),
+            Some("pane 2")
         );
     }
 

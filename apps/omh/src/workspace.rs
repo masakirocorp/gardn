@@ -1185,6 +1185,11 @@ impl Workspace {
         self.public_pane_numbers.get(&pane_id).copied()
     }
 
+    pub fn pane_display_number(&self, pane_id: PaneId) -> Option<usize> {
+        let tab_idx = self.find_tab_index_for_pane(pane_id)?;
+        self.tabs.get(tab_idx)?.layout.pane_ordinal(pane_id)
+    }
+
     fn launch_env_for_new_pane(
         &self,
         tab_number: usize,
@@ -1657,6 +1662,25 @@ mod tests {
 
         let fourth = ws.test_split(Direction::Horizontal);
         assert_eq!(ws.public_pane_number(fourth), Some(4));
+    }
+
+    #[test]
+    fn pane_display_numbers_are_dense_and_tab_local() {
+        let mut ws = Workspace::test_new("test");
+        let first_tab_root = ws.tabs[0].root_pane;
+        let second_tab = ws.test_add_tab(None);
+        ws.active_tab = second_tab;
+        let second_tab_root = ws.tabs[second_tab].root_pane;
+        let second_tab_split = ws.test_split(Direction::Horizontal);
+
+        assert_eq!(ws.pane_display_number(first_tab_root), Some(1));
+        assert_eq!(ws.pane_display_number(second_tab_root), Some(1));
+        assert_eq!(ws.pane_display_number(second_tab_split), Some(2));
+
+        assert!(!ws.close_pane(second_tab_root));
+
+        assert_eq!(ws.public_pane_number(second_tab_split), Some(3));
+        assert_eq!(ws.pane_display_number(second_tab_split), Some(1));
     }
 
     #[test]

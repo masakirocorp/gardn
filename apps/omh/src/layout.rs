@@ -101,6 +101,11 @@ impl TileLayout {
         count_panes(&self.root)
     }
 
+    pub fn pane_ordinal(&self, pane_id: PaneId) -> Option<usize> {
+        let mut ordinal = 0;
+        find_pane_ordinal(&self.root, pane_id, &mut ordinal)
+    }
+
     /// Compute rects for all panes given the available area.
     pub fn panes(&self, area: Rect) -> Vec<PaneInfo> {
         let mut result = Vec::new();
@@ -353,6 +358,21 @@ fn count_panes(node: &Node) -> usize {
     match node {
         Node::Pane(_) => 1,
         Node::Split { first, second, .. } => count_panes(first) + count_panes(second),
+    }
+}
+
+fn find_pane_ordinal(node: &Node, target: PaneId, ordinal: &mut usize) -> Option<usize> {
+    match node {
+        Node::Pane(pane_id) => {
+            *ordinal += 1;
+            (*pane_id == target).then_some(*ordinal)
+        }
+        Node::Split { first, second, .. } => {
+            if let Some(found) = find_pane_ordinal(first, target, ordinal) {
+                return Some(found);
+            }
+            find_pane_ordinal(second, target, ordinal)
+        }
     }
 }
 
