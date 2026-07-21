@@ -16195,7 +16195,7 @@ command = "printf literal > '{}'"
     }
 
     #[test]
-    fn route_client_events_for_view_sidebar_footer_help_click_opens_global_menu_locally() {
+    fn route_client_events_for_view_collapsed_sidebar_help_click_opens_global_menu_locally() {
         let mut app = test_app();
         app.state.workspaces = vec![Workspace::test_new("test")];
         app.state.ensure_test_terminals();
@@ -16207,6 +16207,7 @@ command = "printf literal > '{}'"
 
         let mut first_client = ClientViewState::from_default_client_state(&app.state);
         let second_client = ClientViewState::from_default_client_state(&app.state);
+        first_client.sidebar_collapsed = true;
         compute_client_view(
             &app,
             &mut first_client,
@@ -16217,6 +16218,9 @@ command = "printf literal > '{}'"
             launcher.width > 0 && launcher.height > 0,
             "client view should expose the footer help launcher"
         );
+        let toggle = crate::ui::collapsed_sidebar_toggle_rect(first_client.computed.sidebar_rect);
+        assert_eq!(launcher.x, toggle.x);
+        assert_eq!(launcher.y + 1, toggle.y);
 
         app.route_client_events_for_view(
             &mut first_client,

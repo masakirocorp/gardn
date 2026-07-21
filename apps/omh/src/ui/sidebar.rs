@@ -2138,6 +2138,7 @@ pub(super) fn render_sidebar_collapsed(app: &AppState, frame: &mut Frame, area: 
             )
         };
     if ws_area == Rect::default() || workspace_rows == Rect::default() {
+        render_global_launcher(app, frame);
         render_sidebar_toggle(app, frame, area, true, p);
         return;
     }
@@ -2221,6 +2222,7 @@ pub(super) fn render_sidebar_collapsed(app: &AppState, frame: &mut Frame, area: 
     }
 
     if !show_agent_detail {
+        render_global_launcher(app, frame);
         render_sidebar_toggle(app, frame, area, true, p);
         return;
     }
@@ -2230,6 +2232,7 @@ pub(super) fn render_sidebar_collapsed(app: &AppState, frame: &mut Frame, area: 
         render_collapsed_agent_panel(app, &empty_runtimes, frame, detail_area, p);
     }
 
+    render_global_launcher(app, frame);
     render_sidebar_toggle(app, frame, area, true, p);
 }
 pub(super) fn render_sidebar_collapsed_for_view(
@@ -2394,6 +2397,7 @@ pub(super) fn render_sidebar_collapsed_for_view(
     if show_agent_detail {
         render_collapsed_agent_panel_for_view(app, terminal_runtimes, view, frame, agent_area, p);
     }
+    render_global_launcher_for_view(app, view, frame);
     render_sidebar_toggle(app, frame, area, true, p);
 }
 
@@ -2653,6 +2657,10 @@ fn render_global_launcher_for_view(
 pub(crate) fn global_launcher_rect_for_view(app: &AppState, client_view: &ClientViewState) -> Rect {
     if client_view.computed.layout == crate::app::state::ViewLayout::Mobile {
         return client_view.computed.mobile_menu_hit_area;
+    }
+
+    if client_view.sidebar_collapsed {
+        return collapsed_sidebar_launcher_rect(client_view.computed.sidebar_rect);
     }
 
     let footer = client_view_sidebar_footer_rect(client_view);
@@ -4196,6 +4204,14 @@ pub(crate) fn collapsed_sidebar_toggle_rect(area: Rect) -> Rect {
     Rect::new(x, bottom_y, 1, 1)
 }
 
+pub(crate) fn collapsed_sidebar_launcher_rect(area: Rect) -> Rect {
+    let toggle = collapsed_sidebar_toggle_rect(area);
+    if toggle == Rect::default() || toggle.y == area.y {
+        return Rect::default();
+    }
+    Rect::new(toggle.x, toggle.y - 1, 1, 1)
+}
+
 pub(crate) fn expanded_sidebar_toggle_rect(area: Rect) -> Rect {
     let bottom_y = area.y + area.height.saturating_sub(1);
     let content_w = area.width.saturating_sub(1);
@@ -4468,6 +4484,32 @@ mod tests {
             buffer[(x, y)].style().fg,
             Some(app.group_accent_color(group_idx))
         );
+    }
+
+    #[test]
+    fn collapsed_sidebar_stacks_help_above_expand_control() {
+        let app = crate::app::state::AppState::test_new();
+        let mut view = ClientViewState::from_default_client_state(&app);
+        view.sidebar_collapsed = true;
+        let area = Rect::new(0, 0, 4, 8);
+        view.computed.sidebar_rect = area;
+        let runtimes = TerminalRuntimeRegistry::new();
+        let backend = TestBackend::new(area.width, area.height);
+        let mut terminal = Terminal::new(backend).expect("test backend");
+
+        terminal
+            .draw(|frame| {
+                render_sidebar_collapsed_for_view(&app, &runtimes, &view, frame, area);
+            })
+            .expect("render collapsed sidebar footer");
+
+        let launcher = global_launcher_rect_for_view(&app, &view);
+        let toggle = collapsed_sidebar_toggle_rect(area);
+        let buffer = terminal.backend().buffer();
+        assert_eq!(buffer[(launcher.x, launcher.y)].symbol(), "?");
+        assert_eq!(buffer[(toggle.x, toggle.y)].symbol(), "»");
+        assert_eq!(launcher.x, toggle.x);
+        assert_eq!(launcher.y + 1, toggle.y);
     }
 
     #[test]

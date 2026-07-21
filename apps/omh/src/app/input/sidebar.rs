@@ -237,6 +237,10 @@ impl AppState {
             return self.view.mobile_menu_hit_area;
         }
 
+        if self.sidebar_collapsed {
+            return crate::ui::collapsed_sidebar_launcher_rect(self.view.sidebar_rect);
+        }
+
         let footer = self.sidebar_footer_rect();
         if footer == Rect::default() {
             return Rect::default();
