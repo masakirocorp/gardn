@@ -9323,14 +9323,14 @@ impl App {
                     mouse.column,
                     mouse.row,
                 ) {
-                    let Some(group_idx) = self
-                        .state
-                        .groups
-                        .get(client_view.active_group)
-                        .map(|_| client_view.active_group)
-                    else {
+                    let group_idx = client_view
+                        .active_workspace
+                        .and_then(|ws_idx| self.state.workspaces.get(ws_idx))
+                        .and_then(|workspace| self.state.group_index_by_id(&workspace.group_id))
+                        .unwrap_or(client_view.active_group);
+                    if self.state.groups.get(group_idx).is_none() {
                         return false;
-                    };
+                    }
                     client_view.context_menu = Some(state::ContextMenuState {
                         kind: state::ContextMenuKind::Sidebar { group_idx },
                         x: mouse.column,
@@ -18304,6 +18304,79 @@ command = "printf literal > '{}'"
         assert_eq!(client.mode, Mode::RenameGroup);
         assert!(client.creating_new_group);
         assert_eq!(other_client.mode, Mode::Terminal);
+    }
+
+    #[tokio::test]
+    async fn route_client_events_for_view_sidebar_empty_area_space_targets_active_workspace_group()
+    {
+        let mut app = test_app();
+        let group_one_id = app.state.groups[0].id.clone();
+        let group_two = app.state.create_group("group 2".to_string());
+        let group_two_id = app.state.groups[group_two].id.clone();
+        let mut group_one_space = Workspace::test_new("group 1 space");
+        group_one_space.group_id = group_one_id.clone();
+        let mut group_two_space = Workspace::test_new("group 2 space");
+        group_two_space.group_id = group_two_id;
+        app.state.workspaces = vec![group_one_space, group_two_space];
+        app.state.ensure_test_terminals();
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::Terminal;
+        app.state.mouse_capture = true;
+        app.state.group_filter_enabled = false;
+        app.state.sidebar_arrangement = crate::config::SidebarArrangementConfig::CombinedLeft;
+
+        let area = ratatui::layout::Rect::new(0, 0, 120, 30);
+        let mut client = ClientViewState::from_default_client_state(&app.state);
+        client.active_group = group_two;
+        client.group_filter_enabled = false;
+        compute_client_view(&app, &mut client, area);
+        let list = app.client_view_workspace_list_rect(&client);
+        let last_entry_bottom = client
+            .computed
+            .workspace_card_areas
+            .iter()
+            .map(|card| card.rect.y.saturating_add(card.rect.height))
+            .chain(
+                client
+                    .computed
+                    .workspace_group_header_areas
+                    .iter()
+                    .map(|header| header.rect.y.saturating_add(header.rect.height)),
+            )
+            .max()
+            .expect("sidebar should contain visible entries");
+        assert!(last_entry_bottom < list.y.saturating_add(list.height));
+
+        app.route_client_events_for_view(
+            &mut client,
+            vec![raw_mouse(
+                crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Right),
+                list.x + 2,
+                last_entry_bottom,
+            )],
+            true,
+        );
+        compute_client_view(&app, &mut client, area);
+        let menu = context_menu_rect_for_client_view(&app, &client);
+        app.route_client_events_for_view(
+            &mut client,
+            vec![raw_mouse(
+                crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left),
+                menu.x + 2,
+                menu.y + 2,
+            )],
+            true,
+        );
+
+        assert_eq!(
+            app.state
+                .workspaces
+                .last()
+                .map(|workspace| &workspace.group_id),
+            Some(&group_one_id),
+            "blank-sidebar creation should follow the active workspace's group"
+        );
     }
 
     #[test]
