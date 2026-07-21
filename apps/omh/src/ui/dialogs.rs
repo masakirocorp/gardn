@@ -35,21 +35,30 @@ pub(crate) fn rename_button_rects(inner: Rect) -> (Rect, Rect, Rect) {
     (rects[0], rects[1], close)
 }
 
-pub(crate) fn rename_modal_size(app: &AppState) -> (u16, u16) {
-    if matches!(app.mode, Mode::RenameGroup) && app.creating_new_group {
+pub(crate) fn rename_modal_size_for_view(mode: Mode, creating_new_group: bool) -> (u16, u16) {
+    if matches!(mode, Mode::RenameGroup) && creating_new_group {
         (64, 20)
-    } else if matches!(app.mode, Mode::RenameGroup) {
+    } else if matches!(mode, Mode::RenameGroup) {
         (56, 17)
     } else {
         (56, 7)
     }
 }
 
-fn group_field_rect(app: &AppState, inner: Rect, y: u16, min_height: u16) -> Rect {
+pub(crate) fn rename_modal_size(app: &AppState) -> (u16, u16) {
+    rename_modal_size_for_view(app.mode, app.creating_new_group)
+}
+
+fn group_field_rect_for_view(
+    creating_new_group: bool,
+    inner: Rect,
+    y: u16,
+    min_height: u16,
+) -> Rect {
     if inner.width == 0 || inner.height < min_height {
         return Rect::default();
     }
-    let left = if app.creating_new_group { 1 } else { 2 };
+    let left = if creating_new_group { 1 } else { 2 };
     Rect::new(
         inner.x + left,
         inner.y + y,
@@ -58,27 +67,38 @@ fn group_field_rect(app: &AppState, inner: Rect, y: u16, min_height: u16) -> Rec
     )
 }
 
-pub(crate) fn group_icon_button_rect(app: &AppState, inner: Rect) -> Rect {
-    let field = group_field_rect(app, inner, 10, 4);
+fn group_field_rect(app: &AppState, inner: Rect, y: u16, min_height: u16) -> Rect {
+    group_field_rect_for_view(app.creating_new_group, inner, y, min_height)
+}
+
+pub(crate) fn group_icon_button_rect_for_view(creating_new_group: bool, inner: Rect) -> Rect {
+    let field = group_field_rect_for_view(creating_new_group, inner, 10, 4);
     if field.width < 3 {
         return Rect::default();
     }
     Rect::new(field.x, field.y, 3, 1)
 }
 
-pub(crate) fn group_name_input_rect(app: &AppState, inner: Rect) -> Rect {
-    group_field_rect(app, inner, 7, 6)
+pub(crate) fn group_name_input_rect_for_view(creating_new_group: bool, inner: Rect) -> Rect {
+    group_field_rect_for_view(creating_new_group, inner, 7, 6)
 }
 
-pub(crate) fn group_default_directory_input_rect(app: &AppState, inner: Rect) -> Rect {
-    let y = if app.group_icon_picker_open { 16 } else { 13 };
-    group_field_rect(app, inner, y, 7)
+pub(crate) fn group_default_directory_input_rect_for_view(
+    creating_new_group: bool,
+    group_icon_picker_open: bool,
+    inner: Rect,
+) -> Rect {
+    let y = if group_icon_picker_open { 16 } else { 13 };
+    group_field_rect_for_view(creating_new_group, inner, y, 7)
 }
 
-pub(crate) fn group_icon_picker_rects(app: &AppState, inner: Rect) -> Vec<(Rect, &'static str)> {
+pub(crate) fn group_icon_picker_rects_for_view(
+    creating_new_group: bool,
+    inner: Rect,
+) -> Vec<(Rect, &'static str)> {
     let y = inner.y + 11;
     let picker_height = 3;
-    let field = group_field_rect(app, inner, 11, 4);
+    let field = group_field_rect_for_view(creating_new_group, inner, 11, 4);
     let start = Rect::new(field.x, y, field.width.min(24), picker_height);
     if start.width < 3 || start.height == 0 {
         return Vec::new();
@@ -100,6 +120,26 @@ pub(crate) fn group_icon_picker_rects(app: &AppState, inner: Rect) -> Vec<(Rect,
             Some((Rect::new(x, start.y + row, 3, 1), *icon))
         })
         .collect()
+}
+
+pub(crate) fn group_icon_button_rect(app: &AppState, inner: Rect) -> Rect {
+    group_icon_button_rect_for_view(app.creating_new_group, inner)
+}
+
+pub(crate) fn group_name_input_rect(app: &AppState, inner: Rect) -> Rect {
+    group_name_input_rect_for_view(app.creating_new_group, inner)
+}
+
+pub(crate) fn group_default_directory_input_rect(app: &AppState, inner: Rect) -> Rect {
+    group_default_directory_input_rect_for_view(
+        app.creating_new_group,
+        app.group_icon_picker_open,
+        inner,
+    )
+}
+
+pub(crate) fn group_icon_picker_rects(app: &AppState, inner: Rect) -> Vec<(Rect, &'static str)> {
+    group_icon_picker_rects_for_view(app.creating_new_group, inner)
 }
 
 fn rename_palette(app: &AppState) -> crate::app::state::Palette {

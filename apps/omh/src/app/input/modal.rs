@@ -57,7 +57,7 @@ pub(super) fn modal_action_from_key<A: Copy>(
         .map(|spec| spec.action)
 }
 
-pub(super) fn modal_action_from_buttons<A: Copy>(
+pub(crate) fn modal_action_from_buttons<A: Copy>(
     col: u16,
     row: u16,
     buttons: &[(Rect, A)],

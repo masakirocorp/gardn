@@ -111,8 +111,10 @@ pub(crate) use self::{
 pub(crate) use self::{
     dialogs::{
         confirm_close_button_rects, confirm_close_popup_rect, group_default_directory_input_rect,
-        group_icon_button_rect, group_icon_picker_rects, group_name_input_rect,
-        rename_button_rects, rename_modal_size,
+        group_default_directory_input_rect_for_view, group_icon_button_rect,
+        group_icon_button_rect_for_view, group_icon_picker_rects, group_icon_picker_rects_for_view,
+        group_name_input_rect, group_name_input_rect_for_view, rename_button_rects,
+        rename_modal_size, rename_modal_size_for_view,
     },
     settings::{
         settings_agents_editor_back_button_rect, settings_close_button_rect,

@@ -5711,6 +5711,136 @@ impl App {
         true
     }
 
+    fn handle_client_view_text_modal_key(
+        &mut self,
+        client_view: &mut ClientViewState,
+        code: crossterm::event::KeyCode,
+    ) {
+        let key = crossterm::event::KeyEvent::new(code, crossterm::event::KeyModifiers::empty());
+        if client_view.mode == Mode::EditWorktreeDirectory {
+            self.handle_client_view_worktree_directory_key(client_view, key);
+        } else {
+            self.handle_client_view_rename_key(client_view, key);
+        }
+    }
+
+    fn handle_client_view_rename_mouse(
+        &mut self,
+        client_view: &mut ClientViewState,
+        mouse: crossterm::event::MouseEvent,
+    ) -> bool {
+        if !matches!(
+            client_view.mode,
+            Mode::RenameWorkspace
+                | Mode::RenameGroup
+                | Mode::RenameTab
+                | Mode::RenamePane
+                | Mode::EditWorktreeDirectory
+        ) {
+            return false;
+        }
+        if !matches!(
+            mouse.kind,
+            crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left)
+        ) {
+            return true;
+        }
+
+        let (popup_w, popup_h) =
+            crate::ui::rename_modal_size_for_view(client_view.mode, client_view.creating_new_group);
+        let Some(popup) =
+            crate::ui::centered_popup_rect(client_view.screen_rect(), popup_w, popup_h)
+        else {
+            self.handle_client_view_text_modal_key(client_view, crossterm::event::KeyCode::Esc);
+            return true;
+        };
+        let inner = ratatui::widgets::Block::default()
+            .borders(ratatui::widgets::Borders::ALL)
+            .inner(popup);
+
+        if client_view.mode == Mode::RenameGroup {
+            if client_view.group_icon_picker_open {
+                for (rect, icon) in crate::ui::group_icon_picker_rects_for_view(
+                    client_view.creating_new_group,
+                    inner,
+                ) {
+                    if Self::rect_contains(rect, mouse.column, mouse.row) {
+                        client_view.group_icon_input = icon.to_string();
+                        client_view.group_icon_picker_open = false;
+                        return true;
+                    }
+                }
+            }
+
+            if Self::rect_contains(
+                crate::ui::group_icon_button_rect_for_view(client_view.creating_new_group, inner),
+                mouse.column,
+                mouse.row,
+            ) {
+                client_view.group_icon_picker_open = !client_view.group_icon_picker_open;
+                return true;
+            }
+
+            if client_view.creating_new_group
+                && Self::rect_contains(
+                    crate::ui::group_default_directory_input_rect_for_view(
+                        client_view.creating_new_group,
+                        client_view.group_icon_picker_open,
+                        inner,
+                    ),
+                    mouse.column,
+                    mouse.row,
+                )
+            {
+                client_view.group_modal_selected_field = 1;
+                client_view.name_input_replace_on_type = false;
+                return true;
+            }
+
+            if Self::rect_contains(
+                crate::ui::group_name_input_rect_for_view(client_view.creating_new_group, inner),
+                mouse.column,
+                mouse.row,
+            ) {
+                client_view.group_modal_selected_field = 0;
+                client_view.name_input_replace_on_type = false;
+                return true;
+            }
+        }
+
+        let (save, clear, cancel) = crate::ui::rename_button_rects(inner);
+        match input::modal_action_from_buttons(
+            mouse.column,
+            mouse.row,
+            &[
+                (save, input::ModalAction::Save),
+                (clear, input::ModalAction::Clear),
+                (cancel, input::ModalAction::Cancel),
+            ],
+        ) {
+            Some(input::ModalAction::Save) => self
+                .handle_client_view_text_modal_key(client_view, crossterm::event::KeyCode::Enter),
+            Some(input::ModalAction::Clear) => {
+                if client_view.mode == Mode::RenameGroup
+                    && client_view.creating_new_group
+                    && client_view.group_modal_selected_field == 1
+                {
+                    client_view.group_default_directory_input.clear();
+                } else {
+                    client_view.name_input.clear();
+                }
+                client_view.name_input_replace_on_type = false;
+            }
+            Some(input::ModalAction::Cancel) | None
+                if !Self::rect_contains(inner, mouse.column, mouse.row) =>
+            {
+                self.handle_client_view_text_modal_key(client_view, crossterm::event::KeyCode::Esc);
+            }
+            _ => {}
+        }
+        true
+    }
+
     fn handle_mouse_for_view(
         &mut self,
         client_view: &mut ClientViewState,
@@ -5729,6 +5859,9 @@ impl App {
         }
 
         if self.handle_client_view_overlay_mouse(client_view, mouse) {
+            return;
+        }
+        if self.handle_client_view_rename_mouse(client_view, mouse) {
             return;
         }
         if self.handle_client_view_navigator_mouse(client_view, mouse) {
@@ -16276,6 +16409,137 @@ command = "printf literal > '{}'"
         assert!(!app.state.creating_new_group);
         assert!(app.state.group_filter_enabled);
         assert_eq!(app.state.groups.len(), group_count);
+    }
+
+    #[test]
+    fn route_client_events_for_view_new_group_modal_clear_click_updates_invoking_client() {
+        let mut app = test_app();
+        app.state.workspaces = vec![Workspace::test_new("test")];
+        app.state.ensure_test_terminals();
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::Terminal;
+
+        let group_count = app.state.groups.len();
+        let new_group_row = app.state.group_menu_labels().len() - 1;
+        let mut first_client = ClientViewState::from_default_client_state(&app.state);
+        first_client.mode = Mode::GroupMenu;
+        first_client.group_menu = state::ModalListState::new(new_group_row);
+        let second_client = ClientViewState::from_default_client_state(&app.state);
+
+        app.route_client_events_for_view(
+            &mut first_client,
+            vec![raw_key(
+                KeyCode::Enter,
+                KeyModifiers::empty(),
+                KeyEventKind::Press,
+            )],
+            true,
+        );
+        crate::server::render_stream::render_virtual_for_client_view(
+            &mut app.state,
+            &mut first_client,
+            &app.terminal_runtimes,
+            ratatui::layout::Rect::new(0, 0, 120, 30),
+            true,
+            crate::kitty_graphics::HostCellSize::default(),
+        );
+        let popup = crate::ui::centered_popup_rect(first_client.screen_rect(), 64, 20)
+            .expect("new-group popup");
+        let inner = ratatui::widgets::Block::default()
+            .borders(ratatui::widgets::Borders::ALL)
+            .inner(popup);
+        let (save, clear, _) = crate::ui::rename_button_rects(inner);
+
+        app.route_client_events_for_view(
+            &mut first_client,
+            vec![raw_mouse(
+                crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left),
+                clear.x,
+                clear.y,
+            )],
+            true,
+        );
+
+        assert_eq!(first_client.name_input, "");
+
+        let name = crate::ui::group_name_input_rect_for_view(true, inner);
+        app.route_client_events_for_view(
+            &mut first_client,
+            vec![
+                raw_mouse(
+                    crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left),
+                    name.x,
+                    name.y,
+                ),
+                crate::raw_input::RawInputEvent::Paste("Work".into()),
+            ],
+            true,
+        );
+        assert_eq!(first_client.name_input, "Work");
+
+        let directory = crate::ui::group_default_directory_input_rect_for_view(true, false, inner);
+        app.route_client_events_for_view(
+            &mut first_client,
+            vec![
+                raw_mouse(
+                    crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left),
+                    directory.x,
+                    directory.y,
+                ),
+                crate::raw_input::RawInputEvent::Paste("/tmp/work".into()),
+            ],
+            true,
+        );
+        assert_eq!(first_client.group_default_directory_input, "/tmp/work");
+
+        let icon_button = crate::ui::group_icon_button_rect_for_view(true, inner);
+        app.route_client_events_for_view(
+            &mut first_client,
+            vec![raw_mouse(
+                crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left),
+                icon_button.x,
+                icon_button.y,
+            )],
+            true,
+        );
+        assert!(first_client.group_icon_picker_open);
+        let (icon_rect, icon) = crate::ui::group_icon_picker_rects_for_view(true, inner)
+            .into_iter()
+            .find(|(_, icon)| *icon != state::DEFAULT_GROUP_ICON)
+            .expect("alternate group icon");
+        app.route_client_events_for_view(
+            &mut first_client,
+            vec![raw_mouse(
+                crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left),
+                icon_rect.x,
+                icon_rect.y,
+            )],
+            true,
+        );
+        assert_eq!(first_client.group_icon_input, icon);
+
+        app.route_client_events_for_view(
+            &mut first_client,
+            vec![raw_mouse(
+                crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left),
+                save.x,
+                save.y,
+            )],
+            true,
+        );
+
+        assert_eq!(app.state.groups.len(), group_count + 1);
+        let created = app.state.groups.last().expect("created group");
+        assert_eq!(created.name, "Work");
+        assert_eq!(created.icon, icon);
+        assert_eq!(
+            created.default_directory.as_deref(),
+            Some(std::path::Path::new("/tmp/work"))
+        );
+        assert_eq!(first_client.mode, Mode::Terminal);
+        assert_eq!(second_client.mode, Mode::Terminal);
+        assert_eq!(app.state.mode, Mode::Terminal);
     }
 
     #[test]

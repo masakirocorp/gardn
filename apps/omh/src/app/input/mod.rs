@@ -59,7 +59,7 @@ pub(crate) use self::{
         handle_context_menu_key, handle_global_menu_key, handle_group_menu_key,
         handle_keybind_help_key, handle_navigator_key, handle_rename_key, handle_resize_key,
         handle_worktree_directory_key, insert_navigator_search_text, insert_rename_input_text,
-        request_detach, GlobalMenuAction, ModalAction,
+        modal_action_from_buttons, request_detach, GlobalMenuAction, ModalAction,
     },
     navigate::{
         command_for_key, indexed_navigation_action, non_indexed_action_for_key,
