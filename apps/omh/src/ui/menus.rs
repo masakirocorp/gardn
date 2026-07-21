@@ -756,7 +756,8 @@ pub(super) fn render_resize_overlay(app: &AppState, frame: &mut Frame, area: Rec
 
 fn context_menu_palette(app: &AppState, menu: &ContextMenuState) -> crate::app::state::Palette {
     match menu.kind {
-        crate::app::state::ContextMenuKind::Group { group_idx, .. } => {
+        crate::app::state::ContextMenuKind::Sidebar { group_idx }
+        | crate::app::state::ContextMenuKind::Group { group_idx, .. } => {
             app.palette_for_group(group_idx)
         }
         crate::app::state::ContextMenuKind::Workspace { ws_idx, .. }

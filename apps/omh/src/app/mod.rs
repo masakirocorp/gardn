@@ -4761,10 +4761,18 @@ impl App {
         }
 
         match (menu.kind, item) {
-            (state::ContextMenuKind::Group { group_idx, .. }, Some("space")) => {
+            (
+                state::ContextMenuKind::Sidebar { group_idx }
+                | state::ContextMenuKind::Group { group_idx, .. },
+                Some("space"),
+            ) => {
                 self.create_workspace_in_group_for_client_view(client_view, group_idx);
             }
-            (state::ContextMenuKind::Group { group_idx, .. }, Some("group")) => {
+            (
+                state::ContextMenuKind::Sidebar { group_idx }
+                | state::ContextMenuKind::Group { group_idx, .. },
+                Some("group"),
+            ) => {
                 client_view.active_group = group_idx.min(self.state.groups.len().saturating_sub(1));
                 self.open_client_view_new_group_dialog(client_view);
             }
@@ -8354,6 +8362,45 @@ impl App {
             mouse.row,
         )
     }
+    fn client_view_sidebar_empty_area_contains(
+        &self,
+        client_view: &ClientViewState,
+        col: u16,
+        row: u16,
+    ) -> bool {
+        let list = self.client_view_workspace_list_rect(client_view);
+        let has_scrollbar =
+            crate::ui::workspace_list_scrollbar_rect_for_view(&self.state, client_view, list)
+                .is_some();
+        let body = crate::ui::workspace_list_body_rect(list, has_scrollbar);
+        if !Self::rect_contains(body, col, row) {
+            return false;
+        }
+
+        let last_entry_bottom = client_view
+            .computed
+            .workspace_card_areas
+            .iter()
+            .map(|card| card.rect.y.saturating_add(card.rect.height))
+            .chain(
+                client_view
+                    .computed
+                    .workspace_group_header_areas
+                    .iter()
+                    .map(|header| header.rect.y.saturating_add(header.rect.height)),
+            )
+            .chain(
+                client_view
+                    .computed
+                    .workspace_group_empty_areas
+                    .iter()
+                    .map(|empty| empty.rect.y.saturating_add(empty.rect.height)),
+            )
+            .max()
+            .unwrap_or(body.y);
+
+        row >= last_entry_bottom
+    }
 
     fn client_view_global_menu_rect(&self, client_view: &ClientViewState) -> Rect {
         client_global_menu_rect(&self.state, client_view)
@@ -9265,6 +9312,27 @@ impl App {
                             ws_idx: idx,
                             can_diff,
                         },
+                        x: mouse.column,
+                        y: mouse.row,
+                        list: state::ModalListState::hidden(1),
+                    });
+                    client_view.mode = Mode::ContextMenu;
+                }
+                if self.client_view_sidebar_empty_area_contains(
+                    client_view,
+                    mouse.column,
+                    mouse.row,
+                ) {
+                    let Some(group_idx) = self
+                        .state
+                        .groups
+                        .get(client_view.active_group)
+                        .map(|_| client_view.active_group)
+                    else {
+                        return false;
+                    };
+                    client_view.context_menu = Some(state::ContextMenuState {
+                        kind: state::ContextMenuKind::Sidebar { group_idx },
                         x: mouse.column,
                         y: mouse.row,
                         list: state::ModalListState::hidden(1),
@@ -18161,6 +18229,81 @@ command = "printf literal > '{}'"
         assert_eq!(other_client.mode, Mode::Terminal);
         assert_eq!(app.state.mode, Mode::Terminal);
         assert!(app.state.context_menu.is_none());
+    }
+
+    #[test]
+    fn route_client_events_for_view_sidebar_empty_area_opens_creation_menu_locally() {
+        let mut app = test_app();
+        app.state.workspaces = vec![Workspace::test_new("home")];
+        app.state.ensure_test_terminals();
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::Terminal;
+        app.state.mouse_capture = true;
+        app.state.group_filter_enabled = true;
+        app.state.sidebar_arrangement = crate::config::SidebarArrangementConfig::CombinedLeft;
+
+        let area = ratatui::layout::Rect::new(0, 0, 120, 30);
+        let mut client = ClientViewState::from_default_client_state(&app.state);
+        let other_client = ClientViewState::from_default_client_state(&app.state);
+        compute_client_view(&app, &mut client, area);
+        let list = app.client_view_workspace_list_rect(&client);
+        let last_entry_bottom = client
+            .computed
+            .workspace_card_areas
+            .iter()
+            .map(|card| card.rect.y.saturating_add(card.rect.height))
+            .chain(
+                client
+                    .computed
+                    .workspace_group_header_areas
+                    .iter()
+                    .map(|header| header.rect.y.saturating_add(header.rect.height)),
+            )
+            .max()
+            .expect("sidebar should contain a visible entry");
+        assert!(
+            last_entry_bottom < list.y.saturating_add(list.height),
+            "test requires empty space below the final sidebar entry"
+        );
+        let click_col = list.x + 2;
+        let click_row = last_entry_bottom;
+
+        app.route_client_events_for_view(
+            &mut client,
+            vec![raw_mouse(
+                crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Right),
+                click_col,
+                click_row,
+            )],
+            true,
+        );
+
+        let menu = client
+            .context_menu
+            .as_ref()
+            .expect("right-clicking below the sidebar entries should open a creation menu");
+        assert_eq!(menu.items(), &["new", "space", "group"]);
+        assert_eq!(client.mode, Mode::ContextMenu);
+        assert_eq!(other_client.mode, Mode::Terminal);
+        assert_eq!(app.state.mode, Mode::Terminal);
+        assert!(app.state.context_menu.is_none());
+
+        compute_client_view(&app, &mut client, area);
+        let menu_rect = context_menu_rect_for_client_view(&app, &client);
+        app.route_client_events_for_view(
+            &mut client,
+            vec![raw_mouse(
+                crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left),
+                menu_rect.x + 2,
+                menu_rect.y + 3,
+            )],
+            true,
+        );
+
+        assert_eq!(client.mode, Mode::RenameGroup);
+        assert!(client.creating_new_group);
+        assert_eq!(other_client.mode, Mode::Terminal);
     }
 
     #[test]

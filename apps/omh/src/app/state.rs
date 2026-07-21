@@ -2257,6 +2257,9 @@ pub(crate) struct TabPressState {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ContextMenuKind {
+    Sidebar {
+        group_idx: usize,
+    },
     Group {
         group_idx: usize,
         can_delete: bool,
@@ -2293,6 +2296,7 @@ pub struct ContextMenuState {
 impl ContextMenuState {
     pub fn items(&self) -> &'static [&'static str] {
         match self.kind {
+            ContextMenuKind::Sidebar { .. } => &["new", "space", "group"],
             ContextMenuKind::Group {
                 can_delete: true, ..
             } => &[

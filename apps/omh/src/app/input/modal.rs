@@ -1200,12 +1200,18 @@ pub(crate) fn apply_context_menu_action(
         return;
     }
     match (menu.kind, item) {
-        (ContextMenuKind::Group { group_idx, .. }, Some("space")) => {
+        (
+            ContextMenuKind::Sidebar { group_idx } | ContextMenuKind::Group { group_idx, .. },
+            Some("space"),
+        ) => {
             state.switch_group(group_idx);
             state.request_new_workspace = true;
             leave_modal(state);
         }
-        (ContextMenuKind::Group { group_idx, .. }, Some("group")) => {
+        (
+            ContextMenuKind::Sidebar { group_idx } | ContextMenuKind::Group { group_idx, .. },
+            Some("group"),
+        ) => {
             state.switch_group(group_idx);
             open_new_group_dialog(state);
         }

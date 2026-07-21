@@ -142,7 +142,7 @@ pub(crate) use self::{
         left_sidebar_workspace_rect, right_aligned_expanded_sidebar_sections,
         right_aligned_sidebar_section_divider_rect, right_aligned_workspace_list_rect,
         right_sidebar_content_rect, right_sidebar_toggle_rect, sidebar_section_divider_rect,
-        workspace_drop_indicator_row, workspace_list_entry_count,
+        workspace_drop_indicator_row, workspace_list_body_rect, workspace_list_entry_count,
         workspace_list_entry_count_for_view, workspace_list_position_for_workspace,
         workspace_list_rect, workspace_list_scroll_metrics, workspace_list_scroll_metrics_for_view,
         workspace_list_scrollbar_rect, workspace_list_scrollbar_rect_for_view,
