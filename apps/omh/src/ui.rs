@@ -166,7 +166,7 @@ use crate::app::state::ViewLayout;
 use crate::app::{AppState, ClientViewState, Mode};
 use crate::terminal::TerminalRuntimeRegistry;
 
-const COLLAPSED_WIDTH: u16 = 4; // num + space + dot + separator
+const COLLAPSED_WIDTH: u16 = 5; // chevron + gap + two-cell icon + separator
 const RIGHT_SIDEBAR_MIN_TERMINAL_WIDTH: u16 = 56;
 #[allow(dead_code)]
 pub(crate) const MIN_SIDEBAR_WIDTH: u16 = 18;
