@@ -293,13 +293,13 @@ fn disambiguate_agent_panel_labels(app: &AppState, entries: &mut [AgentPanelEntr
         let mut label = entries[idx].primary_label.clone();
         if has_other_tab {
             if let Some(tab_label) = entries[idx].primary_tab_label.as_deref() {
-                label.push_str(" - ");
+                label.push_str(super::CONTEXT_BAR_SEPARATOR);
                 label.push_str(tab_label);
             }
         }
         if same_tab_entry_count > 1 {
             if let Some(pane_label) = agent_panel_pane_disambiguator(app, &entries[idx]) {
-                label.push_str(" - ");
+                label.push_str(super::CONTEXT_BAR_SEPARATOR);
                 label.push_str(&pane_label);
             }
         }
@@ -5223,8 +5223,8 @@ mod tests {
         let entries = agent_panel_entries(&app);
 
         assert_eq!(entries.len(), 2);
-        assert_eq!(entries[0].primary_label, "personal - 1");
-        assert_eq!(entries[1].primary_label, "personal - 2");
+        assert_eq!(entries[0].primary_label, "personal / 1");
+        assert_eq!(entries[1].primary_label, "personal / 2");
     }
 
     #[test]
@@ -5249,8 +5249,8 @@ mod tests {
         let entries = agent_panel_entries(&app);
 
         assert_eq!(entries.len(), 2);
-        assert_eq!(entries[0].primary_label, "personal - pane 1");
-        assert_eq!(entries[1].primary_label, "personal - pane 2");
+        assert_eq!(entries[0].primary_label, "personal / pane 1");
+        assert_eq!(entries[1].primary_label, "personal / pane 2");
     }
 
     #[test]
@@ -5732,8 +5732,8 @@ mod tests {
             .expect("render sidebar");
 
         let text = buffer_text(terminal.backend().buffer(), 34, 18);
-        assert!(text.contains("personal - 1"));
-        assert!(text.contains("personal - 2"));
+        assert!(text.contains("personal / 1"));
+        assert!(text.contains("personal / 2"));
     }
 
     #[test]
