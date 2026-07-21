@@ -319,6 +319,20 @@ impl AppState {
             } else {
                 None
             };
+            self.collapsed_sidebar_hover = if self.sidebar_collapsed && in_sidebar {
+                crate::ui::collapsed_workspace_group_header_at_row(
+                    self,
+                    self.view.sidebar_rect,
+                    mouse.row,
+                )
+                .map(crate::app::state::CollapsedSidebarHover::Group)
+                .or_else(|| {
+                    self.collapsed_workspace_at_row(mouse.row)
+                        .map(crate::app::state::CollapsedSidebarHover::Workspace)
+                })
+            } else {
+                None
+            };
             if self.on_tab_bar(mouse.column, mouse.row) {
                 return None;
             }
@@ -600,6 +614,18 @@ impl AppState {
                     }
 
                     if self.right_sidebar_collapsed {
+                        if self.on_agent_panel_scope_toggle(mouse.column, mouse.row) {
+                            super::modal::open_agent_menu(self);
+                            return None;
+                        }
+                        if let Some((ws_idx, tab_idx, pane_id)) =
+                            self.collapsed_agent_detail_target_at(mouse.row)
+                        {
+                            self.switch_workspace(ws_idx);
+                            self.switch_tab(tab_idx);
+                            self.focus_pane(pane_id);
+                            self.mode = Mode::Terminal;
+                        }
                         return None;
                     }
 

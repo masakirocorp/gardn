@@ -88,7 +88,8 @@ use self::settings::{render_settings_overlay, render_settings_overlay_for_view};
 #[cfg(test)]
 pub(crate) use self::sidebar::collapsed_workspace_rows_rect;
 use self::sidebar::{
-    render_right_sidebar, render_right_sidebar_for_view, render_sidebar, render_sidebar_collapsed,
+    render_collapsed_sidebar_hover, render_collapsed_sidebar_hover_for_view, render_right_sidebar,
+    render_right_sidebar_for_view, render_sidebar, render_sidebar_collapsed,
     render_sidebar_collapsed_for_view, render_sidebar_for_view,
 };
 use self::status::{
@@ -128,9 +129,9 @@ pub(crate) use self::{
         collapsed_agent_panel_toggle_rect, collapsed_group_header_rect,
         collapsed_sidebar_sections_for_split, collapsed_sidebar_toggle_rect,
         collapsed_workspace_at_row, collapsed_workspace_group_header_at_row,
-        compute_workspace_card_areas, compute_workspace_card_areas_in_list,
-        compute_workspace_card_areas_in_list_for_view, compute_workspace_group_drop_areas_in_list,
-        compute_workspace_group_empty_areas_in_list,
+        collapsed_workspace_row_entry_at_for_view, compute_workspace_card_areas,
+        compute_workspace_card_areas_in_list, compute_workspace_card_areas_in_list_for_view,
+        compute_workspace_group_drop_areas_in_list, compute_workspace_group_empty_areas_in_list,
         compute_workspace_group_empty_areas_in_list_for_view, compute_workspace_group_header_areas,
         compute_workspace_group_header_areas_in_list,
         compute_workspace_group_header_areas_in_list_for_view, expanded_sidebar_sections,
@@ -142,7 +143,7 @@ pub(crate) use self::{
         workspace_list_entry_count_for_view, workspace_list_position_for_workspace,
         workspace_list_rect, workspace_list_scroll_metrics, workspace_list_scroll_metrics_for_view,
         workspace_list_scrollbar_rect, workspace_list_scrollbar_rect_for_view,
-        AgentPanelHeaderTarget,
+        AgentPanelHeaderTarget, CollapsedWorkspaceRowEntry,
     },
 };
 pub(crate) use self::{
@@ -1192,6 +1193,9 @@ pub fn render_with_runtime_registry(
     if right_sidebar_area != Rect::default() {
         render_right_sidebar(app, terminal_runtimes, frame, right_sidebar_area);
     }
+    if app.sidebar_collapsed && app.view.layout != ViewLayout::Mobile {
+        render_collapsed_sidebar_hover(app, frame);
+    }
     render_context_bar(app, &app.view.context_bar, frame);
 
     // Ambient notifications sit above panes, but below interactive overlays.
@@ -1271,6 +1275,9 @@ pub fn render_with_runtime_registry_for_view(
             frame,
             right_sidebar_area,
         );
+    }
+    if client_view.sidebar_collapsed && client_view.computed.layout != ViewLayout::Mobile {
+        render_collapsed_sidebar_hover_for_view(app, client_view, frame);
     }
     render_context_bar(app, &client_view.computed.context_bar, frame);
 

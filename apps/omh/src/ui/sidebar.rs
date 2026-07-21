@@ -5,14 +5,14 @@ use ratatui::{
     layout::{Alignment, Rect},
     style::{Modifier, Style},
     text::{Line, Span},
-    widgets::Paragraph,
+    widgets::{Block, Borders, Clear, Paragraph},
     Frame,
 };
 
 use super::scrollbar::{render_scrollbar, should_show_scrollbar};
 use super::status::{agent_icon, state_dot, state_label, state_label_color};
 use super::widgets::fill_rect;
-use crate::app::state::{AgentPanelScope, Palette};
+use crate::app::state::{AgentPanelScope, CollapsedSidebarHover, Palette};
 use crate::app::{AppState, ClientViewState, Mode};
 use crate::detect::AgentState;
 use crate::terminal::TerminalRuntimeRegistry;
@@ -1387,7 +1387,7 @@ impl WorkspaceListEntry {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum CollapsedWorkspaceRowEntry {
     GroupHeader { group_idx: usize },
     Workspace { ws_idx: usize, ordinal: usize },
@@ -1457,12 +1457,12 @@ fn collapsed_workspace_row_entries_for_view(
 }
 
 pub(crate) fn collapsed_workspace_at_row(app: &AppState, area: Rect, row: u16) -> Option<usize> {
-    let rows = collapsed_workspace_rows_rect_for_split(area, true, app.sidebar_section_split);
-    if rows == Rect::default() || row < rows.y || row >= rows.y + rows.height {
-        return None;
-    }
-    let idx = (row - rows.y) as usize;
-    match collapsed_workspace_row_entries(app).get(idx).copied()? {
+    match collapsed_workspace_row_entry_at(
+        app,
+        area,
+        row,
+        app.view.right_sidebar_rect == Rect::default(),
+    )? {
         CollapsedWorkspaceRowEntry::Workspace { ws_idx, .. } => Some(ws_idx),
         CollapsedWorkspaceRowEntry::GroupHeader { .. } => None,
     }
@@ -1473,15 +1473,51 @@ pub(crate) fn collapsed_workspace_group_header_at_row(
     area: Rect,
     row: u16,
 ) -> Option<usize> {
-    let rows = collapsed_workspace_rows_rect_for_split(area, true, app.sidebar_section_split);
-    if rows == Rect::default() || row < rows.y || row >= rows.y + rows.height {
-        return None;
-    }
-    let idx = (row - rows.y) as usize;
-    match collapsed_workspace_row_entries(app).get(idx).copied()? {
+    match collapsed_workspace_row_entry_at(
+        app,
+        area,
+        row,
+        app.view.right_sidebar_rect == Rect::default(),
+    )? {
         CollapsedWorkspaceRowEntry::GroupHeader { group_idx } => Some(group_idx),
         CollapsedWorkspaceRowEntry::Workspace { .. } => None,
     }
+}
+
+fn collapsed_workspace_row_entry_at(
+    app: &AppState,
+    area: Rect,
+    row: u16,
+    show_agent_detail: bool,
+) -> Option<CollapsedWorkspaceRowEntry> {
+    let rows =
+        collapsed_workspace_rows_rect_for_split(area, show_agent_detail, app.sidebar_section_split);
+    if rows == Rect::default() || row < rows.y || row >= rows.y + rows.height {
+        return None;
+    }
+    collapsed_workspace_row_entries(app)
+        .get((row - rows.y) as usize)
+        .copied()
+}
+
+pub(crate) fn collapsed_workspace_row_entry_at_for_view(
+    app: &AppState,
+    view: &ClientViewState,
+    area: Rect,
+    row: u16,
+) -> Option<CollapsedWorkspaceRowEntry> {
+    let show_agent_detail = view.computed.right_sidebar_rect == Rect::default();
+    let rows = collapsed_workspace_rows_rect_for_split(
+        area,
+        show_agent_detail,
+        view.sidebar_section_split,
+    );
+    if rows == Rect::default() || row < rows.y || row >= rows.y + rows.height {
+        return None;
+    }
+    collapsed_workspace_row_entries_for_view(app, view)
+        .get((row - rows.y) as usize)
+        .copied()
 }
 
 fn workspace_list_entries(app: &AppState) -> Vec<WorkspaceListEntry> {
@@ -1947,8 +1983,7 @@ fn sidebar_is_combined_right(app: &AppState) -> bool {
 
 pub(super) fn render_sidebar_collapsed(app: &AppState, frame: &mut Frame, area: Rect) {
     let is_navigating = matches!(app.mode, Mode::Navigate);
-    let show_agent_detail = true;
-
+    let show_agent_detail = app.view.right_sidebar_rect == Rect::default();
     let p = &app.palette;
     fill_rect(frame, area, Style::default().bg(p.panel_bg));
     let sep_style = if is_navigating {
@@ -2104,8 +2139,10 @@ pub(super) fn render_sidebar_collapsed(app: &AppState, frame: &mut Frame, area: 
         return;
     }
 
-    let empty_runtimes = TerminalRuntimeRegistry::new();
-    render_collapsed_agent_panel(app, &empty_runtimes, frame, detail_area, p);
+    if show_agent_detail {
+        let empty_runtimes = TerminalRuntimeRegistry::new();
+        render_collapsed_agent_panel(app, &empty_runtimes, frame, detail_area, p);
+    }
 
     render_sidebar_toggle(app, frame, area, true, p);
 }
@@ -2118,6 +2155,7 @@ pub(super) fn render_sidebar_collapsed_for_view(
 ) {
     let p = &app.palette;
     let navigating = matches!(view.mode, Mode::Navigate);
+    let show_agent_detail = view.computed.right_sidebar_rect == Rect::default();
     fill_rect(frame, area, Style::default().bg(p.panel_bg));
     let combined_right = sidebar_is_combined_right_for_view(app, view);
     let separator_style = if navigating {
@@ -2139,9 +2177,13 @@ pub(super) fn render_sidebar_collapsed_for_view(
     }
 
     let (workspace_area, divider_y, agent_area) = if combined_right {
-        right_aligned_collapsed_sidebar_sections(area, true, view.sidebar_section_split)
+        right_aligned_collapsed_sidebar_sections(
+            area,
+            show_agent_detail,
+            view.sidebar_section_split,
+        )
     } else {
-        collapsed_sidebar_sections_for_split(area, true, view.sidebar_section_split)
+        collapsed_sidebar_sections_for_split(area, show_agent_detail, view.sidebar_section_split)
     };
     let group_header = if combined_right {
         right_aligned_collapsed_group_header_rect(area)
@@ -2155,7 +2197,7 @@ pub(super) fn render_sidebar_collapsed_for_view(
                 .map(|group| group.icon.clone())
                 .unwrap_or_else(|| "·".to_string())
         } else {
-            "⌘".to_string()
+            "all".to_string()
         };
         let color = if view.group_filter_enabled {
             app.group_accent_color(view.active_group)
@@ -2263,8 +2305,144 @@ pub(super) fn render_sidebar_collapsed_for_view(
                 .set_style(Style::default().fg(p.overlay0));
         }
     }
-    render_collapsed_agent_panel_for_view(app, terminal_runtimes, view, frame, agent_area, p);
+    if show_agent_detail {
+        render_collapsed_agent_panel_for_view(app, terminal_runtimes, view, frame, agent_area, p);
+    }
     render_sidebar_toggle(app, frame, area, true, p);
+}
+
+pub(super) fn render_collapsed_sidebar_hover(app: &AppState, frame: &mut Frame) {
+    render_collapsed_sidebar_hover_entry(
+        app,
+        frame,
+        app.view.sidebar_rect,
+        app.sidebar_section_split,
+        app.view.right_sidebar_rect == Rect::default(),
+        matches!(app.mode, Mode::Navigate),
+        app.selected,
+        app.collapsed_sidebar_hover,
+        collapsed_workspace_row_entries(app),
+    );
+}
+
+pub(super) fn render_collapsed_sidebar_hover_for_view(
+    app: &AppState,
+    view: &ClientViewState,
+    frame: &mut Frame,
+) {
+    render_collapsed_sidebar_hover_entry(
+        app,
+        frame,
+        view.computed.sidebar_rect,
+        view.sidebar_section_split,
+        view.computed.right_sidebar_rect == Rect::default(),
+        matches!(view.mode, Mode::Navigate),
+        view.selected_workspace,
+        view.collapsed_sidebar_hover,
+        collapsed_workspace_row_entries_for_view(app, view),
+    );
+}
+
+#[allow(clippy::too_many_arguments)] // Keeps the shared and client-local render paths identical.
+fn render_collapsed_sidebar_hover_entry(
+    app: &AppState,
+    frame: &mut Frame,
+    sidebar: Rect,
+    split_ratio: f32,
+    show_agent_detail: bool,
+    navigating: bool,
+    selected_workspace: usize,
+    hover: Option<CollapsedSidebarHover>,
+    entries: Vec<CollapsedWorkspaceRowEntry>,
+) {
+    let target = hover
+        .or_else(|| navigating.then_some(CollapsedSidebarHover::Workspace(selected_workspace)));
+    let Some(target) = target else {
+        return;
+    };
+    let entry = match target {
+        CollapsedSidebarHover::Group(group_idx) => {
+            CollapsedWorkspaceRowEntry::GroupHeader { group_idx }
+        }
+        CollapsedSidebarHover::Workspace(ws_idx) => {
+            let Some(entry) = entries.iter().copied().find(
+                |entry| matches!(entry, CollapsedWorkspaceRowEntry::Workspace { ws_idx: idx, .. } if *idx == ws_idx),
+            ) else {
+                return;
+            };
+            entry
+        }
+    };
+    let Some(row_idx) = entries.iter().position(|candidate| *candidate == entry) else {
+        return;
+    };
+    let rows = collapsed_workspace_rows_rect_for_split(sidebar, show_agent_detail, split_ratio);
+    let row = rows.y.saturating_add(row_idx as u16);
+    if rows == Rect::default() || row >= rows.y.saturating_add(rows.height) {
+        return;
+    }
+
+    let text = match entry {
+        CollapsedWorkspaceRowEntry::GroupHeader { group_idx } => {
+            let Some(group) = app.groups.get(group_idx) else {
+                return;
+            };
+            format!("{} {}", group.icon, group.name)
+        }
+        CollapsedWorkspaceRowEntry::Workspace { ws_idx, .. } => {
+            let Some(workspace) = app.workspaces.get(ws_idx) else {
+                return;
+            };
+            let (state, seen) = workspace.aggregate_state(&app.terminals);
+            format!(
+                "{} · {}",
+                workspace.display_name(),
+                state_label(state, seen)
+            )
+        }
+    };
+
+    let screen = frame.area();
+    let opens_left =
+        app.sidebar_arrangement == crate::config::SidebarArrangementConfig::CombinedRight;
+    let available = if opens_left {
+        sidebar.x.saturating_sub(screen.x)
+    } else {
+        screen
+            .x
+            .saturating_add(screen.width)
+            .saturating_sub(sidebar.x.saturating_add(sidebar.width))
+    };
+    let width = (text.chars().count() as u16)
+        .saturating_add(2)
+        .min(40)
+        .min(available);
+    if width < 4 || screen.height < 3 {
+        return;
+    }
+    let x = if opens_left {
+        sidebar.x.saturating_sub(width)
+    } else {
+        sidebar.x.saturating_add(sidebar.width)
+    };
+    let y = row
+        .saturating_sub(1)
+        .min(screen.y.saturating_add(screen.height).saturating_sub(3));
+    let popup = Rect::new(x, y, width, 3);
+    frame.render_widget(Clear, popup);
+    frame.render_widget(
+        Paragraph::new(text).block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(app.palette.overlay0))
+                .style(
+                    Style::default()
+                        .bg(app.palette.panel_bg)
+                        .fg(app.palette.text),
+                ),
+        ),
+        popup,
+    );
 }
 
 pub(crate) fn workspace_drop_indicator_row(
@@ -4191,6 +4369,50 @@ mod tests {
         assert_eq!(buffer[(0, 4)].symbol(), "2");
         assert_eq!(buffer[(3, 2)].symbol(), "│");
         assert_eq!(buffer[(3, 4)].symbol(), "│");
+    }
+
+    #[test]
+    fn separate_collapsed_spaces_rail_uses_full_height_without_agent_rows() {
+        let mut app = crate::app::state::AppState::test_new();
+        app.workspaces = (0..10)
+            .map(|idx| Workspace::test_new(&format!("space-{idx}")))
+            .collect();
+        app.active = Some(0);
+        app.selected = 0;
+        app.group_filter_enabled = false;
+        app.sidebar_collapsed = true;
+        app.sidebar_arrangement = crate::config::SidebarArrangementConfig::Separate;
+        app.view.right_sidebar_rect = Rect::new(80, 0, 4, 20);
+
+        let area = Rect::new(0, 0, 4, 20);
+        let tenth_workspace_row = area.y + COLLAPSED_SECTION_HEADER_ROWS + 10;
+
+        assert_eq!(
+            collapsed_workspace_at_row(&app, area, tenth_workspace_row),
+            Some(9),
+            "separate agent sidebar should leave the full left rail to spaces"
+        );
+    }
+
+    #[test]
+    fn collapsed_workspace_hover_reveals_its_full_name() {
+        let mut app = crate::app::state::AppState::test_new();
+        app.workspaces = vec![Workspace::test_new("desktop-client")];
+        app.active = Some(0);
+        app.selected = 0;
+        app.sidebar_collapsed = true;
+        app.sidebar_arrangement = crate::config::SidebarArrangementConfig::CombinedLeft;
+        app.view.sidebar_rect = Rect::new(0, 0, 4, 20);
+        app.collapsed_sidebar_hover = Some(CollapsedSidebarHover::Workspace(0));
+
+        let backend = TestBackend::new(60, 20);
+        let mut terminal = Terminal::new(backend).expect("test backend");
+        terminal
+            .draw(|frame| render_collapsed_sidebar_hover(&app, frame))
+            .expect("render collapsed sidebar hover");
+
+        let text = buffer_text(terminal.backend().buffer(), 60, 20);
+        assert!(text.contains("desktop-client"));
     }
 
     #[test]

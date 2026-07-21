@@ -743,15 +743,19 @@ impl AppState {
         &self,
         row: u16,
     ) -> Option<(usize, usize, crate::layout::PaneId)> {
-        if !self.sidebar_collapsed {
-            return None;
-        }
-
-        let (_, _, detail_area) = crate::ui::collapsed_sidebar_sections_for_split(
-            self.view.sidebar_rect,
-            true,
-            self.sidebar_section_split,
-        );
+        let detail_area =
+            if self.view.right_sidebar_rect != Rect::default() && self.right_sidebar_collapsed {
+                crate::ui::right_sidebar_content_rect(self.view.right_sidebar_rect)
+            } else if self.sidebar_collapsed && self.view.right_sidebar_rect == Rect::default() {
+                let (_, _, detail_area) = crate::ui::collapsed_sidebar_sections_for_split(
+                    self.view.sidebar_rect,
+                    true,
+                    self.sidebar_section_split,
+                );
+                detail_area
+            } else {
+                return None;
+            };
         let detail = crate::ui::collapsed_agent_panel_entry_at_row(self, detail_area, row)?;
         Some((detail.ws_idx, detail.tab_idx, detail.pane_id))
     }
@@ -870,12 +874,22 @@ impl AppState {
     }
 
     pub(super) fn on_agent_panel_scope_toggle(&self, col: u16, row: u16) -> bool {
-        if self.sidebar_collapsed && self.view.right_sidebar_rect == Rect::default() {
-            let (_, _, detail_area) = crate::ui::collapsed_sidebar_sections_for_split(
-                self.view.sidebar_rect,
-                true,
-                self.sidebar_section_split,
-            );
+        let collapsed_area =
+            if self.view.right_sidebar_rect != Rect::default() && self.right_sidebar_collapsed {
+                Some(crate::ui::right_sidebar_content_rect(
+                    self.view.right_sidebar_rect,
+                ))
+            } else if self.sidebar_collapsed && self.view.right_sidebar_rect == Rect::default() {
+                let (_, _, detail_area) = crate::ui::collapsed_sidebar_sections_for_split(
+                    self.view.sidebar_rect,
+                    true,
+                    self.sidebar_section_split,
+                );
+                Some(detail_area)
+            } else {
+                None
+            };
+        if let Some(detail_area) = collapsed_area {
             let rect = crate::ui::collapsed_agent_panel_toggle_rect(detail_area);
             return rect.width > 0
                 && col >= rect.x
@@ -885,9 +899,6 @@ impl AppState {
         }
 
         let (detail_area, leading_separator) = if self.view.right_sidebar_rect != Rect::default() {
-            if self.right_sidebar_collapsed {
-                return false;
-            }
             (
                 crate::ui::right_sidebar_content_rect(self.view.right_sidebar_rect),
                 false,
@@ -2745,7 +2756,7 @@ mod tests {
     }
 
     #[test]
-    fn collapsed_left_sidebar_agent_rows_work_when_right_sidebar_exists() {
+    fn collapsed_right_sidebar_agent_rows_work_when_sidebars_are_separate() {
         let mut app = app_for_mouse_test();
         let mut ws = Workspace::test_new("test");
         let first_pane = ws.tabs[0].root_pane;
@@ -2773,15 +2784,12 @@ mod tests {
         app.state.selected = 0;
         app.state.mode = Mode::Terminal;
         app.state.sidebar_collapsed = true;
+        app.state.right_sidebar_collapsed = true;
         app.state.view.sidebar_rect = Rect::new(0, 0, 4, 20);
-        app.state.view.right_sidebar_rect = Rect::new(100, 0, 28, 20);
+        app.state.view.right_sidebar_rect = Rect::new(100, 0, 4, 20);
         app.state.view.terminal_area = Rect::new(4, 0, 96, 20);
 
-        let (_, _, detail_area) = crate::ui::collapsed_sidebar_sections_for_split(
-            app.state.view.sidebar_rect,
-            true,
-            app.state.sidebar_section_split,
-        );
+        let detail_area = crate::ui::right_sidebar_content_rect(app.state.view.right_sidebar_rect);
         let target_row = (detail_area.y..detail_area.y + detail_area.height)
             .find(|row| {
                 app.state

@@ -2228,6 +2228,12 @@ pub(crate) struct DragState {
     pub target: DragTarget,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum CollapsedSidebarHover {
+    Group(usize),
+    Workspace(usize),
+}
+
 #[derive(Clone)]
 pub(crate) struct WorkspacePressState {
     pub ws_idx: usize,
@@ -2719,6 +2725,7 @@ pub struct AppState {
     pub tab_scroll: usize,
     pub tab_scroll_follow_active: bool,
     pub hovered_tab: Option<usize>,
+    pub(crate) collapsed_sidebar_hover: Option<CollapsedSidebarHover>,
     pub mobile_switcher_scroll: usize,
     // View geometry (computed before render, consumed by render + mouse)
     pub view: ViewState,
@@ -3466,6 +3473,7 @@ impl AppState {
             tab_scroll: 0,
             tab_scroll_follow_active: true,
             hovered_tab: None,
+            collapsed_sidebar_hover: None,
             mobile_switcher_scroll: 0,
             view: ViewState {
                 layout: ViewLayout::Desktop,

@@ -231,15 +231,15 @@ fn client_agent_menu_anchor_rect(state: &AppState, view: &ClientViewState) -> Re
 
 fn client_agent_panel_rect(state: &AppState, view: &ClientViewState) -> Rect {
     let sidebar = view.computed.sidebar_rect;
-    if view.sidebar_collapsed || sidebar.width <= 1 || sidebar.height == 0 {
-        return Rect::default();
-    }
     if view.computed.right_sidebar_rect != Rect::default() {
         return if view.right_sidebar_collapsed {
             Rect::default()
         } else {
             crate::ui::right_sidebar_content_rect(view.computed.right_sidebar_rect)
         };
+    }
+    if view.sidebar_collapsed || sidebar.width <= 1 || sidebar.height == 0 {
+        return Rect::default();
     }
     if state.sidebar_arrangement == crate::config::SidebarArrangementConfig::CombinedRight {
         let (_, detail_area) =
@@ -868,6 +868,7 @@ impl App {
             tab_scroll: 0,
             tab_scroll_follow_active: true,
             hovered_tab: None,
+            collapsed_sidebar_hover: None,
             mobile_switcher_scroll: 0,
             view: state::ViewState {
                 layout: state::ViewLayout::Desktop,
@@ -8278,8 +8279,13 @@ impl App {
         column: u16,
         row: u16,
     ) -> Option<(usize, usize, crate::layout::PaneId)> {
-        let view = client_view;
-        if client_view.sidebar_collapsed
+        let collapsed_detail_area = if client_view.computed.right_sidebar_rect != Rect::default()
+            && client_view.right_sidebar_collapsed
+        {
+            Some(crate::ui::right_sidebar_content_rect(
+                client_view.computed.right_sidebar_rect,
+            ))
+        } else if client_view.sidebar_collapsed
             && client_view.computed.right_sidebar_rect == Rect::default()
         {
             let (_, _, detail_area) = crate::ui::collapsed_sidebar_sections_for_split(
@@ -8287,19 +8293,23 @@ impl App {
                 true,
                 client_view.sidebar_section_split,
             );
+            Some(detail_area)
+        } else {
+            None
+        };
+        if let Some(detail_area) = collapsed_detail_area {
             if !Self::rect_contains(detail_area, column, row) {
                 return None;
             }
             return crate::ui::collapsed_agent_panel_entry_at_row_for_view(
                 &self.state,
                 &self.terminal_runtimes,
-                view,
+                client_view,
                 detail_area,
                 row,
             )
             .map(|detail| (detail.ws_idx, detail.tab_idx, detail.pane_id));
         }
-
         let detail_area = self.client_view_agent_panel_rect(client_view);
         if !Self::rect_contains(detail_area, column, row) {
             return None;
@@ -8308,7 +8318,7 @@ impl App {
         let metrics = crate::ui::agent_panel_scroll_metrics_for_view(
             &self.state,
             &self.terminal_runtimes,
-            view,
+            client_view,
             detail_area,
             leading_separator,
         );
@@ -8324,7 +8334,7 @@ impl App {
         crate::ui::agent_panel_entry_at_row_for_view(
             &self.state,
             &self.terminal_runtimes,
-            view,
+            client_view,
             body,
             row,
         )
@@ -8363,7 +8373,13 @@ impl App {
         client_view: &ClientViewState,
         mouse: crossterm::event::MouseEvent,
     ) -> bool {
-        if client_view.sidebar_collapsed
+        let collapsed_area = if client_view.computed.right_sidebar_rect != Rect::default()
+            && client_view.right_sidebar_collapsed
+        {
+            Some(crate::ui::right_sidebar_content_rect(
+                client_view.computed.right_sidebar_rect,
+            ))
+        } else if client_view.sidebar_collapsed
             && client_view.computed.right_sidebar_rect == Rect::default()
         {
             let (_, _, detail_area) = crate::ui::collapsed_sidebar_sections_for_split(
@@ -8371,15 +8387,17 @@ impl App {
                 true,
                 client_view.sidebar_section_split,
             );
+            Some(detail_area)
+        } else {
+            None
+        };
+        if let Some(detail_area) = collapsed_area {
             let rect = crate::ui::collapsed_agent_panel_toggle_rect(detail_area);
             return Self::rect_contains(rect, mouse.column, mouse.row);
         }
 
         let (detail_area, leading_separator) =
             if client_view.computed.right_sidebar_rect != Rect::default() {
-                if client_view.right_sidebar_collapsed {
-                    return false;
-                }
                 (
                     crate::ui::right_sidebar_content_rect(client_view.computed.right_sidebar_rect),
                     false,
@@ -8891,8 +8909,64 @@ impl App {
     ) -> bool {
         use crossterm::event::{MouseButton, MouseEventKind};
 
+        if mouse.kind == MouseEventKind::Moved {
+            client_view.collapsed_sidebar_hover = if client_view.sidebar_collapsed
+                && Self::rect_contains(client_view.computed.sidebar_rect, mouse.column, mouse.row)
+            {
+                crate::ui::collapsed_workspace_row_entry_at_for_view(
+                    &self.state,
+                    client_view,
+                    client_view.computed.sidebar_rect,
+                    mouse.row,
+                )
+                .map(|entry| match entry {
+                    crate::ui::CollapsedWorkspaceRowEntry::GroupHeader { group_idx } => {
+                        state::CollapsedSidebarHover::Group(group_idx)
+                    }
+                    crate::ui::CollapsedWorkspaceRowEntry::Workspace { ws_idx, .. } => {
+                        state::CollapsedSidebarHover::Workspace(ws_idx)
+                    }
+                })
+            } else {
+                None
+            };
+        }
+
         match mouse.kind {
             MouseEventKind::Down(MouseButton::Left) => {
+                if client_view.sidebar_collapsed
+                    && Self::rect_contains(
+                        client_view.computed.sidebar_rect,
+                        mouse.column,
+                        mouse.row,
+                    )
+                {
+                    let Some(entry) = crate::ui::collapsed_workspace_row_entry_at_for_view(
+                        &self.state,
+                        client_view,
+                        client_view.computed.sidebar_rect,
+                        mouse.row,
+                    ) else {
+                        return false;
+                    };
+                    match entry {
+                        crate::ui::CollapsedWorkspaceRowEntry::GroupHeader { group_idx } => {
+                            client_view.group_press = Some(state::GroupPressState {
+                                group_idx,
+                                start_col: mouse.column,
+                                start_row: mouse.row,
+                            });
+                        }
+                        crate::ui::CollapsedWorkspaceRowEntry::Workspace { ws_idx, .. } => {
+                            client_view.workspace_press = Some(state::WorkspacePressState {
+                                ws_idx,
+                                start_col: mouse.column,
+                                start_row: mouse.row,
+                            });
+                        }
+                    }
+                    return true;
+                }
                 if self.client_view_on_group_selector(client_view, mouse) {
                     return false;
                 }
@@ -16594,6 +16668,58 @@ command = "printf literal > '{}'"
             );
         }
     }
+
+    #[test]
+    fn route_client_events_for_view_collapsed_space_row_switches_only_invoking_client() {
+        let mut app = test_app();
+        app.state.workspaces = vec![Workspace::test_new("first"), Workspace::test_new("second")];
+        app.state.ensure_test_terminals();
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::Terminal;
+        app.state.mouse_capture = true;
+        app.state.sidebar_arrangement = crate::config::SidebarArrangementConfig::CombinedLeft;
+
+        let area = ratatui::layout::Rect::new(0, 0, 120, 30);
+        let mut client = ClientViewState::from_default_client_state(&app.state);
+        client.sidebar_collapsed = true;
+        let mut other_client = ClientViewState::from_default_client_state(&app.state);
+        other_client.sidebar_collapsed = true;
+        compute_client_view(&app, &mut client, area);
+        let sidebar = client.computed.sidebar_rect;
+        let second_row = (sidebar.y..sidebar.y + sidebar.height)
+            .find(|row| {
+                matches!(
+                    crate::ui::collapsed_workspace_row_entry_at_for_view(
+                        &app.state, &client, sidebar, *row,
+                    ),
+                    Some(crate::ui::CollapsedWorkspaceRowEntry::Workspace { ws_idx: 1, .. })
+                )
+            })
+            .expect("second space row");
+
+        app.route_client_events_for_view(
+            &mut client,
+            vec![
+                raw_mouse(
+                    crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left),
+                    sidebar.x,
+                    second_row,
+                ),
+                raw_mouse(
+                    crossterm::event::MouseEventKind::Up(crossterm::event::MouseButton::Left),
+                    sidebar.x,
+                    second_row,
+                ),
+            ],
+            true,
+        );
+
+        assert_eq!(client.active_workspace, Some(1));
+        assert_eq!(client.selected_workspace, 1);
+        assert_eq!(other_client.active_workspace, Some(0));
+        assert_eq!(app.state.active, Some(0));
+    }
     #[test]
     fn route_client_events_for_view_sidebar_divider_drag_stays_client_local() {
         let mut app = test_app();
@@ -16996,6 +17122,44 @@ command = "printf literal > '{}'"
             vec![raw_mouse(
                 crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left),
                 toggle.x + toggle.width / 2,
+                toggle.y,
+            )],
+            true,
+        );
+
+        assert_eq!(client.mode, Mode::AgentMenu);
+        assert_eq!(other_client.mode, Mode::Terminal);
+        assert_eq!(app.state.mode, Mode::Terminal);
+    }
+
+    #[test]
+    fn route_client_events_for_view_separate_collapsed_agent_scope_opens_menu_locally() {
+        let mut app = test_app();
+        app.state.workspaces = vec![Workspace::test_new("home")];
+        app.state.ensure_test_terminals();
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::Terminal;
+        app.state.mouse_capture = true;
+        app.state.agent_panel_scope = state::AgentPanelScope::AllWorkspaces;
+        app.state.sidebar_arrangement = crate::config::SidebarArrangementConfig::Separate;
+
+        let area = ratatui::layout::Rect::new(0, 0, 120, 30);
+        let mut client = ClientViewState::from_default_client_state(&app.state);
+        client.sidebar_collapsed = true;
+        client.right_sidebar_collapsed = true;
+        let mut other_client = ClientViewState::from_default_client_state(&app.state);
+        other_client.sidebar_collapsed = true;
+        other_client.right_sidebar_collapsed = true;
+        compute_client_view(&app, &mut client, area);
+        let agent_area = crate::ui::right_sidebar_content_rect(client.computed.right_sidebar_rect);
+        let toggle = crate::ui::collapsed_agent_panel_toggle_rect(agent_area);
+
+        app.route_client_events_for_view(
+            &mut client,
+            vec![raw_mouse(
+                crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left),
+                toggle.x,
                 toggle.y,
             )],
             true,
