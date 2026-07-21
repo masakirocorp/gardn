@@ -3019,7 +3019,11 @@ fn render_workspace_list_from(
         let selector_rect = app.group_selector_rect();
         frame.render_widget(
             Paragraph::new(Span::styled(
-                "spaces",
+                if app.group_filter_enabled {
+                    "spaces"
+                } else {
+                    "groups"
+                },
                 Style::default().fg(p.overlay1).add_modifier(Modifier::BOLD),
             )),
             Rect::new(area.x, area.y, area.width, 1),
@@ -3261,7 +3265,11 @@ fn render_workspace_list_from_for_view(
         let selector_rect = group_selector_rect_for_view(app, client_view);
         frame.render_widget(
             Paragraph::new(Span::styled(
-                "spaces",
+                if client_view.group_filter_enabled {
+                    "spaces"
+                } else {
+                    "groups"
+                },
                 Style::default().fg(p.overlay1).add_modifier(Modifier::BOLD),
             )),
             Rect::new(area.x, area.y, area.width, 1),
@@ -4323,6 +4331,40 @@ mod tests {
             agent_panel_toggle_label(AgentPanelScope::AllWorkspaces),
             "all"
         );
+    }
+
+    #[test]
+    fn client_workspace_header_reflects_group_filter_scope() {
+        let app = crate::app::state::AppState::test_new();
+        let runtimes = TerminalRuntimeRegistry::new();
+        let area = Rect::new(0, 0, 28, 12);
+        let backend = TestBackend::new(area.width, area.height);
+        let mut terminal = Terminal::new(backend).expect("test backend");
+        let mut client = ClientViewState::from_default_client_state(&app);
+        client.group_filter_enabled = false;
+
+        terminal
+            .draw(|frame| {
+                render_workspace_list_from_for_view(&app, &runtimes, &client, frame, area, false);
+            })
+            .expect("render all-groups workspace list");
+        let text = buffer_text(terminal.backend().buffer(), area.width, area.height);
+        assert!(text
+            .lines()
+            .next()
+            .is_some_and(|line| line.starts_with("groups")));
+
+        client.group_filter_enabled = true;
+        terminal
+            .draw(|frame| {
+                render_workspace_list_from_for_view(&app, &runtimes, &client, frame, area, false);
+            })
+            .expect("render group workspace list");
+        let text = buffer_text(terminal.backend().buffer(), area.width, area.height);
+        assert!(text
+            .lines()
+            .next()
+            .is_some_and(|line| line.starts_with("spaces")));
     }
 
     #[test]

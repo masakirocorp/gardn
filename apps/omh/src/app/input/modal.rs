@@ -687,6 +687,7 @@ pub(super) fn apply_rename_action(state: &mut AppState, action: ModalAction) {
                     state.mark_session_dirty();
                 }
                 Mode::RenameGroup if state.creating_new_group => {
+                    let preserve_group_filter = state.group_filter_enabled;
                     let default_name = next_new_group_default_name(state);
                     let name = if new_name.is_empty() {
                         default_name
@@ -701,6 +702,8 @@ pub(super) fn apply_rename_action(state: &mut AppState, action: ModalAction) {
                             .then_some(std::path::PathBuf::from(default_directory)),
                     );
                     state.switch_group(group_idx);
+                    state.group_filter_enabled = preserve_group_filter;
+                    state.request_new_workspace = true;
                 }
                 Mode::RenameGroup if !new_name.is_empty() => {
                     let group_idx = state.rename_group_target.unwrap_or(state.active_group);

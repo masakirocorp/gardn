@@ -3080,13 +3080,15 @@ impl App {
                             new_name
                         };
                         let dir = client_view.group_default_directory_input.trim();
+                        let preserve_group_filter = client_view.group_filter_enabled;
                         let group_idx = self.state.create_group_with_icon_and_default_directory(
                             name,
                             client_view.group_icon_input.clone(),
                             (!dir.is_empty()).then_some(std::path::PathBuf::from(dir)),
                         );
                         client_view.active_group = group_idx;
-                        client_view.group_filter_enabled = true;
+                        client_view.group_filter_enabled = preserve_group_filter;
+                        self.create_workspace_in_group_for_client_view(client_view, group_idx);
                     }
                     Mode::RenameGroup if !new_name.is_empty() => {
                         let group_idx = client_view
@@ -4760,9 +4762,7 @@ impl App {
 
         match (menu.kind, item) {
             (state::ContextMenuKind::Group { group_idx, .. }, Some("space")) => {
-                self.switch_client_view_group(client_view, group_idx);
-                self.state.request_new_workspace = true;
-                Self::leave_client_view_command_mode(client_view);
+                self.create_workspace_in_group_for_client_view(client_view, group_idx);
             }
             (state::ContextMenuKind::Group { group_idx, .. }, Some("group")) => {
                 client_view.active_group = group_idx.min(self.state.groups.len().saturating_sub(1));
@@ -5226,19 +5226,41 @@ impl App {
     }
 
     fn create_workspace_for_client_view(&mut self, client_view: &mut ClientViewState) {
+        let group_idx = client_view
+            .active_workspace
+            .and_then(|ws_idx| self.state.workspaces.get(ws_idx))
+            .and_then(|workspace| self.state.group_index_by_id(&workspace.group_id))
+            .unwrap_or(client_view.active_group);
+        self.create_workspace_in_group_for_client_view(client_view, group_idx);
+    }
+
+    fn create_workspace_in_group_for_client_view(
+        &mut self,
+        client_view: &mut ClientViewState,
+        group_idx: usize,
+    ) {
+        let Some(group_id) = self
+            .state
+            .groups
+            .get(group_idx)
+            .map(|group| group.id.clone())
+        else {
+            return;
+        };
         let source = client_view
             .active_workspace
-            .filter(|idx| self.state.workspaces.get(*idx).is_some());
-        let group_id = source
-            .and_then(|ws_idx| self.state.workspaces.get(ws_idx))
-            .map(|ws| ws.group_id.clone())
+            .filter(|ws_idx| {
+                self.state
+                    .workspaces
+                    .get(*ws_idx)
+                    .is_some_and(|workspace| workspace.group_id == group_id)
+            })
             .or_else(|| {
                 self.state
-                    .groups
-                    .get(client_view.active_group)
-                    .map(|group| group.id.clone())
-            })
-            .unwrap_or_else(|| crate::workspace::DEFAULT_GROUP_ID.to_string());
+                    .workspaces
+                    .iter()
+                    .position(|workspace| workspace.group_id == group_id)
+            });
         let initial_cwd = self.group_default_directory(&group_id).unwrap_or_else(|| {
             let follow_cwd = source.and_then(|ws_idx| self.seed_cwd_from_workspace(ws_idx));
             self.resolve_new_terminal_cwd(follow_cwd)
@@ -5250,6 +5272,7 @@ impl App {
             Vec::new(),
         ) {
             Ok(ws_idx) => {
+                client_view.active_group = group_idx;
                 self.switch_client_view_workspace(client_view, ws_idx);
                 Self::leave_client_view_command_mode(client_view);
             }
@@ -16529,8 +16552,93 @@ command = "printf literal > '{}'"
         assert_eq!(app.state.groups.len(), group_count);
     }
 
-    #[test]
-    fn route_client_events_for_view_new_group_modal_clear_click_updates_invoking_client() {
+    #[tokio::test]
+    async fn group_workflow_new_group_creates_initial_space() {
+        let mut app = test_app();
+        app.state.workspaces = vec![Workspace::test_new("group 1 space")];
+        app.state.ensure_test_terminals();
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::Terminal;
+
+        let new_group_row = app.state.group_menu_labels().len() - 1;
+        let mut client = ClientViewState::from_default_client_state(&app.state);
+        client.mode = Mode::GroupMenu;
+        client.group_menu = state::ModalListState::new(new_group_row);
+
+        app.route_client_events_for_view(
+            &mut client,
+            vec![raw_key(
+                KeyCode::Enter,
+                KeyModifiers::empty(),
+                KeyEventKind::Press,
+            )],
+            true,
+        );
+        app.route_client_events_for_view(
+            &mut client,
+            vec![raw_key(
+                KeyCode::Enter,
+                KeyModifiers::empty(),
+                KeyEventKind::Press,
+            )],
+            true,
+        );
+
+        let new_group_id = app.state.groups[1].id.clone();
+        assert_eq!(
+            app.state
+                .workspaces
+                .iter()
+                .filter(|workspace| workspace.group_id == new_group_id)
+                .count(),
+            1,
+            "a new group should contain one initial space"
+        );
+    }
+
+    #[tokio::test]
+    async fn group_workflow_new_group_preserves_all_filter() {
+        let mut app = test_app();
+        app.state.workspaces = vec![Workspace::test_new("group 1 space")];
+        app.state.ensure_test_terminals();
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::Terminal;
+
+        let new_group_row = app.state.group_menu_labels().len() - 1;
+        let mut client = ClientViewState::from_default_client_state(&app.state);
+        client.group_filter_enabled = false;
+        client.mode = Mode::GroupMenu;
+        client.group_menu = state::ModalListState::new(new_group_row);
+
+        app.route_client_events_for_view(
+            &mut client,
+            vec![raw_key(
+                KeyCode::Enter,
+                KeyModifiers::empty(),
+                KeyEventKind::Press,
+            )],
+            true,
+        );
+        app.route_client_events_for_view(
+            &mut client,
+            vec![raw_key(
+                KeyCode::Enter,
+                KeyModifiers::empty(),
+                KeyEventKind::Press,
+            )],
+            true,
+        );
+
+        assert!(
+            !client.group_filter_enabled,
+            "creating a group should not leave the all-groups view"
+        );
+    }
+
+    #[tokio::test]
+    async fn route_client_events_for_view_new_group_modal_clear_click_updates_invoking_client() {
         let mut app = test_app();
         app.state.workspaces = vec![Workspace::test_new("test")];
         app.state.ensure_test_terminals();
@@ -19442,21 +19550,27 @@ command = "printf literal > '{}'"
         assert!(!client.pending_active_tabs.contains_key(&workspace_id));
     }
 
-    #[test]
-    fn route_client_events_for_view_group_context_space_queues_shared_workspace() {
+    #[tokio::test]
+    async fn group_workflow_context_space_targets_clicked_group() {
         let mut app = test_app();
-        app.state.workspaces = vec![Workspace::test_new("shell")];
+        let group_two = app.state.create_group("group 2".to_string());
+        let group_two_id = app.state.groups[group_two].id.clone();
+        let mut group_two_space = Workspace::test_new("group 2 space");
+        group_two_space.group_id = group_two_id.clone();
+        app.state.workspaces = vec![Workspace::test_new("group 1 space"), group_two_space];
         app.state.ensure_test_terminals();
         app.state.active = Some(0);
         app.state.selected = 0;
         app.state.mode = Mode::Terminal;
         app.state.mouse_capture = true;
 
+        let initial_workspace_count = app.state.workspaces.len();
         let mut client = ClientViewState::from_default_client_state(&app.state);
+        client.group_filter_enabled = false;
         client.context_menu = Some(state::ContextMenuState {
             kind: state::ContextMenuKind::Group {
-                group_idx: 0,
-                can_delete: false,
+                group_idx: group_two,
+                can_delete: true,
             },
             x: 4,
             y: 4,
@@ -19476,9 +19590,19 @@ command = "printf literal > '{}'"
             true,
         );
 
-        assert_eq!(client.mode, Mode::Terminal);
-        assert!(app.state.request_new_workspace);
-        assert_eq!(app.state.active_group, 0);
+        assert_eq!(app.state.workspaces.len(), initial_workspace_count + 1);
+        assert_eq!(
+            app.state
+                .workspaces
+                .last()
+                .map(|workspace| &workspace.group_id),
+            Some(&group_two_id),
+            "the new space should belong to the group whose menu was used"
+        );
+        assert!(
+            !client.group_filter_enabled,
+            "creating a space from a group menu should preserve the all-groups view"
+        );
     }
 
     #[test]
