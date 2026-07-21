@@ -257,6 +257,55 @@ fn make_agent_panel_entry(
         last_meaningful_agent_activity_unix_secs: detail.last_meaningful_agent_activity_unix_secs,
     }
 }
+
+fn agent_panel_pane_disambiguator(app: &AppState, entry: &AgentPanelEntry) -> Option<String> {
+    let workspace = app.workspaces.get(entry.ws_idx)?;
+    workspace
+        .pane_state(entry.pane_id)
+        .and_then(|pane| app.terminals.get(&pane.attached_terminal_id))
+        .and_then(|terminal| terminal.manual_label.clone())
+        .or_else(|| {
+            workspace
+                .public_pane_number(entry.pane_id)
+                .map(|number| format!("pane {number}"))
+        })
+}
+
+fn disambiguate_agent_panel_labels(app: &AppState, entries: &mut [AgentPanelEntry]) {
+    for idx in 0..entries.len() {
+        let ws_idx = entries[idx].ws_idx;
+        let tab_idx = entries[idx].tab_idx;
+        let workspace_entry_count = entries
+            .iter()
+            .filter(|entry| entry.ws_idx == ws_idx)
+            .count();
+        if workspace_entry_count <= 1 {
+            continue;
+        }
+
+        let has_other_tab = entries
+            .iter()
+            .any(|entry| entry.ws_idx == ws_idx && entry.tab_idx != tab_idx);
+        let same_tab_entry_count = entries
+            .iter()
+            .filter(|entry| entry.ws_idx == ws_idx && entry.tab_idx == tab_idx)
+            .count();
+        let mut label = entries[idx].primary_label.clone();
+        if has_other_tab {
+            if let Some(tab_label) = entries[idx].primary_tab_label.as_deref() {
+                label.push_str(" - ");
+                label.push_str(tab_label);
+            }
+        }
+        if same_tab_entry_count > 1 {
+            if let Some(pane_label) = agent_panel_pane_disambiguator(app, &entries[idx]) {
+                label.push_str(" - ");
+                label.push_str(&pane_label);
+            }
+        }
+        entries[idx].primary_label = label;
+    }
+}
 fn agent_panel_entries_with_context(
     app: &AppState,
     terminal_runtimes: Option<&TerminalRuntimeRegistry>,
@@ -273,7 +322,7 @@ fn agent_panel_entries_with_context(
         }
     };
 
-    match scope {
+    let mut entries: Vec<AgentPanelEntry> = match scope {
         AgentPanelScope::CurrentWorkspace => {
             let Some(ws_idx) = active_workspace else {
                 return Vec::new();
@@ -316,7 +365,9 @@ fn agent_panel_entries_with_context(
                     .map(move |detail| make_agent_panel_entry(ws_idx, detail, group_context_idx))
             })
             .collect(),
-    }
+    };
+    disambiguate_agent_panel_labels(app, &mut entries);
+    entries
 }
 
 fn agent_panel_entry_needs_triage(entry: &AgentPanelEntry) -> bool {
@@ -5142,6 +5193,67 @@ mod tests {
     }
 
     #[test]
+    fn agent_panel_disambiguates_agents_in_different_tabs() {
+        let mut app = crate::app::state::AppState::test_new();
+        let mut workspace = Workspace::test_new("personal");
+        let first_pane = workspace.tabs[0].root_pane;
+        let second_tab = workspace.test_add_tab(None);
+        let second_pane = workspace.tabs[second_tab].root_pane;
+        app.workspaces = vec![workspace];
+        app.ensure_test_terminals();
+
+        let first_terminal_id = app.workspaces[0].tabs[0].panes[&first_pane]
+            .attached_terminal_id
+            .clone();
+        app.terminals
+            .get_mut(&first_terminal_id)
+            .unwrap()
+            .detected_agent = Some(Agent::Codex);
+        let second_terminal_id = app.workspaces[0].tabs[second_tab].panes[&second_pane]
+            .attached_terminal_id
+            .clone();
+        app.terminals
+            .get_mut(&second_terminal_id)
+            .unwrap()
+            .detected_agent = Some(Agent::Claude);
+        app.active = Some(0);
+        app.selected = 0;
+        app.agent_panel_scope = AgentPanelScope::CurrentWorkspace;
+
+        let entries = agent_panel_entries(&app);
+
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].primary_label, "personal - 1");
+        assert_eq!(entries[1].primary_label, "personal - 2");
+    }
+
+    #[test]
+    fn agent_panel_disambiguates_agents_in_the_same_tab_by_pane() {
+        let mut app = crate::app::state::AppState::test_new();
+        let mut workspace = Workspace::test_new("personal");
+        let first_pane = workspace.tabs[0].root_pane;
+        let second_pane = workspace.test_split(ratatui::layout::Direction::Horizontal);
+        app.workspaces = vec![workspace];
+        app.ensure_test_terminals();
+
+        for (pane_id, agent) in [(first_pane, Agent::Codex), (second_pane, Agent::Claude)] {
+            let terminal_id = app.workspaces[0].tabs[0].panes[&pane_id]
+                .attached_terminal_id
+                .clone();
+            app.terminals.get_mut(&terminal_id).unwrap().detected_agent = Some(agent);
+        }
+        app.active = Some(0);
+        app.selected = 0;
+        app.agent_panel_scope = AgentPanelScope::CurrentWorkspace;
+
+        let entries = agent_panel_entries(&app);
+
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].primary_label, "personal - pane 1");
+        assert_eq!(entries[1].primary_label, "personal - pane 2");
+    }
+
+    #[test]
     fn agent_panel_entry_uses_pane_specific_row_labels_when_split_focus_is_elsewhere() {
         let mut app = crate::app::state::AppState::test_new();
         let mut workspace = Workspace::test_new("ignored");
@@ -5582,6 +5694,46 @@ mod tests {
         assert_eq!(idle.entries[0].primary_label, "new");
         assert_eq!(idle.entries[1].primary_label, "old");
         assert_eq!(idle.entries[1].agent_label.as_deref(), Some("renamed"));
+    }
+
+    #[test]
+    fn agent_panel_renders_tab_suffixes_for_duplicate_workspace_labels() {
+        let mut app = crate::app::state::AppState::test_new();
+        let mut workspace = Workspace::test_new("personal");
+        let first_pane = workspace.tabs[0].root_pane;
+        workspace.tabs[0]
+            .panes
+            .get_mut(&first_pane)
+            .unwrap()
+            .detected_agent = Some(Agent::Codex);
+        workspace.tabs[0].panes.get_mut(&first_pane).unwrap().state = AgentState::Working;
+        let second_tab = workspace.test_add_tab(None);
+        let second_pane = workspace.tabs[second_tab].root_pane;
+        workspace.tabs[second_tab]
+            .panes
+            .get_mut(&second_pane)
+            .unwrap()
+            .detected_agent = Some(Agent::Claude);
+        workspace.tabs[second_tab]
+            .panes
+            .get_mut(&second_pane)
+            .unwrap()
+            .state = AgentState::Working;
+        app.workspaces = vec![workspace];
+        app.active = Some(0);
+        app.selected = 0;
+        app.agent_panel_scope = AgentPanelScope::CurrentWorkspace;
+
+        let backend = TestBackend::new(34, 18);
+        let mut terminal = Terminal::new(backend).expect("test backend");
+        let terminal_runtimes = TerminalRuntimeRegistry::new();
+        terminal
+            .draw(|frame| render_sidebar(&app, &terminal_runtimes, frame, Rect::new(0, 0, 34, 18)))
+            .expect("render sidebar");
+
+        let text = buffer_text(terminal.backend().buffer(), 34, 18);
+        assert!(text.contains("personal - 1"));
+        assert!(text.contains("personal - 2"));
     }
 
     #[test]
