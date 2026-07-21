@@ -2550,17 +2550,17 @@ mod tests {
 
         assert!(app.state.group_icon_picker_open);
 
-        let (coffee, _) = crate::ui::group_icon_picker_rects(&app.state, inner)
+        let (flower, _) = crate::ui::group_icon_picker_rects(&app.state, inner)
             .into_iter()
-            .find(|(_, icon)| *icon == "☕")
-            .expect("coffee icon should be offered");
+            .find(|(_, icon)| *icon == "✿")
+            .expect("flower icon should be offered");
         app.handle_mouse(mouse(
             MouseEventKind::Down(MouseButton::Left),
-            coffee.x,
-            coffee.y,
+            flower.x,
+            flower.y,
         ));
 
-        assert_eq!(app.state.group_icon_input, "☕");
+        assert_eq!(app.state.group_icon_input, "✿");
         assert!(!app.state.group_icon_picker_open);
 
         app.state.name_input = "showcode".to_string();
@@ -2573,7 +2573,7 @@ mod tests {
         ));
 
         assert_eq!(app.state.groups[1].name, "showcode");
-        assert_eq!(app.state.groups[1].icon, "☕");
+        assert_eq!(app.state.groups[1].icon, "✿");
         assert_eq!(app.state.active_group, 1);
     }
 
@@ -2599,7 +2599,7 @@ mod tests {
         app.state.view.right_sidebar_rect = Rect::new(106, 0, 34, 20);
         super::super::modal::open_new_group_dialog(&mut app.state);
         app.state.name_input = "Work".to_string();
-        app.state.group_icon_input = "☕".to_string();
+        app.state.group_icon_input = "✿".to_string();
 
         let save = rendered_text_point(&app, "save");
         app.handle_mouse(mouse(
@@ -2609,7 +2609,7 @@ mod tests {
         ));
 
         assert_eq!(app.state.groups[1].name, "Work");
-        assert_eq!(app.state.groups[1].icon, "☕");
+        assert_eq!(app.state.groups[1].icon, "✿");
         assert_eq!(app.state.mode, Mode::Navigate);
     }
 
@@ -2693,14 +2693,14 @@ mod tests {
             icon_button.y,
         ));
 
-        let (anchor, _) = crate::ui::group_icon_picker_rects(&app.state, inner)
+        let (flower, _) = crate::ui::group_icon_picker_rects(&app.state, inner)
             .into_iter()
-            .find(|(_, icon)| *icon == "⚓")
-            .expect("anchor icon should be offered");
+            .find(|(_, icon)| *icon == "✿")
+            .expect("flower icon should be offered");
         app.handle_mouse(mouse(
             MouseEventKind::Down(MouseButton::Left),
-            anchor.x,
-            anchor.y,
+            flower.x,
+            flower.y,
         ));
 
         app.state.name_input = "Work renamed".to_string();
@@ -2712,7 +2712,7 @@ mod tests {
         ));
 
         assert_eq!(app.state.groups[group_idx].name, "Work renamed");
-        assert_eq!(app.state.groups[group_idx].icon, "⚓");
+        assert_eq!(app.state.groups[group_idx].icon, "✿");
     }
 
     #[test]

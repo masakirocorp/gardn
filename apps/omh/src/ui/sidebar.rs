@@ -4471,33 +4471,6 @@ mod tests {
     }
 
     #[test]
-    fn collapsed_five_column_rail_preserves_wide_group_icon_spacing() {
-        let mut app = crate::app::state::AppState::test_new();
-        app.groups[0].name = "Archive".to_string();
-        app.groups[0].icon = "⚓".to_string();
-        app.group_filter_enabled = false;
-        let mut view = ClientViewState::from_default_client_state(&app);
-        view.group_filter_enabled = false;
-        let runtimes = TerminalRuntimeRegistry::new();
-
-        let area = Rect::new(0, 0, 5, 8);
-        let backend = TestBackend::new(area.width, area.height);
-        let mut terminal = Terminal::new(backend).expect("test backend");
-        terminal
-            .draw(|frame| {
-                render_sidebar_collapsed_for_view(&app, &runtimes, &view, frame, area);
-            })
-            .expect("render collapsed client sidebar");
-
-        let buffer = terminal.backend().buffer();
-        let (x, y) = first_cell_with_symbol(buffer, area.width, area.height, "⚓")
-            .expect("wide group icon should remain visible inside the collapsed rail");
-        assert_eq!(x, area.x + 2, "group icon should follow chevron + gap");
-        assert_eq!(buffer[(area.x + 1, y)].symbol(), " ");
-        assert_eq!(buffer[(x, y)].style().fg, Some(app.group_accent_color(0)));
-    }
-
-    #[test]
     fn collapsed_left_rail_renders_header_divider_before_workspace_rows() {
         let mut app = crate::app::state::AppState::test_new();
         app.workspaces = vec![Workspace::test_new("one"), Workspace::test_new("two")];
@@ -4600,10 +4573,10 @@ mod tests {
     }
 
     #[test]
-    fn collapsed_group_hover_uses_group_accent_without_clipping_wide_icon_names() {
+    fn collapsed_group_hover_uses_group_accent() {
         let mut app = crate::app::state::AppState::test_new();
         app.groups[0].name = "Archive".to_string();
-        app.groups[0].icon = "⚓".to_string();
+        app.groups[0].icon = "✿".to_string();
         app.set_group_accent(0, Some(crate::config::TerminalAccent::Magenta));
         app.group_filter_enabled = false;
         app.sidebar_collapsed = true;

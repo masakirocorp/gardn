@@ -1097,7 +1097,7 @@ mod tests {
         state.groups.push(crate::app::state::Group {
             id: group_id.clone(),
             name: "Side".to_string(),
-            icon: "⚓".to_string(),
+            icon: "✿".to_string(),
             accent: Some(crate::config::TerminalAccent::Cyan),
             default_directory: None,
             favorite_agent_profile_ids: Vec::new(),
@@ -1112,7 +1112,7 @@ mod tests {
 
         assert_eq!(restored.groups.len(), 2);
         assert_eq!(restored.groups[1].name, "Side");
-        assert_eq!(restored.groups[1].icon, "⚓");
+        assert_eq!(restored.groups[1].icon, "✿");
         assert_eq!(
             restored.groups[1].accent,
             Some(crate::config::TerminalAccent::Cyan)

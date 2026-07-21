@@ -60,8 +60,7 @@ static NEXT_GROUP_ID: AtomicU64 = AtomicU64::new(1);
 
 pub const DEFAULT_GROUP_ICON: &str = "☀";
 pub const GROUP_ICONS: &[&str] = &[
-    "☀", "☁", "☂", "☕", "♥", "♪", "⚑", "⚙", "☎", "☄", "☘", "✉", "⚓", "✿", "✂", "✎", "✚", "⊕",
-    "▥", "⌁",
+    "☀", "☁", "☂", "♥", "♪", "⚑", "⚙", "☎", "☄", "☘", "✉", "✿", "✂", "✎", "✚", "⊕", "▥", "⌁",
 ];
 
 pub(crate) fn generate_group_id() -> String {
@@ -3690,17 +3689,25 @@ impl AppState {
 mod tests {
     use super::*;
     use crossterm::event::KeyEvent;
+    use unicode_width::UnicodeWidthStr;
 
     #[test]
-    fn group_icons_are_fun_distinct_set() {
+    fn group_icons_are_single_cell_fun_distinct_set() {
         assert_eq!(
             GROUP_ICONS,
             &[
-                "☀", "☁", "☂", "☕", "♥", "♪", "⚑", "⚙", "☎", "☄", "☘", "✉", "⚓", "✿", "✂", "✎",
-                "✚", "⊕", "▥", "⌁",
+                "☀", "☁", "☂", "♥", "♪", "⚑", "⚙", "☎", "☄", "☘", "✉", "✿", "✂", "✎", "✚", "⊕",
+                "▥", "⌁",
             ]
         );
         assert_eq!(DEFAULT_GROUP_ICON, GROUP_ICONS[0]);
+
+        let wide_icons = GROUP_ICONS
+            .iter()
+            .copied()
+            .filter(|icon| icon.width() != 1)
+            .collect::<Vec<_>>();
+        assert!(wide_icons.is_empty(), "wide group icons: {wide_icons:?}");
     }
 
     #[test]

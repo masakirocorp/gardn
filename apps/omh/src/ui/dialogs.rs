@@ -807,7 +807,7 @@ mod tests {
         app.mode = Mode::RenameGroup;
         app.creating_new_group = true;
         app.name_input = "Work".to_string();
-        app.group_icon_input = "☕".to_string();
+        app.group_icon_input = "✿".to_string();
         app.group_default_directory_input = "/tmp/work".to_string();
         app.group_modal_selected_field = 1;
 

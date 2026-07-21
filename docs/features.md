@@ -34,7 +34,7 @@ A workspace contains tabs, panes, cwd metadata, and agent state rollups.
 - **Desktop context bar** — an independent bottom row shows the attached client's active group / workspace / tab path, plus the focused pane name when a tab is split, on the left and live topology counts on the right. It is visible by default; set `ui.context_bar = "never"` to hide it persistently, or toggle one client temporarily with `prefix+Down`. Every path segment opens the same workspace navigator with the matching group, space, tab, or pane visibly selected; narrow terminals drop counts before shortening the active path.
 - **Workspace groups** — group workspaces, filter the sidebar by group, collapse groups, and assign per-group theme accent colors that tint group labels, tabs, menus, and related group UI.
 - **Group lifecycle** — create, rename, delete, focus, and switch groups from the TUI, CLI, or socket API; reorder groups by dragging headers in the all-groups sidebar.
-- **Group icons** — group creation and rename flows can choose from a curated set of 20 distinct icons.
+- **Group icons** — group creation and rename flows can choose from a curated set of single-cell icons.
 - **Move between groups** — move workspaces between groups from the TUI/sidebar group workflows.
 - **Public IDs** — CLI and socket API commands target workspaces, tabs, panes, and groups with public IDs; raw pane IDs remain compatibility inputs and are remapped after live handoff where possible.
 - **Live cwd labels** — workspace labels can follow active pane cwd unless manually renamed.

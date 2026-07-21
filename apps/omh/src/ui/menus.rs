@@ -1271,37 +1271,6 @@ mod tests {
     }
 
     #[test]
-    fn group_menu_alignment_uses_terminal_width_for_wide_icons() {
-        let mut app = AppState::test_new();
-        let group_idx = app.create_group("Archive".to_string());
-        app.groups[group_idx].icon = "⚓".to_string();
-
-        let wide_line = group_menu_group_line(&app, group_idx, false, 18);
-        let wide_name_start = wide_line
-            .spans
-            .iter()
-            .take(3)
-            .map(|span| display_width(span.content.as_ref()))
-            .sum::<usize>();
-        let rendered_width = wide_line
-            .spans
-            .iter()
-            .map(|span| display_width(span.content.as_ref()))
-            .sum::<usize>();
-
-        app.groups[group_idx].icon = "■".to_string();
-        let narrow_line = group_menu_group_line(&app, group_idx, false, 18);
-        let narrow_name_start = narrow_line
-            .spans
-            .iter()
-            .take(3)
-            .map(|span| display_width(span.content.as_ref()))
-            .sum::<usize>();
-
-        assert_eq!(wide_name_start, narrow_name_start);
-        assert_eq!(rendered_width, 17);
-    }
-    #[test]
     fn client_group_menu_group_line_uses_group_accent() {
         let mut app = AppState::test_new();
         let group_idx = app.create_group("work".to_string());
