@@ -1022,7 +1022,7 @@ fn compute_mobile_view(
     resize_panes: bool,
     cell_size: crate::kitty_graphics::HostCellSize,
 ) {
-    let header_h = if app.zen_mode { 0 } else { area.height.min(2) };
+    let header_h = if app.zen_mode { 0 } else { area.height.min(1) };
     let (header_rect, terminal_area) = if header_h == 0 {
         (Rect::default(), area)
     } else if area.height > header_h {
@@ -1104,7 +1104,7 @@ fn compute_mobile_view_for_client(
     let header_h = if client_view.zen_mode {
         0
     } else {
-        area.height.min(2)
+        area.height.min(1)
     };
     let (header_rect, terminal_area) = if header_h == 0 {
         (Rect::default(), area)
@@ -1564,9 +1564,9 @@ mod tests {
         assert_eq!(app.view.layout, ViewLayout::Mobile);
         assert_eq!(app.view.sidebar_rect, Rect::default());
         assert_eq!(app.view.tab_bar_rect, Rect::default());
-        assert_eq!(app.view.mobile_header_rect, Rect::new(0, 0, 44, 2));
-        assert_eq!(app.view.terminal_area, Rect::new(0, 2, 44, 18));
-        assert_eq!(app.view.mobile_menu_hit_area.height, 2);
+        assert_eq!(app.view.mobile_header_rect, Rect::new(0, 0, 44, 1));
+        assert_eq!(app.view.terminal_area, Rect::new(0, 1, 44, 19));
+        assert_eq!(app.view.mobile_menu_hit_area.height, 1);
         assert_eq!(
             app.view.mobile_menu_hit_area.x + app.view.mobile_menu_hit_area.width,
             44
@@ -1587,8 +1587,8 @@ mod tests {
         app.mobile_width_threshold = 90;
         compute_view(&mut app, Rect::new(0, 0, 80, 20));
         assert_eq!(app.view.layout, ViewLayout::Mobile);
-        assert_eq!(app.view.mobile_header_rect, Rect::new(0, 0, 80, 2));
-        assert_eq!(app.view.terminal_area, Rect::new(0, 2, 80, 18));
+        assert_eq!(app.view.mobile_header_rect, Rect::new(0, 0, 80, 1));
+        assert_eq!(app.view.terminal_area, Rect::new(0, 1, 80, 19));
     }
 
     #[tokio::test]

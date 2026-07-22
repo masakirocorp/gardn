@@ -1248,6 +1248,7 @@ impl Workspace {
             .unwrap_or_else(|| "workspace".into())
     }
 
+    #[cfg(test)]
     pub fn branch(&self) -> Option<String> {
         self.cached_git_branch.clone()
     }
@@ -1257,6 +1258,7 @@ impl Workspace {
         self.cached_git_ahead_behind
     }
 
+    #[cfg(test)]
     pub fn git_work_summary_label(&self) -> String {
         let Some(summary) = self.cached_git_work_summary else {
             return String::new();

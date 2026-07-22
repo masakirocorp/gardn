@@ -6,13 +6,10 @@ use ratatui::{
     Frame,
 };
 
-use super::sidebar::{
-    agent_panel_entries, agent_panel_entries_for_view, agent_panel_entries_from, AgentPanelEntry,
-};
-use super::status::{agent_icon, state_dot, toast_kind_color};
-use super::text::{display_width, display_width_u16, truncate_end};
+use super::status::{state_dot, toast_kind_color};
+use super::text::truncate_end;
 use super::widgets::fill_rect;
-use crate::app::state::{Palette, ToastKind, ToastNotification};
+use crate::app::state::{NavigatorRow, NavigatorTarget, Palette, ToastKind, ToastNotification};
 use crate::app::{AppState, ClientViewState};
 use crate::detect::AgentState;
 use crate::layout::PaneId;
@@ -33,16 +30,119 @@ pub(crate) struct MobileSwitcherAreas {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum MobileSwitcherTarget {
-    NewWorkspace,
+    Group(usize),
+    NewSpace,
     Workspace(usize),
     NewTab,
-    Tab(usize),
-    Agent {
+    Tab {
+        ws_idx: usize,
+        tab_idx: usize,
+    },
+    Pane {
         ws_idx: usize,
         tab_idx: usize,
         pane_id: PaneId,
     },
     Menu(usize),
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum MobileNavigationRow {
+    Section(&'static str),
+    Action {
+        label: &'static str,
+        target: MobileSwitcherTarget,
+        depth: u8,
+        group_idx: Option<usize>,
+    },
+    Hierarchy(NavigatorRow),
+    Menu {
+        label: String,
+        target: MobileSwitcherTarget,
+    },
+}
+
+impl MobileNavigationRow {
+    fn target(&self) -> Option<MobileSwitcherTarget> {
+        match self {
+            Self::Section(_) => None,
+            Self::Action { target, .. } | Self::Menu { target, .. } => Some(*target),
+            Self::Hierarchy(row) => Some(match row.target {
+                NavigatorTarget::Group { group_idx } => MobileSwitcherTarget::Group(group_idx),
+                NavigatorTarget::Workspace { ws_idx } => MobileSwitcherTarget::Workspace(ws_idx),
+                NavigatorTarget::Tab { ws_idx, tab_idx } => {
+                    MobileSwitcherTarget::Tab { ws_idx, tab_idx }
+                }
+                NavigatorTarget::Pane {
+                    ws_idx,
+                    tab_idx,
+                    pane_id,
+                } => MobileSwitcherTarget::Pane {
+                    ws_idx,
+                    tab_idx,
+                    pane_id,
+                },
+            }),
+        }
+    }
+}
+
+fn mobile_navigation_rows(
+    app: &AppState,
+    terminal_runtimes: &TerminalRuntimeRegistry,
+    view: Option<&ClientViewState>,
+) -> Vec<MobileNavigationRow> {
+    let hierarchy = view.map_or_else(
+        || app.mobile_navigation_rows(terminal_runtimes),
+        |view| app.mobile_navigation_rows_for_view(view, terminal_runtimes),
+    );
+    let active_workspace = view.map_or(app.active, |view| view.active_workspace);
+    let active_group = view.map_or(app.active_group, |view| view.active_group);
+    let mut rows = Vec::with_capacity(
+        hierarchy.len() + app.global_menu_labels().len() + usize::from(!app.groups.is_empty()) + 3,
+    );
+    rows.push(MobileNavigationRow::Section("navigate"));
+    for row in hierarchy {
+        let group_target = matches!(
+            row.target,
+            NavigatorTarget::Group { group_idx } if group_idx == active_group
+        );
+        let workspace_target = matches!(
+            row.target,
+            NavigatorTarget::Workspace { ws_idx } if Some(ws_idx) == active_workspace
+        );
+        rows.push(MobileNavigationRow::Hierarchy(row));
+        if group_target {
+            rows.push(MobileNavigationRow::Action {
+                label: "+ new space",
+                target: MobileSwitcherTarget::NewSpace,
+                depth: 1,
+                group_idx: Some(active_group),
+            });
+        }
+        if workspace_target {
+            let group_idx = active_workspace
+                .and_then(|ws_idx| app.workspaces.get(ws_idx))
+                .and_then(|workspace| app.group_index_by_id(&workspace.group_id));
+            rows.push(MobileNavigationRow::Action {
+                label: "+ new tab",
+                target: MobileSwitcherTarget::NewTab,
+                depth: 2,
+                group_idx,
+            });
+        }
+    }
+    rows.push(MobileNavigationRow::Section("menu"));
+    rows.extend(
+        app.global_menu_labels()
+            .into_iter()
+            .enumerate()
+            .map(|(idx, label)| MobileNavigationRow::Menu {
+                label: label.to_string(),
+                target: MobileSwitcherTarget::Menu(idx),
+            }),
+    );
+    rows
 }
 
 pub(crate) fn is_mobile_width(area: Rect, threshold: u16) -> bool {
@@ -114,93 +214,22 @@ pub(crate) fn mobile_switcher_areas_for_view(view: &ClientViewState) -> MobileSw
 }
 
 pub(crate) fn mobile_switcher_max_scroll_for_height(app: &AppState, viewport_height: u16) -> usize {
-    mobile_switcher_content_height(app).saturating_sub(viewport_height as usize)
-}
-
-fn mobile_tab_status(ws: &crate::workspace::Workspace) -> String {
-    let tab_label = ws
-        .tab_display_name(ws.active_tab)
-        .unwrap_or_else(|| (ws.active_tab + 1).to_string());
-    if ws.tabs.len() <= 1 {
-        format!("tab {tab_label}")
-    } else {
-        format!("tab {tab_label} · {}/{}", ws.active_tab + 1, ws.tabs.len())
-    }
-}
-
-#[derive(Debug, Clone, Copy)]
-struct MobileWorkspaceEntry {
-    ws_idx: usize,
-    indented: bool,
-}
-
-/// Workspaces in the order the mobile switcher renders them.
-fn mobile_workspace_tree_entries(app: &AppState) -> Vec<MobileWorkspaceEntry> {
-    app.visible_workspace_indices()
-        .into_iter()
-        .map(|ws_idx| MobileWorkspaceEntry {
-            ws_idx,
-            indented: false,
-        })
-        .collect()
-}
-
-fn mobile_workspace_tree_entries_for_view(
-    app: &AppState,
-    view: &ClientViewState,
-) -> Vec<MobileWorkspaceEntry> {
-    visible_workspace_indices_for_view(app, view)
-        .into_iter()
-        .map(|ws_idx| MobileWorkspaceEntry {
-            ws_idx,
-            indented: false,
-        })
-        .collect()
-}
-
-fn grouped_child_display_label(label: &str, branch: Option<&str>, has_custom_name: bool) -> String {
-    if has_custom_name {
-        return label.to_string();
-    }
-    let fallback = label.to_string();
-    let Some(branch) = branch else {
-        return fallback;
-    };
-    let prefix = label.strip_suffix(branch).unwrap_or(label);
-    let trimmed = prefix.trim_end_matches(['/', '-', ' ']);
-    if trimmed.is_empty() {
-        fallback
-    } else {
-        trimmed.to_string()
-    }
-}
-
-fn next_entry_is_indented_workspace(entries: &[MobileWorkspaceEntry], idx: usize) -> bool {
-    matches!(
-        entries.get(idx.saturating_add(1)),
-        Some(MobileWorkspaceEntry { indented: true, .. })
-    )
-}
-
-fn mobile_agents_block_height(app: &AppState) -> usize {
-    let count = agent_panel_entries(app).len();
-    if count == 0 {
-        0
-    } else {
-        1 + count * 2
-    }
+    let terminal_runtimes = TerminalRuntimeRegistry::new();
+    mobile_navigation_rows(app, &terminal_runtimes, None)
+        .len()
+        .saturating_sub(viewport_height as usize)
 }
 
 pub(crate) fn mobile_switcher_workspace_doc_range(
     app: &AppState,
     idx: usize,
 ) -> std::ops::Range<usize> {
-    let pos = mobile_workspace_tree_entries(app)
+    let terminal_runtimes = TerminalRuntimeRegistry::new();
+    let start = mobile_navigation_rows(app, &terminal_runtimes, None)
         .iter()
-        .position(|entry| entry.ws_idx == idx)
+        .position(|row| row.target() == Some(MobileSwitcherTarget::Workspace(idx)))
         .unwrap_or(idx);
-    let start = mobile_agents_block_height(app) + 2 + pos * 2;
-    start..start + 2
+    start..start + 1
 }
 
 pub(crate) fn mobile_switcher_max_scroll(app: &AppState) -> usize {
@@ -212,7 +241,8 @@ pub(crate) fn mobile_switcher_max_scroll_for_view(
     terminal_runtimes: &TerminalRuntimeRegistry,
     view: &ClientViewState,
 ) -> usize {
-    mobile_switcher_content_height_for_view(app, terminal_runtimes, view)
+    mobile_navigation_rows(app, terminal_runtimes, Some(view))
+        .len()
         .saturating_sub(mobile_switcher_areas_for_view(view).viewport.height as usize)
 }
 
@@ -222,8 +252,24 @@ pub(crate) fn mobile_switcher_max_scroll_for_view_height(
     view: &ClientViewState,
     viewport_height: u16,
 ) -> usize {
-    mobile_switcher_content_height_for_view(app, terminal_runtimes, view)
+    mobile_navigation_rows(app, terminal_runtimes, Some(view))
+        .len()
         .saturating_sub(viewport_height as usize)
+}
+
+fn mobile_switcher_target_from_rows(
+    rows: &[MobileNavigationRow],
+    scroll: usize,
+    viewport: Rect,
+    col: u16,
+    row: u16,
+) -> Option<MobileSwitcherTarget> {
+    let content = inset_for_left_scrollbar(viewport);
+    if !rect_contains(content, col, row) {
+        return None;
+    }
+    let doc_row = scroll.saturating_add(row.saturating_sub(viewport.y) as usize);
+    rows.get(doc_row)?.target()
 }
 
 pub(crate) fn mobile_switcher_target_at(
@@ -231,64 +277,15 @@ pub(crate) fn mobile_switcher_target_at(
     col: u16,
     row: u16,
 ) -> Option<MobileSwitcherTarget> {
-    let areas = mobile_switcher_areas(app);
-    let content = inset_for_left_scrollbar(areas.viewport);
-    if !rect_contains(content, col, row) {
-        return None;
-    }
-
-    let doc_row = app
-        .mobile_switcher_scroll
-        .saturating_add(row.saturating_sub(areas.viewport.y) as usize);
-    let mut cursor = 0usize;
-
-    // Agents lead the switcher.
-    let agents = agent_panel_entries(app);
-    if !agents.is_empty() {
-        cursor += 1; // agents title
-        let agents_end = cursor + agents.len() * 2;
-        if doc_row >= cursor && doc_row < agents_end {
-            let idx = (doc_row - cursor) / 2;
-            return agents.get(idx).map(|entry| MobileSwitcherTarget::Agent {
-                ws_idx: entry.ws_idx,
-                tab_idx: entry.tab_idx,
-                pane_id: entry.pane_id,
-            });
-        }
-        cursor = agents_end;
-    }
-
-    cursor += 1; // spaces title
-    if doc_row == cursor {
-        return Some(MobileSwitcherTarget::NewWorkspace);
-    }
-    cursor += 1;
-    let space_entries = mobile_workspace_tree_entries(app);
-    let spaces_end = cursor + space_entries.len() * 2;
-    if doc_row >= cursor && doc_row < spaces_end {
-        let entry_idx = (doc_row - cursor) / 2;
-        return space_entries
-            .get(entry_idx)
-            .map(|entry| MobileSwitcherTarget::Workspace(entry.ws_idx));
-    }
-    cursor = spaces_end;
-
-    if let Some(ws) = app.active.and_then(|idx| app.workspaces.get(idx)) {
-        cursor += 1; // tabs title
-        if doc_row == cursor {
-            return Some(MobileSwitcherTarget::NewTab);
-        }
-        cursor += 1;
-        let tabs_end = cursor + ws.tabs.len();
-        if doc_row >= cursor && doc_row < tabs_end {
-            return Some(MobileSwitcherTarget::Tab(doc_row - cursor));
-        }
-        cursor = tabs_end;
-    }
-
-    cursor += 1; // menu title
-    let menu_idx = doc_row.checked_sub(cursor)?;
-    (menu_idx < app.global_menu_labels().len()).then_some(MobileSwitcherTarget::Menu(menu_idx))
+    let terminal_runtimes = TerminalRuntimeRegistry::new();
+    let rows = mobile_navigation_rows(app, &terminal_runtimes, None);
+    mobile_switcher_target_from_rows(
+        &rows,
+        app.mobile_switcher_scroll,
+        mobile_switcher_areas(app).viewport,
+        col,
+        row,
+    )
 }
 
 pub(crate) fn mobile_switcher_target_at_for_view(
@@ -298,66 +295,14 @@ pub(crate) fn mobile_switcher_target_at_for_view(
     col: u16,
     row: u16,
 ) -> Option<MobileSwitcherTarget> {
-    let areas = mobile_switcher_areas_for_view(view);
-    let content = inset_for_left_scrollbar(areas.viewport);
-    if !rect_contains(content, col, row) {
-        return None;
-    }
-
-    let doc_row = view
-        .mobile_switcher_scroll
-        .saturating_add(row.saturating_sub(areas.viewport.y) as usize);
-    let mut cursor = 0usize;
-
-    let agents = agent_panel_entries_for_view(app, terminal_runtimes, view);
-    if !agents.is_empty() {
-        cursor += 1;
-        let agents_end = cursor + agents.len() * 2;
-        if doc_row >= cursor && doc_row < agents_end {
-            let idx = (doc_row - cursor) / 2;
-            return agents.get(idx).map(|entry| MobileSwitcherTarget::Agent {
-                ws_idx: entry.ws_idx,
-                tab_idx: entry.tab_idx,
-                pane_id: entry.pane_id,
-            });
-        }
-        cursor = agents_end;
-    }
-
-    cursor += 1;
-    if doc_row == cursor {
-        return Some(MobileSwitcherTarget::NewWorkspace);
-    }
-    cursor += 1;
-    let space_entries = mobile_workspace_tree_entries_for_view(app, view);
-    let spaces_end = cursor + space_entries.len() * 2;
-    if doc_row >= cursor && doc_row < spaces_end {
-        let entry_idx = (doc_row - cursor) / 2;
-        return space_entries
-            .get(entry_idx)
-            .map(|entry| MobileSwitcherTarget::Workspace(entry.ws_idx));
-    }
-    cursor = spaces_end;
-
-    if let Some(ws) = view
-        .active_workspace
-        .and_then(|idx| app.workspaces.get(idx))
-    {
-        cursor += 1;
-        if doc_row == cursor {
-            return Some(MobileSwitcherTarget::NewTab);
-        }
-        cursor += 1;
-        let tabs_end = cursor + ws.tabs.len();
-        if doc_row >= cursor && doc_row < tabs_end {
-            return Some(MobileSwitcherTarget::Tab(doc_row - cursor));
-        }
-        cursor = tabs_end;
-    }
-
-    cursor += 1;
-    let menu_idx = doc_row.checked_sub(cursor)?;
-    (menu_idx < app.global_menu_labels().len()).then_some(MobileSwitcherTarget::Menu(menu_idx))
+    let rows = mobile_navigation_rows(app, terminal_runtimes, Some(view));
+    mobile_switcher_target_from_rows(
+        &rows,
+        view.mobile_switcher_scroll,
+        mobile_switcher_areas_for_view(view).viewport,
+        col,
+        row,
+    )
 }
 
 pub(crate) fn render_mobile_header(
@@ -528,62 +473,11 @@ fn render_header_status(
     frame: &mut Frame,
     area: Rect,
 ) {
-    if area.width == 0 || area.height == 0 {
-        return;
-    }
-    let p = &app.palette;
-    let Some(ws) = app.active.and_then(|idx| app.workspaces.get(idx)) else {
-        frame.render_widget(Paragraph::new(" no workspace"), area);
-        return;
-    };
-
-    let (state, seen) = ws.aggregate_state(&app.terminals);
-    let (dot, dot_style) = if matches!(state, AgentState::Working) {
-        (
-            super::spinner_frame(app.spinner_tick),
-            Style::default().fg(p.yellow),
-        )
-    } else {
-        state_dot(state, seen, p)
-    };
-    let tab_label = mobile_tab_status(ws);
-    let row1 = Rect::new(area.x, area.y, area.width, 1);
-    let tab_w = display_width_u16(&tab_label)
-        .saturating_add(1)
-        .min(area.width);
-    let name_w = area.width.saturating_sub(tab_w);
-
-    frame.render_widget(
-        Paragraph::new(Line::from(vec![
-            Span::raw(" "),
-            Span::styled(dot, dot_style.bg(p.panel_bg)),
-            Span::raw(" "),
-            Span::styled(
-                truncate_end(
-                    &ws.display_name_from(&app.terminals, terminal_runtimes),
-                    name_w.saturating_sub(4) as usize,
-                ),
-                Style::default()
-                    .fg(p.text)
-                    .bg(p.panel_bg)
-                    .add_modifier(Modifier::BOLD),
-            ),
-        ])),
-        Rect::new(row1.x, row1.y, name_w, 1),
-    );
-    frame.render_widget(
-        Paragraph::new(tab_label)
-            .style(Style::default().fg(p.overlay1).bg(p.panel_bg))
-            .alignment(Alignment::Right),
-        Rect::new(row1.x + name_w, row1.y, tab_w, 1),
-    );
-
-    if area.height > 1 {
-        frame.render_widget(
-            Paragraph::new(agent_summary_line(app, p, area.width)),
-            Rect::new(area.x, area.y + 1, area.width, 1),
-        );
-    }
+    let active_tab = app
+        .active
+        .and_then(|ws_idx| app.workspaces.get(ws_idx))
+        .map(|workspace| workspace.active_tab);
+    render_header_status_for_selection(app, terminal_runtimes, app.active, active_tab, frame, area);
 }
 
 fn render_header_status_for_view(
@@ -593,67 +487,87 @@ fn render_header_status_for_view(
     frame: &mut Frame,
     area: Rect,
 ) {
+    let active_tab = view
+        .active_workspace
+        .and_then(|ws_idx| view.active_tab_index_for_workspace(app, ws_idx));
+    render_header_status_for_selection(
+        app,
+        terminal_runtimes,
+        view.active_workspace,
+        active_tab,
+        frame,
+        area,
+    );
+}
+
+fn render_header_status_for_selection(
+    app: &AppState,
+    terminal_runtimes: &TerminalRuntimeRegistry,
+    active_workspace: Option<usize>,
+    active_tab: Option<usize>,
+    frame: &mut Frame,
+    area: Rect,
+) {
     if area.width == 0 || area.height == 0 {
         return;
     }
     let p = &app.palette;
-    let Some((ws_idx, ws)) = view
-        .active_workspace
-        .and_then(|idx| app.workspaces.get(idx).map(|workspace| (idx, workspace)))
-    else {
-        frame.render_widget(Paragraph::new(" no workspace"), area);
+    let Some(ws) = active_workspace.and_then(|idx| app.workspaces.get(idx)) else {
+        frame.render_widget(Paragraph::new(" no space"), area);
         return;
     };
-
-    let (state, seen) = ws.aggregate_state(&app.terminals);
-    let (dot, dot_style) = if matches!(state, AgentState::Working) {
-        (
-            super::spinner_frame(app.spinner_tick),
-            Style::default().fg(p.yellow),
-        )
+    let group_idx = app.group_index_by_id(&ws.group_id);
+    let group_icon = group_idx
+        .and_then(|idx| app.groups.get(idx))
+        .map(|group| group.icon.as_str())
+        .unwrap_or("●");
+    let accent = group_idx
+        .map(|idx| app.group_accent_color(idx))
+        .unwrap_or(p.accent);
+    let tab_idx = active_tab
+        .unwrap_or(ws.active_tab)
+        .min(ws.tabs.len().saturating_sub(1));
+    let space_name = ws.display_name_from(&app.terminals, terminal_runtimes);
+    let tab_name = ws
+        .tab_display_name(tab_idx)
+        .unwrap_or_else(|| (tab_idx + 1).to_string());
+    let path = format!("{space_name} / {tab_name}");
+    let indicator = if ws.tabs.is_empty() {
+        String::new()
     } else {
-        state_dot(state, seen, p)
+        format!("{}/{}", tab_idx + 1, ws.tabs.len())
     };
-    let active_tab = view
-        .active_tab_index_for_workspace(app, ws_idx)
-        .unwrap_or(0)
-        .saturating_add(1);
-    let tab_label = format!("tab {}/{}", active_tab, ws.tabs.len());
-    let row1 = Rect::new(area.x, area.y, area.width, 1);
-    let tab_w = display_width_u16(&tab_label)
-        .saturating_add(1)
+    let indicator_width = super::text::display_width_u16(&indicator)
+        .saturating_add(u16::from(!indicator.is_empty()))
         .min(area.width);
-    let name_w = area.width.saturating_sub(tab_w);
-
+    let path_width = area.width.saturating_sub(indicator_width);
     frame.render_widget(
         Paragraph::new(Line::from(vec![
             Span::raw(" "),
-            Span::styled(dot, dot_style.bg(p.panel_bg)),
+            Span::styled(
+                group_icon.to_string(),
+                Style::default()
+                    .fg(accent)
+                    .bg(p.panel_bg)
+                    .add_modifier(Modifier::BOLD),
+            ),
             Span::raw(" "),
             Span::styled(
-                truncate_end(
-                    &ws.display_name_from(&app.terminals, terminal_runtimes),
-                    name_w.saturating_sub(4) as usize,
-                ),
+                truncate_end(&path, path_width.saturating_sub(3) as usize),
                 Style::default()
                     .fg(p.text)
                     .bg(p.panel_bg)
                     .add_modifier(Modifier::BOLD),
             ),
         ])),
-        Rect::new(row1.x, row1.y, name_w, 1),
+        Rect::new(area.x, area.y, path_width, 1),
     );
-    frame.render_widget(
-        Paragraph::new(tab_label)
-            .style(Style::default().fg(p.overlay1).bg(p.panel_bg))
-            .alignment(Alignment::Right),
-        Rect::new(row1.x + name_w, row1.y, tab_w, 1),
-    );
-
-    if area.height > 1 {
+    if indicator_width > 0 {
         frame.render_widget(
-            Paragraph::new(agent_summary_line(app, p, area.width)),
-            Rect::new(area.x, area.y + 1, area.width, 1),
+            Paragraph::new(indicator)
+                .style(Style::default().fg(p.overlay1).bg(p.panel_bg))
+                .alignment(Alignment::Right),
+            Rect::new(area.x + path_width, area.y, indicator_width, 1),
         );
     }
 }
@@ -682,9 +596,13 @@ fn render_switch_button(app: &AppState, frame: &mut Frame, area: Rect) {
         Rect::new(area.x + 1, label_y, area.width.saturating_sub(1), 1),
     );
 
-    // Attention badge: a blocked agent anywhere makes the button itself read as
-    // "tap me" without the user reading the summary row.
-    if global_agent_counts(app).blocked > 0 {
+    // A blocked pane anywhere remains visible as a compact attention badge.
+    if app.workspaces.iter().any(|workspace| {
+        matches!(
+            workspace.aggregate_state(&app.terminals).0,
+            AgentState::Blocked
+        )
+    }) {
         let bx = area.x + area.width.saturating_sub(1);
         frame.buffer_mut()[(bx, area.y)]
             .set_symbol("●")
@@ -729,300 +647,14 @@ fn render_close_button(app: &AppState, frame: &mut Frame, area: Rect) {
     }
 }
 
-fn mobile_switcher_content_height(app: &AppState) -> usize {
-    let agents_h = mobile_agents_block_height(app);
-    let spaces_h = 2 + mobile_workspace_tree_entries(app).len() * 2;
-    let tabs_h = app
-        .active
-        .and_then(|idx| app.workspaces.get(idx))
-        .map(|ws| 2 + ws.tabs.len())
-        .unwrap_or(0);
-    let menu_h = 1 + app.global_menu_labels().len();
-    agents_h + spaces_h + tabs_h + menu_h
-}
-
-fn mobile_switcher_content_height_for_view(
-    app: &AppState,
-    terminal_runtimes: &TerminalRuntimeRegistry,
-    view: &ClientViewState,
-) -> usize {
-    let agents_h = if agent_panel_entries_for_view(app, terminal_runtimes, view).is_empty() {
-        0
-    } else {
-        1 + agent_panel_entries_for_view(app, terminal_runtimes, view).len() * 2
-    };
-    let spaces_h = 2 + mobile_workspace_tree_entries_for_view(app, view).len() * 2;
-    let tabs_h = view
-        .active_workspace
-        .and_then(|idx| app.workspaces.get(idx))
-        .map(|ws| 2 + ws.tabs.len())
-        .unwrap_or(0);
-    let menu_h = 1 + app.global_menu_labels().len();
-    agents_h + spaces_h + tabs_h + menu_h
-}
-
-fn visible_workspace_indices_for_view(app: &AppState, view: &ClientViewState) -> Vec<usize> {
-    if !view.group_filter_enabled {
-        return (0..app.workspaces.len()).collect();
-    }
-
-    let Some(group) = app.groups.get(view.active_group) else {
-        return Vec::new();
-    };
-
-    app.workspaces
-        .iter()
-        .enumerate()
-        .filter_map(|(idx, workspace)| (workspace.group_id == group.id).then_some(idx))
-        .collect()
-}
-
 fn render_mobile_switcher_content(
     app: &AppState,
     terminal_runtimes: &TerminalRuntimeRegistry,
     frame: &mut Frame,
     viewport: Rect,
 ) {
-    if viewport.width == 0 || viewport.height == 0 {
-        return;
-    }
-
-    let p = &app.palette;
-    let total_height = mobile_switcher_content_height(app);
-    render_left_scrollbar(
-        frame,
-        viewport,
-        total_height,
-        viewport.height as usize,
-        app.mobile_switcher_scroll,
-        p,
-    );
-    let content = inset_for_left_scrollbar(viewport);
-    if content == Rect::default() {
-        return;
-    }
-
-    let mut doc_y = 0usize;
-
-    // Agents lead the switcher.
-    let entries = agent_panel_entries_from(app, terminal_runtimes);
-    if !entries.is_empty() {
-        let focused_agent = app.active.and_then(|ws_idx| {
-            let ws = app.workspaces.get(ws_idx)?;
-            ws.focused_pane_id()
-                .map(|pane_id| (ws_idx, ws.active_tab, pane_id))
-        });
-        render_section_title_at(
-            frame,
-            viewport,
-            content,
-            doc_y,
-            app.mobile_switcher_scroll,
-            "agents",
-            p,
-        );
-        doc_y += 1;
-        for entry in &entries {
-            let active = focused_agent.is_some_and(|(ws_idx, tab_idx, pane_id)| {
-                entry.ws_idx == ws_idx && entry.tab_idx == tab_idx && entry.pane_id == pane_id
-            });
-            let bg = mobile_item_bg(false, active, p);
-            let (icon, icon_style) = agent_icon(entry.state, entry.seen, app.spinner_tick, p);
-            let title = Line::from(vec![
-                Span::styled("  ", Style::default().bg(bg)),
-                Span::styled(icon, icon_style.bg(bg)),
-                Span::styled(" ", Style::default().bg(bg)),
-                Span::styled(
-                    truncate_end(
-                        &entry.primary_label,
-                        content.width.saturating_sub(5) as usize,
-                    ),
-                    Style::default()
-                        .fg(p.text)
-                        .bg(bg)
-                        .add_modifier(Modifier::BOLD),
-                ),
-            ]);
-            let detail = mobile_agent_detail(entry);
-            render_two_line_item(
-                frame,
-                viewport,
-                content,
-                doc_y,
-                app.mobile_switcher_scroll,
-                bg,
-                title,
-                truncate_end(&detail, content.width as usize),
-                p.overlay0,
-            );
-            doc_y += 2;
-        }
-    }
-
-    render_section_title_at(
-        frame,
-        viewport,
-        content,
-        doc_y,
-        app.mobile_switcher_scroll,
-        "spaces",
-        p,
-    );
-    doc_y += 1;
-    render_action_row_at(
-        frame,
-        viewport,
-        content,
-        doc_y,
-        app.mobile_switcher_scroll,
-        "+ new workspace",
-        p,
-    );
-    doc_y += 1;
-    let space_entries = mobile_workspace_tree_entries(app);
-    for (entry_idx, entry) in space_entries.iter().enumerate() {
-        let Some(ws) = app.workspaces.get(entry.ws_idx) else {
-            continue;
-        };
-        let active = Some(entry.ws_idx) == app.active;
-        let selected = entry.ws_idx == app.selected;
-        let bg = mobile_item_bg(selected, active, p);
-        let (state, seen) = ws.aggregate_state(&app.terminals);
-        let (dot, dot_style) = state_dot(state, seen, p);
-
-        let mut title_spans = vec![Span::styled("  ", Style::default().bg(bg))];
-        let detail_prefix = if entry.indented {
-            let last_child = !next_entry_is_indented_workspace(&space_entries, entry_idx);
-            title_spans.push(Span::styled(
-                if last_child { "└─ " } else { "├─ " },
-                Style::default().fg(p.overlay0).bg(bg),
-            ));
-            if last_child {
-                "       "
-            } else {
-                "  │    "
-            }
-        } else {
-            "  "
-        };
-
-        title_spans.push(Span::styled(dot, dot_style.bg(bg)));
-        title_spans.push(Span::styled(" ", Style::default().bg(bg)));
-        let raw_label = ws.display_name_from(&app.terminals, terminal_runtimes);
-        let name = if entry.indented {
-            grouped_child_display_label(
-                &raw_label,
-                ws.branch().as_deref(),
-                ws.custom_name.is_some(),
-            )
-        } else {
-            raw_label
-        };
-        let name_budget = content
-            .width
-            .saturating_sub(if entry.indented { 8 } else { 5 }) as usize;
-        title_spans.push(Span::styled(
-            truncate_end(&name, name_budget),
-            Style::default()
-                .fg(p.text)
-                .bg(bg)
-                .add_modifier(Modifier::BOLD),
-        ));
-
-        let detail = format!(
-            "{detail_prefix}{} · {}",
-            ws.branch().unwrap_or_else(|| "shell".into()),
-            mobile_tab_status(ws)
-        );
-        render_two_line_item(
-            frame,
-            viewport,
-            content,
-            doc_y,
-            app.mobile_switcher_scroll,
-            bg,
-            Line::from(title_spans),
-            truncate_end(&detail, content.width as usize),
-            p.overlay0,
-        );
-        doc_y += 2;
-    }
-
-    if let Some(ws) = app.active.and_then(|idx| app.workspaces.get(idx)) {
-        render_section_title_at(
-            frame,
-            viewport,
-            content,
-            doc_y,
-            app.mobile_switcher_scroll,
-            "tabs",
-            p,
-        );
-        doc_y += 1;
-        render_action_row_at(
-            frame,
-            viewport,
-            content,
-            doc_y,
-            app.mobile_switcher_scroll,
-            "+ new tab",
-            p,
-        );
-        doc_y += 1;
-        for (idx, tab) in ws.tabs.iter().enumerate() {
-            let active = idx == ws.active_tab;
-            let bg = mobile_item_bg(false, active, p);
-            let display_name = ws
-                .tab_display_name(idx)
-                .unwrap_or_else(|| (idx + 1).to_string());
-            let label = if tab.is_auto_named() {
-                format!("tab {display_name}")
-            } else {
-                format!("{} · {display_name}", idx + 1)
-            };
-            let title = Line::from(vec![
-                Span::styled("  ", Style::default().bg(bg)),
-                Span::styled(
-                    truncate_end(&label, content.width.saturating_sub(3) as usize),
-                    Style::default()
-                        .fg(p.text)
-                        .bg(bg)
-                        .add_modifier(Modifier::BOLD),
-                ),
-            ]);
-            render_one_line_item(
-                frame,
-                viewport,
-                content,
-                doc_y,
-                app.mobile_switcher_scroll,
-                bg,
-                title,
-            );
-            doc_y += 1;
-        }
-    }
-
-    render_section_title_at(
-        frame,
-        viewport,
-        content,
-        doc_y,
-        app.mobile_switcher_scroll,
-        "menu",
-        p,
-    );
-    doc_y += 1;
-    for label in app.global_menu_labels() {
-        if let Some(y) = visible_y(viewport, app.mobile_switcher_scroll, doc_y) {
-            frame.render_widget(
-                Paragraph::new(format!("  {label}"))
-                    .style(Style::default().fg(p.overlay1).bg(p.panel_bg)),
-                Rect::new(content.x, y, content.width, 1),
-            );
-        }
-        doc_y += 1;
-    }
+    let rows = mobile_navigation_rows(app, terminal_runtimes, None);
+    render_mobile_navigation_rows(app, frame, viewport, &rows, app.mobile_switcher_scroll);
 }
 
 fn render_mobile_switcher_content_for_view(
@@ -1032,252 +664,149 @@ fn render_mobile_switcher_content_for_view(
     frame: &mut Frame,
     viewport: Rect,
 ) {
+    let rows = mobile_navigation_rows(app, terminal_runtimes, Some(view));
+    render_mobile_navigation_rows(app, frame, viewport, &rows, view.mobile_switcher_scroll);
+}
+
+fn render_mobile_navigation_rows(
+    app: &AppState,
+    frame: &mut Frame,
+    viewport: Rect,
+    rows: &[MobileNavigationRow],
+    scroll: usize,
+) {
     if viewport.width == 0 || viewport.height == 0 {
         return;
     }
-
     let p = &app.palette;
-    let total_height = mobile_switcher_content_height_for_view(app, terminal_runtimes, view);
     render_left_scrollbar(
         frame,
         viewport,
-        total_height,
+        rows.len(),
         viewport.height as usize,
-        view.mobile_switcher_scroll,
+        scroll,
         p,
     );
     let content = inset_for_left_scrollbar(viewport);
     if content == Rect::default() {
         return;
     }
-
-    let mut doc_y = 0usize;
-    render_section_title_at(
-        frame,
-        viewport,
-        content,
-        doc_y,
-        view.mobile_switcher_scroll,
-        "spaces",
-        p,
-    );
-    doc_y += 1;
-    render_action_row_at(
-        frame,
-        viewport,
-        content,
-        doc_y,
-        view.mobile_switcher_scroll,
-        "+ new workspace",
-        p,
-    );
-    doc_y += 1;
-    for ws_idx in visible_workspace_indices_for_view(app, view) {
-        let Some(ws) = app.workspaces.get(ws_idx) else {
-            continue;
-        };
-        let active = Some(ws_idx) == view.active_workspace;
-        let selected = ws_idx == view.selected_workspace;
-        let bg = mobile_item_bg(selected, active, p);
-        let (state, seen) = ws.aggregate_state(&app.terminals);
-        let (dot, dot_style) = state_dot(state, seen, p);
-        let title = Line::from(vec![
-            Span::styled("  ", Style::default().bg(bg)),
-            Span::styled(dot, dot_style.bg(bg)),
-            Span::styled(" ", Style::default().bg(bg)),
-            Span::styled(
-                truncate_end(
-                    &ws.display_name_from(&app.terminals, terminal_runtimes),
-                    content.width.saturating_sub(5) as usize,
-                ),
-                Style::default()
-                    .fg(p.text)
-                    .bg(bg)
-                    .add_modifier(Modifier::BOLD),
-            ),
-        ]);
-        let summary = ws.git_work_summary_label();
-        let tab_detail = if ws.tabs.is_empty() {
-            "no tabs".to_string()
-        } else {
-            let active_tab = view
-                .active_tab_index_for_workspace(app, ws_idx)
-                .unwrap_or(0)
-                .saturating_add(1);
-            format!("tab {}/{}", active_tab, ws.tabs.len())
-        };
-        let detail = if summary.is_empty() {
-            format!("  {tab_detail}")
-        } else {
-            format!("  {summary} · {tab_detail}")
-        };
-        render_two_line_item(
-            frame,
-            viewport,
-            content,
-            doc_y,
-            view.mobile_switcher_scroll,
-            bg,
-            title,
-            truncate_end(&detail, content.width as usize),
-            p.overlay0,
-        );
-        doc_y += 2;
-    }
-
-    if let Some((ws_idx, ws)) = view
-        .active_workspace
-        .and_then(|idx| app.workspaces.get(idx).map(|workspace| (idx, workspace)))
-    {
-        let active_tab = view.active_tab_index_for_workspace(app, ws_idx);
-        render_section_title_at(
-            frame,
-            viewport,
-            content,
-            doc_y,
-            view.mobile_switcher_scroll,
-            "tabs",
-            p,
-        );
-        doc_y += 1;
-        render_action_row_at(
-            frame,
-            viewport,
-            content,
-            doc_y,
-            view.mobile_switcher_scroll,
-            "+ new tab",
-            p,
-        );
-        doc_y += 1;
-        for (idx, tab) in ws.tabs.iter().enumerate() {
-            let active = Some(idx) == active_tab;
-            let bg = mobile_item_bg(false, active, p);
-            let label = if tab.is_auto_named() {
-                format!("tab {}", idx + 1)
-            } else {
-                format!("{} · {}", idx + 1, tab.display_name())
-            };
-            let title = Line::from(vec![
-                Span::styled("  ", Style::default().bg(bg)),
-                Span::styled(
-                    truncate_end(&label, content.width.saturating_sub(3) as usize),
-                    Style::default()
-                        .fg(p.text)
-                        .bg(bg)
-                        .add_modifier(Modifier::BOLD),
-                ),
-            ]);
-            render_one_line_item(
-                frame,
-                viewport,
-                content,
-                doc_y,
-                view.mobile_switcher_scroll,
-                bg,
-                title,
-            );
-            doc_y += 1;
+    for (doc_y, row) in rows.iter().enumerate() {
+        match row {
+            MobileNavigationRow::Section(title) => {
+                render_section_title_at(frame, viewport, content, doc_y, scroll, title, p);
+            }
+            MobileNavigationRow::Action {
+                label,
+                depth,
+                group_idx,
+                ..
+            } => {
+                let Some(y) = visible_y(viewport, scroll, doc_y) else {
+                    continue;
+                };
+                let accent = group_idx
+                    .map(|idx| app.group_accent_color(idx))
+                    .unwrap_or(p.accent);
+                frame.render_widget(
+                    Paragraph::new(format!("{}{}", "  ".repeat(*depth as usize + 1), label)).style(
+                        Style::default()
+                            .fg(accent)
+                            .bg(p.panel_bg)
+                            .add_modifier(Modifier::BOLD),
+                    ),
+                    Rect::new(content.x, y, content.width, 1),
+                );
+            }
+            MobileNavigationRow::Hierarchy(row) => {
+                render_mobile_hierarchy_row(app, frame, viewport, content, doc_y, scroll, row);
+            }
+            MobileNavigationRow::Menu { label, .. } => {
+                let Some(y) = visible_y(viewport, scroll, doc_y) else {
+                    continue;
+                };
+                frame.render_widget(
+                    Paragraph::new(format!("  {label}"))
+                        .style(Style::default().fg(p.overlay1).bg(p.panel_bg)),
+                    Rect::new(content.x, y, content.width, 1),
+                );
+            }
         }
-    }
-
-    let focused_agent = view.active_workspace.and_then(|ws_idx| {
-        let ws = app.workspaces.get(ws_idx)?;
-        let tab_idx = view.active_tab_index_for_workspace(app, ws_idx)?;
-        let pane_id = view.focused_pane_for_tab(&ws.id, tab_idx + 1)?;
-        Some((ws_idx, tab_idx, pane_id))
-    });
-    let entries = agent_panel_entries_for_view(app, terminal_runtimes, view);
-    render_section_title_at(
-        frame,
-        viewport,
-        content,
-        doc_y,
-        view.mobile_switcher_scroll,
-        "agents",
-        p,
-    );
-    doc_y += 1;
-    for entry in &entries {
-        let active = focused_agent.is_some_and(|(ws_idx, tab_idx, pane_id)| {
-            entry.ws_idx == ws_idx && entry.tab_idx == tab_idx && entry.pane_id == pane_id
-        });
-        let bg = mobile_item_bg(false, active, p);
-        let (icon, icon_style) = agent_icon(entry.state, entry.seen, app.spinner_tick, p);
-        let title = Line::from(vec![
-            Span::styled("  ", Style::default().bg(bg)),
-            Span::styled(icon, icon_style.bg(bg)),
-            Span::styled(" ", Style::default().bg(bg)),
-            Span::styled(
-                truncate_end(
-                    &entry.primary_label,
-                    content.width.saturating_sub(5) as usize,
-                ),
-                Style::default()
-                    .fg(p.text)
-                    .bg(bg)
-                    .add_modifier(Modifier::BOLD),
-            ),
-        ]);
-        let detail = mobile_agent_detail(entry);
-        render_two_line_item(
-            frame,
-            viewport,
-            content,
-            doc_y,
-            view.mobile_switcher_scroll,
-            bg,
-            title,
-            truncate_end(&detail, content.width as usize),
-            p.overlay0,
-        );
-        doc_y += 2;
-    }
-
-    render_section_title_at(
-        frame,
-        viewport,
-        content,
-        doc_y,
-        view.mobile_switcher_scroll,
-        "menu",
-        p,
-    );
-    doc_y += 1;
-    for label in app.global_menu_labels() {
-        if let Some(y) = visible_y(viewport, view.mobile_switcher_scroll, doc_y) {
-            frame.render_widget(
-                Paragraph::new(format!("  {label}"))
-                    .style(Style::default().fg(p.overlay1).bg(p.panel_bg)),
-                Rect::new(content.x, y, content.width, 1),
-            );
-        }
-        doc_y += 1;
     }
 }
 
-fn mobile_agent_detail(entry: &AgentPanelEntry) -> String {
-    let mut parts = Vec::new();
-    if let Some(tab_label) = entry.primary_tab_label.as_deref() {
-        parts.push(tab_label.to_string());
+fn render_mobile_hierarchy_row(
+    app: &AppState,
+    frame: &mut Frame,
+    viewport: Rect,
+    content: Rect,
+    doc_y: usize,
+    scroll: usize,
+    row: &NavigatorRow,
+) {
+    let Some(y) = visible_y(viewport, scroll, doc_y) else {
+        return;
+    };
+    let p = &app.palette;
+    let bg = mobile_item_bg(false, row.is_current, p);
+    fill_rect(
+        frame,
+        Rect::new(content.x, y, content.width, 1),
+        Style::default().bg(bg),
+    );
+    let group_idx = match row.target {
+        NavigatorTarget::Group { group_idx } => Some(group_idx),
+        NavigatorTarget::Workspace { ws_idx }
+        | NavigatorTarget::Tab { ws_idx, .. }
+        | NavigatorTarget::Pane { ws_idx, .. } => app
+            .workspaces
+            .get(ws_idx)
+            .and_then(|workspace| app.group_index_by_id(&workspace.group_id)),
+    };
+    let accent = group_idx
+        .map(|idx| app.group_accent_color(idx))
+        .unwrap_or(p.accent);
+    let indent = "  ".repeat(row.depth as usize + 1);
+    let (marker, marker_style) = match row.target {
+        NavigatorTarget::Pane { .. } => {
+            let (dot, style) = state_dot(row.status, row.seen, p);
+            (dot.to_string(), style.bg(bg))
+        }
+        _ if row.has_children => (
+            if row.expanded { "▾" } else { "▸" }.to_string(),
+            Style::default().fg(accent).bg(bg),
+        ),
+        _ => ("•".to_string(), Style::default().fg(accent).bg(bg)),
+    };
+    let label_style = if row.is_group {
+        Style::default()
+            .fg(accent)
+            .bg(bg)
+            .add_modifier(Modifier::BOLD)
+    } else if row.is_current {
+        Style::default()
+            .fg(p.text)
+            .bg(bg)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(p.text).bg(bg)
+    };
+    let mut spans = vec![
+        Span::styled(indent, Style::default().bg(bg)),
+        Span::styled(marker, marker_style),
+        Span::styled(" ", Style::default().bg(bg)),
+        Span::styled(row.label.clone(), label_style),
+    ];
+    if !row.meta.is_empty() {
+        spans.push(Span::styled(
+            format!(" · {}", row.meta),
+            Style::default().fg(p.overlay0).bg(bg),
+        ));
     }
-    let status = entry
-        .state_labels
-        .get(super::sidebar::agent_panel_status_key(
-            entry.state,
-            entry.seen,
-        ))
-        .cloned()
-        .unwrap_or_else(|| super::status::state_label(entry.state, entry.seen).to_string());
-    parts.push(status);
-    if let Some(agent_label) = entry.agent_label.as_deref() {
-        parts.push(agent_label.to_string());
-    }
-    if let Some(custom_status) = entry.custom_status.as_deref() {
-        parts.push(custom_status.to_string());
-    }
-
-    format!("  {}", parts.join(" · "))
+    frame.render_widget(
+        Paragraph::new(Line::from(spans)),
+        Rect::new(content.x, y, content.width, 1),
+    );
 }
 
 fn render_section_title_at(
@@ -1300,100 +829,9 @@ fn render_section_title_at(
     );
 }
 
-fn render_action_row_at(
-    frame: &mut Frame,
-    viewport: Rect,
-    content: Rect,
-    doc_y: usize,
-    scroll: usize,
-    label: &str,
-    p: &Palette,
-) {
-    let Some(y) = visible_y(viewport, scroll, doc_y) else {
-        return;
-    };
-    render_action_row(frame, Rect::new(content.x, y, content.width, 1), label, p);
-}
-
-fn render_one_line_item(
-    frame: &mut Frame,
-    viewport: Rect,
-    content: Rect,
-    doc_y: usize,
-    scroll: usize,
-    bg: ratatui::style::Color,
-    title: Line<'_>,
-) {
-    fill_visible_doc_rect(
-        frame,
-        viewport,
-        content,
-        doc_y,
-        1,
-        Style::default().bg(bg),
-        scroll,
-    );
-    if let Some(y) = visible_y(viewport, scroll, doc_y) {
-        frame.render_widget(
-            Paragraph::new(title),
-            Rect::new(content.x, y, content.width, 1),
-        );
-    }
-}
-
-fn render_two_line_item(
-    frame: &mut Frame,
-    viewport: Rect,
-    content: Rect,
-    doc_y: usize,
-    scroll: usize,
-    bg: ratatui::style::Color,
-    title: Line<'_>,
-    detail: String,
-    detail_fg: ratatui::style::Color,
-) {
-    fill_visible_doc_rect(
-        frame,
-        viewport,
-        content,
-        doc_y,
-        2,
-        Style::default().bg(bg),
-        scroll,
-    );
-    if let Some(y) = visible_y(viewport, scroll, doc_y) {
-        frame.render_widget(
-            Paragraph::new(title),
-            Rect::new(content.x, y, content.width, 1),
-        );
-    }
-    if let Some(y) = visible_y(viewport, scroll, doc_y + 1) {
-        frame.render_widget(
-            Paragraph::new(detail).style(Style::default().fg(detail_fg).bg(bg)),
-            Rect::new(content.x, y, content.width, 1),
-        );
-    }
-}
-
 fn visible_y(viewport: Rect, scroll: usize, doc_y: usize) -> Option<u16> {
     let offset = doc_y.checked_sub(scroll)?;
     (offset < viewport.height as usize).then_some(viewport.y + offset as u16)
-}
-
-fn fill_visible_doc_rect(
-    frame: &mut Frame,
-    viewport: Rect,
-    content: Rect,
-    doc_y: usize,
-    height: usize,
-    style: Style,
-    scroll: usize,
-) {
-    for offset in 0..height {
-        if let Some(y) = visible_y(viewport, scroll, doc_y + offset) {
-            fill_rect(frame, Rect::new(content.x, y, content.width, 1), style);
-        }
-    }
 }
 
 fn mobile_item_bg(selected: bool, active: bool, p: &Palette) -> ratatui::style::Color {
@@ -1457,21 +895,6 @@ fn render_section_title(frame: &mut Frame, area: Rect, title: &str, p: &Palette)
     );
 }
 
-fn render_action_row(frame: &mut Frame, area: Rect, label: &str, p: &Palette) {
-    if area.width == 0 || area.height == 0 {
-        return;
-    }
-    frame.render_widget(
-        Paragraph::new(format!("  {label}")).style(
-            Style::default()
-                .fg(p.accent)
-                .bg(p.panel_bg)
-                .add_modifier(Modifier::BOLD),
-        ),
-        area,
-    );
-}
-
 fn rect_contains(rect: Rect, col: u16, row: u16) -> bool {
     rect.width > 0
         && rect.height > 0
@@ -1489,137 +912,6 @@ fn mobile_screen_rect(app: &AppState) -> Rect {
     let right = (header.x + header.width).max(terminal.x + terminal.width);
     let bottom = (header.y + header.height).max(terminal.y + terminal.height);
     Rect::new(x, y, right.saturating_sub(x), bottom.saturating_sub(y))
-}
-
-/// Agent state counts across every workspace. The mobile header is global on
-/// purpose: while you stare at one terminal, a blocked agent anywhere should
-/// still surface.
-#[derive(Debug, Default, Clone, Copy)]
-struct GlobalAgentCounts {
-    blocked: usize,
-    done: usize,
-    working: usize,
-    idle: usize,
-}
-
-impl GlobalAgentCounts {
-    fn total(&self) -> usize {
-        self.blocked + self.done + self.working + self.idle
-    }
-
-    fn any_pending(&self) -> bool {
-        self.blocked > 0 || self.done > 0 || self.working > 0
-    }
-}
-
-fn global_agent_counts(app: &AppState) -> GlobalAgentCounts {
-    let mut counts = GlobalAgentCounts::default();
-    for entry in agent_panel_entries(app) {
-        match (entry.state, entry.seen) {
-            (AgentState::Blocked, _) => counts.blocked += 1,
-            (AgentState::Idle, false) => counts.done += 1,
-            (AgentState::Working, _) => counts.working += 1,
-            (AgentState::Idle, true) => counts.idle += 1,
-            (AgentState::Unknown, _) => {}
-        }
-    }
-    counts
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum SummaryTone {
-    Blocked,
-    Done,
-    Working,
-    Idle,
-    Muted,
-}
-
-fn agent_summary_segments(counts: GlobalAgentCounts) -> Vec<(String, SummaryTone)> {
-    if counts.total() == 0 {
-        return vec![("no agents".to_string(), SummaryTone::Muted)];
-    }
-    if !counts.any_pending() {
-        return vec![("all idle".to_string(), SummaryTone::Muted)];
-    }
-    let mut segments = Vec::new();
-    if counts.blocked > 0 {
-        segments.push((
-            format!("◉ {} blocked", counts.blocked),
-            SummaryTone::Blocked,
-        ));
-    }
-    if counts.done > 0 {
-        segments.push((format!("● {} done", counts.done), SummaryTone::Done));
-    }
-    if counts.working > 0 {
-        segments.push((format!("{} working", counts.working), SummaryTone::Working));
-    }
-    if counts.idle > 0 {
-        segments.push((format!("{} idle", counts.idle), SummaryTone::Idle));
-    }
-    segments
-}
-
-fn fit_summary_segments(
-    segments: Vec<(String, SummaryTone)>,
-    max_width: usize,
-) -> (Vec<(String, SummaryTone)>, bool) {
-    let mut shown = Vec::new();
-    let mut used = 1usize; // leading space
-    for (idx, segment) in segments.iter().enumerate() {
-        let sep = if idx > 0 { 3 } else { 0 }; // " · "
-        let seg_w = display_width(&segment.0);
-        if used + sep + seg_w > max_width {
-            break;
-        }
-        used += sep + seg_w;
-        shown.push(segment.clone());
-    }
-    let truncated = shown.len() < segments.len();
-    (shown, truncated)
-}
-
-fn agent_summary_line(app: &AppState, p: &Palette, max_width: u16) -> Line<'static> {
-    let segments = agent_summary_segments(global_agent_counts(app));
-    let (shown, truncated) = fit_summary_segments(segments, max_width as usize);
-
-    let mut spans = vec![Span::styled(" ", Style::default().bg(p.panel_bg))];
-    let mut used = 1usize;
-    for (idx, (text, tone)) in shown.into_iter().enumerate() {
-        if idx > 0 {
-            spans.push(Span::styled(
-                " · ",
-                Style::default().fg(p.overlay0).bg(p.panel_bg),
-            ));
-            used += 3;
-        }
-        let style = if idx == 0 {
-            let color = match tone {
-                SummaryTone::Blocked => p.red,
-                SummaryTone::Done => p.blue,
-                SummaryTone::Working => p.yellow,
-                SummaryTone::Idle | SummaryTone::Muted => p.overlay1,
-            };
-            let style = Style::default().fg(color).bg(p.panel_bg);
-            if tone == SummaryTone::Muted {
-                style
-            } else {
-                style.add_modifier(Modifier::BOLD)
-            }
-        } else {
-            Style::default().fg(p.overlay1).bg(p.panel_bg)
-        };
-        used += display_width(&text);
-        spans.push(Span::styled(text, style));
-    }
-    if truncated && used + 2 <= max_width as usize {
-        spans.push(Span::styled(
-            " …",
-            Style::default().fg(p.overlay0).bg(p.panel_bg),
-        ));
-    }
-    Line::from(spans)
 }
 
 fn mobile_toast_title(toast: &ToastNotification) -> String {
@@ -1654,41 +946,243 @@ fn draw_horizontal_rule(frame: &mut Frame, area: Rect, p: &Palette) {
 mod tests {
     use super::*;
 
-    fn agent_entry(primary_tab_label: Option<&str>, agent_label: Option<&str>) -> AgentPanelEntry {
-        AgentPanelEntry {
-            ws_idx: 0,
+    fn hierarchy_fixture() -> (AppState, usize, PaneId) {
+        let mut app = crate::app::state::AppState::test_new();
+        let group_idx = app.create_group("Infrastructure".to_string());
+        app.groups[group_idx].icon = "■".to_string();
+        app.groups[group_idx].accent = Some(crate::config::TerminalAccent::Red);
+
+        let default_space = crate::workspace::Workspace::test_new("default");
+        let mut active_space = crate::workspace::Workspace::test_new("observability");
+        active_space.group_id = app.groups[group_idx].id.clone();
+        active_space.custom_name = Some("Observability".to_string());
+        active_space.tabs[0].set_custom_name("dashboards".to_string());
+        let focused_pane = active_space.test_split(ratatui::layout::Direction::Horizontal);
+        active_space.test_add_tab(Some("logs"));
+        active_space.active_tab = 0;
+        active_space.tabs[0].layout.focus_pane(focused_pane);
+
+        let mut sibling_space = crate::workspace::Workspace::test_new("alerts");
+        sibling_space.group_id = app.groups[group_idx].id.clone();
+        sibling_space.custom_name = Some("Alerts".to_string());
+
+        app.workspaces = vec![default_space, active_space, sibling_space];
+        app.active = Some(1);
+        app.selected = 1;
+        app.active_group = group_idx;
+        app.ensure_test_terminals();
+        let terminal_id = app.workspaces[1].tabs[0].panes[&focused_pane]
+            .attached_terminal_id
+            .clone();
+        app.terminals
+            .get_mut(&terminal_id)
+            .expect("focused pane terminal")
+            .set_detected_state(Some(crate::detect::Agent::Claude), AgentState::Working);
+        (app, group_idx, focused_pane)
+    }
+
+    fn buffer_text(buffer: &ratatui::buffer::Buffer) -> String {
+        (0..buffer.area.height)
+            .map(|y| {
+                (0..buffer.area.width)
+                    .map(|x| buffer[(x, y)].symbol())
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    #[test]
+    fn mobile_navigation_exposes_the_active_group_space_tab_and_panes() {
+        let (app, group_idx, focused_pane) = hierarchy_fixture();
+        let terminal_runtimes = TerminalRuntimeRegistry::new();
+        let rows = mobile_navigation_rows(&app, &terminal_runtimes, None);
+        let hierarchy = rows
+            .iter()
+            .filter_map(|row| match row {
+                MobileNavigationRow::Hierarchy(row) => Some(row),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+
+        let inactive_group = hierarchy
+            .iter()
+            .find(|row| row.target == (NavigatorTarget::Group { group_idx: 0 }))
+            .expect("inactive group row");
+        assert!(!inactive_group.expanded);
+        let active_group = hierarchy
+            .iter()
+            .find(|row| row.target == (NavigatorTarget::Group { group_idx }))
+            .expect("active group row");
+        assert!(active_group.expanded);
+
+        let active_space = hierarchy
+            .iter()
+            .find(|row| row.target == (NavigatorTarget::Workspace { ws_idx: 1 }))
+            .expect("active space row");
+        assert_eq!(active_space.depth, 1);
+        assert!(active_space.expanded);
+        let sibling_space = hierarchy
+            .iter()
+            .find(|row| row.target == (NavigatorTarget::Workspace { ws_idx: 2 }))
+            .expect("sibling space row");
+        assert!(!sibling_space.expanded);
+
+        let active_tab = hierarchy
+            .iter()
+            .find(|row| {
+                row.target
+                    == (NavigatorTarget::Tab {
+                        ws_idx: 1,
+                        tab_idx: 0,
+                    })
+            })
+            .expect("active tab row");
+        assert_eq!(active_tab.depth, 2);
+        assert!(active_tab.expanded);
+        let inactive_tab = hierarchy
+            .iter()
+            .find(|row| {
+                row.target
+                    == (NavigatorTarget::Tab {
+                        ws_idx: 1,
+                        tab_idx: 1,
+                    })
+            })
+            .expect("inactive tab row");
+        assert!(!inactive_tab.expanded);
+
+        let focused = hierarchy
+            .iter()
+            .find(|row| {
+                row.target
+                    == (NavigatorTarget::Pane {
+                        ws_idx: 1,
+                        tab_idx: 0,
+                        pane_id: focused_pane,
+                    })
+            })
+            .expect("focused pane row");
+        assert_eq!(focused.depth, 3);
+        assert!(focused.is_current);
+        assert!(focused.label.eq_ignore_ascii_case("claude"));
+        assert!(
+            focused.meta.contains("working"),
+            "pane metadata: {:?}",
+            focused.meta
+        );
+        assert!(!hierarchy.iter().any(|row| {
+            matches!(
+                row.target,
+                NavigatorTarget::Pane {
+                    ws_idx: 1,
+                    tab_idx: 1,
+                    ..
+                }
+            )
+        }));
+    }
+
+    #[test]
+    fn mobile_header_is_one_row_and_uses_the_active_group_identity() {
+        let (mut app, group_idx, _) = hierarchy_fixture();
+        app.view.mobile_menu_hit_area = Rect::new(34, 0, 10, 1);
+        let terminal_runtimes = TerminalRuntimeRegistry::new();
+        let backend = ratatui::backend::TestBackend::new(44, 1);
+        let mut terminal = ratatui::Terminal::new(backend).unwrap();
+        terminal
+            .draw(|frame| {
+                render_mobile_header(&app, &terminal_runtimes, frame, Rect::new(0, 0, 44, 1))
+            })
+            .unwrap();
+        let buffer = terminal.backend().buffer();
+        let text = buffer_text(buffer);
+
+        assert!(text.contains("Observability"), "header: {text:?}");
+        assert!(text.contains("dashboards"), "header: {text:?}");
+        assert!(!text.contains("no agents"), "header: {text:?}");
+        let icon_x = (0..44)
+            .find(|x| buffer[(*x, 0)].symbol() == "■")
+            .expect("group icon");
+        assert_eq!(
+            buffer[(icon_x, 0)].style().fg,
+            Some(app.group_accent_color(group_idx))
+        );
+    }
+
+    #[test]
+    fn mobile_switcher_render_and_targets_match_for_monolithic_and_attached_views() {
+        let (mut app, group_idx, focused_pane) = hierarchy_fixture();
+        app.view.mobile_header_rect = Rect::new(0, 0, 44, 1);
+        app.view.terminal_area = Rect::new(0, 1, 44, 19);
+        let terminal_runtimes = TerminalRuntimeRegistry::new();
+        let mut view = ClientViewState::from_default_client_state(&app);
+        view.computed.mobile_header_rect = app.view.mobile_header_rect;
+        view.computed.terminal_area = app.view.terminal_area;
+
+        let monolithic_rows = mobile_navigation_rows(&app, &terminal_runtimes, None);
+        let attached_rows = mobile_navigation_rows(&app, &terminal_runtimes, Some(&view));
+        assert_eq!(monolithic_rows, attached_rows);
+
+        let mut monolithic =
+            ratatui::Terminal::new(ratatui::backend::TestBackend::new(44, 20)).unwrap();
+        monolithic
+            .draw(|frame| {
+                render_mobile_panel(&app, &terminal_runtimes, frame, Rect::new(0, 0, 44, 20))
+            })
+            .unwrap();
+        let mut attached =
+            ratatui::Terminal::new(ratatui::backend::TestBackend::new(44, 20)).unwrap();
+        attached
+            .draw(|frame| {
+                render_mobile_panel_for_view(
+                    &app,
+                    &terminal_runtimes,
+                    &view,
+                    frame,
+                    Rect::new(0, 0, 44, 20),
+                )
+            })
+            .unwrap();
+        assert_eq!(monolithic.backend().buffer(), attached.backend().buffer());
+        let text = buffer_text(monolithic.backend().buffer());
+        assert!(text.contains("Infrastructure"), "switcher: {text:?}");
+        assert!(text.contains("Observability"), "switcher: {text:?}");
+        assert!(text.contains("dashboards"), "switcher: {text:?}");
+        assert!(text.to_lowercase().contains("claude"), "switcher: {text:?}");
+
+        let group_row = monolithic_rows
+            .iter()
+            .position(|row| row.target() == Some(MobileSwitcherTarget::Group(group_idx)))
+            .expect("group target row");
+        let pane_target = MobileSwitcherTarget::Pane {
+            ws_idx: 1,
             tab_idx: 0,
-            pane_id: PaneId::from_raw(1),
-            group_context_idx: None,
-            primary_label: "omh".into(),
-            pane_label: None,
-            primary_tab_label: primary_tab_label.map(str::to_string),
-            agent_label: agent_label.map(str::to_string),
-            state: AgentState::Idle,
-            terminal_title: None,
-            terminal_title_stripped: None,
-            seen: true,
-            custom_status: None,
-            agent: None,
-            state_labels: std::collections::HashMap::new(),
-            last_meaningful_agent_activity_seq: 0,
-            last_meaningful_agent_activity_unix_secs: None,
-            tokens: std::collections::HashMap::new(),
-        }
-    }
-
-    #[test]
-    fn mobile_agent_detail_includes_tab_context_when_available() {
-        let entry = agent_entry(Some("mobile-state"), Some("pi"));
-
-        assert_eq!(mobile_agent_detail(&entry), "  mobile-state · idle · pi");
-    }
-
-    #[test]
-    fn mobile_agent_detail_keeps_existing_compact_detail_without_tab_context() {
-        let entry = agent_entry(None, Some("pi"));
-
-        assert_eq!(mobile_agent_detail(&entry), "  idle · pi");
+            pane_id: focused_pane,
+        };
+        let pane_row = monolithic_rows
+            .iter()
+            .position(|row| row.target() == Some(pane_target))
+            .expect("pane target row");
+        let viewport = mobile_switcher_areas(&app).viewport;
+        assert_eq!(
+            mobile_switcher_target_at(&app, viewport.x + 1, viewport.y + group_row as u16),
+            Some(MobileSwitcherTarget::Group(group_idx))
+        );
+        assert_eq!(
+            mobile_switcher_target_at(&app, viewport.x + 1, viewport.y + pane_row as u16),
+            Some(pane_target)
+        );
+        assert_eq!(
+            mobile_switcher_target_at_for_view(
+                &app,
+                &terminal_runtimes,
+                &view,
+                viewport.x + 1,
+                viewport.y + pane_row as u16,
+            ),
+            Some(pane_target)
+        );
     }
 
     #[tokio::test]

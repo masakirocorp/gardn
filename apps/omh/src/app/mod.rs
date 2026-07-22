@@ -6157,7 +6157,14 @@ impl App {
             mouse.column,
             mouse.row,
         ) {
-            Some(crate::ui::MobileSwitcherTarget::NewWorkspace) => {
+            Some(crate::ui::MobileSwitcherTarget::Group(group_idx)) => {
+                self.execute_client_view_navigate_action(
+                    client_view,
+                    input::NavigateAction::SwitchGroup(group_idx),
+                    input::ActionContext::Navigate,
+                );
+            }
+            Some(crate::ui::MobileSwitcherTarget::NewSpace) => {
                 self.execute_client_view_navigate_action(
                     client_view,
                     input::NavigateAction::NewWorkspace,
@@ -6178,14 +6185,17 @@ impl App {
                     input::ActionContext::Navigate,
                 );
             }
-            Some(crate::ui::MobileSwitcherTarget::Tab(tab_idx)) => {
-                self.execute_client_view_navigate_action(
-                    client_view,
-                    input::NavigateAction::SwitchTab(tab_idx),
-                    input::ActionContext::Navigate,
-                );
+            Some(crate::ui::MobileSwitcherTarget::Tab { ws_idx, tab_idx }) => {
+                self.switch_client_view_workspace(client_view, ws_idx);
+                if let Some(workspace) = self.state.workspaces.get(ws_idx) {
+                    client_view
+                        .active_tabs
+                        .insert(workspace.id.clone(), tab_idx);
+                }
+                client_view.mode = Mode::Terminal;
+                client_view.reconcile(&self.state);
             }
-            Some(crate::ui::MobileSwitcherTarget::Agent {
+            Some(crate::ui::MobileSwitcherTarget::Pane {
                 ws_idx,
                 tab_idx,
                 pane_id,
@@ -14413,13 +14423,16 @@ command = "printf literal > '{}'"
         assert_eq!(client.computed.layout, state::ViewLayout::Mobile);
         let rendered = rendered_client_view_text(&app, &client, area.width, area.height);
         assert!(
-            rendered.contains("tabs") && rendered.contains("logs"),
+            rendered.contains("logs"),
             "test fixture should render visible tab rows:\n{rendered}"
         );
         let (column, row) = mobile_switcher_point_for_target(
             &app,
             &client,
-            crate::ui::MobileSwitcherTarget::Tab(1),
+            crate::ui::MobileSwitcherTarget::Tab {
+                ws_idx: 1,
+                tab_idx: 1,
+            },
         );
 
         app.route_client_events_for_view(

@@ -1966,7 +1966,12 @@ navigate_pane_right = "ctrl+l"
         );
 
         assert_eq!(state.selected, 1);
-        assert_eq!(state.mobile_switcher_scroll, 1);
+        let selected_row =
+            crate::ui::mobile_switcher_workspace_doc_range(&state, state.selected).start;
+        let viewport_height = crate::ui::mobile_switcher_areas(&state).viewport.height as usize;
+        assert!((state.mobile_switcher_scroll
+            ..state.mobile_switcher_scroll.saturating_add(viewport_height))
+            .contains(&selected_row));
     }
 
     #[test]

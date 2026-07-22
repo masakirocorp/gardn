@@ -20,6 +20,15 @@ use super::state::{
 };
 use super::ClientViewState;
 
+#[derive(Clone, Copy)]
+struct NavigatorFocus {
+    active_workspace: Option<usize>,
+    active_group: usize,
+    active_tab: Option<usize>,
+    focused_pane: Option<PaneId>,
+    explicit_hierarchy: bool,
+}
+
 fn configured_git_diff_project_command(
     root: std::path::PathBuf,
     command: &str,
@@ -325,8 +334,7 @@ impl AppState {
     ) -> Vec<NavigatorRow> {
         self.navigator_rows_with(
             &view.navigator,
-            view.active_workspace,
-            view.active_group,
+            self.navigator_focus_for_view(view, false),
             terminal_runtimes,
         )
     }
@@ -337,17 +345,91 @@ impl AppState {
     ) -> Vec<NavigatorRow> {
         self.navigator_rows_with(
             &self.navigator,
-            self.active,
-            self.active_group,
+            self.navigator_focus_from_state(false),
             terminal_runtimes,
         )
+    }
+
+    pub(crate) fn mobile_navigation_rows(
+        &self,
+        terminal_runtimes: &crate::terminal::TerminalRuntimeRegistry,
+    ) -> Vec<NavigatorRow> {
+        self.mobile_navigation_rows_with(self.navigator_focus_from_state(true), terminal_runtimes)
+    }
+
+    pub(crate) fn mobile_navigation_rows_for_view(
+        &self,
+        view: &ClientViewState,
+        terminal_runtimes: &crate::terminal::TerminalRuntimeRegistry,
+    ) -> Vec<NavigatorRow> {
+        self.mobile_navigation_rows_with(
+            self.navigator_focus_for_view(view, true),
+            terminal_runtimes,
+        )
+    }
+
+    fn mobile_navigation_rows_with(
+        &self,
+        focus: NavigatorFocus,
+        terminal_runtimes: &crate::terminal::TerminalRuntimeRegistry,
+    ) -> Vec<NavigatorRow> {
+        let mut navigator = super::state::NavigatorState::default();
+        if let Some(group) = self.groups.get(focus.active_group) {
+            navigator.expanded_groups.insert(group.id.clone());
+        }
+        if let Some(workspace) = focus
+            .active_workspace
+            .and_then(|ws_idx| self.workspaces.get(ws_idx))
+        {
+            navigator.expanded_workspaces.insert(workspace.id.clone());
+        }
+        self.navigator_rows_with(&navigator, focus, terminal_runtimes)
+    }
+
+    fn navigator_focus_from_state(&self, explicit_hierarchy: bool) -> NavigatorFocus {
+        let active_tab = self
+            .active
+            .and_then(|ws_idx| self.workspaces.get(ws_idx))
+            .map(|workspace| workspace.active_tab);
+        let focused_pane = self
+            .active
+            .and_then(|ws_idx| self.workspaces.get(ws_idx))
+            .and_then(crate::workspace::Workspace::focused_pane_id);
+        NavigatorFocus {
+            active_workspace: self.active,
+            active_group: self.active_group,
+            active_tab,
+            focused_pane,
+            explicit_hierarchy,
+        }
+    }
+
+    fn navigator_focus_for_view(
+        &self,
+        view: &ClientViewState,
+        explicit_hierarchy: bool,
+    ) -> NavigatorFocus {
+        let active_tab = view
+            .active_workspace
+            .and_then(|ws_idx| view.active_tab_index_for_workspace(self, ws_idx));
+        let focused_pane = view.active_workspace.and_then(|ws_idx| {
+            let workspace = self.workspaces.get(ws_idx)?;
+            let tab_idx = active_tab?;
+            view.focused_pane_for_tab(&workspace.id, tab_idx + 1)
+        });
+        NavigatorFocus {
+            active_workspace: view.active_workspace,
+            active_group: view.active_group,
+            active_tab,
+            focused_pane,
+            explicit_hierarchy,
+        }
     }
 
     fn navigator_rows_with(
         &self,
         navigator: &super::state::NavigatorState,
-        active_workspace: Option<usize>,
-        active_group: usize,
+        focus: NavigatorFocus,
         terminal_runtimes: &crate::terminal::TerminalRuntimeRegistry,
     ) -> Vec<NavigatorRow> {
         let query = navigator.query.trim().to_lowercase();
@@ -416,7 +498,7 @@ impl AppState {
             };
             let child_rows = self.navigator_workspace_rows(
                 navigator,
-                active_workspace,
+                focus,
                 terminal_runtimes,
                 child_query_kind,
                 child_query,
@@ -437,7 +519,7 @@ impl AppState {
                 meta,
                 status,
                 seen,
-                is_current: group_idx == active_group,
+                is_current: group_idx == focus.active_group,
                 is_group: true,
                 is_workspace: false,
                 is_tab: false,
@@ -455,7 +537,7 @@ impl AppState {
     fn navigator_workspace_rows(
         &self,
         navigator: &super::state::NavigatorState,
-        active_workspace: Option<usize>,
+        focus: NavigatorFocus,
         terminal_runtimes: &crate::terminal::TerminalRuntimeRegistry,
         query_kind: NavigatorQueryKind,
         query: &str,
@@ -474,7 +556,7 @@ impl AppState {
                 && ws.tabs[0].panes.len() == 1
             {
                 if let Some(pane_row) = self
-                    .navigator_pane_rows_for_tab(ws_idx, 0, false)
+                    .navigator_pane_rows_for_tab(ws_idx, 0, false, focus)
                     .into_iter()
                     .next()
                 {
@@ -491,7 +573,7 @@ impl AppState {
                 NavigatorQueryKind::Text => navigator_matches(query, &workspace_search_text),
             };
 
-            let mut child_rows = self.navigator_child_rows(ws_idx, query_kind, query);
+            let mut child_rows = self.navigator_child_rows(ws_idx, query_kind, query, focus);
             if !workspace_matches && child_rows.is_empty() {
                 continue;
             }
@@ -509,7 +591,7 @@ impl AppState {
                 meta: activity,
                 status: state,
                 seen,
-                is_current: active_workspace == Some(ws_idx),
+                is_current: focus.active_workspace == Some(ws_idx),
                 is_group: false,
                 is_workspace: true,
                 is_tab: false,
@@ -532,17 +614,25 @@ impl AppState {
         ws_idx: usize,
         query_kind: NavigatorQueryKind,
         query: &str,
+        focus: NavigatorFocus,
     ) -> Vec<NavigatorRow> {
         let Some(ws) = self.workspaces.get(ws_idx) else {
             return Vec::new();
         };
-        let multi_tab = ws.tabs.len() > 1;
+        let explicit = focus.explicit_hierarchy;
+        let multi_tab = explicit || ws.tabs.len() > 1;
         let mut rows = Vec::new();
         for tab_idx in 0..ws.tabs.len() {
-            let pane_rows = self.navigator_pane_rows_for_tab(ws_idx, tab_idx, multi_tab);
-            let show_pane_rows = pane_rows.len() > 1;
-            let mut tab_row =
-                multi_tab.then(|| self.navigator_tab_row(ws_idx, tab_idx, show_pane_rows));
+            let pane_rows = self.navigator_pane_rows_for_tab(ws_idx, tab_idx, multi_tab, focus);
+            let show_pane_rows = if explicit {
+                focus.active_workspace == Some(ws_idx)
+                    && focus.active_tab == Some(tab_idx)
+                    && !pane_rows.is_empty()
+            } else {
+                pane_rows.len() > 1
+            };
+            let mut tab_row = (explicit || multi_tab)
+                .then(|| self.navigator_tab_row(ws_idx, tab_idx, show_pane_rows, focus));
             if !show_pane_rows {
                 if let (Some(tab_row), Some(pane_row)) = (tab_row.as_mut(), pane_rows.first()) {
                     tab_row.search_text.push(' ');
@@ -588,6 +678,7 @@ impl AppState {
         ws_idx: usize,
         tab_idx: usize,
         has_visible_pane_children: bool,
+        focus: NavigatorFocus,
     ) -> NavigatorRow {
         let ws = &self.workspaces[ws_idx];
         let tab = &ws.tabs[tab_idx];
@@ -611,7 +702,7 @@ impl AppState {
             meta,
             status,
             seen,
-            is_current: false,
+            is_current: focus.active_workspace == Some(ws_idx) && focus.active_tab == Some(tab_idx),
             is_group: false,
             is_workspace: false,
             is_tab: true,
@@ -626,6 +717,7 @@ impl AppState {
         ws_idx: usize,
         tab_idx: usize,
         multi_tab: bool,
+        focus: NavigatorFocus,
     ) -> Vec<NavigatorRow> {
         let Some(ws) = self.workspaces.get(ws_idx) else {
             return Vec::new();
@@ -674,11 +766,19 @@ impl AppState {
                 .or(status_label)
                 .or_else(|| agent_label.map(|_| state_label_text(state, pane.seen).to_string()));
             let meta = match (agent_label, status.as_deref()) {
+                (Some(agent_label), Some(status)) if label.eq_ignore_ascii_case(agent_label) => {
+                    status.to_string()
+                }
                 (Some(agent_label), Some(status)) => format!("{agent_label} · {status}"),
+                (Some(agent_label), None) if label.eq_ignore_ascii_case(agent_label) => {
+                    String::new()
+                }
                 (Some(agent_label), None) => agent_label.to_string(),
                 (None, _) => "shell".to_string(),
             };
-            let is_current = self.is_active_pane(ws_idx, tab_idx, pane_id);
+            let is_current = focus.active_workspace == Some(ws_idx)
+                && focus.active_tab == Some(tab_idx)
+                && focus.focused_pane == Some(pane_id);
             let search_text = format!("{label} {meta}").to_lowercase();
             rows.push(NavigatorRow {
                 target: NavigatorTarget::Pane {
@@ -4480,7 +4580,8 @@ mod tests {
         assert!(rows.iter().any(|row| matches!(
             row.target,
             NavigatorTarget::Pane { pane_id, .. } if pane_id == agent
-        ) && row.meta.contains("claude")));
+        ) && row.label.eq_ignore_ascii_case("claude")
+            && row.meta.contains("working")));
     }
 
     #[test]

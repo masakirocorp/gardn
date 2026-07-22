@@ -172,7 +172,7 @@ Mouse capture is enabled by default.
 - Right-click where context menus are available.
 - Configure `ui.right_click_passthrough_modifier` to send modified right-click hold/drag gestures to mouse-reporting pane apps while normal right-click keeps Oh My Herdr menus.
 - Select pane text for copy workflows.
-- **Mobile layout** — narrow terminals use a compact header and scrollable switcher for spaces, tabs, agents, and global menu actions.
+- **Mobile layout** — narrow terminals keep the terminal nearly full-height under a one-row group-accented workspace/tab header. The switcher presents the same group → space → tab → pane hierarchy as the workspace navigator, expands only the active path, includes pane agent state, and remains scrollable with mouse and keyboard controls.
 
 ### Copy mode
 
