@@ -2189,6 +2189,7 @@ mod tests {
     #[test]
     fn navigator_bulk_expansion_keys_change_the_visible_hierarchy() {
         let mut state = state_with_workspaces(&["home", "api"]);
+        state.workspaces[0].test_split(ratatui::layout::Direction::Horizontal);
         state.navigator.expanded_groups =
             state.groups.iter().map(|group| group.id.clone()).collect();
         state.navigator.expanded_workspaces = state

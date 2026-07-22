@@ -19027,6 +19027,7 @@ command = "printf literal > '{}'"
         let mut app = test_app();
         let work_group = app.state.create_group("work".to_string());
         let mut home = Workspace::test_new("home");
+        home.test_split(ratatui::layout::Direction::Horizontal);
         home.group_id = app.state.groups[0].id.clone();
         let mut api = Workspace::test_new("api");
         api.group_id = app.state.groups[work_group].id.clone();

@@ -465,7 +465,20 @@ impl AppState {
             };
             let workspace_label = ws.display_name_from(&self.terminals, terminal_runtimes);
             let activity = workspace_activity_summary(ws, &self.terminals);
-            let workspace_search_text = format!("{workspace_label} {activity}").to_lowercase();
+            let mut workspace_search_text = format!("{workspace_label} {activity}").to_lowercase();
+            if matches!(query_kind, NavigatorQueryKind::Text)
+                && ws.tabs.len() == 1
+                && ws.tabs[0].panes.len() == 1
+            {
+                if let Some(pane_row) = self
+                    .navigator_pane_rows_for_tab(ws_idx, 0, false)
+                    .into_iter()
+                    .next()
+                {
+                    workspace_search_text.push(' ');
+                    workspace_search_text.push_str(&pane_row.search_text);
+                }
+            }
             let workspace_matches = match query_kind {
                 NavigatorQueryKind::Empty => true,
                 NavigatorQueryKind::State(filter) => {
@@ -520,7 +533,15 @@ impl AppState {
         let multi_tab = ws.tabs.len() > 1;
         let mut rows = Vec::new();
         for tab_idx in 0..ws.tabs.len() {
-            let tab_row = multi_tab.then(|| self.navigator_tab_row(ws_idx, tab_idx));
+            let pane_rows = self.navigator_pane_rows_for_tab(ws_idx, tab_idx, multi_tab);
+            let show_pane_rows = pane_rows.len() > 1;
+            let mut tab_row = multi_tab.then(|| self.navigator_tab_row(ws_idx, tab_idx));
+            if !show_pane_rows {
+                if let (Some(tab_row), Some(pane_row)) = (tab_row.as_mut(), pane_rows.first()) {
+                    tab_row.search_text.push(' ');
+                    tab_row.search_text.push_str(&pane_row.search_text);
+                }
+            }
             let tab_matches = tab_row.as_ref().is_some_and(|row| match query_kind {
                 NavigatorQueryKind::Empty => true,
                 NavigatorQueryKind::State(filter) => {
@@ -528,18 +549,21 @@ impl AppState {
                 }
                 NavigatorQueryKind::Text => navigator_matches(query, &row.search_text),
             });
-            let pane_rows = self.navigator_pane_rows_for_tab(ws_idx, tab_idx, multi_tab);
-            let filtered_panes = match query_kind {
-                NavigatorQueryKind::Empty => pane_rows,
-                NavigatorQueryKind::State(filter) => pane_rows
-                    .into_iter()
-                    .filter(|row| navigator_state_filter_matches(filter, row.status, row.seen))
-                    .collect::<Vec<_>>(),
-                NavigatorQueryKind::Text if tab_matches => pane_rows,
-                NavigatorQueryKind::Text => pane_rows
-                    .into_iter()
-                    .filter(|row| navigator_matches(query, &row.search_text))
-                    .collect::<Vec<_>>(),
+            let filtered_panes = if show_pane_rows {
+                match query_kind {
+                    NavigatorQueryKind::Empty => pane_rows,
+                    NavigatorQueryKind::State(filter) => pane_rows
+                        .into_iter()
+                        .filter(|row| navigator_state_filter_matches(filter, row.status, row.seen))
+                        .collect::<Vec<_>>(),
+                    NavigatorQueryKind::Text if tab_matches => pane_rows,
+                    NavigatorQueryKind::Text => pane_rows
+                        .into_iter()
+                        .filter(|row| navigator_matches(query, &row.search_text))
+                        .collect::<Vec<_>>(),
+                }
+            } else {
+                Vec::new()
             };
 
             if let Some(tab_row) = tab_row {
@@ -4353,7 +4377,7 @@ mod tests {
     }
 
     #[test]
-    fn navigator_rows_show_tab_nodes_only_for_multi_tab_workspaces() {
+    fn navigator_only_shows_disambiguating_tab_and_pane_nodes() {
         let mut state = app_with_workspaces(&["single", "multi"]);
         state.workspaces[1].test_add_tab(Some("tests"));
         state.ensure_test_terminals();
@@ -4382,6 +4406,12 @@ mod tests {
                 tab_idx: 1
             }
         )));
+        assert!(!rows.iter().any(|row| {
+            matches!(
+                row.target,
+                NavigatorTarget::Pane { ws_idx, .. } if ws_idx == 0 || ws_idx == 1
+            )
+        }));
     }
 
     #[test]
@@ -4540,7 +4570,7 @@ mod tests {
     #[test]
     fn accepting_navigator_pane_switches_workspace_tab_and_focus() {
         let mut state = app_with_workspaces(&["one", "two"]);
-        let target = state.workspaces[1].tabs[0].root_pane;
+        let target = state.workspaces[1].test_split(Direction::Horizontal);
         state.open_navigator();
         state
             .navigator
@@ -4586,7 +4616,7 @@ mod tests {
     }
 
     #[test]
-    fn navigator_search_filters_panes_but_keeps_workspace_context() {
+    fn navigator_search_matches_singleton_panes_through_workspace_context() {
         let mut state = app_with_workspaces(&["one"]);
         let root = state.workspaces[0].tabs[0].root_pane;
         let terminal_id = state.workspaces[0].terminal_id(root).cloned().unwrap();
@@ -4601,9 +4631,40 @@ mod tests {
         let rows = state.navigator_rows();
 
         assert!(rows.iter().any(|row| row.is_workspace));
-        assert!(rows
+        assert!(!rows
             .iter()
-            .any(|row| !row.is_workspace && row.label.contains("weekly")));
+            .any(|row| matches!(row.target, NavigatorTarget::Pane { .. })));
+    }
+
+    #[test]
+    fn navigator_search_matches_singleton_panes_through_tab_context() {
+        let mut state = app_with_workspaces(&["one"]);
+        let second_tab = state.workspaces[0].test_add_tab(Some("tests"));
+        let pane = state.workspaces[0].tabs[second_tab].root_pane;
+        state.ensure_test_terminals();
+        let terminal_id = state.workspaces[0].terminal_id(pane).cloned().unwrap();
+        state
+            .terminals
+            .get_mut(&terminal_id)
+            .unwrap()
+            .set_manual_label("weekly review".into());
+
+        state.open_navigator();
+        state.navigator.query = "weekly".into();
+        let rows = state.navigator_rows();
+
+        assert!(rows.iter().any(|row| {
+            matches!(
+                row.target,
+                NavigatorTarget::Tab {
+                    ws_idx: 0,
+                    tab_idx
+                } if tab_idx == second_tab
+            )
+        }));
+        assert!(!rows
+            .iter()
+            .any(|row| matches!(row.target, NavigatorTarget::Pane { .. })));
     }
 
     #[test]
