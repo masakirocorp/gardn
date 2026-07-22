@@ -2551,6 +2551,10 @@ impl App {
                 }
                 true
             }
+            KeyCode::Left | KeyCode::Backspace if client_view.mobile_agents_expanded => {
+                Self::leave_client_view_command_mode(client_view);
+                true
+            }
             KeyCode::Left | KeyCode::Backspace => {
                 self.activate_client_view_mobile_switcher_target(
                     client_view,
@@ -2559,6 +2563,10 @@ impl App {
                 true
             }
             KeyCode::Esc => {
+                if client_view.mobile_agents_expanded {
+                    Self::leave_client_view_command_mode(client_view);
+                    return true;
+                }
                 if client_view.mobile_switcher_level
                     == crate::app::state::MobileSwitcherLevel::Groups
                 {
@@ -6428,8 +6436,6 @@ impl App {
                 mouse.row,
             ) {
                 client_view.mobile_agents_expanded = true;
-                client_view.mobile_switcher_level =
-                    crate::ui::initial_mobile_switcher_level(&self.state);
                 client_view.mobile_switcher_scroll = 0;
                 client_view.mobile_switcher_selected = 0;
                 client_view.mode = Mode::Navigate;
@@ -6440,15 +6446,11 @@ impl App {
                 mouse.column,
                 mouse.row,
             ) {
+                client_view.mobile_agents_expanded = false;
                 client_view.mobile_switcher_scroll = 0;
                 client_view.mobile_switcher_level =
                     crate::ui::initial_mobile_switcher_level(&self.state);
-                client_view.mobile_switcher_selected =
-                    crate::ui::mobile_switcher_content_target_index_for_view(
-                        &self.state,
-                        &self.terminal_runtimes,
-                        client_view,
-                    );
+                client_view.mobile_switcher_selected = 0;
                 client_view.mode = Mode::Navigate;
                 return true;
             }
@@ -6457,6 +6459,7 @@ impl App {
 
         let areas = crate::ui::mobile_switcher_areas_for_view(&self.state, client_view);
         if Self::rect_contains(areas.close, mouse.column, mouse.row) {
+            client_view.mobile_agents_expanded = false;
             client_view.mode = Mode::Terminal;
             return true;
         }
@@ -6486,17 +6489,13 @@ impl App {
                     client_view.mobile_switcher_level,
                 );
                 client_view.mobile_switcher_scroll = 0;
-                client_view.mobile_switcher_selected =
-                    crate::ui::mobile_switcher_content_target_index_for_view(
-                        &self.state,
-                        &self.terminal_runtimes,
-                        client_view,
-                    );
+                client_view.mobile_switcher_selected = 0;
             }
             crate::ui::MobileSwitcherTarget::ToggleAgents => {
-                client_view.mobile_agents_expanded = !client_view.mobile_agents_expanded;
+                client_view.mobile_agents_expanded = false;
                 client_view.mobile_switcher_scroll = 0;
                 client_view.mobile_switcher_selected = 0;
+                Self::leave_client_view_command_mode(client_view);
             }
             crate::ui::MobileSwitcherTarget::Group(group_idx) => {
                 self.execute_client_view_navigate_action(
@@ -6507,12 +6506,7 @@ impl App {
                 client_view.mobile_switcher_level =
                     crate::app::state::MobileSwitcherLevel::Workspaces;
                 client_view.mobile_switcher_scroll = 0;
-                client_view.mobile_switcher_selected =
-                    crate::ui::mobile_switcher_content_target_index_for_view(
-                        &self.state,
-                        &self.terminal_runtimes,
-                        client_view,
-                    );
+                client_view.mobile_switcher_selected = 0;
                 client_view.mode = Mode::Navigate;
             }
             crate::ui::MobileSwitcherTarget::NewSpace => {
@@ -6531,12 +6525,7 @@ impl App {
                 client_view.mobile_switcher_level =
                     crate::app::state::MobileSwitcherLevel::Tabs { ws_idx };
                 client_view.mobile_switcher_scroll = 0;
-                client_view.mobile_switcher_selected =
-                    crate::ui::mobile_switcher_content_target_index_for_view(
-                        &self.state,
-                        &self.terminal_runtimes,
-                        client_view,
-                    );
+                client_view.mobile_switcher_selected = 0;
                 client_view.mode = Mode::Navigate;
             }
             crate::ui::MobileSwitcherTarget::NewTab => {
@@ -6564,12 +6553,7 @@ impl App {
                     client_view.mobile_switcher_level =
                         crate::app::state::MobileSwitcherLevel::Panes { ws_idx, tab_idx };
                     client_view.mobile_switcher_scroll = 0;
-                    client_view.mobile_switcher_selected =
-                        crate::ui::mobile_switcher_content_target_index_for_view(
-                            &self.state,
-                            &self.terminal_runtimes,
-                            client_view,
-                        );
+                    client_view.mobile_switcher_selected = 0;
                     client_view.mode = Mode::Navigate;
                 } else {
                     client_view.mode = Mode::Terminal;
@@ -6592,18 +6576,14 @@ impl App {
                         .insert(workspace.id.clone(), tab_idx);
                 }
                 client_view.focus_pane_in_workspace(&self.state, ws_idx, tab_idx, pane_id);
+                client_view.mobile_agents_expanded = false;
                 client_view.mode = Mode::Terminal;
                 client_view.reconcile(&self.state);
             }
             crate::ui::MobileSwitcherTarget::OpenActions => {
                 client_view.mobile_switcher_level = crate::app::state::MobileSwitcherLevel::Actions;
                 client_view.mobile_switcher_scroll = 0;
-                client_view.mobile_switcher_selected =
-                    crate::ui::mobile_switcher_content_target_index_for_view(
-                        &self.state,
-                        &self.terminal_runtimes,
-                        client_view,
-                    );
+                client_view.mobile_switcher_selected = 0;
             }
             crate::ui::MobileSwitcherTarget::Menu(action_idx) => {
                 client_view.global_menu.select(action_idx);
@@ -9991,6 +9971,7 @@ impl App {
     }
 
     fn leave_client_view_command_mode(client_view: &mut ClientViewState) {
+        client_view.mobile_agents_expanded = false;
         client_view.mode = if client_view.active_workspace.is_some() {
             Mode::Terminal
         } else {
@@ -14671,6 +14652,7 @@ command = "printf literal > '{}'"
         let area = ratatui::layout::Rect::new(0, 0, 44, 20);
         let mut client = ClientViewState::from_default_client_state(&app.state);
         client.mobile_switcher_scroll = 7;
+        client.mobile_agents_expanded = true;
         let other_client = ClientViewState::from_default_client_state(&app.state);
         compute_client_view(&app, &mut client, area);
         assert_eq!(client.computed.layout, state::ViewLayout::Mobile);
@@ -14696,6 +14678,7 @@ command = "printf literal > '{}'"
 
         assert_eq!(client.mode, Mode::Navigate);
         assert_eq!(client.mobile_switcher_scroll, 0);
+        assert!(!client.mobile_agents_expanded);
         assert_eq!(
             client.mobile_switcher_level,
             state::MobileSwitcherLevel::Groups
@@ -14771,6 +14754,7 @@ command = "printf literal > '{}'"
             Some((0, pane_id))
         );
         assert_eq!(client.mode, Mode::Terminal);
+        assert!(!client.mobile_agents_expanded);
         assert_eq!(app.state.active, Some(0));
         assert_eq!(other_client.active_workspace, Some(0));
     }
@@ -14789,11 +14773,7 @@ command = "printf literal > '{}'"
         client.mode = Mode::Navigate;
         client.mobile_switcher_level = state::MobileSwitcherLevel::Groups;
         compute_client_view(&app, &mut client, area);
-        client.mobile_switcher_selected = crate::ui::mobile_switcher_content_target_index_for_view(
-            &app.state,
-            &app.terminal_runtimes,
-            &client,
-        );
+        client.mobile_switcher_selected = 0;
 
         for (key, expected_level) in [
             (KeyCode::Enter, state::MobileSwitcherLevel::Workspaces),

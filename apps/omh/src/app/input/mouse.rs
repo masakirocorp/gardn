@@ -1357,17 +1357,16 @@ impl AppState {
                 mouse.row,
             ) {
                 self.mobile_agents_expanded = true;
-                self.mobile_switcher_level = crate::ui::initial_mobile_switcher_level(self);
                 self.mobile_switcher_scroll = 0;
                 self.mobile_switcher_selected = 0;
                 self.mode = Mode::Navigate;
                 return true;
             }
             if rect_contains(self.view.mobile_menu_hit_area, mouse.column, mouse.row) {
+                self.mobile_agents_expanded = false;
                 self.mobile_switcher_scroll = 0;
                 self.mobile_switcher_level = crate::ui::initial_mobile_switcher_level(self);
-                self.mobile_switcher_selected =
-                    crate::ui::mobile_switcher_content_target_index(self);
+                self.mobile_switcher_selected = 0;
                 self.mode = Mode::Navigate;
                 return true;
             }
@@ -1376,6 +1375,7 @@ impl AppState {
 
         let areas = crate::ui::mobile_switcher_areas(self);
         if rect_contains(areas.close, mouse.column, mouse.row) {
+            self.mobile_agents_expanded = false;
             self.mode = Mode::Terminal;
             return true;
         }
@@ -1396,20 +1396,19 @@ impl AppState {
                 self.mobile_switcher_level =
                     crate::ui::parent_mobile_switcher_level(self, self.mobile_switcher_level);
                 self.mobile_switcher_scroll = 0;
-                self.mobile_switcher_selected =
-                    crate::ui::mobile_switcher_content_target_index(self);
+                self.mobile_switcher_selected = 0;
             }
             crate::ui::MobileSwitcherTarget::ToggleAgents => {
-                self.mobile_agents_expanded = !self.mobile_agents_expanded;
+                self.mobile_agents_expanded = false;
                 self.mobile_switcher_scroll = 0;
                 self.mobile_switcher_selected = 0;
+                self.mode = Mode::Terminal;
             }
             crate::ui::MobileSwitcherTarget::Group(group_idx) => {
                 self.switch_group(group_idx);
                 self.mobile_switcher_level = crate::app::state::MobileSwitcherLevel::Workspaces;
                 self.mobile_switcher_scroll = 0;
-                self.mobile_switcher_selected =
-                    crate::ui::mobile_switcher_content_target_index(self);
+                self.mobile_switcher_selected = 0;
                 self.mode = Mode::Navigate;
             }
             crate::ui::MobileSwitcherTarget::NewSpace => {
@@ -1424,8 +1423,7 @@ impl AppState {
                 self.mobile_switcher_level =
                     crate::app::state::MobileSwitcherLevel::Tabs { ws_idx };
                 self.mobile_switcher_scroll = 0;
-                self.mobile_switcher_selected =
-                    crate::ui::mobile_switcher_content_target_index(self);
+                self.mobile_switcher_selected = 0;
                 self.mode = Mode::Navigate;
             }
             crate::ui::MobileSwitcherTarget::NewTab => {
@@ -1443,8 +1441,7 @@ impl AppState {
                     self.mobile_switcher_level =
                         crate::app::state::MobileSwitcherLevel::Panes { ws_idx, tab_idx };
                     self.mobile_switcher_scroll = 0;
-                    self.mobile_switcher_selected =
-                        crate::ui::mobile_switcher_content_target_index(self);
+                    self.mobile_switcher_selected = 0;
                     self.mode = Mode::Navigate;
                 } else {
                     self.mode = Mode::Terminal;
@@ -1463,13 +1460,13 @@ impl AppState {
                 self.switch_workspace(ws_idx);
                 self.switch_tab(tab_idx);
                 self.focus_pane(pane_id);
+                self.mobile_agents_expanded = false;
                 self.mode = Mode::Terminal;
             }
             crate::ui::MobileSwitcherTarget::OpenActions => {
                 self.mobile_switcher_level = crate::app::state::MobileSwitcherLevel::Actions;
                 self.mobile_switcher_scroll = 0;
-                self.mobile_switcher_selected =
-                    crate::ui::mobile_switcher_content_target_index(self);
+                self.mobile_switcher_selected = 0;
             }
             crate::ui::MobileSwitcherTarget::Menu(action_idx) => {
                 let actions = global_menu_actions(self);
@@ -3818,6 +3815,19 @@ mod tests {
         ));
         assert_eq!(app.state.mode, Mode::Navigate);
         assert!(app.state.mobile_agents_expanded);
+        app.handle_navigate_key(crate::input::TerminalKey::from(KeyEvent::new(
+            KeyCode::Esc,
+            KeyModifiers::empty(),
+        )));
+        assert_eq!(app.state.mode, Mode::Terminal);
+        assert!(!app.state.mobile_agents_expanded);
+        app.handle_mouse(mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            strip.x + 2,
+            strip.y,
+        ));
+        assert_eq!(app.state.mode, Mode::Navigate);
+        assert!(app.state.mobile_agents_expanded);
 
         let agent = crate::ui::MobileSwitcherTarget::Agent {
             ws_idx: 1,
@@ -3830,6 +3840,7 @@ mod tests {
         assert_eq!(app.state.active, Some(1));
         assert_eq!(app.state.workspaces[1].focused_pane_id(), Some(pane_id));
         assert_eq!(app.state.mode, Mode::Terminal);
+        assert!(!app.state.mobile_agents_expanded);
     }
 
     #[test]

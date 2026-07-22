@@ -67,7 +67,6 @@ enum MobileNavigationRow {
         triage: usize,
         working: usize,
         idle: usize,
-        expanded: bool,
     },
     Agent {
         label: String,
@@ -109,39 +108,31 @@ fn mobile_navigation_rows(
     terminal_runtimes: &TerminalRuntimeRegistry,
     view: Option<&ClientViewState>,
 ) -> Vec<MobileNavigationRow> {
-    let hierarchy = view.map_or_else(
-        || app.mobile_navigation_rows(terminal_runtimes),
-        |view| app.mobile_navigation_rows_for_view(view, terminal_runtimes),
-    );
-    let level = view.map_or(app.mobile_switcher_level, |view| view.mobile_switcher_level);
-    let active_group = view.map_or(app.active_group, |view| view.active_group);
-    let mut rows = Vec::new();
     let agents_expanded = view.map_or(app.mobile_agents_expanded, |view| {
         view.mobile_agents_expanded
     });
-    let agent_sections = view.map_or_else(
-        || super::sidebar::agent_panel_sections_all_workspaces(app, terminal_runtimes),
-        |view| {
-            super::sidebar::agent_panel_sections_all_workspaces_for_view(
-                app,
-                terminal_runtimes,
-                view,
-            )
-        },
-    );
-    let section_count = |label: &str| {
-        agent_sections
-            .iter()
-            .find(|section| section.label == label)
-            .map_or(0, |section| section.entries.len())
-    };
-    rows.push(MobileNavigationRow::AgentSummary {
-        triage: section_count("triage"),
-        working: section_count("working"),
-        idle: section_count("idle"),
-        expanded: agents_expanded,
-    });
     if agents_expanded {
+        let agent_sections = view.map_or_else(
+            || super::sidebar::agent_panel_sections_all_workspaces(app, terminal_runtimes),
+            |view| {
+                super::sidebar::agent_panel_sections_all_workspaces_for_view(
+                    app,
+                    terminal_runtimes,
+                    view,
+                )
+            },
+        );
+        let section_count = |label: &str| {
+            agent_sections
+                .iter()
+                .find(|section| section.label == label)
+                .map_or(0, |section| section.entries.len())
+        };
+        let mut rows = vec![MobileNavigationRow::AgentSummary {
+            triage: section_count("triage"),
+            working: section_count("working"),
+            idle: section_count("idle"),
+        }];
         for section in agent_sections {
             for entry in section.entries {
                 let label = entry
@@ -170,8 +161,16 @@ fn mobile_navigation_rows(
                 });
             }
         }
+        return rows;
     }
-    rows.push(MobileNavigationRow::Divider);
+
+    let hierarchy = view.map_or_else(
+        || app.mobile_navigation_rows(terminal_runtimes),
+        |view| app.mobile_navigation_rows_for_view(view, terminal_runtimes),
+    );
+    let level = view.map_or(app.mobile_switcher_level, |view| view.mobile_switcher_level);
+    let active_group = view.map_or(app.active_group, |view| view.active_group);
+    let mut rows = Vec::new();
 
     match level {
         MobileSwitcherLevel::Groups => {
@@ -416,39 +415,6 @@ fn mobile_switcher_target_from_rows(
     }
     let doc_row = scroll.saturating_add(row.saturating_sub(viewport.y) as usize);
     rows.get(doc_row)?.target()
-}
-
-fn mobile_switcher_content_target_index_from_rows(rows: &[MobileNavigationRow]) -> usize {
-    rows.iter()
-        .filter_map(MobileNavigationRow::target)
-        .position(|target| {
-            !matches!(
-                target,
-                MobileSwitcherTarget::ToggleAgents | MobileSwitcherTarget::Agent { .. }
-            )
-        })
-        .unwrap_or(0)
-}
-
-pub(crate) fn mobile_switcher_content_target_index(app: &AppState) -> usize {
-    let terminal_runtimes = TerminalRuntimeRegistry::new();
-    mobile_switcher_content_target_index_from_rows(&mobile_navigation_rows(
-        app,
-        &terminal_runtimes,
-        None,
-    ))
-}
-
-pub(crate) fn mobile_switcher_content_target_index_for_view(
-    app: &AppState,
-    terminal_runtimes: &TerminalRuntimeRegistry,
-    view: &ClientViewState,
-) -> usize {
-    mobile_switcher_content_target_index_from_rows(&mobile_navigation_rows(
-        app,
-        terminal_runtimes,
-        Some(view),
-    ))
 }
 
 pub(crate) fn mobile_switcher_target_count(app: &AppState) -> usize {
@@ -715,6 +681,7 @@ pub(crate) fn render_mobile_panel(
         app.mobile_switcher_level,
         app.active,
         app.active_group,
+        app.mobile_agents_expanded,
         frame,
         areas,
     );
@@ -735,6 +702,7 @@ pub(crate) fn render_mobile_panel_for_view(
         view.mobile_switcher_level,
         view.active_workspace,
         view.active_group,
+        view.mobile_agents_expanded,
         frame,
         areas,
     );
@@ -747,6 +715,7 @@ fn render_mobile_panel_shell(
     level: MobileSwitcherLevel,
     active_workspace: Option<usize>,
     active_group: usize,
+    agents_expanded: bool,
     frame: &mut Frame,
     areas: MobileSwitcherAreas,
 ) {
@@ -756,8 +725,13 @@ fn render_mobile_panel_shell(
     let p = &app.palette;
     frame.render_widget(Clear, areas.panel);
     fill_rect(frame, areas.panel, Style::default().bg(p.panel_bg));
+    let title = if agents_expanded {
+        " agents"
+    } else {
+        " switch"
+    };
     frame.render_widget(
-        Paragraph::new(" switch").style(
+        Paragraph::new(title).style(
             Style::default()
                 .fg(p.text)
                 .bg(p.panel_bg)
@@ -771,15 +745,22 @@ fn render_mobile_panel_shell(
         ),
     );
     render_close_button(app, frame, areas.close);
-    render_mobile_breadcrumb(
-        app,
-        terminal_runtimes,
-        level,
-        active_workspace,
-        active_group,
-        frame,
-        areas.breadcrumb,
-    );
+    if agents_expanded {
+        frame.render_widget(
+            Paragraph::new("   All agents").style(Style::default().fg(p.text).bg(p.panel_bg)),
+            areas.breadcrumb,
+        );
+    } else {
+        render_mobile_breadcrumb(
+            app,
+            terminal_runtimes,
+            level,
+            active_workspace,
+            active_group,
+            frame,
+            areas.breadcrumb,
+        );
+    }
     draw_horizontal_rule(
         frame,
         Rect::new(areas.panel.x, areas.panel.y + 2, areas.panel.width, 1),
@@ -1102,7 +1083,6 @@ fn render_mobile_navigation_rows(
                 triage,
                 working,
                 idle,
-                expanded,
             } => {
                 render_mobile_agent_summary(
                     app,
@@ -1112,7 +1092,7 @@ fn render_mobile_navigation_rows(
                     doc_y,
                     scroll,
                     (*triage, *working, *idle),
-                    *expanded,
+                    true,
                     is_selected,
                 );
             }
@@ -1904,9 +1884,9 @@ mod tests {
             })
             .unwrap();
         let collapsed = buffer_text(terminal.backend().buffer());
-        assert!(collapsed.contains("Agents"), "switcher: {collapsed:?}");
-        assert!(collapsed.contains("1 working"), "switcher: {collapsed:?}");
-        assert!(!collapsed.to_lowercase().contains("claude"));
+        assert!(collapsed.contains("switch"), "switcher: {collapsed:?}");
+        assert!(collapsed.contains("GROUPS"), "switcher: {collapsed:?}");
+        assert!(!collapsed.contains("Agents"), "switcher: {collapsed:?}");
 
         app.mobile_agents_expanded = true;
         terminal
@@ -1917,6 +1897,9 @@ mod tests {
         let expanded = buffer_text(terminal.backend().buffer());
         assert!(expanded.to_lowercase().contains("claude"));
         assert!(expanded.contains("working"));
+        assert!(expanded.contains("agents"), "agents: {expanded:?}");
+        assert!(!expanded.contains("switch"), "agents: {expanded:?}");
+        assert!(!expanded.contains("GROUPS"), "agents: {expanded:?}");
         assert!(mobile_navigation_rows(&app, &terminal_runtimes, None)
             .iter()
             .any(|row| {

@@ -159,12 +159,20 @@ impl App {
                 }
                 true
             }
+            KeyCode::Left | KeyCode::Backspace if self.state.mobile_agents_expanded => {
+                leave_navigate_mode(&mut self.state);
+                true
+            }
             KeyCode::Left | KeyCode::Backspace => {
                 self.state
                     .activate_mobile_switcher_target(crate::ui::MobileSwitcherTarget::Back);
                 true
             }
             KeyCode::Esc => {
+                if self.state.mobile_agents_expanded {
+                    leave_navigate_mode(&mut self.state);
+                    return true;
+                }
                 if self.state.mobile_switcher_level
                     == crate::app::state::MobileSwitcherLevel::Groups
                 {
@@ -1540,6 +1548,7 @@ fn workspace_action_target(state: &AppState, context: ActionContext) -> Option<u
     }
 }
 fn leave_navigate_mode(state: &mut AppState) {
+    state.mobile_agents_expanded = false;
     state.return_to_active_workspace_mode();
 }
 
