@@ -58,6 +58,7 @@ A pane is a terminal runtime inside a tab layout.
 - **Pane move** — move panes into another tab, a new tab, or a new workspace from the CLI or socket API.
 - **Pane focus and zoom** — focus by direction, cycle panes, and zoom the focused pane.
 - **Pane resize** — resize interactively from resize mode or by dragging borders.
+- **Zen mode** — toggle a client-local full-screen terminal view that temporarily hides sidebars, the tab bar, mobile header, and context bar.
 - **Pane labels** — set manual pane labels; optionally show agent names or compact name-and-status metadata on pane borders. Integration titles and manual names always take precedence.
 - **Pane close** — close panes with confirmation where configured.
 - **Scrollback** — scroll panes, edit scrollback in `$EDITOR`, and read visible/recent output through the API.

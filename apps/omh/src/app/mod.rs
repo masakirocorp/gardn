@@ -917,6 +917,7 @@ impl App {
             sidebar_arrangement: config.ui.sidebar_arrangement,
             context_bar_visibility: config.ui.context_bar,
             context_bar_visibility_override: None,
+            zen_mode: false,
             sidebar_config: config.ui.sidebar.clone(),
             sidebar_section_split,
             activity_agents_expanded: true,
@@ -3921,6 +3922,10 @@ impl App {
                 client_view.context_bar_visibility_override = Some(!visible);
                 Self::leave_client_view_command_mode(client_view);
             }
+            crate::app::command_palette::CommandPaletteAction::ZenMode => {
+                client_view.zen_mode = !client_view.zen_mode;
+                Self::leave_client_view_command_mode(client_view);
+            }
             crate::app::command_palette::CommandPaletteAction::DetachOrQuit => {
                 input::request_detach(&mut self.state);
                 Self::leave_client_view_command_mode(client_view);
@@ -5442,6 +5447,10 @@ impl App {
                     .state
                     .context_bar_is_visible(client_view.context_bar_visibility_override);
                 client_view.context_bar_visibility_override = Some(!visible);
+                Self::leave_client_view_command_mode(client_view);
+            }
+            input::NavigateAction::ZenMode => {
+                client_view.zen_mode = !client_view.zen_mode;
                 Self::leave_client_view_command_mode(client_view);
             }
             input::NavigateAction::ToggleRightSidebar => {
@@ -15373,6 +15382,37 @@ command = "printf literal > '{}'"
             ratatui::layout::Rect::default()
         );
         assert_eq!(app.state.context_bar_visibility_override, None);
+        assert_eq!(client.mode, Mode::Terminal);
+    }
+
+    #[test]
+    fn route_client_events_for_view_zen_mode_is_client_local() {
+        let mut app = test_app();
+        app.state.workspaces = vec![Workspace::test_new("test")];
+        app.state.ensure_test_terminals();
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::Terminal;
+
+        let mut client = ClientViewState::from_default_client_state(&app.state);
+        let other_client = ClientViewState::from_default_client_state(&app.state);
+
+        app.route_client_events_for_view(
+            &mut client,
+            vec![
+                raw_key(
+                    KeyCode::Char('b'),
+                    KeyModifiers::CONTROL,
+                    KeyEventKind::Press,
+                ),
+                raw_key(KeyCode::Char('z'), KeyModifiers::SHIFT, KeyEventKind::Press),
+            ],
+            true,
+        );
+
+        assert!(!app.state.zen_mode);
+        assert!(client.zen_mode);
+        assert!(!other_client.zen_mode);
         assert_eq!(client.mode, Mode::Terminal);
     }
 

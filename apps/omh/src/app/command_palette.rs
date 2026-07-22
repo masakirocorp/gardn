@@ -48,6 +48,7 @@ pub(crate) enum CommandPaletteAction {
     OpenGitDiff,
     ToggleSidebar,
     ToggleContextBar,
+    ZenMode,
     ToggleRightSidebar,
     OpenGlobalMenu,
     OpenSettings,
@@ -247,6 +248,7 @@ pub(crate) fn command_palette_commands(state: &AppState) -> Vec<CommandPaletteCo
             "layout",
             CommandPaletteAction::ToggleContextBar,
         ),
+        CommandPaletteCommand::new("toggle zen mode", "layout", CommandPaletteAction::ZenMode),
         CommandPaletteCommand::new(
             "toggle right sidebar",
             "layout",
@@ -404,6 +406,7 @@ fn command_palette_key_label(state: &AppState, action: &CommandPaletteAction) ->
         CommandPaletteAction::OpenGitDiff => None,
         CommandPaletteAction::ToggleSidebar => label(&kb.toggle_sidebar),
         CommandPaletteAction::ToggleContextBar => label(&kb.toggle_context_bar),
+        CommandPaletteAction::ZenMode => label(&kb.zen_mode),
         CommandPaletteAction::ToggleRightSidebar => label(&kb.toggle_right_sidebar),
         CommandPaletteAction::OpenSettings => label(&kb.settings),
         CommandPaletteAction::OpenKeybinds => label(&kb.help),

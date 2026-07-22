@@ -538,7 +538,8 @@ fn compute_view_for_client_internal(
         );
         return;
     }
-    let show_context_bar = app.context_bar_is_visible(client_view.context_bar_visibility_override);
+    let show_context_bar = !client_view.zen_mode
+        && app.context_bar_is_visible(client_view.context_bar_visibility_override);
     let (content_area, context_bar_rect) = desktop_content_areas(area, show_context_bar);
 
     let sidebar_w = if client_view.sidebar_collapsed {
@@ -568,7 +569,9 @@ fn compute_view_for_client_internal(
     };
     let combined_right =
         app.sidebar_arrangement == crate::config::SidebarArrangementConfig::CombinedRight;
-    let (sidebar_area, main_area, right_sidebar_area) = if separate_sidebars {
+    let (sidebar_area, main_area, right_sidebar_area) = if client_view.zen_mode {
+        (Rect::default(), content_area, Rect::default())
+    } else if separate_sidebars {
         let [sidebar_area, main_area, right_sidebar_area] = Layout::horizontal([
             Constraint::Length(sidebar_w),
             Constraint::Min(1),
@@ -592,7 +595,8 @@ fn compute_view_for_client_internal(
         .active_workspace
         .and_then(|idx| app.workspaces.get(idx))
         .is_some();
-    let (tab_bar_rect, terminal_area) = if has_tabs && main_area.height > 1 {
+    let (tab_bar_rect, terminal_area) = if !client_view.zen_mode && has_tabs && main_area.height > 1
+    {
         let [tab_bar_rect, terminal_area] =
             Layout::vertical([Constraint::Length(1), Constraint::Min(1)]).areas(main_area);
         (tab_bar_rect, terminal_area)
@@ -603,37 +607,42 @@ fn compute_view_for_client_internal(
     client_view.workspace_scroll = client_view
         .workspace_scroll
         .min(workspace_list_entry_count_for_view(app, client_view).saturating_sub(1));
-    if right_sidebar_area != Rect::default() && !client_view.right_sidebar_collapsed {
-        let max_agent_scroll = agent_panel_scroll_metrics_for_view(
-            app,
-            terminal_runtimes,
-            client_view,
-            right_sidebar_content_rect(right_sidebar_area),
-            false,
-        )
-        .max_offset_from_bottom;
-        client_view.agent_panel_scroll = client_view.agent_panel_scroll.min(max_agent_scroll);
-    } else if right_sidebar_area == Rect::default() && !client_view.sidebar_collapsed {
-        let (_, agent_area) = if combined_right {
-            right_aligned_expanded_sidebar_sections(sidebar_area, client_view.sidebar_section_split)
+    if !client_view.zen_mode {
+        if right_sidebar_area != Rect::default() && !client_view.right_sidebar_collapsed {
+            let max_agent_scroll = agent_panel_scroll_metrics_for_view(
+                app,
+                terminal_runtimes,
+                client_view,
+                right_sidebar_content_rect(right_sidebar_area),
+                false,
+            )
+            .max_offset_from_bottom;
+            client_view.agent_panel_scroll = client_view.agent_panel_scroll.min(max_agent_scroll);
+        } else if right_sidebar_area == Rect::default() && !client_view.sidebar_collapsed {
+            let (_, agent_area) = if combined_right {
+                right_aligned_expanded_sidebar_sections(
+                    sidebar_area,
+                    client_view.sidebar_section_split,
+                )
+            } else {
+                expanded_sidebar_sections(sidebar_area, client_view.sidebar_section_split)
+            };
+            let max_agent_scroll = agent_panel_scroll_metrics_for_view(
+                app,
+                terminal_runtimes,
+                client_view,
+                agent_area,
+                true,
+            )
+            .max_offset_from_bottom;
+            client_view.agent_panel_scroll = client_view.agent_panel_scroll.min(max_agent_scroll);
         } else {
-            expanded_sidebar_sections(sidebar_area, client_view.sidebar_section_split)
-        };
-        let max_agent_scroll = agent_panel_scroll_metrics_for_view(
-            app,
-            terminal_runtimes,
-            client_view,
-            agent_area,
-            true,
-        )
-        .max_offset_from_bottom;
-        client_view.agent_panel_scroll = client_view.agent_panel_scroll.min(max_agent_scroll);
-    } else {
-        client_view.agent_panel_scroll = 0;
+            client_view.agent_panel_scroll = 0;
+        }
     }
 
     let (workspace_card_areas, workspace_group_header_areas, workspace_group_empty_areas) =
-        if client_view.sidebar_collapsed {
+        if client_view.zen_mode || client_view.sidebar_collapsed {
             (Vec::new(), Vec::new(), Vec::new())
         } else if right_sidebar_area != Rect::default() {
             let ws_area = left_sidebar_workspace_rect(sidebar_area);
@@ -800,7 +809,8 @@ fn compute_view_internal(
         compute_mobile_view(app, terminal_runtimes, area, resize_panes, cell_size);
         return;
     }
-    let show_context_bar = app.context_bar_is_visible(app.context_bar_visibility_override);
+    let show_context_bar =
+        !app.zen_mode && app.context_bar_is_visible(app.context_bar_visibility_override);
     let (content_area, context_bar_rect) = desktop_content_areas(area, show_context_bar);
 
     let sidebar_w = if app.sidebar_collapsed {
@@ -828,7 +838,9 @@ fn compute_view_internal(
     };
     let combined_right =
         app.sidebar_arrangement == crate::config::SidebarArrangementConfig::CombinedRight;
-    let (sidebar_area, main_area, right_sidebar_area) = if separate_sidebars {
+    let (sidebar_area, main_area, right_sidebar_area) = if app.zen_mode {
+        (Rect::default(), content_area, Rect::default())
+    } else if separate_sidebars {
         let [sidebar_area, main_area, right_sidebar_area] = Layout::horizontal([
             Constraint::Length(sidebar_w),
             Constraint::Min(1),
@@ -849,7 +861,7 @@ fn compute_view_internal(
     };
 
     let has_tabs = app.active.and_then(|i| app.workspaces.get(i)).is_some();
-    let (tab_bar_rect, terminal_area) = if has_tabs && main_area.height > 1 {
+    let (tab_bar_rect, terminal_area) = if !app.zen_mode && has_tabs && main_area.height > 1 {
         let [tab_bar_rect, terminal_area] =
             Layout::vertical([Constraint::Length(1), Constraint::Min(1)]).areas(main_area);
         (tab_bar_rect, terminal_area)
@@ -860,50 +872,55 @@ fn compute_view_internal(
     app.workspace_scroll = app
         .workspace_scroll
         .min(workspace_list_entry_count(app).saturating_sub(1));
-    if right_sidebar_area != Rect::default() && !app.right_sidebar_collapsed {
-        let max_agent_scroll =
-            agent_panel_scroll_metrics(app, right_sidebar_content_rect(right_sidebar_area), false)
-                .max_offset_from_bottom;
-        app.agent_panel_scroll = app.agent_panel_scroll.min(max_agent_scroll);
-    } else if right_sidebar_area == Rect::default() && !app.sidebar_collapsed {
-        let (_, agent_area) = if combined_right {
-            right_aligned_expanded_sidebar_sections(sidebar_area, app.sidebar_section_split)
+    if !app.zen_mode {
+        if right_sidebar_area != Rect::default() && !app.right_sidebar_collapsed {
+            let max_agent_scroll = agent_panel_scroll_metrics(
+                app,
+                right_sidebar_content_rect(right_sidebar_area),
+                false,
+            )
+            .max_offset_from_bottom;
+            app.agent_panel_scroll = app.agent_panel_scroll.min(max_agent_scroll);
+        } else if right_sidebar_area == Rect::default() && !app.sidebar_collapsed {
+            let (_, agent_area) = if combined_right {
+                right_aligned_expanded_sidebar_sections(sidebar_area, app.sidebar_section_split)
+            } else {
+                expanded_sidebar_sections(sidebar_area, app.sidebar_section_split)
+            };
+            let max_agent_scroll =
+                agent_panel_scroll_metrics(app, agent_area, true).max_offset_from_bottom;
+            app.agent_panel_scroll = app.agent_panel_scroll.min(max_agent_scroll);
         } else {
-            expanded_sidebar_sections(sidebar_area, app.sidebar_section_split)
-        };
-        let max_agent_scroll =
-            agent_panel_scroll_metrics(app, agent_area, true).max_offset_from_bottom;
-        app.agent_panel_scroll = app.agent_panel_scroll.min(max_agent_scroll);
-    } else {
-        app.agent_panel_scroll = 0;
+            app.agent_panel_scroll = 0;
+        }
     }
 
-    let (workspace_card_areas, workspace_group_header_areas, workspace_group_empty_areas) = if app
-        .sidebar_collapsed
-    {
-        (Vec::new(), Vec::new(), Vec::new())
-    } else if right_sidebar_area != Rect::default() {
-        let ws_area = left_sidebar_workspace_rect(sidebar_area);
-        (
-            compute_workspace_card_areas_in_list(app, ws_area),
-            compute_workspace_group_header_areas_in_list(app, ws_area),
-            compute_workspace_group_empty_areas_in_list(app, ws_area),
-        )
-    } else if combined_right {
-        let ws_area = right_aligned_workspace_list_rect(sidebar_area, app.sidebar_section_split);
-        (
-            compute_workspace_card_areas_in_list(app, ws_area),
-            compute_workspace_group_header_areas_in_list(app, ws_area),
-            compute_workspace_group_empty_areas_in_list(app, ws_area),
-        )
-    } else {
-        let ws_area = workspace_list_rect(sidebar_area, app.sidebar_section_split);
-        (
-            compute_workspace_card_areas_in_list(app, ws_area),
-            compute_workspace_group_header_areas_in_list(app, ws_area),
-            compute_workspace_group_empty_areas_in_list(app, ws_area),
-        )
-    };
+    let (workspace_card_areas, workspace_group_header_areas, workspace_group_empty_areas) =
+        if app.zen_mode || app.sidebar_collapsed {
+            (Vec::new(), Vec::new(), Vec::new())
+        } else if right_sidebar_area != Rect::default() {
+            let ws_area = left_sidebar_workspace_rect(sidebar_area);
+            (
+                compute_workspace_card_areas_in_list(app, ws_area),
+                compute_workspace_group_header_areas_in_list(app, ws_area),
+                compute_workspace_group_empty_areas_in_list(app, ws_area),
+            )
+        } else if combined_right {
+            let ws_area =
+                right_aligned_workspace_list_rect(sidebar_area, app.sidebar_section_split);
+            (
+                compute_workspace_card_areas_in_list(app, ws_area),
+                compute_workspace_group_header_areas_in_list(app, ws_area),
+                compute_workspace_group_empty_areas_in_list(app, ws_area),
+            )
+        } else {
+            let ws_area = workspace_list_rect(sidebar_area, app.sidebar_section_split);
+            (
+                compute_workspace_card_areas_in_list(app, ws_area),
+                compute_workspace_group_header_areas_in_list(app, ws_area),
+                compute_workspace_group_empty_areas_in_list(app, ws_area),
+            )
+        };
 
     let tab_bar_view = app
         .active
@@ -1005,8 +1022,10 @@ fn compute_mobile_view(
     resize_panes: bool,
     cell_size: crate::kitty_graphics::HostCellSize,
 ) {
-    let header_h = area.height.min(2);
-    let (header_rect, terminal_area) = if area.height > header_h {
+    let header_h = if app.zen_mode { 0 } else { area.height.min(2) };
+    let (header_rect, terminal_area) = if header_h == 0 {
+        (Rect::default(), area)
+    } else if area.height > header_h {
         let [header_rect, terminal_area] =
             Layout::vertical([Constraint::Length(header_h), Constraint::Min(1)]).areas(area);
         (header_rect, terminal_area)
@@ -1082,8 +1101,14 @@ fn compute_mobile_view_for_client(
     resize_panes: bool,
     cell_size: crate::kitty_graphics::HostCellSize,
 ) {
-    let header_h = area.height.min(2);
-    let (header_rect, terminal_area) = if area.height > header_h {
+    let header_h = if client_view.zen_mode {
+        0
+    } else {
+        area.height.min(2)
+    };
+    let (header_rect, terminal_area) = if header_h == 0 {
+        (Rect::default(), area)
+    } else if area.height > header_h {
         let [header_rect, terminal_area] =
             Layout::vertical([Constraint::Length(header_h), Constraint::Min(1)]).areas(area);
         (header_rect, terminal_area)
@@ -1183,20 +1208,24 @@ pub fn render_with_runtime_registry(
     let terminal_area = app.view.terminal_area;
 
     if app.view.layout == ViewLayout::Mobile {
-        render_mobile_header(app, terminal_runtimes, frame, app.view.mobile_header_rect);
-    } else if app.sidebar_collapsed {
-        render_sidebar_collapsed(app, frame, sidebar_area);
-    } else {
-        render_sidebar(app, terminal_runtimes, frame, sidebar_area);
+        if !app.zen_mode {
+            render_mobile_header(app, terminal_runtimes, frame, app.view.mobile_header_rect);
+        }
+    } else if !app.zen_mode {
+        if app.sidebar_collapsed {
+            render_sidebar_collapsed(app, frame, sidebar_area);
+        } else {
+            render_sidebar(app, terminal_runtimes, frame, sidebar_area);
+        }
     }
-    if app.view.layout != ViewLayout::Mobile {
+    if !app.zen_mode && app.view.layout != ViewLayout::Mobile {
         render_tab_bar(app, frame, tab_bar_area);
     }
     render_panes(app, terminal_runtimes, frame, terminal_area);
     if right_sidebar_area != Rect::default() {
         render_right_sidebar(app, terminal_runtimes, frame, right_sidebar_area);
     }
-    if app.sidebar_collapsed && app.view.layout != ViewLayout::Mobile {
+    if !app.zen_mode && app.sidebar_collapsed && app.view.layout != ViewLayout::Mobile {
         render_collapsed_sidebar_hover(app, frame);
     }
     render_context_bar(app, &app.view.context_bar, frame);
@@ -1252,19 +1281,29 @@ pub fn render_with_runtime_registry_for_view(
     let terminal_area = client_view.computed.terminal_area;
 
     if client_view.computed.layout == ViewLayout::Mobile {
-        render_mobile_header_for_view(
-            app,
-            terminal_runtimes,
-            client_view,
-            frame,
-            client_view.computed.mobile_header_rect,
-        );
-    } else if client_view.sidebar_collapsed {
-        render_sidebar_collapsed_for_view(app, terminal_runtimes, client_view, frame, sidebar_area);
-    } else {
-        render_sidebar_for_view(app, terminal_runtimes, client_view, frame, sidebar_area);
+        if !client_view.zen_mode {
+            render_mobile_header_for_view(
+                app,
+                terminal_runtimes,
+                client_view,
+                frame,
+                client_view.computed.mobile_header_rect,
+            );
+        }
+    } else if !client_view.zen_mode {
+        if client_view.sidebar_collapsed {
+            render_sidebar_collapsed_for_view(
+                app,
+                terminal_runtimes,
+                client_view,
+                frame,
+                sidebar_area,
+            );
+        } else {
+            render_sidebar_for_view(app, terminal_runtimes, client_view, frame, sidebar_area);
+        }
     }
-    if client_view.computed.layout != ViewLayout::Mobile {
+    if !client_view.zen_mode && client_view.computed.layout != ViewLayout::Mobile {
         render_tab_bar_for_view(app, client_view, frame, tab_bar_area);
     }
     render_panes_for_view(app, client_view, terminal_runtimes, frame, terminal_area);
@@ -1277,7 +1316,10 @@ pub fn render_with_runtime_registry_for_view(
             right_sidebar_area,
         );
     }
-    if client_view.sidebar_collapsed && client_view.computed.layout != ViewLayout::Mobile {
+    if !client_view.zen_mode
+        && client_view.sidebar_collapsed
+        && client_view.computed.layout != ViewLayout::Mobile
+    {
         render_collapsed_sidebar_hover_for_view(app, client_view, frame);
     }
     render_context_bar(app, &client_view.computed.context_bar, frame);
@@ -1547,6 +1589,53 @@ mod tests {
         assert_eq!(app.view.layout, ViewLayout::Mobile);
         assert_eq!(app.view.mobile_header_rect, Rect::new(0, 0, 80, 2));
         assert_eq!(app.view.terminal_area, Rect::new(0, 2, 80, 18));
+    }
+
+    #[tokio::test]
+    async fn zen_mode_gives_the_terminal_the_full_desktop_and_mobile_viewport() {
+        let mut app = crate::app::state::AppState::test_new();
+        app.context_bar_visibility = crate::config::ContextBarVisibilityConfig::Always;
+        let mut workspace = Workspace::test_new("one");
+        workspace.custom_name = Some("CHROME-WORKSPACE".into());
+        workspace.tabs[0].custom_name = Some("CHROME-TAB".into());
+        let root = workspace.tabs[0].root_pane;
+        workspace.insert_test_runtime(
+            root,
+            crate::terminal::TerminalRuntime::test_with_screen_bytes(100, 20, b"ZEN-CONTENT"),
+        );
+        app.workspaces = vec![workspace];
+        app.active = Some(0);
+        app.selected = 0;
+        app.mode = Mode::Terminal;
+        app.zen_mode = true;
+
+        let area = Rect::new(0, 0, 100, 20);
+        compute_view(&mut app, area);
+
+        assert_eq!(app.view.layout, ViewLayout::Desktop);
+        assert_eq!(app.view.sidebar_rect, Rect::default());
+        assert_eq!(app.view.right_sidebar_rect, Rect::default());
+        assert_eq!(app.view.tab_bar_rect, Rect::default());
+        assert_eq!(app.view.context_bar.rect, Rect::default());
+        assert_eq!(app.view.terminal_area, area);
+
+        let mut terminal = Terminal::new(TestBackend::new(area.width, area.height)).unwrap();
+        terminal.draw(|frame| render(&app, frame)).unwrap();
+        let rendered = (area.y..area.y + area.height)
+            .map(|row| buffer_row_text(terminal.backend().buffer(), area, row))
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(rendered.contains("ZEN-CONTENT"));
+        assert!(!rendered.contains("CHROME-WORKSPACE"));
+        assert!(!rendered.contains("CHROME-TAB"));
+
+        app.mobile_width_threshold = 120;
+        compute_view(&mut app, area);
+
+        assert_eq!(app.view.layout, ViewLayout::Mobile);
+        assert_eq!(app.view.mobile_header_rect, Rect::default());
+        assert_eq!(app.view.mobile_menu_hit_area, Rect::default());
+        assert_eq!(app.view.terminal_area, area);
     }
 
     #[test]

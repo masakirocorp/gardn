@@ -350,6 +350,7 @@ pub struct Keybinds {
     pub resize_mode: ActionKeybinds,
     pub toggle_sidebar: ActionKeybinds,
     pub toggle_context_bar: ActionKeybinds,
+    pub zen_mode: ActionKeybinds,
     pub toggle_right_sidebar: ActionKeybinds,
     pub custom_commands: Vec<CustomCommandKeybind>,
 }
@@ -517,6 +518,7 @@ impl Config {
             resize_mode: empty_action!(),
             toggle_sidebar: empty_action!(),
             toggle_context_bar: empty_action!(),
+            zen_mode: empty_action!(),
             toggle_right_sidebar: empty_action!(),
             custom_commands: Vec::new(),
         };
@@ -644,6 +646,7 @@ impl Config {
             apply_action!(keybinds.resize_mode, resize_mode, source);
             apply_action!(keybinds.toggle_sidebar, toggle_sidebar, source);
             apply_action!(keybinds.toggle_context_bar, toggle_context_bar, source);
+            apply_action!(keybinds.zen_mode, zen_mode, source);
             apply_action!(keybinds.toggle_right_sidebar, toggle_right_sidebar, source);
 
             if source == BindingSource::User {

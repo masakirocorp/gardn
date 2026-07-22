@@ -2768,6 +2768,8 @@ pub struct AppState {
     pub context_bar_visibility: crate::config::ContextBarVisibilityConfig,
     /// Per-process override used by the monolithic client. Attached clients own this separately.
     pub context_bar_visibility_override: Option<bool>,
+    /// Per-process Zen mode used by the monolithic client.
+    pub zen_mode: bool,
     /// Sidebar row/token layout loaded from `[ui.sidebar]`.
     pub sidebar_config: crate::config::SidebarConfig,
     /// Ratio of sidebar height allocated to the workspaces section when activity
@@ -3526,6 +3528,7 @@ impl AppState {
             sidebar_arrangement: crate::config::SidebarArrangementConfig::Auto,
             context_bar_visibility: crate::config::ContextBarVisibilityConfig::Always,
             context_bar_visibility_override: None,
+            zen_mode: false,
             sidebar_config: crate::config::SidebarConfig::default(),
             sidebar_section_split: 0.5,
             activity_agents_expanded: true,

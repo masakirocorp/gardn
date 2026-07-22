@@ -805,6 +805,7 @@ pub(crate) fn execute_command_palette_action(app: &mut App, action: CommandPalet
                 .context_bar_is_visible(app.state.context_bar_visibility_override);
             app.state.context_bar_visibility_override = Some(!visible);
         }
+        CommandPaletteAction::ZenMode => app.state.zen_mode = !app.state.zen_mode,
         CommandPaletteAction::ToggleRightSidebar => {
             if app.state.view.right_sidebar_rect != ratatui::layout::Rect::default() {
                 app.state.right_sidebar_collapsed = !app.state.right_sidebar_collapsed;

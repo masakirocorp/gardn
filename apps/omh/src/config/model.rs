@@ -506,6 +506,8 @@ pub struct KeysConfig {
     pub focus_pane_left: BindingConfig,
     /// Toggle the bottom context bar for this client. Default: "prefix+down".
     pub toggle_context_bar: BindingConfig,
+    /// Toggle Zen mode for this client. Default: "prefix+shift+z".
+    pub zen_mode: BindingConfig,
     /// Focus the pane below. Default: "prefix+j".
     pub focus_pane_down: BindingConfig,
     /// Focus the pane above. Default: "prefix+k".
@@ -634,6 +636,8 @@ pub(crate) struct KeysConfigOverlay {
     #[serde(skip_serializing_if = "Option::is_none")]
     toggle_context_bar: Option<BindingConfig>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    zen_mode: Option<BindingConfig>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     focus_pane_left: Option<BindingConfig>,
     #[serde(skip_serializing_if = "Option::is_none")]
     focus_pane_down: Option<BindingConfig>,
@@ -715,6 +719,7 @@ impl<'de> Deserialize<'de> for KeysConfig {
         apply_field!(previous_agent);
         apply_field!(next_agent);
         apply_field!(toggle_context_bar);
+        apply_field!(zen_mode);
         apply_field!(open_agent_menu);
         apply_field!(focus_agent);
         apply_field!(remote_image_paste);
@@ -809,6 +814,7 @@ impl KeysConfig {
         copy_effective_indexed_field!(switch_group, keybinds.switch_group);
         copy_effective_action_field!(previous_agent, keybinds.previous_agent);
         copy_effective_action_field!(toggle_context_bar, keybinds.toggle_context_bar);
+        copy_effective_action_field!(zen_mode, keybinds.zen_mode);
         copy_effective_action_field!(next_agent, keybinds.next_agent);
         copy_effective_action_field!(open_agent_menu, keybinds.open_agent_menu);
         copy_effective_indexed_field!(focus_agent, keybinds.focus_agent);
@@ -1125,6 +1131,7 @@ impl Default for KeysConfig {
             next_group: BindingConfig::empty(),
             switch_group: BindingConfig::one("prefix+alt+1..0"),
             toggle_context_bar: BindingConfig::one("prefix+down"),
+            zen_mode: BindingConfig::one("prefix+shift+z"),
             previous_agent: BindingConfig::empty(),
             next_agent: BindingConfig::empty(),
             open_agent_menu: BindingConfig::empty(),

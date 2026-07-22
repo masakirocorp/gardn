@@ -1099,6 +1099,7 @@ pub(crate) enum NavigateAction {
     CopyMode,
     Zoom,
     ToggleContextBar,
+    ZenMode,
     EnterResizeMode,
     ToggleSidebar,
     ToggleRightSidebar,
@@ -1229,6 +1230,7 @@ pub(crate) fn non_indexed_action_for_key(
         (&kb.resize_mode, NavigateAction::EnterResizeMode),
         (&kb.toggle_sidebar, NavigateAction::ToggleSidebar),
         (&kb.toggle_context_bar, NavigateAction::ToggleContextBar),
+        (&kb.zen_mode, NavigateAction::ZenMode),
         (&kb.toggle_right_sidebar, NavigateAction::ToggleRightSidebar),
         (&kb.command_palette, NavigateAction::OpenCommandPalette),
         (&kb.reload_config, NavigateAction::ReloadConfig),
@@ -1439,6 +1441,10 @@ pub(crate) fn execute_navigate_action_in_context(
         NavigateAction::ToggleContextBar => {
             let visible = state.context_bar_is_visible(state.context_bar_visibility_override);
             state.context_bar_visibility_override = Some(!visible);
+            leave_navigate_mode(state);
+        }
+        NavigateAction::ZenMode => {
+            state.zen_mode = !state.zen_mode;
             leave_navigate_mode(state);
         }
         NavigateAction::ToggleRightSidebar => {
@@ -1961,6 +1967,23 @@ navigate_pane_right = "ctrl+l"
 
         assert_eq!(state.selected, 1);
         assert_eq!(state.mobile_switcher_scroll, 1);
+    }
+
+    #[test]
+    fn default_zen_mode_key_toggles_the_monolithic_view() {
+        let mut state = state_with_workspaces(&["test"]);
+
+        let action = non_indexed_action_for_key(
+            &state,
+            TerminalKey::new(KeyCode::Char('z'), KeyModifiers::SHIFT),
+            BindingDispatch::Prefix,
+        );
+        assert_eq!(action, Some(NavigateAction::ZenMode));
+
+        execute_navigate_action(&mut state, NavigateAction::ZenMode);
+
+        assert!(state.zen_mode);
+        assert_eq!(state.mode, Mode::Terminal);
     }
 
     #[test]

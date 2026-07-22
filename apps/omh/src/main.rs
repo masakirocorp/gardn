@@ -203,6 +203,7 @@ const DEFAULT_CONFIG: &str = r##"# Oh My Herdr configuration
 # resize_mode = "prefix+r"
 # toggle_sidebar = "prefix+b"
 # toggle_context_bar = "prefix+down"
+# zen_mode = "prefix+shift+z"
 # toggle_right_sidebar = "" # optional, unset by default
 
 # Navigate-mode movement. These local shortcuts win while navigate mode is open.
