@@ -3327,8 +3327,8 @@
     {
       "upstream": "30232287361f753d071ecd6bca7b9dda276ec0f9",
       "subject": "fix: preserve associated emoji input (#1410)",
-      "status": "pending",
-      "reason": "The input parser does not yet accept matching Kitty associated-text fields for emoji."
+      "status": "ported",
+      "reason": "Ported Kitty associated-text validation with explicit matching, mismatched, and malformed emoji sequence tests; focused parser tests pass."
     },
     {
       "upstream": "464c658fdd3a9257b1eb5095b0ae024a306b29ee",
