@@ -423,7 +423,6 @@ fn plugin_action_invoke(args: &[String]) -> std::io::Result<i32> {
             workspace_id: None,
             workspace_label: None,
             workspace_cwd: None,
-            worktree: None,
             tab_id: None,
             tab_label: None,
             focused_pane_id: None,
@@ -634,7 +633,12 @@ fn parse_split_direction(value: &str) -> Option<SplitDirection> {
 }
 
 fn normalize_plugin_path_arg(value: &str) -> std::io::Result<String> {
-    let path = crate::worktree::expand_tilde_path(value);
+    let path = value
+        .strip_prefix("~/")
+        .and_then(|suffix| {
+            std::env::var_os("HOME").map(|home| std::path::PathBuf::from(home).join(suffix))
+        })
+        .unwrap_or_else(|| std::path::PathBuf::from(value));
     let absolute = if path.is_absolute() {
         path
     } else {
@@ -1619,11 +1623,11 @@ mod tests {
     #[test]
     fn github_plugin_source_parses_subdir() {
         let source =
-            GithubPluginSource::parse("ogulcancelik/omh-plugin-examples/worktree-bootstrap")
+            GithubPluginSource::parse("ogulcancelik/omh-plugin-examples/workspace-bootstrap")
                 .unwrap();
         assert_eq!(source.owner, "ogulcancelik");
         assert_eq!(source.repo, "omh-plugin-examples");
-        assert_eq!(source.subdir.as_deref(), Some("worktree-bootstrap"));
+        assert_eq!(source.subdir.as_deref(), Some("workspace-bootstrap"));
     }
 
     #[test]

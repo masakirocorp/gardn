@@ -11,7 +11,7 @@ pub(crate) use self::{
     status::{git_work_summary, git_work_summary_for_root},
 };
 pub use self::{
-    discovery::{derive_label_from_cwd, git_branch, git_space_metadata, GitSpaceMetadata},
+    discovery::{derive_label_from_cwd, git_branch},
     status::{git_status_cache_key, git_status_snapshot_for_cwd, GitStatusCacheEntry},
 };
 

@@ -1045,7 +1045,6 @@ fn help_commands_exit_successfully() {
         &["status", "-h"],
         &["server", "-h"],
         &["workspace", "-h"],
-        &["worktree", "-h"],
         &["tab", "-h"],
         &["pane", "-h"],
         &["wait", "-h"],
@@ -1860,294 +1859,6 @@ fn workspace_and_pane_management_commands_work() {
     assert_eq!(closed_workspace_json["result"]["type"], "ok");
 
     cleanup_spawned_omh(omh, base);
-}
-
-#[test]
-fn worktree_management_commands_work() {
-    let base = unique_test_dir();
-    let config_home = base.join("config");
-    let runtime_dir = base.join("runtime");
-    let socket_path = runtime_dir.join("omh.sock");
-    let repo = base.join("repo");
-    let checkout = base.join("checkout");
-    create_committed_repo(&repo);
-
-    let omh = spawn_omh(&config_home, &runtime_dir, &socket_path);
-    wait_for_socket(&socket_path, Duration::from_secs(5));
-
-    let branch = "worktree/cli-wrapper";
-    let created = run_cli_json(
-        &socket_path,
-        &[
-            "worktree",
-            "create",
-            "--cwd",
-            repo.to_str().unwrap(),
-            "--branch",
-            branch,
-            "--path",
-            checkout.to_str().unwrap(),
-            "--json",
-        ],
-    );
-    assert_eq!(created["result"]["type"], "worktree_created");
-    assert_eq!(created["result"]["worktree"]["branch"], branch);
-    let child_workspace_id = created["result"]["workspace"]["workspace_id"]
-        .as_str()
-        .unwrap()
-        .to_string();
-    assert!(checkout.join("README.md").exists());
-
-    let workspaces = run_cli_json(&socket_path, &["workspace", "list"]);
-    let workspace_list = workspaces["result"]["workspaces"].as_array().unwrap();
-    let parent_workspace_id = workspace_list
-        .iter()
-        .find(|workspace| workspace["worktree"]["is_linked_worktree"].as_bool() == Some(false))
-        .and_then(|workspace| workspace["workspace_id"].as_str())
-        .unwrap()
-        .to_string();
-    assert!(workspace_list.iter().any(|workspace| {
-        workspace["workspace_id"].as_str() == Some(child_workspace_id.as_str())
-            && workspace["worktree"]["is_linked_worktree"].as_bool() == Some(true)
-    }));
-
-    let listed = run_cli_json(
-        &socket_path,
-        &[
-            "worktree",
-            "list",
-            "--workspace",
-            &parent_workspace_id,
-            "--json",
-        ],
-    );
-    let listed_entry = listed["result"]["worktrees"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|entry| entry["branch"].as_str() == Some(branch))
-        .unwrap();
-    assert_eq!(
-        listed_entry["open_workspace_id"].as_str(),
-        Some(child_workspace_id.as_str())
-    );
-
-    let opened = run_cli_json(
-        &socket_path,
-        &[
-            "worktree",
-            "open",
-            "--workspace",
-            &parent_workspace_id,
-            "--branch",
-            branch,
-            "--json",
-        ],
-    );
-    assert_eq!(opened["result"]["type"], "worktree_opened");
-    assert_eq!(opened["result"]["already_open"], true);
-    assert_eq!(
-        opened["result"]["workspace"]["workspace_id"].as_str(),
-        Some(child_workspace_id.as_str())
-    );
-
-    fs::write(checkout.join("README.md"), "dirty\n").unwrap();
-    let safe_remove = run_cli(
-        &socket_path,
-        &[
-            "worktree",
-            "remove",
-            "--workspace",
-            &child_workspace_id,
-            "--json",
-        ],
-    );
-    assert_eq!(safe_remove.status.code(), Some(1));
-    let safe_remove_json: serde_json::Value = serde_json::from_slice(&safe_remove.stderr).unwrap();
-    assert_eq!(
-        safe_remove_json["error"]["code"],
-        "dirty_worktree_requires_force"
-    );
-    assert!(checkout.exists());
-
-    let force_removed = run_cli_json(
-        &socket_path,
-        &[
-            "worktree",
-            "remove",
-            "--workspace",
-            &child_workspace_id,
-            "--force",
-            "--json",
-        ],
-    );
-    assert_eq!(force_removed["result"]["type"], "worktree_removed");
-    assert_eq!(force_removed["result"]["forced"], true);
-    assert!(!checkout.exists());
-
-    cleanup_spawned_omh(omh, base);
-}
-
-#[test]
-fn worktree_open_existing_checkout_by_path_and_branch() {
-    let base = unique_test_dir();
-    let config_home = base.join("config");
-    let runtime_dir = base.join("runtime");
-    let socket_path = runtime_dir.join("omh.sock");
-    let repo = base.join("repo");
-    let checkout = base.join("external-checkout");
-    create_committed_repo(&repo);
-    let branch = "worktree/cli-open-existing";
-    run_git(
-        &repo,
-        &[
-            "worktree",
-            "add",
-            "--quiet",
-            "-b",
-            branch,
-            checkout.to_str().unwrap(),
-            "HEAD",
-        ],
-    );
-
-    let omh = spawn_omh(&config_home, &runtime_dir, &socket_path);
-    wait_for_socket(&socket_path, Duration::from_secs(5));
-
-    let opened = run_cli_json_in_dir(
-        &socket_path,
-        &[
-            "worktree",
-            "open",
-            "--cwd",
-            "repo",
-            "--path",
-            "external-checkout",
-            "--json",
-        ],
-        &base,
-    );
-    assert_eq!(opened["result"]["type"], "worktree_opened");
-    assert_eq!(opened["result"]["already_open"], false);
-    assert_eq!(opened["result"]["worktree"]["branch"], branch);
-    assert_eq!(
-        opened["result"]["workspace"]["worktree"]["is_linked_worktree"],
-        true
-    );
-    let child_workspace_id = opened["result"]["workspace"]["workspace_id"]
-        .as_str()
-        .unwrap()
-        .to_string();
-
-    let workspaces = run_cli_json(&socket_path, &["workspace", "list"]);
-    let workspace_list = workspaces["result"]["workspaces"].as_array().unwrap();
-    let parent_workspace_id = workspace_list
-        .iter()
-        .find(|workspace| workspace["worktree"]["is_linked_worktree"].as_bool() == Some(false))
-        .and_then(|workspace| workspace["workspace_id"].as_str())
-        .unwrap()
-        .to_string();
-
-    let listed = run_cli_json(
-        &socket_path,
-        &[
-            "worktree",
-            "list",
-            "--workspace",
-            &parent_workspace_id,
-            "--json",
-        ],
-    );
-    let listed_entry = listed["result"]["worktrees"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|entry| entry["branch"].as_str() == Some(branch))
-        .unwrap();
-    assert_eq!(
-        listed_entry["open_workspace_id"].as_str(),
-        Some(child_workspace_id.as_str())
-    );
-
-    let reopened = run_cli_json(
-        &socket_path,
-        &[
-            "worktree",
-            "open",
-            "--workspace",
-            &parent_workspace_id,
-            "--branch",
-            branch,
-            "--json",
-        ],
-    );
-    assert_eq!(reopened["result"]["type"], "worktree_opened");
-    assert_eq!(reopened["result"]["already_open"], true);
-    assert_eq!(
-        reopened["result"]["workspace"]["workspace_id"].as_str(),
-        Some(child_workspace_id.as_str())
-    );
-
-    let removed = run_cli_json(
-        &socket_path,
-        &[
-            "worktree",
-            "remove",
-            "--workspace",
-            &child_workspace_id,
-            "--force",
-            "--json",
-        ],
-    );
-    assert_eq!(removed["result"]["type"], "worktree_removed");
-
-    cleanup_spawned_omh(omh, base);
-}
-
-#[test]
-fn worktree_cli_rejects_local_argument_errors_before_socket_use() {
-    let base = unique_test_dir();
-    fs::create_dir_all(&base).unwrap();
-    let socket_path = base.join("missing.sock");
-    let cases: &[&[&str]] = &[
-        &["worktree", "list", "--workspace", "1", "--cwd", "/tmp"],
-        &["worktree", "create", "--workspace", "1", "--cwd", "/tmp"],
-        &["worktree", "open", "--workspace", "1"],
-        &[
-            "worktree",
-            "open",
-            "--workspace",
-            "1",
-            "--path",
-            "a",
-            "--branch",
-            "b",
-        ],
-        &[
-            "worktree",
-            "open",
-            "--workspace",
-            "1",
-            "--cwd",
-            "/tmp",
-            "--branch",
-            "b",
-        ],
-    ];
-
-    for args in cases {
-        let output = run_cli(&socket_path, args);
-        assert_eq!(
-            output.status.code(),
-            Some(2),
-            "omh {} should fail as local parse error; stdout={} stderr={}",
-            args.join(" "),
-            String::from_utf8_lossy(&output.stdout),
-            String::from_utf8_lossy(&output.stderr)
-        );
-    }
-
-    cleanup_test_base(&base);
 }
 
 #[test]
@@ -2984,8 +2695,8 @@ contexts = ["workspace"]
 command = ["sh", "-c", "echo layout"]
 
 [[events]]
-on = "worktree.created"
-command = ["sh", "-c", "echo worktree"]
+on = "workspace.created"
+command = ["sh", "-c", "echo workspace"]
 
 [[panes]]
 id = "board"
@@ -3042,7 +2753,7 @@ min_herdr_version = "0.7.0"
     assert_eq!(linked["result"]["plugin"]["actions"][0]["id"], "apply");
     assert_eq!(
         linked["result"]["plugin"]["events"][0]["on"],
-        "worktree.created"
+        "workspace.created"
     );
     assert_eq!(linked["result"]["plugin"]["panes"][0]["id"], "board");
 
@@ -3139,14 +2850,14 @@ fn plugin_install_list_uninstall_offline_cli_smoke_test() {
     let config_home = base.join("config");
     let runtime_dir = base.join("runtime");
     let source_repo = base.join("source-repo");
-    let plugin_dir = source_repo.join("worktree-bootstrap");
+    let plugin_dir = source_repo.join("workspace-bootstrap");
     fs::create_dir_all(&plugin_dir).unwrap();
     create_committed_repo(&source_repo);
     fs::write(
         plugin_dir.join("omh-plugin.toml"),
         r#"
-id = "example.worktree-bootstrap"
-name = "Worktree Bootstrap"
+id = "example.workspace-bootstrap"
+name = "Workspace Bootstrap"
 version = "0.1.0"
 platforms = ["linux", "macos", "windows"]
 min_omh_version = "0.2.0"
@@ -3161,7 +2872,10 @@ command = ["sh", "-c", "echo bootstrap"]
 "#,
     )
     .unwrap();
-    run_git(&source_repo, &["add", "worktree-bootstrap/omh-plugin.toml"]);
+    run_git(
+        &source_repo,
+        &["add", "workspace-bootstrap/omh-plugin.toml"],
+    );
     run_git(&source_repo, &["commit", "--quiet", "-m", "add plugin"]);
 
     fs::create_dir_all(&config_home).unwrap();
@@ -3184,7 +2898,7 @@ command = ["sh", "-c", "echo bootstrap"]
             "plugins",
             "plugin",
             "install",
-            "ogulcancelik/omh-plugin-examples/worktree-bootstrap",
+            "ogulcancelik/omh-plugin-examples/workspace-bootstrap",
             "--yes",
         ],
         &[
@@ -3205,24 +2919,24 @@ command = ["sh", "-c", "echo bootstrap"]
         &["--session", "plugins", "plugin", "list", "--json"],
     );
     let plugin = &listed["result"]["plugins"][0];
-    assert_eq!(plugin["plugin_id"], "example.worktree-bootstrap");
+    assert_eq!(plugin["plugin_id"], "example.workspace-bootstrap");
     assert_eq!(plugin["source"]["kind"], "github");
     assert_eq!(plugin["source"]["owner"], "ogulcancelik");
     assert_eq!(plugin["source"]["repo"], "omh-plugin-examples");
-    assert_eq!(plugin["source"]["subdir"], "worktree-bootstrap");
+    assert_eq!(plugin["source"]["subdir"], "workspace-bootstrap");
     assert!(plugin["source"]["resolved_commit"].as_str().is_some());
     let managed_path = PathBuf::from(plugin["source"]["managed_path"].as_str().unwrap());
     assert!(managed_path.exists(), "managed checkout should exist");
     assert!(
         managed_path
-            .join("worktree-bootstrap")
+            .join("workspace-bootstrap")
             .join("built.txt")
             .exists(),
         "build artifact should be preserved in managed checkout"
     );
     assert!(
         !managed_path
-            .join("worktree-bootstrap")
+            .join("workspace-bootstrap")
             .join("leaked-session.txt")
             .exists(),
         "build command should not inherit OMH_SESSION"
@@ -3236,7 +2950,7 @@ command = ["sh", "-c", "echo bootstrap"]
             "plugins",
             "plugin",
             "uninstall",
-            "example.worktree-bootstrap",
+            "example.workspace-bootstrap",
         ],
     );
     assert!(

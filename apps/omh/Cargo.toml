@@ -1,6 +1,6 @@
 [package]
 name = "omh"
-version = "0.2.18"
+version = "0.2.19"
 edition = "2021"
 build = "build.rs"
 description = "terminal workspace manager for AI coding agents"
@@ -10,7 +10,7 @@ repository = "https://github.com/masakirocorp/oh-my-herdr"
 homepage = "https://github.com/masakirocorp/oh-my-herdr"
 keywords = ["terminal", "tui", "ai", "agents", "multiplexer"]
 categories = ["command-line-utilities"]
-include = ["src/**/*", "assets/sounds/*", "build.rs", "Cargo.toml"]
+include = ["src/**/*", "assets/**/*", "build.rs", "Cargo.toml"]
 
 [dependencies]
 base64 = "0.22.1"

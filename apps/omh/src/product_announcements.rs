@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 const PRODUCT_ANNOUNCEMENTS_PATH: &str = "product-announcements.json";
+const BUNDLED_ANNOUNCEMENTS: &str = include_str!("../assets/product-announcements.json");
 const FAKE_ANNOUNCEMENT_BODY_ENV: &str = "OMH_FAKE_PRODUCT_ANNOUNCEMENT_BODY";
 const FAKE_ANNOUNCEMENT_BODY_FILE_ENV: &str = "OMH_FAKE_PRODUCT_ANNOUNCEMENT_BODY_FILE";
 const FAKE_ANNOUNCEMENT_ID_ENV: &str = "OMH_FAKE_PRODUCT_ANNOUNCEMENT_ID";
@@ -20,18 +21,21 @@ pub struct ProductAnnouncement {
     pub preview: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 struct StoredProductAnnouncement {
-    pub version: String,
-    pub id: String,
-    pub title: String,
-    pub body: String,
+    version: String,
+    id: String,
+    title: String,
+    body: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct AnnouncementCatalog {
+    announcements: Vec<StoredProductAnnouncement>,
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
 struct AnnouncementStore {
-    #[serde(default)]
-    latest: Option<StoredProductAnnouncement>,
     #[serde(default)]
     seen: BTreeSet<String>,
 }
@@ -45,20 +49,9 @@ impl StoredProductAnnouncement {
         ProductAnnouncement {
             version: self.version,
             id: self.id,
-            title: self.title,
-            body: self.body,
+            title: self.title.trim().to_string(),
+            body: normalize_body(&self.body),
             preview: false,
-        }
-    }
-}
-
-impl From<&ProductAnnouncement> for StoredProductAnnouncement {
-    fn from(announcement: &ProductAnnouncement) -> Self {
-        Self {
-            version: announcement.version.clone(),
-            id: announcement.id.clone(),
-            title: announcement.title.clone(),
-            body: announcement.body.clone(),
         }
     }
 }
@@ -72,8 +65,22 @@ pub fn store_path() -> PathBuf {
 }
 
 pub fn load_unseen_for_current_version() -> Option<ProductAnnouncement> {
-    load_fake_for_current_version()
-        .or_else(|| load_unseen_from_path(&store_path(), env!("CARGO_PKG_VERSION")))
+    if let Some(announcement) = load_fake_for_current_version() {
+        return Some(announcement);
+    }
+
+    #[cfg(test)]
+    {
+        None
+    }
+    #[cfg(not(test))]
+    {
+        load_unseen_from_catalog(
+            BUNDLED_ANNOUNCEMENTS,
+            &store_path(),
+            env!("CARGO_PKG_VERSION"),
+        )
+    }
 }
 
 pub fn mark_seen(version: &str, id: &str) -> io::Result<()> {
@@ -110,26 +117,55 @@ fn load_fake_for_current_version() -> Option<ProductAnnouncement> {
     })
 }
 
-#[cfg(test)]
-fn save_latest_to_path(path: &Path, announcement: ProductAnnouncement) -> io::Result<()> {
-    let mut store = load_store_from_path(path).unwrap_or_default();
-    store.latest = Some(StoredProductAnnouncement::from(&announcement));
-    write_store_to_path(path, &store)
+fn parse_catalog(content: &str) -> Result<AnnouncementCatalog, String> {
+    let catalog: AnnouncementCatalog =
+        serde_json::from_str(content).map_err(|err| format!("invalid JSON: {err}"))?;
+    let mut versions = BTreeSet::new();
+    for announcement in &catalog.announcements {
+        if announcement.version.trim().is_empty()
+            || announcement.id.trim().is_empty()
+            || announcement.title.trim().is_empty()
+            || normalize_body(&announcement.body).is_empty()
+        {
+            return Err("version, id, title, and body must be non-empty".to_string());
+        }
+        if !versions.insert(announcement.version.as_str()) {
+            return Err(format!(
+                "version {} has more than one announcement",
+                announcement.version
+            ));
+        }
+    }
+    Ok(catalog)
+}
+
+fn load_unseen_from_catalog(
+    catalog_content: &str,
+    state_path: &Path,
+    current_version: &str,
+) -> Option<ProductAnnouncement> {
+    let catalog = match parse_catalog(catalog_content) {
+        Ok(catalog) => catalog,
+        Err(err) => {
+            tracing::warn!("failed to load bundled product announcements: {err}");
+            return None;
+        }
+    };
+    let announcement = catalog
+        .announcements
+        .into_iter()
+        .find(|announcement| announcement.version == current_version)?;
+    let store = load_store_from_path(state_path).unwrap_or_default();
+    if store.seen.contains(&announcement.seen_key()) {
+        return None;
+    }
+    Some(announcement.into_product_announcement())
 }
 
 fn mark_seen_at(path: &Path, version: &str, id: &str) -> io::Result<()> {
     let mut store = load_store_from_path(path).unwrap_or_default();
     store.seen.insert(seen_key(version, id));
     write_store_to_path(path, &store)
-}
-
-fn load_unseen_from_path(path: &Path, current_version: &str) -> Option<ProductAnnouncement> {
-    let store = load_store_from_path(path)?;
-    let announcement = store.latest?;
-    if announcement.version != current_version || store.seen.contains(&announcement.seen_key()) {
-        return None;
-    }
-    Some(announcement.into_product_announcement())
 }
 
 fn load_store_from_path(path: &Path) -> Option<AnnouncementStore> {
@@ -183,43 +219,57 @@ mod tests {
     }
 
     #[test]
-    fn load_unseen_returns_current_unseen_announcement() {
-        let path = temp_path("unseen");
-        save_latest_to_path(
-            &path,
-            ProductAnnouncement {
-                version: "1.2.3".into(),
-                id: "keymap-v2".into(),
-                title: "Keymap changed".into(),
-                body: "### Changed\n- One".into(),
-                preview: false,
-            },
-        )
-        .unwrap();
+    fn bundled_catalog_is_valid() {
+        parse_catalog(BUNDLED_ANNOUNCEMENTS).expect("bundled product announcements");
+    }
 
-        let loaded = load_unseen_from_path(&path, "1.2.3").expect("announcement");
+    #[test]
+    fn current_unseen_bundled_announcement_is_delivered_once() {
+        let path = temp_path("unseen");
+        let catalog = r####"{
+            "announcements": [{
+                "version": "1.2.3",
+                "id": "keymap-v2",
+                "title": "Keymap changed",
+                "body": "### Changed\n- One"
+            }]
+        }"####;
+
+        let loaded = load_unseen_from_catalog(catalog, &path, "1.2.3").expect("announcement");
         assert_eq!(loaded.id, "keymap-v2");
+        mark_seen_at(&path, &loaded.version, &loaded.id).unwrap();
+        assert_eq!(load_unseen_from_catalog(catalog, &path, "1.2.3"), None);
         let _ = fs::remove_file(path);
     }
 
     #[test]
-    fn load_unseen_ignores_seen_announcement() {
-        let path = temp_path("seen");
-        save_latest_to_path(
-            &path,
-            ProductAnnouncement {
-                version: "1.2.3".into(),
-                id: "keymap-v2".into(),
-                title: "Keymap changed".into(),
-                body: "### Changed\n- One".into(),
-                preview: false,
-            },
-        )
-        .unwrap();
-        mark_seen_at(&path, "1.2.3", "keymap-v2").unwrap();
+    fn announcement_for_another_version_is_not_delivered() {
+        let path = temp_path("other-version");
+        let catalog = r####"{
+            "announcements": [{
+                "version": "1.2.3",
+                "id": "keymap-v2",
+                "title": "Keymap changed",
+                "body": "### Changed\n- One"
+            }]
+        }"####;
 
-        assert_eq!(load_unseen_from_path(&path, "1.2.3"), None);
-        let _ = fs::remove_file(path);
+        assert_eq!(load_unseen_from_catalog(catalog, &path, "1.2.4"), None);
+    }
+
+    #[test]
+    fn catalog_rejects_multiple_announcements_for_one_version() {
+        let catalog = r#"{
+            "announcements": [
+                {"version": "1.2.3", "id": "one", "title": "One", "body": "First"},
+                {"version": "1.2.3", "id": "two", "title": "Two", "body": "Second"}
+            ]
+        }"#;
+
+        assert_eq!(
+            parse_catalog(catalog).unwrap_err(),
+            "version 1.2.3 has more than one announcement"
+        );
     }
 
     #[test]

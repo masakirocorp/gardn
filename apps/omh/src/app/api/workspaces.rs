@@ -43,15 +43,6 @@ impl App {
                 .public_tab_id(index, active_tab)
                 .unwrap_or_else(|| format!("{}:{}", ws.id, active_tab + 1)),
             agent_status: pane_agent_status(agg_state, seen),
-            worktree: ws
-                .worktree_space()
-                .map(|space| crate::api::schema::WorkspaceWorktreeInfo {
-                    repo_key: space.key.clone(),
-                    repo_name: space.label.clone(),
-                    repo_root: space.repo_root.display().to_string(),
-                    checkout_path: space.checkout_path.display().to_string(),
-                    is_linked_worktree: space.is_linked_worktree,
-                }),
         }
     }
 
@@ -541,7 +532,7 @@ mod tests {
     use super::*;
     use crate::{api::schema::SuccessResponse, config::Config, workspace::Workspace};
 
-    fn app_with_linked_worktree() -> App {
+    fn app_with_workspace() -> App {
         let (_api_tx, api_rx) = tokio::sync::mpsc::unbounded_channel();
         let mut app = App::new(
             &Config::default(),
@@ -551,19 +542,12 @@ mod tests {
             crate::api::EventHub::default(),
         );
         app.state.workspaces = vec![Workspace::test_new("issue")];
-        app.state.workspaces[0].worktree_space = Some(crate::workspace::WorktreeSpaceMembership {
-            key: "repo-key".into(),
-            label: "omh".into(),
-            repo_root: "/repo/omh".into(),
-            checkout_path: "/repo/omh-issue".into(),
-            is_linked_worktree: true,
-        });
         app
     }
 
     #[test]
-    fn api_workspace_close_closes_linked_worktree_workspace_only() {
-        let mut app = app_with_linked_worktree();
+    fn api_workspace_close_closes_workspace() {
+        let mut app = app_with_workspace();
 
         let response = app.handle_workspace_close(
             "req".into(),
@@ -578,11 +562,11 @@ mod tests {
     }
 
     #[test]
-    fn api_workspace_close_event_includes_final_worktree_snapshot() {
+    fn api_workspace_close_event_includes_final_snapshot() {
         let event_hub = crate::api::EventHub::default();
         let (_api_tx, api_rx) = tokio::sync::mpsc::unbounded_channel();
         let mut app = App::new(&Config::default(), true, None, api_rx, event_hub.clone());
-        app.state.workspaces = app_with_linked_worktree().state.workspaces;
+        app.state.workspaces = app_with_workspace().state.workspaces;
         let workspace_id = app.state.workspaces[0].id.clone();
 
         let response = app.handle_workspace_close(
@@ -602,10 +586,7 @@ mod tests {
                     workspace_id: closed_id,
                     workspace: Some(workspace),
                 } if closed_id == &workspace_id
-                    && workspace
-                        .worktree
-                        .as_ref()
-                        .is_some_and(|worktree| worktree.is_linked_worktree)
+                    && workspace.workspace_id == workspace_id
             )
         }));
     }

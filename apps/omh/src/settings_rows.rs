@@ -848,10 +848,6 @@ fn behavior_rows(app: &AppState, settings: &SettingsState) -> Vec<SettingsListRo
             .pending_mouse_scroll_lines
             .unwrap_or(app.mouse_scroll_lines)
     );
-    let worktree_directory = settings
-        .pending_worktree_directory
-        .clone()
-        .unwrap_or_else(|| app.worktree_directory.display().to_string());
 
     let mut rows = setting_group(
         "workspace",
@@ -872,12 +868,6 @@ fn behavior_rows(app: &AppState, settings: &SettingsState) -> Vec<SettingsListRo
                     .pending_prompt_new_tab_name
                     .unwrap_or_else(|| app.prompt_new_tab_name_enabled()),
             ),
-            value_option(
-                2,
-                "worktree directory",
-                "where task worktrees are created",
-                worktree_directory,
-            ),
         ],
     );
     rows.push(SettingsListRow::Spacer);
@@ -885,13 +875,13 @@ fn behavior_rows(app: &AppState, settings: &SettingsState) -> Vec<SettingsListRo
         "terminal",
         [
             value_option(
-                3,
+                2,
                 "new terminal cwd",
                 "directory used by newly created terminal tabs",
                 cwd_label,
             ),
             value_option(
-                4,
+                3,
                 "mouse wheel speed",
                 "terminal scroll amount per wheel notch",
                 scroll_label,

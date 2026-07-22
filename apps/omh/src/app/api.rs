@@ -13,7 +13,6 @@ mod responses;
 mod session;
 mod tabs;
 mod workspaces;
-mod worktrees;
 
 use super::ClientViewState;
 use super::{
@@ -51,16 +50,6 @@ impl App {
             } else {
                 self.prefix_input_source.restore();
             }
-            return;
-        }
-
-        if let AppEvent::WorktreeAddFinished(result) = ev {
-            self.handle_api_worktree_add_finished(*result);
-            return;
-        }
-
-        if let AppEvent::WorktreeRemoveFinished(result) = ev {
-            self.handle_api_worktree_remove_finished(*result);
             return;
         }
 
@@ -1176,14 +1165,6 @@ impl App {
             }
             Method::WorkspaceClose(target) => {
                 return self.handle_workspace_close(request.id, target)
-            }
-            Method::WorktreeList(params) => return self.handle_worktree_list(request.id, params),
-            Method::WorktreeCreate(params) => {
-                return self.handle_worktree_create(request.id, params);
-            }
-            Method::WorktreeOpen(params) => return self.handle_worktree_open(request.id, params),
-            Method::WorktreeRemove(params) => {
-                return self.handle_worktree_remove(request.id, params);
             }
             Method::TabList(params) => return self.handle_tab_list(request.id, params),
             Method::TabGet(target) => return self.handle_tab_get(request.id, target),

@@ -63,14 +63,6 @@ pub enum Method {
     WorkspaceClose(WorkspaceTarget),
     #[serde(rename = "workspace.move_to_group")]
     WorkspaceMoveToGroup(WorkspaceMoveToGroupParams),
-    #[serde(rename = "worktree.list")]
-    WorktreeList(WorktreeListParams),
-    #[serde(rename = "worktree.create")]
-    WorktreeCreate(WorktreeCreateParams),
-    #[serde(rename = "worktree.open")]
-    WorktreeOpen(WorktreeOpenParams),
-    #[serde(rename = "worktree.remove")]
-    WorktreeRemove(WorktreeRemoveParams),
     #[serde(rename = "tab.create")]
     TabCreate(TabCreateParams),
     #[serde(rename = "tab.list")]
@@ -305,55 +297,6 @@ pub struct WorkspaceMoveToGroupParams {
 pub struct WorkspaceRenameParams {
     pub workspace_id: String,
     pub label: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default, schemars::JsonSchema)]
-pub struct WorktreeListParams {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub workspace_id: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub cwd: Option<String>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default, schemars::JsonSchema)]
-pub struct WorktreeCreateParams {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub workspace_id: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub cwd: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub branch: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub base: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub path: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub label: Option<String>,
-    #[serde(default)]
-    pub focus: bool,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default, schemars::JsonSchema)]
-pub struct WorktreeOpenParams {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub workspace_id: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub cwd: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub path: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub branch: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub label: Option<String>,
-    #[serde(default)]
-    pub focus: bool,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
-pub struct WorktreeRemoveParams {
-    pub workspace_id: String,
-    #[serde(default)]
-    pub force: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
@@ -820,12 +763,6 @@ pub enum Subscription {
     WorkspaceClosed {},
     #[serde(rename = "workspace.focused")]
     WorkspaceFocused {},
-    #[serde(rename = "worktree.created")]
-    WorktreeCreated {},
-    #[serde(rename = "worktree.opened")]
-    WorktreeOpened {},
-    #[serde(rename = "worktree.removed")]
-    WorktreeRemoved {},
     #[serde(rename = "tab.created")]
     TabCreated {},
     #[serde(rename = "tab.closed")]
@@ -1160,8 +1097,6 @@ pub struct PluginInvocationContext {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub workspace_cwd: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub worktree: Option<WorkspaceWorktreeInfo>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tab_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tab_label: Option<String>,
@@ -1341,9 +1276,6 @@ pub enum EventKind {
     WorkspaceClosed,
     WorkspaceRenamed,
     WorkspaceFocused,
-    WorktreeCreated,
-    WorktreeOpened,
-    WorktreeRemoved,
     TabCreated,
     TabClosed,
     TabRenamed,
@@ -1367,9 +1299,6 @@ impl EventKind {
             EventKind::WorkspaceClosed => "workspace.closed",
             EventKind::WorkspaceRenamed => "workspace.renamed",
             EventKind::WorkspaceFocused => "workspace.focused",
-            EventKind::WorktreeCreated => "worktree.created",
-            EventKind::WorktreeOpened => "worktree.opened",
-            EventKind::WorktreeRemoved => "worktree.removed",
             EventKind::TabCreated => "tab.created",
             EventKind::TabClosed => "tab.closed",
             EventKind::TabRenamed => "tab.renamed",
@@ -1393,9 +1322,6 @@ pub const PLUGIN_HOOK_EVENT_KINDS: &[EventKind] = &[
     EventKind::WorkspaceClosed,
     EventKind::WorkspaceRenamed,
     EventKind::WorkspaceFocused,
-    EventKind::WorktreeCreated,
-    EventKind::WorktreeOpened,
-    EventKind::WorktreeRemoved,
     EventKind::TabCreated,
     EventKind::TabClosed,
     EventKind::TabRenamed,
@@ -1462,28 +1388,6 @@ pub enum ResponseResult {
     },
     WorkspaceList {
         workspaces: Vec<WorkspaceInfo>,
-    },
-    WorktreeList {
-        source: WorktreeSourceInfo,
-        worktrees: Vec<WorktreeInfo>,
-    },
-    WorktreeCreated {
-        workspace: WorkspaceInfo,
-        tab: TabInfo,
-        root_pane: PaneInfo,
-        worktree: WorktreeInfo,
-    },
-    WorktreeOpened {
-        workspace: WorkspaceInfo,
-        tab: TabInfo,
-        root_pane: PaneInfo,
-        worktree: WorktreeInfo,
-        already_open: bool,
-    },
-    WorktreeRemoved {
-        workspace_id: String,
-        path: String,
-        forced: bool,
     },
     GroupInfo {
         group: GroupInfo,
@@ -1669,41 +1573,6 @@ pub struct WorkspaceInfo {
     pub tab_count: usize,
     pub active_tab_id: String,
     pub agent_status: AgentStatus,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub worktree: Option<WorkspaceWorktreeInfo>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
-pub struct WorkspaceWorktreeInfo {
-    pub repo_key: String,
-    pub repo_name: String,
-    pub repo_root: String,
-    pub checkout_path: String,
-    pub is_linked_worktree: bool,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
-pub struct WorktreeSourceInfo {
-    pub repo_key: String,
-    pub repo_name: String,
-    pub repo_root: String,
-    pub source_checkout_path: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub source_workspace_id: Option<String>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
-pub struct WorktreeInfo {
-    pub path: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub branch: Option<String>,
-    pub is_bare: bool,
-    pub is_detached: bool,
-    pub is_prunable: bool,
-    pub is_linked_worktree: bool,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub open_workspace_id: Option<String>,
-    pub label: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
@@ -2122,20 +1991,6 @@ pub enum EventData {
     },
     WorkspaceFocused {
         workspace_id: String,
-    },
-    WorktreeCreated {
-        workspace: WorkspaceInfo,
-        worktree: WorktreeInfo,
-    },
-    WorktreeOpened {
-        workspace: WorkspaceInfo,
-        worktree: WorktreeInfo,
-        already_open: bool,
-    },
-    WorktreeRemoved {
-        workspace_id: String,
-        worktree: WorktreeInfo,
-        forced: bool,
     },
     TabCreated {
         tab: TabInfo,
@@ -2820,91 +2675,6 @@ mod tests {
     }
 
     #[test]
-    fn worktree_request_and_response_round_trip() {
-        let request = Request {
-            id: "req_worktree".into(),
-            method: Method::WorktreeCreate(WorktreeCreateParams {
-                workspace_id: Some("1".into()),
-                branch: Some("worktree/api".into()),
-                base: Some("HEAD".into()),
-                focus: true,
-                ..WorktreeCreateParams::default()
-            }),
-        };
-        let json = serde_json::to_string(&request).unwrap();
-        let restored: Request = serde_json::from_str(&json).unwrap();
-        assert_eq!(restored, request);
-
-        let response = SuccessResponse {
-            id: "req_worktree".into(),
-            result: ResponseResult::WorktreeCreated {
-                workspace: WorkspaceInfo {
-                    workspace_id: "w_1".into(),
-                    group_id: "default".into(),
-                    number: 2,
-                    label: "omh".into(),
-                    focused: true,
-                    pane_count: 1,
-                    tab_count: 1,
-                    active_tab_id: "w_1:1".into(),
-                    agent_status: AgentStatus::Unknown,
-                    worktree: Some(WorkspaceWorktreeInfo {
-                        repo_key: "/repo/omh/.git".into(),
-                        repo_name: "omh".into(),
-                        repo_root: "/repo/omh".into(),
-                        checkout_path: "/worktrees/omh/worktree-api".into(),
-                        is_linked_worktree: true,
-                    }),
-                },
-                tab: TabInfo {
-                    tab_id: "w_1:1".into(),
-                    workspace_id: "w_1".into(),
-                    number: 1,
-                    label: "omh".into(),
-                    focused: true,
-                    pane_count: 1,
-                    agent_status: AgentStatus::Unknown,
-                },
-                root_pane: PaneInfo {
-                    pane_id: "w_1-1".into(),
-                    terminal_id: "term_1".into(),
-                    workspace_id: "w_1".into(),
-                    tab_id: "w_1:1".into(),
-                    focused: true,
-                    cwd: Some("/worktrees/omh/worktree-api".into()),
-                    foreground_cwd: None,
-                    label: None,
-                    agent: None,
-                    title: None,
-                    display_agent: None,
-                    agent_status: AgentStatus::Unknown,
-                    custom_status: None,
-                    state_labels: HashMap::new(),
-                    tokens: HashMap::new(),
-                    agent_session: None,
-                    scroll: None,
-                    revision: 0,
-                },
-                worktree: WorktreeInfo {
-                    path: "/worktrees/omh/worktree-api".into(),
-                    branch: Some("worktree/api".into()),
-                    is_bare: false,
-                    is_detached: false,
-                    is_prunable: false,
-                    is_linked_worktree: true,
-                    open_workspace_id: Some("w_1".into()),
-                    label: "omh".into(),
-                },
-            },
-        };
-        let json = serde_json::to_string(&response).unwrap();
-        assert!(json.contains("\"type\":\"worktree_created\""));
-        assert!(json.contains("\"worktree\""));
-        let restored: SuccessResponse = serde_json::from_str(&json).unwrap();
-        assert_eq!(restored, response);
-    }
-
-    #[test]
     fn create_response_round_trips_with_root_pane() {
         let response = SuccessResponse {
             id: "req_2".into(),
@@ -2998,25 +2768,25 @@ mod tests {
         let request = Request {
             id: "plugin_link".into(),
             method: Method::PluginLink(PluginLinkParams {
-                path: "/plugins/worktree-bootstrap".into(),
+                path: "/plugins/workspace-bootstrap".into(),
                 enabled: true,
                 source: None,
             }),
         };
         let json = serde_json::to_value(&request).unwrap();
         assert_eq!(json["method"], "plugin.link");
-        assert_eq!(json["params"]["path"], "/plugins/worktree-bootstrap");
+        assert_eq!(json["params"]["path"], "/plugins/workspace-bootstrap");
         let restored: Request = serde_json::from_value(json).unwrap();
         assert_eq!(restored, request);
 
         let plugin = InstalledPluginInfo {
-            plugin_id: "example.worktree-bootstrap".into(),
-            name: "Worktree Bootstrap".into(),
+            plugin_id: "example.workspace-bootstrap".into(),
+            name: "Workspace Bootstrap".into(),
             version: "1.0.0".into(),
             min_omh_version: "0.1.0".into(),
-            description: Some("Create useful worktrees".into()),
-            manifest_path: "/plugins/worktree-bootstrap/omh-plugin.toml".into(),
-            plugin_root: "/plugins/worktree-bootstrap".into(),
+            description: Some("Create useful workspaces".into()),
+            manifest_path: "/plugins/workspace-bootstrap/omh-plugin.toml".into(),
+            plugin_root: "/plugins/workspace-bootstrap".into(),
             enabled: true,
             platforms: None,
             build: Vec::new(),
@@ -3026,7 +2796,7 @@ mod tests {
                 description: None,
                 contexts: vec![PluginActionContext::Workspace],
                 platforms: None,
-                command: vec!["omh".into(), "worktree".into(), "create".into()],
+                command: vec!["omh".into(), "workspace".into(), "create".into()],
             }],
             events: Vec::new(),
             panes: Vec::new(),

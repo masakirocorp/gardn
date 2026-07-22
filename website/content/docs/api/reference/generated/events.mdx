@@ -44,32 +44,6 @@ description: "Generated operational and subscription event shapes."
 | `type` | `"workspace_focused"` | yes |  |
 | `workspace_id` | `string` | yes |  |
 
-## `worktree_created`
-
-| Property | Type | Required | Description |
-| --- | --- | --- | --- |
-| `type` | `"worktree_created"` | yes |  |
-| `workspace` | `WorkspaceInfo` | yes |  |
-| `worktree` | `WorktreeInfo` | yes |  |
-
-## `worktree_opened`
-
-| Property | Type | Required | Description |
-| --- | --- | --- | --- |
-| `already_open` | `boolean` | yes |  |
-| `type` | `"worktree_opened"` | yes |  |
-| `workspace` | `WorkspaceInfo` | yes |  |
-| `worktree` | `WorktreeInfo` | yes |  |
-
-## `worktree_removed`
-
-| Property | Type | Required | Description |
-| --- | --- | --- | --- |
-| `forced` | `boolean` | yes |  |
-| `type` | `"worktree_removed"` | yes |  |
-| `workspace_id` | `string` | yes |  |
-| `worktree` | `WorktreeInfo` | yes |  |
-
 ## `tab_created`
 
 | Property | Type | Required | Description |
@@ -322,30 +296,6 @@ description: "Generated operational and subscription event shapes."
 | `pane_count` | `integer` | yes |  |
 | `tab_count` | `integer` | yes |  |
 | `workspace_id` | `string` | yes |  |
-| `worktree` | `WorkspaceWorktreeInfo \| null` | no |  |
-
-### `WorkspaceWorktreeInfo`
-
-| Property | Type | Required | Description |
-| --- | --- | --- | --- |
-| `checkout_path` | `string` | yes |  |
-| `is_linked_worktree` | `boolean` | yes |  |
-| `repo_key` | `string` | yes |  |
-| `repo_name` | `string` | yes |  |
-| `repo_root` | `string` | yes |  |
-
-### `WorktreeInfo`
-
-| Property | Type | Required | Description |
-| --- | --- | --- | --- |
-| `branch` | `string \| null` | no |  |
-| `is_bare` | `boolean` | yes |  |
-| `is_detached` | `boolean` | yes |  |
-| `is_linked_worktree` | `boolean` | yes |  |
-| `is_prunable` | `boolean` | yes |  |
-| `label` | `string` | yes |  |
-| `open_workspace_id` | `string \| null` | no |  |
-| `path` | `string` | yes |  |
 
 ### `PaneReadResult`
 

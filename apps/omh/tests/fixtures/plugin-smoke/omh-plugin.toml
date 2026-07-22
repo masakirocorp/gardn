@@ -12,7 +12,7 @@ contexts = ["workspace"]
 command = ["omh", "workspace", "list"]
 
 [[events]]
-on = "worktree.created"
+on = "workspace.created"
 command = ["omh", "plugin", "log", "list", "--plugin", "example.smoke"]
 
 [[panes]]

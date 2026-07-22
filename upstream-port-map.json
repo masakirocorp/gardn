@@ -1114,7 +1114,7 @@
       "upstream": "77fcde0a2736c3927d1bc589bd9b4d0173a9df46",
       "subject": "fix: support paste in modal inputs",
       "status": "ported",
-      "reason": "ported to Oh My Herdr modal text inputs, including rename, worktree directory, and navigator search fields, with platform clipboard text reads for paste shortcuts."
+      "reason": "ported to Oh My Herdr modal text inputs, including rename and navigator search fields, with platform clipboard text reads for paste shortcuts."
     },
     {
       "upstream": "5df21bb790d59b51666e99c8a1c2858af3f39d81",

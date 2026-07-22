@@ -329,10 +329,6 @@ pub struct App {
     pub(crate) selection_highlight_clear_deadline: Option<Instant>,
     pub(crate) session_save_deadline: Option<Instant>,
     pub(crate) session_save_thread: Option<std::thread::JoinHandle<()>>,
-    pub(crate) next_api_worktree_operation_id: u64,
-    pub(crate) pending_api_worktree_creates: HashMap<std::path::PathBuf, u64>,
-    pub(crate) pending_api_worktree_removes: HashMap<String, u64>,
-    pub(crate) pending_api_worktree_remove_paths: HashMap<std::path::PathBuf, u64>,
     pub(crate) persist_pane_history: bool,
     pub(crate) last_render_at: Option<Instant>,
     pub(crate) detached_custom_command_children: Vec<std::process::Child>,
@@ -754,8 +750,6 @@ impl App {
             (18, 36)
         });
 
-        let worktree_directory =
-            crate::worktree::expand_tilde_absolute_path(&config.worktrees.directory);
         info!(
             pane_scrollback_limit_bytes = config.advanced.scrollback_limit_bytes,
             "using pane scrollback configuration"
@@ -961,7 +955,6 @@ impl App {
             shell_mode: config.terminal.shell_mode,
             new_terminal_cwd: config.terminal.new_cwd.clone(),
             pane_scrollback_limit_bytes: config.advanced.scrollback_limit_bytes,
-            worktree_directory,
             accent: crate::config::parse_color(&config.ui.accent),
             sound: config.ui.sound.clone(),
             local_sound_playback: true,
@@ -1012,7 +1005,6 @@ impl App {
                 pending_context_bar_visibility: None,
                 pending_sidebar_initial_state: None,
                 pending_sidebar_initial_agent_scope: None,
-                pending_worktree_directory: None,
                 pending_agent_border_labels: None,
                 pending_switch_ascii_input_source_in_prefix: None,
                 pending_group_accent_choice: None,
@@ -1129,10 +1121,6 @@ impl App {
             pending_agent_resume_deadline: None,
             session_save_deadline: None,
             session_save_thread: None,
-            next_api_worktree_operation_id: 1,
-            pending_api_worktree_creates: HashMap::new(),
-            pending_api_worktree_removes: HashMap::new(),
-            pending_api_worktree_remove_paths: HashMap::new(),
             selection_autoscroll_deadline: None,
             selection_highlight_clear_deadline: None,
             persist_pane_history: config.experimental.pane_history,
@@ -1910,10 +1898,6 @@ impl App {
             self.state.new_terminal_cwd = config.terminal.new_cwd.clone();
         }
 
-        if !invalid_section("worktrees") {
-            self.state.worktree_directory =
-                crate::worktree::expand_tilde_absolute_path(&config.worktrees.directory);
-        }
         if !invalid_section("theme") {
             let (global_light_theme_name, global_dark_theme_name) =
                 state::theme_config_names(&config.theme);
@@ -2377,9 +2361,6 @@ impl App {
         match client_view.mode {
             Mode::RenameWorkspace | Mode::RenameGroup | Mode::RenameTab | Mode::RenamePane => {
                 self.handle_client_view_rename_key(client_view, key);
-            }
-            Mode::EditWorktreeDirectory => {
-                self.handle_client_view_worktree_directory_key(client_view, key);
             }
             Mode::KeybindHelp => {
                 self.handle_client_view_keybind_help_key(client_view, key);
@@ -3199,46 +3180,6 @@ impl App {
                 } else {
                     client_view.name_input.push(c);
                 }
-            }
-            _ => {}
-        }
-    }
-
-    fn handle_client_view_worktree_directory_key(
-        &mut self,
-        client_view: &mut ClientViewState,
-        key: crossterm::event::KeyEvent,
-    ) {
-        match key.code {
-            crossterm::event::KeyCode::Enter => {
-                let directory = client_view.name_input.trim().to_string();
-                if !directory.is_empty() {
-                    client_view.settings.pending_worktree_directory = Some(directory);
-                    client_view.name_input.clear();
-                    client_view.name_input_replace_on_type = false;
-                    client_view.mode = Mode::Settings;
-                }
-            }
-            crossterm::event::KeyCode::Esc => {
-                client_view.name_input.clear();
-                client_view.name_input_replace_on_type = false;
-                client_view.mode = Mode::Settings;
-            }
-            crossterm::event::KeyCode::Backspace => {
-                client_view.name_input.pop();
-                client_view.name_input_replace_on_type = false;
-            }
-            crossterm::event::KeyCode::Char(c)
-                if key
-                    .modifiers
-                    .difference(crossterm::event::KeyModifiers::SHIFT)
-                    .is_empty() =>
-            {
-                if client_view.name_input_replace_on_type {
-                    client_view.name_input.clear();
-                    client_view.name_input_replace_on_type = false;
-                }
-                client_view.name_input.push(c);
             }
             _ => {}
         }
@@ -4194,29 +4135,7 @@ impl App {
         if self.state.workspaces.get(ws_idx).is_none() {
             return;
         }
-        let mut close_indices = self
-            .state
-            .workspaces
-            .get(ws_idx)
-            .and_then(|workspace| workspace.worktree_space())
-            .filter(|space| !space.is_linked_worktree)
-            .map(|space| {
-                self.state
-                    .workspaces
-                    .iter()
-                    .enumerate()
-                    .filter_map(|(idx, workspace)| {
-                        workspace
-                            .worktree_space()
-                            .is_some_and(|member| member.key == space.key)
-                            .then_some(idx)
-                    })
-                    .collect::<Vec<_>>()
-            })
-            .filter(|indices| indices.len() >= 2)
-            .unwrap_or_else(|| vec![ws_idx]);
-        close_indices.sort_unstable();
-        close_indices.dedup();
+        let close_indices = vec![ws_idx];
 
         let mut terminal_ids = Vec::new();
         let mut pane_ids = Vec::new();
@@ -4308,15 +4227,6 @@ impl App {
         let Some((_, pane_id)) = client_view.focused_pane_for_workspace(&self.state, ws_idx) else {
             return false;
         };
-        if self.state.close_pane_would_close_workspace(ws_idx, pane_id)
-            && self
-                .state
-                .workspace_close_would_close_worktree_group(ws_idx)
-            && self.state.confirm_close
-        {
-            self.open_client_view_confirm_close(client_view, ws_idx);
-            return true;
-        }
         self.state.selection = None;
         self.state.selection_autoscroll = None;
         self.state.mark_session_dirty();
@@ -5645,11 +5555,7 @@ impl App {
 
     fn paste_into_client_view_text_input(client_view: &mut ClientViewState, text: &str) -> bool {
         match client_view.mode {
-            Mode::RenameWorkspace
-            | Mode::RenameGroup
-            | Mode::RenameTab
-            | Mode::RenamePane
-            | Mode::EditWorktreeDirectory => {
+            Mode::RenameWorkspace | Mode::RenameGroup | Mode::RenameTab | Mode::RenamePane => {
                 if client_view.name_input_replace_on_type
                     && !(client_view.mode == Mode::RenameGroup
                         && client_view.creating_new_group
@@ -5803,11 +5709,7 @@ impl App {
         code: crossterm::event::KeyCode,
     ) {
         let key = crossterm::event::KeyEvent::new(code, crossterm::event::KeyModifiers::empty());
-        if client_view.mode == Mode::EditWorktreeDirectory {
-            self.handle_client_view_worktree_directory_key(client_view, key);
-        } else {
-            self.handle_client_view_rename_key(client_view, key);
-        }
+        self.handle_client_view_rename_key(client_view, key);
     }
 
     fn handle_client_view_rename_mouse(
@@ -5817,11 +5719,7 @@ impl App {
     ) -> bool {
         if !matches!(
             client_view.mode,
-            Mode::RenameWorkspace
-                | Mode::RenameGroup
-                | Mode::RenameTab
-                | Mode::RenamePane
-                | Mode::EditWorktreeDirectory
+            Mode::RenameWorkspace | Mode::RenameGroup | Mode::RenameTab | Mode::RenamePane
         ) {
             return false;
         }
@@ -9768,9 +9666,6 @@ impl App {
             Mode::RenameWorkspace | Mode::RenameGroup | Mode::RenameTab | Mode::RenamePane => {
                 input::handle_rename_key(&mut self.state, key_event);
             }
-            Mode::EditWorktreeDirectory => {
-                input::handle_worktree_directory_key(&mut self.state, key_event);
-            }
             Mode::Resize => {
                 input::handle_resize_key(&mut self.state, key);
             }
@@ -10918,7 +10813,6 @@ mod tests {
                     modified: 1,
                     ..crate::workspace::GitWorkSummary::default()
                 }),
-                space: None,
             }],
             cache_updates: Vec::new(),
             repo_summaries: Vec::new(),
@@ -11543,29 +11437,6 @@ mod tests {
     }
 
     #[test]
-    fn settings_save_worktree_directory_persists_then_applies_live_config() {
-        let _guard = config_env_lock().lock().unwrap();
-        let path = temp_config_path("settings-save-worktree-directory");
-        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-        std::fs::write(&path, "onboarding = false\n").unwrap();
-        let _config_path_env =
-            crate::config::TestEnvVar::set(crate::config::CONFIG_PATH_ENV_VAR, &path);
-
-        let mut app = test_app();
-        app.save_worktree_directory("~/Projects/omh-worktrees");
-
-        assert!(app
-            .state
-            .worktree_directory
-            .ends_with("Projects/omh-worktrees"));
-        let content = std::fs::read_to_string(&path).unwrap();
-        assert!(content.contains("[worktrees]"));
-        assert!(content.contains("directory = \"~/Projects/omh-worktrees\""));
-        assert!(app.state.config_diagnostic.is_none());
-
-        let _ = std::fs::remove_dir_all(path.parent().unwrap());
-    }
-    #[test]
     fn settings_save_close_and_tab_prompts_persist_then_apply_live_config() {
         let _guard = config_env_lock().lock().unwrap();
         let path = temp_config_path("settings-save-close-tab-prompts");
@@ -11969,24 +11840,10 @@ mod tests {
                 label: Some("logs".into()),
             }),
         };
-        let worktree_list = crate::api::schema::Request {
-            id: "req_4".into(),
-            method: crate::api::schema::Method::WorktreeList(
-                crate::api::schema::WorktreeListParams::default(),
-            ),
-        };
-        let worktree_create = crate::api::schema::Request {
-            id: "req_5".into(),
-            method: crate::api::schema::Method::WorktreeCreate(
-                crate::api::schema::WorktreeCreateParams::default(),
-            ),
-        };
 
         assert!(!crate::api::request_changes_ui(&read_only));
-        assert!(!crate::api::request_changes_ui(&worktree_list));
         assert!(crate::api::request_changes_ui(&mutating));
         assert!(crate::api::request_changes_ui(&pane_rename));
-        assert!(crate::api::request_changes_ui(&worktree_create));
     }
 
     #[test]
@@ -12438,8 +12295,8 @@ mod tests {
         let response_cwd =
             std::path::PathBuf::from(response["result"]["pane"]["cwd"].as_str().unwrap());
         assert_eq!(
-            crate::worktree::canonical_or_original(&response_cwd),
-            crate::worktree::canonical_or_original(&split_cwd)
+            std::fs::canonicalize(&response_cwd).unwrap(),
+            std::fs::canonicalize(&split_cwd).unwrap()
         );
         assert_eq!(response["result"]["pane"]["focused"], false);
         assert_eq!(app.state.active, Some(0));
@@ -12685,47 +12542,6 @@ mod tests {
         assert_eq!(response["result"]["type"], "ok");
         assert!(app.state.workspaces.is_empty());
         assert_eq!(app.state.active, None);
-    }
-
-    #[test]
-    fn pane_close_request_requires_confirmation_before_closing_parent_worktree_group() {
-        let mut app = test_app();
-        let mut parent = Workspace::test_new("api-pane-close-parent");
-        parent.worktree_space = Some(crate::workspace::WorktreeSpaceMembership {
-            key: "repo-key".into(),
-            label: "herdr".into(),
-            repo_root: "/repo/herdr".into(),
-            checkout_path: "/repo/herdr".into(),
-            is_linked_worktree: false,
-        });
-        let mut child = Workspace::test_new("api-pane-close-child");
-        child.worktree_space = Some(crate::workspace::WorktreeSpaceMembership {
-            key: "repo-key".into(),
-            label: "herdr".into(),
-            repo_root: "/repo/herdr".into(),
-            checkout_path: "/repo/herdr-child".into(),
-            is_linked_worktree: true,
-        });
-        app.state.workspaces = vec![parent, child];
-        app.state.ensure_test_terminals();
-        app.state.active = Some(0);
-        app.state.selected = 1;
-
-        let target_pane = app.state.workspaces[0].tabs[0].root_pane;
-        let target_pane_id = app.pane_info(0, target_pane).unwrap().pane_id;
-
-        let response = app.handle_api_request(crate::api::schema::Request {
-            id: "req_pane_close_parent_group".into(),
-            method: crate::api::schema::Method::PaneClose(crate::api::schema::PaneTarget {
-                pane_id: target_pane_id,
-            }),
-        });
-        let response: serde_json::Value = serde_json::from_str(&response).unwrap();
-
-        assert_eq!(response["error"]["code"], "confirmation_required");
-        assert_eq!(app.state.mode, Mode::ConfirmClose);
-        assert_eq!(app.state.selected, 0);
-        assert_eq!(app.state.workspaces.len(), 2);
     }
 
     #[test]
@@ -13355,24 +13171,6 @@ command = "printf literal > '{}'"
         };
 
         assert!(input::is_modal_paste_shortcut(&key.as_key_event()));
-    }
-
-    #[test]
-    fn route_client_events_pastes_text_into_worktree_directory_modal() {
-        let mut app = test_app();
-        app.state.mode = Mode::EditWorktreeDirectory;
-        app.state.name_input = "/tmp/omh".into();
-        app.state.name_input_replace_on_type = true;
-
-        app.route_client_events(
-            vec![crate::raw_input::RawInputEvent::Paste(
-                "/tmp/omh-worktrees".into(),
-            )],
-            true,
-        );
-
-        assert_eq!(app.state.name_input, "/tmp/omh-worktrees");
-        assert!(!app.state.name_input_replace_on_type);
     }
 
     #[test]
@@ -16949,7 +16747,6 @@ command = "printf literal > '{}'"
             (Mode::RenameGroup, Mode::Terminal),
             (Mode::RenameTab, Mode::Terminal),
             (Mode::RenamePane, Mode::Terminal),
-            (Mode::EditWorktreeDirectory, Mode::Settings),
         ] {
             let mut client = ClientViewState::from_default_client_state(&app.state);
             client.mode = mode;
@@ -17141,43 +16938,6 @@ command = "printf literal > '{}'"
         assert!(second_client.name_input_replace_on_type);
         assert_eq!(app.state.mode, Mode::Terminal);
         assert_eq!(app.state.name_input, "shared-tab-name");
-        assert!(app.state.name_input_replace_on_type);
-    }
-
-    #[test]
-    fn route_client_events_for_view_pastes_worktree_directory_only_into_invoking_client_view() {
-        let mut app = test_app();
-        app.state.workspaces = vec![Workspace::test_new("test")];
-        app.state.ensure_test_terminals();
-        app.state.active = Some(0);
-        app.state.selected = 0;
-        app.state.mode = Mode::Terminal;
-        app.state.name_input = "/shared/worktrees".into();
-        app.state.name_input_replace_on_type = true;
-
-        let mut first_client = ClientViewState::from_default_client_state(&app.state);
-        first_client.mode = Mode::EditWorktreeDirectory;
-        first_client.name_input = "/tmp/old".into();
-        first_client.name_input_replace_on_type = true;
-        let mut second_client = ClientViewState::from_default_client_state(&app.state);
-        second_client.mode = Mode::EditWorktreeDirectory;
-        second_client.name_input = "/tmp/other".into();
-        second_client.name_input_replace_on_type = true;
-
-        app.route_client_events_for_view(
-            &mut first_client,
-            vec![crate::raw_input::RawInputEvent::Paste(
-                "/tmp/omh-worktrees".into(),
-            )],
-            true,
-        );
-
-        assert_eq!(first_client.name_input, "/tmp/omh-worktrees");
-        assert!(!first_client.name_input_replace_on_type);
-        assert_eq!(second_client.name_input, "/tmp/other");
-        assert!(second_client.name_input_replace_on_type);
-        assert_eq!(app.state.mode, Mode::Terminal);
-        assert_eq!(app.state.name_input, "/shared/worktrees");
         assert!(app.state.name_input_replace_on_type);
     }
 

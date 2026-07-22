@@ -295,13 +295,6 @@ impl Default for SessionConfig {
     }
 }
 
-#[derive(Debug, Deserialize)]
-#[serde(default)]
-pub struct WorktreesConfig {
-    /// Root directory under which Oh My Herdr creates <repo>/<branch-slug> checkouts.
-    pub directory: String,
-}
-
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(default)]
 pub struct GitConfig {
@@ -372,7 +365,6 @@ pub struct Config {
     pub keys: KeysConfig,
     pub ui: UiConfig,
     pub advanced: AdvancedConfig,
-    pub worktrees: WorktreesConfig,
     pub git: GitConfig,
     pub update: UpdateConfig,
     pub experimental: ExperimentalConfig,
@@ -1134,14 +1126,6 @@ impl Default for KeysConfig {
     }
 }
 
-impl Default for WorktreesConfig {
-    fn default() -> Self {
-        Self {
-            directory: "~/.omh/worktrees".into(),
-        }
-    }
-}
-
 impl Default for UiConfig {
     fn default() -> Self {
         Self {
@@ -1406,19 +1390,6 @@ prompt_new_tab_name = false
 "#;
         let config: Config = toml::from_str(toml).unwrap();
         assert!(!config.ui.prompt_new_tab_name);
-    }
-
-    #[test]
-    fn worktrees_directory_defaults_and_parses() {
-        let default_config = Config::default();
-        assert_eq!(default_config.worktrees.directory, "~/.omh/worktrees");
-
-        let toml = r#"
-[worktrees]
-directory = "~/Projects/omh-worktrees"
-"#;
-        let config: Config = toml::from_str(toml).unwrap();
-        assert_eq!(config.worktrees.directory, "~/Projects/omh-worktrees");
     }
 
     #[test]

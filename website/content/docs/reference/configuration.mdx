@@ -5,7 +5,7 @@ description: Configuration file locations, reload behavior, sections, keys, defa
 
 # Configuration reference
 
-Oh My Herdr reads a TOML configuration file. This page describes version 0.2.18 configuration behavior and defaults. The generated template is available with [`omh --default-config`](/docs/reference/cli#global-session-and-remote-options).
+Oh My Herdr reads a TOML configuration file. This page describes version 0.2.19 configuration behavior and defaults. The generated template is available with [`omh --default-config`](/docs/reference/cli#global-session-and-remote-options).
 
 ## File and state paths
 
@@ -70,7 +70,6 @@ Configuration reload is available through `omh server reload-config` and the con
 | `ui`                                                         | Applied                     | Yes                            | Live UI defaults and current server-side UI settings. Client-local initial view state remains client-local. |
 | `ui.sidebar.initial_state`, `ui.sidebar.initial_agent_scope` | Applied                     | Yes for future client defaults | Values are the initial view defaults for newly connected clients.                                           |
 | `advanced`                                                   | Applied                     | Yes                            | Scrollback limit used by pane terminals. Existing retained output is not expanded retroactively.            |
-| `worktrees`                                                  | Applied                     | Yes                            | Worktree root used by future worktree operations. Existing checkouts are not moved.                         |
 | `git`                                                        | Applied                     | No                             | `diff_command` is captured by the running app at startup.                                                   |
 | `update`                                                     | Applied                     | Yes                            | Background version and manifest check scheduling.                                                           |
 | `agent_profiles`                                             | Applied                     | Yes                            | Profile catalog and integration recommendations; running processes are unchanged.                           |
@@ -286,12 +285,6 @@ The legacy `ui.toast.enabled` boolean is accepted for compatibility and maps to 
 | `[ui.sound.agents]` | table          | per-agent defaults | Per-agent sound overrides.                                                                            |
 
 Agent sound override keys are `pi`, `claude`, `codex`, `gemini`, `cursor`, `agy`, `cline`, `open_code`, `github_copilot`, `devin`, `kimi`, `kiro`, `droid`, `amp`, `grok`, `hermes`, `kilo`, `qodercli`, and `maki`. Each accepts `default`, `on`, or `off`; every key defaults to `default` except `droid`, which defaults to `off`. Sound paths must resolve to existing MP3 files; invalid, missing, or non-MP3 files are diagnostics and use the default sound.
-
-### `[worktrees]`
-
-| Key         | Type        | Default            | Description                                                                                                             |
-| ----------- | ----------- | ------------------ | ----------------------------------------------------------------------------------------------------------------------- |
-| `directory` | path string | `~/.omh/worktrees` | Root directory under which Oh My Herdr creates `<repo>/<branch-slug>` checkouts. `~` is expanded when the path is used. |
 
 ### `[git]`
 

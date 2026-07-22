@@ -64,7 +64,6 @@ mod terminal_theme;
 mod ui;
 mod update;
 mod workspace;
-mod worktree;
 
 fn init_logging() {
     crate::logging::init_file_logging("omh.log");
@@ -517,7 +516,6 @@ fn main() -> io::Result<()> {
         println!("       omh api <subcommand> ...");
         println!("       omh config <subcommand> ...");
         println!("       omh workspace <subcommand> ...");
-        println!("       omh worktree <subcommand> ...");
         println!("       omh tab <subcommand> ...");
         println!("       omh agent <subcommand> ...");
         println!("       omh pane <subcommand> ...");
@@ -548,10 +546,6 @@ fn main() -> io::Result<()> {
             (
                 "omh workspace <subcommand>",
                 "workspace helpers over the socket api",
-            ),
-            (
-                "omh worktree <subcommand>",
-                "git worktree helpers over the socket api",
             ),
             ("omh tab <subcommand>", "tab helpers over the socket api"),
             (
@@ -641,7 +635,6 @@ fn main() -> io::Result<()> {
                 "status",
                 "config",
                 "workspace",
-                "worktree",
                 "pane",
                 "wait",
                 "session",

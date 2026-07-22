@@ -1,21 +1,11 @@
 use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct GitSpaceMetadata {
-    pub key: String,
-    pub checkout_key: String,
-    pub label: String,
-    pub repo_root: PathBuf,
-    pub is_linked_worktree: bool,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GitWorktreeInfo {
     pub repo_root: PathBuf,
     pub git_dir: PathBuf,
     pub git_common_dir: PathBuf,
     pub is_bare: bool,
-    pub is_linked_worktree: bool,
 }
 
 pub fn derive_label_from_cwd(cwd: &Path) -> String {
@@ -43,7 +33,6 @@ pub fn git_worktree_info(cwd: &Path) -> Option<GitWorktreeInfo> {
     let repo_root = git_repo_root(cwd)?;
     let git_dir = canonicalize_best_effort_path(&git_dir_for_repo_root(&repo_root)?);
     let git_common_dir = canonicalize_best_effort_path(&git_common_dir_for_git_dir(&git_dir));
-    let is_linked_worktree = git_dir != git_common_dir;
     let is_bare = git_dir_is_bare(&git_dir);
 
     Some(GitWorktreeInfo {
@@ -51,41 +40,6 @@ pub fn git_worktree_info(cwd: &Path) -> Option<GitWorktreeInfo> {
         git_dir,
         git_common_dir,
         is_bare,
-        is_linked_worktree,
-    })
-}
-
-pub fn git_space_metadata(cwd: &Path) -> Option<GitSpaceMetadata> {
-    git_repo_root(cwd)?;
-
-    let info = git_worktree_info(cwd)?;
-    let key = canonicalize_best_effort_path(&info.git_common_dir)
-        .display()
-        .to_string();
-    let checkout_key = canonicalize_best_effort_path(&info.repo_root)
-        .display()
-        .to_string();
-    let label_path = if info
-        .git_common_dir
-        .file_name()
-        .and_then(|name| name.to_str())
-        == Some(".git")
-    {
-        info.git_common_dir.parent().unwrap_or(&info.repo_root)
-    } else {
-        &info.repo_root
-    };
-    let label = label_path
-        .file_name()
-        .and_then(|name| name.to_str())
-        .unwrap_or("repo")
-        .to_string();
-    Some(GitSpaceMetadata {
-        key,
-        checkout_key,
-        label,
-        repo_root: info.repo_root,
-        is_linked_worktree: info.is_linked_worktree,
     })
 }
 
@@ -373,49 +327,6 @@ mod tests {
         std::fs::write(root.join("config"), "[core]\n\tbare = false\n").unwrap();
 
         assert_eq!(git_repo_root(&root.join("refs")), None);
-
-        std::fs::remove_dir_all(root).unwrap();
-    }
-
-    #[test]
-    fn git_space_metadata_supports_standalone_bare_repo() {
-        let bare = temp_test_dir("bare-space");
-        run_git(&bare, &["init", "--bare", "."]);
-        let nested = bare.join("refs");
-
-        let info = git_worktree_info(&nested).expect("bare repo should be discovered");
-        assert!(info.is_bare);
-        assert!(!info.is_linked_worktree);
-        assert_eq!(info.git_dir, canonicalize_best_effort_path(&bare));
-
-        let metadata = git_space_metadata(&nested).expect("bare repo should map to a git space");
-        assert_eq!(
-            canonicalize_best_effort_path(&metadata.repo_root),
-            canonicalize_best_effort_path(&bare)
-        );
-        assert!(!metadata.is_linked_worktree);
-
-        std::fs::remove_dir_all(bare).unwrap();
-    }
-
-    #[test]
-    fn git_space_metadata_marks_bare_dot_git_repo() {
-        let root = temp_test_dir("bare-dot-git");
-        run_git(&root, &["init", "--bare", ".git"]);
-
-        let info = git_worktree_info(&root).expect("bare .git repo should be discovered");
-        assert!(info.is_bare);
-        assert!(!info.is_linked_worktree);
-        assert_eq!(
-            info.git_dir,
-            canonicalize_best_effort_path(&root.join(".git"))
-        );
-
-        let metadata = git_space_metadata(&root).expect("bare .git repo should map to a git space");
-        assert_eq!(
-            canonicalize_best_effort_path(&metadata.repo_root),
-            canonicalize_best_effort_path(&root)
-        );
 
         std::fs::remove_dir_all(root).unwrap();
     }

@@ -58,8 +58,8 @@ pub(crate) use self::{
         handle_config_diagnostics_key, handle_confirm_close_key, handle_confirm_delete_group_key,
         handle_context_menu_key, handle_global_menu_key, handle_group_menu_key,
         handle_keybind_help_key, handle_navigator_key, handle_rename_key, handle_resize_key,
-        handle_worktree_directory_key, insert_navigator_search_text, insert_rename_input_text,
-        modal_action_from_buttons, request_detach, GlobalMenuAction, ModalAction,
+        insert_navigator_search_text, modal_action_from_buttons, request_detach, GlobalMenuAction,
+        ModalAction,
     },
     navigate::{
         command_for_key, indexed_navigation_action, non_indexed_action_for_key,
@@ -112,9 +112,6 @@ impl App {
             Mode::RenameWorkspace | Mode::RenameGroup | Mode::RenameTab | Mode::RenamePane => {
                 self.handle_rename_key_via_runtime(key_event)
             }
-            Mode::EditWorktreeDirectory => {
-                handle_worktree_directory_key(&mut self.state, key_event)
-            }
             Mode::Resize => handle_resize_key(&mut self.state, key),
             Mode::ConfirmClose => handle_confirm_close_key(&mut self.state, key_event),
             Mode::ConfirmDeleteGroup => handle_confirm_delete_group_key(&mut self.state, key_event),
@@ -158,12 +155,23 @@ impl App {
 
     pub(crate) fn paste_into_active_text_input(&mut self, text: &str) -> bool {
         match self.state.mode {
-            Mode::RenameWorkspace
-            | Mode::RenameGroup
-            | Mode::RenameTab
-            | Mode::RenamePane
-            | Mode::EditWorktreeDirectory => {
-                insert_rename_input_text(&mut self.state, text);
+            Mode::RenameWorkspace | Mode::RenameGroup | Mode::RenameTab | Mode::RenamePane => {
+                if self.state.name_input_replace_on_type
+                    && !(self.state.mode == Mode::RenameGroup
+                        && self.state.creating_new_group
+                        && self.state.group_modal_selected_field == 1)
+                {
+                    self.state.name_input.clear();
+                    self.state.name_input_replace_on_type = false;
+                }
+                if self.state.mode == Mode::RenameGroup
+                    && self.state.creating_new_group
+                    && self.state.group_modal_selected_field == 1
+                {
+                    self.state.group_default_directory_input.push_str(text);
+                } else {
+                    self.state.name_input.push_str(text);
+                }
                 true
             }
             Mode::Navigator => {
@@ -594,7 +602,6 @@ impl App {
                         context_bar_visibility,
                         sidebar_initial_state,
                         sidebar_initial_agent_scope,
-                        worktree_directory,
                         agent_border_labels,
                     } => {
                         self.save_theme(
@@ -620,9 +627,6 @@ impl App {
                             sidebar_initial_state,
                             sidebar_initial_agent_scope,
                         );
-                        if let Some(directory) = worktree_directory {
-                            self.save_worktree_directory(&directory);
-                        }
                         self.save_toast_delivery(toast_delivery);
                         self.save_agent_border_labels(agent_border_labels);
                         crate::ui::compute_view_with_runtime_registry(
@@ -958,11 +962,7 @@ pub(crate) fn is_modal_paste_shortcut(key: &KeyEvent) -> bool {
 
 pub(crate) fn modal_paste_target_active(state: &AppState) -> bool {
     match state.mode {
-        Mode::RenameWorkspace
-        | Mode::RenameGroup
-        | Mode::RenameTab
-        | Mode::RenamePane
-        | Mode::EditWorktreeDirectory => true,
+        Mode::RenameWorkspace | Mode::RenameGroup | Mode::RenameTab | Mode::RenamePane => true,
         Mode::Navigator => state.navigator.search_focused,
         _ => false,
     }
@@ -1164,19 +1164,6 @@ mod tests {
         app.handle_paste("feature/logs".into()).await;
 
         assert_eq!(app.state.name_input, "feature/logs");
-        assert!(!app.state.name_input_replace_on_type);
-    }
-
-    #[tokio::test]
-    async fn paste_routes_to_worktree_directory_input() {
-        let mut app = test_app();
-        app.state.mode = Mode::EditWorktreeDirectory;
-        app.state.name_input = "/tmp/omh".into();
-        app.state.name_input_replace_on_type = true;
-
-        app.handle_paste("/tmp/omh-worktrees".into()).await;
-
-        assert_eq!(app.state.name_input, "/tmp/omh-worktrees");
         assert!(!app.state.name_input_replace_on_type);
     }
 

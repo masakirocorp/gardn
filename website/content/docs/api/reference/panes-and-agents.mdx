@@ -109,7 +109,7 @@ A response with `error` means the request was rejected before any state change. 
 | `invalid_pane_swap`                      | `pane.swap`.                                                                             | The caller supplied both a direction and explicit source/target ids, or neither.                                                                   |
 | `invalid_metadata_*`                     | `pane.report_metadata`.                                                                  | Source, ttl, tokens, or set/clear combinations were invalid. See [pane.report_metadata](#panereport_metadata).                                     |
 | `pane_layout_unavailable`                | Layout-reading methods and `pane.move`.                                                  | The layout snapshot could not be produced for the resolved tab.                                                                                    |
-| `confirmation_required`                  | `pane.close`.                                                                            | Closing the pane would also close a worktree group the server will not implicitly remove.                                                          |
+| `confirmation_required`                  | `pane.close`.                                                                            | The configured close policy requires confirmation.                                                                                                 |
 | `pane_send_failed` / `agent_send_failed` | `pane.send_text`, `pane.send_keys`, `pane.send_input`, `agent.send`.                     | The runtime writer reported an error.                                                                                                              |
 | `invalid_key`                            | `pane.send_keys`, `pane.send_input`.                                                     | A requested key could not be parsed. The message is `unsupported key <key>`.                                                                       |
 | `invalid_regex`                          | `pane.wait_for_output`.                                                                  | A `regex` match pattern failed to compile.                                                                                                         |
@@ -609,7 +609,7 @@ Errors: `pane_not_found`, `invalid_env`, `pane_split_failed`.
 
 ### pane.close
 
-Close a pane. When the pane is the last pane in its tab, the tab closes. When the pane is the last pane in its workspace and the workspace is a worktree group the server protects from implicit close, the call returns `confirmation_required`.
+Close a pane. When the pane is the last pane in its tab, the tab closes. The configured close policy can return `confirmation_required`.
 
 | Property  | Type     | Required |
 | --------- | -------- | -------- |

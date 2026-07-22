@@ -26,6 +26,29 @@ Rules:
 - Keep prose user-facing. No implementation notes.
 - Do not edit package `CHANGELOG.md` files by hand.
 
+## Product announcements
+
+Product announcements are separate from changelog entries and should be reserved for a single
+important message that users of a specific release need to see. Add at most one entry for the
+release version to `apps/omh/assets/product-announcements.json`:
+
+```json
+{
+  "announcements": [
+    {
+      "version": "0.3.0",
+      "id": "keymap-v2",
+      "title": "Keybindings changed",
+      "body": "### What changed\n\nExplain the user-visible change and required action."
+    }
+  ]
+}
+```
+
+The matching binary shows the announcement once after onboarding and records
+`<version>/<id>` as seen. Entries for other versions are inert, so old entries may remain for
+release history. Use a stable, descriptive ID and do not reuse it for different content.
+
 ## Local workflow
 
 ```bash

@@ -700,11 +700,11 @@ mod tests {
         std::fs::write(
             &manifest,
             r#"
-id = "example.worktree-bootstrap"
-name = "Worktree Bootstrap"
+id = "example.workspace-bootstrap"
+name = "Workspace Bootstrap"
 version = "0.1.0"
 min_omh_version = "0.2.0"
-description = "Prepare new worktrees"
+description = "Prepare new workspaces"
 platforms = ["linux", "macos", "windows"]
 
 [[build]]
@@ -712,17 +712,17 @@ command = ["bun", "install"]
 
 [[actions]]
 id = "bootstrap"
-title = "Bootstrap worktree"
+title = "Bootstrap workspace"
 contexts = ["workspace"]
 command = ["bun", "run", "bootstrap.ts"]
 
 [[events]]
-on = "worktree.created"
+on = "workspace.created"
 command = ["bun", "run", "bootstrap.ts"]
 
 [[panes]]
 id = "board"
-title = "Worktree board"
+title = "Workspace board"
 command = ["bun", "run", "board.ts"]
 
 [[link_handlers]]
@@ -1117,8 +1117,8 @@ platforms = ["linux", "macos", "windows"]
         let ResponseResult::PluginLinked { plugin } = response_result(&link) else {
             panic!("expected plugin linked response: {link}");
         };
-        assert_eq!(plugin.plugin_id, "example.worktree-bootstrap");
-        assert_eq!(plugin.name, "Worktree Bootstrap");
+        assert_eq!(plugin.plugin_id, "example.workspace-bootstrap");
+        assert_eq!(plugin.name, "Workspace Bootstrap");
         assert_eq!(plugin.version, "0.1.0");
         assert_eq!(plugin.plugin_root, canonical_path_string(&root));
         assert!(plugin.enabled);
@@ -1128,7 +1128,7 @@ platforms = ["linux", "macos", "windows"]
         assert_eq!(plugin.actions[0].id, "bootstrap");
         assert_eq!(plugin.actions[0].command, ["bun", "run", "bootstrap.ts"]);
         assert_eq!(plugin.events.len(), 1);
-        assert_eq!(plugin.events[0].on, "worktree.created");
+        assert_eq!(plugin.events[0].on, "workspace.created");
         assert_eq!(plugin.panes.len(), 1);
         assert_eq!(plugin.panes[0].id, "board");
         assert_eq!(plugin.panes[0].placement, PluginPanePlacement::Overlay);
@@ -1144,12 +1144,12 @@ platforms = ["linux", "macos", "windows"]
             panic!("expected plugin list response: {list}");
         };
         assert_eq!(plugins.len(), 1);
-        assert_eq!(plugins[0].plugin_id, "example.worktree-bootstrap");
+        assert_eq!(plugins[0].plugin_id, "example.workspace-bootstrap");
 
         let unlink = app.handle_api_request(Request {
             id: "unlink".into(),
             method: Method::PluginUnlink(PluginUnlinkParams {
-                plugin_id: "example.worktree-bootstrap".into(),
+                plugin_id: "example.workspace-bootstrap".into(),
             }),
         });
         assert!(matches!(
@@ -1157,7 +1157,7 @@ platforms = ["linux", "macos", "windows"]
             ResponseResult::PluginUnlinked {
                 plugin_id,
                 removed: true
-            } if plugin_id == "example.worktree-bootstrap"
+            } if plugin_id == "example.workspace-bootstrap"
         ));
 
         let list = app.handle_api_request(Request {
@@ -1187,7 +1187,7 @@ platforms = ["linux", "macos", "windows"]
                     kind: PluginSourceKind::Github,
                     owner: Some("masakirocorp".into()),
                     repo: Some("omh-plugin-examples".into()),
-                    subdir: Some("worktree-bootstrap".into()),
+                    subdir: Some("workspace-bootstrap".into()),
                     requested_ref: None,
                     resolved_commit: Some("abc123".into()),
                     managed_path: Some(root.display().to_string()),
@@ -1383,7 +1383,7 @@ platforms = ["linux", "macos", "windows"]
         let disabled = app.handle_api_request(Request {
             id: "disable".into(),
             method: Method::PluginDisable(PluginSetEnabledParams {
-                plugin_id: "example.worktree-bootstrap".into(),
+                plugin_id: "example.workspace-bootstrap".into(),
             }),
         });
         let ResponseResult::PluginDisabled { plugin } = response_result(&disabled) else {
@@ -1394,7 +1394,7 @@ platforms = ["linux", "macos", "windows"]
         let enabled = app.handle_api_request(Request {
             id: "enable".into(),
             method: Method::PluginEnable(PluginSetEnabledParams {
-                plugin_id: "example.worktree-bootstrap".into(),
+                plugin_id: "example.workspace-bootstrap".into(),
             }),
         });
         let ResponseResult::PluginEnabled { plugin } = response_result(&enabled) else {
@@ -1732,20 +1732,19 @@ command = ["sh", "-c", "sleep 1"]
         assert_eq!(actions.len(), 1);
         assert_eq!(
             actions[0].qualified_id(),
-            "example.worktree-bootstrap.bootstrap"
+            "example.workspace-bootstrap.bootstrap"
         );
         assert_eq!(actions[0].command, ["bun", "run", "bootstrap.ts"]);
 
         let invoke = app.handle_api_request(Request {
             id: "invoke".into(),
             method: Method::PluginActionInvoke(PluginActionInvokeParams {
-                plugin_id: Some("example.worktree-bootstrap".into()),
+                plugin_id: Some("example.workspace-bootstrap".into()),
                 action_id: "bootstrap".into(),
                 context: Some(PluginInvocationContext {
                     workspace_id: Some("1".into()),
                     workspace_label: None,
                     workspace_cwd: None,
-                    worktree: None,
                     tab_id: None,
                     tab_label: None,
                     focused_pane_id: None,
@@ -1770,10 +1769,10 @@ command = ["sh", "-c", "sleep 1"]
         };
         assert_eq!(
             action.qualified_id(),
-            "example.worktree-bootstrap.bootstrap"
+            "example.workspace-bootstrap.bootstrap"
         );
         assert_eq!(action.command, ["bun", "run", "bootstrap.ts"]);
-        assert_eq!(log.plugin_id, "example.worktree-bootstrap");
+        assert_eq!(log.plugin_id, "example.workspace-bootstrap");
         assert_eq!(log.action_id.as_deref(), Some("bootstrap"));
         assert_eq!(context.workspace_id.as_deref(), Some("1"));
         assert_eq!(context.invocation_source.as_deref(), Some("test"));
@@ -1824,7 +1823,7 @@ command = ["sh", "-c", "sleep 1"]
         let invoke = app.handle_api_request(Request {
             id: "invoke".into(),
             method: Method::PluginActionInvoke(PluginActionInvokeParams {
-                plugin_id: Some("example.worktree-bootstrap".into()),
+                plugin_id: Some("example.workspace-bootstrap".into()),
                 action_id: "bootstrap".into(),
                 context: None,
             }),
@@ -1835,7 +1834,7 @@ command = ["sh", "-c", "sleep 1"]
         let pane = app.handle_api_request(Request {
             id: "pane-open".into(),
             method: Method::PluginPaneOpen(PluginPaneOpenParams {
-                plugin_id: "example.worktree-bootstrap".into(),
+                plugin_id: "example.workspace-bootstrap".into(),
                 entrypoint: "board".into(),
                 placement: None,
                 workspace_id: None,
@@ -2157,7 +2156,7 @@ min_omh_version = "0.2.0"
 platforms = ["linux", "macos"]
 
 [[events]]
-on = "worktree.created"
+on = "workspace.created"
 command = ["sh", "-c", "printf '%s' \"$OMH_PLUGIN_CONTEXT_JSON\" > {}"]
 "#,
                 capture.display()
@@ -2166,19 +2165,9 @@ command = ["sh", "-c", "printf '%s' \"$OMH_PLUGIN_CONTEXT_JSON\" > {}"]
         link_manifest(&mut app, &root);
 
         app.run_plugin_event_hooks(&crate::api::schema::EventEnvelope {
-            event: crate::api::schema::EventKind::WorktreeCreated,
-            data: crate::api::schema::EventData::WorktreeCreated {
+            event: crate::api::schema::EventKind::WorkspaceCreated,
+            data: crate::api::schema::EventData::WorkspaceCreated {
                 workspace: target_workspace.clone(),
-                worktree: crate::api::schema::WorktreeInfo {
-                    path: "/tmp/repo".into(),
-                    branch: Some("feature".into()),
-                    is_bare: false,
-                    is_detached: false,
-                    is_prunable: false,
-                    is_linked_worktree: true,
-                    open_workspace_id: Some(target_workspace.workspace_id.clone()),
-                    label: "feature".into(),
-                },
             },
         });
 
@@ -2212,7 +2201,7 @@ command = ["sh", "-c", "printf '%s' \"$OMH_PLUGIN_CONTEXT_JSON\" > {}"]
         let invoke = app.handle_api_request(Request {
             id: "invoke-limit".into(),
             method: Method::PluginActionInvoke(PluginActionInvokeParams {
-                plugin_id: Some("example.worktree-bootstrap".into()),
+                plugin_id: Some("example.workspace-bootstrap".into()),
                 action_id: "bootstrap".into(),
                 context: None,
             }),
@@ -2501,13 +2490,6 @@ action = "missing"
         app.state.active = Some(0);
         app.state.selected = 0;
         app.state.workspaces[0].custom_name = Some("Plugin Work".into());
-        app.state.workspaces[0].worktree_space = Some(crate::workspace::WorktreeSpaceMembership {
-            key: "repo-key".into(),
-            label: "omh".into(),
-            repo_root: "/repo/omh".into(),
-            checkout_path: "/repo/omh-issue".into(),
-            is_linked_worktree: true,
-        });
         let pane_id = app.state.workspaces[0].tabs[0].root_pane;
         let pane_public = app.public_pane_id(0, pane_id).unwrap();
         let tab_public = app.public_tab_id(0, 0).unwrap();
@@ -2580,13 +2562,6 @@ command = ["show-ctx"]
             Some(crate::api::schema::AgentStatus::Working)
         );
         assert_eq!(context.invocation_source.as_deref(), Some("api"));
-        assert_eq!(context.correlation_id.as_deref(), Some("invoke-context"));
-        let worktree = context.worktree.as_ref().unwrap();
-        assert_eq!(worktree.repo_key, "repo-key");
-        assert_eq!(worktree.repo_name, "omh");
-        assert_eq!(worktree.repo_root, "/repo/omh");
-        assert_eq!(worktree.checkout_path, "/repo/omh-issue");
-        assert!(worktree.is_linked_worktree);
 
         let _ = std::fs::remove_dir_all(root);
     }
@@ -2614,7 +2589,7 @@ command = ["show-ctx"]
         let invoke = app.handle_api_request(Request {
             id: "invoke-disabled".into(),
             method: Method::PluginActionInvoke(PluginActionInvokeParams {
-                plugin_id: Some("example.worktree-bootstrap".into()),
+                plugin_id: Some("example.workspace-bootstrap".into()),
                 action_id: "bootstrap".into(),
                 context: None,
             }),
@@ -2637,7 +2612,7 @@ version = "0.1.0"
 min_omh_version = "0.2.0"
 
 [[events]]
-on = "worktree.craeted"
+on = "workspace.craeted"
 command = ["sh", "-c", "echo hi"]
 
 [[events]]
@@ -2645,7 +2620,7 @@ on = "pane.output_changed"
 command = ["sh", "-c", "echo too noisy"]
 
 [[events]]
-on = "worktree.created"
+on = "workspace.created"
 command = ["sh", "-c", "echo ok"]
 "#,
         )
@@ -2676,7 +2651,7 @@ command = ["sh", "-c", "echo ok"]
             plugin
                 .warnings
                 .iter()
-                .any(|w| w.contains("worktree.craeted")),
+                .any(|w| w.contains("workspace.craeted")),
             "expected warning for misspelled event, got: {:?}",
             plugin.warnings
         );
@@ -2685,7 +2660,7 @@ command = ["sh", "-c", "echo ok"]
             plugin
                 .warnings
                 .iter()
-                .filter(|w| w.contains("worktree.created"))
+                .filter(|w| w.contains("workspace.created"))
                 .count(),
             0
         );
@@ -2739,14 +2714,14 @@ command = ["sh", "-c", "echo ok"]
         app.state.plugin_panes.insert(
             pane_a,
             crate::app::state::PluginPaneRecord {
-                plugin_id: "example.worktree-bootstrap".into(),
+                plugin_id: "example.workspace-bootstrap".into(),
                 entrypoint: "main".into(),
             },
         );
         app.state.plugin_panes.insert(
             pane_b,
             crate::app::state::PluginPaneRecord {
-                plugin_id: "example.worktree-bootstrap".into(),
+                plugin_id: "example.workspace-bootstrap".into(),
                 entrypoint: "side".into(),
             },
         );
@@ -2761,7 +2736,7 @@ command = ["sh", "-c", "echo ok"]
         let unlink = app.handle_api_request(Request {
             id: "unlink-panes".into(),
             method: Method::PluginUnlink(PluginUnlinkParams {
-                plugin_id: "example.worktree-bootstrap".into(),
+                plugin_id: "example.workspace-bootstrap".into(),
             }),
         });
         assert!(matches!(
@@ -2868,8 +2843,8 @@ command = ["sh", "-c", "echo ok"]
         // load back and verify
         let loaded = crate::persist::plugin_registry::load_from_path(&registry_path);
         assert_eq!(loaded.len(), 1);
-        assert_eq!(loaded[0].plugin_id, "example.worktree-bootstrap");
-        assert_eq!(loaded[0].name, "Worktree Bootstrap");
+        assert_eq!(loaded[0].plugin_id, "example.workspace-bootstrap");
+        assert_eq!(loaded[0].name, "Workspace Bootstrap");
 
         // reload_manifests with real manifest still on disk → fresh parse succeeds
         let reloaded =
@@ -2904,7 +2879,7 @@ command = ["sh", "-c", "echo ok"]
             });
 
         assert_eq!(reloaded.len(), 1);
-        assert_eq!(reloaded[0].plugin_id, "example.worktree-bootstrap");
+        assert_eq!(reloaded[0].plugin_id, "example.workspace-bootstrap");
         assert!(!reloaded[0].warnings.is_empty(), "expected load warning");
         // The stored manifest_path is preserved so the entry is still identifiable
         assert_eq!(reloaded[0].manifest_path, stored_manifest_path);

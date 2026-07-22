@@ -39,8 +39,6 @@ A workspace contains tabs, panes, cwd metadata, and agent state rollups.
 - **Move between groups** — move workspaces between groups from the TUI/sidebar group workflows.
 - **Public IDs** — CLI and socket API commands target workspaces, tabs, panes, and groups with public IDs; raw pane IDs remain compatibility inputs and are remapped after live handoff where possible.
 - **Live cwd labels** — workspace labels can follow active pane cwd unless manually renamed.
-- **Git worktrees** — list, create, open, and remove Git worktrees from the CLI and socket API.
-- **Worktree safety** — generated worktree names are slugged into safe checkout paths, removal leaves branches intact, and dirty worktrees require forced removal.
 - **Git summaries** — workspace summaries roll up added, modified, deleted, and conflicted files across detected repository roots.
 
 ### Tabs
@@ -220,7 +218,7 @@ Tabs include:
 - Integrations
 - Advanced
 
-The modal supports keyboard navigation, mouse navigation, scrollbars, immediate settings updates, a top-right `esc close` affordance, a responsive tab bar, and install/update/uninstall actions in the integrations tab. Appearance owns theme, sidebar, and pane-label settings; notifications owns sounds and toasts; behavior owns prompts, terminal defaults, and the worktree directory.
+The modal supports keyboard navigation, mouse navigation, scrollbars, immediate settings updates, a top-right `esc close` affordance, a responsive tab bar, and install/update/uninstall actions in the integrations tab. Appearance owns theme, sidebar, and pane-label settings; notifications owns sounds and toasts; behavior owns prompts and terminal defaults.
 
 ### Help and confirmations
 
@@ -280,7 +278,7 @@ Oh My Herdr is a terminal workspace manager, so some features call user-installe
 
 | Tool | Used for | Requirement |
 | --- | --- | --- |
-| `git` | Git status, repository discovery, worktree operations, and Git-aware project commands. | Required for Git-aware features. |
+| `git` | Git status, repository discovery, and Git-aware project commands. | Required for Git-aware features. |
 | Configured Git diff command | Repository review from command palette and contextual Git actions. Defaults to `lazygit`; configure `[git].diff_command` for another command. | Optional; required only when using the Git diff action. |
 | Agent CLIs such as `pi`, `omp`, `claude`, `codex`, `grok`, `opencode`, `hermes`, `copilot`, `kimi`, `droid`, `qodercli`, and `cursor-agent` | Launching agent panes and installing/updating matching Oh My Herdr integrations. | Required only for the agent/profile the user launches or integrates. |
 | `python3` | Installed hook scripts for agent integrations. | Required for hook-based state/session reports; hooks exit quietly when it is missing. |
@@ -301,7 +299,6 @@ Oh My Herdr exposes the same runtime model through the CLI and local Unix socket
 - **Protocol guard** — operational CLI commands verify the server wire-protocol version before dispatch and return a request-correlated JSON error with update/restart guidance on mismatch; status checks and live handoff remain available for diagnosis and recovery.
 - **`omh session`** — list, attach, stop, and delete named sessions.
 - **`omh workspace`** — manage workspaces.
-- **`omh worktree`** — manage Git worktree checkouts.
 - **`omh tab`** — manage tabs.
 - **`omh pane`** — manage panes, read output, send input, report agent state, and run commands.
 - **`omh agent`** — list, inspect, focus, read, send to, attach to, rename, and start agents.
@@ -314,7 +311,7 @@ Oh My Herdr exposes the same runtime model through the CLI and local Unix socket
 - **`omh server`** — run the headless server, stop it, reload config, or trigger a live handoff.
 - **`omh api`** — print or write the generated public API schema and request a live session snapshot.
 - **Launch flags** — `--no-session`, `--default-config`, and `--remote-keybindings <local|server>` control startup and remote behavior.
-- **JSON output** — status, session, and worktree commands expose machine-readable output where supported.
+- **JSON output** — status and session commands expose machine-readable output where supported.
 - **Read modes** — pane and agent reads support visible, recent, recent-unwrapped, ANSI, raw, and bounded line output.
 - **Wait matching** — output waits support substring or regex matching, raw matching, timeouts, and agent-status waits.
 - **Automation reads** — pane and agent output can be consumed as rendered visible text, recent scrollback, ANSI, or raw output for agent feedback loops.
@@ -329,7 +326,6 @@ API-visible domains include:
 
 - server control
 - workspaces
-- worktrees
 - tabs
 - panes
 - agents
@@ -395,7 +391,6 @@ Configurable areas include:
 - initial agent panel scope
 - pane border labels
 - toast and sound settings
-- worktree directory
 - scrollback limit
 - experimental features
 

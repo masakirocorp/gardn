@@ -44,7 +44,6 @@ pub(crate) enum SettingsAction {
         sidebar_width: u16,
         sidebar_min_width: u16,
         sidebar_max_width: u16,
-        worktree_directory: Option<String>,
         sidebar_arrangement: SidebarArrangementConfig,
         context_bar_visibility: ContextBarVisibilityConfig,
         sidebar_initial_state: SidebarInitialStateConfig,
@@ -114,7 +113,6 @@ impl App {
                 sidebar_initial_state,
                 sidebar_initial_agent_scope,
                 agent_border_labels,
-                worktree_directory,
             } => {
                 self.save_theme(
                     &light,
@@ -132,9 +130,6 @@ impl App {
                 self.save_sidebar_arrangement(sidebar_arrangement);
                 self.save_context_bar_visibility(context_bar_visibility);
                 self.save_sidebar_initial_view(sidebar_initial_state, sidebar_initial_agent_scope);
-                if let Some(directory) = worktree_directory {
-                    self.save_worktree_directory(&directory);
-                }
                 self.save_toast_delivery(toast_delivery);
                 self.save_agent_border_labels(agent_border_labels);
             }
@@ -1370,7 +1365,6 @@ fn clear_settings_pending(state: &mut AppState) {
     state.settings.pending_context_bar_visibility = None;
     state.settings.pending_sidebar_initial_state = None;
     state.settings.pending_sidebar_initial_agent_scope = None;
-    state.settings.pending_worktree_directory = None;
     state.settings.pending_agent_border_labels = None;
     state.settings.pending_switch_ascii_input_source_in_prefix = None;
     state.settings.pending_group_accent_choice = None;
@@ -1405,7 +1399,6 @@ fn current_settings_action(state: &AppState) -> SettingsAction {
         context_bar_visibility: pending_context_bar_visibility(state),
         sidebar_initial_state: pending_sidebar_initial_state(state),
         sidebar_initial_agent_scope: pending_sidebar_initial_agent_scope(state),
-        worktree_directory: state.settings.pending_worktree_directory.clone(),
         agent_border_labels: pending_agent_border_labels(state),
     }
 }
@@ -1561,25 +1554,23 @@ fn select_pending_setting(state: &mut AppState) -> Option<SettingsAction> {
             Some(current_settings_action(state))
         }
         SettingsSection::PaneLabels => {
-            let editing_directory = state.settings.list.selected == 2;
             match state.settings.list.selected {
                 0 => state.settings.pending_confirm_close = Some(!pending_confirm_close(state)),
                 1 => {
                     state.settings.pending_prompt_new_tab_name =
                         Some(!pending_prompt_new_tab_name(state))
                 }
-                2 => super::modal::open_worktree_directory_editor(state),
-                3 => {
+                2 => {
                     let next = next_terminal_cwd_policy(pending_new_terminal_cwd(state));
                     state.settings.pending_new_terminal_cwd = Some(next);
                 }
-                4 => {
+                3 => {
                     let next = next_mouse_scroll_lines(pending_mouse_scroll_lines(state));
                     state.settings.pending_mouse_scroll_lines = Some(next);
                 }
                 _ => {}
             }
-            (!editing_directory).then(|| current_settings_action(state))
+            Some(current_settings_action(state))
         }
         SettingsSection::Experiments => selected_experiment_action(state),
         SettingsSection::Agents => selected_agent_profile_action(state),
@@ -2174,7 +2165,6 @@ pub(crate) fn prepare_general_settings_state(
     settings.pending_context_bar_visibility = Some(state.context_bar_visibility);
     settings.pending_sidebar_initial_state = Some(state.sidebar_config.initial_state);
     settings.pending_sidebar_initial_agent_scope = Some(state.sidebar_config.initial_agent_scope);
-    settings.pending_worktree_directory = None;
     settings.pending_agent_border_labels = Some(state.agent_border_labels_enabled());
     settings.pending_agent_profile_id = None;
     settings.pending_agent_profile_name = None;
@@ -2235,7 +2225,6 @@ fn reset_settings_for_scoped_editor(state: &AppState, settings: &mut SettingsSta
     settings.pending_context_bar_visibility = None;
     settings.pending_sidebar_initial_state = None;
     settings.pending_sidebar_initial_agent_scope = None;
-    settings.pending_worktree_directory = None;
     settings.pending_agent_border_labels = None;
     settings.pending_switch_ascii_input_source_in_prefix = None;
 }
@@ -2331,7 +2320,6 @@ pub(crate) fn open_group_settings(state: &mut AppState, group_idx: usize) {
     state.settings.pending_context_bar_visibility = None;
     state.settings.pending_sidebar_initial_state = None;
     state.settings.pending_sidebar_initial_agent_scope = None;
-    state.settings.pending_worktree_directory = None;
     state.settings.pending_agent_border_labels = None;
     state.settings.pending_switch_ascii_input_source_in_prefix = None;
     state.settings.group_settings_target = Some(group_idx);
@@ -2376,7 +2364,6 @@ pub(crate) fn open_workspace_settings(state: &mut AppState, ws_idx: usize) {
     state.settings.pending_context_bar_visibility = None;
     state.settings.pending_sidebar_initial_state = None;
     state.settings.pending_sidebar_initial_agent_scope = None;
-    state.settings.pending_worktree_directory = None;
     state.settings.pending_agent_border_labels = None;
     state.settings.pending_switch_ascii_input_source_in_prefix = None;
     state.settings.group_settings_target = None;
@@ -3806,7 +3793,6 @@ mod tests {
                 context_bar_visibility: ContextBarVisibilityConfig::Always,
                 sidebar_initial_state: SidebarInitialStateConfig::Expanded,
                 sidebar_initial_agent_scope: AgentPanelScopeConfig::All,
-                worktree_directory: None,
                 agent_border_labels: false,
             })
         );
@@ -4132,21 +4118,6 @@ mod tests {
             KeyEvent::new(KeyCode::Char(' '), KeyModifiers::empty()),
         );
         assert_eq!(state.settings.pending_prompt_new_tab_name, Some(false));
-
-        update_settings_state(
-            &mut state,
-            KeyEvent::new(KeyCode::Down, KeyModifiers::empty()),
-        );
-        assert_eq!(
-            update_settings_state(
-                &mut state,
-                KeyEvent::new(KeyCode::Char(' '), KeyModifiers::empty()),
-            ),
-            None
-        );
-        assert_eq!(state.mode, Mode::EditWorktreeDirectory);
-        assert_eq!(state.name_input, "/tmp/omh-worktrees");
-        state.mode = Mode::Settings;
 
         update_settings_state(
             &mut state,
@@ -4763,22 +4734,22 @@ mod tests {
         app.state.handle_settings_mouse(mouse(
             MouseEventKind::Down(crossterm::event::MouseButton::Left),
             list_area.x + 2,
-            list_area.y + row_for(3),
+            list_area.y + row_for(2),
         ));
         assert_eq!(
             app.state.settings.pending_new_terminal_cwd,
             Some(NewTerminalCwdConfig::Home)
         );
-        assert_eq!(app.state.settings.list.selected, 3);
-        let scroll = row_for(4).saturating_sub(list_area.height.saturating_sub(1));
+        assert_eq!(app.state.settings.list.selected, 2);
+        let scroll = row_for(3).saturating_sub(list_area.height.saturating_sub(1));
         app.state.settings.scroll = scroll as usize;
         app.state.handle_settings_mouse(mouse(
             MouseEventKind::Down(crossterm::event::MouseButton::Left),
             list_area.x + 2,
-            list_area.y + row_for(4) - scroll,
+            list_area.y + row_for(3) - scroll,
         ));
         assert_eq!(app.state.settings.pending_mouse_scroll_lines, Some(5));
-        assert_eq!(app.state.settings.list.selected, 4);
+        assert_eq!(app.state.settings.list.selected, 3);
     }
 
     #[test]

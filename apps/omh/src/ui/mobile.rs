@@ -134,131 +134,28 @@ struct MobileWorkspaceEntry {
     indented: bool,
 }
 
-/// Workspaces in the order the mobile switcher renders them: worktrees are
-/// grouped under their parent workspace and children are indented.
+/// Workspaces in the order the mobile switcher renders them.
 fn mobile_workspace_tree_entries(app: &AppState) -> Vec<MobileWorkspaceEntry> {
-    let base = app.visible_workspace_indices();
-    let mut by_key = std::collections::HashMap::<String, Vec<usize>>::new();
-    for &ws_idx in &base {
-        if let Some(space) = app.workspaces[ws_idx].worktree_space() {
-            by_key.entry(space.key.clone()).or_default().push(ws_idx);
-        }
-    }
-
-    let mut seen = std::collections::HashSet::new();
-    let mut entries = Vec::new();
-    for &ws_idx in &base {
-        if seen.contains(&ws_idx) {
-            continue;
-        }
-        let Some(space) = app.workspaces[ws_idx].worktree_space() else {
-            entries.push(MobileWorkspaceEntry {
-                ws_idx,
-                indented: false,
-            });
-            seen.insert(ws_idx);
-            continue;
-        };
-
-        let members: Vec<usize> = by_key
-            .get(&space.key)
-            .unwrap()
-            .iter()
-            .filter(|&&m| !seen.contains(&m))
-            .copied()
-            .collect();
-        if members.is_empty() {
-            continue;
-        }
-        let parent_idx = members
-            .iter()
-            .copied()
-            .find(|&m| {
-                !app.workspaces[m]
-                    .worktree_space()
-                    .expect("member has space")
-                    .is_linked_worktree
-            })
-            .unwrap_or(members[0]);
-
-        entries.push(MobileWorkspaceEntry {
-            ws_idx: parent_idx,
+    app.visible_workspace_indices()
+        .into_iter()
+        .map(|ws_idx| MobileWorkspaceEntry {
+            ws_idx,
             indented: false,
-        });
-        seen.insert(parent_idx);
-        for child in members.into_iter().filter(|&m| m != parent_idx) {
-            entries.push(MobileWorkspaceEntry {
-                ws_idx: child,
-                indented: true,
-            });
-            seen.insert(child);
-        }
-    }
-    entries
+        })
+        .collect()
 }
 
 fn mobile_workspace_tree_entries_for_view(
     app: &AppState,
     view: &ClientViewState,
 ) -> Vec<MobileWorkspaceEntry> {
-    let base = visible_workspace_indices_for_view(app, view);
-    let mut by_key = std::collections::HashMap::<String, Vec<usize>>::new();
-    for &ws_idx in &base {
-        if let Some(space) = app.workspaces[ws_idx].worktree_space() {
-            by_key.entry(space.key.clone()).or_default().push(ws_idx);
-        }
-    }
-
-    let mut seen = std::collections::HashSet::new();
-    let mut entries = Vec::new();
-    for &ws_idx in &base {
-        if seen.contains(&ws_idx) {
-            continue;
-        }
-        let Some(space) = app.workspaces[ws_idx].worktree_space() else {
-            entries.push(MobileWorkspaceEntry {
-                ws_idx,
-                indented: false,
-            });
-            seen.insert(ws_idx);
-            continue;
-        };
-
-        let members: Vec<usize> = by_key
-            .get(&space.key)
-            .unwrap()
-            .iter()
-            .filter(|&&m| !seen.contains(&m))
-            .copied()
-            .collect();
-        if members.is_empty() {
-            continue;
-        }
-        let parent_idx = members
-            .iter()
-            .copied()
-            .find(|&m| {
-                !app.workspaces[m]
-                    .worktree_space()
-                    .expect("member has space")
-                    .is_linked_worktree
-            })
-            .unwrap_or(members[0]);
-
-        entries.push(MobileWorkspaceEntry {
-            ws_idx: parent_idx,
+    visible_workspace_indices_for_view(app, view)
+        .into_iter()
+        .map(|ws_idx| MobileWorkspaceEntry {
+            ws_idx,
             indented: false,
-        });
-        seen.insert(parent_idx);
-        for child in members.into_iter().filter(|&m| m != parent_idx) {
-            entries.push(MobileWorkspaceEntry {
-                ws_idx: child,
-                indented: true,
-            });
-            seen.insert(child);
-        }
-    }
-    entries
+        })
+        .collect()
 }
 
 fn grouped_child_display_label(label: &str, branch: Option<&str>, has_custom_name: bool) -> String {

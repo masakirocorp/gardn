@@ -2525,16 +2525,12 @@ mod tests {
         assert!(text.contains("18 cols"));
         assert!(text.contains("maximum sidebar width"));
         assert!(text.contains("36 cols"));
-        assert!(!text.contains("worktrees"));
-        assert!(!text.contains("worktree directory"));
-        assert!(!text.contains("/tmp/omh-worktrees"));
     }
 
     #[test]
-    fn behavior_settings_render_workspace_terminal_and_worktree_options() {
+    fn behavior_settings_render_workspace_and_terminal_options() {
         let mut app = AppState::test_new();
         app.settings.section = SettingsSection::PaneLabels;
-        app.worktree_directory = std::path::PathBuf::from("/tmp/omh-worktrees");
 
         let area = Rect::new(0, 0, 100, 30);
         let backend = TestBackend::new(area.width, area.height);
@@ -2546,9 +2542,8 @@ mod tests {
         let text = buffer_text(terminal.backend().buffer(), area.width, area.height);
         assert!(text.contains("workspace"));
         assert!(text.contains("terminal"));
-        assert!(text.contains("worktrees"));
-        assert!(text.contains("worktree directory"));
-        assert!(text.contains("/tmp/omh-worktrees"));
+        assert!(text.contains("new terminal cwd"));
+        assert!(text.contains("mouse wheel speed"));
         assert!(!text.contains("agent border labels"));
     }
     #[test]

@@ -48,7 +48,7 @@ contexts = ["workspace"]
 command = ["omh", "workspace", "list"]
 
 [[events]]
-on = "worktree.created"
+on = "workspace.created"
 command = ["omh", "plugin", "log", "list", "--plugin", "example.smoke"]
 
 [[panes]]
@@ -94,7 +94,6 @@ A CLI invocation can identify an action as `PLUGIN_ID.ACTION_ID`; the qualified 
 The supported event names are:
 
 - `workspace.created`, `workspace.updated`, `workspace.closed`, `workspace.renamed`, `workspace.focused`
-- `worktree.created`, `worktree.opened`, `worktree.removed`
 - `tab.created`, `tab.closed`, `tab.renamed`, `tab.focused`
 - `pane.created`, `pane.closed`, `pane.focused`, `pane.moved`, `pane.exited`
 - `pane.agent_detected`, `pane.agent_status_changed`

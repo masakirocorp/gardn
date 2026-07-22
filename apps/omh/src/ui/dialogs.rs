@@ -180,7 +180,6 @@ fn render_rename_overlay_with_view_state(
         Mode::RenameTab if client_view.creating_new_tab => "new tab",
         Mode::RenameTab => "rename tab",
         Mode::RenamePane => "rename pane",
-        Mode::EditWorktreeDirectory => "worktree directory",
         _ => return,
     };
     let palette = match client_view.mode {
@@ -384,7 +383,6 @@ pub(super) fn render_rename_overlay(app: &AppState, frame: &mut Frame, area: Rec
         Mode::RenameTab if app.creating_new_tab => "new tab",
         Mode::RenameTab => "rename tab",
         Mode::RenamePane => "rename pane",
-        Mode::EditWorktreeDirectory => "worktree directory",
         _ => return,
     };
 

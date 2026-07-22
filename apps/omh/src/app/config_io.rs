@@ -242,20 +242,6 @@ impl App {
             self.apply_config_from_disk(false);
         }
     }
-    pub(super) fn save_worktree_directory(&mut self, directory: &str) {
-        self.state.worktree_directory = crate::worktree::expand_tilde_absolute_path(directory);
-        self.state.settings.pending_worktree_directory = Some(directory.to_string());
-        if self.update_config_file("worktree directory", |content| {
-            crate::config::upsert_section_value(
-                content,
-                "worktrees",
-                "directory",
-                &format!("{directory:?}"),
-            )
-        }) {
-            self.apply_config_from_disk(false);
-        }
-    }
     pub(super) fn save_toast_delivery(&mut self, delivery: crate::config::ToastDelivery) {
         self.state.toast_config.delivery = delivery;
         self.state.settings.pending_toast_delivery = Some(delivery);

@@ -178,51 +178,6 @@ Parameters: `WorkspaceMoveToGroupParams`
 | `group_id` | `string` | yes |  |
 | `workspace_id` | `string` | yes |  |
 
-## `worktree.list`
-
-Parameters: `WorktreeListParams`
-
-| Property | Type | Required | Description |
-| --- | --- | --- | --- |
-| `cwd` | `string \| null` | no |  |
-| `workspace_id` | `string \| null` | no |  |
-
-## `worktree.create`
-
-Parameters: `WorktreeCreateParams`
-
-| Property | Type | Required | Description |
-| --- | --- | --- | --- |
-| `base` | `string \| null` | no |  |
-| `branch` | `string \| null` | no |  |
-| `cwd` | `string \| null` | no |  |
-| `focus` | `boolean` | no |  |
-| `label` | `string \| null` | no |  |
-| `path` | `string \| null` | no |  |
-| `workspace_id` | `string \| null` | no |  |
-
-## `worktree.open`
-
-Parameters: `WorktreeOpenParams`
-
-| Property | Type | Required | Description |
-| --- | --- | --- | --- |
-| `branch` | `string \| null` | no |  |
-| `cwd` | `string \| null` | no |  |
-| `focus` | `boolean` | no |  |
-| `label` | `string \| null` | no |  |
-| `path` | `string \| null` | no |  |
-| `workspace_id` | `string \| null` | no |  |
-
-## `worktree.remove`
-
-Parameters: `WorktreeRemoveParams`
-
-| Property | Type | Required | Description |
-| --- | --- | --- | --- |
-| `force` | `boolean` | no |  |
-| `workspace_id` | `string` | yes |  |
-
 ## `tab.create`
 
 Parameters: `TabCreateParams`
@@ -845,7 +800,6 @@ Variants:
 | `workspace_cwd` | `string \| null` | no |  |
 | `workspace_id` | `string \| null` | no |  |
 | `workspace_label` | `string \| null` | no |  |
-| `worktree` | `WorkspaceWorktreeInfo \| null` | no |  |
 
 ### `PluginSourceInfo`
 
@@ -869,9 +823,6 @@ Variants:
 - `workspace.renamed`
 - `workspace.closed`
 - `workspace.focused`
-- `worktree.created`
-- `worktree.opened`
-- `worktree.removed`
 - `tab.created`
 - `tab.closed`
 - `tab.focused`
@@ -886,13 +837,3 @@ Variants:
 - `pane.agent_status_changed`
 - `pane.scroll_changed`
 - `layout.updated`
-
-### `WorkspaceWorktreeInfo`
-
-| Property | Type | Required | Description |
-| --- | --- | --- | --- |
-| `checkout_path` | `string` | yes |  |
-| `is_linked_worktree` | `boolean` | yes |  |
-| `repo_key` | `string` | yes |  |
-| `repo_name` | `string` | yes |  |
-| `repo_root` | `string` | yes |  |

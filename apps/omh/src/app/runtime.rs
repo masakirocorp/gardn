@@ -89,10 +89,6 @@ impl App {
             response_written: _,
         } = msg;
         let changed = crate::api::request_changes_ui(&request);
-        if self.handle_deferred_worktree_api_request(request.clone(), respond_to.clone()) {
-            self.sync_prefix_input_source(previous_mode);
-            return changed;
-        }
         let response = self.handle_api_request(request);
         let _ = respond_to.send(response);
         self.sync_prefix_input_source(previous_mode);

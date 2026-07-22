@@ -1,0 +1,10 @@
+{
+  "announcements": [
+    {
+      "version": "0.2.19",
+      "id": "external-worktree-management",
+      "title": "Git worktree management moved out of Oh My Herdr",
+      "body": "### What changed\n\nOh My Herdr no longer creates, opens, lists, removes, or groups Git worktrees. The related CLI commands, socket API methods, settings, and dialogs have been removed.\n\n### What to do\n\n- Use Worktrunk (`wt`), another Git tool, or your coding agent to manage checkouts.\n- Open the resulting directory as a normal Oh My Herdr workspace.\n\nExisting workspace management and Git status display continue to work."
+    }
+  ]
+}

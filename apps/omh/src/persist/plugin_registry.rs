@@ -181,7 +181,7 @@ mod tests {
             kind: crate::api::schema::PluginSourceKind::Github,
             owner: Some("masakirocorp".into()),
             repo: Some("omh-plugin-examples".into()),
-            subdir: Some("worktree-bootstrap".into()),
+            subdir: Some("workspace-bootstrap".into()),
             requested_ref: Some("main".into()),
             resolved_commit: Some("abc123".into()),
             managed_path: Some("/tmp/omh/plugins/github/example.reload".into()),

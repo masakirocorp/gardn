@@ -1219,11 +1219,9 @@ pub fn render_with_runtime_registry(
         Mode::ConfirmDeleteGroup => render_confirm_delete_group_overlay(app, frame, terminal_area),
         Mode::ContextMenu => render_context_menu(app, frame),
         Mode::Settings => render_settings_overlay(app, frame, frame.area()),
-        Mode::RenameWorkspace
-        | Mode::RenameGroup
-        | Mode::RenameTab
-        | Mode::RenamePane
-        | Mode::EditWorktreeDirectory => render_rename_overlay(app, frame, frame.area()),
+        Mode::RenameWorkspace | Mode::RenameGroup | Mode::RenameTab | Mode::RenamePane => {
+            render_rename_overlay(app, frame, frame.area())
+        }
         Mode::GlobalMenu => render_global_launcher_menu(app, frame),
         Mode::GroupMenu => render_group_menu(app, frame),
         Mode::AgentMenu => render_agent_menu(app, frame),
@@ -1309,11 +1307,7 @@ pub fn render_with_runtime_registry_for_view(
         }
         Mode::ContextMenu => render_context_menu_for_view(app, client_view, frame),
         Mode::Settings => render_settings_overlay_for_view(app, client_view, frame, frame.area()),
-        Mode::RenameWorkspace
-        | Mode::RenameGroup
-        | Mode::RenameTab
-        | Mode::RenamePane
-        | Mode::EditWorktreeDirectory => {
+        Mode::RenameWorkspace | Mode::RenameGroup | Mode::RenameTab | Mode::RenamePane => {
             render_rename_overlay_for_view(app, client_view, frame, frame.area())
         }
         Mode::GlobalMenu => render_global_launcher_menu_for_view(app, client_view, frame),

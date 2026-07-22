@@ -31,23 +31,11 @@ pub(crate) use self::git::git_repo_root;
 use self::git::{git_work_summary, git_work_summary_for_root as load_git_work_summary_for_root};
 pub(crate) use self::tab::MovedPane;
 pub use self::{
-    git::{
-        derive_label_from_cwd, git_branch, git_space_metadata, git_status_cache_key,
-        GitSpaceMetadata, GitStatusCacheEntry,
-    },
+    git::{derive_label_from_cwd, git_branch, git_status_cache_key, GitStatusCacheEntry},
     tab::{NewPane, Tab},
 };
 
 pub const DEFAULT_GROUP_ID: &str = "default";
-
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct WorktreeSpaceMembership {
-    pub key: String,
-    pub label: String,
-    pub repo_root: PathBuf,
-    pub checkout_path: PathBuf,
-    pub is_linked_worktree: bool,
-}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WorkspaceGitStatus {
@@ -57,7 +45,6 @@ pub struct WorkspaceGitStatus {
     pub branch: Option<String>,
     pub ahead_behind: Option<(usize, usize)>,
     pub work_summary: Option<GitWorkSummary>,
-    pub space: Option<GitSpaceMetadata>,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -73,7 +60,6 @@ pub struct GitWorkSummary {
 pub struct WorkspaceGitStatusSnapshot {
     pub branch: Option<String>,
     pub ahead_behind: Option<(usize, usize)>,
-    pub space: Option<GitSpaceMetadata>,
 }
 
 impl WorkspaceGitStatusSnapshot {
@@ -91,7 +77,6 @@ impl WorkspaceGitStatusSnapshot {
             branch: self.branch,
             ahead_behind: self.ahead_behind,
             work_summary,
-            space: self.space,
         }
     }
 }
@@ -162,10 +147,6 @@ pub struct Workspace {
     pub(crate) cached_git_ahead_behind: Option<(usize, usize)>,
     /// Cached aggregate git working-tree state across this space's pane cwd set.
     pub(crate) cached_git_work_summary: Option<GitWorkSummary>,
-    /// Cached derived Git repo metadata for worktree actions and status display.
-    pub(crate) cached_git_space: Option<GitSpaceMetadata>,
-    /// Explicit Oh My Herdr-managed worktree grouping provenance.
-    pub worktree_space: Option<WorktreeSpaceMembership>,
     /// Public pane numbers within this workspace. Closed pane numbers are not reused.
     pub public_pane_numbers: HashMap<PaneId, usize>,
     pub(crate) next_public_pane_number: usize,
@@ -187,8 +168,6 @@ impl Clone for Workspace {
             cached_git_branch: self.cached_git_branch.clone(),
             cached_git_ahead_behind: self.cached_git_ahead_behind,
             cached_git_work_summary: self.cached_git_work_summary,
-            cached_git_space: self.cached_git_space.clone(),
-            worktree_space: self.worktree_space.clone(),
             public_pane_numbers: self.public_pane_numbers.clone(),
             next_public_pane_number: self.next_public_pane_number,
             next_public_tab_number: self.next_public_tab_number,
@@ -249,8 +228,6 @@ impl Workspace {
             cached_git_branch: None,
             cached_git_ahead_behind: None,
             cached_git_work_summary: None,
-            cached_git_space: None,
-            worktree_space: None,
             public_pane_numbers,
             next_public_pane_number: 2,
             next_public_tab_number: 2,
@@ -434,8 +411,6 @@ impl Workspace {
                 cached_git_branch: git_branch(&initial_cwd),
                 cached_git_ahead_behind: None,
                 cached_git_work_summary: None,
-                cached_git_space: None,
-                worktree_space: None,
                 public_pane_numbers,
                 next_public_pane_number: 2,
                 next_public_tab_number: 2,
@@ -1282,14 +1257,6 @@ impl Workspace {
         self.cached_git_ahead_behind
     }
 
-    pub fn git_space(&self) -> Option<&GitSpaceMetadata> {
-        self.cached_git_space.as_ref()
-    }
-
-    pub fn worktree_space(&self) -> Option<&WorktreeSpaceMembership> {
-        self.worktree_space.as_ref()
-    }
-
     pub fn git_work_summary_label(&self) -> String {
         let Some(summary) = self.cached_git_work_summary else {
             return String::new();
@@ -1336,7 +1303,6 @@ impl Workspace {
         self.cached_git_branch = cwd.as_deref().and_then(git_branch);
         self.cached_git_ahead_behind = cwd.as_deref().and_then(git_ahead_behind);
         self.cached_git_work_summary = git_work_summary(&self.git_status_cwds());
-        self.cached_git_space = cwd.as_deref().and_then(git_space_metadata);
     }
 
     #[cfg(test)]
@@ -1505,8 +1471,6 @@ impl Workspace {
             cached_git_branch: git_branch(&identity_cwd),
             cached_git_ahead_behind: None,
             cached_git_work_summary: None,
-            cached_git_space: None,
-            worktree_space: None,
             public_pane_numbers,
             next_public_pane_number: 2,
             next_public_tab_number: 2,

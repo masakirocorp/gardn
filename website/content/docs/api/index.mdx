@@ -31,7 +31,7 @@ A client opens the session's Local API socket, writes one JSON request followed 
 The response echoes the caller-selected `id`:
 
 ```json
-{ "id": "example:ping", "result": { "type": "pong", "version": "0.2.18", "protocol": 12 } }
+{ "id": "example:ping", "result": { "type": "pong", "version": "0.2.19", "protocol": 12 } }
 ```
 
 `events.subscribe` is the one exception to the one-response lifecycle. The server returns a subscription acknowledgement, then keeps the connection open and writes matching event lines until either side closes it.
@@ -62,7 +62,7 @@ Additive Local API shape changes can occur within a generated schema version. Co
 
 Start with the authored method guides for behavior, defaults, side effects, errors, and runnable examples:
 
-- [Sessions, workspaces, worktrees, groups, and tabs](/docs/api/reference/resources)
+- [Sessions, workspaces, groups, and tabs](/docs/api/reference/resources)
 - [Panes and agents](/docs/api/reference/panes-and-agents)
 - [Extensions, integrations, server control, and subscriptions](/docs/api/reference/extensions-and-control)
 

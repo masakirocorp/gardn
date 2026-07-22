@@ -31,7 +31,7 @@ Record each selected case as `PASS`, `FAIL`, or `BLOCKED`. For failures, preserv
 | M08 | P0 | Remote attach and bootstrap | Reachable Linux SSH host | Transport, bootstrap, compatibility prompt, reconnect |
 | M09 | P0 | Release artifacts | macOS arm64, Linux x86_64, Windows x86_64 | Interactive behavior of downloaded binaries |
 | M10 | P1 | Host bridges | macOS and Linux where available | Clipboard, URL, toast, notification, and sound helpers |
-| M11 | P1 | Mouse, responsive UI, external tools | Wide and narrow terminals | Drag geometry, compact layout, worktrees, commands, ports |
+| M11 | P1 | Mouse, responsive UI, external tools | Wide and narrow terminals | Drag geometry, compact layout, commands, ports |
 | M12 | P1 | Sleep, wake, and recovery | macOS laptop and abrupt client loss | Recovery under real OS lifecycle events |
 
 ## M01: First launch and core TUI
@@ -131,9 +131,9 @@ Pass when each enabled bridge reaches the host once, disabled or missing helpers
 
 1. Drag workspace or group rows, tabs, and pane borders; scroll every list and modal; test context menus and inline close controls.
 2. Exercise the compact layout at narrow widths.
-3. Create, open, and remove a Git worktree; verify dirty-worktree refusal; discover, rerun, and stop a project command; focus a real port owner; and open the configured Git diff tool.
+3. Discover, rerun, and stop a project command; focus a real port owner; and open the configured Git diff tool.
 
-Pass when drop targets and hit areas match their visuals, compact layouts retain required controls, safety prompts protect dirty state, reruns do not duplicate managed commands, and port focus selects the owning pane.
+Pass when drop targets and hit areas match their visuals, compact layouts retain required controls, reruns do not duplicate managed commands, and port focus selects the owning pane.
 
 ## M12: Sleep, wake, and recovery
 
@@ -153,4 +153,4 @@ A release is manually cleared when:
 - no unresolved failure risks data or process loss, wrong input targeting, unsafe destructive action, unusable rendering, broken restore, or release artifact startup
 - every P1 failure has a linked issue and an explicit ship or no-ship decision
 
-After preserving evidence, remove QA sessions, temporary worktrees, integrations, and remote test state.
+After preserving evidence, remove QA sessions, integrations, and remote test state.

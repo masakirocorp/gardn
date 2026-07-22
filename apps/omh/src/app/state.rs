@@ -1518,7 +1518,6 @@ pub enum Mode {
     RenameGroup,
     RenameTab,
     RenamePane,
-    EditWorktreeDirectory,
     Resize,
     ConfirmClose,
     ConfirmDeleteGroup,
@@ -2134,8 +2133,6 @@ pub struct SettingsState {
     pub pending_sidebar_initial_state: Option<crate::config::SidebarInitialStateConfig>,
     /// Pending default agent scope for newly attached clients.
     pub pending_sidebar_initial_agent_scope: Option<crate::config::AgentPanelScopeConfig>,
-    /// Pending worktree checkout parent directory while settings is open.
-    pub pending_worktree_directory: Option<String>,
     /// Pending agent border label setting while settings is open.
     pub pending_agent_border_labels: Option<bool>,
     /// Pending macOS prefix input source switching setting while settings is open.
@@ -2822,7 +2819,6 @@ pub struct AppState {
     pub shell_mode: crate::config::ShellModeConfig,
     pub new_terminal_cwd: NewTerminalCwdConfig,
     pub pane_scrollback_limit_bytes: usize,
-    pub worktree_directory: PathBuf,
     #[allow(dead_code)] // kept for backward compat; palette.accent is the source of truth
     pub accent: Color,
     pub sound: SoundConfig,
@@ -3568,7 +3564,6 @@ impl AppState {
             shell_mode: crate::config::ShellModeConfig::Auto,
             new_terminal_cwd: NewTerminalCwdConfig::Follow,
             pane_scrollback_limit_bytes: crate::config::DEFAULT_SCROLLBACK_LIMIT_BYTES,
-            worktree_directory: PathBuf::from("/tmp/omh-worktrees"),
             accent: Color::Cyan,
             sound: SoundConfig {
                 enabled: false,
@@ -3621,7 +3616,6 @@ impl AppState {
                 pending_sidebar_initial_agent_scope: None,
                 pending_sidebar_min_width: None,
                 pending_sidebar_max_width: None,
-                pending_worktree_directory: None,
                 pending_agent_border_labels: None,
                 pending_switch_ascii_input_source_in_prefix: None,
                 pending_group_accent_choice: None,

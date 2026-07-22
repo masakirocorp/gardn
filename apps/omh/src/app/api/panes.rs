@@ -2317,14 +2317,6 @@ impl App {
         let closing_workspace = self.state.close_pane_would_close_workspace(ws_idx, pane_id);
         let workspace_snapshot = closing_workspace.then(|| self.workspace_info(ws_idx));
 
-        if closing_workspace && self.state.confirm_implicit_worktree_group_close(ws_idx) {
-            return Err(encode_error(
-                id,
-                "confirmation_required",
-                "closing this pane would close a worktree group",
-            ));
-        }
-
         let terminal_id = self.state.terminal_id_for_pane(ws_idx, pane_id);
         let should_close_workspace = {
             let Some(ws) = self.state.workspaces.get_mut(ws_idx) else {

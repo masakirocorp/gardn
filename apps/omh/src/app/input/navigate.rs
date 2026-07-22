@@ -278,12 +278,8 @@ impl App {
                     return;
                 };
                 if tab_count <= 1 {
-                    if self.state.confirm_implicit_worktree_group_close(ws_idx) {
-                        super::modal::open_confirm_close(&mut self.state);
-                    } else {
-                        self.runtime_workspace_close("tui.workspace.close", workspace_id);
-                        leave_navigate_mode(&mut self.state);
-                    }
+                    self.runtime_workspace_close("tui.workspace.close", workspace_id);
+                    leave_navigate_mode(&mut self.state);
                 } else if let Some(tab_id) = self.public_tab_id(ws_idx, active_tab) {
                     self.runtime_tab_close("tui.tab.close", tab_id);
                     leave_navigate_mode(&mut self.state);
@@ -340,11 +336,7 @@ impl App {
                 else {
                     return;
                 };
-                if self.state.close_pane_would_close_workspace(ws_idx, pane_id)
-                    && self.state.confirm_implicit_worktree_group_close(ws_idx)
-                {
-                    super::modal::open_confirm_close(&mut self.state);
-                } else if let Some(public_pane_id) = self.public_pane_id(ws_idx, pane_id) {
+                if let Some(public_pane_id) = self.public_pane_id(ws_idx, pane_id) {
                     self.runtime_pane_close("tui.pane.close", public_pane_id);
                     leave_navigate_mode(&mut self.state);
                 }
@@ -1586,16 +1578,6 @@ mod tests {
         workspace::Workspace,
     };
 
-    fn mark_worktree_space_member(state: &mut AppState, ws_idx: usize, key: &str) {
-        state.workspaces[ws_idx].worktree_space = Some(crate::workspace::WorktreeSpaceMembership {
-            key: key.into(),
-            label: "omh".into(),
-            repo_root: "/repo/omh".into(),
-            checkout_path: format!("/repo/omh-{ws_idx}").into(),
-            is_linked_worktree: ws_idx != 0,
-        });
-    }
-
     #[test]
     fn custom_rename_key_enters_rename_mode() {
         let mut state = state_with_workspaces(&["test"]);
@@ -2448,43 +2430,6 @@ command = "echo literal"
         assert!(state.workspaces.is_empty());
     }
 
-    #[test]
-    fn closing_linked_worktree_closes_workspace_without_removing_checkout() {
-        let mut state = state_with_workspaces(&["main", "issue"]);
-        state.selected = 1;
-        state.active = Some(1);
-        state.mode = Mode::Navigate;
-        state.confirm_close = false;
-        state.workspaces[1].worktree_space = Some(crate::workspace::WorktreeSpaceMembership {
-            key: "repo-key".into(),
-            label: "omh".into(),
-            repo_root: "/repo/omh".into(),
-            checkout_path: "/repo/omh-issue".into(),
-            is_linked_worktree: true,
-        });
-
-        execute_navigate_action(&mut state, NavigateAction::CloseWorkspace);
-
-        assert_eq!(state.workspaces.len(), 1);
-        assert_eq!(state.workspaces[0].display_name(), "main");
-        assert_eq!(state.mode, Mode::Terminal);
-    }
-
-    #[test]
-    fn prefix_close_pane_last_parent_group_pane_opens_confirmation() {
-        let mut state = state_with_workspaces(&["main", "issue"]);
-        mark_worktree_space_member(&mut state, 0, "repo-key");
-        mark_worktree_space_member(&mut state, 1, "repo-key");
-        state.selected = 1;
-        state.active = Some(0);
-        state.mode = Mode::Navigate;
-
-        execute_navigate_action(&mut state, NavigateAction::ClosePane);
-
-        assert_eq!(state.selected, 0);
-        assert_eq!(state.mode, Mode::ConfirmClose);
-        assert_eq!(state.workspaces.len(), 2);
-    }
     #[tokio::test]
     async fn custom_command_runs_from_prefix_key_in_navigate_mode() {
         let (_api_tx, api_rx) = tokio::sync::mpsc::unbounded_channel();

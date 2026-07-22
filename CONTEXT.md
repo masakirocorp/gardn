@@ -134,13 +134,6 @@ _Avoid_: Focused pane repo, random child repo
 A presentation and workflow grouping for workspaces, with its own name, icon, accent, and agent-profile preferences. A workspace group filters and organizes workspaces; it is not the owner of tabs, panes, or terminal runtimes.
 _Avoid_: Workspace parent, project
 
-**Git Worktree**:
-A Git checkout that belongs to the same repository family as other checkouts through shared Git metadata. Oh My Herdr can show Git worktrees as separate workspaces while keeping their repository provenance linked.
-_Avoid_: Workspace group, task worktree when referring to Oh My Herdr's product feature
-
-**Worktree Source**:
-The parent source Oh My Herdr uses as authority for listing, creating, and opening Git worktrees for a repository family. A worktree source is usually a parent checkout and may also be a bare repo root.
-_Avoid_: Current checkout, linked checkout source
 
 **Public ID**:
 A user-facing identifier used by CLI and socket API commands to target workspaces, tabs, panes, groups, and agents without exposing runtime allocation details.

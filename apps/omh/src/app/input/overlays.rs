@@ -1002,7 +1002,7 @@ mod tests {
         app.state.view.terminal_area = Rect::new(24, 0, 96, 16);
         app.state.release_notes = Some(crate::app::state::ReleaseNotesState {
             version: "9.9.9".into(),
-            body: "### Added\n- Custom command keybindings now accept an optional description field.\n\n### Fixed\n- Sidebar Git status refresh now deduplicates workspaces.\n- Large restored sessions no longer leave panes without shells after startup.\n- Pane shutdown no longer warns after the direct child has already exited.\n- Closing the last pane or tab in a parent worktree workspace now shows the existing confirmation before closing the whole worktree group.\n- Update prompts and toasts now distinguish installing a new binary from stopping or reattaching a running Oh My Herdr session to use it."
+            body: "### Added\n- Custom command keybindings now accept an optional description field.\n\n### Fixed\n- Sidebar Git status refresh now deduplicates workspaces.\n- Large restored sessions no longer leave panes without shells after startup.\n- Pane shutdown no longer warns after the direct child has already exited.\n- Update prompts and toasts now distinguish installing a new binary from stopping or reattaching a running Oh My Herdr session to use it."
                 .into(),
             scroll: 0,
             preview: true,

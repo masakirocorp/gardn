@@ -31,7 +31,7 @@ Returns the server version, client protocol number, and capability flags. `serve
 
 ```json
 {"id":"ping-1","method":"ping","params":{}}
-{"id":"ping-1","result":{"type":"pong","version":"0.2.18","protocol":7,"capabilities":{"live_handoff":true}}}
+{"id":"ping-1","result":{"type":"pong","version":"0.2.19","protocol":12,"capabilities":{"live_handoff":true}}}
 ```
 
 ## Server control
@@ -83,7 +83,7 @@ Preconditions and execution boundary:
 | `server_unavailable`      | Shutdown was already in progress or the request could not be dispatched.                                                                                                                                                                                                                                      |
 
 ```json
-{"id":"handoff-1","method":"server.live_handoff","params":{"expected_version":"0.2.18"}}
+{"id":"handoff-1","method":"server.live_handoff","params":{"expected_version":"0.2.19"}}
 {"id":"handoff-1","result":{"type":"ok"}}
 ```
 
@@ -344,8 +344,8 @@ Manifest validation also requires non-empty `name`, `version`, and semantic `min
 | `server_unavailable`                                                                                                                     | Shutdown was already in progress or the request could not be dispatched.     |
 
 ```json
-{"id":"link-1","method":"plugin.link","params":{"path":"/home/me/plugins/worktree-bootstrap"}}
-{"id":"link-1","result":{"type":"plugin_linked","plugin":{"plugin_id":"worktree-bootstrap","name":"Worktree Bootstrap","version":"0.1.0","min_omh_version":"0.2.0","manifest_path":"/home/me/plugins/worktree-bootstrap/omh-plugin.toml","plugin_root":"/home/me/plugins/worktree-bootstrap","enabled":true,"source":{"kind":"local"},"build":[],"actions":[],"events":[],"panes":[],"link_handlers":[],"warnings":[]}}}
+{"id":"link-1","method":"plugin.link","params":{"path":"/home/me/plugins/workspace-tools"}}
+{"id":"link-1","result":{"type":"plugin_linked","plugin":{"plugin_id":"workspace-tools","name":"Workspace Tools","version":"0.1.0","min_omh_version":"0.2.0","manifest_path":"/home/me/plugins/workspace-tools/omh-plugin.toml","plugin_root":"/home/me/plugins/workspace-tools","enabled":true,"source":{"kind":"local"},"build":[],"actions":[],"events":[],"panes":[],"link_handlers":[],"warnings":[]}}}
 ```
 
 ### `plugin.list`
@@ -385,8 +385,8 @@ Removes a plugin record from the registry. It does not delete the plugin directo
 | `server_unavailable`          | Shutdown was already in progress or the request could not be dispatched.          |
 
 ```json
-{"id":"unlink-1","method":"plugin.unlink","params":{"plugin_id":"worktree-bootstrap"}}
-{"id":"unlink-1","result":{"type":"plugin_unlinked","plugin_id":"worktree-bootstrap","removed":true}}
+{"id":"unlink-1","method":"plugin.unlink","params":{"plugin_id":"workspace-tools"}}
+{"id":"unlink-1","result":{"type":"plugin_unlinked","plugin_id":"workspace-tools","removed":true}}
 ```
 
 ### `plugin.enable`
@@ -415,8 +415,8 @@ Sets a registered plugin's `enabled` flag to `false`. The plugin remains registe
 Errors are the same as `plugin.enable`.
 
 ```json
-{"id":"disable-1","method":"plugin.disable","params":{"plugin_id":"worktree-bootstrap"}}
-{"id":"disable-1","result":{"type":"plugin_disabled","plugin":{"plugin_id":"worktree-bootstrap","name":"Worktree Bootstrap","version":"0.1.0","min_omh_version":"0.2.0","manifest_path":"/home/me/plugins/worktree-bootstrap/omh-plugin.toml","plugin_root":"/home/me/plugins/worktree-bootstrap","enabled":false,"source":{"kind":"local"},"build":[],"actions":[],"events":[],"panes":[],"link_handlers":[],"warnings":[]}}}
+{"id":"disable-1","method":"plugin.disable","params":{"plugin_id":"workspace-tools"}}
+{"id":"disable-1","result":{"type":"plugin_disabled","plugin":{"plugin_id":"workspace-tools","name":"Workspace Tools","version":"0.1.0","min_omh_version":"0.2.0","manifest_path":"/home/me/plugins/workspace-tools/omh-plugin.toml","plugin_root":"/home/me/plugins/workspace-tools","enabled":false,"source":{"kind":"local"},"build":[],"actions":[],"events":[],"panes":[],"link_handlers":[],"warnings":[]}}}
 ```
 
 ### `plugin.action.list`
@@ -437,7 +437,7 @@ Lists actions from available manifests, sorted by qualified ID (`plugin_id.actio
 | `server_unavailable` | Shutdown was already in progress or the request could not be dispatched. |
 
 ```json
-{"id":"actions-1","method":"plugin.action.list","params":{"plugin_id":"worktree-bootstrap"}}
+{"id":"actions-1","method":"plugin.action.list","params":{"plugin_id":"workspace-tools"}}
 {"id":"actions-1","result":{"type":"plugin_action_list","actions":[]}}
 ```
 
@@ -453,7 +453,7 @@ Starts a manifest action asynchronously as the current user, with the plugin roo
 | `plugin_id` | `string \| null`                  | `null`   | Restricts lookup to one plugin.                                                                                   |
 | `context`   | `PluginInvocationContext \| null` | `null`   | Optional caller context merged over server-derived active workspace/tab/focused-pane context.                     |
 
-With `plugin_id`, the plugin and local action ID are normalized and looked up directly. Without it, the trimmed action string is matched against local and qualified IDs: no match is `plugin_action_not_found`, and multiple matches are `ambiguous_plugin_action`. Caller-supplied non-null context fields take precedence; the request ID supplies `correlation_id` when none is supplied. Context fields are optional: `workspace_id`, `workspace_label`, `workspace_cwd`, `worktree`, `tab_id`, `tab_label`, `focused_pane_id`, `focused_pane_cwd`, `focused_pane_agent`, `focused_pane_status`, `selected_text`, `invocation_source`, `correlation_id`, `clicked_url`, and `link_handler_id`.
+With `plugin_id`, the plugin and local action ID are normalized and looked up directly. Without it, the trimmed action string is matched against local and qualified IDs: no match is `plugin_action_not_found`, and multiple matches are `ambiguous_plugin_action`. Caller-supplied non-null context fields take precedence; the request ID supplies `correlation_id` when none is supplied. Context fields are optional: `workspace_id`, `workspace_label`, `workspace_cwd`, `tab_id`, `tab_label`, `focused_pane_id`, `focused_pane_cwd`, `focused_pane_agent`, `focused_pane_status`, `selected_text`, `invocation_source`, `correlation_id`, `clicked_url`, and `link_handler_id`.
 
 Execution requires an available manifest, `enabled: true`, and an effective platform list that includes the host. An action-level `platforms` list overrides the plugin-level list. The command receives both `OMH_*` and `HERDR_*` plugin environment variables, including the socket path, plugin root/config/state directories, plugin ID, action ID, context JSON, and current workspace/tab/pane IDs when present. At most 32 plugin commands run concurrently. Stdout and stderr are captured after completion and capped at the last 64 KiB each.
 
@@ -475,8 +475,8 @@ Execution requires an available manifest, `enabled: true`, and an effective plat
 | `server_unavailable`           | Shutdown was already in progress or the request could not be dispatched.       |
 
 ```json
-{"id":"invoke-1","method":"plugin.action.invoke","params":{"plugin_id":"worktree-bootstrap","action_id":"bootstrap","context":{"invocation_source":"api"}}}
-{"id":"invoke-1","result":{"type":"plugin_action_invoked","action":{"plugin_id":"worktree-bootstrap","action_id":"bootstrap","title":"Bootstrap","contexts":["workspace"],"command":["./bootstrap"]},"context":{"invocation_source":"api","correlation_id":"invoke-1"},"log":{"log_id":"plugin-log-1","plugin_id":"worktree-bootstrap","action_id":"bootstrap","command":["./bootstrap"],"status":"running","started_unix_ms":1700000000000}}}
+{"id":"invoke-1","method":"plugin.action.invoke","params":{"plugin_id":"workspace-tools","action_id":"bootstrap","context":{"invocation_source":"api"}}}
+{"id":"invoke-1","result":{"type":"plugin_action_invoked","action":{"plugin_id":"workspace-tools","action_id":"bootstrap","title":"Bootstrap","contexts":["workspace"],"command":["./bootstrap"]},"context":{"invocation_source":"api","correlation_id":"invoke-1"},"log":{"log_id":"plugin-log-1","plugin_id":"workspace-tools","action_id":"bootstrap","command":["./bootstrap"],"status":"running","started_unix_ms":1700000000000}}}
 ```
 
 ### `plugin.log.list`
@@ -500,7 +500,7 @@ Each `PluginCommandLogInfo` contains `log_id`, `plugin_id`, optional `action_id`
 | `server_unavailable` | Shutdown was already in progress or the request could not be dispatched. |
 
 ```json
-{"id":"logs-1","method":"plugin.log.list","params":{"plugin_id":"worktree-bootstrap","limit":10}}
+{"id":"logs-1","method":"plugin.log.list","params":{"plugin_id":"workspace-tools","limit":10}}
 {"id":"logs-1","result":{"type":"plugin_log_list","logs":[]}}
 ```
 
@@ -552,8 +552,8 @@ The plugin manifest's pane platform list overrides its plugin platform list. The
 | `server_unavailable`                                                                      | Shutdown was already in progress or the request could not be dispatched.    |
 
 ```json
-{"id":"pane-1","method":"plugin.pane.open","params":{"plugin_id":"worktree-bootstrap","entrypoint":"log-tail","placement":"split","target_pane_id":"w1943cd2b11a1:p1","direction":"right","focus":true}}
-{"id":"pane-1","result":{"type":"plugin_pane_opened","plugin_pane":{"plugin_id":"worktree-bootstrap","entrypoint":"log-tail","pane":{"pane_id":"w1943cd2b11a1:p2","terminal_id":"term_1943cd2b22b2","workspace_id":"w1943cd2b11a1","tab_id":"w1943cd2b11a1:t1","focused":true,"agent_status":"unknown","state_labels":{},"tokens":{},"revision":0}}}}
+{"id":"pane-1","method":"plugin.pane.open","params":{"plugin_id":"workspace-tools","entrypoint":"log-tail","placement":"split","target_pane_id":"w1943cd2b11a1:p1","direction":"right","focus":true}}
+{"id":"pane-1","result":{"type":"plugin_pane_opened","plugin_pane":{"plugin_id":"workspace-tools","entrypoint":"log-tail","pane":{"pane_id":"w1943cd2b11a1:p2","terminal_id":"term_1943cd2b22b2","workspace_id":"w1943cd2b11a1","tab_id":"w1943cd2b11a1:t1","focused":true,"agent_status":"unknown","state_labels":{},"tokens":{},"revision":0}}}}
 ```
 
 ### `plugin.pane.focus`
@@ -571,12 +571,12 @@ Focuses a pane currently attributed to a plugin and switches the App to terminal
 
 ```json
 {"id":"pane-focus-1","method":"plugin.pane.focus","params":{"pane_id":"w1943cd2b11a1:p2"}}
-{"id":"pane-focus-1","result":{"type":"plugin_pane_focused","plugin_pane":{"plugin_id":"worktree-bootstrap","entrypoint":"log-tail","pane":{"pane_id":"w1943cd2b11a1:p2","terminal_id":"term_1943cd2b22b2","workspace_id":"w1943cd2b11a1","tab_id":"w1943cd2b11a1:t1","focused":true,"agent_status":"unknown","state_labels":{},"tokens":{},"revision":0}}}}
+{"id":"pane-focus-1","result":{"type":"plugin_pane_focused","plugin_pane":{"plugin_id":"workspace-tools","entrypoint":"log-tail","pane":{"pane_id":"w1943cd2b11a1:p2","terminal_id":"term_1943cd2b22b2","workspace_id":"w1943cd2b11a1","tab_id":"w1943cd2b11a1:t1","focused":true,"agent_status":"unknown","state_labels":{},"tokens":{},"revision":0}}}}
 ```
 
 ### `plugin.pane.close`
 
-Closes a pane attributed to a plugin and removes its attribution. The underlying standard pane-close path runs, so it can also return standard close errors such as `confirmation_required` when closing the pane would implicitly close a protected worktree group.
+Closes a pane attributed to a plugin and removes its attribution. The underlying standard pane-close path runs, so it can also return standard close errors such as `confirmation_required` when the configured close policy requires confirmation.
 
 **Params:** `PluginPaneCloseParams`, with `pane_id: string`.
 
@@ -629,9 +629,6 @@ These entries have no fields other than `type`. Their emitted line is an `EventE
 | `workspace.renamed`   | `type: "workspace_renamed"`, `workspace_id`, `label`.                                                                                                                                            |
 | `workspace.closed`    | `type: "workspace_closed"`, `workspace_id`, optional `workspace: WorkspaceInfo`.                                                                                                                 |
 | `workspace.focused`   | `type: "workspace_focused"`, `workspace_id`.                                                                                                                                                     |
-| `worktree.created`    | `type: "worktree_created"`, `workspace: WorkspaceInfo`, `worktree: WorktreeInfo`.                                                                                                                |
-| `worktree.opened`     | `type: "worktree_opened"`, `workspace: WorkspaceInfo`, `worktree: WorktreeInfo`, `already_open: boolean`.                                                                                        |
-| `worktree.removed`    | `type: "worktree_removed"`, `workspace_id`, `worktree: WorktreeInfo`, `forced: boolean`.                                                                                                         |
 | `tab.created`         | `type: "tab_created"`, `tab: TabInfo`.                                                                                                                                                           |
 | `tab.closed`          | `type: "tab_closed"`, `tab_id`, `workspace_id`.                                                                                                                                                  |
 | `tab.renamed`         | `type: "tab_renamed"`, `tab_id`, `workspace_id`, `label`.                                                                                                                                        |

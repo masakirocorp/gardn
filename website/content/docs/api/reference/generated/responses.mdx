@@ -46,44 +46,6 @@ description: "Generated successful Local API response result shapes."
 | `type` | `"workspace_list"` | yes |  |
 | `workspaces` | `WorkspaceInfo[]` | yes |  |
 
-## `worktree_list`
-
-| Property | Type | Required | Description |
-| --- | --- | --- | --- |
-| `source` | `WorktreeSourceInfo` | yes |  |
-| `type` | `"worktree_list"` | yes |  |
-| `worktrees` | `WorktreeInfo[]` | yes |  |
-
-## `worktree_created`
-
-| Property | Type | Required | Description |
-| --- | --- | --- | --- |
-| `root_pane` | `PaneInfo` | yes |  |
-| `tab` | `TabInfo` | yes |  |
-| `type` | `"worktree_created"` | yes |  |
-| `workspace` | `WorkspaceInfo` | yes |  |
-| `worktree` | `WorktreeInfo` | yes |  |
-
-## `worktree_opened`
-
-| Property | Type | Required | Description |
-| --- | --- | --- | --- |
-| `already_open` | `boolean` | yes |  |
-| `root_pane` | `PaneInfo` | yes |  |
-| `tab` | `TabInfo` | yes |  |
-| `type` | `"worktree_opened"` | yes |  |
-| `workspace` | `WorkspaceInfo` | yes |  |
-| `worktree` | `WorktreeInfo` | yes |  |
-
-## `worktree_removed`
-
-| Property | Type | Required | Description |
-| --- | --- | --- | --- |
-| `forced` | `boolean` | yes |  |
-| `path` | `string` | yes |  |
-| `type` | `"worktree_removed"` | yes |  |
-| `workspace_id` | `string` | yes |  |
-
 ## `group_info`
 
 | Property | Type | Required | Description |
@@ -477,9 +439,6 @@ Variants:
 - `workspace_closed`
 - `workspace_renamed`
 - `workspace_focused`
-- `worktree_created`
-- `worktree_opened`
-- `worktree_removed`
 - `tab_created`
 - `tab_closed`
 - `tab_renamed`
@@ -794,7 +753,6 @@ Variants:
 | `workspace_cwd` | `string \| null` | no |  |
 | `workspace_id` | `string \| null` | no |  |
 | `workspace_label` | `string \| null` | no |  |
-| `worktree` | `WorkspaceWorktreeInfo \| null` | no |  |
 
 ### `PluginManifestAction`
 
@@ -910,37 +868,3 @@ Variants:
 | `pane_count` | `integer` | yes |  |
 | `tab_count` | `integer` | yes |  |
 | `workspace_id` | `string` | yes |  |
-| `worktree` | `WorkspaceWorktreeInfo \| null` | no |  |
-
-### `WorkspaceWorktreeInfo`
-
-| Property | Type | Required | Description |
-| --- | --- | --- | --- |
-| `checkout_path` | `string` | yes |  |
-| `is_linked_worktree` | `boolean` | yes |  |
-| `repo_key` | `string` | yes |  |
-| `repo_name` | `string` | yes |  |
-| `repo_root` | `string` | yes |  |
-
-### `WorktreeInfo`
-
-| Property | Type | Required | Description |
-| --- | --- | --- | --- |
-| `branch` | `string \| null` | no |  |
-| `is_bare` | `boolean` | yes |  |
-| `is_detached` | `boolean` | yes |  |
-| `is_linked_worktree` | `boolean` | yes |  |
-| `is_prunable` | `boolean` | yes |  |
-| `label` | `string` | yes |  |
-| `open_workspace_id` | `string \| null` | no |  |
-| `path` | `string` | yes |  |
-
-### `WorktreeSourceInfo`
-
-| Property | Type | Required | Description |
-| --- | --- | --- | --- |
-| `repo_key` | `string` | yes |  |
-| `repo_name` | `string` | yes |  |
-| `repo_root` | `string` | yes |  |
-| `source_checkout_path` | `string` | yes |  |
-| `source_workspace_id` | `string \| null` | no |  |

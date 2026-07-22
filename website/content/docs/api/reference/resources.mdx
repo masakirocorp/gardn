@@ -1,11 +1,11 @@
 ---
 title: Resources
-description: Session, workspace, worktree, group, and tab Local API methods with params, results, errors, and examples.
+description: Session, workspace, group, and tab Local API methods with params, results, errors, and examples.
 ---
 
 # Resources
 
-The Local API resource methods read and mutate the tree a session owns: the session, workspaces, git worktrees, sidebar groups, and tabs. Pane, agent, plugin, and server-control methods live on [Panes and agents](/docs/api/reference/panes-and-agents) and [Extensions and control](/docs/api/reference/extensions-and-control).
+The Local API resource methods read and mutate the tree a session owns: the session, workspaces, sidebar groups, and tabs. Pane, agent, plugin, and server-control methods live on [Panes and agents](/docs/api/reference/panes-and-agents) and [Extensions and control](/docs/api/reference/extensions-and-control).
 
 Each entry lists params, the result discriminator, method-specific errors, and a runnable example. Result objects carry a `type` discriminator. For the error envelope see [Error semantics](/docs/api/errors); the generated [requests](/docs/api/reference/generated/requests), [responses](/docs/api/reference/generated/responses), and [enums](/docs/api/reference/generated/enums) give the machine-generated shapes.
 
@@ -19,9 +19,8 @@ Several resource methods accept optional selectors that pick a starting point wh
 - `group_id` is a stable opaque string generated as `g<micros_hex><counter_hex>` for created groups. The first group is the built-in default and uses the fixed id `default`. The parsers also accept `g_<n>` and a bare one-based integer.
 - `tab_id` is `"<workspace_id>:t<encoded_number>"` where the encoded number uses the 32-symbol alphabet `123456789ABCDEFGHJKMNPQRSTVWXYZ0` (one-based, bijective: tab 1 is `1`, tab 10 is `A`). Closed tab numbers are not reused, so a `tab_id` remains a stable reference for the lifetime of the tab. Legacy `t_<ws>_<tab>` and `"<workspace_id>:<n>"` forms also parse.
 
-**Active-target defaults.** Worktree and tab methods let the caller omit the target workspace. When both an explicit selector and an active fallback are missing, the method returns `invalid_request`.
+**Active-target defaults.** Tab methods let the caller omit the target workspace. When both an explicit selector and an active fallback are missing, the method returns `invalid_request`.
 
-- Worktree methods (`worktree.list`, `worktree.create`, `worktree.open`) accept `workspace_id` or `cwd` as mutually exclusive selectors. Provide neither and the server uses the active workspace, or the selected workspace in navigate mode. If no workspace is active or selected, the request fails with `invalid_request` and the message `workspace_id or cwd is required when no workspace is active`.
 - `tab.create` uses `workspace_id` when supplied, otherwise the active workspace. With no active workspace it returns `workspace_not_found` and the message `no active workspace`.
 - `workspace.create` derives `cwd` from the workspace creation source and the configured new-terminal cwd policy when `cwd` is omitted. `focus` defaults to `false`, and is treated as `true` when no workspace is active.
 
@@ -49,7 +48,7 @@ Example:
   "result": {
     "type": "session_snapshot",
     "snapshot": {
-      "version": "0.2.18",
+      "version": "0.2.19",
       "protocol": 12,
       "focused_workspace_id": "w1943cd2b11a1",
       "focused_tab_id": "w1943cd2b11a1:t1",
@@ -88,7 +87,7 @@ Example:
 
 ## Workspaces
 
-A workspace is a terminal surface that owns tabs. Each workspace belongs to a group, carries a one-based `number` for display, and may be associated with a git worktree checkout.
+A workspace is a terminal surface that owns tabs. Each workspace belongs to a group and carries a one-based `number` for display.
 
 ### `workspace.create`
 
@@ -163,7 +162,7 @@ List every workspace in the session. The result mirrors what `session.snapshot` 
 
 Params: none.
 
-Result discriminator: `workspace_list`. Fields: `workspaces` (`WorkspaceInfo[]`). Each entry includes `workspace_id`, `group_id`, one-based `number`, `label`, `focused`, `pane_count`, `tab_count`, `active_tab_id`, `agent_status`, and an optional `worktree` object when the workspace is associated with a git worktree checkout.
+Result discriminator: `workspace_list`. Fields: `workspaces` (`WorkspaceInfo[]`). Each entry includes `workspace_id`, `group_id`, one-based `number`, `label`, `focused`, `pane_count`, `tab_count`, `active_tab_id`, and `agent_status`.
 
 Errors: none method-specific.
 
@@ -188,14 +187,7 @@ Example:
         "pane_count": 2,
         "tab_count": 1,
         "active_tab_id": "w1943cd2b11a1:t1",
-        "agent_status": "working",
-        "worktree": {
-          "repo_key": "8c1f.../omh",
-          "repo_name": "omh",
-          "repo_root": "/home/me/src/omh",
-          "checkout_path": "/home/me/src/omh",
-          "is_linked_worktree": false
-        }
+        "agent_status": "working"
       }
     ]
   }
@@ -341,7 +333,7 @@ Example:
 
 ### `workspace.close`
 
-Close a workspace and every tab and pane it owns. The server releases the workspace's detached terminal runtimes. If the workspace was associated with a managed linked git worktree, the checkout on disk is left intact; only the Oh My Herdr workspace is removed.
+Close a workspace and every tab and pane it owns. The server releases the workspace's detached terminal runtimes.
 
 Params:
 
@@ -398,292 +390,6 @@ Example:
 
 ```json
 { "id": "ws:move", "error": { "code": "not_implemented", "message": "method not implemented yet" } }
-```
-
-## Worktrees
-
-Worktree methods manage git work trees from a source repository and turn each checkout into an Oh My Herdr workspace. A source is the non-linked checkout that owns the worktree's repository. `workspace_id` and `cwd` are mutually exclusive selectors for the source; provide neither and the active or selected workspace is used.
-
-`worktree.create` and `worktree.remove` run git operations that may take longer than a normal request. In headless mode the server runs them on a background thread and responds only when the git command completes. A second request against the same checkout while one is pending fails with `worktree_operation_in_progress`.
-
-### `worktree.list`
-
-List existing work trees for the repository rooted at the resolved source.
-
-Params:
-
-| Property       | Type             | Required | Notes                                                                                                   |
-| -------------- | ---------------- | -------- | ------------------------------------------------------------------------------------------------------- |
-| `workspace_id` | `string \| null` | no       | Select the source from this workspace. Mutually exclusive with `cwd`.                                   |
-| `cwd`          | `string \| null` | no       | Select the source from an absolute path inside a git work tree. Mutually exclusive with `workspace_id`. |
-
-When neither selector is supplied, the server uses the active workspace, or the selected workspace in navigate mode. If the workspace is a linked worktree, the source is resolved to its repository root. Listing is allowed from linked worktrees.
-
-Result discriminator: `worktree_list`. Fields: `source` (`WorktreeSourceInfo`) with `repo_key`, `repo_name`, `repo_root`, `source_checkout_path`, and optional `source_workspace_id`; `worktrees` (`WorktreeInfo[]`) where each entry has `path`, optional `branch`, `is_bare`, `is_detached`, `is_prunable`, `is_linked_worktree`, optional `open_workspace_id`, and `label`.
-
-Errors:
-
-| Code                   | When                                                                                                                                 |
-| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
-| `invalid_request`      | Both `workspace_id` and `cwd` are supplied, or neither is supplied and no workspace is active or selected, or `cwd` is not absolute. |
-| `workspace_not_found`  | `workspace_id` does not match any workspace.                                                                                         |
-| `not_git_worktree`     | The resolved path is not inside a git work tree.                                                                                     |
-| `worktree_list_failed` | The underlying `git worktree list` command failed. The message carries the git error.                                                |
-
-Example:
-
-```json
-{ "id": "wt:list", "method": "worktree.list", "params": { "workspace_id": "w1943cd2b11a1" } }
-```
-
-```json
-{
-  "id": "wt:list",
-  "result": {
-    "type": "worktree_list",
-    "source": {
-      "repo_key": "8c1f.../omh",
-      "repo_name": "omh",
-      "repo_root": "/home/me/src/omh",
-      "source_checkout_path": "/home/me/src/omh",
-      "source_workspace_id": "w1943cd2b11a1"
-    },
-    "worktrees": [
-      {
-        "path": "/home/me/src/omh",
-        "branch": "main",
-        "is_bare": false,
-        "is_detached": false,
-        "is_prunable": false,
-        "is_linked_worktree": false,
-        "open_workspace_id": "w1943cd2b11a1",
-        "label": "omh"
-      },
-      {
-        "path": "/home/me/.omh/worktrees/omh/fix-2200",
-        "branch": "fix-2200",
-        "is_bare": false,
-        "is_detached": false,
-        "is_prunable": false,
-        "is_linked_worktree": true,
-        "open_workspace_id": "w1943cf02aa2",
-        "label": "omh"
-      }
-    ]
-  }
-}
-```
-
-### `worktree.create`
-
-Create a new git work tree and open it as a focused or unfocused workspace. The source must be the non-linked repository checkout; a linked worktree workspace cannot seed a new worktree.
-
-Params:
-
-| Property       | Type             | Required | Notes                                                                                                                                                                                                              |
-| -------------- | ---------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `workspace_id` | `string \| null` | no       | Source workspace selector. Mutually exclusive with `cwd`.                                                                                                                                                          |
-| `cwd`          | `string \| null` | no       | Absolute path inside a git work tree. Mutually exclusive with `workspace_id`.                                                                                                                                      |
-| `branch`       | `string \| null` | no       | Branch to create. When omitted, the server generates a namespaced slug of the form `worktree/<adjective>-<noun>-<suffix>` (for example `worktree/brave-river-0000`). An empty branch fails with `invalid_request`. |
-| `base`         | `string \| null` | no       | Git object to branch from. Defaults to `HEAD`.                                                                                                                                                                     |
-| `path`         | `string \| null` | no       | Absolute checkout path. When omitted, the server appends a slug derived from `branch` to `<worktree_directory>/<repo_name>`. Non-absolute paths fail with `invalid_request`.                                       |
-| `label`        | `string \| null` | no       | Custom label for the new workspace.                                                                                                                                                                                |
-| `focus`        | `boolean`        | no       | Defaults to `false`. When `true`, the new workspace becomes active.                                                                                                                                                |
-
-Result discriminator: `worktree_created`. Fields: `workspace` (`WorkspaceInfo`), `tab` (`TabInfo`), `root_pane` (`PaneInfo`), `worktree` (`WorktreeInfo`) for the new checkout. The server emits `workspace.created`, `tab.created`, `pane.created`, and `worktree.created` events. If the source repository had no parent workspace, the server creates one and emits its open events first.
-
-Errors:
-
-| Code                             | When                                                                                                                                                                  |
-| -------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `invalid_request`                | `branch` is empty or whitespace, `path` is not absolute, both selectors are supplied, neither selector is supplied and no workspace is active, `cwd` is not absolute. |
-| `workspace_not_found`            | `workspace_id` does not match any workspace.                                                                                                                          |
-| `not_git_worktree`               | The resolved source is not inside a git work tree.                                                                                                                    |
-| `linked_worktree_source`         | The resolved source is a linked worktree. Create and open start from the repo parent workspace.                                                                       |
-| `worktree_create_failed`         | The `git worktree add` command or parent directory creation failed. The message carries the git error.                                                                |
-| `worktree_open_failed`           | The worktree checkout was created but opening it as a workspace failed. The message is `created worktree but failed to open workspace: <err>`.                        |
-| `worktree_operation_in_progress` | Another create or remove is already running for the same checkout path. Applies to the headless deferred path.                                                        |
-
-Example:
-
-```json
-{
-  "id": "wt:create",
-  "method": "worktree.create",
-  "params": {
-    "workspace_id": "w1943cd2b11a1",
-    "branch": "fix-2200",
-    "base": "HEAD",
-    "label": "fix 2200",
-    "focus": true
-  }
-}
-```
-
-```json
-{
-  "id": "wt:create",
-  "result": {
-    "type": "worktree_created",
-    "workspace": {
-      "workspace_id": "w1943cf02aa2",
-      "group_id": "default",
-      "number": 2,
-      "label": "fix 2200",
-      "focused": true,
-      "pane_count": 1,
-      "tab_count": 1,
-      "active_tab_id": "w1943cf02aa2:t1",
-      "agent_status": "idle"
-    },
-    "tab": {
-      "tab_id": "w1943cf02aa2:t1",
-      "workspace_id": "w1943cf02aa2",
-      "number": 1,
-      "label": "fix 2200",
-      "focused": true,
-      "pane_count": 1,
-      "agent_status": "idle"
-    },
-    "root_pane": {},
-    "worktree": {
-      "path": "/home/me/.omh/worktrees/omh/fix-2200",
-      "branch": "fix-2200",
-      "is_bare": false,
-      "is_detached": false,
-      "is_prunable": false,
-      "is_linked_worktree": true,
-      "open_workspace_id": "w1943cf02aa2",
-      "label": "omh"
-    }
-  }
-}
-```
-
-### `worktree.open`
-
-Open an existing git work tree as a workspace, or focus it if it is already open. Exactly one of `path` or `branch` selects the worktree to open; the two are mutually exclusive and one is required. The source must be a non-linked checkout.
-
-Params:
-
-| Property       | Type             | Required | Notes                                                                                                                                         |
-| -------------- | ---------------- | -------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
-| `workspace_id` | `string \| null` | no       | Source workspace selector. Mutually exclusive with `cwd`.                                                                                     |
-| `cwd`          | `string \| null` | no       | Absolute path inside a git work tree. Mutually exclusive with `workspace_id`.                                                                 |
-| `path`         | `string \| null` | no       | Absolute checkout path of the worktree to open. Mutually exclusive with `branch`.                                                             |
-| `branch`       | `string \| null` | no       | Branch of an existing non-detached worktree to open. Mutually exclusive with `path`. Ambiguous matches fail with `ambiguous_worktree_branch`. |
-| `label`        | `string \| null` | no       | Custom label applied to the workspace. When the workspace already existed, this also emits a `workspace.renamed` event.                       |
-| `focus`        | `boolean`        | no       | Defaults to `false`. When `true`, the opened workspace becomes active.                                                                        |
-
-Result discriminator: `worktree_opened`. Fields: `workspace` (`WorkspaceInfo`), `tab` (`TabInfo`), `root_pane` (`PaneInfo`), `worktree` (`WorktreeInfo`), and `already_open` (`boolean`). `already_open` is `true` when the checkout was already an open workspace; in that case no new workspace is created, `label` is applied as a rename, and the `tab` and `root_pane` reflect the workspace's active tab. The server emits a `worktree.opened` event.
-
-Errors:
-
-| Code                        | When                                                                                                                                                                                                             |
-| --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `invalid_request`           | Both or neither of `path` and `branch` are supplied, both source selectors are supplied, neither source selector is supplied and no workspace is active, or `cwd` or `path` is not absolute.                     |
-| `workspace_not_found`       | `workspace_id` does not match any workspace.                                                                                                                                                                     |
-| `not_git_worktree`          | The resolved source is not inside a git work tree.                                                                                                                                                               |
-| `linked_worktree_source`    | The resolved source is a linked worktree.                                                                                                                                                                        |
-| `worktree_list_failed`      | Listing existing worktrees to resolve `path` or `branch` failed.                                                                                                                                                 |
-| `worktree_not_found`        | No worktree matches `path` or `branch`, or the matched worktree is bare or prunable and cannot be opened. The message is `worktree path not found`, `worktree branch not found`, or `worktree cannot be opened`. |
-| `ambiguous_worktree_branch` | More than one worktree matches `branch`.                                                                                                                                                                         |
-| `worktree_open_failed`      | The worktree resolved but opening it as a workspace failed.                                                                                                                                                      |
-
-Example:
-
-```json
-{
-  "id": "wt:open",
-  "method": "worktree.open",
-  "params": { "workspace_id": "w1943cd2b11a1", "branch": "fix-2200", "focus": true }
-}
-```
-
-```json
-{
-  "id": "wt:open",
-  "result": {
-    "type": "worktree_opened",
-    "workspace": {
-      "workspace_id": "w1943cf02aa2",
-      "group_id": "default",
-      "number": 2,
-      "label": "fix-2200",
-      "focused": true,
-      "pane_count": 1,
-      "tab_count": 1,
-      "active_tab_id": "w1943cf02aa2:t1",
-      "agent_status": "idle"
-    },
-    "tab": {
-      "tab_id": "w1943cf02aa2:t1",
-      "workspace_id": "w1943cf02aa2",
-      "number": 1,
-      "label": "fix-2200",
-      "focused": true,
-      "pane_count": 1,
-      "agent_status": "idle"
-    },
-    "root_pane": {},
-    "worktree": {
-      "path": "/home/me/.omh/worktrees/omh/fix-2200",
-      "branch": "fix-2200",
-      "is_bare": false,
-      "is_detached": false,
-      "is_prunable": false,
-      "is_linked_worktree": true,
-      "open_workspace_id": "w1943cf02aa2",
-      "label": "omh"
-    },
-    "already_open": false
-  }
-}
-```
-
-### `worktree.remove`
-
-Remove a linked worktree checkout and close the workspace that hosted it. Only workspaces associated with a managed linked worktree can be removed this way; the source (non-linked) workspace for a repository cannot be removed through this method.
-
-Params:
-
-| Property       | Type      | Required | Notes                                                                                                                                                                                                                                         |
-| -------------- | --------- | -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `workspace_id` | `string`  | yes      | The public id of the workspace backed by the linked worktree to remove.                                                                                                                                                                       |
-| `force`        | `boolean` | no       | Defaults to `false`. When `false` and the checkout has dirty or untracked files, the server refuses with `dirty_worktree_requires_force` (on Windows this check always runs; elsewhere the check is driven by the git command's own refusal). |
-
-Result discriminator: `worktree_removed`. Fields: `workspace_id` (`string`), `path` (`string`), `forced` (`boolean`). The server closes the removed workspace, emits a `workspace.closed` event for it, and then emits a `worktree.removed` event. After removing a linked worktree, the server switches focus to the parent (non-linked) workspace for the same repository when one is open.
-
-Errors:
-
-| Code                             | When                                                                                                                                       |
-| -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| `workspace_not_found`            | `workspace_id` does not match any workspace.                                                                                               |
-| `not_linked_worktree`            | The workspace exists but is not an Oh My Herdr-managed linked worktree checkout. A non-linked source workspace cannot be removed this way. |
-| `dirty_worktree_requires_force`  | `force` is `false` and the checkout has local changes that git refuses to discard. Retry with `force: true` to override.                   |
-| `worktree_remove_failed`         | The `git worktree remove` command failed for a reason other than a dirty checkout.                                                         |
-| `worktree_operation_in_progress` | Another create or remove is already running for the same checkout (headless deferred path).                                                |
-
-Example:
-
-```json
-{
-  "id": "wt:remove",
-  "method": "worktree.remove",
-  "params": { "workspace_id": "w1943cf02aa2", "force": false }
-}
-```
-
-```json
-{
-  "id": "wt:remove",
-  "result": {
-    "type": "worktree_removed",
-    "workspace_id": "w1943cf02aa2",
-    "path": "/home/me/.omh/worktrees/omh/fix-2200",
-    "forced": false
-  }
-}
 ```
 
 ## Groups

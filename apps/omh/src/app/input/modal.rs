@@ -602,23 +602,6 @@ pub(super) fn open_new_group_dialog(state: &mut AppState) {
     state.name_input_replace_on_type = true;
     state.mode = Mode::RenameGroup;
 }
-pub(super) fn open_worktree_directory_editor(state: &mut AppState) {
-    state.creating_new_tab = false;
-    state.creating_new_group = false;
-    state.group_icon_picker_open = false;
-    state.group_default_directory_input.clear();
-    state.group_modal_selected_field = 0;
-    state.requested_new_tab_name = None;
-    state.rename_group_target = None;
-    state.rename_pane_target = None;
-    state.name_input = state
-        .settings
-        .pending_worktree_directory
-        .clone()
-        .unwrap_or_else(|| state.worktree_directory.display().to_string());
-    state.name_input_replace_on_type = false;
-    state.mode = Mode::EditWorktreeDirectory;
-}
 
 pub(super) fn leave_modal(state: &mut AppState) {
     state.return_to_active_workspace_mode();
@@ -899,37 +882,6 @@ impl crate::app::App {
     }
 }
 
-pub(super) fn apply_worktree_directory_action(
-    state: &mut AppState,
-    action: ModalAction,
-) -> Option<String> {
-    match action {
-        ModalAction::Save => {
-            let directory = state.name_input.trim().to_string();
-            if directory.is_empty() {
-                return None;
-            }
-            state.settings.pending_worktree_directory = Some(directory.clone());
-            state.name_input.clear();
-            state.name_input_replace_on_type = false;
-            state.mode = Mode::Settings;
-            Some(directory)
-        }
-        ModalAction::Clear => {
-            state.name_input.clear();
-            state.name_input_replace_on_type = false;
-            None
-        }
-        ModalAction::Cancel => {
-            state.name_input.clear();
-            state.name_input_replace_on_type = false;
-            state.mode = Mode::Settings;
-            None
-        }
-        _ => None,
-    }
-}
-
 fn clear_rename_input(state: &mut AppState) {
     active_rename_text_mut(state).clear();
     state.name_input_replace_on_type = false;
@@ -1044,39 +996,6 @@ pub(crate) fn handle_rename_key(state: &mut AppState, key: KeyEvent) {
         KeyCode::Backspace => delete_rename_input_char(state),
         KeyCode::Char(c) if key.modifiers.difference(KeyModifiers::SHIFT).is_empty() => {
             insert_rename_input_text(state, &c.to_string());
-        }
-        _ => {}
-    }
-}
-
-pub(crate) fn handle_worktree_directory_key(state: &mut AppState, key: KeyEvent) {
-    if let Some(action) = modal_action_from_key(&key, RENAME_ACTIONS) {
-        apply_worktree_directory_action(state, action);
-        return;
-    }
-
-    match key.code {
-        KeyCode::Char('u') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-            clear_rename_input(state);
-        }
-        KeyCode::Backspace if key.modifiers.contains(KeyModifiers::SUPER) => {
-            clear_rename_input(state);
-        }
-        KeyCode::Backspace
-            if key.modifiers.contains(KeyModifiers::CONTROL)
-                || key.modifiers.contains(KeyModifiers::ALT) =>
-        {
-            delete_rename_input_word(state);
-        }
-        KeyCode::Char('h' | 'w') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-            delete_rename_input_word(state);
-        }
-        KeyCode::Backspace => delete_rename_input_char(state),
-        KeyCode::Char(c) if key.modifiers.difference(KeyModifiers::SHIFT).is_empty() => {
-            if state.name_input_replace_on_type {
-                clear_rename_input(state);
-            }
-            state.name_input.push(c);
         }
         _ => {}
     }
@@ -1531,25 +1450,6 @@ mod tests {
         );
 
         assert_eq!(state.mode, Mode::Terminal);
-    }
-
-    #[test]
-    fn worktree_directory_editor_updates_pending_setting() {
-        let mut state = state_with_workspaces(&["test"]);
-        state.worktree_directory = std::path::PathBuf::from("/tmp/omh-worktrees");
-        open_worktree_directory_editor(&mut state);
-
-        state.name_input = "~/Projects/omh-worktrees".to_string();
-        handle_worktree_directory_key(
-            &mut state,
-            KeyEvent::new(KeyCode::Enter, KeyModifiers::empty()),
-        );
-
-        assert_eq!(state.mode, Mode::Settings);
-        assert_eq!(
-            state.settings.pending_worktree_directory.as_deref(),
-            Some("~/Projects/omh-worktrees")
-        );
     }
 
     #[test]
@@ -2148,44 +2048,6 @@ mod tests {
         assert_eq!(state.workspaces[0].tabs.len(), 1);
     }
 
-    #[test]
-    fn context_menu_close_pane_last_parent_group_pane_keeps_confirmation_mode() {
-        let mut state = state_with_workspaces(&["main", "issue"]);
-        state.active = Some(0);
-        state.selected = 1;
-        state.workspaces[0].worktree_space = Some(crate::workspace::WorktreeSpaceMembership {
-            key: "repo-key".into(),
-            label: "herdr".into(),
-            repo_root: "/repo/herdr".into(),
-            checkout_path: "/repo/herdr".into(),
-            is_linked_worktree: false,
-        });
-        state.workspaces[1].worktree_space = Some(crate::workspace::WorktreeSpaceMembership {
-            key: "repo-key".into(),
-            label: "herdr".into(),
-            repo_root: "/repo/herdr".into(),
-            checkout_path: "/repo/herdr-issue".into(),
-            is_linked_worktree: true,
-        });
-        let pane_id = state.workspaces[0].tabs[0].root_pane;
-        let menu = ContextMenuState {
-            kind: ContextMenuKind::Pane {
-                ws_idx: 0,
-                pane_id,
-                has_manual_label: false,
-            },
-            x: 0,
-            y: 0,
-            list: ModalListState::new(4),
-        };
-        let mut terminal_runtimes = crate::terminal::TerminalRuntimeRegistry::new();
-
-        apply_context_menu_action(&mut state, &mut terminal_runtimes, menu, 4);
-
-        assert_eq!(state.selected, 0);
-        assert_eq!(state.mode, Mode::ConfirmClose);
-        assert_eq!(state.workspaces.len(), 2);
-    }
     #[test]
     fn navigator_bulk_expansion_keys_change_the_visible_hierarchy() {
         let mut state = state_with_workspaces(&["home", "api"]);

@@ -12,7 +12,6 @@ impl App {
             context.workspace_id = provided.workspace_id.or(context.workspace_id);
             context.workspace_label = provided.workspace_label.or(context.workspace_label);
             context.workspace_cwd = provided.workspace_cwd.or(context.workspace_cwd);
-            context.worktree = provided.worktree.or(context.worktree);
             context.tab_id = provided.tab_id.or(context.tab_id);
             context.tab_label = provided.tab_label.or(context.tab_label);
             context.focused_pane_id = provided.focused_pane_id.or(context.focused_pane_id);
@@ -43,9 +42,7 @@ impl App {
     ) -> PluginInvocationContext {
         match &event.data {
             EventData::WorkspaceCreated { workspace }
-            | EventData::WorkspaceUpdated { workspace }
-            | EventData::WorktreeCreated { workspace, .. }
-            | EventData::WorktreeOpened { workspace, .. } => {
+            | EventData::WorkspaceUpdated { workspace } => {
                 self.plugin_context_for_workspace_info(workspace, correlation_id)
             }
             EventData::WorkspaceClosed {
@@ -63,8 +60,7 @@ impl App {
                         })
                 }),
             EventData::WorkspaceRenamed { workspace_id, .. }
-            | EventData::WorkspaceFocused { workspace_id }
-            | EventData::WorktreeRemoved { workspace_id, .. } => self
+            | EventData::WorkspaceFocused { workspace_id } => self
                 .plugin_context_for_workspace_id(workspace_id, correlation_id)
                 .unwrap_or_else(|| {
                     let mut context = empty_plugin_context(correlation_id);
@@ -182,11 +178,6 @@ impl App {
                 let mut context = empty_plugin_context(correlation_id);
                 context.workspace_id = Some(workspace.workspace_id.clone());
                 context.workspace_label = Some(workspace.label.clone());
-                context.workspace_cwd = workspace
-                    .worktree
-                    .as_ref()
-                    .map(|worktree| worktree.checkout_path.clone());
-                context.worktree = workspace.worktree.clone();
                 context.tab_id = Some(workspace.active_tab_id.clone());
                 context
             })
@@ -346,7 +337,6 @@ impl App {
             workspace_id: Some(workspace.workspace_id),
             workspace_label: Some(workspace.label),
             workspace_cwd,
-            worktree: workspace.worktree,
             tab_id,
             tab_label,
             focused_pane_id: focused_pane.as_ref().map(|pane| pane.pane_id.clone()),
@@ -397,7 +387,6 @@ fn empty_plugin_context(correlation_id: &str) -> PluginInvocationContext {
         workspace_id: None,
         workspace_label: None,
         workspace_cwd: None,
-        worktree: None,
         tab_id: None,
         tab_label: None,
         focused_pane_id: None,

@@ -7,8 +7,8 @@ use super::{
     config::{read_branch_config, upstream_full_ref},
     discovery::{
         canonicalize_best_effort_path, git_branch, git_ref_storage_is_reftable, git_repo_root,
-        git_rev_parse_verify, git_space_metadata, git_symbolic_head_full, git_worktree_info,
-        read_ref_oid, GitWorktreeInfo,
+        git_rev_parse_verify, git_symbolic_head_full, git_worktree_info, read_ref_oid,
+        GitWorktreeInfo,
     },
 };
 
@@ -151,13 +151,11 @@ pub fn git_status_snapshot_for_cwd(
     cwd: &Path,
     cached: Option<&GitStatusCacheEntry>,
 ) -> (WorkspaceGitStatusSnapshot, Option<GitStatusCacheEntry>) {
-    let space = git_space_metadata(cwd);
     let Some(fingerprint) = git_status_fingerprint(cwd) else {
         return (
             WorkspaceGitStatusSnapshot {
                 branch: git_branch(cwd),
                 ahead_behind: None,
-                space,
             },
             None,
         );
@@ -168,7 +166,6 @@ pub fn git_status_snapshot_for_cwd(
         let snapshot = WorkspaceGitStatusSnapshot {
             branch,
             ahead_behind: cached.snapshot.ahead_behind,
-            space,
         };
         return (
             snapshot.clone(),
@@ -186,7 +183,6 @@ pub fn git_status_snapshot_for_cwd(
     let snapshot = WorkspaceGitStatusSnapshot {
         branch,
         ahead_behind,
-        space,
     };
     (
         snapshot.clone(),
@@ -393,7 +389,6 @@ mod tests {
             snapshot: WorkspaceGitStatusSnapshot {
                 branch: Some("main".into()),
                 ahead_behind: Some((2, 1)),
-                space: git_space_metadata(&root),
             },
         };
 
@@ -416,7 +411,6 @@ mod tests {
             snapshot: WorkspaceGitStatusSnapshot {
                 branch: Some("main".into()),
                 ahead_behind: Some((4, 0)),
-                space: git_space_metadata(&root),
             },
         };
         std::fs::write(root.join(".git/HEAD"), "ref: refs/heads/feature\n").unwrap();
@@ -449,7 +443,6 @@ mod tests {
             snapshot: WorkspaceGitStatusSnapshot {
                 branch: Some("main".into()),
                 ahead_behind: Some((0, 3)),
-                space: git_space_metadata(&root),
             },
         };
         std::fs::write(root.join(".git/config"), "").unwrap();
