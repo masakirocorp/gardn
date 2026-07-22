@@ -6,7 +6,9 @@ use ratatui::{
     Frame,
 };
 
-use super::status::{agent_icon, state_dot, state_label, toast_kind_color};
+use super::status::{
+    agent_icon, agent_section_icon, agent_section_style, state_dot, state_label, toast_kind_color,
+};
 use super::text::truncate_end;
 use super::widgets::fill_rect;
 use crate::app::state::{
@@ -1225,37 +1227,47 @@ fn render_mobile_agent_summary(
         Rect::new(content.x, y, content.width, 1),
         Style::default().bg(bg),
     );
-    let (working_icon, working_style) = agent_icon(AgentState::Working, true, app.spinner_tick, p);
-    let (idle_icon, idle_style) = agent_icon(AgentState::Idle, true, app.spinner_tick, p);
+    let mut spans = vec![
+        Span::styled(
+            if expanded { " ▾ " } else { " ▸ " },
+            Style::default().fg(p.overlay1).bg(bg),
+        ),
+        Span::styled(
+            "Agents",
+            Style::default()
+                .fg(p.text)
+                .bg(bg)
+                .add_modifier(Modifier::BOLD),
+        ),
+    ];
+    if counts == (0, 0, 0) {
+        spans.push(Span::styled(
+            " no agents",
+            Style::default()
+                .fg(p.overlay0)
+                .bg(bg)
+                .add_modifier(Modifier::DIM),
+        ));
+    } else {
+        for (label, count) in [
+            ("triage", counts.0),
+            ("working", counts.1),
+            ("idle", counts.2),
+        ] {
+            if count == 0 {
+                continue;
+            }
+            let (icon, icon_style) = agent_section_icon(label, app.spinner_tick, p);
+            spans.push(Span::styled(" ", Style::default().bg(bg)));
+            spans.push(Span::styled(icon, icon_style.bg(bg)));
+            spans.push(Span::styled(
+                format!(" {count} {label}"),
+                agent_section_style(label, p).bg(bg),
+            ));
+        }
+    }
     frame.render_widget(
-        Paragraph::new(Line::from(vec![
-            Span::styled(
-                if expanded { " ▾ " } else { " ▸ " },
-                Style::default().fg(p.overlay1).bg(bg),
-            ),
-            Span::styled(
-                "Agents ",
-                Style::default()
-                    .fg(p.text)
-                    .bg(bg)
-                    .add_modifier(Modifier::BOLD),
-            ),
-            Span::styled("◉", Style::default().fg(p.peach).bg(bg)),
-            Span::styled(
-                format!("{} triage ", counts.0),
-                Style::default().fg(p.subtext0).bg(bg),
-            ),
-            Span::styled(working_icon, working_style.bg(bg)),
-            Span::styled(
-                format!("{} working ", counts.1),
-                Style::default().fg(p.subtext0).bg(bg),
-            ),
-            Span::styled(idle_icon, idle_style.bg(bg)),
-            Span::styled(
-                format!("{} idle", counts.2),
-                Style::default().fg(p.subtext0).bg(bg),
-            ),
-        ])),
+        Paragraph::new(Line::from(spans)),
         Rect::new(content.x, y, content.width, 1),
     );
 }
@@ -1739,6 +1751,19 @@ mod tests {
         assert!(!text.contains("no agents"), "header: {text:?}");
         assert!(text.contains("Agents"), "header: {text:?}");
         assert!(text.contains("1 working"), "header: {text:?}");
+        assert!(!text.contains("triage"), "header: {text:?}");
+        assert!(!text.contains("idle"), "header: {text:?}");
+        let working_x = (0..44)
+            .find(|x| buffer[(*x, 1)].symbol() == "w")
+            .expect("working label");
+        assert_eq!(
+            buffer[(working_x, 1)].style().fg,
+            agent_section_style("working", &app.palette).fg
+        );
+        assert!(buffer[(working_x, 1)]
+            .style()
+            .add_modifier
+            .contains(Modifier::BOLD));
         let icon_x = (0..44)
             .find(|x| buffer[(*x, 0)].symbol() == "■")
             .expect("group icon");
@@ -1746,6 +1771,79 @@ mod tests {
             buffer[(icon_x, 0)].style().fg,
             Some(app.group_accent_color(group_idx))
         );
+    }
+
+    #[test]
+    fn mobile_header_uses_the_sidebar_empty_agent_state() {
+        let mut app = crate::app::state::AppState::test_new();
+        app.view.mobile_header_rect = Rect::new(0, 0, 44, 2);
+        let terminal_runtimes = TerminalRuntimeRegistry::new();
+        let mut terminal =
+            ratatui::Terminal::new(ratatui::backend::TestBackend::new(44, 2)).unwrap();
+
+        terminal
+            .draw(|frame| {
+                render_mobile_header(&app, &terminal_runtimes, frame, Rect::new(0, 0, 44, 2))
+            })
+            .unwrap();
+
+        let buffer = terminal.backend().buffer();
+        let text = buffer_text(buffer);
+        assert!(text.contains("Agents no agents"), "header: {text:?}");
+        assert!(!text.contains("triage"), "header: {text:?}");
+        assert!(!text.contains("working"), "header: {text:?}");
+        assert!(!text.contains("idle"), "header: {text:?}");
+        let empty_state_x = (0..44)
+            .filter(|x| buffer[(*x, 1)].symbol() == "n")
+            .nth(1)
+            .expect("no agents label");
+        let empty_style = buffer[(empty_state_x, 1)].style();
+        assert_eq!(empty_style.fg, Some(app.palette.overlay0));
+        assert!(empty_style.add_modifier.contains(Modifier::DIM));
+    }
+
+    #[test]
+    fn mobile_agent_summary_uses_sidebar_status_colors() {
+        let app = crate::app::state::AppState::test_new();
+        let mut terminal =
+            ratatui::Terminal::new(ratatui::backend::TestBackend::new(60, 1)).unwrap();
+
+        terminal
+            .draw(|frame| {
+                render_mobile_agent_summary(
+                    &app,
+                    frame,
+                    Rect::new(0, 0, 60, 1),
+                    Rect::new(0, 0, 60, 1),
+                    0,
+                    0,
+                    (2, 1, 3),
+                    false,
+                    false,
+                )
+            })
+            .unwrap();
+
+        let buffer = terminal.backend().buffer();
+        let text = buffer_text(buffer);
+        for (label, count) in [("triage", 2), ("working", 1), ("idle", 3)] {
+            assert!(
+                text.contains(&format!("{count} {label}")),
+                "summary: {text:?}"
+            );
+            let label_x = (0..60)
+                .find(|x| {
+                    label.chars().enumerate().all(|(offset, ch)| {
+                        buffer[(*x + offset as u16, 0)].symbol() == ch.to_string()
+                    })
+                })
+                .unwrap_or_else(|| panic!("{label} label"));
+            let style = buffer[(label_x, 0)].style();
+            assert_eq!(style.fg, agent_section_style(label, &app.palette).fg);
+            assert!(style.add_modifier.contains(Modifier::BOLD));
+        }
+        assert!(text.contains("! 2 triage"), "summary: {text:?}");
+        assert!(text.contains("✓ 3 idle"), "summary: {text:?}");
     }
 
     #[test]

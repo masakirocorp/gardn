@@ -10,7 +10,9 @@ use ratatui::{
 };
 
 use super::scrollbar::{render_scrollbar, should_show_scrollbar};
-use super::status::{agent_icon, state_dot, state_label, state_label_color};
+use super::status::{
+    agent_icon, agent_section_icon, agent_section_style, state_dot, state_label, state_label_color,
+};
 use super::text::display_width;
 use super::widgets::fill_rect;
 use crate::app::state::{AgentPanelScope, CollapsedSidebarHover, Palette};
@@ -697,13 +699,7 @@ fn agent_token_line(
 }
 
 fn agent_panel_section_header_style(section: &AgentPanelSection, p: &Palette) -> Style {
-    let color = match section.label {
-        "triage" => p.peach,
-        "working" => state_label_color(AgentState::Working, true, p),
-        "idle" => state_label_color(AgentState::Idle, true, p),
-        _ => p.overlay0,
-    };
-    Style::default().fg(color).add_modifier(Modifier::BOLD)
+    agent_section_style(section.label, p)
 }
 
 fn agent_panel_section_icon(
@@ -711,12 +707,7 @@ fn agent_panel_section_icon(
     spinner_tick: u32,
     p: &Palette,
 ) -> (&'static str, Style) {
-    match section.label {
-        "triage" => ("!", agent_panel_section_header_style(section, p)),
-        "working" => agent_icon(AgentState::Working, true, spinner_tick, p),
-        "idle" => agent_icon(AgentState::Idle, true, spinner_tick, p),
-        _ => ("?", Style::default().fg(p.overlay0)),
-    }
+    agent_section_icon(section.label, spinner_tick, p)
 }
 
 fn right_entry_detail_prefix(_p: &Palette) -> Vec<Span<'static>> {

@@ -186,6 +186,25 @@ pub(super) fn agent_icon(
     }
 }
 
+pub(super) fn agent_section_style(label: &str, p: &Palette) -> Style {
+    let color = match label {
+        "triage" => p.peach,
+        "working" => state_label_color(AgentState::Working, true, p),
+        "idle" => state_label_color(AgentState::Idle, true, p),
+        _ => p.overlay0,
+    };
+    Style::default().fg(color).add_modifier(Modifier::BOLD)
+}
+
+pub(super) fn agent_section_icon(label: &str, tick: u32, p: &Palette) -> (&'static str, Style) {
+    match label {
+        "triage" => ("!", agent_section_style(label, p)),
+        "working" => agent_icon(AgentState::Working, true, tick, p),
+        "idle" => agent_icon(AgentState::Idle, true, tick, p),
+        _ => ("?", Style::default().fg(p.overlay0)),
+    }
+}
+
 pub(super) fn state_label(state: AgentState, seen: bool) -> &'static str {
     match (state, seen) {
         (AgentState::Blocked, _) => "blocked",
