@@ -1351,6 +1351,18 @@ impl AppState {
             if !matches!(self.mode, Mode::Terminal | Mode::Resize) {
                 return false;
             }
+            if rect_contains(
+                crate::ui::mobile_agent_strip_rect(self.view.mobile_header_rect),
+                mouse.column,
+                mouse.row,
+            ) {
+                self.mobile_agents_expanded = true;
+                self.mobile_switcher_level = crate::ui::initial_mobile_switcher_level(self);
+                self.mobile_switcher_scroll = 0;
+                self.mobile_switcher_selected = 0;
+                self.mode = Mode::Navigate;
+                return true;
+            }
             if rect_contains(self.view.mobile_menu_hit_area, mouse.column, mouse.row) {
                 self.mobile_switcher_scroll = 0;
                 self.mobile_switcher_level = crate::ui::initial_mobile_switcher_level(self);
@@ -3780,7 +3792,7 @@ mod tests {
     }
 
     #[test]
-    fn mobile_agent_summary_expands_and_navigates_to_the_clicked_agent() {
+    fn persistent_mobile_agent_strip_opens_and_navigates_to_the_clicked_agent() {
         let mut app = app_for_mouse_test();
         app.state.workspaces = vec![Workspace::test_new("one"), Workspace::test_new("two")];
         app.state.ensure_test_terminals();
@@ -3798,10 +3810,13 @@ mod tests {
             .set_detected_state(Some(Agent::Codex), AgentState::Working);
 
         crate::ui::compute_view(&mut app.state, Rect::new(0, 0, 44, 20));
-        open_mobile_switcher(&mut app);
-        let (column, row) =
-            mobile_switcher_point_for_target(&app, crate::ui::MobileSwitcherTarget::ToggleAgents);
-        app.handle_mouse(mouse(MouseEventKind::Down(MouseButton::Left), column, row));
+        let strip = crate::ui::mobile_agent_strip_rect(app.state.view.mobile_header_rect);
+        app.handle_mouse(mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            strip.x + 2,
+            strip.y,
+        ));
+        assert_eq!(app.state.mode, Mode::Navigate);
         assert!(app.state.mobile_agents_expanded);
 
         let agent = crate::ui::MobileSwitcherTarget::Agent {

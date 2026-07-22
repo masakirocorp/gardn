@@ -6423,6 +6423,19 @@ impl App {
                 return false;
             }
             if Self::rect_contains(
+                crate::ui::mobile_agent_strip_rect(client_view.computed.mobile_header_rect),
+                mouse.column,
+                mouse.row,
+            ) {
+                client_view.mobile_agents_expanded = true;
+                client_view.mobile_switcher_level =
+                    crate::ui::initial_mobile_switcher_level(&self.state);
+                client_view.mobile_switcher_scroll = 0;
+                client_view.mobile_switcher_selected = 0;
+                client_view.mode = Mode::Navigate;
+                return true;
+            }
+            if Self::rect_contains(
                 client_view.computed.mobile_menu_hit_area,
                 mouse.column,
                 mouse.row,
@@ -14695,7 +14708,7 @@ command = "printf literal > '{}'"
     }
 
     #[tokio::test]
-    async fn route_client_events_for_view_mobile_agents_expand_and_focus_client_locally() {
+    async fn route_client_events_for_view_mobile_agent_strip_focuses_client_locally() {
         let mut app = test_app();
         app.state.workspaces = vec![Workspace::test_new("one"), Workspace::test_new("two")];
         app.state.ensure_test_terminals();
@@ -14714,16 +14727,11 @@ command = "printf literal > '{}'"
 
         let area = ratatui::layout::Rect::new(0, 0, 44, 20);
         let mut client = ClientViewState::from_default_client_state(&app.state);
-        client.mode = Mode::Navigate;
-        client.mobile_switcher_level = state::MobileSwitcherLevel::Groups;
         let other_client = ClientViewState::from_default_client_state(&app.state);
         compute_client_view(&app, &mut client, area);
 
-        let (column, row) = mobile_switcher_point_for_target(
-            &app,
-            &client,
-            crate::ui::MobileSwitcherTarget::ToggleAgents,
-        );
+        let strip = crate::ui::mobile_agent_strip_rect(client.computed.mobile_header_rect);
+        let (column, row) = (strip.x + 2, strip.y);
         app.route_client_events_for_view(
             &mut client,
             vec![raw_mouse(
@@ -14734,6 +14742,7 @@ command = "printf literal > '{}'"
             true,
         );
         assert!(client.mobile_agents_expanded);
+        assert_eq!(client.mode, Mode::Navigate);
         assert!(!app.state.mobile_agents_expanded);
         assert!(!other_client.mobile_agents_expanded);
 

@@ -154,14 +154,14 @@ pub(crate) use self::{
     keybind_help::{keybind_help_layout, keybind_help_scroll_metrics, keybind_help_scrollbar_rect},
     mobile::{
         initial_mobile_switcher_level, keep_mobile_switcher_selection_visible,
-        keep_mobile_switcher_selection_visible_for_view, mobile_switcher_areas,
-        mobile_switcher_areas_for_view, mobile_switcher_content_target_index,
-        mobile_switcher_content_target_index_for_view, mobile_switcher_max_scroll,
-        mobile_switcher_max_scroll_for_view, mobile_switcher_selected_target,
-        mobile_switcher_selected_target_for_view, mobile_switcher_target_at,
-        mobile_switcher_target_at_for_view, mobile_switcher_target_count,
-        mobile_switcher_target_count_for_view, mobile_switcher_workspace_doc_row,
-        parent_mobile_switcher_level, MobileSwitcherTarget,
+        keep_mobile_switcher_selection_visible_for_view, mobile_agent_strip_rect,
+        mobile_switcher_areas, mobile_switcher_areas_for_view,
+        mobile_switcher_content_target_index, mobile_switcher_content_target_index_for_view,
+        mobile_switcher_max_scroll, mobile_switcher_max_scroll_for_view,
+        mobile_switcher_selected_target, mobile_switcher_selected_target_for_view,
+        mobile_switcher_target_at, mobile_switcher_target_at_for_view,
+        mobile_switcher_target_count, mobile_switcher_target_count_for_view,
+        mobile_switcher_workspace_doc_row, parent_mobile_switcher_level, MobileSwitcherTarget,
     },
     panes::pane_is_scrolled_back,
     tabs::compute_tab_bar_view,
@@ -1031,7 +1031,7 @@ fn compute_mobile_view(
     resize_panes: bool,
     cell_size: crate::kitty_graphics::HostCellSize,
 ) {
-    let header_h = if app.zen_mode { 0 } else { area.height.min(1) };
+    let header_h = if app.zen_mode { 0 } else { area.height.min(2) };
     let (header_rect, terminal_area) = if header_h == 0 {
         (Rect::default(), area)
     } else if area.height > header_h {
@@ -1113,7 +1113,7 @@ fn compute_mobile_view_for_client(
     let header_h = if client_view.zen_mode {
         0
     } else {
-        area.height.min(1)
+        area.height.min(2)
     };
     let (header_rect, terminal_area) = if header_h == 0 {
         (Rect::default(), area)
@@ -1602,8 +1602,8 @@ mod tests {
         assert_eq!(app.view.layout, ViewLayout::Mobile);
         assert_eq!(app.view.sidebar_rect, Rect::default());
         assert_eq!(app.view.tab_bar_rect, Rect::default());
-        assert_eq!(app.view.mobile_header_rect, Rect::new(0, 0, 44, 1));
-        assert_eq!(app.view.terminal_area, Rect::new(0, 1, 44, 19));
+        assert_eq!(app.view.mobile_header_rect, Rect::new(0, 0, 44, 2));
+        assert_eq!(app.view.terminal_area, Rect::new(0, 2, 44, 18));
         assert_eq!(app.view.mobile_menu_hit_area.height, 1);
         assert_eq!(
             app.view.mobile_menu_hit_area.x + app.view.mobile_menu_hit_area.width,
@@ -1625,8 +1625,8 @@ mod tests {
         app.mobile_width_threshold = 90;
         compute_view(&mut app, Rect::new(0, 0, 80, 20));
         assert_eq!(app.view.layout, ViewLayout::Mobile);
-        assert_eq!(app.view.mobile_header_rect, Rect::new(0, 0, 80, 1));
-        assert_eq!(app.view.terminal_area, Rect::new(0, 1, 80, 19));
+        assert_eq!(app.view.mobile_header_rect, Rect::new(0, 0, 80, 2));
+        assert_eq!(app.view.terminal_area, Rect::new(0, 2, 80, 18));
     }
 
     #[tokio::test]

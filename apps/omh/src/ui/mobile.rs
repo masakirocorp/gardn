@@ -293,18 +293,20 @@ pub(crate) fn is_mobile_width(area: Rect, threshold: u16) -> bool {
     area.width > 0 && area.width <= threshold
 }
 
+pub(crate) fn mobile_agent_strip_rect(header: Rect) -> Rect {
+    if header.height < 2 {
+        return Rect::default();
+    }
+    Rect::new(header.x, header.y + 1, header.width, 1)
+}
+
 pub(crate) fn compute_mobile_header_hit_areas(_app: &AppState, area: Rect) -> MobileHeaderHitAreas {
     if area.width == 0 || area.height == 0 {
         return MobileHeaderHitAreas::default();
     }
 
     let width = SWITCH_BUTTON_WIDTH.min(area.width);
-    let switch = Rect::new(
-        area.x + area.width.saturating_sub(width),
-        area.y,
-        width,
-        area.height,
-    );
+    let switch = Rect::new(area.x + area.width.saturating_sub(width), area.y, width, 1);
 
     MobileHeaderHitAreas { menu: switch }
 }
@@ -567,12 +569,20 @@ pub(crate) fn render_mobile_header(
     let p = &app.palette;
     fill_rect(frame, area, Style::default().bg(p.panel_bg));
 
+    let primary = Rect::new(area.x, area.y, area.width, 1);
     let switch = app.view.mobile_menu_hit_area;
-    let status_w = switch.x.saturating_sub(area.x).saturating_sub(1);
-    let status = Rect::new(area.x, area.y, status_w, area.height);
+    let status_w = switch.x.saturating_sub(primary.x).saturating_sub(1);
+    let status = Rect::new(primary.x, primary.y, status_w, 1);
 
     render_header_status(app, terminal_runtimes, frame, status);
     render_switch_button(app, frame, switch);
+    render_mobile_agent_strip(
+        app,
+        terminal_runtimes,
+        None,
+        frame,
+        mobile_agent_strip_rect(area),
+    );
 }
 
 pub(crate) fn render_mobile_header_for_view(
@@ -589,12 +599,61 @@ pub(crate) fn render_mobile_header_for_view(
     let p = &app.palette;
     fill_rect(frame, area, Style::default().bg(p.panel_bg));
 
+    let primary = Rect::new(area.x, area.y, area.width, 1);
     let switch = view.computed.mobile_menu_hit_area;
-    let status_w = switch.x.saturating_sub(area.x).saturating_sub(1);
-    let status = Rect::new(area.x, area.y, status_w, area.height);
+    let status_w = switch.x.saturating_sub(primary.x).saturating_sub(1);
+    let status = Rect::new(primary.x, primary.y, status_w, 1);
 
     render_header_status_for_view(app, terminal_runtimes, view, frame, status);
     render_switch_button(app, frame, switch);
+    render_mobile_agent_strip(
+        app,
+        terminal_runtimes,
+        Some(view),
+        frame,
+        mobile_agent_strip_rect(area),
+    );
+}
+
+fn render_mobile_agent_strip(
+    app: &AppState,
+    terminal_runtimes: &TerminalRuntimeRegistry,
+    view: Option<&ClientViewState>,
+    frame: &mut Frame,
+    area: Rect,
+) {
+    if area == Rect::default() {
+        return;
+    }
+    let sections = view.map_or_else(
+        || super::sidebar::agent_panel_sections_all_workspaces(app, terminal_runtimes),
+        |view| {
+            super::sidebar::agent_panel_sections_all_workspaces_for_view(
+                app,
+                terminal_runtimes,
+                view,
+            )
+        },
+    );
+    let count = |label: &str| {
+        sections
+            .iter()
+            .find(|section| section.label == label)
+            .map_or(0, |section| section.entries.len())
+    };
+    render_mobile_agent_summary(
+        app,
+        frame,
+        area,
+        area,
+        0,
+        0,
+        (count("triage"), count("working"), count("idle")),
+        view.map_or(app.mobile_agents_expanded, |view| {
+            view.mobile_agents_expanded
+        }),
+        false,
+    );
 }
 
 pub(crate) fn mobile_toast_banner_rect(area: Rect) -> Rect {
@@ -1660,15 +1719,16 @@ mod tests {
     }
 
     #[test]
-    fn mobile_header_is_one_row_and_uses_the_active_group_identity() {
+    fn mobile_header_keeps_agent_summary_visible_below_context() {
         let (mut app, group_idx, _) = hierarchy_fixture();
+        app.view.mobile_header_rect = Rect::new(0, 0, 44, 2);
         app.view.mobile_menu_hit_area = Rect::new(34, 0, 10, 1);
         let terminal_runtimes = TerminalRuntimeRegistry::new();
-        let backend = ratatui::backend::TestBackend::new(44, 1);
+        let backend = ratatui::backend::TestBackend::new(44, 2);
         let mut terminal = ratatui::Terminal::new(backend).unwrap();
         terminal
             .draw(|frame| {
-                render_mobile_header(&app, &terminal_runtimes, frame, Rect::new(0, 0, 44, 1))
+                render_mobile_header(&app, &terminal_runtimes, frame, Rect::new(0, 0, 44, 2))
             })
             .unwrap();
         let buffer = terminal.backend().buffer();
@@ -1677,6 +1737,8 @@ mod tests {
         assert!(text.contains("Observability"), "header: {text:?}");
         assert!(text.contains("dashboards"), "header: {text:?}");
         assert!(!text.contains("no agents"), "header: {text:?}");
+        assert!(text.contains("Agents"), "header: {text:?}");
+        assert!(text.contains("1 working"), "header: {text:?}");
         let icon_x = (0..44)
             .find(|x| buffer[(*x, 0)].symbol() == "■")
             .expect("group icon");
