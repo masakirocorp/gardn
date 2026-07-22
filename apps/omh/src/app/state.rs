@@ -1446,6 +1446,21 @@ pub enum ViewLayout {
     Mobile,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(crate) enum MobileSwitcherLevel {
+    Groups,
+    #[default]
+    Workspaces,
+    Tabs {
+        ws_idx: usize,
+    },
+    Panes {
+        ws_idx: usize,
+        tab_idx: usize,
+    },
+    Actions,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ContextBarTarget {
     Group,
@@ -2728,6 +2743,8 @@ pub struct AppState {
     pub hovered_tab: Option<usize>,
     pub(crate) collapsed_sidebar_hover: Option<CollapsedSidebarHover>,
     pub mobile_switcher_scroll: usize,
+    pub(crate) mobile_switcher_level: MobileSwitcherLevel,
+    pub(crate) mobile_switcher_selected: usize,
     // View geometry (computed before render, consumed by render + mouse)
     pub view: ViewState,
     pub(crate) drag: Option<DragState>,
@@ -3477,6 +3494,8 @@ impl AppState {
             hovered_tab: None,
             collapsed_sidebar_hover: None,
             mobile_switcher_scroll: 0,
+            mobile_switcher_level: MobileSwitcherLevel::default(),
+            mobile_switcher_selected: 0,
             view: ViewState {
                 layout: ViewLayout::Desktop,
                 sidebar_rect: Rect::default(),

@@ -9,7 +9,9 @@ use ratatui::{
 use super::status::{state_dot, toast_kind_color};
 use super::text::truncate_end;
 use super::widgets::fill_rect;
-use crate::app::state::{NavigatorRow, NavigatorTarget, Palette, ToastKind, ToastNotification};
+use crate::app::state::{
+    MobileSwitcherLevel, NavigatorRow, NavigatorTarget, Palette, ToastKind, ToastNotification,
+};
 use crate::app::{AppState, ClientViewState};
 use crate::detect::AgentState;
 use crate::layout::PaneId;
@@ -24,12 +26,15 @@ pub(crate) struct MobileHeaderHitAreas {
 
 #[derive(Debug, Clone, Copy, Default)]
 pub(crate) struct MobileSwitcherAreas {
+    pub panel: Rect,
     pub close: Rect,
+    pub breadcrumb: Rect,
     pub viewport: Rect,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum MobileSwitcherTarget {
+    Back,
     Group(usize),
     NewSpace,
     Workspace(usize),
@@ -43,19 +48,22 @@ pub(crate) enum MobileSwitcherTarget {
         tab_idx: usize,
         pane_id: PaneId,
     },
+    OpenActions,
     Menu(usize),
 }
 
 #[derive(Debug, PartialEq, Eq)]
 enum MobileNavigationRow {
     Section(&'static str),
+    Divider,
     Action {
         label: &'static str,
         target: MobileSwitcherTarget,
-        depth: u8,
-        group_idx: Option<usize>,
     },
-    Hierarchy(NavigatorRow),
+    Hierarchy {
+        row: NavigatorRow,
+        target: MobileSwitcherTarget,
+    },
     Menu {
         label: String,
         target: MobileSwitcherTarget,
@@ -65,24 +73,10 @@ enum MobileNavigationRow {
 impl MobileNavigationRow {
     fn target(&self) -> Option<MobileSwitcherTarget> {
         match self {
-            Self::Section(_) => None,
-            Self::Action { target, .. } | Self::Menu { target, .. } => Some(*target),
-            Self::Hierarchy(row) => Some(match row.target {
-                NavigatorTarget::Group { group_idx } => MobileSwitcherTarget::Group(group_idx),
-                NavigatorTarget::Workspace { ws_idx } => MobileSwitcherTarget::Workspace(ws_idx),
-                NavigatorTarget::Tab { ws_idx, tab_idx } => {
-                    MobileSwitcherTarget::Tab { ws_idx, tab_idx }
-                }
-                NavigatorTarget::Pane {
-                    ws_idx,
-                    tab_idx,
-                    pane_id,
-                } => MobileSwitcherTarget::Pane {
-                    ws_idx,
-                    tab_idx,
-                    pane_id,
-                },
-            }),
+            Self::Section(_) | Self::Divider => None,
+            Self::Action { target, .. }
+            | Self::Hierarchy { target, .. }
+            | Self::Menu { target, .. } => Some(*target),
         }
     }
 }
@@ -96,53 +90,126 @@ fn mobile_navigation_rows(
         || app.mobile_navigation_rows(terminal_runtimes),
         |view| app.mobile_navigation_rows_for_view(view, terminal_runtimes),
     );
-    let active_workspace = view.map_or(app.active, |view| view.active_workspace);
+    let level = view.map_or(app.mobile_switcher_level, |view| view.mobile_switcher_level);
     let active_group = view.map_or(app.active_group, |view| view.active_group);
-    let mut rows = Vec::with_capacity(
-        hierarchy.len() + app.global_menu_labels().len() + usize::from(!app.groups.is_empty()) + 3,
-    );
-    rows.push(MobileNavigationRow::Section("navigate"));
-    for row in hierarchy {
-        let group_target = matches!(
-            row.target,
-            NavigatorTarget::Group { group_idx } if group_idx == active_group
-        );
-        let workspace_target = matches!(
-            row.target,
-            NavigatorTarget::Workspace { ws_idx } if Some(ws_idx) == active_workspace
-        );
-        rows.push(MobileNavigationRow::Hierarchy(row));
-        if group_target {
-            rows.push(MobileNavigationRow::Action {
-                label: "+ new space",
-                target: MobileSwitcherTarget::NewSpace,
-                depth: 1,
-                group_idx: Some(active_group),
-            });
+    let mut rows = Vec::new();
+
+    match level {
+        MobileSwitcherLevel::Groups => {
+            rows.push(MobileNavigationRow::Section("GROUPS"));
+            rows.extend(hierarchy.into_iter().filter_map(|row| match row.target {
+                NavigatorTarget::Group { group_idx } => Some(MobileNavigationRow::Hierarchy {
+                    row,
+                    target: MobileSwitcherTarget::Group(group_idx),
+                }),
+                _ => None,
+            }));
+            append_mobile_footer(&mut rows, None);
         }
-        if workspace_target {
-            let group_idx = active_workspace
-                .and_then(|ws_idx| app.workspaces.get(ws_idx))
-                .and_then(|workspace| app.group_index_by_id(&workspace.group_id));
-            rows.push(MobileNavigationRow::Action {
-                label: "+ new tab",
-                target: MobileSwitcherTarget::NewTab,
-                depth: 2,
-                group_idx,
-            });
+        MobileSwitcherLevel::Workspaces => {
+            rows.push(MobileNavigationRow::Section("SPACES"));
+            rows.extend(hierarchy.into_iter().filter_map(|row| {
+                match row.target {
+                    NavigatorTarget::Workspace { ws_idx }
+                        if app
+                            .workspaces
+                            .get(ws_idx)
+                            .and_then(|workspace| app.group_index_by_id(&workspace.group_id))
+                            == Some(active_group) =>
+                    {
+                        Some(MobileNavigationRow::Hierarchy {
+                            row,
+                            target: MobileSwitcherTarget::Workspace(ws_idx),
+                        })
+                    }
+                    _ => None,
+                }
+            }));
+            append_mobile_footer(
+                &mut rows,
+                Some(("+ New space", MobileSwitcherTarget::NewSpace)),
+            );
+        }
+        MobileSwitcherLevel::Tabs { ws_idx } => {
+            rows.push(MobileNavigationRow::Section("TABS"));
+            rows.extend(hierarchy.into_iter().filter_map(|row| match row.target {
+                NavigatorTarget::Tab {
+                    ws_idx: row_ws_idx,
+                    tab_idx,
+                } if row_ws_idx == ws_idx => Some(MobileNavigationRow::Hierarchy {
+                    row,
+                    target: MobileSwitcherTarget::Tab { ws_idx, tab_idx },
+                }),
+                _ => None,
+            }));
+            append_mobile_footer(&mut rows, Some(("+ New tab", MobileSwitcherTarget::NewTab)));
+        }
+        MobileSwitcherLevel::Panes { ws_idx, tab_idx } => {
+            rows.push(MobileNavigationRow::Section("PANES"));
+            rows.extend(hierarchy.into_iter().filter_map(|row| match row.target {
+                NavigatorTarget::Pane {
+                    ws_idx: row_ws_idx,
+                    tab_idx: row_tab_idx,
+                    pane_id,
+                } if row_ws_idx == ws_idx && row_tab_idx == tab_idx => {
+                    Some(MobileNavigationRow::Hierarchy {
+                        row,
+                        target: MobileSwitcherTarget::Pane {
+                            ws_idx,
+                            tab_idx,
+                            pane_id,
+                        },
+                    })
+                }
+                _ => None,
+            }));
+            append_mobile_footer(&mut rows, None);
+        }
+        MobileSwitcherLevel::Actions => {
+            rows.push(MobileNavigationRow::Section("ACTIONS"));
+            rows.extend(
+                app.global_menu_labels()
+                    .into_iter()
+                    .enumerate()
+                    .map(|(idx, label)| MobileNavigationRow::Menu {
+                        label: label.to_string(),
+                        target: MobileSwitcherTarget::Menu(idx),
+                    }),
+            );
         }
     }
-    rows.push(MobileNavigationRow::Section("menu"));
-    rows.extend(
-        app.global_menu_labels()
-            .into_iter()
-            .enumerate()
-            .map(|(idx, label)| MobileNavigationRow::Menu {
-                label: label.to_string(),
-                target: MobileSwitcherTarget::Menu(idx),
-            }),
-    );
     rows
+}
+
+fn append_mobile_footer(
+    rows: &mut Vec<MobileNavigationRow>,
+    contextual_action: Option<(&'static str, MobileSwitcherTarget)>,
+) {
+    rows.push(MobileNavigationRow::Divider);
+    if let Some((label, target)) = contextual_action {
+        rows.push(MobileNavigationRow::Action { label, target });
+    }
+    rows.push(MobileNavigationRow::Action {
+        label: "More actions",
+        target: MobileSwitcherTarget::OpenActions,
+    });
+}
+
+pub(crate) fn initial_mobile_switcher_level(_app: &AppState) -> MobileSwitcherLevel {
+    MobileSwitcherLevel::Groups
+}
+
+pub(crate) fn parent_mobile_switcher_level(
+    app: &AppState,
+    level: MobileSwitcherLevel,
+) -> MobileSwitcherLevel {
+    match level {
+        MobileSwitcherLevel::Groups => MobileSwitcherLevel::Groups,
+        MobileSwitcherLevel::Workspaces => MobileSwitcherLevel::Groups,
+        MobileSwitcherLevel::Tabs { .. } => MobileSwitcherLevel::Workspaces,
+        MobileSwitcherLevel::Panes { ws_idx, .. } => MobileSwitcherLevel::Tabs { ws_idx },
+        MobileSwitcherLevel::Actions => initial_mobile_switcher_level(app),
+    }
 }
 
 pub(crate) fn is_mobile_width(area: Rect, threshold: u16) -> bool {
@@ -166,51 +233,54 @@ pub(crate) fn compute_mobile_header_hit_areas(_app: &AppState, area: Rect) -> Mo
 }
 
 pub(crate) fn mobile_switcher_areas(app: &AppState) -> MobileSwitcherAreas {
-    let screen = mobile_screen_rect(app);
-    if screen.width == 0 || screen.height <= 2 {
-        return MobileSwitcherAreas::default();
-    }
-
-    let header_h = screen.height.min(2);
-    let close_w = 10u16.min(screen.width);
-    let close = Rect::new(
-        screen.x + screen.width.saturating_sub(close_w),
-        screen.y,
-        close_w,
-        header_h,
-    );
-    let viewport = Rect::new(
-        screen.x,
-        screen.y + header_h + 1,
-        screen.width,
-        screen.height.saturating_sub(header_h + 1),
-    );
-
-    MobileSwitcherAreas { close, viewport }
+    let terminal_runtimes = TerminalRuntimeRegistry::new();
+    let row_count = mobile_navigation_rows(app, &terminal_runtimes, None).len();
+    mobile_switcher_areas_for_rows(mobile_screen_rect(app), row_count)
 }
 
-pub(crate) fn mobile_switcher_areas_for_view(view: &ClientViewState) -> MobileSwitcherAreas {
-    let screen = view.screen_rect();
-    if screen.width == 0 || screen.height <= 2 {
+pub(crate) fn mobile_switcher_areas_for_view(
+    app: &AppState,
+    view: &ClientViewState,
+) -> MobileSwitcherAreas {
+    let terminal_runtimes = TerminalRuntimeRegistry::new();
+    let row_count = mobile_navigation_rows(app, &terminal_runtimes, Some(view)).len();
+    mobile_switcher_areas_for_rows(view.screen_rect(), row_count)
+}
+
+fn mobile_switcher_areas_for_rows(screen: Rect, row_count: usize) -> MobileSwitcherAreas {
+    const CHROME_HEIGHT: u16 = 3;
+    if screen.width == 0 || screen.height <= CHROME_HEIGHT {
         return MobileSwitcherAreas::default();
     }
 
-    let header_h = screen.height.min(2);
-    let close_w = 10u16.min(screen.width);
-    let close = Rect::new(
-        screen.x + screen.width.saturating_sub(close_w),
-        screen.y,
-        close_w,
-        header_h,
-    );
-    let viewport = Rect::new(
+    let viewport_height = (row_count.max(1) as u16).min(screen.height - CHROME_HEIGHT);
+    let panel = Rect::new(
         screen.x,
-        screen.y + header_h + 1,
+        screen.y,
         screen.width,
-        screen.height.saturating_sub(header_h + 1),
+        CHROME_HEIGHT + viewport_height,
+    );
+    let close_width = 3.min(screen.width);
+    let close = Rect::new(
+        panel.x + panel.width.saturating_sub(close_width),
+        panel.y,
+        close_width,
+        1,
+    );
+    let breadcrumb = Rect::new(panel.x, panel.y + 1, panel.width, 1);
+    let viewport = Rect::new(
+        panel.x,
+        panel.y + CHROME_HEIGHT,
+        panel.width,
+        viewport_height,
     );
 
-    MobileSwitcherAreas { close, viewport }
+    MobileSwitcherAreas {
+        panel,
+        close,
+        breadcrumb,
+        viewport,
+    }
 }
 
 pub(crate) fn mobile_switcher_max_scroll_for_height(app: &AppState, viewport_height: u16) -> usize {
@@ -220,16 +290,11 @@ pub(crate) fn mobile_switcher_max_scroll_for_height(app: &AppState, viewport_hei
         .saturating_sub(viewport_height as usize)
 }
 
-pub(crate) fn mobile_switcher_workspace_doc_range(
-    app: &AppState,
-    idx: usize,
-) -> std::ops::Range<usize> {
+pub(crate) fn mobile_switcher_workspace_doc_row(app: &AppState, idx: usize) -> Option<usize> {
     let terminal_runtimes = TerminalRuntimeRegistry::new();
-    let start = mobile_navigation_rows(app, &terminal_runtimes, None)
+    mobile_navigation_rows(app, &terminal_runtimes, None)
         .iter()
         .position(|row| row.target() == Some(MobileSwitcherTarget::Workspace(idx)))
-        .unwrap_or(idx);
-    start..start + 1
 }
 
 pub(crate) fn mobile_switcher_max_scroll(app: &AppState) -> usize {
@@ -243,7 +308,7 @@ pub(crate) fn mobile_switcher_max_scroll_for_view(
 ) -> usize {
     mobile_navigation_rows(app, terminal_runtimes, Some(view))
         .len()
-        .saturating_sub(mobile_switcher_areas_for_view(view).viewport.height as usize)
+        .saturating_sub(mobile_switcher_areas_for_view(app, view).viewport.height as usize)
 }
 
 pub(crate) fn mobile_switcher_max_scroll_for_view_height(
@@ -272,20 +337,94 @@ fn mobile_switcher_target_from_rows(
     rows.get(doc_row)?.target()
 }
 
+pub(crate) fn mobile_switcher_target_count(app: &AppState) -> usize {
+    let terminal_runtimes = TerminalRuntimeRegistry::new();
+    mobile_navigation_rows(app, &terminal_runtimes, None)
+        .iter()
+        .filter(|row| row.target().is_some())
+        .count()
+}
+
+pub(crate) fn mobile_switcher_target_count_for_view(
+    app: &AppState,
+    terminal_runtimes: &TerminalRuntimeRegistry,
+    view: &ClientViewState,
+) -> usize {
+    mobile_navigation_rows(app, terminal_runtimes, Some(view))
+        .iter()
+        .filter(|row| row.target().is_some())
+        .count()
+}
+
+pub(crate) fn mobile_switcher_selected_target(app: &AppState) -> Option<MobileSwitcherTarget> {
+    let terminal_runtimes = TerminalRuntimeRegistry::new();
+    mobile_navigation_rows(app, &terminal_runtimes, None)
+        .iter()
+        .filter_map(MobileNavigationRow::target)
+        .nth(app.mobile_switcher_selected)
+}
+
+pub(crate) fn mobile_switcher_selected_target_for_view(
+    app: &AppState,
+    terminal_runtimes: &TerminalRuntimeRegistry,
+    view: &ClientViewState,
+) -> Option<MobileSwitcherTarget> {
+    mobile_navigation_rows(app, terminal_runtimes, Some(view))
+        .iter()
+        .filter_map(MobileNavigationRow::target)
+        .nth(view.mobile_switcher_selected)
+}
+
+fn mobile_switcher_selected_doc_row(rows: &[MobileNavigationRow], selected: usize) -> usize {
+    rows.iter()
+        .enumerate()
+        .filter(|(_, row)| row.target().is_some())
+        .nth(selected)
+        .map_or(0, |(doc_row, _)| doc_row)
+}
+
+pub(crate) fn keep_mobile_switcher_selection_visible(app: &mut AppState) {
+    let terminal_runtimes = TerminalRuntimeRegistry::new();
+    let rows = mobile_navigation_rows(app, &terminal_runtimes, None);
+    let viewport_height = mobile_switcher_areas(app).viewport.height as usize;
+    let selected_row = mobile_switcher_selected_doc_row(&rows, app.mobile_switcher_selected);
+    if selected_row < app.mobile_switcher_scroll {
+        app.mobile_switcher_scroll = selected_row;
+    } else if selected_row >= app.mobile_switcher_scroll.saturating_add(viewport_height) {
+        app.mobile_switcher_scroll = selected_row.saturating_sub(viewport_height.saturating_sub(1));
+    }
+}
+
+pub(crate) fn keep_mobile_switcher_selection_visible_for_view(
+    app: &AppState,
+    terminal_runtimes: &TerminalRuntimeRegistry,
+    view: &mut ClientViewState,
+) {
+    let rows = mobile_navigation_rows(app, terminal_runtimes, Some(view));
+    let viewport_height = mobile_switcher_areas_for_view(app, view).viewport.height as usize;
+    let selected_row = mobile_switcher_selected_doc_row(&rows, view.mobile_switcher_selected);
+    if selected_row < view.mobile_switcher_scroll {
+        view.mobile_switcher_scroll = selected_row;
+    } else if selected_row >= view.mobile_switcher_scroll.saturating_add(viewport_height) {
+        view.mobile_switcher_scroll =
+            selected_row.saturating_sub(viewport_height.saturating_sub(1));
+    }
+}
+
 pub(crate) fn mobile_switcher_target_at(
     app: &AppState,
     col: u16,
     row: u16,
 ) -> Option<MobileSwitcherTarget> {
     let terminal_runtimes = TerminalRuntimeRegistry::new();
+    let areas = mobile_switcher_areas(app);
+    if app.mobile_switcher_level != MobileSwitcherLevel::Groups
+        && rect_contains(areas.breadcrumb, col, row)
+    {
+        return Some(MobileSwitcherTarget::Back);
+    }
     let rows = mobile_navigation_rows(app, &terminal_runtimes, None);
-    mobile_switcher_target_from_rows(
-        &rows,
-        app.mobile_switcher_scroll,
-        mobile_switcher_areas(app).viewport,
-        col,
-        row,
-    )
+    mobile_switcher_target_from_rows(&rows, app.mobile_switcher_scroll, areas.viewport, col, row)
 }
 
 pub(crate) fn mobile_switcher_target_at_for_view(
@@ -295,14 +434,14 @@ pub(crate) fn mobile_switcher_target_at_for_view(
     col: u16,
     row: u16,
 ) -> Option<MobileSwitcherTarget> {
+    let areas = mobile_switcher_areas_for_view(app, view);
+    if view.mobile_switcher_level != MobileSwitcherLevel::Groups
+        && rect_contains(areas.breadcrumb, col, row)
+    {
+        return Some(MobileSwitcherTarget::Back);
+    }
     let rows = mobile_navigation_rows(app, terminal_runtimes, Some(view));
-    mobile_switcher_target_from_rows(
-        &rows,
-        view.mobile_switcher_scroll,
-        mobile_switcher_areas_for_view(view).viewport,
-        col,
-        row,
-    )
+    mobile_switcher_target_from_rows(&rows, view.mobile_switcher_scroll, areas.viewport, col, row)
 }
 
 pub(crate) fn render_mobile_header(
@@ -396,36 +535,18 @@ pub(crate) fn render_mobile_panel(
     app: &AppState,
     terminal_runtimes: &TerminalRuntimeRegistry,
     frame: &mut Frame,
-    area: Rect,
+    _area: Rect,
 ) {
-    if area.width == 0 || area.height == 0 {
-        return;
-    }
-
-    let p = &app.palette;
-    frame.render_widget(Clear, area);
-    fill_rect(frame, area, Style::default().bg(p.panel_bg));
-
     let areas = mobile_switcher_areas(app);
-    frame.render_widget(
-        Paragraph::new(" switch").style(
-            Style::default()
-                .fg(p.text)
-                .bg(p.panel_bg)
-                .add_modifier(Modifier::BOLD),
-        ),
-        Rect::new(area.x, area.y, areas.close.x.saturating_sub(area.x), 1),
+    render_mobile_panel_shell(
+        app,
+        terminal_runtimes,
+        app.mobile_switcher_level,
+        app.active,
+        app.active_group,
+        frame,
+        areas,
     );
-    render_close_button(app, frame, areas.close);
-
-    if area.height > areas.close.height {
-        draw_horizontal_rule(
-            frame,
-            Rect::new(area.x, area.y + areas.close.height, area.width, 1),
-            p,
-        );
-    }
-
     render_mobile_switcher_content(app, terminal_runtimes, frame, areas.viewport);
 }
 
@@ -434,17 +555,36 @@ pub(crate) fn render_mobile_panel_for_view(
     terminal_runtimes: &TerminalRuntimeRegistry,
     view: &ClientViewState,
     frame: &mut Frame,
-    area: Rect,
+    _area: Rect,
 ) {
-    if area.width == 0 || area.height == 0 {
+    let areas = mobile_switcher_areas_for_view(app, view);
+    render_mobile_panel_shell(
+        app,
+        terminal_runtimes,
+        view.mobile_switcher_level,
+        view.active_workspace,
+        view.active_group,
+        frame,
+        areas,
+    );
+    render_mobile_switcher_content_for_view(app, terminal_runtimes, view, frame, areas.viewport);
+}
+
+fn render_mobile_panel_shell(
+    app: &AppState,
+    terminal_runtimes: &TerminalRuntimeRegistry,
+    level: MobileSwitcherLevel,
+    active_workspace: Option<usize>,
+    active_group: usize,
+    frame: &mut Frame,
+    areas: MobileSwitcherAreas,
+) {
+    if areas.panel == Rect::default() {
         return;
     }
-
     let p = &app.palette;
-    frame.render_widget(Clear, area);
-    fill_rect(frame, area, Style::default().bg(p.panel_bg));
-
-    let areas = mobile_switcher_areas_for_view(view);
+    frame.render_widget(Clear, areas.panel);
+    fill_rect(frame, areas.panel, Style::default().bg(p.panel_bg));
     frame.render_widget(
         Paragraph::new(" switch").style(
             Style::default()
@@ -452,19 +592,106 @@ pub(crate) fn render_mobile_panel_for_view(
                 .bg(p.panel_bg)
                 .add_modifier(Modifier::BOLD),
         ),
-        Rect::new(area.x, area.y, areas.close.x.saturating_sub(area.x), 1),
+        Rect::new(
+            areas.panel.x,
+            areas.panel.y,
+            areas.close.x.saturating_sub(areas.panel.x),
+            1,
+        ),
     );
     render_close_button(app, frame, areas.close);
+    render_mobile_breadcrumb(
+        app,
+        terminal_runtimes,
+        level,
+        active_workspace,
+        active_group,
+        frame,
+        areas.breadcrumb,
+    );
+    draw_horizontal_rule(
+        frame,
+        Rect::new(areas.panel.x, areas.panel.y + 2, areas.panel.width, 1),
+        p,
+    );
+}
 
-    if area.height > areas.close.height {
-        draw_horizontal_rule(
-            frame,
-            Rect::new(area.x, area.y + areas.close.height, area.width, 1),
-            p,
-        );
+fn render_mobile_breadcrumb(
+    app: &AppState,
+    terminal_runtimes: &TerminalRuntimeRegistry,
+    level: MobileSwitcherLevel,
+    active_workspace: Option<usize>,
+    active_group: usize,
+    frame: &mut Frame,
+    area: Rect,
+) {
+    if area.width == 0 {
+        return;
     }
-
-    render_mobile_switcher_content_for_view(app, terminal_runtimes, view, frame, areas.viewport);
+    let p = &app.palette;
+    let workspace_for_level = match level {
+        MobileSwitcherLevel::Tabs { ws_idx } | MobileSwitcherLevel::Panes { ws_idx, .. } => {
+            app.workspaces.get(ws_idx)
+        }
+        _ => active_workspace.and_then(|ws_idx| app.workspaces.get(ws_idx)),
+    };
+    let group_idx = workspace_for_level
+        .and_then(|workspace| app.group_index_by_id(&workspace.group_id))
+        .unwrap_or(active_group);
+    let group = app.groups.get(group_idx);
+    let group_name = group.map(|group| group.name.as_str()).unwrap_or("groups");
+    let group_icon = group.map(|group| group.icon.as_str()).unwrap_or("●");
+    let accent = app.group_accent_color(group_idx);
+    let label = match level {
+        MobileSwitcherLevel::Groups => "All groups".to_string(),
+        MobileSwitcherLevel::Workspaces => group_name.to_string(),
+        MobileSwitcherLevel::Tabs { ws_idx } => app
+            .workspaces
+            .get(ws_idx)
+            .map(|workspace| {
+                format!(
+                    "{group_name} / {}",
+                    workspace.display_name_from(&app.terminals, terminal_runtimes)
+                )
+            })
+            .unwrap_or_else(|| group_name.to_string()),
+        MobileSwitcherLevel::Panes { ws_idx, tab_idx } => app
+            .workspaces
+            .get(ws_idx)
+            .map(|workspace| {
+                let workspace_name = workspace.display_name_from(&app.terminals, terminal_runtimes);
+                let tab_name = workspace
+                    .tab_display_name(tab_idx)
+                    .unwrap_or_else(|| (tab_idx + 1).to_string());
+                format!("{group_name} / {workspace_name} / {tab_name}")
+            })
+            .unwrap_or_else(|| group_name.to_string()),
+        MobileSwitcherLevel::Actions => "Actions".to_string(),
+    };
+    let can_go_back = level != MobileSwitcherLevel::Groups;
+    let prefix = if can_go_back { " ‹ " } else { "   " };
+    let mut spans = vec![Span::styled(
+        prefix,
+        Style::default().fg(p.overlay1).bg(p.panel_bg),
+    )];
+    if !matches!(
+        level,
+        MobileSwitcherLevel::Groups | MobileSwitcherLevel::Actions
+    ) {
+        spans.push(Span::styled(
+            group_icon.to_string(),
+            Style::default()
+                .fg(accent)
+                .bg(p.panel_bg)
+                .add_modifier(Modifier::BOLD),
+        ));
+        spans.push(Span::raw(" "));
+    }
+    spans.push(Span::styled(
+        truncate_end(&label, area.width.saturating_sub(6) as usize),
+        Style::default().fg(p.text).bg(p.panel_bg),
+    ));
+    frame.render_widget(Paragraph::new(Line::from(spans)), area);
 }
 
 fn render_header_status(
@@ -615,36 +842,17 @@ fn render_close_button(app: &AppState, frame: &mut Frame, area: Rect) {
         return;
     }
     let p = &app.palette;
-    fill_rect(frame, area, Style::default().bg(p.surface0));
-    for y in area.y..area.y + area.height {
-        frame.buffer_mut()[(area.x, y)]
-            .set_symbol("│")
-            .set_style(Style::default().fg(p.surface_dim).bg(p.surface0));
-    }
     frame.render_widget(
-        Paragraph::new("close")
+        Paragraph::new("×")
             .style(
                 Style::default()
                     .fg(p.overlay1)
-                    .bg(p.surface0)
+                    .bg(p.panel_bg)
                     .add_modifier(Modifier::BOLD),
             )
             .alignment(Alignment::Center),
-        Rect::new(area.x + 1, area.y, area.width.saturating_sub(1), 1),
+        area,
     );
-    if area.height > 1 {
-        frame.render_widget(
-            Paragraph::new("×")
-                .style(
-                    Style::default()
-                        .fg(p.text)
-                        .bg(p.surface0)
-                        .add_modifier(Modifier::BOLD),
-                )
-                .alignment(Alignment::Center),
-            Rect::new(area.x + 1, area.y + 1, area.width.saturating_sub(1), 1),
-        );
-    }
 }
 
 fn render_mobile_switcher_content(
@@ -654,7 +862,14 @@ fn render_mobile_switcher_content(
     viewport: Rect,
 ) {
     let rows = mobile_navigation_rows(app, terminal_runtimes, None);
-    render_mobile_navigation_rows(app, frame, viewport, &rows, app.mobile_switcher_scroll);
+    render_mobile_navigation_rows(
+        app,
+        frame,
+        viewport,
+        &rows,
+        app.mobile_switcher_scroll,
+        app.mobile_switcher_selected,
+    );
 }
 
 fn render_mobile_switcher_content_for_view(
@@ -665,7 +880,14 @@ fn render_mobile_switcher_content_for_view(
     viewport: Rect,
 ) {
     let rows = mobile_navigation_rows(app, terminal_runtimes, Some(view));
-    render_mobile_navigation_rows(app, frame, viewport, &rows, view.mobile_switcher_scroll);
+    render_mobile_navigation_rows(
+        app,
+        frame,
+        viewport,
+        &rows,
+        view.mobile_switcher_scroll,
+        view.mobile_switcher_selected,
+    );
 }
 
 fn render_mobile_navigation_rows(
@@ -674,6 +896,7 @@ fn render_mobile_navigation_rows(
     viewport: Rect,
     rows: &[MobileNavigationRow],
     scroll: usize,
+    selected: usize,
 ) {
     if viewport.width == 0 || viewport.height == 0 {
         return;
@@ -691,43 +914,82 @@ fn render_mobile_navigation_rows(
     if content == Rect::default() {
         return;
     }
+    let mut target_idx = 0;
     for (doc_y, row) in rows.iter().enumerate() {
+        let is_selected = if row.target().is_some() {
+            let is_selected = target_idx == selected;
+            target_idx += 1;
+            is_selected
+        } else {
+            false
+        };
         match row {
             MobileNavigationRow::Section(title) => {
                 render_section_title_at(frame, viewport, content, doc_y, scroll, title, p);
             }
-            MobileNavigationRow::Action {
-                label,
-                depth,
-                group_idx,
-                ..
-            } => {
+            MobileNavigationRow::Divider => {
                 let Some(y) = visible_y(viewport, scroll, doc_y) else {
                     continue;
                 };
-                let accent = group_idx
-                    .map(|idx| app.group_accent_color(idx))
-                    .unwrap_or(p.accent);
+                draw_horizontal_rule(
+                    frame,
+                    Rect::new(content.x + 1, y, content.width.saturating_sub(2), 1),
+                    p,
+                );
+            }
+            MobileNavigationRow::Action { label, target } => {
+                let Some(y) = visible_y(viewport, scroll, doc_y) else {
+                    continue;
+                };
+                let bg = mobile_item_bg(is_selected, false, p);
+                fill_rect(
+                    frame,
+                    Rect::new(content.x, y, content.width, 1),
+                    Style::default().bg(bg),
+                );
+                let label = if *target == MobileSwitcherTarget::OpenActions {
+                    format!("  {label}  ›")
+                } else {
+                    format!("  {label}")
+                };
                 frame.render_widget(
-                    Paragraph::new(format!("{}{}", "  ".repeat(*depth as usize + 1), label)).style(
+                    Paragraph::new(label).style(
                         Style::default()
-                            .fg(accent)
-                            .bg(p.panel_bg)
+                            .fg(if *target == MobileSwitcherTarget::OpenActions {
+                                p.overlay1
+                            } else {
+                                p.text
+                            })
+                            .bg(bg)
                             .add_modifier(Modifier::BOLD),
                     ),
                     Rect::new(content.x, y, content.width, 1),
                 );
             }
-            MobileNavigationRow::Hierarchy(row) => {
-                render_mobile_hierarchy_row(app, frame, viewport, content, doc_y, scroll, row);
+            MobileNavigationRow::Hierarchy { row, .. } => {
+                render_mobile_hierarchy_row(
+                    app,
+                    frame,
+                    viewport,
+                    content,
+                    doc_y,
+                    scroll,
+                    row,
+                    is_selected,
+                );
             }
             MobileNavigationRow::Menu { label, .. } => {
                 let Some(y) = visible_y(viewport, scroll, doc_y) else {
                     continue;
                 };
+                let bg = mobile_item_bg(is_selected, false, p);
+                fill_rect(
+                    frame,
+                    Rect::new(content.x, y, content.width, 1),
+                    Style::default().bg(bg),
+                );
                 frame.render_widget(
-                    Paragraph::new(format!("  {label}"))
-                        .style(Style::default().fg(p.overlay1).bg(p.panel_bg)),
+                    Paragraph::new(format!("  {label}")).style(Style::default().fg(p.text).bg(bg)),
                     Rect::new(content.x, y, content.width, 1),
                 );
             }
@@ -743,12 +1005,13 @@ fn render_mobile_hierarchy_row(
     doc_y: usize,
     scroll: usize,
     row: &NavigatorRow,
+    selected: bool,
 ) {
     let Some(y) = visible_y(viewport, scroll, doc_y) else {
         return;
     };
     let p = &app.palette;
-    let bg = mobile_item_bg(false, row.is_current, p);
+    let bg = mobile_item_bg(selected, row.is_current, p);
     fill_rect(
         frame,
         Rect::new(content.x, y, content.width, 1),
@@ -766,47 +1029,101 @@ fn render_mobile_hierarchy_row(
     let accent = group_idx
         .map(|idx| app.group_accent_color(idx))
         .unwrap_or(p.accent);
-    let indent = "  ".repeat(row.depth as usize + 1);
     let (marker, marker_style) = match row.target {
         NavigatorTarget::Pane { .. } => {
             let (dot, style) = state_dot(row.status, row.seen, p);
             (dot.to_string(), style.bg(bg))
         }
-        _ if row.has_children => (
-            if row.expanded { "▾" } else { "▸" }.to_string(),
-            Style::default().fg(accent).bg(bg),
-        ),
-        _ => ("•".to_string(), Style::default().fg(accent).bg(bg)),
+        _ if row.is_current => ("●".to_string(), Style::default().fg(accent).bg(bg)),
+        _ => (" ".to_string(), Style::default().bg(bg)),
     };
-    let label_style = if row.is_group {
+    let label_style = if row.is_current {
         Style::default()
             .fg(accent)
-            .bg(bg)
-            .add_modifier(Modifier::BOLD)
-    } else if row.is_current {
-        Style::default()
-            .fg(p.text)
             .bg(bg)
             .add_modifier(Modifier::BOLD)
     } else {
         Style::default().fg(p.text).bg(bg)
     };
-    let mut spans = vec![
-        Span::styled(indent, Style::default().bg(bg)),
-        Span::styled(marker, marker_style),
-        Span::styled(" ", Style::default().bg(bg)),
-        Span::styled(row.label.clone(), label_style),
-    ];
-    if !row.meta.is_empty() {
-        spans.push(Span::styled(
-            format!(" · {}", row.meta),
-            Style::default().fg(p.overlay0).bg(bg),
-        ));
-    }
+    let (label, meta) = mobile_hierarchy_label_and_meta(app, row);
+    let meta_width = super::text::display_width_u16(&meta)
+        .saturating_add(u16::from(!meta.is_empty()))
+        .min(content.width / 2);
+    let label_width = content.width.saturating_sub(meta_width);
     frame.render_widget(
-        Paragraph::new(Line::from(spans)),
-        Rect::new(content.x, y, content.width, 1),
+        Paragraph::new(Line::from(vec![
+            Span::styled("  ", Style::default().bg(bg)),
+            Span::styled(marker, marker_style),
+            Span::styled(" ", Style::default().bg(bg)),
+            Span::styled(
+                truncate_end(&label, label_width.saturating_sub(4) as usize),
+                label_style,
+            ),
+        ])),
+        Rect::new(content.x, y, label_width, 1),
     );
+    if meta_width > 0 {
+        frame.render_widget(
+            Paragraph::new(meta)
+                .style(Style::default().fg(p.overlay0).bg(bg))
+                .alignment(Alignment::Right),
+            Rect::new(content.x + label_width, y, meta_width, 1),
+        );
+    }
+}
+
+fn mobile_hierarchy_label_and_meta(app: &AppState, row: &NavigatorRow) -> (String, String) {
+    match row.target {
+        NavigatorTarget::Group { group_idx } => {
+            let count = app
+                .groups
+                .get(group_idx)
+                .map(|group| {
+                    app.workspaces
+                        .iter()
+                        .filter(|workspace| workspace.group_id == group.id)
+                        .count()
+                })
+                .unwrap_or(0);
+            (row.label.clone(), count_label(count, "space", "spaces"))
+        }
+        NavigatorTarget::Workspace { ws_idx } => {
+            let count = app
+                .workspaces
+                .get(ws_idx)
+                .map(|workspace| workspace.tabs.len())
+                .unwrap_or(0);
+            (
+                strip_trailing_count(&row.label).to_string(),
+                count_label(count, "tab", "tabs"),
+            )
+        }
+        NavigatorTarget::Tab { ws_idx, tab_idx } => {
+            let count = app
+                .workspaces
+                .get(ws_idx)
+                .and_then(|workspace| workspace.tabs.get(tab_idx))
+                .map(|tab| tab.panes.len())
+                .unwrap_or(0);
+            (row.label.clone(), count_label(count, "pane", "panes"))
+        }
+        NavigatorTarget::Pane { .. } => (row.label.clone(), row.meta.clone()),
+    }
+}
+
+fn strip_trailing_count(label: &str) -> &str {
+    label
+        .rsplit_once(" (")
+        .filter(|(_, suffix)| {
+            suffix
+                .strip_suffix(')')
+                .is_some_and(|count| count.chars().all(|ch| ch.is_ascii_digit()))
+        })
+        .map_or(label, |(name, _)| name)
+}
+
+fn count_label(count: usize, singular: &str, plural: &str) -> String {
+    format!("{count} {}", if count == 1 { singular } else { plural })
 }
 
 fn render_section_title_at(
@@ -993,94 +1310,73 @@ mod tests {
     }
 
     #[test]
-    fn mobile_navigation_exposes_the_active_group_space_tab_and_panes() {
-        let (app, group_idx, focused_pane) = hierarchy_fixture();
+    fn mobile_navigation_exposes_only_the_current_hierarchy_level() {
+        let (mut app, group_idx, focused_pane) = hierarchy_fixture();
         let terminal_runtimes = TerminalRuntimeRegistry::new();
-        let rows = mobile_navigation_rows(&app, &terminal_runtimes, None);
-        let hierarchy = rows
+
+        app.mobile_switcher_level = MobileSwitcherLevel::Groups;
+        let group_targets = mobile_navigation_rows(&app, &terminal_runtimes, None)
             .iter()
-            .filter_map(|row| match row {
-                MobileNavigationRow::Hierarchy(row) => Some(row),
-                _ => None,
-            })
+            .filter_map(MobileNavigationRow::target)
             .collect::<Vec<_>>();
+        assert!(group_targets.contains(&MobileSwitcherTarget::Group(group_idx)));
+        assert!(!group_targets
+            .iter()
+            .any(|target| matches!(target, MobileSwitcherTarget::Workspace(_))));
 
-        let inactive_group = hierarchy
+        app.mobile_switcher_level = MobileSwitcherLevel::Workspaces;
+        let workspace_targets = mobile_navigation_rows(&app, &terminal_runtimes, None)
             .iter()
-            .find(|row| row.target == (NavigatorTarget::Group { group_idx: 0 }))
-            .expect("inactive group row");
-        assert!(!inactive_group.expanded);
-        let active_group = hierarchy
+            .filter_map(MobileNavigationRow::target)
+            .collect::<Vec<_>>();
+        assert!(workspace_targets.contains(&MobileSwitcherTarget::Workspace(1)));
+        assert!(workspace_targets.contains(&MobileSwitcherTarget::Workspace(2)));
+        assert!(workspace_targets.contains(&MobileSwitcherTarget::NewSpace));
+        assert!(!workspace_targets
             .iter()
-            .find(|row| row.target == (NavigatorTarget::Group { group_idx }))
-            .expect("active group row");
-        assert!(active_group.expanded);
+            .any(|target| matches!(target, MobileSwitcherTarget::Tab { .. })));
 
-        let active_space = hierarchy
+        app.mobile_switcher_level = MobileSwitcherLevel::Tabs { ws_idx: 1 };
+        let tab_targets = mobile_navigation_rows(&app, &terminal_runtimes, None)
             .iter()
-            .find(|row| row.target == (NavigatorTarget::Workspace { ws_idx: 1 }))
-            .expect("active space row");
-        assert_eq!(active_space.depth, 1);
-        assert!(active_space.expanded);
-        let sibling_space = hierarchy
+            .filter_map(MobileNavigationRow::target)
+            .collect::<Vec<_>>();
+        assert!(tab_targets.contains(&MobileSwitcherTarget::Tab {
+            ws_idx: 1,
+            tab_idx: 0,
+        }));
+        assert!(tab_targets.contains(&MobileSwitcherTarget::Tab {
+            ws_idx: 1,
+            tab_idx: 1,
+        }));
+        assert!(tab_targets.contains(&MobileSwitcherTarget::NewTab));
+        assert!(!tab_targets
             .iter()
-            .find(|row| row.target == (NavigatorTarget::Workspace { ws_idx: 2 }))
-            .expect("sibling space row");
-        assert!(!sibling_space.expanded);
+            .any(|target| matches!(target, MobileSwitcherTarget::Pane { .. })));
 
-        let active_tab = hierarchy
-            .iter()
-            .find(|row| {
-                row.target
-                    == (NavigatorTarget::Tab {
-                        ws_idx: 1,
-                        tab_idx: 0,
-                    })
-            })
-            .expect("active tab row");
-        assert_eq!(active_tab.depth, 2);
-        assert!(active_tab.expanded);
-        let inactive_tab = hierarchy
-            .iter()
-            .find(|row| {
-                row.target
-                    == (NavigatorTarget::Tab {
-                        ws_idx: 1,
-                        tab_idx: 1,
-                    })
-            })
-            .expect("inactive tab row");
-        assert!(!inactive_tab.expanded);
-
-        let focused = hierarchy
-            .iter()
-            .find(|row| {
-                row.target
-                    == (NavigatorTarget::Pane {
-                        ws_idx: 1,
-                        tab_idx: 0,
-                        pane_id: focused_pane,
-                    })
-            })
-            .expect("focused pane row");
-        assert_eq!(focused.depth, 3);
-        assert!(focused.is_current);
-        assert!(focused.label.eq_ignore_ascii_case("claude"));
-        assert!(
-            focused.meta.contains("working"),
-            "pane metadata: {:?}",
-            focused.meta
-        );
-        assert!(!hierarchy.iter().any(|row| {
-            matches!(
-                row.target,
-                NavigatorTarget::Pane {
+        app.mobile_switcher_level = MobileSwitcherLevel::Panes {
+            ws_idx: 1,
+            tab_idx: 0,
+        };
+        let pane_rows = mobile_navigation_rows(&app, &terminal_runtimes, None);
+        assert!(pane_rows.iter().any(|row| {
+            row.target()
+                == Some(MobileSwitcherTarget::Pane {
                     ws_idx: 1,
-                    tab_idx: 1,
-                    ..
-                }
+                    tab_idx: 0,
+                    pane_id: focused_pane,
+                })
+        }));
+        assert!(pane_rows.iter().any(|row| {
+            matches!(
+                row,
+                MobileNavigationRow::Hierarchy { row, .. }
+                    if row.label.eq_ignore_ascii_case("claude") && row.meta.contains("working")
             )
         }));
+        assert!(!pane_rows
+            .iter()
+            .any(|row| matches!(row.target(), Some(MobileSwitcherTarget::Tab { .. }))));
     }
 
     #[test]
@@ -1111,7 +1407,7 @@ mod tests {
     }
 
     #[test]
-    fn mobile_switcher_render_and_targets_match_for_monolithic_and_attached_views() {
+    fn mobile_switcher_renders_progressive_levels_identically_for_monolithic_and_attached_views() {
         let (mut app, group_idx, focused_pane) = hierarchy_fixture();
         app.view.mobile_header_rect = Rect::new(0, 0, 44, 1);
         app.view.terminal_area = Rect::new(0, 1, 44, 19);
@@ -1120,69 +1416,94 @@ mod tests {
         view.computed.mobile_header_rect = app.view.mobile_header_rect;
         view.computed.terminal_area = app.view.terminal_area;
 
-        let monolithic_rows = mobile_navigation_rows(&app, &terminal_runtimes, None);
-        let attached_rows = mobile_navigation_rows(&app, &terminal_runtimes, Some(&view));
-        assert_eq!(monolithic_rows, attached_rows);
+        let cases = [
+            (
+                MobileSwitcherLevel::Groups,
+                "Infrastructure",
+                "Observability",
+                MobileSwitcherTarget::Group(group_idx),
+            ),
+            (
+                MobileSwitcherLevel::Workspaces,
+                "Observability",
+                "dashboards",
+                MobileSwitcherTarget::Workspace(1),
+            ),
+            (
+                MobileSwitcherLevel::Tabs { ws_idx: 1 },
+                "dashboards",
+                "claude",
+                MobileSwitcherTarget::Tab {
+                    ws_idx: 1,
+                    tab_idx: 0,
+                },
+            ),
+            (
+                MobileSwitcherLevel::Panes {
+                    ws_idx: 1,
+                    tab_idx: 0,
+                },
+                "claude",
+                "logs",
+                MobileSwitcherTarget::Pane {
+                    ws_idx: 1,
+                    tab_idx: 0,
+                    pane_id: focused_pane,
+                },
+            ),
+        ];
 
-        let mut monolithic =
-            ratatui::Terminal::new(ratatui::backend::TestBackend::new(44, 20)).unwrap();
-        monolithic
-            .draw(|frame| {
-                render_mobile_panel(&app, &terminal_runtimes, frame, Rect::new(0, 0, 44, 20))
-            })
-            .unwrap();
-        let mut attached =
-            ratatui::Terminal::new(ratatui::backend::TestBackend::new(44, 20)).unwrap();
-        attached
-            .draw(|frame| {
-                render_mobile_panel_for_view(
+        for (level, visible, hidden, target) in cases {
+            app.mobile_switcher_level = level;
+            view.mobile_switcher_level = level;
+
+            let mut monolithic =
+                ratatui::Terminal::new(ratatui::backend::TestBackend::new(44, 20)).unwrap();
+            monolithic
+                .draw(|frame| {
+                    render_mobile_panel(&app, &terminal_runtimes, frame, Rect::new(0, 0, 44, 20))
+                })
+                .unwrap();
+            let mut attached =
+                ratatui::Terminal::new(ratatui::backend::TestBackend::new(44, 20)).unwrap();
+            attached
+                .draw(|frame| {
+                    render_mobile_panel_for_view(
+                        &app,
+                        &terminal_runtimes,
+                        &view,
+                        frame,
+                        Rect::new(0, 0, 44, 20),
+                    )
+                })
+                .unwrap();
+
+            assert_eq!(monolithic.backend().buffer(), attached.backend().buffer());
+            let text = buffer_text(monolithic.backend().buffer());
+            assert!(text.contains(visible), "{level:?} switcher: {text:?}");
+            assert!(!text.contains(hidden), "{level:?} switcher: {text:?}");
+
+            let rows = mobile_navigation_rows(&app, &terminal_runtimes, None);
+            let row = rows
+                .iter()
+                .position(|row| row.target() == Some(target))
+                .expect("target row");
+            let viewport = mobile_switcher_areas(&app).viewport;
+            assert_eq!(
+                mobile_switcher_target_at(&app, viewport.x + 1, viewport.y + row as u16),
+                Some(target)
+            );
+            assert_eq!(
+                mobile_switcher_target_at_for_view(
                     &app,
                     &terminal_runtimes,
                     &view,
-                    frame,
-                    Rect::new(0, 0, 44, 20),
-                )
-            })
-            .unwrap();
-        assert_eq!(monolithic.backend().buffer(), attached.backend().buffer());
-        let text = buffer_text(monolithic.backend().buffer());
-        assert!(text.contains("Infrastructure"), "switcher: {text:?}");
-        assert!(text.contains("Observability"), "switcher: {text:?}");
-        assert!(text.contains("dashboards"), "switcher: {text:?}");
-        assert!(text.to_lowercase().contains("claude"), "switcher: {text:?}");
-
-        let group_row = monolithic_rows
-            .iter()
-            .position(|row| row.target() == Some(MobileSwitcherTarget::Group(group_idx)))
-            .expect("group target row");
-        let pane_target = MobileSwitcherTarget::Pane {
-            ws_idx: 1,
-            tab_idx: 0,
-            pane_id: focused_pane,
-        };
-        let pane_row = monolithic_rows
-            .iter()
-            .position(|row| row.target() == Some(pane_target))
-            .expect("pane target row");
-        let viewport = mobile_switcher_areas(&app).viewport;
-        assert_eq!(
-            mobile_switcher_target_at(&app, viewport.x + 1, viewport.y + group_row as u16),
-            Some(MobileSwitcherTarget::Group(group_idx))
-        );
-        assert_eq!(
-            mobile_switcher_target_at(&app, viewport.x + 1, viewport.y + pane_row as u16),
-            Some(pane_target)
-        );
-        assert_eq!(
-            mobile_switcher_target_at_for_view(
-                &app,
-                &terminal_runtimes,
-                &view,
-                viewport.x + 1,
-                viewport.y + pane_row as u16,
-            ),
-            Some(pane_target)
-        );
+                    viewport.x + 1,
+                    viewport.y + row as u16,
+                ),
+                Some(target)
+            );
+        }
     }
 
     #[tokio::test]

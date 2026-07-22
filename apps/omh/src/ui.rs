@@ -152,10 +152,14 @@ pub(crate) use self::{
 pub(crate) use self::{
     keybind_help::{keybind_help_layout, keybind_help_scroll_metrics, keybind_help_scrollbar_rect},
     mobile::{
-        mobile_switcher_areas, mobile_switcher_areas_for_view, mobile_switcher_max_scroll,
-        mobile_switcher_max_scroll_for_view, mobile_switcher_target_at,
-        mobile_switcher_target_at_for_view, mobile_switcher_workspace_doc_range,
-        MobileSwitcherTarget,
+        initial_mobile_switcher_level, keep_mobile_switcher_selection_visible,
+        keep_mobile_switcher_selection_visible_for_view, mobile_switcher_areas,
+        mobile_switcher_areas_for_view, mobile_switcher_max_scroll,
+        mobile_switcher_max_scroll_for_view, mobile_switcher_selected_target,
+        mobile_switcher_selected_target_for_view, mobile_switcher_target_at,
+        mobile_switcher_target_at_for_view, mobile_switcher_target_count,
+        mobile_switcher_target_count_for_view, mobile_switcher_workspace_doc_row,
+        parent_mobile_switcher_level, MobileSwitcherTarget,
     },
     panes::pane_is_scrolled_back,
     tabs::compute_tab_bar_view,
@@ -1034,7 +1038,7 @@ fn compute_mobile_view(
     };
 
     if app.mode == Mode::Navigate {
-        let switcher_viewport_h = area.height.saturating_sub(header_h + 1);
+        let switcher_viewport_h = area.height.saturating_sub(3);
         let max_scroll = mobile_switcher_max_scroll_for_height(app, switcher_viewport_h);
         app.mobile_switcher_scroll = app.mobile_switcher_scroll.min(max_scroll);
     }
@@ -1117,7 +1121,7 @@ fn compute_mobile_view_for_client(
     };
 
     if client_view.mode == Mode::Navigate {
-        let switcher_viewport_h = area.height.saturating_sub(header_h + 1);
+        let switcher_viewport_h = area.height.saturating_sub(3);
         let max_scroll = mobile_switcher_max_scroll_for_view_height(
             app,
             terminal_runtimes,

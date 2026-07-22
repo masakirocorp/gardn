@@ -2260,17 +2260,19 @@ impl AppState {
             return;
         }
 
-        let visible = self.visible_workspace_indices();
-        let Some(visible_idx) = visible.iter().position(|ws_idx| *ws_idx == idx) else {
+        if self.mobile_switcher_level != super::state::MobileSwitcherLevel::Workspaces {
+            return;
+        }
+        let Some(row) = crate::ui::mobile_switcher_workspace_doc_row(self, idx) else {
             return;
         };
-        let row_range = crate::ui::mobile_switcher_workspace_doc_range(self, visible_idx);
         let visible_start = self.mobile_switcher_scroll;
         let visible_end = visible_start.saturating_add(viewport.height as usize);
-        if row_range.start < visible_start {
-            self.mobile_switcher_scroll = row_range.start;
-        } else if row_range.end > visible_end {
-            self.mobile_switcher_scroll = row_range.end.saturating_sub(viewport.height as usize);
+        if row < visible_start {
+            self.mobile_switcher_scroll = row;
+        } else if row >= visible_end {
+            self.mobile_switcher_scroll =
+                row.saturating_sub(viewport.height.saturating_sub(1) as usize);
         }
         self.mobile_switcher_scroll = self
             .mobile_switcher_scroll

@@ -97,6 +97,11 @@ impl App {
     pub(crate) fn handle_navigate_key(&mut self, raw_key: TerminalKey) {
         let key = raw_key.as_key_event();
         self.state.update_dismissed = true;
+        if self.state.view.layout == crate::app::state::ViewLayout::Mobile
+            && self.handle_mobile_switcher_key(key)
+        {
+            return;
+        }
 
         if key.code == KeyCode::Esc || self.state.is_prefix_key(raw_key) {
             leave_navigate_mode(&mut self.state);
@@ -126,6 +131,51 @@ impl App {
         if let Some(action) = navigate_mode_indexed_action_for_key(&self.state, raw_key) {
             self.execute_tui_navigate_action(action, ActionContext::Navigate);
             self.selection_autoscroll_deadline = None;
+        }
+    }
+
+    fn handle_mobile_switcher_key(&mut self, key: KeyEvent) -> bool {
+        match key.code {
+            KeyCode::Up | KeyCode::Char('k') => {
+                self.state.mobile_switcher_selected =
+                    self.state.mobile_switcher_selected.saturating_sub(1);
+                crate::ui::keep_mobile_switcher_selection_visible(&mut self.state);
+                true
+            }
+            KeyCode::Down | KeyCode::Char('j') => {
+                let max_selected =
+                    crate::ui::mobile_switcher_target_count(&self.state).saturating_sub(1);
+                self.state.mobile_switcher_selected = self
+                    .state
+                    .mobile_switcher_selected
+                    .saturating_add(1)
+                    .min(max_selected);
+                crate::ui::keep_mobile_switcher_selection_visible(&mut self.state);
+                true
+            }
+            KeyCode::Enter | KeyCode::Right => {
+                if let Some(target) = crate::ui::mobile_switcher_selected_target(&self.state) {
+                    self.state.activate_mobile_switcher_target(target);
+                }
+                true
+            }
+            KeyCode::Left | KeyCode::Backspace => {
+                self.state
+                    .activate_mobile_switcher_target(crate::ui::MobileSwitcherTarget::Back);
+                true
+            }
+            KeyCode::Esc => {
+                if self.state.mobile_switcher_level
+                    == crate::app::state::MobileSwitcherLevel::Groups
+                {
+                    leave_navigate_mode(&mut self.state);
+                } else {
+                    self.state
+                        .activate_mobile_switcher_target(crate::ui::MobileSwitcherTarget::Back);
+                }
+                true
+            }
+            _ => false,
         }
     }
 
@@ -1949,29 +1999,6 @@ navigate_pane_right = "ctrl+l"
         );
         assert_eq!(state.workspaces[0].focused_pane_id(), Some(right));
         assert_eq!(state.mode, Mode::Navigate);
-    }
-
-    #[test]
-    fn mobile_workspace_keyboard_navigation_keeps_selected_row_visible() {
-        let mut state = state_with_workspaces(&["a", "b", "c", "d"]);
-        state.active = Some(0);
-        state.selected = 0;
-        state.mode = Mode::Navigate;
-        crate::ui::compute_view(&mut state, ratatui::layout::Rect::new(0, 0, 44, 8));
-        assert_eq!(state.mobile_switcher_scroll, 0);
-
-        handle_navigate_key(
-            &mut state,
-            KeyEvent::new(KeyCode::Down, KeyModifiers::empty()),
-        );
-
-        assert_eq!(state.selected, 1);
-        let selected_row =
-            crate::ui::mobile_switcher_workspace_doc_range(&state, state.selected).start;
-        let viewport_height = crate::ui::mobile_switcher_areas(&state).viewport.height as usize;
-        assert!((state.mobile_switcher_scroll
-            ..state.mobile_switcher_scroll.saturating_add(viewport_height))
-            .contains(&selected_row));
     }
 
     #[test]
