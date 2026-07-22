@@ -423,6 +423,8 @@ fn render_row(app: &AppState, frame: &mut Frame, rect: Rect, row: &NavigatorRow,
         } else {
             "▸"
         }
+    } else if row.is_tab && !row.expanded {
+        "  "
     } else if row.depth > 0 {
         "├─"
     } else {
@@ -843,6 +845,37 @@ mod tests {
         let text = buffer_text(terminal.backend().buffer(), 80, 1);
         assert!(text.contains("▾ ✿ Research Lab"), "branch row: {text:?}");
         assert!(!text.contains(['→', '◆', '○']), "branch row: {text:?}");
+    }
+
+    #[test]
+    fn navigator_leaf_tab_rows_do_not_show_a_disclosure_prefix() {
+        let app = AppState::test_new();
+        let row = NavigatorRow {
+            target: NavigatorTarget::Tab {
+                ws_idx: 0,
+                tab_idx: 0,
+            },
+            depth: 1,
+            label: "personal".to_string(),
+            meta: "1 pane".to_string(),
+            status: crate::detect::AgentState::Unknown,
+            seen: true,
+            is_current: false,
+            is_group: false,
+            is_workspace: false,
+            is_tab: true,
+            expanded: false,
+            search_text: String::new(),
+        };
+        let backend = TestBackend::new(80, 1);
+        let mut terminal = Terminal::new(backend).expect("test backend");
+        terminal
+            .draw(|frame| render_row(&app, frame, frame.area(), &row, false))
+            .expect("render leaf tab row");
+
+        let text = buffer_text(terminal.backend().buffer(), 80, 1);
+        assert!(text.contains("personal"), "tab row: {text:?}");
+        assert!(!text.contains(['▸', '▾', '├']), "tab row: {text:?}");
     }
 
     #[test]

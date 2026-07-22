@@ -535,7 +535,8 @@ impl AppState {
         for tab_idx in 0..ws.tabs.len() {
             let pane_rows = self.navigator_pane_rows_for_tab(ws_idx, tab_idx, multi_tab);
             let show_pane_rows = pane_rows.len() > 1;
-            let mut tab_row = multi_tab.then(|| self.navigator_tab_row(ws_idx, tab_idx));
+            let mut tab_row =
+                multi_tab.then(|| self.navigator_tab_row(ws_idx, tab_idx, show_pane_rows));
             if !show_pane_rows {
                 if let (Some(tab_row), Some(pane_row)) = (tab_row.as_mut(), pane_rows.first()) {
                     tab_row.search_text.push(' ');
@@ -576,7 +577,12 @@ impl AppState {
         rows
     }
 
-    fn navigator_tab_row(&self, ws_idx: usize, tab_idx: usize) -> NavigatorRow {
+    fn navigator_tab_row(
+        &self,
+        ws_idx: usize,
+        tab_idx: usize,
+        has_visible_pane_children: bool,
+    ) -> NavigatorRow {
         let ws = &self.workspaces[ws_idx];
         let tab = &ws.tabs[tab_idx];
         let label = ws
@@ -603,7 +609,7 @@ impl AppState {
             is_group: false,
             is_workspace: false,
             is_tab: true,
-            expanded: true,
+            expanded: has_visible_pane_children,
             search_text,
         }
     }
@@ -4412,6 +4418,12 @@ mod tests {
                 NavigatorTarget::Pane { ws_idx, .. } if ws_idx == 0 || ws_idx == 1
             )
         }));
+        assert!(
+            rows.iter()
+                .filter(|row| row.is_tab)
+                .all(|row| !row.expanded),
+            "tabs without visible pane children must render as leaves"
+        );
     }
 
     #[test]
