@@ -10,8 +10,9 @@ use ratatui::{
 
 use super::scrollbar::render_scrollbar;
 use super::widgets::{
-    modal_scroll_area, modal_scroll_hint_line_count, modal_stack_areas, render_modal_header_bar,
-    render_modal_scroll_hints, render_modal_shell, render_modal_subtitle,
+    modal_close_button_rect, modal_frame_areas, modal_scroll_area, modal_scroll_hint_line_count,
+    modal_scroll_metrics, render_modal_frame, render_modal_subtitle, ModalFrameAreas,
+    ModalFrameSpec, MODAL_SCROLL_HINTS,
 };
 use crate::app::{view_state::ClientViewState, AppState};
 
@@ -195,41 +196,53 @@ pub(super) fn keybind_help_groups(app: &AppState) -> Vec<HelpGroup> {
     groups
 }
 
-pub(crate) fn keybind_help_lines(app: &AppState) -> Vec<(usize, Line<'static>)> {
+pub(crate) fn keybind_help_lines(
+    app: &AppState,
+    option_width: usize,
+) -> Vec<(usize, Line<'static>)> {
     let heading_style = Style::default()
         .fg(app.palette.accent)
         .add_modifier(Modifier::BOLD);
-    let key_style = Style::default()
+    let shortcut_style = Style::default()
         .fg(app.palette.mauve)
         .add_modifier(Modifier::BOLD);
+    let unset_style = Style::default().fg(app.palette.overlay0);
     let label_style = Style::default().fg(app.palette.text);
 
     let groups = keybind_help_groups(app);
-    let key_width = groups
-        .iter()
-        .flat_map(|(_, entries)| entries.iter().map(|(key, _)| key.chars().count()))
-        .max()
-        .unwrap_or(8);
-
     let mut lines = Vec::new();
 
-    for (group, entries) in groups {
+    for (group_index, (group, entries)) in groups.into_iter().enumerate() {
+        if group_index > 0 {
+            lines.push((0, Line::raw("")));
+        }
         lines.push((
             group.len() + 1,
             Line::from(vec![Span::styled(format!(" {group}"), heading_style)]),
         ));
-        for (key, label) in entries {
-            let padded_key = format!(" {:<width$} ", key, width = key_width);
-            let width = padded_key.chars().count() + label.chars().count();
+        for (shortcut, label) in entries {
+            let label = format!("  {label}");
+            let label_width = label.chars().count();
+            let shortcut_width = shortcut.chars().count();
+            let minimum_width = label_width + 1 + shortcut_width;
+            let gap = option_width
+                .saturating_sub(label_width + shortcut_width)
+                .max(1);
+            let width = minimum_width.max(option_width);
+            let shortcut_style = if shortcut == "unset" {
+                unset_style
+            } else {
+                shortcut_style
+            };
             lines.push((
                 width,
                 Line::from(vec![
-                    Span::styled(padded_key, key_style),
-                    Span::styled(label.into_owned(), label_style),
+                    Span::styled(label, label_style),
+                    Span::raw(" ".repeat(gap)),
+                    Span::styled(shortcut, shortcut_style),
                 ]),
             ));
         }
-        lines.push((0, Line::raw("")));
     }
 
     lines
@@ -239,6 +252,73 @@ fn keybind_help_height(area: Rect) -> u16 {
     let popup_width = 76.min(area.width.saturating_sub(4));
     let inner_width = popup_width.saturating_sub(2);
     21 + modal_scroll_hint_line_count(inner_width, 2)
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct KeybindHelpLayout {
+    pub popup: Rect,
+    pub close: Rect,
+    pub body: Rect,
+}
+
+fn keybind_help_frame_spec(area: Rect) -> ModalFrameSpec<'static> {
+    ModalFrameSpec {
+        title: "keybinds",
+        width: 76,
+        height: keybind_help_height(area),
+        header_rows: 2,
+        footer_hints: MODAL_SCROLL_HINTS,
+        footer_max_rows: 2,
+        reserve_footer_gap: 1,
+        show_close: true,
+    }
+}
+
+fn keybind_help_layout_from_frame(frame: ModalFrameAreas) -> Option<KeybindHelpLayout> {
+    if frame.inner.height < 6 || frame.inner.width < 20 {
+        return None;
+    }
+    let header = Rect::new(frame.header.x, frame.header.y, frame.header.width, 1);
+    Some(KeybindHelpLayout {
+        popup: frame.popup,
+        close: modal_close_button_rect(header),
+        body: frame.content,
+    })
+}
+
+pub(crate) fn keybind_help_layout(area: Rect) -> Option<KeybindHelpLayout> {
+    let frame = modal_frame_areas(area, keybind_help_frame_spec(area))?;
+    keybind_help_layout_from_frame(frame)
+}
+
+pub(crate) fn keybind_help_scroll_metrics(
+    app: &AppState,
+    body: Rect,
+    scroll: u16,
+) -> crate::pane::ScrollMetrics {
+    let viewport_rows = body.height.max(1) as usize;
+    let rows_for_width = |wrap_width: usize| {
+        let option_width = wrap_width.saturating_sub(1).max(1);
+        keybind_help_lines(app, option_width)
+            .iter()
+            .map(|(width, _)| width.max(&1).div_ceil(wrap_width.max(1)))
+            .sum::<usize>()
+    };
+    let full_width = body.width.max(1) as usize;
+    let initial_rows = rows_for_width(full_width);
+    let wrap_width = if initial_rows > viewport_rows && full_width > 1 {
+        body.width.saturating_sub(1).max(1) as usize
+    } else {
+        full_width
+    };
+    modal_scroll_metrics(rows_for_width(wrap_width), viewport_rows, scroll as usize)
+}
+
+pub(crate) fn keybind_help_scrollbar_rect(
+    body: Rect,
+    metrics: crate::pane::ScrollMetrics,
+) -> Option<Rect> {
+    modal_scroll_area(body, metrics).track
 }
 
 pub(super) fn render_keybind_help_overlay(app: &AppState, frame: &mut Frame) {
@@ -256,31 +336,26 @@ pub(super) fn render_keybind_help_overlay_for_view(
 fn render_keybind_help_overlay_from(app: &AppState, frame: &mut Frame, area: Rect, scroll: u16) {
     super::dim_background(frame, area);
 
-    let Some(inner) = render_modal_shell(frame, area, 76, keybind_help_height(area), &app.palette)
-    else {
+    let spec = keybind_help_frame_spec(area);
+    let Some(frame_areas) = render_modal_frame(frame, area, &app.palette, spec) else {
         return;
     };
-    if inner.height < 6 || inner.width < 20 {
+    let Some(layout) = keybind_help_layout_from_frame(frame_areas) else {
         return;
-    }
-
-    let stack = modal_stack_areas(inner, 2, modal_scroll_hint_line_count(inner.width, 2), 0, 1);
-    let header_rows =
-        Layout::vertical([Constraint::Length(1), Constraint::Length(1)]).areas::<2>(stack.header);
-
-    render_modal_header_bar(frame, header_rows[0], "keybinds", &app.palette, true);
+    };
+    let header_rows = Layout::vertical([Constraint::Length(1), Constraint::Length(1)])
+        .areas::<2>(frame_areas.header);
     render_modal_subtitle(
         frame,
         header_rows[1],
-        " available commands and configured shortcuts",
+        "available commands and configured shortcuts",
         &app.palette,
     );
 
-    let body_area = stack.content;
-    let viewport_rows = body_area.height.max(1) as usize;
-    let lines = keybind_help_lines(app);
-    let metrics = crate::ui::modal_scroll_metrics(lines.len(), viewport_rows, scroll as usize);
-    let scroll_area = modal_scroll_area(body_area, metrics);
+    let metrics = keybind_help_scroll_metrics(app, layout.body, scroll);
+    let scroll_area = modal_scroll_area(layout.body, metrics);
+    let option_width = scroll_area.body.width.saturating_sub(1).max(1) as usize;
+    let lines = keybind_help_lines(app, option_width);
 
     let body = Paragraph::new(lines.into_iter().map(|(_, line)| line).collect::<Vec<_>>())
         .wrap(Wrap { trim: false })
@@ -296,6 +371,4 @@ fn render_keybind_help_overlay_from(app: &AppState, frame: &mut Frame, area: Rec
             "▐",
         );
     }
-
-    render_modal_scroll_hints(frame, stack.footer.unwrap_or_default(), &app.palette);
 }

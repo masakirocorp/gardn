@@ -805,65 +805,37 @@ impl AppState {
     }
 
     pub(super) fn keybind_help_popup_rect(&self) -> Rect {
-        crate::ui::centered_popup_rect(self.screen_rect(), 76, 22).unwrap_or_default()
-    }
-
-    fn keybind_help_modal_inner(&self) -> Option<Rect> {
-        self.modal_inner(76, 22)
+        crate::ui::keybind_help_layout(self.screen_rect())
+            .map(|layout| layout.popup)
+            .unwrap_or_default()
     }
 
     fn keybind_help_close_button_at(&self, col: u16, row: u16) -> bool {
-        let Some(inner) = self.keybind_help_modal_inner() else {
-            return false;
-        };
-        if inner.height < 4 || inner.width < 12 {
-            return false;
-        }
-        let button =
-            crate::ui::release_notes_close_button_rect(Rect::new(inner.x, inner.y, inner.width, 1));
-        col >= button.x
-            && col < button.x + button.width
-            && row >= button.y
-            && row < button.y + button.height
+        crate::ui::keybind_help_layout(self.screen_rect()).is_some_and(|layout| {
+            col >= layout.close.x
+                && col < layout.close.x + layout.close.width
+                && row >= layout.close.y
+                && row < layout.close.y + layout.close.height
+        })
     }
 
     fn keybind_help_body_rect(&self) -> Option<Rect> {
-        let inner = self.keybind_help_modal_inner()?;
-        if inner.height < 6 || inner.width < 4 {
-            return None;
-        }
-        Some(crate::ui::modal_stack_areas(inner, 2, 1, 0, 1).content)
+        crate::ui::keybind_help_layout(self.screen_rect()).map(|layout| layout.body)
     }
 
     fn keybind_help_scroll_metrics(&self) -> Option<crate::pane::ScrollMetrics> {
         let body = self.keybind_help_body_rect()?;
-        let viewport_rows = body.height.max(1) as usize;
-        let lines = crate::ui::keybind_help_lines(self);
-        let rows_for_width = |wrap_width: usize| {
-            lines
-                .iter()
-                .map(|(width, _)| width.max(&1).div_ceil(wrap_width.max(1)))
-                .sum::<usize>()
-        };
-        let full_width = body.width.max(1) as usize;
-        let mut total_rows = rows_for_width(full_width);
-        let wrap_width = if total_rows > viewport_rows && full_width > 1 {
-            body.width.saturating_sub(1).max(1) as usize
-        } else {
-            full_width
-        };
-        total_rows = rows_for_width(wrap_width);
-        Some(crate::ui::modal_scroll_metrics(
-            total_rows,
-            viewport_rows,
-            self.keybind_help.scroll as usize,
+        Some(crate::ui::keybind_help_scroll_metrics(
+            self,
+            body,
+            self.keybind_help.scroll,
         ))
     }
 
     fn keybind_help_scrollbar_target_at(&self, col: u16, row: u16) -> Option<ScrollbarClickTarget> {
         let body = self.keybind_help_body_rect()?;
         let metrics = self.keybind_help_scroll_metrics()?;
-        let track = crate::ui::release_notes_scrollbar_rect(body, metrics)?;
+        let track = crate::ui::keybind_help_scrollbar_rect(body, metrics)?;
         if !(col >= track.x
             && col < track.x + track.width
             && row >= track.y
@@ -883,7 +855,7 @@ impl AppState {
     fn keybind_help_offset_for_drag_row(&self, row: u16, grab_row_offset: u16) -> Option<usize> {
         let body = self.keybind_help_body_rect()?;
         let metrics = self.keybind_help_scroll_metrics()?;
-        let track = crate::ui::release_notes_scrollbar_rect(body, metrics)?;
+        let track = crate::ui::keybind_help_scrollbar_rect(body, metrics)?;
         Some(crate::ui::scrollbar_offset_from_drag_row(
             metrics,
             track,
@@ -937,15 +909,9 @@ mod tests {
         let mut app = app_for_mouse_test();
         app.state.mode = Mode::KeybindHelp;
 
-        let rect = app.state.keybind_help_popup_rect();
-        let inner = Rect::new(
-            rect.x + 1,
-            rect.y + 1,
-            rect.width.saturating_sub(2),
-            rect.height.saturating_sub(2),
-        );
-        let close =
-            crate::ui::release_notes_close_button_rect(Rect::new(inner.x, inner.y, inner.width, 1));
+        let close = crate::ui::keybind_help_layout(app.state.screen_rect())
+            .expect("keybind help layout")
+            .close;
         app.handle_mouse(mouse(
             MouseEventKind::Down(MouseButton::Left),
             close.x,
@@ -961,9 +927,9 @@ mod tests {
         add_right_sidebar(&mut app);
         app.state.mode = Mode::KeybindHelp;
 
-        let inner = app.state.keybind_help_modal_inner().unwrap();
-        let close =
-            crate::ui::release_notes_close_button_rect(Rect::new(inner.x, inner.y, inner.width, 1));
+        let close = crate::ui::keybind_help_layout(app.state.screen_rect())
+            .expect("keybind help layout")
+            .close;
         app.handle_mouse(mouse(
             MouseEventKind::Down(MouseButton::Left),
             close.x,

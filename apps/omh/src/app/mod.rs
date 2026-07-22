@@ -5917,9 +5917,10 @@ impl App {
                 }
                 client_view.name_input_replace_on_type = false;
             }
-            Some(input::ModalAction::Cancel) | None
-                if !Self::rect_contains(inner, mouse.column, mouse.row) =>
-            {
+            Some(input::ModalAction::Cancel) => {
+                self.handle_client_view_text_modal_key(client_view, crossterm::event::KeyCode::Esc);
+            }
+            None if !Self::rect_contains(inner, mouse.column, mouse.row) => {
                 self.handle_client_view_text_modal_key(client_view, crossterm::event::KeyCode::Esc);
             }
             _ => {}
@@ -10023,6 +10024,43 @@ mod tests {
             text.push('\n');
         }
         text
+    }
+
+    fn rendered_client_view_text_point(
+        app: &App,
+        client_view: &ClientViewState,
+        text: &str,
+        width: u16,
+        height: u16,
+    ) -> (u16, u16) {
+        let backend = ratatui::backend::TestBackend::new(width, height);
+        let mut terminal = ratatui::Terminal::new(backend).expect("test backend");
+        terminal
+            .draw(|frame| {
+                crate::ui::render_with_runtime_registry_for_view(
+                    &app.state,
+                    client_view,
+                    &app.terminal_runtimes,
+                    frame,
+                )
+            })
+            .expect("render client view");
+        let buffer = terminal.backend().buffer();
+        let symbols = text.chars().map(|ch| ch.to_string()).collect::<Vec<_>>();
+
+        for y in 0..height {
+            for x in 0..=width.saturating_sub(symbols.len() as u16) {
+                if symbols
+                    .iter()
+                    .enumerate()
+                    .all(|(idx, symbol)| buffer[(x + idx as u16, y)].symbol() == symbol.as_str())
+                {
+                    return (x, y);
+                }
+            }
+        }
+
+        panic!("rendered client view text not found: {text}");
     }
 
     fn mobile_switcher_point_for_target(
@@ -16406,8 +16444,9 @@ command = "printf literal > '{}'"
         client.mode = Mode::KeybindHelp;
         compute_client_view(&app, &mut client, ratatui::layout::Rect::new(0, 0, 120, 30));
         assert_eq!(client.keybind_help.scroll, 0);
-        let popup = crate::ui::centered_popup_rect(client.screen_rect(), 76, 22)
-            .expect("keybind help popup");
+        let popup = crate::ui::keybind_help_layout(client.screen_rect())
+            .expect("keybind help layout")
+            .popup;
         let scroll_col = popup.x + popup.width / 2;
         let scroll_row = popup.y + popup.height / 2;
 
@@ -16426,27 +16465,14 @@ command = "printf literal > '{}'"
         assert_eq!(app.state.mode, Mode::Terminal);
         assert_eq!(app.state.keybind_help.scroll, 0);
 
-        let popup = crate::ui::centered_popup_rect(client.screen_rect(), 76, 22)
-            .expect("keybind help popup");
-        let inner = ratatui::layout::Rect::new(
-            popup.x + 1,
-            popup.y + 1,
-            popup.width.saturating_sub(2),
-            popup.height.saturating_sub(2),
-        );
-        let close = crate::ui::release_notes_close_button_rect(ratatui::layout::Rect::new(
-            inner.x,
-            inner.y,
-            inner.width,
-            1,
-        ));
+        let close = rendered_client_view_text_point(&app, &client, "esc close", 120, 30);
 
         app.route_client_events_for_view(
             &mut client,
             vec![raw_mouse(
                 crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left),
-                close.x + close.width / 2,
-                close.y,
+                close.0,
+                close.1,
             )],
             true,
         );
@@ -16454,6 +16480,34 @@ command = "printf literal > '{}'"
         assert_eq!(client.mode, Mode::Terminal);
         assert_eq!(app.state.mode, Mode::Terminal);
         assert_eq!(app.state.keybind_help.scroll, 0);
+    }
+
+    #[test]
+    fn keybind_help_rendered_close_button_works_when_scroll_hints_wrap() {
+        let mut app = test_app();
+        app.state.workspaces = vec![Workspace::test_new("test")];
+        app.state.ensure_test_terminals();
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::Terminal;
+        app.state.mouse_capture = true;
+
+        let mut client = ClientViewState::from_default_client_state(&app.state);
+        client.mode = Mode::KeybindHelp;
+        compute_client_view(&app, &mut client, ratatui::layout::Rect::new(0, 0, 30, 30));
+        let close = rendered_client_view_text_point(&app, &client, "esc close", 30, 30);
+
+        app.route_client_events_for_view(
+            &mut client,
+            vec![raw_mouse(
+                crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left),
+                close.0,
+                close.1,
+            )],
+            true,
+        );
+
+        assert_eq!(client.mode, Mode::Terminal);
     }
 
     #[test]
@@ -16837,6 +16891,112 @@ command = "printf literal > '{}'"
         assert_eq!(first_client.mode, Mode::Terminal);
         assert_eq!(second_client.mode, Mode::Terminal);
         assert_eq!(app.state.mode, Mode::Terminal);
+    }
+
+    #[test]
+    fn route_client_events_for_view_new_group_close_click_closes_rendered_modal() {
+        let mut app = test_app();
+        app.state.workspaces = vec![Workspace::test_new("test")];
+        app.state.ensure_test_terminals();
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::Terminal;
+        app.state.mouse_capture = true;
+
+        let new_group_row = app.state.group_menu_labels().len() - 1;
+        let mut client = ClientViewState::from_default_client_state(&app.state);
+        client.mode = Mode::GroupMenu;
+        client.group_menu = state::ModalListState::new(new_group_row);
+
+        app.route_client_events_for_view(
+            &mut client,
+            vec![raw_key(
+                KeyCode::Enter,
+                KeyModifiers::empty(),
+                KeyEventKind::Press,
+            )],
+            true,
+        );
+        compute_client_view(&app, &mut client, ratatui::layout::Rect::new(0, 0, 120, 30));
+        let close = rendered_client_view_text_point(&app, &client, "esc close", 120, 30);
+
+        app.route_client_events_for_view(
+            &mut client,
+            vec![raw_mouse(
+                crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left),
+                close.0,
+                close.1,
+            )],
+            true,
+        );
+
+        assert_eq!(client.mode, Mode::Terminal);
+        assert!(!client.creating_new_group);
+    }
+
+    #[test]
+    fn route_client_events_for_view_other_text_modal_close_buttons_close_rendered_modals() {
+        let mut app = test_app();
+        app.state.workspaces = vec![Workspace::test_new("test")];
+        app.state.ensure_test_terminals();
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::Terminal;
+        app.state.mouse_capture = true;
+
+        for (mode, expected_mode) in [
+            (Mode::RenameWorkspace, Mode::Terminal),
+            (Mode::RenameGroup, Mode::Terminal),
+            (Mode::RenameTab, Mode::Terminal),
+            (Mode::RenamePane, Mode::Terminal),
+            (Mode::EditWorktreeDirectory, Mode::Settings),
+        ] {
+            let mut client = ClientViewState::from_default_client_state(&app.state);
+            client.mode = mode;
+            client.rename_group_target = (mode == Mode::RenameGroup).then_some(0);
+            compute_client_view(&app, &mut client, ratatui::layout::Rect::new(0, 0, 120, 30));
+            let close = rendered_client_view_text_point(&app, &client, "esc close", 120, 30);
+
+            app.route_client_events_for_view(
+                &mut client,
+                vec![raw_mouse(
+                    crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left),
+                    close.0,
+                    close.1,
+                )],
+                true,
+            );
+
+            assert_eq!(client.mode, expected_mode, "{mode:?}");
+        }
+    }
+
+    #[test]
+    fn route_client_events_for_view_command_palette_close_click_closes_rendered_modal() {
+        let mut app = test_app();
+        app.state.workspaces = vec![Workspace::test_new("test")];
+        app.state.ensure_test_terminals();
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::Terminal;
+        app.state.mouse_capture = true;
+
+        let mut client = ClientViewState::from_default_client_state(&app.state);
+        input::open_command_palette_for_view(&mut client);
+        compute_client_view(&app, &mut client, ratatui::layout::Rect::new(0, 0, 120, 30));
+        let close = rendered_client_view_text_point(&app, &client, "esc close", 120, 30);
+
+        app.route_client_events_for_view(
+            &mut client,
+            vec![raw_mouse(
+                crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left),
+                close.0,
+                close.1,
+            )],
+            true,
+        );
+
+        assert_eq!(client.mode, Mode::Terminal);
     }
 
     #[test]

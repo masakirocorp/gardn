@@ -80,6 +80,7 @@ pub(crate) struct ModalFrameAreas {
     pub popup: Rect,
     pub inner: Rect,
     pub header: Rect,
+    pub content: Rect,
     pub footer: Option<Rect>,
 }
 
@@ -119,6 +120,7 @@ pub(crate) fn modal_frame_areas(area: Rect, spec: ModalFrameSpec<'_>) -> Option<
         inner,
         header: stack.header,
         footer: stack.footer,
+        content: stack.content,
     })
 }
 
@@ -212,7 +214,8 @@ pub(super) fn render_modal_divider(frame: &mut Frame, area: Rect, p: &Palette) {
     );
 }
 
-const MODAL_SCROLL_HINTS: &[(&str, &str)] = &[("scroll", "wheel ↑↓"), ("jump", "pgup / pgdn")];
+pub(super) const MODAL_SCROLL_HINTS: &[(&str, &str)] =
+    &[("scroll", "wheel ↑↓"), ("jump", "pgup / pgdn")];
 
 pub(super) fn modal_scroll_hint_line_count(area_width: u16, max_rows: u16) -> u16 {
     modal_hint_line_count(area_width, MODAL_SCROLL_HINTS, max_rows)

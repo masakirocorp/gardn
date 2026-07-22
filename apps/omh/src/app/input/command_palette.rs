@@ -192,6 +192,20 @@ pub(super) fn command_palette_action_button_at(
     )
 }
 
+fn command_palette_action_button_at_for_view(
+    view: &ClientViewState,
+    col: u16,
+    row: u16,
+) -> Option<ModalAction> {
+    let inner = crate::ui::command_palette_inner_rect(view.screen_rect())?;
+    let (run, close) = crate::ui::command_palette_button_rects(inner);
+    modal_action_from_buttons(
+        col,
+        row,
+        &[(run, ModalAction::Apply), (close, ModalAction::Close)],
+    )
+}
+
 fn clamp_command_palette_selection(state: &mut AppState) {
     let count = command_palette_visible_commands(state).len();
     if count == 0 {
@@ -291,7 +305,15 @@ pub(crate) fn handle_command_palette_mouse_for_view(
             hover_command_palette_selection_for_view(state, view, mouse.column, mouse.row);
         }
         MouseEventKind::Down(MouseButton::Left) => {
-            if command_palette_contains_point_for_view(view, mouse.column, mouse.row) {
+            if matches!(
+                command_palette_action_button_at_for_view(view, mouse.column, mouse.row),
+                Some(ModalAction::Close)
+            ) {
+                view.return_to_active_workspace_mode();
+                view.command_palette.query.clear();
+                view.command_palette.list.select(0);
+                view.command_palette.scroll = 0;
+            } else if command_palette_contains_point_for_view(view, mouse.column, mouse.row) {
                 select_command_palette_selection_for_view(state, view, mouse.column, mouse.row);
             } else {
                 view.return_to_active_workspace_mode();

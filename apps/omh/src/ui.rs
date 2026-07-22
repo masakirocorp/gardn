@@ -150,7 +150,7 @@ pub(crate) use self::{
     },
 };
 pub(crate) use self::{
-    keybind_help::keybind_help_lines,
+    keybind_help::{keybind_help_layout, keybind_help_scroll_metrics, keybind_help_scrollbar_rect},
     mobile::{
         mobile_switcher_areas, mobile_switcher_areas_for_view, mobile_switcher_max_scroll,
         mobile_switcher_max_scroll_for_view, mobile_switcher_target_at,
@@ -1466,7 +1466,7 @@ fn _build_hints(items: &[(&str, &str)], key_style: Style, dim_style: Style) -> V
 
 #[cfg(test)]
 mod tests {
-    use super::keybind_help::keybind_help_groups;
+    use super::keybind_help::{keybind_help_groups, keybind_help_lines};
     use super::scrollbar::scrollbar_thumb;
     use super::*;
     use crate::{
@@ -2634,6 +2634,134 @@ mod tests {
     }
 
     #[test]
+    fn keybind_help_lines_follow_modal_option_hierarchy() {
+        let app = crate::app::state::AppState::test_new();
+        let option_width = 70;
+        let lines = keybind_help_lines(&app, option_width);
+
+        let (command_width, command_line) = lines
+            .iter()
+            .find(|(_, line)| {
+                line.spans
+                    .iter()
+                    .map(|span| span.content.as_ref())
+                    .collect::<String>()
+                    .contains("command palette")
+            })
+            .expect("command palette row");
+        let command_text = command_line
+            .spans
+            .iter()
+            .map(|span| span.content.as_ref())
+            .collect::<String>();
+        assert_eq!(*command_width, option_width);
+        assert!(command_text.starts_with("  command palette"));
+        assert!(command_text.ends_with("prefix+space"));
+        assert_eq!(command_line.spans[0].style.fg, Some(app.palette.text));
+        let command_shortcut = command_line.spans.last().expect("command shortcut");
+        assert_eq!(command_shortcut.style.fg, Some(app.palette.mauve));
+        assert!(command_shortcut
+            .style
+            .add_modifier
+            .contains(ratatui::style::Modifier::BOLD));
+
+        let (_, unset_line) = lines
+            .iter()
+            .find(|(_, line)| {
+                line.spans
+                    .iter()
+                    .map(|span| span.content.as_ref())
+                    .collect::<String>()
+                    .contains("open agent menu")
+            })
+            .expect("unset action row");
+        let unset_shortcut = unset_line.spans.last().expect("unset shortcut");
+        assert_eq!(unset_shortcut.content.as_ref(), "unset");
+        assert_eq!(unset_shortcut.style.fg, Some(app.palette.overlay0));
+        assert!(!unset_shortcut
+            .style
+            .add_modifier
+            .contains(ratatui::style::Modifier::BOLD));
+
+        assert_ne!(lines.last().map(|(width, _)| *width), Some(0));
+        assert_eq!(
+            lines.iter().filter(|(width, _)| *width == 0).count(),
+            keybind_help_groups(&app).len().saturating_sub(1)
+        );
+    }
+
+    #[test]
+    fn keybind_help_renders_actions_left_and_shortcuts_right() {
+        let mut app = crate::app::state::AppState::test_new();
+        app.mode = Mode::KeybindHelp;
+        let area = Rect::new(0, 0, 100, 30);
+        compute_view(&mut app, area);
+
+        let backend = TestBackend::new(area.width, area.height);
+        let mut terminal = Terminal::new(backend).expect("test terminal");
+        terminal.draw(|frame| render(&app, frame)).expect("render");
+        let buffer = terminal.backend().buffer();
+        let rows = (0..area.height)
+            .map(|row| {
+                (
+                    row,
+                    buffer_row_text(buffer, Rect::new(0, row, area.width, 1), row),
+                )
+            })
+            .collect::<Vec<_>>();
+
+        let (_, prefix_text) = rows
+            .iter()
+            .find(|(_, text)| text.contains("prefix mode"))
+            .expect("prefix mode row");
+        let (command_row, command_text) = rows
+            .iter()
+            .find(|(_, text)| text.contains("command palette"))
+            .expect("command palette row");
+        let prefix_shortcut = crate::config::format_key_combo((app.prefix_code, app.prefix_mods));
+        let command_shortcut = "prefix+space";
+        let prefix_end =
+            prefix_text.find(&prefix_shortcut).expect("prefix shortcut") + prefix_shortcut.len();
+        let command_end = command_text
+            .find(command_shortcut)
+            .expect("command shortcut")
+            + command_shortcut.len();
+
+        assert!(
+            prefix_text.find("prefix mode").expect("prefix action")
+                < prefix_text.find(&prefix_shortcut).expect("prefix shortcut")
+        );
+        assert!(
+            command_text
+                .find("command palette")
+                .expect("command action")
+                < command_text
+                    .find(command_shortcut)
+                    .expect("command shortcut")
+        );
+        assert_eq!(prefix_end, command_end);
+
+        let action_col = command_text
+            .find("command palette")
+            .expect("command action") as u16;
+        let shortcut_col = command_text
+            .find(command_shortcut)
+            .expect("command shortcut") as u16;
+        assert_eq!(
+            buffer[(action_col, *command_row)].style().fg,
+            Some(app.palette.text)
+        );
+        assert_eq!(
+            buffer[(shortcut_col, *command_row)].style().fg,
+            Some(app.palette.mauve)
+        );
+        assert!(buffer[(shortcut_col, *command_row)]
+            .style()
+            .add_modifier
+            .contains(ratatui::style::Modifier::BOLD));
+    }
+
+    #[test]
     fn keybind_help_shows_custom_command_descriptions() {
         let mut app = crate::app::state::AppState::test_new();
         app.keybinds.custom_commands = vec![
@@ -2667,7 +2795,7 @@ mod tests {
             .iter()
             .any(|(key, label)| key == "prefix+alt+h" && label.as_ref() == "custom command"));
 
-        let rendered_help = keybind_help_lines(&app)
+        let rendered_help = keybind_help_lines(&app, 70)
             .into_iter()
             .flat_map(|(_, line)| line.spans)
             .map(|span| span.content.into_owned())
