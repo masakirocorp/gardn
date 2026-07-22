@@ -3303,8 +3303,8 @@
     {
       "upstream": "5b91dae12ffa09f5842a0c852ef06299c31fe342",
       "subject": "feat: configure sidebar entry gaps",
-      "status": "pending",
-      "reason": "Sidebar Space and Agent rows still use fixed gaps; the v0.7.4 row-gap configuration is absent."
+      "status": "skipped",
+      "reason": "Product decision on 2026-07-22: keep sidebar row spacing opinionated rather than add another presentation setting."
     },
     {
       "upstream": "b88aa1301e324c80d46cac767f87109f38cf4fe2",
@@ -3435,8 +3435,8 @@
     {
       "upstream": "b16465afbbf8e4e959076fceb7e84377f2ecc379",
       "subject": "feat: add configurable sidebar token styles",
-      "status": "pending",
-      "reason": "Sidebar tokens are configurable, but per-occurrence foreground, bold, and dim styles are absent."
+      "status": "skipped",
+      "reason": "Product decision on 2026-07-22: themes and semantic defaults own sidebar styling; per-token style configuration adds unjustified surface area."
     },
     {
       "upstream": "9c9490d764d306b6cc093b5b3de1ccd4e6467c94",
