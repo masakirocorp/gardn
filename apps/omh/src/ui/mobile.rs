@@ -1034,6 +1034,7 @@ fn render_mobile_hierarchy_row(
             let (dot, style) = state_dot(row.status, row.seen, p);
             (dot.to_string(), style.bg(bg))
         }
+        NavigatorTarget::Group { .. } => (" ".to_string(), Style::default().bg(bg)),
         _ if row.is_current => ("●".to_string(), Style::default().fg(accent).bg(bg)),
         _ => (" ".to_string(), Style::default().bg(bg)),
     };
@@ -1050,16 +1051,44 @@ fn render_mobile_hierarchy_row(
         .saturating_add(u16::from(!meta.is_empty()))
         .min(content.width / 2);
     let label_width = content.width.saturating_sub(meta_width);
-    frame.render_widget(
-        Paragraph::new(Line::from(vec![
-            Span::styled("  ", Style::default().bg(bg)),
-            Span::styled(marker, marker_style),
-            Span::styled(" ", Style::default().bg(bg)),
-            Span::styled(
-                truncate_end(&label, label_width.saturating_sub(4) as usize),
+    let mut spans = vec![
+        Span::styled("  ", Style::default().bg(bg)),
+        Span::styled(marker, marker_style),
+        Span::styled(" ", Style::default().bg(bg)),
+    ];
+    let label_room = label_width.saturating_sub(4);
+    if let NavigatorTarget::Group { group_idx } = row.target {
+        if let Some(group) = app.groups.get(group_idx) {
+            let icon_width = super::text::display_width_u16(&group.icon);
+            spans.push(Span::styled(
+                group.icon.clone(),
+                Style::default()
+                    .fg(accent)
+                    .bg(bg)
+                    .add_modifier(Modifier::BOLD),
+            ));
+            spans.push(Span::styled(" ", Style::default().bg(bg)));
+            spans.push(Span::styled(
+                truncate_end(
+                    &group.name,
+                    label_room.saturating_sub(icon_width.saturating_add(1)) as usize,
+                ),
                 label_style,
-            ),
-        ])),
+            ));
+        } else {
+            spans.push(Span::styled(
+                truncate_end(&label, label_room as usize),
+                label_style,
+            ));
+        }
+    } else {
+        spans.push(Span::styled(
+            truncate_end(&label, label_room as usize),
+            label_style,
+        ));
+    }
+    frame.render_widget(
+        Paragraph::new(Line::from(spans)),
         Rect::new(content.x, y, label_width, 1),
     );
     if meta_width > 0 {
@@ -1404,6 +1433,48 @@ mod tests {
             buffer[(icon_x, 0)].style().fg,
             Some(app.group_accent_color(group_idx))
         );
+    }
+
+    #[test]
+    fn mobile_group_rows_use_their_icons_as_accent_markers() {
+        let (mut app, active_group, _) = hierarchy_fixture();
+        app.groups[0].icon = "✚".to_string();
+        app.groups[0].accent = Some(crate::config::TerminalAccent::Green);
+        app.view.mobile_header_rect = Rect::new(0, 0, 44, 1);
+        app.view.terminal_area = Rect::new(0, 1, 44, 19);
+        app.mobile_switcher_level = MobileSwitcherLevel::Groups;
+        let terminal_runtimes = TerminalRuntimeRegistry::new();
+        let mut terminal =
+            ratatui::Terminal::new(ratatui::backend::TestBackend::new(44, 20)).unwrap();
+
+        terminal
+            .draw(|frame| {
+                render_mobile_panel(&app, &terminal_runtimes, frame, Rect::new(0, 0, 44, 20))
+            })
+            .unwrap();
+
+        let buffer = terminal.backend().buffer();
+        let find_symbol = |symbol: &str| {
+            (0..20)
+                .find_map(|y| {
+                    (0..44)
+                        .find(|x| buffer[(*x, y)].symbol() == symbol)
+                        .map(|x| (x, y))
+                })
+                .unwrap_or_else(|| panic!("group icon {symbol:?}"))
+        };
+        let default_icon = find_symbol("✚");
+        let active_icon = find_symbol("■");
+
+        assert_eq!(
+            buffer[default_icon].style().fg,
+            Some(app.group_accent_color(0))
+        );
+        assert_eq!(
+            buffer[active_icon].style().fg,
+            Some(app.group_accent_color(active_group))
+        );
+        assert_ne!(buffer[(active_icon.0 - 2, active_icon.1)].symbol(), "●");
     }
 
     #[test]
