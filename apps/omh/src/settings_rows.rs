@@ -744,13 +744,14 @@ fn appearance_rows(app: &AppState, settings: &SettingsState) -> Vec<SettingsList
     rows.push(SettingsListRow::Spacer);
     rows.extend(setting_group(
         "panes",
-        [option(
+        [value_option(
             layout_base + 7,
-            "agent border labels",
-            "show detected agent names in split pane borders",
+            "pane border agent info",
+            "agent metadata shown in split pane borders",
             settings
-                .pending_agent_border_labels
-                .unwrap_or_else(|| app.agent_border_labels_enabled()),
+                .pending_pane_border_agent_info
+                .unwrap_or_else(|| app.pane_border_agent_info())
+                .label(),
         )],
     ));
     rows

@@ -410,9 +410,12 @@ pub(super) fn render_panes_for_view(
                     .border_style(border_style)
                     .border_set(border_set);
                 if let Some(title) = pane_state
-                    .and_then(|pane| app.terminals.get(&pane.attached_terminal_id))
-                    .and_then(|terminal| {
-                        terminal.border_label(app.show_agent_labels_on_pane_borders)
+                    .and_then(|pane| {
+                        app.terminals
+                            .get(&pane.attached_terminal_id)
+                            .and_then(|terminal| {
+                                terminal.border_label(app.pane_border_agent_info, pane.seen)
+                            })
                     })
                     .and_then(|label| pane_border_title(&label, info.rect.width))
                 {
@@ -532,9 +535,12 @@ pub(super) fn render_panes(
                     .border_style(border_style)
                     .border_set(border_set);
                 if let Some(title) = pane_state
-                    .and_then(|pane| app.terminals.get(&pane.attached_terminal_id))
-                    .and_then(|terminal| {
-                        terminal.border_label(app.show_agent_labels_on_pane_borders)
+                    .and_then(|pane| {
+                        app.terminals
+                            .get(&pane.attached_terminal_id)
+                            .and_then(|terminal| {
+                                terminal.border_label(app.pane_border_agent_info, pane.seen)
+                            })
                     })
                     .and_then(|label| pane_border_title(&label, info.rect.width))
                 {

@@ -279,16 +279,20 @@ impl App {
         }
     }
 
-    pub(super) fn save_agent_border_labels(&mut self, enabled: bool) {
-        self.state.show_agent_labels_on_pane_borders = enabled;
-        self.state.settings.pending_agent_border_labels = Some(enabled);
-        if self.update_config_file("agent border labels", |content| {
-            crate::config::upsert_section_bool(
+    pub(super) fn save_pane_border_agent_info(
+        &mut self,
+        level: crate::config::PaneBorderAgentInfoConfig,
+    ) {
+        self.state.pane_border_agent_info = level;
+        self.state.settings.pending_pane_border_agent_info = Some(level);
+        if self.update_config_file("pane border agent info", |content| {
+            let content = crate::config::upsert_section_value(
                 content,
                 "ui",
-                "show_agent_labels_on_pane_borders",
-                enabled,
-            )
+                "pane_border_agent_info",
+                &format!("{:?}", level.config_value()),
+            );
+            crate::config::remove_section_key(&content, "ui", "show_agent_labels_on_pane_borders")
         }) {
             self.apply_config_from_disk(false);
         }

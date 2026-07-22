@@ -1,6 +1,6 @@
 use crate::config::{
-    CustomThemeColors, Keybinds, NewTerminalCwdConfig, SoundConfig, TerminalAccent, ThemeConfig,
-    ThemeMode, ToastConfig, ToastDelivery,
+    CustomThemeColors, Keybinds, NewTerminalCwdConfig, PaneBorderAgentInfoConfig, SoundConfig,
+    TerminalAccent, ThemeConfig, ThemeMode, ToastConfig, ToastDelivery,
 };
 use crate::detect::AgentState;
 use crossterm::event::{KeyCode, KeyModifiers};
@@ -2133,8 +2133,8 @@ pub struct SettingsState {
     pub pending_sidebar_initial_state: Option<crate::config::SidebarInitialStateConfig>,
     /// Pending default agent scope for newly attached clients.
     pub pending_sidebar_initial_agent_scope: Option<crate::config::AgentPanelScopeConfig>,
-    /// Pending agent border label setting while settings is open.
-    pub pending_agent_border_labels: Option<bool>,
+    /// Pending pane-border agent metadata level while settings is open.
+    pub pending_pane_border_agent_info: Option<PaneBorderAgentInfoConfig>,
     /// Pending macOS prefix input source switching setting while settings is open.
     pub pending_switch_ascii_input_source_in_prefix: Option<bool>,
     /// Checked group accent while group settings is open; hover cursor is separate.
@@ -2797,7 +2797,7 @@ pub struct AppState {
     pub hide_tab_bar_when_single_tab: bool,
     pub sidebar_collapsed_mode: crate::config::SidebarCollapsedModeConfig,
     pub git_diff_command: String,
-    pub show_agent_labels_on_pane_borders: bool,
+    pub pane_border_agent_info: PaneBorderAgentInfoConfig,
     pub pane_history_persistence: bool,
     pub resume_agents_on_restore: bool,
     /// Expose the focused pane's cursor anchor to the outer terminal even when
@@ -3166,8 +3166,8 @@ impl AppState {
         self.prompt_new_tab_name
     }
 
-    pub fn agent_border_labels_enabled(&self) -> bool {
-        self.show_agent_labels_on_pane_borders
+    pub fn pane_border_agent_info(&self) -> PaneBorderAgentInfoConfig {
+        self.pane_border_agent_info
     }
 
     pub fn switch_ascii_input_source_in_prefix_enabled(&self) -> bool {
@@ -3550,7 +3550,7 @@ impl AppState {
             sidebar_collapsed_mode: crate::config::SidebarCollapsedModeConfig::default(),
             copy_feedback: None,
             git_diff_command: "lazygit".to_string(),
-            show_agent_labels_on_pane_borders: false,
+            pane_border_agent_info: PaneBorderAgentInfoConfig::default(),
             mobile_width_threshold: crate::config::DEFAULT_MOBILE_WIDTH_THRESHOLD,
             pane_history_persistence: true,
             resume_agents_on_restore: true,
@@ -3616,7 +3616,7 @@ impl AppState {
                 pending_sidebar_initial_agent_scope: None,
                 pending_sidebar_min_width: None,
                 pending_sidebar_max_width: None,
-                pending_agent_border_labels: None,
+                pending_pane_border_agent_info: None,
                 pending_switch_ascii_input_source_in_prefix: None,
                 pending_group_accent_choice: None,
                 pending_group_name: None,

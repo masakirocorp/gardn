@@ -2544,7 +2544,7 @@ mod tests {
         assert!(text.contains("terminal"));
         assert!(text.contains("new terminal cwd"));
         assert!(text.contains("mouse wheel speed"));
-        assert!(!text.contains("agent border labels"));
+        assert!(!text.contains("pane border agent info"));
     }
     #[test]
     fn sectioned_settings_selected_text_uses_selected_foreground() {

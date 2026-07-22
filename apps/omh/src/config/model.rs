@@ -109,6 +109,41 @@ pub enum SidebarCollapsedModeConfig {
     Hidden,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum PaneBorderAgentInfoConfig {
+    #[default]
+    Hidden,
+    Name,
+    NameAndStatus,
+}
+
+impl PaneBorderAgentInfoConfig {
+    pub(crate) fn next(self) -> Self {
+        match self {
+            Self::Hidden => Self::Name,
+            Self::Name => Self::NameAndStatus,
+            Self::NameAndStatus => Self::Hidden,
+        }
+    }
+
+    pub(crate) fn label(self) -> &'static str {
+        match self {
+            Self::Hidden => "hidden",
+            Self::Name => "name",
+            Self::NameAndStatus => "name and status",
+        }
+    }
+
+    pub(crate) fn config_value(self) -> &'static str {
+        match self {
+            Self::Hidden => "hidden",
+            Self::Name => "name",
+            Self::NameAndStatus => "name_and_status",
+        }
+    }
+}
+
 impl SidebarArrangementConfig {
     pub(crate) fn next(self) -> Self {
         match self {
@@ -934,8 +969,8 @@ pub struct UiConfig {
     pub confirm_close: bool,
     /// Ask for a tab name before creating a new tab. Default: true.
     pub prompt_new_tab_name: bool,
-    /// Show agent labels in split pane borders when no manual pane label is set. Default: false.
-    pub show_agent_labels_on_pane_borders: bool,
+    /// Agent metadata shown in split pane borders when no title or manual name is set.
+    pub pane_border_agent_info: PaneBorderAgentInfoConfig,
     /// Draw borders around split panes. Default: true.
     pub pane_borders: bool,
     /// Keep split panes visually separated instead of sharing divider borders. Default: true.
@@ -1144,7 +1179,7 @@ impl Default for UiConfig {
             mouse_scroll_lines: None,
             confirm_close: true,
             prompt_new_tab_name: true,
-            show_agent_labels_on_pane_borders: false,
+            pane_border_agent_info: PaneBorderAgentInfoConfig::default(),
             pane_borders: true,
             pane_gaps: true,
             hide_tab_bar_when_single_tab: false,
@@ -1355,21 +1390,27 @@ initial_agent_scope = "group"
     #[test]
     fn pane_appearance_defaults_and_parse() {
         let default_config = Config::default();
-        assert!(!default_config.ui.show_agent_labels_on_pane_borders);
+        assert_eq!(
+            default_config.ui.pane_border_agent_info,
+            PaneBorderAgentInfoConfig::Hidden
+        );
         assert!(default_config.ui.pane_borders);
         assert!(default_config.ui.pane_gaps);
         assert!(!default_config.ui.hide_tab_bar_when_single_tab);
 
         let toml = r#"
 [ui]
-show_agent_labels_on_pane_borders = true
+pane_border_agent_info = "name_and_status"
 pane_borders = false
 pane_gaps = true
 hide_tab_bar_when_single_tab = true
 sidebar_collapsed_mode = "hidden"
 "#;
         let config: Config = toml::from_str(toml).unwrap();
-        assert!(config.ui.show_agent_labels_on_pane_borders);
+        assert_eq!(
+            config.ui.pane_border_agent_info,
+            PaneBorderAgentInfoConfig::NameAndStatus
+        );
         assert!(!config.ui.pane_borders);
         assert!(config.ui.pane_gaps);
         assert!(config.ui.hide_tab_bar_when_single_tab);

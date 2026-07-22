@@ -58,7 +58,7 @@ A pane is a terminal runtime inside a tab layout.
 - **Pane move** — move panes into another tab, a new tab, or a new workspace from the CLI or socket API.
 - **Pane focus and zoom** — focus by direction, cycle panes, and zoom the focused pane.
 - **Pane resize** — resize interactively from resize mode or by dragging borders.
-- **Pane labels** — set manual pane labels; optionally show detected agent labels on pane borders.
+- **Pane labels** — set manual pane labels; optionally show agent names or compact name-and-status metadata on pane borders. Integration titles and manual names always take precedence.
 - **Pane close** — close panes with confirmation where configured.
 - **Scrollback** — scroll panes, edit scrollback in `$EDITOR`, and read visible/recent output through the API.
 - **Pane history** — persist recent screen history to `session-history.json` by default.
@@ -389,7 +389,7 @@ Configurable areas include:
 - sidebar size, initial state, and mouse behavior
 - close and naming prompts
 - initial agent panel scope
-- pane border labels
+- pane border agent metadata
 - toast and sound settings
 - scrollback limit
 - experimental features

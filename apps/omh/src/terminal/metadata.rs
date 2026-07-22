@@ -840,10 +840,70 @@ mod tests {
         });
 
         assert_eq!(
-            terminal.border_label(false).as_deref(),
+            terminal
+                .border_label(crate::config::PaneBorderAgentInfoConfig::Hidden, true)
+                .as_deref(),
             Some("Prompt title")
         );
-        assert_eq!(terminal.border_label(true).as_deref(), Some("Prompt title"));
+        assert_eq!(
+            terminal
+                .border_label(
+                    crate::config::PaneBorderAgentInfoConfig::NameAndStatus,
+                    false,
+                )
+                .as_deref(),
+            Some("Prompt title")
+        );
+    }
+
+    #[test]
+    fn pane_border_agent_status_prefers_custom_status_then_state_label() {
+        let mut terminal = test_terminal();
+        terminal.set_detected_state(Some(Agent::Claude), AgentState::Working);
+        terminal.set_agent_metadata(AgentMetadataReport {
+            source: "user:presentation".into(),
+            agent_label: Some("claude".into()),
+            applies_to_source: None,
+            title: None,
+            display_agent: Some("reviewer".into()),
+            custom_status: Some("compacting".into()),
+            state_labels: HashMap::from([("working".into(), "reviewing".into())]),
+            tokens: HashMap::new(),
+            clear_title: false,
+            clear_display_agent: false,
+            clear_custom_status: false,
+            clear_state_labels: false,
+            ttl: None,
+            seq: None,
+        });
+
+        assert_eq!(
+            terminal
+                .border_label(
+                    crate::config::PaneBorderAgentInfoConfig::NameAndStatus,
+                    true,
+                )
+                .as_deref(),
+            Some("reviewer · compacting")
+        );
+
+        set_metadata_custom_status(
+            &mut terminal,
+            "user:presentation",
+            Some("claude"),
+            None,
+            None,
+            true,
+        );
+        assert_eq!(
+            terminal
+                .border_label(
+                    crate::config::PaneBorderAgentInfoConfig::NameAndStatus,
+                    true,
+                )
+                .as_deref(),
+            Some("reviewer · reviewing")
+        );
     }
 
     #[test]

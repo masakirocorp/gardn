@@ -936,7 +936,7 @@ impl App {
             confirm_close: config.ui.confirm_close,
             prompt_new_tab_name: config.ui.prompt_new_tab_name,
             git_diff_command: config.git.diff_command.clone(),
-            show_agent_labels_on_pane_borders: config.ui.show_agent_labels_on_pane_borders,
+            pane_border_agent_info: config.ui.pane_border_agent_info,
             pane_borders: config.ui.pane_borders,
             pane_gaps: config.ui.pane_gaps,
             hide_tab_bar_when_single_tab: config.ui.hide_tab_bar_when_single_tab,
@@ -1005,7 +1005,7 @@ impl App {
                 pending_context_bar_visibility: None,
                 pending_sidebar_initial_state: None,
                 pending_sidebar_initial_agent_scope: None,
-                pending_agent_border_labels: None,
+                pending_pane_border_agent_info: None,
                 pending_switch_ascii_input_source_in_prefix: None,
                 pending_group_accent_choice: None,
                 pending_group_name: None,
@@ -1810,8 +1810,7 @@ impl App {
                 self.state.mouse_scroll_lines = config.ui.mouse_scroll_lines();
                 self.state.confirm_close = config.ui.confirm_close;
                 self.state.prompt_new_tab_name = config.ui.prompt_new_tab_name;
-                self.state.show_agent_labels_on_pane_borders =
-                    config.ui.show_agent_labels_on_pane_borders;
+                self.state.pane_border_agent_info = config.ui.pane_border_agent_info;
                 self.state.pane_borders = config.ui.pane_borders;
                 self.state.pane_gaps = config.ui.pane_gaps;
                 self.state.hide_tab_bar_when_single_tab = config.ui.hide_tab_bar_when_single_tab;

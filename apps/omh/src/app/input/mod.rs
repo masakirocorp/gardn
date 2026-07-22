@@ -602,7 +602,7 @@ impl App {
                         context_bar_visibility,
                         sidebar_initial_state,
                         sidebar_initial_agent_scope,
-                        agent_border_labels,
+                        pane_border_agent_info,
                     } => {
                         self.save_theme(
                             &light,
@@ -628,7 +628,7 @@ impl App {
                             sidebar_initial_agent_scope,
                         );
                         self.save_toast_delivery(toast_delivery);
-                        self.save_agent_border_labels(agent_border_labels);
+                        self.save_pane_border_agent_info(pane_border_agent_info);
                         crate::ui::compute_view_with_runtime_registry(
                             &mut self.state,
                             &self.terminal_runtimes,

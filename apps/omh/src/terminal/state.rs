@@ -1219,17 +1219,41 @@ impl TerminalState {
             || self.launch_argv.is_some()
     }
 
-    pub fn border_label(&self, show_agent_labels: bool) -> Option<String> {
-        self.effective_title().or_else(|| {
-            self.manual_label.clone().or_else(|| {
-                show_agent_labels
-                    .then(|| {
-                        self.effective_display_agent()
-                            .or_else(|| self.effective_agent_label().map(str::to_string))
-                    })
-                    .flatten()
-            })
-        })
+    pub fn border_label(
+        &self,
+        agent_info: crate::config::PaneBorderAgentInfoConfig,
+        seen: bool,
+    ) -> Option<String> {
+        let presentation = self.effective_presentation();
+        if presentation.title.is_some() {
+            return presentation.title;
+        }
+        if self.manual_label.is_some() {
+            return self.manual_label.clone();
+        }
+        if agent_info == crate::config::PaneBorderAgentInfoConfig::Hidden {
+            return None;
+        }
+
+        let agent = presentation
+            .display_agent
+            .or_else(|| self.effective_agent_label().map(str::to_string))?;
+        if agent_info == crate::config::PaneBorderAgentInfoConfig::Name {
+            return Some(agent);
+        }
+
+        let status_key = match (self.state, seen) {
+            (AgentState::Blocked, _) => "blocked",
+            (AgentState::Working, _) => "working",
+            (AgentState::Idle, false) => "done",
+            (AgentState::Idle, true) => "idle",
+            (AgentState::Unknown, _) => "unknown",
+        };
+        let status = presentation
+            .custom_status
+            .or_else(|| presentation.state_labels.get(status_key).cloned())
+            .unwrap_or_else(|| status_key.to_string());
+        Some(format!("{agent} · {status}"))
     }
 
     fn recompute_effective_state(
@@ -2153,23 +2177,44 @@ mod tests {
     }
 
     #[test]
-    fn border_label_prefers_manual_label_over_agent_label() {
+    fn border_label_respects_agent_info_level_seen_state_and_manual_names() {
+        use crate::config::PaneBorderAgentInfoConfig::{Hidden, Name, NameAndStatus};
+
         let mut terminal = test_terminal();
         terminal.set_detected_state(Some(Agent::Claude), AgentState::Idle);
 
-        assert_eq!(terminal.border_label(false), None);
-        assert_eq!(terminal.border_label(true).as_deref(), Some("claude"));
+        assert_eq!(terminal.border_label(Hidden, false), None);
+        assert_eq!(
+            terminal.border_label(Name, false).as_deref(),
+            Some("claude")
+        );
+        assert_eq!(
+            terminal.border_label(NameAndStatus, false).as_deref(),
+            Some("claude · done")
+        );
+        assert_eq!(
+            terminal.border_label(NameAndStatus, true).as_deref(),
+            Some("claude · idle")
+        );
+
+        terminal.set_detected_state(Some(Agent::Claude), AgentState::Working);
+        assert_eq!(
+            terminal.border_label(NameAndStatus, true).as_deref(),
+            Some("claude · working")
+        );
 
         terminal.set_manual_label(" reviewer ".into());
-        assert_eq!(terminal.border_label(false).as_deref(), Some("reviewer"));
-        assert_eq!(terminal.border_label(true).as_deref(), Some("reviewer"));
+        assert_eq!(
+            terminal.border_label(Hidden, true).as_deref(),
+            Some("reviewer")
+        );
+        assert_eq!(
+            terminal.border_label(NameAndStatus, true).as_deref(),
+            Some("reviewer")
+        );
 
         terminal.set_manual_label("   ".into());
-        assert_eq!(terminal.border_label(true).as_deref(), Some("claude"));
-
-        terminal.set_manual_label("reviewer".into());
-        terminal.clear_manual_label();
-        assert_eq!(terminal.border_label(true).as_deref(), Some("claude"));
+        assert_eq!(terminal.border_label(Name, true).as_deref(), Some("claude"));
     }
 
     #[test]

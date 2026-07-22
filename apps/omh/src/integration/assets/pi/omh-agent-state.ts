@@ -500,8 +500,8 @@ export default function (pi) {
   pi.on("session.compacting", markWorking);
   pi.on("auto_compaction_start", markWorking);
   pi.on("agent_end", markIdle);
-  pi.on("session_compact", markIdle);
-  pi.on("auto_compaction_end", markIdle);
+  pi.on("session_compact", markWorking);
+  pi.on("auto_compaction_end", markWorking);
 
   pi.on("session_shutdown", async () => {
     if (!rootSession) {

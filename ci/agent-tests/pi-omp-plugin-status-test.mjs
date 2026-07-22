@@ -248,16 +248,34 @@ const beforeManualCompact = lifecycleRequests().length;
 pi.emit("session.compacting");
 await waitForNewRequests(beforeManualCompact);
 assert.equal(states().at(-1), "working", JSON.stringify(states()));
+const beforeManualCompactEnd = lifecycleRequests().length;
 pi.emit("session_compact");
-await sleep(20);
+await sleep(100);
+assert.equal(
+  lifecycleRequests().length,
+  beforeManualCompactEnd,
+  "manual compaction completion must not publish idle while the agent continues",
+);
+assert.equal(states().at(-1), "working", JSON.stringify(states()));
+pi.emit("agent_end", { messages: [] });
+await waitForNewRequests(beforeManualCompactEnd);
 assert.equal(states().at(-1), "idle", JSON.stringify(states()));
 
 const beforeAutoCompact = lifecycleRequests().length;
 pi.emit("auto_compaction_start");
 await waitForNewRequests(beforeAutoCompact);
 assert.equal(states().at(-1), "working", JSON.stringify(states()));
+const beforeAutoCompactEnd = lifecycleRequests().length;
 pi.emit("auto_compaction_end");
-await sleep(20);
+await sleep(100);
+assert.equal(
+  lifecycleRequests().length,
+  beforeAutoCompactEnd,
+  "automatic compaction completion must not publish idle while the agent continues",
+);
+assert.equal(states().at(-1), "working", JSON.stringify(states()));
+pi.emit("agent_end", { messages: [] });
+await waitForNewRequests(beforeAutoCompactEnd);
 assert.equal(states().at(-1), "idle", JSON.stringify(states()));
 
 const beforeDuplicateEnd = states().length;

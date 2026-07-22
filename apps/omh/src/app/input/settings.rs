@@ -13,8 +13,8 @@ use crate::{
     },
     config::{
         AgentPanelScopeConfig, ContextBarVisibilityConfig, NewTerminalCwdConfig,
-        SidebarArrangementConfig, SidebarInitialStateConfig, TerminalAccent, ThemeMode,
-        ToastDelivery,
+        PaneBorderAgentInfoConfig, SidebarArrangementConfig, SidebarInitialStateConfig,
+        TerminalAccent, ThemeMode, ToastDelivery,
     },
     settings_rows::{
         option_count, option_hit_for_visual_row, option_index_for_visual_row, rows_for_section,
@@ -48,7 +48,7 @@ pub(crate) enum SettingsAction {
         context_bar_visibility: ContextBarVisibilityConfig,
         sidebar_initial_state: SidebarInitialStateConfig,
         sidebar_initial_agent_scope: AgentPanelScopeConfig,
-        agent_border_labels: bool,
+        pane_border_agent_info: PaneBorderAgentInfoConfig,
     },
     SaveSwitchAsciiInputSourceInPrefix(bool),
     SaveGroupAccent {
@@ -112,7 +112,7 @@ impl App {
                 context_bar_visibility,
                 sidebar_initial_state,
                 sidebar_initial_agent_scope,
-                agent_border_labels,
+                pane_border_agent_info,
             } => {
                 self.save_theme(
                     &light,
@@ -131,7 +131,7 @@ impl App {
                 self.save_context_bar_visibility(context_bar_visibility);
                 self.save_sidebar_initial_view(sidebar_initial_state, sidebar_initial_agent_scope);
                 self.save_toast_delivery(toast_delivery);
-                self.save_agent_border_labels(agent_border_labels);
+                self.save_pane_border_agent_info(pane_border_agent_info);
             }
             SettingsAction::SaveWorkspaceName { ws_idx, name } => {
                 self.state.rename_workspace(ws_idx, name);
@@ -1107,11 +1107,11 @@ fn pending_sidebar_initial_agent_scope(state: &AppState) -> AgentPanelScopeConfi
         .unwrap_or(state.sidebar_config.initial_agent_scope)
 }
 
-fn pending_agent_border_labels(state: &AppState) -> bool {
+fn pending_pane_border_agent_info(state: &AppState) -> PaneBorderAgentInfoConfig {
     state
         .settings
-        .pending_agent_border_labels
-        .unwrap_or_else(|| state.agent_border_labels_enabled())
+        .pending_pane_border_agent_info
+        .unwrap_or_else(|| state.pane_border_agent_info())
 }
 
 fn selected_global_theme_name_for_mode(state: &AppState) -> String {
@@ -1365,7 +1365,7 @@ fn clear_settings_pending(state: &mut AppState) {
     state.settings.pending_context_bar_visibility = None;
     state.settings.pending_sidebar_initial_state = None;
     state.settings.pending_sidebar_initial_agent_scope = None;
-    state.settings.pending_agent_border_labels = None;
+    state.settings.pending_pane_border_agent_info = None;
     state.settings.pending_switch_ascii_input_source_in_prefix = None;
     state.settings.pending_group_accent_choice = None;
     state.settings.pending_group_name = None;
@@ -1399,7 +1399,7 @@ fn current_settings_action(state: &AppState) -> SettingsAction {
         context_bar_visibility: pending_context_bar_visibility(state),
         sidebar_initial_state: pending_sidebar_initial_state(state),
         sidebar_initial_agent_scope: pending_sidebar_initial_agent_scope(state),
-        agent_border_labels: pending_agent_border_labels(state),
+        pane_border_agent_info: pending_pane_border_agent_info(state),
     }
 }
 
@@ -1502,7 +1502,8 @@ fn select_pending_appearance_setting(state: &mut AppState) -> Option<SettingsAct
     match appearance_selected {
         0..=6 => select_pending_layout_setting_at(state, appearance_selected),
         7 => {
-            state.settings.pending_agent_border_labels = Some(!pending_agent_border_labels(state));
+            state.settings.pending_pane_border_agent_info =
+                Some(pending_pane_border_agent_info(state).next());
         }
         _ => {}
     }
@@ -2165,7 +2166,7 @@ pub(crate) fn prepare_general_settings_state(
     settings.pending_context_bar_visibility = Some(state.context_bar_visibility);
     settings.pending_sidebar_initial_state = Some(state.sidebar_config.initial_state);
     settings.pending_sidebar_initial_agent_scope = Some(state.sidebar_config.initial_agent_scope);
-    settings.pending_agent_border_labels = Some(state.agent_border_labels_enabled());
+    settings.pending_pane_border_agent_info = Some(state.pane_border_agent_info());
     settings.pending_agent_profile_id = None;
     settings.pending_agent_profile_name = None;
     settings.pending_agent_profile_kind = Some(state.default_agent_profile_kind_choice());
@@ -2225,7 +2226,7 @@ fn reset_settings_for_scoped_editor(state: &AppState, settings: &mut SettingsSta
     settings.pending_context_bar_visibility = None;
     settings.pending_sidebar_initial_state = None;
     settings.pending_sidebar_initial_agent_scope = None;
-    settings.pending_agent_border_labels = None;
+    settings.pending_pane_border_agent_info = None;
     settings.pending_switch_ascii_input_source_in_prefix = None;
 }
 
@@ -2320,7 +2321,7 @@ pub(crate) fn open_group_settings(state: &mut AppState, group_idx: usize) {
     state.settings.pending_context_bar_visibility = None;
     state.settings.pending_sidebar_initial_state = None;
     state.settings.pending_sidebar_initial_agent_scope = None;
-    state.settings.pending_agent_border_labels = None;
+    state.settings.pending_pane_border_agent_info = None;
     state.settings.pending_switch_ascii_input_source_in_prefix = None;
     state.settings.group_settings_target = Some(group_idx);
     state.settings.workspace_settings_target = None;
@@ -2364,7 +2365,7 @@ pub(crate) fn open_workspace_settings(state: &mut AppState, ws_idx: usize) {
     state.settings.pending_context_bar_visibility = None;
     state.settings.pending_sidebar_initial_state = None;
     state.settings.pending_sidebar_initial_agent_scope = None;
-    state.settings.pending_agent_border_labels = None;
+    state.settings.pending_pane_border_agent_info = None;
     state.settings.pending_switch_ascii_input_source_in_prefix = None;
     state.settings.group_settings_target = None;
     state.settings.workspace_settings_target = Some(ws_idx);
@@ -3793,7 +3794,7 @@ mod tests {
                 context_bar_visibility: ContextBarVisibilityConfig::Always,
                 sidebar_initial_state: SidebarInitialStateConfig::Expanded,
                 sidebar_initial_agent_scope: AgentPanelScopeConfig::All,
-                agent_border_labels: false,
+                pane_border_agent_info: PaneBorderAgentInfoConfig::Hidden,
             })
         );
         assert_eq!(state.mode, Mode::Settings);
@@ -4087,11 +4088,40 @@ mod tests {
     }
 
     #[test]
-    fn settings_behavior_toggles_close_prompt_and_border_labels() {
+    fn appearance_settings_cycle_pane_border_agent_info_levels() {
+        let mut state = state_with_workspaces(&["test"]);
+        open_settings_at(&mut state, SettingsSection::Theme);
+        state.settings.list.select(theme_choice_len(&state) + 7);
+
+        for expected in [
+            PaneBorderAgentInfoConfig::Name,
+            PaneBorderAgentInfoConfig::NameAndStatus,
+            PaneBorderAgentInfoConfig::Hidden,
+        ] {
+            let action = update_settings_state(
+                &mut state,
+                KeyEvent::new(KeyCode::Char(' '), KeyModifiers::empty()),
+            );
+            assert_eq!(
+                state.settings.pending_pane_border_agent_info,
+                Some(expected)
+            );
+            assert!(matches!(
+                action,
+                Some(SettingsAction::SaveSettings {
+                    pane_border_agent_info,
+                    ..
+                }) if pane_border_agent_info == expected
+            ));
+        }
+    }
+
+    #[test]
+    fn settings_behavior_toggles_close_prompt_and_terminal_options() {
         let mut state = state_with_workspaces(&["test"]);
         state.confirm_close = true;
         state.prompt_new_tab_name = true;
-        state.show_agent_labels_on_pane_borders = false;
+        state.pane_border_agent_info = PaneBorderAgentInfoConfig::Hidden;
         state.new_terminal_cwd = NewTerminalCwdConfig::Follow;
         state.mouse_scroll_lines = 3;
         open_settings_at(&mut state, SettingsSection::PaneLabels);
@@ -4150,7 +4180,7 @@ mod tests {
                 prompt_new_tab_name: false,
                 new_terminal_cwd: NewTerminalCwdConfig::Home,
                 mouse_scroll_lines: 5,
-                agent_border_labels: false,
+                pane_border_agent_info: PaneBorderAgentInfoConfig::Hidden,
                 ..
             }
         ));
@@ -4700,7 +4730,7 @@ mod tests {
         let mut app = app_for_mouse_test();
         app.state.confirm_close = true;
         app.state.prompt_new_tab_name = true;
-        app.state.show_agent_labels_on_pane_borders = false;
+        app.state.pane_border_agent_info = PaneBorderAgentInfoConfig::Hidden;
         app.state.new_terminal_cwd = NewTerminalCwdConfig::Follow;
         app.state.mouse_scroll_lines = 3;
         app.state.view.terminal_area = Rect::new(26, 0, 100, 30);
@@ -5005,7 +5035,7 @@ mod tests {
 
         let (arrangement_x, arrangement_y) =
             rendered_text_point_at_or_after_row(&app, "sidebar arrangement", list_area.y, 150, 40);
-        let initial_agent_border_labels = app.state.settings.pending_agent_border_labels;
+        let initial_pane_border_agent_info = app.state.settings.pending_pane_border_agent_info;
         let action = app.state.handle_settings_mouse(mouse(
             MouseEventKind::Down(crossterm::event::MouseButton::Left),
             arrangement_x,
@@ -5019,13 +5049,13 @@ mod tests {
         );
         assert_eq!(app.state.settings.list.selected, arrangement_index);
         assert_eq!(
-            app.state.settings.pending_agent_border_labels,
-            initial_agent_border_labels
+            app.state.settings.pending_pane_border_agent_info,
+            initial_pane_border_agent_info
         );
         match action {
             Some(SettingsAction::SaveSettings {
                 sidebar_arrangement,
-                agent_border_labels,
+                pane_border_agent_info,
                 ..
             }) => {
                 assert_eq!(
@@ -5033,9 +5063,9 @@ mod tests {
                     crate::config::SidebarArrangementConfig::Separate
                 );
                 assert_eq!(
-                    agent_border_labels,
-                    initial_agent_border_labels
-                        .unwrap_or_else(|| app.state.agent_border_labels_enabled())
+                    pane_border_agent_info,
+                    initial_pane_border_agent_info
+                        .unwrap_or_else(|| app.state.pane_border_agent_info())
                 );
             }
             other => panic!("expected settings save action, got {other:?}"),
