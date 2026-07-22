@@ -1590,6 +1590,7 @@ pub(crate) struct NavigatorRow {
     pub is_group: bool,
     pub is_workspace: bool,
     pub is_tab: bool,
+    pub has_children: bool,
     pub expanded: bool,
     pub search_text: String,
 }

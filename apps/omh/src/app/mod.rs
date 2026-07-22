@@ -2746,6 +2746,9 @@ impl App {
         let Some(row) = self.navigator_view_rows(client_view).get(selected).cloned() else {
             return;
         };
+        if !row.has_children {
+            return;
+        }
         match row.target {
             state::NavigatorTarget::Group { group_idx } => {
                 let Some(group_id) = self
@@ -5716,12 +5719,12 @@ impl App {
                     self.client_view_navigator_row_index_at(client_view, mouse.column, mouse.row)
                 {
                     client_view.navigator.list.select(idx);
-                    let is_branch = self
+                    let has_children = self
                         .navigator_view_rows(client_view)
                         .get(idx)
-                        .is_some_and(|row| row.is_group || row.is_workspace);
+                        .is_some_and(|row| row.has_children);
                     let body = self.client_view_navigator_body_rect(client_view);
-                    if is_branch && mouse.column <= body.x.saturating_add(3) {
+                    if has_children && mouse.column <= body.x.saturating_add(3) {
                         self.toggle_client_view_navigator_branch(client_view);
                     } else {
                         self.accept_client_view_navigator_selection(client_view);
@@ -18970,6 +18973,7 @@ command = "printf literal > '{}'"
     fn route_client_events_for_view_space_toggles_the_hovered_navigator_branch() {
         let mut app = test_app();
         app.state.workspaces = vec![Workspace::test_new("first"), Workspace::test_new("second")];
+        app.state.workspaces[1].test_split(ratatui::layout::Direction::Horizontal);
         app.state.ensure_test_terminals();
         app.state.active = Some(0);
         app.state.selected = 0;
@@ -19059,11 +19063,10 @@ command = "printf literal > '{}'"
             )],
             true,
         );
-
         let rows = app.navigator_view_rows(&client);
         assert!(
             rows.iter()
-                .filter(|row| row.is_group || row.is_workspace)
+                .filter(|row| row.has_children)
                 .all(|row| row.expanded),
             "every expandable branch should be visibly expanded"
         );

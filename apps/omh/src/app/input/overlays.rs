@@ -154,12 +154,12 @@ impl App {
                         self.state.navigator_row_index_at(mouse.column, mouse.row)
                     {
                         self.state.navigator.list.select(idx);
-                        let is_branch = self
+                        let has_children = self
                             .state
                             .navigator_rows()
                             .get(idx)
-                            .is_some_and(|row| row.is_group || row.is_workspace);
-                        if is_branch && self.state.navigator_row_caret_at(mouse.column) {
+                            .is_some_and(|row| row.has_children);
+                        if has_children && self.state.navigator_row_caret_at(mouse.column) {
                             self.state.toggle_selected_navigator_branch();
                         } else {
                             self.state.accept_navigator_selection();

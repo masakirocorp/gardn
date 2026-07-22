@@ -426,8 +426,10 @@ impl AppState {
                 continue;
             }
 
-            let expanded = !matches!(query_kind, NavigatorQueryKind::Empty)
-                || navigator.expanded_groups.contains(&group.id);
+            let has_children = !child_rows.is_empty();
+            let expanded = has_children
+                && (!matches!(query_kind, NavigatorQueryKind::Empty)
+                    || navigator.expanded_groups.contains(&group.id));
             rows.push(NavigatorRow {
                 target: NavigatorTarget::Group { group_idx },
                 depth: 0,
@@ -439,6 +441,7 @@ impl AppState {
                 is_group: true,
                 is_workspace: false,
                 is_tab: false,
+                has_children,
                 expanded,
                 search_text,
             });
@@ -493,8 +496,10 @@ impl AppState {
                 continue;
             }
 
-            let expanded = !matches!(query_kind, NavigatorQueryKind::Empty)
-                || navigator.expanded_workspaces.contains(&ws.id);
+            let has_children = !child_rows.is_empty();
+            let expanded = has_children
+                && (!matches!(query_kind, NavigatorQueryKind::Empty)
+                    || navigator.expanded_workspaces.contains(&ws.id));
             let (state, seen) = ws.aggregate_state(&self.terminals);
             let pane_count = ws.tabs.iter().map(|tab| tab.panes.len()).sum::<usize>();
             rows.push(NavigatorRow {
@@ -508,6 +513,7 @@ impl AppState {
                 is_group: false,
                 is_workspace: true,
                 is_tab: false,
+                has_children,
                 expanded,
                 search_text: workspace_search_text,
             });
@@ -609,6 +615,7 @@ impl AppState {
             is_group: false,
             is_workspace: false,
             is_tab: true,
+            has_children: has_visible_pane_children,
             expanded: has_visible_pane_children,
             search_text,
         }
@@ -688,6 +695,7 @@ impl AppState {
                 is_group: false,
                 is_workspace: false,
                 is_tab: false,
+                has_children: false,
                 expanded: false,
                 search_text,
             });
@@ -779,6 +787,9 @@ impl AppState {
         let Some(row) = self.navigator_rows().get(selected).cloned() else {
             return;
         };
+        if !row.has_children {
+            return;
+        }
         match row.target {
             NavigatorTarget::Group { group_idx } => {
                 let Some(group_id) = self.groups.get(group_idx).map(|group| group.id.clone())
@@ -4395,6 +4406,16 @@ mod tests {
             .insert(state.workspaces[1].id.clone());
         let rows = state.navigator_rows();
 
+        assert!(rows.iter().any(|row| {
+            matches!(row.target, NavigatorTarget::Workspace { ws_idx: 0 })
+                && !row.has_children
+                && !row.expanded
+        }));
+        assert!(rows.iter().any(|row| {
+            matches!(row.target, NavigatorTarget::Workspace { ws_idx: 1 })
+                && row.has_children
+                && row.expanded
+        }));
         assert!(!rows
             .iter()
             .any(|row| matches!(row.target, NavigatorTarget::Tab { ws_idx: 0, .. })));

@@ -2220,7 +2220,7 @@ mod tests {
         assert!(
             expanded_rows
                 .iter()
-                .filter(|row| row.is_group || row.is_workspace)
+                .filter(|row| row.has_children)
                 .all(|row| row.expanded),
             "E should visibly expand every branch"
         );
