@@ -3927,6 +3927,118 @@ mod tests {
     }
 
     #[test]
+    fn mobile_switcher_pane_row_focuses_the_clicked_pane() {
+        let mut app = app_for_mouse_test();
+        let mut workspace = Workspace::test_new("one");
+        let first_pane = workspace.tabs[0].root_pane;
+        let second_pane = workspace.test_split(Direction::Horizontal);
+        workspace.tabs[0].layout.focus_pane(first_pane);
+        app.state.workspaces = vec![workspace];
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::Terminal;
+
+        crate::ui::compute_view(&mut app.state, Rect::new(0, 0, 44, 20));
+        open_mobile_switcher(&mut app);
+        for target in [
+            crate::ui::MobileSwitcherTarget::Group(app.state.active_group),
+            crate::ui::MobileSwitcherTarget::Workspace(0),
+            crate::ui::MobileSwitcherTarget::Tab {
+                ws_idx: 0,
+                tab_idx: 0,
+            },
+        ] {
+            let (column, row) = mobile_switcher_point_for_target(&app, target);
+            app.handle_mouse(mouse(MouseEventKind::Down(MouseButton::Left), column, row));
+        }
+        assert_eq!(
+            app.state.mobile_switcher_level,
+            crate::app::state::MobileSwitcherLevel::Panes {
+                ws_idx: 0,
+                tab_idx: 0
+            }
+        );
+
+        let (column, row) = mobile_switcher_point_for_target(
+            &app,
+            crate::ui::MobileSwitcherTarget::Pane {
+                ws_idx: 0,
+                tab_idx: 0,
+                pane_id: second_pane,
+            },
+        );
+        app.handle_mouse(mouse(MouseEventKind::Down(MouseButton::Left), column, row));
+
+        assert_eq!(app.state.workspaces[0].focused_pane_id(), Some(second_pane));
+        assert_eq!(app.state.mode, Mode::Terminal);
+    }
+
+    #[test]
+    fn mobile_switcher_breadcrumb_returns_to_the_parent_level() {
+        let mut app = app_for_mouse_test();
+        app.state.workspaces = vec![Workspace::test_new("one")];
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::Terminal;
+
+        crate::ui::compute_view(&mut app.state, Rect::new(0, 0, 44, 20));
+        open_mobile_switcher(&mut app);
+        let group_idx = app.state.active_group;
+        let (column, row) = mobile_switcher_point_for_target(
+            &app,
+            crate::ui::MobileSwitcherTarget::Group(group_idx),
+        );
+        app.handle_mouse(mouse(MouseEventKind::Down(MouseButton::Left), column, row));
+
+        let breadcrumb = crate::ui::mobile_switcher_areas(&app.state).breadcrumb;
+        app.handle_mouse(mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            breadcrumb.x + 1,
+            breadcrumb.y,
+        ));
+
+        assert_eq!(
+            app.state.mobile_switcher_level,
+            crate::app::state::MobileSwitcherLevel::Groups
+        );
+        assert_eq!(app.state.active_group, group_idx);
+        assert_eq!(app.state.mode, Mode::Navigate);
+    }
+
+    #[test]
+    fn mobile_switcher_more_actions_opens_the_clicked_action() {
+        let mut app = app_for_mouse_test();
+        app.state.workspaces = vec![Workspace::test_new("one")];
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::Terminal;
+
+        crate::ui::compute_view(&mut app.state, Rect::new(0, 0, 44, 20));
+        open_mobile_switcher(&mut app);
+        let (column, row) =
+            mobile_switcher_point_for_target(&app, crate::ui::MobileSwitcherTarget::OpenActions);
+        app.handle_mouse(mouse(MouseEventKind::Down(MouseButton::Left), column, row));
+        assert_eq!(
+            app.state.mobile_switcher_level,
+            crate::app::state::MobileSwitcherLevel::Actions
+        );
+
+        let settings_idx = app
+            .state
+            .global_menu_labels()
+            .iter()
+            .position(|label| *label == "settings")
+            .expect("settings action");
+        let (column, row) = mobile_switcher_point_for_target(
+            &app,
+            crate::ui::MobileSwitcherTarget::Menu(settings_idx),
+        );
+        app.handle_mouse(mouse(MouseEventKind::Down(MouseButton::Left), column, row));
+
+        assert_eq!(app.state.mode, Mode::Settings);
+    }
+
+    #[test]
     fn mobile_switcher_new_tab_skips_dialog_when_prompt_disabled() {
         let mut app = app_for_mouse_test();
         let mut ws = Workspace::test_new("one");

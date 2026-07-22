@@ -1506,6 +1506,52 @@ mod tests {
         }
     }
 
+    #[test]
+    fn mobile_new_tab_action_renders_after_the_tab_list() {
+        let (mut app, _, _) = hierarchy_fixture();
+        app.view.mobile_header_rect = Rect::new(0, 0, 44, 1);
+        app.view.terminal_area = Rect::new(0, 1, 44, 19);
+        app.mobile_switcher_level = MobileSwitcherLevel::Tabs { ws_idx: 1 };
+        let terminal_runtimes = TerminalRuntimeRegistry::new();
+        let mut terminal =
+            ratatui::Terminal::new(ratatui::backend::TestBackend::new(44, 20)).unwrap();
+
+        terminal
+            .draw(|frame| {
+                render_mobile_panel(&app, &terminal_runtimes, frame, Rect::new(0, 0, 44, 20))
+            })
+            .unwrap();
+
+        let lines = buffer_text(terminal.backend().buffer())
+            .lines()
+            .map(str::to_string)
+            .collect::<Vec<_>>();
+        let dashboards = lines
+            .iter()
+            .position(|line| line.contains("dashboards"))
+            .expect("dashboards tab");
+        let logs = lines
+            .iter()
+            .position(|line| line.contains("logs"))
+            .expect("logs tab");
+        let new_tab = lines
+            .iter()
+            .position(|line| line.contains("+ New tab"))
+            .expect("new tab action");
+        let more_actions = lines
+            .iter()
+            .position(|line| line.contains("More actions"))
+            .expect("more actions");
+
+        assert!(dashboards < logs);
+        assert!(logs + 1 < new_tab, "new tab must be outside the tab list");
+        assert!(
+            lines[new_tab - 1].contains('─'),
+            "new tab must be separated from tab rows"
+        );
+        assert!(new_tab < more_actions);
+    }
+
     #[tokio::test]
     async fn mobile_header_uses_live_root_runtime_cwd_for_workspace_label() {
         let unique = format!(

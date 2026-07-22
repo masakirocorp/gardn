@@ -14899,6 +14899,160 @@ command = "printf literal > '{}'"
         );
     }
 
+    #[tokio::test]
+    async fn route_client_events_for_view_mobile_hierarchy_clicks_reach_the_clicked_pane() {
+        let mut app = test_app();
+        let mut workspace = Workspace::test_new("client");
+        let first_pane = workspace.tabs[0].root_pane;
+        let second_pane = workspace.test_split(ratatui::layout::Direction::Horizontal);
+        workspace.tabs[0].layout.focus_pane(first_pane);
+        let workspace_id = workspace.id.clone();
+        app.state.workspaces = vec![workspace];
+        app.state.ensure_test_terminals();
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::Terminal;
+        app.default_client_view = ClientViewState::from_default_client_state(&app.state);
+
+        let area = ratatui::layout::Rect::new(0, 0, 44, 20);
+        let mut client = ClientViewState::from_default_client_state(&app.state);
+        client.mode = Mode::Navigate;
+        client.mobile_switcher_level = state::MobileSwitcherLevel::Groups;
+        compute_client_view(&app, &mut client, area);
+
+        for target in [
+            crate::ui::MobileSwitcherTarget::Group(client.active_group),
+            crate::ui::MobileSwitcherTarget::Workspace(0),
+            crate::ui::MobileSwitcherTarget::Tab {
+                ws_idx: 0,
+                tab_idx: 0,
+            },
+            crate::ui::MobileSwitcherTarget::Pane {
+                ws_idx: 0,
+                tab_idx: 0,
+                pane_id: second_pane,
+            },
+        ] {
+            let (column, row) = mobile_switcher_point_for_target(&app, &client, target);
+            app.route_client_events_for_view(
+                &mut client,
+                vec![raw_mouse(
+                    crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left),
+                    column,
+                    row,
+                )],
+                true,
+            );
+        }
+
+        assert_eq!(client.active_workspace, Some(0));
+        assert_eq!(
+            client.focused_pane_for_tab(&workspace_id, 1),
+            Some(second_pane)
+        );
+        assert_eq!(client.mode, Mode::Terminal);
+        assert_eq!(app.state.workspaces[0].focused_pane_id(), Some(first_pane));
+        assert_eq!(app.state.mode, Mode::Terminal);
+    }
+
+    #[tokio::test]
+    async fn route_client_events_for_view_mobile_action_clicks_match_their_labels() {
+        let mut app = test_app();
+        app.state.workspaces = vec![Workspace::test_new("client")];
+        app.state.ensure_test_terminals();
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::Terminal;
+        app.default_client_view = ClientViewState::from_default_client_state(&app.state);
+
+        let area = ratatui::layout::Rect::new(0, 0, 44, 20);
+        let mut client = ClientViewState::from_default_client_state(&app.state);
+        client.mode = Mode::Navigate;
+        client.mobile_switcher_level = state::MobileSwitcherLevel::Workspaces;
+        compute_client_view(&app, &mut client, area);
+
+        let (column, row) = mobile_switcher_point_for_target(
+            &app,
+            &client,
+            crate::ui::MobileSwitcherTarget::NewSpace,
+        );
+        app.route_client_events_for_view(
+            &mut client,
+            vec![raw_mouse(
+                crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left),
+                column,
+                row,
+            )],
+            true,
+        );
+        assert_eq!(app.state.workspaces.len(), 2);
+
+        client.mode = Mode::Navigate;
+        client.mobile_switcher_level = state::MobileSwitcherLevel::Tabs { ws_idx: 0 };
+        let (column, row) = mobile_switcher_point_for_target(
+            &app,
+            &client,
+            crate::ui::MobileSwitcherTarget::NewTab,
+        );
+        app.route_client_events_for_view(
+            &mut client,
+            vec![raw_mouse(
+                crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left),
+                column,
+                row,
+            )],
+            true,
+        );
+        assert_eq!(client.mode, Mode::RenameTab);
+        assert!(client.creating_new_tab);
+
+        client.mode = Mode::Navigate;
+        client.creating_new_tab = false;
+        client.mobile_switcher_level = state::MobileSwitcherLevel::Groups;
+        let (column, row) = mobile_switcher_point_for_target(
+            &app,
+            &client,
+            crate::ui::MobileSwitcherTarget::OpenActions,
+        );
+        app.route_client_events_for_view(
+            &mut client,
+            vec![raw_mouse(
+                crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left),
+                column,
+                row,
+            )],
+            true,
+        );
+        assert_eq!(
+            client.mobile_switcher_level,
+            state::MobileSwitcherLevel::Actions
+        );
+
+        let settings_idx = app
+            .state
+            .global_menu_labels()
+            .iter()
+            .position(|label| *label == "settings")
+            .expect("settings action");
+        let (column, row) = mobile_switcher_point_for_target(
+            &app,
+            &client,
+            crate::ui::MobileSwitcherTarget::Menu(settings_idx),
+        );
+        app.route_client_events_for_view(
+            &mut client,
+            vec![raw_mouse(
+                crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left),
+                column,
+                row,
+            )],
+            true,
+        );
+
+        assert_eq!(client.mode, Mode::Settings);
+        assert_eq!(app.state.mode, Mode::Terminal);
+    }
+
     #[test]
     fn route_client_events_for_view_dragging_tab_reorders_shared_workspace_tabs() {
         let mut app = test_app();
