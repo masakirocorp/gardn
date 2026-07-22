@@ -3639,8 +3639,8 @@
     {
       "upstream": "9450b168c727e9e4cbee95e6edf4f11cfe6f2154",
       "subject": "fix: avoid rechecking cached pane cwd (#1616)",
-      "status": "pending",
-      "reason": "Pane foreground cwd remains rechecked on each access instead of using the existing cached value."
+      "status": "superseded",
+      "reason": "ENG-154 confirmed Oh My Herdr has no upstream-style authoritative reported-cwd cache to revalidate; adding a process-cwd cache would invent unsafe invalidation semantics."
     },
     {
       "upstream": "28b628d79d755afbb3ac45f9184a03c204c26784",
