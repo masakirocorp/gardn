@@ -979,6 +979,7 @@ fn render_empty_with_context(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::detect::AgentState;
     use crate::layout::PaneId;
     use crate::selection::Selection;
     use crate::terminal::TerminalRuntime;
@@ -1272,6 +1273,70 @@ mod tests {
         assert_eq!(info.rect, area);
         assert_eq!(info.scrollbar_rect, Some(Rect::new(49, 3, 1, 8)));
         assert_eq!(info.inner_rect, Rect::new(10, 3, 39, 8));
+    }
+
+    #[tokio::test]
+    async fn pane_border_renders_agent_status_with_focused_border_style() {
+        let mut app = AppState::test_new();
+        let mut workspace = Workspace::test_new("test");
+        let agent_pane = workspace.test_split(ratatui::layout::Direction::Horizontal);
+        workspace.tabs[0].runtimes.insert(
+            agent_pane,
+            TerminalRuntime::test_with_scrollback_bytes(40, 8, 1024, b"ready\n"),
+        );
+        app.workspaces = vec![workspace];
+        app.active = Some(0);
+        app.pane_border_agent_info = crate::config::PaneBorderAgentInfoConfig::NameAndStatus;
+        app.ensure_test_terminals();
+
+        let terminal_id = app.workspaces[0].tabs[0].panes[&agent_pane]
+            .attached_terminal_id
+            .clone();
+        app.terminals
+            .get_mut(&terminal_id)
+            .expect("agent terminal state")
+            .set_detected_state(Some(crate::detect::Agent::Claude), AgentState::Working);
+
+        let width = 50;
+        let height = 10;
+        let area = Rect::new(0, 0, width, height);
+        let terminal_runtimes = TerminalRuntimeRegistry::new();
+        app.view.pane_infos = compute_pane_infos(
+            &app,
+            &terminal_runtimes,
+            area,
+            false,
+            crate::kitty_graphics::HostCellSize::default(),
+        );
+        let expected_accent = app.active_workspace_accent_color();
+        let backend = TestBackend::new(width, height);
+        let mut terminal = Terminal::new(backend).expect("test backend");
+
+        terminal
+            .draw(|frame| render_panes(&app, &terminal_runtimes, frame, area))
+            .expect("render working agent pane");
+        let (x, y) = first_cell_with_text(
+            terminal.backend().buffer(),
+            width,
+            height,
+            "claude · working",
+        )
+        .expect("working agent pane-border label");
+        assert_eq!(
+            terminal.backend().buffer()[(x, y)].style().fg,
+            Some(expected_accent)
+        );
+
+        app.terminals
+            .get_mut(&terminal_id)
+            .expect("agent terminal state")
+            .set_detected_state(Some(crate::detect::Agent::Claude), AgentState::Blocked);
+        terminal
+            .draw(|frame| render_panes(&app, &terminal_runtimes, frame, area))
+            .expect("render blocked agent pane");
+        let rendered = buffer_text(terminal.backend().buffer(), width, height);
+        assert!(rendered.contains("claude · blocked"));
+        assert!(!rendered.contains("claude · working"));
     }
 
     #[test]

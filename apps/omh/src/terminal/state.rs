@@ -2203,6 +2203,21 @@ mod tests {
             Some("claude · working")
         );
 
+        terminal.set_detected_state(Some(Agent::Claude), AgentState::Blocked);
+        assert_eq!(
+            terminal.border_label(NameAndStatus, true).as_deref(),
+            Some("claude · blocked")
+        );
+
+        let mut unknown_terminal = test_terminal();
+        unknown_terminal.set_detected_state(Some(Agent::Claude), AgentState::Unknown);
+        assert_eq!(
+            unknown_terminal
+                .border_label(NameAndStatus, true)
+                .as_deref(),
+            Some("claude · unknown")
+        );
+
         terminal.set_manual_label(" reviewer ".into());
         assert_eq!(
             terminal.border_label(Hidden, true).as_deref(),
