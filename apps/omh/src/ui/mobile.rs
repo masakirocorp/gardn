@@ -6,7 +6,7 @@ use ratatui::{
     Frame,
 };
 
-use super::status::{state_dot, toast_kind_color};
+use super::status::{agent_icon, state_dot, state_label, toast_kind_color};
 use super::text::truncate_end;
 use super::widgets::fill_rect;
 use crate::app::state::{
@@ -35,6 +35,12 @@ pub(crate) struct MobileSwitcherAreas {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum MobileSwitcherTarget {
     Back,
+    ToggleAgents,
+    Agent {
+        ws_idx: usize,
+        tab_idx: usize,
+        pane_id: PaneId,
+    },
     Group(usize),
     NewSpace,
     Workspace(usize),
@@ -55,6 +61,19 @@ pub(crate) enum MobileSwitcherTarget {
 #[derive(Debug, PartialEq, Eq)]
 enum MobileNavigationRow {
     Section(&'static str),
+    AgentSummary {
+        triage: usize,
+        working: usize,
+        idle: usize,
+        expanded: bool,
+    },
+    Agent {
+        label: String,
+        meta: String,
+        state: AgentState,
+        seen: bool,
+        target: MobileSwitcherTarget,
+    },
     Divider,
     Action {
         label: &'static str,
@@ -74,7 +93,9 @@ impl MobileNavigationRow {
     fn target(&self) -> Option<MobileSwitcherTarget> {
         match self {
             Self::Section(_) | Self::Divider => None,
+            Self::AgentSummary { .. } => Some(MobileSwitcherTarget::ToggleAgents),
             Self::Action { target, .. }
+            | Self::Agent { target, .. }
             | Self::Hierarchy { target, .. }
             | Self::Menu { target, .. } => Some(*target),
         }
@@ -93,6 +114,62 @@ fn mobile_navigation_rows(
     let level = view.map_or(app.mobile_switcher_level, |view| view.mobile_switcher_level);
     let active_group = view.map_or(app.active_group, |view| view.active_group);
     let mut rows = Vec::new();
+    let agents_expanded = view.map_or(app.mobile_agents_expanded, |view| {
+        view.mobile_agents_expanded
+    });
+    let agent_sections = view.map_or_else(
+        || super::sidebar::agent_panel_sections_all_workspaces(app, terminal_runtimes),
+        |view| {
+            super::sidebar::agent_panel_sections_all_workspaces_for_view(
+                app,
+                terminal_runtimes,
+                view,
+            )
+        },
+    );
+    let section_count = |label: &str| {
+        agent_sections
+            .iter()
+            .find(|section| section.label == label)
+            .map_or(0, |section| section.entries.len())
+    };
+    rows.push(MobileNavigationRow::AgentSummary {
+        triage: section_count("triage"),
+        working: section_count("working"),
+        idle: section_count("idle"),
+        expanded: agents_expanded,
+    });
+    if agents_expanded {
+        for section in agent_sections {
+            for entry in section.entries {
+                let label = entry
+                    .agent_label
+                    .clone()
+                    .unwrap_or_else(|| entry.primary_label.clone());
+                let location = if entry.primary_label == label {
+                    state_label(entry.state, entry.seen).to_string()
+                } else {
+                    format!(
+                        "{} · {}",
+                        entry.primary_label,
+                        state_label(entry.state, entry.seen)
+                    )
+                };
+                rows.push(MobileNavigationRow::Agent {
+                    label,
+                    meta: location,
+                    state: entry.state,
+                    seen: entry.seen,
+                    target: MobileSwitcherTarget::Agent {
+                        ws_idx: entry.ws_idx,
+                        tab_idx: entry.tab_idx,
+                        pane_id: entry.pane_id,
+                    },
+                });
+            }
+        }
+    }
+    rows.push(MobileNavigationRow::Divider);
 
     match level {
         MobileSwitcherLevel::Groups => {
@@ -335,6 +412,39 @@ fn mobile_switcher_target_from_rows(
     }
     let doc_row = scroll.saturating_add(row.saturating_sub(viewport.y) as usize);
     rows.get(doc_row)?.target()
+}
+
+fn mobile_switcher_content_target_index_from_rows(rows: &[MobileNavigationRow]) -> usize {
+    rows.iter()
+        .filter_map(MobileNavigationRow::target)
+        .position(|target| {
+            !matches!(
+                target,
+                MobileSwitcherTarget::ToggleAgents | MobileSwitcherTarget::Agent { .. }
+            )
+        })
+        .unwrap_or(0)
+}
+
+pub(crate) fn mobile_switcher_content_target_index(app: &AppState) -> usize {
+    let terminal_runtimes = TerminalRuntimeRegistry::new();
+    mobile_switcher_content_target_index_from_rows(&mobile_navigation_rows(
+        app,
+        &terminal_runtimes,
+        None,
+    ))
+}
+
+pub(crate) fn mobile_switcher_content_target_index_for_view(
+    app: &AppState,
+    terminal_runtimes: &TerminalRuntimeRegistry,
+    view: &ClientViewState,
+) -> usize {
+    mobile_switcher_content_target_index_from_rows(&mobile_navigation_rows(
+        app,
+        terminal_runtimes,
+        Some(view),
+    ))
 }
 
 pub(crate) fn mobile_switcher_target_count(app: &AppState) -> usize {
@@ -927,6 +1037,44 @@ fn render_mobile_navigation_rows(
             MobileNavigationRow::Section(title) => {
                 render_section_title_at(frame, viewport, content, doc_y, scroll, title, p);
             }
+            MobileNavigationRow::AgentSummary {
+                triage,
+                working,
+                idle,
+                expanded,
+            } => {
+                render_mobile_agent_summary(
+                    app,
+                    frame,
+                    viewport,
+                    content,
+                    doc_y,
+                    scroll,
+                    (*triage, *working, *idle),
+                    *expanded,
+                    is_selected,
+                );
+            }
+            MobileNavigationRow::Agent {
+                label,
+                meta,
+                state,
+                seen,
+                ..
+            } => {
+                render_mobile_agent_row(
+                    app,
+                    frame,
+                    viewport,
+                    content,
+                    doc_y,
+                    scroll,
+                    label,
+                    meta,
+                    (*state, *seen),
+                    is_selected,
+                );
+            }
             MobileNavigationRow::Divider => {
                 let Some(y) = visible_y(viewport, scroll, doc_y) else {
                     continue;
@@ -995,6 +1143,109 @@ fn render_mobile_navigation_rows(
             }
         }
     }
+}
+
+fn render_mobile_agent_summary(
+    app: &AppState,
+    frame: &mut Frame,
+    viewport: Rect,
+    content: Rect,
+    doc_y: usize,
+    scroll: usize,
+    counts: (usize, usize, usize),
+    expanded: bool,
+    selected: bool,
+) {
+    let Some(y) = visible_y(viewport, scroll, doc_y) else {
+        return;
+    };
+    let p = &app.palette;
+    let bg = mobile_item_bg(selected, false, p);
+    fill_rect(
+        frame,
+        Rect::new(content.x, y, content.width, 1),
+        Style::default().bg(bg),
+    );
+    let (working_icon, working_style) = agent_icon(AgentState::Working, true, app.spinner_tick, p);
+    let (idle_icon, idle_style) = agent_icon(AgentState::Idle, true, app.spinner_tick, p);
+    frame.render_widget(
+        Paragraph::new(Line::from(vec![
+            Span::styled(
+                if expanded { " ▾ " } else { " ▸ " },
+                Style::default().fg(p.overlay1).bg(bg),
+            ),
+            Span::styled(
+                "Agents ",
+                Style::default()
+                    .fg(p.text)
+                    .bg(bg)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled("◉", Style::default().fg(p.peach).bg(bg)),
+            Span::styled(
+                format!("{} triage ", counts.0),
+                Style::default().fg(p.subtext0).bg(bg),
+            ),
+            Span::styled(working_icon, working_style.bg(bg)),
+            Span::styled(
+                format!("{} working ", counts.1),
+                Style::default().fg(p.subtext0).bg(bg),
+            ),
+            Span::styled(idle_icon, idle_style.bg(bg)),
+            Span::styled(
+                format!("{} idle", counts.2),
+                Style::default().fg(p.subtext0).bg(bg),
+            ),
+        ])),
+        Rect::new(content.x, y, content.width, 1),
+    );
+}
+
+fn render_mobile_agent_row(
+    app: &AppState,
+    frame: &mut Frame,
+    viewport: Rect,
+    content: Rect,
+    doc_y: usize,
+    scroll: usize,
+    label: &str,
+    meta: &str,
+    status: (AgentState, bool),
+    selected: bool,
+) {
+    let Some(y) = visible_y(viewport, scroll, doc_y) else {
+        return;
+    };
+    let p = &app.palette;
+    let bg = mobile_item_bg(selected, false, p);
+    fill_rect(
+        frame,
+        Rect::new(content.x, y, content.width, 1),
+        Style::default().bg(bg),
+    );
+    let meta_width = super::text::display_width_u16(meta)
+        .saturating_add(1)
+        .min(content.width / 2);
+    let label_width = content.width.saturating_sub(meta_width);
+    let (icon, icon_style) = agent_icon(status.0, status.1, app.spinner_tick, p);
+    frame.render_widget(
+        Paragraph::new(Line::from(vec![
+            Span::styled("    ", Style::default().bg(bg)),
+            Span::styled(icon, icon_style.bg(bg)),
+            Span::styled(" ", Style::default().bg(bg)),
+            Span::styled(
+                truncate_end(label, label_width.saturating_sub(6) as usize),
+                Style::default().fg(p.text).bg(bg),
+            ),
+        ])),
+        Rect::new(content.x, y, label_width, 1),
+    );
+    frame.render_widget(
+        Paragraph::new(meta)
+            .style(Style::default().fg(p.overlay0).bg(bg))
+            .alignment(Alignment::Right),
+        Rect::new(content.x + label_width, y, meta_width, 1),
+    );
 }
 
 fn render_mobile_hierarchy_row(
@@ -1475,6 +1726,47 @@ mod tests {
             Some(app.group_accent_color(active_group))
         );
         assert_ne!(buffer[(active_icon.0 - 2, active_icon.1)].symbol(), "●");
+    }
+
+    #[test]
+    fn mobile_agent_summary_is_persistent_and_expands_to_navigable_agents() {
+        let (mut app, _, focused_pane) = hierarchy_fixture();
+        app.view.mobile_header_rect = Rect::new(0, 0, 44, 1);
+        app.view.terminal_area = Rect::new(0, 1, 44, 19);
+        app.mobile_switcher_level = MobileSwitcherLevel::Groups;
+        let terminal_runtimes = TerminalRuntimeRegistry::new();
+        let mut terminal =
+            ratatui::Terminal::new(ratatui::backend::TestBackend::new(44, 20)).unwrap();
+
+        terminal
+            .draw(|frame| {
+                render_mobile_panel(&app, &terminal_runtimes, frame, Rect::new(0, 0, 44, 20))
+            })
+            .unwrap();
+        let collapsed = buffer_text(terminal.backend().buffer());
+        assert!(collapsed.contains("Agents"), "switcher: {collapsed:?}");
+        assert!(collapsed.contains("1 working"), "switcher: {collapsed:?}");
+        assert!(!collapsed.to_lowercase().contains("claude"));
+
+        app.mobile_agents_expanded = true;
+        terminal
+            .draw(|frame| {
+                render_mobile_panel(&app, &terminal_runtimes, frame, Rect::new(0, 0, 44, 20))
+            })
+            .unwrap();
+        let expanded = buffer_text(terminal.backend().buffer());
+        assert!(expanded.to_lowercase().contains("claude"));
+        assert!(expanded.contains("working"));
+        assert!(mobile_navigation_rows(&app, &terminal_runtimes, None)
+            .iter()
+            .any(|row| {
+                row.target()
+                    == Some(MobileSwitcherTarget::Agent {
+                        ws_idx: 1,
+                        tab_idx: 0,
+                        pane_id: focused_pane,
+                    })
+            }));
     }
 
     #[test]

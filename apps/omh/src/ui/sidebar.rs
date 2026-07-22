@@ -228,6 +228,33 @@ pub(crate) fn agent_panel_sections_for_view(
     )
 }
 
+pub(crate) fn agent_panel_sections_all_workspaces(
+    app: &AppState,
+    terminal_runtimes: &TerminalRuntimeRegistry,
+) -> Vec<AgentPanelSection> {
+    agent_panel_sections_from_entries(agent_panel_entries_with_context(
+        app,
+        Some(terminal_runtimes),
+        AgentPanelScope::AllWorkspaces,
+        app.active,
+        app.active_group,
+    ))
+}
+
+pub(crate) fn agent_panel_sections_all_workspaces_for_view(
+    app: &AppState,
+    terminal_runtimes: &TerminalRuntimeRegistry,
+    view: &ClientViewState,
+) -> Vec<AgentPanelSection> {
+    agent_panel_sections_from_entries(agent_panel_entries_with_context(
+        app,
+        Some(terminal_runtimes),
+        AgentPanelScope::AllWorkspaces,
+        view.active_workspace,
+        view.active_group,
+    ))
+}
+
 fn agent_panel_entries_with_runtimes(
     app: &AppState,
     terminal_runtimes: Option<&TerminalRuntimeRegistry>,

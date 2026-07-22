@@ -2763,6 +2763,7 @@ pub struct AppState {
     pub mobile_switcher_scroll: usize,
     pub(crate) mobile_switcher_level: MobileSwitcherLevel,
     pub(crate) mobile_switcher_selected: usize,
+    pub(crate) mobile_agents_expanded: bool,
     // View geometry (computed before render, consumed by render + mouse)
     pub view: ViewState,
     pub(crate) drag: Option<DragState>,
@@ -3518,6 +3519,7 @@ impl AppState {
             mobile_switcher_scroll: 0,
             mobile_switcher_level: MobileSwitcherLevel::default(),
             mobile_switcher_selected: 0,
+            mobile_agents_expanded: false,
             view: ViewState {
                 layout: ViewLayout::Desktop,
                 sidebar_rect: Rect::default(),

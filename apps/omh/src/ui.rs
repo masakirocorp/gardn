@@ -155,7 +155,8 @@ pub(crate) use self::{
     mobile::{
         initial_mobile_switcher_level, keep_mobile_switcher_selection_visible,
         keep_mobile_switcher_selection_visible_for_view, mobile_switcher_areas,
-        mobile_switcher_areas_for_view, mobile_switcher_max_scroll,
+        mobile_switcher_areas_for_view, mobile_switcher_content_target_index,
+        mobile_switcher_content_target_index_for_view, mobile_switcher_max_scroll,
         mobile_switcher_max_scroll_for_view, mobile_switcher_selected_target,
         mobile_switcher_selected_target_for_view, mobile_switcher_target_at,
         mobile_switcher_target_at_for_view, mobile_switcher_target_count,

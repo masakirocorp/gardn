@@ -1353,8 +1353,9 @@ impl AppState {
             }
             if rect_contains(self.view.mobile_menu_hit_area, mouse.column, mouse.row) {
                 self.mobile_switcher_scroll = 0;
-                self.mobile_switcher_selected = 0;
                 self.mobile_switcher_level = crate::ui::initial_mobile_switcher_level(self);
+                self.mobile_switcher_selected =
+                    crate::ui::mobile_switcher_content_target_index(self);
                 self.mode = Mode::Navigate;
                 return true;
             }
@@ -1383,13 +1384,20 @@ impl AppState {
                 self.mobile_switcher_level =
                     crate::ui::parent_mobile_switcher_level(self, self.mobile_switcher_level);
                 self.mobile_switcher_scroll = 0;
+                self.mobile_switcher_selected =
+                    crate::ui::mobile_switcher_content_target_index(self);
+            }
+            crate::ui::MobileSwitcherTarget::ToggleAgents => {
+                self.mobile_agents_expanded = !self.mobile_agents_expanded;
+                self.mobile_switcher_scroll = 0;
                 self.mobile_switcher_selected = 0;
             }
             crate::ui::MobileSwitcherTarget::Group(group_idx) => {
                 self.switch_group(group_idx);
                 self.mobile_switcher_level = crate::app::state::MobileSwitcherLevel::Workspaces;
                 self.mobile_switcher_scroll = 0;
-                self.mobile_switcher_selected = 0;
+                self.mobile_switcher_selected =
+                    crate::ui::mobile_switcher_content_target_index(self);
                 self.mode = Mode::Navigate;
             }
             crate::ui::MobileSwitcherTarget::NewSpace => {
@@ -1404,7 +1412,8 @@ impl AppState {
                 self.mobile_switcher_level =
                     crate::app::state::MobileSwitcherLevel::Tabs { ws_idx };
                 self.mobile_switcher_scroll = 0;
-                self.mobile_switcher_selected = 0;
+                self.mobile_switcher_selected =
+                    crate::ui::mobile_switcher_content_target_index(self);
                 self.mode = Mode::Navigate;
             }
             crate::ui::MobileSwitcherTarget::NewTab => {
@@ -1422,13 +1431,19 @@ impl AppState {
                     self.mobile_switcher_level =
                         crate::app::state::MobileSwitcherLevel::Panes { ws_idx, tab_idx };
                     self.mobile_switcher_scroll = 0;
-                    self.mobile_switcher_selected = 0;
+                    self.mobile_switcher_selected =
+                        crate::ui::mobile_switcher_content_target_index(self);
                     self.mode = Mode::Navigate;
                 } else {
                     self.mode = Mode::Terminal;
                 }
             }
-            crate::ui::MobileSwitcherTarget::Pane {
+            crate::ui::MobileSwitcherTarget::Agent {
+                ws_idx,
+                tab_idx,
+                pane_id,
+            }
+            | crate::ui::MobileSwitcherTarget::Pane {
                 ws_idx,
                 tab_idx,
                 pane_id,
@@ -1441,7 +1456,8 @@ impl AppState {
             crate::ui::MobileSwitcherTarget::OpenActions => {
                 self.mobile_switcher_level = crate::app::state::MobileSwitcherLevel::Actions;
                 self.mobile_switcher_scroll = 0;
-                self.mobile_switcher_selected = 0;
+                self.mobile_switcher_selected =
+                    crate::ui::mobile_switcher_content_target_index(self);
             }
             crate::ui::MobileSwitcherTarget::Menu(action_idx) => {
                 let actions = global_menu_actions(self);
@@ -3760,6 +3776,44 @@ mod tests {
             },
         );
         app.handle_mouse(mouse(MouseEventKind::Down(MouseButton::Left), column, row));
+        assert_eq!(app.state.mode, Mode::Terminal);
+    }
+
+    #[test]
+    fn mobile_agent_summary_expands_and_navigates_to_the_clicked_agent() {
+        let mut app = app_for_mouse_test();
+        app.state.workspaces = vec![Workspace::test_new("one"), Workspace::test_new("two")];
+        app.state.ensure_test_terminals();
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::Terminal;
+        let pane_id = app.state.workspaces[1].tabs[0].root_pane;
+        let terminal_id = app.state.workspaces[1].tabs[0].panes[&pane_id]
+            .attached_terminal_id
+            .clone();
+        app.state
+            .terminals
+            .get_mut(&terminal_id)
+            .expect("agent terminal")
+            .set_detected_state(Some(Agent::Codex), AgentState::Working);
+
+        crate::ui::compute_view(&mut app.state, Rect::new(0, 0, 44, 20));
+        open_mobile_switcher(&mut app);
+        let (column, row) =
+            mobile_switcher_point_for_target(&app, crate::ui::MobileSwitcherTarget::ToggleAgents);
+        app.handle_mouse(mouse(MouseEventKind::Down(MouseButton::Left), column, row));
+        assert!(app.state.mobile_agents_expanded);
+
+        let agent = crate::ui::MobileSwitcherTarget::Agent {
+            ws_idx: 1,
+            tab_idx: 0,
+            pane_id,
+        };
+        let (column, row) = mobile_switcher_point_for_target(&app, agent);
+        app.handle_mouse(mouse(MouseEventKind::Down(MouseButton::Left), column, row));
+
+        assert_eq!(app.state.active, Some(1));
+        assert_eq!(app.state.workspaces[1].focused_pane_id(), Some(pane_id));
         assert_eq!(app.state.mode, Mode::Terminal);
     }
 
