@@ -3,6 +3,6 @@ packages:
   omh: patch
 ---
 
-### Make modal close buttons responsive
+### Standardize responsive modal layouts
 
-Clicking `esc close` now dismisses new-group, rename, directory, command palette, and keybind modals for attached app clients, including on narrow terminals. The keybinds modal now follows the shared option-row hierarchy, with actions on the left, shortcuts aligned on the right, and unset bindings visually muted.
+Modals now share close, footer, action-row, list, and text-field geometry so rendering and mouse hit targets stay aligned across normal and narrow terminals. Long Unicode names truncate by terminal-cell width without hiding right-aligned shortcuts or status metadata, focused inputs keep their cursor end visible, and command palette, agent profile, Git repository, navigator, keybind, and product-announcement surfaces now use the same visual hierarchy.

@@ -2407,13 +2407,32 @@ mod tests {
         let mut app = app_for_mouse_test();
         app.state.mode = Mode::CommandPalette;
 
-        app.handle_mouse(mouse(MouseEventKind::Down(MouseButton::Left), 89, 5));
-        app.handle_mouse(mouse(MouseEventKind::Drag(MouseButton::Left), 89, 17));
+        let track = crate::ui::command_palette_list_geometry(
+            app.state.screen_rect(),
+            100,
+            app.state.command_palette.scroll,
+        )
+        .and_then(|list| list.scroll_area.track)
+        .expect("command palette has a visible scrollbar");
+        app.handle_mouse(mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            track.x,
+            track.y,
+        ));
+        app.handle_mouse(mouse(
+            MouseEventKind::Drag(MouseButton::Left),
+            track.x,
+            track.y + track.height.saturating_sub(1),
+        ));
 
         assert!(app.state.command_palette.scroll > 0);
         assert_eq!(app.state.command_palette.list.selected, 0);
 
-        app.handle_mouse(mouse(MouseEventKind::Up(MouseButton::Left), 89, 17));
+        app.handle_mouse(mouse(
+            MouseEventKind::Up(MouseButton::Left),
+            track.x,
+            track.y + track.height.saturating_sub(1),
+        ));
         assert!(app.state.drag.is_none());
     }
 

@@ -269,7 +269,8 @@ fn keybind_help_frame_spec(area: Rect) -> ModalFrameSpec<'static> {
         header_rows: 2,
         footer_hints: MODAL_SCROLL_HINTS,
         footer_max_rows: 2,
-        reserve_footer_gap: 1,
+        gap: 1,
+        actions_rows: 0,
         show_close: true,
     }
 }

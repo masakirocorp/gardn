@@ -15,13 +15,15 @@ use crate::app::{
     AppState,
 };
 
+use super::text::display_width_u16;
+
 use super::{
     scrollbar::render_scrollbar,
     widgets::{
-        action_button_row_rects, modal_hint_line_count, modal_section_heading_style,
-        panel_contrast_fg, primary_action_style, render_action_button, render_modal_divider,
-        render_modal_frame, render_modal_hint_lines, render_modal_subtitle,
-        render_modal_text_input, ActionButtonSpec, ModalFrameSpec, ModalListGeometry,
+        action_button_row_rects, modal_frame_areas, modal_hint_line_count, modal_option_line,
+        modal_section_heading_style, panel_contrast_fg, primary_action_style, render_action_button,
+        render_modal_divider, render_modal_frame, render_modal_subtitle, render_modal_text_input,
+        ActionButtonSpec, ModalFrameSpec, ModalListGeometry,
     },
 };
 
@@ -37,38 +39,45 @@ fn agent_profile_picker_hint_rows(inner_width: u16) -> u16 {
     modal_hint_line_count(inner_width, AGENT_PROFILE_PICKER_HINTS, 2)
 }
 
-fn agent_profile_picker_height(area: Rect) -> u16 {
+fn agent_profile_picker_frame_spec(area: Rect) -> ModalFrameSpec<'static> {
     let popup_width = 60.min(area.width.saturating_sub(4));
     let inner_width = popup_width.saturating_sub(2);
-    23 + agent_profile_picker_hint_rows(inner_width)
+    ModalFrameSpec {
+        title: "new agent",
+        width: 60,
+        height: 23 + agent_profile_picker_hint_rows(inner_width),
+        header_rows: 1,
+        footer_hints: AGENT_PROFILE_PICKER_HINTS,
+        footer_max_rows: 2,
+        gap: 1,
+        actions_rows: 1,
+        show_close: true,
+    }
 }
+
 pub(crate) fn agent_profile_picker_button_rects(inner: Rect) -> (Rect, Rect) {
+    let hint_rows = agent_profile_picker_hint_rows(inner.width);
+    let stack = super::widgets::modal_stack_areas(inner, 1, hint_rows, 1, 1);
+    let actions = stack.actions.unwrap_or_default();
     let rects = action_button_row_rects(
-        inner,
+        actions,
         &[ActionButtonSpec {
             hint: Some("↵"),
             label: "start",
         }],
         2,
-        inner.height.saturating_sub(1),
+        0,
     );
-    let close =
-        super::widgets::modal_close_button_rect(Rect::new(inner.x, inner.y, inner.width, 1));
+    let close = super::widgets::modal_close_button_rect(stack.header);
     (rects[0], close)
 }
 
 pub(crate) fn agent_profile_picker_popup_rect(area: Rect) -> Option<Rect> {
-    super::centered_popup_rect(area, 60, agent_profile_picker_height(area))
+    modal_frame_areas(area, agent_profile_picker_frame_spec(area)).map(|frame| frame.popup)
 }
 
 pub(crate) fn agent_profile_picker_inner_rect(area: Rect) -> Option<Rect> {
-    let popup = agent_profile_picker_popup_rect(area)?;
-    Some(Rect::new(
-        popup.x + 1,
-        popup.y + 1,
-        popup.width.saturating_sub(2),
-        popup.height.saturating_sub(2),
-    ))
+    modal_frame_areas(area, agent_profile_picker_frame_spec(area)).map(|frame| frame.inner)
 }
 
 pub(crate) fn agent_profile_picker_tab_hit_areas(app: &AppState, row: Rect) -> Vec<(usize, Rect)> {
@@ -108,7 +117,7 @@ fn agent_profile_picker_visible_tab_range(app: &AppState, row_width: u16) -> (us
 }
 
 fn agent_profile_picker_tab_width(tab: Option<crate::agent_profiles::AgentKind>) -> u16 {
-    (agent_profile_picker_tab_label(tab).chars().count() as u16).saturating_add(2)
+    display_width_u16(agent_profile_picker_tab_label(tab)).saturating_add(2)
 }
 
 pub(crate) fn agent_profile_picker_list_geometry(
@@ -116,17 +125,15 @@ pub(crate) fn agent_profile_picker_list_geometry(
     total_rows: usize,
     scroll: usize,
 ) -> Option<ModalListGeometry> {
-    let inner = agent_profile_picker_inner_rect(area)?;
-    if inner.height < 13 || inner.width < 20 {
+    let frame = modal_frame_areas(area, agent_profile_picker_frame_spec(area))?;
+    if frame.inner.height < 13 || frame.inner.width < 20 {
         return None;
     }
-
-    let hint_rows = agent_profile_picker_hint_rows(inner.width);
-    let rows = agent_profile_picker_content_rows(inner, hint_rows);
-    Some(ModalListGeometry::new(rows[10], total_rows, scroll))
+    let rows = agent_profile_picker_content_rows(frame.content);
+    Some(ModalListGeometry::new(rows[8], total_rows, scroll))
 }
 
-fn agent_profile_picker_content_rows(inner: Rect, hint_rows: u16) -> [Rect; 14] {
+fn agent_profile_picker_content_rows(content: Rect) -> [Rect; 9] {
     Layout::vertical([
         Constraint::Length(1),
         Constraint::Length(1),
@@ -136,14 +143,9 @@ fn agent_profile_picker_content_rows(inner: Rect, hint_rows: u16) -> [Rect; 14] 
         Constraint::Length(1),
         Constraint::Length(1),
         Constraint::Length(1),
-        Constraint::Length(1),
-        Constraint::Length(1),
         Constraint::Min(1),
-        Constraint::Length(1),
-        Constraint::Length(hint_rows),
-        Constraint::Length(1),
     ])
-    .areas::<14>(inner)
+    .areas::<9>(content)
 }
 
 pub(super) fn render_agent_profile_picker_overlay(app: &AppState, frame: &mut Frame) {
@@ -187,21 +189,8 @@ fn render_agent_profile_picker_overlay_from(
         frame.area()
     };
     let palette = app.palette_for_workspace(picker.ws_idx);
-    let Some(frame_areas) = render_modal_frame(
-        frame,
-        area,
-        &palette,
-        ModalFrameSpec {
-            title: "new agent",
-            width: 60,
-            height: agent_profile_picker_height(area),
-            header_rows: 1,
-            footer_hints: &[],
-            footer_max_rows: 2,
-            reserve_footer_gap: 1,
-            show_close: true,
-        },
-    ) else {
+    let spec = agent_profile_picker_frame_spec(area);
+    let Some(frame_areas) = render_modal_frame(frame, area, &palette, spec) else {
         return;
     };
     let inner = frame_areas.inner;
@@ -209,14 +198,13 @@ fn render_agent_profile_picker_overlay_from(
         return;
     }
 
-    let hint_rows = agent_profile_picker_hint_rows(inner.width);
-    let rows = agent_profile_picker_content_rows(inner, hint_rows);
-    render_agent_profile_picker_filters_for_picker(picker, frame, rows[2], &palette);
-    render_modal_divider(frame, rows[3], &palette);
-    render_agent_profile_picker_group_line_for_picker(app, picker, frame, rows[4], &palette);
+    let rows = agent_profile_picker_content_rows(frame_areas.content);
+    render_agent_profile_picker_filters_for_picker(picker, frame, rows[0], &palette);
+    render_modal_divider(frame, rows[1], &palette);
+    render_agent_profile_picker_group_line_for_picker(app, picker, frame, rows[2], &palette);
     render_modal_subtitle(
         frame,
-        rows[5],
+        rows[3],
         "choose an agent profile for this group",
         &palette,
     );
@@ -226,14 +214,19 @@ fn render_agent_profile_picker_overlay_from(
             " search",
             modal_section_heading_style(&palette),
         )),
-        rows[7],
+        rows[5],
     );
 
-    let input = Rect::new(rows[8].x, rows[8].y, rows[8].width, 1);
-    render_modal_text_input(frame, input, &picker.query, &palette);
-
-    let (start_rect, _) = agent_profile_picker_button_rects(inner);
-    render_modal_hint_lines(frame, rows[12], &palette, AGENT_PROFILE_PICKER_HINTS, 2);
+    render_modal_text_input(frame, rows[6], &picker.query, &palette);
+    let start_rect = action_button_row_rects(
+        frame_areas.actions.unwrap_or_default(),
+        &[ActionButtonSpec {
+            hint: Some("↵"),
+            label: "start",
+        }],
+        2,
+        0,
+    )[0];
 
     render_action_button(
         frame,
@@ -246,7 +239,7 @@ fn render_agent_profile_picker_overlay_from(
     if entries.is_empty() {
         frame.render_widget(
             Paragraph::new(" no agent profiles").style(Style::default().fg(palette.overlay1)),
-            rows[10],
+            rows[8],
         );
         return;
     }
@@ -285,14 +278,21 @@ fn render_agent_profile_picker_overlay_from(
                 } else {
                     Style::default().fg(palette.text)
                 };
-                let shortcut_style = if selected {
+                let metadata_style = if selected {
                     Style::default()
                         .fg(panel_contrast_fg(&palette))
                         .bg(palette.accent)
                 } else if entry.integration_warning.is_some() {
                     Style::default().fg(palette.yellow)
                 } else {
-                    Style::default().fg(palette.text)
+                    Style::default().fg(palette.overlay0)
+                };
+                let shortcut_style = if selected {
+                    metadata_style
+                } else {
+                    Style::default()
+                        .fg(palette.mauve)
+                        .add_modifier(Modifier::BOLD)
                 };
                 agent_profile_picker_entry_line(
                     &entry.name,
@@ -301,6 +301,7 @@ fn render_agent_profile_picker_overlay_from(
                     *default,
                     list_width,
                     title_style,
+                    metadata_style,
                     shortcut_style,
                     row_style,
                 )
@@ -488,51 +489,23 @@ fn agent_profile_picker_entry_line<'a>(
     is_default: bool,
     width: usize,
     title_style: Style,
+    metadata_style: Style,
     shortcut_style: Style,
     row_style: Style,
 ) -> Line<'a> {
-    let title_text = format!("  {title}");
-    let meta_text = match (integration_badge, is_default, shortcut) {
-        (Some(badge), _, Some(shortcut)) => Some(format!("{badge}  alt+{shortcut}")),
-        (Some(badge), _, None) => Some(badge.to_string()),
-        (None, true, Some(shortcut)) => Some(format!("default  alt+{shortcut}")),
-        (None, true, None) => Some("default".to_string()),
-        (None, false, Some(shortcut)) => Some(format!("alt+{shortcut}")),
-        (None, false, None) => None,
-    };
-    let Some(meta_text) = meta_text else {
-        return Line::from(Span::styled(
-            pad_right(title_text, width),
-            title_style.patch(row_style),
-        ));
-    };
-
-    let title_len = title_text.chars().count();
-    let meta_len = meta_text.chars().count();
-    if title_len + meta_len >= width {
-        return Line::from(vec![
-            Span::styled(title_text, title_style.patch(row_style)),
-            Span::styled(meta_text, shortcut_style.patch(row_style)),
-        ]);
+    let mut metadata = Vec::new();
+    if let Some(badge) = integration_badge {
+        metadata.push(Span::styled(badge.to_string(), metadata_style));
+    } else if is_default {
+        metadata.push(Span::styled("default", metadata_style));
     }
-
-    let gap = width - title_len - meta_len;
-    Line::from(vec![
-        Span::styled(
-            format!("{title_text}{}", " ".repeat(gap)),
-            title_style.patch(row_style),
-        ),
-        Span::styled(meta_text, shortcut_style.patch(row_style)),
-    ])
-}
-
-fn pad_right(text: String, width: usize) -> String {
-    let len = text.chars().count();
-    if len >= width {
-        text
-    } else {
-        format!("{text}{}", " ".repeat(width - len))
+    if let Some(shortcut) = shortcut {
+        if !metadata.is_empty() {
+            metadata.push(Span::styled("  ", row_style));
+        }
+        metadata.push(Span::styled(format!("alt+{shortcut}"), shortcut_style));
     }
+    modal_option_line(title, metadata, width, title_style, row_style)
 }
 
 #[cfg(test)]
@@ -604,6 +577,30 @@ mod tests {
         assert!(!text.contains("command palette"));
         assert!(!text.contains("type to filter commands"));
         assert!(!text.contains("↵ run"));
+    }
+
+    #[test]
+    fn agent_profile_row_preserves_unicode_title_and_right_metadata() {
+        let line = agent_profile_picker_entry_line(
+            "開発チーム向けの非常に長いエージェント名",
+            Some("omp"),
+            Some(1),
+            false,
+            28,
+            Style::default(),
+            Style::default(),
+            Style::default(),
+            Style::default(),
+        );
+        let rendered = line
+            .spans
+            .iter()
+            .map(|span| span.content.as_ref())
+            .collect::<String>();
+
+        assert_eq!(super::super::text::display_width(&rendered), 28);
+        assert!(rendered.ends_with("omp  alt+1"));
+        assert!(rendered.contains('…'));
     }
 
     fn find_text_cell(text: &str, needle: &str) -> Option<(u16, u16)> {

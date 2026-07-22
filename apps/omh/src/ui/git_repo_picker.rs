@@ -8,6 +8,8 @@ use ratatui::{
 
 use crate::app::{view_state::ClientViewState, AppState};
 
+use super::text::{display_width, truncate_end};
+
 use super::{
     scrollbar::render_scrollbar,
     widgets::{
@@ -150,8 +152,7 @@ fn git_repo_picker_content_rows(inner: Rect) -> Option<[Rect; 5]> {
 }
 
 pub(crate) fn git_repo_picker_list_geometry(app: &AppState) -> Option<ModalListGeometry> {
-    let layout = git_repo_picker_layout(app)?;
-    Some(layout.list)
+    git_repo_picker_layout(app.screen_rect(), &app.git_repo_picker).map(|layout| layout.list)
 }
 
 pub(crate) fn git_repo_picker_list_geometry_for_view(
@@ -181,7 +182,7 @@ pub(crate) fn git_repo_picker_index_at_for_view(
 }
 
 pub(crate) fn git_repo_picker_index_at(app: &AppState, col: u16, row: u16) -> Option<usize> {
-    let layout = git_repo_picker_layout(app)?;
+    let layout = git_repo_picker_layout(app.screen_rect(), &app.git_repo_picker)?;
     let visual_row = layout.list.hit_visual_row(col, row)?;
     let index = visual_row / 2;
     (index < app.git_repo_picker.roots.len()).then_some(index)
@@ -194,19 +195,18 @@ struct GitRepoPickerLayout {
     list: ModalListGeometry,
 }
 
-fn git_repo_picker_layout(app: &AppState) -> Option<GitRepoPickerLayout> {
-    let inner = git_repo_picker_inner_rect(app.screen_rect())?;
+fn git_repo_picker_layout(
+    area: Rect,
+    picker: &crate::app::state::GitRepoPickerState,
+) -> Option<GitRepoPickerLayout> {
+    let inner = git_repo_picker_inner_rect(area)?;
     if inner.height < 12 || inner.width < 28 {
         return None;
     }
     let footer_rows = modal_hint_line_count(inner.width, GIT_REPO_PICKER_HINTS, 2);
     let stack = modal_stack_areas(inner, HEADER_ROWS, footer_rows, 0, 1);
     let content_rows = git_repo_picker_content_rows(inner)?;
-    let list = ModalListGeometry::new(
-        content_rows[4],
-        app.git_repo_picker.roots.len() * 2,
-        app.git_repo_picker.scroll * 2,
-    );
+    let list = ModalListGeometry::new(content_rows[4], picker.roots.len() * 2, picker.scroll * 2);
     Some(GitRepoPickerLayout {
         inner,
         stack,
@@ -215,150 +215,8 @@ fn git_repo_picker_layout(app: &AppState) -> Option<GitRepoPickerLayout> {
     })
 }
 
-fn picker_palette(app: &AppState) -> crate::app::state::Palette {
-    app.palette_for_workspace(app.git_repo_picker.ws_idx)
-}
-
 pub(super) fn render_git_repo_picker_overlay(app: &AppState, frame: &mut Frame) {
-    super::dim_background(frame, frame.area());
-
-    let palette = picker_palette(app);
-    let Some(layout) = git_repo_picker_layout(app) else {
-        return;
-    };
-    let Some(frame_areas) = render_modal_frame(
-        frame,
-        app.screen_rect(),
-        &palette,
-        ModalFrameSpec {
-            title: "git diff",
-            width: POPUP_WIDTH,
-            height: POPUP_HEIGHT,
-            header_rows: HEADER_ROWS,
-            footer_hints: GIT_REPO_PICKER_HINTS,
-            footer_max_rows: 2,
-            reserve_footer_gap: 1,
-            show_close: true,
-        },
-    ) else {
-        return;
-    };
-    if frame_areas.inner != layout.inner {
-        return;
-    }
-
-    let stack = layout.stack;
-    let header_rows = Layout::vertical([
-        Constraint::Length(1),
-        Constraint::Length(1),
-        Constraint::Length(1),
-    ])
-    .areas::<3>(stack.header);
-    render_modal_divider(frame, header_rows[2], &palette);
-
-    let content_rows = layout.content_rows;
-    frame.render_widget(
-        Paragraph::new(Span::styled(
-            " repositories",
-            modal_section_heading_style(&palette),
-        )),
-        content_rows[0],
-    );
-
-    let workspace = app
-        .workspaces
-        .get(app.git_repo_picker.ws_idx)
-        .map(|workspace| workspace.display_name())
-        .unwrap_or_else(|| "workspace".to_string());
-    render_modal_description(
-        frame,
-        content_rows[1],
-        &format!("choose which repository to diff for {workspace}"),
-        Style::default().fg(palette.overlay0),
-    );
-
-    frame.render_widget(
-        Paragraph::new(Span::styled(
-            " available",
-            modal_section_heading_style(&palette),
-        )),
-        content_rows[3],
-    );
-
-    let list = layout.list;
-    let scroll_area = list.scroll_area;
-    let first_repo = list.viewport.scroll() / 2;
-    let visible_repo_count = (scroll_area.body.height as usize).div_ceil(2);
-    let last_repo = first_repo
-        .saturating_add(visible_repo_count)
-        .min(app.git_repo_picker.roots.len());
-    let selected = app
-        .git_repo_picker
-        .list
-        .visible()
-        .filter(|idx| *idx < app.git_repo_picker.roots.len());
-    let list_width = scroll_area.body.width as usize;
-    let mut items = Vec::new();
-    let mut selected_row = None;
-    for (idx, root) in app.git_repo_picker.roots[first_repo..last_repo]
-        .iter()
-        .enumerate()
-    {
-        let repo_idx = first_repo + idx;
-        let selected = selected == Some(repo_idx);
-        if selected {
-            selected_row = Some(items.len());
-        }
-        let row_style = if selected {
-            Style::default().bg(palette.accent)
-        } else {
-            Style::default()
-        };
-        let summary = app.git_repo_summaries.get(root).copied();
-        let name_text = repo_name(root);
-        let status_width = summary.map(status_width).unwrap_or(0);
-        let gap = list_width.saturating_sub(1 + name_text.len() + status_width);
-        let name_style = if selected {
-            Style::default()
-                .fg(panel_contrast_fg(&palette))
-                .bg(palette.accent)
-                .add_modifier(Modifier::BOLD)
-        } else {
-            Style::default().fg(palette.text)
-        };
-        let mut name_spans = vec![Span::styled(format!(" {name_text}{:gap$}", ""), name_style)];
-        if let Some(summary) = summary {
-            name_spans.extend(repo_status_spans(summary, selected, &palette));
-        }
-        let path_style = if selected {
-            Style::default()
-                .fg(panel_contrast_fg(&palette))
-                .bg(palette.accent)
-        } else {
-            Style::default().fg(palette.overlay0)
-        };
-        let path = format!("   {}", display_path(root));
-        items.push(ListItem::new(Line::from(name_spans)).style(row_style));
-        items.push(
-            ListItem::new(Line::from(Span::styled(
-                format!("{path:<list_width$}"),
-                path_style,
-            )))
-            .style(row_style),
-        );
-    }
-    let mut list_state = ListState::default().with_selected(selected_row);
-    frame.render_stateful_widget(List::new(items), scroll_area.body, &mut list_state);
-    if let Some(track) = scroll_area.track {
-        render_scrollbar(
-            frame,
-            list.metrics(),
-            track,
-            palette.surface_dim,
-            palette.overlay0,
-            "▐",
-        );
-    }
+    render_git_repo_picker_overlay_with(app, &app.git_repo_picker, app.screen_rect(), frame);
 }
 
 pub(super) fn render_git_repo_picker_overlay_for_view(
@@ -366,17 +224,20 @@ pub(super) fn render_git_repo_picker_overlay_for_view(
     view: &ClientViewState,
     frame: &mut Frame,
 ) {
-    let area = view.screen_rect();
-    super::dim_background(frame, area);
+    render_git_repo_picker_overlay_with(app, &view.git_repo_picker, view.screen_rect(), frame);
+}
 
-    let picker = &view.git_repo_picker;
+fn render_git_repo_picker_overlay_with(
+    app: &AppState,
+    picker: &crate::app::state::GitRepoPickerState,
+    area: Rect,
+    frame: &mut Frame,
+) {
+    super::dim_background(frame, area);
     let palette = app.palette_for_workspace(picker.ws_idx);
-    let Some(inner) = git_repo_picker_inner_rect(area) else {
+    let Some(layout) = git_repo_picker_layout(area, picker) else {
         return;
     };
-    if inner.height < 12 || inner.width < 28 {
-        return;
-    }
     let Some(frame_areas) = render_modal_frame(
         frame,
         area,
@@ -388,27 +249,26 @@ pub(super) fn render_git_repo_picker_overlay_for_view(
             header_rows: HEADER_ROWS,
             footer_hints: GIT_REPO_PICKER_HINTS,
             footer_max_rows: 2,
-            reserve_footer_gap: 1,
+            gap: 1,
+            actions_rows: 0,
             show_close: true,
         },
     ) else {
         return;
     };
-    if frame_areas.inner != inner {
+    if frame_areas.inner != layout.inner {
         return;
     }
-    let footer_rows = modal_hint_line_count(inner.width, GIT_REPO_PICKER_HINTS, 2);
-    let stack = modal_stack_areas(inner, HEADER_ROWS, footer_rows, 0, 1);
-    let Some(content_rows) = git_repo_picker_content_rows(inner) else {
-        return;
-    };
+
     let header_rows = Layout::vertical([
         Constraint::Length(1),
         Constraint::Length(1),
         Constraint::Length(1),
     ])
-    .areas::<3>(stack.header);
+    .areas::<3>(layout.stack.header);
     render_modal_divider(frame, header_rows[2], &palette);
+
+    let content_rows = layout.content_rows;
     frame.render_widget(
         Paragraph::new(Span::styled(
             " repositories",
@@ -435,7 +295,7 @@ pub(super) fn render_git_repo_picker_overlay_for_view(
         content_rows[3],
     );
 
-    let list = ModalListGeometry::new(content_rows[4], picker.roots.len() * 2, picker.scroll * 2);
+    let list = layout.list;
     let scroll_area = list.scroll_area;
     let first_repo = list.viewport.scroll() / 2;
     let visible_repo_count = (scroll_area.body.height as usize).div_ceil(2);
@@ -461,9 +321,11 @@ pub(super) fn render_git_repo_picker_overlay_for_view(
             Style::default()
         };
         let summary = app.git_repo_summaries.get(root).copied();
-        let name_text = repo_name(root);
         let status_width = summary.map(status_width).unwrap_or(0);
-        let gap = list_width.saturating_sub(1 + name_text.len() + status_width);
+        let status_gap = usize::from(summary.is_some());
+        let name_budget = list_width.saturating_sub(1 + status_width + status_gap);
+        let name_text = truncate_end(&repo_name(root), name_budget);
+        let gap = list_width.saturating_sub(1 + display_width(&name_text) + status_width);
         let name_style = if selected {
             Style::default()
                 .fg(panel_contrast_fg(&palette))
@@ -472,7 +334,10 @@ pub(super) fn render_git_repo_picker_overlay_for_view(
         } else {
             Style::default().fg(palette.text)
         };
-        let mut name_spans = vec![Span::styled(format!(" {name_text}{:gap$}", ""), name_style)];
+        let mut name_spans = vec![Span::styled(
+            format!(" {name_text}{}", " ".repeat(gap)),
+            name_style,
+        )];
         if let Some(summary) = summary {
             name_spans.extend(repo_status_spans(summary, selected, &palette));
         }
@@ -483,11 +348,12 @@ pub(super) fn render_git_repo_picker_overlay_for_view(
         } else {
             Style::default().fg(palette.overlay0)
         };
-        let path = format!("   {}", display_path(root));
+        let path = truncate_end(&display_path(root), list_width.saturating_sub(3));
+        let path_gap = list_width.saturating_sub(3 + display_width(&path));
         items.push(ListItem::new(Line::from(name_spans)).style(row_style));
         items.push(
             ListItem::new(Line::from(Span::styled(
-                format!("{path:<list_width$}"),
+                format!("   {path}{}", " ".repeat(path_gap)),
                 path_style,
             )))
             .style(row_style),

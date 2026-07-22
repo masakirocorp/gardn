@@ -8,10 +8,9 @@ use ratatui::{
 
 use super::scrollbar::{release_notes_scrollbar_rect, render_scrollbar};
 use super::widgets::{
-    modal_close_button_rect, modal_hint_line_count, modal_scroll_area,
-    modal_scroll_hint_line_count, modal_stack_areas, panel_contrast_fg, render_action_button,
-    render_modal_header, render_modal_header_bar, render_modal_hint_lines,
-    render_modal_scroll_hints, render_modal_shell, render_modal_subtitle,
+    modal_close_button_rect, modal_scroll_area, modal_scroll_hint_line_count, modal_stack_areas,
+    render_modal_frame, render_modal_header_bar, render_modal_scroll_hints, render_modal_shell,
+    render_modal_subtitle, ModalFrameSpec,
 };
 use crate::app::{
     state::{Palette, ProductAnnouncementState, ReleaseNotesState},
@@ -151,65 +150,38 @@ fn render_product_announcement_overlay_with(
 
     super::dim_background(frame, area);
 
-    let Some(inner) = render_modal_shell(
-        frame,
-        area,
-        PRODUCT_ANNOUNCEMENT_MODAL_SIZE.0,
-        PRODUCT_ANNOUNCEMENT_MODAL_SIZE.1,
-        &app.palette,
-    ) else {
+    let spec = ModalFrameSpec {
+        title: &announcement.title,
+        width: PRODUCT_ANNOUNCEMENT_MODAL_SIZE.0,
+        height: PRODUCT_ANNOUNCEMENT_MODAL_SIZE.1,
+        header_rows: 2,
+        footer_hints: PRODUCT_ANNOUNCEMENT_HINTS,
+        footer_max_rows: 2,
+        gap: 1,
+        actions_rows: 0,
+        show_close: true,
+    };
+    let Some(frame_areas) = render_modal_frame(frame, area, &app.palette, spec) else {
         return;
     };
-    if inner.height < 8 || inner.width < 20 {
+    if frame_areas.inner.height < 8 || frame_areas.inner.width < 20 {
         return;
     }
-
-    let stack = modal_stack_areas(
-        inner,
-        2,
-        modal_hint_line_count(inner.width, PRODUCT_ANNOUNCEMENT_HINTS, 2),
-        0,
-        1,
-    );
-    let header_rows =
-        Layout::vertical([Constraint::Length(1), Constraint::Length(1)]).areas::<2>(stack.header);
-
-    let header_title_area = Rect::new(
-        header_rows[0].x + 1,
-        header_rows[0].y,
-        header_rows[0].width.saturating_sub(2),
-        header_rows[0].height,
-    );
-    let header_subtitle_area = Rect::new(
-        header_rows[1].x + 1,
-        header_rows[1].y,
-        header_rows[1].width.saturating_sub(2),
-        header_rows[1].height,
-    );
-
-    render_modal_header(frame, header_title_area, &announcement.title, &app.palette);
+    let header_rows = Layout::vertical([Constraint::Length(1), Constraint::Length(1)])
+        .areas::<2>(frame_areas.header);
     let subtitle = if announcement.preview {
         "product announcement preview"
     } else {
         "product announcement"
     };
-    frame.render_widget(
-        Paragraph::new(format!("{subtitle} · v{}", announcement.version))
-            .style(Style::default().fg(app.palette.overlay1)),
-        header_subtitle_area,
-    );
-    render_action_button(
+    render_modal_subtitle(
         frame,
-        release_notes_close_button_rect(header_rows[0]),
-        Some("esc"),
-        "close",
-        Style::default()
-            .fg(panel_contrast_fg(&app.palette))
-            .bg(app.palette.accent)
-            .add_modifier(Modifier::BOLD),
+        header_rows[1],
+        format!("{subtitle} · v{}", announcement.version),
+        &app.palette,
     );
 
-    let body_rect = stack.content;
+    let body_rect = frame_areas.content;
     let viewport_rows = body_rect.height.max(1) as usize;
     let display_lines = product_announcement_display_lines(announcement, &app.palette);
     let rows_for_width =
@@ -257,14 +229,6 @@ fn render_product_announcement_overlay_with(
             "▐",
         );
     }
-
-    render_modal_hint_lines(
-        frame,
-        stack.footer.unwrap_or_default(),
-        &app.palette,
-        PRODUCT_ANNOUNCEMENT_HINTS,
-        2,
-    );
 }
 
 fn release_notes_inline_spans<'a>(

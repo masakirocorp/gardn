@@ -261,10 +261,11 @@ fn render_rename_overlay_with_view_state(
         if name_selected {
             render_modal_text_input(frame, name_rect, &client_view.name_input, &palette);
         } else {
-            frame.render_widget(
-                Paragraph::new(format!(" {}", client_view.name_input))
-                    .style(Style::default().fg(palette.text).bg(palette.surface0)),
+            super::widgets::render_modal_text_value(
+                frame,
                 name_rect,
+                &client_view.name_input,
+                &palette,
             );
         }
         let picker_open = client_view.group_icon_picker_open;
@@ -313,10 +314,11 @@ fn render_rename_overlay_with_view_state(
                     &palette,
                 );
             } else {
-                frame.render_widget(
-                    Paragraph::new(format!(" {}", client_view.group_default_directory_input))
-                        .style(Style::default().fg(palette.text).bg(palette.surface0)),
+                super::widgets::render_modal_text_value(
+                    frame,
                     directory_rect,
+                    &client_view.group_default_directory_input,
+                    &palette,
                 );
             }
         }
@@ -452,11 +454,7 @@ pub(super) fn render_rename_overlay(app: &AppState, frame: &mut Frame, area: Rec
         if app.group_modal_selected_field == 0 {
             render_modal_text_input(frame, name_rect, &app.name_input, &palette);
         } else {
-            frame.render_widget(
-                Paragraph::new(format!(" {}", app.name_input))
-                    .style(Style::default().fg(palette.text).bg(palette.surface0)),
-                name_rect,
-            );
+            super::widgets::render_modal_text_value(frame, name_rect, &app.name_input, &palette);
         }
 
         let icon_label_style = if app.group_icon_picker_open {

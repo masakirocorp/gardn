@@ -8,6 +8,7 @@ use ratatui::{
     Frame,
 };
 
+use super::text::{display_width, display_width_u16, truncate_end, truncate_start};
 use crate::app::state::Palette;
 
 pub(super) fn render_panel_shell(
@@ -82,6 +83,7 @@ pub(crate) struct ModalFrameAreas {
     pub header: Rect,
     pub content: Rect,
     pub footer: Option<Rect>,
+    pub actions: Option<Rect>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -92,7 +94,8 @@ pub(crate) struct ModalFrameSpec<'a> {
     pub header_rows: u16,
     pub footer_hints: &'a [(&'a str, &'a str)],
     pub footer_max_rows: u16,
-    pub reserve_footer_gap: u16,
+    pub gap: u16,
+    pub actions_rows: u16,
     pub show_close: bool,
 }
 
@@ -107,13 +110,17 @@ pub(crate) fn modal_frame_areas(area: Rect, spec: ModalFrameSpec<'_>) -> Option<
         popup.width.saturating_sub(2),
         popup.height.saturating_sub(2),
     );
-    let footer_rows = modal_hint_line_count(inner.width, spec.footer_hints, spec.footer_max_rows);
+    let footer_rows = if spec.footer_hints.is_empty() {
+        0
+    } else {
+        modal_hint_line_count(inner.width, spec.footer_hints, spec.footer_max_rows)
+    };
     let stack = modal_stack_areas(
         inner,
         spec.header_rows,
         footer_rows,
-        0,
-        spec.reserve_footer_gap,
+        spec.actions_rows,
+        spec.gap,
     );
     Some(ModalFrameAreas {
         popup,
@@ -121,6 +128,7 @@ pub(crate) fn modal_frame_areas(area: Rect, spec: ModalFrameSpec<'_>) -> Option<
         header: stack.header,
         footer: stack.footer,
         content: stack.content,
+        actions: stack.actions,
     })
 }
 
@@ -236,7 +244,7 @@ pub(super) fn modal_hint_line_count(area_width: u16, hints: &[(&str, &str)], max
 
     for hint in hints {
         let prefix_width = if current_width == 0 { 1 } else { 5 };
-        let hint_width = prefix_width + hint.0.chars().count() + 1 + hint.1.chars().count();
+        let hint_width = prefix_width + display_width(hint.0) + 1 + display_width(hint.1);
         let would_overflow =
             current_width != 0 && current_width + hint_width > max_width && line_count < max_rows;
         if would_overflow {
@@ -245,7 +253,7 @@ pub(super) fn modal_hint_line_count(area_width: u16, hints: &[(&str, &str)], max
         }
 
         let prefix_width = if current_width == 0 { 1 } else { 5 };
-        current_width += prefix_width + hint.0.chars().count() + 1 + hint.1.chars().count();
+        current_width += prefix_width + display_width(hint.0) + 1 + display_width(hint.1);
     }
 
     line_count
@@ -270,7 +278,7 @@ pub(super) fn render_modal_hint_lines(
 
     for hint in hints.iter().copied() {
         let prefix_width = if current_width == 0 { 1 } else { 5 };
-        let hint_width = prefix_width + hint.0.chars().count() + 1 + hint.1.chars().count();
+        let hint_width = prefix_width + display_width(hint.0) + 1 + display_width(hint.1);
         let would_overflow = current_width != 0
             && current_width + hint_width > max_width
             && lines.len() + 1 < max_rows as usize;
@@ -281,7 +289,7 @@ pub(super) fn render_modal_hint_lines(
         }
 
         let prefix_width = if current_width == 0 { 1 } else { 5 };
-        current_width += prefix_width + hint.0.chars().count() + 1 + hint.1.chars().count();
+        current_width += prefix_width + display_width(hint.0) + 1 + display_width(hint.1);
         current.push(hint);
     }
 
@@ -315,9 +323,19 @@ pub(super) fn render_modal_hint_line(
 }
 
 pub(super) fn render_modal_text_input(frame: &mut Frame, area: Rect, value: &str, p: &Palette) {
+    let value_width = area.width.saturating_sub(2) as usize;
+    let visible = truncate_start(value, value_width);
     frame.render_widget(Clear, area);
     frame.render_widget(
-        Paragraph::new(format!(" {value}█")).style(Style::default().fg(p.text).bg(p.surface0)),
+        Paragraph::new(format!(" {visible}█")).style(Style::default().fg(p.text).bg(p.surface0)),
+        area,
+    );
+}
+
+pub(super) fn render_modal_text_value(frame: &mut Frame, area: Rect, value: &str, p: &Palette) {
+    let visible = truncate_end(value, area.width.saturating_sub(1) as usize);
+    frame.render_widget(
+        Paragraph::new(format!(" {visible}")).style(Style::default().fg(p.text)),
         area,
     );
 }
@@ -341,6 +359,46 @@ pub(super) fn danger_action_style(p: &Palette) -> Style {
         .fg(panel_contrast_fg(p))
         .bg(p.red)
         .add_modifier(Modifier::BOLD)
+}
+
+pub(crate) fn modal_option_line<'a>(
+    title: &str,
+    metadata: Vec<Span<'a>>,
+    width: usize,
+    title_style: Style,
+    row_style: Style,
+) -> Line<'a> {
+    let title_width = width.saturating_sub(2);
+    let metadata_width = metadata
+        .iter()
+        .map(|span| display_width(span.content.as_ref()))
+        .sum::<usize>();
+    let show_metadata = metadata_width > 0 && metadata_width + 3 <= width;
+    let available_title = if show_metadata {
+        width.saturating_sub(metadata_width + 3)
+    } else {
+        title_width
+    };
+    let title = truncate_end(title, available_title);
+    let used_title = display_width(&title);
+    let mut spans = vec![
+        Span::styled("  ", row_style),
+        Span::styled(title, title_style),
+    ];
+
+    if show_metadata {
+        spans.push(Span::styled(
+            " ".repeat(width.saturating_sub(2 + used_title + metadata_width)),
+            row_style,
+        ));
+        spans.extend(metadata);
+    } else {
+        spans.push(Span::styled(
+            " ".repeat(width.saturating_sub(2 + used_title)),
+            row_style,
+        ));
+    }
+    Line::from(spans)
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -600,12 +658,34 @@ pub(crate) fn action_button_text(hint: Option<&str>, label: &str) -> String {
 }
 
 pub(crate) fn action_button_width(hint: Option<&str>, label: &str) -> u16 {
-    action_button_text(hint, label).chars().count() as u16
+    display_width_u16(&action_button_text(hint, label))
 }
 
 pub(crate) struct ActionButtonSpec<'a> {
     pub hint: Option<&'a str>,
     pub label: &'a str,
+}
+
+pub(crate) fn action_button_row_height(
+    area_width: u16,
+    buttons: &[ActionButtonSpec<'_>],
+    gap: u16,
+) -> u16 {
+    let fits = |hinted: bool| {
+        let total = buttons
+            .iter()
+            .map(|button| {
+                action_button_width(hinted.then_some(button.hint).flatten(), button.label)
+            })
+            .sum::<u16>()
+            .saturating_add(gap.saturating_mul(buttons.len().saturating_sub(1) as u16));
+        total <= area_width
+    };
+    if fits(true) || fits(false) {
+        1
+    } else {
+        buttons.len().min(u16::MAX as usize) as u16
+    }
 }
 
 pub(crate) fn action_button_row_rects(
@@ -614,11 +694,42 @@ pub(crate) fn action_button_row_rects(
     gap: u16,
     row_offset: u16,
 ) -> Vec<Rect> {
-    let widths: Vec<u16> = buttons
+    let full_widths = buttons
         .iter()
         .map(|button| action_button_width(button.hint, button.label))
-        .collect();
-    centered_button_row(area, &widths, gap, row_offset)
+        .collect::<Vec<_>>();
+    let compact_widths = buttons
+        .iter()
+        .map(|button| action_button_width(None, button.label))
+        .collect::<Vec<_>>();
+    let total_width = |widths: &[u16]| {
+        widths
+            .iter()
+            .copied()
+            .sum::<u16>()
+            .saturating_add(gap.saturating_mul(widths.len().saturating_sub(1) as u16))
+    };
+    if action_button_row_height(area.width, buttons, gap) == 1 {
+        if total_width(&full_widths) <= area.width {
+            return centered_button_row(area, &full_widths, gap, row_offset);
+        }
+        return centered_button_row(area, &compact_widths, gap, row_offset);
+    }
+    let end_y = area.y + row_offset.min(area.height.saturating_sub(1));
+    let start_y = end_y.saturating_sub(compact_widths.len().saturating_sub(1) as u16);
+    compact_widths
+        .into_iter()
+        .enumerate()
+        .map(|(idx, width)| {
+            let width = width.min(area.width);
+            Rect::new(
+                area.x + area.width.saturating_sub(width) / 2,
+                start_y.saturating_add(idx as u16),
+                width,
+                1,
+            )
+        })
+        .collect()
 }
 
 pub(super) fn render_action_button(
@@ -628,8 +739,11 @@ pub(super) fn render_action_button(
     label: &str,
     style: Style,
 ) {
+    let visible_hint = (action_button_width(hint, label) <= rect.width)
+        .then_some(hint)
+        .flatten();
     frame.render_widget(
-        Paragraph::new(action_button_text(hint, label))
+        Paragraph::new(action_button_text(visible_hint, label))
             .style(style)
             .alignment(Alignment::Center),
         rect,
@@ -671,4 +785,76 @@ pub(super) fn centered_button_row(
             rect
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use ratatui::{backend::TestBackend, Terminal};
+
+    use super::*;
+
+    #[test]
+    fn modal_option_line_keeps_unicode_title_and_metadata_within_width() {
+        let line = modal_option_line(
+            "開発チームのとても長い名前",
+            vec![Span::raw("alt+1")],
+            20,
+            Style::default(),
+            Style::default(),
+        );
+        let rendered = line
+            .spans
+            .iter()
+            .map(|span| span.content.as_ref())
+            .collect::<String>();
+
+        assert_eq!(display_width(&rendered), 20);
+        assert!(rendered.ends_with("alt+1"));
+        assert!(rendered.contains('…'));
+    }
+
+    #[test]
+    fn narrow_action_buttons_stack_without_overlapping() {
+        let area = Rect::new(4, 7, 8, 2);
+        let buttons = [
+            ActionButtonSpec {
+                hint: Some("enter"),
+                label: "confirm",
+            },
+            ActionButtonSpec {
+                hint: Some("esc"),
+                label: "cancel",
+            },
+        ];
+
+        assert_eq!(action_button_row_height(area.width, &buttons, 2), 2);
+        let rects = action_button_row_rects(area, &buttons, 2, 1);
+        assert_eq!(rects.len(), 2);
+        assert_ne!(rects[0].y, rects[1].y);
+        assert!(rects.iter().all(|rect| area.contains(rect.as_position())));
+        assert!(rects.iter().all(|rect| rect.width > 0));
+    }
+
+    #[test]
+    fn modal_text_input_keeps_the_end_of_long_unicode_values_visible() {
+        let app = crate::app::state::AppState::test_new();
+        let backend = TestBackend::new(14, 1);
+        let mut terminal = Terminal::new(backend).expect("test backend");
+        terminal
+            .draw(|frame| {
+                render_modal_text_input(
+                    frame,
+                    Rect::new(0, 0, 14, 1),
+                    "前方の長い名前-visible",
+                    &app.palette,
+                );
+            })
+            .expect("render text input");
+        let rendered = (0..14)
+            .map(|x| terminal.backend().buffer()[(x, 0)].symbol())
+            .collect::<String>();
+
+        assert!(rendered.contains("…"));
+        assert!(rendered.contains("visible"));
+    }
 }

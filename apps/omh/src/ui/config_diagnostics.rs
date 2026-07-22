@@ -36,7 +36,8 @@ fn config_diagnostics_frame_spec() -> ModalFrameSpec<'static> {
         header_rows: HEADER_ROWS,
         footer_hints: FOOTER_HINTS,
         footer_max_rows: 2,
-        reserve_footer_gap: 1,
+        gap: 1,
+        actions_rows: 0,
         show_close: true,
     }
 }

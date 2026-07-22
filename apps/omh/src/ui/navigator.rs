@@ -9,7 +9,7 @@ use ratatui::{
 use super::{
     scrollbar::{render_scrollbar, should_show_scrollbar},
     status::{agent_icon, state_label_color},
-    text::middle_elide,
+    text::{display_width, middle_elide, truncate_end},
     widgets::{
         modal_close_button_rect, modal_frame_areas, modal_hint_line_count, modal_stack_areas,
         panel_contrast_fg, render_modal_divider, render_modal_frame, ModalFrameSpec,
@@ -49,7 +49,8 @@ fn navigator_frame_spec() -> ModalFrameSpec<'static> {
         header_rows: NAVIGATOR_HEADER_ROWS,
         footer_hints: NAVIGATOR_HINTS,
         footer_max_rows: 2,
-        reserve_footer_gap: 1,
+        gap: 1,
+        actions_rows: 0,
         show_close: true,
     }
 }
@@ -83,22 +84,8 @@ pub(crate) fn navigator_layout(area: Rect) -> Option<NavigatorLayout> {
 }
 
 pub(super) fn render_navigator_overlay(app: &AppState, frame: &mut Frame) {
-    let area = app.screen_rect();
-    super::dim_background(frame, area);
-    let Some(layout) = navigator_layout(area) else {
-        return;
-    };
-    if render_modal_frame(frame, area, &app.palette, navigator_frame_spec()).is_none() {
-        return;
-    }
-    render_search(app, frame, layout.search);
-    render_modal_divider(frame, layout.header_divider, &app.palette);
-    if layout.body.height > 0 {
-        render_rows(app, frame, layout.body);
-        render_navigator_scrollbar(app, frame, layout.body);
-    }
-    render_modal_divider(frame, layout.detail_divider, &app.palette);
-    render_detail(app, frame, layout.detail);
+    let rows = app.navigator_rows();
+    render_navigator_overlay_from(app, &app.navigator, &rows, app.screen_rect(), frame);
 }
 
 pub(super) fn render_navigator_overlay_for_view(
@@ -107,7 +94,17 @@ pub(super) fn render_navigator_overlay_for_view(
     terminal_runtimes: &crate::terminal::TerminalRuntimeRegistry,
     frame: &mut Frame,
 ) {
-    let area = view.screen_rect();
+    let rows = app.navigator_rows_for_view(view, terminal_runtimes);
+    render_navigator_overlay_from(app, &view.navigator, &rows, view.screen_rect(), frame);
+}
+
+fn render_navigator_overlay_from(
+    app: &AppState,
+    navigator: &crate::app::state::NavigatorState,
+    rows: &[NavigatorRow],
+    area: Rect,
+    frame: &mut Frame,
+) {
     super::dim_background(frame, area);
     let Some(layout) = navigator_layout(area) else {
         return;
@@ -115,12 +112,11 @@ pub(super) fn render_navigator_overlay_for_view(
     if render_modal_frame(frame, area, &app.palette, navigator_frame_spec()).is_none() {
         return;
     }
-    let rows = app.navigator_rows_for_view(view, terminal_runtimes);
-    render_search_for_navigator(app, &view.navigator, frame, layout.search);
+    render_search_for_navigator(app, navigator, frame, layout.search);
     render_modal_divider(frame, layout.header_divider, &app.palette);
-    let visible = view.navigator.list.visible();
+    let visible = navigator.list.visible();
     if layout.body.height > 0 {
-        let start = view.navigator.scroll.min(rows.len());
+        let start = navigator.scroll.min(rows.len());
         let end = rows
             .len()
             .min(start.saturating_add(layout.body.height as usize));
@@ -139,7 +135,7 @@ pub(super) fn render_navigator_overlay_for_view(
                 Some(idx) == visible,
             );
         }
-        render_navigator_scrollbar_for_view(app, &view.navigator, frame, layout.body, rows.len());
+        render_navigator_scrollbar_for_view(app, navigator, frame, layout.body, rows.len());
     }
     render_modal_divider(frame, layout.detail_divider, &app.palette);
     render_navigator_detail_for_view(
@@ -278,71 +274,6 @@ fn render_navigator_detail_for_view(
     }
 }
 
-fn render_search(app: &AppState, frame: &mut Frame, area: Rect) {
-    let p = &app.palette;
-    let focus_style = if app.navigator.search_focused {
-        Style::default().fg(p.accent).add_modifier(Modifier::BOLD)
-    } else {
-        Style::default().fg(p.overlay0)
-    };
-    let count = app
-        .workspaces
-        .iter()
-        .flat_map(|workspace| workspace.tabs.iter())
-        .map(|tab| tab.panes.len())
-        .sum::<usize>();
-    let count = count_label(count, "pane", "panes");
-    let mut spans = vec![Span::styled(" / ", focus_style)];
-    let query = app.navigator.query.trim();
-    match app.navigator.state_filter {
-        Some(NavigatorStateFilter::Blocked) => push_state_chip(
-            &mut spans,
-            crate::detect::AgentState::Blocked,
-            true,
-            app.spinner_tick,
-            "blocked",
-            app,
-        ),
-        Some(NavigatorStateFilter::Working) => push_state_chip(
-            &mut spans,
-            crate::detect::AgentState::Working,
-            true,
-            app.spinner_tick,
-            "working",
-            app,
-        ),
-        Some(NavigatorStateFilter::Idle) => push_state_chip(
-            &mut spans,
-            crate::detect::AgentState::Idle,
-            true,
-            app.spinner_tick,
-            "idle",
-            app,
-        ),
-        Some(NavigatorStateFilter::Done) => push_state_chip(
-            &mut spans,
-            crate::detect::AgentState::Idle,
-            false,
-            app.spinner_tick,
-            "done",
-            app,
-        ),
-        None if query.is_empty() => spans.push(Span::styled(
-            "search groups, spaces, tabs, panes",
-            Style::default().fg(p.overlay0),
-        )),
-        None => spans.push(Span::styled(query.to_string(), Style::default().fg(p.text))),
-    }
-    spans.push(Span::styled(
-        format!(
-            "{count:>width$}",
-            width = area.width.saturating_sub(16) as usize
-        ),
-        Style::default().fg(p.overlay0),
-    ));
-    frame.render_widget(Paragraph::new(Line::from(spans)), area);
-}
-
 fn push_state_chip(
     spans: &mut Vec<Span<'static>>,
     state: crate::detect::AgentState,
@@ -360,19 +291,6 @@ fn push_state_chip(
             .fg(state_label_color(state, seen, &app.palette))
             .add_modifier(Modifier::BOLD),
     ));
-}
-
-fn render_rows(app: &AppState, frame: &mut Frame, body: Rect) {
-    let rows = app.navigator_rows();
-    let start = app.navigator.scroll.min(rows.len());
-    let end = rows.len().min(start.saturating_add(body.height as usize));
-    let visible = app.navigator.list.visible();
-    for (visible_idx, row) in rows[start..end].iter().enumerate() {
-        let idx = start + visible_idx;
-        let y = body.y + visible_idx as u16;
-        let rect = Rect::new(body.x, y, body.width, 1);
-        render_row(app, frame, rect, row, Some(idx) == visible);
-    }
 }
 
 fn render_row(app: &AppState, frame: &mut Frame, rect: Rect, row: &NavigatorRow, selected: bool) {
@@ -447,14 +365,14 @@ fn render_row(app: &AppState, frame: &mut Frame, rect: Rect, row: &NavigatorRow,
     let meta_width = metadata_width(rect.width);
     let status_width = status
         .as_ref()
-        .map_or(0, |(icon, _)| icon.chars().count().saturating_add(1) as u16);
+        .map_or(0, |(icon, _)| display_width(icon).saturating_add(1) as u16);
     let left_budget = rect
         .width
         .saturating_sub(meta_width)
-        .saturating_sub(left_fixed.chars().count() as u16)
+        .saturating_sub(display_width(&left_fixed) as u16)
         .saturating_sub(status_width)
         .saturating_sub(3) as usize;
-    let title = truncate_text(&row.label, left_budget);
+    let title = truncate_end(&row.label, left_budget);
 
     let mut spans = Vec::with_capacity(6);
     spans.push(Span::styled(format!(" {indent}"), dim_style));
@@ -474,7 +392,7 @@ fn render_row(app: &AppState, frame: &mut Frame, rect: Rect, row: &NavigatorRow,
             meta_width,
             1,
         );
-        let meta = truncate_text(&row.meta, meta_width.saturating_sub(2) as usize);
+        let meta = truncate_end(&row.meta, meta_width.saturating_sub(2) as usize);
         let meta_style = if selected {
             base_style
         } else if row.is_group || row.is_workspace || row.is_tab {
@@ -503,36 +421,6 @@ fn navigator_row_group_idx(app: &AppState, row: &NavigatorRow) -> Option<usize> 
     }
 }
 
-fn render_navigator_scrollbar(app: &AppState, frame: &mut Frame, body: Rect) {
-    if body.width <= 1 || body.height == 0 {
-        return;
-    }
-    let rows = app.navigator_rows().len();
-    let viewport = body.height as usize;
-    if rows <= viewport {
-        return;
-    }
-    let metrics = crate::pane::ScrollMetrics {
-        viewport_rows: viewport,
-        offset_from_bottom: rows
-            .saturating_sub(viewport)
-            .saturating_sub(app.navigator.scroll),
-        max_offset_from_bottom: rows.saturating_sub(viewport),
-    };
-    if !should_show_scrollbar(metrics) {
-        return;
-    }
-    let track = Rect::new(body.x + body.width - 1, body.y, 1, body.height);
-    render_scrollbar(
-        frame,
-        metrics,
-        track,
-        app.palette.surface_dim,
-        app.palette.overlay0,
-        "▕",
-    );
-}
-
 fn metadata_width(width: u16) -> u16 {
     if width >= 90 {
         28
@@ -543,29 +431,6 @@ fn metadata_width(width: u16) -> u16 {
     } else {
         0
     }
-}
-
-fn render_detail(app: &AppState, frame: &mut Frame, area: Rect) {
-    if area.height == 0 || area.width == 0 {
-        return;
-    }
-    let detail = selected_detail(app);
-    if detail.is_empty() {
-        return;
-    }
-    let text = middle_elide(&detail, area.width.saturating_sub(2) as usize);
-    frame.render_widget(
-        Paragraph::new(format!(" {text}")).style(Style::default().fg(app.palette.overlay0)),
-        area,
-    );
-}
-
-fn selected_detail(app: &AppState) -> String {
-    let rows = app.navigator_rows();
-    let Some(row) = app.navigator.list.visible().and_then(|idx| rows.get(idx)) else {
-        return String::new();
-    };
-    detail_for_row(app, row)
 }
 
 fn detail_for_row(app: &AppState, row: &NavigatorRow) -> String {
@@ -610,7 +475,6 @@ fn tab_detail(app: &AppState, ws_idx: usize, tab_idx: usize, meta: &str) -> Stri
     let mut parts = vec![
         ws.display_name_from(&app.terminals, &terminal_runtimes),
         format!("tab: {}", tab.display_name()),
-        count_label(tab.panes.len(), "pane", "panes"),
     ];
     if !meta.is_empty() {
         parts.push(meta.to_string());
@@ -710,21 +574,6 @@ fn display_state(state: crate::detect::AgentState, seen: bool) -> &'static str {
 
 fn count_label(count: usize, singular: &str, plural: &str) -> String {
     format!("{count} {}", if count == 1 { singular } else { plural })
-}
-
-fn truncate_text(text: &str, max_width: usize) -> String {
-    let len = text.chars().count();
-    if len <= max_width {
-        return text.to_string();
-    }
-    if max_width == 0 {
-        return String::new();
-    }
-    if max_width == 1 {
-        return "…".to_string();
-    }
-    let prefix: String = text.chars().take(max_width.saturating_sub(1)).collect();
-    format!("{prefix}…")
 }
 
 #[cfg(test)]

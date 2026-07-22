@@ -15,12 +15,14 @@ use crate::app::{
     AppState,
 };
 
+use super::text::display_width;
+
 use super::{
     scrollbar::render_scrollbar,
     widgets::{
-        action_button_row_rects, modal_hint_line_count, modal_section_heading_style,
-        panel_contrast_fg, primary_action_style, render_action_button, render_modal_frame,
-        render_modal_hint_lines, render_modal_subtitle, render_modal_text_input, ActionButtonSpec,
+        action_button_row_rects, modal_frame_areas, modal_hint_line_count, modal_option_line,
+        modal_section_heading_style, panel_contrast_fg, primary_action_style, render_action_button,
+        render_modal_divider, render_modal_frame, render_modal_text_input, ActionButtonSpec,
         ModalFrameSpec, ModalListGeometry,
     },
 };
@@ -28,42 +30,41 @@ use super::{
 const COMMAND_PALETTE_KEY_HINT_RIGHT_PADDING: usize = 1;
 const COMMAND_PALETTE_HINTS: &[(&str, &str)] = &[("scroll", "wheel ↑↓"), ("jump", "pgup / pgdn")];
 
-fn command_palette_height(area: Rect) -> u16 {
+fn command_palette_frame_spec(area: Rect) -> ModalFrameSpec<'static> {
     let popup_width = 76.min(area.width.saturating_sub(4));
     let inner_width = popup_width.saturating_sub(2);
-    17 + modal_hint_line_count(inner_width, COMMAND_PALETTE_HINTS, 2)
+    ModalFrameSpec {
+        title: "command palette",
+        width: 76,
+        height: 19 + modal_hint_line_count(inner_width, COMMAND_PALETTE_HINTS, 2),
+        header_rows: 1,
+        footer_hints: COMMAND_PALETTE_HINTS,
+        footer_max_rows: 2,
+        gap: 1,
+        actions_rows: 1,
+        show_close: true,
+    }
 }
 
 pub(crate) fn command_palette_popup_rect(area: Rect) -> Option<Rect> {
-    super::centered_popup_rect(area, 76, command_palette_height(area))
+    modal_frame_areas(area, command_palette_frame_spec(area)).map(|frame| frame.popup)
 }
 
 pub(crate) fn command_palette_inner_rect(area: Rect) -> Option<Rect> {
-    let popup = command_palette_popup_rect(area)?;
-    Some(Rect::new(
-        popup.x + 1,
-        popup.y + 1,
-        popup.width.saturating_sub(2),
-        popup.height.saturating_sub(2),
-    ))
+    modal_frame_areas(area, command_palette_frame_spec(area)).map(|frame| frame.inner)
 }
 
-pub(crate) fn command_palette_content_rows(inner: Rect) -> Option<[Rect; 7]> {
-    if inner.height < 6 || inner.width < 20 {
+fn command_palette_content_rows(content: Rect) -> Option<[Rect; 3]> {
+    if content.height < 4 || content.width < 20 {
         return None;
     }
-    let hint_rows = modal_hint_line_count(inner.width, COMMAND_PALETTE_HINTS, 2);
     Some(
         Layout::vertical([
             Constraint::Length(1),
             Constraint::Length(1),
-            Constraint::Length(1),
             Constraint::Min(1),
-            Constraint::Length(1),
-            Constraint::Length(hint_rows),
-            Constraint::Length(1),
         ])
-        .areas::<7>(inner),
+        .areas::<3>(content),
     )
 }
 
@@ -72,23 +73,25 @@ pub(crate) fn command_palette_list_geometry(
     total_rows: usize,
     scroll: usize,
 ) -> Option<ModalListGeometry> {
-    let inner = command_palette_inner_rect(area)?;
-    let rows = command_palette_content_rows(inner)?;
-    Some(ModalListGeometry::new(rows[3], total_rows, scroll))
+    let frame = modal_frame_areas(area, command_palette_frame_spec(area))?;
+    let rows = command_palette_content_rows(frame.content)?;
+    Some(ModalListGeometry::new(rows[2], total_rows, scroll))
 }
 
 pub(crate) fn command_palette_button_rects(inner: Rect) -> (Rect, Rect) {
+    let footer_rows = modal_hint_line_count(inner.width, COMMAND_PALETTE_HINTS, 2);
+    let stack = super::widgets::modal_stack_areas(inner, 1, footer_rows, 1, 1);
+    let actions = stack.actions.unwrap_or_default();
     let rects = action_button_row_rects(
-        inner,
+        actions,
         &[ActionButtonSpec {
             hint: Some("↵"),
             label: "run",
         }],
         2,
-        inner.height.saturating_sub(1),
+        0,
     );
-    let close =
-        super::widgets::modal_close_button_rect(Rect::new(inner.x, inner.y, inner.width, 1));
+    let close = super::widgets::modal_close_button_rect(stack.header);
     (rects[0], close)
 }
 
@@ -132,35 +135,19 @@ fn render_command_palette_overlay_from(
     } else {
         frame.area()
     };
-    let Some(frame_areas) = render_modal_frame(
-        frame,
-        area,
-        &app.palette,
-        ModalFrameSpec {
-            title: "command palette",
-            width: 76,
-            height: command_palette_height(area),
-            header_rows: 1,
-            footer_hints: &[],
-            footer_max_rows: 2,
-            reserve_footer_gap: 1,
-            show_close: true,
-        },
-    ) else {
+    let spec = command_palette_frame_spec(area);
+    let Some(frame_areas) = render_modal_frame(frame, area, &app.palette, spec) else {
         return;
     };
-    let inner = frame_areas.inner;
-    let Some(rows) = command_palette_content_rows(inner) else {
-        return;
-    };
-    render_modal_subtitle(frame, rows[1], "type to filter commands", &app.palette);
-
-    let input = Rect::new(rows[2].x, rows[2].y, rows[2].width, 1);
-    render_modal_text_input(frame, input, &palette_state.query, &app.palette);
-
-    render_modal_hint_lines(frame, rows[5], &app.palette, COMMAND_PALETTE_HINTS, 2);
-
-    let (run_rect, _) = command_palette_button_rects(inner);
+    let run_rect = action_button_row_rects(
+        frame_areas.actions.unwrap_or_default(),
+        &[ActionButtonSpec {
+            hint: Some("↵"),
+            label: "run",
+        }],
+        2,
+        0,
+    )[0];
     render_action_button(
         frame,
         run_rect,
@@ -169,10 +156,16 @@ fn render_command_palette_overlay_from(
         primary_action_style(&app.palette),
     );
 
+    let Some(rows) = command_palette_content_rows(frame_areas.content) else {
+        return;
+    };
+    render_modal_text_input(frame, rows[0], &palette_state.query, &app.palette);
+    render_modal_divider(frame, rows[1], &app.palette);
+
     if commands.is_empty() {
         frame.render_widget(
             Paragraph::new(" no commands").style(Style::default().fg(app.palette.overlay1)),
-            rows[3],
+            rows[2],
         );
         return;
     }
@@ -294,23 +287,10 @@ fn command_palette_command_line<'a>(
     row_style: Style,
     key_style: Style,
 ) -> Line<'a> {
-    let text = format!("  {title}");
-    let title_len = text.chars().count();
-    let Some(key_label) = key_label else {
-        return Line::from(Span::styled(pad_right(text, width), title_style));
-    };
-
-    let key_len = key_label.chars().count();
-    if title_len + key_len + 1 >= width {
-        return Line::from(vec![Span::styled(text, title_style)]);
-    }
-
-    let gap = width - title_len - key_len;
-    Line::from(vec![
-        Span::styled(text, title_style),
-        Span::styled(" ".repeat(gap), row_style),
-        Span::styled(key_label.to_string(), key_style),
-    ])
+    let metadata = key_label
+        .map(|key| vec![Span::styled(key.to_string(), key_style)])
+        .unwrap_or_default();
+    modal_option_line(title, metadata, width, title_style, row_style)
 }
 
 fn command_palette_group_command_line<'a>(
@@ -347,7 +327,7 @@ fn command_palette_group_command_line<'a>(
         );
     }
 
-    let full_len = prefix.chars().count() + group_label.chars().count();
+    let full_len = display_width(prefix) + display_width(&group_label);
     let Some(key_label) = key_label else {
         if full_len >= width {
             return command_palette_command_line(
@@ -373,7 +353,7 @@ fn command_palette_group_command_line<'a>(
         ]);
     };
 
-    let key_len = key_label.chars().count();
+    let key_len = display_width(key_label);
     if full_len + key_len + 1 >= width {
         return command_palette_command_line(
             title,
@@ -398,15 +378,6 @@ fn command_palette_group_command_line<'a>(
         Span::styled(" ".repeat(gap), row_style),
         Span::styled(key_label.to_string(), key_style),
     ])
-}
-
-fn pad_right(text: String, width: usize) -> String {
-    let len = text.chars().count();
-    if len >= width {
-        text
-    } else {
-        format!("{text}{}", " ".repeat(width - len))
-    }
 }
 
 #[cfg(test)]
@@ -443,6 +414,21 @@ mod tests {
         assert!(buffer_row_text(terminal.backend().buffer(), inner, gap_y)
             .trim()
             .is_empty());
+    }
+
+    #[test]
+    fn command_palette_keeps_close_and_run_actions_on_a_narrow_terminal() {
+        let app = AppState::test_new();
+        let backend = TestBackend::new(32, 12);
+        let mut terminal = Terminal::new(backend).expect("test backend");
+
+        terminal
+            .draw(|frame| render_command_palette_overlay(&app, frame))
+            .expect("render narrow command palette");
+
+        let text = buffer_text(terminal.backend().buffer(), 32, 12);
+        assert!(text.contains("close"));
+        assert!(text.contains("run"));
     }
 
     #[test]

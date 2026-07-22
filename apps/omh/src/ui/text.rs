@@ -23,6 +23,21 @@ pub(crate) fn truncate_end(text: &str, max_width: usize) -> String {
     format!("{prefix}…")
 }
 
+pub(crate) fn truncate_start(text: &str, max_width: usize) -> String {
+    if display_width(text) <= max_width {
+        return text.to_string();
+    }
+    if max_width == 0 {
+        return String::new();
+    }
+    if max_width == 1 {
+        return "…".to_string();
+    }
+
+    let suffix = take_suffix_width(text, max_width.saturating_sub(1));
+    format!("…{suffix}")
+}
+
 pub(crate) fn middle_elide(text: &str, max_width: usize) -> String {
     if display_width(text) <= max_width {
         return text.to_string();
@@ -77,6 +92,15 @@ mod tests {
 
         assert_eq!(text, "提交 omh 的反…");
         assert!(display_width(&text) <= 14);
+    }
+
+    #[test]
+    fn truncate_start_keeps_the_end_visible() {
+        let text = truncate_start("/Users/charlie/项目/very-long-directory", 18);
+
+        assert!(text.starts_with('…'));
+        assert!(text.ends_with("long-directory"));
+        assert!(display_width(&text) <= 18);
     }
 
     #[test]

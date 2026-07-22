@@ -467,7 +467,8 @@ fn render_settings_overlay_with(
             header_rows: 4,
             footer_hints: settings_footer_hints_for(settings),
             footer_max_rows: 2,
-            reserve_footer_gap: 1,
+            gap: 1,
+            actions_rows: 0,
             show_close: true,
         },
     ) else {
@@ -985,7 +986,8 @@ pub(super) fn render_settings_overlay(app: &AppState, frame: &mut Frame, area: R
             header_rows: 4,
             footer_hints: settings_footer_hints(app, group_settings),
             footer_max_rows: 2,
-            reserve_footer_gap: 1,
+            gap: 1,
+            actions_rows: 0,
             show_close: true,
         },
     ) else {
@@ -1851,7 +1853,8 @@ mod tests {
                 header_rows: 4,
                 footer_hints: settings_footer_hints(&app, false),
                 footer_max_rows: 2,
-                reserve_footer_gap: 1,
+                gap: 1,
+                actions_rows: 0,
                 show_close: true,
             },
         )
