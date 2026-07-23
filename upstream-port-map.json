@@ -3753,8 +3753,8 @@
     {
       "upstream": "ef85fa0c7ebb48bb59fe7593af5a67f3e02ff3d4",
       "subject": "fix: keep reading while pty input is blocked",
-      "status": "pending",
-      "reason": "The PTY actor can still stop reading while a pending input write is backpressured."
+      "status": "ported",
+      "reason": "PTY actor polling now drains readable output before retrying blocked writes, preserves queued write order, and handoff draining stays deadline-bounded; focused backpressure coverage proves output progress and shutdown completion."
     },
     {
       "upstream": "c234f221f9be698bc0501c60459e1ae8e67df6c3",
