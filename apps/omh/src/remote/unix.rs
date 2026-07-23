@@ -607,13 +607,38 @@ fn remote_binary_on_path_any(
     ssh: &RemoteSsh,
     remote_omh: &RemoteOmh,
 ) -> io::Result<Option<RemoteOmh>> {
-    let output = ssh.user_shell_output("command -v omh")?;
-    if !output.status.success() {
-        return Ok(None);
+    let primary_output = ssh.user_shell_output("command -v omh")?;
+    if primary_output.status.success() {
+        let stdout = String::from_utf8_lossy(&primary_output.stdout);
+        if let Some(candidate) = remote_omh_from_path_discovery(remote_omh, &stdout) {
+            return Ok(Some(candidate));
+        }
     }
 
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    Ok(remote_omh_from_path_discovery(remote_omh, &stdout))
+    // Non-POSIX login shells such as xonsh reject `command -v`; retry through
+    // /bin/sh while retaining the login-shell probe for shell-initialized PATHs.
+    let fallback_output = ssh.sh_output("command -v omh\n")?;
+    if fallback_output.status.success() {
+        let stdout = String::from_utf8_lossy(&fallback_output.stdout);
+        return Ok(remote_omh_from_path_discovery(remote_omh, &stdout));
+    }
+
+    tracing::debug!(
+        primary = %command_output_diagnostic(&primary_output),
+        fallback = %command_output_diagnostic(&fallback_output),
+        "remote binary path discovery failed in user shell and /bin/sh"
+    );
+    Ok(None)
+}
+
+fn command_output_diagnostic(output: &Output) -> String {
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let stderr = stderr.trim();
+    if stderr.is_empty() {
+        output.status.to_string()
+    } else {
+        stderr.to_string()
+    }
 }
 
 fn remote_omh_from_path_discovery(remote_omh: &RemoteOmh, stdout: &str) -> Option<RemoteOmh> {
@@ -2053,6 +2078,158 @@ mod tests {
 
         assert!(remote_omh.is_none());
     }
+
+    struct FakeSshResponse<'a> {
+        status: i32,
+        stdout: &'a str,
+        stderr: &'a str,
+    }
+
+    fn fake_remote_path_probe<'a>(
+        primary: FakeSshResponse<'a>,
+        fallback: FakeSshResponse<'a>,
+    ) -> (io::Result<Option<RemoteOmh>>, String) {
+        use std::ffi::OsString;
+        use std::os::unix::fs::PermissionsExt;
+
+        let _guard = remote_env_lock().lock().unwrap();
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("system clock should be after the Unix epoch")
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!(
+            "omh-remote-path-discovery-{}-{unique}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&dir).expect("fake ssh directory should be created");
+        let fake_ssh = dir.join("ssh");
+        let log = dir.join("invocations");
+        let script = format!(
+            r#"#!/bin/sh
+set -eu
+last=''
+for arg in "$@"; do
+    last="$arg"
+done
+if [ "$last" = "command -v omh" ]; then
+    printf '%s\n' primary >> {log}
+    printf '%s' {primary_stdout}
+    printf '%s' {primary_stderr} >&2
+    exit {primary_status}
+fi
+if [ "$last" = "/bin/sh -s" ]; then
+    while IFS= read -r _line; do :; done
+    printf '%s\n' fallback >> {log}
+    printf '%s' {fallback_stdout}
+    printf '%s' {fallback_stderr} >&2
+    exit {fallback_status}
+fi
+printf '%s\n' unexpected >> {log}
+exit 99
+"#,
+            log = shell_quote(&log.to_string_lossy()),
+            primary_stdout = shell_quote(primary.stdout),
+            primary_stderr = shell_quote(primary.stderr),
+            primary_status = primary.status,
+            fallback_stdout = shell_quote(fallback.stdout),
+            fallback_stderr = shell_quote(fallback.stderr),
+            fallback_status = fallback.status,
+        );
+        fs::write(&fake_ssh, script).expect("fake ssh should be written");
+        let mut permissions = fs::metadata(&fake_ssh)
+            .expect("fake ssh should have metadata")
+            .permissions();
+        permissions.set_mode(0o700);
+        fs::set_permissions(&fake_ssh, permissions).expect("fake ssh should be executable");
+
+        let mut path = OsString::from(dir.as_os_str());
+        if let Some(existing) = std::env::var_os("PATH") {
+            path.push(":");
+            path.push(existing);
+        }
+        let _path = crate::config::TestEnvVar::set("PATH", path);
+        let ssh = RemoteSsh {
+            target: "example".to_string(),
+            managed_config: None,
+        };
+        let remote_omh = RemoteOmh::for_platform(RemotePlatform {
+            os: "linux",
+            arch: "x86_64",
+        });
+        let result = remote_binary_on_path_any(&ssh, &remote_omh);
+        let invocations = fs::read_to_string(&log).expect("fake ssh should record invocations");
+        drop(_path);
+        let _ = fs::remove_dir_all(dir);
+        (result, invocations)
+    }
+
+    #[test]
+    fn remote_path_discovery_prefers_primary_user_shell_probe() {
+        let (result, invocations) = fake_remote_path_probe(
+            FakeSshResponse {
+                status: 0,
+                stdout: "/primary/bin/omh\n",
+                stderr: "",
+            },
+            FakeSshResponse {
+                status: 0,
+                stdout: "/fallback/bin/omh\n",
+                stderr: "",
+            },
+        );
+        let remote_omh = result
+            .expect("primary discovery should succeed")
+            .expect("primary path should be returned");
+
+        assert_eq!(remote_omh.shell_path, "/primary/bin/omh");
+        assert_eq!(invocations, "primary\n");
+    }
+
+    #[test]
+    fn remote_path_discovery_falls_back_to_posix_shell_after_primary_failure() {
+        let (result, invocations) = fake_remote_path_probe(
+            FakeSshResponse {
+                status: 1,
+                stdout: "",
+                stderr: "xonsh: command -v is not supported\n",
+            },
+            FakeSshResponse {
+                status: 0,
+                stdout: "/fallback/bin/omh\n",
+                stderr: "",
+            },
+        );
+        let remote_omh = result
+            .expect("fallback discovery should succeed")
+            .expect("fallback path should be returned");
+
+        assert_eq!(remote_omh.shell_path, "/fallback/bin/omh");
+        assert_eq!(invocations, "primary\nfallback\n");
+    }
+
+    #[test]
+    fn remote_path_discovery_keeps_install_flow_when_both_shell_probes_fail() {
+        let (result, invocations) = fake_remote_path_probe(
+            FakeSshResponse {
+                status: 1,
+                stdout: "",
+                stderr: "xonsh: command -v is not supported\n",
+            },
+            FakeSshResponse {
+                status: 1,
+                stdout: "",
+                stderr: "sh: omh: not found\n",
+            },
+        );
+
+        assert!(
+            result
+                .expect("dual discovery failure should not abort installation")
+                .is_none()
+        );
+        assert_eq!(invocations, "primary\nfallback\n");
+    }
+
 
     #[test]
     fn remote_shell_path_warning_accepts_managed_install() {

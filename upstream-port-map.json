@@ -3747,8 +3747,8 @@
     {
       "upstream": "08640bb3ddc0a9c299e855d6a459d2f82970cf86",
       "subject": "fix: fall back to sh for remote path discovery",
-      "status": "pending",
-      "reason": "Remote binary discovery does not retry command -v through /bin/sh after a non-POSIX user shell fails."
+      "status": "ported",
+      "reason": "Ported /bin/sh retry for non-POSIX remote command discovery; fake SSH boundary tests prove primary success, fallback success, and dual failure while retaining install-flow semantics and tracing diagnostics."
     },
     {
       "upstream": "ef85fa0c7ebb48bb59fe7593af5a67f3e02ff3d4",
