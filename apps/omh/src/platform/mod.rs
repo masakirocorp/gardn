@@ -35,6 +35,10 @@ pub enum Signal {
     Kill,
 }
 
+pub(crate) const fn preserve_legacy_doubled_escape_input() -> bool {
+    cfg!(target_os = "macos")
+}
+
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 pub fn detach_server_daemon_command(command: &mut std::process::Command) {
     use std::os::unix::process::CommandExt;

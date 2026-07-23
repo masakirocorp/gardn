@@ -3561,8 +3561,8 @@
     {
       "upstream": "c1f7b6f331501a784bfad896310eae1d064bd9b9",
       "subject": "fix: preserve lone escape input boundaries",
-      "status": "pending",
-      "reason": "Host input framing does not yet preserve coalesced standalone Escape boundaries."
+      "status": "ported",
+      "reason": "Ported host-input framing to split coalesced standalone Escape on non-macOS while preserving macOS doubled-Escape behavior; client/server readers and Windows pumps retain pending bytes, with focused raw/client tests covering Escape timing plus split control-string and mouse-prefix reassembly. The distinct Escape-before-SGR boundary remains deferred to ENG-142."
     },
     {
       "upstream": "02a6e874f67800891b5a549297219ed6f3ce0f2f",

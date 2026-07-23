@@ -79,19 +79,18 @@ fn windows_crossterm_reader_loop(
 ) {
     use std::time::Duration;
 
-    let mut framer = crate::raw_input::RawInputFramer::default();
-    let mut raw_sequence_pending = false;
+    let mut framer = crate::raw_input::RawInputFramer::for_host_input();
 
     while !should_quit.load(Ordering::Acquire) {
         match crossterm::event::poll(Duration::from_millis(10)) {
             Ok(true) => {}
             Ok(false) => {
-                if raw_sequence_pending {
+                if framer.has_pending_input() {
                     if !send_windows_raw_events(framer.flush_timeout(), &event_tx) {
                         return;
                     }
-                    raw_sequence_pending = false;
                 }
+
                 continue;
             }
             Err(_) => break,
@@ -102,20 +101,18 @@ fn windows_crossterm_reader_loop(
             Err(_) => break,
         };
 
+        let raw_sequence_pending = framer.has_pending_input();
         if let Some(bytes) = windows_key_raw_bytes(&event, raw_sequence_pending) {
-            let events = framer.push(&bytes);
-            raw_sequence_pending = events.is_empty();
-            if !send_windows_raw_events(events, &event_tx) {
+            if !send_windows_raw_events(framer.push(&bytes), &event_tx) {
                 return;
             }
             continue;
         }
 
-        if raw_sequence_pending {
+        if framer.has_pending_input() {
             if !send_windows_raw_events(framer.flush_timeout(), &event_tx) {
                 return;
             }
-            raw_sequence_pending = false;
         }
 
         let Some(event) = crate::protocol::ClientInputEvent::from_crossterm(event) else {
@@ -129,7 +126,7 @@ fn windows_crossterm_reader_loop(
         }
     }
 
-    if raw_sequence_pending {
+    if framer.has_pending_input() {
         let _ = send_windows_raw_events(framer.flush_timeout(), &event_tx);
     }
 }
@@ -234,7 +231,7 @@ fn unix_stdin_reader_loop(
     let stdin = io::stdin();
     let mut reader = stdin.lock();
     let mut scratch = [0u8; 4096];
-    let mut framer = crate::raw_input::RawInputByteFramer::default();
+    let mut framer = crate::raw_input::RawInputByteFramer::for_host_input();
     if host_color_query_sent {
         framer.host_color_query_sent();
     }
@@ -366,6 +363,16 @@ mod tests {
     fn raw_input_idle_flush_timeout_keeps_escape_responsive() {
         let timeout_ms = std::hint::black_box(crate::raw_input::RAW_INPUT_IDLE_FLUSH_TIMEOUT_MS);
         assert!(timeout_ms <= 20);
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    #[test]
+    fn coalesced_escape_leaves_next_escape_pending_for_client_flush() {
+        let mut framer = crate::raw_input::RawInputByteFramer::for_host_input();
+
+        assert_eq!(framer.push(b"\x1b\x1b"), vec![b"\x1b".to_vec()]);
+        assert!(framer.has_pending_input());
+        assert_eq!(framer.flush_timeout(), vec![b"\x1b".to_vec()]);
     }
 
     #[cfg(unix)]
