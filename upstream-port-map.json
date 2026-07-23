@@ -3555,8 +3555,8 @@
     {
       "upstream": "e298e4589050349630d0faaec00ef11555b83ae1",
       "subject": "feat: add optional workspace name prompt",
-      "status": "pending",
-      "reason": "Interactive workspace creation has no optional name-prompt configuration or dialog flow."
+      "status": "ported",
+      "reason": "Ported under ENG-144: opt-in interactive Space creation prompts with the derived cwd name across default and client-view paths; focused config, input, and rendered-dialog tests pass."
     },
     {
       "upstream": "c1f7b6f331501a784bfad896310eae1d064bd9b9",
