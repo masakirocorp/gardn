@@ -16,8 +16,8 @@ A session is a persistent Oh My Herdr runtime with its own sockets, panes, tabs,
 - **Remote server restart flow** — remote attach checks protocol/version compatibility and can prompt to stop or restart an incompatible remote server.
 - **SSH keepalive fallback** — remote attach can add private generated SSH keepalive defaults without overriding your own SSH config.
 - **Direct terminal attach** — `omh terminal attach <terminal-id>` and `omh agent attach <target>` attach directly to a single server-owned terminal.
-- **Attach takeover** — direct attach is exclusive by default; `--takeover` can claim a terminal attachment from another client.
-- **Multiple clients** — more than one client can connect to a server; each client owns its navigation and sidebar view, while the foreground interactive client drives shared runtime size, focus, theme, and keybindings.
+- **Attach takeover** — direct attach is exclusive by default; `--takeover` can claim a terminal attachment from another client. This terminal-level takeover is separate from normal app-client Tab Control.
+- **Multiple clients** — more than one client can connect to a server; each client owns its navigation and sidebar view. Interactive terminal control is assigned per stable tab identity: the first client may claim a free tab, switching to another free tab may claim it, and an occupied tab is view-only until explicit takeover with `prefix+t` or the persistent desktop/mobile **Take control** action. The controller owns the tab's canonical PTY size and interactive input authority; watchers keep navigation, scroll, copy, and search local and see the canonical terminal canvas cropped or padded to their viewport. Watcher focus, resize, and input do not change PTY size or content, so different client sizes do not cause layout shifts until takeover. Controller navigation, disconnect, and direct terminal attach release control without auto-promoting a watcher. Local API and system automation bypass interactive tab ownership. Global foreground remains host focus, theme, keybinding, and notification context, not PTY sizing or input authority.
 - **Clipboard bridging** — thin clients forward OSC 52 clipboard writes locally and can bridge local clipboard-image paste into server panes.
 - **Live server handoff** — supported updates can move live pane PTYs and session state into a replacement server so running pane processes survive a server swap.
 
@@ -49,6 +49,7 @@ A tab belongs to one workspace and contains one or more panes.
 - **Tab bar** — click tabs, close hovered tabs with the inline close button, use overflow scrolling, and switch with keybindings. The overflow view follows the active tab after navigation; manually scrolling the tab bar suspends that follow behavior until tab focus changes again.
 - **Tab drag reorder** — reorder tabs in the tab bar by dragging, with a drop indicator.
 - **Tab-aware state** — workspace and agent UI can include tab context for agents and notifications.
+- **Tab control** — each stable tab identity has at most one interactive controller. A watcher can view an occupied tab but must explicitly take control before tab input or canonical resizing can follow that client.
 
 ### Panes
 
@@ -57,7 +58,7 @@ A pane is a terminal runtime inside a tab layout.
 - **Pane splitting** — split panes vertically or horizontally.
 - **Pane move** — move panes into another tab, a new tab, or a new workspace from the CLI or socket API.
 - **Pane focus and zoom** — focus by direction, cycle panes, and zoom the focused pane.
-- **Pane resize** — resize interactively from resize mode or by dragging borders.
+- **Pane resize** — the tab controller can resize panes interactively from resize mode or by dragging borders; watchers remain view-only until explicit takeover.
 - **Zen mode** — toggle a client-local full-screen terminal view that temporarily hides sidebars, the tab bar, mobile header, and context bar.
 - **Pane labels** — set manual pane labels; optionally show agent names or compact name-and-status metadata on pane borders. Integration titles and manual names always take precedence.
 - **Pane close** — close panes with confirmation where configured.

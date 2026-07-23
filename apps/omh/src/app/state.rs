@@ -1468,6 +1468,9 @@ pub(crate) enum ContextBarTarget {
     Workspace,
     Tab,
     Pane,
+    /// Trailing per-client tab-control chip (watching / free); rect is the
+    /// hit area for later click-to-claim wiring.
+    TabControl,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

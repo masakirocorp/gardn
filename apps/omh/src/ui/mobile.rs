@@ -1755,6 +1755,7 @@ mod tests {
             app.active_group,
             active_tab,
             focused_pane,
+            crate::app::ClientTabControl::default(),
             Rect::new(0, 1, 44, 1),
         );
         let backend = ratatui::backend::TestBackend::new(44, 2);
@@ -2381,6 +2382,7 @@ mod tests {
             app.active_group,
             active_tab,
             focused_pane,
+            crate::app::ClientTabControl::default(),
             Rect::new(0, 0, 40, 1),
         );
         let backend = ratatui::backend::TestBackend::new(40, 2);
@@ -2404,5 +2406,169 @@ mod tests {
             !row.contains("issue-264-nix-support"),
             "header row: {row:?}"
         );
+    }
+
+    #[test]
+    fn mobile_header_carries_control_chip_right_aligned_for_watcher() {
+        let mut app = crate::app::state::AppState::test_new();
+        let mut workspace = crate::workspace::Workspace::test_new("ignored");
+        workspace.custom_name = Some("website".into());
+        workspace.tabs[0].custom_name = Some("release".into());
+        app.workspaces = vec![workspace];
+        app.active = Some(0);
+        app.selected = 0;
+
+        let terminal_runtimes = TerminalRuntimeRegistry::new();
+        let mut watcher = ClientViewState::from_default_client_state(&app);
+        watcher.set_tab_control(crate::app::ClientTabControl::WatchingControlled { epoch: 5 });
+        let mut controller = ClientViewState::from_default_client_state(&app);
+        super::super::compute_view_for_client_without_resizing_panes(
+            &app,
+            &mut watcher,
+            &terminal_runtimes,
+            Rect::new(0, 0, 44, 20),
+        );
+        super::super::compute_view_for_client_without_resizing_panes(
+            &app,
+            &mut controller,
+            &terminal_runtimes,
+            Rect::new(0, 0, 44, 20),
+        );
+
+        let bar = &watcher.computed.context_bar;
+        let chip = bar.segments.last().expect("watching chip segment");
+        assert_eq!(chip.target, crate::app::state::ContextBarTarget::TabControl);
+        assert_eq!(chip.label, " WATCHING ");
+        assert_eq!(
+            chip.rect.x + chip.rect.width + 1,
+            bar.rect.x + bar.rect.width,
+            "chip should be right-aligned with a one-column margin: {chip:?}"
+        );
+        for segment in &bar.segments[..bar.segments.len() - 1] {
+            assert!(
+                segment.rect.x + segment.rect.width <= chip.rect.x,
+                "breadcrumb segment overlaps chip: {segment:?} vs {chip:?}"
+            );
+        }
+
+        // The controller's mobile header carries no chip.
+        assert!(controller
+            .computed
+            .context_bar
+            .segments
+            .iter()
+            .all(|segment| segment.target != crate::app::state::ContextBarTarget::TabControl));
+
+        let backend = ratatui::backend::TestBackend::new(44, 20);
+        let mut terminal = ratatui::Terminal::new(backend).unwrap();
+        terminal
+            .draw(|frame| {
+                render_mobile_header_for_view(
+                    &app,
+                    &terminal_runtimes,
+                    &watcher,
+                    frame,
+                    watcher.computed.mobile_header_rect,
+                )
+            })
+            .unwrap();
+        let header_line = (0..44)
+            .map(|x| terminal.backend().buffer()[(x, bar.rect.y)].symbol())
+            .collect::<String>();
+        assert!(header_line.contains("WATCHING"), "{header_line:?}");
+    }
+
+    #[test]
+    fn mobile_header_free_chip_and_tiny_rects() {
+        let mut app = crate::app::state::AppState::test_new();
+        let mut workspace = crate::workspace::Workspace::test_new("ignored");
+        workspace.custom_name = Some("website".into());
+        workspace.tabs[0].custom_name = Some("release".into());
+        app.workspaces = vec![workspace];
+        app.active = Some(0);
+        app.selected = 0;
+
+        let terminal_runtimes = TerminalRuntimeRegistry::new();
+        let mut watcher = ClientViewState::from_default_client_state(&app);
+        watcher.set_tab_control(crate::app::ClientTabControl::WatchingFree { epoch: 2 });
+        super::super::compute_view_for_client_without_resizing_panes(
+            &app,
+            &mut watcher,
+            &terminal_runtimes,
+            Rect::new(0, 0, 44, 20),
+        );
+        let bar = &watcher.computed.context_bar;
+        let chip = bar.segments.last().expect("free chip segment");
+        assert_eq!(chip.target, crate::app::state::ContextBarTarget::TabControl);
+        assert_eq!(chip.label, " FREE ");
+
+        let backend = ratatui::backend::TestBackend::new(44, 20);
+        let mut terminal = ratatui::Terminal::new(backend).unwrap();
+        terminal
+            .draw(|frame| {
+                render_mobile_header_for_view(
+                    &app,
+                    &terminal_runtimes,
+                    &watcher,
+                    frame,
+                    watcher.computed.mobile_header_rect,
+                )
+            })
+            .unwrap();
+        let header_line = (0..44)
+            .map(|x| terminal.backend().buffer()[(x, bar.rect.y)].symbol())
+            .collect::<String>();
+        assert!(header_line.contains("FREE"), "{header_line:?}");
+
+        // Tiny rectangles never break: the chip drops below badge width and
+        // every surviving segment stays inside the header row.
+        let mut tiny = ClientViewState::from_default_client_state(&app);
+        tiny.set_tab_control(crate::app::ClientTabControl::WatchingControlled { epoch: 3 });
+        for width in [8u16, 12, 20] {
+            super::super::compute_view_for_client_without_resizing_panes(
+                &app,
+                &mut tiny,
+                &terminal_runtimes,
+                Rect::new(0, 0, width, 6),
+            );
+            let bar = &tiny.computed.context_bar;
+            assert!(
+                bar.segments.iter().all(|segment| {
+                    segment.rect.width > 0
+                        && segment.rect.x + segment.rect.width <= bar.rect.x + bar.rect.width
+                }),
+                "width {width}: {:?}",
+                bar.segments
+            );
+            if width >= 12 {
+                assert_eq!(
+                    bar.segments.last().map(|segment| segment.target),
+                    Some(crate::app::state::ContextBarTarget::TabControl),
+                    "width {width} should fit the watching badge"
+                );
+            } else {
+                assert!(
+                    bar.segments
+                        .iter()
+                        .all(|segment| segment.target
+                            != crate::app::state::ContextBarTarget::TabControl),
+                    "width {width} cannot fit the watching badge"
+                );
+            }
+
+            let backend = ratatui::backend::TestBackend::new(width, 6);
+            let mut terminal = ratatui::Terminal::new(backend).unwrap();
+            terminal
+                .draw(|frame| {
+                    render_mobile_header_for_view(
+                        &app,
+                        &terminal_runtimes,
+                        &tiny,
+                        frame,
+                        tiny.computed.mobile_header_rect,
+                    )
+                })
+                .unwrap();
+        }
     }
 }

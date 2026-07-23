@@ -957,21 +957,22 @@ fn cross_area_two_clients_shared_view_and_single_detach_stability() {
         .expect("root pane id")
         .to_string();
 
-    let mut client_a = connect_unix_socket(&client_socket, Duration::from_secs(5));
-    client_handshake(&mut client_a, 12, 110, 30);
+    // Connect client B first so it owns tab control; client A is the watcher.
     let mut client_b = connect_unix_socket(&client_socket, Duration::from_secs(5));
-    client_handshake(&mut client_b, 12, 100, 30);
+    client_handshake(&mut client_b, 12, 110, 30);
+    let mut client_a = connect_unix_socket(&client_socket, Duration::from_secs(5));
+    client_handshake(&mut client_a, 12, 100, 30);
 
-    assert!(wait_for_frame(&mut client_a, Duration::from_secs(2)));
     assert!(wait_for_frame(&mut client_b, Duration::from_secs(2)));
-    drain_server_messages(&mut client_a, Duration::from_millis(250));
+    assert!(wait_for_frame(&mut client_a, Duration::from_secs(2)));
     drain_server_messages(&mut client_b, Duration::from_millis(250));
+    drain_server_messages(&mut client_a, Duration::from_millis(250));
 
-    // Input from client A should update shared state visible to client B.
-    send_client_input(&mut client_a, b"echo SHARED_VIEW\n");
+    // Input from controlling client B should update shared state visible to client A.
+    send_client_input(&mut client_b, b"echo SHARED_VIEW\n");
     assert!(
-        wait_for_frame(&mut client_b, Duration::from_secs(2)),
-        "client B should receive update from client A"
+        wait_for_frame(&mut client_a, Duration::from_secs(2)),
+        "client A should receive update from client B"
     );
     assert!(pane_read_recent_contains(
         &api_socket,
@@ -980,14 +981,14 @@ fn cross_area_two_clients_shared_view_and_single_detach_stability() {
         Duration::from_secs(5)
     ));
 
-    // Detach client A; client B should keep working.
+    // Detach watcher client A; controlling client B should keep working.
     send_client_detach(&mut client_a);
     drop(client_a);
 
     send_client_input(&mut client_b, b"echo AFTER_A_DETACH\n");
     assert!(
         wait_for_frame(&mut client_b, Duration::from_secs(2)),
-        "remaining client should still receive frames after other client detaches"
+        "remaining controlling client should still receive frames after watcher detaches"
     );
     assert!(pane_read_recent_contains(
         &api_socket,

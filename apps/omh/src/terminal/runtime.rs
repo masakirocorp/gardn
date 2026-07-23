@@ -409,6 +409,16 @@ impl TerminalRuntime {
         self.0
             .render_with_theme_background(frame, area, show_cursor, theme_default_bg);
     }
+    pub fn render_view_with_theme_background(
+        &self,
+        frame: &mut Frame,
+        viewport: crate::pane::TerminalViewport,
+        show_cursor: bool,
+        theme_default_bg: Option<ratatui::style::Color>,
+    ) {
+        self.0
+            .render_view_with_theme_background(frame, viewport, show_cursor, theme_default_bg);
+    }
 
     pub fn visible_hyperlinks(&self, area: Rect) -> Vec<((u16, u16), String, String)> {
         self.0.visible_hyperlinks(area)

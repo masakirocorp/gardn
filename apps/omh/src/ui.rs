@@ -1,3 +1,4 @@
+use crate::app::view_state::{CanvasOrigin, ClientTabViewKey, TabCanvasViewport};
 use ratatui::{
     layout::{Constraint, Layout, Rect},
     style::{Modifier, Style},
@@ -70,7 +71,7 @@ use self::onboarding::render_onboarding_overlay;
 pub(crate) use self::panes::popup_pane_rects_for_view;
 use self::panes::{
     compute_pane_infos, compute_pane_infos_for_view, render_panes, render_panes_for_view,
-    render_popup_pane_for_view, resize_popup_pane_for_view, resize_tab_panes,
+    render_popup_pane_for_view, resize_popup_pane_for_view,
 };
 pub(crate) use self::release_notes::{
     product_announcement_display_lines, release_notes_close_button_rect,
@@ -170,7 +171,7 @@ pub(crate) use self::{
     },
 };
 use crate::app::state::ViewLayout;
-use crate::app::{AppState, ClientViewState, Mode};
+use crate::app::{AppState, ClientTabControl, ClientViewState, Mode};
 use crate::terminal::TerminalRuntimeRegistry;
 
 const COLLAPSED_WIDTH: u16 = 4; // num + space + dot + separator
@@ -197,6 +198,64 @@ fn count_label(count: usize, singular: &str, plural: &str) -> String {
     format!("{count} {}", if count == 1 { singular } else { plural })
 }
 
+const WATCHING_CHIP_BADGE: &str = " WATCHING ";
+const FREE_CHIP_BADGE: &str = " FREE ";
+
+/// Copy for the per-client tab-control chip that trails the context bar.
+/// The chip is client-local chrome: it only exists for the watching states
+/// and is omitted entirely for the controller.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct TabControlChip {
+    badge: &'static str,
+    suffix: &'static str,
+    free: bool,
+}
+
+impl TabControlChip {
+    fn label(self) -> String {
+        format!("{}{}", self.badge, self.suffix)
+    }
+}
+
+pub(crate) fn tab_control_chip(tab_control: ClientTabControl) -> Option<TabControlChip> {
+    match tab_control {
+        ClientTabControl::WatchingControlled { .. } => Some(TabControlChip {
+            badge: WATCHING_CHIP_BADGE,
+            suffix: " another client controls · take over",
+            free: false,
+        }),
+        ClientTabControl::WatchingFree { .. } => Some(TabControlChip {
+            badge: FREE_CHIP_BADGE,
+            suffix: " take control",
+            free: true,
+        }),
+        ClientTabControl::Controlling { .. } | ClientTabControl::Unavailable => None,
+    }
+}
+
+/// Truncate the desktop chip label for a narrow bar: the hint suffix elides
+/// first, then the badge. A dangling one-column ellipsis is never appended to
+/// the bare badge, so the clickable chip always reads as an action.
+fn truncate_tab_control_chip_label(label: &str, max_width: usize) -> String {
+    for badge in [WATCHING_CHIP_BADGE, FREE_CHIP_BADGE] {
+        if let Some(suffix) = label.strip_prefix(badge) {
+            let badge_width = text::display_width(badge);
+            if max_width >= badge_width.saturating_add(2) {
+                return format!(
+                    "{}{}",
+                    badge,
+                    text::truncate_end(suffix, max_width - badge_width)
+                );
+            }
+            if max_width >= badge_width {
+                return badge.to_string();
+            }
+            return text::truncate_end(label, max_width);
+        }
+    }
+    text::truncate_end(label, max_width)
+}
+
 fn compute_context_bar(
     app: &AppState,
     terminal_runtimes: &TerminalRuntimeRegistry,
@@ -204,6 +263,7 @@ fn compute_context_bar(
     active_group: usize,
     active_tab: Option<usize>,
     focused_pane: Option<crate::layout::PaneId>,
+    tab_control: ClientTabControl,
     rect: Rect,
 ) -> crate::app::state::ContextBarView {
     use crate::app::state::{ContextBarSegment, ContextBarTarget, ContextBarView};
@@ -248,7 +308,8 @@ fn compute_context_bar(
     if let Some(group) = group {
         labels.push((
             ContextBarTarget::Group,
-            format!("{} {}", group.icon, group.name),
+            // An empty icon would otherwise leave a stray leading column.
+            format!("{} {}", group.icon, group.name).trim().to_string(),
         ));
     }
     if let Some(workspace) = workspace {
@@ -282,6 +343,11 @@ fn compute_context_bar(
                 }
             }
         }
+    }
+    // The control chip is always the trailing segment, so the left-drop loop
+    // below sacrifices path segments first and keeps the chip longest.
+    if let Some(chip) = tab_control_chip(tab_control) {
+        labels.push((ContextBarTarget::TabControl, chip.label()));
     }
 
     let inner_width = rect.width.saturating_sub(2) as usize;
@@ -332,8 +398,12 @@ fn compute_context_bar(
             };
             widths[index] -= 1;
         }
-        for ((_, label), width) in labels.iter_mut().zip(widths) {
-            *label = text::truncate_end(label, width);
+        for ((target, label), width) in labels.iter_mut().zip(widths) {
+            *label = if *target == ContextBarTarget::TabControl {
+                truncate_tab_control_chip_label(label, width)
+            } else {
+                text::truncate_end(label, width)
+            };
         }
     } else {
         labels.clear();
@@ -387,6 +457,7 @@ fn compute_mobile_breadcrumb(
     active_group: usize,
     active_tab: Option<usize>,
     focused_pane: Option<crate::layout::PaneId>,
+    tab_control: ClientTabControl,
     rect: Rect,
 ) -> crate::app::state::ContextBarView {
     use crate::app::state::{ContextBarSegment, ContextBarTarget, ContextBarView};
@@ -404,7 +475,8 @@ fn compute_mobile_breadcrumb(
     if let Some(group) = group {
         labels.push((
             ContextBarTarget::Group,
-            format!("{} {}", group.icon, group.name),
+            // An empty icon would otherwise leave a stray leading column.
+            format!("{} {}", group.icon, group.name).trim().to_string(),
         ));
     }
     if let Some(workspace) = workspace {
@@ -439,8 +511,30 @@ fn compute_mobile_breadcrumb(
     }
 
     const PREFERRED_TAP_WIDTH: usize = 8;
+    // Reserve the right edge for the control chip so breadcrumb labels never
+    // slide under it; the chip only exists for watching clients and is
+    // dropped entirely when the badge cannot fit. Mobile shows the concise
+    // badge without the desktop suffix.
+    let chip = tab_control_chip(tab_control).and_then(|chip| {
+        let max_width = rect.width.saturating_sub(2) as usize;
+        (max_width >= text::display_width(chip.badge)).then(|| chip.badge.to_string())
+    });
+    let chip_reserve = chip
+        .as_ref()
+        .map(|label| text::display_width(label).saturating_add(1))
+        .unwrap_or(0);
+    let available = (rect.width.saturating_sub(2) as usize).saturating_sub(chip_reserve);
+    // Mirror the desktop left-drop: at tiny widths crumbs that cannot fit
+    // even at minimum width ("… ▾") are dropped from the left instead of
+    // overdrawing the header row.
+    while !labels.is_empty()
+        && 3 * labels.len() + CONTEXT_BAR_SEPARATOR.len() * labels.len().saturating_sub(1)
+            > available
+    {
+        labels.remove(0);
+    }
     let separator_width = CONTEXT_BAR_SEPARATOR.len() * labels.len().saturating_sub(1);
-    let label_budget = (rect.width.saturating_sub(2) as usize).saturating_sub(separator_width);
+    let label_budget = available.saturating_sub(separator_width);
     let mut widths = labels
         .iter()
         .map(|(_, label)| {
@@ -464,7 +558,7 @@ fn compute_mobile_breadcrumb(
     }
 
     let mut cursor = rect.x.saturating_add(1);
-    let segments = labels
+    let mut segments: Vec<ContextBarSegment> = labels
         .into_iter()
         .zip(widths)
         .enumerate()
@@ -490,6 +584,21 @@ fn compute_mobile_breadcrumb(
             segment
         })
         .collect();
+    if let Some(chip_label) = chip {
+        let width = text::display_width_u16(&chip_label);
+        if width > 0 {
+            let x = rect
+                .x
+                .saturating_add(rect.width)
+                .saturating_sub(width)
+                .saturating_sub(1);
+            segments.push(ContextBarSegment {
+                target: ContextBarTarget::TabControl,
+                label: chip_label,
+                rect: Rect::new(x, rect.y, width, 1),
+            });
+        }
+    }
 
     ContextBarView {
         rect,
@@ -526,23 +635,33 @@ fn render_context_bar(
     }
     for (index, segment) in context_bar.segments.iter().enumerate() {
         if index > 0 {
-            let separator = Rect::new(
-                segment
-                    .rect
-                    .x
-                    .saturating_sub(CONTEXT_BAR_SEPARATOR.len() as u16),
-                segment.rect.y,
-                CONTEXT_BAR_SEPARATOR.len() as u16,
-                1,
-            );
-            frame.render_widget(
-                Paragraph::new(CONTEXT_BAR_SEPARATOR).style(
-                    Style::default()
-                        .fg(app.palette.overlay0)
-                        .bg(app.palette.surface0),
-                ),
-                separator,
-            );
+            let separator_x = segment
+                .rect
+                .x
+                .saturating_sub(CONTEXT_BAR_SEPARATOR.len() as u16);
+            let previous = context_bar.segments[index - 1].rect;
+            // The right-aligned mobile chip leaves a gap before it; only draw
+            // a separator between contiguous path segments.
+            if separator_x == previous.x.saturating_add(previous.width) {
+                let separator = Rect::new(
+                    separator_x,
+                    segment.rect.y,
+                    CONTEXT_BAR_SEPARATOR.len() as u16,
+                    1,
+                );
+                frame.render_widget(
+                    Paragraph::new(CONTEXT_BAR_SEPARATOR).style(
+                        Style::default()
+                            .fg(app.palette.overlay0)
+                            .bg(app.palette.surface0),
+                    ),
+                    separator,
+                );
+            }
+        }
+        if segment.target == crate::app::state::ContextBarTarget::TabControl {
+            render_tab_control_chip_segment(app, segment, frame);
+            continue;
         }
         let style = if index + 1 == context_bar.segments.len() {
             Style::default()
@@ -560,6 +679,41 @@ fn render_context_bar(
             segment.rect,
         );
     }
+}
+
+fn render_tab_control_chip_segment(
+    app: &AppState,
+    segment: &crate::app::state::ContextBarSegment,
+    frame: &mut Frame,
+) {
+    if segment.rect.width == 0 || segment.rect.height == 0 {
+        return;
+    }
+    let p = &app.palette;
+    let (badge, suffix, free) =
+        if let Some(suffix) = segment.label.strip_prefix(WATCHING_CHIP_BADGE) {
+            (WATCHING_CHIP_BADGE, suffix, false)
+        } else if let Some(suffix) = segment.label.strip_prefix(FREE_CHIP_BADGE) {
+            (FREE_CHIP_BADGE, suffix, true)
+        } else {
+            // Extreme truncation cut into the badge itself; render what remains.
+            (segment.label.as_str(), "", false)
+        };
+    let badge_bg = if free { p.teal } else { p.overlay0 };
+    let spans = vec![
+        Span::styled(
+            badge.to_string(),
+            Style::default()
+                .fg(widgets::panel_contrast_fg(p))
+                .bg(badge_bg)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::styled(
+            suffix.to_string(),
+            Style::default().fg(p.overlay0).bg(p.surface0),
+        ),
+    ];
+    frame.render_widget(Paragraph::new(Line::from(spans)), segment.rect);
 }
 
 // Braille spinner frames — smooth rotation
@@ -604,9 +758,8 @@ pub fn compute_view_with_cell_size(
 
 /// Compute view geometry for a client-sized render without resizing pane runtimes.
 ///
-/// This is used by the headless server when a non-foreground client needs its
-/// own frame size while the shared pane runtimes stay pinned to the foreground
-/// client.
+/// This is used by the headless server when a client needs its own frame size
+/// while pane runtimes remain sized by the controlling tab's explicit compute.
 pub(crate) fn compute_view_without_resizing_panes(
     app: &mut AppState,
     terminal_runtimes: &TerminalRuntimeRegistry,
@@ -645,6 +798,68 @@ pub(crate) fn compute_view_for_client_without_resizing_panes(
         false,
         crate::kitty_graphics::HostCellSize::default(),
     );
+}
+
+fn client_tab_canvas_view(
+    app: &AppState,
+    client_view: &mut ClientViewState,
+    terminal_area: Rect,
+    resize_panes: bool,
+) -> (Rect, bool) {
+    let (canvas_width, canvas_height, resize_pane_runtimes) = if client_view.can_mutate_tab() {
+        (terminal_area.width, terminal_area.height, resize_panes)
+    } else {
+        let (width, height) = client_view
+            .tab_canvas_size
+            .unwrap_or((terminal_area.width, terminal_area.height));
+        (width, height, false)
+    };
+    let canvas_size = ratatui::layout::Size::new(canvas_width, canvas_height);
+    let canvas_area = Rect::new(0, 0, canvas_width, canvas_height);
+    let Some(ws_idx) = client_view.active_workspace else {
+        client_view.tab_canvas_view = None;
+        return (canvas_area, resize_pane_runtimes);
+    };
+    let Some(workspace) = app.workspaces.get(ws_idx) else {
+        client_view.tab_canvas_view = None;
+        return (canvas_area, resize_pane_runtimes);
+    };
+    let Some(tab_idx) = client_view.active_tab_index_for_workspace(app, ws_idx) else {
+        client_view.tab_canvas_view = None;
+        return (canvas_area, resize_pane_runtimes);
+    };
+    let Some(tab) = workspace.tabs.get(tab_idx) else {
+        client_view.tab_canvas_view = None;
+        return (canvas_area, resize_pane_runtimes);
+    };
+    let key = ClientTabViewKey::new(&workspace.id, tab.number);
+    let origin = if client_view.can_mutate_tab() {
+        CanvasOrigin::default()
+    } else {
+        client_view.tab_canvas_origin(&key)
+    };
+    let mut canvas_view = TabCanvasViewport::new(canvas_size, terminal_area, origin);
+    let focused_pane = client_view
+        .focused_pane_for_tab(&workspace.id, tab.number)
+        .filter(|pane_id| tab.panes.contains_key(pane_id))
+        .unwrap_or_else(|| tab.layout.focused());
+    let focused_rect = if client_view.tab_is_zoomed(&workspace.id, tab.number) {
+        Some(canvas_area)
+    } else {
+        tab.layout
+            .panes(canvas_area)
+            .into_iter()
+            .find(|info| info.id == focused_pane)
+            .map(|info| info.rect)
+    };
+    if let Some(focused_rect) = focused_rect {
+        let revealed_origin = canvas_view.reveal_focused(canvas_view.origin, focused_rect);
+        if revealed_origin != canvas_view.origin {
+            canvas_view = TabCanvasViewport::new(canvas_size, terminal_area, revealed_origin);
+        }
+    }
+    client_view.set_tab_canvas_view(key, canvas_view);
+    (canvas_area, resize_pane_runtimes)
 }
 
 fn compute_view_for_client_internal(
@@ -812,6 +1027,8 @@ fn compute_view_for_client_internal(
         .unwrap_or_default();
     client_view.tab_scroll = tab_bar_view.scroll;
 
+    let (pane_area, resize_pane_runtimes) =
+        client_tab_canvas_view(app, client_view, terminal_area, resize_panes);
     let split_borders = client_view
         .active_workspace
         .and_then(|idx| {
@@ -819,15 +1036,14 @@ fn compute_view_for_client_internal(
             let tab_idx = client_view.active_tab_index_for_workspace(app, idx)?;
             workspace.tabs.get(tab_idx)
         })
-        .map(|tab| tab.layout.splits(terminal_area))
+        .map(|tab| tab.layout.splits(pane_area))
         .unwrap_or_default();
-
     let pane_infos = compute_pane_infos_for_view(
         app,
         client_view,
         terminal_runtimes,
-        terminal_area,
-        resize_panes,
+        pane_area,
+        resize_pane_runtimes,
         cell_size,
     );
     if resize_panes {
@@ -860,6 +1076,7 @@ fn compute_view_for_client_internal(
         client_view.active_group,
         active_tab,
         focused_pane,
+        client_view.tab_control,
         context_bar_rect,
     );
 
@@ -883,40 +1100,6 @@ fn compute_view_for_client_internal(
         pane_infos,
         split_borders,
     };
-}
-
-fn resize_background_tab_panes_to_terminal_area(
-    app: &AppState,
-    terminal_runtimes: &TerminalRuntimeRegistry,
-    terminal_area: Rect,
-    cell_size: crate::kitty_graphics::HostCellSize,
-) {
-    for (ws_idx, ws) in app.workspaces.iter().enumerate() {
-        for (tab_idx, tab) in ws.tabs.iter().enumerate() {
-            if app.active == Some(ws_idx) && tab_idx == ws.active_tab_index() {
-                continue;
-            }
-            resize_tab_panes(app, terminal_runtimes, tab, terminal_area, cell_size);
-        }
-    }
-}
-
-fn resize_background_tab_panes_to_terminal_area_for_view(
-    app: &AppState,
-    client_view: &ClientViewState,
-    terminal_runtimes: &TerminalRuntimeRegistry,
-    terminal_area: Rect,
-    cell_size: crate::kitty_graphics::HostCellSize,
-) {
-    for (ws_idx, ws) in app.workspaces.iter().enumerate() {
-        let active_tab_idx = client_view.active_tab_index_for_workspace(app, ws_idx);
-        for (tab_idx, tab) in ws.tabs.iter().enumerate() {
-            if client_view.active_workspace == Some(ws_idx) && active_tab_idx == Some(tab_idx) {
-                continue;
-            }
-            resize_tab_panes(app, terminal_runtimes, tab, terminal_area, cell_size);
-        }
-    }
 }
 
 fn compute_view_internal(
@@ -1073,14 +1256,6 @@ fn compute_view_internal(
         resize_panes,
         cell_size,
     );
-    if resize_panes {
-        resize_background_tab_panes_to_terminal_area(
-            app,
-            terminal_runtimes,
-            terminal_area,
-            cell_size,
-        );
-    }
 
     let toast_hit_area = app
         .toast
@@ -1109,6 +1284,7 @@ fn compute_view_internal(
         app.active_group,
         active_tab,
         focused_pane,
+        ClientTabControl::default(),
         context_bar_rect,
     );
 
@@ -1182,14 +1358,6 @@ fn compute_mobile_view(
         resize_panes,
         cell_size,
     );
-    if resize_panes {
-        resize_background_tab_panes_to_terminal_area(
-            app,
-            terminal_runtimes,
-            terminal_area,
-            cell_size,
-        );
-    }
     let breadcrumb_rect = Rect::new(
         header_rect.x,
         header_rect.y.saturating_add(1),
@@ -1211,6 +1379,7 @@ fn compute_mobile_view(
         app.active_group,
         active_tab,
         focused_pane,
+        ClientTabControl::default(),
         breadcrumb_rect,
     );
 
@@ -1282,6 +1451,8 @@ fn compute_mobile_view_for_client(
         client_view.mobile_switcher_scroll = client_view.mobile_switcher_scroll.min(max_scroll);
     }
 
+    let (pane_area, resize_pane_runtimes) =
+        client_tab_canvas_view(app, client_view, terminal_area, resize_panes);
     let split_borders = client_view
         .active_workspace
         .and_then(|idx| {
@@ -1289,26 +1460,17 @@ fn compute_mobile_view_for_client(
             let tab_idx = client_view.active_tab_index_for_workspace(app, idx)?;
             workspace.tabs.get(tab_idx)
         })
-        .map(|tab| tab.layout.splits(terminal_area))
+        .map(|tab| tab.layout.splits(pane_area))
         .unwrap_or_default();
 
     let pane_infos = compute_pane_infos_for_view(
         app,
         client_view,
         terminal_runtimes,
-        terminal_area,
-        resize_panes,
+        pane_area,
+        resize_pane_runtimes,
         cell_size,
     );
-    if resize_panes {
-        resize_background_tab_panes_to_terminal_area_for_view(
-            app,
-            client_view,
-            terminal_runtimes,
-            terminal_area,
-            cell_size,
-        );
-    }
     let breadcrumb_rect = Rect::new(
         header_rect.x,
         header_rect.y.saturating_add(1),
@@ -1329,6 +1491,7 @@ fn compute_mobile_view_for_client(
         client_view.active_group,
         active_tab,
         focused_pane,
+        client_view.tab_control,
         breadcrumb_rect,
     );
 
@@ -1696,6 +1859,67 @@ mod tests {
     };
     use ratatui::{backend::TestBackend, style::Color, Terminal};
 
+    fn canonical_watcher_fixture() -> (
+        crate::app::state::AppState,
+        ClientViewState,
+        ClientViewState,
+        TerminalRuntimeRegistry,
+    ) {
+        let mut app = crate::app::state::AppState::test_new();
+        let mut workspace = Workspace::test_new("canonical");
+        let root = workspace.tabs[0].root_pane;
+        let split = workspace.test_split(ratatui::layout::Direction::Horizontal);
+        workspace.tabs[0].layout.focus_pane(root);
+        workspace.tabs[0].runtimes.insert(
+            root,
+            crate::terminal::TerminalRuntime::test_with_screen_bytes(80, 30, b"root"),
+        );
+        workspace.tabs[0].runtimes.insert(
+            split,
+            crate::terminal::TerminalRuntime::test_with_screen_bytes(80, 30, b"split"),
+        );
+        app.workspaces = vec![workspace];
+        app.active = Some(0);
+        app.selected = 0;
+        app.mode = Mode::Terminal;
+        app.sidebar_collapsed = true;
+        app.right_sidebar_collapsed = true;
+        app.context_bar_visibility = crate::config::ContextBarVisibilityConfig::Never;
+
+        let mut small = ClientViewState::from_default_client_state(&app);
+        small.set_tab_control(ClientTabControl::WatchingControlled { epoch: 1 });
+        small.tab_canvas_size = Some((80, 30));
+        let large = small.clone();
+        let terminal_runtimes = TerminalRuntimeRegistry::new();
+        (app, small, large, terminal_runtimes)
+    }
+
+    fn pane_geometry(view: &ClientViewState) -> Vec<(crate::layout::PaneId, Rect, Rect, bool)> {
+        view.computed
+            .pane_infos
+            .iter()
+            .map(|info| (info.id, info.rect, info.inner_rect, info.is_focused))
+            .collect()
+    }
+
+    fn assert_same_split_geometry(first: &ClientViewState, second: &ClientViewState) {
+        assert_eq!(
+            first.computed.split_borders.len(),
+            second.computed.split_borders.len()
+        );
+        for (first, second) in first
+            .computed
+            .split_borders
+            .iter()
+            .zip(&second.computed.split_borders)
+        {
+            assert_eq!(first.pos, second.pos);
+            assert_eq!(first.direction, second.direction);
+            assert_eq!(first.area, second.area);
+            assert_eq!(first.path, second.path);
+        }
+    }
+
     #[test]
     fn workspace_creation_prompt_renders_new_workspace_title_and_suggestion() {
         let mut app = crate::app::state::AppState::test_new();
@@ -1795,6 +2019,76 @@ mod tests {
                 .context_bar
                 .target_at(tab.rect.x + tab.rect.width - 1, tab.rect.y),
             Some(crate::app::state::ContextBarTarget::Tab)
+        );
+    }
+
+    #[tokio::test]
+    async fn desktop_compute_resizes_selected_tab_without_touching_background_tab() {
+        let mut app = crate::app::state::AppState::test_new();
+        let mut workspace = Workspace::test_new("one");
+        let background_tab = workspace.test_add_tab(Some("background"));
+        let active_pane = workspace.tabs[0].root_pane;
+        let background_pane = workspace.tabs[background_tab].root_pane;
+        workspace.tabs[0].runtimes.insert(
+            active_pane,
+            crate::terminal::TerminalRuntime::test_with_screen_bytes(11, 7, b""),
+        );
+        workspace.tabs[background_tab].runtimes.insert(
+            background_pane,
+            crate::terminal::TerminalRuntime::test_with_screen_bytes(37, 19, b""),
+        );
+        app.workspaces = vec![workspace];
+        app.active = Some(0);
+        app.selected = 0;
+        app.mode = Mode::Terminal;
+
+        let background_before =
+            app.workspaces[0].tabs[background_tab].runtimes[&background_pane].current_size();
+        compute_view(&mut app, Rect::new(0, 0, 100, 24));
+
+        let active_info = app.view.pane_infos.first().expect("active pane info");
+        assert_eq!(
+            app.workspaces[0].tabs[0].runtimes[&active_pane].current_size(),
+            (active_info.inner_rect.height, active_info.inner_rect.width)
+        );
+        assert_eq!(
+            app.workspaces[0].tabs[background_tab].runtimes[&background_pane].current_size(),
+            background_before
+        );
+    }
+
+    #[tokio::test]
+    async fn mobile_compute_resizes_selected_tab_without_touching_background_tab() {
+        let mut app = crate::app::state::AppState::test_new();
+        let mut workspace = Workspace::test_new("one");
+        let background_tab = workspace.test_add_tab(Some("background"));
+        let active_pane = workspace.tabs[0].root_pane;
+        let background_pane = workspace.tabs[background_tab].root_pane;
+        workspace.tabs[0].runtimes.insert(
+            active_pane,
+            crate::terminal::TerminalRuntime::test_with_screen_bytes(11, 7, b""),
+        );
+        workspace.tabs[background_tab].runtimes.insert(
+            background_pane,
+            crate::terminal::TerminalRuntime::test_with_screen_bytes(37, 19, b""),
+        );
+        app.workspaces = vec![workspace];
+        app.active = Some(0);
+        app.selected = 0;
+        app.mode = Mode::Terminal;
+
+        let background_before =
+            app.workspaces[0].tabs[background_tab].runtimes[&background_pane].current_size();
+        compute_view(&mut app, Rect::new(0, 0, 44, 24));
+
+        let active_info = app.view.pane_infos.first().expect("active pane info");
+        assert_eq!(
+            app.workspaces[0].tabs[0].runtimes[&active_pane].current_size(),
+            (active_info.inner_rect.height, active_info.inner_rect.width)
+        );
+        assert_eq!(
+            app.workspaces[0].tabs[background_tab].runtimes[&background_pane].current_size(),
+            background_before
         );
     }
 
@@ -2049,6 +2343,308 @@ mod tests {
         assert!(context.segments.iter().all(|segment| {
             segment.rect.width > 0
                 && segment.rect.x + segment.rect.width <= context.rect.x + context.rect.width
+        }));
+    }
+
+    #[test]
+    fn watching_client_context_bar_shows_control_chip() {
+        let mut app = crate::app::state::AppState::test_new();
+        app.context_bar_visibility = crate::config::ContextBarVisibilityConfig::Always;
+        app.mobile_width_threshold = 0;
+        let mut workspace = Workspace::test_new("ignored");
+        workspace.custom_name = Some("website".into());
+        workspace.tabs[0].custom_name = Some("release".into());
+        app.workspaces = vec![workspace];
+        app.active = Some(0);
+        app.selected = 0;
+
+        let terminal_runtimes = TerminalRuntimeRegistry::new();
+        let mut watcher = ClientViewState::from_default_client_state(&app);
+        watcher.set_tab_control(ClientTabControl::WatchingControlled { epoch: 7 });
+        let mut controller = ClientViewState::from_default_client_state(&app);
+        compute_view_for_client_without_resizing_panes(
+            &app,
+            &mut watcher,
+            &terminal_runtimes,
+            Rect::new(0, 0, 100, 20),
+        );
+        compute_view_for_client_without_resizing_panes(
+            &app,
+            &mut controller,
+            &terminal_runtimes,
+            Rect::new(0, 0, 100, 20),
+        );
+
+        let bar = &watcher.computed.context_bar;
+        let chip = bar.segments.last().expect("watching chip segment");
+        assert_eq!(chip.target, crate::app::state::ContextBarTarget::TabControl);
+        assert!(chip.label.contains("WATCHING"), "{chip:?}");
+        assert!(chip.label.contains("another client controls"), "{chip:?}");
+        assert!(chip.rect.width > 0, "{chip:?}");
+        assert!(
+            chip.rect.x + chip.rect.width <= bar.rect.x + bar.rect.width,
+            "{chip:?}"
+        );
+        // The chip rect resolves through target_at for later click wiring.
+        assert_eq!(
+            bar.target_at(chip.rect.x, chip.rect.y),
+            Some(crate::app::state::ContextBarTarget::TabControl)
+        );
+
+        // The controller's bar carries no chip and none of the watcher copy.
+        let controller_bar = &controller.computed.context_bar;
+        assert!(controller_bar
+            .segments
+            .iter()
+            .all(|segment| segment.target != crate::app::state::ContextBarTarget::TabControl));
+        let controller_labels = controller_bar
+            .segments
+            .iter()
+            .map(|segment| segment.label.as_str())
+            .collect::<Vec<_>>()
+            .join(" ");
+        assert!(
+            !controller_labels.contains("WATCHING"),
+            "{controller_labels:?}"
+        );
+        assert!(!controller_labels.contains("FREE"), "{controller_labels:?}");
+
+        // The rendered frame shows the badge in the mode-badge idiom.
+        let backend = TestBackend::new(100, 20);
+        let mut terminal = Terminal::new(backend).expect("test terminal");
+        terminal
+            .draw(|frame| {
+                render_with_runtime_registry_for_view(&app, &watcher, &terminal_runtimes, frame)
+            })
+            .expect("render");
+        let line = buffer_row_text(terminal.backend().buffer(), Rect::new(0, 0, 100, 20), 19);
+        assert!(line.contains("WATCHING"), "{line:?}");
+        assert!(line.contains("another client controls"), "{line:?}");
+        let badge_x = line.find("WATCHING").expect("badge text") as u16;
+        assert_eq!(
+            terminal.backend().buffer()[(badge_x, 19)].style().bg,
+            Some(app.palette.overlay0),
+            "watching badge should use the overlay badge background"
+        );
+    }
+
+    #[test]
+    fn free_client_context_bar_shows_take_control_chip() {
+        let mut app = crate::app::state::AppState::test_new();
+        app.context_bar_visibility = crate::config::ContextBarVisibilityConfig::Always;
+        app.mobile_width_threshold = 0;
+        let mut workspace = Workspace::test_new("ignored");
+        workspace.custom_name = Some("website".into());
+        workspace.tabs[0].custom_name = Some("release".into());
+        app.workspaces = vec![workspace];
+        app.active = Some(0);
+        app.selected = 0;
+
+        let terminal_runtimes = TerminalRuntimeRegistry::new();
+        let mut watcher = ClientViewState::from_default_client_state(&app);
+        watcher.set_tab_control(ClientTabControl::WatchingFree { epoch: 2 });
+        compute_view_for_client_without_resizing_panes(
+            &app,
+            &mut watcher,
+            &terminal_runtimes,
+            Rect::new(0, 0, 100, 20),
+        );
+
+        let bar = &watcher.computed.context_bar;
+        let chip = bar.segments.last().expect("free chip segment");
+        assert_eq!(chip.target, crate::app::state::ContextBarTarget::TabControl);
+        assert!(chip.label.contains("FREE"), "{chip:?}");
+        assert!(chip.label.contains("take control"), "{chip:?}");
+
+        let backend = TestBackend::new(100, 20);
+        let mut terminal = Terminal::new(backend).expect("test terminal");
+        terminal
+            .draw(|frame| {
+                render_with_runtime_registry_for_view(&app, &watcher, &terminal_runtimes, frame)
+            })
+            .expect("render");
+        let line = buffer_row_text(terminal.backend().buffer(), Rect::new(0, 0, 100, 20), 19);
+        assert!(line.contains("FREE"), "{line:?}");
+        assert!(line.contains("take control"), "{line:?}");
+        let badge_x = line.find("FREE").expect("badge text") as u16;
+        assert_eq!(
+            terminal.backend().buffer()[(badge_x, 19)].style().bg,
+            Some(app.palette.teal),
+            "free badge should use the positive teal background"
+        );
+    }
+
+    #[tokio::test]
+    async fn watching_desktop_uses_canonical_tab_canvas_across_viewports() {
+        let (mut app, mut small, mut large, terminal_runtimes) = canonical_watcher_fixture();
+        app.mobile_width_threshold = 0;
+        let small_area = Rect::new(0, 0, 60, 20);
+        let large_area = Rect::new(0, 0, 120, 40);
+
+        compute_view_for_client_without_resizing_panes(
+            &app,
+            &mut small,
+            &terminal_runtimes,
+            small_area,
+        );
+        compute_view_for_client_without_resizing_panes(
+            &app,
+            &mut large,
+            &terminal_runtimes,
+            large_area,
+        );
+
+        assert_ne!(small.computed.terminal_area, large.computed.terminal_area);
+        assert_eq!(pane_geometry(&small), pane_geometry(&large));
+        assert_same_split_geometry(&small, &large);
+        assert_eq!(
+            small.tab_canvas_view.map(|view| view.viewport),
+            Some(small.computed.terminal_area)
+        );
+        assert_eq!(
+            large.tab_canvas_view.map(|view| view.viewport),
+            Some(large.computed.terminal_area)
+        );
+        assert!(small
+            .computed
+            .pane_infos
+            .iter()
+            .all(|info| info.rect.x < 80));
+        assert!(small
+            .computed
+            .pane_infos
+            .iter()
+            .all(|info| info.rect.y < 30));
+
+        let mut small_terminal =
+            Terminal::new(TestBackend::new(small_area.width, small_area.height)).unwrap();
+        small_terminal
+            .draw(|frame| {
+                render_with_runtime_registry_for_view(&app, &small, &terminal_runtimes, frame)
+            })
+            .expect("canonical desktop canvas is clipped to the observer frame");
+        let mut large_terminal =
+            Terminal::new(TestBackend::new(large_area.width, large_area.height)).unwrap();
+        large_terminal
+            .draw(|frame| {
+                render_with_runtime_registry_for_view(&app, &large, &terminal_runtimes, frame)
+            })
+            .expect("canonical desktop canvas renders in a larger observer frame");
+    }
+
+    #[tokio::test]
+    async fn watching_mobile_uses_canonical_tab_canvas_across_viewports() {
+        let (mut app, mut small, mut large, terminal_runtimes) = canonical_watcher_fixture();
+        app.mobile_width_threshold = 100;
+        let small_area = Rect::new(0, 0, 40, 12);
+        let large_area = Rect::new(0, 0, 80, 35);
+
+        compute_view_for_client_without_resizing_panes(
+            &app,
+            &mut small,
+            &terminal_runtimes,
+            small_area,
+        );
+        compute_view_for_client_without_resizing_panes(
+            &app,
+            &mut large,
+            &terminal_runtimes,
+            large_area,
+        );
+
+        assert_ne!(small.computed.terminal_area, large.computed.terminal_area);
+        assert_eq!(pane_geometry(&small), pane_geometry(&large));
+        assert_same_split_geometry(&small, &large);
+        assert_eq!(
+            small.tab_canvas_view.map(|view| view.viewport),
+            Some(small.computed.terminal_area)
+        );
+        assert_eq!(
+            large.tab_canvas_view.map(|view| view.viewport),
+            Some(large.computed.terminal_area)
+        );
+        assert!(small
+            .computed
+            .pane_infos
+            .iter()
+            .all(|info| info.rect.x < 80));
+        assert!(small
+            .computed
+            .pane_infos
+            .iter()
+            .all(|info| info.rect.y < 30));
+
+        let mut small_terminal =
+            Terminal::new(TestBackend::new(small_area.width, small_area.height)).unwrap();
+        small_terminal
+            .draw(|frame| {
+                render_with_runtime_registry_for_view(&app, &small, &terminal_runtimes, frame)
+            })
+            .expect("canonical mobile canvas is clipped to the observer frame");
+        let mut large_terminal =
+            Terminal::new(TestBackend::new(large_area.width, large_area.height)).unwrap();
+        large_terminal
+            .draw(|frame| {
+                render_with_runtime_registry_for_view(&app, &large, &terminal_runtimes, frame)
+            })
+            .expect("canonical mobile canvas renders in a larger observer frame");
+    }
+
+    #[test]
+    fn narrow_desktop_context_bar_keeps_control_chip_as_trailing_segment() {
+        let mut app = crate::app::state::AppState::test_new();
+        app.context_bar_visibility = crate::config::ContextBarVisibilityConfig::Always;
+        app.mobile_width_threshold = 0;
+        app.groups[0].icon = String::new();
+        app.groups[0].name = "eng".into();
+        let mut workspace = Workspace::test_new("ignored");
+        workspace.custom_name = Some("web".into());
+        workspace.tabs[0].custom_name = Some("prod".into());
+        app.workspaces = vec![workspace];
+        app.active = Some(0);
+        app.selected = 0;
+
+        let terminal_runtimes = TerminalRuntimeRegistry::new();
+        let mut watcher = ClientViewState::from_default_client_state(&app);
+        watcher.set_tab_control(ClientTabControl::WatchingControlled { epoch: 1 });
+
+        compute_view_for_client_without_resizing_panes(
+            &app,
+            &mut watcher,
+            &terminal_runtimes,
+            Rect::new(0, 0, 40, 12),
+        );
+        let bar = &watcher.computed.context_bar;
+        let chip = bar.segments.last().expect("chip at 40 cols");
+        assert_eq!(chip.target, crate::app::state::ContextBarTarget::TabControl);
+        assert!(chip.label.contains("WATCHING"), "{chip:?}");
+        assert!(chip.label.contains("another"), "{chip:?}");
+
+        // The hint suffix truncates first; the bare badge remains.
+        compute_view_for_client_without_resizing_panes(
+            &app,
+            &mut watcher,
+            &terminal_runtimes,
+            Rect::new(0, 0, 32, 12),
+        );
+        let bar = &watcher.computed.context_bar;
+        let chip = bar.segments.last().expect("chip at 32 cols");
+        assert_eq!(chip.target, crate::app::state::ContextBarTarget::TabControl);
+        assert_eq!(chip.label, " WATCHING ", "{chip:?}");
+
+        // Even at extreme widths the chip is never dropped; only truncated.
+        compute_view_for_client_without_resizing_panes(
+            &app,
+            &mut watcher,
+            &terminal_runtimes,
+            Rect::new(0, 0, 24, 12),
+        );
+        let bar = &watcher.computed.context_bar;
+        let chip = bar.segments.last().expect("chip at 24 cols");
+        assert_eq!(chip.target, crate::app::state::ContextBarTarget::TabControl);
+        assert!(bar.segments.iter().all(|segment| {
+            segment.rect.width > 0
+                && segment.rect.x + segment.rect.width <= bar.rect.x + bar.rect.width
         }));
     }
 

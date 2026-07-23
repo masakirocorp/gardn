@@ -327,6 +327,7 @@ pub struct Keybinds {
     pub open_agent_menu: ActionKeybinds,
     pub focus_agent: Vec<IndexedKeybind>,
     pub new_tab: ActionKeybinds,
+    pub take_control: ActionKeybinds,
     pub rename_tab: ActionKeybinds,
     pub previous_tab: ActionKeybinds,
     pub next_tab: ActionKeybinds,
@@ -495,6 +496,7 @@ impl Config {
             open_agent_menu: empty_action!(),
             focus_agent: Vec::new(),
             new_tab: empty_action!(),
+            take_control: empty_action!(),
             rename_tab: empty_action!(),
             previous_tab: empty_action!(),
             next_tab: empty_action!(),
@@ -625,6 +627,7 @@ impl Config {
             apply_action!(keybinds.previous_agent, previous_agent, source);
             apply_action!(keybinds.next_agent, next_agent, source);
             apply_action!(keybinds.new_tab, new_tab, source);
+            apply_action!(keybinds.take_control, take_control, source);
             apply_action!(keybinds.rename_tab, rename_tab, source);
             apply_action!(keybinds.previous_tab, previous_tab, source);
             apply_action!(keybinds.next_tab, next_tab, source);

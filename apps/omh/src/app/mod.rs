@@ -65,7 +65,7 @@ use crate::config::Config;
 use crate::events::AppEvent;
 
 pub use state::{AppState, Mode, ToastKind, ViewState};
-pub(crate) use view_state::ClientViewState;
+pub(crate) use view_state::{ClientTabControl, ClientViewState};
 
 pub(crate) fn client_global_menu_rect(state: &AppState, view: &ClientViewState) -> Rect {
     let screen = view.screen_rect();
@@ -2148,10 +2148,12 @@ impl App {
                     self.route_client_key_for_view(client_view, key);
                 }
                 crate::raw_input::RawInputEvent::OuterFocusGained => {
-                    self.send_outer_focus_event_for_view(
-                        client_view,
-                        crate::ghostty::FocusEvent::Gained,
-                    );
+                    if client_view.can_mutate_tab() {
+                        self.send_outer_focus_event_for_view(
+                            client_view,
+                            crate::ghostty::FocusEvent::Gained,
+                        );
+                    }
                     if apply_host_terminal_theme {
                         self.query_host_terminal_theme();
                     }
@@ -2172,10 +2174,12 @@ impl App {
                     }
                 }
                 crate::raw_input::RawInputEvent::OuterFocusLost => {
-                    self.send_outer_focus_event_for_view(
-                        client_view,
-                        crate::ghostty::FocusEvent::Lost,
-                    );
+                    if client_view.can_mutate_tab() {
+                        self.send_outer_focus_event_for_view(
+                            client_view,
+                            crate::ghostty::FocusEvent::Lost,
+                        );
+                    }
                 }
                 crate::raw_input::RawInputEvent::Unsupported => {}
                 crate::raw_input::RawInputEvent::Paste(text) => {
@@ -2235,7 +2239,11 @@ impl App {
                     .get(&physical_id)
                     .cloned()
                 {
-                    self.send_terminal_key_to_stable_target(target, key);
+                    if client_view.can_mutate_tab() {
+                        self.send_terminal_key_to_stable_target(target, key);
+                    } else {
+                        client_view.forwarded_terminal_keys.remove(&physical_id);
+                    }
                 } else if client_view.mode == Mode::Terminal
                     && !client_view.suppressed_repeat_keys.contains(&physical_id)
                 {
@@ -2253,7 +2261,9 @@ impl App {
             crossterm::event::KeyEventKind::Release => {
                 client_view.suppressed_repeat_keys.remove(&physical_id);
                 if let Some(target) = client_view.forwarded_terminal_keys.remove(&physical_id) {
-                    self.send_terminal_key_to_stable_target(target, key);
+                    if client_view.can_mutate_tab() {
+                        self.send_terminal_key_to_stable_target(target, key);
+                    }
                 }
             }
         }
@@ -2267,7 +2277,7 @@ impl App {
         if client_view.popup_pane.is_some() {
             if key.as_key_event().code == crossterm::event::KeyCode::Esc {
                 self.close_popup_pane_for_view(client_view);
-            } else {
+            } else if client_view.can_mutate_tab() {
                 let _ = self.send_popup_key_for_view(client_view, key);
             }
             return None;
@@ -2291,11 +2301,18 @@ impl App {
             );
             return None;
         }
-
         if let Some(binding) =
             input::command_for_key(&self.state, key, input::BindingDispatch::Direct)
         {
-            self.launch_custom_command_for_view(client_view, binding, input::ActionContext::Direct);
+            if client_view.can_mutate_tab() {
+                self.launch_custom_command_for_view(
+                    client_view,
+                    binding,
+                    input::ActionContext::Direct,
+                );
+            } else {
+                Self::reject_client_view_shared_mutation(client_view);
+            }
             return None;
         }
 
@@ -2362,7 +2379,15 @@ impl App {
         if let Some(binding) =
             input::command_for_key(&self.state, raw_key, input::BindingDispatch::Prefix)
         {
-            self.launch_custom_command_for_view(client_view, binding, input::ActionContext::Prefix);
+            if client_view.can_mutate_tab() {
+                self.launch_custom_command_for_view(
+                    client_view,
+                    binding,
+                    input::ActionContext::Prefix,
+                );
+            } else {
+                Self::reject_client_view_shared_mutation(client_view);
+            }
             Self::leave_client_view_command_mode(client_view);
             return;
         }
@@ -2484,11 +2509,15 @@ impl App {
                 } else if let Some(binding) =
                     input::command_for_key(&self.state, raw_key, input::BindingDispatch::Prefix)
                 {
-                    self.launch_custom_command_for_view(
-                        client_view,
-                        binding,
-                        input::ActionContext::Navigate,
-                    );
+                    if client_view.can_mutate_tab() {
+                        self.launch_custom_command_for_view(
+                            client_view,
+                            binding,
+                            input::ActionContext::Navigate,
+                        );
+                    } else {
+                        Self::reject_client_view_shared_mutation(client_view);
+                    }
                     Self::leave_client_view_command_mode(client_view);
                 } else if let Some(action) = input::indexed_navigation_action(
                     &self.state,
@@ -3229,6 +3258,10 @@ impl App {
         match key.code {
             crossterm::event::KeyCode::Enter => {
                 let new_name = client_view.name_input.trim().to_string();
+                if !client_view.can_mutate_tab() {
+                    Self::reject_client_view_shared_mutation(client_view);
+                    return;
+                }
                 match client_view.mode {
                     Mode::RenameWorkspace if client_view.pending_workspace_create_cwd.is_some() => {
                         let Some(cwd) = client_view.pending_workspace_create_cwd.take() else {
@@ -3527,6 +3560,10 @@ impl App {
         raw_key: crate::input::TerminalKey,
     ) {
         let key = raw_key.as_key_event();
+        if !client_view.can_mutate_tab() {
+            Self::reject_client_view_shared_mutation(client_view);
+            return;
+        }
         if key.code == crossterm::event::KeyCode::Esc
             || key.code == crossterm::event::KeyCode::Enter
             || self.state.keybinds.resize_mode.matches_prefix_key(raw_key)
@@ -4562,8 +4599,12 @@ impl App {
         else {
             return;
         };
-        let panes = if client_view.tab_is_zoomed(&self.state.workspaces[ws_idx].id, tab_idx + 1) {
-            tab.layout.panes(client_view.computed.terminal_area)
+        let panes = if client_view.tab_is_zoomed(&self.state.workspaces[ws_idx].id, tab.number) {
+            let canvas_area = client_view
+                .tab_canvas_view
+                .map(|view| Rect::new(0, 0, view.canvas_size.width, view.canvas_size.height))
+                .unwrap_or(client_view.computed.terminal_area);
+            tab.layout.panes(canvas_area)
         } else {
             client_view.computed.pane_infos.clone()
         };
@@ -4703,7 +4744,7 @@ impl App {
             return;
         }
         let workspace_id = self.state.workspaces[ws_idx].id.clone();
-        let tab_number = tab_idx + 1;
+        let tab_number = tab.number;
         let zoomed = !client_view.tab_is_zoomed(&workspace_id, tab_number);
         client_view.set_tab_zoomed(&workspace_id, tab_number, zoomed);
         self.state.mark_session_dirty();
@@ -4799,6 +4840,10 @@ impl App {
     ) {
         match key.code {
             crossterm::event::KeyCode::Enter => {
+                if !client_view.can_mutate_tab() {
+                    Self::reject_client_view_shared_mutation(client_view);
+                    return;
+                }
                 if let Some(ws_idx) = client_view.active_workspace {
                     self.close_workspace_for_client_view(client_view, ws_idx);
                 }
@@ -4825,6 +4870,10 @@ impl App {
         match key.code {
             crossterm::event::KeyCode::Enter => {
                 if let Some(group_idx) = client_view.confirm_delete_group.take() {
+                    if !client_view.can_mutate_tab() {
+                        Self::reject_client_view_shared_mutation(client_view);
+                        return;
+                    }
                     let _ = self.state.delete_group(group_idx);
                 }
                 client_view.reconcile(&self.state);
@@ -4854,6 +4903,10 @@ impl App {
         match key.code {
             crossterm::event::KeyCode::Esc => client_view.return_to_active_workspace_mode(),
             crossterm::event::KeyCode::Enter | crossterm::event::KeyCode::Char(' ') => {
+                if !client_view.can_mutate_tab() {
+                    Self::reject_client_view_shared_mutation(client_view);
+                    return;
+                }
                 let previous_picker = self.state.git_repo_picker.clone();
                 self.state.git_repo_picker = client_view.git_repo_picker.clone();
                 if let Err(err) = self
@@ -4961,6 +5014,10 @@ impl App {
         }) {
             client_view.context_menu = Some(menu);
             client_view.mode = Mode::ContextMenu;
+            return;
+        }
+        if !client_view.can_mutate_tab() && !matches!(item, Some("agent" | "settings" | "zoom")) {
+            Self::reject_client_view_shared_mutation(client_view);
             return;
         }
 
@@ -5500,12 +5557,43 @@ impl App {
         }
     }
 
+    fn client_view_action_requires_tab_control(action: input::NavigateAction) -> bool {
+        matches!(
+            action,
+            input::NavigateAction::NewWorkspace
+                | input::NavigateAction::RenameWorkspace
+                | input::NavigateAction::CloseWorkspace
+                | input::NavigateAction::NewGroup
+                | input::NavigateAction::RenameGroup
+                | input::NavigateAction::DeleteGroup
+                | input::NavigateAction::RenameTab
+                | input::NavigateAction::NewTab
+                | input::NavigateAction::CloseTab
+                | input::NavigateAction::RenamePane
+                | input::NavigateAction::SplitVertical
+                | input::NavigateAction::SplitHorizontal
+                | input::NavigateAction::ClosePane
+                | input::NavigateAction::EditScrollback
+                | input::NavigateAction::EnterResizeMode
+                | input::NavigateAction::ReloadConfig
+        )
+    }
+
+    fn reject_client_view_shared_mutation(client_view: &mut ClientViewState) {
+        client_view.context_menu = None;
+        client_view.return_to_active_workspace_mode();
+    }
+
     fn execute_client_view_navigate_action(
         &mut self,
         client_view: &mut ClientViewState,
         action: input::NavigateAction,
         context: input::ActionContext,
     ) {
+        if !client_view.can_mutate_tab() && Self::client_view_action_requires_tab_control(action) {
+            Self::reject_client_view_shared_mutation(client_view);
+            return;
+        }
         match action {
             input::NavigateAction::Settings => {
                 self.open_client_view_settings(client_view);
@@ -5557,6 +5645,10 @@ impl App {
                         client_view.active_tabs.insert(ws.id.clone(), next);
                     }
                 }
+                Self::leave_client_view_command_mode(client_view);
+            }
+            input::NavigateAction::TakeTabControl => {
+                client_view.request_tab_control();
                 Self::leave_client_view_command_mode(client_view);
             }
             input::NavigateAction::NewTab => {
@@ -5798,6 +5890,9 @@ impl App {
         client_view: &ClientViewState,
         key: crate::input::TerminalKey,
     ) -> Option<input::TerminalKeyTarget> {
+        if !client_view.can_mutate_tab() {
+            return None;
+        }
         let ws_idx = client_view.active_workspace?;
         let (_, pane_id) = client_view.focused_pane_for_workspace(&self.state, ws_idx)?;
         let workspace_id = self.state.workspaces.get(ws_idx)?.id.clone();
@@ -5846,6 +5941,9 @@ impl App {
     fn paste_for_view(&self, client_view: &mut ClientViewState, text: &str) -> bool {
         if client_view.mode != Mode::Terminal {
             return Self::paste_into_client_view_text_input(client_view, text);
+        }
+        if !client_view.can_mutate_tab() {
+            return false;
         }
         let Some(ws_idx) = client_view.active_workspace else {
             return false;
@@ -6244,12 +6342,20 @@ impl App {
         )
         .then(|| client_view.last_pane_click.take())
         .flatten();
-        if self.handle_client_view_popup_mouse(client_view, mouse) {
+        if client_view.can_mutate_tab() && self.handle_client_view_popup_mouse(client_view, mouse) {
+            return;
+        }
+        if client_view.popup_pane.is_some() {
             return;
         }
         if !self.state.mouse_capture {
-            self.state
-                .handle_pane_mouse_only_for_view(&self.terminal_runtimes, client_view, mouse);
+            if client_view.can_mutate_tab() {
+                self.state.handle_pane_mouse_only_for_view(
+                    &self.terminal_runtimes,
+                    client_view,
+                    mouse,
+                );
+            }
             return;
         }
 
@@ -6341,7 +6447,9 @@ impl App {
             return;
         }
 
-        if self.handle_client_view_terminal_mouse_report(client_view, mouse) {
+        if client_view.can_mutate_tab()
+            && self.handle_client_view_terminal_mouse_report(client_view, mouse)
+        {
             return;
         }
         if self.handle_client_view_pane_double_click(client_view, mouse, previous_pane_click) {
@@ -6692,13 +6800,15 @@ impl App {
     ) -> bool {
         use crossterm::event::{MouseButton, MouseEventKind};
 
-        if client_view.mode != Mode::Terminal
+        if !client_view.can_mutate_tab()
+            || client_view.mode != Mode::Terminal
             || mouse.kind != MouseEventKind::Down(MouseButton::Left)
         {
             return false;
         }
 
-        let Some(border) = Self::client_view_split_border_at(client_view, mouse.column, mouse.row)
+        let Some((border, _)) =
+            Self::client_view_split_border_at(client_view, mouse.column, mouse.row)
         else {
             return false;
         };
@@ -6713,11 +6823,68 @@ impl App {
         true
     }
 
+    fn client_view_canvas_point(
+        client_view: &ClientViewState,
+        col: u16,
+        row: u16,
+    ) -> Option<(u16, u16)> {
+        client_view
+            .tab_canvas_view
+            .map_or(Some((col, row)), |view| view.screen_to_canvas(col, row))
+    }
+
+    fn client_view_canvas_mouse(
+        client_view: &ClientViewState,
+        mouse: crossterm::event::MouseEvent,
+    ) -> Option<crossterm::event::MouseEvent> {
+        let (column, row) = Self::client_view_canvas_point(client_view, mouse.column, mouse.row)?;
+        Some(crossterm::event::MouseEvent {
+            column,
+            row,
+            ..mouse
+        })
+    }
+
+    fn client_view_captured_canvas_mouse(
+        client_view: &ClientViewState,
+        canonical_area: Rect,
+        mouse: crossterm::event::MouseEvent,
+    ) -> Option<crossterm::event::MouseEvent> {
+        let Some(view) = client_view.tab_canvas_view else {
+            return Some(mouse);
+        };
+        if let Some((column, row)) = view.screen_to_canvas(mouse.column, mouse.row) {
+            return Some(crossterm::event::MouseEvent {
+                column,
+                row,
+                ..mouse
+            });
+        }
+        let projected = view.project_rect(canonical_area)?;
+        let column = u32::from(mouse.column).clamp(
+            u32::from(projected.destination.x),
+            u32::from(projected.destination.x)
+                + u32::from(projected.destination.width.saturating_sub(1)),
+        ) as u16;
+        let row = u32::from(mouse.row).clamp(
+            u32::from(projected.destination.y),
+            u32::from(projected.destination.y)
+                + u32::from(projected.destination.height.saturating_sub(1)),
+        ) as u16;
+        let (column, row) = view.screen_to_canvas(column, row)?;
+        Some(crossterm::event::MouseEvent {
+            column,
+            row,
+            ..mouse
+        })
+    }
+
     fn client_view_split_border_at(
         client_view: &ClientViewState,
         col: u16,
         row: u16,
-    ) -> Option<&crate::layout::SplitBorder> {
+    ) -> Option<(crate::layout::SplitBorder, (u16, u16))> {
+        let (col, row) = Self::client_view_canvas_point(client_view, col, row)?;
         client_view
             .computed
             .split_borders
@@ -6727,15 +6894,17 @@ impl App {
                     col >= border.pos.saturating_sub(1)
                         && col <= border.pos
                         && row >= border.area.y
-                        && row < border.area.y + border.area.height
+                        && u32::from(row) < u32::from(border.area.y) + u32::from(border.area.height)
                 }
                 Direction::Vertical => {
                     row >= border.pos.saturating_sub(1)
                         && row <= border.pos
                         && col >= border.area.x
-                        && col < border.area.x + border.area.width
+                        && u32::from(col) < u32::from(border.area.x) + u32::from(border.area.width)
                 }
             })
+            .cloned()
+            .map(|border| (border, (col, row)))
     }
 
     fn forward_client_view_pane_wheel(
@@ -6819,29 +6988,26 @@ impl App {
             return;
         };
 
-        if let Some(info) = client_view
-            .computed
-            .pane_infos
-            .iter()
-            .find(|info| Self::rect_contains(info.inner_rect, mouse.column, mouse.row))
-            .cloned()
+        if let Some((info, _)) =
+            Self::client_view_pane_at_screen(client_view, mouse.column, mouse.row)
         {
             if let Some(tab_idx) = client_view.active_tab_index_for_workspace(&self.state, ws_idx) {
                 client_view.focus_pane_in_workspace(&self.state, ws_idx, tab_idx, info.id);
             }
-            if self.forward_client_view_pane_wheel(client_view, ws_idx, &info, mouse) {
-                return;
+            if client_view.can_mutate_tab() {
+                if let Some(canvas_mouse) = Self::client_view_canvas_mouse(client_view, mouse) {
+                    if self.forward_client_view_pane_wheel(client_view, ws_idx, &info, canvas_mouse)
+                    {
+                        return;
+                    }
+                }
             }
             self.scroll_client_view_pane(client_view, ws_idx, info.id, mouse, lines_per_notch);
             return;
         }
 
-        if let Some(info) = client_view
-            .computed
-            .pane_infos
-            .iter()
-            .find(|info| Self::rect_contains(info.rect, mouse.column, mouse.row))
-            .cloned()
+        if let Some((info, _)) =
+            Self::client_view_pane_frame_at_screen(client_view, mouse.column, mouse.row)
         {
             if let Some(tab_idx) = client_view.active_tab_index_for_workspace(&self.state, ws_idx) {
                 client_view.focus_pane_in_workspace(&self.state, ws_idx, tab_idx, info.id);
@@ -6926,12 +7092,20 @@ impl App {
 
         match client_view.mode {
             Mode::ConfirmClose if clicked_confirm => {
+                if !client_view.can_mutate_tab() {
+                    Self::reject_client_view_shared_mutation(client_view);
+                    return true;
+                }
                 self.state.selected = client_view.selected_workspace;
                 input::confirm_close_accept(&mut self.state);
                 client_view.reconcile(&self.state);
                 Self::leave_client_view_command_mode(client_view);
             }
             Mode::ConfirmDeleteGroup if clicked_confirm => {
+                if !client_view.can_mutate_tab() {
+                    Self::reject_client_view_shared_mutation(client_view);
+                    return true;
+                }
                 self.state.confirm_delete_group = client_view.confirm_delete_group;
                 input::confirm_delete_group_accept(&mut self.state);
                 client_view.confirm_delete_group = None;
@@ -7330,12 +7504,13 @@ impl App {
         row: u16,
     ) -> Option<(crate::layout::PaneId, input::ScrollbarClickTarget)> {
         let ws_idx = client_view.active_workspace?;
+        let (col, row) = Self::client_view_canvas_point(client_view, col, row)?;
         let info = client_view.computed.pane_infos.iter().find(|info| {
             crate::ui::pane_scrollbar_rect(info).is_some_and(|track| {
-                col >= track.x
-                    && col < track.x + track.width
-                    && row >= track.y
-                    && row < track.y + track.height
+                u32::from(col) >= u32::from(track.x)
+                    && u32::from(col) < u32::from(track.x) + u32::from(track.width)
+                    && u32::from(row) >= u32::from(track.y)
+                    && u32::from(row) < u32::from(track.y) + u32::from(track.height)
             })
         })?;
         let rt = self
@@ -7368,9 +7543,11 @@ impl App {
         &self,
         client_view: &ClientViewState,
         pane_id: crate::layout::PaneId,
+        col: u16,
         row: u16,
         grab_row_offset: u16,
     ) -> Option<usize> {
+        let (_, row) = Self::client_view_canvas_point(client_view, col, row)?;
         let info = client_view
             .computed
             .pane_infos
@@ -7410,12 +7587,12 @@ impl App {
             crate::app::view_state::terminal_offset_from_bottom(terminal_id, metrics, client_view);
         Some(metrics)
     }
-    fn update_client_view_selection_cursor(
+    fn update_client_view_selection_cursor_on_canvas(
         &self,
         client_view: &mut ClientViewState,
         pane_id: crate::layout::PaneId,
-        screen_col: u16,
-        screen_row: u16,
+        canvas_col: u16,
+        canvas_row: u16,
     ) {
         let Some(ws_idx) = client_view.active_workspace else {
             return;
@@ -7431,7 +7608,7 @@ impl App {
         };
         let metrics = self.client_view_pane_scroll_metrics(client_view, ws_idx, pane_id);
         if let Some(selection) = client_view.selection.as_mut() {
-            selection.drag(screen_col, screen_row, info.inner_rect, metrics);
+            selection.drag(canvas_col, canvas_row, info.inner_rect, metrics);
         }
     }
 
@@ -7444,6 +7621,13 @@ impl App {
         let Some(ws_idx) = client_view.active_workspace else {
             return;
         };
+        let Some((canvas_col, canvas_row)) =
+            Self::client_view_canvas_point(client_view, screen_col, screen_row)
+        else {
+            return;
+        };
+        let screen_col = canvas_col;
+        let screen_row = canvas_row;
         let Some(pane_id) = client_view
             .selection
             .as_ref()
@@ -7471,7 +7655,12 @@ impl App {
         });
         let is_dragging = was_dragging || anchor_differs_from_mouse;
 
-        self.update_client_view_selection_cursor(client_view, pane_id, screen_col, screen_row);
+        self.update_client_view_selection_cursor_on_canvas(
+            client_view,
+            pane_id,
+            screen_col,
+            screen_row,
+        );
         if is_dragging {
             if let Some(selection) = client_view.selection.as_mut() {
                 if selection.is_just_click() {
@@ -7607,18 +7796,15 @@ impl App {
         {
             return false;
         }
-        let Some(info) = client_view
-            .computed
-            .pane_infos
-            .iter()
-            .find(|info| Self::rect_contains(info.inner_rect, mouse.column, mouse.row))
+        let Some((info, (column, row))) =
+            Self::client_view_pane_at_screen(client_view, mouse.column, mouse.row)
         else {
             return false;
         };
         let click = PaneClickState {
             pane_id: info.id,
-            viewport_row: mouse.row - info.inner_rect.y,
-            col: mouse.column - info.inner_rect.x,
+            viewport_row: row.saturating_sub(info.inner_rect.y),
+            col: column.saturating_sub(info.inner_rect.x),
             at: std::time::Instant::now(),
         };
         if !previous_click.is_some_and(|previous| previous.is_double_click_for(click)) {
@@ -7738,6 +7924,7 @@ impl App {
                             .client_view_scrollbar_offset_for_pane_row(
                                 client_view,
                                 *pane_id,
+                                mouse.column,
                                 mouse.row,
                                 *grab_row_offset,
                             )
@@ -7816,6 +8003,15 @@ impl App {
                         direction,
                         area,
                     }) => {
+                        if !client_view.can_mutate_tab() {
+                            Self::reject_client_view_shared_mutation(client_view);
+                            return true;
+                        }
+                        let Some(mouse) =
+                            Self::client_view_captured_canvas_mouse(client_view, area, mouse)
+                        else {
+                            return true;
+                        };
                         let ratio = match direction {
                             Direction::Horizontal => {
                                 (mouse.column.saturating_sub(area.x)) as f32
@@ -7888,6 +8084,10 @@ impl App {
                                 ..
                             },
                     }) => {
+                        if !client_view.can_mutate_tab() {
+                            Self::reject_client_view_shared_mutation(client_view);
+                            return true;
+                        }
                         let dragged_workspace_id = self
                             .state
                             .workspaces
@@ -7940,6 +8140,10 @@ impl App {
                                 ..
                             },
                     }) => {
+                        if !client_view.can_mutate_tab() {
+                            Self::reject_client_view_shared_mutation(client_view);
+                            return true;
+                        }
                         self.state.move_group(source_group_idx, insert_idx);
                         client_view.reconcile(&self.state);
                         true
@@ -7952,6 +8156,10 @@ impl App {
                                 insert_idx: Some(insert_idx),
                             },
                     }) => {
+                        if !client_view.can_mutate_tab() {
+                            Self::reject_client_view_shared_mutation(client_view);
+                            return true;
+                        }
                         let mut moved = false;
                         if let Some(workspace) = self.state.workspaces.get_mut(ws_idx) {
                             let workspace_id = workspace.id.clone();
@@ -8019,6 +8227,11 @@ impl App {
     ) -> bool {
         use crossterm::event::{MouseButton, MouseEventKind};
 
+        if !client_view.can_mutate_tab() {
+            client_view.right_click_passthrough = None;
+            return false;
+        }
+
         if let Some(gesture) = client_view.right_click_passthrough.clone() {
             match mouse.kind {
                 MouseEventKind::Drag(MouseButton::Right)
@@ -8027,6 +8240,13 @@ impl App {
                         mouse,
                         gesture.modifiers,
                     );
+                    let Some(forwarded_mouse) = Self::client_view_captured_canvas_mouse(
+                        client_view,
+                        gesture.pane_info.inner_rect,
+                        forwarded_mouse,
+                    ) else {
+                        return true;
+                    };
                     let _ = self.state.forward_pane_mouse_button_in_workspace(
                         &self.terminal_runtimes,
                         gesture.ws_idx,
@@ -8061,14 +8281,18 @@ impl App {
         let Some(tab_idx) = client_view.active_tab_index_for_workspace(&self.state, ws_idx) else {
             return false;
         };
-        let Some(info) = Self::client_view_pane_info_at(client_view, mouse.column, mouse.row)
+        let Some((info, _)) =
+            Self::client_view_pane_at_screen(client_view, mouse.column, mouse.row)
         else {
             return false;
         };
-
         client_view.focus_pane_in_workspace(&self.state, ws_idx, tab_idx, info.id);
         let forwarded_mouse =
             Self::strip_client_view_right_click_passthrough_modifiers(mouse, modifiers);
+        let Some(forwarded_mouse) = Self::client_view_canvas_mouse(client_view, forwarded_mouse)
+        else {
+            return false;
+        };
         if !self.state.forward_pane_mouse_button_in_workspace(
             &self.terminal_runtimes,
             ws_idx,
@@ -8116,8 +8340,12 @@ impl App {
         let Some(ws_idx) = client_view.active_workspace else {
             return false;
         };
-        let Some(info) = Self::client_view_pane_info_at(client_view, mouse.column, mouse.row)
+        let Some((info, _)) =
+            Self::client_view_pane_at_screen(client_view, mouse.column, mouse.row)
         else {
+            return false;
+        };
+        let Some(mouse) = Self::client_view_canvas_mouse(client_view, mouse) else {
             return false;
         };
 
@@ -8150,21 +8378,37 @@ impl App {
             }
             _ => {}
         }
-
         false
     }
 
-    fn client_view_pane_info_at(
+    fn client_view_pane_at_screen(
         client_view: &ClientViewState,
         col: u16,
         row: u16,
-    ) -> Option<crate::layout::PaneInfo> {
+    ) -> Option<(crate::layout::PaneInfo, (u16, u16))> {
+        let (col, row) = Self::client_view_canvas_point(client_view, col, row)?;
         client_view
             .computed
             .pane_infos
             .iter()
             .find(|info| Self::rect_contains(info.inner_rect, col, row))
             .cloned()
+            .map(|info| (info, (col, row)))
+    }
+
+    fn client_view_pane_frame_at_screen(
+        client_view: &ClientViewState,
+        col: u16,
+        row: u16,
+    ) -> Option<(crate::layout::PaneInfo, (u16, u16))> {
+        let (col, row) = Self::client_view_canvas_point(client_view, col, row)?;
+        client_view
+            .computed
+            .pane_infos
+            .iter()
+            .find(|info| Self::rect_contains(info.rect, col, row))
+            .cloned()
+            .map(|info| (info, (col, row)))
     }
 
     fn handle_client_view_terminal_pane_left_click(
@@ -8186,18 +8430,12 @@ impl App {
         let Some(tab_idx) = client_view.active_tab_index_for_workspace(&self.state, ws_idx) else {
             return false;
         };
-        let Some(info) = client_view
-            .computed
-            .pane_infos
-            .iter()
-            .find(|p| {
-                mouse.column >= p.inner_rect.x
-                    && mouse.column < p.inner_rect.x + p.inner_rect.width
-                    && mouse.row >= p.inner_rect.y
-                    && mouse.row < p.inner_rect.y + p.inner_rect.height
-            })
-            .cloned()
+        let Some((info, (column, row))) =
+            Self::client_view_pane_at_screen(client_view, mouse.column, mouse.row)
         else {
+            return false;
+        };
+        let Some(canvas_mouse) = Self::client_view_canvas_mouse(client_view, mouse) else {
             return false;
         };
 
@@ -8206,19 +8444,20 @@ impl App {
             client_view.mode = Mode::Terminal;
         }
 
-        if self.state.forward_pane_mouse_button_in_workspace(
-            &self.terminal_runtimes,
-            ws_idx,
-            &info,
-            mouse,
-        ) {
+        if client_view.can_mutate_tab()
+            && self.state.forward_pane_mouse_button_in_workspace(
+                &self.terminal_runtimes,
+                ws_idx,
+                &info,
+                canvas_mouse,
+            )
+        {
             client_view.selection = None;
             client_view.selection_autoscroll = None;
             return true;
         }
-
-        let row = mouse.row - info.inner_rect.y;
-        let col = mouse.column - info.inner_rect.x;
+        let row = row.saturating_sub(info.inner_rect.y);
+        let col = column.saturating_sub(info.inner_rect.x);
         client_view.selection = Some(crate::selection::Selection::anchor(
             info.id,
             row,
@@ -8299,15 +8538,8 @@ impl App {
         let Some(tab_idx) = client_view.active_tab_index_for_workspace(&self.state, ws_idx) else {
             return false;
         };
-        let Some(info) = client_view
-            .computed
-            .pane_infos
-            .iter()
-            .find(|info| {
-                Self::rect_contains(info.inner_rect, mouse.column, mouse.row)
-                    || Self::rect_contains(info.rect, mouse.column, mouse.row)
-            })
-            .cloned()
+        let Some((info, _)) =
+            Self::client_view_pane_frame_at_screen(client_view, mouse.column, mouse.row)
         else {
             return false;
         };
@@ -8396,13 +8628,17 @@ impl App {
         if let Some(action) =
             input::update_settings_mouse_for_view(&mut self.state, client_view, mouse)
         {
-            self.apply_settings_action(action);
-            crate::ui::compute_view_for_client_without_resizing_panes(
-                &self.state,
-                client_view,
-                &self.terminal_runtimes,
-                screen,
-            );
+            if client_view.can_mutate_tab() {
+                self.apply_settings_action(action);
+                crate::ui::compute_view_for_client_without_resizing_panes(
+                    &self.state,
+                    client_view,
+                    &self.terminal_runtimes,
+                    screen,
+                );
+            } else {
+                Self::reject_client_view_shared_mutation(client_view);
+            }
         }
 
         true
@@ -9124,6 +9360,10 @@ impl App {
                     return true;
                 };
                 state::NavigatorTarget::Tab { ws_idx, tab_idx }
+            }
+            state::ContextBarTarget::TabControl => {
+                client_view.request_tab_control();
+                return true;
             }
             state::ContextBarTarget::Pane => {
                 let Some((tab_idx, pane_id)) =
@@ -10107,6 +10347,10 @@ impl App {
         &mut self,
         client_view: &mut ClientViewState,
     ) {
+        if !client_view.can_mutate_tab() {
+            Self::reject_client_view_shared_mutation(client_view);
+            return;
+        }
         let Some(entry) =
             crate::app::agent_profile_picker::agent_profile_picker_filtered_entries_for_picker(
                 &self.state,
@@ -10259,7 +10503,9 @@ mod tests {
     use crate::detect::{Agent, AgentState};
     use crate::terminal::TerminalRuntime;
     use crate::workspace::Workspace;
-    use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
+    use crossterm::event::{
+        KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseButton, MouseEventKind,
+    };
     use std::sync::Mutex;
 
     struct CursorQueryFailingBackend;
@@ -10405,6 +10651,17 @@ mod tests {
             &app.terminal_runtimes,
             area,
         );
+    }
+
+    fn screen_point_for_client_canvas(
+        client_view: &ClientViewState,
+        col: u16,
+        row: u16,
+    ) -> (u16, u16) {
+        client_view
+            .tab_canvas_view
+            .and_then(|view| view.canvas_to_screen(col, row))
+            .unwrap_or((col, row))
     }
 
     fn rendered_client_view_text(
@@ -13728,6 +13985,121 @@ command = "printf literal > '{}'"
         assert!(input::is_modal_paste_shortcut(&key.as_key_event()));
     }
 
+    #[tokio::test]
+    async fn watched_client_does_not_forward_terminal_key_or_paste() {
+        let mut app = test_app();
+        let mut workspace = Workspace::test_new("test");
+        let focused = workspace.focused_pane_id().expect("focused pane");
+        let (runtime, mut receiver) = TerminalRuntime::test_with_channel(80, 24);
+        workspace.tabs[0].runtimes.insert(focused, runtime);
+        app.state.workspaces = vec![workspace];
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::Terminal;
+
+        let mut client = ClientViewState::from_default_client_state(&app.state);
+        client.mode = Mode::Terminal;
+        client.set_tab_control(
+            crate::app::view_state::ClientTabControl::WatchingControlled { epoch: 7 },
+        );
+
+        app.route_client_events_for_view(
+            &mut client,
+            vec![
+                raw_key(
+                    KeyCode::Char('x'),
+                    KeyModifiers::empty(),
+                    KeyEventKind::Press,
+                ),
+                crate::raw_input::RawInputEvent::Paste("blocked paste".to_string()),
+            ],
+            false,
+        );
+
+        assert!(
+            receiver.try_recv().is_err(),
+            "watching client must not write key or paste bytes to the PTY"
+        );
+    }
+
+    #[test]
+    fn watched_client_rejects_close_but_keeps_tab_navigation_local() {
+        let mut app = test_app();
+        let mut workspace = Workspace::test_new("test");
+        workspace.test_add_tab(Some("logs"));
+        app.state.workspaces = vec![workspace];
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::Terminal;
+
+        let mut client = ClientViewState::from_default_client_state(&app.state);
+        client.mode = Mode::Terminal;
+        client.set_tab_control(
+            crate::app::view_state::ClientTabControl::WatchingControlled { epoch: 11 },
+        );
+        let workspace_id = app.state.workspaces[0].id.clone();
+
+        app.execute_client_view_navigate_action(
+            &mut client,
+            input::NavigateAction::CloseTab,
+            input::ActionContext::Navigate,
+        );
+
+        assert_eq!(app.state.workspaces[0].tabs.len(), 2);
+        assert_eq!(client.mode, Mode::Terminal);
+
+        app.route_client_events_for_view(
+            &mut client,
+            vec![
+                raw_key(
+                    KeyCode::Char('b'),
+                    KeyModifiers::CONTROL,
+                    KeyEventKind::Press,
+                ),
+                raw_key(
+                    KeyCode::Char('2'),
+                    KeyModifiers::empty(),
+                    KeyEventKind::Press,
+                ),
+            ],
+            false,
+        );
+
+        assert_eq!(client.active_tab_for_workspace(&workspace_id), Some(1));
+        assert_eq!(app.state.workspaces[0].active_tab_index(), 0);
+        assert_eq!(app.state.workspaces[0].tabs.len(), 2);
+    }
+
+    #[test]
+    fn watched_client_tab_control_click_queues_observed_epoch_once() {
+        let mut app = test_app();
+        app.state.workspaces = vec![Workspace::test_new("test")];
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::Terminal;
+        app.state.mouse_capture = true;
+
+        let mut client = ClientViewState::from_default_client_state(&app.state);
+        client.mode = Mode::Terminal;
+        client.set_tab_control(
+            crate::app::view_state::ClientTabControl::WatchingControlled { epoch: 19 },
+        );
+        client.computed.context_bar.segments = vec![state::ContextBarSegment {
+            target: state::ContextBarTarget::TabControl,
+            label: "watching".to_string(),
+            rect: ratatui::layout::Rect::new(100, 20, 4, 1),
+        }];
+
+        app.route_client_events_for_view(
+            &mut client,
+            vec![raw_mouse(MouseEventKind::Down(MouseButton::Left), 101, 20)],
+            false,
+        );
+
+        assert_eq!(client.take_tab_control_request(), Some(19));
+        assert_eq!(client.take_tab_control_request(), None);
+    }
+
     #[test]
     fn route_client_events_for_view_keeps_tab_navigation_client_local() {
         let mut app = test_app();
@@ -13923,6 +14295,7 @@ command = "printf literal > '{}'"
             .expect("scroll metrics should exist");
         assert_eq!(metrics.offset_from_bottom, 0);
         let mut client = ClientViewState::from_default_client_state(&app.state);
+        client.set_tab_control(ClientTabControl::WatchingFree { epoch: 1 });
         crate::app::view_state::set_terminal_offset_from_bottom(
             &terminal_id,
             metrics,
@@ -13935,16 +14308,23 @@ command = "printf literal > '{}'"
             .pane_infos
             .iter()
             .find(|pane| pane.id == root_pane)
-            .expect("root pane should be rendered");
-        let row = pane.inner_rect.y;
-        let start_col = pane.inner_rect.x;
+            .expect("root pane should be rendered")
+            .clone();
+        let (start_col, start_row) =
+            screen_point_for_client_canvas(&client, pane.inner_rect.x, pane.inner_rect.y);
+        let (end_col, end_row) =
+            screen_point_for_client_canvas(&client, pane.inner_rect.x + 5, pane.inner_rect.y);
 
         app.route_client_events_for_view(
             &mut client,
             vec![
-                raw_mouse(MouseEventKind::Down(MouseButton::Left), start_col, row),
-                raw_mouse(MouseEventKind::Drag(MouseButton::Left), start_col + 5, row),
-                raw_mouse(MouseEventKind::Up(MouseButton::Left), start_col + 5, row),
+                raw_mouse(
+                    MouseEventKind::Down(MouseButton::Left),
+                    start_col,
+                    start_row,
+                ),
+                raw_mouse(MouseEventKind::Drag(MouseButton::Left), end_col, end_row),
+                raw_mouse(MouseEventKind::Up(MouseButton::Left), end_col, end_row),
             ],
             true,
         );
@@ -14012,8 +14392,8 @@ command = "printf literal > '{}'"
             &app.terminal_runtimes,
             &mut other_client,
         );
-        let terminal_col = pane.inner_rect.x + 2;
-        let terminal_row = pane.inner_rect.y + 1;
+        let (terminal_col, terminal_row) =
+            screen_point_for_client_canvas(&client, pane.inner_rect.x + 2, pane.inner_rect.y + 1);
 
         app.route_client_events_for_view(
             &mut client,
@@ -14103,12 +14483,14 @@ command = "printf literal > '{}'"
         app.state.workspaces[1].insert_test_runtime(inactive_pane, inactive_runtime);
         app.state.workspaces[1].insert_test_runtime(active_pane, active_runtime);
 
+        let (mouse_col, mouse_row) =
+            screen_point_for_client_canvas(&client, pane.inner_rect.x + 3, pane.inner_rect.y + 2);
         app.route_client_events_for_view(
             &mut client,
             vec![raw_mouse(
                 crossterm::event::MouseEventKind::Moved,
-                pane.inner_rect.x + 3,
-                pane.inner_rect.y + 2,
+                mouse_col,
+                mouse_row,
             )],
             true,
         );
@@ -14164,23 +14546,27 @@ command = "printf literal > '{}'"
         );
         app.state.workspaces[1].insert_test_runtime(pane_id, runtime);
 
+        let (down_col, down_row) =
+            screen_point_for_client_canvas(&client, pane.inner_rect.x + 4, pane.inner_rect.y + 2);
+        let (drag_col, drag_row) =
+            screen_point_for_client_canvas(&client, pane.inner_rect.x + 6, pane.inner_rect.y + 3);
         app.route_client_events_for_view(
             &mut client,
             vec![
                 raw_mouse(
                     crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Middle),
-                    pane.inner_rect.x + 4,
-                    pane.inner_rect.y + 2,
+                    down_col,
+                    down_row,
                 ),
                 raw_mouse(
                     crossterm::event::MouseEventKind::Drag(crossterm::event::MouseButton::Middle),
-                    pane.inner_rect.x + 6,
-                    pane.inner_rect.y + 3,
+                    drag_col,
+                    drag_row,
                 ),
                 raw_mouse(
                     crossterm::event::MouseEventKind::Up(crossterm::event::MouseButton::Middle),
-                    pane.inner_rect.x + 6,
-                    pane.inner_rect.y + 3,
+                    drag_col,
+                    drag_row,
                 ),
             ],
             true,
@@ -14229,6 +14615,7 @@ command = "printf literal > '{}'"
         app.default_client_view = ClientViewState::from_default_client_state(&app.state);
 
         let mut client = ClientViewState::from_default_client_state(&app.state);
+        client.set_tab_control(ClientTabControl::Controlling { epoch: 1 });
         client.active_workspace = Some(1);
         client.selected_workspace = 1;
         client.selection = Some(crate::selection::Selection::anchor(pane_id, 0, 0, None));
@@ -14252,8 +14639,10 @@ command = "printf literal > '{}'"
         );
         app.state.workspaces[1].insert_test_runtime(pane_id, runtime);
 
-        let col = pane.inner_rect.x + 2;
-        let row = pane.inner_rect.y + 3;
+        let (col, row) =
+            screen_point_for_client_canvas(&client, pane.inner_rect.x + 2, pane.inner_rect.y + 3);
+        let (drag_col, drag_row) =
+            screen_point_for_client_canvas(&client, pane.inner_rect.x + 3, pane.inner_rect.y + 4);
         app.route_client_events_for_view(
             &mut client,
             vec![
@@ -14265,14 +14654,14 @@ command = "printf literal > '{}'"
                 ),
                 raw_mouse_with_modifiers(
                     crossterm::event::MouseEventKind::Drag(crossterm::event::MouseButton::Right),
-                    col + 1,
-                    row + 1,
+                    drag_col,
+                    drag_row,
                     KeyModifiers::CONTROL,
                 ),
                 raw_mouse_with_modifiers(
                     crossterm::event::MouseEventKind::Up(crossterm::event::MouseButton::Right),
-                    col + 1,
-                    row + 1,
+                    drag_col,
+                    drag_row,
                     KeyModifiers::CONTROL,
                 ),
             ],
@@ -14346,6 +14735,7 @@ command = "printf literal > '{}'"
             root_split_ratio(&app.state.workspaces[1], client_active_tab);
         let other_client = ClientViewState::from_default_client_state(&app.state);
         let mut client = ClientViewState::from_default_client_state(&app.state);
+        client.set_tab_control(ClientTabControl::Controlling { epoch: 1 });
         client.active_workspace = Some(1);
         client.selected_workspace = 1;
         client
@@ -14361,16 +14751,21 @@ command = "printf literal > '{}'"
             .find(|border| border.direction == ratatui::layout::Direction::Horizontal)
             .cloned()
             .expect("client active tab should render a horizontal pane split border");
-        let drag_row = border.area.y + border.area.height / 2;
-        let drag_col = (border.pos + 10).min(border.area.x + border.area.width.saturating_sub(1));
+        let drag_row_canvas = border.area.y + border.area.height / 2;
+        let drag_col_canvas =
+            (border.pos + 10).min(border.area.x + border.area.width.saturating_sub(1));
+        let (border_col, border_row) =
+            screen_point_for_client_canvas(&client, border.pos, drag_row_canvas);
+        let (drag_col, drag_row) =
+            screen_point_for_client_canvas(&client, drag_col_canvas, drag_row_canvas);
 
         app.route_client_events_for_view(
             &mut client,
             vec![
                 raw_mouse(
                     crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left),
-                    border.pos,
-                    drag_row,
+                    border_col,
+                    border_row,
                 ),
                 raw_mouse(
                     crossterm::event::MouseEventKind::Drag(crossterm::event::MouseButton::Left),
@@ -14668,6 +15063,7 @@ command = "printf literal > '{}'"
 
         let area = ratatui::layout::Rect::new(0, 0, 100, 12);
         let mut client = ClientViewState::from_default_client_state(&app.state);
+        client.set_tab_control(ClientTabControl::WatchingFree { epoch: 1 });
         let mut other_client = ClientViewState::from_default_client_state(&app.state);
         compute_client_view(&app, &mut client, area);
         crate::app::view_state::capture_terminal_offset_from_runtimes(
@@ -14701,12 +15097,15 @@ command = "printf literal > '{}'"
             .pane_infos
             .iter()
             .find(|pane| pane.id == pane_id)
-            .expect("client pane should be visible");
-        let track = crate::ui::pane_scrollbar_rect(pane)
+            .expect("client pane should be visible")
+            .clone();
+        let track = crate::ui::pane_scrollbar_rect(&pane)
             .expect("scrollable terminal should render a scrollbar");
-        let click_row = track.y;
+        let click_row_canvas = track.y;
+        let (click_col, click_row) =
+            screen_point_for_client_canvas(&client, track.x, click_row_canvas);
         let expected_offset = match app
-            .client_view_scrollbar_target_at(&client, track.x, click_row)
+            .client_view_scrollbar_target_at(&client, click_col, click_row)
             .expect("top of terminal scrollbar should be interactive")
             .1
         {
@@ -14724,7 +15123,7 @@ command = "printf literal > '{}'"
             &mut client,
             vec![raw_mouse(
                 crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left),
-                track.x,
+                click_col,
                 click_row,
             )],
             true,
@@ -15367,6 +15766,158 @@ command = "printf literal > '{}'"
     }
 
     #[tokio::test]
+    async fn watcher_focus_navigation_reveals_an_offscreen_canonical_pane() {
+        let mut app = test_app();
+        app.state.mobile_width_threshold = 0;
+        let mut workspace = Workspace::test_new("watcher-pan");
+        let first_pane = workspace.tabs[0].root_pane;
+        let second_pane = workspace.test_split(ratatui::layout::Direction::Horizontal);
+        workspace.tabs[0].layout.focus_pane(first_pane);
+        let workspace_id = workspace.id.clone();
+        let tab_number = workspace.tabs[0].number;
+        app.state.workspaces = vec![workspace];
+        app.state.ensure_test_terminals();
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::Terminal;
+
+        let mut client = ClientViewState::from_default_client_state(&app.state);
+        client.set_tab_control(ClientTabControl::WatchingControlled { epoch: 1 });
+        client.tab_canvas_size = Some((120, 20));
+        let area = ratatui::layout::Rect::new(0, 0, 50, 20);
+        compute_client_view(&app, &mut client, area);
+        assert_eq!(client.tab_canvas_view.expect("canvas view").origin.col, 0);
+
+        app.navigate_pane_for_client_view(&mut client, crate::layout::NavDirection::Right);
+        assert_eq!(
+            client.focused_pane_for_tab(&workspace_id, tab_number),
+            Some(second_pane)
+        );
+        assert_eq!(
+            app.state.workspaces[0].focused_pane_id(),
+            Some(first_pane),
+            "watcher focus must remain client-local"
+        );
+
+        compute_client_view(&app, &mut client, area);
+        let viewport = client.tab_canvas_view.expect("canvas view");
+        assert!(
+            viewport.origin.col > 0,
+            "focusing an offscreen pane should pan the watcher canvas"
+        );
+        let second_info = client
+            .computed
+            .pane_infos
+            .iter()
+            .find(|info| info.id == second_pane)
+            .expect("second pane geometry")
+            .clone();
+        let second_rect = second_info.rect;
+        let projected = viewport
+            .project_rect(second_rect)
+            .expect("focused pane should intersect the watcher viewport");
+        assert!(projected.destination.x >= viewport.viewport.x);
+        assert!(
+            u32::from(projected.destination.x) + u32::from(projected.destination.width)
+                <= u32::from(viewport.viewport.x) + u32::from(viewport.viewport.width)
+        );
+        let projected_inner = viewport
+            .project_rect(second_info.inner_rect)
+            .expect("focused pane content should be visible");
+        let (hit, canvas_point) = App::client_view_pane_at_screen(
+            &client,
+            projected_inner.destination.x,
+            projected_inner.destination.y,
+        )
+        .expect("projected pane content hit");
+        assert_eq!(hit.id, second_pane);
+        assert_eq!(
+            canvas_point,
+            (projected_inner.source.x, projected_inner.source.y)
+        );
+    }
+
+    #[tokio::test]
+    async fn watcher_canvas_padding_rejects_pane_and_split_hits() {
+        let mut app = test_app();
+        app.state.mobile_width_threshold = 0;
+        app.state.workspaces = vec![Workspace::test_new("watcher-padding")];
+        app.state.ensure_test_terminals();
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::Terminal;
+
+        let mut client = ClientViewState::from_default_client_state(&app.state);
+        client.set_tab_control(ClientTabControl::WatchingControlled { epoch: 1 });
+        client.tab_canvas_size = Some((20, 8));
+        compute_client_view(&app, &mut client, ratatui::layout::Rect::new(0, 0, 120, 30));
+        let viewport = client.tab_canvas_view.expect("canvas view");
+        assert!(viewport.viewport.width > viewport.destination_rect().width);
+        let padding_col = viewport
+            .viewport
+            .x
+            .saturating_add(viewport.destination_rect().width);
+        let padding_row = viewport.viewport.y;
+
+        assert!(App::client_view_pane_at_screen(&client, padding_col, padding_row).is_none());
+        assert!(App::client_view_split_border_at(&client, padding_col, padding_row).is_none());
+        let focused_before = client.focused_pane_for_workspace(&app.state, 0);
+        app.route_client_events_for_view(
+            &mut client,
+            vec![raw_mouse(
+                crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left),
+                padding_col,
+                padding_row,
+            )],
+            true,
+        );
+        assert_eq!(
+            client.focused_pane_for_workspace(&app.state, 0),
+            focused_before
+        );
+        assert!(client.selection.is_none());
+    }
+
+    #[tokio::test]
+    async fn watcher_visible_split_hit_cannot_start_shared_resize() {
+        let mut app = test_app();
+        app.state.mobile_width_threshold = 0;
+        let mut workspace = Workspace::test_new("watcher-split");
+        workspace.test_split(ratatui::layout::Direction::Horizontal);
+        app.state.workspaces = vec![workspace];
+        app.state.ensure_test_terminals();
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::Terminal;
+
+        let mut client = ClientViewState::from_default_client_state(&app.state);
+        client.set_tab_control(ClientTabControl::WatchingControlled { epoch: 1 });
+        client.tab_canvas_size = Some((80, 20));
+        compute_client_view(&app, &mut client, ratatui::layout::Rect::new(0, 0, 140, 30));
+        let border = client.computed.split_borders.first().expect("split border");
+        let canonical_point = match border.direction {
+            ratatui::layout::Direction::Horizontal => (border.pos, border.area.y.saturating_add(1)),
+            ratatui::layout::Direction::Vertical => (border.area.x.saturating_add(1), border.pos),
+        };
+        let screen_point = client
+            .tab_canvas_view
+            .expect("canvas view")
+            .canvas_to_screen(canonical_point.0, canonical_point.1)
+            .expect("visible split point");
+        assert!(
+            App::client_view_split_border_at(&client, screen_point.0, screen_point.1).is_some()
+        );
+        let mouse = crossterm::event::MouseEvent {
+            kind: crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left),
+            column: screen_point.0,
+            row: screen_point.1,
+            modifiers: crossterm::event::KeyModifiers::NONE,
+        };
+        assert!(!app.handle_client_view_pane_split_mouse(&mut client, mouse));
+        assert!(client.drag.is_none());
+    }
+
+    #[tokio::test]
     async fn route_client_events_for_view_mobile_action_clicks_match_their_labels() {
         let mut app = test_app();
         app.state.workspaces = vec![Workspace::test_new("client")];
@@ -15712,6 +16263,7 @@ command = "printf literal > '{}'"
         );
 
         let mut client = ClientViewState::from_default_client_state(&app.state);
+        client.set_tab_control(ClientTabControl::WatchingFree { epoch: 1 });
         let second_client = ClientViewState::from_default_client_state(&app.state);
         compute_client_view(&app, &mut client, ratatui::layout::Rect::new(0, 0, 100, 12));
         let pane = client
@@ -15719,11 +16271,12 @@ command = "printf literal > '{}'"
             .pane_infos
             .iter()
             .find(|pane| pane.id == root_pane)
-            .expect("root pane should be rendered");
-        let start_col = pane.inner_rect.x + 1;
-        let row = pane.inner_rect.y;
-        let end_col = pane.inner_rect.x + 4;
-
+            .expect("root pane should be rendered")
+            .clone();
+        let (start_col, row) =
+            screen_point_for_client_canvas(&client, pane.inner_rect.x + 1, pane.inner_rect.y);
+        let (end_col, end_row) =
+            screen_point_for_client_canvas(&client, pane.inner_rect.x + 4, pane.inner_rect.y);
         app.route_client_events_for_view(
             &mut client,
             vec![
@@ -15735,12 +16288,12 @@ command = "printf literal > '{}'"
                 raw_mouse(
                     crossterm::event::MouseEventKind::Drag(crossterm::event::MouseButton::Left),
                     end_col,
-                    row,
+                    end_row,
                 ),
                 raw_mouse(
                     crossterm::event::MouseEventKind::Up(crossterm::event::MouseButton::Left),
                     end_col,
-                    row,
+                    end_row,
                 ),
             ],
             true,
@@ -15762,7 +16315,7 @@ command = "printf literal > '{}'"
             vec![raw_mouse(
                 crossterm::event::MouseEventKind::Up(crossterm::event::MouseButton::Left),
                 end_col,
-                row,
+                end_row,
             )],
             true,
         );
@@ -15788,6 +16341,7 @@ command = "printf literal > '{}'"
             TerminalRuntime::test_with_screen_bytes(80, 4, b"abcdef\r\nsecond\r\nthird\r\nfourth"),
         );
         let mut client = ClientViewState::from_default_client_state(&app.state);
+        client.set_tab_control(ClientTabControl::WatchingFree { epoch: 1 });
         let second_client = ClientViewState::from_default_client_state(&app.state);
         compute_client_view(&app, &mut client, ratatui::layout::Rect::new(0, 0, 100, 12));
         let pane = client
@@ -15795,11 +16349,12 @@ command = "printf literal > '{}'"
             .pane_infos
             .iter()
             .find(|pane| pane.id == root_pane)
-            .expect("root pane should be rendered");
-        let start_col = pane.inner_rect.x + 1;
-        let row = pane.inner_rect.y;
-        let end_col = pane.inner_rect.x + 4;
-
+            .expect("root pane should be rendered")
+            .clone();
+        let (start_col, row) =
+            screen_point_for_client_canvas(&client, pane.inner_rect.x + 1, pane.inner_rect.y);
+        let (end_col, end_row) =
+            screen_point_for_client_canvas(&client, pane.inner_rect.x + 4, pane.inner_rect.y);
         app.route_client_events_for_view(
             &mut client,
             vec![
@@ -15811,12 +16366,12 @@ command = "printf literal > '{}'"
                 raw_mouse(
                     crossterm::event::MouseEventKind::Drag(crossterm::event::MouseButton::Left),
                     end_col,
-                    row,
+                    end_row,
                 ),
                 raw_mouse(
                     crossterm::event::MouseEventKind::Up(crossterm::event::MouseButton::Left),
                     end_col,
-                    row,
+                    end_row,
                 ),
             ],
             true,
@@ -15873,6 +16428,7 @@ command = "printf literal > '{}'"
             TerminalRuntime::test_with_screen_bytes(80, 4, b"alpha beta\r\nsecond"),
         );
         let mut client = ClientViewState::from_default_client_state(&app.state);
+        client.set_tab_control(ClientTabControl::WatchingFree { epoch: 1 });
         let second_client = ClientViewState::from_default_client_state(&app.state);
         compute_client_view(&app, &mut client, ratatui::layout::Rect::new(0, 0, 100, 12));
         let pane = client
@@ -15880,9 +16436,10 @@ command = "printf literal > '{}'"
             .pane_infos
             .iter()
             .find(|pane| pane.id == root_pane)
-            .expect("root pane should be rendered");
-        let col = pane.inner_rect.x + 2;
-        let row = pane.inner_rect.y;
+            .expect("root pane should be rendered")
+            .clone();
+        let (col, row) =
+            screen_point_for_client_canvas(&client, pane.inner_rect.x + 2, pane.inner_rect.y);
 
         app.route_client_events_for_view(
             &mut client,
@@ -16174,6 +16731,39 @@ command = "printf literal > '{}'"
         assert_eq!(app.state.workspaces[1].tabs.len(), 2);
         assert_eq!(app.state.active, Some(0));
         assert_eq!(client.active_tab_for_workspace(&workspace_id), Some(1));
+    }
+
+    #[test]
+    fn route_client_events_for_view_prefix_take_control_queues_watching_epoch() {
+        let mut app = test_app();
+        app.state.workspaces = vec![Workspace::test_new("test")];
+        app.state.ensure_test_terminals();
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::Terminal;
+
+        let mut client = ClientViewState::from_default_client_state(&app.state);
+        client.set_tab_control(ClientTabControl::WatchingControlled { epoch: 7 });
+
+        app.route_client_events_for_view(
+            &mut client,
+            vec![
+                raw_key(
+                    KeyCode::Char('b'),
+                    KeyModifiers::CONTROL,
+                    KeyEventKind::Press,
+                ),
+                raw_key(
+                    KeyCode::Char('t'),
+                    KeyModifiers::empty(),
+                    KeyEventKind::Press,
+                ),
+            ],
+            true,
+        );
+
+        assert_eq!(client.mode, Mode::Terminal);
+        assert_eq!(client.tab_control_request, Some(7));
     }
 
     #[tokio::test]

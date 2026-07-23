@@ -462,6 +462,55 @@ fn active_view_key_for_view(app: &AppState, view: &ClientViewState) -> Option<Ho
     })
 }
 
+fn project_host_placement(
+    pane_id: PaneId,
+    canonical_area: Rect,
+    source: Rect,
+    destination: Rect,
+    cell_size: HostCellSize,
+    mut placement: KittyImagePlacement,
+    scrollback_offset: u32,
+) -> Option<HostPlacement> {
+    if canonical_area.width == 0
+        || canonical_area.height == 0
+        || source.width == 0
+        || source.height == 0
+        || destination.width == 0
+        || destination.height == 0
+        || source.width != destination.width
+        || source.height != destination.height
+    {
+        return None;
+    }
+
+    let source_col = source.x.checked_sub(canonical_area.x)?;
+    let source_row = source.y.checked_sub(canonical_area.y)?;
+    if source_col >= canonical_area.width
+        || source_row >= canonical_area.height
+        || (source_col as u32).saturating_add(source.width as u32) > canonical_area.width as u32
+        || (source_row as u32).saturating_add(source.height as u32) > canonical_area.height as u32
+    {
+        return None;
+    }
+
+    placement.render.viewport_col = placement
+        .render
+        .viewport_col
+        .saturating_sub(source_col as i32);
+    placement.render.viewport_row = placement
+        .render
+        .viewport_row
+        .saturating_sub(source_row as i32);
+
+    Some(HostPlacement {
+        pane_id,
+        area: destination,
+        cell_size,
+        placement,
+        scrollback_offset,
+    })
+}
+
 fn collect_visible_placements_for_view(
     app: &AppState,
     view: &ClientViewState,
@@ -500,13 +549,25 @@ fn collect_visible_placements_for_view(
                 .or_else(|| runtime.scroll_metrics().map(|m| m.offset_from_bottom))
                 .map(|offset| offset as u32)
                 .unwrap_or(0);
-            placements.push(HostPlacement {
-                pane_id: info.id,
-                area: info.inner_rect,
+            let Some(projected) = view
+                .tab_canvas_view
+                .as_ref()
+                .and_then(|canvas| canvas.project_rect(info.inner_rect))
+            else {
+                continue;
+            };
+            let Some(placement) = project_host_placement(
+                info.id,
+                info.inner_rect,
+                projected.source,
+                projected.destination,
                 cell_size,
                 placement,
                 scrollback_offset,
-            });
+            ) else {
+                continue;
+            };
+            placements.push(placement);
         }
     }
     placements
@@ -927,6 +988,98 @@ mod tests {
     }
 
     #[test]
+    fn projected_partial_pan_crops_at_terminal_source_and_nonzero_origin() {
+        let placement = test_placement(2, 2);
+        let projected = project_host_placement(
+            placement.pane_id,
+            placement.area,
+            Rect::new(3, 3, 17, 7),
+            Rect::new(30, 7, 17, 7),
+            placement.cell_size,
+            placement.placement,
+            0,
+        )
+        .expect("partially visible placement");
+
+        assert_eq!(projected.area, Rect::new(30, 7, 17, 7));
+        assert_eq!(projected.placement.render.viewport_col, -1);
+        assert_eq!(projected.placement.render.viewport_row, -1);
+
+        let (clipped, _) = clipped_placement(&projected).expect("visible crop");
+        assert_eq!(clipped.x, 30);
+        assert_eq!(clipped.y, 7);
+        assert_eq!(clipped.cols, 2);
+        assert_eq!(clipped.rows, 2);
+        assert_eq!(clipped.source_x, 10);
+        assert_eq!(clipped.source_y, 10);
+    }
+
+    #[test]
+    fn fully_hidden_pan_deletes_then_reappearance_redisplays_without_upload() {
+        let mut images = HashMap::new();
+        let mut placements = HashMap::new();
+        let mut sources = HashMap::new();
+        let mut bytes = Vec::new();
+
+        let initial = test_placement(0, 0);
+        let initial = project_host_placement(
+            initial.pane_id,
+            initial.area,
+            Rect::new(0, 0, 20, 10),
+            Rect::new(30, 7, 20, 10),
+            initial.cell_size,
+            initial.placement,
+            0,
+        )
+        .expect("visible projected placement");
+        encode_graphics_update(
+            &mut bytes,
+            &[initial],
+            false,
+            &mut images,
+            &mut placements,
+            &mut sources,
+        );
+        assert!(String::from_utf8_lossy(&bytes).contains("a=t"));
+        bytes.clear();
+
+        encode_graphics_update(
+            &mut bytes,
+            &[],
+            false,
+            &mut images,
+            &mut placements,
+            &mut sources,
+        );
+        assert!(String::from_utf8_lossy(&bytes).contains("a=d,d=i"));
+        assert!(placements.is_empty());
+        bytes.clear();
+
+        let reappeared = test_placement(0, 0);
+        let reappeared = project_host_placement(
+            reappeared.pane_id,
+            reappeared.area,
+            Rect::new(0, 0, 20, 10),
+            Rect::new(30, 7, 20, 10),
+            reappeared.cell_size,
+            reappeared.placement,
+            0,
+        )
+        .expect("visible projected placement");
+        encode_graphics_update(
+            &mut bytes,
+            &[reappeared],
+            false,
+            &mut images,
+            &mut placements,
+            &mut sources,
+        );
+        let output = String::from_utf8_lossy(&bytes);
+        assert!(!output.contains("a=t"));
+        assert!(output.contains("a=p"));
+    }
+
+    #[test]
     fn clipped_placement_handles_positive_viewport_without_wrapping() {
         let placement = test_placement(2, 2);
         let (clipped, _) = clipped_placement(&placement).expect("visible placement");
@@ -971,6 +1124,7 @@ mod tests {
         let first = String::from_utf8_lossy(&bytes);
         assert!(first.contains("a=t"));
         assert!(first.contains("a=p"));
+        assert!(first.contains("\x1b[1;1H"));
 
         bytes.clear();
         let same = test_placement(0, 0);

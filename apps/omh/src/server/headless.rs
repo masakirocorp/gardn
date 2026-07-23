@@ -51,6 +51,9 @@ use crate::server::notifications::{
 use crate::server::socket_paths::{
     client_socket_path, prepare_socket_path, restrict_socket_permissions,
 };
+use crate::server::tab_control::{
+    TabControlCoordinator, TabControlError, TabControlKey, TabControlStatus,
+};
 use crate::server::terminal_attach::paste_payload_for_runtime;
 
 #[cfg(test)]
@@ -163,7 +166,7 @@ pub struct HeadlessServer {
     client_socket_identity: SocketFileIdentity,
     clients: HashMap<u64, ClientConnection>,
     next_client_id: u64,
-    /// The client currently driving the shared pane runtime size, theme, and input keybindings.
+    /// Most recently interactive full app client, used for shared host context only.
     foreground_client_id: Option<u64>,
     /// Server-owned keybindings, restored when foreground clients use server mode.
     server_keybindings: crate::config::LiveKeybindConfig,
@@ -173,10 +176,13 @@ pub struct HeadlessServer {
     server_config_diagnostic_without_keybindings: Option<String>,
     /// Writable direct attach owner per terminal id string.
     terminal_attach_owners: HashMap<String, u64>,
+    /// Exclusive normal-client controller for each live tab.
+    tab_controls: TabControlCoordinator,
+    /// Last stable tab observed by each normal client, used to avoid implicit promotion in place.
+    client_tab_keys: HashMap<u64, TabControlKey>,
     /// Monotonic activity counter used to pick the most recently active client.
     next_activity_stamp: u64,
-    /// Shared pane runtime size derived from the foreground client,
-    /// or MIN_COLS × MIN_ROWS when no clients are connected.
+    /// Legacy default canvas size for server-owned views with no attached controller.
     effective_size: (u16, u16),
     /// Flag set when shutdown is initiated.
     shutting_down: bool,
@@ -238,6 +244,8 @@ impl HeadlessServer {
             server_config_diagnostic,
             server_config_diagnostic_without_keybindings,
             terminal_attach_owners: HashMap::new(),
+            tab_controls: TabControlCoordinator::new(),
+            client_tab_keys: HashMap::new(),
             next_activity_stamp: 1,
             effective_size: (MIN_COLS, MIN_ROWS),
             shutting_down: false,
@@ -444,39 +452,231 @@ impl HeadlessServer {
         stamp
     }
 
-    fn resize_shared_runtime_to_effective_size(&mut self) {
-        if self.foreground_client_id.is_none() {
-            return;
-        }
-        let Some(client_id) = self.foreground_client_id else {
-            return;
-        };
-        let Some(client) = self.clients.get(&client_id) else {
-            return;
-        };
-        let (cols, rows) = self.effective_size;
-        let area = Rect::new(0, 0, cols, rows);
-        if self.app.state.kitty_graphics_enabled && client.cell_size.is_known() {
-            crate::ui::compute_view_with_cell_size(
-                &mut self.app.state,
-                &self.app.terminal_runtimes,
-                area,
-                client.cell_size,
-            );
-        } else {
-            crate::ui::compute_view_with_runtime_registry(
-                &mut self.app.state,
-                &self.app.terminal_runtimes,
-                area,
-            );
-        }
+    fn tab_control_key_for_view(
+        &self,
+        view: &crate::app::ClientViewState,
+    ) -> Option<TabControlKey> {
+        let workspace_index = view.active_workspace?;
+        let workspace = self.app.state.workspaces.get(workspace_index)?;
+        let tab_index = view.active_tab_index_for_workspace(&self.app.state, workspace_index)?;
+        let tab = workspace.tabs.get(tab_index)?;
+        Some(TabControlKey::new(&workspace.id, tab.number))
+    }
+    fn tab_control_key_exists(&self, key: &TabControlKey) -> bool {
+        self.app.state.workspaces.iter().any(|workspace| {
+            workspace.id == key.workspace_id
+                && workspace
+                    .tabs
+                    .iter()
+                    .any(|tab| tab.number == key.tab_number)
+        })
+    }
 
-        // Shared runtime size changes affect pane wrapping and foreground-driven
-        // rendering semantics. Force one fresh frame to every remaining client
-        // even if the next rendered buffer compares equal to its cached frame.
+    fn release_client_tab_control(&mut self, client_id: u64) -> bool {
+        match self.tab_controls.release_client(client_id) {
+            Ok(tab) => tab.is_some(),
+            Err(err) => {
+                warn!(client_id, %err, "failed to release tab control");
+                false
+            }
+        }
+    }
+
+    fn prune_deleted_tab_controls(&mut self) {
+        let known_keys = self.tab_controls.tab_keys().cloned().collect::<Vec<_>>();
+        let stale_keys = known_keys
+            .into_iter()
+            .filter(|key| !self.tab_control_key_exists(key))
+            .collect::<Vec<_>>();
+        for key in stale_keys {
+            self.tab_controls.remove_tab(&key);
+        }
+        let live_view_keys = self
+            .client_tab_keys
+            .values()
+            .filter(|key| self.tab_control_key_exists(key))
+            .cloned()
+            .collect::<std::collections::HashSet<_>>();
+        self.client_tab_keys
+            .retain(|_, key| live_view_keys.contains(key));
+    }
+
+    fn tab_control_projection(
+        status: TabControlStatus,
+        client_id: u64,
+    ) -> crate::app::ClientTabControl {
+        if status.is_controlled_by(client_id) {
+            crate::app::ClientTabControl::Controlling {
+                epoch: status.epoch,
+            }
+        } else if status.is_free() {
+            crate::app::ClientTabControl::WatchingFree {
+                epoch: status.epoch,
+            }
+        } else {
+            crate::app::ClientTabControl::WatchingControlled {
+                epoch: status.epoch,
+            }
+        }
+    }
+
+    fn sync_client_tab_control_projection(&mut self, client_id: u64) {
+        let key = self.clients.get(&client_id).and_then(|client| {
+            client
+                .view_state
+                .as_ref()
+                .and_then(|view| self.tab_control_key_for_view(view))
+        });
+        let projection = key
+            .as_ref()
+            .map(|key| Self::tab_control_projection(self.tab_controls.status(key), client_id))
+            .unwrap_or(crate::app::ClientTabControl::Unavailable);
+        let canvas_size = key
+            .as_ref()
+            .and_then(|key| self.tab_controls.canvas_size(key));
+        if let Some(view) = self
+            .clients
+            .get_mut(&client_id)
+            .and_then(|client| client.view_state.as_mut())
+        {
+            view.set_tab_control(projection);
+            view.tab_canvas_size = canvas_size;
+        }
+    }
+
+    fn sync_all_tab_control_projections(&mut self) {
+        let client_ids = self.clients.keys().copied().collect::<Vec<_>>();
+        for client_id in client_ids {
+            self.sync_client_tab_control_projection(client_id);
+        }
+    }
+
+    fn resize_all_controlled_tabs(&mut self) {
+        let controller_ids = self
+            .clients
+            .keys()
+            .copied()
+            .filter(|client_id| {
+                self.tab_controls
+                    .controlled_tab_for_client(*client_id)
+                    .is_some()
+            })
+            .collect::<Vec<_>>();
+        for client_id in controller_ids {
+            self.resize_controlled_tab_for_client(client_id);
+        }
+    }
+
+    fn resize_controlled_tab_for_client(&mut self, client_id: u64) -> bool {
+        let Some(mut view) = self
+            .clients
+            .get_mut(&client_id)
+            .and_then(|client| client.view_state.take())
+        else {
+            return false;
+        };
+        let Some(controlled_tab) = self.tab_controls.controlled_tab_for_client(client_id) else {
+            if let Some(client) = self.clients.get_mut(&client_id) {
+                client.view_state = Some(view);
+            }
+            return false;
+        };
+        if self.tab_control_key_for_view(&view).as_ref() != Some(&controlled_tab) {
+            if let Some(client) = self.clients.get_mut(&client_id) {
+                client.view_state = Some(view);
+            }
+            return false;
+        }
+        let Some(client) = self.clients.get(&client_id) else {
+            return false;
+        };
+        let (cols, rows) = client.terminal_size;
+        let cell_size = client.cell_size;
+        crate::ui::compute_view_for_client_with_cell_size(
+            &self.app.state,
+            &mut view,
+            &self.app.terminal_runtimes,
+            Rect::new(0, 0, cols, rows),
+            cell_size,
+        );
+        let canvas_size = (
+            view.computed.terminal_area.width,
+            view.computed.terminal_area.height,
+        );
+        let canvas_changed =
+            match self
+                .tab_controls
+                .set_canvas_size(client_id, &controlled_tab, canvas_size)
+            {
+                Ok(changed) => changed,
+                Err(err) => {
+                    warn!(client_id, %err, "failed to publish controlled tab canvas size");
+                    false
+                }
+            };
+        if let Some(client) = self.clients.get_mut(&client_id) {
+            client.view_state = Some(view);
+        }
+        if canvas_changed {
+            self.sync_all_tab_control_projections();
+        }
         for client in self.clients.values_mut() {
             client.request_full_redraw();
         }
+        true
+    }
+
+    fn reconcile_client_tab_control(&mut self, client_id: u64) -> bool {
+        let current_key = self.clients.get(&client_id).and_then(|client| {
+            client
+                .view_state
+                .as_ref()
+                .and_then(|view| self.tab_control_key_for_view(view))
+        });
+        let previous_observed_key = match current_key.as_ref() {
+            Some(key) => self.client_tab_keys.insert(client_id, key.clone()),
+            None => self.client_tab_keys.remove(&client_id),
+        };
+        let previous_key = self.tab_controls.controlled_tab_for_client(client_id);
+        let mut changed = false;
+        if previous_key.as_ref() != current_key.as_ref() {
+            changed |= self.release_client_tab_control(client_id);
+        }
+
+        let request = self
+            .clients
+            .get_mut(&client_id)
+            .and_then(|client| client.view_state.as_mut())
+            .and_then(crate::app::ClientViewState::take_tab_control_request);
+        if let (Some(key), Some(observed_epoch)) = (current_key.as_ref(), request) {
+            match self.tab_controls.takeover(client_id, key, observed_epoch) {
+                Ok(_) => changed = true,
+                Err(TabControlError::StaleEpoch { .. } | TabControlError::Occupied { .. }) => {}
+                Err(err) => warn!(client_id, %err, "failed to take control of tab"),
+            }
+        } else if let Some(key) = current_key.as_ref() {
+            let status = self.tab_controls.status(key);
+            let entered_tab = previous_observed_key.as_ref() != Some(key);
+            if entered_tab
+                && status.is_free()
+                && self
+                    .tab_controls
+                    .controlled_tab_for_client(client_id)
+                    .is_none()
+            {
+                match self.tab_controls.acquire_free(client_id, key) {
+                    Ok(_) => changed = true,
+                    Err(TabControlError::Occupied { .. }) => {}
+                    Err(err) => warn!(client_id, %err, "failed to acquire free tab"),
+                }
+            }
+        }
+
+        self.sync_all_tab_control_projections();
+        if changed {
+            self.resize_controlled_tab_for_client(client_id);
+        }
+        changed
     }
 
     fn sync_foreground_client_state(&mut self) {
@@ -896,6 +1096,7 @@ impl HeadlessServer {
     }
 
     fn remove_client(&mut self, client_id: u64) -> bool {
+        self.client_tab_keys.remove(&client_id);
         let was_foreground = self.foreground_client_id == Some(client_id);
         self.send_client_graphics_cleanup(client_id);
         let removed = self.clients.remove(&client_id);
@@ -920,13 +1121,17 @@ impl HeadlessServer {
                 }
             }
         }
+        let released_control = self.release_client_tab_control(client_id);
         let foreground_changed = if was_foreground {
             self.promote_latest_remaining_client()
         } else {
             false
         };
+        if released_control {
+            self.sync_all_tab_control_projections();
+        }
         if removed_terminal_attach {
-            self.resize_shared_runtime_to_effective_size();
+            self.resize_all_controlled_tabs();
         }
         foreground_changed
     }
@@ -1094,17 +1299,25 @@ impl HeadlessServer {
             return true;
         }
 
-        let foreground_changed = self.promote_client_to_foreground(client_id);
-        if foreground_changed {
-            self.resize_shared_runtime_to_effective_size();
-        }
+        self.promote_client_to_foreground(client_id);
         if let Some(client) = self.clients.get_mut(&client_id) {
             client.request_semantic_redraw_after_input();
         }
-        self.app.route_client_events(
-            vec![crate::raw_input::RawInputEvent::Paste(path)],
-            self.foreground_client_id == Some(client_id),
-        );
+        if let Some(mut view_state) = self
+            .clients
+            .get_mut(&client_id)
+            .and_then(|client| client.view_state.take())
+        {
+            self.app.route_client_events_for_view(
+                &mut view_state,
+                vec![crate::raw_input::RawInputEvent::Paste(path)],
+                true,
+            );
+            if let Some(client) = self.clients.get_mut(&client_id) {
+                client.view_state = Some(view_state);
+            }
+            self.reconcile_client_tab_control(client_id);
+        }
         true
     }
 
@@ -1638,10 +1851,7 @@ impl HeadlessServer {
 
         // Remove broken clients.
         for client_id in broken_clients {
-            let foreground_changed = self.remove_client(client_id);
-            if foreground_changed {
-                self.resize_shared_runtime_to_effective_size();
-            }
+            self.remove_client(client_id);
         }
     }
 
@@ -1671,10 +1881,7 @@ impl HeadlessServer {
                         client_id,
                         "client writer channel closed during targeted send"
                     );
-                    let foreground_changed = self.remove_client(client_id);
-                    if foreground_changed {
-                        self.resize_shared_runtime_to_effective_size();
-                    }
+                    self.remove_client(client_id);
                     return false;
                 }
             }
@@ -1694,10 +1901,7 @@ impl HeadlessServer {
                     reason: Some(reason.clone()),
                 },
             );
-            let foreground_changed = self.remove_client(client_id);
-            if foreground_changed {
-                self.resize_shared_runtime_to_effective_size();
-            }
+            self.remove_client(client_id);
         }
     }
 
@@ -1720,7 +1924,6 @@ impl HeadlessServer {
         }
         self.foreground_client_id = None;
         self.sync_foreground_client_state();
-        self.resize_shared_runtime_to_effective_size();
     }
 
     fn attach_terminal_client(
@@ -1781,6 +1984,10 @@ impl HeadlessServer {
         let was_foreground = self.foreground_client_id == Some(client_id);
         if was_foreground {
             self.promote_latest_remaining_client();
+        }
+        self.client_tab_keys.remove(&client_id);
+        if self.release_client_tab_control(client_id) {
+            self.sync_all_tab_control_projections();
         }
 
         info!(client_id, cols, rows, terminal_id = %terminal_id, "terminal attach client connected");
@@ -1869,7 +2076,9 @@ impl HeadlessServer {
                     self.app.mark_git_status_refresh_due(Instant::now());
                 }
                 self.sync_foreground_client_state();
-                self.resize_shared_runtime_to_effective_size();
+                if !direct_attach_requested {
+                    self.reconcile_client_tab_control(client_id);
+                }
                 self.nudge_handoff_panes_on_first_client_attach();
                 true
             }
@@ -1933,9 +2142,6 @@ impl HeadlessServer {
                 } else {
                     false
                 };
-                if foreground_changed {
-                    self.resize_shared_runtime_to_effective_size();
-                }
                 let theme_changed = self.update_client_host_theme_from_events(client_id, &events);
                 let apply_host_terminal_theme = self.foreground_client_id == Some(client_id);
                 if self
@@ -1956,6 +2162,7 @@ impl HeadlessServer {
                     self.app
                         .route_client_events(events, apply_host_terminal_theme);
                 }
+                let control_changed = self.reconcile_client_tab_control(client_id);
                 if self.app.take_config_reloaded_from_disk() {
                     self.reload_server_config(false);
                 } else {
@@ -1997,7 +2204,7 @@ impl HeadlessServer {
                     // No re-render needed for remaining clients.
                     false
                 } else {
-                    foreground_changed || theme_changed || interaction
+                    foreground_changed || theme_changed || interaction || control_changed
                 }
             }
             ServerEvent::ClientInputEvents { client_id, events } => {
@@ -2065,9 +2272,6 @@ impl HeadlessServer {
                 } else {
                     false
                 };
-                if foreground_changed {
-                    self.resize_shared_runtime_to_effective_size();
-                }
                 let theme_changed = self.update_client_host_theme_from_events(client_id, &events);
                 let apply_host_terminal_theme = self.foreground_client_id == Some(client_id);
                 if self
@@ -2088,12 +2292,13 @@ impl HeadlessServer {
                     self.app
                         .route_client_events(events, apply_host_terminal_theme);
                 }
+                let control_changed = self.reconcile_client_tab_control(client_id);
                 if self.app.take_config_reloaded_from_disk() {
                     self.reload_server_config(false);
                 } else {
                     self.sync_foreground_client_state();
                 }
-                foreground_changed || theme_changed || interaction
+                foreground_changed || theme_changed || interaction || control_changed
             }
             ServerEvent::ClientPasteRejected {
                 client_id,
@@ -2174,23 +2379,18 @@ impl HeadlessServer {
                     };
                 }
                 self.promote_client_to_foreground(client_id);
-                self.resize_shared_runtime_to_effective_size();
+                self.sync_client_tab_control_projection(client_id);
+                self.resize_controlled_tab_for_client(client_id);
                 true
             }
             ServerEvent::ClientDetach { client_id } => {
                 info!(client_id, "client detached");
-                let foreground_changed = self.remove_client(client_id);
-                if foreground_changed {
-                    self.resize_shared_runtime_to_effective_size();
-                }
+                self.remove_client(client_id);
                 true
             }
             ServerEvent::ClientDisconnected { client_id } => {
                 info!(client_id, "client disconnected");
-                let foreground_changed = self.remove_client(client_id);
-                if foreground_changed {
-                    self.resize_shared_runtime_to_effective_size();
-                }
+                self.remove_client(client_id);
                 true
             }
             ServerEvent::ClientWriterDrained { client_id } => {
@@ -2593,10 +2793,7 @@ impl HeadlessServer {
         }
 
         for client_id in broken_clients {
-            let foreground_changed = self.remove_client(client_id);
-            if foreground_changed {
-                self.resize_shared_runtime_to_effective_size();
-            }
+            self.remove_client(client_id);
         }
     }
 
@@ -2611,6 +2808,8 @@ impl HeadlessServer {
         &mut self,
         allow_empty_pending_agent_theme: bool,
     ) -> bool {
+        self.prune_deleted_tab_controls();
+        self.sync_all_tab_control_projections();
         let mut pending_resume_started = false;
         let render_targets = render_targets(&self.clients, self.foreground_client_id);
 
@@ -2633,7 +2832,7 @@ impl HeadlessServer {
         }
 
         let mut broken_clients: Vec<u64> = Vec::new();
-        for (client_id, (cols, rows), cell_size, is_foreground, mode) in render_targets {
+        for (client_id, (cols, rows), cell_size, _is_foreground, mode) in render_targets {
             let area = Rect::new(0, 0, cols, rows);
             let is_app_client = matches!(mode, ClientConnectionMode::App);
             let mut frame = match mode {
@@ -2650,13 +2849,14 @@ impl HeadlessServer {
                     let Some(view_state) = client.view_state.as_mut() else {
                         continue;
                     };
+                    let resize_controlled_tab = view_state.tab_control.can_mutate_tab();
                     let (buffer, cursor, hyperlinks) =
                         crate::server::render_stream::render_virtual_for_client_view(
                             &mut self.app.state,
                             view_state,
                             &self.app.terminal_runtimes,
                             area,
-                            is_foreground,
+                            resize_controlled_tab,
                             render_cell_size,
                         );
                     pending_resume_started |= self.app.start_pending_agent_resumes_for_client_view(
@@ -2803,13 +3003,8 @@ impl HeadlessServer {
             }
         }
 
-        if !broken_clients.is_empty() {
-            for client_id in broken_clients {
-                let foreground_changed = self.remove_client(client_id);
-                if foreground_changed {
-                    self.resize_shared_runtime_to_effective_size();
-                }
-            }
+        for client_id in broken_clients {
+            self.remove_client(client_id);
         }
 
         let (cols, rows) = self.effective_size;
@@ -3399,6 +3594,7 @@ mod tests {
             api_server: None,
             client_listener: listener,
             client_socket_path: socket_path,
+            client_tab_keys: HashMap::new(),
             client_socket_identity,
             clients: HashMap::new(),
             next_client_id: 1,
@@ -3407,6 +3603,7 @@ mod tests {
             server_config_diagnostic: None,
             server_config_diagnostic_without_keybindings: None,
             terminal_attach_owners: HashMap::new(),
+            tab_controls: TabControlCoordinator::new(),
 
             next_activity_stamp: 1,
             effective_size: (MIN_COLS, MIN_ROWS),
@@ -4943,9 +5140,15 @@ next_tab = ""
                 Some(phone_tx),
             ),
         );
+        server.clients.get_mut(&1).unwrap().view_state = Some(
+            crate::app::ClientViewState::from_default_client_state(&server.app.state),
+        );
+        server.clients.get_mut(&2).unwrap().view_state = Some(
+            crate::app::ClientViewState::from_default_client_state(&server.app.state),
+        );
         server.foreground_client_id = Some(1);
         server.sync_foreground_client_state();
-        server.resize_shared_runtime_to_effective_size();
+        assert!(server.reconcile_client_tab_control(1));
 
         server.render_and_stream();
 
@@ -5176,19 +5379,16 @@ next_tab = ""
         }));
         server.render_and_stream();
 
-        let mirrored_b = read_server_frame(
+        assert!(
             b_render_rx
                 .recv_timeout(Duration::from_millis(100))
-                .unwrap(),
-        );
-        assert!(
-            !frame_text(&mirrored_b).contains("A_ONLY_MARKER"),
-            "hovering client A's pane must not make client B mirror A's pane"
+                .is_err(),
+            "client-local hover must not trigger a frame for an unchanged client"
         );
     }
 
     #[tokio::test]
-    async fn resize_shared_runtime_resizes_background_tabs() {
+    async fn controlled_tab_resize_leaves_background_tab_size_unchanged() {
         let mut server = test_headless_server();
         let mut workspace = crate::workspace::Workspace::test_new("test");
         let background_tab = workspace.test_add_tab(Some("background"));
@@ -5219,11 +5419,19 @@ next_tab = ""
                 None,
             ),
         );
+        server.clients.get_mut(&1).unwrap().view_state = Some(
+            crate::app::ClientViewState::from_default_client_state(&server.app.state),
+        );
         server.foreground_client_id = Some(1);
         server.sync_foreground_client_state();
-        server.resize_shared_runtime_to_effective_size();
+        assert!(server.reconcile_client_tab_control(1));
 
-        let terminal_area = server.app.state.view.terminal_area;
+        let terminal_area = server.clients[&1]
+            .view_state
+            .as_ref()
+            .unwrap()
+            .computed
+            .terminal_area;
         let expected = (terminal_area.height, terminal_area.width.saturating_sub(1));
         assert_eq!(
             server
@@ -5241,7 +5449,168 @@ next_tab = ""
                 .runtime_for_pane(&server.app.terminal_runtimes, background_pane)
                 .unwrap()
                 .current_size(),
-            expected
+            (24, 80)
+        );
+    }
+    #[tokio::test]
+    async fn tab_control_is_explicit_and_exclusive_across_clients() {
+        let mut server = test_headless_server();
+        let mut workspace = crate::workspace::Workspace::test_new("control");
+        let pane_id = workspace.tabs[0].root_pane;
+        let (runtime, mut input_rx) = crate::terminal::TerminalRuntime::test_with_channel(80, 24);
+        workspace.tabs[0].runtimes.insert(pane_id, runtime);
+        server.app.state.workspaces = vec![workspace];
+        server.app.state.active = Some(0);
+        server.app.state.selected = 0;
+        server.app.state.mode = crate::app::Mode::Terminal;
+
+        let mut first = test_app_client(None, 1);
+        first.terminal_size = (120, 40);
+        first.view_state = Some(crate::app::ClientViewState::from_default_client_state(
+            &server.app.state,
+        ));
+        let mut second = test_app_client(None, 2);
+        second.terminal_size = (80, 24);
+        second.view_state = Some(crate::app::ClientViewState::from_default_client_state(
+            &server.app.state,
+        ));
+        server.clients.insert(1, first);
+        server.clients.insert(2, second);
+
+        assert!(server.reconcile_client_tab_control(1));
+        assert!(matches!(
+            server.clients[&1].view_state.as_ref().unwrap().tab_control,
+            crate::app::ClientTabControl::Controlling { .. }
+        ));
+        assert!(matches!(
+            server.clients[&2].view_state.as_ref().unwrap().tab_control,
+            crate::app::ClientTabControl::WatchingControlled { .. }
+        ));
+        let first_canvas = server.clients[&1]
+            .view_state
+            .as_ref()
+            .unwrap()
+            .tab_canvas_size;
+        assert_eq!(
+            server.clients[&2]
+                .view_state
+                .as_ref()
+                .unwrap()
+                .tab_canvas_size,
+            first_canvas
+        );
+        let first_size = server
+            .app
+            .state
+            .runtime_for_pane(&server.app.terminal_runtimes, pane_id)
+            .unwrap()
+            .current_size();
+
+        assert!(server.handle_server_event(ServerEvent::ClientResize {
+            client_id: 2,
+            cols: 80,
+            rows: 24,
+            cell_width_px: 0,
+            cell_height_px: 0,
+        }));
+        assert_eq!(
+            server
+                .app
+                .state
+                .runtime_for_pane(&server.app.terminal_runtimes, pane_id)
+                .unwrap()
+                .current_size(),
+            first_size,
+            "a watcher resize must not resize the shared PTY"
+        );
+        assert!(server.handle_server_event(ServerEvent::ClientInput {
+            client_id: 2,
+            data: b"x".to_vec(),
+        }));
+        assert!(
+            input_rx.try_recv().is_err(),
+            "a watcher must not write input to the shared PTY"
+        );
+
+        server
+            .clients
+            .get_mut(&2)
+            .unwrap()
+            .view_state
+            .as_mut()
+            .unwrap()
+            .request_tab_control();
+        assert!(server.reconcile_client_tab_control(2));
+        assert!(matches!(
+            server.clients[&1].view_state.as_ref().unwrap().tab_control,
+            crate::app::ClientTabControl::WatchingControlled { .. }
+        ));
+        assert!(matches!(
+            server.clients[&2].view_state.as_ref().unwrap().tab_control,
+            crate::app::ClientTabControl::Controlling { .. }
+        ));
+        let second_canvas = server.clients[&2]
+            .view_state
+            .as_ref()
+            .unwrap()
+            .tab_canvas_size;
+        assert_ne!(second_canvas, first_canvas);
+        assert_eq!(
+            server.clients[&1]
+                .view_state
+                .as_ref()
+                .unwrap()
+                .tab_canvas_size,
+            second_canvas
+        );
+        let second_size = server
+            .app
+            .state
+            .runtime_for_pane(&server.app.terminal_runtimes, pane_id)
+            .unwrap()
+            .current_size();
+        assert_ne!(second_size, first_size);
+
+        assert!(server.handle_server_event(ServerEvent::ClientInput {
+            client_id: 2,
+            data: b"x".to_vec(),
+        }));
+        assert_eq!(input_rx.recv().await.unwrap(), Bytes::from_static(b"x"));
+
+        server.remove_client(2);
+        assert!(matches!(
+            server.clients[&1].view_state.as_ref().unwrap().tab_control,
+            crate::app::ClientTabControl::WatchingFree { .. }
+        ));
+        assert!(
+            !server.reconcile_client_tab_control(1),
+            "a watcher must not be promoted merely because the tab became free"
+        );
+        assert!(matches!(
+            server.clients[&1].view_state.as_ref().unwrap().tab_control,
+            crate::app::ClientTabControl::WatchingFree { .. }
+        ));
+        server
+            .clients
+            .get_mut(&1)
+            .unwrap()
+            .view_state
+            .as_mut()
+            .unwrap()
+            .request_tab_control();
+        assert!(server.reconcile_client_tab_control(1));
+        assert!(matches!(
+            server.clients[&1].view_state.as_ref().unwrap().tab_control,
+            crate::app::ClientTabControl::Controlling { .. }
+        ));
+        assert_eq!(
+            server
+                .app
+                .state
+                .runtime_for_pane(&server.app.terminal_runtimes, pane_id)
+                .unwrap()
+                .current_size(),
+            first_size
         );
     }
 
@@ -5266,21 +5635,23 @@ next_tab = ""
             terminal_id.clone(),
             crate::terminal::TerminalRuntime::test_with_screen_bytes(80, 24, b""),
         );
-        server.clients.insert(
+        let mut app_client = ClientConnection::new(
+            (120, 40),
+            crate::kitty_graphics::HostCellSize::default(),
+            crate::terminal_theme::TerminalTheme::default(),
+            None,
             1,
-            ClientConnection::new(
-                (120, 40),
-                crate::kitty_graphics::HostCellSize::default(),
-                crate::terminal_theme::TerminalTheme::default(),
-                None,
-                1,
-                RenderEncoding::SemanticFrame,
-                None,
-            ),
+            RenderEncoding::SemanticFrame,
+            None,
         );
+        app_client.view_state = Some(crate::app::ClientViewState::from_default_client_state(
+            &server.app.state,
+        ));
+        server.clients.insert(1, app_client);
+        assert!(server.reconcile_client_tab_control(1));
         server.foreground_client_id = Some(1);
         server.sync_foreground_client_state();
-        server.resize_shared_runtime_to_effective_size();
+        assert!(server.tab_controls.controlled_tab_for_client(1).is_some());
         let expected_app_size = server
             .app
             .terminal_runtimes
@@ -5341,6 +5712,16 @@ next_tab = ""
                 .current_size(),
             expected_app_size
         );
+
+        assert!(server.tab_controls.controlled_tab_for_client(1).is_some());
+        assert!(
+            server.handle_server_event(ServerEvent::ClientAttachTerminal {
+                client_id: 1,
+                terminal_id: terminal_id_string,
+                takeover: false,
+            })
+        );
+        assert_eq!(server.tab_controls.controlled_tab_for_client(1), None);
         drop(server);
         drop(_runtime_guard);
         rt.shutdown_timeout(Duration::from_millis(100));
@@ -5449,8 +5830,12 @@ next_tab = ""
         let mut server = test_headless_server();
         let mut input_rx = install_focused_test_runtime(&mut server, b"\x1b[?1004h");
         server.clients.insert(1, test_app_client(Some(false), 1));
+        server.clients.get_mut(&1).unwrap().view_state = Some(
+            crate::app::ClientViewState::from_default_client_state(&server.app.state),
+        );
         server.foreground_client_id = Some(1);
         server.sync_foreground_client_state();
+        assert!(server.reconcile_client_tab_control(1));
 
         assert!(server.handle_server_event(ServerEvent::ClientInput {
             client_id: 1,
@@ -5529,8 +5914,24 @@ next_tab = ""
         let mut input_rx = install_focused_test_runtime(&mut server, b"\x1b[?1004h");
         server.clients.insert(1, test_app_client(Some(true), 1));
         server.clients.insert(2, test_app_client(Some(false), 2));
+        server.clients.get_mut(&1).unwrap().view_state = Some(
+            crate::app::ClientViewState::from_default_client_state(&server.app.state),
+        );
+        server.clients.get_mut(&2).unwrap().view_state = Some(
+            crate::app::ClientViewState::from_default_client_state(&server.app.state),
+        );
         server.foreground_client_id = Some(1);
         server.sync_foreground_client_state();
+        assert!(server.reconcile_client_tab_control(1));
+        server
+            .clients
+            .get_mut(&2)
+            .unwrap()
+            .view_state
+            .as_mut()
+            .unwrap()
+            .request_tab_control();
+        assert!(server.reconcile_client_tab_control(2));
 
         assert!(server.handle_server_event(ServerEvent::ClientInputEvents {
             client_id: 2,
@@ -5885,9 +6286,12 @@ next_tab = ""
                 Some(client_tx),
             ),
         );
+        server.clients.get_mut(&1).unwrap().view_state = Some(
+            crate::app::ClientViewState::from_default_client_state(&server.app.state),
+        );
         server.foreground_client_id = Some(1);
         server.sync_foreground_client_state();
-        server.resize_shared_runtime_to_effective_size();
+        assert!(server.reconcile_client_tab_control(1));
 
         server.render_and_stream();
         let first = client_rx.recv_timeout(Duration::from_millis(100));

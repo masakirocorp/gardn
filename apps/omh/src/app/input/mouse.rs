@@ -62,21 +62,34 @@ impl AppState {
         client_view: &crate::app::view_state::ClientViewState,
         mouse: MouseEvent,
     ) {
-        if client_view.mode != Mode::Terminal {
+        if client_view.mode != Mode::Terminal || !client_view.can_mutate_tab() {
             return;
         }
         let Some(ws_idx) = client_view.active_workspace else {
             return;
+        };
+        let Some((column, row)) = client_view
+            .tab_canvas_view
+            .map_or(Some((mouse.column, mouse.row)), |view| {
+                view.screen_to_canvas(mouse.column, mouse.row)
+            })
+        else {
+            return;
+        };
+        let mouse = MouseEvent {
+            column,
+            row,
+            ..mouse
         };
         let Some(info) = client_view
             .computed
             .pane_infos
             .iter()
             .find(|p| {
-                mouse.column >= p.inner_rect.x
-                    && mouse.column < p.inner_rect.x + p.inner_rect.width
-                    && mouse.row >= p.inner_rect.y
-                    && mouse.row < p.inner_rect.y + p.inner_rect.height
+                u32::from(column) >= u32::from(p.inner_rect.x)
+                    && u32::from(column) < u32::from(p.inner_rect.x) + u32::from(p.inner_rect.width)
+                    && u32::from(row) >= u32::from(p.inner_rect.y)
+                    && u32::from(row) < u32::from(p.inner_rect.y) + u32::from(p.inner_rect.height)
             })
             .cloned()
         else {

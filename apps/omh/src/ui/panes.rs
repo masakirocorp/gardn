@@ -6,7 +6,7 @@ use ratatui::{
     Frame,
 };
 
-use super::scrollbar::{render_pane_scrollbar, should_show_scrollbar};
+use super::scrollbar::{render_pane_scrollbar, scrollbar_thumb, should_show_scrollbar};
 use super::widgets::panel_contrast_fg;
 use crate::app::state::Palette;
 use crate::app::{AppState, ClientViewState, Mode};
@@ -63,6 +63,282 @@ fn pane_inner_rect(area: Rect, framed: bool) -> Rect {
     }
 }
 
+fn clip_rect(rect: Rect, bounds: Rect) -> Option<Rect> {
+    let left = rect.x.max(bounds.x);
+    let top = rect.y.max(bounds.y);
+    let right = rect
+        .x
+        .saturating_add(rect.width)
+        .min(bounds.x.saturating_add(bounds.width));
+    let bottom = rect
+        .y
+        .saturating_add(rect.height)
+        .min(bounds.y.saturating_add(bounds.height));
+    (left < right && top < bottom).then(|| Rect::new(left, top, right - left, bottom - top))
+}
+fn clip_projected_rect(
+    projected: crate::app::view_state::ProjectedRect,
+    bounds: Rect,
+) -> Option<crate::app::view_state::ProjectedRect> {
+    let destination = clip_rect(projected.destination, bounds)?;
+    let source = Rect::new(
+        projected
+            .source
+            .x
+            .saturating_add(destination.x.saturating_sub(projected.destination.x)),
+        projected
+            .source
+            .y
+            .saturating_add(destination.y.saturating_sub(projected.destination.y)),
+        destination.width,
+        destination.height,
+    );
+    Some(crate::app::view_state::ProjectedRect {
+        source,
+        destination,
+    })
+}
+
+fn projected_cell(
+    canvas: crate::app::view_state::TabCanvasViewport,
+    frame_area: Rect,
+    x: u16,
+    y: u16,
+) -> Option<(u16, u16)> {
+    let projected = canvas.project_rect(Rect::new(x, y, 1, 1))?;
+    let projected = clip_projected_rect(projected, frame_area)?;
+    Some((projected.destination.x, projected.destination.y))
+}
+
+fn render_projected_pane_border(
+    frame: &mut Frame,
+    canvas: crate::app::view_state::TabCanvasViewport,
+    info: &PaneInfo,
+    frame_area: Rect,
+    style: Style,
+    thick: bool,
+    title: Option<&str>,
+) {
+    let rect = info.rect;
+    if rect.width == 0 || rect.height == 0 {
+        return;
+    }
+    let (top_left, top_right, bottom_left, bottom_right, horizontal, vertical) = if thick {
+        ("┏", "┓", "┗", "┛", "━", "┃")
+    } else {
+        ("┌", "┐", "└", "┘", "─", "│")
+    };
+    let mut set_cell = |x: u16, y: u16, symbol: &str| {
+        if let Some((x, y)) = projected_cell(canvas, frame_area, x, y) {
+            let cell = &mut frame.buffer_mut()[(x, y)];
+            cell.set_symbol(symbol);
+            cell.set_style(style);
+        }
+    };
+    set_cell(rect.x, rect.y, top_left);
+    if rect.width > 1 {
+        for x in rect.x.saturating_add(1)..rect.x.saturating_add(rect.width).saturating_sub(1) {
+            set_cell(x, rect.y, horizontal);
+        }
+        set_cell(
+            rect.x.saturating_add(rect.width).saturating_sub(1),
+            rect.y,
+            top_right,
+        );
+    }
+    if rect.height > 1 {
+        for y in rect.y.saturating_add(1)..rect.y.saturating_add(rect.height).saturating_sub(1) {
+            set_cell(rect.x, y, vertical);
+        }
+        if rect.width > 1 {
+            let bottom = rect.y.saturating_add(rect.height).saturating_sub(1);
+            set_cell(rect.x, bottom, bottom_left);
+            for x in rect.x.saturating_add(1)..rect.x.saturating_add(rect.width).saturating_sub(1) {
+                set_cell(x, bottom, horizontal);
+            }
+            set_cell(
+                rect.x.saturating_add(rect.width).saturating_sub(1),
+                bottom,
+                bottom_right,
+            );
+        } else {
+            set_cell(
+                rect.x,
+                rect.y.saturating_add(rect.height).saturating_sub(1),
+                bottom_left,
+            );
+        }
+    }
+
+    let Some(title) = title else {
+        return;
+    };
+    for (offset, ch) in title.chars().enumerate() {
+        let Ok(offset) = u16::try_from(offset) else {
+            break;
+        };
+        let x = rect.x.saturating_add(1).saturating_add(offset);
+        if x >= rect.x.saturating_add(rect.width).saturating_sub(1) {
+            break;
+        }
+        let mut symbol = [0; 4];
+        set_cell(x, rect.y, ch.encode_utf8(&mut symbol));
+    }
+}
+
+fn render_projected_scrollbar(
+    app: &AppState,
+    frame: &mut Frame,
+    canvas: crate::app::view_state::TabCanvasViewport,
+    frame_area: Rect,
+    info: &PaneInfo,
+    rt: &crate::terminal::TerminalRuntime,
+) {
+    let Some(metrics) = rt.scroll_metrics() else {
+        return;
+    };
+    let Some(canonical_track) = info.scrollbar_rect else {
+        return;
+    };
+    let Some(track) = canvas
+        .project_rect(canonical_track)
+        .and_then(|projected| clip_projected_rect(projected, frame_area))
+    else {
+        return;
+    };
+    let Some(thumb) = scrollbar_thumb(metrics, canonical_track) else {
+        return;
+    };
+    let thumb = canvas
+        .project_rect(Rect::new(
+            canonical_track.x,
+            thumb.top,
+            canonical_track.width,
+            thumb.len,
+        ))
+        .and_then(|projected| clip_projected_rect(projected, frame_area));
+    let (track_color, thumb_color, thumb_symbol) = if info.is_focused {
+        (app.palette.overlay0, app.palette.overlay1, "▐")
+    } else {
+        (app.palette.surface_dim, app.palette.overlay0, "▕")
+    };
+    let buf = frame.buffer_mut();
+    for y in track.destination.y..track.destination.y + track.destination.height {
+        for x in track.destination.x..track.destination.x + track.destination.width {
+            let cell = &mut buf[(x, y)];
+            cell.set_symbol("▕");
+            cell.set_style(Style::default().fg(track_color));
+        }
+    }
+    if let Some(thumb) = thumb {
+        for y in thumb.destination.y..thumb.destination.y + thumb.destination.height {
+            for x in thumb.destination.x..thumb.destination.x + thumb.destination.width {
+                let cell = &mut buf[(x, y)];
+                cell.set_symbol(thumb_symbol);
+                cell.set_style(Style::default().fg(thumb_color));
+            }
+        }
+    }
+}
+
+fn render_projected_search_highlights(
+    app: &AppState,
+    frame: &mut Frame,
+    info: &PaneInfo,
+    destination: Rect,
+    source_col: u16,
+    source_row: u16,
+    top: u32,
+    bottom: u32,
+    matches: &[(usize, crate::pane::TerminalTextMatch)],
+    current: Option<usize>,
+    current_only: bool,
+) {
+    let style = if current_only {
+        Style::default()
+            .fg(panel_contrast_fg(&app.palette))
+            .bg(app.active_workspace_accent_color())
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default()
+            .fg(app.palette.text)
+            .bg(app.palette.surface1)
+    };
+    let visible_top = top.saturating_add(u32::from(source_row));
+    let visible_bottom =
+        bottom.min(visible_top.saturating_add(u32::from(destination.height.saturating_sub(1))));
+    let source_right = source_col.saturating_add(destination.width.saturating_sub(1));
+    let canonical_right = info.inner_rect.width.saturating_sub(1);
+    for &(index, text_match) in matches {
+        if (current == Some(index)) != current_only {
+            continue;
+        }
+        let start_row = text_match.start.row.max(visible_top);
+        let end_row = text_match.end.row.min(visible_bottom);
+        if start_row > end_row {
+            continue;
+        }
+        for absolute_row in start_row..=end_row {
+            let start_col = (if absolute_row == text_match.start.row {
+                text_match.start.col
+            } else {
+                0
+            })
+            .max(source_col);
+            let end_col = (if absolute_row == text_match.end.row {
+                text_match.end.col
+            } else {
+                canonical_right
+            })
+            .min(source_right);
+            if start_col > end_col {
+                continue;
+            }
+            let y = destination.y.saturating_add(
+                absolute_row
+                    .saturating_sub(visible_top)
+                    .min(u32::from(destination.height.saturating_sub(1))) as u16,
+            );
+            for col in start_col..=end_col {
+                let x = destination.x.saturating_add(col.saturating_sub(source_col));
+                frame.buffer_mut()[(x, y)].set_style(style);
+            }
+        }
+    }
+}
+
+fn render_projected_selection_highlight(
+    selection: &Option<crate::selection::Selection>,
+    frame: &mut Frame,
+    pane_id: crate::layout::PaneId,
+    destination: Rect,
+    source_col: u16,
+    source_row: u16,
+    scroll_metrics: Option<crate::pane::ScrollMetrics>,
+    p: &Palette,
+    host_theme: crate::terminal_theme::TerminalTheme,
+) {
+    let Some(sel) = selection else {
+        return;
+    };
+    if !sel.is_visible() || sel.pane_id != pane_id {
+        return;
+    }
+    let style = automatic_selection_style(p, host_theme);
+    let buf = frame.buffer_mut();
+    for y in 0..destination.height {
+        for x in 0..destination.width {
+            if sel.contains(
+                source_row.saturating_add(y),
+                source_col.saturating_add(x),
+                scroll_metrics,
+            ) {
+                buf[(destination.x + x, destination.y + y)].set_style(style);
+            }
+        }
+    }
+}
+
 fn runtime_for_tab_pane<'a>(
     terminal_runtimes: &'a TerminalRuntimeRegistry,
     tab: &'a crate::workspace::Tab,
@@ -101,54 +377,6 @@ fn pane_theme_background(p: &Palette) -> Option<Color> {
     match p.panel_bg {
         Color::Reset => None,
         color => Some(color),
-    }
-}
-
-/// Resize every visible runtime in a tab to the geometry it would receive if the tab were selected.
-pub(super) fn resize_tab_panes(
-    app: &AppState,
-    terminal_runtimes: &TerminalRuntimeRegistry,
-    tab: &crate::workspace::Tab,
-    area: Rect,
-    cell_size: crate::kitty_graphics::HostCellSize,
-) {
-    let multi_pane = tab.layout.pane_count() > 1;
-
-    if tab.zoomed {
-        let focused_id = tab.layout.focused();
-        if let Some((terminal_id, rt)) = runtime_for_tab_pane(terminal_runtimes, tab, focused_id) {
-            let pane_inner = pane_inner_rect(area, multi_pane);
-            let inner_rect = stable_terminal_inner_rect(pane_inner);
-            if !app.direct_attach_resize_locks.contains(terminal_id) {
-                rt.resize(
-                    inner_rect.height,
-                    inner_rect.width,
-                    cell_size.width_px,
-                    cell_size.height_px,
-                );
-            }
-        }
-        return;
-    }
-
-    for info in tab.layout.panes(area) {
-        let pane_inner = if multi_pane {
-            Block::default().borders(Borders::ALL).inner(info.rect)
-        } else {
-            area
-        };
-
-        if let Some((terminal_id, rt)) = runtime_for_tab_pane(terminal_runtimes, tab, info.id) {
-            let inner_rect = stable_terminal_inner_rect(pane_inner);
-            if !app.direct_attach_resize_locks.contains(terminal_id) {
-                rt.resize(
-                    inner_rect.height,
-                    inner_rect.width,
-                    cell_size.width_px,
-                    cell_size.height_px,
-                );
-            }
-        }
     }
 }
 
@@ -445,7 +673,7 @@ pub(super) fn render_panes_for_view(
     client_view: &ClientViewState,
     terminal_runtimes: &TerminalRuntimeRegistry,
     frame: &mut Frame,
-    _area: Rect,
+    area: Rect,
 ) {
     let Some(ws_idx) = client_view.active_workspace else {
         render_empty_for_view(app, client_view, frame);
@@ -463,6 +691,12 @@ pub(super) fn render_panes_for_view(
         render_empty_for_view(app, client_view, frame);
         return;
     };
+    let Some(canvas) = client_view.tab_canvas_view else {
+        return;
+    };
+    let Some(frame_area) = clip_rect(area, frame.area()) else {
+        return;
+    };
 
     let multi_pane = tab.layout.pane_count() > 1;
     let active_accent = app.palette_for_workspace(ws_idx).accent;
@@ -470,103 +704,131 @@ pub(super) fn render_panes_for_view(
 
     for info in &client_view.computed.pane_infos {
         let pane_state = tab.panes.get(&info.id);
+        let Some((_, rt)) = runtime_for_tab_pane(terminal_runtimes, tab, info.id) else {
+            continue;
+        };
 
-        if let Some((_, rt)) = runtime_for_tab_pane(terminal_runtimes, tab, info.id) {
-            if multi_pane {
-                let (border_style, border_set) = if info.is_focused && terminal_active {
-                    (
-                        Style::default().fg(active_accent),
-                        ratatui::symbols::border::THICK,
-                    )
-                } else if info.is_focused {
-                    (
-                        Style::default().fg(active_accent),
-                        ratatui::symbols::border::PLAIN,
-                    )
-                } else {
-                    (
-                        Style::default().fg(app.palette.overlay0),
-                        ratatui::symbols::border::PLAIN,
-                    )
-                };
-
-                let mut block = Block::default()
-                    .borders(Borders::ALL)
-                    .border_style(border_style)
-                    .border_set(border_set);
-                if let Some(title) = pane_state
-                    .and_then(|pane| {
-                        app.terminals
-                            .get(&pane.attached_terminal_id)
-                            .and_then(|terminal| {
-                                terminal.border_label(app.pane_border_agent_info, pane.seen)
-                            })
-                    })
-                    .and_then(|label| pane_border_title(&label, info.rect.width))
-                {
-                    block = block.title(Line::from(Span::styled(title, border_style)));
-                }
-                frame.render_widget(block, info.rect);
-            }
-
-            let show_cursor = info.is_focused && terminal_active && !pane_is_scrolled_back(rt);
-            rt.render_with_theme_background(
+        if multi_pane {
+            let (border_style, thick) = if info.is_focused && terminal_active {
+                (Style::default().fg(active_accent), true)
+            } else if info.is_focused {
+                (Style::default().fg(active_accent), false)
+            } else {
+                (Style::default().fg(app.palette.overlay0), false)
+            };
+            let title = pane_state
+                .and_then(|pane| {
+                    app.terminals
+                        .get(&pane.attached_terminal_id)
+                        .and_then(|terminal| {
+                            terminal.border_label(app.pane_border_agent_info, pane.seen)
+                        })
+                })
+                .and_then(|label| pane_border_title(&label, info.rect.width));
+            render_projected_pane_border(
                 frame,
-                info.inner_rect,
-                show_cursor,
-                pane_theme_background(&app.palette),
-            );
-            render_pane_scrollbar(app, frame, info, rt);
-
-            let should_dim = !info.is_focused && multi_pane && !terminal_active;
-            if should_dim {
-                let inner = info.inner_rect;
-                let buf = frame.buffer_mut();
-                for y in inner.y..inner.y + inner.height {
-                    for x in inner.x..inner.x + inner.width {
-                        let cell = &mut buf[(x, y)];
-                        cell.set_style(cell.style().add_modifier(Modifier::DIM));
-                    }
-                }
-            }
-
-            let (copy_search_top, copy_search_bottom, copy_search_matches) =
-                validated_copy_mode_search_matches(client_view.copy_mode.as_ref(), info, rt);
-            let copy_search_current = client_view
-                .copy_mode
-                .as_ref()
-                .and_then(|copy_mode| copy_mode.search.current);
-            render_copy_mode_search_highlights(
-                app,
-                frame,
+                canvas,
                 info,
-                copy_search_top,
-                copy_search_bottom,
-                &copy_search_matches,
-                copy_search_current,
-                false,
+                frame_area,
+                border_style,
+                thick,
+                title.as_deref(),
             );
-            render_selection_highlight(
-                &client_view.selection,
-                frame,
-                info.id,
-                info.inner_rect,
-                rt.scroll_metrics(),
-                &app.palette,
-                app.host_terminal_theme,
-            );
-            render_copy_mode_search_highlights(
-                app,
-                frame,
-                info,
-                copy_search_top,
-                copy_search_bottom,
-                &copy_search_matches,
-                copy_search_current,
-                true,
-            );
-            render_copy_mode_cursor_for_view(app, client_view, frame, info);
         }
+
+        let Some(projected_inner) = canvas
+            .project_rect(info.inner_rect)
+            .and_then(|projected| clip_projected_rect(projected, frame_area))
+        else {
+            // Border-only strips remain visible even when the terminal content is
+            // entirely outside the observer's source window.
+            if multi_pane {
+                render_projected_scrollbar(app, frame, canvas, frame_area, info, rt);
+            }
+            continue;
+        };
+        let source_col = projected_inner.source.x.saturating_sub(info.inner_rect.x);
+        let source_row = projected_inner.source.y.saturating_sub(info.inner_rect.y);
+        let show_cursor = client_view.can_mutate_tab()
+            && info.is_focused
+            && terminal_active
+            && !pane_is_scrolled_back(rt);
+        rt.render_view_with_theme_background(
+            frame,
+            crate::pane::TerminalViewport {
+                destination: projected_inner.destination,
+                source_col,
+                source_row,
+            },
+            show_cursor,
+            pane_theme_background(&app.palette),
+        );
+        render_projected_scrollbar(app, frame, canvas, frame_area, info, rt);
+
+        let should_dim = !info.is_focused && multi_pane && !terminal_active;
+        if should_dim {
+            let inner = projected_inner.destination;
+            let buf = frame.buffer_mut();
+            for y in inner.y..inner.y + inner.height {
+                for x in inner.x..inner.x + inner.width {
+                    let cell = &mut buf[(x, y)];
+                    cell.set_style(cell.style().add_modifier(Modifier::DIM));
+                }
+            }
+        }
+
+        let (copy_search_top, copy_search_bottom, copy_search_matches) =
+            validated_copy_mode_search_matches(client_view.copy_mode.as_ref(), info, rt);
+        let copy_search_current = client_view
+            .copy_mode
+            .as_ref()
+            .and_then(|copy_mode| copy_mode.search.current);
+        render_projected_search_highlights(
+            app,
+            frame,
+            info,
+            projected_inner.destination,
+            source_col,
+            source_row,
+            copy_search_top,
+            copy_search_bottom,
+            &copy_search_matches,
+            copy_search_current,
+            false,
+        );
+        render_projected_selection_highlight(
+            &client_view.selection,
+            frame,
+            info.id,
+            projected_inner.destination,
+            source_col,
+            source_row,
+            rt.scroll_metrics(),
+            &app.palette,
+            app.host_terminal_theme,
+        );
+        render_projected_search_highlights(
+            app,
+            frame,
+            info,
+            projected_inner.destination,
+            source_col,
+            source_row,
+            copy_search_top,
+            copy_search_bottom,
+            &copy_search_matches,
+            copy_search_current,
+            true,
+        );
+        render_copy_mode_cursor_for_view(
+            app,
+            client_view,
+            frame,
+            info,
+            projected_inner.destination,
+            source_col,
+            source_row,
+        );
     }
 }
 
@@ -704,13 +966,34 @@ fn render_copy_mode_cursor_for_view(
     client_view: &crate::app::ClientViewState,
     frame: &mut Frame,
     info: &PaneInfo,
+    destination: Rect,
+    source_col: u16,
+    source_row: u16,
 ) {
-    render_copy_mode_cursor_cell(
-        app,
-        client_view.mode,
-        client_view.copy_mode.as_ref(),
-        frame,
-        info,
+    if client_view.mode != Mode::Copy {
+        return;
+    }
+    let Some(copy_mode) = client_view.copy_mode.as_ref() else {
+        return;
+    };
+    if copy_mode.pane_id != info.id
+        || copy_mode.cursor_row >= info.inner_rect.height
+        || copy_mode.cursor_col >= info.inner_rect.width
+        || copy_mode.cursor_row < source_row
+        || copy_mode.cursor_col < source_col
+        || copy_mode.cursor_row >= source_row.saturating_add(destination.height)
+        || copy_mode.cursor_col >= source_col.saturating_add(destination.width)
+    {
+        return;
+    }
+    let x = destination.x + copy_mode.cursor_col.saturating_sub(source_col);
+    let y = destination.y + copy_mode.cursor_row.saturating_sub(source_row);
+    let cell = &mut frame.buffer_mut()[(x, y)];
+    cell.set_style(
+        Style::default()
+            .fg(panel_contrast_fg(&app.palette))
+            .bg(app.active_workspace_accent_color())
+            .add_modifier(Modifier::BOLD),
     );
 }
 
@@ -1125,6 +1408,67 @@ mod tests {
         assert_eq!(pane_border_title("", 20), None);
         assert_eq!(pane_border_title("abcdef", 8).as_deref(), Some(" abc… "));
         assert_eq!(pane_border_title("abcdef", 4), None);
+    }
+
+    #[test]
+    fn projected_border_keeps_canonical_edges_and_title_position() {
+        let info = PaneInfo {
+            id: PaneId::from_raw(1),
+            rect: Rect::new(1, 1, 6, 4),
+            inner_rect: Rect::new(2, 2, 4, 2),
+            scrollbar_rect: None,
+            is_focused: false,
+        };
+        let canvas = crate::app::view_state::TabCanvasViewport::new(
+            ratatui::layout::Size::new(12, 8),
+            Rect::new(0, 0, 4, 1),
+            crate::app::view_state::CanvasOrigin { col: 2, row: 1 },
+        );
+        let backend = TestBackend::new(4, 1);
+        let mut terminal = Terminal::new(backend).expect("test backend");
+        terminal
+            .draw(|frame| {
+                render_projected_pane_border(
+                    frame,
+                    canvas,
+                    &info,
+                    frame.area(),
+                    Style::default().fg(Color::White),
+                    false,
+                    Some(" abc "),
+                );
+            })
+            .expect("render projected title");
+        let buffer = terminal.backend().buffer();
+        assert_eq!(buffer[(0, 0)].symbol(), " ");
+        assert_eq!(buffer[(1, 0)].symbol(), "a");
+        assert_eq!(buffer[(2, 0)].symbol(), "b");
+        assert_eq!(buffer[(3, 0)].symbol(), "c");
+
+        let canvas = crate::app::view_state::TabCanvasViewport::new(
+            ratatui::layout::Size::new(12, 8),
+            Rect::new(0, 0, 4, 3),
+            crate::app::view_state::CanvasOrigin { col: 2, row: 2 },
+        );
+        let backend = TestBackend::new(4, 3);
+        let mut terminal = Terminal::new(backend).expect("test backend");
+        terminal
+            .draw(|frame| {
+                render_projected_pane_border(
+                    frame,
+                    canvas,
+                    &info,
+                    frame.area(),
+                    Style::default().fg(Color::White),
+                    false,
+                    None,
+                );
+            })
+            .expect("render cropped projected border");
+        let buffer = terminal.backend().buffer();
+        assert_eq!(buffer[(3, 0)].symbol(), " ");
+        assert_eq!(buffer[(3, 1)].symbol(), " ");
+        assert_eq!(buffer[(3, 2)].symbol(), "─");
     }
 
     #[test]

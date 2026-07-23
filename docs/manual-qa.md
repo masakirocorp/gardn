@@ -24,7 +24,7 @@ Record each selected case as `PASS`, `FAIL`, or `BLOCKED`. For failures, preserv
 | M01 | P0 | First launch and core TUI | macOS arm64, Ghostty, and one non-Kitty terminal | Visible layout, focus, hit targets, onboarding |
 | M02 | P0 | Terminal input and output | Real terminal, IME, mouse-reporting app | Unicode width, paste, keyboard protocol, selection, graphics |
 | M03 | P0 | Detach, reattach, named sessions | Two terminal windows | Process continuity and session isolation |
-| M04 | P0 | Two live app clients | Two terminals with different dimensions | Foreground ownership and client-local UI isolation |
+| M04 | P0 | Two live app clients | Wide desktop and narrow/mobile terminals with different dimensions | Per-tab control, size mismatch, watcher isolation, explicit takeover |
 | M05 | P0 | Restore and persistence | Rich saved session | Layout, cwd, history, and session identity after restart |
 | M06 | P0 | Live handoff and update | Long-running PTY and TCP listener | Process loss, duplicate ownership, stale sockets |
 | M07 | P0 | Real agent lifecycle | Grok Build and one established integration | Authentication, lifecycle reporting, parent state, restore |
@@ -65,12 +65,16 @@ Pass when output advances while detached, pane targets remain usable, the server
 
 ## M04: Two live app clients
 
-1. Attach two real terminal windows with materially different dimensions.
-2. Open the navigator, Settings, copy mode, and a modal in client A while client B continues normal pane interaction.
-3. Type from the foreground client, then transfer foreground ownership to the other client and type again.
-4. Detach each client independently.
+1. Attach two real app clients with materially different dimensions, including a wide desktop viewport and a narrow/mobile viewport. Create or identify one stable tab.
+2. Have client A claim the free tab, then attach client B to that same tab. Confirm A is the controller and B is a view-only watcher. Switch B to another free tab and confirm it may claim that tab, then return to the tab controlled by A.
+3. In B, navigate and focus panes, scroll, search, and use copy mode. Resize B and send focus, mouse, and keyboard input while it watches A's tab. Confirm those actions remain client-local and do not change the controller's PTY size or terminal content; the watcher viewport crops or pads the controller-sized canvas without a layout shift.
+4. From the watcher, use `prefix+t` to take control and confirm that B becomes the controller and the canonical PTY resizes to B's dimensions. Repeat takeover from the persistent desktop/mobile **Take control** action and confirm the same explicit transition.
+5. Have the controller navigate to another tab. Confirm control is released and the remaining watcher is not auto-promoted; it must explicitly take control before resizing or sending tab input.
+6. Disconnect the controller while a watcher remains connected. Confirm the tab is unowned, the watcher remains view-only, and explicit takeover is required.
+7. Directly attach to the tab's terminal from another client and confirm terminal-level exclusivity remains in force; only the direct attach takeover flow can replace its attach owner. Exercise a Local API request and a system-automation request with explicit tab/pane ids while the tab is interactively occupied, and confirm both succeed without claiming or changing the interactive controller.
+8. Detach each app client independently.
 
-Pass when overlays, selections, scroll positions, and navigation remain client-local; input reaches only the intended pane; and PTY size follows the active client without oscillation or corruption.
+Pass when the first-client/free-tab and explicit-takeover rules are visible, watcher navigation/scroll/copy/search and differing dimensions stay local, no layout shifts occur before takeover, takeover alone changes canonical PTY size, navigation/disconnect release without auto-promotion, direct attach remains terminal-exclusive, and Local API/system automation bypasses interactive Tab Control.
 
 ## M05: Restore and persistence
 

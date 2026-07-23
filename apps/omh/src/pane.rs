@@ -35,6 +35,7 @@ use self::agent_detection::{
     DetectionScreenReadInput, PendingIdleConfirmation, ScreenDetectionPublishInput,
     AGENT_PENDING_IDLE_RECHECK, AGENT_STARTUP_GRACE_WINDOW,
 };
+pub(crate) use self::terminal::TerminalViewport;
 use self::terminal::{GhosttyPaneTerminal, PaneTerminal};
 pub use self::{
     state::PaneState,
@@ -2128,6 +2129,21 @@ impl PaneRuntime {
     ) {
         self.terminal
             .render_with_theme_background(frame, area, show_cursor, theme_default_bg);
+    }
+
+    pub fn render_view_with_theme_background(
+        &self,
+        frame: &mut Frame,
+        viewport: crate::pane::TerminalViewport,
+        show_cursor: bool,
+        theme_default_bg: Option<Color>,
+    ) {
+        self.terminal.render_view_with_theme_background(
+            frame,
+            viewport,
+            show_cursor,
+            theme_default_bg,
+        );
     }
 
     pub fn visible_hyperlinks(&self, area: Rect) -> Vec<((u16, u16), String, String)> {

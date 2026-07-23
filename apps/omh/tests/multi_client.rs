@@ -564,6 +564,19 @@ fn send_client_input(stream: &mut UnixStream, data: &[u8]) {
     stream.write_all(&frame_message(&payload)).unwrap();
     stream.flush().unwrap();
 }
+fn send_client_resize(stream: &mut UnixStream, cols: u16, rows: u16) {
+    // ClientMessage::Resize = variant 3
+    let payload = {
+        let mut buf = encode_varint_u32(3);
+        buf.extend_from_slice(&encode_varint_u16(cols));
+        buf.extend_from_slice(&encode_varint_u16(rows));
+        buf.extend_from_slice(&encode_varint_u32(8)); // cell_width_px
+        buf.extend_from_slice(&encode_varint_u32(16)); // cell_height_px
+        buf
+    };
+    stream.write_all(&frame_message(&payload)).unwrap();
+    stream.flush().unwrap();
+}
 
 fn send_client_detach(stream: &mut UnixStream) {
     // ClientMessage::Detach = variant 4
@@ -756,7 +769,7 @@ fn multi_client_allows_multiple_simultaneous_connections() {
 }
 
 #[test]
-fn multi_client_effective_size_shrinks_when_smaller_client_joins() {
+fn multi_client_smaller_watcher_join_does_not_resize_controller_canvas() {
     let _lock = test_lock();
     let base = unique_test_dir();
     let config_home = base.join("config");
@@ -768,33 +781,20 @@ fn multi_client_effective_size_shrinks_when_smaller_client_joins() {
     wait_for_socket(&api_socket, Duration::from_secs(10));
     wait_for_file(&client_socket, Duration::from_secs(10));
 
-    let (_workspace_id, pane_id) = create_workspace_and_root_pane(&api_socket, "size-shrink");
+    let (_workspace_id, pane_id) =
+        create_workspace_and_root_pane(&api_socket, "stable-size-watcher-join");
 
-    let mut large = connect_raw_client(&client_socket, 120, 40);
-    assert!(wait_for_frame(&mut large, Duration::from_secs(2)));
-    let large_only_size = read_pane_tty_size(&api_socket, &pane_id, Duration::from_secs(5));
+    let mut controller = connect_raw_client(&client_socket, 120, 40);
+    assert!(wait_for_frame(&mut controller, Duration::from_secs(2)));
+    let controller_size = read_pane_tty_size(&api_socket, &pane_id, Duration::from_secs(5));
 
-    let mut small = connect_raw_client(&client_socket, 80, 24);
-    assert!(wait_for_frame(&mut small, Duration::from_secs(2)));
-    let deadline = Instant::now() + Duration::from_secs(8);
-    let mut last_seen_size = None;
-    let mut size_with_small_client = None;
-    while Instant::now() < deadline {
-        if let Some(size) =
-            try_read_pane_tty_size(&api_socket, &pane_id, Duration::from_millis(400))
-        {
-            last_seen_size = Some(size);
-            if size.0 < large_only_size.0 && size.1 < large_only_size.1 {
-                size_with_small_client = Some(size);
-                break;
-            }
-        }
-        thread::sleep(Duration::from_millis(60));
-    }
+    let mut watcher = connect_raw_client(&client_socket, 80, 24);
+    assert!(wait_for_frame(&mut watcher, Duration::from_secs(2)));
+    let size_after_join = read_pane_tty_size(&api_socket, &pane_id, Duration::from_secs(5));
 
-    assert!(
-        size_with_small_client.is_some(),
-        "effective pane size should shrink when smaller client joins: before={large_only_size:?}, last_seen={last_seen_size:?}"
+    assert_eq!(
+        size_after_join, controller_size,
+        "a smaller watcher must not resize the controller-owned canonical PTY"
     );
 
     cleanup_spawned_omh(server, base);
@@ -851,7 +851,7 @@ fn multi_client_eventually_broadcasts_frame_updates_to_all_clients() {
 }
 
 #[test]
-fn multi_client_disconnect_recalculates_to_next_smallest() {
+fn multi_client_watcher_leaving_does_not_resize_controller_canvas() {
     let _lock = test_lock();
     let base = unique_test_dir();
     let config_home = base.join("config");
@@ -864,47 +864,28 @@ fn multi_client_disconnect_recalculates_to_next_smallest() {
     wait_for_file(&client_socket, Duration::from_secs(10));
 
     let (_workspace_id, pane_id) =
-        create_workspace_and_root_pane(&api_socket, "size-next-smallest");
+        create_workspace_and_root_pane(&api_socket, "stable-size-watcher-leave");
 
-    let mut c120 = connect_raw_client(&client_socket, 120, 40);
-    let mut c100 = connect_raw_client(&client_socket, 100, 30);
-    let mut c80 = connect_raw_client(&client_socket, 80, 24);
+    let mut controller = connect_raw_client(&client_socket, 120, 40);
+    let mut watcher = connect_raw_client(&client_socket, 80, 24);
+    assert!(wait_for_frame(&mut controller, Duration::from_secs(2)));
+    assert!(wait_for_frame(&mut watcher, Duration::from_secs(2)));
+    let controller_size = read_pane_tty_size(&api_socket, &pane_id, Duration::from_secs(5));
 
-    assert!(wait_for_frame(&mut c120, Duration::from_secs(2)));
-    assert!(wait_for_frame(&mut c100, Duration::from_secs(2)));
-    assert!(wait_for_frame(&mut c80, Duration::from_secs(2)));
+    send_client_detach(&mut watcher);
+    drop(watcher);
 
-    let size_with_three = read_pane_tty_size(&api_socket, &pane_id, Duration::from_secs(5));
-
-    // Smallest client disconnects; effective size should increase to the next-smallest.
-    send_client_detach(&mut c80);
-    drop(c80);
-
-    let deadline = Instant::now() + Duration::from_secs(8);
-    let mut size_after_smallest_disconnect = None;
-    while Instant::now() < deadline {
-        let maybe_size = try_read_pane_tty_size(&api_socket, &pane_id, Duration::from_millis(400));
-        if let Some(size) = maybe_size {
-            if size.0 > size_with_three.0 && size.1 > size_with_three.1 {
-                size_after_smallest_disconnect = Some(size);
-                break;
-            }
-        }
-        thread::sleep(Duration::from_millis(60));
-    }
-
-    assert!(
-        size_after_smallest_disconnect.is_some(),
-        "effective pane size should increase after smallest disconnects: before={:?}, last_seen={:?}",
-        size_with_three,
-        try_read_pane_tty_size(&api_socket, &pane_id, Duration::from_millis(300))
+    let size_after_leave = read_pane_tty_size(&api_socket, &pane_id, Duration::from_secs(5));
+    assert_eq!(
+        size_after_leave, controller_size,
+        "a watcher leaving must not resize the controller-owned canonical PTY"
     );
 
     cleanup_spawned_omh(server, base);
 }
 
 #[test]
-fn multi_client_smallest_leaving_resizes_up_for_remaining_clients() {
+fn multi_client_controller_resize_changes_canonical_size() {
     let _lock = test_lock();
     let base = unique_test_dir();
     let config_home = base.join("config");
@@ -916,28 +897,23 @@ fn multi_client_smallest_leaving_resizes_up_for_remaining_clients() {
     wait_for_socket(&api_socket, Duration::from_secs(10));
     wait_for_file(&client_socket, Duration::from_secs(10));
 
-    let (_workspace_id, pane_id) = create_workspace_and_root_pane(&api_socket, "size-resize-up");
+    let (_workspace_id, pane_id) =
+        create_workspace_and_root_pane(&api_socket, "stable-size-controller-resize");
 
-    let mut large = connect_raw_client(&client_socket, 120, 40);
-    let mut small = connect_raw_client(&client_socket, 80, 24);
+    let mut controller = connect_raw_client(&client_socket, 120, 40);
+    assert!(wait_for_frame(&mut controller, Duration::from_secs(2)));
+    let controller_size = read_pane_tty_size(&api_socket, &pane_id, Duration::from_secs(5));
 
-    assert!(wait_for_frame(&mut large, Duration::from_secs(2)));
-    assert!(wait_for_frame(&mut small, Duration::from_secs(2)));
-
-    let size_with_small_client = read_pane_tty_size(&api_socket, &pane_id, Duration::from_secs(5));
-
-    drain_server_messages(&mut large, Duration::from_millis(250));
-
-    send_client_detach(&mut small);
-    drop(small);
+    send_client_resize(&mut controller, 96, 28);
 
     let deadline = Instant::now() + Duration::from_secs(8);
-    let mut size_after_small_leaves = None;
+    let mut resized_size = None;
     while Instant::now() < deadline {
-        let maybe_size = try_read_pane_tty_size(&api_socket, &pane_id, Duration::from_millis(400));
-        if let Some(size) = maybe_size {
-            if size.0 > size_with_small_client.0 && size.1 > size_with_small_client.1 {
-                size_after_small_leaves = Some(size);
+        if let Some(size) =
+            try_read_pane_tty_size(&api_socket, &pane_id, Duration::from_millis(400))
+        {
+            if size != controller_size {
+                resized_size = Some(size);
                 break;
             }
         }
@@ -945,10 +921,60 @@ fn multi_client_smallest_leaving_resizes_up_for_remaining_clients() {
     }
 
     assert!(
-        size_after_small_leaves.is_some(),
-        "remaining clients should get larger effective pane size after smallest leaves: before={:?}, last_seen={:?}",
-        size_with_small_client,
+        resized_size.is_some(),
+        "controller resize should change the canonical PTY size: before={controller_size:?}, last_seen={:?}",
         try_read_pane_tty_size(&api_socket, &pane_id, Duration::from_millis(300))
+    );
+
+    cleanup_spawned_omh(server, base);
+}
+
+#[test]
+fn multi_client_controller_disconnect_leaves_watcher_free_without_promotion() {
+    let _lock = test_lock();
+    let base = unique_test_dir();
+    let config_home = base.join("config");
+    let runtime_dir = base.join("runtime");
+    let api_socket = runtime_dir.join("omh.sock");
+    let client_socket = runtime_dir.join("omh-client.sock");
+
+    let server = spawn_server(&config_home, &runtime_dir, &api_socket);
+    wait_for_socket(&api_socket, Duration::from_secs(10));
+    wait_for_file(&client_socket, Duration::from_secs(10));
+
+    let (_workspace_id, pane_id) =
+        create_workspace_and_root_pane(&api_socket, "stable-size-controller-disconnect");
+
+    let mut controller = connect_raw_client(&client_socket, 120, 40);
+    let mut watcher = connect_raw_client(&client_socket, 80, 24);
+    assert!(wait_for_frame(&mut controller, Duration::from_secs(2)));
+    assert!(wait_for_frame(&mut watcher, Duration::from_secs(2)));
+    let controller_size = read_pane_tty_size(&api_socket, &pane_id, Duration::from_secs(5));
+
+    send_client_detach(&mut controller);
+    drop(controller);
+
+    // A released tab is free, not implicitly promoted to its remaining watcher.
+    send_client_resize(&mut watcher, 120, 40);
+    let deadline = Instant::now() + Duration::from_secs(8);
+    let mut last_seen_size = None;
+    while Instant::now() < deadline {
+        if let Some(size) =
+            try_read_pane_tty_size(&api_socket, &pane_id, Duration::from_millis(400))
+        {
+            last_seen_size = Some(size);
+            assert_eq!(
+                size, controller_size,
+                "a free watcher must not resize the canonical PTY after controller disconnect"
+            );
+        }
+        thread::sleep(Duration::from_millis(60));
+    }
+
+    assert_eq!(
+        last_seen_size,
+        Some(controller_size),
+        "watcher should remain connected while the released tab stays free"
     );
 
     cleanup_spawned_omh(server, base);
@@ -960,6 +986,7 @@ fn multi_client_client_crash_sigkill_does_not_affect_server() {
     let base = unique_test_dir();
     let config_home = base.join("config");
     let runtime_dir = base.join("runtime");
+
     let api_socket = runtime_dir.join("omh.sock");
     let client_socket = runtime_dir.join("omh-client.sock");
 
