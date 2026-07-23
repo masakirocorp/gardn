@@ -6068,10 +6068,34 @@ impl App {
         let row = mouse.row.saturating_sub(inner.y);
         match mouse.kind {
             crossterm::event::MouseEventKind::ScrollUp => {
-                runtime.scroll_up(self.state.mouse_scroll_lines);
+                if let Some(metrics) = runtime.scroll_metrics() {
+                    let current = crate::app::view_state::terminal_offset_from_bottom(
+                        &popup.terminal_id,
+                        metrics,
+                        client_view,
+                    );
+                    crate::app::view_state::set_terminal_offset_from_bottom(
+                        &popup.terminal_id,
+                        metrics,
+                        current.saturating_add(self.state.mouse_scroll_lines),
+                        client_view,
+                    );
+                }
             }
             crossterm::event::MouseEventKind::ScrollDown => {
-                runtime.scroll_down(self.state.mouse_scroll_lines);
+                if let Some(metrics) = runtime.scroll_metrics() {
+                    let current = crate::app::view_state::terminal_offset_from_bottom(
+                        &popup.terminal_id,
+                        metrics,
+                        client_view,
+                    );
+                    crate::app::view_state::set_terminal_offset_from_bottom(
+                        &popup.terminal_id,
+                        metrics,
+                        current.saturating_sub(self.state.mouse_scroll_lines),
+                        client_view,
+                    );
+                }
             }
             crossterm::event::MouseEventKind::ScrollLeft
             | crossterm::event::MouseEventKind::ScrollRight => {}

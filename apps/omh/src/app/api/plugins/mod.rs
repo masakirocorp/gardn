@@ -1683,6 +1683,11 @@ command = ["sh", "-c", "printf '%s\n%s\n%s\n%s\n%s\n%s\n%s\n' \"$PWD\" \"$OMH_PL
                         "OMH_PLUGIN_CONTEXT_JSON".to_string(),
                         "{\"spoofed\":true}".to_string(),
                     ),
+                    (
+                        "OMH_WORKSPACE_ID".to_string(),
+                        "spoofed-workspace".to_string(),
+                    ),
+                    ("OMH_PANE_ID".to_string(), "spoofed-pane".to_string()),
                     ("OMH_BIN_PATH".to_string(), "/tmp/spoofed-omh".to_string()),
                 ]),
             }),
@@ -1693,8 +1698,8 @@ command = ["sh", "-c", "printf '%s\n%s\n%s\n%s\n%s\n%s\n%s\n' \"$PWD\" \"$OMH_PL
         assert_eq!(plugin_pane.plugin_id, "example.pane");
         assert_eq!(plugin_pane.entrypoint, "board");
         assert_eq!(plugin_pane.pane.label.as_deref(), Some("Plugin Board"));
-        let Some((_, opened_pane_id)) = app.parse_pane_id(&plugin_pane.pane.pane_id) else {
-            panic!("opened pane id should parse");
+        let Some(opened_pane_id) = app.parse_popup_public_pane_id(&plugin_pane.pane.pane_id) else {
+            panic!("opened popup pane id should parse");
         };
         assert!(app.state.plugin_panes.contains_key(&opened_pane_id));
 
@@ -1708,7 +1713,7 @@ command = ["sh", "-c", "printf '%s\n%s\n%s\n%s\n%s\n%s\n%s\n' \"$PWD\" \"$OMH_PL
         assert_eq!(lines.next(), Some("example.pane"));
         assert_eq!(lines.next(), Some("board"));
         assert_eq!(lines.next(), Some(plugin_pane.pane.workspace_id.as_str()));
-        assert_eq!(lines.next(), Some(plugin_pane.pane.pane_id.as_str()));
+        assert_eq!(lines.next(), Some(target_public_pane_id.as_str()));
         let bin_path = lines.next().expect("bin path");
         assert_ne!(bin_path, "/tmp/spoofed-omh");
         assert_eq!(
@@ -3619,6 +3624,62 @@ command = []
         assert!(!app.state.popup_panes.contains_key(&pane_id));
         assert!(!app.state.terminals.contains_key(&terminal_id));
         assert!(app.terminal_runtimes.get(&terminal_id).is_none());
+    }
+
+    #[tokio::test]
+    async fn popup_mouse_scroll_updates_only_the_client_viewport() {
+        let mut app = test_app();
+        app.state.workspaces = vec![crate::workspace::Workspace::test_new("popup-scroll")];
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.ensure_test_terminals();
+        let mut view = crate::app::ClientViewState::from_default_client_state(&app.state);
+        let output = (0..32)
+            .map(|line| format!("line {line}\r\n"))
+            .collect::<String>();
+        let runtime = crate::terminal::TerminalRuntime::test_with_scrollback_bytes(
+            40,
+            12,
+            1_000_000,
+            output.as_bytes(),
+        );
+        let (_, terminal_id) = app.install_test_popup_runtime(&mut view, runtime);
+        crate::ui::compute_view_for_client_without_resizing_panes(
+            &app.state,
+            &mut view,
+            &app.terminal_runtimes,
+            ratatui::layout::Rect::new(0, 0, 80, 24),
+        );
+        let (_, inner) = crate::ui::popup_pane_rects_for_view(
+            &app.state,
+            &view,
+            ratatui::layout::Rect::new(0, 0, 80, 24),
+        )
+        .expect("popup geometry");
+
+        assert!(app.handle_client_view_popup_mouse(
+            &mut view,
+            crossterm::event::MouseEvent {
+                kind: crossterm::event::MouseEventKind::ScrollUp,
+                column: inner.x,
+                row: inner.y,
+                modifiers: crossterm::event::KeyModifiers::empty(),
+            },
+        ));
+
+        let shared_metrics = app
+            .terminal_runtimes
+            .get(&terminal_id)
+            .and_then(|runtime| runtime.scroll_metrics())
+            .expect("popup scroll metrics");
+        assert_eq!(shared_metrics.offset_from_bottom, 0);
+        assert!(
+            crate::app::view_state::terminal_offset_from_bottom(
+                &terminal_id,
+                shared_metrics,
+                &view,
+            ) > 0
+        );
     }
 
     #[tokio::test]

@@ -150,6 +150,7 @@ impl RawInputFramer {
         }
     }
 
+    #[cfg(windows)]
     pub(crate) fn has_pending_input(&self) -> bool {
         self.byte_framer.has_pending_input()
     }

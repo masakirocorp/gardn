@@ -328,6 +328,18 @@ impl App {
         ));
         env.push(("OMH_PLUGIN_CONTEXT_JSON".to_string(), context_json.clone()));
         env.push(("HERDR_PLUGIN_CONTEXT_JSON".to_string(), context_json));
+        if let Some(workspace_id) = context.workspace_id.as_ref() {
+            env.push(("OMH_WORKSPACE_ID".to_string(), workspace_id.clone()));
+            env.push(("HERDR_WORKSPACE_ID".to_string(), workspace_id.clone()));
+        }
+        if let Some(tab_id) = context.tab_id.as_ref() {
+            env.push(("OMH_TAB_ID".to_string(), tab_id.clone()));
+            env.push(("HERDR_TAB_ID".to_string(), tab_id.clone()));
+        }
+        if let Some(pane_id) = context.focused_pane_id.as_ref() {
+            env.push(("OMH_PANE_ID".to_string(), pane_id.clone()));
+            env.push(("HERDR_PANE_ID".to_string(), pane_id.clone()));
+        }
         if let Ok(current_exe) = std::env::current_exe() {
             env.push((
                 "OMH_BIN_PATH".to_string(),
@@ -421,6 +433,9 @@ fn plugin_pane_protected_env_key(key: &str) -> bool {
             | "OMH_PLUGIN_ENTRYPOINT_ID"
             | "OMH_PLUGIN_CONTEXT_JSON"
             | "OMH_BIN_PATH"
+            | "OMH_WORKSPACE_ID"
+            | "OMH_TAB_ID"
+            | "OMH_PANE_ID"
             | "HERDR_PLUGIN_ID"
             | "HERDR_PLUGIN_ROOT"
             | "HERDR_PLUGIN_CONFIG_DIR"
@@ -428,5 +443,8 @@ fn plugin_pane_protected_env_key(key: &str) -> bool {
             | "HERDR_PLUGIN_ENTRYPOINT_ID"
             | "HERDR_PLUGIN_CONTEXT_JSON"
             | "HERDR_BIN_PATH"
+            | "HERDR_WORKSPACE_ID"
+            | "HERDR_TAB_ID"
+            | "HERDR_PANE_ID"
     )
 }

@@ -5998,7 +5998,7 @@ model: auto
         assert!(PI_EXTENSION_ASSET.contains("tool_execution_start"));
         assert!(PI_EXTENSION_ASSET.contains("tool_execution_end"));
         assert!(PI_EXTENSION_ASSET.contains("pi.on(\"agent_settled\""));
-        assert!(PI_EXTENSION_ASSET.contains("ctx?.isIdle?.() !== true"));
+        assert!(PI_EXTENSION_ASSET.contains("!sessionIsIdle(ctx)"));
         assert!(!PI_EXTENSION_ASSET.contains("pi.on(\"agent_end\""));
         assert!(!PI_EXTENSION_ASSET.contains("OMH_PI_IDLE_DEBOUNCE_MS"));
         assert!(!PI_EXTENSION_ASSET.contains("OMH_PI_RETRY_GRACE_MS"));

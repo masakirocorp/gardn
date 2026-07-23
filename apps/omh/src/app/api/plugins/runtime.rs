@@ -391,8 +391,6 @@ min_omh_version = "0.2.0"
     fn unsupported_platform_literal() -> &'static str {
         if cfg!(target_os = "linux") {
             r#"["macos"]"#
-        } else if cfg!(target_os = "macos") {
-            r#"["linux"]"#
         } else {
             r#"["linux"]"#
         }
