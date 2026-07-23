@@ -3,6 +3,7 @@
 //! - `state.rs` — AppState, Mode, and pure data structs
 //! - `actions.rs` — state mutations (testable without PTYs/async)
 //! - `input.rs` — key/mouse → action translation
+pub(crate) mod agent_view;
 
 pub(crate) mod actions;
 pub(crate) mod agent_profile_picker;

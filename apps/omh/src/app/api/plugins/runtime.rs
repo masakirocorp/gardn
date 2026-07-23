@@ -197,6 +197,38 @@ impl App {
         Ok(log)
     }
 
+    pub(crate) fn run_plugin_startup_hooks(&mut self) {
+        let mut context = self.current_plugin_context("plugin.startup");
+        context.invocation_source = Some("startup".to_string());
+        let mut plugins = self
+            .state
+            .installed_plugins
+            .values()
+            .filter(|plugin| {
+                plugin.enabled && plugin_manifest_available(plugin) && !plugin.startup.is_empty()
+            })
+            .cloned()
+            .collect::<Vec<_>>();
+        plugins.sort_by(|left, right| left.plugin_id.cmp(&right.plugin_id));
+        for plugin in plugins {
+            for startup in &plugin.startup {
+                let platforms =
+                    effective_platforms(&startup.platforms, &plugin.platforms).clone();
+                if ensure_platform_supported(&platforms, "startup").is_err() {
+                    continue;
+                }
+                let _ = self.start_plugin_command(
+                    &plugin,
+                    None,
+                    Some("startup".to_string()),
+                    startup.command.clone(),
+                    &context,
+                    None,
+                );
+            }
+        }
+    }
+
     pub(crate) fn run_plugin_event_hooks(&mut self, event: &crate::api::schema::EventEnvelope) {
         let event_name = event.event.dot_name();
         if !crate::api::schema::PLUGIN_HOOK_EVENT_KINDS.contains(&event.event) {
@@ -290,4 +322,182 @@ pub(super) fn read_capped_plugin_output(mut reader: impl Read, cap: usize) -> St
         ));
     }
     output
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::api::schema::{InstalledPluginInfo, PluginPlatform};
+    use crate::config::Config;
+    use std::collections::HashMap;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn test_app() -> App {
+        let (_api_tx, api_rx) = tokio::sync::mpsc::unbounded_channel();
+        App::new(
+            &Config::default(),
+            true,
+            None,
+            api_rx,
+            crate::api::EventHub::default(),
+        )
+    }
+
+    fn unique_root(name: &str) -> std::path::PathBuf {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        std::env::temp_dir().join(format!("omh-runtime-{name}-{}-{nanos}", std::process::id()))
+    }
+
+    fn startup_plugin(
+        root: &std::path::Path,
+        id: &str,
+        enabled: bool,
+        startup_platforms: Option<&str>,
+    ) -> InstalledPluginInfo {
+        std::fs::create_dir_all(root).unwrap();
+        let startup_platforms = startup_platforms
+            .map(|platforms| format!("platforms = {platforms}\n"))
+            .unwrap_or_default();
+        std::fs::write(
+            root.join("omh-plugin.toml"),
+            format!(
+                r#"
+id = "{id}"
+name = "{id}"
+version = "0.1.0"
+min_omh_version = "0.2.0"
+
+[[startup]]
+{startup_platforms}command = ["/bin/echo", "startup arg", "--flag=value"]
+"#
+            ),
+        )
+        .unwrap();
+        super::super::load_plugin_manifest(&root.display().to_string(), enabled).unwrap()
+    }
+
+    fn current_platform_literal() -> &'static str {
+        if cfg!(target_os = "linux") {
+            r#"["linux"]"#
+        } else if cfg!(target_os = "macos") {
+            r#"["macos"]"#
+        } else {
+            r#"["windows"]"#
+        }
+    }
+
+    fn unsupported_platform_literal() -> &'static str {
+        if cfg!(target_os = "linux") {
+            r#"["macos"]"#
+        } else if cfg!(target_os = "macos") {
+            r#"["linux"]"#
+        } else {
+            r#"["linux"]"#
+        }
+    }
+
+    #[test]
+    fn startup_hooks_filter_enabled_and_platform_and_preserve_argv() {
+        let root = unique_root("filter");
+        let enabled = startup_plugin(
+            &root.join("enabled"),
+            "example.enabled",
+            true,
+            Some(current_platform_literal()),
+        );
+        let disabled = startup_plugin(
+            &root.join("disabled"),
+            "example.disabled",
+            false,
+            Some(current_platform_literal()),
+        );
+        let unsupported = startup_plugin(
+            &root.join("unsupported"),
+            "example.unsupported",
+            true,
+            Some(unsupported_platform_literal()),
+        );
+
+        let mut app = test_app();
+        app.state.installed_plugins = HashMap::from([
+            (enabled.plugin_id.clone(), enabled),
+            (disabled.plugin_id.clone(), disabled),
+            (unsupported.plugin_id.clone(), unsupported),
+        ]);
+        app.run_plugin_startup_hooks();
+
+        assert_eq!(app.state.plugin_command_logs.len(), 1);
+        assert_eq!(
+            app.state.plugin_command_logs[0].command,
+            ["/bin/echo", "startup arg", "--flag=value"]
+        );
+        assert_eq!(
+            app.state.plugin_command_logs[0].event.as_deref(),
+            Some("startup")
+        );
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn startup_hooks_do_not_replay_on_refresh_and_restart_runs_once_again() {
+        let root = unique_root("lifecycle");
+        let plugin = startup_plugin(
+            &root,
+            "example.lifecycle",
+            true,
+            Some(current_platform_literal()),
+        );
+
+        let mut app = test_app();
+        app.state
+            .installed_plugins
+            .insert(plugin.plugin_id.clone(), plugin.clone());
+        app.run_plugin_startup_hooks();
+        assert_eq!(app.state.plugin_command_logs.len(), 1);
+
+        app.refresh_installed_plugins().unwrap();
+        assert_eq!(app.state.plugin_command_logs.len(), 1);
+
+        let mut restarted = test_app();
+        restarted
+            .state
+            .installed_plugins
+            .insert(plugin.plugin_id.clone(), plugin);
+        restarted.run_plugin_startup_hooks();
+        assert_eq!(restarted.state.plugin_command_logs.len(), 1);
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn startup_manifest_platform_override_is_effective() {
+        let root = unique_root("override");
+        let mut plugin = startup_plugin(
+            &root,
+            "example.override",
+            true,
+            None,
+        );
+        plugin.platforms = Some(vec![PluginPlatform::Linux]);
+
+        let mut app = test_app();
+        app.state
+            .installed_plugins
+            .insert(plugin.plugin_id.clone(), plugin);
+        app.run_plugin_startup_hooks();
+        assert_eq!(
+            app.state
+                .plugin_command_logs
+                .iter()
+                .filter(|log| log.status == PluginCommandStatus::Running)
+                .count(),
+            usize::from(cfg!(target_os = "linux"))
+        );
+
+        let _ = std::fs::remove_dir_all(root);
+    }
 }

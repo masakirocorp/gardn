@@ -3636,8 +3636,8 @@
     {
       "upstream": "d30ab1b54f6b6be95a0cb47ddc38da1d5e088700",
       "subject": "feat: add plugin-driven agent views and startup hooks",
-      "status": "pending",
-      "reason": "Plugin-driven Agent views and one-shot startup hooks are not implemented."
+      "status": "ported",
+      "reason": "Ported ENG-158: declarative Agent views and startup hooks with strict manifest validation, deterministic client-local filtering/sorting, global plugin registry consistency, exact argv, and startup lifecycle behavior. Focused manifest, runtime, API, and agent-view tests pass."
     },
     {
       "upstream": "9450b168c727e9e4cbee95e6edf4f11cfe6f2154",

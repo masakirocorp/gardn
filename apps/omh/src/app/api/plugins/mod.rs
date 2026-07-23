@@ -14,9 +14,9 @@ use crate::api::schema::{
 };
 use crate::app::App;
 use manifest::{
-    effective_platforms, ensure_platform_supported, normalize_action_id, normalize_plugin_id,
-    normalize_plugin_source,
+    effective_platforms, ensure_platform_supported, normalize_action_id, normalize_plugin_source,
 };
+pub(super) use manifest::normalize_plugin_id;
 
 #[cfg(test)]
 use crate::api::schema::{PluginCommandStatus, PluginInvocationContext};
@@ -3400,5 +3400,53 @@ command = ["act.exe"]
 
         let _ = std::fs::remove_dir_all(root);
         let _ = std::fs::remove_dir_all(registry_dir);
+    }
+    #[test]
+    fn startup_manifest_is_validated_and_preserved() {
+        let root = unique_temp_path("startup-validation");
+        let plugin = load_plugin_manifest(
+            &write_manifest_content(
+                &root,
+                r#"
+id = "example.startup-validation"
+name = "Startup Validation"
+version = "0.1.0"
+min_omh_version = "0.2.0"
+
+[[startup]]
+platforms = ["macos"]
+command = ["/bin/echo", "startup arg"]
+"#,
+            )
+            .parent()
+            .unwrap()
+            .display()
+            .to_string(),
+            true,
+        )
+        .unwrap();
+        assert_eq!(plugin.startup.len(), 1);
+        assert_eq!(plugin.startup[0].platforms, Some(vec![crate::api::schema::PluginPlatform::Macos]));
+        assert_eq!(plugin.startup[0].command, ["/bin/echo", "startup arg"]);
+
+        let invalid = unique_temp_path("startup-invalid");
+        let manifest = write_manifest_content(
+            &invalid,
+            r#"
+id = "example.startup-invalid"
+name = "Startup Invalid"
+version = "0.1.0"
+min_omh_version = "0.2.0"
+
+[[startup]]
+command = []
+"#,
+        );
+        let error = load_plugin_manifest(&invalid.display().to_string(), true).unwrap_err();
+        assert_eq!(error.0, "invalid_plugin_command");
+        assert!(manifest.exists());
+
+        let _ = std::fs::remove_dir_all(root);
+        let _ = std::fs::remove_dir_all(invalid);
     }
 }

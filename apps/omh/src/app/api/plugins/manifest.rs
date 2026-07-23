@@ -1,7 +1,7 @@
 use crate::api::schema::{
     InstalledPluginInfo, PluginManifestAction, PluginManifestBuild, PluginManifestEventHook,
-    PluginManifestLinkHandler, PluginManifestPane, PluginPanePlacement, PluginPlatform,
-    PluginSourceInfo, PluginSourceKind,
+    PluginManifestLinkHandler, PluginManifestPane, PluginManifestStartup, PluginPanePlacement,
+    PluginPlatform, PluginSourceInfo, PluginSourceKind,
 };
 
 const HERDR_PLUGIN_V1_COMPAT_VERSION: &str = "0.7.0";
@@ -25,6 +25,8 @@ struct RawPluginManifest {
     #[serde(default)]
     build: Vec<RawPluginManifestBuild>,
     #[serde(default)]
+    startup: Vec<RawPluginManifestStartup>,
+    #[serde(default)]
     actions: Vec<RawPluginManifestAction>,
     #[serde(default)]
     events: Vec<RawPluginManifestEventHook>,
@@ -33,9 +35,15 @@ struct RawPluginManifest {
     #[serde(default)]
     link_handlers: Vec<RawPluginManifestLinkHandler>,
 }
-
 #[derive(serde::Deserialize)]
 struct RawPluginManifestBuild {
+    #[serde(default)]
+    platforms: Option<Vec<RawPlatform>>,
+    command: Vec<String>,
+}
+
+#[derive(serde::Deserialize)]
+struct RawPluginManifestStartup {
     #[serde(default)]
     platforms: Option<Vec<RawPlatform>>,
     command: Vec<String>,
@@ -158,6 +166,11 @@ pub(crate) fn load_plugin_manifest(
         .into_iter()
         .map(normalize_manifest_build)
         .collect::<Result<Vec<_>, _>>()?;
+    let startup = raw
+        .startup
+        .into_iter()
+        .map(normalize_manifest_startup)
+        .collect::<Result<Vec<_>, _>>()?;
     let mut actions = raw
         .actions
         .into_iter()
@@ -204,6 +217,7 @@ pub(crate) fn load_plugin_manifest(
         version,
         min_omh_version,
         description,
+        startup,
         manifest_path: manifest_path.display().to_string(),
         plugin_root: plugin_root.display().to_string(),
         enabled,
@@ -292,6 +306,14 @@ fn normalize_manifest_build(
     let platforms = normalize_platforms(build.platforms)?;
     let command = normalize_command(build.command)?;
     Ok(PluginManifestBuild { platforms, command })
+}
+
+fn normalize_manifest_startup(
+    startup: RawPluginManifestStartup,
+) -> Result<PluginManifestStartup, (&'static str, String)> {
+    let platforms = normalize_platforms(startup.platforms)?;
+    let command = normalize_command(startup.command)?;
+    Ok(PluginManifestStartup { platforms, command })
 }
 
 pub(super) fn normalize_plugin_source(
@@ -592,7 +614,7 @@ fn non_empty_trimmed(
     }
 }
 
-pub(super) fn normalize_plugin_id(value: &str) -> Option<String> {
+pub(crate) fn normalize_plugin_id(value: &str) -> Option<String> {
     normalize_identifier(value, PLUGIN_ID_MAX_CHARS)
 }
 

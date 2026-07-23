@@ -146,7 +146,7 @@ pub(crate) use self::{
         workspace_list_entry_count_for_view, workspace_list_position_for_workspace,
         workspace_list_rect, workspace_list_scroll_metrics, workspace_list_scroll_metrics_for_view,
         workspace_list_scrollbar_rect, workspace_list_scrollbar_rect_for_view,
-        AgentPanelHeaderTarget, CollapsedWorkspaceRowEntry,
+        AgentPanelEntry, AgentPanelHeaderTarget, CollapsedWorkspaceRowEntry,
     },
 };
 pub(crate) use self::{

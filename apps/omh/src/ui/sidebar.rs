@@ -206,13 +206,15 @@ pub(crate) fn agent_panel_entries_for_view(
     terminal_runtimes: &TerminalRuntimeRegistry,
     view: &ClientViewState,
 ) -> Vec<AgentPanelEntry> {
-    agent_panel_entries_with_context(
+    let mut entries = agent_panel_entries_with_context(
         app,
         Some(terminal_runtimes),
         view.agent_panel_scope,
         view.active_workspace,
         view.active_group,
-    )
+    );
+    crate::app::agent_view::apply_agent_view(app, view, &mut entries);
+    entries
 }
 
 pub(crate) fn agent_panel_sections_for_view(
@@ -220,7 +222,10 @@ pub(crate) fn agent_panel_sections_for_view(
     terminal_runtimes: &TerminalRuntimeRegistry,
     view: &ClientViewState,
 ) -> Vec<AgentPanelSection> {
-    agent_panel_sections_from_entries(agent_panel_entries_for_view(app, terminal_runtimes, view))
+    agent_panel_sections_from_entries(
+        agent_panel_entries_for_view(app, terminal_runtimes, view),
+        view.agent_view_override.is_none(),
+    )
 }
 
 fn agent_panel_entries_with_runtimes(
@@ -407,11 +412,12 @@ fn agent_panel_sections_from(
     app: &AppState,
     terminal_runtimes: &TerminalRuntimeRegistry,
 ) -> Vec<AgentPanelSection> {
-    agent_panel_sections_from_entries(agent_panel_entries_from(app, terminal_runtimes))
+    agent_panel_sections_from_entries(agent_panel_entries_from(app, terminal_runtimes), true)
 }
 
 fn agent_panel_sections_from_entries(
     scoped_entries: Vec<AgentPanelEntry>,
+    sort_by_recent_activity: bool,
 ) -> Vec<AgentPanelSection> {
     let mut sections = Vec::new();
 
@@ -420,7 +426,9 @@ fn agent_panel_sections_from_entries(
         .filter(|entry| agent_panel_entry_needs_triage(entry))
         .cloned()
         .collect();
-    sort_agent_panel_entries_by_recent_activity(&mut triage);
+    if sort_by_recent_activity {
+        sort_agent_panel_entries_by_recent_activity(&mut triage);
+    }
     if !triage.is_empty() {
         sections.push(AgentPanelSection {
             label: "triage",
@@ -433,7 +441,9 @@ fn agent_panel_sections_from_entries(
         .filter(|entry| entry.state == AgentState::Working)
         .cloned()
         .collect();
-    sort_agent_panel_entries_by_recent_activity(&mut working);
+    if sort_by_recent_activity {
+        sort_agent_panel_entries_by_recent_activity(&mut working);
+    }
     if !working.is_empty() {
         sections.push(AgentPanelSection {
             label: "working",
@@ -447,7 +457,9 @@ fn agent_panel_sections_from_entries(
             entry.state != AgentState::Working && !agent_panel_entry_needs_triage(entry)
         })
         .collect();
-    sort_agent_panel_entries_by_recent_activity(&mut idle);
+    if sort_by_recent_activity {
+        sort_agent_panel_entries_by_recent_activity(&mut idle);
+    }
     if !idle.is_empty() {
         sections.push(AgentPanelSection {
             label: "idle",

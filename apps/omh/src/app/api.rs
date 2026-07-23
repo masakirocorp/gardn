@@ -3,6 +3,7 @@ use std::time::{Duration, Instant};
 
 const WINDOWS_POWERSHELL_AGENT_EXIT_RESPAWN_GRACE: Duration = Duration::from_secs(2);
 
+mod agent_view;
 mod agents;
 mod env;
 mod integrations;
@@ -818,7 +819,22 @@ impl App {
         client_view: &mut ClientViewState,
         request: crate::api::schema::Request,
     ) -> String {
+        let method_for_cleanup = request.method.clone();
         match request.method {
+            crate::api::schema::Method::AgentViewSet(params) => {
+                self.drain_internal_events();
+                let response =
+                    self.handle_agent_view_set_for_view(client_view, request.id, params);
+                client_view.reconcile(&self.state);
+                response
+            }
+            crate::api::schema::Method::AgentViewClear(params) => {
+                self.drain_internal_events();
+                let response =
+                    self.handle_agent_view_clear_for_view(client_view, request.id, params);
+                client_view.reconcile(&self.state);
+                response
+            }
             crate::api::schema::Method::WorkspaceList(_) => {
                 self.drain_internal_events();
                 let response = self.handle_workspace_list_for_view(client_view, request.id);
@@ -975,6 +991,17 @@ impl App {
                     id: request.id,
                     method,
                 });
+                let plugin_id = match &method_for_cleanup {
+                    crate::api::schema::Method::PluginUnlink(params) => Some(&params.plugin_id),
+                    crate::api::schema::Method::PluginDisable(params) => Some(&params.plugin_id),
+                    _ => None,
+                };
+                if let Some(plugin_id) =
+                    plugin_id.and_then(|plugin_id| super::api::plugins::normalize_plugin_id(plugin_id))
+                {
+                    let source = format!("plugin:{plugin_id}");
+                    self.clear_agent_view_for_source(client_view, &source);
+                }
                 client_view.reconcile(&self.state);
                 response
             }
@@ -1172,6 +1199,12 @@ impl App {
             Method::TabFocus(target) => return self.handle_tab_focus(request.id, target),
             Method::TabRename(params) => return self.handle_tab_rename(request.id, params),
             Method::TabClose(target) => return self.handle_tab_close(request.id, target),
+            Method::AgentViewSet(params) => {
+                return self.handle_agent_view_set(request.id, params);
+            }
+            Method::AgentViewClear(params) => {
+                return self.handle_agent_view_clear(request.id, params);
+            }
             Method::AgentList(_) => return self.handle_agent_list(request.id),
             Method::PaneFocus(target) => return self.handle_pane_focus(request.id, target),
             Method::AgentGet(target) => return self.handle_agent_get(request.id, target),
