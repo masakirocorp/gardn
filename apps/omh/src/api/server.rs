@@ -16,7 +16,7 @@ use crate::api::schema::{
     ErrorBody, ErrorResponse, Method, Request, ResponseResult, ServerCapabilities, SuccessResponse,
 };
 use crate::api::subscriptions::ActiveSubscription;
-use crate::api::wait::wait_for_output;
+use crate::api::wait::{prompt_agent, wait_for_agent, wait_for_output};
 use crate::api::{request_changes_ui, socket_path, ApiRequestMessage, ApiRequestSender, EventHub};
 use crate::ipc::{
     bind_local_listener, poll_local_stream_read, remove_socket_file_if_owned,
@@ -204,6 +204,70 @@ fn handle_connection(
             }
             result
         }
+        Method::AgentWait(params) => {
+            let Some(response) = wait_for_agent(
+                request_id.clone(),
+                params,
+                &mut stream,
+                api_tx,
+                event_hub,
+                running,
+            )?
+            else {
+                crate::logging::api_request_completed(
+                    &request_id,
+                    method,
+                    "client_disconnected",
+                    changes_ui,
+                );
+                return Ok(());
+            };
+            let result = write_text_line_allow_disconnect(&mut stream, &response);
+            match &result {
+                Ok(()) => crate::logging::api_request_completed(
+                    &request_id,
+                    method,
+                    api_response_outcome(&response),
+                    changes_ui,
+                ),
+                Err(err) => {
+                    crate::logging::api_request_failed(&request_id, method, &err.to_string())
+                }
+            }
+            result
+        }
+        Method::AgentPrompt(params) => {
+            let Some(response) = prompt_agent(
+                request_id.clone(),
+                params,
+                &mut stream,
+                api_tx,
+                event_hub,
+                running,
+            )?
+            else {
+                crate::logging::api_request_completed(
+                    &request_id,
+                    method,
+                    "client_disconnected",
+                    changes_ui,
+                );
+                return Ok(());
+            };
+            let result = write_text_line_allow_disconnect(&mut stream, &response);
+            match &result {
+                Ok(()) => crate::logging::api_request_completed(
+                    &request_id,
+                    method,
+                    api_response_outcome(&response),
+                    changes_ui,
+                ),
+                Err(err) => {
+                    crate::logging::api_request_failed(&request_id, method, &err.to_string())
+                }
+            }
+            result
+        }
         Method::PaneWaitForOutput(params) => {
             let Some(response) =
                 wait_for_output(request_id.clone(), params, &mut stream, api_tx, running)?
@@ -318,10 +382,12 @@ fn api_method_name(method: &Method) -> &'static str {
         Method::AgentGet(_) => "agent.get",
         Method::AgentRead(_) => "agent.read",
         Method::AgentExplain(_) => "agent.explain",
-        Method::AgentSend(_) => "agent.send",
+        Method::AgentSendKeys(_) => "agent.send_keys",
+        Method::AgentPrompt(_) => "agent.prompt",
         Method::AgentRename(_) => "agent.rename",
         Method::AgentFocus(_) => "agent.focus",
         Method::AgentStart(_) => "agent.start",
+        Method::AgentWait(_) => "agent.wait",
         Method::PaneFocus(_) => "pane.focus",
         Method::PaneSplit(_) => "pane.split",
         Method::PaneSwap(_) => "pane.swap",

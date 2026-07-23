@@ -1178,9 +1178,22 @@ impl App {
             Method::AgentFocus(target) => return self.handle_agent_focus(request.id, target),
             Method::AgentRename(params) => return self.handle_agent_rename(request.id, params),
             Method::AgentStart(params) => return self.handle_agent_start(request.id, params),
+            Method::AgentPrompt(params) => return self.handle_agent_prompt(request.id, params),
+            Method::AgentWait(_) => {
+                return serde_json::to_string(&ErrorResponse {
+                    id: request.id,
+                    error: ErrorBody {
+                        code: "invalid_request".into(),
+                        message: "agent.wait is handled by the api server".into(),
+                    },
+                })
+                .unwrap_or_else(|_| "{}".into());
+            }
             Method::AgentRead(params) => return self.handle_agent_read(request.id, params),
             Method::AgentExplain(target) => return self.handle_agent_explain(request.id, target),
-            Method::AgentSend(params) => return self.handle_agent_send(request.id, params),
+            Method::AgentSendKeys(params) => {
+                return self.handle_agent_send_keys(request.id, params)
+            }
             Method::PaneSplit(params) => return self.handle_pane_split(request.id, params),
             Method::PaneSwap(params) => return self.handle_pane_swap(request.id, params),
             Method::PaneMove(params) => return self.handle_pane_move(request.id, params),

@@ -12431,6 +12431,46 @@ mod tests {
     }
 
     #[test]
+    fn agent_target_rejects_plain_terminal() {
+        let mut app = test_app();
+        let workspace = Workspace::test_new("agent-target-strict");
+        let pane = workspace.tabs[0].root_pane;
+        let terminal_id = workspace.terminal_id(pane).unwrap().to_string();
+        app.state.workspaces = vec![workspace];
+        app.state.ensure_test_terminals();
+        app.state.active = Some(0);
+        app.state.selected = 0;
+
+        let err = app.resolve_agent_target(&terminal_id).unwrap_err();
+
+        assert_eq!(
+            err,
+            crate::app::terminal_targets::TerminalTargetError::NotFound {
+                target: terminal_id
+            }
+        );
+    }
+
+    #[test]
+    fn agent_prompt_rejects_empty_text_at_api_boundary() {
+        let mut app = test_app();
+
+        let response = app.handle_api_request(crate::api::schema::Request {
+            id: "agent_prompt_empty".into(),
+            method: crate::api::schema::Method::AgentPrompt(
+                crate::api::schema::AgentPromptParams {
+                    target: "missing".into(),
+                    text: String::new(),
+                    wait: None,
+                },
+            ),
+        });
+        let response: serde_json::Value = serde_json::from_str(&response).unwrap();
+
+        assert_eq!(response["error"]["code"], "empty_agent_prompt");
+    }
+
+    #[test]
     fn terminal_target_reports_ambiguous_duplicate_agent_name() {
         let mut app = test_app();
         let mut workspace = Workspace::test_new("terminal-target-ambiguous");

@@ -24,7 +24,7 @@ impl App {
         &self,
         target: &str,
     ) -> Result<crate::api::schema::AgentInfo, TerminalTargetError> {
-        let resolved = self.resolve_terminal_target(target)?;
+        let resolved = self.resolve_agent_target(target)?;
         self.agent_info(resolved.ws_idx, resolved.pane_id)
             .ok_or_else(|| TerminalTargetError::NotFound {
                 target: target.to_string(),
@@ -35,7 +35,7 @@ impl App {
         &mut self,
         target: &str,
     ) -> Result<crate::api::schema::AgentInfo, TerminalTargetError> {
-        let resolved = self.resolve_terminal_target(target)?;
+        let resolved = self.resolve_agent_target(target)?;
         self.state.switch_workspace(resolved.ws_idx);
         self.state.switch_tab(resolved.tab_idx);
         if let Some(tab) = self
@@ -60,7 +60,7 @@ impl App {
         name: Option<String>,
     ) -> Result<crate::api::schema::AgentInfo, AgentRenameError> {
         let resolved = self
-            .resolve_terminal_target(target)
+            .resolve_agent_target(target)
             .map_err(AgentRenameError::Target)?;
         let normalized_name = name.and_then(|name| {
             let trimmed = name.trim().to_string();
@@ -414,7 +414,7 @@ impl App {
         Ok((ws_idx, result.0, result.1.pane_id))
     }
 
-    fn agent_info(
+    pub(super) fn agent_info(
         &self,
         ws_idx: usize,
         pane_id: crate::layout::PaneId,
@@ -460,6 +460,27 @@ impl App {
             })
             .collect()
     }
+}
+
+pub(super) fn runtime_hosts_agent(
+    runtime: &crate::terminal::TerminalRuntime,
+    expected: crate::detect::Agent,
+) -> bool {
+    #[cfg(test)]
+    if runtime.child_pid() == 0 {
+        return true;
+    }
+    let Some(job) = crate::detect::foreground_job(runtime.child_pid()) else {
+        return false;
+    };
+    crate::detect::identify_agent_in_job(&job)
+        .map(|(agent, _)| agent)
+        .or_else(|| {
+            job.processes
+                .iter()
+                .find_map(|process| crate::platform::process_agent_hint(process.pid))
+        })
+        == Some(expected)
 }
 
 pub(super) enum AgentStartError {

@@ -3630,8 +3630,8 @@
     {
       "upstream": "3f80947678a9723434aa7fddfe23750b5393e24c",
       "subject": "feat: make agent automation a first-class cli primitive",
-      "status": "pending",
-      "reason": "The finalized named agent start, prompt, send-keys, and server-owned wait automation contract is absent."
+      "status": "ported",
+      "reason": "Ported ENG-152: agent start preserves native argv after --, prompt performs atomic text-plus-Enter submission, send-keys validates and encodes keys for strict agent targets, and server-owned agent.wait enforces identity and pane lifecycle semantics. Focused API, CLI, and protocol tests pass."
     },
     {
       "upstream": "d30ab1b54f6b6be95a0cb47ddc38da1d5e088700",

@@ -5,11 +5,12 @@ use serde::Serialize;
 use crate::api;
 use crate::api::client::{ApiClient, ApiClientError};
 use crate::api::schema::{
-    AgentReadParams, AgentRenameParams, AgentSendParams, AgentStartParams, AgentStatus,
-    AgentTarget, ClientWindowTitleSetParams, EmptyParams, GroupCreateParams, GroupRenameParams,
-    GroupTarget, IntegrationTarget, Method, NotificationShowParams, NotificationShowSound,
-    OutputMatch, PaneAgentState, PaneTarget, PaneWaitForOutputParams, PingParams, ReadFormat,
-    ReadSource, Request, ResponseResult, ServerLiveHandoffParams, SplitDirection, Subscription,
+    AgentReadParams, AgentPromptParams, AgentRenameParams, AgentSendKeysParams, AgentStartParams,
+    AgentStatus, AgentTarget, ClientWindowTitleSetParams, EmptyParams, GroupCreateParams,
+    GroupRenameParams, GroupTarget, IntegrationTarget, Method, NotificationShowParams,
+    NotificationShowSound, OutputMatch, PaneAgentState, PaneTarget, PaneWaitForOutputParams,
+    PingParams, ReadFormat, ReadSource, Request, ResponseResult, ServerLiveHandoffParams,
+    SplitDirection, Subscription,
 };
 
 #[path = "cli/api.rs"]
@@ -609,7 +610,8 @@ fn run_agent_command(args: &[String]) -> std::io::Result<i32> {
         "list" => agent_list(&args[1..]),
         "get" => agent_get(&args[1..]),
         "read" => agent_read(&args[1..]),
-        "send" => agent_send(&args[1..]),
+        "prompt" => agent_prompt(&args[1..]),
+        "send-keys" => agent_send_keys(&args[1..]),
         "rename" => agent_rename(&args[1..]),
         "focus" => agent_focus(&args[1..]),
         "wait" => agent_wait(&args[1..]),
@@ -1371,52 +1373,14 @@ fn agent_wait(args: &[String]) -> std::io::Result<i32> {
         return Ok(2);
     };
 
-    let response = resolve_agent_target(target, "cli:agent:wait:resolve")?;
-    if response.get("error").is_some() {
-        eprintln!("{}", serde_json::to_string(&response).unwrap());
-        return Ok(1);
-    }
-    if response["result"]["agent"]["agent_status"]
-        .as_str()
-        .is_some_and(|current| agent_status_matches(agent_status, current))
-    {
-        println!("{}", serde_json::to_string(&response).unwrap());
-        return Ok(0);
-    }
-
-    let Some(pane_id) = response["result"]["agent"]["pane_id"].as_str() else {
-        eprintln!("agent wait failed: response did not include pane_id");
-        return Ok(1);
-    };
-
-    let subscriptions = if agent_status == AgentStatus::Idle {
-        vec![
-            Subscription::PaneAgentStatusChanged {
-                pane_id: pane_id.to_owned(),
-                agent_status: Some(AgentStatus::Idle),
-            },
-            Subscription::PaneAgentStatusChanged {
-                pane_id: pane_id.to_owned(),
-                agent_status: Some(AgentStatus::Done),
-            },
-        ]
-    } else {
-        vec![Subscription::PaneAgentStatusChanged {
-            pane_id: pane_id.to_owned(),
-            agent_status: Some(agent_status),
-        }]
-    };
-
-    wait_for_agent_change(
-        Request {
-            id: "cli:agent:wait".into(),
-            method: Method::EventsSubscribe(crate::api::schema::EventsSubscribeParams {
-                subscriptions,
-            }),
-        },
-        timeout_ms,
-        "timed out waiting for agent status change",
-    )
+    print_response(&send_request(&Request {
+        id: "cli:agent:wait".into(),
+        method: Method::AgentWait(crate::api::schema::AgentWaitParams {
+            target: target.clone(),
+            until: vec![agent_status],
+            timeout_ms,
+        }),
+    })?)
 }
 
 fn resolve_agent_target(target: &str, request_id: &str) -> std::io::Result<serde_json::Value> {
@@ -1521,18 +1485,70 @@ fn agent_rename(args: &[String]) -> std::io::Result<i32> {
         }),
     })?)
 }
-
-fn agent_send(args: &[String]) -> std::io::Result<i32> {
-    if args.len() < 2 {
-        eprintln!("usage: omh agent send <target> <text>");
+fn agent_prompt(args: &[String]) -> std::io::Result<i32> {
+    let Some(target) = args.first() else {
+        eprintln!("usage: omh agent prompt <target> <text> [--wait-for STATUS] [--timeout MS]");
+        return Ok(2);
+    };
+    let mut text = Vec::new();
+    let mut wait = None;
+    let mut timeout_ms = None;
+    let mut index = 1;
+    while index < args.len() {
+        match args[index].as_str() {
+            "--wait-for" => {
+                let Some(value) = args.get(index + 1) else {
+                    eprintln!("--wait-for requires STATUS");
+                    return Ok(2);
+                };
+                wait = Some(parse_agent_wait_status(value)?);
+                index += 2;
+            }
+            "--timeout" => {
+                let Some(value) = args.get(index + 1) else {
+                    eprintln!("--timeout requires MS");
+                    return Ok(2);
+                };
+                timeout_ms = Some(parse_u64_flag("--timeout", value)?);
+                index += 2;
+            }
+            value => {
+                text.push(value.to_string());
+                index += 1;
+            }
+        }
+    }
+    if text.is_empty() {
+        eprintln!("usage: omh agent prompt <target> <text> [--wait-for STATUS] [--timeout MS]");
         return Ok(2);
     }
-
     print_response(&send_request(&Request {
-        id: "cli:agent:send".into(),
-        method: Method::AgentSend(AgentSendParams {
-            target: args[0].clone(),
-            text: args[1..].join(" "),
+        id: "cli:agent:prompt".into(),
+        method: Method::AgentPrompt(AgentPromptParams {
+            target: target.clone(),
+            text: text.join(" "),
+            wait: wait.map(|status| crate::api::schema::AgentPromptWaitOptions {
+                until: vec![status],
+                timeout_ms,
+            }),
+        }),
+    })?)
+}
+
+fn agent_send_keys(args: &[String]) -> std::io::Result<i32> {
+    let Some(target) = args.first() else {
+        eprintln!("usage: omh agent send-keys <target> <key>...");
+        return Ok(2);
+    };
+    if args.len() < 2 {
+        eprintln!("usage: omh agent send-keys <target> <key>...");
+        return Ok(2);
+    }
+    print_response(&send_request(&Request {
+        id: "cli:agent:send-keys".into(),
+        method: Method::AgentSendKeys(AgentSendKeysParams {
+            target: target.clone(),
+            keys: args[1..].to_vec(),
         }),
     })?)
 }
@@ -2307,7 +2323,8 @@ fn print_agent_help() {
     eprintln!("  omh agent list");
     eprintln!("  omh agent get <target>");
     eprintln!("  omh agent read <target> [--source visible|recent|recent-unwrapped] [--lines N] [--format text|ansi] [--ansi]");
-    eprintln!("  omh agent send <target> <text>");
+    eprintln!("  omh agent prompt <target> <text> [--wait-for STATUS] [--timeout MS]");
+    eprintln!("  omh agent send-keys <target> <key>...");
     eprintln!("  omh agent rename <target> <name>|--clear");
     eprintln!("  omh agent focus <target>");
     eprintln!("  omh agent wait <target> --status <idle|working|blocked|unknown> [--timeout MS]");
@@ -2315,9 +2332,9 @@ fn print_agent_help() {
     eprintln!("  omh agent start <name> [--cwd PATH] [--workspace ID] [--tab ID] [--split right|down] [--focus|--no-focus] -- <argv...>");
     eprintln!("  omh agent explain <target> [--json]");
     eprintln!("  omh agent explain --file PATH --agent LABEL [--json]");
-    eprintln!("  targets accept terminal ids, unique agent names, detected/reported agent labels, and legacy pane ids");
+    eprintln!("  targets accept agent terminal ids, unique agent names, detected/reported agent labels, and legacy pane ids");
     eprintln!(
-        "  agent send writes literal text; use pane run when you want command text plus Enter"
+        "  agent prompt appends Enter atomically; send-keys accepts encoded terminal key names"
     );
 }
 fn print_terminal_help() {

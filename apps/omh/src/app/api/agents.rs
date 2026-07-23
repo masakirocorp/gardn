@@ -1,8 +1,8 @@
 use bytes::Bytes;
 
 use crate::api::schema::{
-    AgentRenameParams, AgentSendParams, AgentStartParams, AgentTarget, PaneReadResult, ReadFormat,
-    ReadSource, ResponseResult,
+    AgentPromptParams, AgentRenameParams, AgentSendKeysParams, AgentStartParams, AgentTarget,
+    PaneReadResult, ReadFormat, ReadSource, ResponseResult,
 };
 use crate::app::App;
 
@@ -56,6 +56,51 @@ impl App {
         };
 
         encode_success(id, ResponseResult::AgentStarted { agent, argv })
+    }
+
+    pub(super) fn handle_agent_prompt(
+        &mut self,
+        id: String,
+        params: AgentPromptParams,
+    ) -> String {
+        if params.text.is_empty() {
+            return encode_error(id, "empty_agent_prompt", "agent prompt must not be empty");
+        }
+        let resolved = match self.resolve_agent_target(&params.target) {
+            Ok(resolved) => resolved,
+            Err(err) => return encode_error_body(id, self.agent_target_error_body(err)),
+        };
+        let Some(terminal_id) = self
+            .state
+            .workspaces
+            .get(resolved.ws_idx)
+            .and_then(|workspace| workspace.terminal_id(resolved.pane_id))
+            .cloned()
+        else {
+            return agent_not_found(id, &params.target);
+        };
+        let Some(expected_agent) = self
+            .state
+            .terminals
+            .get(&terminal_id)
+            .and_then(|terminal| terminal.effective_known_agent())
+        else {
+            return agent_not_ready(id, &params.target);
+        };
+        let Some(runtime) = self.lookup_runtime_sender(resolved.ws_idx, resolved.pane_id) else {
+            return agent_not_found(id, &params.target);
+        };
+        if !super::super::agents::runtime_hosts_agent(runtime, expected_agent) {
+            return agent_not_ready(id, &params.target);
+        }
+        let bytes = super::super::api_helpers::encode_api_submission(runtime, &params.text);
+        if let Err(err) = runtime.try_send_bytes(Bytes::from(bytes)) {
+            return encode_error(id, "agent_prompt_failed", err.to_string());
+        }
+        let Some(agent) = self.agent_info(resolved.ws_idx, resolved.pane_id) else {
+            return agent_not_found(id, &params.target);
+        };
+        encode_success(id, ResponseResult::AgentPrompted { agent })
     }
 
     pub(super) fn handle_agent_read(
@@ -176,16 +221,45 @@ impl App {
         encode_success(id, ResponseResult::AgentExplain { explain: value })
     }
 
-    pub(super) fn handle_agent_send(&mut self, id: String, params: AgentSendParams) -> String {
-        let resolved = match self.resolve_terminal_target(&params.target) {
+    pub(super) fn handle_agent_send_keys(
+        &mut self,
+        id: String,
+        params: AgentSendKeysParams,
+    ) -> String {
+        let resolved = match self.resolve_agent_target(&params.target) {
             Ok(resolved) => resolved,
             Err(err) => return encode_error_body(id, self.agent_target_error_body(err)),
+        };
+        let Some(terminal_id) = self
+            .state
+            .workspaces
+            .get(resolved.ws_idx)
+            .and_then(|workspace| workspace.terminal_id(resolved.pane_id))
+            .cloned()
+        else {
+            return agent_not_found(id, &params.target);
+        };
+        let Some(expected_agent) = self
+            .state
+            .terminals
+            .get(&terminal_id)
+            .and_then(|terminal| terminal.effective_known_agent())
+        else {
+            return agent_not_ready(id, &params.target);
         };
         let Some(runtime) = self.lookup_runtime_sender(resolved.ws_idx, resolved.pane_id) else {
             return agent_not_found(id, &params.target);
         };
-        if let Err(err) = runtime.try_send_bytes(Bytes::from(params.text)) {
-            return encode_error(id, "agent_send_failed", err.to_string());
+        if !super::super::agents::runtime_hosts_agent(runtime, expected_agent) {
+            return agent_not_ready(id, &params.target);
+        }
+        let encoded_keys = match super::super::api_helpers::encode_api_keys(runtime, &params.keys) {
+            Ok(encoded_keys) => encoded_keys,
+            Err(key) => return encode_error(id, "invalid_key", format!("unsupported key {key}")),
+        };
+        let bytes: Vec<u8> = encoded_keys.into_iter().flatten().collect();
+        if let Err(err) = runtime.try_send_bytes(Bytes::from(bytes)) {
+            return encode_error(id, "agent_send_keys_failed", err.to_string());
         }
 
         encode_success(id, ResponseResult::Ok {})
@@ -197,5 +271,12 @@ fn agent_not_found(id: String, target: &str) -> String {
         id,
         "agent_not_found",
         format!("agent target {target} not found"),
+    )
+}
+fn agent_not_ready(id: String, target: &str) -> String {
+    encode_error(
+        id,
+        "agent_not_ready",
+        format!("agent target {target} is not ready for input"),
     )
 }

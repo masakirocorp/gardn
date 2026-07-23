@@ -873,6 +873,13 @@ fn agent_methods_round_trip_over_socket() {
     );
     assert_eq!(reported["result"]["type"], "ok");
 
+
+    let waited = send_request(
+        &socket_path,
+        r#"{"id":"agent_wait_working","method":"agent.wait","params":{"target":"pi","until":["working"],"timeout_ms":100}}"#,
+    );
+    assert_eq!(waited["result"]["type"], "agent_info");
+    assert_eq!(waited["result"]["agent"]["terminal_id"], terminal_id);
     let listed = send_request(
         &socket_path,
         r#"{"id":"agent_list","method":"agent.list","params":{}}"#,
@@ -919,19 +926,31 @@ fn agent_methods_round_trip_over_socket() {
     let sent = send_request(
         &socket_path,
         &format!(
-            r#"{{"id":"agent_send","method":"agent.send","params":{{"target":"{}","text":"echo agent-send-ok\n"}}}}"#,
+            r#"{{"id":"agent_send_keys","method":"agent.send_keys","params":{{"target":"{}","keys":["Enter"]}}}}"#,
             terminal_id
         ),
     );
-    assert_eq!(sent["result"]["type"], "ok");
+    assert_eq!(sent["error"]["code"], "agent_not_ready");
 
     let tab_created = send_request(
         &socket_path,
         &format!(
             r#"{{"id":"agent_tab","method":"tab.create","params":{{"workspace_id":"{}","focus":false}}}}"#,
+
             workspace_id
         ),
     );
+    let empty_prompt = send_request(
+        &socket_path,
+        r#"{"id":"agent_prompt_empty","method":"agent.prompt","params":{"target":"worker","text":""}}"#,
+    );
+    assert_eq!(empty_prompt["error"]["code"], "empty_agent_prompt");
+
+    let prompt_not_ready = send_request(
+        &socket_path,
+        r#"{"id":"agent_prompt_not_ready","method":"agent.prompt","params":{"target":"worker","text":"hello"}}"#,
+    );
+    assert_eq!(prompt_not_ready["error"]["code"], "agent_not_ready");
     let second_tab_id = tab_created["result"]["tab"]["tab_id"].as_str().unwrap();
     let second_pane_id = tab_created["result"]["root_pane"]["pane_id"]
         .as_str()

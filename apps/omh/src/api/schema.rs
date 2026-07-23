@@ -83,14 +83,18 @@ pub enum Method {
     AgentRead(AgentReadParams),
     #[serde(rename = "agent.explain")]
     AgentExplain(AgentTarget),
-    #[serde(rename = "agent.send")]
-    AgentSend(AgentSendParams),
+    #[serde(rename = "agent.send_keys")]
+    AgentSendKeys(AgentSendKeysParams),
+    #[serde(rename = "agent.prompt")]
+    AgentPrompt(AgentPromptParams),
     #[serde(rename = "agent.rename")]
     AgentRename(AgentRenameParams),
     #[serde(rename = "agent.focus")]
     AgentFocus(AgentTarget),
     #[serde(rename = "agent.start")]
     AgentStart(AgentStartParams),
+    #[serde(rename = "agent.wait")]
+    AgentWait(AgentWaitParams),
     #[serde(rename = "pane.split")]
     PaneSplit(PaneSplitParams),
     #[serde(rename = "pane.focus")]
@@ -343,9 +347,34 @@ pub struct AgentReadParams {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
-pub struct AgentSendParams {
+pub struct AgentSendKeysParams {
+    pub target: String,
+    pub keys: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct AgentWaitParams {
+    pub target: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub until: Vec<AgentStatus>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timeout_ms: Option<u64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct AgentPromptWaitOptions {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub until: Vec<AgentStatus>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timeout_ms: Option<u64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct AgentPromptParams {
     pub target: String,
     pub text: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub wait: Option<AgentPromptWaitOptions>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
@@ -1411,6 +1440,9 @@ pub enum ResponseResult {
     AgentStarted {
         agent: AgentInfo,
         argv: Vec<String>,
+    },
+    AgentPrompted {
+        agent: AgentInfo,
     },
     AgentList {
         agents: Vec<AgentInfo>,

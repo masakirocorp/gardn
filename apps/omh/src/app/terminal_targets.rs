@@ -80,6 +80,28 @@ impl App {
         })
     }
 
+    pub(crate) fn resolve_agent_target(
+        &self,
+        target: &str,
+    ) -> Result<TerminalTarget, TerminalTargetError> {
+        let resolved = self.resolve_terminal_target(target)?;
+        let is_agent = self
+            .state
+            .terminals
+            .values()
+            .any(|terminal| {
+                terminal.id.to_string() == resolved.terminal_id
+                    && terminal.is_agent_terminal()
+            });
+        if is_agent {
+            Ok(resolved)
+        } else {
+            Err(TerminalTargetError::NotFound {
+                target: target.to_string(),
+            })
+        }
+    }
+
     // Staged for #00f with resolve_terminal_target.
     #[allow(dead_code)]
     fn single_terminal_match(

@@ -25,6 +25,13 @@ impl EventHub {
         }
     }
 
+    pub fn current_sequence(&self) -> u64 {
+        self.inner
+            .lock()
+            .map(|state| state.next_sequence)
+            .unwrap_or_default()
+    }
+
     pub fn events_after(&self, sequence: u64) -> Vec<(u64, crate::api::schema::EventEnvelope)> {
         let Ok(state) = self.inner.lock() else {
             return Vec::new();
