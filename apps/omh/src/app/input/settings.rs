@@ -39,6 +39,7 @@ pub(crate) enum SettingsAction {
         toast_delivery: ToastDelivery,
         confirm_close: bool,
         prompt_new_tab_name: bool,
+        show_counters: bool,
         new_terminal_cwd: NewTerminalCwdConfig,
         mouse_scroll_lines: usize,
         sidebar_width: u16,
@@ -103,6 +104,7 @@ impl App {
                 toast_delivery,
                 confirm_close,
                 prompt_new_tab_name,
+                show_counters,
                 new_terminal_cwd,
                 mouse_scroll_lines,
                 sidebar_width,
@@ -124,6 +126,7 @@ impl App {
                 self.save_sound(sound_enabled);
                 self.save_confirm_close(confirm_close);
                 self.save_prompt_new_tab_name(prompt_new_tab_name);
+                self.save_show_counters(show_counters);
                 self.save_new_terminal_cwd(&new_terminal_cwd);
                 self.save_mouse_scroll_lines(mouse_scroll_lines);
                 self.save_sidebar_widths(sidebar_width, sidebar_min_width, sidebar_max_width);
@@ -1043,6 +1046,12 @@ fn pending_prompt_new_tab_name(state: &AppState) -> bool {
         .pending_prompt_new_tab_name
         .unwrap_or_else(|| state.prompt_new_tab_name_enabled())
 }
+fn pending_show_counters(state: &AppState) -> bool {
+    state
+        .settings
+        .pending_show_counters
+        .unwrap_or(state.show_counters)
+}
 
 fn pending_new_terminal_cwd(state: &AppState) -> NewTerminalCwdConfig {
     state
@@ -1356,6 +1365,7 @@ fn clear_settings_pending(state: &mut AppState) {
     state.settings.pending_toast_delivery = None;
     state.settings.pending_confirm_close = None;
     state.settings.pending_prompt_new_tab_name = None;
+    state.settings.pending_show_counters = None;
     state.settings.pending_new_terminal_cwd = None;
     state.settings.pending_mouse_scroll_lines = None;
     state.settings.pending_sidebar_width = None;
@@ -1390,6 +1400,7 @@ fn current_settings_action(state: &AppState) -> SettingsAction {
         toast_delivery: pending_toast_delivery(state),
         confirm_close: pending_confirm_close(state),
         prompt_new_tab_name: pending_prompt_new_tab_name(state),
+        show_counters: pending_show_counters(state),
         new_terminal_cwd: pending_new_terminal_cwd(state),
         mouse_scroll_lines: pending_mouse_scroll_lines(state),
         sidebar_width: pending_sidebar_width(state),
@@ -1561,11 +1572,12 @@ fn select_pending_setting(state: &mut AppState) -> Option<SettingsAction> {
                     state.settings.pending_prompt_new_tab_name =
                         Some(!pending_prompt_new_tab_name(state))
                 }
-                2 => {
+                2 => state.settings.pending_show_counters = Some(!pending_show_counters(state)),
+                3 => {
                     let next = next_terminal_cwd_policy(pending_new_terminal_cwd(state));
                     state.settings.pending_new_terminal_cwd = Some(next);
                 }
-                3 => {
+                4 => {
                     let next = next_mouse_scroll_lines(pending_mouse_scroll_lines(state));
                     state.settings.pending_mouse_scroll_lines = Some(next);
                 }
@@ -2157,6 +2169,7 @@ pub(crate) fn prepare_general_settings_state(
     settings.pending_toast_delivery = Some(state.toast_delivery());
     settings.pending_confirm_close = Some(state.confirm_close_enabled());
     settings.pending_prompt_new_tab_name = Some(state.prompt_new_tab_name_enabled());
+    settings.pending_show_counters = Some(state.show_counters);
     settings.pending_new_terminal_cwd = Some(state.new_terminal_cwd.clone());
     settings.pending_mouse_scroll_lines = Some(state.mouse_scroll_lines);
     settings.pending_sidebar_width = Some(state.default_sidebar_width);
@@ -2217,6 +2230,7 @@ fn reset_settings_for_scoped_editor(state: &AppState, settings: &mut SettingsSta
     settings.pending_toast_delivery = None;
     settings.pending_confirm_close = None;
     settings.pending_prompt_new_tab_name = None;
+    settings.pending_show_counters = None;
     settings.pending_new_terminal_cwd = None;
     settings.pending_mouse_scroll_lines = None;
     settings.pending_sidebar_width = None;
@@ -2312,6 +2326,7 @@ pub(crate) fn open_group_settings(state: &mut AppState, group_idx: usize) {
     state.settings.pending_toast_delivery = None;
     state.settings.pending_confirm_close = None;
     state.settings.pending_prompt_new_tab_name = None;
+    state.settings.pending_show_counters = None;
     state.settings.pending_new_terminal_cwd = None;
     state.settings.pending_mouse_scroll_lines = None;
     state.settings.pending_sidebar_width = None;
@@ -2356,6 +2371,7 @@ pub(crate) fn open_workspace_settings(state: &mut AppState, ws_idx: usize) {
     state.settings.pending_toast_delivery = None;
     state.settings.pending_confirm_close = None;
     state.settings.pending_prompt_new_tab_name = None;
+    state.settings.pending_show_counters = None;
     state.settings.pending_new_terminal_cwd = None;
     state.settings.pending_mouse_scroll_lines = None;
     state.settings.pending_sidebar_width = None;
@@ -3785,6 +3801,7 @@ mod tests {
                 toast_delivery: ToastDelivery::Off,
                 confirm_close: true,
                 prompt_new_tab_name: true,
+                show_counters: false,
                 new_terminal_cwd: NewTerminalCwdConfig::Follow,
                 mouse_scroll_lines: crate::config::DEFAULT_MOUSE_SCROLL_LINES,
                 sidebar_width: 26,
@@ -3798,6 +3815,29 @@ mod tests {
             })
         );
         assert_eq!(state.mode, Mode::Settings);
+    }
+
+    #[test]
+    fn behavior_settings_toggle_counter_visibility() {
+        let mut state = state_with_workspaces(&["test"]);
+        open_settings(&mut state);
+        state.settings.section = SettingsSection::PaneLabels;
+        state.settings.list.selected = 2;
+        state.settings.list.show();
+
+        let action = update_settings_state(
+            &mut state,
+            KeyEvent::new(KeyCode::Char(' '), KeyModifiers::empty()),
+        );
+
+        assert!(matches!(
+            action,
+            Some(SettingsAction::SaveSettings {
+                show_counters: true,
+                ..
+            })
+        ));
+        assert_eq!(state.settings.pending_show_counters, Some(true));
     }
 
     #[test]
@@ -4157,6 +4197,15 @@ mod tests {
             &mut state,
             KeyEvent::new(KeyCode::Char(' '), KeyModifiers::empty()),
         );
+        assert_eq!(state.settings.pending_show_counters, Some(true));
+        update_settings_state(
+            &mut state,
+            KeyEvent::new(KeyCode::Down, KeyModifiers::empty()),
+        );
+        update_settings_state(
+            &mut state,
+            KeyEvent::new(KeyCode::Char(' '), KeyModifiers::empty()),
+        );
         assert_eq!(
             state.settings.pending_new_terminal_cwd,
             Some(NewTerminalCwdConfig::Home)
@@ -4178,6 +4227,7 @@ mod tests {
             SettingsAction::SaveSettings {
                 confirm_close: false,
                 prompt_new_tab_name: false,
+                show_counters: true,
                 new_terminal_cwd: NewTerminalCwdConfig::Home,
                 mouse_scroll_lines: 5,
                 pane_border_agent_info: PaneBorderAgentInfoConfig::Hidden,
@@ -4766,20 +4816,28 @@ mod tests {
             list_area.x + 2,
             list_area.y + row_for(2),
         ));
+        assert_eq!(app.state.settings.pending_show_counters, Some(true));
+        assert_eq!(app.state.settings.list.selected, 2);
+
+        app.state.handle_settings_mouse(mouse(
+            MouseEventKind::Down(crossterm::event::MouseButton::Left),
+            list_area.x + 2,
+            list_area.y + row_for(3),
+        ));
         assert_eq!(
             app.state.settings.pending_new_terminal_cwd,
             Some(NewTerminalCwdConfig::Home)
         );
-        assert_eq!(app.state.settings.list.selected, 2);
-        let scroll = row_for(3).saturating_sub(list_area.height.saturating_sub(1));
+        assert_eq!(app.state.settings.list.selected, 3);
+        let scroll = row_for(4).saturating_sub(list_area.height.saturating_sub(1));
         app.state.settings.scroll = scroll as usize;
         app.state.handle_settings_mouse(mouse(
             MouseEventKind::Down(crossterm::event::MouseButton::Left),
             list_area.x + 2,
-            list_area.y + row_for(3) - scroll,
+            list_area.y + row_for(4) - scroll,
         ));
         assert_eq!(app.state.settings.pending_mouse_scroll_lines, Some(5));
-        assert_eq!(app.state.settings.list.selected, 3);
+        assert_eq!(app.state.settings.list.selected, 4);
     }
 
     #[test]

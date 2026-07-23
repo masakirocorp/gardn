@@ -216,6 +216,10 @@ pub(crate) fn client_agent_menu_rect(state: &AppState, view: &ClientViewState) -
 }
 
 fn client_agent_menu_anchor_rect(state: &AppState, view: &ClientViewState) -> Rect {
+    if view.computed.layout == state::ViewLayout::Mobile && view.mobile_agents_expanded {
+        return crate::ui::mobile_switcher_areas_for_view(state, view).agent_scope;
+    }
+
     if view.sidebar_collapsed && view.computed.right_sidebar_rect == Rect::default() {
         let (_, _, detail_area) = crate::ui::collapsed_sidebar_sections_for_split(
             view.computed.sidebar_rect,
@@ -949,6 +953,7 @@ impl App {
             pane_borders: config.ui.pane_borders,
             pane_gaps: config.ui.pane_gaps,
             hide_tab_bar_when_single_tab: config.ui.hide_tab_bar_when_single_tab,
+            show_counters: config.ui.show_counters,
             sidebar_collapsed_mode: config.ui.sidebar_collapsed_mode,
             pane_history_persistence: config.experimental.pane_history,
             resume_agents_on_restore: config.session.resume_agents_on_restore,
@@ -1005,6 +1010,7 @@ impl App {
                 pending_toast_delivery: None,
                 pending_confirm_close: None,
                 pending_prompt_new_tab_name: None,
+                pending_show_counters: None,
                 pending_new_terminal_cwd: None,
                 pending_mouse_scroll_lines: None,
                 pending_sidebar_width: None,
@@ -1830,6 +1836,7 @@ impl App {
                 self.state.pane_borders = config.ui.pane_borders;
                 self.state.pane_gaps = config.ui.pane_gaps;
                 self.state.hide_tab_bar_when_single_tab = config.ui.hide_tab_bar_when_single_tab;
+                self.state.show_counters = config.ui.show_counters;
                 self.state.sidebar_collapsed_mode = config.ui.sidebar_collapsed_mode;
                 self.state.sidebar_arrangement = config.ui.sidebar_arrangement;
                 self.state.sidebar_config = config.ui.sidebar.clone();
@@ -2594,58 +2601,71 @@ impl App {
                         .position(|workspace| workspace.group_id == group_id)
                 })
         };
-        let transition = (|| match (forward, client_view.mobile_switcher_level) {
-            (true, MobileSwitcherLevel::Groups) => {
-                let group_idx = client_view.active_group;
-                active_workspace_for_group(group_idx).map(|ws_idx| {
-                    (
-                        MobileSwitcherLevel::Workspaces { group_idx },
-                        MobileSwitcherTarget::Workspace(ws_idx),
-                    )
-                })
+        let transition = (|| {
+            if forward {
+                let selected = crate::ui::mobile_switcher_selected_target_for_view(
+                    &self.state,
+                    &self.terminal_runtimes,
+                    client_view,
+                )?;
+                return match selected {
+                    MobileSwitcherTarget::Group(group_idx) => active_workspace_for_group(group_idx)
+                        .map(|ws_idx| {
+                            (
+                                MobileSwitcherLevel::Workspaces { group_idx },
+                                MobileSwitcherTarget::Workspace(ws_idx),
+                            )
+                        }),
+                    MobileSwitcherTarget::Workspace(ws_idx) => {
+                        let tab_idx =
+                            client_view.active_tab_index_for_workspace(&self.state, ws_idx)?;
+                        Some((
+                            MobileSwitcherLevel::Tabs { ws_idx },
+                            MobileSwitcherTarget::Tab { ws_idx, tab_idx },
+                        ))
+                    }
+                    MobileSwitcherTarget::Tab { ws_idx, tab_idx } => {
+                        let workspace = self.state.workspaces.get(ws_idx)?;
+                        let tab = workspace.tabs.get(tab_idx)?;
+                        let pane_id = client_view
+                            .focused_pane_for_tab(&workspace.id, tab_idx + 1)
+                            .unwrap_or_else(|| tab.layout.focused());
+                        Some((
+                            MobileSwitcherLevel::Panes { ws_idx, tab_idx },
+                            MobileSwitcherTarget::Pane {
+                                ws_idx,
+                                tab_idx,
+                                pane_id,
+                            },
+                        ))
+                    }
+                    _ => None,
+                };
             }
-            (true, MobileSwitcherLevel::Workspaces { group_idx }) => {
-                active_workspace_for_group(group_idx).and_then(|ws_idx| {
+
+            match client_view.mobile_switcher_level {
+                MobileSwitcherLevel::Panes { ws_idx, .. } => {
                     let tab_idx =
                         client_view.active_tab_index_for_workspace(&self.state, ws_idx)?;
                     Some((
                         MobileSwitcherLevel::Tabs { ws_idx },
                         MobileSwitcherTarget::Tab { ws_idx, tab_idx },
                     ))
-                })
+                }
+                MobileSwitcherLevel::Tabs { ws_idx } => {
+                    let workspace = self.state.workspaces.get(ws_idx)?;
+                    let group_idx = self.state.group_index_by_id(&workspace.group_id)?;
+                    Some((
+                        MobileSwitcherLevel::Workspaces { group_idx },
+                        MobileSwitcherTarget::Workspace(ws_idx),
+                    ))
+                }
+                MobileSwitcherLevel::Workspaces { group_idx } => Some((
+                    MobileSwitcherLevel::Groups,
+                    MobileSwitcherTarget::Group(group_idx),
+                )),
+                _ => None,
             }
-            (true, MobileSwitcherLevel::Tabs { ws_idx }) => {
-                let (tab_idx, pane_id) =
-                    client_view.focused_pane_for_workspace(&self.state, ws_idx)?;
-                Some((
-                    MobileSwitcherLevel::Panes { ws_idx, tab_idx },
-                    MobileSwitcherTarget::Pane {
-                        ws_idx,
-                        tab_idx,
-                        pane_id,
-                    },
-                ))
-            }
-            (false, MobileSwitcherLevel::Panes { ws_idx, .. }) => {
-                let tab_idx = client_view.active_tab_index_for_workspace(&self.state, ws_idx)?;
-                Some((
-                    MobileSwitcherLevel::Tabs { ws_idx },
-                    MobileSwitcherTarget::Tab { ws_idx, tab_idx },
-                ))
-            }
-            (false, MobileSwitcherLevel::Tabs { ws_idx }) => {
-                let workspace = self.state.workspaces.get(ws_idx)?;
-                let group_idx = self.state.group_index_by_id(&workspace.group_id)?;
-                Some((
-                    MobileSwitcherLevel::Workspaces { group_idx },
-                    MobileSwitcherTarget::Workspace(ws_idx),
-                ))
-            }
-            (false, MobileSwitcherLevel::Workspaces { group_idx }) => Some((
-                MobileSwitcherLevel::Groups,
-                MobileSwitcherTarget::Group(group_idx),
-            )),
-            _ => None,
         })();
         let Some((level, target)) = transition else {
             return;
@@ -2793,7 +2813,9 @@ impl App {
     ) {
         let labels = self.state.agent_menu_labels();
         match key.code {
-            crossterm::event::KeyCode::Esc => Self::leave_client_view_command_mode(client_view),
+            crossterm::event::KeyCode::Esc => {
+                Self::leave_client_view_agent_menu(client_view);
+            }
             crossterm::event::KeyCode::Up | crossterm::event::KeyCode::Char('k') => {
                 let current = client_view.agent_menu.selected;
                 let mut idx = current;
@@ -3971,7 +3993,7 @@ impl App {
             input::AgentMenuAction::AllAgents => state::AgentPanelScope::AllWorkspaces,
         };
         client_view.agent_panel_scroll = 0;
-        Self::leave_client_view_command_mode(client_view);
+        Self::leave_client_view_agent_menu(client_view);
     }
 
     fn complete_onboarding_for_client_view(&mut self, client_view: &mut ClientViewState) {
@@ -6527,7 +6549,11 @@ impl App {
         }
 
         let areas = crate::ui::mobile_switcher_areas_for_view(&self.state, client_view);
-        if Self::rect_contains(areas.close, mouse.column, mouse.row) {
+        if Self::rect_contains(areas.agent_scope, mouse.column, mouse.row) {
+            Self::open_client_view_agent_menu(client_view);
+            return true;
+        }
+        if Self::rect_contains(areas.agent_toggle, mouse.column, mouse.row) {
             client_view.mobile_agents_expanded = false;
             client_view.mode = Mode::Terminal;
             return true;
@@ -6556,12 +6582,6 @@ impl App {
         target: crate::ui::MobileSwitcherTarget,
     ) {
         match target {
-            crate::ui::MobileSwitcherTarget::ToggleAgents => {
-                client_view.mobile_agents_expanded = false;
-                client_view.mobile_switcher_scroll = 0;
-                client_view.mobile_switcher_selected = 0;
-                Self::leave_client_view_command_mode(client_view);
-            }
             crate::ui::MobileSwitcherTarget::Group(group_idx) => {
                 client_view.mobile_switcher_level =
                     crate::app::state::MobileSwitcherLevel::Workspaces { group_idx };
@@ -8471,7 +8491,7 @@ impl App {
                         && mouse.row >= rect.y
                         && mouse.row < rect.y + rect.height;
                     if !inside_menu {
-                        Self::leave_client_view_command_mode(client_view);
+                        Self::leave_client_view_agent_menu(client_view);
                     }
                 }
             }
@@ -9039,6 +9059,12 @@ impl App {
         target: state::NavigatorTarget,
     ) {
         client_view.navigator = state::NavigatorState::default();
+        client_view.navigator.expanded_workspaces = self
+            .state
+            .workspaces
+            .iter()
+            .map(|workspace| workspace.id.clone())
+            .collect();
         let group_idx = match target {
             state::NavigatorTarget::Group { group_idx } => Some(group_idx),
             state::NavigatorTarget::Workspace { ws_idx }
@@ -9054,16 +9080,6 @@ impl App {
                 .navigator
                 .expanded_groups
                 .insert(group.id.clone());
-        }
-        if let state::NavigatorTarget::Tab { ws_idx, .. }
-        | state::NavigatorTarget::Pane { ws_idx, .. } = target
-        {
-            if let Some(workspace) = self.state.workspaces.get(ws_idx) {
-                client_view
-                    .navigator
-                    .expanded_workspaces
-                    .insert(workspace.id.clone());
-            }
         }
         client_view.mode = Mode::Navigator;
         let selected = self
@@ -10066,6 +10082,16 @@ impl App {
         }
 
         true
+    }
+
+    fn leave_client_view_agent_menu(client_view: &mut ClientViewState) {
+        if client_view.computed.layout == state::ViewLayout::Mobile
+            && client_view.mobile_agents_expanded
+        {
+            client_view.mode = Mode::Navigate;
+        } else {
+            Self::leave_client_view_command_mode(client_view);
+        }
     }
 
     fn leave_client_view_command_mode(client_view: &mut ClientViewState) {
@@ -14870,6 +14896,127 @@ command = "printf literal > '{}'"
     }
 
     #[tokio::test]
+    async fn route_client_events_for_view_mobile_right_drills_into_the_highlighted_row() {
+        let mut app = test_app();
+        let second_group = app.state.create_group("second".to_string());
+        let default_group_id = app.state.groups[0].id.clone();
+        let second_group_id = app.state.groups[second_group].id.clone();
+        let mut active_workspace = Workspace::test_new("active");
+        active_workspace.group_id = default_group_id;
+        let mut first_workspace = Workspace::test_new("first");
+        first_workspace.group_id = second_group_id.clone();
+        let mut highlighted_workspace = Workspace::test_new("highlighted");
+        highlighted_workspace.group_id = second_group_id;
+        highlighted_workspace.test_add_tab(Some("logs"));
+        let highlighted_pane = highlighted_workspace.tabs[1].root_pane;
+        app.state.workspaces = vec![active_workspace, first_workspace, highlighted_workspace];
+        app.state.ensure_test_terminals();
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::Terminal;
+
+        let area = ratatui::layout::Rect::new(0, 0, 44, 20);
+        let mut client = ClientViewState::from_default_client_state(&app.state);
+        client.mode = Mode::Navigate;
+        client.mobile_switcher_level = state::MobileSwitcherLevel::Groups;
+        compute_client_view(&app, &mut client, area);
+        client.mobile_switcher_selected = crate::ui::mobile_switcher_target_index_for_view(
+            &app.state,
+            &app.terminal_runtimes,
+            &client,
+            crate::ui::MobileSwitcherTarget::Group(second_group),
+        );
+
+        for expected in [
+            state::MobileSwitcherLevel::Workspaces {
+                group_idx: second_group,
+            },
+            state::MobileSwitcherLevel::Tabs { ws_idx: 2 },
+            state::MobileSwitcherLevel::Panes {
+                ws_idx: 2,
+                tab_idx: 1,
+            },
+        ] {
+            app.route_client_events_for_view(
+                &mut client,
+                vec![raw_key(
+                    KeyCode::Right,
+                    KeyModifiers::empty(),
+                    KeyEventKind::Press,
+                )],
+                true,
+            );
+            assert_eq!(client.mobile_switcher_level, expected);
+            if !matches!(expected, state::MobileSwitcherLevel::Panes { .. }) {
+                app.route_client_events_for_view(
+                    &mut client,
+                    vec![raw_key(
+                        KeyCode::Down,
+                        KeyModifiers::empty(),
+                        KeyEventKind::Press,
+                    )],
+                    true,
+                );
+            }
+        }
+
+        assert_eq!(
+            crate::ui::mobile_switcher_selected_target_for_view(
+                &app.state,
+                &app.terminal_runtimes,
+                &client,
+            ),
+            Some(crate::ui::MobileSwitcherTarget::Pane {
+                ws_idx: 2,
+                tab_idx: 1,
+                pane_id: highlighted_pane,
+            })
+        );
+        assert_eq!(client.active_workspace, Some(0));
+        assert_eq!(app.state.active, Some(0));
+    }
+
+    #[test]
+    fn mobile_right_drills_into_the_highlighted_group_in_monolithic_mode() {
+        let mut app = test_app();
+        let second_group = app.state.create_group("second".to_string());
+        let default_group_id = app.state.groups[0].id.clone();
+        let second_group_id = app.state.groups[second_group].id.clone();
+        let mut active_workspace = Workspace::test_new("active");
+        active_workspace.group_id = default_group_id;
+        let mut highlighted_workspace = Workspace::test_new("highlighted");
+        highlighted_workspace.group_id = second_group_id;
+        app.state.workspaces = vec![active_workspace, highlighted_workspace];
+        app.state.ensure_test_terminals();
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::Navigate;
+        app.state.mobile_switcher_level = state::MobileSwitcherLevel::Groups;
+        crate::ui::compute_view(&mut app.state, ratatui::layout::Rect::new(0, 0, 44, 20));
+        app.state.mobile_switcher_selected = crate::ui::mobile_switcher_target_index(
+            &app.state,
+            crate::ui::MobileSwitcherTarget::Group(second_group),
+        );
+
+        app.handle_navigate_key(crate::input::TerminalKey::new(
+            KeyCode::Right,
+            KeyModifiers::empty(),
+        ));
+
+        assert_eq!(
+            app.state.mobile_switcher_level,
+            state::MobileSwitcherLevel::Workspaces {
+                group_idx: second_group,
+            }
+        );
+        assert_eq!(
+            crate::ui::mobile_switcher_selected_target(&app.state),
+            Some(crate::ui::MobileSwitcherTarget::Workspace(1))
+        );
+        assert_eq!(app.state.active, Some(0));
+    }
+
+    #[tokio::test]
     async fn route_client_events_for_view_mobile_agent_strip_focuses_client_locally() {
         let mut app = test_app();
         app.state.workspaces = vec![Workspace::test_new("one"), Workspace::test_new("two")];
@@ -14888,6 +15035,7 @@ command = "printf literal > '{}'"
             .set_detected_state(Some(Agent::Codex), AgentState::Working);
 
         let area = ratatui::layout::Rect::new(0, 0, 44, 20);
+        let shared_scope = app.state.agent_panel_scope;
         let mut client = ClientViewState::from_default_client_state(&app.state);
         let other_client = ClientViewState::from_default_client_state(&app.state);
         compute_client_view(&app, &mut client, area);
@@ -14907,6 +15055,35 @@ command = "printf literal > '{}'"
         assert_eq!(client.mode, Mode::Navigate);
         assert!(!app.state.mobile_agents_expanded);
         assert!(!other_client.mobile_agents_expanded);
+        let expanded = crate::ui::mobile_switcher_areas_for_view(&app.state, &client);
+        app.route_client_events_for_view(
+            &mut client,
+            vec![raw_mouse(
+                crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left),
+                expanded.agent_scope.x + 1,
+                expanded.agent_scope.y,
+            )],
+            true,
+        );
+        assert_eq!(client.mode, Mode::AgentMenu);
+        let scope_menu = app.client_view_agent_menu_rect(&client);
+        app.route_client_events_for_view(
+            &mut client,
+            vec![raw_mouse(
+                crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left),
+                scope_menu.x + 2,
+                scope_menu.y + 4,
+            )],
+            true,
+        );
+        assert_eq!(
+            client.agent_panel_scope,
+            state::AgentPanelScope::CurrentGroup
+        );
+        assert_eq!(app.state.agent_panel_scope, shared_scope);
+        assert_eq!(other_client.agent_panel_scope, shared_scope);
+        assert_eq!(client.mode, Mode::Navigate);
+        assert!(client.mobile_agents_expanded);
 
         let (column, row) = mobile_switcher_point_for_target(
             &app,
@@ -14962,8 +15139,10 @@ command = "printf literal > '{}'"
         assert_eq!(client.computed.layout, state::ViewLayout::Mobile);
         let rendered = rendered_client_view_text(&app, &client, area.width, area.height);
         assert!(
-            rendered.contains("workspace-0") && rendered.contains("workspace-8"),
-            "test fixture should render the scrollable space dropdown:\n{rendered}"
+            rendered.contains("workspace-0")
+                && rendered.contains("workspace-4")
+                && !rendered.contains("workspace-5"),
+            "test fixture should render the bounded, scrollable space dropdown:\n{rendered}"
         );
         assert!(
             crate::ui::mobile_switcher_max_scroll_for_view(
@@ -16274,7 +16453,10 @@ command = "printf literal > '{}'"
     #[test]
     fn route_client_events_for_view_command_palette_opens_workspace_navigator_locally() {
         let mut app = test_app();
-        app.state.workspaces = vec![Workspace::test_new("shell")];
+        let mut workspace = Workspace::test_new("shell");
+        let split_pane = workspace.test_split(ratatui::layout::Direction::Horizontal);
+        workspace.test_add_tab(Some("logs"));
+        app.state.workspaces = vec![workspace];
         app.state.ensure_test_terminals();
         app.state.active = Some(0);
         app.state.selected = 0;
@@ -16291,6 +16473,21 @@ command = "printf literal > '{}'"
                 .map(|row| &row.target),
             Some(state::NavigatorTarget::Workspace { ws_idx: 0 })
         ));
+        let rows = app.navigator_view_rows(&client);
+        assert!(
+            rows.iter()
+                .any(|row| matches!(row.target, state::NavigatorTarget::Tab { tab_idx: 0, .. })),
+            "a space with multiple tabs should show its tab rows when the navigator opens"
+        );
+        assert!(
+            rows.iter().any(|row| {
+                matches!(
+                    row.target,
+                    state::NavigatorTarget::Pane { pane_id, .. } if pane_id == split_pane
+                )
+            }),
+            "a tab with multiple panes should show its pane rows when the navigator opens"
+        );
     }
 
     #[tokio::test]

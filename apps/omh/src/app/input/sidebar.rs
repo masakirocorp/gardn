@@ -492,6 +492,10 @@ impl AppState {
     }
 
     fn agent_menu_anchor_rect(&self) -> Rect {
+        if self.view.layout == ViewLayout::Mobile && self.mobile_agents_expanded {
+            return crate::ui::mobile_switcher_areas(self).agent_scope;
+        }
+
         if self.sidebar_collapsed && self.view.right_sidebar_rect == Rect::default() {
             let (_, _, detail_area) = crate::ui::collapsed_sidebar_sections_for_split(
                 self.view.sidebar_rect,

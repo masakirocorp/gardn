@@ -288,11 +288,14 @@ pub(crate) fn render_virtual_with_runtime_registry(
             crate::ui::render_with_runtime_registry(app_state, terminal_runtimes, frame);
         })
         .expect("render to TestBackend should never fail");
-
     let buffer = terminal.backend().buffer().clone();
-    let cursor = focused_terminal_cursor(app_state, terminal_runtimes)
-        .or_else(|| terminal.backend().rendered_cursor());
 
+    let cursor = if app_state.mode == Mode::Terminal {
+        focused_terminal_cursor(app_state, terminal_runtimes)
+            .or_else(|| terminal.backend().rendered_cursor())
+    } else {
+        None
+    };
     (buffer, cursor)
 }
 fn capture_terminal_offsets(
@@ -392,11 +395,15 @@ pub(crate) fn render_virtual_for_client_view(
             );
         })
         .expect("render to TestBackend should never fail");
-
     let buffer = terminal.backend().buffer().clone();
-    let cursor = focused_terminal_cursor_for_view(app_state, client_view, terminal_runtimes)
-        .or_else(|| terminal.backend().rendered_cursor());
     let hyperlinks = visible_hyperlinks_for_view(app_state, client_view, terminal_runtimes);
+
+    let cursor = if resize_panes && client_view.mode == Mode::Terminal {
+        focused_terminal_cursor_for_view(app_state, client_view, terminal_runtimes)
+            .or_else(|| terminal.backend().rendered_cursor())
+    } else {
+        None
+    };
 
     capture_terminal_offsets_from_runtimes(&live_terminal_ids, terminal_runtimes, client_view);
     restore_terminal_offsets(terminal_runtimes, &shared_offsets);
@@ -822,16 +829,16 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn eng57_client_render_draws_copy_mode_cursor() {
+    async fn eng57_controller_copy_mode_suppresses_terminal_cursor() {
         let mut state = AppState::test_new();
-        let workspace = Workspace::test_new("copy-render");
+        let workspace = Workspace::test_new("copy-controller");
         let pane_id = workspace.tabs[0].root_pane;
         let terminal_id = workspace.terminal_id(pane_id).cloned().unwrap();
         state.workspaces = vec![workspace];
         state.ensure_test_terminals();
         state.active = Some(0);
         state.selected = 0;
-        state.mode = crate::app::Mode::Terminal;
+        state.mode = crate::app::Mode::Copy;
         state.copy_mode = Some(crate::app::state::CopyModeState::new(pane_id, 1, 2, None));
 
         let mut client = ClientViewState::from_default_client_state(&state);
@@ -846,7 +853,87 @@ mod tests {
             ),
         );
 
-        let (buffer, _, _) = render_virtual_for_client_view(
+        let (_, cursor, _) = render_virtual_for_client_view(
+            &mut state,
+            &mut client,
+            &terminal_runtimes,
+            Rect::new(0, 0, 100, 20),
+            true,
+            crate::kitty_graphics::HostCellSize::default(),
+        );
+
+        assert_eq!(
+            cursor, None,
+            "controller copy mode must suppress the backend terminal cursor"
+        );
+    }
+
+    #[tokio::test]
+    async fn eng57_watcher_terminal_mode_hides_backend_terminal_cursor() {
+        let mut state = AppState::test_new();
+        let workspace = Workspace::test_new("terminal-watcher");
+        let pane_id = workspace.tabs[0].root_pane;
+        let terminal_id = workspace.terminal_id(pane_id).cloned().unwrap();
+        state.workspaces = vec![workspace];
+        state.ensure_test_terminals();
+        state.active = Some(0);
+        state.selected = 0;
+        state.mode = crate::app::Mode::Terminal;
+
+        let mut client = ClientViewState::from_default_client_state(&state);
+        client.mode = crate::app::Mode::Terminal;
+        let mut terminal_runtimes = TerminalRuntimeRegistry::new();
+        terminal_runtimes.insert(
+            terminal_id,
+            crate::terminal::TerminalRuntime::test_with_screen_bytes(
+                20,
+                5,
+                b"alpha\r\nbeta\r\ngamma\r\n",
+            ),
+        );
+
+        let (_, cursor, _) = render_virtual_for_client_view(
+            &mut state,
+            &mut client,
+            &terminal_runtimes,
+            Rect::new(0, 0, 100, 20),
+            false,
+            crate::kitty_graphics::HostCellSize::default(),
+        );
+
+        assert_eq!(
+            cursor, None,
+            "watchers must not receive the backend terminal cursor"
+        );
+    }
+
+    #[tokio::test]
+    async fn eng57_client_render_draws_copy_mode_cursor() {
+        let mut state = AppState::test_new();
+        let workspace = Workspace::test_new("copy-render");
+        let pane_id = workspace.tabs[0].root_pane;
+        let terminal_id = workspace.terminal_id(pane_id).cloned().unwrap();
+        state.workspaces = vec![workspace];
+        state.ensure_test_terminals();
+        state.active = Some(0);
+        state.selected = 0;
+        state.mode = crate::app::Mode::Terminal;
+        state.copy_mode = None;
+
+        let mut client = ClientViewState::from_default_client_state(&state);
+        client.mode = crate::app::Mode::Copy;
+        client.copy_mode = Some(crate::app::state::CopyModeState::new(pane_id, 1, 2, None));
+        let mut terminal_runtimes = TerminalRuntimeRegistry::new();
+        terminal_runtimes.insert(
+            terminal_id,
+            crate::terminal::TerminalRuntime::test_with_screen_bytes(
+                20,
+                5,
+                b"alpha\r\nbeta\r\ngamma\r\n",
+            ),
+        );
+
+        let (buffer, cursor, _) = render_virtual_for_client_view(
             &mut state,
             &mut client,
             &terminal_runtimes,
@@ -872,6 +959,10 @@ mod tests {
                 .add_modifier
                 .contains(ratatui::style::Modifier::BOLD),
             "client copy-mode cursor should be visibly emphasized"
+        );
+        assert_eq!(
+            cursor, None,
+            "copy-mode cursor styling must not re-enable the backend terminal cursor"
         );
     }
 }

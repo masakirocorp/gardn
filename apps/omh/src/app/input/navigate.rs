@@ -200,57 +200,68 @@ impl App {
                         .position(|workspace| workspace.group_id == group_id)
                 })
         };
-        let transition = (|| match (forward, self.state.mobile_switcher_level) {
-            (true, MobileSwitcherLevel::Groups) => {
-                let group_idx = self.state.active_group;
-                active_workspace_for_group(group_idx).map(|ws_idx| {
-                    (
-                        MobileSwitcherLevel::Workspaces { group_idx },
-                        MobileSwitcherTarget::Workspace(ws_idx),
-                    )
-                })
+        let transition = (|| {
+            if forward {
+                let selected = crate::ui::mobile_switcher_selected_target(&self.state)?;
+                return match selected {
+                    MobileSwitcherTarget::Group(group_idx) => active_workspace_for_group(group_idx)
+                        .map(|ws_idx| {
+                            (
+                                MobileSwitcherLevel::Workspaces { group_idx },
+                                MobileSwitcherTarget::Workspace(ws_idx),
+                            )
+                        }),
+                    MobileSwitcherTarget::Workspace(ws_idx) => {
+                        let tab_idx = self.state.workspaces.get(ws_idx)?.active_tab_index();
+                        Some((
+                            MobileSwitcherLevel::Tabs { ws_idx },
+                            MobileSwitcherTarget::Tab { ws_idx, tab_idx },
+                        ))
+                    }
+                    MobileSwitcherTarget::Tab { ws_idx, tab_idx } => {
+                        let pane_id = self
+                            .state
+                            .workspaces
+                            .get(ws_idx)?
+                            .tabs
+                            .get(tab_idx)?
+                            .layout
+                            .focused();
+                        Some((
+                            MobileSwitcherLevel::Panes { ws_idx, tab_idx },
+                            MobileSwitcherTarget::Pane {
+                                ws_idx,
+                                tab_idx,
+                                pane_id,
+                            },
+                        ))
+                    }
+                    _ => None,
+                };
             }
-            (true, MobileSwitcherLevel::Workspaces { group_idx }) => {
-                active_workspace_for_group(group_idx).map(|ws_idx| {
-                    let tab_idx = self.state.workspaces[ws_idx].active_tab_index();
-                    (
+
+            match self.state.mobile_switcher_level {
+                MobileSwitcherLevel::Panes { ws_idx, .. } => {
+                    let tab_idx = self.state.workspaces.get(ws_idx)?.active_tab_index();
+                    Some((
                         MobileSwitcherLevel::Tabs { ws_idx },
                         MobileSwitcherTarget::Tab { ws_idx, tab_idx },
-                    )
-                })
+                    ))
+                }
+                MobileSwitcherLevel::Tabs { ws_idx } => {
+                    let workspace = self.state.workspaces.get(ws_idx)?;
+                    let group_idx = self.state.group_index_by_id(&workspace.group_id)?;
+                    Some((
+                        MobileSwitcherLevel::Workspaces { group_idx },
+                        MobileSwitcherTarget::Workspace(ws_idx),
+                    ))
+                }
+                MobileSwitcherLevel::Workspaces { group_idx } => Some((
+                    MobileSwitcherLevel::Groups,
+                    MobileSwitcherTarget::Group(group_idx),
+                )),
+                _ => None,
             }
-            (true, MobileSwitcherLevel::Tabs { ws_idx }) => {
-                let tab_idx = self.state.workspaces.get(ws_idx)?.active_tab_index();
-                let pane_id = self.state.workspaces.get(ws_idx)?.focused_pane_id()?;
-                Some((
-                    MobileSwitcherLevel::Panes { ws_idx, tab_idx },
-                    MobileSwitcherTarget::Pane {
-                        ws_idx,
-                        tab_idx,
-                        pane_id,
-                    },
-                ))
-            }
-            (false, MobileSwitcherLevel::Panes { ws_idx, .. }) => {
-                let tab_idx = self.state.workspaces.get(ws_idx)?.active_tab_index();
-                Some((
-                    MobileSwitcherLevel::Tabs { ws_idx },
-                    MobileSwitcherTarget::Tab { ws_idx, tab_idx },
-                ))
-            }
-            (false, MobileSwitcherLevel::Tabs { ws_idx }) => {
-                let workspace = self.state.workspaces.get(ws_idx)?;
-                let group_idx = self.state.group_index_by_id(&workspace.group_id)?;
-                Some((
-                    MobileSwitcherLevel::Workspaces { group_idx },
-                    MobileSwitcherTarget::Workspace(ws_idx),
-                ))
-            }
-            (false, MobileSwitcherLevel::Workspaces { group_idx }) => Some((
-                MobileSwitcherLevel::Groups,
-                MobileSwitcherTarget::Group(group_idx),
-            )),
-            _ => None,
         })();
         let Some((level, target)) = transition else {
             return;

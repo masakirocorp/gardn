@@ -87,7 +87,6 @@ fn right_aligned_count_gap(width: u16, left_width: usize, count_width: usize) ->
 
 fn group_menu_all_line(app: &AppState, selected: bool, width: u16) -> Line<'static> {
     let marker = if app.group_filter_enabled { " " } else { "✓" };
-    let count = app.workspaces.len().to_string();
     let left = format!("{marker} all");
     let selected_style = Style::default()
         .fg(panel_contrast_fg(&app.palette))
@@ -98,20 +97,21 @@ fn group_menu_all_line(app: &AppState, selected: bool, width: u16) -> Line<'stat
     } else {
         Style::default().fg(app.palette.text)
     };
-    let count_style = if selected {
-        selected_style
-    } else {
-        Style::default().fg(app.palette.overlay0)
-    };
-
-    Line::from(vec![
-        Span::styled(left.clone(), text_style),
-        Span::styled(
+    let mut spans = vec![Span::styled(left.clone(), text_style)];
+    if app.show_counters {
+        let count = app.workspaces.len().to_string();
+        let count_style = if selected {
+            selected_style
+        } else {
+            Style::default().fg(app.palette.overlay0)
+        };
+        spans.push(Span::styled(
             right_aligned_count_gap(width, display_width(&left), display_width(&count)),
             text_style,
-        ),
-        Span::styled(count, count_style),
-    ])
+        ));
+        spans.push(Span::styled(count, count_style));
+    }
+    Line::from(spans)
 }
 
 fn group_menu_group_line(
@@ -146,12 +146,6 @@ fn group_menu_group_line_for_selection(
     } else {
         " "
     };
-    let count = app
-        .workspaces
-        .iter()
-        .filter(|workspace| workspace.group_id == group.id)
-        .count()
-        .to_string();
     let selected_style = Style::default()
         .fg(panel_contrast_fg(&app.palette))
         .bg(app.palette.accent)
@@ -163,26 +157,39 @@ fn group_menu_group_line_for_selection(
             .fg(app.group_accent_color(group_idx))
             .add_modifier(Modifier::BOLD)
     };
-    let count_style = if selected {
-        selected_style
-    } else {
-        Style::default().fg(app.palette.overlay0)
-    };
     let icon_width = display_width(&group.icon);
     let icon_padding = " ".repeat(2usize.saturating_sub(icon_width));
-    let left_width =
-        display_width(marker) + 1 + icon_width + icon_padding.len() + display_width(&group.name);
-    Line::from(vec![
+    let icon_padding_width = icon_padding.len();
+    let mut spans = vec![
         Span::styled(format!("{marker} "), group_style),
         Span::styled(group.icon.clone(), group_style),
         Span::styled(icon_padding, group_style),
         Span::styled(group.name.clone(), group_style),
-        Span::styled(
+    ];
+    if app.show_counters {
+        let count = app
+            .workspaces
+            .iter()
+            .filter(|workspace| workspace.group_id == group.id)
+            .count()
+            .to_string();
+        let count_style = if selected {
+            selected_style
+        } else {
+            Style::default().fg(app.palette.overlay0)
+        };
+        let left_width = display_width(marker)
+            + 1
+            + icon_width
+            + icon_padding_width
+            + display_width(&group.name);
+        spans.push(Span::styled(
             right_aligned_count_gap(width, left_width, display_width(&count)),
             group_style,
-        ),
-        Span::styled(count, count_style),
-    ])
+        ));
+        spans.push(Span::styled(count, count_style));
+    }
+    Line::from(spans)
 }
 
 fn prefix_rhs_label(bindings: &crate::config::ActionKeybinds) -> String {
@@ -1253,6 +1260,7 @@ mod tests {
     #[test]
     fn group_menu_group_line_uses_group_accent() {
         let mut app = AppState::test_new();
+        app.show_counters = true;
         let group_idx = app.create_group("work".to_string());
         app.groups[group_idx].icon = "■".to_string();
         app.set_group_accent(group_idx, Some(crate::config::TerminalAccent::Magenta));
@@ -1326,6 +1334,13 @@ mod tests {
         app.group_filter_enabled = false;
         app.workspaces = vec![crate::workspace::Workspace::test_new("a")];
         app.workspaces[0].group_id = app.groups[group_idx].id.clone();
+        assert_eq!(line_text(&group_menu_all_line(&app, false, 12)), "✓ all");
+        assert_eq!(
+            line_text(&group_menu_group_line(&app, group_idx, false, 12)),
+            "  ■ work"
+        );
+
+        app.show_counters = true;
 
         let all = group_menu_all_line(&app, false, 12);
         let all_text = line_text(&all);

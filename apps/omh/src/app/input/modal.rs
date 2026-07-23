@@ -367,7 +367,7 @@ pub(crate) fn handle_group_menu_key(state: &mut AppState, key: KeyEvent) {
 
 pub(crate) fn handle_agent_menu_key(state: &mut AppState, key: KeyEvent) {
     match key.code {
-        KeyCode::Esc => leave_modal(state),
+        KeyCode::Esc => leave_agent_menu(state),
         KeyCode::Up | KeyCode::Char('k') => {
             let current = state.agent_menu.selected;
             let mut idx = current;
@@ -398,9 +398,17 @@ pub(crate) fn handle_agent_menu_key(state: &mut AppState, key: KeyEvent) {
                 return;
             };
             apply_agent_menu_action(state, action);
-            leave_modal(state);
+            leave_agent_menu(state);
         }
         _ => {}
+    }
+}
+
+pub(super) fn leave_agent_menu(state: &mut AppState) {
+    if state.view.layout == crate::app::state::ViewLayout::Mobile && state.mobile_agents_expanded {
+        state.mode = Mode::Navigate;
+    } else {
+        leave_modal(state);
     }
 }
 

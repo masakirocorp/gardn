@@ -229,7 +229,7 @@ impl AppState {
                         self.agent_menu.select(idx);
                     }
                     super::modal::apply_agent_menu_action(self, action);
-                    leave_modal(self);
+                    super::modal::leave_agent_menu(self);
                 } else {
                     let rect = self.agent_menu_rect();
                     let inside_menu = mouse.column >= rect.x
@@ -237,7 +237,7 @@ impl AppState {
                         && mouse.row >= rect.y
                         && mouse.row < rect.y + rect.height;
                     if !inside_menu {
-                        leave_modal(self);
+                        super::modal::leave_agent_menu(self);
                     }
                 }
             }
@@ -1372,7 +1372,11 @@ impl AppState {
         }
 
         let areas = crate::ui::mobile_switcher_areas(self);
-        if rect_contains(areas.close, mouse.column, mouse.row) {
+        if rect_contains(areas.agent_scope, mouse.column, mouse.row) {
+            super::modal::open_agent_menu(self);
+            return true;
+        }
+        if rect_contains(areas.agent_toggle, mouse.column, mouse.row) {
             self.mobile_agents_expanded = false;
             self.mode = Mode::Terminal;
             return true;
@@ -1393,12 +1397,6 @@ impl AppState {
         target: crate::ui::MobileSwitcherTarget,
     ) {
         match target {
-            crate::ui::MobileSwitcherTarget::ToggleAgents => {
-                self.mobile_agents_expanded = false;
-                self.mobile_switcher_scroll = 0;
-                self.mobile_switcher_selected = 0;
-                self.mode = Mode::Terminal;
-            }
             crate::ui::MobileSwitcherTarget::Group(group_idx) => {
                 self.mobile_switcher_level =
                     crate::app::state::MobileSwitcherLevel::Workspaces { group_idx };
@@ -3768,10 +3766,30 @@ mod tests {
         ));
         assert_eq!(app.state.mode, Mode::Navigate);
         assert!(app.state.mobile_agents_expanded);
-        app.handle_navigate_key(crate::input::TerminalKey::from(KeyEvent::new(
-            KeyCode::Esc,
-            KeyModifiers::empty(),
-        )));
+        let expanded = crate::ui::mobile_switcher_areas(&app.state);
+        app.handle_mouse(mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            expanded.agent_scope.x + 1,
+            expanded.agent_scope.y,
+        ));
+        assert_eq!(app.state.mode, Mode::AgentMenu);
+        let scope_menu = app.state.agent_menu_rect();
+        app.handle_mouse(mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            scope_menu.x + 2,
+            scope_menu.y + 4,
+        ));
+        assert_eq!(
+            app.state.agent_panel_scope,
+            crate::app::state::AgentPanelScope::CurrentGroup
+        );
+        assert_eq!(app.state.mode, Mode::Navigate);
+        assert!(app.state.mobile_agents_expanded);
+        app.handle_mouse(mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            expanded.agent_toggle.x + 2,
+            expanded.agent_toggle.y,
+        ));
         assert_eq!(app.state.mode, Mode::Terminal);
         assert!(!app.state.mobile_agents_expanded);
         app.handle_mouse(mouse(
@@ -3938,7 +3956,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn mobile_pane_dropdown_split_right_creates_a_pane() {
+    async fn mobile_tab_and_pane_dropdown_split_right_create_panes() {
         let mut app = app_for_mouse_test();
         app.state.default_shell = "/usr/bin/true".into();
         app.state.shell_mode = crate::config::ShellModeConfig::NonLogin;
@@ -3961,9 +3979,15 @@ mod tests {
         app.state.selected = 0;
         app.state.mode = Mode::Terminal;
 
-        app.state
-            .split_pane(&mut app.terminal_runtimes, Direction::Horizontal);
+        crate::ui::compute_view(&mut app.state, Rect::new(0, 0, 44, 20));
+        open_mobile_breadcrumb(&mut app, crate::app::state::ContextBarTarget::Tab);
+        let (column, row) =
+            mobile_switcher_point_for_target(&app, crate::ui::MobileSwitcherTarget::SplitRight);
+        app.handle_mouse(mouse(MouseEventKind::Down(MouseButton::Left), column, row));
+
+        assert_eq!(app.state.mode, Mode::Terminal);
         assert_eq!(app.state.workspaces[0].tabs[0].layout.pane_count(), 2);
+        assert_eq!(app.terminal_runtimes.len(), 2);
 
         crate::ui::compute_view(&mut app.state, Rect::new(0, 0, 44, 20));
         open_mobile_breadcrumb(&mut app, crate::app::state::ContextBarTarget::Pane);

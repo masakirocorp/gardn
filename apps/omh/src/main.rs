@@ -306,6 +306,9 @@ diff_command = "lazygit"
 # hide the tab row when a workspace has exactly one tab.
 # hide_tab_bar_when_single_tab = false
 
+# show right-aligned topology and section counters.
+# show_counters = false
+
 # collapsed sidebar mode: "compact" (narrow rail) or "hidden" (zero-width).
 # sidebar_collapsed_mode = "compact"
 

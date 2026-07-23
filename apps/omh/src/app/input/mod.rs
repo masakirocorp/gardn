@@ -609,6 +609,7 @@ impl App {
                         toast_delivery,
                         confirm_close,
                         prompt_new_tab_name,
+                        show_counters,
                         new_terminal_cwd,
                         mouse_scroll_lines,
                         sidebar_width,
@@ -630,6 +631,7 @@ impl App {
                         self.save_sound(sound_enabled);
                         self.save_confirm_close(confirm_close);
                         self.save_prompt_new_tab_name(prompt_new_tab_name);
+                        self.save_show_counters(show_counters);
                         self.save_new_terminal_cwd(&new_terminal_cwd);
                         self.save_mouse_scroll_lines(mouse_scroll_lines);
                         self.save_sidebar_widths(

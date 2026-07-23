@@ -985,6 +985,8 @@ pub struct UiConfig {
     pub pane_gaps: bool,
     /// Hide the tab row when the active workspace has exactly one tab. Default: false.
     pub hide_tab_bar_when_single_tab: bool,
+    /// Show right-aligned topology and section counters. Default: false.
+    pub show_counters: bool,
     /// How to render the collapsed sidebar. Default: "compact".
     pub sidebar_collapsed_mode: SidebarCollapsedModeConfig,
     /// Accent color for highlights, borders, and navigation UI.
@@ -1193,6 +1195,7 @@ impl Default for UiConfig {
             pane_borders: true,
             pane_gaps: true,
             hide_tab_bar_when_single_tab: false,
+            show_counters: false,
             sidebar_collapsed_mode: SidebarCollapsedModeConfig::default(),
             accent: "cyan".into(),
             toast: ToastConfig::default(),
@@ -1407,6 +1410,7 @@ initial_agent_scope = "group"
         assert!(default_config.ui.pane_borders);
         assert!(default_config.ui.pane_gaps);
         assert!(!default_config.ui.hide_tab_bar_when_single_tab);
+        assert!(!default_config.ui.show_counters);
 
         let toml = r#"
 [ui]
@@ -1414,6 +1418,7 @@ pane_border_agent_info = "name_and_status"
 pane_borders = false
 pane_gaps = true
 hide_tab_bar_when_single_tab = true
+show_counters = true
 sidebar_collapsed_mode = "hidden"
 "#;
         let config: Config = toml::from_str(toml).unwrap();
@@ -1424,6 +1429,7 @@ sidebar_collapsed_mode = "hidden"
         assert!(!config.ui.pane_borders);
         assert!(config.ui.pane_gaps);
         assert!(config.ui.hide_tab_bar_when_single_tab);
+        assert!(config.ui.show_counters);
         assert_eq!(
             config.ui.sidebar_collapsed_mode,
             SidebarCollapsedModeConfig::Hidden

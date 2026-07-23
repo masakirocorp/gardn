@@ -359,13 +359,15 @@ fn render_row(
         base_style
     } else if context_only {
         dim_style
-    } else if is_branch {
-        Style::default()
-            .fg(group_accent.unwrap_or(p.overlay0))
-            .bg(p.panel_bg)
-            .add_modifier(Modifier::BOLD)
     } else {
-        Style::default().fg(p.surface1).bg(p.panel_bg)
+        let style = Style::default()
+            .fg(group_accent.unwrap_or(if is_branch { p.overlay0 } else { p.surface1 }))
+            .bg(p.panel_bg);
+        if is_branch {
+            style.add_modifier(Modifier::BOLD)
+        } else {
+            style
+        }
     };
     let left_fixed = format!(" {prefix} ");
     let meta_width = metadata_width(rect.width);
@@ -863,74 +865,57 @@ mod tests {
     }
 
     #[test]
-    fn navigator_uses_group_accent_without_coloring_descendant_labels() {
+    fn navigator_uses_group_accent_for_the_full_tree_without_coloring_descendant_labels() {
         let mut app = AppState::test_new();
         app.set_group_accent(0, Some(crate::config::TerminalAccent::Magenta));
         let accent = app.group_accent_color(0);
         let mut workspace = Workspace::test_new("Agent Experiments");
         workspace.group_id = app.groups[0].id.clone();
+        workspace.test_split(ratatui::layout::Direction::Horizontal);
+        workspace.test_add_tab(Some("evaluation"));
         app.workspaces = vec![workspace];
-        let group_row = NavigatorRow {
-            target: NavigatorTarget::Group { group_idx: 0 },
-            depth: 0,
-            label: "✿ Research Lab".to_string(),
-            meta: String::new(),
-            status: crate::detect::AgentState::Unknown,
-            seen: true,
-            is_current: false,
-            is_group: true,
-            is_workspace: false,
-            is_tab: false,
-            has_children: true,
-            expanded: true,
-            search_text: String::new(),
-            matched: true,
-        };
-        let workspace_row = NavigatorRow {
-            has_children: false,
-            target: NavigatorTarget::Workspace { ws_idx: 0 },
-            depth: 1,
-            label: "Agent Experiments".to_string(),
-            meta: String::new(),
-            status: crate::detect::AgentState::Unknown,
-            seen: true,
-            is_current: false,
-            is_group: false,
-            is_workspace: true,
-            is_tab: false,
-            expanded: false,
-            search_text: String::new(),
-            matched: true,
-        };
-        let backend = TestBackend::new(80, 2);
+        app.active = Some(0);
+        app.open_navigator();
+        let rows = app.navigator_rows();
+
+        let backend = TestBackend::new(80, rows.len() as u16);
         let mut terminal = Terminal::new(backend).expect("test backend");
         terminal
             .draw(|frame| {
-                render_row(
-                    &app,
-                    &app.navigator,
-                    frame,
-                    Rect::new(0, 0, 80, 1),
-                    std::slice::from_ref(&group_row),
-                    0,
-                    false,
-                );
-                render_row(
-                    &app,
-                    &app.navigator,
-                    frame,
-                    Rect::new(0, 1, 80, 1),
-                    std::slice::from_ref(&workspace_row),
-                    0,
-                    false,
-                );
+                for idx in 0..rows.len() {
+                    render_row(
+                        &app,
+                        &app.navigator,
+                        frame,
+                        Rect::new(0, idx as u16, 80, 1),
+                        &rows,
+                        idx,
+                        false,
+                    );
+                }
             })
             .expect("render colored hierarchy");
 
         let buffer = terminal.backend().buffer();
-        assert_eq!(buffer[(3, 0)].style().fg, Some(accent));
-        assert_eq!(buffer[(1, 1)].style().fg, Some(accent));
-        assert_eq!(buffer[(5, 1)].style().fg, Some(app.palette.text));
+        for y in 1..rows.len() as u16 {
+            let connector_cells = (0..12)
+                .filter(|&x| matches!(buffer[(x, y)].symbol(), "│" | "├" | "└" | "─"))
+                .collect::<Vec<_>>();
+            assert!(
+                !connector_cells.is_empty(),
+                "row {y} should contain a visible tree connector"
+            );
+            for x in connector_cells {
+                assert_eq!(
+                    buffer[(x, y)].style().fg,
+                    Some(accent),
+                    "tree connector at ({x}, {y}) should use the group accent"
+                );
+            }
+        }
+        assert_ne!(buffer[(4, 1)].style().fg, Some(accent));
+        assert_ne!(buffer[(7, 2)].style().fg, Some(accent));
+        assert_ne!(buffer[(10, 3)].style().fg, Some(accent));
     }
 
     #[test]

@@ -276,15 +276,14 @@ impl AppState {
         self.navigator.state_filter = None;
         self.navigator.scroll = 0;
         self.navigator.expanded_groups.clear();
-        self.navigator.expanded_workspaces.clear();
+        self.navigator.expanded_workspaces = self
+            .workspaces
+            .iter()
+            .map(|workspace| workspace.id.clone())
+            .collect();
 
         if let Some(group) = self.groups.get(self.active_group) {
             self.navigator.expanded_groups.insert(group.id.clone());
-        }
-        if let Some(workspace) = self.active.and_then(|ws_idx| self.workspaces.get(ws_idx)) {
-            self.navigator
-                .expanded_workspaces
-                .insert(workspace.id.clone());
         }
 
         self.mode = Mode::Navigator;
@@ -303,15 +302,14 @@ impl AppState {
         self.navigator.state_filter = None;
         self.navigator.scroll = 0;
         self.navigator.expanded_groups.clear();
-        self.navigator.expanded_workspaces.clear();
+        self.navigator.expanded_workspaces = self
+            .workspaces
+            .iter()
+            .map(|workspace| workspace.id.clone())
+            .collect();
 
         if let Some(group) = self.groups.get(self.active_group) {
             self.navigator.expanded_groups.insert(group.id.clone());
-        }
-        if let Some(workspace) = self.active.and_then(|ws_idx| self.workspaces.get(ws_idx)) {
-            self.navigator
-                .expanded_workspaces
-                .insert(workspace.id.clone());
         }
 
         self.mode = Mode::Navigator;
@@ -354,7 +352,11 @@ impl AppState {
         &self,
         terminal_runtimes: &crate::terminal::TerminalRuntimeRegistry,
     ) -> Vec<NavigatorRow> {
-        self.mobile_navigation_rows_with(self.navigator_focus_from_state(true), terminal_runtimes)
+        self.mobile_navigation_rows_with(
+            self.navigator_focus_from_state(true),
+            self.mobile_switcher_level,
+            terminal_runtimes,
+        )
     }
 
     pub(crate) fn mobile_navigation_rows_for_view(
@@ -364,6 +366,7 @@ impl AppState {
     ) -> Vec<NavigatorRow> {
         self.mobile_navigation_rows_with(
             self.navigator_focus_for_view(view, true),
+            view.mobile_switcher_level,
             terminal_runtimes,
         )
     }
@@ -371,16 +374,35 @@ impl AppState {
     fn mobile_navigation_rows_with(
         &self,
         focus: NavigatorFocus,
+        level: super::state::MobileSwitcherLevel,
         terminal_runtimes: &crate::terminal::TerminalRuntimeRegistry,
     ) -> Vec<NavigatorRow> {
+        if let super::state::MobileSwitcherLevel::Panes { ws_idx, tab_idx } = level {
+            let multi_tab = self
+                .workspaces
+                .get(ws_idx)
+                .is_some_and(|workspace| workspace.tabs.len() > 1);
+            return self.navigator_pane_rows_for_tab(ws_idx, tab_idx, multi_tab, focus);
+        }
+
         let mut navigator = super::state::NavigatorState::default();
-        if let Some(group) = self.groups.get(focus.active_group) {
+        let expanded_group = match level {
+            super::state::MobileSwitcherLevel::Workspaces { group_idx } => group_idx,
+            super::state::MobileSwitcherLevel::Tabs { ws_idx } => self
+                .workspaces
+                .get(ws_idx)
+                .and_then(|workspace| self.group_index_by_id(&workspace.group_id))
+                .unwrap_or(focus.active_group),
+            _ => focus.active_group,
+        };
+        if let Some(group) = self.groups.get(expanded_group) {
             navigator.expanded_groups.insert(group.id.clone());
         }
-        if let Some(workspace) = focus
-            .active_workspace
-            .and_then(|ws_idx| self.workspaces.get(ws_idx))
-        {
+        let expanded_workspace = match level {
+            super::state::MobileSwitcherLevel::Tabs { ws_idx } => Some(ws_idx),
+            _ => focus.active_workspace,
+        };
+        if let Some(workspace) = expanded_workspace.and_then(|ws_idx| self.workspaces.get(ws_idx)) {
             navigator.expanded_workspaces.insert(workspace.id.clone());
         }
         self.navigator_rows_with(&navigator, focus, terminal_runtimes)

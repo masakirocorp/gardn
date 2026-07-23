@@ -2135,6 +2135,8 @@ pub struct SettingsState {
     pub pending_confirm_close: Option<bool>,
     /// Pending new-tab naming prompt setting while settings is open.
     pub pending_prompt_new_tab_name: Option<bool>,
+    /// Pending counter visibility setting while settings is open.
+    pub pending_show_counters: Option<bool>,
     /// Pending new-terminal cwd policy while settings is open.
     pub pending_new_terminal_cwd: Option<NewTerminalCwdConfig>,
     /// Pending mouse wheel scroll amount while settings is open.
@@ -2834,6 +2836,7 @@ pub struct AppState {
     pub pane_borders: bool,
     pub pane_gaps: bool,
     pub hide_tab_bar_when_single_tab: bool,
+    pub show_counters: bool,
     pub sidebar_collapsed_mode: crate::config::SidebarCollapsedModeConfig,
     pub git_diff_command: String,
     pub pane_border_agent_info: PaneBorderAgentInfoConfig,
@@ -3593,6 +3596,7 @@ impl AppState {
             pane_borders: true,
             pane_gaps: true,
             hide_tab_bar_when_single_tab: false,
+            show_counters: false,
             sidebar_collapsed_mode: crate::config::SidebarCollapsedModeConfig::default(),
             copy_feedback: None,
             git_diff_command: "lazygit".to_string(),
@@ -3653,6 +3657,7 @@ impl AppState {
                 pending_toast_delivery: None,
                 pending_confirm_close: None,
                 pending_prompt_new_tab_name: None,
+                pending_show_counters: None,
                 pending_new_terminal_cwd: None,
                 pending_context_bar_visibility: None,
                 pending_mouse_scroll_lines: None,

@@ -851,7 +851,7 @@ fn behavior_rows(app: &AppState, settings: &SettingsState) -> Vec<SettingsListRo
     );
 
     let mut rows = setting_group(
-        "workspace",
+        "general",
         [
             option(
                 0,
@@ -869,20 +869,25 @@ fn behavior_rows(app: &AppState, settings: &SettingsState) -> Vec<SettingsListRo
                     .pending_prompt_new_tab_name
                     .unwrap_or_else(|| app.prompt_new_tab_name_enabled()),
             ),
+            option(
+                2,
+                "show counters",
+                "show right-aligned topology and section counts",
+                settings.pending_show_counters.unwrap_or(app.show_counters),
+            ),
         ],
     );
-    rows.push(SettingsListRow::Spacer);
     rows.extend(setting_group(
         "terminal",
         [
             value_option(
-                2,
+                3,
                 "new terminal cwd",
                 "directory used by newly created terminal tabs",
                 cwd_label,
             ),
             value_option(
-                3,
+                4,
                 "mouse wheel speed",
                 "terminal scroll amount per wheel notch",
                 scroll_label,

@@ -61,7 +61,7 @@ use self::mobile::{
     is_mobile_width, mobile_switcher_max_scroll_for_height,
     mobile_switcher_max_scroll_for_view_height, mobile_toast_banner_rect, render_mobile_header,
     render_mobile_header_for_view, render_mobile_panel, render_mobile_panel_for_view,
-    render_mobile_toast_banner,
+    render_mobile_toast_banner, MOBILE_AGENT_PANEL_CHROME_HEIGHT, MOBILE_HEADER_HEIGHT,
 };
 pub(crate) use self::navigator::{navigator_layout, navigator_popup_rect};
 use self::navigator::{render_navigator_overlay, render_navigator_overlay_for_view};
@@ -212,28 +212,32 @@ fn compute_context_bar(
         return ContextBarView::default();
     }
 
-    let group_count = app.groups.len();
-    let workspace_count = app.workspaces.len();
-    let tab_count = app
-        .workspaces
-        .iter()
-        .map(|workspace| workspace.tabs.len())
-        .sum::<usize>();
-    let count_variants = [
-        format!(
-            "{} · {} · {}",
+    let count_variants = if app.show_counters {
+        let group_count = app.groups.len();
+        let workspace_count = app.workspaces.len();
+        let tab_count = app
+            .workspaces
+            .iter()
+            .map(|workspace| workspace.tabs.len())
+            .sum::<usize>();
+        [
+            format!(
+                "{} · {} · {}",
+                count_label(group_count, "group", "groups"),
+                count_label(workspace_count, "space", "spaces"),
+                count_label(tab_count, "tab", "tabs")
+            ),
+            format!(
+                "{} · {}",
+                count_label(group_count, "group", "groups"),
+                count_label(workspace_count, "space", "spaces")
+            ),
             count_label(group_count, "group", "groups"),
-            count_label(workspace_count, "space", "spaces"),
-            count_label(tab_count, "tab", "tabs")
-        ),
-        format!(
-            "{} · {}",
-            count_label(group_count, "group", "groups"),
-            count_label(workspace_count, "space", "spaces")
-        ),
-        count_label(group_count, "group", "groups"),
-        String::new(),
-    ];
+            String::new(),
+        ]
+    } else {
+        std::array::from_fn(|_| String::new())
+    };
 
     let workspace = active_workspace.and_then(|index| app.workspaces.get(index));
     let group = workspace
@@ -434,22 +438,29 @@ fn compute_mobile_breadcrumb(
         }
     }
 
+    const PREFERRED_TAP_WIDTH: usize = 8;
     let separator_width = CONTEXT_BAR_SEPARATOR.len() * labels.len().saturating_sub(1);
     let label_budget = (rect.width.saturating_sub(2) as usize).saturating_sub(separator_width);
     let mut widths = labels
         .iter()
-        .map(|(_, label)| text::display_width(label).saturating_add(2))
+        .map(|(_, label)| {
+            text::display_width(label)
+                .saturating_add(2)
+                .max(PREFERRED_TAP_WIDTH)
+        })
         .collect::<Vec<_>>();
-    while widths.iter().sum::<usize>() > label_budget {
-        let Some((index, _)) = widths
-            .iter()
-            .enumerate()
-            .filter(|(_, width)| **width > 3)
-            .max_by_key(|(_, width)| **width)
-        else {
-            break;
-        };
-        widths[index] -= 1;
+    for minimum_width in [PREFERRED_TAP_WIDTH, 3] {
+        while widths.iter().sum::<usize>() > label_budget {
+            let Some((index, _)) = widths
+                .iter()
+                .enumerate()
+                .filter(|(_, width)| **width > minimum_width)
+                .max_by_key(|(_, width)| **width)
+            else {
+                break;
+            };
+            widths[index] -= 1;
+        }
     }
 
     let mut cursor = rect.x.saturating_add(1);
@@ -461,14 +472,21 @@ fn compute_mobile_breadcrumb(
             if index > 0 {
                 cursor = cursor.saturating_add(CONTEXT_BAR_SEPARATOR.len() as u16);
             }
-            let label = format!("{} ▾", text::truncate_end(&label, width.saturating_sub(2)));
-            let width = text::display_width_u16(&label);
+            let text = format!("{} ▾", text::truncate_end(&label, width.saturating_sub(2)));
+            let padding = width.saturating_sub(text::display_width(&text));
+            let leading_padding = padding / 2;
+            let label = format!(
+                "{}{}{}",
+                " ".repeat(leading_padding),
+                text,
+                " ".repeat(padding.saturating_sub(leading_padding))
+            );
             let segment = ContextBarSegment {
                 target,
                 label,
-                rect: Rect::new(cursor, rect.y, width, 1),
+                rect: Rect::new(cursor, rect.y, width as u16, 1),
             };
-            cursor = cursor.saturating_add(width);
+            cursor = cursor.saturating_add(width as u16);
             segment
         })
         .collect();
@@ -813,15 +831,6 @@ fn compute_view_for_client_internal(
         cell_size,
     );
     if resize_panes {
-        resize_background_tab_panes_to_terminal_area_for_view(
-            app,
-            client_view,
-            terminal_runtimes,
-            terminal_area,
-            cell_size,
-        );
-    }
-    if resize_panes {
         resize_popup_pane_for_view(app, client_view, terminal_runtimes, area, cell_size);
     }
 
@@ -1133,12 +1142,10 @@ fn compute_mobile_view(
     resize_panes: bool,
     cell_size: crate::kitty_graphics::HostCellSize,
 ) {
-    let has_agents =
-        !sidebar::agent_panel_sections_all_workspaces(app, terminal_runtimes).is_empty();
     let header_h = if app.zen_mode {
         0
     } else {
-        area.height.min(1 + u16::from(has_agents))
+        area.height.min(MOBILE_HEADER_HEIGHT)
     };
     let (header_rect, terminal_area) = if header_h == 0 {
         (Rect::default(), area)
@@ -1151,7 +1158,12 @@ fn compute_mobile_view(
     };
 
     if app.mode == Mode::Navigate {
-        let switcher_viewport_h = area.height.saturating_sub(3);
+        let chrome_height = if app.mobile_agents_expanded {
+            MOBILE_AGENT_PANEL_CHROME_HEIGHT
+        } else {
+            MOBILE_HEADER_HEIGHT.saturating_add(2)
+        };
+        let switcher_viewport_h = area.height.saturating_sub(chrome_height);
         let max_scroll = mobile_switcher_max_scroll_for_height(app, switcher_viewport_h);
         app.mobile_switcher_scroll = app.mobile_switcher_scroll.min(max_scroll);
     }
@@ -1178,7 +1190,12 @@ fn compute_mobile_view(
             cell_size,
         );
     }
-    let breadcrumb_rect = Rect::new(header_rect.x, header_rect.y, header_rect.width, 1);
+    let breadcrumb_rect = Rect::new(
+        header_rect.x,
+        header_rect.y.saturating_add(1),
+        header_rect.width,
+        1,
+    );
     let active_tab = app
         .active
         .and_then(|ws_idx| app.workspaces.get(ws_idx))
@@ -1234,13 +1251,10 @@ fn compute_mobile_view_for_client(
     resize_panes: bool,
     cell_size: crate::kitty_graphics::HostCellSize,
 ) {
-    let has_agents =
-        !sidebar::agent_panel_sections_all_workspaces_for_view(app, terminal_runtimes, client_view)
-            .is_empty();
     let header_h = if client_view.zen_mode {
         0
     } else {
-        area.height.min(1 + u16::from(has_agents))
+        area.height.min(MOBILE_HEADER_HEIGHT)
     };
     let (header_rect, terminal_area) = if header_h == 0 {
         (Rect::default(), area)
@@ -1253,7 +1267,12 @@ fn compute_mobile_view_for_client(
     };
 
     if client_view.mode == Mode::Navigate {
-        let switcher_viewport_h = area.height.saturating_sub(3);
+        let chrome_height = if client_view.mobile_agents_expanded {
+            MOBILE_AGENT_PANEL_CHROME_HEIGHT
+        } else {
+            MOBILE_HEADER_HEIGHT.saturating_add(2)
+        };
+        let switcher_viewport_h = area.height.saturating_sub(chrome_height);
         let max_scroll = mobile_switcher_max_scroll_for_view_height(
             app,
             terminal_runtimes,
@@ -1290,7 +1309,12 @@ fn compute_mobile_view_for_client(
             cell_size,
         );
     }
-    let breadcrumb_rect = Rect::new(header_rect.x, header_rect.y, header_rect.width, 1);
+    let breadcrumb_rect = Rect::new(
+        header_rect.x,
+        header_rect.y.saturating_add(1),
+        header_rect.width,
+        1,
+    );
     let active_tab = client_view
         .active_workspace
         .and_then(|ws_idx| client_view.active_tab_index_for_workspace(app, ws_idx));
@@ -1744,8 +1768,34 @@ mod tests {
         assert_eq!(app.view.layout, ViewLayout::Mobile);
         assert_eq!(app.view.sidebar_rect, Rect::default());
         assert_eq!(app.view.tab_bar_rect, Rect::default());
-        assert_eq!(app.view.mobile_header_rect, Rect::new(0, 0, 44, 1));
-        assert_eq!(app.view.terminal_area, Rect::new(0, 1, 44, 19));
+        assert_eq!(app.view.mobile_header_rect, Rect::new(0, 0, 44, 2));
+        assert_eq!(app.view.terminal_area, Rect::new(0, 2, 44, 18));
+    }
+
+    #[test]
+    fn mobile_breadcrumbs_keep_short_labels_tappable() {
+        let mut app = crate::app::state::AppState::test_new();
+        app.workspaces = vec![Workspace::test_new("one")];
+        app.active = Some(0);
+        app.selected = 0;
+        app.mode = Mode::Terminal;
+
+        compute_view(&mut app, Rect::new(0, 0, 44, 20));
+
+        let tab = app
+            .view
+            .context_bar
+            .segments
+            .iter()
+            .find(|segment| segment.target == crate::app::state::ContextBarTarget::Tab)
+            .expect("tab breadcrumb");
+        assert!(tab.rect.width >= 8, "tab target: {:?}", tab.rect);
+        assert_eq!(
+            app.view
+                .context_bar
+                .target_at(tab.rect.x + tab.rect.width - 1, tab.rect.y),
+            Some(crate::app::state::ContextBarTarget::Tab)
+        );
     }
 
     #[test]
@@ -1762,8 +1812,8 @@ mod tests {
         app.mobile_width_threshold = 90;
         compute_view(&mut app, Rect::new(0, 0, 80, 20));
         assert_eq!(app.view.layout, ViewLayout::Mobile);
-        assert_eq!(app.view.mobile_header_rect, Rect::new(0, 0, 80, 1));
-        assert_eq!(app.view.terminal_area, Rect::new(0, 1, 80, 19));
+        assert_eq!(app.view.mobile_header_rect, Rect::new(0, 0, 80, 2));
+        assert_eq!(app.view.terminal_area, Rect::new(0, 2, 80, 18));
     }
 
     #[tokio::test]
@@ -1825,6 +1875,11 @@ mod tests {
         app.selected = 0;
         app.mode = Mode::Terminal;
 
+        compute_view(&mut app, Rect::new(0, 0, 100, 20));
+        assert!(app.view.context_bar.counts.is_empty());
+        assert_eq!(app.view.context_bar.counts_rect, Rect::default());
+
+        app.show_counters = true;
         compute_view(&mut app, Rect::new(0, 0, 100, 20));
 
         assert_eq!(app.view.context_bar.rect, Rect::new(0, 19, 100, 1));

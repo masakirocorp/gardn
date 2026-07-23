@@ -2540,8 +2540,9 @@ mod tests {
             .expect("render settings overlay");
 
         let text = buffer_text(terminal.backend().buffer(), area.width, area.height);
-        assert!(text.contains("workspace"));
+        assert!(text.contains("general"));
         assert!(text.contains("terminal"));
+        assert!(text.contains("show counters"));
         assert!(text.contains("new terminal cwd"));
         assert!(text.contains("mouse wheel speed"));
         assert!(!text.contains("pane border agent info"));

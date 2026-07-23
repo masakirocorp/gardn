@@ -147,7 +147,7 @@ fn sidebar_section_divider_rect_with_separator(
     Rect::new(content.x, content.y + ws_h + 1, content.width, 1)
 }
 
-fn agent_panel_toggle_label(scope: AgentPanelScope) -> &'static str {
+pub(crate) fn agent_panel_toggle_label(scope: AgentPanelScope) -> &'static str {
     match scope {
         AgentPanelScope::CurrentWorkspace => "space",
         AgentPanelScope::CurrentGroup => "group",
@@ -443,7 +443,7 @@ pub(crate) fn agent_panel_sections(app: &AppState) -> Vec<AgentPanelSection> {
     agent_panel_sections_from(app, &empty_runtimes)
 }
 
-fn agent_panel_sections_from(
+pub(crate) fn agent_panel_sections_from(
     app: &AppState,
     terminal_runtimes: &TerminalRuntimeRegistry,
 ) -> Vec<AgentPanelSection> {
@@ -581,6 +581,22 @@ fn format_agent_activity_age(
     }
 
     Some(format!("{}d", hours / 24))
+}
+pub(crate) fn compact_agent_entry_text(entry: &AgentPanelEntry) -> (String, String) {
+    let mut metadata = Vec::new();
+    if let Some(agent_label) = &entry.agent_label {
+        metadata.push(agent_label.clone());
+    }
+    if let Some(custom_status) = &entry.custom_status {
+        metadata.push(custom_status.clone());
+    }
+    if let Some(age) = format_agent_activity_age(
+        entry.last_meaningful_agent_activity_unix_secs,
+        current_unix_secs(),
+    ) {
+        metadata.push(age);
+    }
+    (entry.primary_label.clone(), metadata.join(" · "))
 }
 
 fn agent_panel_section_shows_entry_status(section_label: &str) -> bool {
@@ -3213,22 +3229,24 @@ fn render_workspace_list_from(
             Span::styled(group.name.clone(), group_style),
         ]);
         frame.render_widget(Paragraph::new(line), header.rect);
-        let count_label = count.to_string();
-        let count_width = count_label.chars().count() as u16;
-        if header.rect.width > count_width + SIDEBAR_GROUP_COUNT_RIGHT_PAD {
-            frame.render_widget(
-                Paragraph::new(Span::styled(count_label, Style::default().fg(p.overlay0))),
-                Rect::new(
-                    header.rect.x
-                        + header
-                            .rect
-                            .width
-                            .saturating_sub(count_width + SIDEBAR_GROUP_COUNT_RIGHT_PAD),
-                    header.rect.y,
-                    count_width,
-                    1,
-                ),
-            );
+        if app.show_counters {
+            let count_label = count.to_string();
+            let count_width = count_label.chars().count() as u16;
+            if header.rect.width > count_width + SIDEBAR_GROUP_COUNT_RIGHT_PAD {
+                frame.render_widget(
+                    Paragraph::new(Span::styled(count_label, Style::default().fg(p.overlay0))),
+                    Rect::new(
+                        header.rect.x
+                            + header
+                                .rect
+                                .width
+                                .saturating_sub(count_width + SIDEBAR_GROUP_COUNT_RIGHT_PAD),
+                        header.rect.y,
+                        count_width,
+                        1,
+                    ),
+                );
+            }
         }
     }
 
@@ -3459,22 +3477,24 @@ fn render_workspace_list_from_for_view(
             Span::styled(group.name.clone(), group_style),
         ]);
         frame.render_widget(Paragraph::new(line), header.rect);
-        let count_label = count.to_string();
-        let count_width = count_label.chars().count() as u16;
-        if header.rect.width > count_width + SIDEBAR_GROUP_COUNT_RIGHT_PAD {
-            frame.render_widget(
-                Paragraph::new(Span::styled(count_label, Style::default().fg(p.overlay0))),
-                Rect::new(
-                    header.rect.x
-                        + header
-                            .rect
-                            .width
-                            .saturating_sub(count_width + SIDEBAR_GROUP_COUNT_RIGHT_PAD),
-                    header.rect.y,
-                    count_width,
-                    1,
-                ),
-            );
+        if app.show_counters {
+            let count_label = count.to_string();
+            let count_width = count_label.chars().count() as u16;
+            if header.rect.width > count_width + SIDEBAR_GROUP_COUNT_RIGHT_PAD {
+                frame.render_widget(
+                    Paragraph::new(Span::styled(count_label, Style::default().fg(p.overlay0))),
+                    Rect::new(
+                        header.rect.x
+                            + header
+                                .rect
+                                .width
+                                .saturating_sub(count_width + SIDEBAR_GROUP_COUNT_RIGHT_PAD),
+                        header.rect.y,
+                        count_width,
+                        1,
+                    ),
+                );
+            }
         }
     }
 
@@ -3860,11 +3880,17 @@ fn render_agent_section_header(
         ),
     );
 
-    let count_label = section.entries.len().to_string();
+    let count_label = if app.show_counters {
+        section.entries.len().to_string()
+    } else {
+        String::new()
+    };
     let count_width = count_label.chars().count() as u16;
-    let label_width = body.width.saturating_sub(
-        RIGHT_SUBSECTION_LABEL_COL + count_width + RIGHT_SECTION_COUNT_RIGHT_PAD + 1,
-    );
+    let count_reserve = u16::from(app.show_counters)
+        .saturating_mul(count_width + RIGHT_SECTION_COUNT_RIGHT_PAD + 1);
+    let label_width = body
+        .width
+        .saturating_sub(RIGHT_SUBSECTION_LABEL_COL + count_reserve);
     frame.render_widget(
         Paragraph::new(Span::styled(
             truncate_text(
@@ -3880,7 +3906,7 @@ fn render_agent_section_header(
             1,
         ),
     );
-    if body.width > count_width + RIGHT_SECTION_COUNT_RIGHT_PAD {
+    if app.show_counters && body.width > count_width + RIGHT_SECTION_COUNT_RIGHT_PAD {
         frame.render_widget(
             Paragraph::new(Span::styled(count_label, dim)),
             Rect::new(
@@ -4550,7 +4576,7 @@ mod tests {
         );
         assert_eq!(
             buffer[(group_header.x + group_header.width - 2, group_header.y)].symbol(),
-            "1"
+            " "
         );
         assert_eq!(
             buffer[(home_card.x + SIDEBAR_WORKSPACE_NAME_COL, home_card.y)].symbol(),
@@ -4563,6 +4589,16 @@ mod tests {
         assert_eq!(
             buffer[(home_card.x + SIDEBAR_WORKSPACE_NAME_COL, home_card.y + 1)].symbol(),
             " "
+        );
+
+        app.show_counters = true;
+        terminal
+            .draw(|frame| render_workspace_list(&app, frame, area, false))
+            .expect("render workspace list with counters");
+        assert_eq!(
+            terminal.backend().buffer()[(group_header.x + group_header.width - 2, group_header.y)]
+                .symbol(),
+            "1"
         );
     }
 
@@ -5837,6 +5873,7 @@ mod tests {
     #[test]
     fn triage_agent_rows_keep_status_reason() {
         let mut app = crate::app::state::AppState::test_new();
+        app.show_counters = true;
         let mut workspace = Workspace::test_new("needs-action");
         let pane = workspace.tabs[0].root_pane;
         let pane_state = workspace.tabs[0].panes.get_mut(&pane).unwrap();

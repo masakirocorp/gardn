@@ -278,6 +278,15 @@ impl App {
             self.apply_config_from_disk(false);
         }
     }
+    pub(super) fn save_show_counters(&mut self, enabled: bool) {
+        self.state.show_counters = enabled;
+        self.state.settings.pending_show_counters = Some(enabled);
+        if self.update_config_file("counter visibility", |content| {
+            crate::config::upsert_section_bool(content, "ui", "show_counters", enabled)
+        }) {
+            self.apply_config_from_disk(false);
+        }
+    }
 
     pub(super) fn save_pane_border_agent_info(
         &mut self,
