@@ -171,7 +171,6 @@ pub(super) fn prompt_agent(
         )));
     };
 
-    let wait_started = std::time::Instant::now();
     let last_event_sequence = event_hub.current_sequence();
     let before_prompt = match agent_get(&request_id, &params.target, api_tx) {
         Ok(agent) => agent,
@@ -198,6 +197,7 @@ pub(super) fn prompt_agent(
     {
         return agent_wait_not_running(request_id).map(Some);
     }
+    let wait_started = std::time::Instant::now();
 
     let until = wait.until;
     let timeout_ms = wait.timeout_ms;

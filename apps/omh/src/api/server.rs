@@ -1810,11 +1810,15 @@ mod tests {
         let (initial_tx, initial_rx) = std::sync::mpsc::channel();
         let responder = std::thread::spawn(move || {
             while let Some(msg) = api_rx.blocking_recv() {
-                assert!(matches!(msg.request.method, Method::AgentPrompt(_)));
-                msg.respond_to
-                    .send(agent_prompt_response(&msg, expected.clone()))
-                    .unwrap();
-                initial_tx.send(()).unwrap();
+                let response = match msg.request.method {
+                    Method::AgentGet(_) => agent_get_response(&msg, expected.clone()),
+                    Method::AgentPrompt(_) => {
+                        initial_tx.send(()).unwrap();
+                        agent_prompt_response(&msg, expected.clone())
+                    }
+                    method => panic!("unexpected method: {method:?}"),
+                };
+                msg.respond_to.send(response).unwrap();
             }
         });
 
