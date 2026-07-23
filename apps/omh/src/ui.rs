@@ -67,9 +67,10 @@ pub(crate) use self::navigator::{navigator_layout, navigator_popup_rect};
 use self::navigator::{render_navigator_overlay, render_navigator_overlay_for_view};
 pub(crate) use self::onboarding::onboarding_welcome_continue_rect;
 use self::onboarding::render_onboarding_overlay;
+pub(crate) use self::panes::popup_pane_rects_for_view;
 use self::panes::{
     compute_pane_infos, compute_pane_infos_for_view, render_panes, render_panes_for_view,
-    resize_tab_panes,
+    render_popup_pane_for_view, resize_popup_pane_for_view, resize_tab_panes,
 };
 pub(crate) use self::release_notes::{
     product_announcement_display_lines, release_notes_close_button_rect,
@@ -715,6 +716,15 @@ fn compute_view_for_client_internal(
             cell_size,
         );
     }
+        if resize_panes {
+            resize_popup_pane_for_view(
+                app,
+                client_view,
+                terminal_runtimes,
+                area,
+                cell_size,
+            );
+        }
 
     let toast_hit_area = app
         .toast
@@ -1380,6 +1390,9 @@ pub fn render_with_runtime_registry_for_view(
             render_config_diagnostics_overlay_for_view(app, client_view, frame)
         }
         Mode::Terminal => {}
+    }
+    if client_view.popup_pane.is_some() {
+        render_popup_pane_for_view(app, client_view, terminal_runtimes, frame, frame.area());
     }
 }
 

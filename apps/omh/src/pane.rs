@@ -57,10 +57,11 @@ fn apply_pane_terminal_env(cmd: &mut CommandBuilder) {
     cmd.env("COLORTERM", PANE_COLORTERM);
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct PaneLaunchEnv {
     extra: Vec<(String, String)>,
     identity: Option<PaneLaunchIdentity>,
+    include_pane_identity: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -70,12 +71,24 @@ struct PaneLaunchIdentity {
     pane_id: String,
 }
 
+impl Default for PaneLaunchEnv {
+    fn default() -> Self {
+        Self::from_extra(Vec::new())
+    }
+}
+
 impl PaneLaunchEnv {
     pub(crate) fn from_extra(extra: Vec<(String, String)>) -> Self {
         Self {
             extra,
             identity: None,
+            include_pane_identity: true,
         }
+    }
+
+    pub(crate) fn without_pane_identity(mut self) -> Self {
+        self.include_pane_identity = false;
+        self
     }
 
     pub(crate) fn with_identity(
@@ -110,7 +123,7 @@ fn apply_pane_launch_env(cmd: &mut CommandBuilder, launch_env: &PaneLaunchEnv, p
         cmd.env("HERDR_WORKSPACE_ID", &identity.workspace_id);
         cmd.env("HERDR_TAB_ID", &identity.tab_id);
         cmd.env("HERDR_PANE_ID", &identity.pane_id);
-    } else {
+    } else if launch_env.include_pane_identity {
         crate::integration::apply_pane_env(cmd, pane_id);
     }
 }

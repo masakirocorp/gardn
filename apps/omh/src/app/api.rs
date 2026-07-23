@@ -127,6 +127,12 @@ impl App {
         }
 
         if let AppEvent::PaneDied { pane_id, .. } = &ev {
+            if self.state.popup_panes.contains_key(pane_id) {
+                self.close_popup_pane_by_id(*pane_id);
+                return;
+            }
+        }
+        if let AppEvent::PaneDied { pane_id, .. } = &ev {
             let previous_toast = self.state.toast.clone();
             if let Some(update) = self.state.publish_pane_process_exit_if_agent(*pane_id) {
                 self.sync_full_lifecycle_authority_detection_pauses();
@@ -983,6 +989,33 @@ impl App {
                 self.drain_internal_events();
                 client_view.reconcile(&self.state);
                 let response = self.handle_pane_zoom_for_view(client_view, request.id, params);
+                client_view.reconcile(&self.state);
+                response
+            }
+            crate::api::schema::Method::PluginPaneOpen(params) => {
+                self.drain_internal_events();
+                let response =
+                    self.handle_plugin_pane_open_for_view(client_view, request.id, params);
+                client_view.reconcile(&self.state);
+                response
+            }
+            crate::api::schema::Method::PluginPaneFocus(params) => {
+                self.drain_internal_events();
+                let response = if self.parse_popup_public_pane_id(&params.pane_id).is_some() {
+                    self.focus_plugin_popup_pane_for_view(client_view, request.id, params)
+                } else {
+                    self.handle_plugin_pane_focus(request.id, params)
+                };
+                client_view.reconcile(&self.state);
+                response
+            }
+            crate::api::schema::Method::PluginPaneClose(params) => {
+                self.drain_internal_events();
+                let response = if self.parse_popup_public_pane_id(&params.pane_id).is_some() {
+                    self.close_plugin_popup_pane_for_view(client_view, request.id, params)
+                } else {
+                    self.handle_plugin_pane_close(request.id, params)
+                };
                 client_view.reconcile(&self.state);
                 response
             }

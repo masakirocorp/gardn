@@ -43,6 +43,7 @@ mod logging;
 mod metadata_tokens;
 mod noninteractive_process;
 mod pane;
+mod popup_size;
 mod persist;
 mod plugin_paths;
 mod platform;

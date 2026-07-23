@@ -3363,8 +3363,8 @@
     {
       "upstream": "2c7c8beb079c5fd58a2e53efd2058df050ad9f55",
       "subject": "feat: add floating popup panes",
-      "status": "pending",
-      "reason": "Floating session-modal terminal panes are not implemented; current overlays do not host pane runtimes."
+      "status": "ported",
+      "reason": "Implemented client-local centered popup panes with shared terminal runtimes, lifecycle cleanup, terminal input/mouse routing, and pure render/resize geometry. Focused proof: cargo test --locked -p omh popup_size::tests; cargo test --locked -p omh popup_ (all passing)."
     },
     {
       "upstream": "2bd334b357d99b4b8853596433fc4a43bbb4658e",

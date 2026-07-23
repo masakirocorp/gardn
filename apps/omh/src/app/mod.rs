@@ -16,6 +16,7 @@ mod config_io;
 mod creation;
 mod ids;
 mod input;
+mod popup;
 mod runtime;
 mod runtime_mutations;
 mod session;
@@ -789,6 +790,7 @@ impl App {
             git_repo_summaries: std::collections::HashMap::new(),
             next_agent_activity_seq: 0,
             direct_attach_resize_locks: std::collections::HashSet::new(),
+            popup_panes: std::collections::HashMap::new(),
             client_overlay_owners: std::collections::HashMap::new(),
             pane_id_aliases: std::collections::HashMap::new(),
             public_pane_id_aliases: std::collections::HashMap::new(),
@@ -2255,6 +2257,14 @@ impl App {
         client_view: &mut ClientViewState,
         key: crate::input::TerminalKey,
     ) -> Option<input::TerminalKeyTarget> {
+        if client_view.popup_pane.is_some() {
+            if key.as_key_event().code == crossterm::event::KeyCode::Esc {
+                self.close_popup_pane_for_view(client_view);
+            } else {
+                let _ = self.send_popup_key_for_view(client_view, key);
+            }
+            return None;
+        }
         client_view.selection = None;
         client_view.selection_autoscroll = None;
         client_view.selection_highlight_clear_deadline = None;
@@ -5652,6 +5662,24 @@ impl App {
         }
     }
 
+    fn send_popup_key_for_view(
+        &self,
+        client_view: &ClientViewState,
+        key: crate::input::TerminalKey,
+    ) -> bool {
+        let Some(pane_id) = client_view.popup_pane else {
+            return false;
+        };
+        let Some(popup) = self.state.popup_panes.get(&pane_id) else {
+            return false;
+        };
+        let Some(runtime) = self.terminal_runtimes.get(&popup.terminal_id) else {
+            return false;
+        };
+        let bytes = runtime.encode_terminal_key(key);
+        !bytes.is_empty() && runtime.try_send_bytes(bytes::Bytes::from(bytes)).is_ok()
+    }
+
     fn send_terminal_key_for_view(
         &self,
         client_view: &ClientViewState,
@@ -6003,6 +6031,73 @@ impl App {
         true
     }
 
+    fn handle_client_view_popup_mouse(
+        &mut self,
+        client_view: &mut ClientViewState,
+        mouse: crossterm::event::MouseEvent,
+    ) -> bool {
+        let Some(pane_id) = client_view.popup_pane else {
+            return false;
+        };
+        let Some(popup) = self.state.popup_panes.get(&pane_id) else {
+            client_view.popup_pane = None;
+            return false;
+        };
+        let Some((outer, inner)) = crate::ui::popup_pane_rects_for_view(
+            &self.state,
+            client_view,
+            client_view.screen_rect(),
+        ) else {
+            return true;
+        };
+        let inside = Self::rect_contains(inner, mouse.column, mouse.row);
+        if !inside {
+            if matches!(
+                mouse.kind,
+                crossterm::event::MouseEventKind::Down(
+                    crossterm::event::MouseButton::Left
+                )
+            ) {
+                self.close_popup_pane_for_view(client_view);
+            }
+            return true;
+        }
+        client_view.mode = Mode::Terminal;
+        let Some(runtime) = self.terminal_runtimes.get(&popup.terminal_id) else {
+            return true;
+        };
+        let column = mouse.column.saturating_sub(inner.x);
+        let row = mouse.row.saturating_sub(inner.y);
+        match mouse.kind {
+            crossterm::event::MouseEventKind::ScrollUp => {
+                runtime.scroll_up(self.state.mouse_scroll_lines);
+            }
+            crossterm::event::MouseEventKind::ScrollDown => {
+                runtime.scroll_down(self.state.mouse_scroll_lines);
+            }
+            crossterm::event::MouseEventKind::ScrollLeft
+            | crossterm::event::MouseEventKind::ScrollRight => {}
+            crossterm::event::MouseEventKind::Down(_)
+            | crossterm::event::MouseEventKind::Up(_)
+            | crossterm::event::MouseEventKind::Drag(_) => {
+                if let Some(bytes) =
+                    runtime.encode_mouse_button(mouse.kind, column, row, mouse.modifiers)
+                {
+                    let _ = runtime.try_send_bytes(bytes::Bytes::from(bytes));
+                }
+            }
+            crossterm::event::MouseEventKind::Moved => {
+                if let Some(bytes) =
+                    runtime.encode_mouse_motion(mouse.kind, column, row, mouse.modifiers)
+                {
+                    let _ = runtime.try_send_bytes(bytes::Bytes::from(bytes));
+                }
+            }
+        }
+        let _ = outer;
+        true
+    }
+
     fn handle_mouse_for_view(
         &mut self,
         client_view: &mut ClientViewState,
@@ -6014,6 +6109,9 @@ impl App {
         )
         .then(|| client_view.last_pane_click.take())
         .flatten();
+        if self.handle_client_view_popup_mouse(client_view, mouse) {
+            return;
+        }
         if !self.state.mouse_capture {
             self.state
                 .handle_pane_mouse_only_for_view(&self.terminal_runtimes, client_view, mouse);

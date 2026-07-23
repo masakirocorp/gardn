@@ -8,6 +8,139 @@ use crate::api::schema::{
 use crate::app::App;
 
 impl App {
+    pub(super) fn open_plugin_popup_pane_for_view(
+        &mut self,
+        view: &mut crate::app::ClientViewState,
+        id: String,
+        params: PluginPaneOpenParams,
+        plugin: &InstalledPluginInfo,
+        pane: PluginManifestPane,
+    ) -> String {
+        let ws_idx = match view.active_workspace {
+            Some(ws_idx) => ws_idx,
+            None => return encode_error(id, "no_active_workspace", "no active workspace"),
+        };
+        let context = self.plugin_context_for_workspace(ws_idx, "plugin-pane");
+        let extra_env =
+            match self.plugin_pane_launch_env(plugin, &pane.id, params.env.clone(), &context) {
+                Ok(env) => env,
+                Err((code, message)) => return encode_error(id, &code, message),
+            };
+        let cwd = Some(self.plugin_pane_cwd(plugin, params.cwd));
+        let (pane_id, _) = match self.spawn_popup_argv_command_for_view(
+            view,
+            &pane.command,
+            cwd,
+            extra_env,
+            crate::app::popup::PopupGeometry::default(),
+        ) {
+            Ok(result) => result,
+            Err(err) => return encode_error(id, "plugin_pane_open_failed", err.to_string()),
+        };
+        let entrypoint = pane.id.clone();
+        if let Some(terminal_id) = self
+            .state
+            .popup_panes
+            .get(&pane_id)
+            .map(|popup| popup.terminal_id.clone())
+        {
+            if let Some(terminal) = self.state.terminals.get_mut(&terminal_id) {
+                terminal.set_manual_label(pane.title.clone());
+            }
+        }
+        self.state.plugin_panes.insert(
+            pane_id,
+            crate::app::state::PluginPaneRecord {
+                plugin_id: plugin.plugin_id.clone(),
+                entrypoint: entrypoint.clone(),
+            },
+        );
+        self.schedule_session_save();
+        let Some(pane_info) = self.popup_pane_info_for_view(view, pane_id) else {
+            self.close_popup_pane_for_view(view);
+            return encode_error(id, "plugin_pane_open_failed", "popup pane disappeared");
+        };
+        self.emit_event(crate::api::schema::EventEnvelope {
+            event: crate::api::schema::EventKind::PaneCreated,
+            data: crate::api::schema::EventData::PaneCreated {
+                pane: pane_info.clone(),
+            },
+        });
+        encode_success(
+            id,
+            ResponseResult::PluginPaneOpened {
+                plugin_pane: PluginPaneInfo {
+                    plugin_id: plugin.plugin_id.clone(),
+                    entrypoint,
+                    pane: pane_info,
+                },
+            },
+        )
+    }
+
+    pub(crate) fn focus_plugin_popup_pane_for_view(
+        &mut self,
+        view: &mut crate::app::ClientViewState,
+        id: String,
+        params: crate::api::schema::PluginPaneFocusParams,
+    ) -> String {
+        let Some(pane_id) = self.parse_popup_public_pane_id(&params.pane_id) else {
+            return encode_error(id, "plugin_pane_not_found", "plugin pane not found");
+        };
+        let Some(popup) = self.state.popup_panes.get(&pane_id) else {
+            return encode_error(id, "plugin_pane_not_found", "plugin pane not found");
+        };
+        if popup.owner.is_some_and(|owner| owner != view.id()) {
+            return encode_error(id, "plugin_pane_not_found", "plugin pane not found");
+        }
+        view.popup_pane = Some(pane_id);
+        view.mode = crate::app::Mode::Terminal;
+        let Some(record) = self.state.plugin_panes.get(&pane_id).cloned() else {
+            return encode_error(id, "plugin_pane_not_found", "plugin pane not found");
+        };
+        let Some(pane) = self.popup_pane_info_for_view(view, pane_id) else {
+            return encode_error(id, "plugin_pane_not_found", "plugin pane not found");
+        };
+        encode_success(
+            id,
+            ResponseResult::PluginPaneFocused {
+                plugin_pane: PluginPaneInfo {
+                    plugin_id: record.plugin_id,
+                    entrypoint: record.entrypoint,
+                    pane,
+                },
+            },
+        )
+    }
+
+    pub(crate) fn close_plugin_popup_pane_for_view(
+        &mut self,
+        view: &mut crate::app::ClientViewState,
+        id: String,
+        params: crate::api::schema::PluginPaneCloseParams,
+    ) -> String {
+        let Some(pane_id) = self.parse_popup_public_pane_id(&params.pane_id) else {
+            return encode_error(id, "plugin_pane_not_found", "plugin pane not found");
+        };
+        let Some(popup) = self.state.popup_panes.get(&pane_id) else {
+            return encode_error(id, "plugin_pane_not_found", "plugin pane not found");
+        };
+        if popup.owner.is_some_and(|owner| owner != view.id())
+            || view.popup_pane != Some(pane_id)
+        {
+            return encode_error(id, "plugin_pane_not_found", "plugin pane not found");
+        }
+        if !self.close_popup_pane_for_view(view) {
+            return encode_error(id, "plugin_pane_not_found", "plugin pane not found");
+        }
+        encode_success(
+            id,
+            ResponseResult::PluginPaneClosed {
+                pane_id: params.pane_id,
+            },
+        )
+    }
+
     pub(super) fn open_plugin_overlay_pane(
         &mut self,
         id: String,

@@ -105,6 +105,8 @@ pub(crate) struct ClientViewState {
     pub(crate) pending_active_tabs: HashMap<String, usize>,
     pub(crate) focused_panes: HashMap<ClientTabViewKey, PaneId>,
     pub(crate) zoomed_tabs: HashSet<ClientTabViewKey>,
+    /// Client-local popup presentation. The detached runtime remains shared.
+    pub(crate) popup_pane: Option<PaneId>,
     overlay_return_states: HashMap<PaneId, ClientOverlayReturnState>,
     pub(crate) terminal_offsets_from_bottom: HashMap<TerminalId, TerminalViewportOffset>,
     pub(crate) suppressed_repeat_keys: HashSet<crossterm::event::KeyCode>,
@@ -188,6 +190,7 @@ impl ClientViewState {
             mode: state.mode,
             active_tabs: HashMap::new(),
             pending_active_tabs: HashMap::new(),
+            popup_pane: None,
             focused_panes: HashMap::new(),
             zoomed_tabs: HashSet::new(),
             overlay_return_states: HashMap::new(),
@@ -261,6 +264,23 @@ impl ClientViewState {
     }
 
     pub(crate) fn reconcile(&mut self, state: &AppState) {
+        if let Some(pane_id) = self.popup_pane {
+            let visible = state
+                .popup_panes
+                .get(&pane_id)
+                .is_some_and(|popup| popup.owner.is_none_or(|owner| owner == self.id));
+            if !visible {
+                self.popup_pane = None;
+                if self.mode == Mode::Terminal {
+                    self.mode = if self.active_workspace.is_some() {
+                        Mode::Terminal
+                    } else {
+                        Mode::Navigate
+                    };
+                }
+            }
+        }
+
         if state.groups.is_empty() {
             self.active_group = 0;
             self.group_filter_enabled = false;

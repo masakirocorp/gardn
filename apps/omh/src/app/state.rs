@@ -2671,6 +2671,15 @@ pub(crate) struct PaneFocusTarget {
     pub pane_id: PaneId,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct PopupPaneState {
+    pub pane_id: PaneId,
+    pub terminal_id: crate::terminal::TerminalId,
+    pub width: Option<crate::popup_size::PopupSize>,
+    pub height: Option<crate::popup_size::PopupSize>,
+    pub owner: Option<u64>,
+}
+
 /// All application state — pure data, no channels or async runtime.
 /// Testable without PTYs or a tokio runtime.
 #[derive(Clone)]
@@ -2678,6 +2687,8 @@ pub struct AppState {
     pub groups: Vec<Group>,
     pub active_group: usize,
     pub group_filter_enabled: bool,
+    /// Detached plugin popup panes. Runtime ownership remains in `App`.
+    pub(crate) popup_panes: std::collections::HashMap<PaneId, PopupPaneState>,
     pub terminals:
         std::collections::HashMap<crate::terminal::TerminalId, crate::terminal::TerminalState>,
     pub git_repo_summaries:
@@ -3432,6 +3443,7 @@ impl AppState {
             active_group: 0,
             group_filter_enabled: true,
             terminals: std::collections::HashMap::new(),
+            popup_panes: std::collections::HashMap::new(),
             git_repo_summaries: std::collections::HashMap::new(),
             next_agent_activity_seq: 0,
             direct_attach_resize_locks: std::collections::HashSet::new(),

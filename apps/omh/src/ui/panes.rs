@@ -2,7 +2,7 @@ use ratatui::{
     layout::Rect,
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Paragraph},
+    widgets::{Block, Borders, Clear, Paragraph},
     Frame,
 };
 
@@ -353,6 +353,91 @@ pub(super) fn compute_pane_infos_for_view(
         info.scrollbar_rect = scrollbar_rect;
     }
     pane_infos
+}
+
+pub(crate) fn popup_pane_rects_for_view(
+    app: &AppState,
+    view: &ClientViewState,
+    area: Rect,
+) -> Option<(Rect, Rect)> {
+    let popup = app.popup_panes.get(&view.popup_pane?)?;
+    crate::popup_size::resolve_popup_geometry(popup.width, popup.height, area)
+        .map(|geometry| (geometry.outer, geometry.inner))
+}
+
+pub(super) fn resize_popup_pane_for_view(
+    app: &AppState,
+    view: &ClientViewState,
+    terminal_runtimes: &TerminalRuntimeRegistry,
+    area: Rect,
+    cell_size: crate::kitty_graphics::HostCellSize,
+) {
+    let Some(pane_id) = view.popup_pane else {
+        return;
+    };
+    let Some(popup) = app.popup_panes.get(&pane_id) else {
+        return;
+    };
+    let Some((_, inner)) = popup_pane_rects_for_view(app, view, area) else {
+        return;
+    };
+    if app.direct_attach_resize_locks.contains(&popup.terminal_id) {
+        return;
+    }
+    if let Some(runtime) = terminal_runtimes.get(&popup.terminal_id) {
+        runtime.resize(
+            inner.height,
+            inner.width,
+            cell_size.width_px,
+            cell_size.height_px,
+        );
+    }
+}
+
+pub(super) fn render_popup_pane_for_view(
+    app: &AppState,
+    view: &ClientViewState,
+    terminal_runtimes: &TerminalRuntimeRegistry,
+    frame: &mut Frame,
+    area: Rect,
+) {
+    let Some(pane_id) = view.popup_pane else {
+        return;
+    };
+    let Some(popup) = app.popup_panes.get(&pane_id) else {
+        return;
+    };
+    let Some((outer, inner)) = popup_pane_rects_for_view(app, view, area) else {
+        return;
+    };
+    let Some(runtime) = terminal_runtimes.get(&popup.terminal_id) else {
+        return;
+    };
+    let title = app
+        .terminals
+        .get(&popup.terminal_id)
+        .and_then(|terminal| terminal.manual_label.as_deref())
+        .unwrap_or("popup");
+    let title = if outer.width > 4 {
+        let max = outer.width.saturating_sub(4) as usize;
+        let label: String = title.chars().take(max).collect();
+        Some(Line::from(format!(" {label} ")))
+    } else {
+        None
+    };
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(app.palette.accent))
+        .title(title.unwrap_or_else(|| Line::from("popup")))
+        .style(Style::default().bg(app.palette.panel_bg));
+    frame.render_widget(Clear, outer);
+    frame.render_widget(block, outer);
+    runtime.render_with_theme_background(
+        frame,
+        inner,
+        view.mode == Mode::Terminal && !pane_is_scrolled_back(runtime),
+        pane_theme_background(&app.palette),
+    );
 }
 
 pub(super) fn render_panes_for_view(

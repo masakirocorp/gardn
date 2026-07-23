@@ -90,6 +90,16 @@ use super::App;
 
 impl App {
     pub(super) async fn handle_key(&mut self, key: TerminalKey) -> Option<TerminalKeyTarget> {
+        if self.default_client_view.popup_pane.is_some() {
+            if key.as_key_event().code == KeyCode::Esc {
+                let mut view = self.default_client_view.clone_reconciled(&self.state);
+                self.close_popup_pane_for_view(&mut view);
+                self.default_client_view = view;
+            } else {
+                let _ = self.send_popup_key_for_view(&self.default_client_view, key);
+            }
+            return None;
+        }
         let key_event = key.as_key_event();
         if modal_paste_target_active(&self.state) && is_modal_paste_shortcut(&key_event) {
             if let Some(text) = crate::platform::read_clipboard_text() {
@@ -259,6 +269,12 @@ impl App {
     }
 
     pub(super) fn handle_mouse(&mut self, mouse: MouseEvent) {
+        if self.default_client_view.popup_pane.is_some() {
+            let mut view = self.default_client_view.clone_reconciled(&self.state);
+            self.handle_mouse_for_view(&mut view, mouse);
+            self.default_client_view = view;
+            return;
+        }
         if self.handle_overlay_mouse(mouse) {
             return;
         }

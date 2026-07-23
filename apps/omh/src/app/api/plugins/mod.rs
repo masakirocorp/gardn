@@ -337,7 +337,76 @@ impl App {
         encode_success(id, ResponseResult::PluginLogList { logs })
     }
 
-    pub(super) fn handle_plugin_pane_open(
+    pub(super) fn handle_plugin_pane_open_for_view(
+        &mut self,
+        view: &mut crate::app::ClientViewState,
+        id: String,
+        params: PluginPaneOpenParams,
+    ) -> String {
+        if let Err(err) = self.refresh_installed_plugins() {
+            return encode_error(id, "plugin_registry_load_failed", err.to_string());
+        }
+        let Some(plugin_id) = normalize_plugin_id(&params.plugin_id) else {
+            return invalid_plugin_id(id);
+        };
+        let Some(plugin) = self.state.installed_plugins.get(&plugin_id).cloned() else {
+            return encode_error(id, "plugin_not_found", "plugin not found");
+        };
+        if !plugin_manifest_available(&plugin) {
+            return encode_error(
+                id,
+                "plugin_manifest_unavailable",
+                format!("plugin {plugin_id} manifest is unavailable"),
+            );
+        }
+        if !plugin.enabled {
+            return encode_error(
+                id,
+                "plugin_disabled",
+                format!("plugin {plugin_id} is disabled"),
+            );
+        }
+        let Some(entrypoint) = normalize_action_id(&params.entrypoint) else {
+            return encode_error(id, "invalid_plugin_entrypoint", "invalid entrypoint id");
+        };
+        let Some(pane) = plugin.panes.iter().find(|pane| pane.id == entrypoint).cloned() else {
+            return encode_error(
+                id,
+                "plugin_pane_not_found",
+                format!("plugin pane entrypoint '{entrypoint}' not found"),
+            );
+        };
+        if let Err((code, message)) = ensure_platform_supported(
+            effective_platforms(&pane.platforms, &plugin.platforms),
+            "plugin pane",
+        ) {
+            return encode_error(id, code, message);
+        }
+        let placement = params.placement.unwrap_or(pane.placement);
+        if placement != PluginPanePlacement::Overlay {
+            return self.handle_plugin_pane_open_legacy(id, params);
+        }
+        if params.workspace_id.is_some()
+            || params.target_pane_id.is_some()
+            || params.direction.is_some()
+        {
+            return encode_error(
+                id,
+                "invalid_params",
+                "overlay plugin panes target the active pane",
+            );
+        }
+        self.open_plugin_popup_pane_for_view(view, id, params, &plugin, pane)
+    }
+
+    pub(super) fn handle_plugin_pane_open(&mut self, id: String, params: PluginPaneOpenParams) -> String {
+        let mut view = self.default_client_view.clone_reconciled(&self.state);
+        let response = self.handle_plugin_pane_open_for_view(&mut view, id, params);
+        self.default_client_view = view;
+        response
+    }
+
+    pub(super) fn handle_plugin_pane_open_legacy(
         &mut self,
         id: String,
         params: PluginPaneOpenParams,
@@ -436,6 +505,12 @@ impl App {
         id: String,
         params: PluginPaneFocusParams,
     ) -> String {
+        if self.parse_popup_public_pane_id(&params.pane_id).is_some() {
+            let mut view = self.default_client_view.clone_reconciled(&self.state);
+            let response = self.focus_plugin_popup_pane_for_view(&mut view, id, params);
+            self.default_client_view = view;
+            return response;
+        }
         let Some((ws_idx, pane_id)) = self.parse_pane_id(&params.pane_id) else {
             return encode_error(id, "plugin_pane_not_found", "plugin pane not found");
         };
@@ -467,6 +542,12 @@ impl App {
         id: String,
         params: PluginPaneCloseParams,
     ) -> String {
+        if self.parse_popup_public_pane_id(&params.pane_id).is_some() {
+            let mut view = self.default_client_view.clone_reconciled(&self.state);
+            let response = self.close_plugin_popup_pane_for_view(&mut view, id, params);
+            self.default_client_view = view;
+            return response;
+        }
         let Some((_ws_idx, pane_id)) = self.parse_pane_id(&params.pane_id) else {
             return encode_error(id, "plugin_pane_not_found", "plugin pane not found");
         };
@@ -3449,4 +3530,138 @@ command = []
         let _ = std::fs::remove_dir_all(root);
         let _ = std::fs::remove_dir_all(invalid);
     }
+    #[tokio::test]
+    async fn popup_focus_and_close_are_client_local_and_clean_runtime() {
+        let mut app = test_app();
+        app.state.workspaces = vec![crate::workspace::Workspace::test_new("popup")];
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.ensure_test_terminals();
+        let mut owner = crate::app::ClientViewState::from_default_client_state(&app.state);
+        let runtime = crate::terminal::TerminalRuntime::test_with_screen_bytes(40, 12, b"popup");
+        let (pane_id, terminal_id) = app.install_test_popup_runtime(&mut owner, runtime);
+        app.state.plugin_panes.insert(
+            pane_id,
+            crate::app::state::PluginPaneRecord {
+                plugin_id: "example.popup".into(),
+                entrypoint: "main".into(),
+            },
+        );
+        let public_id = app.popup_public_pane_id(pane_id);
+        let mut other = crate::app::ClientViewState::for_new_client(&app.state);
+
+        let focused = app.focus_plugin_popup_pane_for_view(
+            &mut owner,
+            "focus".into(),
+            crate::api::schema::PluginPaneFocusParams {
+                pane_id: public_id.clone(),
+            },
+        );
+        assert!(matches!(
+            response_result(&focused),
+            ResponseResult::PluginPaneFocused { .. }
+        ));
+        let rejected = app.focus_plugin_popup_pane_for_view(
+            &mut other,
+            "other-focus".into(),
+            crate::api::schema::PluginPaneFocusParams {
+                pane_id: public_id.clone(),
+            },
+        );
+        assert!(rejected.contains("plugin_pane_not_found"));
+        assert!(other.popup_pane.is_none());
+        assert!(app.terminal_runtimes.get(&terminal_id).is_some());
+
+        let closed = app.close_plugin_popup_pane_for_view(
+            &mut owner,
+            "close".into(),
+            crate::api::schema::PluginPaneCloseParams {
+                pane_id: public_id,
+            },
+        );
+        assert!(matches!(
+            response_result(&closed),
+            ResponseResult::PluginPaneClosed { .. }
+        ));
+        assert!(owner.popup_pane.is_none());
+        assert!(!app.state.popup_panes.contains_key(&pane_id));
+        assert!(!app.state.plugin_panes.contains_key(&pane_id));
+        assert!(!app.state.terminals.contains_key(&terminal_id));
+        assert!(app.terminal_runtimes.get(&terminal_id).is_none());
+    }
+    #[tokio::test]
+    async fn popup_escape_closes_the_client_local_runtime() {
+        let mut app = test_app();
+        app.state.workspaces = vec![crate::workspace::Workspace::test_new("popup-escape")];
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.ensure_test_terminals();
+        let mut view = crate::app::ClientViewState::from_default_client_state(&app.state);
+        let runtime = crate::terminal::TerminalRuntime::test_with_screen_bytes(40, 12, b"popup");
+        let (pane_id, terminal_id) = app.install_test_popup_runtime(&mut view, runtime);
+        let _ = app.handle_terminal_key_for_view(
+            &mut view,
+            crate::input::TerminalKey::new(
+                crossterm::event::KeyCode::Esc,
+                crossterm::event::KeyModifiers::empty(),
+            ),
+        );
+        assert!(view.popup_pane.is_none());
+        assert!(!app.state.popup_panes.contains_key(&pane_id));
+        assert!(!app.state.terminals.contains_key(&terminal_id));
+        assert!(app.terminal_runtimes.get(&terminal_id).is_none());
+    }
+
+    #[tokio::test]
+    async fn popup_render_is_centered_and_includes_terminal_content() {
+        let mut app = test_app();
+        app.state.workspaces = vec![crate::workspace::Workspace::test_new("popup-render")];
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.ensure_test_terminals();
+        let mut view = crate::app::ClientViewState::from_default_client_state(&app.state);
+        let runtime =
+            crate::terminal::TerminalRuntime::test_with_screen_bytes(40, 12, b"POPUP-CONTENT");
+        let (pane_id, terminal_id) = app.install_test_popup_runtime(&mut view, runtime);
+        app.state
+            .terminals
+            .get_mut(&terminal_id)
+            .expect("popup terminal")
+            .set_manual_label("Popup Test".into());
+        crate::ui::compute_view_for_client_without_resizing_panes(
+            &app.state,
+            &mut view,
+            &app.terminal_runtimes,
+            ratatui::layout::Rect::new(0, 0, 80, 24),
+        );
+        let backend = ratatui::backend::TestBackend::new(80, 24);
+        let mut terminal = ratatui::Terminal::new(backend).expect("test backend");
+        terminal
+            .draw(|frame| {
+                crate::ui::render_with_runtime_registry_for_view(
+                    &app.state,
+                    &view,
+                    &app.terminal_runtimes,
+                    frame,
+                );
+            })
+            .expect("render popup");
+        let buffer = terminal.backend().buffer();
+        let rendered = (0..24)
+            .flat_map(|y| (0..80).map(move |x| buffer[(x, y)].symbol()))
+            .collect::<String>();
+        assert!(rendered.contains("Popup Test"));
+        assert!(rendered.contains("POPUP-CONTENT"));
+        let (outer, _) = crate::ui::popup_pane_rects_for_view(
+            &app.state,
+            &view,
+            ratatui::layout::Rect::new(0, 0, 80, 24),
+        )
+        .expect("popup geometry");
+        assert_eq!(outer.x, 20);
+        assert_eq!(outer.y, 6);
+        assert!(app.state.popup_panes.contains_key(&pane_id));
+    }
+
+
 }
