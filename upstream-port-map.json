@@ -3573,8 +3573,8 @@
     {
       "upstream": "f11be93e0409f8159eb8c501416f4bd3516c4270",
       "subject": "fix: report unknown config keys (#1575)",
-      "status": "pending",
-      "reason": "Config loading does not yet report ignored unknown keys with their full paths."
+      "status": "ported",
+      "reason": "Ported under ENG-168: full and live config loaders report sorted, deduplicated unknown-key paths while preserving known siblings and invalid-section fallback; focused config I/O tests pass."
     },
     {
       "upstream": "74db2f3a79e03d752802a9c6a2ee7b55b0ca088d",
