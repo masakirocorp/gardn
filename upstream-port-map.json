@@ -3615,8 +3615,8 @@
     {
       "upstream": "08409d167deba8950495d9737fb54b0cc6634f4c",
       "subject": "fix: show current workspace name in close confirmation",
-      "status": "pending",
-      "reason": "Workspace close confirmation can still use stale context instead of the current workspace name."
+      "status": "ported",
+      "reason": "Close confirmation now derives the targeted workspace name from live terminal context for keyboard, mouse, and client-view flows; focused render tests cover distinct targets."
     },
     {
       "upstream": "f76f895efe5b9f19aa9db909354c6c0f2195630b",

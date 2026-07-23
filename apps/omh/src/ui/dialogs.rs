@@ -12,7 +12,10 @@ use super::widgets::{
     render_modal_divider, render_modal_header_bar, render_modal_shell, render_modal_text_input,
     render_panel_shell, secondary_action_style, ActionButtonSpec,
 };
-use crate::app::{AppState, Mode};
+use crate::{
+    app::{AppState, Mode},
+    terminal::TerminalRuntimeRegistry,
+};
 
 pub(crate) fn rename_button_rects(inner: Rect) -> (Rect, Rect, Rect) {
     let rects = action_button_row_rects(
@@ -572,22 +575,30 @@ pub(super) fn render_rename_overlay(app: &AppState, frame: &mut Frame, area: Rec
 pub(super) fn render_confirm_close_overlay_for_view(
     app: &AppState,
     client_view: &crate::app::ClientViewState,
+    terminal_runtimes: &TerminalRuntimeRegistry,
     frame: &mut Frame,
     area: Rect,
 ) {
-    render_confirm_close_overlay_with(app, client_view.selected_workspace, frame, area);
+    render_confirm_close_overlay_with(
+        app,
+        client_view.selected_workspace,
+        terminal_runtimes,
+        frame,
+        area,
+    );
 }
 
 fn render_confirm_close_overlay_with(
     app: &AppState,
     selected_workspace: usize,
+    terminal_runtimes: &TerminalRuntimeRegistry,
     frame: &mut Frame,
     area: Rect,
 ) {
     let ws_name = app
         .workspaces
         .get(selected_workspace)
-        .map(|ws| ws.display_name())
+        .map(|ws| ws.display_name_from(&app.terminals, terminal_runtimes))
         .unwrap_or_else(|| "?".to_string());
     let pane_count = app
         .workspaces
@@ -658,8 +669,13 @@ fn render_confirm_close_overlay_with(
     }
 }
 
-pub(super) fn render_confirm_close_overlay(app: &AppState, frame: &mut Frame, area: Rect) {
-    render_confirm_close_overlay_with(app, app.selected, frame, area);
+pub(super) fn render_confirm_close_overlay(
+    app: &AppState,
+    terminal_runtimes: &TerminalRuntimeRegistry,
+    frame: &mut Frame,
+    area: Rect,
+) {
+    render_confirm_close_overlay_with(app, app.selected, terminal_runtimes, frame, area);
 }
 pub(super) fn render_confirm_delete_group_overlay_for_view(
     app: &AppState,
@@ -787,7 +803,6 @@ pub(crate) fn confirm_close_button_rects(inner: Rect) -> (Rect, Rect) {
 #[cfg(test)]
 mod tests {
     use ratatui::{backend::TestBackend, buffer::Buffer, Terminal};
-
     use super::*;
     use crate::workspace::Workspace;
 
@@ -803,7 +818,14 @@ mod tests {
         let backend = TestBackend::new(80, 24);
         let mut terminal = Terminal::new(backend).unwrap();
         terminal
-            .draw(|frame| render_confirm_close_overlay(&app, frame, Rect::new(0, 0, 80, 24)))
+            .draw(|frame| {
+                render_confirm_close_overlay(
+                    &app,
+                    &TerminalRuntimeRegistry::new(),
+                    frame,
+                    Rect::new(0, 0, 80, 24),
+                )
+            })
             .unwrap();
 
         let text = buffer_text(terminal.backend().buffer(), 80, 24);
@@ -814,6 +836,78 @@ mod tests {
         assert!(text.contains("confirm"));
         assert!(text.contains("esc"));
         assert!(text.contains("cancel"));
+    }
+
+    #[test]
+    fn confirm_close_overlay_uses_live_cwd_of_keyboard_or_mouse_target() {
+        let mut app = AppState::test_new();
+        let active = Workspace::test_new("active");
+        let mut target = Workspace::test_new("original");
+        target.custom_name = None;
+        target.identity_cwd = "/projects/original".into();
+        let target_pane = target.tabs[0].root_pane;
+        let target_terminal_id = target.tabs[0].panes[&target_pane]
+            .attached_terminal_id
+            .clone();
+        app.workspaces = vec![active, target];
+        app.ensure_test_terminals();
+        app.terminals
+            .get_mut(&target_terminal_id)
+            .expect("target terminal")
+            .cwd = "/projects/current".into();
+        app.active = Some(0);
+        app.selected = 1;
+        app.mode = Mode::ConfirmClose;
+
+        let backend = TestBackend::new(80, 24);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal
+            .draw(|frame| {
+                render_confirm_close_overlay(
+                    &app,
+                    &TerminalRuntimeRegistry::new(),
+                    frame,
+                    Rect::new(0, 0, 80, 24),
+                )
+            })
+            .unwrap();
+
+        let text = buffer_text(terminal.backend().buffer(), 80, 24);
+        assert!(text.contains("current"), "close target copy: {text}");
+        assert!(!text.contains("original"), "stale close target copy: {text}");
+    }
+
+    #[test]
+    fn confirm_close_overlay_for_view_uses_client_target_name() {
+        let mut app = AppState::test_new();
+        app.workspaces = vec![
+            Workspace::test_new("active"),
+            Workspace::test_new("selected"),
+        ];
+        app.ensure_test_terminals();
+        app.active = Some(0);
+        app.selected = 0;
+        let mut client_view = crate::app::ClientViewState::from_default_client_state(&app);
+        client_view.selected_workspace = 1;
+        client_view.mode = Mode::ConfirmClose;
+
+        let backend = TestBackend::new(80, 24);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal
+            .draw(|frame| {
+                render_confirm_close_overlay_for_view(
+                    &app,
+                    &client_view,
+                    &TerminalRuntimeRegistry::new(),
+                    frame,
+                    Rect::new(0, 0, 80, 24),
+                )
+            })
+            .unwrap();
+
+        let text = buffer_text(terminal.backend().buffer(), 80, 24);
+        assert!(text.contains("selected"), "client close target copy: {text}");
+        assert!(!text.contains("active"), "wrong client close target copy: {text}");
     }
 
     #[test]

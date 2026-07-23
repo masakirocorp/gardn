@@ -1248,7 +1248,9 @@ pub fn render_with_runtime_registry(
         Mode::Prefix => render_prefix_overlay(app, frame, terminal_area),
         Mode::Copy => render_copy_mode_overlay(app, frame, terminal_area),
         Mode::Resize => render_resize_overlay(app, frame, terminal_area),
-        Mode::ConfirmClose => render_confirm_close_overlay(app, frame, terminal_area),
+        Mode::ConfirmClose => {
+            render_confirm_close_overlay(app, terminal_runtimes, frame, terminal_area)
+        }
         Mode::ConfirmDeleteGroup => render_confirm_delete_group_overlay(app, frame, terminal_area),
         Mode::ContextMenu => render_context_menu(app, frame),
         Mode::Settings => render_settings_overlay(app, frame, frame.area()),
@@ -1346,7 +1348,13 @@ pub fn render_with_runtime_registry_for_view(
         Mode::Copy => render_copy_mode_overlay_for_view(app, client_view, frame, terminal_area),
         Mode::Resize => render_resize_overlay_for_view(app, client_view, frame, terminal_area),
         Mode::ConfirmClose => {
-            render_confirm_close_overlay_for_view(app, client_view, frame, terminal_area)
+            render_confirm_close_overlay_for_view(
+                app,
+                client_view,
+                terminal_runtimes,
+                frame,
+                terminal_area,
+            )
         }
         Mode::ConfirmDeleteGroup => {
             render_confirm_delete_group_overlay_for_view(app, client_view, frame, terminal_area)
