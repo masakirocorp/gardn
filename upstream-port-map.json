@@ -3417,8 +3417,8 @@
     {
       "upstream": "e9cbcf2f6f8654dd41b10826ef6aecd526f6b0b0",
       "subject": "fix: handle pane graphics stream disconnect race",
-      "status": "pending",
-      "reason": "Pane graphics streams do not yet have the upstream disconnect-race-safe teardown invariant."
+      "status": "ported",
+      "reason": "Adapted under ENG-164 to Oh My Herdr's API stream seam: disconnects during timed polling skip racing socket-option resets, with focused EOF and teardown tests passing."
     },
     {
       "upstream": "a22454f27ce096585e19d1787dba43f56d1505cf",
