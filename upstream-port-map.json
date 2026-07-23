@@ -3333,8 +3333,8 @@
     {
       "upstream": "464c658fdd3a9257b1eb5095b0ae024a306b29ee",
       "subject": "fix: reassemble split sgr mouse input",
-      "status": "pending",
-      "reason": "Host input does not yet reassemble SGR mouse reports split across reads."
+      "status": "ported",
+      "reason": "ENG-141 preserves incomplete SGR mouse reports across host-input read boundaries and safely discards timed-out tails."
     },
     {
       "upstream": "80d2958abad152f515aa356e8190e89a80485342",
