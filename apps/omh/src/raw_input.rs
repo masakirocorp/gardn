@@ -1721,8 +1721,6 @@ mod tests {
     }
 
     #[cfg(not(target_os = "macos"))]
-    #[cfg(not(target_os = "macos"))]
-
     #[test]
     fn non_macos_host_input_splits_lone_escape_from_arrow() {
         let mut framer = RawInputByteFramer::for_host_input();
