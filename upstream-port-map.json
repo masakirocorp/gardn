@@ -3297,8 +3297,8 @@
     {
       "upstream": "b0d46fb9bc2a3e7fb58864939e2580b8a9a2f1bc",
       "subject": "fix: stop copy mode line-end at text (#1411)",
-      "status": "pending",
-      "reason": "Copy mode still lacks the line-end-at-final-text behavior introduced in Herdr v0.7.4."
+      "status": "ported",
+      "reason": "Ported under ENG-147: copy-mode End stops at the final visible text cell while empty rows and Unicode cell widths retain their local behavior; focused coverage added."
     },
     {
       "upstream": "5b91dae12ffa09f5842a0c852ef06299c31fe342",
