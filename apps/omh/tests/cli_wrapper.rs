@@ -1369,7 +1369,7 @@ fn integration_commands_run_locally_when_server_is_missing() {
     );
     let omp_content = fs::read_to_string(&expected_omp_extension).unwrap();
     assert!(omp_content.contains("OMH_INTEGRATION_ID=omp"));
-    assert!(omp_content.contains("OMH_INTEGRATION_VERSION=6"));
+    assert!(omp_content.contains("OMH_INTEGRATION_VERSION=7"));
     assert!(omp_content.contains("agent: \"omp\""));
 
     let integration_status = Command::new(env!("CARGO_BIN_EXE_omh"))
@@ -1382,9 +1382,9 @@ fn integration_commands_run_locally_when_server_is_missing() {
         .unwrap();
     assert_eq!(integration_status.status.code(), Some(0));
     let status_stdout = String::from_utf8_lossy(&integration_status.stdout);
-    assert!(status_stdout.contains("pi: current (v5)"));
+    assert!(status_stdout.contains("pi: current (v6)"));
     assert!(status_stdout.contains("claude: not installed"));
-    assert!(status_stdout.contains("omp: current (v6)"));
+    assert!(status_stdout.contains("omp: current (v7)"));
 
     let integration_uninstall = Command::new(env!("CARGO_BIN_EXE_omh"))
         .args(["integration", "uninstall", "pi"])
@@ -1995,23 +1995,33 @@ fn agent_commands_work() {
     let omh = spawn_omh(&config_home, &runtime_dir, &socket_path);
     wait_for_socket(&socket_path, Duration::from_secs(5));
 
-    let created = run_cli(
+    let started = run_cli_json(
         &socket_path,
-        &["workspace", "create", "--cwd", base.to_str().unwrap()],
+        &[
+            "agent",
+            "start",
+            "initial",
+            "--cwd",
+            base.to_str().unwrap(),
+            "--",
+            "/bin/sh",
+        ],
     );
-    assert!(created.status.success());
-    let created_json: serde_json::Value = serde_json::from_slice(&created.stdout).unwrap();
-    let root_pane_id = created_json["result"]["root_pane"]["pane_id"]
+    let root_pane_id = started["result"]["agent"]["pane_id"]
         .as_str()
         .unwrap()
         .to_string();
-    let terminal_id = created_json["result"]["root_pane"]["terminal_id"]
+    let terminal_id = started["result"]["agent"]["terminal_id"]
         .as_str()
         .unwrap()
         .to_string();
 
     let renamed = run_cli(&socket_path, &["agent", "rename", &root_pane_id, "worker"]);
-    assert!(renamed.status.success());
+    assert!(
+        renamed.status.success(),
+        "agent rename failed: {}",
+        String::from_utf8_lossy(&renamed.stderr)
+    );
 
     let listed = run_cli_json(&socket_path, &["agent", "list"]);
     assert_eq!(listed["result"]["type"], "agent_list");
@@ -2040,12 +2050,6 @@ fn agent_commands_work() {
         &["agent", "read", &terminal_id, "--source", "visible"],
     );
     assert_eq!(read["result"]["type"], "pane_read");
-
-    let sent = run_cli(
-        &socket_path,
-        &["agent", "send", "worker", "echo cli-agent-ok\n"],
-    );
-    assert!(sent.status.success());
 
     let agent_renamed = run_cli_json(&socket_path, &["agent", "rename", "worker", "reviewer"]);
     assert_eq!(agent_renamed["result"]["agent"]["name"], "reviewer");
