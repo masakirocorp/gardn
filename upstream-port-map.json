@@ -3654,8 +3654,8 @@
     {
       "upstream": "6f7ef04e7dd5a8ec35c5aac8c9b6be1447290399",
       "subject": "fix: bound stalled agent prompt waits",
-      "status": "pending",
-      "reason": "Agent prompt waits lack the five-second state-change bound and agent_prompt_stalled result."
+      "status": "ported",
+      "reason": "Ported ENG-160: server-owned agent.prompt waits cap no-transition effects at five seconds, return upstream-compatible agent_prompt_stalled errors, preserve requested terminal waits after transition, and retain identity/lifecycle/disconnect behavior. Focused socket tests pass."
     },
     {
       "upstream": "d956a6b56dabac9690260e50a9e03372510877d4",

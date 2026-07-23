@@ -13,6 +13,7 @@ use crate::api::server::{
 };
 use crate::api::subscriptions::{match_output, output_match_read_source};
 use crate::api::ApiRequestSender;
+const AGENT_PROMPT_EFFECT_TIMEOUT_MS: u64 = 5_000;
 
 pub(super) fn wait_for_output(
     request_id: String,
@@ -170,7 +171,12 @@ pub(super) fn prompt_agent(
         )));
     };
 
+    let wait_started = std::time::Instant::now();
     let last_event_sequence = event_hub.current_sequence();
+    let before_prompt = match agent_get(&request_id, &params.target, api_tx) {
+        Ok(agent) => agent,
+        Err(response) => return encode_agent_response(response),
+    };
     let target = params.target.clone();
     let prompt_response = dispatch_to_app_with_timeout(
         Request {
@@ -187,16 +193,83 @@ pub(super) fn prompt_agent(
         Ok(agent) => agent,
         Err(_) => return Ok(Some(prompt_response)),
     };
+    if prompted.terminal_id != before_prompt.terminal_id
+        || prompted.pane_id != before_prompt.pane_id
+    {
+        return agent_wait_not_running(request_id).map(Some);
+    }
+
     let until = wait.until;
     let timeout_ms = wait.timeout_ms;
+    let mut initial = prompted;
+    let mut require_transition = true;
+    let mut last_event_sequence = last_event_sequence;
+    if initial.agent_status != crate::api::schema::AgentStatus::Working {
+        let effect_timeout_ms = timeout_ms
+            .map_or(AGENT_PROMPT_EFFECT_TIMEOUT_MS, |timeout_ms| {
+                timeout_ms.min(AGENT_PROMPT_EFFECT_TIMEOUT_MS)
+            });
+        let phase_result = wait_for_agent_state(
+            request_id.clone(),
+            target.clone(),
+            all_agent_statuses(),
+            Some(effect_timeout_ms),
+            initial.clone(),
+            last_event_sequence,
+            true,
+            stream,
+            api_tx,
+            event_hub,
+            running,
+        )?;
+        let Some(phase_response) = phase_result else {
+            return Ok(None);
+        };
+        let phase_value = match serde_json::from_str::<serde_json::Value>(&phase_response) {
+            Ok(value) => value,
+            Err(_) => return Ok(Some(phase_response)),
+        };
+        if phase_value
+            .get("error")
+            .and_then(|error| error.get("code"))
+            .and_then(serde_json::Value::as_str)
+            == Some("timeout")
+            && timeout_ms.is_none_or(|timeout_ms| timeout_ms > AGENT_PROMPT_EFFECT_TIMEOUT_MS)
+        {
+            let current = match agent_get(&request_id, &target, api_tx) {
+                Ok(agent) => agent,
+                Err(response) => return encode_agent_response(response),
+            };
+            if current.terminal_id != initial.terminal_id || current.pane_id != initial.pane_id {
+                return agent_wait_not_running(request_id).map(Some);
+            }
+            return agent_prompt_stalled(
+                request_id,
+                current,
+                last_event_sequence,
+                effect_timeout_ms,
+            )
+            .map(Some);
+        }
+        if phase_value.get("error").is_some() {
+            return Ok(Some(phase_response));
+        }
+        initial = match agent_from_response(&request_id, &phase_response) {
+            Ok(agent) => agent,
+            Err(_) => return Ok(Some(phase_response)),
+        };
+        require_transition = false;
+        last_event_sequence = event_hub.current_sequence();
+    }
+
     let result = wait_for_agent_state(
         request_id.clone(),
         target,
         until,
-        timeout_ms,
-        prompted,
+        remaining_timeout_ms(timeout_ms, wait_started),
+        initial,
         last_event_sequence,
-        true,
+        require_transition,
         stream,
         api_tx,
         event_hub,
@@ -216,12 +289,35 @@ pub(super) fn prompt_agent(
         Ok(agent) => agent,
         Err(_) => return Ok(Some(response)),
     };
+    agent_prompt_success(request_id, agent).map(Some)
+}
+
+fn remaining_timeout_ms(total_ms: Option<u64>, started: std::time::Instant) -> Option<u64> {
+    total_ms.map(|total_ms| {
+        let elapsed_ms = started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64;
+        total_ms.saturating_sub(elapsed_ms)
+    })
+}
+
+fn agent_prompt_success(
+    request_id: String,
+    agent: crate::api::schema::AgentInfo,
+) -> std::io::Result<String> {
     serde_json::to_string(&SuccessResponse {
         id: request_id,
         result: ResponseResult::AgentPrompted { agent },
     })
-    .map(Some)
     .map_err(std::io::Error::other)
+}
+
+fn all_agent_statuses() -> Vec<crate::api::schema::AgentStatus> {
+    vec![
+        crate::api::schema::AgentStatus::Idle,
+        crate::api::schema::AgentStatus::Working,
+        crate::api::schema::AgentStatus::Blocked,
+        crate::api::schema::AgentStatus::Done,
+        crate::api::schema::AgentStatus::Unknown,
+    ]
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -319,6 +415,7 @@ fn wait_for_agent_state(
     }
 }
 
+
 fn agent_get(
     request_id: &str,
     target: &str,
@@ -393,6 +490,25 @@ fn agent_wait_not_running(request_id: String) -> std::io::Result<String> {
         error: ErrorBody {
             code: "agent_not_running".into(),
             message: "agent is no longer running in the target pane".into(),
+        },
+    })
+    .map_err(std::io::Error::other)
+}
+
+fn agent_prompt_stalled(
+    request_id: String,
+    current: crate::api::schema::AgentInfo,
+    baseline: u64,
+    timeout_ms: u64,
+) -> std::io::Result<String> {
+    let status = format!("{:?}", current.agent_status).to_ascii_lowercase();
+    serde_json::to_string(&ErrorResponse {
+        id: request_id,
+        error: ErrorBody {
+            code: "agent_prompt_stalled".into(),
+            message: format!(
+                "agent prompt produced no observed state change within {timeout_ms} ms; status is {status} and state_change_seq remained {baseline}"
+            ),
         },
     })
     .map_err(std::io::Error::other)

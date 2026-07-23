@@ -874,6 +874,414 @@ mod tests {
         crate::api::schema::EventEnvelope { event, data }
     }
 
+    fn prompt_test_agent(
+        status: crate::api::schema::AgentStatus,
+        terminal_id: &str,
+    ) -> crate::api::schema::AgentInfo {
+        crate::api::schema::AgentInfo {
+            terminal_id: terminal_id.into(),
+            name: Some("main".into()),
+            agent: Some("pi".into()),
+            title: None,
+            display_agent: Some("pi".into()),
+            agent_status: status,
+            screen_detection_skipped: false,
+            custom_status: None,
+            tokens: std::collections::HashMap::new(),
+            state_labels: std::collections::HashMap::new(),
+            agent_session: None,
+            workspace_id: "ws_1".into(),
+            tab_id: "tab_1".into(),
+            pane_id: "pane_1".into(),
+            focused: true,
+            cwd: None,
+            foreground_cwd: None,
+            revision: 0,
+        }
+    }
+
+    fn prompt_test_response(
+        request_id: String,
+        status: crate::api::schema::AgentStatus,
+        terminal_id: &str,
+        prompted: bool,
+    ) -> String {
+        let agent = prompt_test_agent(status, terminal_id);
+        let result = if prompted {
+            ResponseResult::AgentPrompted { agent }
+        } else {
+            ResponseResult::AgentInfo { agent }
+        };
+        serde_json::to_string(&SuccessResponse {
+            id: request_id,
+            result,
+        })
+        .unwrap()
+    }
+    fn prompt_test_status_event(
+        status: crate::api::schema::AgentStatus,
+    ) -> crate::api::schema::EventEnvelope {
+        crate::api::schema::EventEnvelope {
+            event: crate::api::schema::EventKind::PaneAgentStatusChanged,
+            data: crate::api::schema::EventData::PaneAgentStatusChanged {
+                pane_id: "pane_1".into(),
+                workspace_id: "ws_1".into(),
+                agent_status: status,
+                agent: Some("pi".into()),
+                title: None,
+                display_agent: Some("pi".into()),
+                custom_status: None,
+                state_labels: std::collections::HashMap::new(),
+                tokens: std::collections::HashMap::new(),
+            },
+        }
+    }
+
+    #[test]
+    fn agent_prompt_wait_keeps_requested_terminal_wait_after_transition() {
+        let (api_tx, mut api_rx) = mpsc::unbounded_channel::<ApiRequestMessage>();
+        let current_status = Arc::new(Mutex::new(crate::api::schema::AgentStatus::Idle));
+        let responder_status = Arc::clone(&current_status);
+        let (prompt_tx, prompt_rx) = std::sync::mpsc::channel();
+        let responder = std::thread::spawn(move || {
+            while let Some(msg) = api_rx.blocking_recv() {
+                let status = *responder_status
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner());
+                let response = match msg.request.method {
+                    Method::AgentGet(_) => {
+                        prompt_test_response(msg.request.id, status, "terminal_1", false)
+                    }
+                    Method::AgentPrompt(_) => {
+                        prompt_tx.send(()).unwrap();
+                        prompt_test_response(msg.request.id, status, "terminal_1", true)
+                    }
+                    method => panic!("unexpected method: {method:?}"),
+                };
+                msg.respond_to.send(response).unwrap();
+            }
+        });
+
+        let (mut client, server, path) = local_stream_pair("agpt-transition");
+        client
+            .write_all(
+                br#"{"id":"prompt_transition","method":"agent.prompt","params":{"target":"main","text":"continue","wait":{"until":["idle"],"timeout_ms":1500}}}"#,
+            )
+            .unwrap();
+        client.write_all(b"\n").unwrap();
+        client.flush().unwrap();
+
+        let running = Arc::new(AtomicBool::new(true));
+        let server_running = Arc::clone(&running);
+        let event_hub = EventHub::default();
+        let server_event_hub = event_hub.clone();
+        let (done_tx, done_rx) = std::sync::mpsc::channel();
+        let server_thread = std::thread::spawn(move || {
+            let result = handle_connection(
+                server,
+                &api_tx,
+                &server_event_hub,
+                &server_running,
+                None,
+            );
+            done_tx.send(result).unwrap();
+        });
+
+        let started = Instant::now();
+        prompt_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+        *current_status
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) =
+            crate::api::schema::AgentStatus::Working;
+        event_hub.push(prompt_test_status_event(
+            crate::api::schema::AgentStatus::Working,
+        ));
+        std::thread::sleep(Duration::from_millis(250));
+        *current_status
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) =
+            crate::api::schema::AgentStatus::Idle;
+        event_hub.push(prompt_test_status_event(
+            crate::api::schema::AgentStatus::Idle,
+        ));
+
+        let response: serde_json::Value = serde_json::from_str(&read_line(&mut client)).unwrap();
+        let elapsed = started.elapsed();
+        assert_eq!(response["id"], "prompt_transition");
+        assert_eq!(response["result"]["type"], "agent_prompted");
+        assert!(
+            elapsed >= Duration::from_millis(150),
+            "terminal wait returned before requested transition: {elapsed:?}"
+        );
+
+        assert!(done_rx.recv_timeout(Duration::from_secs(2)).unwrap().is_ok());
+        server_thread.join().unwrap();
+        responder.join().unwrap();
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn agent_prompt_wait_reports_closed_target() {
+        let (api_tx, mut api_rx) = mpsc::unbounded_channel::<ApiRequestMessage>();
+        let (prompt_tx, prompt_rx) = std::sync::mpsc::channel();
+        let responder = std::thread::spawn(move || {
+            while let Some(msg) = api_rx.blocking_recv() {
+                let response = match msg.request.method {
+                    Method::AgentGet(_) => prompt_test_response(
+                        msg.request.id,
+                        crate::api::schema::AgentStatus::Idle,
+                        "terminal_1",
+                        false,
+                    ),
+                    Method::AgentPrompt(_) => {
+                        prompt_tx.send(()).unwrap();
+                        prompt_test_response(
+                            msg.request.id,
+                            crate::api::schema::AgentStatus::Idle,
+                            "terminal_1",
+                            true,
+                        )
+                    }
+                    method => panic!("unexpected method: {method:?}"),
+                };
+                msg.respond_to.send(response).unwrap();
+            }
+        });
+
+        let (mut client, server, path) = local_stream_pair("agpt-close");
+        client
+            .write_all(
+                br#"{"id":"prompt_close","method":"agent.prompt","params":{"target":"main","text":"close","wait":{"until":["idle"],"timeout_ms":6000}}}"#,
+            )
+            .unwrap();
+        client.write_all(b"\n").unwrap();
+        client.flush().unwrap();
+
+        let running = Arc::new(AtomicBool::new(true));
+        let server_running = Arc::clone(&running);
+        let event_hub = EventHub::default();
+        let server_event_hub = event_hub.clone();
+        let (done_tx, done_rx) = std::sync::mpsc::channel();
+        let server_thread = std::thread::spawn(move || {
+            let result = handle_connection(
+                server,
+                &api_tx,
+                &server_event_hub,
+                &server_running,
+                None,
+            );
+            done_tx.send(result).unwrap();
+        });
+
+        prompt_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+        event_hub.push(crate::api::schema::EventEnvelope {
+            event: crate::api::schema::EventKind::PaneClosed,
+            data: crate::api::schema::EventData::PaneClosed {
+                pane_id: "pane_1".into(),
+                workspace_id: "ws_1".into(),
+            },
+        });
+
+        let response: serde_json::Value = serde_json::from_str(&read_line(&mut client)).unwrap();
+        assert_eq!(response["id"], "prompt_close");
+        assert_eq!(response["error"]["code"], "agent_not_running");
+
+        assert!(done_rx.recv_timeout(Duration::from_secs(2)).unwrap().is_ok());
+        server_thread.join().unwrap();
+        responder.join().unwrap();
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn agent_prompt_wait_stops_when_client_disconnects() {
+        let (api_tx, mut api_rx) = mpsc::unbounded_channel::<ApiRequestMessage>();
+        let (prompt_tx, prompt_rx) = std::sync::mpsc::channel();
+        let responder = std::thread::spawn(move || {
+            while let Some(msg) = api_rx.blocking_recv() {
+                let response = match msg.request.method {
+                    Method::AgentGet(_) => prompt_test_response(
+                        msg.request.id,
+                        crate::api::schema::AgentStatus::Idle,
+                        "terminal_1",
+                        false,
+                    ),
+                    Method::AgentPrompt(_) => {
+                        prompt_tx.send(()).unwrap();
+                        prompt_test_response(
+                            msg.request.id,
+                            crate::api::schema::AgentStatus::Idle,
+                            "terminal_1",
+                            true,
+                        )
+                    }
+                    method => panic!("unexpected method: {method:?}"),
+                };
+                msg.respond_to.send(response).unwrap();
+            }
+        });
+
+        let (mut client, server, path) = local_stream_pair("agpt-disconnect");
+        client
+            .write_all(
+                br#"{"id":"prompt_disconnect","method":"agent.prompt","params":{"target":"main","text":"disconnect","wait":{"until":["idle"],"timeout_ms":6000}}}"#,
+            )
+            .unwrap();
+        client.write_all(b"\n").unwrap();
+        client.flush().unwrap();
+
+        let running = Arc::new(AtomicBool::new(true));
+        let server_running = Arc::clone(&running);
+        let event_hub = EventHub::default();
+        let server_event_hub = event_hub.clone();
+        let (done_tx, done_rx) = std::sync::mpsc::channel();
+        let server_thread = std::thread::spawn(move || {
+            let result = handle_connection(
+                server,
+                &api_tx,
+                &server_event_hub,
+                &server_running,
+                None,
+            );
+            done_tx.send(result).unwrap();
+        });
+
+        prompt_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+        drop(client);
+        assert!(done_rx.recv_timeout(Duration::from_secs(2)).unwrap().is_ok());
+        server_thread.join().unwrap();
+        responder.join().unwrap();
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn agent_prompt_wait_stops_when_server_shuts_down() {
+        let (api_tx, mut api_rx) = mpsc::unbounded_channel::<ApiRequestMessage>();
+        let (prompt_tx, prompt_rx) = std::sync::mpsc::channel();
+        let responder = std::thread::spawn(move || {
+            while let Some(msg) = api_rx.blocking_recv() {
+                let response = match msg.request.method {
+                    Method::AgentGet(_) => prompt_test_response(
+                        msg.request.id,
+                        crate::api::schema::AgentStatus::Idle,
+                        "terminal_1",
+                        false,
+                    ),
+                    Method::AgentPrompt(_) => {
+                        prompt_tx.send(()).unwrap();
+                        prompt_test_response(
+                            msg.request.id,
+                            crate::api::schema::AgentStatus::Idle,
+                            "terminal_1",
+                            true,
+                        )
+                    }
+                    method => panic!("unexpected method: {method:?}"),
+                };
+                msg.respond_to.send(response).unwrap();
+            }
+        });
+
+        let (mut client, server, path) = local_stream_pair("agpt-shutdown");
+        client
+            .write_all(
+                br#"{"id":"prompt_shutdown","method":"agent.prompt","params":{"target":"main","text":"shutdown","wait":{"until":["idle"],"timeout_ms":6000}}}"#,
+            )
+            .unwrap();
+        client.write_all(b"\n").unwrap();
+        client.flush().unwrap();
+
+        let running = Arc::new(AtomicBool::new(true));
+        let server_running = Arc::clone(&running);
+        let event_hub = EventHub::default();
+        let server_event_hub = event_hub.clone();
+        let (done_tx, done_rx) = std::sync::mpsc::channel();
+        let server_thread = std::thread::spawn(move || {
+            let result = handle_connection(
+                server,
+                &api_tx,
+                &server_event_hub,
+                &server_running,
+                None,
+            );
+            done_tx.send(result).unwrap();
+        });
+
+        prompt_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+        running.store(false, Ordering::Relaxed);
+        assert!(done_rx.recv_timeout(Duration::from_secs(2)).unwrap().is_ok());
+        server_thread.join().unwrap();
+        drop(client);
+        responder.join().unwrap();
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn agent_prompt_wait_reports_stall_at_effect_bound() {
+        let (api_tx, mut api_rx) = mpsc::unbounded_channel::<ApiRequestMessage>();
+        let responder = std::thread::spawn(move || {
+            while let Some(msg) = api_rx.blocking_recv() {
+                let response = match msg.request.method {
+                    Method::AgentGet(_) => prompt_test_response(
+                        msg.request.id,
+                        crate::api::schema::AgentStatus::Idle,
+                        "terminal_1",
+                        false,
+                    ),
+                    Method::AgentPrompt(_) => prompt_test_response(
+                        msg.request.id,
+                        crate::api::schema::AgentStatus::Idle,
+                        "terminal_1",
+                        true,
+                    ),
+                    method => panic!("unexpected method: {method:?}"),
+                };
+                msg.respond_to.send(response).unwrap();
+            }
+        });
+
+        let (mut client, server, path) = local_stream_pair("agpt-stall");
+        client
+            .write_all(
+                br#"{"id":"prompt_stall","method":"agent.prompt","params":{"target":"main","text":"stall","wait":{"until":["idle"],"timeout_ms":6000}}}"#,
+            )
+            .unwrap();
+        client.write_all(b"\n").unwrap();
+        client.flush().unwrap();
+
+        let running = Arc::new(AtomicBool::new(true));
+        let server_running = Arc::clone(&running);
+        let event_hub = EventHub::default();
+        let (done_tx, done_rx) = std::sync::mpsc::channel();
+        let server_thread = std::thread::spawn(move || {
+            let result = handle_connection(server, &api_tx, &event_hub, &server_running, None);
+            done_tx.send(result).unwrap();
+        });
+
+        let started = Instant::now();
+        let response: serde_json::Value = serde_json::from_str(&read_line(&mut client)).unwrap();
+        let elapsed = started.elapsed();
+        assert_eq!(response["id"], "prompt_stall");
+        assert_eq!(response["error"]["code"], "agent_prompt_stalled");
+        assert!(
+            response["error"]["message"]
+                .as_str()
+                .is_some_and(|message| message.contains("state_change_seq remained"))
+        );
+        assert!(
+            elapsed >= Duration::from_secs(4),
+            "stall returned too early: {elapsed:?}"
+        );
+        assert!(
+            elapsed < Duration::from_secs(6),
+            "stall exceeded bound: {elapsed:?}"
+        );
+
+        assert!(done_rx.recv_timeout(Duration::from_secs(2)).unwrap().is_ok());
+        server_thread.join().unwrap();
+        responder.join().unwrap();
+        let _ = std::fs::remove_file(path);
+    }
+
     #[test]
     fn initial_request_reader_waits_for_newline_after_partial_data() {
         let (mut client, mut server, path) = local_stream_pair("api-initial-partial");
