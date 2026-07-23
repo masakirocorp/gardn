@@ -1362,6 +1362,90 @@ platforms = ["linux", "macos", "windows"]
         assert_eq!(plugin.panes.len(), 1);
         assert!(plugin.warnings.is_empty());
     }
+    #[test]
+    fn plugin_manifest_distinguishes_absent_empty_and_whitespace_only_arguments() {
+        let cases = [
+            ("no-args", r#"["echo"]"#, Some(vec!["echo"])),
+            ("empty-arg", r#"["echo", ""]"#, None),
+            (
+                "whitespace-arg",
+                r#"["echo", " \t "]"#,
+                Some(vec!["echo", " \t "]),
+            ),
+        ];
+
+        for (name, command, expected) in cases {
+            let root = unique_temp_path(&format!("plugin-argv-{name}"));
+            write_manifest_content(
+                &root,
+                &format!(
+                    r#"
+id = "example.argv-{name}"
+name = "Argument boundaries"
+version = "0.1.0"
+min_omh_version = "0.2.0"
+platforms = ["linux", "macos"]
+
+[[actions]]
+id = "run"
+title = "Run"
+command = {command}
+"#
+                ),
+            );
+
+            let result = load_plugin_manifest(&root.display().to_string(), true);
+            match expected {
+                Some(expected) => {
+                    let plugin = result.expect("valid command should load");
+                    assert_eq!(plugin.actions[0].command, expected);
+                }
+                None => assert!(matches!(result, Err(("invalid_plugin_command", _)))),
+            }
+
+            let _ = std::fs::remove_dir_all(root);
+        }
+    }
+
+    #[test]
+    fn plugin_manifest_preserves_legacy_event_order_with_exact_argv() {
+        let root = unique_temp_path("plugin-event-whitespace-order");
+        write_manifest_content(
+            &root,
+            r#"
+id = "example.event-whitespace-order"
+name = "Event whitespace order"
+version = "0.1.0"
+min_omh_version = "0.2.0"
+platforms = ["linux", "macos"]
+
+[[events]]
+on = "workspace.created"
+command = ["echo", "!"]
+
+[[events]]
+on = "workspace.created"
+command = ["echo", " a"]
+
+[[events]]
+on = "workspace.created"
+command = ["echo", "a ", "first"]
+
+[[events]]
+on = "workspace.created"
+command = ["echo", " a", "first "]
+"#,
+        );
+
+        let plugin = load_plugin_manifest(&root.display().to_string(), true)
+            .expect("event commands with whitespace should load");
+        assert_eq!(plugin.events[0].command, ["echo", "!"]);
+        assert_eq!(plugin.events[1].command, ["echo", " a"]);
+        assert_eq!(plugin.events[2].command, ["echo", "a ", "first"]);
+        assert_eq!(plugin.events[3].command, ["echo", " a", "first "]);
+
+        let _ = std::fs::remove_dir_all(root);
+    }
 
     #[test]
     fn plugin_command_output_reader_caps_and_marks_truncation() {
@@ -1911,6 +1995,71 @@ command = ["sh", "-c", "printf '%s' \"$OMH_PLUGIN_ACTION_ID\""]
             .expect("log should exist");
         assert_eq!(finished.status, PluginCommandStatus::Succeeded);
         assert_eq!(finished.stdout.as_deref(), Some("run"));
+        assert_eq!(finished.exit_code, Some(0));
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+    #[cfg(unix)]
+    #[test]
+    fn manifest_action_invoke_passes_whitespace_only_argument_unchanged() {
+        let mut app = test_app();
+        let root = unique_temp_path("plugin-whitespace-argv-launch");
+        write_manifest_content(
+            &root,
+            r#"
+id = "example.whitespace-argv"
+name = "Whitespace argv"
+version = "0.1.0"
+min_omh_version = "0.2.0"
+platforms = ["linux", "macos"]
+
+[[actions]]
+id = "capture"
+title = "Capture argument"
+command = ["sh", "-c", "printf '%s' \"$1\"", "plugin-argv", " \t "]
+"#,
+        );
+        link_manifest(&mut app, &root);
+
+        let invoke = app.handle_api_request(Request {
+            id: "invoke-whitespace-argv".into(),
+            method: Method::PluginActionInvoke(PluginActionInvokeParams {
+                plugin_id: Some("example.whitespace-argv".into()),
+                action_id: "capture".into(),
+                context: None,
+            }),
+        });
+        let ResponseResult::PluginActionInvoked { log, .. } = response_result(&invoke) else {
+            panic!("expected plugin action invocation: {invoke}");
+        };
+
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while std::time::Instant::now() < deadline {
+            app.drain_internal_events();
+            if app.state.plugin_command_logs.iter().any(|entry| {
+                entry.log_id == log.log_id && entry.status != PluginCommandStatus::Running
+            }) {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+
+        let logs = app.handle_api_request(Request {
+            id: "logs".into(),
+            method: Method::PluginLogList(PluginLogListParams {
+                plugin_id: Some("example.whitespace-argv".into()),
+                limit: Some(10),
+            }),
+        });
+        let ResponseResult::PluginLogList { logs } = response_result(&logs) else {
+            panic!("expected plugin logs: {logs}");
+        };
+        let finished = logs
+            .iter()
+            .find(|entry| entry.log_id == log.log_id)
+            .expect("log should exist");
+        assert_eq!(finished.status, PluginCommandStatus::Succeeded);
+        assert_eq!(finished.stdout.as_deref(), Some(" \t "));
         assert_eq!(finished.exit_code, Some(0));
 
         let _ = std::fs::remove_dir_all(root);

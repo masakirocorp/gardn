@@ -3621,8 +3621,8 @@
     {
       "upstream": "f76f895efe5b9f19aa9db909354c6c0f2195630b",
       "subject": "fix: preserve plugin command arguments (#1613)",
-      "status": "pending",
-      "reason": "Plugin command normalization still trims each argument, losing whitespace-only arguments."
+      "status": "ported",
+      "reason": "Ported under ENG-156: manifest normalization preserves explicit whitespace-only argv elements, and focused manifest/event ordering/launch tests cover absent, empty, and whitespace-only arguments."
     },
     {
       "upstream": "3f80947678a9723434aa7fddfe23750b5393e24c",
