@@ -102,6 +102,21 @@ pub(crate) const RAW_INPUT_IDLE_FLUSH_TIMEOUT_MS: i32 = 10;
 pub(crate) const MOUSE_ACTIVE_ESCAPE_SEQUENCE_FLUSH_TIMEOUT_MS: i32 = 150;
 const BRACKETED_PASTE_START: &[u8] = b"\x1b[200~";
 const BRACKETED_PASTE_END: &[u8] = b"\x1b[201~";
+/// Returns whether `data` is exactly one complete UTF-8 bracketed text paste.
+///
+/// Client transport uses this to distinguish recoverable oversized interactive
+/// pastes from generic oversized input, which remains a protocol violation.
+pub(crate) fn is_complete_text_bracketed_paste(data: &[u8]) -> bool {
+    if !data.starts_with(BRACKETED_PASTE_START) {
+        return false;
+    }
+    let Some(end) = find_subsequence(data, BRACKETED_PASTE_END) else {
+        return false;
+    };
+    end + BRACKETED_PASTE_END.len() == data.len()
+        && std::str::from_utf8(&data[BRACKETED_PASTE_START.len()..end]).is_ok()
+}
+
 
 #[derive(Debug)]
 pub enum RawInputEvent {
@@ -1038,6 +1053,23 @@ mod tests {
         };
         assert_eq!(text, "hello");
         assert_eq!(consumed, 17);
+    }
+
+    #[test]
+    fn complete_text_bracketed_paste_requires_one_exact_utf8_sequence() {
+        assert!(is_complete_text_bracketed_paste(
+            b"\x1b[200~hello\x1b[201~"
+        ));
+        assert!(!is_complete_text_bracketed_paste(b"\x1b[200~hello"));
+        assert!(!is_complete_text_bracketed_paste(
+            b"\x1b[200~hello\x1b[201~rest"
+        ));
+        assert!(!is_complete_text_bracketed_paste(
+            b"\x1b[200~one\x1b[201~\x1b[200~two\x1b[201~"
+        ));
+        assert!(!is_complete_text_bracketed_paste(
+            b"\x1b[200~\xff\x1b[201~"
+        ));
     }
 
     #[test]
