@@ -762,6 +762,7 @@ impl App {
                 };
                 crate::app::state::NavigatorTarget::Tab { ws_idx, tab_idx }
             }
+            crate::app::state::ContextBarTarget::TabControl => return true,
             crate::app::state::ContextBarTarget::Pane => {
                 let Some(workspace) = self.state.workspaces.get(ws_idx) else {
                     return true;

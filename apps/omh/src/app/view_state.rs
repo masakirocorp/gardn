@@ -10,6 +10,42 @@ use crate::app::state::{
 };
 use crate::layout::PaneId;
 use crate::terminal::{TerminalId, TerminalRuntimeRegistry};
+use ratatui::layout::{Rect, Size};
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ClientTabControl {
+    Unavailable,
+    Controlling { epoch: u64 },
+    WatchingFree { epoch: u64 },
+    WatchingControlled { epoch: u64 },
+}
+
+impl Default for ClientTabControl {
+    fn default() -> Self {
+        Self::Controlling { epoch: 0 }
+    }
+}
+
+impl ClientTabControl {
+    pub(crate) const fn can_mutate_tab(self) -> bool {
+        matches!(self, Self::Controlling { .. })
+    }
+
+    pub(crate) const fn epoch(self) -> Option<u64> {
+        match self {
+            Self::Unavailable => None,
+            Self::Controlling { epoch }
+            | Self::WatchingFree { epoch }
+            | Self::WatchingControlled { epoch } => Some(epoch),
+        }
+    }
+
+    pub(crate) const fn is_watching(self) -> bool {
+        matches!(
+            self,
+            Self::WatchingFree { .. } | Self::WatchingControlled { .. }
+        )
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub(crate) struct ClientTabViewKey {
@@ -18,12 +54,180 @@ pub(crate) struct ClientTabViewKey {
 }
 
 impl ClientTabViewKey {
-    fn new(workspace_id: &str, tab_number: usize) -> Self {
+    pub(crate) fn new(workspace_id: &str, tab_number: usize) -> Self {
         Self {
             workspace_id: workspace_id.to_string(),
             tab_number,
         }
     }
+}
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct CanvasOrigin {
+    pub(crate) col: u16,
+    pub(crate) row: u16,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct ProjectedRect {
+    pub(crate) source: Rect,
+    pub(crate) destination: Rect,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct TabCanvasViewport {
+    pub(crate) canvas_size: Size,
+    pub(crate) viewport: Rect,
+    pub(crate) origin: CanvasOrigin,
+}
+
+impl TabCanvasViewport {
+    pub(crate) fn new(canvas_size: Size, viewport: Rect, origin: CanvasOrigin) -> Self {
+        let origin = CanvasOrigin {
+            col: clamp_origin(origin.col, canvas_size.width, viewport.width),
+            row: clamp_origin(origin.row, canvas_size.height, viewport.height),
+        };
+        Self {
+            canvas_size,
+            viewport,
+            origin,
+        }
+    }
+
+    pub(crate) fn source_rect(self) -> Rect {
+        Rect::new(
+            self.origin.col,
+            self.origin.row,
+            self.canvas_size
+                .width
+                .saturating_sub(self.origin.col)
+                .min(self.viewport.width),
+            self.canvas_size
+                .height
+                .saturating_sub(self.origin.row)
+                .min(self.viewport.height),
+        )
+    }
+
+    pub(crate) fn project_rect(self, canonical: Rect) -> Option<ProjectedRect> {
+        let source = intersect_rect(canonical, self.source_rect())?;
+        let destination = Rect::new(
+            add_u16(self.viewport.x, source.x.saturating_sub(self.origin.col)),
+            add_u16(self.viewport.y, source.y.saturating_sub(self.origin.row)),
+            source.width,
+            source.height,
+        );
+        Some(ProjectedRect {
+            source,
+            destination,
+        })
+    }
+
+    pub(crate) fn destination_rect(self) -> Rect {
+        let source = self.source_rect();
+        Rect::new(
+            self.viewport.x,
+            self.viewport.y,
+            source.width,
+            source.height,
+        )
+    }
+
+    pub(crate) fn screen_to_canvas(self, col: u16, row: u16) -> Option<(u16, u16)> {
+        if !contains(self.destination_rect(), col, row) {
+            return None;
+        }
+        Some((
+            add_u16(self.origin.col, col.saturating_sub(self.viewport.x)),
+            add_u16(self.origin.row, row.saturating_sub(self.viewport.y)),
+        ))
+    }
+
+    pub(crate) fn canvas_to_screen(self, col: u16, row: u16) -> Option<(u16, u16)> {
+        let source = self.source_rect();
+        if !contains(source, col, row) {
+            return None;
+        }
+        Some((
+            add_u16(self.viewport.x, col.saturating_sub(self.origin.col)),
+            add_u16(self.viewport.y, row.saturating_sub(self.origin.row)),
+        ))
+    }
+
+    pub(crate) fn reveal_focused(self, current: CanvasOrigin, pane: Rect) -> CanvasOrigin {
+        Self::new(
+            self.canvas_size,
+            self.viewport,
+            CanvasOrigin {
+                col: reveal_axis(
+                    current.col,
+                    self.canvas_size.width,
+                    self.viewport.width,
+                    pane.x,
+                    pane.width,
+                ),
+                row: reveal_axis(
+                    current.row,
+                    self.canvas_size.height,
+                    self.viewport.height,
+                    pane.y,
+                    pane.height,
+                ),
+            },
+        )
+        .origin
+    }
+}
+
+fn add_u16(lhs: u16, rhs: u16) -> u16 {
+    (u32::from(lhs) + u32::from(rhs)).min(u32::from(u16::MAX)) as u16
+}
+
+fn contains(rect: Rect, col: u16, row: u16) -> bool {
+    u32::from(col) >= u32::from(rect.x)
+        && u32::from(col) < u32::from(rect.x) + u32::from(rect.width)
+        && u32::from(row) >= u32::from(rect.y)
+        && u32::from(row) < u32::from(rect.y) + u32::from(rect.height)
+}
+
+fn intersect_rect(first: Rect, second: Rect) -> Option<Rect> {
+    let left = u32::from(first.x).max(u32::from(second.x));
+    let top = u32::from(first.y).max(u32::from(second.y));
+    let right = (u32::from(first.x) + u32::from(first.width))
+        .min(u32::from(second.x) + u32::from(second.width));
+    let bottom = (u32::from(first.y) + u32::from(first.height))
+        .min(u32::from(second.y) + u32::from(second.height));
+    (left < right && top < bottom).then(|| {
+        Rect::new(
+            left as u16,
+            top as u16,
+            (right - left) as u16,
+            (bottom - top) as u16,
+        )
+    })
+}
+
+fn clamp_origin(origin: u16, canvas: u16, viewport: u16) -> u16 {
+    origin.min(u32::from(canvas.saturating_sub(viewport.min(canvas))) as u16)
+}
+
+fn reveal_axis(current: u16, canvas: u16, viewport: u16, pane_start: u16, pane_len: u16) -> u16 {
+    let max_origin = u32::from(canvas.saturating_sub(viewport.min(canvas)));
+    let pane_start = u32::from(pane_start).min(u32::from(canvas));
+    let pane_end = (pane_start + u32::from(pane_len)).min(u32::from(canvas));
+    if pane_start >= pane_end {
+        return clamp_origin(current, canvas, viewport);
+    }
+    let viewport_len = u32::from(viewport.min(canvas));
+    let (min_origin, max_allowed) = if pane_end - pane_start <= viewport_len {
+        (pane_end.saturating_sub(viewport_len), pane_start)
+    } else {
+        (pane_start, pane_end.saturating_sub(viewport_len))
+    };
+    let min_origin = min_origin.min(max_origin);
+    let max_allowed = max_allowed.min(max_origin).max(min_origin);
+    u32::from(current)
+        .clamp(min_origin, max_allowed)
+        .min(u32::from(u16::MAX)) as u16
 }
 
 #[derive(Clone)]
@@ -62,14 +266,17 @@ impl TerminalViewportOffset {
 }
 
 /// Per-normal-app-client view/navigation state.
-///
-/// This type stores fields that describe what one attached app client is
 /// looking at. Shared session structures remain in `AppState`; callers must
 /// explicitly run view-sensitive work through the client's state instead of
 /// implicitly reading whichever client last touched the server.
 #[derive(Clone)]
 pub(crate) struct ClientViewState {
     id: u64,
+    pub(crate) tab_control: ClientTabControl,
+    pub(crate) tab_control_request: Option<u64>,
+    pub(crate) tab_canvas_size: Option<(u16, u16)>,
+    pub(crate) tab_canvas_origins: HashMap<ClientTabViewKey, CanvasOrigin>,
+    pub(crate) tab_canvas_view: Option<TabCanvasViewport>,
     pub(crate) active_workspace: Option<usize>,
     pub(crate) selected_workspace: usize,
     pub(crate) active_group: usize,
@@ -159,6 +366,11 @@ impl ClientViewState {
         let mut view = Self {
             id: NEXT_CLIENT_VIEW_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
             active_workspace: state.active,
+            tab_control: ClientTabControl::default(),
+            tab_control_request: None,
+            tab_canvas_size: None,
+            tab_canvas_origins: HashMap::new(),
+            tab_canvas_view: None,
             selected_workspace: state.selected,
             active_group: state.active_group,
             group_filter_enabled: state.group_filter_enabled,
@@ -249,6 +461,49 @@ impl ClientViewState {
         view
     }
 
+    pub(crate) fn can_mutate_tab(&self) -> bool {
+        self.tab_control.can_mutate_tab()
+    }
+
+    pub(crate) fn request_tab_control(&mut self) -> Option<u64> {
+        if self.tab_control.is_watching() && self.tab_control_request.is_none() {
+            self.tab_control_request = self.tab_control.epoch();
+        }
+        self.tab_control_request
+    }
+
+    pub(crate) fn take_tab_control_request(&mut self) -> Option<u64> {
+        self.tab_control_request.take()
+    }
+
+    pub(crate) fn set_tab_control(&mut self, tab_control: ClientTabControl) {
+        let lost_control = self.tab_control.can_mutate_tab() && !tab_control.can_mutate_tab();
+        self.tab_control = tab_control;
+        self.tab_control_request = None;
+        if matches!(tab_control, ClientTabControl::Unavailable) {
+            self.tab_canvas_size = None;
+            self.tab_canvas_view = None;
+        }
+        if lost_control {
+            self.forwarded_terminal_keys.clear();
+        }
+    }
+
+    pub(crate) fn tab_canvas_origin(&self, key: &ClientTabViewKey) -> CanvasOrigin {
+        self.tab_canvas_origins
+            .get(key)
+            .copied()
+            .unwrap_or_default()
+    }
+
+    pub(crate) fn set_tab_canvas_view(
+        &mut self,
+        key: ClientTabViewKey,
+        viewport: TabCanvasViewport,
+    ) {
+        self.tab_canvas_origins.insert(key, viewport.origin);
+        self.tab_canvas_view = Some(viewport);
+    }
     pub(crate) fn for_new_client(state: &AppState) -> Self {
         let mut view = Self::from_default_client_state(state);
         let sidebar_collapsed = matches!(
@@ -298,6 +553,9 @@ impl ClientViewState {
             self.zoomed_tabs.clear();
             self.overlay_return_states.clear();
             self.terminal_offsets_from_bottom.clear();
+            self.set_tab_control(ClientTabControl::Unavailable);
+            self.tab_canvas_origins.clear();
+            self.tab_canvas_view = None;
             return;
         }
 
@@ -351,6 +609,18 @@ impl ClientViewState {
             .iter()
             .map(|workspace| workspace.id.as_str())
             .collect();
+        let live_tab_keys: HashSet<ClientTabViewKey> = state
+            .workspaces
+            .iter()
+            .flat_map(|workspace| {
+                workspace
+                    .tabs
+                    .iter()
+                    .map(|tab| ClientTabViewKey::new(&workspace.id, tab.number))
+            })
+            .collect();
+        self.tab_canvas_origins
+            .retain(|key, _| live_tab_keys.contains(key));
         self.active_tabs
             .retain(|workspace_id, _| valid_workspace_ids.contains(workspace_id.as_str()));
         self.pending_active_tabs
@@ -405,10 +675,12 @@ impl ClientViewState {
             else {
                 continue;
             };
-            let Some(tab_idx) = return_state.tab.tab_number.checked_sub(1) else {
-                continue;
-            };
-            let Some(tab) = workspace.tabs.get(tab_idx) else {
+            let Some((tab_idx, tab)) = workspace
+                .tabs
+                .iter()
+                .enumerate()
+                .find(|(_, tab)| tab.number == return_state.tab.tab_number)
+            else {
                 continue;
             };
             if !tab.panes.contains_key(&return_state.focused_pane) {
@@ -434,12 +706,10 @@ impl ClientViewState {
             else {
                 return false;
             };
-            let Some(tab_idx) = return_state.tab.tab_number.checked_sub(1) else {
-                return false;
-            };
             workspace
                 .tabs
-                .get(tab_idx)
+                .iter()
+                .find(|tab| tab.number == return_state.tab.tab_number)
                 .is_some_and(|tab| tab.panes.contains_key(&return_state.focused_pane))
         });
 
@@ -474,9 +744,8 @@ impl ClientViewState {
                     .unwrap_or_else(|| workspace.active_tab.min(workspace.tabs.len() - 1))
             };
             self.active_tabs.insert(workspace.id.clone(), active_tab);
-
-            for (tab_idx, tab) in workspace.tabs.iter().enumerate() {
-                let tab_number = tab_idx + 1;
+            for tab in &workspace.tabs {
+                let tab_number = tab.number;
                 let tab_key = ClientTabViewKey::new(&workspace.id, tab_number);
                 if !tab.panes.contains_key(
                     self.focused_panes
@@ -496,13 +765,23 @@ impl ClientViewState {
                 }
             }
 
-            let tab_count = workspace.tabs.len();
             self.focused_panes.retain(|key, _| {
-                key.workspace_id != workspace.id || (1..=tab_count).contains(&key.tab_number)
+                key.workspace_id != workspace.id
+                    || workspace
+                        .tabs
+                        .iter()
+                        .any(|tab| tab.number == key.tab_number)
             });
             self.zoomed_tabs.retain(|key| {
-                key.workspace_id != workspace.id || (1..=tab_count).contains(&key.tab_number)
+                key.workspace_id != workspace.id
+                    || workspace
+                        .tabs
+                        .iter()
+                        .any(|tab| tab.number == key.tab_number)
             });
+        }
+        if self.current_tab_key(state).is_none() {
+            self.set_tab_control(ClientTabControl::Unavailable);
         }
     }
 
@@ -530,6 +809,14 @@ impl ClientViewState {
             .filter(|idx| *idx < workspace.tabs.len())
     }
 
+    pub(crate) fn current_tab_key(&self, state: &AppState) -> Option<ClientTabViewKey> {
+        let ws_idx = self.active_workspace?;
+        let workspace = state.workspaces.get(ws_idx)?;
+        let tab_idx = self.active_tab_index_for_workspace(state, ws_idx)?;
+        let tab = workspace.tabs.get(tab_idx)?;
+        Some(ClientTabViewKey::new(&workspace.id, tab.number))
+    }
+
     pub(crate) fn focused_pane_for_workspace(
         &self,
         state: &AppState,
@@ -537,7 +824,8 @@ impl ClientViewState {
     ) -> Option<(usize, PaneId)> {
         let workspace = state.workspaces.get(ws_idx)?;
         let tab_idx = self.active_tab_index_for_workspace(state, ws_idx)?;
-        let pane_id = self.focused_pane_for_tab(&workspace.id, tab_idx + 1)?;
+        let tab = workspace.tabs.get(tab_idx)?;
+        let pane_id = self.focused_pane_for_tab(&workspace.id, tab.number)?;
         workspace
             .tabs
             .get(tab_idx)?
@@ -601,7 +889,7 @@ impl ClientViewState {
         }
         self.active_tabs.insert(workspace.id.clone(), tab_idx);
         self.focused_panes
-            .insert(ClientTabViewKey::new(&workspace.id, tab_idx + 1), pane_id);
+            .insert(ClientTabViewKey::new(&workspace.id, tab.number), pane_id);
         self.mode = Mode::Terminal;
         self.selection = None;
         self.selection_autoscroll = None;
@@ -639,7 +927,7 @@ impl ClientViewState {
             return false;
         }
 
-        let tab_key = ClientTabViewKey::new(&workspace.id, tab_idx + 1);
+        let tab_key = ClientTabViewKey::new(&workspace.id, tab.number);
         let focused_pane = self
             .focused_panes
             .get(&tab_key)
@@ -819,6 +1107,81 @@ pub(crate) fn apply_terminal_offsets_to_runtimes(
             continue;
         };
         runtime.set_scroll_offset_from_bottom(offset.for_metrics(metrics));
+    }
+}
+
+#[cfg(test)]
+mod projection_tests {
+    use super::*;
+
+    #[test]
+    fn projection_preserves_nonzero_screen_origin_and_inverse() {
+        let viewport = TabCanvasViewport::new(
+            Size::new(120, 50),
+            Rect::new(7, 3, 40, 20),
+            CanvasOrigin { col: 30, row: 10 },
+        );
+        let projected = viewport
+            .project_rect(Rect::new(35, 15, 10, 5))
+            .expect("rect should intersect source");
+        assert_eq!(projected.source, Rect::new(35, 15, 10, 5));
+        assert_eq!(projected.destination, Rect::new(12, 8, 10, 5));
+        assert_eq!(viewport.screen_to_canvas(12, 8), Some((35, 15)));
+        assert_eq!(viewport.canvas_to_screen(35, 15), Some((12, 8)));
+        assert_eq!(viewport.screen_to_canvas(7, 3), Some((30, 10)));
+    }
+
+    #[test]
+    fn projection_leaves_padding_unmapped_when_canvas_is_smaller() {
+        let viewport = TabCanvasViewport::new(
+            Size::new(20, 10),
+            Rect::new(5, 4, 40, 20),
+            CanvasOrigin::default(),
+        );
+        assert_eq!(
+            viewport.project_rect(Rect::new(0, 0, 20, 10)),
+            Some(ProjectedRect {
+                source: Rect::new(0, 0, 20, 10),
+                destination: Rect::new(5, 4, 20, 10),
+            })
+        );
+        assert_eq!(viewport.screen_to_canvas(24, 4), Some((19, 0)));
+        assert_eq!(viewport.screen_to_canvas(25, 4), None);
+        assert_eq!(viewport.screen_to_canvas(5, 13), Some((0, 9)));
+        assert_eq!(viewport.screen_to_canvas(5, 14), None);
+    }
+
+    #[test]
+    fn projection_and_reveal_are_safe_at_u16_edges() {
+        let viewport = TabCanvasViewport::new(
+            Size::new(u16::MAX, u16::MAX),
+            Rect::new(u16::MAX - 3, u16::MAX - 3, 3, 3),
+            CanvasOrigin {
+                col: u16::MAX,
+                row: u16::MAX,
+            },
+        );
+        assert_eq!(
+            viewport.origin,
+            CanvasOrigin {
+                col: u16::MAX - 3,
+                row: u16::MAX - 3
+            }
+        );
+        let projected = viewport
+            .project_rect(Rect::new(u16::MAX - 3, u16::MAX - 3, 3, 3))
+            .expect("edge rect should intersect");
+        assert_eq!(projected.destination, viewport.viewport);
+        assert_eq!(
+            viewport.reveal_focused(
+                CanvasOrigin::default(),
+                Rect::new(u16::MAX - 10, u16::MAX - 10, 10, 10),
+            ),
+            CanvasOrigin {
+                col: u16::MAX - 10,
+                row: u16::MAX - 10,
+            }
+        );
     }
 }
 
@@ -1072,5 +1435,90 @@ mod tests {
             Some(2)
         );
         assert_eq!(runtime.visible_text(), visible_before);
+    }
+    #[test]
+    fn canvas_origins_follow_stable_tab_numbers_after_reorder() {
+        let mut state = AppState::test_new();
+        let mut workspace = Workspace::test_new("stable-tabs");
+        let second_idx = workspace.test_add_tab(Some("second"));
+        let first_number = workspace.tabs[0].number;
+        let second_number = workspace.tabs[second_idx].number;
+        let workspace_id = workspace.id.clone();
+        state.workspaces = vec![workspace];
+        state.active = Some(0);
+        state.selected = 0;
+        state.mode = Mode::Terminal;
+
+        let mut view = ClientViewState::from_default_client_state(&state);
+        let second_key = ClientTabViewKey::new(&workspace_id, second_number);
+        view.tab_canvas_origins
+            .insert(second_key.clone(), CanvasOrigin { col: 17, row: 9 });
+        view.tab_canvas_origins.insert(
+            ClientTabViewKey::new(&workspace_id, 99),
+            CanvasOrigin { col: 1, row: 1 },
+        );
+
+        state.workspaces[0].tabs.swap(0, second_idx);
+        view.reconcile(&state);
+
+        assert_eq!(
+            view.tab_canvas_origins.get(&second_key).copied(),
+            Some(CanvasOrigin { col: 17, row: 9 })
+        );
+        assert!(!view
+            .tab_canvas_origins
+            .contains_key(&ClientTabViewKey::new(&workspace_id, 99)));
+        assert!(view
+            .tab_canvas_origins
+            .keys()
+            .all(|key| key.tab_number == first_number || key.tab_number == second_number));
+    }
+}
+
+#[cfg(test)]
+mod tab_control_tests {
+    use super::{ClientTabControl, ClientViewState};
+    use crate::app::state::AppState;
+
+    #[test]
+    fn watching_projection_exposes_epoch_and_queues_one_shot_request() {
+        let mut view = ClientViewState::from_default_client_state(&AppState::test_new());
+        view.set_tab_control(ClientTabControl::WatchingFree { epoch: 7 });
+
+        assert!(!view.can_mutate_tab());
+        assert_eq!(view.tab_control.epoch(), Some(7));
+        assert_eq!(view.request_tab_control(), Some(7));
+        assert_eq!(view.request_tab_control(), Some(7));
+        assert_eq!(view.take_tab_control_request(), Some(7));
+        assert_eq!(view.take_tab_control_request(), None);
+    }
+
+    #[test]
+    fn losing_control_clears_forwarded_terminal_keys() {
+        let mut state = AppState::test_new();
+        state.workspaces = vec![crate::workspace::Workspace::test_new("control")];
+        let mut view = ClientViewState::from_default_client_state(&state);
+        let pane_id = state.workspaces[0].tabs[0].layout.focused();
+        view.forwarded_terminal_keys.insert(
+            crossterm::event::KeyCode::Char('x'),
+            crate::app::input::TerminalKeyTarget {
+                workspace_id: state.workspaces[0].id.clone(),
+                pane_id,
+            },
+        );
+
+        view.set_tab_control(ClientTabControl::WatchingControlled { epoch: 1 });
+
+        assert!(view.forwarded_terminal_keys.is_empty());
+    }
+
+    #[test]
+    fn unavailable_projection_has_no_epoch_or_control_request() {
+        let mut view = ClientViewState::from_default_client_state(&AppState::test_new());
+        view.set_tab_control(ClientTabControl::Unavailable);
+
+        assert!(!view.can_mutate_tab());
+        assert_eq!(view.tab_control.epoch(), None);
+        assert_eq!(view.request_tab_control(), None);
     }
 }

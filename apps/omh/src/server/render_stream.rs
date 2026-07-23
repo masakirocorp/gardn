@@ -394,10 +394,14 @@ pub(crate) fn render_virtual_for_client_view(
         .expect("render to TestBackend should never fail");
 
     let buffer = terminal.backend().buffer().clone();
-    let cursor = focused_terminal_cursor_for_view(app_state, client_view, terminal_runtimes)
-        .or_else(|| terminal.backend().rendered_cursor());
-    let hyperlinks = visible_hyperlinks_for_view(app_state, client_view, terminal_runtimes);
+    let cursor = if client_view.can_mutate_tab() {
+        focused_terminal_cursor_for_view(app_state, client_view, terminal_runtimes)
+            .or_else(|| terminal.backend().rendered_cursor())
+    } else {
+        None
+    };
 
+    let hyperlinks = visible_hyperlinks_for_view(app_state, client_view, terminal_runtimes);
     capture_terminal_offsets_from_runtimes(&live_terminal_ids, terminal_runtimes, client_view);
     restore_terminal_offsets(terminal_runtimes, &shared_offsets);
     (buffer, cursor, hyperlinks)
@@ -451,14 +455,44 @@ pub(crate) fn visible_hyperlinks_for_view(
 
     let mut links = Vec::new();
     for info in &client_view.computed.pane_infos {
-        if let Some(runtime) = tab
+        let Some(runtime) = tab
             .terminal_id(info.id)
             .and_then(|terminal_id| terminal_runtimes.get(terminal_id))
-        {
-            links.extend(runtime.visible_hyperlinks(info.inner_rect));
+        else {
+            continue;
+        };
+        for link in runtime.visible_hyperlinks(info.inner_rect) {
+            if let Some(link) = project_hyperlink_for_view(client_view, link) {
+                links.push(link);
+            }
         }
     }
     links
+}
+
+fn project_hyperlink_for_view(
+    client_view: &ClientViewState,
+    link: ((u16, u16), String, String),
+) -> Option<((u16, u16), String, String)> {
+    let ((x, y), label, uri) = link;
+    let position = client_view
+        .tab_canvas_view
+        .map(|canvas_view| canvas_view.canvas_to_screen(x, y))
+        .unwrap_or(Some((x, y)))?;
+    Some((position, label, uri))
+}
+
+fn project_cursor_for_view(
+    client_view: &ClientViewState,
+    mut cursor: CursorState,
+) -> Option<CursorState> {
+    let Some(canvas_view) = client_view.tab_canvas_view else {
+        return Some(cursor);
+    };
+    let (x, y) = canvas_view.canvas_to_screen(cursor.x, cursor.y)?;
+    cursor.x = x;
+    cursor.y = y;
+    Some(cursor)
 }
 
 fn focused_terminal_cursor_for_view(
@@ -467,6 +501,12 @@ fn focused_terminal_cursor_for_view(
     terminal_runtimes: &TerminalRuntimeRegistry,
 ) -> Option<CursorState> {
     if client_view.mode != Mode::Terminal {
+        return None;
+    }
+    // Watchers never see a terminal cursor: their keystrokes go nowhere, so
+    // the honest caret is a hidden one. This gates the CJK IME reveal path
+    // below as well.
+    if client_view.tab_control.is_watching() {
         return None;
     }
 
@@ -490,7 +530,7 @@ fn focused_terminal_cursor_for_view(
             detected.is_some_and(|agent| app_state.cjk_ime_agents.contains(&agent))
         });
 
-    if let Some(cursor) = rt.cursor_state(info.inner_rect, true) {
+    let cursor = if let Some(cursor) = rt.cursor_state(info.inner_rect, true) {
         let visible = if reveal {
             !scrolled_back
         } else {
@@ -515,7 +555,8 @@ fn focused_terminal_cursor_for_view(
         })
     } else {
         None
-    }
+    };
+    cursor.and_then(|cursor| project_cursor_for_view(client_view, cursor))
 }
 
 fn focused_terminal_cursor(
@@ -588,7 +629,7 @@ fn focused_terminal_cursor(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::app::ClientViewState;
+    use crate::app::{ClientTabControl, ClientViewState};
     use crate::workspace::Workspace;
 
     fn buffer_text(buffer: &ratatui::buffer::Buffer) -> String {
@@ -832,10 +873,10 @@ mod tests {
         state.active = Some(0);
         state.selected = 0;
         state.mode = crate::app::Mode::Terminal;
-        state.copy_mode = Some(crate::app::state::CopyModeState::new(pane_id, 1, 2, None));
 
         let mut client = ClientViewState::from_default_client_state(&state);
         client.mode = crate::app::Mode::Copy;
+        client.copy_mode = Some(crate::app::state::CopyModeState::new(pane_id, 1, 2, None));
         let mut terminal_runtimes = TerminalRuntimeRegistry::new();
         terminal_runtimes.insert(
             terminal_id,
@@ -861,7 +902,11 @@ mod tests {
             .iter()
             .find(|info| info.id == pane_id)
             .expect("copy-mode pane rendered");
-        let cell = &buffer[(pane.inner_rect.x + 2, pane.inner_rect.y + 1)];
+        let (cursor_x, cursor_y) = client
+            .tab_canvas_view
+            .and_then(|view| view.canvas_to_screen(pane.inner_rect.x + 2, pane.inner_rect.y + 1))
+            .expect("copy cursor should project into the client viewport");
+        let cell = &buffer[(cursor_x, cursor_y)];
         assert_eq!(
             cell.style().bg,
             Some(state.active_workspace_accent_color()),
@@ -872,6 +917,239 @@ mod tests {
                 .add_modifier
                 .contains(ratatui::style::Modifier::BOLD),
             "client copy-mode cursor should be visibly emphasized"
+        );
+    }
+
+    fn watcher_cursor_fixture() -> (AppState, ClientViewState, TerminalRuntimeRegistry) {
+        let mut state = AppState::test_new();
+        let workspace = Workspace::test_new("watch-cursor");
+        let pane_id = workspace.tabs[0].root_pane;
+        let terminal_id = workspace.terminal_id(pane_id).cloned().unwrap();
+        state.workspaces = vec![workspace];
+        state.ensure_test_terminals();
+        state.active = Some(0);
+        state.selected = 0;
+        state.mode = crate::app::Mode::Terminal;
+        let mut terminal_runtimes = TerminalRuntimeRegistry::new();
+        terminal_runtimes.insert(
+            terminal_id,
+            crate::terminal::TerminalRuntime::test_with_screen_bytes(
+                20,
+                5,
+                b"alpha\r\nbeta\r\n\x1b[?25h",
+            ),
+        );
+        let mut client = ClientViewState::from_default_client_state(&state);
+        crate::ui::compute_view_for_client_without_resizing_panes(
+            &state,
+            &mut client,
+            &terminal_runtimes,
+            Rect::new(0, 0, 100, 20),
+        );
+        (state, client, terminal_runtimes)
+    }
+    #[tokio::test]
+    async fn render_virtual_for_client_view_hides_watcher_terminal_cursor_but_keeps_controller_cursor(
+    ) {
+        let (mut state, mut client, terminal_runtimes) = watcher_cursor_fixture();
+        let area = Rect::new(0, 0, 100, 20);
+
+        let (_, controller_cursor, _) = render_virtual_for_client_view(
+            &mut state,
+            &mut client,
+            &terminal_runtimes,
+            area,
+            false,
+            crate::kitty_graphics::HostCellSize::default(),
+        );
+        assert!(
+            controller_cursor.is_some(),
+            "full controller render should preserve the visible backend cursor"
+        );
+
+        client.set_tab_control(ClientTabControl::WatchingControlled { epoch: 1 });
+        let (_, watcher_cursor, _) = render_virtual_for_client_view(
+            &mut state,
+            &mut client,
+            &terminal_runtimes,
+            area,
+            false,
+            crate::kitty_graphics::HostCellSize::default(),
+        );
+        assert_eq!(
+            watcher_cursor, None,
+            "full watcher render must not leak a backend-rendered terminal cursor"
+        );
+    }
+
+    #[test]
+    fn hyperlink_projection_maps_canvas_coordinates_with_nonzero_origin() {
+        let state = AppState::test_new();
+        let mut client = ClientViewState::from_default_client_state(&state);
+        client.tab_canvas_view = Some(crate::app::view_state::TabCanvasViewport::new(
+            Size::new(120, 50),
+            Rect::new(10, 5, 20, 10),
+            crate::app::view_state::CanvasOrigin { col: 30, row: 12 },
+        ));
+
+        assert_eq!(
+            project_hyperlink_for_view(
+                &client,
+                (
+                    (32, 14),
+                    "label".to_string(),
+                    "https://example.test".to_string()
+                ),
+            ),
+            Some((
+                (12, 7),
+                "label".to_string(),
+                "https://example.test".to_string()
+            ))
+        );
+        assert_eq!(
+            project_hyperlink_for_view(
+                &client,
+                (
+                    (29, 14),
+                    "outside".to_string(),
+                    "https://example.test".to_string()
+                ),
+            ),
+            None,
+            "links outside the canonical canvas must not enter the frame"
+        );
+    }
+
+    #[test]
+    fn hyperlink_projection_preserves_controller_origin_zero_and_rejects_padding() {
+        let state = AppState::test_new();
+        let mut client = ClientViewState::from_default_client_state(&state);
+        client.tab_canvas_view = None;
+        assert_eq!(
+            project_hyperlink_for_view(
+                &client,
+                (
+                    (3, 4),
+                    "label".to_string(),
+                    "https://example.test".to_string()
+                ),
+            ),
+            Some((
+                (3, 4),
+                "label".to_string(),
+                "https://example.test".to_string()
+            ))
+        );
+
+        let viewport = crate::app::view_state::TabCanvasViewport::new(
+            Size::new(12, 8),
+            Rect::new(10, 5, 20, 10),
+            crate::app::view_state::CanvasOrigin { col: 0, row: 0 },
+        );
+        assert_eq!(viewport.screen_to_canvas(22, 5), None);
+        assert_eq!(viewport.screen_to_canvas(10, 13), None);
+    }
+
+    #[tokio::test]
+    async fn watching_clients_have_no_terminal_cursor() {
+        let (state, mut client, terminal_runtimes) = watcher_cursor_fixture();
+
+        // The controller keeps the focused terminal cursor.
+        assert!(
+            focused_terminal_cursor_for_view(&state, &client, &terminal_runtimes).is_some(),
+            "controller should keep the terminal cursor"
+        );
+
+        client.set_tab_control(ClientTabControl::WatchingControlled { epoch: 1 });
+        assert_eq!(
+            focused_terminal_cursor_for_view(&state, &client, &terminal_runtimes),
+            None,
+            "watching an occupied tab hides the cursor"
+        );
+
+        client.set_tab_control(ClientTabControl::WatchingFree { epoch: 1 });
+        assert_eq!(
+            focused_terminal_cursor_for_view(&state, &client, &terminal_runtimes),
+            None,
+            "watching a free tab hides the cursor"
+        );
+    }
+
+    #[tokio::test]
+    async fn cjk_ime_reveal_does_not_leak_cursor_to_watchers() {
+        let (mut state, mut client, terminal_runtimes) = watcher_cursor_fixture();
+        state.reveal_hidden_cursor_for_cjk_ime = true;
+
+        // The reveal still applies to the controller.
+        assert!(
+            focused_terminal_cursor_for_view(&state, &client, &terminal_runtimes).is_some(),
+            "controller keeps the revealed cursor"
+        );
+
+        client.set_tab_control(ClientTabControl::WatchingControlled { epoch: 1 });
+        assert_eq!(
+            focused_terminal_cursor_for_view(&state, &client, &terminal_runtimes),
+            None,
+            "reveal must not leak a cursor to watchers"
+        );
+
+        client.set_tab_control(ClientTabControl::WatchingFree { epoch: 1 });
+        assert_eq!(
+            focused_terminal_cursor_for_view(&state, &client, &terminal_runtimes),
+            None,
+            "reveal must not leak a cursor to watchers"
+        );
+    }
+
+    #[test]
+    fn watcher_frame_shows_control_chip_and_controller_frame_does_not() {
+        let mut state = AppState::test_new();
+        state.context_bar_visibility = crate::config::ContextBarVisibilityConfig::Always;
+        let mut workspace = Workspace::test_new("ignored");
+        workspace.custom_name = Some("website".into());
+        workspace.tabs[0].custom_name = Some("release".into());
+        state.workspaces = vec![workspace];
+        state.active = Some(0);
+        state.selected = 0;
+        state.mode = crate::app::Mode::Terminal;
+
+        let mut watcher = ClientViewState::from_default_client_state(&state);
+        watcher.set_tab_control(ClientTabControl::WatchingControlled { epoch: 4 });
+        let mut controller = ClientViewState::from_default_client_state(&state);
+
+        let terminal_runtimes = TerminalRuntimeRegistry::new();
+        let (watcher_buffer, _, _) = render_virtual_for_client_view(
+            &mut state,
+            &mut watcher,
+            &terminal_runtimes,
+            Rect::new(0, 0, 100, 20),
+            false,
+            crate::kitty_graphics::HostCellSize::default(),
+        );
+        let (controller_buffer, _, _) = render_virtual_for_client_view(
+            &mut state,
+            &mut controller,
+            &terminal_runtimes,
+            Rect::new(0, 0, 100, 20),
+            false,
+            crate::kitty_graphics::HostCellSize::default(),
+        );
+        let watcher_text = buffer_text(&watcher_buffer);
+        let controller_text = buffer_text(&controller_buffer);
+
+        assert!(watcher_text.contains("WATCHING"), "{watcher_text}");
+        assert!(
+            watcher_text.contains("another client controls"),
+            "{watcher_text}"
+        );
+        assert!(
+            !controller_text.contains("WATCHING") && !controller_text.contains("FREE"),
+            "controller frame must not carry watcher chrome:\n{controller_text}"
+        );
+        assert!(
+            !controller_text.contains("another client controls"),
+            "controller frame must not carry watcher copy:\n{controller_text}"
         );
     }
 }

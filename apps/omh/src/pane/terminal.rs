@@ -43,6 +43,13 @@ const MODE_MOUSE_BUTTON_MOTION: u16 = 1002;
 const MODE_MOUSE_ANY_MOTION: u16 = 1003;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct TerminalViewport {
+    pub(crate) destination: Rect,
+    pub(crate) source_col: u16,
+    pub(crate) source_row: u16,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ScrollMetrics {
     pub offset_from_bottom: usize,
     pub max_offset_from_bottom: usize,
@@ -294,6 +301,21 @@ impl PaneTerminal {
     ) {
         self.ghostty
             .render_with_theme_background(frame, area, show_cursor, theme_default_bg);
+    }
+
+    pub fn render_view_with_theme_background(
+        &self,
+        frame: &mut Frame,
+        viewport: TerminalViewport,
+        show_cursor: bool,
+        theme_default_bg: Option<Color>,
+    ) {
+        self.ghostty.render_view_with_theme_background(
+            frame,
+            viewport,
+            show_cursor,
+            theme_default_bg,
+        );
     }
 
     pub fn visible_hyperlinks(&self, area: Rect) -> Vec<((u16, u16), String, String)> {
@@ -1632,6 +1654,25 @@ impl GhosttyPaneTerminal {
         show_cursor: bool,
         theme_default_bg: Option<Color>,
     ) {
+        self.render_view_with_theme_background(
+            frame,
+            TerminalViewport {
+                destination: area,
+                source_col: 0,
+                source_row: 0,
+            },
+            show_cursor,
+            theme_default_bg,
+        );
+    }
+
+    pub fn render_view_with_theme_background(
+        &self,
+        frame: &mut Frame,
+        viewport: TerminalViewport,
+        show_cursor: bool,
+        theme_default_bg: Option<Color>,
+    ) {
         let Ok(mut core) = self.core.lock() else {
             return;
         };
@@ -1665,7 +1706,12 @@ impl GhosttyPaneTerminal {
             Ok(cells) => cells,
             Err(_) => return,
         };
-        {
+        let render_area = terminal_render_intersection(viewport.destination, frame.area());
+        if let Some(render_area) = render_area {
+            let source_col = u32::from(viewport.source_col)
+                + u32::from(render_area.x.saturating_sub(viewport.destination.x));
+            let source_row = u32::from(viewport.source_row)
+                + u32::from(render_area.y.saturating_sub(viewport.destination.y));
             let buf = frame.buffer_mut();
             let mut rows = match render_state.populate_row_iterator(&mut row_iterator) {
                 Ok(rows) => rows,
@@ -1673,71 +1719,174 @@ impl GhosttyPaneTerminal {
             };
             let mut grapheme_bytes = Vec::new();
             let mut symbol_scratch = String::new();
-            let mut y = 0u16;
-            while y < area.height && rows.next() {
-                let mut cells = match rows.populate_cells(&mut row_cells) {
-                    Ok(cells) => cells,
-                    Err(_) => break,
-                };
-                let mut x = 0u16;
-                while x < area.width && cells.next() {
-                    let wide = cells.wide().unwrap_or(crate::ghostty::CellWide::Narrow);
-                    let style = ghostty_cell_style(
-                        &cells,
-                        default_fg,
-                        default_bg,
-                        resolved_fg,
-                        resolved_bg,
-                    );
-                    let symbol = match ghostty_buffer_symbol_into(
-                        &cells,
-                        wide,
-                        hide_kitty_placeholders,
-                        &mut grapheme_bytes,
-                        &mut symbol_scratch,
-                    ) {
-                        Ok(symbol) => symbol,
-                        Err(_) => {
-                            symbol_scratch.clear();
-                            symbol_scratch.push_str(ghostty_blank_symbol_for_width(wide));
-                            symbol_scratch.as_str()
-                        }
-                    };
-                    let cell = &mut buf[(area.x + x, area.y + y)];
-                    cell.reset();
-                    cell.set_symbol(symbol);
-                    cell.set_style(style);
-                    x += 1;
+            let mut skipped_rows = 0u32;
+            let mut rows_available = true;
+            while skipped_rows < source_row {
+                if !rows.next() {
+                    rows_available = false;
+                    break;
                 }
-                while x < area.width {
-                    let cell = &mut buf[(area.x + x, area.y + y)];
-                    ghostty_reset_cell(cell, default_fg, default_bg);
-                    x += 1;
-                }
-                y += 1;
+                skipped_rows += 1;
             }
-            while y < area.height {
-                for x in 0..area.width {
-                    let cell = &mut buf[(area.x + x, area.y + y)];
+            let mut y = 0u16;
+            if rows_available {
+                while y < render_area.height {
+                    if !rows.next() {
+                        break;
+                    }
+                    let mut cells = match rows.populate_cells(&mut row_cells) {
+                        Ok(cells) => cells,
+                        Err(_) => break,
+                    };
+                    let has_source_cell = u16::try_from(source_col)
+                        .ok()
+                        .and_then(|source_col| cells.select(source_col).ok())
+                        .is_some();
+                    let mut x = 0u16;
+                    if has_source_cell {
+                        while x < render_area.width {
+                            let wide = cells.wide().unwrap_or(crate::ghostty::CellWide::Narrow);
+                            let style = ghostty_cell_style(
+                                &cells,
+                                default_fg,
+                                default_bg,
+                                resolved_fg,
+                                resolved_bg,
+                            );
+                            symbol_scratch.clear();
+                            if ghostty_buffer_symbol_into(
+                                &cells,
+                                wide,
+                                hide_kitty_placeholders,
+                                &mut grapheme_bytes,
+                                &mut symbol_scratch,
+                            )
+                            .is_err()
+                            {
+                                symbol_scratch.push_str(ghostty_blank_symbol_for_width(wide));
+                            }
+                            let cropped_spacer_tail = x == 0
+                                && source_col > 0
+                                && wide == crate::ghostty::CellWide::SpacerTail;
+                            let wide_head_tail_outside = wide == crate::ghostty::CellWide::Wide
+                                && u32::from(x) + 1 >= u32::from(render_area.width);
+                            if cropped_spacer_tail || wide_head_tail_outside {
+                                symbol_scratch.clear();
+                                symbol_scratch.push(' ');
+                            }
+                            let Some(cell_x) =
+                                u16::try_from(u32::from(render_area.x) + u32::from(x)).ok()
+                            else {
+                                break;
+                            };
+                            let Some(cell_y) =
+                                u16::try_from(u32::from(render_area.y) + u32::from(y)).ok()
+                            else {
+                                break;
+                            };
+                            let cell = &mut buf[(cell_x, cell_y)];
+                            cell.reset();
+                            cell.set_symbol(symbol_scratch.as_str());
+                            cell.set_style(style);
+                            x += 1;
+                            if x < render_area.width && cells.next() {
+                                continue;
+                            }
+                            break;
+                        }
+                    }
+                    while x < render_area.width {
+                        let Some(cell_x) =
+                            u16::try_from(u32::from(render_area.x) + u32::from(x)).ok()
+                        else {
+                            break;
+                        };
+                        let Some(cell_y) =
+                            u16::try_from(u32::from(render_area.y) + u32::from(y)).ok()
+                        else {
+                            break;
+                        };
+                        let cell = &mut buf[(cell_x, cell_y)];
+                        ghostty_reset_cell(cell, default_fg, default_bg);
+                        x += 1;
+                    }
+                    y += 1;
+                }
+            }
+            while y < render_area.height {
+                for x in 0..render_area.width {
+                    let Some(cell_x) = u16::try_from(u32::from(render_area.x) + u32::from(x)).ok()
+                    else {
+                        break;
+                    };
+                    let Some(cell_y) = u16::try_from(u32::from(render_area.y) + u32::from(y)).ok()
+                    else {
+                        break;
+                    };
+                    let cell = &mut buf[(cell_x, cell_y)];
                     ghostty_reset_cell(cell, default_fg, default_bg);
                 }
                 y += 1;
             }
         }
 
-        ghostty_clear_render_dirty(render_state, area.height);
+        ghostty_clear_render_dirty(render_state, viewport.destination.height);
 
         let current_cursor = cursor_state_from_render_state(render_state, decscusr_tracker);
         if show_cursor {
-            if let Some(cursor) =
-                effective_cursor_state(&mut core, current_cursor).filter(|cursor| cursor.visible)
-            {
-                if cursor.x < area.width && cursor.y < area.height {
-                    frame.set_cursor_position((area.x + cursor.x, area.y + cursor.y));
+            if let (Some(render_area), Some(cursor)) = (
+                render_area,
+                effective_cursor_state(&mut core, current_cursor).filter(|cursor| cursor.visible),
+            ) {
+                let source_right =
+                    u32::from(viewport.source_col) + u32::from(viewport.destination.width);
+                let source_bottom =
+                    u32::from(viewport.source_row) + u32::from(viewport.destination.height);
+                let cursor_x = u32::from(cursor.x);
+                let cursor_y = u32::from(cursor.y);
+                if cursor_x >= u32::from(viewport.source_col)
+                    && cursor_x < source_right
+                    && cursor_y >= u32::from(viewport.source_row)
+                    && cursor_y < source_bottom
+                {
+                    let destination_x = u32::from(viewport.destination.x) + cursor_x
+                        - u32::from(viewport.source_col);
+                    let destination_y = u32::from(viewport.destination.y) + cursor_y
+                        - u32::from(viewport.source_row);
+                    let render_right = u32::from(render_area.x) + u32::from(render_area.width);
+                    let render_bottom = u32::from(render_area.y) + u32::from(render_area.height);
+                    if destination_x >= u32::from(render_area.x)
+                        && destination_x < render_right
+                        && destination_y >= u32::from(render_area.y)
+                        && destination_y < render_bottom
+                    {
+                        if let (Ok(destination_x), Ok(destination_y)) =
+                            (u16::try_from(destination_x), u16::try_from(destination_y))
+                        {
+                            frame.set_cursor_position((destination_x, destination_y));
+                        }
+                    }
                 }
             }
         }
     }
+}
+fn terminal_render_intersection(destination: Rect, frame: Rect) -> Option<Rect> {
+    let left = u32::from(destination.x).max(u32::from(frame.x));
+    let top = u32::from(destination.y).max(u32::from(frame.y));
+    let right = (u32::from(destination.x) + u32::from(destination.width))
+        .min(u32::from(frame.x) + u32::from(frame.width));
+    let bottom = (u32::from(destination.y) + u32::from(destination.height))
+        .min(u32::from(frame.y) + u32::from(frame.height));
+    if left >= right || top >= bottom {
+        return None;
+    }
+    Some(Rect::new(
+        u16::try_from(left).ok()?,
+        u16::try_from(top).ok()?,
+        u16::try_from(right - left).ok()?,
+        u16::try_from(bottom - top).ok()?,
+    ))
 }
 
 fn ghostty_clear_render_dirty(render_state: &mut crate::ghostty::RenderState, _area_height: u16) {
@@ -2785,6 +2934,14 @@ mod tests {
             terminal.write(format!("WRAP-{i:03}-abcdefghijklmnopqrstuvwxyz\r\n").as_bytes());
         }
         terminal.write(b"END");
+    }
+    fn write_coordinate_grid(terminal: &mut crate::ghostty::Terminal) {
+        for (row, contents) in ["01234567", "abcdefgh", "QRSTUVWX", "ijklmnop"]
+            .into_iter()
+            .enumerate()
+        {
+            terminal.write(format!("\x1b[{};1H{contents}", row + 1).as_bytes());
+        }
     }
 
     fn current_palette_color(pane: &GhosttyPaneTerminal, index: u8) -> crate::ghostty::RgbColor {
@@ -3937,6 +4094,191 @@ mod tests {
             pane.wheel_routing(),
             Some(crate::pane::WheelRouting::MouseReport)
         );
+    }
+
+    #[test]
+    fn render_view_selects_nonzero_source_row_and_column() {
+        let (tx, _rx) = mpsc::channel(4);
+        let mut terminal = crate::ghostty::Terminal::new(8, 4, 0).unwrap();
+        write_coordinate_grid(&mut terminal);
+        let pane = GhosttyPaneTerminal::new(terminal, tx).unwrap();
+
+        let backend = ratatui::backend::TestBackend::new(3, 2);
+        let mut terminal = ratatui::Terminal::new(backend).unwrap();
+        terminal
+            .draw(|frame| {
+                pane.render_view_with_theme_background(
+                    frame,
+                    TerminalViewport {
+                        destination: Rect::new(0, 0, 3, 2),
+                        source_col: 2,
+                        source_row: 1,
+                    },
+                    false,
+                    None,
+                )
+            })
+            .unwrap();
+
+        let buffer = terminal.backend().buffer();
+        assert_eq!(
+            (0..3).map(|x| buffer[(x, 0)].symbol()).collect::<String>(),
+            "cde"
+        );
+        assert_eq!(
+            (0..3).map(|x| buffer[(x, 1)].symbol()).collect::<String>(),
+            "STU"
+        );
+    }
+
+    #[test]
+    fn render_view_pads_short_source_rows_with_theme_background() {
+        let (tx, _rx) = mpsc::channel(4);
+        let mut terminal = crate::ghostty::Terminal::new(8, 4, 0).unwrap();
+        write_coordinate_grid(&mut terminal);
+        let pane = GhosttyPaneTerminal::new(terminal, tx).unwrap();
+
+        let backend = ratatui::backend::TestBackend::new(4, 1);
+        let mut terminal = ratatui::Terminal::new(backend).unwrap();
+        let expected_bg = Color::Rgb(1, 2, 3);
+        terminal
+            .draw(|frame| {
+                pane.render_view_with_theme_background(
+                    frame,
+                    TerminalViewport {
+                        destination: Rect::new(0, 0, 4, 1),
+                        source_col: 6,
+                        source_row: 1,
+                    },
+                    false,
+                    Some(expected_bg),
+                )
+            })
+            .unwrap();
+
+        let buffer = terminal.backend().buffer();
+        assert_eq!(buffer[(0, 0)].symbol(), "g");
+        assert_eq!(buffer[(1, 0)].symbol(), "h");
+        assert_eq!(buffer[(2, 0)].symbol(), " ");
+        assert_eq!(buffer[(3, 0)].symbol(), " ");
+        assert_eq!(buffer[(2, 0)].style().bg, Some(expected_bg));
+        assert_eq!(buffer[(3, 0)].style().bg, Some(expected_bg));
+    }
+
+    #[test]
+    fn render_view_blanks_wide_glyphs_at_both_crop_edges() {
+        let (tx, _rx) = mpsc::channel(4);
+        let mut terminal = crate::ghostty::Terminal::new(8, 2, 0).unwrap();
+        terminal.write("\x1b[1;1HA界B".as_bytes());
+        let pane = GhosttyPaneTerminal::new(terminal, tx).unwrap();
+
+        let backend = ratatui::backend::TestBackend::new(3, 1);
+        let mut terminal = ratatui::Terminal::new(backend).unwrap();
+        terminal
+            .draw(|frame| {
+                pane.render_view_with_theme_background(
+                    frame,
+                    TerminalViewport {
+                        destination: Rect::new(0, 0, 1, 1),
+                        source_col: 1,
+                        source_row: 0,
+                    },
+                    false,
+                    None,
+                );
+                pane.render_view_with_theme_background(
+                    frame,
+                    TerminalViewport {
+                        destination: Rect::new(2, 0, 1, 1),
+                        source_col: 2,
+                        source_row: 0,
+                    },
+                    false,
+                    None,
+                );
+            })
+            .unwrap();
+
+        let buffer = terminal.backend().buffer();
+        assert_eq!(buffer[(0, 0)].symbol(), " ");
+        assert_eq!(buffer[(2, 0)].symbol(), " ");
+    }
+
+    #[test]
+    fn render_view_projects_cursor_only_inside_source_viewport() {
+        let (tx, _rx) = mpsc::channel(4);
+        let mut inside_terminal = crate::ghostty::Terminal::new(8, 4, 0).unwrap();
+        inside_terminal.write(b"\x1b[2;4H");
+        let inside = GhosttyPaneTerminal::new(inside_terminal, tx.clone()).unwrap();
+
+        let backend = ratatui::backend::TestBackend::new(12, 8);
+        let mut terminal = ratatui::Terminal::new(backend).unwrap();
+        terminal
+            .draw(|frame| {
+                inside.render_view_with_theme_background(
+                    frame,
+                    TerminalViewport {
+                        destination: Rect::new(5, 3, 3, 2),
+                        source_col: 2,
+                        source_row: 1,
+                    },
+                    true,
+                    None,
+                )
+            })
+            .unwrap();
+        terminal.backend_mut().assert_cursor_position((6, 3));
+
+        let mut outside_terminal = crate::ghostty::Terminal::new(8, 4, 0).unwrap();
+        outside_terminal.write(b"\x1b[2;4H");
+        let outside = GhosttyPaneTerminal::new(outside_terminal, tx).unwrap();
+        let backend = ratatui::backend::TestBackend::new(12, 8);
+        let mut terminal = ratatui::Terminal::new(backend).unwrap();
+        terminal
+            .draw(|frame| {
+                outside.render_view_with_theme_background(
+                    frame,
+                    TerminalViewport {
+                        destination: Rect::new(5, 3, 3, 2),
+                        source_col: 4,
+                        source_row: 1,
+                    },
+                    true,
+                    None,
+                )
+            })
+            .unwrap();
+        terminal.backend_mut().assert_cursor_position((0, 0));
+    }
+
+    #[test]
+    fn render_view_keeps_nonzero_destination_origin_in_bounds() {
+        let (tx, _rx) = mpsc::channel(4);
+        let mut terminal = crate::ghostty::Terminal::new(8, 4, 0).unwrap();
+        write_coordinate_grid(&mut terminal);
+        let pane = GhosttyPaneTerminal::new(terminal, tx).unwrap();
+
+        let backend = ratatui::backend::TestBackend::new(10, 6);
+        let mut terminal = ratatui::Terminal::new(backend).unwrap();
+        terminal
+            .draw(|frame| {
+                pane.render_view_with_theme_background(
+                    frame,
+                    TerminalViewport {
+                        destination: Rect::new(4, 2, 3, 2),
+                        source_col: 2,
+                        source_row: 1,
+                    },
+                    false,
+                    None,
+                )
+            })
+            .unwrap();
+
+        let buffer = terminal.backend().buffer();
+        assert_eq!(buffer[(4, 2)].symbol(), "c");
+        assert_eq!(buffer[(6, 3)].symbol(), "U");
+        assert_eq!(buffer[(0, 0)].symbol(), " ");
     }
 
     #[test]

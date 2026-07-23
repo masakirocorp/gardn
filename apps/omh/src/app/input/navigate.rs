@@ -343,6 +343,7 @@ impl App {
                     }
                 }
             }
+            NavigateAction::TakeTabControl => leave_navigate_mode(&mut self.state),
             NavigateAction::NewTab => {
                 if self.state.active.is_some() {
                     if self.state.prompt_new_tab_name {
@@ -1205,6 +1206,7 @@ pub(crate) enum NavigateAction {
     NextAgent,
     OpenAgentMenu,
     NewTab,
+    TakeTabControl,
     RenameTab,
     PreviousTab,
     NextTab,
@@ -1331,6 +1333,7 @@ pub(crate) fn non_indexed_action_for_key(
         (&kb.next_agent, NavigateAction::NextAgent),
         (&kb.open_agent_menu, NavigateAction::OpenAgentMenu),
         (&kb.new_tab, NavigateAction::NewTab),
+        (&kb.take_control, NavigateAction::TakeTabControl),
         (&kb.rename_tab, NavigateAction::RenameTab),
         (&kb.previous_tab, NavigateAction::PreviousTab),
         (&kb.next_tab, NavigateAction::NextTab),
@@ -1502,6 +1505,7 @@ pub(crate) fn execute_navigate_action_in_context(
             leave_navigate_mode(state);
         }
         NavigateAction::OpenAgentMenu => super::modal::open_agent_menu(state),
+        NavigateAction::TakeTabControl => leave_navigate_mode(state),
         NavigateAction::NewTab => {
             if state.active.is_some() {
                 if state.prompt_new_tab_name {
@@ -2143,6 +2147,23 @@ navigate_pane_right = "ctrl+l"
 
         assert!(state.zen_mode);
         assert_eq!(state.mode, Mode::Terminal);
+    }
+
+    #[test]
+    fn default_take_control_key_maps_without_diagnostics_or_conflict() {
+        let state = state_with_workspaces(&["test"]);
+
+        assert!(crate::config::Config::default()
+            .collect_diagnostics()
+            .is_empty());
+        assert_eq!(
+            non_indexed_action_for_key(
+                &state,
+                TerminalKey::new(KeyCode::Char('t'), KeyModifiers::empty()),
+                BindingDispatch::Prefix,
+            ),
+            Some(NavigateAction::TakeTabControl)
+        );
     }
 
     #[test]

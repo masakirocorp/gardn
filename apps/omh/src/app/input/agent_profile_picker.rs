@@ -67,13 +67,20 @@ pub(crate) fn handle_agent_profile_picker_key_for_view(
     key: KeyEvent,
 ) {
     if let Some(index) = agent_profile_picker_favorite_shortcut_index(key) {
-        launch_favorite_agent_profile_by_shortcut_for_view(state, view, index);
+        if view.can_mutate_tab() {
+            launch_favorite_agent_profile_by_shortcut_for_view(state, view, index);
+        } else {
+            view.return_to_active_workspace_mode();
+        }
         return;
     }
 
     match key.code {
         KeyCode::Esc => view.return_to_active_workspace_mode(),
-        KeyCode::Enter => launch_selected_agent_profile_for_view(state, view),
+        KeyCode::Enter if view.can_mutate_tab() => {
+            launch_selected_agent_profile_for_view(state, view)
+        }
+        KeyCode::Enter => view.return_to_active_workspace_mode(),
         KeyCode::Char('f') if key.modifiers.contains(KeyModifiers::CONTROL) => {
             toggle_selected_agent_profile_favorite_for_view(state, view);
         }

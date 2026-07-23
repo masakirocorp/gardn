@@ -48,6 +48,14 @@ _Avoid_: Global app view, client screen state
 The per-normal-app-client navigation, modal, selection, scroll, and computed geometry state that describes what that client is looking at or editing without changing another client's view.
 _Avoid_: Shared app state, runtime state
 
+**Tab Control**:
+The interactive ownership slot for one stable tab identity. A tab has at most one normal app-client controller; a free tab may be claimed by the first client or by a client switching to it, while an occupied tab is view-only until explicit takeover. Controller navigation, disconnect, or direct terminal attach releases control, and watchers are never auto-promoted.
+_Avoid_: Foreground ownership, terminal attach ownership
+
+**Watcher**:
+A normal app client viewing a tab controlled by another client. A watcher keeps navigation, scroll, copy, and search local and sees the controller-sized canonical tab; it must explicitly take control before its resize or interactive input can affect that tab.
+_Avoid_: Controller, attach owner
+
 **Client Surface State**:
 The per-connection host terminal facts and render transport state, such as terminal size, cell size, negotiated render encoding, render baseline, host graphics cache, staged clipboard files, and writer channels.
 _Avoid_: Workspace state, session snapshot
@@ -296,15 +304,15 @@ An Oh My Herdr client process attached to a running Oh My Herdr server. A thin c
 _Avoid_: Server, app instance
 
 **Foreground Client**:
-The full app thin client whose host surface currently owns shared runtime size, outer-terminal focus, host theme, and app-facing keybinding context.
-_Avoid_: Attach owner, server
+The full app thin client whose host surface supplies global outer-terminal focus, host theme, app-facing keybinding, and notification context. Foreground status does not own a tab's PTY size, canonical content, or interactive input; those follow Tab Control.
+_Avoid_: Attach owner, tab controller
 
 **Clipboard Image Paste Bridge**:
 The explicit paste flow where the pasting thin client reads a local clipboard image and Oh My Herdr delivers a temporary file path to the terminal instead of raw image bytes.
 _Avoid_: Clipboard sync, image upload
 
 **Semantic Input**:
-Decoded key, mouse, paste, outer-focus, and host terminal color/theme reply events interpreted in the context of Oh My Herdr's current mode, foreground client, and keybindings.
+Decoded key, mouse, paste, outer-focus, and host terminal color/theme reply events interpreted in the context of the client's current mode, Tab Control role, foreground host context, and keybindings. A watcher can handle client-local view input but cannot mutate controlled-tab PTY state until explicit takeover.
 _Avoid_: Terminal bytes, stdin chunk
 
 **Terminal Key**:
