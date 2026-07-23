@@ -3702,8 +3702,8 @@
     {
       "upstream": "1955406eafa37ae3d02d433d043b476e4a9a0bc4",
       "subject": "fix: link plugins without a running server",
-      "status": "pending",
-      "reason": "Plugin linking still requires a running server and lacks an offline registry path."
+      "status": "ported",
+      "reason": "Ported under ENG-150: plugin link falls back only on connection failures, reuses manifest validation, persists through the locked global registry with ID replacement, and emits live-equivalent success/error responses; focused filesystem-backed CLI tests cover offline success, disabled replacement, invalid-manifest parity, and live equivalence."
     },
     {
       "upstream": "7c189003464fce851736096b309078aaff7640c7",
