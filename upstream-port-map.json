@@ -3681,8 +3681,8 @@
     {
       "upstream": "de94cf833072251ff58f60e3478c00f6ceb1dbeb",
       "subject": "fix: discover canonical mise remote installs",
-      "status": "pending",
-      "reason": "Remote discovery does not probe mise canonical installation paths."
+      "status": "ported",
+      "reason": "Ported canonical mise remote discovery for both omh install layouts while preserving user-shell then /bin/sh fallback; fake-SSH boundary tests cover present, absent, malformed, fallback, and diagnostic paths."
     },
     {
       "upstream": "fd29addd719e3451bea0a1cc20d93374d7bea2d9",

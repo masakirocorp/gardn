@@ -524,18 +524,17 @@ fn prepare_remote_omh(
     let platform = detect_remote_platform(ssh)?;
     let remote_omh = RemoteOmh::for_platform(platform);
     let override_binary = remote_binary_override_path()?;
-    let path_remote_omh = remote_binary_on_path_any(ssh, &remote_omh)?;
+    let candidates = remote_binary_candidates(ssh, &remote_omh)?;
 
     if override_binary.is_none() {
-        if let Some(path_remote_omh) = path_remote_omh
-            .as_ref()
-            .filter(|candidate| remote_binary_matches(ssh, candidate).unwrap_or(false))
-        {
-            return Ok(PreparedRemoteOmh {
-                remote_omh: path_remote_omh.clone(),
-                installed_or_replaced: false,
-                stop_after_install_approved: false,
-            });
+        for candidate in &candidates {
+            if remote_binary_matches(ssh, candidate).unwrap_or(false) {
+                return Ok(PreparedRemoteOmh {
+                    remote_omh: candidate.clone(),
+                    installed_or_replaced: false,
+                    stop_after_install_approved: false,
+                });
+            }
         }
         if remote_binary_matches(ssh, &remote_omh)? {
             return Ok(PreparedRemoteOmh {
@@ -547,7 +546,7 @@ fn prepare_remote_omh(
     }
 
     let mut stop_after_install_approved = false;
-    if let Some(status_probe_omh) = path_remote_omh.as_ref().or_else(|| {
+    if let Some(status_probe_omh) = candidates.first().or_else(|| {
         remote_binary_exists(ssh, &remote_omh)
             .ok()
             .and_then(|exists| exists.then_some(&remote_omh))
@@ -603,6 +602,57 @@ fn detect_remote_platform(ssh: &RemoteSsh) -> io::Result<RemotePlatform> {
     })
 }
 
+fn remote_binary_candidates(
+    ssh: &RemoteSsh,
+    remote_omh: &RemoteOmh,
+) -> io::Result<Vec<RemoteOmh>> {
+    let mut candidates = Vec::new();
+
+    if let Some(path_candidate) = remote_binary_on_path_any(ssh, remote_omh)? {
+        candidates.push(path_candidate);
+    }
+
+    let output = ssh.sh_output(&known_remote_binary_candidate_script())?;
+    if !output.status.success() {
+        return Err(command_failed("remote binary discovery failed", &output));
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    for candidate in remote_omhs_from_path_discovery(remote_omh, &stdout) {
+        if !candidates
+            .iter()
+            .any(|existing| existing.shell_path == candidate.shell_path)
+        {
+            candidates.push(candidate);
+        }
+    }
+
+    Ok(candidates)
+}
+
+fn known_remote_binary_candidate_script() -> String {
+    let mut script = String::from(
+        r#"home=${HOME:-}
+version="#,
+    );
+    script.push_str(&shell_quote(CURRENT_VERSION));
+    script.push_str(
+        r#"
+emit() {
+    path=$1
+    if [ -n "$path" ] && [ -x "$path" ]; then
+        printf '%s\n' "$path"
+    fi
+}
+if [ -n "$home" ]; then
+    emit "$home/.local/share/mise/installs/omh/$version/bin/omh"
+    emit "$home/.local/share/mise/installs/omh/$version/omh"
+fi
+"#,
+    );
+    script
+}
+
 fn remote_binary_on_path_any(
     ssh: &RemoteSsh,
     remote_omh: &RemoteOmh,
@@ -641,10 +691,22 @@ fn command_output_diagnostic(output: &Output) -> String {
     }
 }
 
+fn remote_omhs_from_path_discovery(remote_omh: &RemoteOmh, stdout: &str) -> Vec<RemoteOmh> {
+    stdout
+        .lines()
+        .filter_map(|path| remote_omh_from_path(remote_omh, path))
+        .collect()
+}
+
 fn remote_omh_from_path_discovery(remote_omh: &RemoteOmh, stdout: &str) -> Option<RemoteOmh> {
-    let mut lines = stdout.lines();
-    let path = lines.next()?;
-    if !path.starts_with('/') {
+    stdout
+        .lines()
+        .find_map(|path| remote_omh_from_path(remote_omh, path))
+}
+
+fn remote_omh_from_path(remote_omh: &RemoteOmh, path: &str) -> Option<RemoteOmh> {
+    let path = path.trim();
+    if !path.starts_with('/') || path.ends_with("/mise/shims/omh") {
         return None;
     }
     Some(remote_omh.clone().with_shell_path(shell_quote(path)))
@@ -2161,6 +2223,255 @@ exit 99
         drop(_path);
         let _ = fs::remove_dir_all(dir);
         (result, invocations)
+    }
+
+    fn fake_remote_binary_candidates_probe<'a>(
+        primary: FakeSshResponse<'a>,
+        fallback: FakeSshResponse<'a>,
+        mise: FakeSshResponse<'a>,
+    ) -> (io::Result<Vec<RemoteOmh>>, String) {
+        use std::ffi::OsString;
+        use std::os::unix::fs::PermissionsExt;
+
+        let _guard = remote_env_lock()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("system clock should be after the Unix epoch")
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!(
+            "omh-remote-mise-discovery-{}-{unique}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&dir).expect("fake ssh directory should be created");
+        let fake_ssh = dir.join("ssh");
+        let log = dir.join("invocations");
+        let script = format!(
+            r#"#!/bin/sh
+set -eu
+last=''
+for arg in "$@"; do
+    last="$arg"
+done
+if [ "$last" = "command -v omh" ]; then
+    printf '%s\n' primary >> {log}
+    printf '%s' {primary_stdout}
+    printf '%s' {primary_stderr} >&2
+    exit {primary_status}
+fi
+if [ "$last" = "/bin/sh -s" ]; then
+    request=$(cat)
+    case "$request" in
+        *mise/installs/omh*)
+            printf '%s\n' mise >> {log}
+            printf '%s' {mise_stdout}
+            printf '%s' {mise_stderr} >&2
+            exit {mise_status}
+            ;;
+        *)
+            printf '%s\n' fallback >> {log}
+            printf '%s' {fallback_stdout}
+            printf '%s' {fallback_stderr} >&2
+            exit {fallback_status}
+            ;;
+    esac
+fi
+printf '%s\n' unexpected >> {log}
+exit 99
+"#,
+            log = shell_quote(&log.to_string_lossy()),
+            primary_stdout = shell_quote(primary.stdout),
+            primary_stderr = shell_quote(primary.stderr),
+            primary_status = primary.status,
+            fallback_stdout = shell_quote(fallback.stdout),
+            fallback_stderr = shell_quote(fallback.stderr),
+            fallback_status = fallback.status,
+            mise_stdout = shell_quote(mise.stdout),
+            mise_stderr = shell_quote(mise.stderr),
+            mise_status = mise.status,
+        );
+        fs::write(&fake_ssh, script).expect("fake ssh should be written");
+        let mut permissions = fs::metadata(&fake_ssh)
+            .expect("fake ssh should have metadata")
+            .permissions();
+        permissions.set_mode(0o700);
+        fs::set_permissions(&fake_ssh, permissions).expect("fake ssh should be executable");
+
+        let mut path = OsString::from(dir.as_os_str());
+        if let Some(existing) = std::env::var_os("PATH") {
+            path.push(":");
+            path.push(existing);
+        }
+        let _path = crate::config::TestEnvVar::set("PATH", path);
+        let ssh = RemoteSsh {
+            target: "example".to_string(),
+            managed_config: None,
+        };
+        let remote_omh = RemoteOmh::for_platform(RemotePlatform {
+            os: "linux",
+            arch: "x86_64",
+        });
+        let result = remote_binary_candidates(&ssh, &remote_omh);
+        let invocations = fs::read_to_string(&log).expect("fake ssh should record invocations");
+        drop(_path);
+        let _ = fs::remove_dir_all(dir);
+        (result, invocations)
+    }
+
+    #[test]
+    fn remote_binary_candidates_discovers_mise_install() {
+        let mise_paths = format!(
+            "/home/can/.local/share/mise/installs/omh/{CURRENT_VERSION}/bin/omh\n\
+             /home/can/.local/share/mise/installs/omh/{CURRENT_VERSION}/omh\n"
+        );
+        let (result, invocations) = fake_remote_binary_candidates_probe(
+            FakeSshResponse {
+                status: 1,
+                stdout: "",
+                stderr: "xonsh: command -v is not supported\n",
+            },
+            FakeSshResponse {
+                status: 1,
+                stdout: "",
+                stderr: "sh: omh: not found\n",
+            },
+            FakeSshResponse {
+                status: 0,
+                stdout: &mise_paths,
+                stderr: "",
+            },
+        );
+        let candidates = result.expect("mise discovery should succeed");
+
+        assert_eq!(candidates.len(), 2);
+        assert_eq!(
+            candidates[0].shell_path,
+            format!("/home/can/.local/share/mise/installs/omh/{CURRENT_VERSION}/bin/omh")
+        );
+        assert_eq!(
+            candidates[1].shell_path,
+            format!("/home/can/.local/share/mise/installs/omh/{CURRENT_VERSION}/omh")
+        );
+        assert_eq!(invocations, "primary\nfallback\nmise\n");
+    }
+
+    #[test]
+    fn remote_binary_candidates_accept_mise_absence() {
+        let (result, invocations) = fake_remote_binary_candidates_probe(
+            FakeSshResponse {
+                status: 1,
+                stdout: "",
+                stderr: "",
+            },
+            FakeSshResponse {
+                status: 1,
+                stdout: "",
+                stderr: "",
+            },
+            FakeSshResponse {
+                status: 0,
+                stdout: "",
+                stderr: "",
+            },
+        );
+
+        assert!(
+            result
+                .expect("missing mise install should not abort discovery")
+                .is_empty()
+        );
+        assert_eq!(invocations, "primary\nfallback\nmise\n");
+    }
+
+    #[test]
+    fn remote_binary_candidates_ignore_malformed_mise_output() {
+        let (result, invocations) = fake_remote_binary_candidates_probe(
+            FakeSshResponse {
+                status: 1,
+                stdout: "",
+                stderr: "",
+            },
+            FakeSshResponse {
+                status: 1,
+                stdout: "",
+                stderr: "",
+            },
+            FakeSshResponse {
+                status: 0,
+                stdout: "not-an-absolute-path\n./omh\n/home/can/.local/share/mise/shims/omh\n",
+                stderr: "",
+            },
+        );
+
+        assert!(
+            result
+                .expect("malformed mise output should not abort discovery")
+                .is_empty()
+        );
+        assert_eq!(invocations, "primary\nfallback\nmise\n");
+    }
+
+    #[test]
+    fn remote_binary_candidates_keep_user_shell_then_sh_fallback_order() {
+        let (result, invocations) = fake_remote_binary_candidates_probe(
+            FakeSshResponse {
+                status: 1,
+                stdout: "",
+                stderr: "xonsh: command -v is not supported\n",
+            },
+            FakeSshResponse {
+                status: 0,
+                stdout: "/fallback/bin/omh\n",
+                stderr: "",
+            },
+            FakeSshResponse {
+                status: 0,
+                stdout: "",
+                stderr: "",
+            },
+        );
+        let candidates = result.expect("fallback discovery should succeed");
+
+        assert_eq!(candidates.len(), 1);
+        assert_eq!(candidates[0].shell_path, "/fallback/bin/omh");
+        assert_eq!(invocations, "primary\nfallback\nmise\n");
+    }
+
+    #[test]
+    fn remote_binary_candidates_preserve_mise_probe_diagnostics() {
+        let (result, _invocations) = fake_remote_binary_candidates_probe(
+            FakeSshResponse {
+                status: 1,
+                stdout: "",
+                stderr: "",
+            },
+            FakeSshResponse {
+                status: 1,
+                stdout: "",
+                stderr: "",
+            },
+            FakeSshResponse {
+                status: 1,
+                stdout: "",
+                stderr: "mise probe failed\n",
+            },
+        );
+
+        let error = result.expect_err("failed mise discovery should report an error");
+        assert!(error.to_string().contains("mise probe failed"));
+    }
+
+    #[test]
+    fn known_mise_candidate_script_checks_both_install_layouts() {
+        let script = known_remote_binary_candidate_script();
+
+        assert!(script.contains(
+            "emit \"$home/.local/share/mise/installs/omh/$version/bin/omh\""
+        ));
+        assert!(script.contains("emit \"$home/.local/share/mise/installs/omh/$version/omh\""));
+        assert!(script.contains(&format!("version={}", shell_quote(CURRENT_VERSION))));
+        assert!(!script.contains("mise/shims/omh"));
     }
 
     #[test]
