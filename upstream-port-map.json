@@ -3687,8 +3687,8 @@
     {
       "upstream": "fd29addd719e3451bea0a1cc20d93374d7bea2d9",
       "subject": "fix: bound linux sound player lifetime (#1677)",
-      "status": "pending",
-      "reason": "Linux sound players have no timeout, termination, and reap bound."
+      "status": "ported",
+      "reason": "Ported to Oh My Herdr's Linux audio player boundary with bounded polling, concurrent stdout/stderr draining, timeout termination/reaping, and controlled-child coverage for timeout cleanup and completed output."
     },
     {
       "upstream": "6382bd433a66683d29455409e1dbb16776727bbf",
