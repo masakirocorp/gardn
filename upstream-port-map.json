@@ -3453,8 +3453,8 @@
     {
       "upstream": "8915f01c6577b5507d1dd1a7851ec3ecb9154189",
       "subject": "fix: stop agent wait when pane closes (#1488)",
-      "status": "pending",
-      "reason": "Agent status waits do not yet terminate with agent_not_running when their pane closes."
+      "status": "ported",
+      "reason": "Server-owned agent waits now terminate on pane close/exit/detection loss or replacement, with event-triggered terminal/pane identity checks and socket lifecycle tests."
     },
     {
       "upstream": "e907e6a3664608b34351344dfdfbc0431dab8760",

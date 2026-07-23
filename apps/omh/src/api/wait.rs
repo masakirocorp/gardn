@@ -284,21 +284,30 @@ fn wait_for_agent_state(
                 } if pane_id == expected_pane_id && agent.is_none() => {
                     return agent_wait_not_running(request_id).map(Some);
                 }
-                _ => None,
+                crate::api::schema::EventData::PaneAgentDetected { pane_id, .. }
+                    if pane_id == expected_pane_id => None,
+                _ => continue,
             };
-            if require_transition && status.is_none() {
-                continue;
-            }
-            if status.is_some_and(|status| until.contains(&status)) {
-                let current = match agent_get(&request_id, &target, api_tx) {
-                    Ok(agent) => agent,
-                    Err(response) => return encode_agent_response(response),
-                };
-                if current.terminal_id != expected_terminal_id
-                    || current.pane_id != expected_pane_id
+
+            let current = match agent_get(&request_id, &target, api_tx) {
+                Ok(agent) => agent,
+                Err(response)
+                    if matches!(
+                        response.error.code.as_str(),
+                        "pane_not_found" | "agent_not_found"
+                    ) =>
                 {
                     return agent_wait_not_running(request_id).map(Some);
                 }
+                Err(response) => return encode_agent_response(response),
+            };
+            if current.terminal_id != expected_terminal_id || current.pane_id != expected_pane_id {
+                return agent_wait_not_running(request_id).map(Some);
+            }
+            if current.agent.is_none() {
+                return agent_wait_not_running(request_id).map(Some);
+            }
+            if status.is_some_and(|status| until.contains(&status)) {
                 return agent_wait_success(request_id, current).map(Some);
             }
         }
