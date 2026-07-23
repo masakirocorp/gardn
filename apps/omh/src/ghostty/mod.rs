@@ -1038,6 +1038,17 @@ impl Terminal {
         }
     }
 
+    pub fn scroll_viewport_row(&mut self, row: usize) {
+        let viewport = ffi::GhosttyTerminalScrollViewport {
+            tag: ffi::GhosttyTerminalScrollViewportTag_GHOSTTY_SCROLL_VIEWPORT_ROW,
+            value: ffi::GhosttyTerminalScrollViewportValue { row },
+        };
+        // SAFETY: self.raw is valid and viewport value matches the tag.
+        unsafe {
+            ffi::ghostty_terminal_scroll_viewport(self.raw, viewport);
+        }
+    }
+
     pub fn cols(&self) -> Result<u16, Error> {
         self.get_u16(ffi::GhosttyTerminalData_GHOSTTY_TERMINAL_DATA_COLS)
     }

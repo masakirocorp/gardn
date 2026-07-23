@@ -1120,10 +1120,22 @@ impl GhosttyPaneTerminal {
         cell_height_px: u32,
     ) -> Vec<Bytes> {
         if let Ok(mut core) = self.core.lock() {
+            let offset_from_bottom = core
+                .terminal
+                .scrollbar()
+                .ok()
+                .map(|scrollbar| {
+                    scrollbar
+                        .total
+                        .saturating_sub(scrollbar.offset + scrollbar.len)
+                })
+                .unwrap_or(0);
             let _ = core
                 .terminal
                 .resize(cols, rows, cell_width_px, cell_height_px);
-            self.drain_pending_pty_responses()
+            let terminal_responses = self.drain_pending_pty_responses();
+            ghostty_set_scroll_offset_from_bottom(&mut core.terminal, offset_from_bottom);
+            terminal_responses
         } else {
             Vec::new()
         }
@@ -2680,6 +2692,23 @@ fn lines_to_text(lines: Vec<String>) -> String {
     }
 }
 
+fn ghostty_set_scroll_offset_from_bottom(
+    terminal: &mut crate::ghostty::Terminal,
+    offset_from_bottom: usize,
+) {
+    let Ok(scrollbar) = terminal.scrollbar() else {
+        terminal.scroll_viewport_bottom();
+        return;
+    };
+    let max_offset = scrollbar.total.saturating_sub(scrollbar.len);
+    let offset_from_bottom = offset_from_bottom.min(max_offset);
+    if offset_from_bottom == 0 {
+        terminal.scroll_viewport_bottom();
+    } else {
+        terminal.scroll_viewport_row(max_offset - offset_from_bottom);
+    }
+}
+
 pub(super) fn trim_trailing_blank_rows(rows: &mut Vec<String>) {
     while rows.last().is_some_and(|row| row.trim().is_empty()) {
         rows.pop();
@@ -3769,6 +3798,67 @@ mod tests {
                 "bottom detection should remain independent from the scrolled viewport after resize"
             );
         }
+    }
+
+    #[test]
+    fn resize_preserves_live_follow_when_output_creates_scrollback() {
+        for initial in [b"".as_slice(), b"seed\r\n".as_slice()] {
+            let (tx, _rx) = mpsc::channel(4);
+            let mut terminal = crate::ghostty::Terminal::new(10, 3, 100).unwrap();
+            terminal.write(initial);
+            let pane = GhosttyPaneTerminal::new(terminal, tx.clone()).unwrap();
+            let pane_id = PaneId::from_raw(1);
+
+            pane.resize(3, 10, 0, 0);
+            pane.process_pty_bytes(
+                pane_id,
+                0,
+                b"000000\r\n000001\r\n000002\r\n000003\r\n000004",
+                &tx,
+            );
+
+            let metrics = pane.scroll_metrics().expect("scroll metrics after output");
+            assert_eq!(metrics.offset_from_bottom, 0);
+            assert!(pane.visible_text().contains("000004"));
+        }
+    }
+
+    #[test]
+    fn resize_preserves_intentionally_scrolled_viewport_position() {
+        let (tx, _rx) = mpsc::channel(4);
+        let mut terminal = crate::ghostty::Terminal::new(12, 4, 10_000).unwrap();
+        write_wrapped_contract_lines(&mut terminal, 40);
+        let pane = GhosttyPaneTerminal::new(terminal, tx).unwrap();
+
+        pane.set_scroll_offset_from_bottom(1);
+        let before = pane.scroll_metrics().expect("scroll metrics before resize");
+        assert_eq!(before.offset_from_bottom, 1);
+
+        pane.resize(4, 10, 0, 0);
+
+        let after = pane.scroll_metrics().expect("scroll metrics after resize");
+        assert_eq!(after.offset_from_bottom, before.offset_from_bottom);
+        assert!(!pane.visible_text().trim().is_empty());
+    }
+
+    #[test]
+    fn resize_that_removes_scrollback_restores_live_follow() {
+        let (tx, _rx) = mpsc::channel(4);
+        let mut terminal = crate::ghostty::Terminal::new(10, 3, 100).unwrap();
+        terminal.write(b"000000\r\n000001\r\n000002\r\n000003\r\n000004");
+        let pane = GhosttyPaneTerminal::new(terminal, tx.clone()).unwrap();
+        let pane_id = PaneId::from_raw(1);
+
+        pane.set_scroll_offset_from_bottom(1);
+        pane.resize(5, 10, 0, 0);
+        let resized = pane.scroll_metrics().expect("scroll metrics after resize");
+        assert_eq!(resized.max_offset_from_bottom, 0);
+
+        pane.process_pty_bytes(pane_id, 0, b"\r\n000005\r\n000006", &tx);
+
+        let metrics = pane.scroll_metrics().expect("scroll metrics after output");
+        assert_eq!(metrics.offset_from_bottom, 0);
+        assert!(pane.visible_text().contains("000006"));
     }
 
     #[test]
