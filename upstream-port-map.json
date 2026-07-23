@@ -3603,8 +3603,8 @@
     {
       "upstream": "01d371bf7a10330c6a5c139c7df766ae8f6f1cda",
       "subject": "perf: cache windows foreground process snapshots",
-      "status": "pending",
-      "reason": "Windows foreground-process snapshots are recomputed per pane instead of shared through a cache."
+      "status": "ported",
+      "reason": "Ported under ENG-162: foreground group lookups now share a bounded 250 ms Windows snapshot cache, with deterministic reuse and expiry coverage compiled for the Windows test surface."
     },
     {
       "upstream": "a26a654351ee03b1a51d7b398f3bdff2c1ca920d",

@@ -4,6 +4,8 @@ use std::{
     mem::{size_of, MaybeUninit},
     path::PathBuf,
     ptr::{copy_nonoverlapping, null_mut},
+    sync::{Arc, Mutex},
+    time::{Duration, Instant},
 };
 
 use std::os::windows::process::CommandExt;
@@ -38,6 +40,21 @@ use windows_sys::{
 use super::{ClipboardImage, ForegroundJob, Signal, TcpListenerInfo};
 
 const STILL_ACTIVE: u32 = 259;
+const FOREGROUND_PROCESS_SNAPSHOT_CACHE_TTL: Duration = Duration::from_millis(250);
+
+#[derive(Debug)]
+struct CachedProcessSnapshot {
+    built_at: Instant,
+    entries: Arc<Vec<WindowsProcessEntry>>,
+}
+
+#[derive(Debug)]
+struct ProcessSnapshotCache {
+    cached: Option<CachedProcessSnapshot>,
+}
+
+static FOREGROUND_PROCESS_SNAPSHOT_CACHE: Mutex<ProcessSnapshotCache> =
+    Mutex::new(ProcessSnapshotCache { cached: None });
 
 pub(crate) fn configure_background_command_platform(command: &mut std::process::Command) {
     command.creation_flags(CREATE_NO_WINDOW);
@@ -137,7 +154,7 @@ pub fn foreground_job(child_pid: u32) -> Option<ForegroundJob> {
 }
 
 pub fn foreground_group_leader_job(process_group_id: u32) -> Option<ForegroundJob> {
-    let entries = snapshot_processes();
+    let entries = cached_foreground_processes();
     let entry = entries.iter().find(|entry| entry.pid == process_group_id)?;
     Some(ForegroundJob {
         process_group_id,
@@ -146,7 +163,8 @@ pub fn foreground_group_leader_job(process_group_id: u32) -> Option<ForegroundJo
 }
 
 pub fn foreground_process_group_id(child_pid: u32) -> Option<u32> {
-    foreground_job(child_pid).map(|job| job.process_group_id)
+    let entries = cached_foreground_processes();
+    select_pane_foreground_job(child_pid, &entries).map(|job| job.process_group_id)
 }
 
 pub fn process_cwd(pid: u32) -> Option<PathBuf> {
@@ -262,6 +280,34 @@ fn snapshot_processes() -> Vec<WindowsProcessEntry> {
         ok = unsafe { Process32NextW(snapshot, &mut entry) } != 0;
     }
     output
+}
+
+fn cached_foreground_processes() -> Arc<Vec<WindowsProcessEntry>> {
+    let mut cache = FOREGROUND_PROCESS_SNAPSHOT_CACHE
+        .lock()
+        .unwrap_or_else(|err| err.into_inner());
+    cache.snapshot(FOREGROUND_PROCESS_SNAPSHOT_CACHE_TTL, snapshot_processes)
+}
+
+impl ProcessSnapshotCache {
+    fn snapshot(
+        &mut self,
+        max_age: Duration,
+        build: impl FnOnce() -> Vec<WindowsProcessEntry>,
+    ) -> Arc<Vec<WindowsProcessEntry>> {
+        if let Some(cached) = &self.cached {
+            if cached.built_at.elapsed() < max_age {
+                return Arc::clone(&cached.entries);
+            }
+        }
+
+        let entries = Arc::new(build());
+        self.cached = Some(CachedProcessSnapshot {
+            built_at: Instant::now(),
+            entries: Arc::clone(&entries),
+        });
+        entries
+    }
 }
 
 fn process_command_line(pid: u32) -> Option<String> {
@@ -580,7 +626,11 @@ fn read_unicode_string(process: HANDLE, unicode: UNICODE_STRING) -> Option<Strin
 
 #[cfg(test)]
 mod tests {
-    use std::process::{Command, Stdio};
+    use std::{
+        process::{Command, Stdio},
+        sync::Arc,
+        time::Duration,
+    };
 
     use windows_sys::Win32::System::Console::{AllocConsole, FreeConsole, GetConsoleWindow};
 
@@ -679,6 +729,33 @@ mod tests {
         assert_eq!(job.process_group_id, 20);
         assert_eq!(job.processes.len(), 1);
         assert_eq!(job.processes[0].name, "codex.exe");
+    }
+
+    #[test]
+    fn windows_foreground_process_snapshot_reuses_and_expires() {
+        let mut cache = super::ProcessSnapshotCache { cached: None };
+        let mut builds = 0;
+
+        let first = cache.snapshot(Duration::from_secs(60), || {
+            builds += 1;
+            vec![test_entry(10, 1, "powershell.exe", &["powershell.exe"])]
+        });
+        let stale = cache.snapshot(Duration::from_secs(60), || {
+            builds += 1;
+            Vec::new()
+        });
+
+        assert!(Arc::ptr_eq(&first, &stale));
+        assert_eq!(stale[0].pid, 10);
+
+        let refreshed = cache.snapshot(Duration::ZERO, || {
+            builds += 1;
+            vec![test_entry(20, 1, "pwsh.exe", &["pwsh.exe"])]
+        });
+
+        assert!(!Arc::ptr_eq(&stale, &refreshed));
+        assert_eq!(refreshed[0].pid, 20);
+        assert_eq!(builds, 2);
     }
 
     #[test]
