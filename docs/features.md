@@ -25,7 +25,7 @@ A session is a persistent Oh My Herdr runtime with its own sockets, panes, tabs,
 
 A workspace contains tabs, panes, cwd metadata, and agent state rollups.
 
-- **Workspace creation and focus** — create, focus, rename, close, list, and inspect workspaces from the TUI, CLI, or socket API.
+- **Workspace creation and focus** — create, focus, rename, close, list, and inspect workspaces from the TUI, CLI, or socket API. Interactive creation derives a workspace name automatically by default; set `ui.prompt_new_workspace_name = true` to ask for a name first.
 - **Workspace sidebar** — expanded workspace rows show the workspace name, activity state, and git/cwd summary.
 - **Agent sidebar** — agent rows focus their workspace, tab, and pane when clicked and highlight the active agent row for the attached client. When multiple agents share a workspace label, rows append the tab name; agents sharing a tab append their pane label or number. Unnamed pane numbers are dense within their tab and update with the current pane layout without changing stable API pane IDs.
 - **Collapsed sidebar rail** — collapsed sidebars keep group boundaries and agent status categories visible: group rows switch directly to that group's remembered workspace, space rows switch directly to a workspace, and activity counts open filtered agent pickers. Compact agent rows sit under expandable triage, working, and idle status headers. Hovering or keyboard-selecting a compact space row reveals its accented group, full space name, and color-coded status. At the bottom of the rail, the help launcher sits directly above the expand control.
@@ -46,7 +46,7 @@ A workspace contains tabs, panes, cwd metadata, and agent state rollups.
 A tab belongs to one workspace and contains one or more panes.
 
 - **Tab lifecycle** — create, focus, rename, close, list, and inspect tabs.
-- **Tab bar** — click tabs, close hovered tabs with the inline close button, use overflow scrolling, and switch with keybindings.
+- **Tab bar** — click tabs, close hovered tabs with the inline close button, use overflow scrolling, and switch with keybindings. The overflow view follows the active tab after navigation; manually scrolling the tab bar suspends that follow behavior until tab focus changes again.
 - **Tab drag reorder** — reorder tabs in the tab bar by dragging, with a drop indicator.
 - **Tab-aware state** — workspace and agent UI can include tab context for agents and notifications.
 
@@ -119,6 +119,7 @@ Supported built-in detection includes:
 - **Agent metadata tokens** — pane metadata token patches are exposed consistently through pane/agent API snapshots and rendered without leaking one client's sidebar view into another.
 - **State notifications** — background state changes can trigger Oh My Herdr toasts, terminal toasts, system toasts, and sounds.
 - **Integration authority** — installed hooks either report native session identity for restore or report state directly. Claude Code, Codex, Pi, OMP, OpenCode, Hermes, Copilot, Qoder-style, and Grok Build integrations can report state directly; Kimi, Droid, and Cursor use session identity plus screen detection for state.
+- **Pi settled lifecycle** — the Pi integration keeps an active root agent working through compaction and reports it idle only after Pi emits `agent_settled` while the root session is actually idle. Stale or non-idle settlement signals do not end active work.
 - **Missing integration warning** — if screen detection sees an integration-capable agent such as Codex but no accepted Oh My Herdr hook, session, or metadata report arrives for that pane, Oh My Herdr shows a pane-targeted toast with the matching `omh integration install <agent>` command.
 
 
@@ -253,7 +254,7 @@ Integration management supports:
 
 Integration install side effects are agent-specific: pi and OMP install extensions, Claude, Codex, Grok Build, Kimi, Droid, Cursor, Copilot, and Qoder-style CLIs install/update hooks or settings, OpenCode installs a plugin, and Hermes installs/enables a plugin.
 
-Claude Code, Codex, Pi, OMP, OpenCode, Hermes, Copilot, Qoder-style, and Grok Build integrations can report state directly. The Grok Build integration reports native session identity plus parent-agent working, blocked, idle, and release transitions while ignoring child-agent completion as a parent completion. Its Oh My Herdr-owned hook also prevents Grok's Claude and Cursor compatibility hooks from claiming Grok panes.
+Claude Code, Codex, Pi, OMP, OpenCode, Hermes, Copilot, Qoder-style, and Grok Build integrations can report state directly. Pi uses its settled lifecycle as the idle boundary, so compaction completion and stale settlement signals do not prematurely end active work. The Grok Build integration reports native session identity plus parent-agent working, blocked, idle, and release transitions while ignoring child-agent completion as a parent completion. Its Oh My Herdr-owned hook also prevents Grok's Claude and Cursor compatibility hooks from claiming Grok panes.
 
 Integration path overrides include `PI_CODING_AGENT_DIR`, `PI_CONFIG_DIR`, `CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `GROK_HOME`, `KIMI_CODE_HOME`, and `CURSOR_CONFIG_DIR`. OMP install/status checks scan `.omp` and `.omp-*` extension directories.
 - On Windows, installable integrations include the Pi, OMP, and OpenCode JavaScript integrations plus CLI hook integrations with supported path layouts: Claude, Codex, Copilot, Grok Build, Kimi, Droid, and Qoder-style CLIs. Kilo has no Oh My Herdr installable integration.
@@ -267,10 +268,10 @@ Plugin manifests use `omh-plugin.toml` with `min_omh_version`. Oh My Herdr also 
 
 Plugins run unsandboxed as the current user. Remote installs show source, build commands, actions, panes, link handlers, and event hooks before install, and require confirmation unless `--yes` is passed.
 
-Installed plugin registry entries survive live server handoff, so linked plugins remain available to the replacement server and later registry writes preserve the complete set.
-
-Plugin panes are normal Oh My Herdr panes. Their pane attribution follows pane moves and is removed when tabs, workspaces, layouts, or plugins remove the pane.
-
+Installed and linked plugins live in one user-level registry shared by the default and named sessions. Legacy per-session registries migrate into that global registry, and registry entries survive live server handoff.
+`omh plugin install`, `omh plugin uninstall`, `omh plugin link`, and `omh plugin list` can read or update the registry while no server is running. Runtime operations such as actions, hooks, panes, enable/disable, and `plugin unlink` still require the server.
+Enabled, platform-compatible `[[startup]]` commands run once when the server starts. Refreshing plugin manifests does not replay them.
+Plugin panes support overlay, split, tab, and zoomed placement. Overlay placement is a detached popup runtime owned by the requesting client: only that client can see, focus, or close it, opening another replaces its current popup, and `Esc` closes it. Split, tab, and zoomed placements are normal session panes; their attribution follows pane moves and is removed when tabs, workspaces, layouts, or plugins remove the pane.
 Plugin commands receive `OMH_*` context variables, including plugin root/config/state directories and active workspace/tab/pane ids. Protected Oh My Herdr/plugin variables cannot be overwritten by plugin-provided env overrides.
 
 ## External tools
@@ -302,7 +303,7 @@ Oh My Herdr exposes the same runtime model through the CLI and local Unix socket
 - **`omh workspace`** — manage workspaces.
 - **`omh tab`** — manage tabs.
 - **`omh pane`** — manage panes, read output, send input, report agent state, and run commands.
-- **`omh agent`** — list, inspect, focus, read, send to, attach to, rename, and start agents.
+- **`omh agent`** — list, inspect, focus, read, send encoded keys to, prompt, wait for, attach to, rename, and start agents.
 - **`omh agent explain`** — inspect why an agent pane is classified as idle, working, blocked, unknown, or skipped by manifest detection.
 - **`omh wait`** — wait for output matches or agent status changes.
 - **`omh integration`** — install, uninstall, and inspect agent integrations.
@@ -329,7 +330,7 @@ API-visible domains include:
 - workspaces
 - tabs
 - panes
-- agents
+- agents, client-local agent views, and prompt/wait automation
 - integrations
 - output reads
 - output waits

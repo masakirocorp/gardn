@@ -19,9 +19,20 @@ Deleting a group is destructive: the application asks for confirmation and does 
 
 When the sidebar is collapsed, its compact rail keeps groups and agent-status sections visible. Click a group or workspace row to switch directly, click an activity count to open the matching filtered agent picker, and use the help and expand controls at the bottom of the rail.
 
+## Create a workspace
+
+Interactive workspace creation derives a name from the starting directory by default. To enter the name before creation, set:
+
+```toml
+[ui]
+prompt_new_workspace_name = true
+```
+
+The prompt applies to interactive creation from the sidebar, menus, navigator, and context bar. `omh workspace create` and `workspace.create` remain non-interactive and use their own `--label` or `label` input.
+
 ## Work with tabs
 
-Click a tab in the tab bar to focus it. Drag a tab to reorder it within the active workspace. Scroll over the tab bar to move to the previous or next tab. Right-click a tab for its context menu.
+Click a tab in the tab bar to focus it. Drag a tab to reorder it within the active workspace. Scroll over the tab bar to move through overflowed tabs; manual scrolling suspends automatic follow until tab focus changes, when the active tab is brought back into view. Right-click a tab for its context menu.
 
 To use the keyboard, open the command palette with `ctrl+b`, then `space`, and search for a tab action. The default direct prefix actions are documented in the [keybinding reference](/docs/reference/keybindings).
 
@@ -41,7 +52,7 @@ Choose **Zen mode** from the command palette, or press `ctrl+b`, then `shift+z`,
 
 On desktop, the bottom context bar shows the active group, workspace, tab, and focused pane alongside live group, workspace, and tab counts. Click a visible path segment to open the workspace navigator at that group, workspace, tab, or pane.
 
-Press the default `ctrl+b`, then `w` to open the workspace navigator directly. Search by name or filter by state, use the disclosure arrows or `space` to expand or collapse the highlighted branch, press `e` to expand the full tree, or press `c` to collapse it to group roots.
+Press the default `ctrl+b`, then `w` to open the workspace navigator directly. It searches groups, workspaces, tabs, panes, and metadata with whitespace-separated terms; filter chips narrow results to blocked, working, idle, or done agents. Group and workspace rows expose disclosure arrows, while singleton tab and pane levels are omitted without making their metadata unsearchable. Use `space` to toggle the highlighted branch, `e` to expand the full tree, or `c` to collapse it to group roots. Mouse hover moves the selection, and clicking a row accepts its group, workspace, tab, or pane target.
 
 Use `ctrl+b`, then `down` to hide or restore the context bar for only the attached client. To set its persistent default, set `ui.context_bar` to `always` or `never`.
 

@@ -506,7 +506,7 @@ Each `PluginCommandLogInfo` contains `log_id`, `plugin_id`, optional `action_id`
 
 ### `plugin.pane.open`
 
-Opens a pane declared by a plugin manifest. The process runs as the current user. The server records plugin attribution and emits `pane.created` (and `tab.created` for `tab` placement) before returning the success response.
+Opens a pane declared by a plugin manifest. The process runs as the current user. Split, tab, and zoomed placements create ordinary session panes; overlay placement creates a detached popup runtime owned by the requesting client view. The server records plugin attribution and emits `pane.created` (and `tab.created` for `tab` placement) before returning the success response.
 
 **Params:** `PluginPaneOpenParams`.
 
@@ -524,14 +524,16 @@ Opens a pane declared by a plugin manifest. The process runs as the current user
 
 Placement constraints:
 
-| Placement | Allowed targeting fields and behavior                                                                                         |
-| --------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| `overlay` | Rejects `workspace_id`, `target_pane_id`, and `direction`; opens against the active pane/workspace.                           |
-| `split`   | Rejects `workspace_id`; uses `target_pane_id` or the current public pane, and defaults `direction` to `right`.                |
-| `zoomed`  | Same target and direction rules as `split`, then marks the tab zoomed and focuses it.                                         |
-| `tab`     | Allows `workspace_id` but rejects `target_pane_id` and `direction`; creates a tab in the named workspace or active workspace. |
+| Placement | Allowed targeting fields and behavior                                                                                                               |
+| --------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `overlay` | Rejects `workspace_id`, `target_pane_id`, and `direction`; opens against the requesting client's active workspace as a client-owned detached popup. |
+| `split`   | Rejects `workspace_id`; uses `target_pane_id` or the current public pane, and defaults `direction` to `right`.                                      |
+| `zoomed`  | Same target and direction rules as `split`, then marks the tab zoomed and focuses it.                                                               |
+| `tab`     | Allows `workspace_id` but rejects `target_pane_id` and `direction`; creates a tab in the named workspace or active workspace.                       |
 
 The plugin manifest's pane platform list overrides its plugin platform list. The launch environment removes caller attempts to set protected `OMH_*`/`HERDR_*` keys (`PLUGIN_ID`, `PLUGIN_ROOT`, `PLUGIN_CONFIG_DIR`, `PLUGIN_STATE_DIR`, `PLUGIN_ENTRYPOINT_ID`, `PLUGIN_CONTEXT_JSON`, and `BIN_PATH`) and replaces them with server values. The environment also includes the pane context JSON and entrypoint ID.
+
+Only the client view that opened an overlay popup can see, focus, or close it through these methods. A second overlay request from that client replaces its current popup. The popup closes and its runtime and plugin attribution are removed when the owner closes it, disconnects, or the popup process exits. Other attached clients receive `plugin_pane_not_found` for that popup id. These ownership rules do not apply to split, tab, or zoomed plugin panes.
 
 **Success:** `ResponseResult::PluginPaneOpened`, discriminator `"plugin_pane_opened"`, with `plugin_pane: PluginPaneInfo` containing `plugin_id`, `entrypoint`, and the standard `pane: PaneInfo` descriptor.
 
@@ -558,16 +560,16 @@ The plugin manifest's pane platform list overrides its plugin platform list. The
 
 ### `plugin.pane.focus`
 
-Focuses a pane currently attributed to a plugin and switches the App to terminal mode.
+Focuses a pane currently attributed to a plugin and switches the requesting client view to terminal mode. For an overlay popup, the requester must be its owning client; another attached client receives `plugin_pane_not_found`.
 
 **Params:** `PluginPaneFocusParams`, with `pane_id: string`.
 
 **Success:** `ResponseResult::PluginPaneFocused`, discriminator `"plugin_pane_focused"`, with the attributed `plugin_pane` record.
 
-| Error                   | Meaning                                                                  |
-| ----------------------- | ------------------------------------------------------------------------ |
-| `plugin_pane_not_found` | The ID is not a current public pane or has no plugin attribution.        |
-| `server_unavailable`    | Shutdown was already in progress or the request could not be dispatched. |
+| Error                   | Meaning                                                                                           |
+| ----------------------- | ------------------------------------------------------------------------------------------------- |
+| `plugin_pane_not_found` | The ID is not a current attributed plugin pane, or it is an overlay owned by another client view. |
+| `server_unavailable`    | Shutdown was already in progress or the request could not be dispatched.                          |
 
 ```json
 {"id":"pane-focus-1","method":"plugin.pane.focus","params":{"pane_id":"w1943cd2b11a1:p2"}}
@@ -576,18 +578,18 @@ Focuses a pane currently attributed to a plugin and switches the App to terminal
 
 ### `plugin.pane.close`
 
-Closes a pane attributed to a plugin and removes its attribution. The underlying standard pane-close path runs, so it can also return standard close errors such as `confirmation_required` when the configured close policy requires confirmation.
+Closes a pane attributed to a plugin and removes its attribution. Overlay close is owner-only and tears down that detached popup runtime directly. Other placements use the standard pane-close path, so they can also return standard close errors such as `confirmation_required` when the configured close policy requires confirmation.
 
 **Params:** `PluginPaneCloseParams`, with `pane_id: string`.
 
 **Success:** `ResponseResult::PluginPaneClosed`, discriminator `"plugin_pane_closed"`, with `pane_id` only.
 
-| Error                   | Meaning                                                                    |
-| ----------------------- | -------------------------------------------------------------------------- |
-| `plugin_pane_not_found` | The ID is not a current public pane or has no plugin attribution.          |
-| `pane_not_found`        | The underlying pane disappeared.                                           |
-| `confirmation_required` | The standard close path requires confirmation for an implicit group close. |
-| `server_unavailable`    | Shutdown was already in progress or the request could not be dispatched.   |
+| Error                   | Meaning                                                                                                                             |
+| ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| `plugin_pane_not_found` | The ID is not a current attributed plugin pane, is an overlay owned by another client view, or is not the requester's active popup. |
+| `pane_not_found`        | The underlying pane disappeared.                                                                                                    |
+| `confirmation_required` | The standard close path requires confirmation for an implicit group close.                                                          |
+| `server_unavailable`    | Shutdown was already in progress or the request could not be dispatched.                                                            |
 
 ```json
 {"id":"pane-close-1","method":"plugin.pane.close","params":{"pane_id":"w1943cd2b11a1:p2"}}

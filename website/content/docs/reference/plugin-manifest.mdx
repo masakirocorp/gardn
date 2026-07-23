@@ -24,6 +24,7 @@ The top-level table has these fields:
 | `description`     | string           | no       | Optional trimmed description. Blank descriptions are discarded.                                                                                                              |
 | `platforms`       | array of strings | no       | Plugin-level platform allowlist: `linux`, `macos`, or `windows`. Omit it when support is not declared; Oh My Herdr warns that support is unknown. An empty array is invalid. |
 | `build`           | array of tables  | no       | Build commands run during a remote GitHub install, before the checkout is moved into managed plugin storage.                                                                 |
+| `startup`         | array of tables  | no       | Commands run once when an enabled plugin is loaded during server startup.                                                                                                    |
 | `actions`         | array of tables  | no       | User-invokable commands, optionally scoped by action context and platform.                                                                                                   |
 | `events`          | array of tables  | no       | Lifecycle hook commands.                                                                                                                                                     |
 | `panes`           | array of tables  | no       | Terminal pane entrypoints.                                                                                                                                                   |
@@ -40,6 +41,9 @@ version = "0.1.0"
 min_omh_version = "0.1.0"
 description = "Portable plugin smoke fixture"
 platforms = ["linux", "macos", "windows"]
+
+[[startup]]
+command = ["omh", "agent", "list"]
 
 [[actions]]
 id = "workspace-list"
@@ -65,6 +69,7 @@ Every command is a non-empty TOML string array. Oh My Herdr trims each argument 
 | Table               | Required fields                    | Optional fields                         |
 | ------------------- | ---------------------------------- | --------------------------------------- |
 | `[[build]]`         | `command`                          | `platforms`                             |
+| `[[startup]]`       | `command`                          | `platforms`                             |
 | `[[actions]]`       | `id`, `title`, `command`           | `description`, `contexts`, `platforms`  |
 | `[[events]]`        | `on`, `command`                    | `platforms`                             |
 | `[[panes]]`         | `id`, `title`, `command`           | `description`, `platforms`, `placement` |
@@ -73,6 +78,12 @@ Every command is a non-empty TOML string array. Oh My Herdr trims each argument 
 ### `[[build]]`
 
 `build` entries are used by the GitHub installer only. `platforms`, when present, limits the build to the listed host platforms. The command runs with the manifest root as its working directory and with the current user's permissions. Build stdout and stderr are capped at 64 KiB in the failure record. Oh My Herdr checks that the manifest is unchanged after the build; a changed manifest aborts installation.
+
+### `[[startup]]`
+
+`startup` entries run asynchronously once during server startup for enabled plugins whose effective platform list contains the host. They use the same direct argv command format and plugin-root working directory as other runtime commands. A manifest refresh does not replay them; restart the server to run startup entries again.
+
+Startup commands receive the protected plugin environment and a context whose invocation source is `startup`. They appear in plugin command logs with the action id `startup`.
 
 ### `[[actions]]`
 
@@ -123,13 +134,13 @@ A link handler does not contain a command. It dispatches its referenced action w
 
 ## Platform resolution and compatibility
 
-Valid platform names are lowercase `linux`, `macos`, and `windows`. A non-empty `platforms` list at the plugin level is inherited by a build, action, event, pane, or link handler that does not declare its own list. An item's list replaces, rather than extends, the plugin list. An item whose effective list does not contain the current host platform is rejected or skipped as unsupported before launch; a build is skipped on that platform, while an action or pane request returns a platform error. The manifest loader cannot infer support when the plugin-level list is omitted, so it emits an unknown-platform warning.
+Valid platform names are lowercase `linux`, `macos`, and `windows`. A non-empty `platforms` list at the plugin level is inherited by a build, startup entry, action, event, pane, or link handler that does not declare its own list. An item's list replaces, rather than extends, the plugin list. An item whose effective list does not contain the current host platform is rejected or skipped as unsupported before launch; builds and startup entries are skipped on that platform, while an action or pane request returns a platform error. The manifest loader cannot infer support when the plugin-level list is omitted, so it emits an unknown-platform warning.
 
 The current compatibility key is `min_omh_version`. A required version newer than the running release is rejected. Legacy `min_herdr_version` is accepted solely for ecosystem compatibility and does not make the legacy product identity the public manifest format.
 
 ## Execution environment and protected context
 
-Builds and runtime commands use the plugin root as their working directory unless a pane request supplies `cwd`. Runtime action and event commands receive a protected environment containing the plugin identity and context, including:
+Builds and runtime commands use the plugin root as their working directory unless a pane request supplies `cwd`. Startup, action, and event commands receive a protected environment containing the plugin identity and context, including:
 
 - `OMH_PLUGIN_ID`, `OMH_PLUGIN_ROOT`, `OMH_PLUGIN_CONFIG_DIR`, and `OMH_PLUGIN_STATE_DIR`;
 - `OMH_PLUGIN_CONTEXT_JSON`, containing the invocation or lifecycle context;
@@ -145,7 +156,9 @@ For pane launches, request-supplied environment keys that identify the plugin, r
 
 A linked plugin stores its source path in the registry; linking does not copy the directory or run a build. A GitHub plugin is checked out under managed plugin storage, records its owner/repository/subdirectory/ref and resolved commit, and is registered after the preview, confirmation, and optional build succeed. A GitHub install can replace an existing GitHub installation with the same plugin identity, but cannot silently replace a locally linked plugin.
 
-The registry (`plugins.json`) and managed GitHub checkout are stored in the active session data directory. With no named session, that is the default Oh My Herdr config/data directory; with a named session, it is the `sessions/SESSION_NAME` child. Consequently, installation and enablement are scoped to the active session's registry, while plugin command logs and plugin-pane attribution are runtime state for that session. Per-plugin config and state directories are derived from the active config/state directories and remain after uninstall; uninstall removes a managed GitHub checkout but does not delete those directories. Unlinking does not delete a linked source directory.
+The registry is stored as `plugins.json` in the user's Oh My Herdr config directory and is shared by the default and named sessions. Existing per-session registries are migrated into it and deduplicated by plugin id. The managed GitHub checkout is stored in that same global config area. Installation, uninstallation, linking, and listing use the registry directly when no server is running; per-session servers load the global entries and refresh them across live handoff.
+
+Plugin command logs and ordinary plugin-pane attribution are runtime state for a session. Per-plugin config and state directories are derived from the user-level config/state directories and remain after uninstall; uninstall removes a managed GitHub checkout but does not delete those directories. Unlinking does not delete a linked source directory.
 
 ## Runtime limits and security posture
 
@@ -154,7 +167,7 @@ Oh My Herdr v1 intentionally provides trust and process boundaries, not a sandbo
 - at most 32 plugin commands may be in flight concurrently;
 - stdout and stderr captured for a plugin command are capped at 64 KiB each;
 - only the latest 200 command log records are retained in the session;
-- actions and event hooks run asynchronously, and a failed hook does not roll back the workspace change that triggered it;
+- startup entries, actions, and event hooks run asynchronously; a failed startup entry does not block server startup, and a failed event hook does not roll back the workspace change that triggered it;
 - disabling or unlinking prevents new actions and hooks, but a running plugin process or pane is not automatically killed by unlinking;
 - manifest identity, compatibility, command, duplicate-ID, event, platform, and link-handler references are validated before use.
 

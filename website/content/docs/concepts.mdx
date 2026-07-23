@@ -37,9 +37,9 @@ An **agent profile** is a launchable description for an agent command. Profiles 
 
 ## Shared session and client view
 
-The **session** owns the spaces, groups, tabs, panes, terminals, runtimes, and agent state. A running session can have more than one attached client.
+The **session** owns the spaces, groups, tabs, panes, terminals, runtimes, and agent state. A running session can have more than one attached client. Installed and linked plugins are different: their registry is global to the current user, so the default and named sessions load the same plugin definitions.
 
-Each **client view** is the local presentation of that shared session. Its selected workspace, tab, focused pane, navigation mode, overlays, and scroll position can differ between attached clients. Changing a client view does not create a second copy of the session.
+Each **client view** is the local presentation of the shared session. Its selected workspace, tab, focused pane, navigation mode, overlays, agent-view filter, and scroll position can differ between attached clients. A plugin overlay pane is a detached popup runtime owned by the client that opened it; another client cannot see, focus, or close it. Changing a client view does not create a second copy of the session.
 
 ## Persistence and restore
 

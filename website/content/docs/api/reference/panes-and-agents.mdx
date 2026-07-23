@@ -7,22 +7,26 @@ description: Authored method reference for pane.* and agent.* Local API methods.
 
 The `agent.*`, `pane.*`, and `layout.*` Local API methods cover pane targeting, input and read semantics, layout identity consequences, and success discriminators. Raw parameter and result shapes live in the generated [requests](/docs/api/reference/generated/requests), [responses](/docs/api/reference/generated/responses), and [enums](/docs/api/reference/generated/enums) (`PaneDirection`, `SplitDirection`, `ReadSource`, `ReadFormat`, `PaneAgentState`, `PaneZoomMode`, `PaneMoveReason`, `PaneSwapReason`, `PaneResizeReason`, `PaneZoomReason`, `PaneFocusDirectionReason`). [Error semantics](/docs/api/errors) documents the error envelope; transport and the request envelope are described in the [Local API overview](/docs/api).
 
-`pane.wait_for_output` is the only method below that holds its connection open; see its entry.
+`pane.wait_for_output`, `agent.wait`, and `agent.prompt` with a `wait` object hold their connection open; see their entries.
 
 ## Method index
 
 ### Agent methods
 
-| Method                           | Params              | Result         |
-| -------------------------------- | ------------------- | -------------- |
-| [`agent.list`](#agentlist)       | none                | `AgentList`    |
-| [`agent.get`](#agentget)         | `AgentTarget`       | `AgentInfo`    |
-| [`agent.start`](#agentstart)     | `AgentStartParams`  | `AgentStarted` |
-| [`agent.focus`](#agentfocus)     | `AgentTarget`       | `AgentInfo`    |
-| [`agent.read`](#agentread)       | `AgentReadParams`   | `PaneRead`     |
-| [`agent.send`](#agentsend)       | `AgentSendParams`   | `Ok`           |
-| [`agent.rename`](#agentrename)   | `AgentRenameParams` | `AgentInfo`    |
-| [`agent.explain`](#agentexplain) | `AgentTarget`       | `AgentExplain` |
+| Method                                | Params                 | Result          |
+| ------------------------------------- | ---------------------- | --------------- |
+| [`agent.list`](#agentlist)            | none                   | `AgentList`     |
+| [`agent.get`](#agentget)              | `AgentTarget`          | `AgentInfo`     |
+| [`agent.start`](#agentstart)          | `AgentStartParams`     | `AgentStarted`  |
+| [`agent.focus`](#agentfocus)          | `AgentTarget`          | `AgentInfo`     |
+| [`agent.read`](#agentread)            | `AgentReadParams`      | `PaneRead`      |
+| [`agent.send_keys`](#agentsend_keys)  | `AgentSendKeysParams`  | `Ok`            |
+| [`agent.prompt`](#agentprompt)        | `AgentPromptParams`    | `AgentPrompted` |
+| [`agent.wait`](#agentwait)            | `AgentWaitParams`      | `AgentInfo`     |
+| [`agent.rename`](#agentrename)        | `AgentRenameParams`    | `AgentInfo`     |
+| [`agent.view.set`](#agentviewset)     | `AgentViewSetParams`   | `AgentView`     |
+| [`agent.view.clear`](#agentviewclear) | `AgentViewClearParams` | `AgentView`     |
+| [`agent.explain`](#agentexplain)      | `AgentTarget`          | `AgentExplain`  |
 
 ### Pane methods
 
@@ -77,7 +81,7 @@ Cross-workspace `pane.move` mints a new public `pane_id` for the moved pane and 
 
 ### Agent targets
 
-`agent.get`, `agent.focus`, `agent.read`, `agent.send`, `agent.rename`, `agent.explain` accept a free-form `target` string resolved in this order:
+`agent.get`, `agent.focus`, `agent.read`, `agent.send_keys`, `agent.prompt`, `agent.wait`, `agent.rename`, and `agent.explain` accept a free-form `target` string resolved in this order:
 
 1. Match a terminal id exactly. One match resolves; multiple matches are ambiguous.
 2. Parse `target` as a public `pane_id` and resolve the terminal attached to that pane.
@@ -99,23 +103,27 @@ A response with `error` means the request was rejected before any state change. 
 
 ## Common error categories
 
-| Category                                 | Produced by                                                                              | Meaning                                                                                                                                            |
-| ---------------------------------------- | ---------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `pane_not_found`                         | Every pane method that takes `pane_id` or `target_pane_id`.                              | The pane id did not parse or no longer exists. The message is `pane <id> not found` or `pane not found` for the omitted-pane fallback.             |
-| `agent_not_found`                        | `agent.get`, `agent.focus`, `agent.read`, `agent.send`, `agent.rename`, `agent.explain`. | `target` did not resolve to any agent terminal.                                                                                                    |
-| `agent_target_ambiguous`                 | Same as `agent_not_found`.                                                               | `target` matched multiple terminals. The message lists `terminal_id`, `pane_id`, `workspace_id`, `tab_id`, `cwd`, and `status` for each candidate. |
-| `agent_name_taken`                       | `agent.start`, `agent.rename`.                                                           | Another agent terminal already owns the requested name. The message lists competing terminals.                                                     |
-| `invalid_agent`                          | `pane.report_agent`, `pane.report_agent_session`, `pane.release_agent`.                  | The reported `agent` label was empty after trimming.                                                                                               |
-| `invalid_pane_swap`                      | `pane.swap`.                                                                             | The caller supplied both a direction and explicit source/target ids, or neither.                                                                   |
-| `invalid_metadata_*`                     | `pane.report_metadata`.                                                                  | Source, ttl, tokens, or set/clear combinations were invalid. See [pane.report_metadata](#panereport_metadata).                                     |
-| `pane_layout_unavailable`                | Layout-reading methods and `pane.move`.                                                  | The layout snapshot could not be produced for the resolved tab.                                                                                    |
-| `confirmation_required`                  | `pane.close`.                                                                            | The configured close policy requires confirmation.                                                                                                 |
-| `pane_send_failed` / `agent_send_failed` | `pane.send_text`, `pane.send_keys`, `pane.send_input`, `agent.send`.                     | The runtime writer reported an error.                                                                                                              |
-| `invalid_key`                            | `pane.send_keys`, `pane.send_input`.                                                     | A requested key could not be parsed. The message is `unsupported key <key>`.                                                                       |
-| `invalid_regex`                          | `pane.wait_for_output`.                                                                  | A `regex` match pattern failed to compile.                                                                                                         |
-| `timeout`                                | `pane.wait_for_output`.                                                                  | The match did not occur before the caller-supplied deadline. See [pane.wait_for_output](#panewait_for_output).                                     |
-| `invalid_env`                            | `agent.start`, `pane.split`.                                                             | An `env` key was empty, contained `=`, or contained a NUL byte; or a value contained a NUL byte.                                                   |
-| `invalid_request`                        | All.                                                                                     | The request envelope or parameter shape failed to deserialize. `id` may be empty.                                                                  |
+| Category                                      | Produced by                                                             | Meaning                                                                                                                                            |
+| --------------------------------------------- | ----------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pane_not_found`                              | Every pane method that takes `pane_id` or `target_pane_id`.             | The pane id did not parse or no longer exists. The message is `pane <id> not found` or `pane not found` for the omitted-pane fallback.             |
+| `agent_not_found`                             | Agent methods that take `target`.                                       | `target` did not resolve to any agent terminal.                                                                                                    |
+| `agent_target_ambiguous`                      | Same as `agent_not_found`.                                              | `target` matched multiple terminals. The message lists `terminal_id`, `pane_id`, `workspace_id`, `tab_id`, `cwd`, and `status` for each candidate. |
+| `agent_not_ready`                             | `agent.send_keys`, `agent.prompt`.                                      | The target has no recognized active agent, or its pane runtime is not hosting that agent.                                                          |
+| `agent_not_running`                           | `agent.wait`, `agent.prompt` with `wait`.                               | The target process, pane, or agent identity disappeared or changed while waiting.                                                                  |
+| `agent_name_taken`                            | `agent.start`, `agent.rename`.                                          | Another agent terminal already owns the requested name. The message lists competing terminals.                                                     |
+| `invalid_agent`                               | `pane.report_agent`, `pane.report_agent_session`, `pane.release_agent`. | The reported `agent` label was empty after trimming.                                                                                               |
+| `invalid_agent_view`                          | `agent.view.set`, `agent.view.clear`.                                   | The source, recursive filter, field/value pair, or sort definition is invalid.                                                                     |
+| `invalid_pane_swap`                           | `pane.swap`.                                                            | The caller supplied both a direction and explicit source/target ids, or neither.                                                                   |
+| `invalid_metadata_*`                          | `pane.report_metadata`.                                                 | Source, ttl, tokens, or set/clear combinations were invalid. See [pane.report_metadata](#panereport_metadata).                                     |
+| `pane_layout_unavailable`                     | Layout-reading methods and `pane.move`.                                 | The layout snapshot could not be produced for the resolved tab.                                                                                    |
+| `confirmation_required`                       | `pane.close`.                                                           | The configured close policy requires confirmation.                                                                                                 |
+| `pane_send_failed` / `agent_send_keys_failed` | Pane input methods / `agent.send_keys`.                                 | The runtime writer reported an error.                                                                                                              |
+| `agent_prompt_failed`                         | `agent.prompt`.                                                         | The agent-aware submission could not be written.                                                                                                   |
+| `invalid_key`                                 | `pane.send_keys`, `pane.send_input`, `agent.send_keys`.                 | A requested key could not be parsed. The message is `unsupported key <key>`.                                                                       |
+| `invalid_regex`                               | `pane.wait_for_output`.                                                 | A `regex` match pattern failed to compile.                                                                                                         |
+| `timeout`                                     | `pane.wait_for_output`, `agent.wait`, `agent.prompt` with `wait`.       | The requested output or state transition did not occur before the deadline.                                                                        |
+| `invalid_env`                                 | `agent.start`, `pane.split`.                                            | An `env` key was empty, contained `=`, or contained a NUL byte; or a value contained a NUL byte.                                                   |
+| `invalid_request`                             | All.                                                                    | The request envelope or parameter shape failed to deserialize. `id` may be empty.                                                                  |
 
 Method-specific codes are not a closed enum. Consumers must retain unknown codes.
 
@@ -263,30 +271,77 @@ Read output from the terminal behind an agent target. Identical to [pane.read](#
 
 See [pane.read](#paneread) for the source matrix and line semantics. Errors: `agent_not_found`, `agent_target_ambiguous`.
 
-### agent.send
+### agent.send_keys
 
-Write raw bytes from a string to the terminal behind an agent target. The bytes are written as-is without key parsing and without bracketed paste wrapping. This is the lowest-level send primitive and is appropriate for streaming agent input that should not be reparsed.
+Send named key events to a ready agent runtime. The target must resolve to a recognized agent and the pane runtime must still host that agent; use `pane.send_keys` when the target is an ordinary terminal rather than an agent-aware runtime.
 
-| Property | Type     | Required |
-| -------- | -------- | -------- |
-| `target` | `string` | yes      |
-| `text`   | `string` | yes      |
+| Property | Type       | Required |
+| -------- | ---------- | -------- |
+| `target` | `string`   | yes      |
+| `keys`   | `string[]` | yes      |
 
-Result: `Ok {}`. A failed write returns `agent_send_failed` with the runtime error message.
+Keys use the same parser and aliases as [pane.send_keys](#panesend_keys). All keys are parsed before the encoded bytes are written. Result: `Ok {}`.
 
-Errors: `agent_not_found`, `agent_target_ambiguous`, `agent_send_failed`.
+Errors: `agent_not_found`, `agent_target_ambiguous`, `agent_not_ready`, `invalid_key`, `agent_send_keys_failed`.
 
-```json
-{
-  "id": "ex:send",
-  "method": "agent.send",
-  "params": { "target": "builder", "text": "summarize the failing tests and propose a fix\n" }
-}
-```
+### agent.prompt
 
-```json
-{ "id": "ex:send", "result": { "type": "ok" } }
-```
+Submit non-empty prompt text through the target agent runtime's paste-aware text encoder, then send `Enter`. This is agent-aware submission, not a raw terminal write: the target must resolve to a recognized agent and the runtime must still host it.
+
+| Property          | Type              | Required | Default                |
+| ----------------- | ----------------- | -------- | ---------------------- |
+| `target`          | `string`          | yes      | —                      |
+| `text`            | `string`          | yes      | —                      |
+| `wait`            | `object \| null`  | no       | `null`                 |
+| `wait.until`      | `AgentStatus[]`   | no       | idle, done, or blocked |
+| `wait.timeout_ms` | `integer \| null` | no       | no deadline            |
+
+Without `wait`, the result is `AgentPrompted { agent }` immediately after the submission is queued. With `wait`, the connection stays open until the same pane first shows that the prompt took effect and then reaches one of the requested statuses. If no state change is observed during the bounded prompt-effect phase, the request returns `agent_prompt_stalled`; if the target disappears or changes identity, it returns `agent_not_running`. A client disconnect or server shutdown cancels the wait.
+
+Errors: `empty_agent_prompt`, `agent_not_found`, `agent_target_ambiguous`, `agent_not_ready`, `agent_prompt_failed`, `agent_prompt_stalled`, `agent_not_running`, `timeout`.
+
+### agent.wait
+
+Hold the connection open until an agent reaches a requested status. An empty `until` list means idle, done, or blocked. If the current status already matches, the method returns immediately; otherwise it follows status-change events for the same terminal and pane.
+
+| Property     | Type              | Required | Default                |
+| ------------ | ----------------- | -------- | ---------------------- |
+| `target`     | `string`          | yes      | —                      |
+| `until`      | `AgentStatus[]`   | no       | idle, done, or blocked |
+| `timeout_ms` | `integer \| null` | no       | no deadline            |
+
+Result: `AgentInfo { agent }` for the matching state. Closing or replacing the pane, ending the process, or losing its agent identity returns `agent_not_running`. A client disconnect or server shutdown cancels the wait without leaving a server-side waiter.
+
+Errors: `agent_not_found`, `agent_target_ambiguous`, `agent_not_running`, `timeout`.
+
+### agent.view.set
+
+Replace the requesting client's temporary agent-list view. The override controls filtered and sorted agent rows in the sidebar, mobile switcher, mouse targets, and agent keyboard navigation without changing shared session state or another attached client.
+
+| Property | Type                      | Required | Default                          |
+| -------- | ------------------------- | -------- | -------------------------------- |
+| `source` | `string`                  | yes      | —                                |
+| `label`  | `string \| null`          | no       | `null`                           |
+| `filter` | `AgentViewFilter \| null` | no       | all agents                       |
+| `sort`   | `AgentViewSort[]`         | no       | natural workspace/tab/pane order |
+
+Filters compose with `all`, `any`, and `not`, or compare built-in fields and plugin metadata tokens with `eq`, `in`, and `exists`. Sorts accept built-in order, attention, status, agent, seen, and state-sequence fields or plugin tokens. See the generated [requests](/docs/api/reference/generated/requests) and [enums](/docs/api/reference/generated/enums) for the exhaustive recursive shapes.
+
+A source beginning with `plugin:` must name an installed, enabled plugin. Setting a view resets agent-panel and mobile-switcher scroll for that client. Result: `AgentView { active: true, source, label }`.
+
+Errors: `invalid_agent_view`, `plugin_not_found`, `plugin_disabled`.
+
+### agent.view.clear
+
+Clear the requesting client's temporary agent-list view. With no `source`, any active override is removed. With `source`, the override is removed only when its normalized source matches; a nonmatching source is an accepted no-op. The client-local agent-panel and mobile-switcher scroll positions reset only when the active view changes.
+
+| Property | Type             | Required | Default          |
+| -------- | ---------------- | -------- | ---------------- |
+| `source` | `string \| null` | no       | clear any source |
+
+Result: `AgentView { active, source, label }` describing the remaining client-local override.
+
+Errors: `invalid_agent_view`.
 
 ### agent.rename
 

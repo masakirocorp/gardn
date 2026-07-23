@@ -66,6 +66,8 @@ omh plugin list
 omh plugin list --json
 ```
 
+The registry is global to the current user rather than scoped to one default or named session. If no server is running, `plugin install`, `plugin uninstall`, `plugin link`, and `plugin list` read or update that persisted registry directly. Runtime operations—actions, hooks, panes, enable/disable, and `plugin unlink`—still require a running server.
+
 Enable, disable, or remove the registry entry as needed:
 
 ```bash
@@ -131,7 +133,7 @@ Actions and panes run only while the plugin is enabled and the current platform 
    omh plugin pane open --plugin PLUGIN_ID --entrypoint ENTRYPOINT_ID --placement overlay
    ```
 
-   The supported placements are `overlay`, `split`, `tab`, and `zoomed`. `split` can use `--target-pane PANE_ID` and `--direction right|down`; `tab` can use `--workspace WORKSPACE_ID`. `--cwd PATH` overrides the default plugin-root working directory, and repeated `--env KEY=VALUE` adds launch environment values.
+   The supported placements are `overlay`, `split`, `tab`, and `zoomed`. `overlay` opens a detached popup owned by the requesting client; only that client can see, focus, or close it, opening another replaces its current popup, and `esc` closes it. `split` can use `--target-pane PANE_ID` and `--direction right|down`; `tab` can use `--workspace WORKSPACE_ID`. `--cwd PATH` overrides the default plugin-root working directory, and repeated `--env KEY=VALUE` adds launch environment values.
 
 4. Focus or close a pane by its pane id:
 
@@ -140,9 +142,9 @@ Actions and panes run only while the plugin is enabled and the current platform 
    omh plugin pane close PANE_ID
    ```
 
-Plugin panes are ordinary Oh My Herdr terminal panes. Their process is started with the plugin root as the default working directory, and Oh My Herdr replaces protected identity, path, and context environment keys with the real values. Do not attempt to spoof those values through `--env`.
+Split, tab, and zoomed plugin panes are ordinary session terminal panes. Overlay popups are separate client-owned runtimes and are not visible or addressable from another attached client. Every plugin pane process starts with the plugin root as its default working directory, and Oh My Herdr replaces protected identity, path, and context environment keys with the real values. Do not attempt to spoof those values through `--env`.
 
-Enabled event hooks run automatically for supported workspace, tab, pane, and agent-status lifecycle events. Link handlers dispatch their declared action when a matching pane URL is clicked. Event and action commands execute asynchronously; inspect their runtime records with:
+Enabled event hooks run automatically for supported workspace, tab, pane, and agent-status lifecycle events. Enabled `[[startup]]` commands whose platform filter matches run once when the server starts; refreshing manifests does not replay them, so restart the server to run them again. Link handlers dispatch their declared action when a matching pane URL is clicked. Event, startup, and action commands execute asynchronously; inspect their runtime records with:
 
 ```bash
 omh plugin log list --plugin PLUGIN_ID --limit 200
