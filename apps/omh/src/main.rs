@@ -44,6 +44,7 @@ mod metadata_tokens;
 mod noninteractive_process;
 mod pane;
 mod persist;
+mod plugin_paths;
 mod platform;
 mod ports;
 mod product_announcements;

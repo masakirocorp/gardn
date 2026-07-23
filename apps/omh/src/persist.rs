@@ -2,7 +2,7 @@
 //!
 //! Stored at `~/.config/omh/session.json`.
 //! Optional pane screen history is stored separately at `session-history.json`.
-//! Installed plugins are persisted separately at `plugins.json`.
+//! Installed plugins are persisted globally at `~/.config/omh/plugins.json`.
 
 mod io;
 pub mod plugin_registry;

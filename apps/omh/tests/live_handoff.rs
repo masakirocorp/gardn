@@ -651,6 +651,70 @@ fn live_handoff_preserves_installed_plugins() {
 }
 
 #[test]
+fn named_sessions_share_global_plugin_registry_and_restart_state() {
+    let _lock = test_lock();
+    let base = unique_test_dir();
+    let config_home = base.join("config");
+    let runtime_dir = base.join("runtime");
+    let alpha_socket = config_home.join("omh-dev/sessions/alpha/omh.sock");
+    let beta_socket = config_home.join("omh-dev/sessions/beta/omh.sock");
+    let plugin_root = base.join("plugins/global");
+    write_plugin_manifest(&plugin_root, "test.global-plugin");
+
+    let alpha = spawn_named_session_server(&config_home, &runtime_dir, "alpha", None);
+    let beta = spawn_named_session_server(&config_home, &runtime_dir, "beta", None);
+    wait_for_socket(&alpha_socket, Duration::from_secs(10));
+    wait_for_socket(&beta_socket, Duration::from_secs(10));
+
+    link_plugin(&alpha_socket, &plugin_root);
+    assert_eq!(
+        listed_plugin_ids(&beta_socket),
+        ["test.global-plugin".to_string()]
+    );
+
+    assert_ok(request(
+        &beta_socket,
+        serde_json::json!({
+            "id": "test:plugin:disable",
+            "method": "plugin.disable",
+            "params": {"plugin_id": "test.global-plugin"}
+        }),
+    ));
+    let alpha_plugins = request(
+        &alpha_socket,
+        serde_json::json!({"id":"test:plugin:list","method":"plugin.list","params":{}}),
+    );
+    assert_ok(alpha_plugins.clone());
+    assert_eq!(alpha_plugins["result"]["plugins"][0]["enabled"], false);
+
+    let _ = request(
+        &alpha_socket,
+        serde_json::json!({"id":"test:stop:alpha","method":"server.stop","params":{}}),
+    );
+    let _ = request(
+        &beta_socket,
+        serde_json::json!({"id":"test:stop:beta","method":"server.stop","params":{}}),
+    );
+    drop(alpha);
+    drop(beta);
+
+    let restarted = spawn_named_session_server(&config_home, &runtime_dir, "beta", None);
+    wait_for_socket(&beta_socket, Duration::from_secs(10));
+    let restarted_plugins = request(
+        &beta_socket,
+        serde_json::json!({"id":"test:plugin:list:restart","method":"plugin.list","params":{}}),
+    );
+    assert_ok(restarted_plugins.clone());
+    assert_eq!(restarted_plugins["result"]["plugins"][0]["enabled"], false);
+    let _ = request(
+        &beta_socket,
+        serde_json::json!({"id":"test:stop:restarted","method":"server.stop","params":{}}),
+    );
+    drop(restarted);
+    cleanup_test_base(&base);
+}
+
+#[test]
 fn live_handoff_preserves_pane_process_io() {
     let _lock = test_lock();
     let base = unique_test_dir();

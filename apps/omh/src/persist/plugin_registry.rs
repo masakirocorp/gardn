@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+use std::fs::OpenOptions;
 use std::path::{Path, PathBuf};
 
 use tracing::warn;
@@ -5,9 +7,29 @@ use tracing::warn;
 use crate::api::schema::InstalledPluginInfo;
 
 pub const MANIFEST_UNAVAILABLE_WARNING_PREFIX: &str = "manifest unavailable: ";
-
 fn registry_path() -> PathBuf {
-    crate::session::data_dir().join("plugins.json")
+    crate::config::config_dir().join("plugins.json")
+}
+
+const REGISTRY_LOCK_FILE: &str = ".plugins.lock";
+
+fn registry_lock_path() -> PathBuf {
+    crate::config::config_dir().join(REGISTRY_LOCK_FILE)
+}
+
+fn with_registry_lock<T>(operation: impl FnOnce() -> std::io::Result<T>) -> std::io::Result<T> {
+    let lock_path = registry_lock_path();
+    if let Some(parent) = lock_path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let lock = OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .read(true)
+        .write(true)
+        .open(lock_path)?;
+    lock.lock()?;
+    operation()
 }
 
 fn save_json_to_path<T: serde::Serialize + ?Sized>(path: &Path, value: &T) -> std::io::Result<()> {
@@ -17,6 +39,13 @@ fn save_json_to_path<T: serde::Serialize + ?Sized>(path: &Path, value: &T) -> st
     let json = serde_json::to_string_pretty(value)?;
     let tmp_path = path.with_extension("json.tmp");
     std::fs::write(&tmp_path, &json)?;
+    #[cfg(windows)]
+    if path.exists() {
+        if let Err(err) = std::fs::remove_file(path) {
+            let _ = std::fs::remove_file(&tmp_path);
+            return Err(err);
+        }
+    }
     if let Err(err) = std::fs::rename(&tmp_path, path) {
         let _ = std::fs::remove_file(&tmp_path);
         return Err(err);
@@ -24,40 +53,135 @@ fn save_json_to_path<T: serde::Serialize + ?Sized>(path: &Path, value: &T) -> st
     Ok(())
 }
 
-/// Atomically write `plugins.json` next to `session.json`.
-pub fn save(plugins: &[InstalledPluginInfo]) -> std::io::Result<()> {
-    let path = registry_path();
-    save_to_path(&path, plugins)
-}
-
 pub fn save_to_path(path: &Path, plugins: &[InstalledPluginInfo]) -> std::io::Result<()> {
     save_json_to_path(path, plugins)
 }
 
-/// Load `plugins.json`.  Returns an empty vec on any failure so a corrupt or
-/// missing file never blocks server startup.
-pub fn load() -> Vec<InstalledPluginInfo> {
-    load_from_path(&registry_path())
+fn legacy_registry_paths() -> std::io::Result<Vec<PathBuf>> {
+    let sessions_dir = crate::config::config_dir().join("sessions");
+    let mut paths = Vec::new();
+    let entries = match std::fs::read_dir(sessions_dir) {
+        Ok(entries) => entries,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(paths),
+        Err(err) => return Err(err),
+    };
+    for entry in entries {
+        let path = entry?.path();
+        if path.is_dir() {
+            let registry = path.join("plugins.json");
+            if registry.is_file() {
+                paths.push(registry);
+            }
+        }
+    }
+    paths.sort();
+    Ok(paths)
 }
 
-pub fn load_from_path(path: &Path) -> Vec<InstalledPluginInfo> {
-    if !path.exists() {
-        return Vec::new();
+fn deduplicate(entries: &mut Vec<InstalledPluginInfo>) {
+    let mut seen = HashSet::new();
+    entries.retain(|entry| seen.insert(entry.plugin_id.clone()));
+}
+
+fn migrate_legacy(entries: &mut Vec<InstalledPluginInfo>) -> std::io::Result<()> {
+    let paths = legacy_registry_paths()?;
+    if paths.is_empty() {
+        return Ok(());
     }
-    let content = match std::fs::read_to_string(path) {
-        Ok(c) => c,
-        Err(err) => {
-            warn!(path = %path.display(), err = %err, "failed to read plugin registry");
-            return Vec::new();
+
+    let mut migrated_paths = Vec::new();
+    let mut migrated_entries = Vec::new();
+    for path in paths {
+        match load_from_path_strict(&path) {
+            Ok(mut legacy_entries) => {
+                migrated_paths.push(path);
+                migrated_entries.append(&mut legacy_entries);
+            }
+            Err(err) => {
+                warn!(
+                    path = %path.display(),
+                    err = %err,
+                    "failed to migrate legacy plugin registry"
+                );
+            }
         }
-    };
-    match serde_json::from_str::<Vec<InstalledPluginInfo>>(&content) {
-        Ok(entries) => entries,
+    }
+    if migrated_paths.is_empty() {
+        return Ok(());
+    }
+
+    entries.append(&mut migrated_entries);
+    deduplicate(entries);
+    entries.sort_by(|left, right| left.plugin_id.cmp(&right.plugin_id));
+    save_to_path(&registry_path(), entries)?;
+    for path in migrated_paths {
+        if let Err(err) = std::fs::remove_file(&path) {
+            warn!(
+                path = %path.display(),
+                err = %err,
+                "failed to remove migrated plugin registry"
+            );
+        }
+    }
+    Ok(())
+}
+
+pub fn update<T>(
+    mutation: impl FnOnce(&mut Vec<InstalledPluginInfo>) -> T,
+) -> std::io::Result<(T, Vec<InstalledPluginInfo>)> {
+    with_registry_lock(|| {
+        let mut plugins = load_from_path_strict(&registry_path())?;
+        migrate_legacy(&mut plugins)?;
+        let result = mutation(&mut plugins);
+        deduplicate(&mut plugins);
+        plugins.sort_by(|left, right| left.plugin_id.cmp(&right.plugin_id));
+        save_to_path(&registry_path(), &plugins)?;
+        Ok((result, plugins))
+    })
+}
+
+pub fn try_load() -> std::io::Result<Vec<InstalledPluginInfo>> {
+    with_registry_lock(|| {
+        let mut plugins = load_from_path_strict(&registry_path())?;
+        migrate_legacy(&mut plugins)?;
+        Ok(plugins)
+    })
+}
+
+/// Load the global registry. Returns an empty vec on failure so a corrupt or
+/// missing file never blocks server startup; mutations still use strict reads.
+pub fn load() -> Vec<InstalledPluginInfo> {
+    match try_load() {
+        Ok(plugins) => plugins,
         Err(err) => {
-            warn!(path = %path.display(), err = %err, "failed to parse plugin registry, starting with empty registry");
+            warn!(
+                path = %registry_path().display(),
+                err = %err,
+                "failed to load plugin registry"
+            );
             Vec::new()
         }
     }
+}
+
+#[cfg(test)]
+pub fn load_from_path(path: &Path) -> Vec<InstalledPluginInfo> {
+    match load_from_path_strict(path) {
+        Ok(entries) => entries,
+        Err(err) => {
+            warn!(path = %path.display(), err = %err, "failed to read plugin registry");
+            Vec::new()
+        }
+    }
+}
+
+fn load_from_path_strict(path: &Path) -> std::io::Result<Vec<InstalledPluginInfo>> {
+    if !path.exists() {
+        return Ok(Vec::new());
+    }
+    let content = std::fs::read_to_string(path)?;
+    serde_json::from_str::<Vec<InstalledPluginInfo>>(&content)
+        .map_err(|err| std::io::Error::new(std::io::ErrorKind::InvalidData, err))
 }
 
 /// Re-read each entry's manifest from disk using the provided reload function.
@@ -144,6 +268,41 @@ mod tests {
         let path = temp_registry_path("missing");
         let loaded = load_from_path(&path);
         assert!(loaded.is_empty());
+    }
+    #[test]
+    fn migrates_named_session_registries_once_without_duplicates() {
+        let _lock = crate::config::test_config_env_lock().lock().unwrap();
+        let xdg_config_home = temp_registry_path("migration").parent().unwrap().join("xdg");
+        let _config_home = crate::config::TestEnvVar::set("XDG_CONFIG_HOME", &xdg_config_home);
+        let config_dir = crate::config::config_dir();
+        let first = config_dir.join("sessions/alpha/plugins.json");
+        let second = config_dir.join("sessions/beta/plugins.json");
+        save_to_path(&first, &[sample_plugin("example.legacy")]).unwrap();
+        save_to_path(
+            &second,
+            &[sample_plugin("example.legacy"), sample_plugin("example.other")],
+        )
+        .unwrap();
+
+        let merged = try_load().unwrap();
+        let ids = merged
+            .iter()
+            .map(|plugin| plugin.plugin_id.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(ids, ["example.legacy", "example.other"]);
+        assert!(!first.exists());
+        assert!(!second.exists());
+
+        let reloaded = try_load().unwrap();
+        assert_eq!(
+            reloaded
+                .iter()
+                .filter(|plugin| plugin.plugin_id == "example.legacy")
+                .count(),
+            1
+        );
+        assert!(config_dir.join("plugins.json").exists());
+        let _ = std::fs::remove_dir_all(&xdg_config_home);
     }
 
     #[test]

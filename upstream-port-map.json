@@ -3663,8 +3663,8 @@
     {
       "upstream": "69d07dba84411db33bf1f5191a69f80e5069c6ea",
       "subject": "fix: make plugin state global across sessions",
-      "status": "pending",
-      "reason": "Plugin registry state is still session-scoped instead of globally serialized for the user."
+      "status": "ported",
+      "reason": "ENG-155 ports a locked user-global registry with one-time named-session migration and deduplication; focused filesystem-backed cross-session and live-handoff/restart tests pass."
     },
     {
       "upstream": "1f2487554b9fd42118f9e99ee06eb558bbb2391f",

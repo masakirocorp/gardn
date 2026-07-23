@@ -25,6 +25,45 @@ pub(crate) use manifest::load_plugin_manifest;
 use runtime::{read_capped_plugin_output, MAX_PLUGIN_COMMANDS_IN_FLIGHT};
 
 impl App {
+    fn replace_installed_plugins(&mut self, entries: Vec<InstalledPluginInfo>) {
+        let entries =
+            crate::persist::plugin_registry::reload_manifests(entries, |path, enabled| {
+                load_plugin_manifest(path, enabled).map_err(|(_, message)| message)
+            });
+        self.state.installed_plugins = entries
+            .into_iter()
+            .map(|plugin| (plugin.plugin_id.clone(), plugin))
+            .collect();
+    }
+
+    fn refresh_installed_plugins(&mut self) -> std::io::Result<()> {
+        if self.no_session {
+            return Ok(());
+        }
+        let entries = crate::persist::plugin_registry::try_load()?;
+        self.replace_installed_plugins(entries);
+        Ok(())
+    }
+
+    fn update_installed_plugins<T>(
+        &mut self,
+        mutation: impl FnOnce(&mut crate::app::state::InstalledPluginRegistry) -> T,
+    ) -> std::io::Result<T> {
+        if self.no_session {
+            return Ok(mutation(&mut self.state.installed_plugins));
+        }
+        let (result, entries) = crate::persist::plugin_registry::update(|entries| {
+            let mut registry = entries
+                .drain(..)
+                .map(|plugin| (plugin.plugin_id.clone(), plugin))
+                .collect();
+            let result = mutation(&mut registry);
+            *entries = registry.into_values().collect();
+            result
+        })?;
+        self.replace_installed_plugins(entries);
+        Ok(result)
+    }
     pub(super) fn handle_plugin_link(&mut self, id: String, params: PluginLinkParams) -> String {
         let mut plugin = match load_plugin_manifest(&params.path, params.enabled) {
             Ok(plugin) => plugin,
@@ -36,21 +75,9 @@ impl App {
                 Err((code, message)) => return encode_error(id, code, message),
             }
         }
-        let previous = self.state.installed_plugins.get(&plugin.plugin_id).cloned();
-        self.state
-            .installed_plugins
-            .insert(plugin.plugin_id.clone(), plugin.clone());
-        if let Err(err) = self.save_plugin_registry() {
-            match previous {
-                Some(previous) => {
-                    self.state
-                        .installed_plugins
-                        .insert(previous.plugin_id.clone(), previous);
-                }
-                None => {
-                    self.state.installed_plugins.remove(&plugin.plugin_id);
-                }
-            }
+        if let Err(err) = self.update_installed_plugins(|plugins| {
+            plugins.insert(plugin.plugin_id.clone(), plugin.clone());
+        }) {
             return encode_error(id, "plugin_registry_save_failed", err.to_string());
         }
         encode_success(id, ResponseResult::PluginLinked { plugin })
@@ -61,6 +88,9 @@ impl App {
             Ok(plugin_id) => plugin_id,
             Err(response) => return response,
         };
+        if let Err(err) = self.refresh_installed_plugins() {
+            return encode_error(id, "plugin_registry_load_failed", err.to_string());
+        }
         let mut plugins = self
             .state
             .installed_plugins
@@ -84,29 +114,18 @@ impl App {
         let Some(plugin_id) = normalize_plugin_id(&params.plugin_id) else {
             return invalid_plugin_id(id);
         };
-        let previous = self.state.installed_plugins.remove(&plugin_id);
-        let removed = previous.is_some();
-        let previous_panes = if removed {
-            Some(self.state.plugin_panes.clone())
-        } else {
-            None
-        };
+        let removed =
+            match self.update_installed_plugins(|plugins| plugins.remove(&plugin_id).is_some()) {
+                Ok(removed) => removed,
+                Err(err) => {
+                    return encode_error(id, "plugin_registry_save_failed", err.to_string());
+                }
+            };
         if removed {
             // Drop plugin_panes records for this plugin (panes keep running).
             self.state
                 .plugin_panes
                 .retain(|_, record| record.plugin_id != plugin_id);
-            if let Err(err) = self.save_plugin_registry() {
-                if let Some(previous) = previous {
-                    self.state
-                        .installed_plugins
-                        .insert(plugin_id.clone(), previous);
-                }
-                if let Some(previous_panes) = previous_panes {
-                    self.state.plugin_panes = previous_panes;
-                }
-                return encode_error(id, "plugin_registry_save_failed", err.to_string());
-            }
         }
         encode_success(id, ResponseResult::PluginUnlinked { plugin_id, removed })
     }
@@ -136,6 +155,9 @@ impl App {
             Ok(plugin_id) => plugin_id,
             Err(response) => return response,
         };
+        if let Err(err) = self.refresh_installed_plugins() {
+            return encode_error(id, "plugin_registry_load_failed", err.to_string());
+        }
         let mut actions = manifest_actions(&self.state.installed_plugins)
             .filter(|action| {
                 plugin_id
@@ -152,6 +174,9 @@ impl App {
         id: String,
         params: PluginActionInvokeParams,
     ) -> String {
+        if let Err(err) = self.refresh_installed_plugins() {
+            return encode_error(id, "plugin_registry_load_failed", err.to_string());
+        }
         let (plugin, action) =
             match self.find_plugin_action(params.plugin_id.as_deref(), &params.action_id) {
                 Ok(pair) => pair,
@@ -198,6 +223,8 @@ impl App {
         target: Option<(usize, crate::layout::PaneId)>,
         client_selection: Option<Option<&crate::selection::Selection>>,
     ) -> Result<(), String> {
+        self.refresh_installed_plugins()
+            .map_err(|err| format!("failed to load plugin registry: {err}"))?;
         let (plugin, action) = self
             .find_plugin_action(None, &action_id)
             .map_err(|(_, message)| message)?;
@@ -235,6 +262,8 @@ impl App {
         url: &str,
         pane_id: crate::layout::PaneId,
     ) -> Result<bool, String> {
+        self.refresh_installed_plugins()
+            .map_err(|err| format!("failed to load plugin registry: {err}"))?;
         let Some((plugin, handler)) = self.find_plugin_link_handler(url) else {
             return Ok(false);
         };
@@ -313,6 +342,9 @@ impl App {
         id: String,
         params: PluginPaneOpenParams,
     ) -> String {
+        if let Err(err) = self.refresh_installed_plugins() {
+            return encode_error(id, "plugin_registry_load_failed", err.to_string());
+        }
         let Some(plugin_id) = normalize_plugin_id(&params.plugin_id) else {
             return invalid_plugin_id(id);
         };
@@ -567,16 +599,21 @@ impl App {
         let Some(plugin_id) = normalize_plugin_id(&plugin_id) else {
             return invalid_plugin_id(id);
         };
-        let Some(plugin) = self.state.installed_plugins.get_mut(&plugin_id) else {
-            return encode_error(id, "plugin_not_found", "plugin not found");
-        };
-        let previous_enabled = plugin.enabled;
-        plugin.enabled = enabled;
-        if let Err(err) = self.save_plugin_registry() {
-            if let Some(plugin) = self.state.installed_plugins.get_mut(&plugin_id) {
-                plugin.enabled = previous_enabled;
+        let found = match self.update_installed_plugins(|plugins| {
+            if let Some(plugin) = plugins.get_mut(&plugin_id) {
+                plugin.enabled = enabled;
+                true
+            } else {
+                false
             }
-            return encode_error(id, "plugin_registry_save_failed", err.to_string());
+        }) {
+            Ok(found) => found,
+            Err(err) => {
+                return encode_error(id, "plugin_registry_save_failed", err.to_string());
+            }
+        };
+        if !found {
+            return encode_error(id, "plugin_not_found", "plugin not found");
         }
         let Some(plugin) = self.state.installed_plugins.get(&plugin_id).cloned() else {
             return encode_error(id, "plugin_not_found", "plugin not found");
@@ -588,18 +625,6 @@ impl App {
         }
     }
 
-    pub(crate) fn save_plugin_registry(&self) -> std::io::Result<()> {
-        if self.no_session {
-            return Ok(());
-        }
-        let plugins = self
-            .state
-            .installed_plugins
-            .values()
-            .cloned()
-            .collect::<Vec<_>>();
-        crate::persist::plugin_registry::save(&plugins)
-    }
 }
 
 fn invalid_plugin_id(id: String) -> String {
