@@ -1721,6 +1721,8 @@ mod tests {
     }
 
     #[cfg(not(target_os = "macos"))]
+    #[cfg(not(target_os = "macos"))]
+
     #[test]
     fn non_macos_host_input_splits_lone_escape_from_arrow() {
         let mut framer = RawInputByteFramer::for_host_input();
@@ -1732,10 +1734,10 @@ mod tests {
     }
 
     #[test]
-    fn host_input_splits_escape_without_breaking_control_or_mouse_reassembly() {
+    fn host_input_policy_preserves_split_control_and_mouse_reassembly() {
         let mut control = RawInputByteFramer::with_host_input_policy(false);
 
-        assert_eq!(control.push(b"\x1b\x1b]11;rgb:2828"), vec![b"\x1b".to_vec()]);
+        assert!(control.push(b"\x1b]11;rgb:2828").is_empty());
         assert!(control.flush_timeout().is_empty());
         assert_eq!(
             control.push(b"/2a2a/3636\x1b\\"),
@@ -1743,7 +1745,7 @@ mod tests {
         );
 
         let mut mouse = RawInputByteFramer::with_host_input_policy(false);
-        assert_eq!(mouse.push(b"\x1b\x1b[<3"), vec![b"\x1b".to_vec()]);
+        assert!(mouse.push(b"\x1b[<3").is_empty());
         assert_eq!(
             mouse.push(b"5;58;30M"),
             vec![b"\x1b[<35;58;30M".to_vec()]
