@@ -3591,8 +3591,11 @@
     {
       "upstream": "a51a15914a5b29155022a1fd589d2bcc6409cadf",
       "subject": "fix: support javascript integrations on windows",
-      "status": "pending",
-      "reason": "Pi, OMP, OpenCode, and Kilo JavaScript integrations remain unsupported on Windows named pipes."
+      "status": "ported",
+      "local": [
+        "101bcb36"
+      ],
+      "reason": "Ported Pi, OMP, and OpenCode JavaScript integrations to Windows named-pipe endpoints, enabled their Windows installation targets, and covered Pi extension-directory setup. Kilo is not an Oh My Herdr installable integration and was intentionally not added."
     },
     {
       "upstream": "b580103b956ef9cdf39798947a46ce4e8b78c322",
