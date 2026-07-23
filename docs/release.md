@@ -76,7 +76,7 @@ just release
 1. requires a clean tree
 2. verifies every pending Tegami changefile includes `omh`
 3. runs `CI=true pnpm tegami version`
-4. runs `just check`
+4. runs `CARGO_INCREMENTAL=0 pnpm check`
 5. commits Tegami's version/changelog changes
 6. tags `v<version>`
 7. pushes the branch and tag

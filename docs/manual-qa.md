@@ -1,6 +1,6 @@
 # Manual QA matrix
 
-Use this guide to select and run the manual checks that Oh My Herdr's automated suite cannot prove reliably. It complements `just check`; it does not repeat state, protocol, socket, PTY, or render behavior already covered by automated tests.
+Use this guide to select and run the manual checks that Oh My Herdr's automated suite cannot prove reliably. It complements `CARGO_INCREMENTAL=0 pnpm check`; it does not repeat state, protocol, socket, PTY, or render behavior already covered by automated tests.
 
 Run M01-M08 before tagging a release, then run M09 against the published artifacts. Run affected P1 cases when changing their surface, and run the full P1 set for broad platform, terminal, or lifecycle changes.
 

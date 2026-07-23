@@ -6,6 +6,7 @@ packages:
   - "!packages/nix"
 
 allowBuilds:
+  "@ast-grep/cli": true
   esbuild: true
   sharp: true
   workerd: true
