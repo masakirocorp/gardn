@@ -3609,8 +3609,8 @@
     {
       "upstream": "a26a654351ee03b1a51d7b398f3bdff2c1ca920d",
       "subject": "feat: connected tree glyphs, workspace grouping, and search auto-select in navigator",
-      "status": "pending",
-      "reason": "The session navigator lacks the connected tree, workspace grouping, and search auto-selection behavior."
+      "status": "ported",
+      "reason": "Selectively ported under ENG-143: connected Group/Space/tab/pane trees and direct-match search auto-selection are covered by 39 navigator tests; existing Groups supersede upstream blank workspace separators."
     },
     {
       "upstream": "08409d167deba8950495d9737fb54b0cc6634f4c",

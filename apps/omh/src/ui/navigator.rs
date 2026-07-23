@@ -734,10 +734,10 @@ mod tests {
         assert_eq!(rows.len(), 6);
         assert_eq!(prefixes[0], "▾");
         assert_eq!(prefixes[1], "└──");
-        assert_eq!(prefixes[2], "├──");
-        assert_eq!(prefixes[3], "│  ├──");
-        assert_eq!(prefixes[4], "│  └──");
-        assert_eq!(prefixes[5], "└──");
+        assert_eq!(prefixes[2], "   ├──");
+        assert_eq!(prefixes[3], "   │  ├──");
+        assert_eq!(prefixes[4], "   │  └──");
+        assert_eq!(prefixes[5], "   └──");
     }
 
     #[test]
