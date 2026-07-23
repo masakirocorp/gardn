@@ -1448,9 +1448,11 @@ pub enum ViewLayout {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub(crate) enum MobileSwitcherLevel {
-    Groups,
     #[default]
-    Workspaces,
+    Groups,
+    Workspaces {
+        group_idx: usize,
+    },
     Tabs {
         ws_idx: usize,
     },
@@ -1458,7 +1460,6 @@ pub(crate) enum MobileSwitcherLevel {
         ws_idx: usize,
         tab_idx: usize,
     },
-    Actions,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1514,7 +1515,6 @@ pub struct ViewState {
     pub context_bar: ContextBarView,
     pub terminal_area: Rect,
     pub mobile_header_rect: Rect,
-    pub mobile_menu_hit_area: Rect,
     pub toast_hit_area: Rect,
     pub pane_infos: Vec<PaneInfo>,
     pub split_borders: Vec<SplitBorder>,
@@ -3536,7 +3536,6 @@ impl AppState {
                 context_bar: ContextBarView::default(),
                 terminal_area: Rect::default(),
                 mobile_header_rect: Rect::default(),
-                mobile_menu_hit_area: Rect::default(),
                 toast_hit_area: Rect::default(),
                 pane_infos: Vec::new(),
                 split_borders: Vec::new(),

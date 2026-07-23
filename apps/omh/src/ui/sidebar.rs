@@ -234,13 +234,16 @@ pub(crate) fn agent_panel_sections_all_workspaces(
     app: &AppState,
     terminal_runtimes: &TerminalRuntimeRegistry,
 ) -> Vec<AgentPanelSection> {
-    agent_panel_sections_from_entries(agent_panel_entries_with_context(
-        app,
-        Some(terminal_runtimes),
-        AgentPanelScope::AllWorkspaces,
-        app.active,
-        app.active_group,
-    ))
+    agent_panel_sections_from_entries(
+        agent_panel_entries_with_context(
+            app,
+            Some(terminal_runtimes),
+            AgentPanelScope::AllWorkspaces,
+            app.active,
+            app.active_group,
+        ),
+        true,
+    )
 }
 
 pub(crate) fn agent_panel_sections_all_workspaces_for_view(
@@ -248,13 +251,16 @@ pub(crate) fn agent_panel_sections_all_workspaces_for_view(
     terminal_runtimes: &TerminalRuntimeRegistry,
     view: &ClientViewState,
 ) -> Vec<AgentPanelSection> {
-    agent_panel_sections_from_entries(agent_panel_entries_with_context(
-        app,
-        Some(terminal_runtimes),
-        AgentPanelScope::AllWorkspaces,
-        view.active_workspace,
-        view.active_group,
-    ))
+    agent_panel_sections_from_entries(
+        agent_panel_entries_with_context(
+            app,
+            Some(terminal_runtimes),
+            AgentPanelScope::AllWorkspaces,
+            view.active_workspace,
+            view.active_group,
+        ),
+        true,
+    )
 }
 
 fn agent_panel_entries_with_runtimes(
@@ -2763,7 +2769,7 @@ fn render_global_launcher_for_view(
 
 pub(crate) fn global_launcher_rect_for_view(app: &AppState, client_view: &ClientViewState) -> Rect {
     if client_view.computed.layout == crate::app::state::ViewLayout::Mobile {
-        return client_view.computed.mobile_menu_hit_area;
+        return Rect::default();
     }
 
     if client_view.sidebar_collapsed {

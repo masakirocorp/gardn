@@ -777,6 +777,44 @@ impl App {
                 }
             }
         };
+        if self.state.view.layout == crate::app::state::ViewLayout::Mobile {
+            let (level, selected_target) = match navigator_target {
+                crate::app::state::NavigatorTarget::Group { group_idx } => (
+                    crate::app::state::MobileSwitcherLevel::Groups,
+                    crate::ui::MobileSwitcherTarget::Group(group_idx),
+                ),
+                crate::app::state::NavigatorTarget::Workspace { ws_idx } => (
+                    crate::app::state::MobileSwitcherLevel::Workspaces {
+                        group_idx: self.state.active_group,
+                    },
+                    crate::ui::MobileSwitcherTarget::Workspace(ws_idx),
+                ),
+                crate::app::state::NavigatorTarget::Tab { ws_idx, tab_idx } => (
+                    crate::app::state::MobileSwitcherLevel::Tabs { ws_idx },
+                    crate::ui::MobileSwitcherTarget::Tab { ws_idx, tab_idx },
+                ),
+                crate::app::state::NavigatorTarget::Pane {
+                    ws_idx,
+                    tab_idx,
+                    pane_id,
+                } => (
+                    crate::app::state::MobileSwitcherLevel::Panes { ws_idx, tab_idx },
+                    crate::ui::MobileSwitcherTarget::Pane {
+                        ws_idx,
+                        tab_idx,
+                        pane_id,
+                    },
+                ),
+            };
+            self.state.mobile_agents_expanded = false;
+            self.state.mobile_switcher_level = level;
+            self.state.mobile_switcher_scroll = 0;
+            self.state.mobile_switcher_selected =
+                crate::ui::mobile_switcher_target_index(&self.state, selected_target);
+            self.state.mode = Mode::Navigate;
+            crate::ui::keep_mobile_switcher_selection_visible(&mut self.state);
+            return true;
+        }
         self.state.open_navigator();
         let selected = self
             .state

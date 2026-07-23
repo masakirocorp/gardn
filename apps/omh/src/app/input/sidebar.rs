@@ -234,7 +234,7 @@ impl AppState {
 
     pub(crate) fn global_launcher_rect(&self) -> Rect {
         if self.view.layout == ViewLayout::Mobile {
-            return self.view.mobile_menu_hit_area;
+            return Rect::default();
         }
 
         if self.sidebar_collapsed {

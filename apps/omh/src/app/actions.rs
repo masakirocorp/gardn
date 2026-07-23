@@ -2350,7 +2350,10 @@ impl AppState {
             return;
         }
 
-        if self.mobile_switcher_level != super::state::MobileSwitcherLevel::Workspaces {
+        if !matches!(
+            self.mobile_switcher_level,
+            super::state::MobileSwitcherLevel::Workspaces { .. }
+        ) {
             return;
         }
         let Some(row) = crate::ui::mobile_switcher_workspace_doc_row(self, idx) else {

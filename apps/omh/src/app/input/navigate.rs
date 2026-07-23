@@ -153,38 +153,113 @@ impl App {
                 crate::ui::keep_mobile_switcher_selection_visible(&mut self.state);
                 true
             }
-            KeyCode::Enter | KeyCode::Right => {
+            KeyCode::Enter => {
                 if let Some(target) = crate::ui::mobile_switcher_selected_target(&self.state) {
-                    self.state.activate_mobile_switcher_target(target);
+                    self.state
+                        .activate_mobile_switcher_target(&mut self.terminal_runtimes, target);
                 }
                 true
             }
-            KeyCode::Left | KeyCode::Backspace if self.state.mobile_agents_expanded => {
-                leave_navigate_mode(&mut self.state);
+            KeyCode::Right => {
+                self.move_mobile_switcher_level(true);
                 true
             }
             KeyCode::Left | KeyCode::Backspace => {
-                self.state
-                    .activate_mobile_switcher_target(crate::ui::MobileSwitcherTarget::Back);
+                self.move_mobile_switcher_level(false);
                 true
             }
             KeyCode::Esc => {
-                if self.state.mobile_agents_expanded {
-                    leave_navigate_mode(&mut self.state);
-                    return true;
-                }
-                if self.state.mobile_switcher_level
-                    == crate::app::state::MobileSwitcherLevel::Groups
-                {
-                    leave_navigate_mode(&mut self.state);
-                } else {
-                    self.state
-                        .activate_mobile_switcher_target(crate::ui::MobileSwitcherTarget::Back);
-                }
+                leave_navigate_mode(&mut self.state);
                 true
             }
             _ => false,
         }
+    }
+
+    fn move_mobile_switcher_level(&mut self, forward: bool) {
+        use crate::{app::state::MobileSwitcherLevel, ui::MobileSwitcherTarget};
+
+        let active_workspace_for_group = |group_idx: usize| {
+            let group_id = self
+                .state
+                .groups
+                .get(group_idx)
+                .map(|group| group.id.as_str())?;
+            self.state
+                .active
+                .filter(|&ws_idx| {
+                    self.state
+                        .workspaces
+                        .get(ws_idx)
+                        .is_some_and(|workspace| workspace.group_id == group_id)
+                })
+                .or_else(|| {
+                    self.state
+                        .workspaces
+                        .iter()
+                        .position(|workspace| workspace.group_id == group_id)
+                })
+        };
+        let transition = (|| match (forward, self.state.mobile_switcher_level) {
+            (true, MobileSwitcherLevel::Groups) => {
+                let group_idx = self.state.active_group;
+                active_workspace_for_group(group_idx).map(|ws_idx| {
+                    (
+                        MobileSwitcherLevel::Workspaces { group_idx },
+                        MobileSwitcherTarget::Workspace(ws_idx),
+                    )
+                })
+            }
+            (true, MobileSwitcherLevel::Workspaces { group_idx }) => {
+                active_workspace_for_group(group_idx).map(|ws_idx| {
+                    let tab_idx = self.state.workspaces[ws_idx].active_tab_index();
+                    (
+                        MobileSwitcherLevel::Tabs { ws_idx },
+                        MobileSwitcherTarget::Tab { ws_idx, tab_idx },
+                    )
+                })
+            }
+            (true, MobileSwitcherLevel::Tabs { ws_idx }) => {
+                let tab_idx = self.state.workspaces.get(ws_idx)?.active_tab_index();
+                let pane_id = self.state.workspaces.get(ws_idx)?.focused_pane_id()?;
+                Some((
+                    MobileSwitcherLevel::Panes { ws_idx, tab_idx },
+                    MobileSwitcherTarget::Pane {
+                        ws_idx,
+                        tab_idx,
+                        pane_id,
+                    },
+                ))
+            }
+            (false, MobileSwitcherLevel::Panes { ws_idx, .. }) => {
+                let tab_idx = self.state.workspaces.get(ws_idx)?.active_tab_index();
+                Some((
+                    MobileSwitcherLevel::Tabs { ws_idx },
+                    MobileSwitcherTarget::Tab { ws_idx, tab_idx },
+                ))
+            }
+            (false, MobileSwitcherLevel::Tabs { ws_idx }) => {
+                let workspace = self.state.workspaces.get(ws_idx)?;
+                let group_idx = self.state.group_index_by_id(&workspace.group_id)?;
+                Some((
+                    MobileSwitcherLevel::Workspaces { group_idx },
+                    MobileSwitcherTarget::Workspace(ws_idx),
+                ))
+            }
+            (false, MobileSwitcherLevel::Workspaces { group_idx }) => Some((
+                MobileSwitcherLevel::Groups,
+                MobileSwitcherTarget::Group(group_idx),
+            )),
+            _ => None,
+        })();
+        let Some((level, target)) = transition else {
+            return;
+        };
+        self.state.mobile_switcher_level = level;
+        self.state.mobile_switcher_scroll = 0;
+        self.state.mobile_switcher_selected =
+            crate::ui::mobile_switcher_target_index(&self.state, target);
+        crate::ui::keep_mobile_switcher_selection_visible(&mut self.state);
     }
 
     fn execute_prefix_key_action(&mut self, action: NavigateAction) {

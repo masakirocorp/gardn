@@ -19,13 +19,6 @@ use crate::detect::AgentState;
 use crate::layout::PaneId;
 use crate::terminal::TerminalRuntimeRegistry;
 
-const SWITCH_BUTTON_WIDTH: u16 = 10;
-
-#[derive(Debug, Clone, Copy, Default)]
-pub(crate) struct MobileHeaderHitAreas {
-    pub menu: Rect,
-}
-
 #[derive(Debug, Clone, Copy, Default)]
 pub(crate) struct MobileSwitcherAreas {
     pub panel: Rect,
@@ -36,7 +29,6 @@ pub(crate) struct MobileSwitcherAreas {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum MobileSwitcherTarget {
-    Back,
     ToggleAgents,
     Agent {
         ws_idx: usize,
@@ -44,25 +36,29 @@ pub(crate) enum MobileSwitcherTarget {
         pane_id: PaneId,
     },
     Group(usize),
-    NewSpace,
+    NewGroup,
     Workspace(usize),
-    NewTab,
+    NewSpace {
+        group_idx: usize,
+    },
     Tab {
         ws_idx: usize,
         tab_idx: usize,
+    },
+    NewTab {
+        ws_idx: usize,
     },
     Pane {
         ws_idx: usize,
         tab_idx: usize,
         pane_id: PaneId,
     },
-    OpenActions,
-    Menu(usize),
+    SplitRight,
+    SplitDown,
 }
 
 #[derive(Debug, PartialEq, Eq)]
 enum MobileNavigationRow {
-    Section(&'static str),
     AgentSummary {
         triage: usize,
         working: usize,
@@ -75,6 +71,7 @@ enum MobileNavigationRow {
         seen: bool,
         target: MobileSwitcherTarget,
     },
+    Empty(&'static str),
     Divider,
     Action {
         label: &'static str,
@@ -84,21 +81,16 @@ enum MobileNavigationRow {
         row: NavigatorRow,
         target: MobileSwitcherTarget,
     },
-    Menu {
-        label: String,
-        target: MobileSwitcherTarget,
-    },
 }
 
 impl MobileNavigationRow {
     fn target(&self) -> Option<MobileSwitcherTarget> {
         match self {
-            Self::Section(_) | Self::Divider => None,
+            Self::Empty(_) | Self::Divider => None,
             Self::AgentSummary { .. } => Some(MobileSwitcherTarget::ToggleAgents),
             Self::Action { target, .. }
             | Self::Agent { target, .. }
-            | Self::Hierarchy { target, .. }
-            | Self::Menu { target, .. } => Some(*target),
+            | Self::Hierarchy { target, .. } => Some(*target),
         }
     }
 }
@@ -169,12 +161,10 @@ fn mobile_navigation_rows(
         |view| app.mobile_navigation_rows_for_view(view, terminal_runtimes),
     );
     let level = view.map_or(app.mobile_switcher_level, |view| view.mobile_switcher_level);
-    let active_group = view.map_or(app.active_group, |view| view.active_group);
     let mut rows = Vec::new();
 
     match level {
         MobileSwitcherLevel::Groups => {
-            rows.push(MobileNavigationRow::Section("GROUPS"));
             rows.extend(hierarchy.into_iter().filter_map(|row| match row.target {
                 NavigatorTarget::Group { group_idx } => Some(MobileNavigationRow::Hierarchy {
                     row,
@@ -182,10 +172,9 @@ fn mobile_navigation_rows(
                 }),
                 _ => None,
             }));
-            append_mobile_footer(&mut rows, None);
+            append_mobile_footer(&mut rows, [("+ New group", MobileSwitcherTarget::NewGroup)]);
         }
-        MobileSwitcherLevel::Workspaces => {
-            rows.push(MobileNavigationRow::Section("SPACES"));
+        MobileSwitcherLevel::Workspaces { group_idx } => {
             rows.extend(hierarchy.into_iter().filter_map(|row| {
                 match row.target {
                     NavigatorTarget::Workspace { ws_idx }
@@ -193,7 +182,7 @@ fn mobile_navigation_rows(
                             .workspaces
                             .get(ws_idx)
                             .and_then(|workspace| app.group_index_by_id(&workspace.group_id))
-                            == Some(active_group) =>
+                            == Some(group_idx) =>
                     {
                         Some(MobileNavigationRow::Hierarchy {
                             row,
@@ -203,13 +192,15 @@ fn mobile_navigation_rows(
                     _ => None,
                 }
             }));
+            if rows.is_empty() {
+                rows.push(MobileNavigationRow::Empty("No spaces"));
+            }
             append_mobile_footer(
                 &mut rows,
-                Some(("+ New space", MobileSwitcherTarget::NewSpace)),
+                [("+ New space", MobileSwitcherTarget::NewSpace { group_idx })],
             );
         }
         MobileSwitcherLevel::Tabs { ws_idx } => {
-            rows.push(MobileNavigationRow::Section("TABS"));
             rows.extend(hierarchy.into_iter().filter_map(|row| match row.target {
                 NavigatorTarget::Tab {
                     ws_idx: row_ws_idx,
@@ -220,10 +211,15 @@ fn mobile_navigation_rows(
                 }),
                 _ => None,
             }));
-            append_mobile_footer(&mut rows, Some(("+ New tab", MobileSwitcherTarget::NewTab)));
+            if rows.is_empty() {
+                rows.push(MobileNavigationRow::Empty("No tabs"));
+            }
+            append_mobile_footer(
+                &mut rows,
+                [("+ New tab", MobileSwitcherTarget::NewTab { ws_idx })],
+            );
         }
         MobileSwitcherLevel::Panes { ws_idx, tab_idx } => {
-            rows.push(MobileNavigationRow::Section("PANES"));
             rows.extend(hierarchy.into_iter().filter_map(|row| match row.target {
                 NavigatorTarget::Pane {
                     ws_idx: row_ws_idx,
@@ -241,53 +237,59 @@ fn mobile_navigation_rows(
                 }
                 _ => None,
             }));
-            append_mobile_footer(&mut rows, None);
-        }
-        MobileSwitcherLevel::Actions => {
-            rows.push(MobileNavigationRow::Section("ACTIONS"));
-            rows.extend(
-                app.global_menu_labels()
-                    .into_iter()
-                    .enumerate()
-                    .map(|(idx, label)| MobileNavigationRow::Menu {
-                        label: label.to_string(),
-                        target: MobileSwitcherTarget::Menu(idx),
-                    }),
-            );
+            if rows.is_empty() {
+                rows.push(MobileNavigationRow::Empty("No panes"));
+            }
+            let split_area = app
+                .workspaces
+                .get(ws_idx)
+                .and_then(|workspace| {
+                    let tab = workspace.tabs.get(tab_idx)?;
+                    let focused_pane = view
+                        .and_then(|view| view.focused_pane_for_tab(&workspace.id, tab_idx + 1))
+                        .unwrap_or_else(|| tab.layout.focused());
+                    let pane_infos = view
+                        .map(|view| view.computed.pane_infos.as_slice())
+                        .unwrap_or(app.view.pane_infos.as_slice());
+                    pane_infos
+                        .iter()
+                        .find(|pane| pane.id == focused_pane)
+                        .map(|pane| pane.inner_rect)
+                })
+                .unwrap_or_else(|| {
+                    view.map(|view| view.computed.terminal_area)
+                        .unwrap_or(app.view.terminal_area)
+                });
+            if split_area.width >= 2 || split_area.height >= 2 {
+                rows.push(MobileNavigationRow::Divider);
+                if split_area.width >= 2 {
+                    rows.push(MobileNavigationRow::Action {
+                        label: "+ Split right",
+                        target: MobileSwitcherTarget::SplitRight,
+                    });
+                }
+                if split_area.height >= 2 {
+                    rows.push(MobileNavigationRow::Action {
+                        label: "+ Split down",
+                        target: MobileSwitcherTarget::SplitDown,
+                    });
+                }
+            }
         }
     }
     rows
 }
 
-fn append_mobile_footer(
+fn append_mobile_footer<const N: usize>(
     rows: &mut Vec<MobileNavigationRow>,
-    contextual_action: Option<(&'static str, MobileSwitcherTarget)>,
+    actions: [(&'static str, MobileSwitcherTarget); N],
 ) {
     rows.push(MobileNavigationRow::Divider);
-    if let Some((label, target)) = contextual_action {
-        rows.push(MobileNavigationRow::Action { label, target });
-    }
-    rows.push(MobileNavigationRow::Action {
-        label: "More actions",
-        target: MobileSwitcherTarget::OpenActions,
-    });
-}
-
-pub(crate) fn initial_mobile_switcher_level(_app: &AppState) -> MobileSwitcherLevel {
-    MobileSwitcherLevel::Groups
-}
-
-pub(crate) fn parent_mobile_switcher_level(
-    app: &AppState,
-    level: MobileSwitcherLevel,
-) -> MobileSwitcherLevel {
-    match level {
-        MobileSwitcherLevel::Groups => MobileSwitcherLevel::Groups,
-        MobileSwitcherLevel::Workspaces => MobileSwitcherLevel::Groups,
-        MobileSwitcherLevel::Tabs { .. } => MobileSwitcherLevel::Workspaces,
-        MobileSwitcherLevel::Panes { ws_idx, .. } => MobileSwitcherLevel::Tabs { ws_idx },
-        MobileSwitcherLevel::Actions => initial_mobile_switcher_level(app),
-    }
+    rows.extend(
+        actions
+            .into_iter()
+            .map(|(label, target)| MobileNavigationRow::Action { label, target }),
+    );
 }
 
 pub(crate) fn is_mobile_width(area: Rect, threshold: u16) -> bool {
@@ -301,21 +303,14 @@ pub(crate) fn mobile_agent_strip_rect(header: Rect) -> Rect {
     Rect::new(header.x, header.y + 1, header.width, 1)
 }
 
-pub(crate) fn compute_mobile_header_hit_areas(_app: &AppState, area: Rect) -> MobileHeaderHitAreas {
-    if area.width == 0 || area.height == 0 {
-        return MobileHeaderHitAreas::default();
-    }
-
-    let width = SWITCH_BUTTON_WIDTH.min(area.width);
-    let switch = Rect::new(area.x + area.width.saturating_sub(width), area.y, width, 1);
-
-    MobileHeaderHitAreas { menu: switch }
-}
-
 pub(crate) fn mobile_switcher_areas(app: &AppState) -> MobileSwitcherAreas {
     let terminal_runtimes = TerminalRuntimeRegistry::new();
     let row_count = mobile_navigation_rows(app, &terminal_runtimes, None).len();
-    mobile_switcher_areas_for_rows(mobile_screen_rect(app), row_count)
+    mobile_switcher_areas_for_rows(
+        mobile_screen_rect(app),
+        row_count,
+        app.mobile_agents_expanded,
+    )
 }
 
 pub(crate) fn mobile_switcher_areas_for_view(
@@ -324,15 +319,32 @@ pub(crate) fn mobile_switcher_areas_for_view(
 ) -> MobileSwitcherAreas {
     let terminal_runtimes = TerminalRuntimeRegistry::new();
     let row_count = mobile_navigation_rows(app, &terminal_runtimes, Some(view)).len();
-    mobile_switcher_areas_for_rows(view.screen_rect(), row_count)
+    mobile_switcher_areas_for_rows(view.screen_rect(), row_count, view.mobile_agents_expanded)
 }
 
-fn mobile_switcher_areas_for_rows(screen: Rect, row_count: usize) -> MobileSwitcherAreas {
-    const CHROME_HEIGHT: u16 = 3;
-    if screen.width == 0 || screen.height <= CHROME_HEIGHT {
+fn mobile_switcher_areas_for_rows(
+    screen: Rect,
+    row_count: usize,
+    agents_expanded: bool,
+) -> MobileSwitcherAreas {
+    if screen.width == 0 || screen.height <= 1 {
         return MobileSwitcherAreas::default();
     }
 
+    if !agents_expanded {
+        let viewport_height = (row_count.max(1) as u16).min(screen.height - 1);
+        let viewport = Rect::new(screen.x, screen.y + 1, screen.width, viewport_height);
+        return MobileSwitcherAreas {
+            panel: viewport,
+            viewport,
+            ..MobileSwitcherAreas::default()
+        };
+    }
+
+    const CHROME_HEIGHT: u16 = 3;
+    if screen.height <= CHROME_HEIGHT {
+        return MobileSwitcherAreas::default();
+    }
     let viewport_height = (row_count.max(1) as u16).min(screen.height - CHROME_HEIGHT);
     let panel = Rect::new(
         screen.x,
@@ -455,6 +467,28 @@ pub(crate) fn mobile_switcher_selected_target_for_view(
         .nth(view.mobile_switcher_selected)
 }
 
+pub(crate) fn mobile_switcher_target_index(app: &AppState, target: MobileSwitcherTarget) -> usize {
+    let terminal_runtimes = TerminalRuntimeRegistry::new();
+    mobile_navigation_rows(app, &terminal_runtimes, None)
+        .iter()
+        .filter_map(MobileNavigationRow::target)
+        .position(|candidate| candidate == target)
+        .unwrap_or(0)
+}
+
+pub(crate) fn mobile_switcher_target_index_for_view(
+    app: &AppState,
+    terminal_runtimes: &TerminalRuntimeRegistry,
+    view: &ClientViewState,
+    target: MobileSwitcherTarget,
+) -> usize {
+    mobile_navigation_rows(app, terminal_runtimes, Some(view))
+        .iter()
+        .filter_map(MobileNavigationRow::target)
+        .position(|candidate| candidate == target)
+        .unwrap_or(0)
+}
+
 fn mobile_switcher_selected_doc_row(rows: &[MobileNavigationRow], selected: usize) -> usize {
     rows.iter()
         .enumerate()
@@ -498,11 +532,6 @@ pub(crate) fn mobile_switcher_target_at(
 ) -> Option<MobileSwitcherTarget> {
     let terminal_runtimes = TerminalRuntimeRegistry::new();
     let areas = mobile_switcher_areas(app);
-    if app.mobile_switcher_level != MobileSwitcherLevel::Groups
-        && rect_contains(areas.breadcrumb, col, row)
-    {
-        return Some(MobileSwitcherTarget::Back);
-    }
     let rows = mobile_navigation_rows(app, &terminal_runtimes, None);
     mobile_switcher_target_from_rows(&rows, app.mobile_switcher_scroll, areas.viewport, col, row)
 }
@@ -515,11 +544,6 @@ pub(crate) fn mobile_switcher_target_at_for_view(
     row: u16,
 ) -> Option<MobileSwitcherTarget> {
     let areas = mobile_switcher_areas_for_view(app, view);
-    if view.mobile_switcher_level != MobileSwitcherLevel::Groups
-        && rect_contains(areas.breadcrumb, col, row)
-    {
-        return Some(MobileSwitcherTarget::Back);
-    }
     let rows = mobile_navigation_rows(app, terminal_runtimes, Some(view));
     mobile_switcher_target_from_rows(&rows, view.mobile_switcher_scroll, areas.viewport, col, row)
 }
@@ -537,13 +561,7 @@ pub(crate) fn render_mobile_header(
     let p = &app.palette;
     fill_rect(frame, area, Style::default().bg(p.panel_bg));
 
-    let primary = Rect::new(area.x, area.y, area.width, 1);
-    let switch = app.view.mobile_menu_hit_area;
-    let status_w = switch.x.saturating_sub(primary.x).saturating_sub(1);
-    let status = Rect::new(primary.x, primary.y, status_w, 1);
-
-    render_header_status(app, terminal_runtimes, frame, status);
-    render_switch_button(app, frame, switch);
+    super::render_context_bar(app, &app.view.context_bar, frame);
     render_mobile_agent_strip(
         app,
         terminal_runtimes,
@@ -567,13 +585,7 @@ pub(crate) fn render_mobile_header_for_view(
     let p = &app.palette;
     fill_rect(frame, area, Style::default().bg(p.panel_bg));
 
-    let primary = Rect::new(area.x, area.y, area.width, 1);
-    let switch = view.computed.mobile_menu_hit_area;
-    let status_w = switch.x.saturating_sub(primary.x).saturating_sub(1);
-    let status = Rect::new(primary.x, primary.y, status_w, 1);
-
-    render_header_status_for_view(app, terminal_runtimes, view, frame, status);
-    render_switch_button(app, frame, switch);
+    super::render_context_bar(app, &view.computed.context_bar, frame);
     render_mobile_agent_strip(
         app,
         terminal_runtimes,
@@ -675,16 +687,7 @@ pub(crate) fn render_mobile_panel(
     _area: Rect,
 ) {
     let areas = mobile_switcher_areas(app);
-    render_mobile_panel_shell(
-        app,
-        terminal_runtimes,
-        app.mobile_switcher_level,
-        app.active,
-        app.active_group,
-        app.mobile_agents_expanded,
-        frame,
-        areas,
-    );
+    render_mobile_panel_shell(app, app.mobile_agents_expanded, frame, areas);
     render_mobile_switcher_content(app, terminal_runtimes, frame, areas.viewport);
 }
 
@@ -696,25 +699,12 @@ pub(crate) fn render_mobile_panel_for_view(
     _area: Rect,
 ) {
     let areas = mobile_switcher_areas_for_view(app, view);
-    render_mobile_panel_shell(
-        app,
-        terminal_runtimes,
-        view.mobile_switcher_level,
-        view.active_workspace,
-        view.active_group,
-        view.mobile_agents_expanded,
-        frame,
-        areas,
-    );
+    render_mobile_panel_shell(app, view.mobile_agents_expanded, frame, areas);
     render_mobile_switcher_content_for_view(app, terminal_runtimes, view, frame, areas.viewport);
 }
 
 fn render_mobile_panel_shell(
     app: &AppState,
-    terminal_runtimes: &TerminalRuntimeRegistry,
-    level: MobileSwitcherLevel,
-    active_workspace: Option<usize>,
-    active_group: usize,
     agents_expanded: bool,
     frame: &mut Frame,
     areas: MobileSwitcherAreas,
@@ -725,13 +715,12 @@ fn render_mobile_panel_shell(
     let p = &app.palette;
     frame.render_widget(Clear, areas.panel);
     fill_rect(frame, areas.panel, Style::default().bg(p.panel_bg));
-    let title = if agents_expanded {
-        " agents"
-    } else {
-        " switch"
-    };
+    if !agents_expanded {
+        return;
+    }
+
     frame.render_widget(
-        Paragraph::new(title).style(
+        Paragraph::new(" agents").style(
             Style::default()
                 .fg(p.text)
                 .bg(p.panel_bg)
@@ -745,248 +734,15 @@ fn render_mobile_panel_shell(
         ),
     );
     render_close_button(app, frame, areas.close);
-    if agents_expanded {
-        frame.render_widget(
-            Paragraph::new("   All agents").style(Style::default().fg(p.text).bg(p.panel_bg)),
-            areas.breadcrumb,
-        );
-    } else {
-        render_mobile_breadcrumb(
-            app,
-            terminal_runtimes,
-            level,
-            active_workspace,
-            active_group,
-            frame,
-            areas.breadcrumb,
-        );
-    }
+    frame.render_widget(
+        Paragraph::new("   All agents").style(Style::default().fg(p.text).bg(p.panel_bg)),
+        areas.breadcrumb,
+    );
     draw_horizontal_rule(
         frame,
         Rect::new(areas.panel.x, areas.panel.y + 2, areas.panel.width, 1),
         p,
     );
-}
-
-fn render_mobile_breadcrumb(
-    app: &AppState,
-    terminal_runtimes: &TerminalRuntimeRegistry,
-    level: MobileSwitcherLevel,
-    active_workspace: Option<usize>,
-    active_group: usize,
-    frame: &mut Frame,
-    area: Rect,
-) {
-    if area.width == 0 {
-        return;
-    }
-    let p = &app.palette;
-    let workspace_for_level = match level {
-        MobileSwitcherLevel::Tabs { ws_idx } | MobileSwitcherLevel::Panes { ws_idx, .. } => {
-            app.workspaces.get(ws_idx)
-        }
-        _ => active_workspace.and_then(|ws_idx| app.workspaces.get(ws_idx)),
-    };
-    let group_idx = workspace_for_level
-        .and_then(|workspace| app.group_index_by_id(&workspace.group_id))
-        .unwrap_or(active_group);
-    let group = app.groups.get(group_idx);
-    let group_name = group.map(|group| group.name.as_str()).unwrap_or("groups");
-    let group_icon = group.map(|group| group.icon.as_str()).unwrap_or("●");
-    let accent = app.group_accent_color(group_idx);
-    let label = match level {
-        MobileSwitcherLevel::Groups => "All groups".to_string(),
-        MobileSwitcherLevel::Workspaces => group_name.to_string(),
-        MobileSwitcherLevel::Tabs { ws_idx } => app
-            .workspaces
-            .get(ws_idx)
-            .map(|workspace| {
-                format!(
-                    "{group_name} / {}",
-                    workspace.display_name_from(&app.terminals, terminal_runtimes)
-                )
-            })
-            .unwrap_or_else(|| group_name.to_string()),
-        MobileSwitcherLevel::Panes { ws_idx, tab_idx } => app
-            .workspaces
-            .get(ws_idx)
-            .map(|workspace| {
-                let workspace_name = workspace.display_name_from(&app.terminals, terminal_runtimes);
-                let tab_name = workspace
-                    .tab_display_name(tab_idx)
-                    .unwrap_or_else(|| (tab_idx + 1).to_string());
-                format!("{group_name} / {workspace_name} / {tab_name}")
-            })
-            .unwrap_or_else(|| group_name.to_string()),
-        MobileSwitcherLevel::Actions => "Actions".to_string(),
-    };
-    let can_go_back = level != MobileSwitcherLevel::Groups;
-    let prefix = if can_go_back { " ‹ " } else { "   " };
-    let mut spans = vec![Span::styled(
-        prefix,
-        Style::default().fg(p.overlay1).bg(p.panel_bg),
-    )];
-    if !matches!(
-        level,
-        MobileSwitcherLevel::Groups | MobileSwitcherLevel::Actions
-    ) {
-        spans.push(Span::styled(
-            group_icon.to_string(),
-            Style::default()
-                .fg(accent)
-                .bg(p.panel_bg)
-                .add_modifier(Modifier::BOLD),
-        ));
-        spans.push(Span::raw(" "));
-    }
-    spans.push(Span::styled(
-        truncate_end(&label, area.width.saturating_sub(6) as usize),
-        Style::default().fg(p.text).bg(p.panel_bg),
-    ));
-    frame.render_widget(Paragraph::new(Line::from(spans)), area);
-}
-
-fn render_header_status(
-    app: &AppState,
-    terminal_runtimes: &TerminalRuntimeRegistry,
-    frame: &mut Frame,
-    area: Rect,
-) {
-    let active_tab = app
-        .active
-        .and_then(|ws_idx| app.workspaces.get(ws_idx))
-        .map(|workspace| workspace.active_tab);
-    render_header_status_for_selection(app, terminal_runtimes, app.active, active_tab, frame, area);
-}
-
-fn render_header_status_for_view(
-    app: &AppState,
-    terminal_runtimes: &TerminalRuntimeRegistry,
-    view: &ClientViewState,
-    frame: &mut Frame,
-    area: Rect,
-) {
-    let active_tab = view
-        .active_workspace
-        .and_then(|ws_idx| view.active_tab_index_for_workspace(app, ws_idx));
-    render_header_status_for_selection(
-        app,
-        terminal_runtimes,
-        view.active_workspace,
-        active_tab,
-        frame,
-        area,
-    );
-}
-
-fn render_header_status_for_selection(
-    app: &AppState,
-    terminal_runtimes: &TerminalRuntimeRegistry,
-    active_workspace: Option<usize>,
-    active_tab: Option<usize>,
-    frame: &mut Frame,
-    area: Rect,
-) {
-    if area.width == 0 || area.height == 0 {
-        return;
-    }
-    let p = &app.palette;
-    let Some(ws) = active_workspace.and_then(|idx| app.workspaces.get(idx)) else {
-        frame.render_widget(Paragraph::new(" no space"), area);
-        return;
-    };
-    let group_idx = app.group_index_by_id(&ws.group_id);
-    let group_icon = group_idx
-        .and_then(|idx| app.groups.get(idx))
-        .map(|group| group.icon.as_str())
-        .unwrap_or("●");
-    let accent = group_idx
-        .map(|idx| app.group_accent_color(idx))
-        .unwrap_or(p.accent);
-    let tab_idx = active_tab
-        .unwrap_or(ws.active_tab)
-        .min(ws.tabs.len().saturating_sub(1));
-    let space_name = ws.display_name_from(&app.terminals, terminal_runtimes);
-    let tab_name = ws
-        .tab_display_name(tab_idx)
-        .unwrap_or_else(|| (tab_idx + 1).to_string());
-    let path = format!("{space_name} / {tab_name}");
-    let indicator = if ws.tabs.is_empty() {
-        String::new()
-    } else {
-        format!("{}/{}", tab_idx + 1, ws.tabs.len())
-    };
-    let indicator_width = super::text::display_width_u16(&indicator)
-        .saturating_add(u16::from(!indicator.is_empty()))
-        .min(area.width);
-    let path_width = area.width.saturating_sub(indicator_width);
-    frame.render_widget(
-        Paragraph::new(Line::from(vec![
-            Span::raw(" "),
-            Span::styled(
-                group_icon.to_string(),
-                Style::default()
-                    .fg(accent)
-                    .bg(p.panel_bg)
-                    .add_modifier(Modifier::BOLD),
-            ),
-            Span::raw(" "),
-            Span::styled(
-                truncate_end(&path, path_width.saturating_sub(3) as usize),
-                Style::default()
-                    .fg(p.text)
-                    .bg(p.panel_bg)
-                    .add_modifier(Modifier::BOLD),
-            ),
-        ])),
-        Rect::new(area.x, area.y, path_width, 1),
-    );
-    if indicator_width > 0 {
-        frame.render_widget(
-            Paragraph::new(indicator)
-                .style(Style::default().fg(p.overlay1).bg(p.panel_bg))
-                .alignment(Alignment::Right),
-            Rect::new(area.x + path_width, area.y, indicator_width, 1),
-        );
-    }
-}
-
-fn render_switch_button(app: &AppState, frame: &mut Frame, area: Rect) {
-    if area.width == 0 || area.height == 0 {
-        return;
-    }
-    let p = &app.palette;
-    fill_rect(frame, area, Style::default().bg(p.surface0));
-    for y in area.y..area.y + area.height {
-        frame.buffer_mut()[(area.x, y)]
-            .set_symbol("│")
-            .set_style(Style::default().fg(p.surface_dim).bg(p.surface0));
-    }
-    let label_y = if area.height > 1 { area.y + 1 } else { area.y };
-    frame.render_widget(
-        Paragraph::new("switch")
-            .style(
-                Style::default()
-                    .fg(p.text)
-                    .bg(p.surface0)
-                    .add_modifier(Modifier::BOLD),
-            )
-            .alignment(Alignment::Center),
-        Rect::new(area.x + 1, label_y, area.width.saturating_sub(1), 1),
-    );
-
-    // A blocked pane anywhere remains visible as a compact attention badge.
-    if app.workspaces.iter().any(|workspace| {
-        matches!(
-            workspace.aggregate_state(&app.terminals).0,
-            AgentState::Blocked
-        )
-    }) {
-        let bx = area.x + area.width.saturating_sub(1);
-        frame.buffer_mut()[(bx, area.y)]
-            .set_symbol("●")
-            .set_style(Style::default().fg(p.red).bg(p.surface0));
-    }
 }
 
 fn render_close_button(app: &AppState, frame: &mut Frame, area: Rect) {
@@ -1076,8 +832,19 @@ fn render_mobile_navigation_rows(
             false
         };
         match row {
-            MobileNavigationRow::Section(title) => {
-                render_section_title_at(frame, viewport, content, doc_y, scroll, title, p);
+            MobileNavigationRow::Empty(label) => {
+                let Some(y) = visible_y(viewport, scroll, doc_y) else {
+                    continue;
+                };
+                frame.render_widget(
+                    Paragraph::new(format!("  {label}")).style(
+                        Style::default()
+                            .fg(p.overlay0)
+                            .bg(p.panel_bg)
+                            .add_modifier(Modifier::DIM),
+                    ),
+                    Rect::new(content.x, y, content.width, 1),
+                );
             }
             MobileNavigationRow::AgentSummary {
                 triage,
@@ -1126,7 +893,7 @@ fn render_mobile_navigation_rows(
                     p,
                 );
             }
-            MobileNavigationRow::Action { label, target } => {
+            MobileNavigationRow::Action { label, .. } => {
                 let Some(y) = visible_y(viewport, scroll, doc_y) else {
                     continue;
                 };
@@ -1136,19 +903,10 @@ fn render_mobile_navigation_rows(
                     Rect::new(content.x, y, content.width, 1),
                     Style::default().bg(bg),
                 );
-                let label = if *target == MobileSwitcherTarget::OpenActions {
-                    format!("  {label}  ›")
-                } else {
-                    format!("  {label}")
-                };
                 frame.render_widget(
-                    Paragraph::new(label).style(
+                    Paragraph::new(format!("  {label}")).style(
                         Style::default()
-                            .fg(if *target == MobileSwitcherTarget::OpenActions {
-                                p.overlay1
-                            } else {
-                                p.text
-                            })
+                            .fg(p.text)
                             .bg(bg)
                             .add_modifier(Modifier::BOLD),
                     ),
@@ -1165,21 +923,6 @@ fn render_mobile_navigation_rows(
                     scroll,
                     row,
                     is_selected,
-                );
-            }
-            MobileNavigationRow::Menu { label, .. } => {
-                let Some(y) = visible_y(viewport, scroll, doc_y) else {
-                    continue;
-                };
-                let bg = mobile_item_bg(is_selected, false, p);
-                fill_rect(
-                    frame,
-                    Rect::new(content.x, y, content.width, 1),
-                    Style::default().bg(bg),
-                );
-                frame.render_widget(
-                    Paragraph::new(format!("  {label}")).style(Style::default().fg(p.text).bg(bg)),
-                    Rect::new(content.x, y, content.width, 1),
                 );
             }
         }
@@ -1457,26 +1200,6 @@ fn count_label(count: usize, singular: &str, plural: &str) -> String {
     format!("{count} {}", if count == 1 { singular } else { plural })
 }
 
-fn render_section_title_at(
-    frame: &mut Frame,
-    viewport: Rect,
-    content: Rect,
-    doc_y: usize,
-    scroll: usize,
-    title: &str,
-    p: &Palette,
-) {
-    let Some(y) = visible_y(viewport, scroll, doc_y) else {
-        return;
-    };
-    render_section_title(
-        frame,
-        Rect::new(content.x, y, content.width.saturating_sub(1), 1),
-        title,
-        p,
-    );
-}
-
 fn visible_y(viewport: Rect, scroll: usize, doc_y: usize) -> Option<u16> {
     let offset = doc_y.checked_sub(scroll)?;
     (offset < viewport.height as usize).then_some(viewport.y + offset as u16)
@@ -1529,18 +1252,6 @@ fn render_left_scrollbar(
                     .bg(p.panel_bg),
             );
     }
-}
-
-fn render_section_title(frame: &mut Frame, area: Rect, title: &str, p: &Palette) {
-    frame.render_widget(
-        Paragraph::new(format!(" {title} ")).style(
-            Style::default()
-                .fg(p.overlay1)
-                .bg(p.panel_bg)
-                .add_modifier(Modifier::BOLD | Modifier::UNDERLINED),
-        ),
-        Rect::new(area.x, area.y, area.width, 1),
-    );
 }
 
 fn rect_contains(rect: Rect, col: u16, row: u16) -> bool {
@@ -1655,14 +1366,14 @@ mod tests {
             .iter()
             .any(|target| matches!(target, MobileSwitcherTarget::Workspace(_))));
 
-        app.mobile_switcher_level = MobileSwitcherLevel::Workspaces;
+        app.mobile_switcher_level = MobileSwitcherLevel::Workspaces { group_idx };
         let workspace_targets = mobile_navigation_rows(&app, &terminal_runtimes, None)
             .iter()
             .filter_map(MobileNavigationRow::target)
             .collect::<Vec<_>>();
         assert!(workspace_targets.contains(&MobileSwitcherTarget::Workspace(1)));
         assert!(workspace_targets.contains(&MobileSwitcherTarget::Workspace(2)));
-        assert!(workspace_targets.contains(&MobileSwitcherTarget::NewSpace));
+        assert!(workspace_targets.contains(&MobileSwitcherTarget::NewSpace { group_idx }));
         assert!(!workspace_targets
             .iter()
             .any(|target| matches!(target, MobileSwitcherTarget::Tab { .. })));
@@ -1680,7 +1391,7 @@ mod tests {
             ws_idx: 1,
             tab_idx: 1,
         }));
-        assert!(tab_targets.contains(&MobileSwitcherTarget::NewTab));
+        assert!(tab_targets.contains(&MobileSwitcherTarget::NewTab { ws_idx: 1 }));
         assert!(!tab_targets
             .iter()
             .any(|target| matches!(target, MobileSwitcherTarget::Pane { .. })));
@@ -1711,11 +1422,53 @@ mod tests {
     }
 
     #[test]
-    fn mobile_header_keeps_agent_summary_visible_below_context() {
-        let (mut app, group_idx, _) = hierarchy_fixture();
-        app.view.mobile_header_rect = Rect::new(0, 0, 44, 2);
-        app.view.mobile_menu_hit_area = Rect::new(34, 0, 10, 1);
+    fn pane_dropdown_split_actions_follow_available_geometry() {
+        let (mut app, _, _) = hierarchy_fixture();
+        app.mobile_switcher_level = MobileSwitcherLevel::Panes {
+            ws_idx: 1,
+            tab_idx: 0,
+        };
         let terminal_runtimes = TerminalRuntimeRegistry::new();
+
+        app.view.terminal_area = Rect::new(0, 1, 1, 1);
+        let targets = mobile_navigation_rows(&app, &terminal_runtimes, None)
+            .iter()
+            .filter_map(MobileNavigationRow::target)
+            .collect::<Vec<_>>();
+        assert!(!targets.contains(&MobileSwitcherTarget::SplitRight));
+        assert!(!targets.contains(&MobileSwitcherTarget::SplitDown));
+
+        app.view.terminal_area = Rect::new(0, 1, 2, 1);
+        let targets = mobile_navigation_rows(&app, &terminal_runtimes, None)
+            .iter()
+            .filter_map(MobileNavigationRow::target)
+            .collect::<Vec<_>>();
+        assert!(targets.contains(&MobileSwitcherTarget::SplitRight));
+        assert!(!targets.contains(&MobileSwitcherTarget::SplitDown));
+    }
+
+    #[test]
+    fn mobile_header_keeps_agent_summary_visible_below_context() {
+        let (mut app, _, _) = hierarchy_fixture();
+        app.view.mobile_header_rect = Rect::new(0, 0, 44, 2);
+        let terminal_runtimes = TerminalRuntimeRegistry::new();
+        let active_tab = app
+            .active
+            .and_then(|ws_idx| app.workspaces.get(ws_idx))
+            .map(crate::workspace::Workspace::active_tab_index);
+        let focused_pane = app
+            .active
+            .and_then(|ws_idx| app.workspaces.get(ws_idx))
+            .and_then(crate::workspace::Workspace::focused_pane_id);
+        app.view.context_bar = super::super::compute_mobile_breadcrumb(
+            &app,
+            &terminal_runtimes,
+            app.active,
+            app.active_group,
+            active_tab,
+            focused_pane,
+            Rect::new(0, 0, 44, 1),
+        );
         let backend = ratatui::backend::TestBackend::new(44, 2);
         let mut terminal = ratatui::Terminal::new(backend).unwrap();
         terminal
@@ -1726,8 +1479,8 @@ mod tests {
         let buffer = terminal.backend().buffer();
         let text = buffer_text(buffer);
 
-        assert!(text.contains("Observability"), "header: {text:?}");
-        assert!(text.contains("dashboards"), "header: {text:?}");
+        assert!(text.contains("Obser"), "header: {text:?}");
+        assert!(text.contains("dashb"), "header: {text:?}");
         assert!(!text.contains("no agents"), "header: {text:?}");
         assert!(text.contains("Agents"), "header: {text:?}");
         assert!(text.contains("1 working"), "header: {text:?}");
@@ -1744,42 +1497,6 @@ mod tests {
             .style()
             .add_modifier
             .contains(Modifier::BOLD));
-        let icon_x = (0..44)
-            .find(|x| buffer[(*x, 0)].symbol() == "■")
-            .expect("group icon");
-        assert_eq!(
-            buffer[(icon_x, 0)].style().fg,
-            Some(app.group_accent_color(group_idx))
-        );
-    }
-
-    #[test]
-    fn mobile_header_uses_the_sidebar_empty_agent_state() {
-        let mut app = crate::app::state::AppState::test_new();
-        app.view.mobile_header_rect = Rect::new(0, 0, 44, 2);
-        let terminal_runtimes = TerminalRuntimeRegistry::new();
-        let mut terminal =
-            ratatui::Terminal::new(ratatui::backend::TestBackend::new(44, 2)).unwrap();
-
-        terminal
-            .draw(|frame| {
-                render_mobile_header(&app, &terminal_runtimes, frame, Rect::new(0, 0, 44, 2))
-            })
-            .unwrap();
-
-        let buffer = terminal.backend().buffer();
-        let text = buffer_text(buffer);
-        assert!(text.contains("Agents no agents"), "header: {text:?}");
-        assert!(!text.contains("triage"), "header: {text:?}");
-        assert!(!text.contains("working"), "header: {text:?}");
-        assert!(!text.contains("idle"), "header: {text:?}");
-        let empty_state_x = (0..44)
-            .filter(|x| buffer[(*x, 1)].symbol() == "n")
-            .nth(1)
-            .expect("no agents label");
-        let empty_style = buffer[(empty_state_x, 1)].style();
-        assert_eq!(empty_style.fg, Some(app.palette.overlay0));
-        assert!(empty_style.add_modifier.contains(Modifier::DIM));
     }
 
     #[test]
@@ -1884,9 +1601,12 @@ mod tests {
             })
             .unwrap();
         let collapsed = buffer_text(terminal.backend().buffer());
-        assert!(collapsed.contains("switch"), "switcher: {collapsed:?}");
-        assert!(collapsed.contains("GROUPS"), "switcher: {collapsed:?}");
-        assert!(!collapsed.contains("Agents"), "switcher: {collapsed:?}");
+        assert!(
+            collapsed.contains("Infrastructure"),
+            "groups: {collapsed:?}"
+        );
+        assert!(collapsed.contains("group 1"), "groups: {collapsed:?}");
+        assert!(!collapsed.contains("Agents"), "groups: {collapsed:?}");
 
         app.mobile_agents_expanded = true;
         terminal
@@ -1930,7 +1650,7 @@ mod tests {
                 MobileSwitcherTarget::Group(group_idx),
             ),
             (
-                MobileSwitcherLevel::Workspaces,
+                MobileSwitcherLevel::Workspaces { group_idx },
                 "Observability",
                 "dashboards",
                 MobileSwitcherTarget::Workspace(1),
@@ -2044,10 +1764,6 @@ mod tests {
             .iter()
             .position(|line| line.contains("+ New tab"))
             .expect("new tab action");
-        let more_actions = lines
-            .iter()
-            .position(|line| line.contains("More actions"))
-            .expect("more actions");
 
         assert!(dashboards < logs);
         assert!(logs + 1 < new_tab, "new tab must be outside the tab list");
@@ -2055,7 +1771,6 @@ mod tests {
             lines[new_tab - 1].contains('─'),
             "new tab must be separated from tab rows"
         );
-        assert!(new_tab < more_actions);
     }
 
     #[tokio::test]
@@ -2088,7 +1803,6 @@ mod tests {
         app.terminals.get_mut(&terminal_id).unwrap().cwd = stale_cwd;
         app.active = Some(0);
         app.selected = 0;
-        app.view.mobile_menu_hit_area = Rect::new(30, 0, 10, 2);
 
         let (events, _) = tokio::sync::mpsc::channel(4);
         let runtime = crate::terminal::TerminalRuntime::spawn(
@@ -2113,6 +1827,23 @@ mod tests {
 
         let mut runtime_registry = TerminalRuntimeRegistry::new();
         runtime_registry.insert(terminal_id, runtime);
+        let active_tab = app
+            .active
+            .and_then(|ws_idx| app.workspaces.get(ws_idx))
+            .map(crate::workspace::Workspace::active_tab_index);
+        let focused_pane = app
+            .active
+            .and_then(|ws_idx| app.workspaces.get(ws_idx))
+            .and_then(crate::workspace::Workspace::focused_pane_id);
+        app.view.context_bar = super::super::compute_mobile_breadcrumb(
+            &app,
+            &runtime_registry,
+            app.active,
+            app.active_group,
+            active_tab,
+            focused_pane,
+            Rect::new(0, 0, 40, 1),
+        );
         let backend = ratatui::backend::TestBackend::new(40, 2);
         let mut terminal = ratatui::Terminal::new(backend).unwrap();
         terminal
