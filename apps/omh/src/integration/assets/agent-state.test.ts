@@ -274,7 +274,6 @@ test("Pi settlement preserves blocked-state precedence", async () => {
   }
 });
 
-
 test("OMP session resume resets blocked state and reports its lifecycle source", async () => {
   let recording: RecordingSocket | undefined;
   try {

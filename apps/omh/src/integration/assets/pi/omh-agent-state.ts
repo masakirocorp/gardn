@@ -62,12 +62,10 @@ let currentAgentSessionId: string | undefined;
 let currentAgentSessionPath: string | undefined;
 const activeAgents = new Set<symbol>();
 
-
 function nextReportSeq(): number {
   reportSeq = Math.max(reportSeq + 1, Date.now() * 1000);
   return reportSeq;
 }
-
 
 function sessionManagerStringMethod(ctx: unknown, method: string): string | undefined {
   let manager: unknown;
@@ -238,7 +236,6 @@ export default function (pi) {
     queueState(next.state, next.message);
   }
 
-
   function sessionIsActive(ctx: unknown): boolean {
     if (!ctx || typeof ctx !== "object" || !("isIdle" in ctx)) {
       return false;
@@ -249,6 +246,21 @@ export default function (pi) {
     }
     try {
       return candidate.call(ctx) === false;
+    } catch {
+      return false;
+    }
+  }
+
+  function sessionIsIdle(ctx: unknown): boolean {
+    if (!ctx || typeof ctx !== "object" || !("isIdle" in ctx)) {
+      return false;
+    }
+    const candidate = ctx.isIdle;
+    if (typeof candidate !== "function") {
+      return false;
+    }
+    try {
+      return candidate.call(ctx) === true;
     } catch {
       return false;
     }
@@ -282,8 +294,6 @@ export default function (pi) {
   function rootSessionActive(ctx?: unknown): boolean {
     return rootSession || activateRootSession(ctx);
   }
-
-
 
   function enterBlocked(message: string | undefined) {
     blockedCount += 1;
@@ -384,7 +394,7 @@ export default function (pi) {
   }
 
   function markSettled(_event?: unknown, ctx?: unknown) {
-    if (!rootSessionActive(ctx) || ctx?.isIdle?.() !== true) {
+    if (!rootSessionActive(ctx) || !sessionIsIdle(ctx)) {
       return;
     }
     if (!activeAgents.delete(instanceId)) {
