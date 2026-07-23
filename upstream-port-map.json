@@ -3597,8 +3597,8 @@
     {
       "upstream": "b580103b956ef9cdf39798947a46ce4e8b78c322",
       "subject": "fix: preserve terminal live follow through resize",
-      "status": "pending",
-      "reason": "A viewport following live output is not explicitly restored to live follow after resize reflow."
+      "status": "ported",
+      "reason": "Ported under ENG-170: resize preserves live-follow or the prior bounded scrollback offset across reflow and scrollback removal; 23 focused resize tests pass."
     },
     {
       "upstream": "01d371bf7a10330c6a5c139c7df766ae8f6f1cda",
