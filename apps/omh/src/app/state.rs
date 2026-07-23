@@ -1607,6 +1607,9 @@ pub(crate) struct NavigatorRow {
     pub has_children: bool,
     pub expanded: bool,
     pub search_text: String,
+    /// Whether this row directly matches the active query or state filter.
+    /// Ancestor and cascaded subtree rows remain visible but are dimmed.
+    pub matched: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

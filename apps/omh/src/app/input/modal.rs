@@ -208,7 +208,7 @@ pub(crate) fn handle_navigator_key(state: &mut AppState, key: KeyEvent) {
             KeyCode::Backspace => {
                 state.navigator.state_filter = None;
                 state.navigator.query.pop();
-                state.clamp_navigator_selection();
+                state.select_first_navigator_match();
             }
             KeyCode::Up => state.move_navigator_selection(-1),
             KeyCode::Down => state.move_navigator_selection(1),
@@ -264,22 +264,22 @@ pub(crate) fn handle_navigator_key(state: &mut AppState, key: KeyEvent) {
         KeyCode::Char('b') if key.modifiers.is_empty() => {
             state.navigator.query.clear();
             state.navigator.state_filter = Some(NavigatorStateFilter::Blocked);
-            state.clamp_navigator_selection();
+            state.select_first_navigator_match();
         }
         KeyCode::Char('w') if key.modifiers.is_empty() => {
             state.navigator.query.clear();
             state.navigator.state_filter = Some(NavigatorStateFilter::Working);
-            state.clamp_navigator_selection();
+            state.select_first_navigator_match();
         }
         KeyCode::Char('i') if key.modifiers.is_empty() => {
             state.navigator.query.clear();
             state.navigator.state_filter = Some(NavigatorStateFilter::Idle);
-            state.clamp_navigator_selection();
+            state.select_first_navigator_match();
         }
         KeyCode::Char('d') if key.modifiers.is_empty() => {
             state.navigator.query.clear();
             state.navigator.state_filter = Some(NavigatorStateFilter::Done);
-            state.clamp_navigator_selection();
+            state.select_first_navigator_match();
         }
         KeyCode::Char('e') if key.modifiers.is_empty() => {
             state.expand_all_navigator_branches();
@@ -462,7 +462,7 @@ pub(crate) fn insert_navigator_search_text(state: &mut AppState, text: &str) {
     }
     state.navigator.state_filter = None;
     state.navigator.query.push_str(text);
-    state.clamp_navigator_selection();
+    state.select_first_navigator_match();
 }
 
 pub(crate) fn handle_keybind_help_key(state: &mut AppState, key: KeyEvent) {
@@ -2092,5 +2092,79 @@ mod tests {
                 .any(|row| matches!(row.target, crate::app::state::NavigatorTarget::Pane { .. })),
             "expanded workspace branches should reveal their panes"
         );
+    }
+    #[test]
+    fn navigator_search_keys_select_first_direct_pane_match() {
+        let mut state = state_with_workspaces(&["home", "api"]);
+        let target = state.workspaces[1].test_split(ratatui::layout::Direction::Horizontal);
+        state.ensure_test_terminals();
+        let terminal_id = state.workspaces[1].terminal_id(target).cloned().unwrap();
+        state
+            .terminals
+            .get_mut(&terminal_id)
+            .unwrap()
+            .set_manual_label("build logs".into());
+
+        state.open_navigator();
+        handle_navigator_key(
+            &mut state,
+            KeyEvent::new(KeyCode::Char('/'), KeyModifiers::empty()),
+        );
+        for character in "build".chars() {
+            handle_navigator_key(
+                &mut state,
+                KeyEvent::new(KeyCode::Char(character), KeyModifiers::empty()),
+            );
+        }
+
+        let rows = state.navigator_rows();
+        assert!(matches!(
+            rows[state.navigator.list.selected].target,
+            crate::app::state::NavigatorTarget::Pane { pane_id, .. } if pane_id == target
+        ));
+        assert!(rows.iter().any(|row| {
+            matches!(row.target, crate::app::state::NavigatorTarget::Group { .. })
+                && !row.matched
+        }));
+        assert!(rows.iter().any(|row| {
+            matches!(
+                row.target,
+                crate::app::state::NavigatorTarget::Workspace { ws_idx: 1 }
+            ) && !row.matched
+        }));
+        assert!(rows.iter().any(|row| {
+            matches!(
+                row.target,
+                crate::app::state::NavigatorTarget::Pane { pane_id, .. } if pane_id == target
+            ) && row.matched
+        }));
+    }
+
+    #[test]
+    fn navigator_state_filter_key_selects_matching_pane_over_ancestors() {
+        let mut state = state_with_workspaces(&["home", "api"]);
+        let target = state.workspaces[1].test_split(ratatui::layout::Direction::Horizontal);
+        state.ensure_test_terminals();
+        let terminal_id = state.workspaces[1].terminal_id(target).cloned().unwrap();
+        state
+            .terminals
+            .get_mut(&terminal_id)
+            .unwrap()
+            .set_detected_state(
+                Some(crate::detect::Agent::Codex),
+                crate::detect::AgentState::Working,
+            );
+
+        state.open_navigator();
+        handle_navigator_key(
+            &mut state,
+            KeyEvent::new(KeyCode::Char('w'), KeyModifiers::empty()),
+        );
+
+        let rows = state.navigator_rows();
+        assert!(matches!(
+            rows[state.navigator.list.selected].target,
+            crate::app::state::NavigatorTarget::Pane { pane_id, .. } if pane_id == target
+        ));
     }
 }

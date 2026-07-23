@@ -120,10 +120,11 @@ fn render_navigator_overlay_from(
         let end = rows
             .len()
             .min(start.saturating_add(layout.body.height as usize));
-        for (visible_idx, row) in rows[start..end].iter().enumerate() {
+        for (visible_idx, _row) in rows[start..end].iter().enumerate() {
             let idx = start + visible_idx;
             render_row(
                 app,
+                navigator,
                 frame,
                 Rect::new(
                     layout.body.x,
@@ -131,7 +132,8 @@ fn render_navigator_overlay_from(
                     layout.body.width,
                     1,
                 ),
-                row,
+                rows,
+                idx,
                 Some(idx) == visible,
             );
         }
@@ -293,7 +295,16 @@ fn push_state_chip(
     ));
 }
 
-fn render_row(app: &AppState, frame: &mut Frame, rect: Rect, row: &NavigatorRow, selected: bool) {
+fn render_row(
+    app: &AppState,
+    navigator: &crate::app::state::NavigatorState,
+    frame: &mut Frame,
+    rect: Rect,
+    rows: &[NavigatorRow],
+    idx: usize,
+    selected: bool,
+) {
+    let row = &rows[idx];
     let p = &app.palette;
     let group_accent = navigator_row_group_idx(app, row).map(|idx| app.group_accent_color(idx));
     frame.render_widget(Clear, rect);
@@ -307,8 +318,13 @@ fn render_row(app: &AppState, frame: &mut Frame, rect: Rect, row: &NavigatorRow,
     } else {
         Style::default().fg(p.overlay0).bg(p.panel_bg)
     };
+    let filter_active =
+        navigator.state_filter.is_some() || !navigator.query.trim().is_empty();
+    let context_only = filter_active && !row.matched;
     let text_style = if selected {
         base_style.add_modifier(Modifier::BOLD)
+    } else if context_only {
+        Style::default().fg(p.overlay0).bg(p.panel_bg)
     } else if row.is_group {
         Style::default()
             .fg(group_accent.unwrap_or(p.text))
@@ -327,41 +343,32 @@ fn render_row(app: &AppState, frame: &mut Frame, rect: Rect, row: &NavigatorRow,
     let is_branch = row.is_group || row.is_workspace;
     let status = (!is_branch && row.status != crate::detect::AgentState::Unknown).then(|| {
         let (icon, style) = agent_icon(row.status, row.seen, app.spinner_tick, p);
-        let style = if selected {
-            base_style.add_modifier(Modifier::BOLD)
+        let style = if selected || context_only {
+            if selected {
+                base_style.add_modifier(Modifier::BOLD)
+            } else {
+                dim_style
+            }
         } else {
             style.bg(p.panel_bg)
         };
         (icon, style)
     });
 
-    let prefix = if row.is_group || row.is_workspace {
-        if !row.has_children {
-            "  "
-        } else if row.expanded {
-            "▾"
-        } else {
-            "▸"
-        }
-    } else if row.is_tab && !row.has_children {
-        "  "
-    } else if row.depth > 0 {
-        "├─"
-    } else {
-        "  "
-    };
+    let prefix = tree_prefix(rows, idx);
     let prefix_style = if selected {
         base_style
+    } else if context_only {
+        dim_style
     } else if is_branch {
         Style::default()
             .fg(group_accent.unwrap_or(p.overlay0))
             .bg(p.panel_bg)
             .add_modifier(Modifier::BOLD)
     } else {
-        dim_style
+        Style::default().fg(p.surface1).bg(p.panel_bg)
     };
-    let indent = "  ".repeat(row.depth as usize);
-    let left_fixed = format!(" {indent}{prefix} ");
+    let left_fixed = format!(" {prefix} ");
     let meta_width = metadata_width(rect.width);
     let status_width = status
         .as_ref()
@@ -375,7 +382,6 @@ fn render_row(app: &AppState, frame: &mut Frame, rect: Rect, row: &NavigatorRow,
     let title = truncate_end(&row.label, left_budget);
 
     let mut spans = Vec::with_capacity(6);
-    spans.push(Span::styled(format!(" {indent}"), dim_style));
     spans.push(Span::styled(prefix, prefix_style));
     spans.push(Span::raw(" "));
     if let Some((status_icon, status_style)) = status {
@@ -395,7 +401,7 @@ fn render_row(app: &AppState, frame: &mut Frame, rect: Rect, row: &NavigatorRow,
         let meta = truncate_end(&row.meta, meta_width.saturating_sub(2) as usize);
         let meta_style = if selected {
             base_style
-        } else if row.is_group || row.is_workspace || row.is_tab {
+        } else if context_only || row.is_group || row.is_workspace || row.is_tab {
             Style::default().fg(p.overlay0).bg(p.panel_bg)
         } else {
             Style::default()
@@ -419,6 +425,44 @@ fn navigator_row_group_idx(app: &AppState, row: &NavigatorRow) -> Option<usize> 
             .get(*ws_idx)
             .and_then(|workspace| app.group_index_by_id(&workspace.group_id)),
     }
+}
+
+/// Return the connected tree glyph for a row in the visible hierarchy.
+fn tree_prefix(rows: &[NavigatorRow], idx: usize) -> String {
+    let row = &rows[idx];
+    if row.is_group {
+        return if !row.has_children {
+            "  ".to_string()
+        } else if row.expanded {
+            "▾".to_string()
+        } else {
+            "▸".to_string()
+        };
+    }
+    if row.depth == 0 {
+        return "  ".to_string();
+    }
+    let mut prefix = String::new();
+    for level in 1..row.depth {
+        prefix.push_str(if has_following_sibling_at_depth(rows, idx, level) {
+            "│  "
+        } else {
+            "   "
+        });
+    }
+    prefix.push_str(if has_following_sibling_at_depth(rows, idx, row.depth) {
+        "├──"
+    } else {
+        "└──"
+    });
+    prefix
+}
+
+fn has_following_sibling_at_depth(rows: &[NavigatorRow], idx: usize, depth: u8) -> bool {
+    rows[idx + 1..]
+        .iter()
+        .take_while(|row| row.depth >= depth)
+        .any(|row| row.depth == depth)
 }
 
 fn metadata_width(width: u16) -> u16 {
@@ -671,6 +715,32 @@ mod tests {
     }
 
     #[test]
+    fn navigator_tree_prefix_connects_group_space_tab_and_pane_rows() {
+        let mut app = AppState::test_new();
+        let mut workspace = Workspace::test_new("api");
+        workspace.test_split(ratatui::layout::Direction::Horizontal);
+        workspace.test_add_tab(Some("tests"));
+        app.workspaces = vec![workspace];
+        app.active = Some(0);
+        app.open_navigator();
+
+        let rows = app.navigator_rows();
+        let prefixes = rows
+            .iter()
+            .enumerate()
+            .map(|(idx, _)| tree_prefix(&rows, idx))
+            .collect::<Vec<_>>();
+
+        assert_eq!(rows.len(), 6);
+        assert_eq!(prefixes[0], "▾");
+        assert_eq!(prefixes[1], "└──");
+        assert_eq!(prefixes[2], "├──");
+        assert_eq!(prefixes[3], "│  ├──");
+        assert_eq!(prefixes[4], "│  └──");
+        assert_eq!(prefixes[5], "└──");
+    }
+
+    #[test]
     fn navigator_branch_rows_only_show_disclosure_and_group_identity() {
         let app = AppState::test_new();
         let row = NavigatorRow {
@@ -687,11 +757,22 @@ mod tests {
             has_children: true,
             expanded: true,
             search_text: String::new(),
+            matched: true,
         };
         let backend = TestBackend::new(80, 1);
         let mut terminal = Terminal::new(backend).expect("test backend");
         terminal
-            .draw(|frame| render_row(&app, frame, frame.area(), &row, true))
+            .draw(|frame| {
+                render_row(
+                    &app,
+                    &app.navigator,
+                    frame,
+                    frame.area(),
+                    std::slice::from_ref(&row),
+                    0,
+                    true,
+                )
+            })
             .expect("render branch row");
 
         let text = buffer_text(terminal.backend().buffer(), 80, 1);
@@ -716,11 +797,22 @@ mod tests {
             has_children: false,
             expanded: true,
             search_text: String::new(),
+            matched: true,
         };
         let backend = TestBackend::new(80, 1);
         let mut terminal = Terminal::new(backend).expect("test backend");
         terminal
-            .draw(|frame| render_row(&app, frame, frame.area(), &row, true))
+            .draw(|frame| {
+                render_row(
+                    &app,
+                    &app.navigator,
+                    frame,
+                    frame.area(),
+                    std::slice::from_ref(&row),
+                    0,
+                    true,
+                )
+            })
             .expect("render leaf workspace row");
 
         let text = buffer_text(terminal.backend().buffer(), 80, 1);
@@ -748,11 +840,22 @@ mod tests {
             has_children: false,
             expanded: false,
             search_text: String::new(),
+            matched: true,
         };
         let backend = TestBackend::new(80, 1);
         let mut terminal = Terminal::new(backend).expect("test backend");
         terminal
-            .draw(|frame| render_row(&app, frame, frame.area(), &row, false))
+            .draw(|frame| {
+                render_row(
+                    &app,
+                    &app.navigator,
+                    frame,
+                    frame.area(),
+                    std::slice::from_ref(&row),
+                    0,
+                    false,
+                )
+            })
             .expect("render leaf tab row");
 
         let text = buffer_text(terminal.backend().buffer(), 80, 1);
@@ -782,6 +885,7 @@ mod tests {
             has_children: true,
             expanded: true,
             search_text: String::new(),
+            matched: true,
         };
         let workspace_row = NavigatorRow {
             has_children: false,
@@ -797,19 +901,36 @@ mod tests {
             is_tab: false,
             expanded: false,
             search_text: String::new(),
+            matched: true,
         };
         let backend = TestBackend::new(80, 2);
         let mut terminal = Terminal::new(backend).expect("test backend");
         terminal
             .draw(|frame| {
-                render_row(&app, frame, Rect::new(0, 0, 80, 1), &group_row, false);
-                render_row(&app, frame, Rect::new(0, 1, 80, 1), &workspace_row, false);
+                render_row(
+                    &app,
+                    &app.navigator,
+                    frame,
+                    Rect::new(0, 0, 80, 1),
+                    std::slice::from_ref(&group_row),
+                    0,
+                    false,
+                );
+                render_row(
+                    &app,
+                    &app.navigator,
+                    frame,
+                    Rect::new(0, 1, 80, 1),
+                    std::slice::from_ref(&workspace_row),
+                    0,
+                    false,
+                );
             })
             .expect("render colored hierarchy");
 
         let buffer = terminal.backend().buffer();
         assert_eq!(buffer[(3, 0)].style().fg, Some(accent));
-        assert_eq!(buffer[(3, 1)].style().fg, Some(accent));
+        assert_eq!(buffer[(1, 1)].style().fg, Some(accent));
         assert_eq!(buffer[(5, 1)].style().fg, Some(app.palette.text));
     }
 

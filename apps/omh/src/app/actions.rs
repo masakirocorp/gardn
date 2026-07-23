@@ -478,13 +478,8 @@ impl AppState {
                     .flat_map(|tab| tab.panes.values()),
                 &self.terminals,
             );
-            let group_matches = match query_kind {
-                NavigatorQueryKind::Empty => true,
-                NavigatorQueryKind::State(filter) => {
-                    navigator_state_filter_matches(filter, status, seen)
-                }
-                NavigatorQueryKind::Text => navigator_matches(&query, &search_text),
-            };
+            let group_matches =
+                navigator_row_matches(query_kind, &query, status, seen, &search_text);
             let child_query_kind =
                 if group_matches && matches!(query_kind, NavigatorQueryKind::Text) {
                     NavigatorQueryKind::Empty
@@ -502,6 +497,8 @@ impl AppState {
                 terminal_runtimes,
                 child_query_kind,
                 child_query,
+                query_kind,
+                &query,
                 &workspace_indices,
             );
             if !group_matches && child_rows.is_empty() {
@@ -526,6 +523,7 @@ impl AppState {
                 has_children,
                 expanded,
                 search_text,
+                matched: group_matches,
             });
             if expanded {
                 rows.extend(child_rows);
@@ -541,6 +539,8 @@ impl AppState {
         terminal_runtimes: &crate::terminal::TerminalRuntimeRegistry,
         query_kind: NavigatorQueryKind,
         query: &str,
+        direct_query_kind: NavigatorQueryKind,
+        direct_query: &str,
         workspace_indices: &[usize],
     ) -> Vec<NavigatorRow> {
         let mut rows = Vec::new();
@@ -551,7 +551,7 @@ impl AppState {
             let workspace_label = ws.display_name_from(&self.terminals, terminal_runtimes);
             let activity = workspace_activity_summary(ws, &self.terminals);
             let mut workspace_search_text = format!("{workspace_label} {activity}").to_lowercase();
-            if matches!(query_kind, NavigatorQueryKind::Text)
+            if matches!(direct_query_kind, NavigatorQueryKind::Text)
                 && ws.tabs.len() == 1
                 && ws.tabs[0].panes.len() == 1
             {
@@ -564,16 +564,26 @@ impl AppState {
                     workspace_search_text.push_str(&pane_row.search_text);
                 }
             }
-            let workspace_matches = match query_kind {
-                NavigatorQueryKind::Empty => true,
-                NavigatorQueryKind::State(filter) => {
-                    let (state, seen) = ws.aggregate_state(&self.terminals);
-                    navigator_state_filter_matches(filter, state, seen)
-                }
-                NavigatorQueryKind::Text => navigator_matches(query, &workspace_search_text),
-            };
+            let (state, seen) = ws.aggregate_state(&self.terminals);
+            let workspace_matches =
+                navigator_row_matches(query_kind, query, state, seen, &workspace_search_text);
+            let workspace_direct_matches = navigator_row_matches(
+                direct_query_kind,
+                direct_query,
+                state,
+                seen,
+                &workspace_search_text,
+            );
 
-            let mut child_rows = self.navigator_child_rows(ws_idx, query_kind, query, focus);
+            let mut child_rows = self.navigator_child_rows(
+                ws_idx,
+                query_kind,
+                query,
+                focus,
+                direct_query_kind,
+                direct_query,
+                workspace_direct_matches,
+            );
             if !workspace_matches && child_rows.is_empty() {
                 continue;
             }
@@ -582,7 +592,6 @@ impl AppState {
             let expanded = has_children
                 && (!matches!(query_kind, NavigatorQueryKind::Empty)
                     || navigator.expanded_workspaces.contains(&ws.id));
-            let (state, seen) = ws.aggregate_state(&self.terminals);
             let pane_count = ws.tabs.iter().map(|tab| tab.panes.len()).sum::<usize>();
             rows.push(NavigatorRow {
                 target: NavigatorTarget::Workspace { ws_idx },
@@ -598,6 +607,7 @@ impl AppState {
                 has_children,
                 expanded,
                 search_text: workspace_search_text,
+                matched: workspace_direct_matches,
             });
             if expanded {
                 for row in &mut child_rows {
@@ -615,6 +625,9 @@ impl AppState {
         query_kind: NavigatorQueryKind,
         query: &str,
         focus: NavigatorFocus,
+        direct_query_kind: NavigatorQueryKind,
+        direct_query: &str,
+        workspace_direct_match: bool,
     ) -> Vec<NavigatorRow> {
         let Some(ws) = self.workspaces.get(ws_idx) else {
             return Vec::new();
@@ -623,7 +636,8 @@ impl AppState {
         let multi_tab = explicit || ws.tabs.len() > 1;
         let mut rows = Vec::new();
         for tab_idx in 0..ws.tabs.len() {
-            let pane_rows = self.navigator_pane_rows_for_tab(ws_idx, tab_idx, multi_tab, focus);
+            let mut pane_rows =
+                self.navigator_pane_rows_for_tab(ws_idx, tab_idx, multi_tab, focus);
             let show_pane_rows = if explicit {
                 focus.active_workspace == Some(ws_idx)
                     && focus.active_tab == Some(tab_idx)
@@ -639,24 +653,64 @@ impl AppState {
                     tab_row.search_text.push_str(&pane_row.search_text);
                 }
             }
-            let tab_matches = tab_row.as_ref().is_some_and(|row| match query_kind {
-                NavigatorQueryKind::Empty => true,
-                NavigatorQueryKind::State(filter) => {
-                    navigator_state_filter_matches(filter, row.status, row.seen)
-                }
-                NavigatorQueryKind::Text => navigator_matches(query, &row.search_text),
+            let tab_matches = tab_row.as_ref().is_some_and(|row| {
+                navigator_row_matches(query_kind, query, row.status, row.seen, &row.search_text)
             });
+            let tab_direct_match = tab_row.as_ref().is_some_and(|row| {
+                navigator_row_matches(
+                    direct_query_kind,
+                    direct_query,
+                    row.status,
+                    row.seen,
+                    &row.search_text,
+                )
+            });
+            if let Some(tab_row) = tab_row.as_mut() {
+                tab_row.matched = tab_direct_match;
+            }
             let filtered_panes = if show_pane_rows {
                 match query_kind {
-                    NavigatorQueryKind::Empty => pane_rows,
+                    NavigatorQueryKind::Empty => {
+                        for row in &mut pane_rows {
+                            row.matched = navigator_row_matches(
+                                direct_query_kind,
+                                direct_query,
+                                row.status,
+                                row.seen,
+                                &row.search_text,
+                            );
+                        }
+                        pane_rows
+                    }
                     NavigatorQueryKind::State(filter) => pane_rows
                         .into_iter()
                         .filter(|row| navigator_state_filter_matches(filter, row.status, row.seen))
+                        .map(|mut row| {
+                            row.matched = navigator_row_matches(
+                                direct_query_kind,
+                                direct_query,
+                                row.status,
+                                row.seen,
+                                &row.search_text,
+                            );
+                            row
+                        })
                         .collect::<Vec<_>>(),
-                    NavigatorQueryKind::Text if tab_matches => pane_rows,
+                    NavigatorQueryKind::Text
+                        if workspace_direct_match || tab_direct_match =>
+                    {
+                        for row in &mut pane_rows {
+                            row.matched = navigator_matches(direct_query, &row.search_text);
+                        }
+                        pane_rows
+                    }
                     NavigatorQueryKind::Text => pane_rows
                         .into_iter()
                         .filter(|row| navigator_matches(query, &row.search_text))
+                        .map(|mut row| {
+                            row.matched = true;
+                            row
+                        })
                         .collect::<Vec<_>>(),
                 }
             } else {
@@ -709,6 +763,7 @@ impl AppState {
             has_children: has_visible_pane_children,
             expanded: has_visible_pane_children,
             search_text,
+            matched: true,
         }
     }
 
@@ -798,6 +853,7 @@ impl AppState {
                 has_children: false,
                 expanded: false,
                 search_text,
+                matched: true,
             });
         }
         rows
@@ -867,6 +923,30 @@ impl AppState {
             }
         }
         self.ensure_navigator_selection_visible();
+    }
+
+    /// Select the first visible row that directly matches the active query.
+    /// Aggregate group/workspace matches remain valid fallbacks, while state
+    /// filters prefer a matching pane over an aggregate ancestor.
+    pub(crate) fn select_first_navigator_match(&mut self) {
+        let query = self.navigator.query.trim().to_lowercase();
+        let query_kind = navigator_query_kind(&query, self.navigator.state_filter);
+        if !matches!(query_kind, NavigatorQueryKind::Empty) {
+            let rows = self.navigator_rows();
+            let selected = if matches!(query_kind, NavigatorQueryKind::State(_)) {
+                rows.iter()
+                    .position(|row| {
+                        row.matched && matches!(row.target, NavigatorTarget::Pane { .. })
+                    })
+                    .or_else(|| rows.iter().position(|row| row.matched))
+            } else {
+                rows.iter().position(|row| row.matched)
+            };
+            if let Some(selected) = selected {
+                self.navigator.list.select(selected);
+            }
+        }
+        self.clamp_navigator_selection();
     }
 
     pub(crate) fn clamp_navigator_selection(&mut self) {
@@ -1097,6 +1177,19 @@ fn text_matches_query(query: &str, text: &str) -> bool {
 
 fn navigator_matches(query: &str, text: &str) -> bool {
     text_matches_query(query, text)
+}
+fn navigator_row_matches(
+    query_kind: NavigatorQueryKind,
+    query: &str,
+    state: AgentState,
+    seen: bool,
+    search_text: &str,
+) -> bool {
+    match query_kind {
+        NavigatorQueryKind::Empty => true,
+        NavigatorQueryKind::State(filter) => navigator_state_filter_matches(filter, state, seen),
+        NavigatorQueryKind::Text => navigator_matches(query, search_text),
+    }
 }
 
 fn launch_label(argv: Option<&Vec<String>>) -> Option<String> {
