@@ -3351,8 +3351,8 @@
     {
       "upstream": "5d24d0d214d05858e344a9e15a63856dc1328eae",
       "subject": "fix: preserve escape before sgr mouse reports",
-      "status": "pending",
-      "reason": "Host input does not yet preserve a standalone Escape immediately before an SGR mouse report."
+      "status": "ported",
+      "reason": "ENG-142 preserves a standalone Escape before complete or split SGR mouse reports in the byte framer, while retaining timed-out tail handling and macOS doubled-Escape policy; focused raw-input and client-input tests pass."
     },
     {
       "upstream": "88370e1516182ab519d22a12fa82d5780a40fee6",

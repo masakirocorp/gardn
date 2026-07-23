@@ -419,6 +419,16 @@ impl RawInputByteFramer {
                 self.discarded_tail_bytes = 0;
                 continue;
             }
+            // A standalone Escape can arrive in the same read as the ESC
+            // introducer for a mouse report. Keep the two boundaries in the
+            // framer so the parser receives an Escape chunk followed by the
+            // complete or still-incomplete mouse chunk.
+            if self.buffer.starts_with(b"\x1b\x1b[<") {
+                chunks.push(vec![ESC]);
+                self.buffer.drain(..1);
+                continue;
+            }
+
             if self.split_coalesced_escape && self.buffer.starts_with(b"\x1b\x1b") {
                 chunks.push(vec![ESC]);
                 self.buffer.drain(..1);
@@ -1526,6 +1536,91 @@ mod tests {
                 ..
             })
         ));
+    }
+
+    #[test]
+    fn lone_escape_before_complete_sgr_mouse_report_emits_ordered_events() {
+        for preserve_legacy_doubled_escape_input in [false, true] {
+            for report in [
+                b"\x1b[<35;10;20M".as_slice(),
+                b"\x1b[<35;10;20m".as_slice(),
+            ] {
+                let mut framer = RawInputByteFramer::with_host_input_policy(
+                    preserve_legacy_doubled_escape_input,
+                );
+
+                assert!(framer.push(b"\x1b").is_empty());
+                let chunks = framer.push(report);
+                let events = RawInputFramer::events_from_chunks(chunks);
+
+                assert_eq!(events.len(), 2);
+                let mut events = events.into_iter();
+                assert_raw_key(events.next().unwrap(), KeyCode::Esc, KeyModifiers::empty());
+                assert!(matches!(
+                    events.next().unwrap(),
+                    RawInputEvent::Mouse(MouseEvent {
+                        kind: MouseEventKind::Moved,
+                        column: 9,
+                        row: 19,
+                        ..
+                    })
+                ));
+                assert!(framer.flush_timeout().is_empty());
+            }
+        }
+    }
+
+    #[test]
+    fn lone_escape_before_split_sgr_mouse_report_emits_ordered_events_at_every_boundary() {
+        let report = b"\x1b[<35;10;20M";
+
+        for split in 1..report.len() {
+            let mut framer = RawInputFramer::default();
+            let mut events = framer.push(b"\x1b");
+            events.extend(
+                framer
+                    .push(&report[..split])
+                    .into_iter()
+                    .chain(framer.push(&report[split..])),
+            );
+
+            assert_eq!(events.len(), 2, "split boundary {split}");
+            let mut events = events.into_iter();
+            assert_raw_key(events.next().unwrap(), KeyCode::Esc, KeyModifiers::empty());
+            assert!(matches!(
+                events.next().unwrap(),
+                RawInputEvent::Mouse(MouseEvent {
+                    kind: MouseEventKind::Moved,
+                    column: 9,
+                    row: 19,
+                    ..
+                })
+            ));
+            assert!(framer.flush_timeout().is_empty());
+        }
+    }
+
+    #[test]
+    fn timed_out_split_sgr_mouse_after_lone_escape_discards_tail_and_preserves_following_input() {
+        let mut framer = RawInputFramer::default();
+
+        assert!(framer.push(b"\x1b").is_empty());
+        let events = framer.push(b"\x1b[<35;10");
+        assert_eq!(events.len(), 1);
+        assert_raw_key(
+            events.into_iter().next().unwrap(),
+            KeyCode::Esc,
+            KeyModifiers::empty(),
+        );
+
+        assert!(framer.flush_timeout().is_empty());
+        let events = framer.push(b";20Mx");
+        assert_eq!(events.len(), 1);
+        assert_raw_key(
+            events.into_iter().next().unwrap(),
+            KeyCode::Char('x'),
+            KeyModifiers::empty(),
+        );
     }
 
     #[test]
