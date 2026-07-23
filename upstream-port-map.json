@@ -3693,8 +3693,8 @@
     {
       "upstream": "6382bd433a66683d29455409e1dbb16776727bbf",
       "subject": "fix: reject oversized text pastes safely (#1676)",
-      "status": "pending",
-      "reason": "Oversized bracketed text pastes are not yet rejected locally without disconnecting the client."
+      "status": "ported",
+      "reason": "Ported under ENG-161: raw and structured oversized text pastes are rejected with a client-local notification while the session remains usable; eight focused transport, input, and headless-server tests pass."
     },
     {
       "upstream": "1955406eafa37ae3d02d433d043b476e4a9a0bc4",
