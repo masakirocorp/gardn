@@ -203,18 +203,7 @@ impl App {
 
         match action {
             NavigateAction::NewWorkspace => {
-                self.dispatch_runtime_mutation(
-                    "tui.workspace.create",
-                    crate::api::schema::Method::WorkspaceCreate(
-                        crate::api::schema::WorkspaceCreateParams {
-                            cwd: None,
-                            focus: true,
-                            label: None,
-                            env: Default::default(),
-                        },
-                    ),
-                );
-                leave_navigate_mode(&mut self.state);
+                self.begin_tui_workspace_create("tui.workspace.create");
             }
             NavigateAction::CloseWorkspace => {
                 if let Some(ws_idx) = workspace_target(&self.state) {
@@ -1346,8 +1335,12 @@ pub(crate) fn execute_navigate_action_in_context(
     let previous_mode = state.mode;
     match action {
         NavigateAction::NewWorkspace => {
-            state.request_new_workspace = true;
-            leave_navigate_mode(state);
+            if state.prompt_new_workspace_name {
+                super::modal::open_new_workspace_dialog_from_state(state);
+            } else {
+                state.request_new_workspace = true;
+                leave_navigate_mode(state);
+            }
         }
         NavigateAction::RenameWorkspace => {
             if let Some(ws_idx) = workspace_action_target(state, context) {
@@ -1708,6 +1701,56 @@ mod tests {
 
         assert!(state.request_new_workspace);
         assert_eq!(state.mode, Mode::Terminal);
+    }
+
+    #[test]
+    fn enabled_new_workspace_action_opens_prefilled_prompt_and_cancel_creates_nothing() {
+        let mut state = AppState::test_new();
+        let mut terminal_runtimes = TerminalRuntimeRegistry::new();
+        state.prompt_new_workspace_name = true;
+        state.mode = Mode::Navigate;
+
+        execute_navigate_action_in_context(
+            &mut state,
+            &mut terminal_runtimes,
+            NavigateAction::NewWorkspace,
+            ActionContext::Navigate,
+        );
+
+        assert_eq!(state.mode, Mode::RenameWorkspace);
+        assert!(state.pending_workspace_create_cwd.is_some());
+        assert!(!state.name_input.is_empty());
+        assert!(state.name_input_replace_on_type);
+        assert!(state.workspaces.is_empty());
+
+        super::super::modal::handle_rename_key(
+            &mut state,
+            KeyEvent::new(KeyCode::Esc, KeyModifiers::empty()),
+        );
+        assert!(state.workspaces.is_empty());
+    }
+
+    #[test]
+    fn saving_enabled_new_workspace_prompt_captures_custom_name_for_deferred_creation() {
+        let mut state = AppState::test_new();
+        let mut terminal_runtimes = TerminalRuntimeRegistry::new();
+        state.prompt_new_workspace_name = true;
+        state.mode = Mode::Navigate;
+
+        execute_navigate_action_in_context(
+            &mut state,
+            &mut terminal_runtimes,
+            NavigateAction::NewWorkspace,
+            ActionContext::Navigate,
+        );
+        state.name_input = " logs ".to_string();
+        super::super::modal::handle_rename_key(
+            &mut state,
+            KeyEvent::new(KeyCode::Enter, KeyModifiers::empty()),
+        );
+        assert_eq!(state.requested_new_workspace_name.as_deref(), Some("logs"));
+        assert!(state.pending_workspace_create_cwd.is_some());
+        assert_eq!(state.mode, Mode::Navigate);
     }
 
     #[test]

@@ -289,6 +289,9 @@ diff_command = "lazygit"
 # set false to create tabs immediately with generated names.
 # prompt_new_tab_name = true
 
+# ask for a workspace name before interactive creation.
+# prompt_new_workspace_name = false
+
 # agent metadata shown in split pane borders when no title or manual name is set.
 # pane_border_agent_info = "hidden" # "hidden", "name", or "name_and_status"
 

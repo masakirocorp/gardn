@@ -46,6 +46,12 @@ fn expand_new_terminal_cwd_path(path: &str) -> PathBuf {
     PathBuf::from(path)
 }
 
+pub(crate) fn workspace_create_label(input: &str, suggested_name: &str) -> Option<String> {
+    let name = input.trim();
+    (!name.is_empty() && name != suggested_name).then(|| name.to_string())
+}
+
+
 impl App {
     pub(super) fn collision_free_workspace_name(
         &self,
@@ -132,20 +138,69 @@ impl App {
             .and_then(|group| group.default_directory.clone())
     }
 
-    /// Create a workspace with a real PTY (needs event_tx).
-    pub(crate) fn create_workspace(&mut self) {
-        let source = self.workspace_creation_source();
-        let group_id = self.workspace_creation_group_id(source);
-        let initial_cwd = self.group_default_directory(&group_id).unwrap_or_else(|| {
+    pub(super) fn begin_tui_workspace_create(&mut self, request_id: &'static str) {
+        if self.state.prompt_new_workspace_name {
+            let source = self.workspace_creation_source();
+            let group_id = self.workspace_creation_group_id(source);
             let follow_cwd = source.and_then(|ws_idx| {
                 self.focused_pane_cwd_in_workspace(ws_idx)
                     .or_else(|| self.seed_cwd_from_workspace(ws_idx))
             });
-            self.resolve_new_terminal_cwd(follow_cwd)
-        });
-        if let Err(e) = self.create_workspace_with_options_in_group(initial_cwd, true, group_id) {
-            error!(err = %e, "failed to create workspace");
-            self.state.mode = Mode::Navigate;
+            let cwd = self
+                .group_default_directory(&group_id)
+                .unwrap_or_else(|| self.resolve_new_terminal_cwd(follow_cwd));
+            super::input::open_new_workspace_dialog(&mut self.state, cwd);
+            return;
+        }
+
+        self.dispatch_runtime_mutation(
+            request_id,
+            crate::api::schema::Method::WorkspaceCreate(
+                crate::api::schema::WorkspaceCreateParams {
+                    cwd: None,
+                    focus: true,
+                    label: None,
+                    env: Default::default(),
+                },
+            ),
+        );
+        self.state.mode = if self.state.active.is_some() {
+            Mode::Terminal
+        } else {
+            Mode::Navigate
+        };
+    }
+
+    /// Create a workspace with a real PTY (needs event_tx).
+    pub(crate) fn create_workspace(&mut self) {
+        let custom_name = self.state.requested_new_workspace_name.take();
+        let source = self.workspace_creation_source();
+        let group_id = self.workspace_creation_group_id(source);
+        let initial_cwd = self
+            .state
+            .pending_workspace_create_cwd
+            .take()
+            .or_else(|| self.group_default_directory(&group_id))
+            .unwrap_or_else(|| {
+                let follow_cwd = source.and_then(|ws_idx| {
+                    self.focused_pane_cwd_in_workspace(ws_idx)
+                        .or_else(|| self.seed_cwd_from_workspace(ws_idx))
+                });
+                self.resolve_new_terminal_cwd(follow_cwd)
+            });
+        match self.create_workspace_with_options_in_group(initial_cwd, true, group_id) {
+            Ok(ws_idx) => {
+                if let Some(name) = custom_name {
+                    if let Some(workspace) = self.state.workspaces.get_mut(ws_idx) {
+                        workspace.set_custom_name(name);
+                        self.state.mark_session_dirty();
+                    }
+                }
+            }
+            Err(e) => {
+                error!(err = %e, "failed to create workspace");
+                self.state.mode = Mode::Navigate;
+            }
         }
     }
     pub(crate) fn create_tab(&mut self) {

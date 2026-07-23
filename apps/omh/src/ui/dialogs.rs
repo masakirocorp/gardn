@@ -177,6 +177,9 @@ fn render_rename_overlay_with_view_state(
     // The shared data model owns workspace/group metadata and palettes; all modal
     // state below is selected from the requesting client's view.
     let title = match client_view.mode {
+        Mode::RenameWorkspace if client_view.pending_workspace_create_cwd.is_some() => {
+            "new workspace"
+        }
         Mode::RenameWorkspace => "rename workspace",
         Mode::RenameGroup if client_view.creating_new_group => "new group",
         Mode::RenameGroup => "rename group",
@@ -380,6 +383,7 @@ pub(super) fn render_rename_overlay(app: &AppState, frame: &mut Frame, area: Rec
     super::dim_background(frame, area);
 
     let title = match app.mode {
+        Mode::RenameWorkspace if app.pending_workspace_create_cwd.is_some() => "new workspace",
         Mode::RenameWorkspace => "rename workspace",
         Mode::RenameGroup if app.creating_new_group => "new group",
         Mode::RenameGroup => "rename group",

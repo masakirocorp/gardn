@@ -58,8 +58,8 @@ pub(crate) use self::{
         handle_config_diagnostics_key, handle_confirm_close_key, handle_confirm_delete_group_key,
         handle_context_menu_key, handle_global_menu_key, handle_group_menu_key,
         handle_keybind_help_key, handle_navigator_key, handle_rename_key, handle_resize_key,
-        insert_navigator_search_text, modal_action_from_buttons, request_detach, GlobalMenuAction,
-        ModalAction,
+        insert_navigator_search_text, modal_action_from_buttons, open_new_workspace_dialog,
+        request_detach, GlobalMenuAction, ModalAction,
     },
     navigate::{
         command_for_key, indexed_navigation_action, non_indexed_action_for_key,

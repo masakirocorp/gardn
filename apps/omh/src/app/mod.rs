@@ -822,6 +822,8 @@ impl App {
             group_icon_picker_open: false,
             rename_group_target: None,
             requested_new_tab_name: None,
+            pending_workspace_create_cwd: None,
+            requested_new_workspace_name: None,
             rename_pane_target: None,
             confirm_delete_group: None,
             request_complete_onboarding: false,
@@ -938,6 +940,7 @@ impl App {
             mouse_scroll_lines: config.ui.mouse_scroll_lines(),
             confirm_close: config.ui.confirm_close,
             prompt_new_tab_name: config.ui.prompt_new_tab_name,
+            prompt_new_workspace_name: config.ui.prompt_new_workspace_name,
             git_diff_command: config.git.diff_command.clone(),
             pane_border_agent_info: config.ui.pane_border_agent_info,
             pane_borders: config.ui.pane_borders,
@@ -1314,7 +1317,13 @@ impl App {
 
         if self.state.request_new_workspace {
             self.state.request_new_workspace = false;
-            self.create_workspace();
+            if self.state.pending_workspace_create_cwd.is_some()
+                && self.state.mode != state::Mode::RenameWorkspace
+            {
+                self.create_workspace();
+            } else {
+                self.begin_tui_workspace_create("tui.workspace.create");
+            }
             changed = true;
         }
 
@@ -1805,6 +1814,7 @@ impl App {
                 if self.state.redraw_on_focus_gained != config.ui.redraw_on_focus_gained {
                     self.state.request_client_config_reload = true;
                 }
+                self.state.prompt_new_workspace_name = config.ui.prompt_new_workspace_name;
                 self.state.redraw_on_focus_gained = config.ui.redraw_on_focus_gained;
                 if self.loaded_host_cursor != config.ui.host_cursor {
                     self.state.request_client_config_reload = true;
@@ -3096,6 +3106,49 @@ impl App {
             crossterm::event::KeyCode::Enter => {
                 let new_name = client_view.name_input.trim().to_string();
                 match client_view.mode {
+                    Mode::RenameWorkspace
+                        if client_view.pending_workspace_create_cwd.is_some() =>
+                    {
+                        let Some(cwd) = client_view.pending_workspace_create_cwd.take() else {
+                            return;
+                        };
+                        let group_idx = client_view
+                            .pending_workspace_create_group
+                            .take()
+                            .unwrap_or(client_view.active_group);
+                        let suggested_name = crate::workspace::derive_label_from_cwd(&cwd);
+                        let label =
+                            crate::app::creation::workspace_create_label(&new_name, &suggested_name);
+                        let Some(group_id) = self
+                            .state
+                            .groups
+                            .get(group_idx)
+                            .map(|group| group.id.clone())
+                        else {
+                            return;
+                        };
+                        match self.create_workspace_with_launch_env_in_group(
+                            cwd,
+                            false,
+                            group_id,
+                            Vec::new(),
+                        ) {
+                            Ok(ws_idx) => {
+                                if let Some(name) = label {
+                                    if let Some(workspace) = self.state.workspaces.get_mut(ws_idx) {
+                                        workspace.set_custom_name(name);
+                                        self.state.mark_session_dirty();
+                                    }
+                                }
+                                client_view.active_group = group_idx;
+                                self.switch_client_view_workspace(client_view, ws_idx);
+                            }
+                            Err(err) => {
+                                tracing::error!(err = %err, "failed to create named client workspace");
+                                client_view.mode = Mode::Navigate;
+                            }
+                        }
+                    }
                     Mode::RenameWorkspace if !new_name.is_empty() => {
                         if let Some(ws_idx) = client_view.active_workspace {
                             if let Some(workspace) = self.state.workspaces.get_mut(ws_idx) {
@@ -3181,6 +3234,8 @@ impl App {
                 client_view.group_modal_selected_field = 0;
                 client_view.rename_group_target = None;
                 client_view.rename_pane_target = None;
+                client_view.pending_workspace_create_cwd = None;
+                client_view.pending_workspace_create_group = None;
                 client_view.name_input.clear();
                 client_view.name_input_replace_on_type = false;
                 Self::leave_client_view_command_mode(client_view);
@@ -3199,6 +3254,8 @@ impl App {
                 client_view.rename_group_target = None;
                 client_view.requested_new_tab_name = None;
                 client_view.rename_pane_target = None;
+                client_view.pending_workspace_create_cwd = None;
+                client_view.pending_workspace_create_group = None;
                 client_view.name_input.clear();
                 client_view.name_input_replace_on_type = false;
                 Self::leave_client_view_command_mode(client_view);
@@ -3413,14 +3470,37 @@ impl App {
         client_view.creating_new_tab = true;
         client_view.creating_new_group = false;
         client_view.requested_new_tab_name = None;
+        client_view.pending_workspace_create_cwd = None;
+        client_view.pending_workspace_create_group = None;
         client_view.name_input = "tab".to_string();
         client_view.name_input_replace_on_type = true;
         client_view.mode = Mode::RenameTab;
     }
 
+    fn open_client_view_new_workspace_dialog(
+        &self,
+        client_view: &mut ClientViewState,
+        cwd: std::path::PathBuf,
+        group_idx: usize,
+    ) {
+        client_view.creating_new_tab = false;
+        client_view.creating_new_group = false;
+        client_view.group_icon_picker_open = false;
+        client_view.requested_new_tab_name = None;
+        client_view.rename_group_target = None;
+        client_view.rename_pane_target = None;
+        client_view.pending_workspace_create_cwd = Some(cwd.clone());
+        client_view.pending_workspace_create_group = Some(group_idx);
+        client_view.name_input = crate::workspace::derive_label_from_cwd(&cwd);
+        client_view.name_input_replace_on_type = true;
+        client_view.mode = Mode::RenameWorkspace;
+    }
+
     fn open_client_view_rename_tab_dialog(&self, client_view: &mut ClientViewState) {
         client_view.creating_new_tab = false;
         client_view.requested_new_tab_name = None;
+        client_view.pending_workspace_create_cwd = None;
+        client_view.pending_workspace_create_group = None;
         client_view.name_input = client_view
             .active_workspace
             .and_then(|ws_idx| {
@@ -3445,6 +3525,8 @@ impl App {
         client_view.creating_new_group = false;
         client_view.group_icon_picker_open = false;
         client_view.requested_new_tab_name = None;
+        client_view.pending_workspace_create_cwd = None;
+        client_view.pending_workspace_create_group = None;
         client_view.rename_group_target = None;
         client_view.rename_pane_target = None;
         client_view.name_input =
@@ -3466,6 +3548,8 @@ impl App {
         client_view.group_icon_input = group.icon.clone();
         client_view.group_icon_picker_open = false;
         client_view.requested_new_tab_name = None;
+        client_view.pending_workspace_create_cwd = None;
+        client_view.pending_workspace_create_group = None;
         client_view.rename_group_target = Some(group_idx);
         client_view.rename_pane_target = None;
         client_view.name_input = group.name.clone();
@@ -3492,6 +3576,8 @@ impl App {
         client_view.creating_new_group = false;
         client_view.group_icon_picker_open = false;
         client_view.requested_new_tab_name = None;
+        client_view.pending_workspace_create_cwd = None;
+        client_view.pending_workspace_create_group = None;
         client_view.rename_group_target = None;
         client_view.rename_pane_target = Some(pane_id);
         client_view.name_input = terminal
@@ -5267,6 +5353,11 @@ impl App {
             let follow_cwd = source.and_then(|ws_idx| self.seed_cwd_from_workspace(ws_idx));
             self.resolve_new_terminal_cwd(follow_cwd)
         });
+        if self.state.prompt_new_workspace_name {
+            client_view.active_group = group_idx;
+            self.open_client_view_new_workspace_dialog(client_view, initial_cwd, group_idx);
+            return;
+        }
         match self.create_workspace_with_launch_env_in_group(
             initial_cwd,
             false,

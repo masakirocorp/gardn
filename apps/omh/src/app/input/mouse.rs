@@ -197,8 +197,12 @@ impl AppState {
                             leave_modal(self);
                         }
                         super::sidebar::GroupMenuAction::NewWorkspace => {
-                            self.request_new_workspace = true;
-                            leave_modal(self);
+                            if self.prompt_new_workspace_name {
+                                super::modal::open_new_workspace_dialog_from_state(self);
+                            } else {
+                                self.request_new_workspace = true;
+                                leave_modal(self);
+                            }
                         }
                         super::sidebar::GroupMenuAction::NewGroup => {
                             super::modal::open_new_group_dialog(self);
@@ -1389,7 +1393,11 @@ impl AppState {
                 self.mode = Mode::Navigate;
             }
             crate::ui::MobileSwitcherTarget::NewSpace => {
-                self.request_new_workspace = true;
+                if self.prompt_new_workspace_name {
+                    super::modal::open_new_workspace_dialog_from_state(self);
+                } else {
+                    self.request_new_workspace = true;
+                }
             }
             crate::ui::MobileSwitcherTarget::Workspace(ws_idx) => {
                 self.switch_workspace(ws_idx);
