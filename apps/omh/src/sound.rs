@@ -130,11 +130,7 @@ impl AudioPlayer {
     }
 
     #[cfg(not(any(windows, target_os = "macos")))]
-    fn output_with_timeout(
-        self,
-        path: &Path,
-        timeout: Duration,
-    ) -> std::io::Result<Output> {
+    fn output_with_timeout(self, path: &Path, timeout: Duration) -> std::io::Result<Output> {
         let mut child = crate::noninteractive_process::command(self.program)
             .args(self.args)
             .arg(path)
@@ -311,10 +307,7 @@ mod tests {
                 "omh-sound-timeout-test",
             ],
         };
-        let result = player.output_with_timeout(
-            &pid_path,
-            std::time::Duration::from_millis(100),
-        );
+        let result = player.output_with_timeout(&pid_path, std::time::Duration::from_millis(100));
         let pid = std::fs::read_to_string(&pid_path)
             .expect("hanging test player should record its process ID");
         let _ = std::fs::remove_file(pid_path);

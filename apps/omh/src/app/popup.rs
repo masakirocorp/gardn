@@ -13,7 +13,6 @@ pub(crate) struct PopupGeometry {
 }
 
 impl App {
-
     pub(crate) fn close_popup_pane_for_view(&mut self, view: &mut ClientViewState) -> bool {
         let Some(pane_id) = view.popup_pane.take() else {
             return false;
@@ -78,16 +77,21 @@ impl App {
             .map(|(_, pane_id)| pane_id)
             .ok_or_else(|| std::io::Error::other("active tab has no focused pane"))?;
         let cwd = cwd
-            .or_else(|| tab.cwd_for_pane(focused_pane, &self.state.terminals, &self.terminal_runtimes))
+            .or_else(|| {
+                tab.cwd_for_pane(focused_pane, &self.state.terminals, &self.terminal_runtimes)
+            })
             .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from("/")));
-        let area = if view.computed.terminal_area.width >= 4 && view.computed.terminal_area.height >= 4 {
-            view.computed.terminal_area
-        } else if self.state.view.terminal_area.width >= 4 && self.state.view.terminal_area.height >= 4 {
-            self.state.view.terminal_area
-        } else {
-            let (rows, cols) = self.state.estimate_pane_size();
-            ratatui::layout::Rect::new(0, 0, cols, rows)
-        };
+        let area =
+            if view.computed.terminal_area.width >= 4 && view.computed.terminal_area.height >= 4 {
+                view.computed.terminal_area
+            } else if self.state.view.terminal_area.width >= 4
+                && self.state.view.terminal_area.height >= 4
+            {
+                self.state.view.terminal_area
+            } else {
+                let (rows, cols) = self.state.estimate_pane_size();
+                ratatui::layout::Rect::new(0, 0, cols, rows)
+            };
         let geometry = resolve_popup_geometry(geometry.width, geometry.height, area)
             .ok_or_else(|| std::io::Error::other("terminal area too small for popup"))?;
         let pane_id = PaneId::alloc();
@@ -165,7 +169,10 @@ impl App {
     pub(crate) fn parse_popup_public_pane_id(&self, value: &str) -> Option<PaneId> {
         let raw = value.strip_prefix("popup:")?.parse::<u32>().ok()?;
         let pane_id = PaneId::from_raw(raw);
-        self.state.popup_panes.contains_key(&pane_id).then_some(pane_id)
+        self.state
+            .popup_panes
+            .contains_key(&pane_id)
+            .then_some(pane_id)
     }
 
     pub(crate) fn popup_pane_info_for_view(
@@ -181,11 +188,13 @@ impl App {
         let ws_idx = view.active_workspace?;
         let tab_idx = view.active_tab_index_for_workspace(&self.state, ws_idx)?;
         let runtime = self.terminal_runtimes.get(&popup.terminal_id)?;
-        let scroll = runtime.scroll_metrics().map(|metrics| crate::api::schema::PaneScrollInfo {
-            offset_from_bottom: metrics.offset_from_bottom as u64,
-            max_offset_from_bottom: metrics.max_offset_from_bottom as u64,
-            viewport_rows: metrics.viewport_rows as u64,
-        });
+        let scroll = runtime
+            .scroll_metrics()
+            .map(|metrics| crate::api::schema::PaneScrollInfo {
+                offset_from_bottom: metrics.offset_from_bottom as u64,
+                max_offset_from_bottom: metrics.max_offset_from_bottom as u64,
+                viewport_rows: metrics.viewport_rows as u64,
+            });
         let presentation = terminal.effective_presentation();
         Some(crate::api::schema::PaneInfo {
             pane_id: self.popup_public_pane_id(pane_id),
@@ -194,7 +203,9 @@ impl App {
             tab_id: self.public_tab_id(ws_idx, tab_idx)?,
             focused: view.popup_pane == Some(pane_id),
             cwd: runtime.cwd().map(|cwd| cwd.display().to_string()),
-            foreground_cwd: runtime.foreground_cwd().map(|cwd| cwd.display().to_string()),
+            foreground_cwd: runtime
+                .foreground_cwd()
+                .map(|cwd| cwd.display().to_string()),
             label: terminal.manual_label.clone(),
             agent: terminal.effective_agent_label().map(str::to_string),
             title: presentation.title,

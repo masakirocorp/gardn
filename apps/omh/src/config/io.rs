@@ -903,7 +903,10 @@ claude = [["terminal_title"]]
         assert!(loaded.invalid_sections.is_empty());
         assert_eq!(loaded.config.advanced.scrollback_limit_bytes, 42);
         assert!(!loaded.config.ui.mouse_capture);
-        assert_eq!(loaded.config.ui.toast.delivery, super::super::ToastDelivery::Omh);
+        assert_eq!(
+            loaded.config.ui.toast.delivery,
+            super::super::ToastDelivery::Omh
+        );
         assert!(loaded
             .config
             .keybinds()

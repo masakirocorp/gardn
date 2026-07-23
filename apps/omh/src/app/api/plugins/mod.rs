@@ -13,10 +13,10 @@ use crate::api::schema::{
     ResponseResult,
 };
 use crate::app::App;
+pub(super) use manifest::normalize_plugin_id;
 use manifest::{
     effective_platforms, ensure_platform_supported, normalize_action_id, normalize_plugin_source,
 };
-pub(super) use manifest::normalize_plugin_id;
 
 #[cfg(test)]
 use crate::api::schema::{PluginCommandStatus, PluginInvocationContext};
@@ -369,7 +369,12 @@ impl App {
         let Some(entrypoint) = normalize_action_id(&params.entrypoint) else {
             return encode_error(id, "invalid_plugin_entrypoint", "invalid entrypoint id");
         };
-        let Some(pane) = plugin.panes.iter().find(|pane| pane.id == entrypoint).cloned() else {
+        let Some(pane) = plugin
+            .panes
+            .iter()
+            .find(|pane| pane.id == entrypoint)
+            .cloned()
+        else {
             return encode_error(
                 id,
                 "plugin_pane_not_found",
@@ -399,7 +404,11 @@ impl App {
         self.open_plugin_popup_pane_for_view(view, id, params, &plugin, pane)
     }
 
-    pub(super) fn handle_plugin_pane_open(&mut self, id: String, params: PluginPaneOpenParams) -> String {
+    pub(super) fn handle_plugin_pane_open(
+        &mut self,
+        id: String,
+        params: PluginPaneOpenParams,
+    ) -> String {
         let mut view = self.default_client_view.clone_reconciled(&self.state);
         let response = self.handle_plugin_pane_open_for_view(&mut view, id, params);
         self.default_client_view = view;
@@ -705,7 +714,6 @@ impl App {
             encode_success(id, ResponseResult::PluginDisabled { plugin })
         }
     }
-
 }
 
 fn invalid_plugin_id(id: String) -> String {
@@ -3507,7 +3515,10 @@ command = ["/bin/echo", "startup arg"]
         )
         .unwrap();
         assert_eq!(plugin.startup.len(), 1);
-        assert_eq!(plugin.startup[0].platforms, Some(vec![crate::api::schema::PluginPlatform::Macos]));
+        assert_eq!(
+            plugin.startup[0].platforms,
+            Some(vec![crate::api::schema::PluginPlatform::Macos])
+        );
         assert_eq!(plugin.startup[0].command, ["/bin/echo", "startup arg"]);
 
         let invalid = unique_temp_path("startup-invalid");
@@ -3575,9 +3586,7 @@ command = []
         let closed = app.close_plugin_popup_pane_for_view(
             &mut owner,
             "close".into(),
-            crate::api::schema::PluginPaneCloseParams {
-                pane_id: public_id,
-            },
+            crate::api::schema::PluginPaneCloseParams { pane_id: public_id },
         );
         assert!(matches!(
             response_result(&closed),
@@ -3662,6 +3671,4 @@ command = []
         assert_eq!(outer.y, 6);
         assert!(app.state.popup_panes.contains_key(&pane_id));
     }
-
-
 }

@@ -318,8 +318,7 @@ fn render_row(
     } else {
         Style::default().fg(p.overlay0).bg(p.panel_bg)
     };
-    let filter_active =
-        navigator.state_filter.is_some() || !navigator.query.trim().is_empty();
+    let filter_active = navigator.state_filter.is_some() || !navigator.query.trim().is_empty();
     let context_only = filter_active && !row.matched;
     let text_style = if selected {
         base_style.add_modifier(Modifier::BOLD)

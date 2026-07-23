@@ -13,7 +13,10 @@ fn unique_socket_path() -> PathBuf {
         .duration_since(UNIX_EPOCH)
         .expect("system clock should be after the Unix epoch")
         .as_nanos();
-    PathBuf::from(format!("/tmp/omh-eng-163-{}-{stamp}.sock", std::process::id()))
+    PathBuf::from(format!(
+        "/tmp/omh-eng-163-{}-{stamp}.sock",
+        std::process::id()
+    ))
 }
 
 fn run_agent(args: &[&str]) -> Output {
@@ -35,7 +38,11 @@ fn stderr(output: &Output) -> String {
 #[test]
 fn agent_help_shows_target_before_options() {
     let output = run_agent(&["--help"]);
-    assert!(output.status.success(), "agent help failed: {}", stderr(&output));
+    assert!(
+        output.status.success(),
+        "agent help failed: {}",
+        stderr(&output)
+    );
 
     let help = stderr(&output);
     for usage in [
@@ -47,7 +54,10 @@ fn agent_help_shows_target_before_options() {
     ] {
         assert!(help.contains(usage), "missing target-first usage {usage:?}: {help}");
     }
-    assert!(!help.contains("herdr agent"), "help must use Oh My Herdr's omh name: {help}");
+    assert!(
+        !help.contains("herdr agent"),
+        "help must use Oh My Herdr's omh name: {help}"
+    );
 }
 
 #[test]
@@ -77,7 +87,12 @@ fn agent_subcommand_help_uses_target_first_forms() {
 
     for (args, usage) in cases {
         let output = run_agent(args);
-        assert!(output.status.success(), "omh agent {} failed: {}", args[0], stderr(&output));
+        assert!(
+            output.status.success(),
+            "omh agent {} failed: {}",
+            args[0],
+            stderr(&output)
+        );
         assert_eq!(stderr(&output).trim(), usage);
     }
 }
@@ -140,7 +155,11 @@ fn agent_start_parses_target_first_options_and_preserves_native_argv() {
 
     let request = server.join().expect("fake API should finish");
     let _ = fs::remove_file(socket_path);
-    assert!(output.status.success(), "agent start failed: {}", stderr(&output));
+    assert!(
+        output.status.success(),
+        "agent start failed: {}",
+        stderr(&output)
+    );
     assert_eq!(request["method"], "agent.start");
     assert_eq!(request["params"]["name"], "worker");
     assert_eq!(request["params"]["cwd"], "/tmp/project");
@@ -148,5 +167,8 @@ fn agent_start_parses_target_first_options_and_preserves_native_argv() {
     assert_eq!(request["params"]["tab_id"], "tab-1");
     assert_eq!(request["params"]["split"], "right");
     assert_eq!(request["params"]["focus"], true);
-    assert_eq!(request["params"]["argv"], serde_json::json!(["--native", "--flag", "value"]));
+    assert_eq!(
+        request["params"]["argv"],
+        serde_json::json!(["--native", "--flag", "value"])
+    );
 }

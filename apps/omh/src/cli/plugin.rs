@@ -1534,7 +1534,6 @@ fn create_plugin_temp_dir(label: &str) -> std::io::Result<PathBuf> {
     Ok(path)
 }
 
-
 fn remove_managed_plugin_files(plugin: &InstalledPluginInfo) -> std::io::Result<()> {
     if plugin.source.kind != PluginSourceKind::Github {
         return Ok(());

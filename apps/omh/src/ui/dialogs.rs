@@ -806,9 +806,9 @@ pub(crate) fn confirm_close_button_rects(inner: Rect) -> (Rect, Rect) {
 
 #[cfg(test)]
 mod tests {
-    use ratatui::{backend::TestBackend, buffer::Buffer, Terminal};
     use super::*;
     use crate::workspace::Workspace;
+    use ratatui::{backend::TestBackend, buffer::Buffer, Terminal};
 
     #[test]
     fn confirm_close_overlay_renders_empty_workspace() {
@@ -878,7 +878,10 @@ mod tests {
 
         let text = buffer_text(terminal.backend().buffer(), 80, 24);
         assert!(text.contains("current"), "close target copy: {text}");
-        assert!(!text.contains("original"), "stale close target copy: {text}");
+        assert!(
+            !text.contains("original"),
+            "stale close target copy: {text}"
+        );
     }
 
     #[test]
@@ -910,8 +913,14 @@ mod tests {
             .unwrap();
 
         let text = buffer_text(terminal.backend().buffer(), 80, 24);
-        assert!(text.contains("selected"), "client close target copy: {text}");
-        assert!(!text.contains("active"), "wrong client close target copy: {text}");
+        assert!(
+            text.contains("selected"),
+            "client close target copy: {text}"
+        );
+        assert!(
+            !text.contains("active"),
+            "wrong client close target copy: {text}"
+        );
     }
 
     #[test]

@@ -5,7 +5,7 @@ use serde::Serialize;
 use crate::api;
 use crate::api::client::{ApiClient, ApiClientError};
 use crate::api::schema::{
-    AgentReadParams, AgentPromptParams, AgentRenameParams, AgentSendKeysParams, AgentStartParams,
+    AgentPromptParams, AgentReadParams, AgentRenameParams, AgentSendKeysParams, AgentStartParams,
     AgentStatus, AgentTarget, ClientWindowTitleSetParams, EmptyParams, GroupCreateParams,
     GroupRenameParams, GroupTarget, IntegrationTarget, Method, NotificationShowParams,
     NotificationShowSound, OutputMatch, PaneAgentState, PaneTarget, PaneWaitForOutputParams,
@@ -1337,7 +1337,8 @@ fn agent_focus(args: &[String]) -> std::io::Result<i32> {
 }
 
 fn agent_attach(args: &[String]) -> std::io::Result<i32> {
-    if let Some(code) = agent_subcommand_help(args, "usage: omh agent attach <target> [--takeover]") {
+    if let Some(code) = agent_subcommand_help(args, "usage: omh agent attach <target> [--takeover]")
+    {
         return Ok(code);
     }
 
@@ -1503,7 +1504,9 @@ pub(super) fn parse_attach_target(args: &[String], usage: &str) -> Result<(Strin
 }
 
 fn agent_rename(args: &[String]) -> std::io::Result<i32> {
-    if let Some(code) = agent_subcommand_help(args, "usage: omh agent rename <target> <name>|--clear") {
+    if let Some(code) =
+        agent_subcommand_help(args, "usage: omh agent rename <target> <name>|--clear")
+    {
         return Ok(code);
     }
 
@@ -1587,7 +1590,8 @@ fn agent_prompt(args: &[String]) -> std::io::Result<i32> {
 }
 
 fn agent_send_keys(args: &[String]) -> std::io::Result<i32> {
-    if let Some(code) = agent_subcommand_help(args, "usage: omh agent send-keys <target> <key>...") {
+    if let Some(code) = agent_subcommand_help(args, "usage: omh agent send-keys <target> <key>...")
+    {
         return Ok(code);
     }
 

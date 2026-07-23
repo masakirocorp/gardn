@@ -873,7 +873,6 @@ fn agent_methods_round_trip_over_socket() {
     );
     assert_eq!(reported["result"]["type"], "ok");
 
-
     let waited = send_request(
         &socket_path,
         r#"{"id":"agent_wait_working","method":"agent.wait","params":{"target":"pi","until":["working"],"timeout_ms":100}}"#,
@@ -936,7 +935,6 @@ fn agent_methods_round_trip_over_socket() {
         &socket_path,
         &format!(
             r#"{{"id":"agent_tab","method":"tab.create","params":{{"workspace_id":"{}","focus":false}}}}"#,
-
             workspace_id
         ),
     );

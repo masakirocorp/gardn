@@ -58,11 +58,7 @@ impl App {
         encode_success(id, ResponseResult::AgentStarted { agent, argv })
     }
 
-    pub(super) fn handle_agent_prompt(
-        &mut self,
-        id: String,
-        params: AgentPromptParams,
-    ) -> String {
+    pub(super) fn handle_agent_prompt(&mut self, id: String, params: AgentPromptParams) -> String {
         if params.text.is_empty() {
             return encode_error(id, "empty_agent_prompt", "agent prompt must not be empty");
         }

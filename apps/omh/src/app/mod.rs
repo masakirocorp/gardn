@@ -3117,9 +3117,7 @@ impl App {
             crossterm::event::KeyCode::Enter => {
                 let new_name = client_view.name_input.trim().to_string();
                 match client_view.mode {
-                    Mode::RenameWorkspace
-                        if client_view.pending_workspace_create_cwd.is_some() =>
-                    {
+                    Mode::RenameWorkspace if client_view.pending_workspace_create_cwd.is_some() => {
                         let Some(cwd) = client_view.pending_workspace_create_cwd.take() else {
                             return;
                         };
@@ -3128,8 +3126,10 @@ impl App {
                             .take()
                             .unwrap_or(client_view.active_group);
                         let suggested_name = crate::workspace::derive_label_from_cwd(&cwd);
-                        let label =
-                            crate::app::creation::workspace_create_label(&new_name, &suggested_name);
+                        let label = crate::app::creation::workspace_create_label(
+                            &new_name,
+                            &suggested_name,
+                        );
                         let Some(group_id) = self
                             .state
                             .groups
@@ -6054,9 +6054,7 @@ impl App {
         if !inside {
             if matches!(
                 mouse.kind,
-                crossterm::event::MouseEventKind::Down(
-                    crossterm::event::MouseButton::Left
-                )
+                crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left)
             ) {
                 self.close_popup_pane_for_view(client_view);
             }

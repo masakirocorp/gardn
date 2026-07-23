@@ -1,6 +1,5 @@
 use std::cmp::Ordering;
 
-
 use crate::api::schema::{
     AgentStatus, AgentViewBuiltinField, AgentViewBuiltinSortField, AgentViewContext,
     AgentViewField, AgentViewFilter, AgentViewSetParams, AgentViewSort, AgentViewSortField,
@@ -308,7 +307,9 @@ fn builtin_field_value(
     field: AgentViewBuiltinField,
 ) -> Option<EvalValue> {
     match field {
-        AgentViewBuiltinField::Status => Some(EvalValue::String(status_name(entry.state, entry.seen))),
+        AgentViewBuiltinField::Status => {
+            Some(EvalValue::String(status_name(entry.state, entry.seen)))
+        }
         AgentViewBuiltinField::WorkspaceId => app
             .workspaces
             .get(entry.ws_idx)
@@ -323,7 +324,11 @@ fn builtin_field_value(
     }
 }
 
-fn operand_value(app: &AppState, view: &ClientViewState, value: &AgentViewValue) -> Option<EvalValue> {
+fn operand_value(
+    app: &AppState,
+    view: &ClientViewState,
+    value: &AgentViewValue,
+) -> Option<EvalValue> {
     match value {
         AgentViewValue::String(value) => Some(EvalValue::String(value.clone())),
         AgentViewValue::Bool(value) => Some(EvalValue::Bool(*value)),
@@ -347,10 +352,9 @@ fn context_value(
         AgentViewContext::CurrentWorkspaceId => Some(EvalValue::String(workspace.id.clone())),
         AgentViewContext::CurrentTabId => {
             let tab_number = workspace.public_tab_number(workspace.active_tab)?;
-            Some(EvalValue::String(crate::workspace::public_tab_id_for_number(
-                &workspace.id,
-                tab_number,
-            )))
+            Some(EvalValue::String(
+                crate::workspace::public_tab_id_for_number(&workspace.id, tab_number),
+            ))
         }
     }
 }
@@ -365,7 +369,9 @@ fn sort_value(
             entry.tokens.get(token).cloned().map(EvalValue::String)
         }
         AgentViewSortField::Builtin(field) => match field {
-            AgentViewBuiltinSortField::WorkspaceOrder => Some(EvalValue::Number(entry.ws_idx as u64)),
+            AgentViewBuiltinSortField::WorkspaceOrder => {
+                Some(EvalValue::Number(entry.ws_idx as u64))
+            }
             AgentViewBuiltinSortField::TabOrder => app
                 .workspaces
                 .get(entry.ws_idx)
@@ -391,7 +397,11 @@ fn sort_value(
     }
 }
 
-fn entry_key(app: &AppState, _view: &ClientViewState, entry: &AgentPanelEntry) -> (usize, usize, usize) {
+fn entry_key(
+    app: &AppState,
+    _view: &ClientViewState,
+    entry: &AgentPanelEntry,
+) -> (usize, usize, usize) {
     let tab_order = app
         .workspaces
         .get(entry.ws_idx)
@@ -426,13 +436,19 @@ fn status_name(state: crate::detect::AgentState, seen: bool) -> String {
 fn public_tab_id(app: &AppState, entry: &AgentPanelEntry) -> Option<String> {
     let workspace = app.workspaces.get(entry.ws_idx)?;
     let number = workspace.public_tab_number(entry.tab_idx)?;
-    Some(crate::workspace::public_tab_id_for_number(&workspace.id, number))
+    Some(crate::workspace::public_tab_id_for_number(
+        &workspace.id,
+        number,
+    ))
 }
 
 fn public_pane_id(app: &AppState, entry: &AgentPanelEntry) -> Option<String> {
     let workspace = app.workspaces.get(entry.ws_idx)?;
     let number = workspace.public_pane_number(entry.pane_id)?;
-    Some(crate::workspace::public_pane_id_for_number(&workspace.id, number))
+    Some(crate::workspace::public_pane_id_for_number(
+        &workspace.id,
+        number,
+    ))
 }
 
 #[cfg(test)]

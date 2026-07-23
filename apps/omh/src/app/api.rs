@@ -829,8 +829,7 @@ impl App {
         match request.method {
             crate::api::schema::Method::AgentViewSet(params) => {
                 self.drain_internal_events();
-                let response =
-                    self.handle_agent_view_set_for_view(client_view, request.id, params);
+                let response = self.handle_agent_view_set_for_view(client_view, request.id, params);
                 client_view.reconcile(&self.state);
                 response
             }
@@ -1029,8 +1028,8 @@ impl App {
                     crate::api::schema::Method::PluginDisable(params) => Some(&params.plugin_id),
                     _ => None,
                 };
-                if let Some(plugin_id) =
-                    plugin_id.and_then(|plugin_id| super::api::plugins::normalize_plugin_id(plugin_id))
+                if let Some(plugin_id) = plugin_id
+                    .and_then(|plugin_id| super::api::plugins::normalize_plugin_id(plugin_id))
                 {
                     let source = format!("plugin:{plugin_id}");
                     self.clear_agent_view_for_source(client_view, &source);

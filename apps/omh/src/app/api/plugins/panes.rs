@@ -125,9 +125,7 @@ impl App {
         let Some(popup) = self.state.popup_panes.get(&pane_id) else {
             return encode_error(id, "plugin_pane_not_found", "plugin pane not found");
         };
-        if popup.owner.is_some_and(|owner| owner != view.id())
-            || view.popup_pane != Some(pane_id)
-        {
+        if popup.owner.is_some_and(|owner| owner != view.id()) || view.popup_pane != Some(pane_id) {
             return encode_error(id, "plugin_pane_not_found", "plugin pane not found");
         }
         if !self.close_popup_pane_for_view(view) {

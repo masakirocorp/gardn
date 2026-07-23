@@ -602,10 +602,7 @@ fn detect_remote_platform(ssh: &RemoteSsh) -> io::Result<RemotePlatform> {
     })
 }
 
-fn remote_binary_candidates(
-    ssh: &RemoteSsh,
-    remote_omh: &RemoteOmh,
-) -> io::Result<Vec<RemoteOmh>> {
+fn remote_binary_candidates(ssh: &RemoteSsh, remote_omh: &RemoteOmh) -> io::Result<Vec<RemoteOmh>> {
     let mut candidates = Vec::new();
 
     if let Some(path_candidate) = remote_binary_on_path_any(ssh, remote_omh)? {
@@ -2376,11 +2373,9 @@ exit 99
             },
         );
 
-        assert!(
-            result
-                .expect("missing mise install should not abort discovery")
-                .is_empty()
-        );
+        assert!(result
+            .expect("missing mise install should not abort discovery")
+            .is_empty());
         assert_eq!(invocations, "primary\nfallback\nmise\n");
     }
 
@@ -2404,11 +2399,9 @@ exit 99
             },
         );
 
-        assert!(
-            result
-                .expect("malformed mise output should not abort discovery")
-                .is_empty()
-        );
+        assert!(result
+            .expect("malformed mise output should not abort discovery")
+            .is_empty());
         assert_eq!(invocations, "primary\nfallback\nmise\n");
     }
 
@@ -2466,9 +2459,7 @@ exit 99
     fn known_mise_candidate_script_checks_both_install_layouts() {
         let script = known_remote_binary_candidate_script();
 
-        assert!(script.contains(
-            "emit \"$home/.local/share/mise/installs/omh/$version/bin/omh\""
-        ));
+        assert!(script.contains("emit \"$home/.local/share/mise/installs/omh/$version/bin/omh\""));
         assert!(script.contains("emit \"$home/.local/share/mise/installs/omh/$version/omh\""));
         assert!(script.contains(&format!("version={}", shell_quote(CURRENT_VERSION))));
         assert!(!script.contains("mise/shims/omh"));
@@ -2533,14 +2524,11 @@ exit 99
             },
         );
 
-        assert!(
-            result
-                .expect("dual discovery failure should not abort installation")
-                .is_none()
-        );
+        assert!(result
+            .expect("dual discovery failure should not abort installation")
+            .is_none());
         assert_eq!(invocations, "primary\nfallback\n");
     }
-
 
     #[test]
     fn remote_shell_path_warning_accepts_managed_install() {

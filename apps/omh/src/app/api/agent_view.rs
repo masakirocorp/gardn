@@ -210,8 +210,7 @@ mod tests {
                 method: Method::AgentViewSet(invalid),
             },
         );
-        let response: crate::api::schema::ErrorResponse =
-            serde_json::from_str(&response).unwrap();
+        let response: crate::api::schema::ErrorResponse = serde_json::from_str(&response).unwrap();
         assert_eq!(response.error.code, "invalid_agent_view");
         assert_eq!(
             view.agent_view_override

@@ -674,8 +674,7 @@ fn probe_stream_closed(stream: &mut LocalStream) -> std::io::Result<bool> {
         Err(err) if is_connection_closed_error(&err) => Ok(None),
         Err(err) => Err(err),
     };
-    finish_timed_read(result, || stream.set_nonblocking(false))
-        .map(|status| status.unwrap_or(true))
+    finish_timed_read(result, || stream.set_nonblocking(false)).map(|status| status.unwrap_or(true))
 }
 
 fn is_connection_closed_error(err: &std::io::Error) -> bool {
@@ -835,10 +834,7 @@ mod tests {
         }
     }
 
-    fn agent_get_response(
-        msg: &ApiRequestMessage,
-        agent: crate::api::schema::AgentInfo,
-    ) -> String {
+    fn agent_get_response(msg: &ApiRequestMessage, agent: crate::api::schema::AgentInfo) -> String {
         serde_json::to_string(&SuccessResponse {
             id: msg.request.id.clone(),
             result: ResponseResult::AgentInfo { agent },
@@ -857,7 +853,9 @@ mod tests {
         .unwrap()
     }
 
-    fn pane_lifecycle_event(data: crate::api::schema::EventData) -> crate::api::schema::EventEnvelope {
+    fn pane_lifecycle_event(
+        data: crate::api::schema::EventData,
+    ) -> crate::api::schema::EventEnvelope {
         let event = match &data {
             crate::api::schema::EventData::PaneClosed { .. } => {
                 crate::api::schema::EventKind::PaneClosed
@@ -979,13 +977,8 @@ mod tests {
         let server_event_hub = event_hub.clone();
         let (done_tx, done_rx) = std::sync::mpsc::channel();
         let server_thread = std::thread::spawn(move || {
-            let result = handle_connection(
-                server,
-                &api_tx,
-                &server_event_hub,
-                &server_running,
-                None,
-            );
+            let result =
+                handle_connection(server, &api_tx, &server_event_hub, &server_running, None);
             done_tx.send(result).unwrap();
         });
 
@@ -1016,7 +1009,10 @@ mod tests {
             "terminal wait returned before requested transition: {elapsed:?}"
         );
 
-        assert!(done_rx.recv_timeout(Duration::from_secs(2)).unwrap().is_ok());
+        assert!(done_rx
+            .recv_timeout(Duration::from_secs(2))
+            .unwrap()
+            .is_ok());
         server_thread.join().unwrap();
         responder.join().unwrap();
         let _ = std::fs::remove_file(path);
@@ -1065,13 +1061,8 @@ mod tests {
         let server_event_hub = event_hub.clone();
         let (done_tx, done_rx) = std::sync::mpsc::channel();
         let server_thread = std::thread::spawn(move || {
-            let result = handle_connection(
-                server,
-                &api_tx,
-                &server_event_hub,
-                &server_running,
-                None,
-            );
+            let result =
+                handle_connection(server, &api_tx, &server_event_hub, &server_running, None);
             done_tx.send(result).unwrap();
         });
 
@@ -1088,7 +1079,10 @@ mod tests {
         assert_eq!(response["id"], "prompt_close");
         assert_eq!(response["error"]["code"], "agent_not_running");
 
-        assert!(done_rx.recv_timeout(Duration::from_secs(2)).unwrap().is_ok());
+        assert!(done_rx
+            .recv_timeout(Duration::from_secs(2))
+            .unwrap()
+            .is_ok());
         server_thread.join().unwrap();
         responder.join().unwrap();
         let _ = std::fs::remove_file(path);
@@ -1137,19 +1131,17 @@ mod tests {
         let server_event_hub = event_hub.clone();
         let (done_tx, done_rx) = std::sync::mpsc::channel();
         let server_thread = std::thread::spawn(move || {
-            let result = handle_connection(
-                server,
-                &api_tx,
-                &server_event_hub,
-                &server_running,
-                None,
-            );
+            let result =
+                handle_connection(server, &api_tx, &server_event_hub, &server_running, None);
             done_tx.send(result).unwrap();
         });
 
         prompt_rx.recv_timeout(Duration::from_secs(2)).unwrap();
         drop(client);
-        assert!(done_rx.recv_timeout(Duration::from_secs(2)).unwrap().is_ok());
+        assert!(done_rx
+            .recv_timeout(Duration::from_secs(2))
+            .unwrap()
+            .is_ok());
         server_thread.join().unwrap();
         responder.join().unwrap();
         let _ = std::fs::remove_file(path);
@@ -1198,19 +1190,17 @@ mod tests {
         let server_event_hub = event_hub.clone();
         let (done_tx, done_rx) = std::sync::mpsc::channel();
         let server_thread = std::thread::spawn(move || {
-            let result = handle_connection(
-                server,
-                &api_tx,
-                &server_event_hub,
-                &server_running,
-                None,
-            );
+            let result =
+                handle_connection(server, &api_tx, &server_event_hub, &server_running, None);
             done_tx.send(result).unwrap();
         });
 
         prompt_rx.recv_timeout(Duration::from_secs(2)).unwrap();
         running.store(false, Ordering::Relaxed);
-        assert!(done_rx.recv_timeout(Duration::from_secs(2)).unwrap().is_ok());
+        assert!(done_rx
+            .recv_timeout(Duration::from_secs(2))
+            .unwrap()
+            .is_ok());
         server_thread.join().unwrap();
         drop(client);
         responder.join().unwrap();
@@ -1264,11 +1254,9 @@ mod tests {
         let elapsed = started.elapsed();
         assert_eq!(response["id"], "prompt_stall");
         assert_eq!(response["error"]["code"], "agent_prompt_stalled");
-        assert!(
-            response["error"]["message"]
-                .as_str()
-                .is_some_and(|message| message.contains("state_change_seq remained"))
-        );
+        assert!(response["error"]["message"]
+            .as_str()
+            .is_some_and(|message| message.contains("state_change_seq remained")));
         assert!(
             elapsed >= Duration::from_secs(4),
             "stall returned too early: {elapsed:?}"
@@ -1278,7 +1266,10 @@ mod tests {
             "stall exceeded bound: {elapsed:?}"
         );
 
-        assert!(done_rx.recv_timeout(Duration::from_secs(2)).unwrap().is_ok());
+        assert!(done_rx
+            .recv_timeout(Duration::from_secs(2))
+            .unwrap()
+            .is_ok());
         server_thread.join().unwrap();
         responder.join().unwrap();
         let _ = std::fs::remove_file(path);
@@ -1855,7 +1846,10 @@ mod tests {
                 workspace_id: "workspace_1".into(),
             },
         ));
-        assert!(done_rx.recv_timeout(Duration::from_secs(2)).unwrap().is_ok());
+        assert!(done_rx
+            .recv_timeout(Duration::from_secs(2))
+            .unwrap()
+            .is_ok());
         let response: serde_json::Value = serde_json::from_str(&read_line(&mut client)).unwrap();
         assert_eq!(response["error"]["code"], "agent_not_running");
         server_thread.join().unwrap();
@@ -1863,7 +1857,6 @@ mod tests {
         responder.join().unwrap();
         let _ = std::fs::remove_file(path);
     }
-
 
     #[test]
     fn agent_wait_returns_agent_not_running_when_target_pane_closes() {
@@ -2012,7 +2005,10 @@ mod tests {
                 tokens: std::collections::HashMap::new(),
             },
         ));
-        assert!(done_rx.recv_timeout(Duration::from_secs(2)).unwrap().is_ok());
+        assert!(done_rx
+            .recv_timeout(Duration::from_secs(2))
+            .unwrap()
+            .is_ok());
         let response: serde_json::Value = serde_json::from_str(&read_line(&mut client)).unwrap();
         assert_eq!(response["error"]["code"], "agent_not_running");
         server_thread.join().unwrap();
@@ -2047,7 +2043,9 @@ mod tests {
                         Some("pi"),
                     )
                 };
-                msg.respond_to.send(agent_get_response(&msg, agent)).unwrap();
+                msg.respond_to
+                    .send(agent_get_response(&msg, agent))
+                    .unwrap();
             }
         });
 
@@ -2089,7 +2087,10 @@ mod tests {
                 tokens: std::collections::HashMap::new(),
             },
         ));
-        assert!(done_rx.recv_timeout(Duration::from_secs(2)).unwrap().is_ok());
+        assert!(done_rx
+            .recv_timeout(Duration::from_secs(2))
+            .unwrap()
+            .is_ok());
         let response: serde_json::Value = serde_json::from_str(&read_line(&mut client)).unwrap();
         assert_eq!(response["result"]["type"], "agent_info");
         assert_eq!(response["result"]["agent"]["terminal_id"], "terminal_1");
@@ -2133,11 +2134,15 @@ mod tests {
         let server_api_tx = api_tx.clone();
         let (done_tx, done_rx) = std::sync::mpsc::channel();
         let server_thread = std::thread::spawn(move || {
-            let result = handle_connection(server, &server_api_tx, &event_hub, &server_running, None);
+            let result =
+                handle_connection(server, &server_api_tx, &event_hub, &server_running, None);
             done_tx.send(result).unwrap();
         });
         initial_rx.recv_timeout(Duration::from_secs(2)).unwrap();
-        assert!(done_rx.recv_timeout(Duration::from_secs(2)).unwrap().is_ok());
+        assert!(done_rx
+            .recv_timeout(Duration::from_secs(2))
+            .unwrap()
+            .is_ok());
         let response: serde_json::Value = serde_json::from_str(&read_line(&mut client)).unwrap();
         assert_eq!(response["error"]["code"], "timeout");
         server_thread.join().unwrap();
@@ -2180,12 +2185,16 @@ mod tests {
         let server_api_tx = api_tx.clone();
         let (done_tx, done_rx) = std::sync::mpsc::channel();
         let server_thread = std::thread::spawn(move || {
-            let result = handle_connection(server, &server_api_tx, &event_hub, &server_running, None);
+            let result =
+                handle_connection(server, &server_api_tx, &event_hub, &server_running, None);
             done_tx.send(result).unwrap();
         });
         initial_rx.recv_timeout(Duration::from_secs(2)).unwrap();
         drop(client);
-        assert!(done_rx.recv_timeout(Duration::from_secs(2)).unwrap().is_ok());
+        assert!(done_rx
+            .recv_timeout(Duration::from_secs(2))
+            .unwrap()
+            .is_ok());
         server_thread.join().unwrap();
         drop(api_tx);
         responder.join().unwrap();

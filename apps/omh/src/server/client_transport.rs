@@ -752,10 +752,7 @@ mod tests {
         (client, server, path)
     }
 
-    fn recv_server_event(
-        receiver: &mut mpsc::Receiver<ServerEvent>,
-        context: &str,
-    ) -> ServerEvent {
+    fn recv_server_event(receiver: &mut mpsc::Receiver<ServerEvent>, context: &str) -> ServerEvent {
         let deadline = std::time::Instant::now() + Duration::from_secs(1);
         loop {
             match receiver.try_recv() {
@@ -1200,8 +1197,7 @@ new_tab = "ctrl+notakey"
 
     #[test]
     fn client_read_loop_disconnects_oversized_non_paste_input() {
-        let (mut client_stream, server_stream, _path) =
-            local_stream_pair("oversized-non-paste");
+        let (mut client_stream, server_stream, _path) = local_stream_pair("oversized-non-paste");
         let (server_event_tx, mut server_event_rx) = mpsc::channel(4);
         let should_quit = Arc::new(AtomicBool::new(false));
         let read_quit = should_quit.clone();

@@ -4399,9 +4399,7 @@ mod tests {
 
         assert_eq!(
             path,
-            agent_dir
-                .join("extensions")
-                .join(PI_EXTENSION_INSTALL_NAME)
+            agent_dir.join("extensions").join(PI_EXTENSION_INSTALL_NAME)
         );
         assert!(path.is_file());
 

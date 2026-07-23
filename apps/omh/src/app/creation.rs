@@ -51,7 +51,6 @@ pub(crate) fn workspace_create_label(input: &str, suggested_name: &str) -> Optio
     (!name.is_empty() && name != suggested_name).then(|| name.to_string())
 }
 
-
 impl App {
     pub(super) fn collision_free_workspace_name(
         &self,

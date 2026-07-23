@@ -146,8 +146,8 @@ pub(crate) use self::{
         workspace_drop_indicator_row, workspace_list_body_rect, workspace_list_entry_count,
         workspace_list_entry_count_for_view, workspace_list_position_for_workspace,
         workspace_list_rect, workspace_list_scroll_metrics, workspace_list_scroll_metrics_for_view,
-        workspace_list_scrollbar_rect, workspace_list_scrollbar_rect_for_view,
-        AgentPanelEntry, AgentPanelHeaderTarget, CollapsedWorkspaceRowEntry,
+        workspace_list_scrollbar_rect, workspace_list_scrollbar_rect_for_view, AgentPanelEntry,
+        AgentPanelHeaderTarget, CollapsedWorkspaceRowEntry,
     },
 };
 pub(crate) use self::{
@@ -716,15 +716,9 @@ fn compute_view_for_client_internal(
             cell_size,
         );
     }
-        if resize_panes {
-            resize_popup_pane_for_view(
-                app,
-                client_view,
-                terminal_runtimes,
-                area,
-                cell_size,
-            );
-        }
+    if resize_panes {
+        resize_popup_pane_for_view(app, client_view, terminal_runtimes, area, cell_size);
+    }
 
     let toast_hit_area = app
         .toast
@@ -1357,15 +1351,13 @@ pub fn render_with_runtime_registry_for_view(
         Mode::Prefix => render_prefix_overlay_for_view(app, client_view, frame, terminal_area),
         Mode::Copy => render_copy_mode_overlay_for_view(app, client_view, frame, terminal_area),
         Mode::Resize => render_resize_overlay_for_view(app, client_view, frame, terminal_area),
-        Mode::ConfirmClose => {
-            render_confirm_close_overlay_for_view(
-                app,
-                client_view,
-                terminal_runtimes,
-                frame,
-                terminal_area,
-            )
-        }
+        Mode::ConfirmClose => render_confirm_close_overlay_for_view(
+            app,
+            client_view,
+            terminal_runtimes,
+            frame,
+            terminal_area,
+        ),
         Mode::ConfirmDeleteGroup => {
             render_confirm_delete_group_overlay_for_view(app, client_view, frame, terminal_area)
         }

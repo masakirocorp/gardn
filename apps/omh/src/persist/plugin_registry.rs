@@ -273,7 +273,10 @@ mod tests {
     #[test]
     fn migrates_named_session_registries_once_without_duplicates() {
         let _lock = crate::config::test_config_env_lock().lock().unwrap();
-        let xdg_config_home = temp_registry_path("migration").parent().unwrap().join("xdg");
+        let xdg_config_home = temp_registry_path("migration")
+            .parent()
+            .unwrap()
+            .join("xdg");
         let _config_home = crate::config::TestEnvVar::set("XDG_CONFIG_HOME", &xdg_config_home);
         let config_dir = crate::config::config_dir();
         let first = config_dir.join("sessions/alpha/plugins.json");
@@ -281,7 +284,10 @@ mod tests {
         save_to_path(&first, &[sample_plugin("example.legacy")]).unwrap();
         save_to_path(
             &second,
-            &[sample_plugin("example.legacy"), sample_plugin("example.other")],
+            &[
+                sample_plugin("example.legacy"),
+                sample_plugin("example.other"),
+            ],
         )
         .unwrap();
 

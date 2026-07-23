@@ -25,12 +25,7 @@ fn app_dir_name() -> &'static str {
     }
 }
 
-fn run_cli(
-    config_home: &Path,
-    runtime_dir: &Path,
-    state_home: &Path,
-    args: &[&str],
-) -> Output {
+fn run_cli(config_home: &Path, runtime_dir: &Path, state_home: &Path, args: &[&str]) -> Output {
     Command::new(env!("CARGO_BIN_EXE_omh"))
         .args(args)
         .env("XDG_CONFIG_HOME", config_home)
@@ -75,7 +70,12 @@ impl Drop for RunningServer {
     }
 }
 
-fn spawn_server(config_home: &Path, runtime_dir: &Path, state_home: &Path, session: &str) -> RunningServer {
+fn spawn_server(
+    config_home: &Path,
+    runtime_dir: &Path,
+    state_home: &Path,
+    session: &str,
+) -> RunningServer {
     fs::create_dir_all(config_home.join(app_dir_name())).expect("create config directory");
     fs::create_dir_all(runtime_dir).expect("create runtime directory");
     fs::create_dir_all(state_home).expect("create state directory");
@@ -128,10 +128,17 @@ fn plugin_link_offline_persists_global_registry_and_replaces_existing() {
             manifest.to_str().unwrap(),
         ],
     );
-    assert!(first.status.success(), "stderr: {}", String::from_utf8_lossy(&first.stderr));
+    assert!(
+        first.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&first.stderr)
+    );
     let first_json = parse_json(&first.stdout);
     assert_eq!(first_json["result"]["type"], "plugin_linked");
-    assert_eq!(first_json["result"]["plugin"]["plugin_id"], "example.offline");
+    assert_eq!(
+        first_json["result"]["plugin"]["plugin_id"],
+        "example.offline"
+    );
     assert_eq!(first_json["result"]["plugin"]["enabled"], true);
     assert_eq!(first_json["result"]["plugin"]["source"]["kind"], "local");
 
@@ -148,7 +155,11 @@ fn plugin_link_offline_persists_global_registry_and_replaces_existing() {
             "--disabled",
         ],
     );
-    assert!(second.status.success(), "stderr: {}", String::from_utf8_lossy(&second.stderr));
+    assert!(
+        second.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&second.stderr)
+    );
     let second_json = parse_json(&second.stdout);
     assert_eq!(second_json["result"]["plugin"]["enabled"], false);
 
@@ -158,13 +169,20 @@ fn plugin_link_offline_persists_global_registry_and_replaces_existing() {
         &state_home,
         &["--session", "other", "plugin", "list", "--json"],
     );
-    assert!(listed.status.success(), "stderr: {}", String::from_utf8_lossy(&listed.stderr));
+    assert!(
+        listed.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&listed.stderr)
+    );
     let listed_json = parse_json(&listed.stdout);
     let plugins = listed_json["result"]["plugins"].as_array().unwrap();
     assert_eq!(plugins.len(), 1);
     assert_eq!(plugins[0]["plugin_id"], "example.offline");
     assert_eq!(plugins[0]["enabled"], false);
-    assert!(config_home.join(app_dir_name()).join("plugins.json").exists());
+    assert!(config_home
+        .join(app_dir_name())
+        .join("plugins.json")
+        .exists());
 
     cleanup_test_base(&base);
 }
@@ -191,7 +209,10 @@ fn plugin_link_invalid_manifest_matches_live_server_error() {
     );
     assert_eq!(offline.status.code(), Some(1));
     let offline_error = parse_json(&offline.stderr);
-    assert_eq!(offline_error["error"]["code"], "plugin_manifest_parse_failed");
+    assert_eq!(
+        offline_error["error"]["code"],
+        "plugin_manifest_parse_failed"
+    );
 
     let live_config = base.join("live-config");
     let live_runtime = base.join("live-runtime");
@@ -201,11 +222,20 @@ fn plugin_link_invalid_manifest_matches_live_server_error() {
         &live_config,
         &live_runtime,
         &live_state,
-        &["--session", "live", "plugin", "link", manifest.to_str().unwrap()],
+        &[
+            "--session",
+            "live",
+            "plugin",
+            "link",
+            manifest.to_str().unwrap(),
+        ],
     );
     assert_eq!(live.status.code(), Some(1));
     assert_eq!(offline_error, parse_json(&live.stderr));
-    assert!(!live_config.join(app_dir_name()).join("plugins.json").exists());
+    assert!(!live_config
+        .join(app_dir_name())
+        .join("plugins.json")
+        .exists());
 
     cleanup_test_base(&base);
 }
@@ -231,7 +261,11 @@ fn plugin_link_offline_response_matches_live_server_response() {
             "--disabled",
         ],
     );
-    assert!(offline.status.success(), "stderr: {}", String::from_utf8_lossy(&offline.stderr));
+    assert!(
+        offline.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&offline.stderr)
+    );
 
     let live_config = base.join("live-config");
     let live_runtime = base.join("live-runtime");
@@ -250,7 +284,11 @@ fn plugin_link_offline_response_matches_live_server_response() {
             "--disabled",
         ],
     );
-    assert!(live.status.success(), "stderr: {}", String::from_utf8_lossy(&live.stderr));
+    assert!(
+        live.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&live.stderr)
+    );
     assert_eq!(parse_json(&offline.stdout), parse_json(&live.stdout));
 
     cleanup_test_base(&base);

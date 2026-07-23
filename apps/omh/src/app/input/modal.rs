@@ -711,9 +711,7 @@ pub(super) fn apply_rename_action(state: &mut AppState, action: ModalAction) {
                 state.name_input.trim().to_string()
             };
             match state.mode {
-                Mode::RenameWorkspace
-                    if state.pending_workspace_create_cwd.is_some() =>
-                {
+                Mode::RenameWorkspace if state.pending_workspace_create_cwd.is_some() => {
                     let suggested_name = state
                         .pending_workspace_create_cwd
                         .as_ref()
@@ -851,9 +849,7 @@ impl crate::app::App {
 
         let new_name = self.state.name_input.trim().to_string();
         match self.state.mode {
-            Mode::RenameWorkspace
-                if self.state.pending_workspace_create_cwd.is_some() =>
-            {
+            Mode::RenameWorkspace if self.state.pending_workspace_create_cwd.is_some() => {
                 let Some(cwd) = self.state.pending_workspace_create_cwd.take() else {
                     return;
                 };
@@ -2213,8 +2209,7 @@ mod tests {
             crate::app::state::NavigatorTarget::Pane { pane_id, .. } if pane_id == target
         ));
         assert!(rows.iter().any(|row| {
-            matches!(row.target, crate::app::state::NavigatorTarget::Group { .. })
-                && !row.matched
+            matches!(row.target, crate::app::state::NavigatorTarget::Group { .. }) && !row.matched
         }));
         assert!(rows.iter().any(|row| {
             matches!(

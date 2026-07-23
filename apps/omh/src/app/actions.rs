@@ -636,8 +636,7 @@ impl AppState {
         let multi_tab = explicit || ws.tabs.len() > 1;
         let mut rows = Vec::new();
         for tab_idx in 0..ws.tabs.len() {
-            let mut pane_rows =
-                self.navigator_pane_rows_for_tab(ws_idx, tab_idx, multi_tab, focus);
+            let mut pane_rows = self.navigator_pane_rows_for_tab(ws_idx, tab_idx, multi_tab, focus);
             let show_pane_rows = if explicit {
                 focus.active_workspace == Some(ws_idx)
                     && focus.active_tab == Some(tab_idx)
@@ -696,9 +695,7 @@ impl AppState {
                             row
                         })
                         .collect::<Vec<_>>(),
-                    NavigatorQueryKind::Text
-                        if workspace_direct_match || tab_direct_match =>
-                    {
+                    NavigatorQueryKind::Text if workspace_direct_match || tab_direct_match => {
                         for row in &mut pane_rows {
                             row.matched = navigator_matches(direct_query, &row.search_text);
                         }

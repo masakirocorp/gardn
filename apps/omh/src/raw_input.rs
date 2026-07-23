@@ -117,7 +117,6 @@ pub(crate) fn is_complete_text_bracketed_paste(data: &[u8]) -> bool {
         && std::str::from_utf8(&data[BRACKETED_PASTE_START.len()..end]).is_ok()
 }
 
-
 #[derive(Debug)]
 pub enum RawInputEvent {
     Key(TerminalKey),
@@ -164,8 +163,7 @@ impl RawInputFramer {
     }
 
     pub(crate) fn has_pending_incomplete_sgr_mouse_sequence(&self) -> bool {
-        self.byte_framer
-            .has_pending_incomplete_sgr_mouse_sequence()
+        self.byte_framer.has_pending_incomplete_sgr_mouse_sequence()
     }
     #[cfg(any(windows, test))]
     pub(crate) fn has_pending_bracketed_paste(&self) -> bool {
@@ -211,9 +209,7 @@ const HOST_COLOR_QUERY_REPLIES: u8 = 2;
 
 impl RawInputByteFramer {
     pub(crate) fn for_host_input() -> Self {
-        Self::with_host_input_policy(
-            crate::platform::preserve_legacy_doubled_escape_input(),
-        )
+        Self::with_host_input_policy(crate::platform::preserve_legacy_doubled_escape_input())
     }
 
     fn with_host_input_policy(preserve_legacy_doubled_escape_input: bool) -> Self {
@@ -301,8 +297,7 @@ impl RawInputByteFramer {
                 "discarding incomplete SGR mouse sequence after input timeout"
             );
             self.discarded_tail_bytes = self.buffer.len();
-            self.discard_until = (self.discarded_tail_bytes
-                <= MAX_DISCARDED_CONTROL_TAIL_BYTES)
+            self.discard_until = (self.discarded_tail_bytes <= MAX_DISCARDED_CONTROL_TAIL_BYTES)
                 .then_some(ControlStringFamily::OrphanedSgrMouseTail);
             self.buffer.clear();
             return chunks;
@@ -1096,9 +1091,7 @@ mod tests {
 
     #[test]
     fn complete_text_bracketed_paste_requires_one_exact_utf8_sequence() {
-        assert!(is_complete_text_bracketed_paste(
-            b"\x1b[200~hello\x1b[201~"
-        ));
+        assert!(is_complete_text_bracketed_paste(b"\x1b[200~hello\x1b[201~"));
         assert!(!is_complete_text_bracketed_paste(b"\x1b[200~hello"));
         assert!(!is_complete_text_bracketed_paste(
             b"\x1b[200~hello\x1b[201~rest"
@@ -1106,9 +1099,7 @@ mod tests {
         assert!(!is_complete_text_bracketed_paste(
             b"\x1b[200~one\x1b[201~\x1b[200~two\x1b[201~"
         ));
-        assert!(!is_complete_text_bracketed_paste(
-            b"\x1b[200~\xff\x1b[201~"
-        ));
+        assert!(!is_complete_text_bracketed_paste(b"\x1b[200~\xff\x1b[201~"));
     }
 
     #[test]
@@ -1541,10 +1532,7 @@ mod tests {
     #[test]
     fn lone_escape_before_complete_sgr_mouse_report_emits_ordered_events() {
         for preserve_legacy_doubled_escape_input in [false, true] {
-            for report in [
-                b"\x1b[<35;10;20M".as_slice(),
-                b"\x1b[<35;10;20m".as_slice(),
-            ] {
+            for report in [b"\x1b[<35;10;20M".as_slice(), b"\x1b[<35;10;20m".as_slice()] {
                 let mut framer = RawInputByteFramer::with_host_input_policy(
                     preserve_legacy_doubled_escape_input,
                 );
@@ -1839,10 +1827,7 @@ mod tests {
 
         let mut mouse = RawInputByteFramer::with_host_input_policy(false);
         assert!(mouse.push(b"\x1b[<3").is_empty());
-        assert_eq!(
-            mouse.push(b"5;58;30M"),
-            vec![b"\x1b[<35;58;30M".to_vec()]
-        );
+        assert_eq!(mouse.push(b"5;58;30M"), vec![b"\x1b[<35;58;30M".to_vec()]);
     }
 
     #[test]

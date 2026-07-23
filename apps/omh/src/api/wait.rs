@@ -205,10 +205,9 @@ pub(super) fn prompt_agent(
     let mut require_transition = true;
     let mut last_event_sequence = last_event_sequence;
     if initial.agent_status != crate::api::schema::AgentStatus::Working {
-        let effect_timeout_ms = timeout_ms
-            .map_or(AGENT_PROMPT_EFFECT_TIMEOUT_MS, |timeout_ms| {
-                timeout_ms.min(AGENT_PROMPT_EFFECT_TIMEOUT_MS)
-            });
+        let effect_timeout_ms = timeout_ms.map_or(AGENT_PROMPT_EFFECT_TIMEOUT_MS, |timeout_ms| {
+            timeout_ms.min(AGENT_PROMPT_EFFECT_TIMEOUT_MS)
+        });
         let phase_result = wait_for_agent_state(
             request_id.clone(),
             target.clone(),
@@ -347,8 +346,8 @@ fn wait_for_agent_state(
         return agent_wait_success(request_id, initial).map(Some);
     }
 
-    let deadline = timeout_ms
-        .map(|ms| std::time::Instant::now() + std::time::Duration::from_millis(ms));
+    let deadline =
+        timeout_ms.map(|ms| std::time::Instant::now() + std::time::Duration::from_millis(ms));
     let expected_terminal_id = initial.terminal_id.clone();
     let expected_pane_id = initial.pane_id.clone();
     let mut last_event_sequence = initial_event_sequence;
@@ -375,13 +374,16 @@ fn wait_for_agent_state(
                 {
                     return agent_wait_not_running(request_id).map(Some);
                 }
-                crate::api::schema::EventData::PaneAgentDetected {
-                    pane_id, agent, ..
-                } if pane_id == expected_pane_id && agent.is_none() => {
+                crate::api::schema::EventData::PaneAgentDetected { pane_id, agent, .. }
+                    if pane_id == expected_pane_id && agent.is_none() =>
+                {
                     return agent_wait_not_running(request_id).map(Some);
                 }
                 crate::api::schema::EventData::PaneAgentDetected { pane_id, .. }
-                    if pane_id == expected_pane_id => None,
+                    if pane_id == expected_pane_id =>
+                {
+                    None
+                }
                 _ => continue,
             };
 
@@ -414,7 +416,6 @@ fn wait_for_agent_state(
         std::thread::sleep(CONNECTION_POLL_INTERVAL);
     }
 }
-
 
 fn agent_get(
     request_id: &str,

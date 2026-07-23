@@ -212,8 +212,7 @@ impl App {
         plugins.sort_by(|left, right| left.plugin_id.cmp(&right.plugin_id));
         for plugin in plugins {
             for startup in &plugin.startup {
-                let platforms =
-                    effective_platforms(&startup.platforms, &plugin.platforms).clone();
+                let platforms = effective_platforms(&startup.platforms, &plugin.platforms).clone();
                 if ensure_platform_supported(&platforms, "startup").is_err() {
                     continue;
                 }
@@ -476,12 +475,7 @@ min_omh_version = "0.2.0"
     #[test]
     fn startup_manifest_platform_override_is_effective() {
         let root = unique_root("override");
-        let mut plugin = startup_plugin(
-            &root,
-            "example.override",
-            true,
-            None,
-        );
+        let mut plugin = startup_plugin(&root, "example.override", true, None);
         plugin.platforms = Some(vec![PluginPlatform::Linux]);
 
         let mut app = test_app();
