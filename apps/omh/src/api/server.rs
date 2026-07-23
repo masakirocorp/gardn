@@ -384,6 +384,25 @@ fn api_response_outcome(response: &str) -> &'static str {
     }
 }
 
+fn finish_timed_read<T>(
+    result: std::io::Result<Option<T>>,
+    reset: impl FnOnce() -> std::io::Result<()>,
+) -> std::io::Result<Option<T>> {
+    match result {
+        // The peer owns this stream's lifetime. Once it has ended, restoring
+        // socket options can race the OS closing the peer and report EINVAL.
+        Ok(None) => Ok(None),
+        Ok(value) => {
+            reset()?;
+            Ok(value)
+        }
+        Err(err) => {
+            let _ = reset();
+            Err(err)
+        }
+    }
+}
+
 fn read_initial_request_line(stream: &mut LocalStream) -> std::io::Result<Option<String>> {
     read_initial_request_line_with_timeout(stream, INITIAL_REQUEST_TIMEOUT)
 }
@@ -400,7 +419,11 @@ fn read_initial_request_line_with_limits(
     timeout: Duration,
     max_bytes: usize,
 ) -> std::io::Result<Option<String>> {
-    set_local_stream_polling(stream, true)?;
+    match set_local_stream_polling(stream, true) {
+        Ok(()) => {}
+        Err(err) if err.kind() == io::ErrorKind::InvalidInput => return Ok(None),
+        Err(err) => return Err(err),
+    }
     let deadline = Instant::now() + timeout;
     let mut bytes = Vec::new();
     let mut byte = [0u8; 1];
@@ -436,8 +459,7 @@ fn read_initial_request_line_with_limits(
             }
         }
     };
-    set_local_stream_polling(stream, false)?;
-    result
+    finish_timed_read(result, || set_local_stream_polling(stream, false))
 }
 
 fn stream_subscriptions(
@@ -564,24 +586,28 @@ fn probe_stream_closed(_stream: &mut LocalStream) -> std::io::Result<bool> {
 
 #[cfg(not(windows))]
 fn probe_stream_closed(stream: &mut LocalStream) -> std::io::Result<bool> {
-    stream.set_nonblocking(true)?;
+    match stream.set_nonblocking(true) {
+        Ok(()) => {}
+        Err(err) if err.kind() == io::ErrorKind::InvalidInput => return Ok(true),
+        Err(err) => return Err(err),
+    }
     let mut probe = [0u8; 1];
-    let status = match stream.read(&mut probe) {
-        Ok(0) => Ok(true),
-        Ok(_) => Ok(true),
+    let result = match stream.read(&mut probe) {
+        Ok(0) => Ok(None),
+        Ok(_) => Ok(Some(true)),
         Err(err)
             if matches!(
                 err.kind(),
                 std::io::ErrorKind::WouldBlock | std::io::ErrorKind::Interrupted
             ) =>
         {
-            Ok(false)
+            Ok(Some(false))
         }
-        Err(err) if is_connection_closed_error(&err) => Ok(true),
+        Err(err) if is_connection_closed_error(&err) => Ok(None),
         Err(err) => Err(err),
     };
-    stream.set_nonblocking(false)?;
-    status
+    finish_timed_read(result, || stream.set_nonblocking(false))
+        .map(|status| status.unwrap_or(true))
 }
 
 fn is_connection_closed_error(err: &std::io::Error) -> bool {
@@ -735,6 +761,39 @@ mod tests {
         let line = done_rx.recv().unwrap().unwrap().unwrap();
         reader_thread.join().unwrap().unwrap();
         assert!(line.ends_with('\n'));
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn timed_read_skips_reset_after_stream_ends() {
+        let mut reset_called = false;
+        let result = finish_timed_read::<()>(Ok(None), || {
+            reset_called = true;
+            Ok(())
+        });
+
+        assert!(result.unwrap().is_none());
+        assert!(!reset_called);
+    }
+
+    #[test]
+    fn initial_request_reader_handles_disconnect_during_poll() {
+        let (client, mut server, path) = local_stream_pair("api-initial-disconnect");
+        drop(client);
+
+        let (done_tx, done_rx) = std::sync::mpsc::channel();
+        let reader_thread = std::thread::spawn(move || {
+            done_tx.send(read_initial_request_line_with_timeout(
+                &mut server,
+                Duration::from_secs(1),
+            ))
+        });
+
+        let result = done_rx
+            .recv_timeout(Duration::from_secs(2))
+            .expect("disconnect should finish the reader");
+        assert!(result.unwrap().is_none());
+        reader_thread.join().unwrap().unwrap();
         let _ = std::fs::remove_file(path);
     }
 
