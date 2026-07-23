@@ -2812,7 +2812,7 @@
       "upstream": "f4d216b63d010987775dc6eaf92afa72f86f2816",
       "subject": "fix: preserve windows backspace input",
       "status": "ported",
-      "reason": "Equivalent invariant already exists in Oh My Herdr; reviewed during ENG-91 backlog classification."
+      "reason": "Ported the prerequisite Win32 input-mode control-key guard and behavioral backspace coverage alongside the scan-code-aware physical Escape fix."
     },
     {
       "upstream": "74a771d12623726983ed2186380f6a216e797a06",
@@ -3824,6 +3824,12 @@
       "subject": "fix: respect OMP config directory override",
       "status": "ported",
       "reason": "OMP integration installation and resume already honor PI_CONFIG_DIR and PI_CODING_AGENT_DIR overrides."
+    },
+    {
+      "upstream": "2a20e90a026936d0d5b96823d74e2e4fe13a166f",
+      "subject": "fix: preserve physical escape on windows",
+      "status": "ported",
+      "reason": "Ported upstream scan-code-aware Windows VTI Escape handling: physical Escape is forwarded immediately while scan-code-zero Escape remains eligible for VT mouse/control reassembly, with focused translator coverage."
     }
   ]
 }
