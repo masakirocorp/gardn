@@ -6342,6 +6342,18 @@ impl App {
         )
         .then(|| client_view.last_pane_click.take())
         .flatten();
+        if matches!(
+            mouse.kind,
+            crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left)
+        ) && client_view
+            .selection
+            .as_ref()
+            .is_some_and(crate::selection::Selection::is_finalized)
+        {
+            client_view.selection = None;
+            client_view.selection_autoscroll = None;
+            client_view.selection_highlight_clear_deadline = None;
+        }
         if client_view.can_mutate_tab() && self.handle_client_view_popup_mouse(client_view, mouse) {
             return;
         }
@@ -16322,6 +16334,91 @@ command = "printf literal > '{}'"
         assert!(second_client.selection.is_none());
         assert!(app.event_rx.try_recv().is_err());
         assert!(app.state.request_clipboard_write.is_none());
+    }
+
+    #[tokio::test]
+    async fn route_client_events_for_view_click_after_selection_activates_workspace() {
+        let mut app = test_app();
+        app.state.workspaces = vec![Workspace::test_new("first"), Workspace::test_new("second")];
+        app.state.ensure_test_terminals();
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::Terminal;
+        app.state.mouse_capture = true;
+
+        let root_pane = app.state.workspaces[0].tabs[0].root_pane;
+        app.state.workspaces[0].insert_test_runtime(
+            root_pane,
+            TerminalRuntime::test_with_screen_bytes(80, 4, b"abcdef\r\nsecond\r\nthird\r\nfourth"),
+        );
+
+        let area = ratatui::layout::Rect::new(0, 0, 100, 12);
+        let mut client = ClientViewState::from_default_client_state(&app.state);
+        client.set_tab_control(ClientTabControl::WatchingFree { epoch: 1 });
+        compute_client_view(&app, &mut client, area);
+        let pane = client
+            .computed
+            .pane_infos
+            .iter()
+            .find(|pane| pane.id == root_pane)
+            .expect("root pane should be rendered")
+            .clone();
+        let (start_col, row) =
+            screen_point_for_client_canvas(&client, pane.inner_rect.x + 1, pane.inner_rect.y);
+        let (end_col, end_row) =
+            screen_point_for_client_canvas(&client, pane.inner_rect.x + 4, pane.inner_rect.y);
+
+        app.route_client_events_for_view(
+            &mut client,
+            vec![
+                raw_mouse(
+                    crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left),
+                    start_col,
+                    row,
+                ),
+                raw_mouse(
+                    crossterm::event::MouseEventKind::Drag(crossterm::event::MouseButton::Left),
+                    end_col,
+                    end_row,
+                ),
+                raw_mouse(
+                    crossterm::event::MouseEventKind::Up(crossterm::event::MouseButton::Left),
+                    end_col,
+                    end_row,
+                ),
+            ],
+            true,
+        );
+        assert!(client.selection.is_some());
+
+        compute_client_view(&app, &mut client, area);
+        let second_card = client
+            .computed
+            .workspace_card_areas
+            .iter()
+            .find(|card| card.ws_idx == 1)
+            .expect("second workspace card should be visible")
+            .rect;
+        let click_col = second_card.x + 1;
+        let click_row = second_card.y;
+        app.route_client_events_for_view(
+            &mut client,
+            vec![
+                raw_mouse(
+                    crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left),
+                    click_col,
+                    click_row,
+                ),
+                raw_mouse(
+                    crossterm::event::MouseEventKind::Up(crossterm::event::MouseButton::Left),
+                    click_col,
+                    click_row,
+                ),
+            ],
+            true,
+        );
+
+        assert_eq!(client.active_workspace, Some(1));
     }
 
     #[tokio::test]
