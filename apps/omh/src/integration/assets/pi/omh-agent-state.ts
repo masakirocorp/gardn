@@ -57,10 +57,6 @@ type QueuedState = {
   seq: number;
 };
 
-const idleDebounceMs = parseDurationEnv("OMH_PI_IDLE_DEBOUNCE_MS", 250);
-const retryGraceMs = parseDurationEnv("OMH_PI_RETRY_GRACE_MS", 2500);
-const retryableErrorPattern =
-  /overloaded|provider.?returned.?error|rate.?limit|too many requests|429|500|502|503|504|service.?unavailable|server.?error|internal.?error|network.?error|connection.?error|connection.?refused|connection.?lost|websocket.?closed|websocket.?error|other side closed|fetch failed|upstream.?connect|reset before headers|socket hang up|ended without|http2 request did not get a response|timed? out|timeout|terminated|retry delay/i;
 let reportSeq = Date.now() * 1000;
 let currentAgentSessionId: string | undefined;
 let currentAgentSessionPath: string | undefined;
@@ -72,17 +68,6 @@ function nextReportSeq(): number {
   return reportSeq;
 }
 
-function parseDurationEnv(name: string, fallback: number): number {
-  const raw = process.env[name];
-  if (!raw) {
-    return fallback;
-  }
-  const parsed = Number.parseInt(raw, 10);
-  if (!Number.isFinite(parsed) || parsed < 0) {
-    return fallback;
-  }
-  return parsed;
-}
 
 function sessionManagerStringMethod(ctx: unknown, method: string): string | undefined {
   let manager: unknown;
@@ -187,29 +172,6 @@ async function drainStateQueue(): Promise<void> {
   }
 }
 
-function lastAssistantMessage(messages: unknown[]): any | undefined {
-  for (let i = messages.length - 1; i >= 0; i -= 1) {
-    const message = messages[i] as any;
-    if (message?.role === "assistant") {
-      return message;
-    }
-  }
-  return undefined;
-}
-
-function retryableErrorMessage(event: any): string | undefined {
-  const messages = Array.isArray(event?.messages) ? event.messages : [];
-  const assistant = lastAssistantMessage(messages);
-  if (assistant?.stopReason !== "error") {
-    return undefined;
-  }
-
-  const errorMessage = String(assistant.errorMessage ?? "");
-  if (!retryableErrorPattern.test(errorMessage)) {
-    return undefined;
-  }
-  return errorMessage || "retryable provider error";
-}
 function reportSession(sessionStartSource = "startup"): Promise<void> {
   if (!currentAgentSessionPath && !currentAgentSessionId) {
     return Promise.resolve();
@@ -247,46 +209,20 @@ export default function (pi) {
   }
 
   const instanceId = Symbol("omh-pi-agent");
-  let retryHoldActive = false;
-  let failureBlocked = false;
-  let failureMessage: string | undefined;
   let blockedCount = 0;
   let blockedMessage: string | undefined;
   let lastState: AgentState | undefined;
   let lastMessage: string | undefined;
-  let idleTimer: ReturnType<typeof setTimeout> | undefined;
-  let retryTimer: ReturnType<typeof setTimeout> | undefined;
   const blockingToolCalls = new Set<string>();
   let rootSession = false;
   const permissionGateToolCalls = new Set<string>();
 
-  function clearTimer(timer: ReturnType<typeof setTimeout> | undefined) {
-    if (timer) {
-      clearTimeout(timer);
-    }
-  }
-
-  function clearPendingTimers() {
-    clearTimer(idleTimer);
-    clearTimer(retryTimer);
-    idleTimer = undefined;
-    retryTimer = undefined;
-  }
-
-  function clearFailureState() {
-    retryHoldActive = false;
-    failureBlocked = false;
-    failureMessage = undefined;
-  }
 
   function desiredState() {
     if (blockedCount > 0) {
       return { state: "blocked" as const, message: blockedMessage };
     }
-    if (failureBlocked) {
-      return { state: "blocked" as const, message: failureMessage };
-    }
-    if (activeAgents.size > 0 || retryHoldActive) {
+    if (activeAgents.size > 0) {
       return { state: "working" as const, message: undefined };
     }
     return { state: "idle" as const, message: undefined };
@@ -302,15 +238,6 @@ export default function (pi) {
     queueState(next.state, next.message);
   }
 
-  function scheduleIdle() {
-    clearPendingTimers();
-    clearFailureState();
-    idleTimer = setTimeout(() => {
-      idleTimer = undefined;
-      publishState();
-    }, idleDebounceMs);
-    idleTimer.unref?.();
-  }
 
   function sessionIsActive(ctx: unknown): boolean {
     if (!ctx || typeof ctx !== "object" || !("isIdle" in ctx)) {
@@ -357,24 +284,8 @@ export default function (pi) {
   }
 
 
-  function holdForRetry(message: string) {
-    clearPendingTimers();
-    retryHoldActive = true;
-    failureBlocked = false;
-    failureMessage = message;
-    publishState();
-
-    retryTimer = setTimeout(() => {
-      retryTimer = undefined;
-      retryHoldActive = false;
-      failureBlocked = true;
-      publishState();
-    }, retryGraceMs);
-    retryTimer.unref?.();
-  }
 
   function enterBlocked(message: string | undefined) {
-    clearPendingTimers();
     blockedCount += 1;
     blockedMessage = message;
     publishState();
@@ -449,7 +360,6 @@ export default function (pi) {
       return;
     }
 
-    clearPendingTimers();
     blockingToolCalls.add(event.toolCallId);
     blockedCount += 1;
     blockedMessage = typeof event.intent === "string" && event.intent.length > 0
@@ -469,37 +379,25 @@ export default function (pi) {
     if (!rootSessionActive(ctx)) {
       return;
     }
-    clearPendingTimers();
-    clearFailureState();
     activeAgents.add(instanceId);
     publishState();
   }
 
-  function markIdle(event?: unknown, ctx?: unknown) {
-    if (!rootSessionActive(ctx)) {
+  function markSettled(_event?: unknown, ctx?: unknown) {
+    if (!rootSessionActive(ctx) || ctx?.isIdle?.() !== true) {
       return;
     }
     if (!activeAgents.delete(instanceId)) {
-      // Pi can emit duplicate/late end events while auto-retry is already
-      // holding the pane in Working. Do not let an unqualified duplicate end
-      // cancel the retry hold and publish a false Idle.
       return;
     }
-
-    const retryableMessage = retryableErrorMessage(event);
-    if (retryableMessage) {
-      holdForRetry(retryableMessage);
-      return;
-    }
-
-    scheduleIdle();
+    publishState();
   }
 
   pi.on("agent_start", markWorking);
   pi.on("session_before_compact", markWorking);
   pi.on("session.compacting", markWorking);
   pi.on("auto_compaction_start", markWorking);
-  pi.on("agent_end", markIdle);
+  pi.on("agent_settled", markSettled);
   pi.on("session_compact", markWorking);
   pi.on("auto_compaction_end", markWorking);
 
@@ -507,7 +405,6 @@ export default function (pi) {
     if (!rootSession) {
       return;
     }
-    clearPendingTimers();
     activeAgents.delete(instanceId);
     if (activeAgents.size === 0) {
       await releaseAgent();

@@ -3675,8 +3675,8 @@
     {
       "upstream": "44f2211608618e56d4bd80ef9c2bac4d9c8be4d2",
       "subject": "fix: use pi settled lifecycle event",
-      "status": "pending",
-      "reason": "The Pi integration still uses agent_end debounce/retry heuristics rather than the settled lifecycle event."
+      "status": "ported",
+      "reason": "Integrated under ENG-167: Pi agent_settled with context idle guard replaces stale agent_end debounce/retry heuristics; focused asset and bundled-validator tests cover settled, blocked precedence, non-UI subagents, socket retries, and shutdown."
     },
     {
       "upstream": "de94cf833072251ff58f60e3478c00f6ceb1dbeb",

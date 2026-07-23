@@ -170,6 +170,11 @@ test("Pi and OMP ignore non-UI runtimes and release on shutdown", async () => {
       expect(shutdown).toBeDefined();
       await sessionStart?.({}, { hasUI: false, isIdle: () => false });
       await agentStart?.({}, { hasUI: false });
+      if (integration === "pi") {
+        const agentSettled = harness.handlers.get("agent_settled");
+        expect(agentSettled).toBeDefined();
+        await agentSettled?.({}, { hasUI: false, isIdle: () => true });
+      }
       expect(recording.requests).toHaveLength(0);
 
       await sessionStart?.({}, { hasUI: true, isIdle: () => false });
@@ -180,6 +185,95 @@ test("Pi and OMP ignore non-UI runtimes and release on shutdown", async () => {
     }
   }
 });
+
+test("Pi reports idle only after the agent settles", async () => {
+  let recording: RecordingSocket | undefined;
+  try {
+    recording = await recordingSocket((_request, _connection, socket) => socket.end("{}\n"));
+    process.env.OMH_ENV = "1";
+    process.env.OMH_SOCKET_PATH = recording.path;
+    process.env.OMH_PANE_ID = "test:pi-settled";
+    const harness = createPiHarness();
+    const { default: install } = await freshImport("./pi/omh-agent-state.ts");
+    install(harness.pi);
+
+    let idle = true;
+    const context = {
+      hasUI: true,
+      isIdle: () => idle,
+      sessionManager: {
+        getSessionFile: () => undefined,
+        getSessionId: () => undefined,
+      },
+    };
+    const sessionStart = harness.handlers.get("session_start");
+    const agentStart = harness.handlers.get("agent_start");
+    const settled = harness.handlers.get("agent_settled");
+    expect(sessionStart).toBeDefined();
+    expect(agentStart).toBeDefined();
+    expect(settled).toBeDefined();
+    expect(harness.handlers.get("agent_end")).toBeUndefined();
+
+    await sessionStart?.({}, context);
+    await waitForState(recording.requests, "idle");
+
+    idle = false;
+    await agentStart?.({}, context);
+    await waitForState(recording.requests, "working");
+
+    const idleReportsBeforeStaleSettlement = stateRequests(recording.requests, "idle").length;
+    await settled?.({}, context);
+    expect(stateRequests(recording.requests, "idle")).toHaveLength(idleReportsBeforeStaleSettlement);
+
+    idle = true;
+    await settled?.({}, context);
+    await waitForNewState(recording.requests, "idle", idleReportsBeforeStaleSettlement);
+  } finally {
+    if (recording) await closeRecordingSocket(recording);
+  }
+});
+
+test("Pi settlement preserves blocked-state precedence", async () => {
+  let recording: RecordingSocket | undefined;
+  try {
+    recording = await recordingSocket((_request, _connection, socket) => socket.end("{}\n"));
+    process.env.OMH_ENV = "1";
+    process.env.OMH_SOCKET_PATH = recording.path;
+    process.env.OMH_PANE_ID = "test:pi-settled-blocked";
+    const harness = createPiHarness();
+    const { default: install } = await freshImport("./pi/omh-agent-state.ts");
+    install(harness.pi);
+
+    let idle = true;
+    const context = { hasUI: true, isIdle: () => idle };
+    const sessionStart = harness.handlers.get("session_start");
+    const agentStart = harness.handlers.get("agent_start");
+    const settled = harness.handlers.get("agent_settled");
+    const blocked = harness.eventHandlers.get("omh:blocked");
+    expect(sessionStart).toBeDefined();
+    expect(agentStart).toBeDefined();
+    expect(settled).toBeDefined();
+    expect(blocked).toBeDefined();
+
+    await sessionStart?.({}, context);
+    await waitForState(recording.requests, "idle");
+    idle = false;
+    await agentStart?.({}, context);
+    await waitForState(recording.requests, "working");
+    await blocked?.({ active: true, label: "approval" }, context);
+    await waitForState(recording.requests, "blocked");
+
+    idle = true;
+    await settled?.({}, context);
+    expect(stateRequests(recording.requests, "idle")).toHaveLength(1);
+    expect(stateRequests(recording.requests, "blocked")).toHaveLength(1);
+    await blocked?.({ active: false }, context);
+    await waitForNewState(recording.requests, "idle", 1);
+  } finally {
+    if (recording) await closeRecordingSocket(recording);
+  }
+});
+
 
 test("OMP session resume resets blocked state and reports its lifecycle source", async () => {
   let recording: RecordingSocket | undefined;
