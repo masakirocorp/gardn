@@ -2,7 +2,7 @@
 // managed by Oh My Herdr; reinstalling or updating the integration overwrites this file.
 // add custom hooks/plugins beside this file instead of editing it.
 // OMH_INTEGRATION_ID=opencode
-// OMH_INTEGRATION_VERSION=6
+// OMH_INTEGRATION_VERSION=7
 
 import net from "node:net";
 
@@ -233,8 +233,11 @@ function sendRequest(request) {
     return Promise.resolve();
   }
 
+  const socketEndpoint =
+    process.platform === "win32" ? `\\\\.\\pipe\\${socketPath}` : socketPath;
+
   return new Promise((resolve) => {
-    const client = net.createConnection(socketPath, () => {
+    const client = net.createConnection(socketEndpoint, () => {
       client.end(`${JSON.stringify(request)}\n`, resolve);
     });
 

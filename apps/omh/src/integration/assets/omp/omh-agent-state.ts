@@ -2,13 +2,15 @@
 // managed by Oh My Herdr; reinstalling or updating the integration overwrites this file.
 // add custom hooks/plugins beside this file instead of editing it.
 // OMH_INTEGRATION_ID=omp
-// OMH_INTEGRATION_VERSION=6
+// OMH_INTEGRATION_VERSION=7
 // @ts-nocheck
 
-import { createConnection } from "node:net";
+import net from "node:net";
 
 const OMH_ENV = process.env.OMH_ENV;
 const socketPath = process.env.OMH_SOCKET_PATH;
+const socketEndpoint =
+  process.platform === "win32" && socketPath ? `\\\\.\\pipe\\${socketPath}` : socketPath;
 const paneId = process.env.OMH_PANE_ID;
 const source = "omh:omp";
 
@@ -26,7 +28,7 @@ function sendRequestAttempt(request: unknown, timeoutMs: number): Promise<boolea
   const { promise, resolve } = Promise.withResolvers<boolean>();
   let done = false;
   let timeout;
-  const socket = createConnection(socketPath!);
+  const socket = net.createConnection(socketEndpoint!);
   const finish = (delivered: boolean) => {
     if (done) return;
     done = true;

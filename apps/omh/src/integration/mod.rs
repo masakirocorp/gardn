@@ -12,10 +12,10 @@ use crate::layout::PaneId;
 pub(crate) const OMH_PANE_ID_ENV_VAR: &str = "OMH_PANE_ID";
 const PI_EXTENSION_INSTALL_NAME: &str = "omh-pi-agent-state.ts";
 const PI_EXTENSION_ASSET: &str = include_str!("assets/pi/omh-agent-state.ts");
-const PI_INTEGRATION_VERSION: u32 = 5;
+const PI_INTEGRATION_VERSION: u32 = 6;
 const OMP_EXTENSION_INSTALL_NAME: &str = "omh-omp-agent-state.ts";
 const OMP_EXTENSION_ASSET: &str = include_str!("assets/omp/omh-agent-state.ts");
-const OMP_INTEGRATION_VERSION: u32 = 6;
+const OMP_INTEGRATION_VERSION: u32 = 7;
 const PI_CODING_AGENT_DIR_ENV_VAR: &str = "PI_CODING_AGENT_DIR";
 const OMP_CONFIG_DIR_ENV_VAR: &str = "PI_CONFIG_DIR";
 const CLAUDE_HOOK_INSTALL_NAME: &str = "omh-agent-state.sh";
@@ -127,7 +127,7 @@ const DROID_REMOVED_LIFECYCLE_HOOK_EVENTS: [(&str, &str); 9] = [
 ];
 const OPENCODE_PLUGIN_INSTALL_NAME: &str = "omh-agent-state.js";
 const OPENCODE_PLUGIN_ASSET: &str = include_str!("assets/opencode/omh-agent-state.js");
-const OPENCODE_INTEGRATION_VERSION: u32 = 6;
+const OPENCODE_INTEGRATION_VERSION: u32 = 7;
 const HERMES_PLUGIN_INSTALL_NAME: &str = "omh-agent-state";
 const HERMES_PLUGIN_MANIFEST_INSTALL_NAME: &str = "plugin.yaml";
 const HERMES_PLUGIN_INIT_INSTALL_NAME: &str = "__init__.py";
@@ -1198,11 +1198,14 @@ fn integration_target_supported_for_platform(
 
     matches!(
         target,
-        crate::api::schema::IntegrationTarget::Claude
+        crate::api::schema::IntegrationTarget::Pi
+            | crate::api::schema::IntegrationTarget::Omp
+            | crate::api::schema::IntegrationTarget::Claude
             | crate::api::schema::IntegrationTarget::Codex
             | crate::api::schema::IntegrationTarget::Copilot
             | crate::api::schema::IntegrationTarget::Droid
             | crate::api::schema::IntegrationTarget::Kimi
+            | crate::api::schema::IntegrationTarget::Opencode
             | crate::api::schema::IntegrationTarget::Qodercli
             | crate::api::schema::IntegrationTarget::Grok
     )
@@ -1505,15 +1508,22 @@ fn parse_integration_marker<'a>(content: &'a str, marker: &str) -> Option<&'a st
     })
 }
 
+fn ensure_pi_extension_dir(dir: &Path) -> io::Result<()> {
+    if dir.is_dir() {
+        return Ok(());
+    }
+    if dir.parent().is_some_and(|parent| parent.is_dir()) {
+        return fs::create_dir_all(dir);
+    }
+    Err(io::Error::other(format!(
+        "pi extension directory not found at {}. install pi first",
+        dir.display()
+    )))
+}
+
 pub(crate) fn install_pi() -> io::Result<PathBuf> {
     let dir = pi_extension_dir()?;
-    if !dir.is_dir() {
-        return Err(io::Error::other(format!(
-            "pi extension directory not found at {}. install pi and create the extensions directory first",
-            dir.display()
-        )));
-    }
-    fs::create_dir_all(&dir)?;
+    ensure_pi_extension_dir(&dir)?;
     let path = dir.join(PI_EXTENSION_INSTALL_NAME);
     fs::write(&path, PI_EXTENSION_ASSET)?;
     Ok(path)
@@ -3837,18 +3847,18 @@ mod tests {
     }
 
     #[test]
-    fn windows_supports_only_cli_hook_integrations() {
+    fn windows_supports_javascript_integrations() {
         use crate::api::schema::IntegrationTarget;
 
-        assert!(!integration_target_supported_for_platform(
+        assert!(integration_target_supported_for_platform(
             IntegrationTarget::Pi,
             true
         ));
-        assert!(!integration_target_supported_for_platform(
+        assert!(integration_target_supported_for_platform(
             IntegrationTarget::Omp,
             true
         ));
-        assert!(!integration_target_supported_for_platform(
+        assert!(integration_target_supported_for_platform(
             IntegrationTarget::Opencode,
             true
         ));
@@ -3947,7 +3957,7 @@ mod tests {
 
         assert_eq!(path, ext_dir.join(PI_EXTENSION_INSTALL_NAME));
         assert_eq!(content, PI_EXTENSION_ASSET);
-        assert!(content.contains("OMH_INTEGRATION_VERSION=5"));
+        assert!(content.contains("OMH_INTEGRATION_VERSION=6"));
         assert!(content.contains("Math.max(reportSeq + 1, Date.now() * 1000)"));
 
         let _ = fs::remove_dir_all(base);
@@ -4005,7 +4015,7 @@ mod tests {
         assert_eq!(installed.extension_paths, vec![extension_path]);
         assert_eq!(content, OMP_EXTENSION_ASSET);
         assert!(content.contains("OMH_INTEGRATION_ID=omp"));
-        assert!(content.contains("OMH_INTEGRATION_VERSION=6"));
+        assert!(content.contains("OMH_INTEGRATION_VERSION=7"));
         assert!(content.contains("agent: \"omp\""));
         assert!(!content.contains("agent: \"pi\""));
 
@@ -4371,6 +4381,29 @@ mod tests {
         assert_eq!(result.removed_extension_paths, vec![omp_path.clone()]);
         assert!(!omp_path.exists());
         assert_eq!(fs::read_to_string(&pi_path).unwrap(), PI_EXTENSION_ASSET);
+
+        let _ = fs::remove_dir_all(base);
+    }
+
+    #[test]
+    fn install_pi_creates_extensions_dir_when_agent_dir_exists() {
+        let _lock = integration_env_lock();
+        let _path_env = clear_integration_path_env();
+        let base = unique_base();
+        let home = base.join("home");
+        let agent_dir = home.join(".pi/agent");
+        fs::create_dir_all(&agent_dir).unwrap();
+        let _home_env = TestEnvVar::set("HOME", &home);
+
+        let path = install_pi().unwrap();
+
+        assert_eq!(
+            path,
+            agent_dir
+                .join("extensions")
+                .join(PI_EXTENSION_INSTALL_NAME)
+        );
+        assert!(path.is_file());
 
         let _ = fs::remove_dir_all(base);
     }
@@ -5497,7 +5530,7 @@ mod tests {
                 .join(OPENCODE_PLUGIN_INSTALL_NAME)
         );
         assert_eq!(plugin_content, OPENCODE_PLUGIN_ASSET);
-        assert!(plugin_content.contains("OMH_INTEGRATION_VERSION=6"));
+        assert!(plugin_content.contains("OMH_INTEGRATION_VERSION=7"));
         assert!(plugin_content.contains("Math.max(reportSeq + 1, Date.now() * 1000)"));
         assert!(plugin_content.contains("pane.report_agent_session"));
         assert!(plugin_content.contains("pane.report_agent"));

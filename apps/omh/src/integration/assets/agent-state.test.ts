@@ -1,15 +1,27 @@
-import { expect, test } from "bun:test";
-import { createServer, type Server, type Socket } from "node:net";
+import { afterEach, expect, test } from "bun:test";
+import net, { createServer, type Server, type Socket } from "node:net";
+import { EventEmitter } from "node:events";
 import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+const originalPlatform = process.platform;
+const originalCreateConnection = net.createConnection;
 const originalEnvironment = {
   OMH_ENV: process.env.OMH_ENV,
   OMH_PANE_ID: process.env.OMH_PANE_ID,
   OMH_SOCKET_PATH: process.env.OMH_SOCKET_PATH,
 };
 let importCounter = 0;
+
+afterEach(() => {
+  Object.defineProperty(process, "platform", { value: originalPlatform });
+  net.createConnection = originalCreateConnection;
+  for (const [name, value] of Object.entries(originalEnvironment)) {
+    if (value === undefined) delete process.env[name];
+    else process.env[name] = value;
+  }
+});
 
 type HookHandler = (event: unknown, context?: unknown) => unknown;
 type RequestRecord = Record<string, unknown>;
@@ -30,6 +42,130 @@ function freshImport(path: string) {
   importCounter += 1;
   return import(`${path}?test=${importCounter}`);
 }
+
+function configureIntegrationEnvironment(socketPath: string) {
+  process.env.OMH_ENV = "1";
+  process.env.OMH_SOCKET_PATH = socketPath;
+  process.env.OMH_PANE_ID = "test:p1";
+}
+
+type CapturedSocket = EventEmitter & {
+  destroy: () => CapturedSocket;
+  setTimeout: () => CapturedSocket;
+  write: (...args: unknown[]) => boolean;
+  end: (...args: unknown[]) => CapturedSocket;
+};
+
+function captureConnectionEndpoint() {
+  let connectedEndpoint: unknown;
+  net.createConnection = ((...args: unknown[]) => {
+    connectedEndpoint = args[0];
+    const socket = new EventEmitter() as CapturedSocket;
+    socket.destroy = () => socket;
+    socket.setTimeout = () => socket;
+    socket.write = () => {
+      queueMicrotask(() => socket.emit("data"));
+      return true;
+    };
+    socket.end = (...endArgs: unknown[]) => {
+      const callback = endArgs.find((value) => typeof value === "function");
+      if (typeof callback === "function") callback();
+      queueMicrotask(() => socket.emit("close"));
+      return socket;
+    };
+    queueMicrotask(() => {
+      const callback = args.find((value) => typeof value === "function");
+      if (typeof callback === "function") callback();
+      socket.emit("connect");
+    });
+    return socket as unknown as Socket;
+  }) as typeof net.createConnection;
+  return () => connectedEndpoint;
+}
+
+test.serial("Pi maps the Windows socket marker path to a named pipe endpoint", async () => {
+  const markerPath = `omh-pi-${process.pid}.sock`;
+  configureIntegrationEnvironment(markerPath);
+  Object.defineProperty(process, "platform", { value: "win32" });
+  const connectedEndpoint = captureConnectionEndpoint();
+  const harness = createPiHarness();
+
+  const { default: install } = await freshImport("./pi/omh-agent-state.ts");
+  install(harness.pi);
+  await harness.handlers.get("session_start")?.(
+    { reason: "startup" },
+    {
+      hasUI: true,
+      isIdle: () => true,
+      sessionManager: {
+        getSessionFile: () => undefined,
+        getSessionId: () => undefined,
+      },
+    },
+  );
+
+  expect(connectedEndpoint()).toBe(`\\\\.\\pipe\\${markerPath}`);
+});
+
+test.serial("OMP maps the Windows socket marker path to a named pipe endpoint", async () => {
+  const markerPath = `omh-omp-${process.pid}.sock`;
+  configureIntegrationEnvironment(markerPath);
+  Object.defineProperty(process, "platform", { value: "win32" });
+  const connectedEndpoint = captureConnectionEndpoint();
+  const harness = createPiHarness();
+
+  const { default: install } = await freshImport("./omp/omh-agent-state.ts");
+  install(harness.pi);
+  await harness.handlers.get("session_start")?.(
+    { reason: "startup" },
+    {
+      hasUI: true,
+      isIdle: () => true,
+      sessionManager: {
+        getSessionFile: () => undefined,
+        getSessionId: () => undefined,
+      },
+    },
+  );
+
+  expect(connectedEndpoint()).toBe(`\\\\.\\pipe\\${markerPath}`);
+});
+
+test.serial("OpenCode maps the Windows socket marker path to a named pipe endpoint", async () => {
+  const markerPath = `omh-opencode-${process.pid}.sock`;
+  configureIntegrationEnvironment(markerPath);
+  Object.defineProperty(process, "platform", { value: "win32" });
+  const connectedEndpoint = captureConnectionEndpoint();
+
+  const { OmhAgentStatePlugin } = await freshImport("./opencode/omh-agent-state.js");
+  const plugin = await OmhAgentStatePlugin();
+  await plugin.event?.({
+    event: {
+      type: "session.updated",
+      properties: { sessionID: "opencode-session" },
+    },
+  });
+
+  expect(connectedEndpoint()).toBe(`\\\\.\\pipe\\${markerPath}`);
+});
+
+test.serial("OpenCode keeps the Unix socket endpoint unchanged", async () => {
+  const socketPath = `/tmp/omh-opencode-${process.pid}.sock`;
+  configureIntegrationEnvironment(socketPath);
+  Object.defineProperty(process, "platform", { value: "darwin" });
+  const connectedEndpoint = captureConnectionEndpoint();
+
+  const { OmhAgentStatePlugin } = await freshImport("./opencode/omh-agent-state.js");
+  const plugin = await OmhAgentStatePlugin();
+  await plugin.event?.({
+    event: {
+      type: "session.updated",
+      properties: { sessionID: "opencode-session" },
+    },
+  });
+
+  expect(connectedEndpoint()).toBe(socketPath);
+});
 
 async function recordingSocket(
   handle: (request: RequestRecord, connection: number, socket: Socket) => void,
@@ -117,7 +253,7 @@ async function waitForNewState(
   expect(stateRequests(requests, state).length).toBeGreaterThan(previousCount);
 }
 
-test("Pi and OMP reloads preserve working status", async () => {
+test.serial("Pi and OMP reloads preserve working status", async () => {
   for (const integration of [
     ["Pi", "./pi/omh-agent-state.ts"],
     ["OMP", "./omp/omh-agent-state.ts"],
@@ -151,7 +287,7 @@ test("Pi and OMP reloads preserve working status", async () => {
   }
 });
 
-test("Pi and OMP ignore non-UI runtimes and release on shutdown", async () => {
+test.serial("Pi and OMP ignore non-UI runtimes and release on shutdown", async () => {
   for (const integration of ["pi", "omp"] as const) {
     let recording: RecordingSocket | undefined;
     try {
@@ -186,7 +322,7 @@ test("Pi and OMP ignore non-UI runtimes and release on shutdown", async () => {
   }
 });
 
-test("Pi reports idle only after the agent settles", async () => {
+test.serial("Pi reports idle only after the agent settles", async () => {
   let recording: RecordingSocket | undefined;
   try {
     recording = await recordingSocket((_request, _connection, socket) => socket.end("{}\n"));
@@ -233,7 +369,7 @@ test("Pi reports idle only after the agent settles", async () => {
   }
 });
 
-test("Pi settlement preserves blocked-state precedence", async () => {
+test.serial("Pi settlement preserves blocked-state precedence", async () => {
   let recording: RecordingSocket | undefined;
   try {
     recording = await recordingSocket((_request, _connection, socket) => socket.end("{}\n"));
@@ -274,7 +410,7 @@ test("Pi settlement preserves blocked-state precedence", async () => {
   }
 });
 
-test("OMP session resume resets blocked state and reports its lifecycle source", async () => {
+test.serial("OMP session resume resets blocked state and reports its lifecycle source", async () => {
   let recording: RecordingSocket | undefined;
   try {
     recording = await recordingSocket((_request, _connection, socket) => socket.end("{}\n"));
@@ -314,7 +450,7 @@ test("OMP session resume resets blocked state and reports its lifecycle source",
   }
 });
 
-test("Pi retries an unanswered socket report", async () => {
+test.serial("Pi retries an unanswered socket report", async () => {
   let recording: RecordingSocket | undefined;
   try {
     recording = await recordingSocket((_request, connection, socket) => {

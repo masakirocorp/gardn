@@ -256,7 +256,7 @@ Integration install side effects are agent-specific: pi and OMP install extensio
 Claude Code, Codex, Pi, OMP, OpenCode, Hermes, Copilot, Qoder-style, and Grok Build integrations can report state directly. The Grok Build integration reports native session identity plus parent-agent working, blocked, idle, and release transitions while ignoring child-agent completion as a parent completion. Its Oh My Herdr-owned hook also prevents Grok's Claude and Cursor compatibility hooks from claiming Grok panes.
 
 Integration path overrides include `PI_CODING_AGENT_DIR`, `PI_CONFIG_DIR`, `CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `GROK_HOME`, `KIMI_CODE_HOME`, and `CURSOR_CONFIG_DIR`. OMP install/status checks scan `.omp` and `.omp-*` extension directories.
-- On Windows, installable integrations are limited to CLI hook integrations with supported path layouts: Claude, Codex, Copilot, Grok Build, Kimi, Droid, and Qoder-style CLIs.
+- On Windows, installable integrations include the Pi, OMP, and OpenCode JavaScript integrations plus CLI hook integrations with supported path layouts: Claude, Codex, Copilot, Grok Build, Kimi, Droid, and Qoder-style CLIs. Kilo has no Oh My Herdr installable integration.
 
 
 ## Plugins
