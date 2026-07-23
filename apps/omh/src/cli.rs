@@ -628,6 +628,16 @@ fn run_agent_command(args: &[String]) -> std::io::Result<i32> {
         }
     }
 }
+fn agent_subcommand_help(args: &[String], usage: &str) -> Option<i32> {
+    match args.first().map(String::as_str) {
+        Some("help" | "--help" | "-h") => {
+            eprintln!("{usage}");
+            Some(0)
+        }
+        _ => None,
+    }
+}
+
 fn agent_explain(args: &[String]) -> std::io::Result<i32> {
     let mut file = None;
     let mut agent = None;
@@ -1174,6 +1184,13 @@ fn group_delete(args: &[String]) -> std::io::Result<i32> {
 }
 
 fn agent_start(args: &[String]) -> std::io::Result<i32> {
+    if let Some(code) = agent_subcommand_help(
+        args,
+        "usage: omh agent start <name> [--cwd PATH] [--workspace ID] [--tab ID] [--split right|down] [--focus|--no-focus] -- <argv...>",
+    ) {
+        return Ok(code);
+    }
+
     let Some(name) = args.first() else {
         eprintln!("usage: omh agent start <name> [--cwd PATH] [--workspace ID] [--tab ID] [--split right|down] [--focus|--no-focus] -- <argv...>");
         return Ok(2);
@@ -1260,6 +1277,10 @@ fn agent_start(args: &[String]) -> std::io::Result<i32> {
 }
 
 fn agent_list(args: &[String]) -> std::io::Result<i32> {
+    if let Some(code) = agent_subcommand_help(args, "usage: omh agent list") {
+        return Ok(code);
+    }
+
     if !args.is_empty() {
         eprintln!("usage: omh agent list");
         return Ok(2);
@@ -1272,6 +1293,10 @@ fn agent_list(args: &[String]) -> std::io::Result<i32> {
 }
 
 fn agent_get(args: &[String]) -> std::io::Result<i32> {
+    if let Some(code) = agent_subcommand_help(args, "usage: omh agent get <target>") {
+        return Ok(code);
+    }
+
     let Some(target) = args.first() else {
         eprintln!("usage: omh agent get <target>");
         return Ok(2);
@@ -1290,6 +1315,10 @@ fn agent_get(args: &[String]) -> std::io::Result<i32> {
 }
 
 fn agent_focus(args: &[String]) -> std::io::Result<i32> {
+    if let Some(code) = agent_subcommand_help(args, "usage: omh agent focus <target>") {
+        return Ok(code);
+    }
+
     let Some(target) = args.first() else {
         eprintln!("usage: omh agent focus <target>");
         return Ok(2);
@@ -1308,6 +1337,10 @@ fn agent_focus(args: &[String]) -> std::io::Result<i32> {
 }
 
 fn agent_attach(args: &[String]) -> std::io::Result<i32> {
+    if let Some(code) = agent_subcommand_help(args, "usage: omh agent attach <target> [--takeover]") {
+        return Ok(code);
+    }
+
     let (target, takeover) =
         match parse_attach_target(args, "usage: omh agent attach <target> [--takeover]") {
             Ok(parsed) => parsed,
@@ -1328,6 +1361,13 @@ fn agent_attach(args: &[String]) -> std::io::Result<i32> {
 }
 
 fn agent_wait(args: &[String]) -> std::io::Result<i32> {
+    if let Some(code) = agent_subcommand_help(
+        args,
+        "usage: omh agent wait <target> --status <idle|working|blocked|unknown> [--timeout MS]",
+    ) {
+        return Ok(code);
+    }
+
     let Some(target) = args.first() else {
         eprintln!(
             "usage: omh agent wait <target> --status <idle|working|blocked|unknown> [--timeout MS]"
@@ -1463,6 +1503,10 @@ pub(super) fn parse_attach_target(args: &[String], usage: &str) -> Result<(Strin
 }
 
 fn agent_rename(args: &[String]) -> std::io::Result<i32> {
+    if let Some(code) = agent_subcommand_help(args, "usage: omh agent rename <target> <name>|--clear") {
+        return Ok(code);
+    }
+
     let Some(target) = args.first() else {
         eprintln!("usage: omh agent rename <target> <name>|--clear");
         return Ok(2);
@@ -1486,6 +1530,13 @@ fn agent_rename(args: &[String]) -> std::io::Result<i32> {
     })?)
 }
 fn agent_prompt(args: &[String]) -> std::io::Result<i32> {
+    if let Some(code) = agent_subcommand_help(
+        args,
+        "usage: omh agent prompt <target> <text> [--wait-for STATUS] [--timeout MS]",
+    ) {
+        return Ok(code);
+    }
+
     let Some(target) = args.first() else {
         eprintln!("usage: omh agent prompt <target> <text> [--wait-for STATUS] [--timeout MS]");
         return Ok(2);
@@ -1536,6 +1587,10 @@ fn agent_prompt(args: &[String]) -> std::io::Result<i32> {
 }
 
 fn agent_send_keys(args: &[String]) -> std::io::Result<i32> {
+    if let Some(code) = agent_subcommand_help(args, "usage: omh agent send-keys <target> <key>...") {
+        return Ok(code);
+    }
+
     let Some(target) = args.first() else {
         eprintln!("usage: omh agent send-keys <target> <key>...");
         return Ok(2);
@@ -1554,6 +1609,13 @@ fn agent_send_keys(args: &[String]) -> std::io::Result<i32> {
 }
 
 fn agent_read(args: &[String]) -> std::io::Result<i32> {
+    if let Some(code) = agent_subcommand_help(
+        args,
+        "usage: omh agent read <target> [--source visible|recent|recent-unwrapped] [--lines N] [--format text|ansi] [--ansi]",
+    ) {
+        return Ok(code);
+    }
+
     let Some(target) = args.first() else {
         eprintln!("usage: omh agent read <target> [--source visible|recent|recent-unwrapped] [--lines N] [--format text|ansi] [--ansi]");
         return Ok(2);

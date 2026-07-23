@@ -3660,8 +3660,8 @@
     {
       "upstream": "d956a6b56dabac9690260e50a9e03372510877d4",
       "subject": "fix: show agent targets before options in help",
-      "status": "pending",
-      "reason": "The finalized agent automation help does not yet use target-first usage forms."
+      "status": "ported",
+      "reason": "ENG-163 adds target-first usage output for every agent automation subcommand while preserving status/timeout flags and the native argv separator. Focused agent CLI help and fake-API argv parsing tests pass."
     },
     {
       "upstream": "69d07dba84411db33bf1f5191a69f80e5069c6ea",
