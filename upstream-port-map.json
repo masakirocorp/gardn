@@ -3567,8 +3567,8 @@
     {
       "upstream": "02a6e874f67800891b5a549297219ed6f3ce0f2f",
       "subject": "perf: batch contiguous terminal diff writes",
-      "status": "pending",
-      "reason": "ANSI terminal diff rendering still positions writes per cell instead of batching contiguous writes."
+      "status": "ported",
+      "reason": "Ported contiguous ANSI diff batching with explicit framed-byte, style, and Ghostty replay coverage while retaining wide-cell invalidation anchors."
     },
     {
       "upstream": "f11be93e0409f8159eb8c501416f4bd3516c4270",

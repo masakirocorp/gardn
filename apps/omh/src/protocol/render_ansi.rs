@@ -576,8 +576,7 @@ fn close_hyperlink(writer: &mut impl Write, active: &mut Option<String>) {
 
 fn write_cell(
     writer: &mut impl Write,
-    row: u16,
-    col: u16,
+    cursor_position: Option<(u16, u16)>,
     cell: &CellData,
     last_sgr: &mut String,
     active_hyperlink: &mut Option<String>,
@@ -587,7 +586,9 @@ fn write_cell(
         return;
     }
 
-    let _ = write!(writer, "\x1b[{};{}H", row + 1, col + 1);
+    if let Some(position) = cursor_position {
+        write_cursor_position(writer, position);
+    }
 
     let sgr = build_sgr(cell.fg, cell.bg, cell.modifier);
     if sgr != *last_sgr {
@@ -624,6 +625,9 @@ fn write_changed_cells(writer: &mut impl Write, frame: &FrameData, prev: &FrameD
     for row in 0..frame.height {
         let mut invalidated = 0usize;
         let mut to_skip = 0usize;
+        // Herdr clients disable host autowrap, so safe cells can advance inline
+        // without spilling into adjacent rows during a resize race.
+        let mut next_inline_col = None;
 
         for col in 0..frame.width {
             let idx = (row as usize) * (frame.width as usize) + (col as usize);
@@ -639,15 +643,18 @@ fn write_changed_cells(writer: &mut impl Write, frame: &FrameData, prev: &FrameD
                 ) || invalidated > 0)
                 && to_skip == 0
             {
+                let cursor_position =
+                    (next_inline_col != Some(col) || invalidated > 0).then_some((col, row));
                 write_cell(
                     writer,
-                    row,
-                    col,
+                    cursor_position,
                     cell,
                     &mut last_sgr,
                     &mut active_hyperlink,
                     frame,
                 );
+                next_inline_col = (cell.symbol.is_ascii() && cell_width(cell) == 1)
+                    .then_some(col.saturating_add(1));
             }
 
             to_skip = cell_width(cell).saturating_sub(1);
@@ -1159,6 +1166,84 @@ mod tests {
         );
         // Should contain the changed cell content.
         assert!(output_str.contains('X'), "should contain changed cell 'X'");
+    }
+
+    #[test]
+    fn batched_ascii_diff_preserves_framing_styles_and_content() {
+        let prev = make_frame(4, 1, vec![make_cell("A", 0, 0, 0); 4]);
+        let curr = make_frame(
+            4,
+            1,
+            vec![
+                make_cell("B", 0x00_00_00_02, 0, 0),
+                make_cell("C", 0x00_00_00_02, 0, 0),
+                make_cell("D", 0x00_00_00_03, 0, 0),
+                make_cell("E", 0x00_00_00_03, 0, 0),
+            ],
+        );
+
+        let mut output = Vec::new();
+        blit_frame_to(&mut output, &curr, Some(&prev));
+
+        assert_eq!(
+            output,
+            b"\x1b[?2026h\x1b[?25l\x1b]8;;\x1b\\\
+\x1b[1;1H\x1b[0;31;49mBC\x1b[0;32;49mDE\x1b[0m\
+\x1b[1;4H\x1b[?25l\x1b[?2026l\x1b[1;4H\x1b[?25l",
+            "contiguous cells should share cursor positioning while retaining wire framing and SGR transitions"
+        );
+    }
+
+    #[test]
+    fn batched_ascii_diff_replays_to_current_frame() {
+        let prev = make_frame(4, 3, vec![make_cell("A", 0, 0, 0); 12]);
+        let curr = make_frame(4, 3, vec![make_cell("B", 0, 0, 0); 12]);
+        let mut terminal = crate::ghostty::Terminal::new(4, 3, 0).unwrap();
+
+        let mut initial = Vec::new();
+        blit_frame_to(&mut initial, &prev, None);
+        terminal.write(&initial);
+
+        let mut diff = Vec::new();
+        blit_frame_to(&mut diff, &curr, Some(&prev));
+        terminal.write(&diff);
+
+        for row in 0..3 {
+            for col in 0..4 {
+                let graphemes = terminal.screen_graphemes(col, row as u32).unwrap();
+                assert_eq!(graphemes, vec![u32::from('B')]);
+            }
+        }
+    }
+
+    #[test]
+    fn dense_ascii_diff_uses_one_cursor_anchor_per_row() {
+        const WIDTH: u16 = 140;
+        const HEIGHT: u16 = 50;
+        let prev = make_frame(
+            WIDTH,
+            HEIGHT,
+            vec![make_cell("A", 0, 0, 0); usize::from(WIDTH) * usize::from(HEIGHT)],
+        );
+        let curr = make_frame(
+            WIDTH,
+            HEIGHT,
+            vec![make_cell("B", 0, 0, 0); usize::from(WIDTH) * usize::from(HEIGHT)],
+        );
+
+        let mut output = Vec::new();
+        blit_frame_to(&mut output, &curr, Some(&prev));
+
+        let cup_count = output.iter().filter(|&&byte| byte == b'H').count();
+        assert!(
+            cup_count <= usize::from(HEIGHT) + 2,
+            "one dense scroll frame should need at most one CUP per row plus cursor anchors, got {cup_count}"
+        );
+        assert!(
+            output.len() <= 16_290,
+            "one dense scroll frame should stay below 25% of the 65,161-byte live baseline, got {} bytes",
+            output.len()
+        );
     }
 
     #[test]

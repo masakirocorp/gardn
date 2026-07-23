@@ -29,6 +29,7 @@ use crossterm::event::{
     PushKeyboardEnhancementFlags,
 };
 use crossterm::execute;
+use crossterm::terminal::{DisableLineWrap, EnableLineWrap};
 use tracing::{debug, info, warn};
 
 use crate::protocol::render_ansi;
@@ -386,6 +387,7 @@ fn setup_terminal_with_capabilities(
         io::stdout().write_all(mode.set_sequence())?;
         io::stdout().flush()?;
     }
+    execute!(io::stdout(), DisableLineWrap)?;
 
     Ok(TerminalGuard {
         reset_modify_other_keys: modify_other_keys_mode.is_some(),
@@ -428,6 +430,7 @@ fn restore_terminal_state(
 
     let _ = execute!(
         io::stdout(),
+        EnableLineWrap,
         PopKeyboardEnhancementFlags,
         DisableFocusChange,
         DisableBracketedPaste,
