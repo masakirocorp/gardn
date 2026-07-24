@@ -35,6 +35,7 @@ pub(crate) enum SettingsListRow {
         title: Cow<'static, str>,
         description: Cow<'static, str>,
         value: Cow<'static, str>,
+        editable: bool,
     },
     TextInput {
         index: usize,
@@ -95,11 +96,22 @@ pub(crate) fn option_hit_for_visual_row(
                 }
                 visual_row += 1;
             }
-            SettingsListRow::Toggle { index, .. } | SettingsListRow::Value { index, .. } => {
+            SettingsListRow::Toggle { index, .. } => {
                 if row == visual_row || row == visual_row + 1 {
                     return Some(SettingsRowHit {
                         index: *index,
                         hoverable: true,
+                    });
+                }
+                visual_row += 2;
+            }
+            SettingsListRow::Value {
+                index, editable, ..
+            } => {
+                if row == visual_row || row == visual_row + 1 {
+                    return Some(SettingsRowHit {
+                        index: *index,
+                        hoverable: !editable,
                     });
                 }
                 visual_row += 2;
@@ -911,16 +923,17 @@ fn command_rows(app: &AppState, settings: &SettingsState) -> Vec<SettingsListRow
         .clone()
         .unwrap_or_else(|| app.git_diff_command.clone());
     let mut rows = vec![
-        SettingsListRow::TextInput {
+        SettingsListRow::Header("diff review"),
+        SettingsListRow::Value {
             index: 0,
-            title: "diff review command".into(),
+            title: "command".into(),
+            description: "runs in the repository root; leave empty to hide the Diff shortcut"
+                .into(),
             value: diff_command.clone().into(),
+            editable: true,
         },
-        SettingsListRow::Caption(
-            "runs in the repository root; leave empty to hide the Diff shortcut".into(),
-        ),
         SettingsListRow::Spacer,
-        SettingsListRow::Caption("suggested commands".into()),
+        SettingsListRow::Header("suggested commands"),
     ];
     rows.extend(GIT_DIFF_COMMAND_SUGGESTIONS.iter().enumerate().map(
         |(offset, (name, command))| SettingsListRow::Choice {
@@ -1094,6 +1107,7 @@ fn value_option(
         title: title.into(),
         description: description.into(),
         value: value.into(),
+        editable: false,
     }
 }
 

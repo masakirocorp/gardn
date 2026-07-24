@@ -814,19 +814,23 @@ fn render_settings_rows_for_view(
                 )));
             }
             SettingsListRow::Value {
+                index,
                 title,
                 description,
                 value,
-                ..
+                editable,
             } => {
                 let value_style = if selected {
                     style.add_modifier(Modifier::BOLD)
                 } else {
                     Style::default().fg(p.accent)
                 };
+                let edited_value = (*editable && settings.focused_input == Some(*index))
+                    .then(|| format!("{value}█"));
+                let displayed_value = edited_value.as_deref().unwrap_or(value.as_ref());
                 rows.push(ListItem::new(settings_title_value_line(
                     title,
-                    value,
+                    displayed_value,
                     list_width,
                     style,
                     value_style,
@@ -1463,6 +1467,7 @@ fn render_settings_rows(
                 title,
                 description,
                 value,
+                editable,
             } => {
                 let selected = app.settings.list.visible() == Some(*index)
                     || app.settings.focused_input == Some(*index);
@@ -1479,9 +1484,12 @@ fn render_settings_rows(
                 } else {
                     Style::default().fg(p.accent)
                 };
+                let edited_value = (*editable && app.settings.focused_input == Some(*index))
+                    .then(|| format!("{value}█"));
+                let displayed_value = edited_value.as_deref().unwrap_or(value.as_ref());
                 rows.push(ListItem::new(settings_title_value_line(
                     title,
-                    value,
+                    displayed_value,
                     list_width,
                     label_style,
                     value_style,
@@ -1735,29 +1743,87 @@ mod tests {
     }
 
     #[test]
-    fn commands_settings_show_curated_diff_command_suggestions() {
+    fn commands_settings_reuse_standard_grouped_row_hierarchy() {
         let mut app = AppState::test_new();
         app.settings.section = SettingsSection::Commands;
         app.settings.pending_git_diff_command = Some("lazygit".to_string());
-        app.settings.list.select(0);
+        app.settings.list.select(2);
         app.settings.list.show();
 
-        let backend = TestBackend::new(100, 40);
+        let area = Rect::new(0, 0, 100, 40);
+        let backend = TestBackend::new(area.width, area.height);
         let mut terminal = Terminal::new(backend).expect("test backend");
         terminal
-            .draw(|frame| render_settings_overlay(&app, frame, Rect::new(0, 0, 100, 40)))
+            .draw(|frame| render_settings_overlay(&app, frame, area))
             .expect("render Commands settings overlay");
 
-        let text = buffer_text(terminal.backend().buffer(), 100, 40);
-        assert!(text.contains("commands"));
-        assert!(text.contains("diff review command"));
-        assert!(text.contains("leave empty to hide the Diff shortcut"));
-        assert!(text.contains("suggested commands"));
+        let buffer = terminal.backend().buffer();
+        let text = buffer_text(buffer, area.width, area.height);
+        let (diff_header_y, diff_header_x) =
+            find_text_cell(&text, "diff review").expect("diff review header");
+        let command_y = diff_header_y + 1;
+        let command_line = text
+            .lines()
+            .nth(command_y as usize)
+            .expect("command row line");
+        let command_x = command_line
+            .find("command")
+            .map(|byte_x| command_line[..byte_x].chars().count() as u16)
+            .expect("command row");
+        let (description_y, description_x) = find_text_cell(
+            &text,
+            "runs in the repository root; leave empty to hide the Diff shortcut",
+        )
+        .expect("command description");
+        let (suggestions_y, suggestions_x) =
+            find_text_cell(&text, "suggested commands").expect("suggestions header");
+
+        assert_eq!(description_y, command_y + 1);
+        assert_eq!(suggestions_y, description_y + 2);
+        assert_eq!(command_x, diff_header_x + 1);
+        assert_eq!(description_x, command_x + 2);
+        assert_eq!(suggestions_x, diff_header_x);
+        assert_eq!(
+            buffer[(diff_header_x, diff_header_y)].style().fg,
+            Some(app.palette.accent)
+        );
+        assert!(buffer[(diff_header_x, diff_header_y)]
+            .style()
+            .add_modifier
+            .contains(Modifier::BOLD));
+        assert_eq!(
+            buffer[(description_x, description_y)].style().fg,
+            Some(app.palette.subtext0)
+        );
+        assert_eq!(
+            buffer[(suggestions_x, suggestions_y)].style().fg,
+            Some(app.palette.accent)
+        );
         assert!(text.contains("LazyGit · lazygit"));
         assert!(text.contains("Hunk · hunk diff --watch"));
         assert!(text.contains("Plannotator · plannotator review"));
         assert!(!text.contains("Delta ·"));
         assert!(!text.contains("Difftastic ·"));
+    }
+
+    #[test]
+    fn commands_settings_show_edit_cursor_in_standard_value_row() {
+        let mut app = AppState::test_new();
+        app.settings.section = SettingsSection::Commands;
+        app.settings.pending_git_diff_command = Some("hunk diff --watch".to_string());
+        app.settings.list.select(0);
+        app.settings.list.show();
+        app.settings.focused_input = Some(0);
+
+        let area = Rect::new(0, 0, 100, 40);
+        let backend = TestBackend::new(area.width, area.height);
+        let mut terminal = Terminal::new(backend).expect("test backend");
+        terminal
+            .draw(|frame| render_settings_overlay(&app, frame, area))
+            .expect("render Commands settings overlay");
+
+        let text = buffer_text(terminal.backend().buffer(), area.width, area.height);
+        assert!(text.contains("hunk diff --watch█"));
     }
 
     #[test]
