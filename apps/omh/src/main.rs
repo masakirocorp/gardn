@@ -32,6 +32,7 @@ mod commands;
 mod config;
 mod detect;
 mod events;
+mod execution_host;
 mod external_tool_theme;
 mod fresh_theme;
 mod ghostty;
