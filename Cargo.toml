@@ -1,6 +1,18 @@
 [workspace]
-members = ["apps/omh"]
+members = ["apps/omh", "apps/omh/vendor/portable-pty"]
+default-members = ["apps/omh"]
 resolver = "2"
+
+[workspace.metadata]
+name = "omh-rust"
 
 [patch.crates-io]
 portable-pty = { path = "apps/omh/vendor/portable-pty" }
+
+# Keep routine builds fast; use `cargo build --profile debugging` for full LLDB symbols.
+[profile.dev]
+debug = 1
+
+[profile.debugging]
+inherits = "dev"
+debug = 2

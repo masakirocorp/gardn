@@ -1,46 +1,10 @@
-# Oh My Herdr task runner
-
-# Run local tests with incremental compilation
-test:
-    cargo nextest run --locked --status-level fail --final-status-level fail --failure-output final --success-output never
-    python3 -m unittest scripts.test_agent_detection_manifest_check scripts.test_vendor_libghostty_vt scripts.test_vendor_portable_pty scripts.test_testing_guidelines scripts.test_extract_release_notes scripts.test_check_tegami_release_scope scripts.test_codex_status_fallback scripts.test_opencode_status_fallback scripts.test_agent_workflows
-
-# Run one nextest filter, e.g. `just test-one codex_stale_working`
-test-one filter:
-    cargo nextest run --locked "{{filter}}" --status-level fail --final-status-level fail --failure-output final --success-output never
-
-# Run structural Rust guardrails
-ast-grep:
-    ast-grep scan --config sgconfig.yml apps/omh/src --report-style short --error
-
-# Run fast local lint checks
-lint:
-    cargo fmt --check
-    CARGO_INCREMENTAL=0 cargo clippy --all-targets --locked -- -D warnings
-    just ast-grep
-
-# Run Rust tests with CI settings
-ci-test:
-    CARGO_INCREMENTAL=0 cargo nextest run -P ci --locked --status-level slow --final-status-level slow --failure-output final --success-output never
-
-# Run PR CI checks
-ci: lint ci-test
-
-# Check formatting + run unit tests + maintenance script tests
-check: ci
-    python3 -m unittest scripts.test_agent_detection_manifest_check scripts.test_vendor_libghostty_vt scripts.test_vendor_portable_pty scripts.test_testing_guidelines scripts.test_extract_release_notes scripts.test_check_tegami_release_scope scripts.test_codex_status_fallback scripts.test_opencode_status_fallback scripts.test_pi_omp_status_validation scripts.test_qoder_proxy_status_validation scripts.test_agent_status_acceptance_invariant scripts.test_agent_model_candidates scripts.test_remaining_status_fallback scripts.test_agent_workflows
-    @echo "docs reminder: if this changes user-facing behavior, update README.md or call it out before release."
-
-
-# Build release binary
-build:
-    cargo build --release --locked
-
+# Oh My Herdr imperative workflows
+#
+# Routine build, check, lint, and test tasks live in the Turborepo graph.
+#
 # Build the vendored libghostty-vt source dist
 build-libghostty-vt:
     scripts/build_vendored_libghostty_vt.sh
-
-
 
 # Create a merge-commit PR for upstream Herdr changes
 sync-upstream:
@@ -50,11 +14,6 @@ sync-upstream:
 upstream-status:
     python3 scripts/upstream_status.py --check
 
-# Run Tegami release/changelog tooling
-tegami *args:
-    pnpm tegami {{args}}
-
-
 # Draft a Tegami version commit, tag it, push, and trigger the GitHub Release workflow
 release:
     @if [ -n "$(git status --porcelain)" ]; then \
@@ -63,7 +22,7 @@ release:
     fi
     node scripts/check-tegami-release-scope.mts omh
     CI=true pnpm tegami version
-    just check
+    pnpm check
     @version="$(python3 -c 'import tomllib; print(tomllib.load(open("apps/omh/Cargo.toml", "rb"))["package"]["version"])')"; \
     tag="v$version"; \
     if git rev-parse "$tag" >/dev/null 2>&1; then \
@@ -89,22 +48,17 @@ agent-test-image:
 agent-test-doctor:
     docker run --rm omh-agent-tests:local
 
-
 # Verify live agent test environment wiring without calling providers
 agent-test-verify:
     docker run --rm -e OPENROUTER_API_KEY=sk-omh-agent-test omh-agent-tests:local omh-agent-tests-env omh-agent-tests-verify-env
-
 
 # Run OpenCode against the configured free OpenRouter test model
 agent-test-opencode:
     docker run --rm -e OPENROUTER_API_KEY -e OMH_TEST_FALLBACK_MODELS -e OMH_OPENCODE_TEST_MODEL omh-agent-tests:local omh-agent-tests-env omh-agent-tests-opencode
 
-
 # Run OpenCode and verify Oh My Herdr status reports from the real plugin
 agent-test-opencode-status:
     docker run --rm -e OPENROUTER_API_KEY -e OMH_TEST_MODEL -e OMH_TEST_FALLBACK_MODELS -e OMH_OPENCODE_TEST_MODEL -v "$PWD:/repo:ro" omh-agent-tests:local omh-agent-tests-env omh-agent-tests-opencode-status
-
-
 
 # Run Pi/OMP and verify Oh My Herdr status reports from the real plugin
 agent-test-pi-omp-status:
@@ -122,11 +76,9 @@ agent-test-codex-status:
 agent-test-remaining-status:
     docker run --rm -e OPENROUTER_API_KEY -e OMH_TEST_MODEL -e OMH_TEST_FALLBACK_MODELS -v "$PWD:/repo:ro" omh-agent-tests:local omh-agent-tests-env omh-agent-tests-remaining-status
 
-
 # Run Cursor through a local OpenRouter proxy and assert real hook states
 agent-test-cursor-proxy-status:
     docker run --rm --user root -e OPENROUTER_API_KEY -e OMH_TEST_MODEL -e OMH_TEST_FALLBACK_MODELS -e OMH_TEST_CURSOR_MODEL -v "$PWD:/repo:ro" --add-host api2.cursor.sh:127.0.0.1 --add-host api2geo.cursor.sh:127.0.0.1 --add-host api2direct.cursor.sh:127.0.0.1 --add-host agentn.api5.cursor.sh:127.0.0.1 --add-host agent.api5.cursor.sh:127.0.0.1 omh-agent-tests:local omh-agent-tests-env omh-agent-tests-cursor-proxy-status
-
 
 # Run Qoder through a local OpenRouter proxy and assert real hook states
 agent-test-qoder-proxy-status:

@@ -76,6 +76,17 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Install Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+
+      - name: Enable pnpm
+        run: corepack enable
+
+      - name: Install workspace dependencies
+        run: pnpm install --frozen-lockfile
+
       - name: Verify tag matches Cargo.toml version
         shell: bash
         run: |
@@ -150,8 +161,8 @@ jobs:
         shell: bash
         run: rm -rf .zig-cache apps/omh/vendor/libghostty-vt/.zig-cache apps/omh/vendor/libghostty-vt/zig-out
 
-      - name: Build
-        run: cargo build --release --locked --target ${{ matrix.target }}
+      - name: Build through Turbo
+        run: pnpm turbo run build --filter=omh -- --release --target ${{ matrix.target }}
 
       - name: Run Windows smoke
         if: runner.os == 'Windows'

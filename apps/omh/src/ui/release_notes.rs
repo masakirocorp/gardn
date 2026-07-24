@@ -521,13 +521,13 @@ mod tests {
     fn release_notes_fenced_code_blocks_render_as_preformatted_lines() {
         let palette = Palette::catppuccin();
         let lines = release_notes_lines(
-            "### Fixed\n```bash\njust check\n- not a bullet\n```\n- after",
+            "### Fixed\n```bash\npnpm check\n- not a bullet\n```\n- after",
             &palette,
         );
 
         assert_eq!(lines.len(), 4);
         assert_eq!(line_text(&lines[0].1), " fixed");
-        assert_eq!(line_text(&lines[1].1), "▏ just check");
+        assert_eq!(line_text(&lines[1].1), "▏ pnpm check");
         assert_eq!(line_text(&lines[2].1), "▏ - not a bullet");
         assert_eq!(line_text(&lines[3].1), " • after");
         assert_eq!(lines[1].1.spans[0].style.fg, Some(palette.accent));

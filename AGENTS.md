@@ -41,7 +41,7 @@ This repo is a long-lived Masakiro product fork of `ogulcancelik/herdr`, branded
 - Merge upstream with merge commits, not rebase or squash.
 - Open upstream-sync PRs into `masakirocorp/oh-my-herdr:master`.
 - Always verify the PR base is `masakirocorp/oh-my-herdr`, not upstream.
-- Run `just check` before merging sync PRs.
+- Run `pnpm check` before merging sync PRs.
 - Daily upstream syncs should use the checked-in automation instead of hand-rolled commands:
   ```bash
   just sync-upstream
@@ -51,31 +51,52 @@ This repo is a long-lived Masakiro product fork of `ogulcancelik/herdr`, branded
 - For every upstream port, identify the invariant the change protects, check whether Oh My Herdr has the same context, add or adjust tests in Oh My Herdr for that invariant, and only then merge.
 - Review `sync-report.md` in every upstream-sync PR. It calls out Oh My Herdr-owned files, sensitive plumbing, and forbidden upstream identity/plumbing that must not be resurrected silently.
 - Oh My Herdr-owned files are intentionally protected in `.gitattributes` with `merge=keep-omh`: `README.md`, `AGENTS.md`, `SKILL.md`, `apps/omh/assets/logo.svg`, `docs/**`, and `website/**`. Do not ignore these paths during upstream syncs; review upstream changes against Oh My Herdr's custom product/docs/site direction.
-- If an upstream sync conflicts, resolve toward Oh My Herdr product identity first, rerun `python3 scripts/guard_upstream_sync.py --base origin/master --upstream upstream/master --head HEAD`, then run `just check`.
+- If an upstream sync conflicts, resolve toward Oh My Herdr product identity first, rerun `python3 scripts/guard_upstream_sync.py --base origin/master --upstream upstream/master --head HEAD`, then run `pnpm check`.
 - Upstream-sync PRs must pass PR CI before merge. After merge, watch the `master` CI run too; push a follow-up fix if trunk CI exposes a platform-only failure.
 
 ## Testing
 
-Use `just` recipes by default for full tests and checks.
+Turborepo is the canonical repository task graph. Use root pnpm scripts for routine tests and checks:
 
 ```bash
-just test               # local incremental cargo nextest + maintenance script tests
-just check              # formatting check + clippy + non-incremental ci-profile cargo nextest + maintenance script tests
+pnpm test  # local incremental Rust, maintenance, and website tests
+pnpm check # complete non-incremental Rust and website quality graph
 ```
 
-During development, focused `cargo test --locked <test-name>` runs are fine for tight iteration. Before committing non-trivial changes, run `just check` unless Can explicitly accepts a narrower validation for that commit.
+During development, focused `cargo test --locked <test-name>` runs are fine for tight iteration. Turbo also forwards nextest filters with `pnpm turbo run omh#test -- <filter>`. Before committing non-trivial changes, run `pnpm check` unless Can explicitly accepts a narrower validation for that commit.
 
 ### Interactive development loop
 
 When the user is actively iterating, prefer the shortest verification that can catch the specific mistake just introduced.
 
-Do not run long gates (`just check`, full `just test`, broad test suites, release builds) during the iteration loop unless the user explicitly asks or the change is about to be committed, merged, or released.
+Do not run long gates (`pnpm check`, full `pnpm test`, broad test suites, release builds) during the iteration loop unless the user explicitly asks or the change is about to be committed, merged, or released.
 
 For small UI or behavior tweaks, make the edit, run formatting/build only if needed to produce a usable `omh-dev`, and let the user manually review. For logic/state changes, run one focused test that covers the changed behavior.
 
 Batch small follow-up fixes before revalidating. Full checks belong at commit, merge, and release boundaries, not after every edit.
 
-CI intentionally splits formatting, clippy, Rust tests, and maintenance tests into separate steps. Keep that shape; it makes platform hangs diagnosable. Rust tests use `just ci-test`: non-incremental compilation plus the `ci` nextest profile, which reports slow tests and times out hung tests.
+For Rust-only edit/build/run iteration, use Cargo directly:
+
+```bash
+cargo build --package=omh --locked
+./target/debug/omh
+```
+
+Routine development and test builds use limited debug information for faster compilation. When
+full LLDB variable and type information is required, use the separate debugging profile so the
+normal incremental target stays warm:
+
+```bash
+cargo build --profile debugging --package=omh --locked
+./target/debugging/omh
+```
+
+Keep incremental compilation enabled and keep each worktree's `target/` directory isolated. Do not
+use a shared Cargo target, set `CARGO_INCREMENTAL=0`, add always-on sccache, or enable Turbo caching
+for the native `omh` binary as part of the normal local loop. Use pnpm/Turbo for repository-wide or
+mixed Rust/website tasks, not as a wrapper around each Rust-only rebuild.
+
+CI intentionally keeps formatting, clippy, Rust tests, structural guardrails, and maintenance tests in separate Turbo steps. Keep that shape; it makes platform hangs diagnosable. Rust tests use the `omh#ci:test` Turbo task with non-incremental compilation in CI plus the `ci` nextest profile, which reports slow tests and times out hung tests.
 
 Unit tests live next to the code (`#[cfg(test)] mod tests`). If you add behavior to `AppState` or `Workspace`, it should be testable with `AppState::test_new()` and `Workspace::test_new()` — no PTYs.
 
@@ -90,7 +111,7 @@ Tests are behavior specs, not implementation snapshots. Prefer the public/user-v
 - Process/socket tests must wait for readiness, not just path existence. Use `tests::support::connect_unix_socket` for Unix socket clients.
 - Tests that mutate global environment variables must serialize that mutation and restore through `crate::config::TestEnvVar` or an equivalent RAII guard.
 - Error-path tests should assert concrete error variants or useful message details, not only `is_err()`.
-- Mechanical guardrails live in `scripts/test_testing_guidelines.py` and run from `just test`/`just check`. If a test needs an exception, prefer improving the helper or naming the invariant explicitly over weakening the guardrail.
+- Mechanical guardrails live in `scripts/test_testing_guidelines.py` and run from `pnpm test`/`pnpm check`. If a test needs an exception, prefer improving the helper or naming the invariant explicitly over weakening the guardrail.
 
 ## Conventions
 
@@ -129,7 +150,7 @@ Track ADR backfill and new ADR work in Linear with `kind:adr` and `app:omh`. Whe
 Default release flow:
 
 ```bash
-just check
+pnpm check
 just release
 ```
 

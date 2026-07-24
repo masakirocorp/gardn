@@ -1,51 +1,206 @@
 {
-  "$schema": "https://turbo.build/schema.json",
+  "$schema": "https://turborepo.dev/schema.json",
+  "futureFlags": {
+    "experimentalCargoWorkspaces": true,
+    "experimentalTaskCommand": true
+  },
+  "globalEnv": [
+    "AR",
+    "ARFLAGS",
+    "CARGO_*",
+    "CC",
+    "CFLAGS",
+    "CI",
+    "CXX",
+    "CXXFLAGS",
+    "DEVELOPER_DIR",
+    "GITHUB_ACTIONS",
+    "HOST_*",
+    "LIBGHOSTTY_VT_*",
+    "MACOSX_DEPLOYMENT_TARGET",
+    "RANLIB",
+    "RUST*",
+    "SDKROOT",
+    "TARGET_*",
+    "ZIG"
+  ],
+  "globalPassThroughEnv": [
+    "APPDATA",
+    "CARGO_HOME",
+    "HOME",
+    "LOCALAPPDATA",
+    "RUSTUP_HOME",
+    "TEMP",
+    "TMP",
+    "TMPDIR",
+    "USERPROFILE",
+    "XDG_CACHE_HOME",
+    "XDG_CONFIG_HOME",
+    "XDG_DATA_HOME",
+    "ZIG_GLOBAL_CACHE_DIR",
+    "ZIG_LOCAL_CACHE_DIR"
+  ],
   "tasks": {
     "build": {
-      "dependsOn": [
-        "^build"
-      ],
-      "outputs": []
+      "dependsOn": ["^build"]
     },
     "check": {
-      "dependsOn": [
-        "^check"
-      ],
+      "dependsOn": ["^check"],
       "outputs": []
     },
     "lint": {
       "outputs": []
     },
     "test": {
-      "dependsOn": [
-        "^test"
+      "dependsOn": ["^test"],
+      "outputs": []
+    },
+    "omh#build": {
+      "env": ["LIBGHOSTTY_VT_OPTIMIZE", "LIBGHOSTTY_VT_SIMD"],
+      "cache": false
+    },
+    "omh#check": {
+      "command": ["cargo", "check", "--package=omh", "--all-targets", "--locked"],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/Cargo.lock",
+        "$TURBO_ROOT$/Cargo.toml"
       ],
       "outputs": []
     },
-    "@omh/app#build": {
-      "cache": false,
-      "dependsOn": [
-        "^build"
+    "omh#format": {
+      "command": ["cargo", "fmt", "--package", "omh"],
+      "cache": false
+    },
+    "omh#format:check": {
+      "command": ["cargo", "fmt", "--package", "omh", "--", "--check"],
+      "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/Cargo.toml"],
+      "outputs": []
+    },
+    "omh#lint": {
+      "command": ["cargo", "clippy", "--package=omh", "--all-targets", "--locked", "--no-deps", "--", "-D", "warnings"],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/Cargo.lock",
+        "$TURBO_ROOT$/Cargo.toml"
       ],
       "outputs": []
     },
-    "@omh/app#check": {
-      "cache": false,
-      "dependsOn": [
-        "^check"
+    "omh#test": {
+      "command": ["cargo", "nextest", "run", "--locked"],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/Cargo.lock",
+        "$TURBO_ROOT$/Cargo.toml",
+        "$TURBO_ROOT$/.config/nextest.toml"
       ],
       "outputs": []
     },
-    "@omh/app#lint": {
-      "cache": false,
+    "omh#ci:test": {
+      "command": ["cargo", "nextest", "run", "-P", "ci", "--locked"],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/Cargo.lock",
+        "$TURBO_ROOT$/Cargo.toml",
+        "$TURBO_ROOT$/.config/nextest.toml"
+      ],
+      "dependsOn": ["format:check", "lint"],
+      "env": ["CARGO_INCREMENTAL"],
       "outputs": []
     },
-    "@omh/app#test": {
-      "cache": false,
-      "dependsOn": [
-        "^test"
+    "omh-rust#ast:check": {
+      "command": [
+        "node",
+        "scripts/run-ast-grep.mjs",
+        "scan",
+        "--config",
+        "sgconfig.yml",
+        "apps/omh/src",
+        "--report-style",
+        "short",
+        "--error"
+      ],
+      "inputs": [
+        "apps/omh/src/**",
+        "ast-grep/rules/**",
+        "package.json",
+        "pnpm-lock.yaml",
+        "scripts/run-ast-grep.mjs",
+        "sgconfig.yml"
       ],
       "outputs": []
+    },
+    "omh-rust#api:contract": {
+      "inputs": [
+        "apps/omh/src/api/**",
+        "apps/omh/src/app/api.rs",
+        "apps/omh/src/app/api/**",
+        "website/.generated/api/schema.json",
+        "website/scripts/generate-api-reference.mjs"
+      ],
+      "outputs": []
+    },
+    "omh-rust#maintenance:test": {
+      "command": [
+        "python3",
+        "-m",
+        "unittest",
+        "scripts.test_agent_detection_manifest_check",
+        "scripts.test_vendor_libghostty_vt",
+        "scripts.test_vendor_portable_pty",
+        "scripts.test_testing_guidelines",
+        "scripts.test_extract_release_notes",
+        "scripts.test_check_tegami_release_scope",
+        "scripts.test_codex_status_fallback",
+        "scripts.test_opencode_status_fallback",
+        "scripts.test_pi_omp_status_validation",
+        "scripts.test_qoder_proxy_status_validation",
+        "scripts.test_agent_status_acceptance_invariant",
+        "scripts.test_agent_model_candidates",
+        "scripts.test_remaining_status_fallback",
+        "scripts.test_agent_workflows"
+      ],
+      "inputs": [
+        ".github/workflows/live-agent-tests.yml",
+        "Cargo.lock",
+        "Cargo.toml",
+        "apps/omh/Cargo.toml",
+        "apps/omh/src/**",
+        "apps/omh/tests/**",
+        "apps/omh/vendor/**",
+        "ci/agent-test/**",
+        "ci/agent-tests/**",
+        "nix/package.nix",
+        "scripts/**",
+        "website/agent-detection/**"
+      ],
+      "outputs": []
+    },
+    "omh-rust#test:all": {
+      "inputs": ["$TURBO_ROOT$/turbo.json"],
+      "dependsOn": ["omh#test", "omh-rust#maintenance:test"]
+    },
+    "omh-rust#release-scope:check": {
+      "command": ["node", "scripts/check-tegami-release-scope.mts", "omh"],
+      "inputs": [
+        ".tegami/**",
+        "scripts/check-tegami-release-scope.mts",
+        "scripts/tegami.mts"
+      ],
+      "outputs": []
+    },
+    "omh-rust#lint:all": {
+      "dependsOn": ["@omh/website#lint", "omh#lint", "omh-rust#ast:check"],
+      "inputs": ["$TURBO_ROOT$/turbo.json"]
+    },
+    "omh-rust#quality": {
+      "inputs": ["$TURBO_ROOT$/turbo.json"],
+      "dependsOn": [
+        "omh#ci:test",
+        "omh-rust#ast:check",
+        "omh-rust#maintenance:test",
+        "omh-rust#release-scope:check"
+      ]
     }
   }
 }
