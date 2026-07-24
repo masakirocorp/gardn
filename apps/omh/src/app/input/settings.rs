@@ -18,7 +18,8 @@ use crate::{
     },
     settings_rows::{
         option_count, option_hit_for_visual_row, option_index_for_visual_row, rows_for_section,
-        selected_visual_row, visual_row_count, SettingsRowHit,
+        selected_visual_row, visual_row_count, SettingsRowHit, GIT_DIFF_COMMAND_SUGGESTIONS,
+        GIT_DIFF_COMMAND_SUGGESTION_START,
     },
     terminal_theme::ThemeAppearance,
 };
@@ -1647,7 +1648,14 @@ fn select_pending_setting(state: &mut AppState) -> Option<SettingsAction> {
                     state.settings.pending_mouse_scroll_lines = Some(next);
                 }
                 5 => {}
-                _ => {}
+                selected => {
+                    if let Some((_, command)) = selected
+                        .checked_sub(GIT_DIFF_COMMAND_SUGGESTION_START)
+                        .and_then(|offset| GIT_DIFF_COMMAND_SUGGESTIONS.get(offset))
+                    {
+                        state.settings.pending_git_diff_command = Some((*command).to_string());
+                    }
+                }
             }
             Some(current_settings_action(state))
         }
@@ -1901,12 +1909,14 @@ pub(super) fn update_settings_state(state: &mut AppState, key: KeyEvent) -> Opti
                     state,
                     settings_section_choice_len(state, SettingsSection::PaneLabels),
                 );
+                ensure_settings_selection_visible(state);
             }
             KeyCode::Down | KeyCode::Char('j') => {
                 select_next_setting(
                     state,
                     settings_section_choice_len(state, SettingsSection::PaneLabels),
                 );
+                ensure_settings_selection_visible(state);
             }
             KeyCode::Enter => return select_pending_setting(state),
             KeyCode::Char(' ') => return select_pending_setting(state),
@@ -4351,6 +4361,35 @@ mod tests {
                 ..
             }) if git_diff_command == "lazygit"
         ));
+    }
+
+    #[test]
+    fn behavior_settings_selects_hunk_watch_suggestion() {
+        let mut state = state_with_workspaces(&["test"]);
+        open_settings_at(&mut state, SettingsSection::PaneLabels);
+
+        for _ in 0..7 {
+            update_settings_state(
+                &mut state,
+                KeyEvent::new(KeyCode::Down, KeyModifiers::empty()),
+            );
+        }
+        let action = update_settings_state(
+            &mut state,
+            KeyEvent::new(KeyCode::Enter, KeyModifiers::empty()),
+        );
+
+        assert!(matches!(
+            action,
+            Some(SettingsAction::SaveSettings {
+                git_diff_command,
+                ..
+            }) if git_diff_command == "hunk diff --watch"
+        ));
+        assert_eq!(
+            state.settings.pending_git_diff_command.as_deref(),
+            Some("hunk diff --watch")
+        );
     }
 
     #[test]

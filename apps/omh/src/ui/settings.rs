@@ -1730,13 +1730,13 @@ mod tests {
     }
 
     #[test]
-    fn behavior_settings_show_configurable_diff_command() {
+    fn behavior_settings_show_curated_diff_command_suggestions() {
         let mut app = AppState::test_new();
         app.settings.section = SettingsSection::PaneLabels;
         app.settings.pending_git_diff_command = Some("git diff".to_string());
         app.settings.list.select(5);
         app.settings.list.show();
-        app.settings.scroll = 8;
+        app.settings.scroll = 11;
 
         let backend = TestBackend::new(100, 40);
         let mut terminal = Terminal::new(backend).expect("test backend");
@@ -1748,6 +1748,10 @@ mod tests {
         assert!(text.contains("diff command"));
         assert!(text.contains("git diff"));
         assert!(text.contains("leave empty to hide the Diff shortcut"));
+        assert!(text.contains("suggested commands"));
+        assert!(text.contains("Hunk · hunk diff --watch"));
+        assert!(text.contains("Delta · git diff | delta"));
+        assert!(text.contains("Difftastic · git -c diff.external=difft diff"));
     }
 
     #[test]

@@ -12,6 +12,14 @@ use crate::{
     terminal_theme::ThemeAppearance,
 };
 
+pub(crate) const GIT_DIFF_COMMAND_SUGGESTION_START: usize = 6;
+pub(crate) const GIT_DIFF_COMMAND_SUGGESTIONS: [(&str, &str); 4] = [
+    ("Hunk", "hunk diff --watch"),
+    ("Git diff", "git diff"),
+    ("Delta", "git diff | delta"),
+    ("Difftastic", "git -c diff.external=difft diff"),
+];
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum SettingsListRow {
     Header(&'static str),
@@ -894,22 +902,30 @@ fn behavior_rows(app: &AppState, settings: &SettingsState) -> Vec<SettingsListRo
             ),
         ],
     ));
+    let diff_command = settings
+        .pending_git_diff_command
+        .clone()
+        .unwrap_or_else(|| app.git_diff_command.clone());
     rows.push(SettingsListRow::Spacer);
     rows.extend([
         SettingsListRow::Header("commands"),
         SettingsListRow::TextInput {
             index: 5,
             title: "diff command".into(),
-            value: settings
-                .pending_git_diff_command
-                .clone()
-                .unwrap_or_else(|| app.git_diff_command.clone())
-                .into(),
+            value: diff_command.clone().into(),
         },
         SettingsListRow::Caption(
             "runs in the repository root; leave empty to hide the Diff shortcut".into(),
         ),
+        SettingsListRow::Caption("suggested commands".into()),
     ]);
+    rows.extend(GIT_DIFF_COMMAND_SUGGESTIONS.iter().enumerate().map(
+        |(offset, (name, command))| SettingsListRow::Choice {
+            index: GIT_DIFF_COMMAND_SUGGESTION_START + offset,
+            label: format!("{name} · {command}").into(),
+            checked: diff_command.trim() == *command,
+        },
+    ));
     rows
 }
 
