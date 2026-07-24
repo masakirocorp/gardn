@@ -15,7 +15,7 @@ use crate::{
 pub(crate) const GIT_DIFF_COMMAND_SUGGESTION_START: usize = 1;
 pub(crate) const GIT_DIFF_COMMAND_SUGGESTIONS: [(&str, &str); 3] = [
     ("LazyGit", "lazygit"),
-    ("Hunk", "hunk diff --watch"),
+    ("Hunk", crate::hunk_theme::DIFF_COMMAND),
     ("Plannotator", "plannotator review"),
 ];
 

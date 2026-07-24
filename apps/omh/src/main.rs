@@ -34,6 +34,7 @@ mod detect;
 mod events;
 mod ghostty;
 mod handoff_runtime;
+mod hunk_theme;
 mod input;
 mod integration;
 mod ipc;
