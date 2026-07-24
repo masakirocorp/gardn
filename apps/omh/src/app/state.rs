@@ -2144,6 +2144,8 @@ pub struct SettingsState {
     pub pending_new_terminal_cwd: Option<NewTerminalCwdConfig>,
     /// Pending mouse wheel scroll amount while settings is open.
     pub pending_mouse_scroll_lines: Option<usize>,
+    /// Pending command launched by the global diff shortcut while settings is open.
+    pub pending_git_diff_command: Option<String>,
     /// Pending default sidebar width while settings is open.
     pub pending_sidebar_width: Option<u16>,
     /// Pending minimum expanded sidebar width while settings is open.
@@ -3211,6 +3213,10 @@ impl AppState {
         self.prompt_new_tab_name
     }
 
+    pub(crate) fn git_diff_command_configured(&self) -> bool {
+        !self.git_diff_command.trim().is_empty()
+    }
+
     pub fn pane_border_agent_info(&self) -> PaneBorderAgentInfoConfig {
         self.pane_border_agent_info
     }
@@ -3664,6 +3670,7 @@ impl AppState {
                 pending_new_terminal_cwd: None,
                 pending_context_bar_visibility: None,
                 pending_mouse_scroll_lines: None,
+                pending_git_diff_command: None,
                 pending_sidebar_width: None,
                 pending_sidebar_arrangement: None,
                 pending_sidebar_initial_state: None,

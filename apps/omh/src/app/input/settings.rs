@@ -42,6 +42,7 @@ pub(crate) enum SettingsAction {
         show_counters: bool,
         new_terminal_cwd: NewTerminalCwdConfig,
         mouse_scroll_lines: usize,
+        git_diff_command: String,
         sidebar_width: u16,
         sidebar_min_width: u16,
         sidebar_max_width: u16,
@@ -107,6 +108,7 @@ impl App {
                 show_counters,
                 new_terminal_cwd,
                 mouse_scroll_lines,
+                git_diff_command,
                 sidebar_width,
                 sidebar_min_width,
                 sidebar_max_width,
@@ -129,6 +131,7 @@ impl App {
                 self.save_show_counters(show_counters);
                 self.save_new_terminal_cwd(&new_terminal_cwd);
                 self.save_mouse_scroll_lines(mouse_scroll_lines);
+                self.save_git_diff_command(&git_diff_command);
                 self.save_sidebar_widths(sidebar_width, sidebar_min_width, sidebar_max_width);
                 self.save_sidebar_arrangement(sidebar_arrangement);
                 self.save_context_bar_visibility(context_bar_visibility);
@@ -1068,6 +1071,66 @@ fn pending_mouse_scroll_lines(state: &AppState) -> usize {
         .unwrap_or(state.mouse_scroll_lines)
 }
 
+fn pending_git_diff_command(state: &AppState) -> String {
+    state
+        .settings
+        .pending_git_diff_command
+        .clone()
+        .unwrap_or_else(|| state.git_diff_command.clone())
+}
+
+fn delete_pending_git_diff_command_word(state: &mut AppState) {
+    let mut value = pending_git_diff_command(state);
+    while value.chars().last().is_some_and(char::is_whitespace) {
+        value.pop();
+    }
+    while value.chars().last().is_some_and(|ch| !ch.is_whitespace()) {
+        value.pop();
+    }
+    state.settings.pending_git_diff_command = Some(value);
+}
+
+fn edit_pending_git_diff_command(state: &mut AppState, key: KeyEvent) -> bool {
+    if state.settings.focused_input != Some(5) {
+        return false;
+    }
+    state.settings.list.select(5);
+    match key.code {
+        KeyCode::Char('u') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+            state.settings.pending_git_diff_command = Some(String::new());
+            true
+        }
+        KeyCode::Backspace if key.modifiers.contains(KeyModifiers::SUPER) => {
+            state.settings.pending_git_diff_command = Some(String::new());
+            true
+        }
+        KeyCode::Backspace
+            if key.modifiers.contains(KeyModifiers::CONTROL)
+                || key.modifiers.contains(KeyModifiers::ALT) =>
+        {
+            delete_pending_git_diff_command_word(state);
+            true
+        }
+        KeyCode::Char('h' | 'w') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+            delete_pending_git_diff_command_word(state);
+            true
+        }
+        KeyCode::Backspace => {
+            let mut value = pending_git_diff_command(state);
+            value.pop();
+            state.settings.pending_git_diff_command = Some(value);
+            true
+        }
+        KeyCode::Char(c) if key.modifiers.difference(KeyModifiers::SHIFT).is_empty() => {
+            let mut value = pending_git_diff_command(state);
+            value.push(c);
+            state.settings.pending_git_diff_command = Some(value);
+            true
+        }
+        _ => false,
+    }
+}
+
 fn pending_sidebar_width(state: &AppState) -> u16 {
     state
         .settings
@@ -1368,6 +1431,7 @@ fn clear_settings_pending(state: &mut AppState) {
     state.settings.pending_show_counters = None;
     state.settings.pending_new_terminal_cwd = None;
     state.settings.pending_mouse_scroll_lines = None;
+    state.settings.pending_git_diff_command = None;
     state.settings.pending_sidebar_width = None;
     state.settings.pending_sidebar_min_width = None;
     state.settings.pending_sidebar_max_width = None;
@@ -1403,6 +1467,7 @@ fn current_settings_action(state: &AppState) -> SettingsAction {
         show_counters: pending_show_counters(state),
         new_terminal_cwd: pending_new_terminal_cwd(state),
         mouse_scroll_lines: pending_mouse_scroll_lines(state),
+        git_diff_command: pending_git_diff_command(state),
         sidebar_width: pending_sidebar_width(state),
         sidebar_min_width: pending_sidebar_min_width(state),
         sidebar_max_width: pending_sidebar_max_width(state),
@@ -1581,6 +1646,7 @@ fn select_pending_setting(state: &mut AppState) -> Option<SettingsAction> {
                     let next = next_mouse_scroll_lines(pending_mouse_scroll_lines(state));
                     state.settings.pending_mouse_scroll_lines = Some(next);
                 }
+                5 => {}
                 _ => {}
             }
             Some(current_settings_action(state))
@@ -1607,6 +1673,7 @@ fn selected_experiment_action(state: &mut AppState) -> Option<SettingsAction> {
 }
 fn settings_row_accepts_text_input(state: &AppState, selected: usize) -> bool {
     match state.settings.section {
+        SettingsSection::PaneLabels => selected == 5,
         SettingsSection::GroupGeneral | SettingsSection::WorkspaceGeneral => selected <= 1,
         SettingsSection::Agents if agent_profile_editor_open(state) => {
             selected == AGENT_PROFILE_NAME_INDEX || selected == agent_profile_command_index(state)
@@ -1685,6 +1752,11 @@ pub(super) fn update_settings_state(state: &mut AppState, key: KeyEvent) -> Opti
     if state.settings.section == SettingsSection::Agents
         && agent_profile_editor_open(state)
         && edit_pending_agent_profile_text(state, key)
+    {
+        return None;
+    }
+    if state.settings.section == SettingsSection::PaneLabels
+        && edit_pending_git_diff_command(state, key)
     {
         return None;
     }
@@ -1836,6 +1908,7 @@ pub(super) fn update_settings_state(state: &mut AppState, key: KeyEvent) -> Opti
                     settings_section_choice_len(state, SettingsSection::PaneLabels),
                 );
             }
+            KeyCode::Enter => return select_pending_setting(state),
             KeyCode::Char(' ') => return select_pending_setting(state),
             KeyCode::BackTab | KeyCode::Left | KeyCode::Char('h') => {
                 switch_settings_section(state, SettingsSection::Sound, 0);
@@ -2172,6 +2245,7 @@ pub(crate) fn prepare_general_settings_state(
     settings.pending_show_counters = Some(state.show_counters);
     settings.pending_new_terminal_cwd = Some(state.new_terminal_cwd.clone());
     settings.pending_mouse_scroll_lines = Some(state.mouse_scroll_lines);
+    settings.pending_git_diff_command = Some(state.git_diff_command.clone());
     settings.pending_sidebar_width = Some(state.default_sidebar_width);
     settings.pending_sidebar_min_width = Some(state.sidebar_min_width);
     settings.pending_sidebar_max_width = Some(state.sidebar_max_width);
@@ -2233,6 +2307,7 @@ fn reset_settings_for_scoped_editor(state: &AppState, settings: &mut SettingsSta
     settings.pending_show_counters = None;
     settings.pending_new_terminal_cwd = None;
     settings.pending_mouse_scroll_lines = None;
+    settings.pending_git_diff_command = None;
     settings.pending_sidebar_width = None;
     settings.pending_sidebar_min_width = None;
     settings.pending_sidebar_max_width = None;
@@ -2329,6 +2404,7 @@ pub(crate) fn open_group_settings(state: &mut AppState, group_idx: usize) {
     state.settings.pending_show_counters = None;
     state.settings.pending_new_terminal_cwd = None;
     state.settings.pending_mouse_scroll_lines = None;
+    state.settings.pending_git_diff_command = None;
     state.settings.pending_sidebar_width = None;
     state.settings.pending_sidebar_min_width = None;
     state.settings.pending_sidebar_max_width = None;
@@ -2374,6 +2450,7 @@ pub(crate) fn open_workspace_settings(state: &mut AppState, ws_idx: usize) {
     state.settings.pending_show_counters = None;
     state.settings.pending_new_terminal_cwd = None;
     state.settings.pending_mouse_scroll_lines = None;
+    state.settings.pending_git_diff_command = None;
     state.settings.pending_sidebar_width = None;
     state.settings.pending_sidebar_min_width = None;
     state.settings.pending_sidebar_max_width = None;
@@ -3804,6 +3881,7 @@ mod tests {
                 show_counters: false,
                 new_terminal_cwd: NewTerminalCwdConfig::Follow,
                 mouse_scroll_lines: crate::config::DEFAULT_MOUSE_SCROLL_LINES,
+                git_diff_command: "lazygit".to_string(),
                 sidebar_width: 26,
                 sidebar_min_width: 18,
                 sidebar_max_width: 36,
@@ -4235,6 +4313,44 @@ mod tests {
             }
         ));
         assert_eq!(state.mode, Mode::Settings);
+    }
+
+    #[test]
+    fn behavior_settings_edits_and_saves_diff_command() {
+        let mut state = state_with_workspaces(&["test"]);
+        state.git_diff_command = "git diff".to_string();
+        open_settings_at(&mut state, SettingsSection::PaneLabels);
+
+        for _ in 0..6 {
+            update_settings_state(
+                &mut state,
+                KeyEvent::new(KeyCode::Down, KeyModifiers::empty()),
+            );
+        }
+        assert_eq!(state.settings.focused_input, Some(5));
+
+        update_settings_state(
+            &mut state,
+            KeyEvent::new(KeyCode::Char('u'), KeyModifiers::CONTROL),
+        );
+        for ch in "lazygit".chars() {
+            update_settings_state(
+                &mut state,
+                KeyEvent::new(KeyCode::Char(ch), KeyModifiers::empty()),
+            );
+        }
+        let action = update_settings_state(
+            &mut state,
+            KeyEvent::new(KeyCode::Enter, KeyModifiers::empty()),
+        );
+
+        assert!(matches!(
+            action,
+            Some(SettingsAction::SaveSettings {
+                git_diff_command,
+                ..
+            }) if git_diff_command == "lazygit"
+        ));
     }
 
     #[test]

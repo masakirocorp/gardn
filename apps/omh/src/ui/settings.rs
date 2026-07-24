@@ -1730,6 +1730,27 @@ mod tests {
     }
 
     #[test]
+    fn behavior_settings_show_configurable_diff_command() {
+        let mut app = AppState::test_new();
+        app.settings.section = SettingsSection::PaneLabels;
+        app.settings.pending_git_diff_command = Some("git diff".to_string());
+        app.settings.list.select(5);
+        app.settings.list.show();
+        app.settings.scroll = 8;
+
+        let backend = TestBackend::new(100, 40);
+        let mut terminal = Terminal::new(backend).expect("test backend");
+        terminal
+            .draw(|frame| render_settings_overlay(&app, frame, Rect::new(0, 0, 100, 40)))
+            .expect("render behavior settings overlay");
+
+        let text = buffer_text(terminal.backend().buffer(), 100, 40);
+        assert!(text.contains("diff command"));
+        assert!(text.contains("git diff"));
+        assert!(text.contains("leave empty to hide the Diff shortcut"));
+    }
+
+    #[test]
     fn group_general_settings_lists_name_and_danger_actions() {
         let mut app = AppState::test_new();
         let group_idx = app.create_group("Work".to_string());

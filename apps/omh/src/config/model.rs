@@ -330,19 +330,11 @@ impl Default for SessionConfig {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Default, Clone, PartialEq, Eq, Deserialize)]
 #[serde(default)]
 pub struct GitConfig {
     /// Command launched by "open git diff". Runs in the selected repository root.
     pub diff_command: String,
-}
-
-impl Default for GitConfig {
-    fn default() -> Self {
-        Self {
-            diff_command: "lazygit".into(),
-        }
-    }
 }
 
 #[derive(Debug, Clone, Copy, Deserialize)]
@@ -1314,6 +1306,20 @@ shell_mode = "non_login"
         let config: Config = toml::from_str(toml).unwrap();
         assert_eq!(config.terminal.default_shell, "nu");
         assert_eq!(config.terminal.shell_mode, ShellModeConfig::NonLogin);
+    }
+
+    #[test]
+    fn git_diff_command_defaults_unconfigured_and_parses() {
+        assert!(Config::default().git.diff_command.is_empty());
+
+        let config: Config = toml::from_str(
+            r#"
+[git]
+diff_command = "lazygit"
+"#,
+        )
+        .unwrap();
+        assert_eq!(config.git.diff_command, "lazygit");
     }
 
     #[test]

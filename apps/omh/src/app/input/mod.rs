@@ -612,6 +612,7 @@ impl App {
                         show_counters,
                         new_terminal_cwd,
                         mouse_scroll_lines,
+                        git_diff_command,
                         sidebar_width,
                         sidebar_min_width,
                         sidebar_max_width,
@@ -634,6 +635,7 @@ impl App {
                         self.save_show_counters(show_counters);
                         self.save_new_terminal_cwd(&new_terminal_cwd);
                         self.save_mouse_scroll_lines(mouse_scroll_lines);
+                        self.save_git_diff_command(&git_diff_command);
                         self.save_sidebar_widths(
                             sidebar_width,
                             sidebar_min_width,

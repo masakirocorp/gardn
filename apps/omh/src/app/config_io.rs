@@ -144,6 +144,17 @@ impl App {
             self.apply_config_from_disk(false);
         }
     }
+    pub(super) fn save_git_diff_command(&mut self, command: &str) {
+        let command = command.trim().to_string();
+        self.state.git_diff_command = command.clone();
+        self.state.settings.pending_git_diff_command = Some(command.clone());
+        let value = toml::Value::String(command).to_string();
+        if self.update_config_file("git diff command", |content| {
+            crate::config::upsert_section_value(content, "git", "diff_command", &value)
+        }) {
+            self.apply_config_from_disk(false);
+        }
+    }
     pub(super) fn save_sidebar_widths(&mut self, width: u16, min: u16, max: u16) {
         let (min, max) = crate::config::validated_sidebar_bounds(min, max)
             .unwrap_or((self.state.sidebar_min_width, self.state.sidebar_max_width));
@@ -539,5 +550,31 @@ mod tests {
         assert_eq!(app.state.settings.pending_agent_profile_command, None);
         assert_eq!(app.state.settings.list.selected, 0);
         assert!(app.state.session_dirty);
+    }
+    #[test]
+    fn save_git_diff_command_persists_valid_toml_and_runtime_state() {
+        let _lock = match crate::config::test_config_env_lock().lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        let path = std::env::temp_dir().join(format!(
+            "omh-diff-command-{}-{}.toml",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let _config_path =
+            crate::config::TestEnvVar::set(crate::config::CONFIG_PATH_ENV_VAR, &path);
+        let mut app = test_app();
+
+        app.save_git_diff_command(r#"  git difftool --tool="custom"  "#);
+
+        let content = std::fs::read_to_string(&path).unwrap();
+        let config: crate::config::Config = toml::from_str(&content).unwrap();
+        assert_eq!(config.git.diff_command, r#"git difftool --tool="custom""#);
+        assert_eq!(app.state.git_diff_command, config.git.diff_command);
+        let _ = std::fs::remove_file(path);
     }
 }

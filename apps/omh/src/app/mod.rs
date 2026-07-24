@@ -1013,6 +1013,7 @@ impl App {
                 pending_show_counters: None,
                 pending_new_terminal_cwd: None,
                 pending_mouse_scroll_lines: None,
+                pending_git_diff_command: None,
                 pending_sidebar_width: None,
                 pending_sidebar_min_width: None,
                 pending_sidebar_max_width: None,
@@ -7259,10 +7260,11 @@ impl App {
         let Some(ws_idx) = client_view.active_workspace else {
             return false;
         };
-        let can_diff = !self
-            .state
-            .observed_git_repos_for_workspace(&self.terminal_runtimes, ws_idx)
-            .is_empty();
+        let can_diff = self.state.git_diff_command_configured()
+            && !self
+                .state
+                .observed_git_repos_for_workspace(&self.terminal_runtimes, ws_idx)
+                .is_empty();
         client_view.context_menu = Some(state::ContextMenuState {
             kind: state::ContextMenuKind::NewTabButton { ws_idx, can_diff },
             x: mouse.column,
@@ -8514,10 +8516,11 @@ impl App {
         client_view
             .active_tabs
             .insert(workspace.id.clone(), tab_idx);
-        let can_diff = !self
-            .state
-            .observed_git_repos_for_workspace(&self.terminal_runtimes, ws_idx)
-            .is_empty();
+        let can_diff = self.state.git_diff_command_configured()
+            && !self
+                .state
+                .observed_git_repos_for_workspace(&self.terminal_runtimes, ws_idx)
+                .is_empty();
         client_view.context_menu = Some(state::ContextMenuState {
             kind: state::ContextMenuKind::Tab {
                 ws_idx,
@@ -9961,10 +9964,11 @@ impl App {
                     Self::client_view_workspace_at(client_view, mouse.column, mouse.row)
                 {
                     client_view.selected_workspace = idx;
-                    let can_diff = !self
-                        .state
-                        .observed_git_repos_for_workspace(&self.terminal_runtimes, idx)
-                        .is_empty();
+                    let can_diff = self.state.git_diff_command_configured()
+                        && !self
+                            .state
+                            .observed_git_repos_for_workspace(&self.terminal_runtimes, idx)
+                            .is_empty();
                     client_view.context_menu = Some(state::ContextMenuState {
                         kind: state::ContextMenuKind::Workspace {
                             ws_idx: idx,
@@ -20385,6 +20389,15 @@ command = "printf literal > '{}'"
         );
 
         assert_eq!(client.mode, Mode::ContextMenu);
+        assert!(
+            !client
+                .context_menu
+                .as_ref()
+                .expect("plus menu")
+                .items()
+                .contains(&"diff"),
+            "unconfigured diff command stays hidden"
+        );
         let menu = context_menu_rect_for_client_view(&app, &client);
 
         app.route_client_events_for_view(
@@ -20406,6 +20419,38 @@ command = "printf literal > '{}'"
             Some(&1),
             "invoking client follows the tab created by its plus-menu click"
         );
+    }
+
+    #[test]
+    fn configured_diff_command_appears_in_new_tab_menu_for_git_workspace() {
+        let mut app = test_app();
+        app.state.workspaces = vec![Workspace::test_new("shell")];
+        app.state.ensure_test_terminals();
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::Terminal;
+        app.state.mouse_capture = true;
+        app.state.git_diff_command = "lazygit".to_string();
+
+        let mut client = ClientViewState::from_default_client_state(&app.state);
+        compute_client_view(&app, &mut client, ratatui::layout::Rect::new(0, 0, 120, 30));
+        let plus = client.computed.new_tab_hit_area;
+        app.route_client_events_for_view(
+            &mut client,
+            vec![raw_mouse(
+                crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left),
+                plus.x,
+                plus.y,
+            )],
+            true,
+        );
+
+        assert!(client
+            .context_menu
+            .as_ref()
+            .expect("plus menu")
+            .items()
+            .contains(&"diff"));
     }
 
     #[test]

@@ -589,9 +589,10 @@ impl AppState {
                 }
                 if self.on_new_tab_button(mouse.column, mouse.row) {
                     if let Some(ws_idx) = self.active {
-                        let can_diff = !self
-                            .observed_git_repos_for_workspace(terminal_runtimes, ws_idx)
-                            .is_empty();
+                        let can_diff = self.git_diff_command_configured()
+                            && !self
+                                .observed_git_repos_for_workspace(terminal_runtimes, ws_idx)
+                                .is_empty();
                         self.context_menu = Some(ContextMenuState {
                             kind: ContextMenuKind::NewTabButton { ws_idx, can_diff },
                             x: mouse.column,
@@ -1273,9 +1274,10 @@ impl AppState {
                 }
                 if let Some(idx) = self.workspace_at_row(mouse.row) {
                     self.selected = idx;
-                    let can_diff = !self
-                        .observed_git_repos_for_workspace(terminal_runtimes, idx)
-                        .is_empty();
+                    let can_diff = self.git_diff_command_configured()
+                        && !self
+                            .observed_git_repos_for_workspace(terminal_runtimes, idx)
+                            .is_empty();
                     self.context_menu = Some(ContextMenuState {
                         kind: ContextMenuKind::Workspace {
                             ws_idx: idx,
@@ -1296,9 +1298,10 @@ impl AppState {
                     (self.active, self.tab_at(mouse.column, mouse.row))
                 {
                     self.switch_tab(tab_idx);
-                    let can_diff = !self
-                        .observed_git_repos_for_workspace(terminal_runtimes, ws_idx)
-                        .is_empty();
+                    let can_diff = self.git_diff_command_configured()
+                        && !self
+                            .observed_git_repos_for_workspace(terminal_runtimes, ws_idx)
+                            .is_empty();
                     self.context_menu = Some(ContextMenuState {
                         kind: ContextMenuKind::Tab {
                             ws_idx,

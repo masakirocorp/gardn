@@ -228,9 +228,9 @@ const DEFAULT_CONFIG: &str = r##"# Oh My Herdr configuration
 # description = "open lazygit"
 
 #[git]
-# Diff command launched by "open git diff". Runs in the selected repo root.
-# Suggestions: lazygit, lazydiff, gitui, "git diff | delta", "git diff"
-diff_command = "lazygit"
+# Optional diff command configured in Settings > behavior.
+# The Diff shortcut is hidden until this is set.
+# diff_command = ""
 
 # Legacy indexed shortcut config is still parsed for compatibility.
 # Prefer switch_tab, switch_workspace, switch_group, and focus_agent for new configs.
@@ -810,6 +810,13 @@ fn main() -> io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn default_config_parses_with_diff_command_unconfigured() {
+        let config: config::Config = toml::from_str(DEFAULT_CONFIG).unwrap();
+
+        assert!(config.git.diff_command.is_empty());
+    }
 
     #[test]
     fn nested_omh_blocks_when_env_is_set() {

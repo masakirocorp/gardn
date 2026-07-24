@@ -1452,6 +1452,9 @@ impl AppState {
         terminal_runtimes: &mut crate::terminal::TerminalRuntimeRegistry,
         ws_idx: usize,
     ) -> Result<(), String> {
+        if !self.git_diff_command_configured() {
+            return Err("configure a diff command in Settings > behavior".to_string());
+        }
         let roots = self.observed_git_repos_for_workspace(terminal_runtimes, ws_idx);
         let root = match roots.as_slice() {
             [] => return Err("no git repo for current space".to_string()),

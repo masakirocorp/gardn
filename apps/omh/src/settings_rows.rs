@@ -894,6 +894,22 @@ fn behavior_rows(app: &AppState, settings: &SettingsState) -> Vec<SettingsListRo
             ),
         ],
     ));
+    rows.push(SettingsListRow::Spacer);
+    rows.extend([
+        SettingsListRow::Header("commands"),
+        SettingsListRow::TextInput {
+            index: 5,
+            title: "diff command".into(),
+            value: settings
+                .pending_git_diff_command
+                .clone()
+                .unwrap_or_else(|| app.git_diff_command.clone())
+                .into(),
+        },
+        SettingsListRow::Caption(
+            "runs in the repository root; leave empty to hide the Diff shortcut".into(),
+        ),
+    ]);
     rows
 }
 
