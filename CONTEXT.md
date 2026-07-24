@@ -41,8 +41,8 @@ A launch surface for starting an agent profile as a new tab in a specific worksp
 _Avoid_: Run command, start bot
 
 **Shared Session State**:
-The durable workspace, runtime-adjacent, committed configuration, and API-visible state owned by one Oh My Herdr server session and converged across attached clients.
-_Avoid_: Global app view, client screen state
+The durable workspace, runtime-adjacent, committed configuration, host-qualified placement, and API-visible state owned by one Oh My Herdr coordinator Session Namespace and converged across attached clients.
+_Avoid_: Global app view, client screen state, execution-worker state
 
 **Client View State**:
 The per-normal-app-client navigation, modal, selection, scroll, and computed geometry state that describes what that client is looking at or editing without changing another client's view.
@@ -117,11 +117,11 @@ A named working area that groups related tabs, panes, and terminal sessions for 
 _Avoid_: Project, folder, session
 
 **Workspace Default Directory**:
-The per-workspace cwd Oh My Herdr uses when the workspace has no live pane cwd, such as after its last tab is closed. It is editable from the space settings modal and is workspace state, not group presentation and not global config.
+Legacy name for a Workspace's default working directory before host-qualified placement. Prefer Workspace Default Location when an Execution Host is in scope; otherwise this remains the Local path form of that default.
 _Avoid_: Global default directory, group cwd
 
 **Creation Context**:
-The source workspace, group, and cwd information Oh My Herdr uses when creating a new workspace, tab, or agent-profile tab. Cwd inheritance uses live focused pane cwd when available and the workspace default directory otherwise.
+The source Group, Workspace, and Resource Location Oh My Herdr uses when creating a new workspace, tab, split, or agent-profile tab. Interactive creation captures it from the invoking client's view; host and path travel together and must not be recombined across hosts.
 _Avoid_: Global default, launch profile
 
 **Observed Repo**:
@@ -139,8 +139,45 @@ _Avoid_: Focused pane repo, random child repo
 
 
 **Workspace Group**:
-A presentation and workflow grouping for workspaces, with its own name, icon, accent, and agent-profile preferences. A workspace group filters and organizes workspaces; it is not the owner of tabs, panes, or terminal runtimes.
+A presentation and workflow grouping for workspaces, with its own name, icon, accent, and agent-profile preferences. A workspace group filters and organizes workspaces; it is not the owner of tabs, panes, or terminal runtimes. It may store an optional future-Workspace default Resource Location without owning existing Workspace or Terminal runtimes.
 _Avoid_: Workspace parent, project
+
+
+**Coordinator Host**:
+The machine running the Oh My Herdr server for a Session Namespace. It owns Shared Session State, routing, SSH Connection Profiles, and system OpenSSH for managed connections.
+_Avoid_: Rendering client, execution worker, Local when the client is remote
+
+**Rendering Client Host**:
+The machine running the user's outer terminal or thin client. It owns desktop effects such as clipboard delivery, URL opening, notifications, outer-terminal graphics, and input-source behavior.
+_Avoid_: Coordinator Host, Execution Host
+
+**Execution Host**:
+A Local or SSH-reachable operating-system environment where Oh My Herdr creates and observes Terminal Runtimes and performs filesystem, process, Git, agent, and port operations.
+_Avoid_: Workspace host, SSH profile, Rendering Client Host
+
+**SSH Connection Profile**:
+Coordinator-owned configuration with a stable profile ID, display name, one OpenSSH target, and optional suggested directory. It contains no credential material and is related to, but not identical with, Execution Host identity.
+_Avoid_: Remote session, credential store, raw SSH target alone
+
+**Host Path**:
+An opaque path interpreted and validated only by its Execution Host. Remote home, symlinks, existence, permissions, completion, and canonicalization are never resolved against another host's filesystem.
+_Avoid_: Local PathBuf, unqualified cwd
+
+**Resource Location**:
+The inseparable pair of Execution Host identity and Host Path used for inheritance, persistence, API input, cache identity, errors, and restore.
+_Avoid_: Bare path, host-only reference, Workspace host
+
+**Workspace Group Default Location**:
+An optional Resource Location that seeds future Workspaces created in a Group. Changing it does not move or rewrite existing Workspaces or Terminals.
+_Avoid_: Group runtime owner, Workspace Default Location
+
+**Workspace Default Location**:
+The durable per-Workspace Resource Location used when no live focused Terminal provides Creation Context. It is user-selected workspace state, is not rewritten by pane or tab close, and does not change when the Workspace moves between Groups.
+_Avoid_: Global default directory, group cwd, last focused path
+
+**Terminal Placement**:
+The immutable actual Execution Host and launch Resource Location of a Terminal Runtime. A Pane is only the visual placement of that Terminal; Tabs do not own a host.
+_Avoid_: Workspace host, pane host, mutable reassignment
 
 
 **Public ID**:
@@ -176,7 +213,7 @@ A running shell or agent session that Oh My Herdr can display, send input to, an
 _Avoid_: Pane, viewport
 
 **Terminal Runtime**:
-The live server-owned runtime for a terminal, including PTY/I/O ownership, process lifecycle, detector tasks, and render/update channels. Terminal runtime is not persisted app state.
+The live execution-side runtime for a terminal, including PTY/I/O ownership, process lifecycle, detector tasks, and render/update channels on its Execution Host. Terminal runtime is not persisted app state; the coordinator may hold a proxy or replica outside AppState.
 _Avoid_: AppState, pane metadata
 
 **Terminal Core**:
@@ -224,8 +261,8 @@ Agent-state inference from terminal tail text. Fallback screen detection is sepa
 _Avoid_: Hook, report, source of truth
 
 **Host Platform**:
-The operating system environment Oh My Herdr runs on, such as macOS or Linux. Host platform behavior covers process inspection, clipboard, URL opening, notifications, and host input source integration.
-_Avoid_: Runtime, terminal
+The operating-system family of one concrete host role, such as macOS or Linux on a Coordinator Host, Rendering Client Host, or Execution Host. Host platform behavior covers process inspection, clipboard, URL opening, notifications, and host input-source integration for that role only; it is not a synonym for Local or for every machine in a session.
+_Avoid_: Runtime, terminal, Local
 
 **Local API**:
 The newline-delimited JSON control surface exposed by a running Oh My Herdr server for status, server control, workspace/pane/agent operations, waits, event subscriptions, integrations, and capability discovery.
@@ -272,7 +309,7 @@ The built-in empty Oh My Herdr state: no workspaces, the unrenamed default group
 _Avoid_: Empty workspace, reset snapshot
 
 **Session Snapshot**:
-The durable saved shape of an Oh My Herdr session: groups, workspaces, tabs, panes, layout, active/selected/sidebar state, pane cwd/label/seen state, launch argv/env, and resumable agent-session refs. It excludes pane scrollback and handoff-only terminal semantics.
+The durable saved shape of an Oh My Herdr session: groups, workspaces, tabs, panes, layout, active/selected/sidebar state, host-qualified defaults and Terminal Placements, pane label/seen state, launch argv/env, and resumable agent-session refs. It excludes pane scrollback, live PTY handles, SSH processes, credentials, and handoff-only terminal semantics.
 _Avoid_: History, handoff snapshot
 
 **Restore Recovery**:
