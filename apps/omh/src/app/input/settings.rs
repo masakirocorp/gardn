@@ -4397,11 +4397,7 @@ mod tests {
 
     #[test]
     fn commands_settings_selects_curated_suggestions() {
-        for (suggestion_index, expected_command) in [
-            (1, "lazygit"),
-            (2, "hunk diff --watch"),
-            (3, "plannotator review"),
-        ] {
+        for (suggestion_index, expected_command) in [(1, "lazygit"), (2, "hunk diff --watch")] {
             let mut state = state_with_workspaces(&["test"]);
             open_settings_at(&mut state, SettingsSection::Commands);
             for _ in 0..=suggestion_index {

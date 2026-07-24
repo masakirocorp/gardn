@@ -13,10 +13,9 @@ use crate::{
 };
 
 pub(crate) const GIT_DIFF_COMMAND_SUGGESTION_START: usize = 1;
-pub(crate) const GIT_DIFF_COMMAND_SUGGESTIONS: [(&str, &str); 3] = [
-    ("LazyGit", "lazygit"),
+pub(crate) const GIT_DIFF_COMMAND_SUGGESTIONS: [(&str, &str); 2] = [
+    ("LazyGit", crate::lazygit_theme::DIFF_COMMAND),
     ("Hunk", crate::hunk_theme::DIFF_COMMAND),
-    ("Plannotator", "plannotator review"),
 ];
 
 #[derive(Debug, Clone, PartialEq, Eq)]

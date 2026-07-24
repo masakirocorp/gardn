@@ -1477,15 +1477,20 @@ impl AppState {
         root: std::path::PathBuf,
         ws_idx: usize,
     ) -> crate::commands::ProjectCommand {
-        let command = if self.git_diff_command.trim() == crate::hunk_theme::DIFF_COMMAND {
-            crate::hunk_theme::command(
+        let command = match self.git_diff_command.trim() {
+            crate::hunk_theme::DIFF_COMMAND => crate::hunk_theme::command(
                 &self.palette_for_workspace(ws_idx),
                 self.theme_appearance_for_mode(self.global_theme_mode),
                 self.host_terminal_theme,
                 matches!(self.global_theme_name.as_str(), "system" | "terminal"),
-            )
-        } else {
-            self.git_diff_command.clone()
+            ),
+            crate::lazygit_theme::DIFF_COMMAND => crate::lazygit_theme::command(
+                &self.palette_for_workspace(ws_idx),
+                self.theme_appearance_for_mode(self.global_theme_mode),
+                self.host_terminal_theme,
+                matches!(self.global_theme_name.as_str(), "system" | "terminal"),
+            ),
+            _ => self.git_diff_command.clone(),
         };
         configured_git_diff_project_command(root, &command)
     }
@@ -4950,14 +4955,51 @@ mod tests {
     }
 
     #[test]
-    fn non_hunk_diff_command_launches_unchanged() {
-        let root = temp_git_repo("plain-diff-command");
+    fn lazygit_diff_command_uses_target_workspace_palette() {
+        let root = temp_git_repo("lazygit-themed-command");
         let mut state = app_with_workspaces(&["web"]);
-        state.git_diff_command = "plannotator review".to_string();
+        state.git_diff_command = crate::lazygit_theme::DIFF_COMMAND.to_string();
+        state.global_palette = Palette::tokyo_night();
+        state.palette = state.global_palette.clone();
+        state.global_theme_name = "tokyo-night".to_string();
+        let group_idx = state.create_group("review".to_string());
+        state.move_workspace_to_group(0, group_idx);
+        state.set_group_accent(group_idx, Some(crate::config::TerminalAccent::Magenta));
 
         let command = state.configured_git_diff_project_command(root, 0);
 
-        assert_eq!(command.command, "plannotator review");
+        assert!(command
+            .command
+            .contains("activeBorderColor:\n      - \"#ad8ee6\""));
+        assert!(command
+            .command
+            .contains("LG_CONFIG_FILE=\"$config_files\" lazygit"));
+    }
+
+    #[test]
+    fn lazygit_diff_command_preserves_terminal_palette_mode() {
+        let root = temp_git_repo("lazygit-terminal-command");
+        let mut state = app_with_workspaces(&["web"]);
+        state.git_diff_command = crate::lazygit_theme::DIFF_COMMAND.to_string();
+        state.global_palette = Palette::terminal();
+        state.palette = state.global_palette.clone();
+        state.global_theme_name = "terminal".to_string();
+
+        let command = state.configured_git_diff_project_command(root, 0);
+
+        assert!(command.command.contains("exec lazygit"));
+        assert!(!command.command.contains("LG_CONFIG_FILE"));
+    }
+
+    #[test]
+    fn custom_diff_command_launches_unchanged() {
+        let root = temp_git_repo("plain-diff-command");
+        let mut state = app_with_workspaces(&["web"]);
+        state.git_diff_command = "git diff --stat".to_string();
+
+        let command = state.configured_git_diff_project_command(root, 0);
+
+        assert_eq!(command.command, "git diff --stat");
     }
     #[tokio::test]
     async fn git_diff_opens_configured_command_tab_named_after_repo_root() {

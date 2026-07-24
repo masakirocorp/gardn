@@ -1801,7 +1801,6 @@ mod tests {
         );
         assert!(text.contains("LazyGit · lazygit"));
         assert!(text.contains("Hunk · hunk diff --watch"));
-        assert!(text.contains("Plannotator · plannotator review"));
         assert!(!text.contains("Delta ·"));
         assert!(!text.contains("Difftastic ·"));
     }

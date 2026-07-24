@@ -1,5 +1,8 @@
 use crate::app::state::Palette;
-use crate::terminal_theme::{DefaultColorKind, RgbColor, TerminalTheme, ThemeAppearance};
+use crate::external_tool_theme::{background_fallback, blend, foreground_fallback, palette_color};
+#[cfg(test)]
+use crate::terminal_theme::RgbColor;
+use crate::terminal_theme::{DefaultColorKind, TerminalTheme, ThemeAppearance};
 use ratatui::style::Color;
 pub(crate) const DIFF_COMMAND: &str = "hunk diff --watch";
 
@@ -376,100 +379,6 @@ impl HunkThemeColors {
             syntax_punctuation: muted.hex(),
         }
     }
-}
-
-#[derive(Clone, Copy)]
-struct Rgb {
-    r: u8,
-    g: u8,
-    b: u8,
-}
-
-impl Rgb {
-    const fn new(r: u8, g: u8, b: u8) -> Self {
-        Self { r, g, b }
-    }
-
-    fn hex(self) -> String {
-        format!("#{:02x}{:02x}{:02x}", self.r, self.g, self.b)
-    }
-}
-
-fn foreground_fallback(appearance: ThemeAppearance) -> Rgb {
-    match appearance {
-        ThemeAppearance::Light => Rgb::new(31, 35, 40),
-        ThemeAppearance::Dark => Rgb::new(230, 237, 243),
-    }
-}
-
-fn background_fallback(appearance: ThemeAppearance) -> Rgb {
-    match appearance {
-        ThemeAppearance::Light => Rgb::new(255, 255, 255),
-        ThemeAppearance::Dark => Rgb::new(13, 17, 23),
-    }
-}
-
-fn rgb_color(color: RgbColor) -> Rgb {
-    Rgb::new(color.r, color.g, color.b)
-}
-
-fn palette_color(
-    color: Color,
-    terminal_theme: TerminalTheme,
-    reset_kind: DefaultColorKind,
-    fallback: Rgb,
-) -> Rgb {
-    match color {
-        Color::Reset => match reset_kind {
-            DefaultColorKind::Foreground => {
-                terminal_theme.foreground.map(rgb_color).unwrap_or(fallback)
-            }
-            DefaultColorKind::Background => {
-                terminal_theme.background.map(rgb_color).unwrap_or(fallback)
-            }
-        },
-        Color::Black => terminal_palette_color(terminal_theme, 0, Rgb::new(0, 0, 0)),
-        Color::Red => terminal_palette_color(terminal_theme, 1, Rgb::new(205, 49, 49)),
-        Color::Green => terminal_palette_color(terminal_theme, 2, Rgb::new(13, 188, 121)),
-        Color::Yellow => terminal_palette_color(terminal_theme, 3, Rgb::new(229, 229, 16)),
-        Color::Blue => terminal_palette_color(terminal_theme, 4, Rgb::new(36, 114, 200)),
-        Color::Magenta => terminal_palette_color(terminal_theme, 5, Rgb::new(188, 63, 188)),
-        Color::Cyan => terminal_palette_color(terminal_theme, 6, Rgb::new(17, 168, 205)),
-        Color::Gray => terminal_palette_color(terminal_theme, 7, Rgb::new(229, 229, 229)),
-        Color::DarkGray => terminal_palette_color(terminal_theme, 8, Rgb::new(102, 102, 102)),
-        Color::LightRed => terminal_palette_color(terminal_theme, 9, Rgb::new(241, 76, 76)),
-        Color::LightGreen => terminal_palette_color(terminal_theme, 10, Rgb::new(35, 209, 139)),
-        Color::LightYellow => terminal_palette_color(terminal_theme, 11, Rgb::new(245, 245, 67)),
-        Color::LightBlue => terminal_palette_color(terminal_theme, 12, Rgb::new(59, 142, 234)),
-        Color::LightMagenta => terminal_palette_color(terminal_theme, 13, Rgb::new(214, 112, 214)),
-        Color::LightCyan => terminal_palette_color(terminal_theme, 14, Rgb::new(41, 184, 219)),
-        Color::White => terminal_palette_color(terminal_theme, 15, Rgb::new(255, 255, 255)),
-        Color::Rgb(r, g, b) => Rgb::new(r, g, b),
-        Color::Indexed(index) => terminal_palette_color(terminal_theme, index as usize, fallback),
-    }
-}
-
-fn terminal_palette_color(theme: TerminalTheme, index: usize, fallback: Rgb) -> Rgb {
-    theme
-        .palette
-        .get(index)
-        .copied()
-        .flatten()
-        .map(rgb_color)
-        .unwrap_or(fallback)
-}
-
-fn blend(base: Rgb, overlay: Rgb, amount: f32) -> Rgb {
-    let mix = |base: u8, overlay: u8| {
-        let base = base as f32;
-        let overlay = overlay as f32;
-        (base + (overlay - base) * amount).round().clamp(0.0, 255.0) as u8
-    };
-    Rgb::new(
-        mix(base.r, overlay.r),
-        mix(base.g, overlay.g),
-        mix(base.b, overlay.b),
-    )
 }
 
 #[cfg(test)]
