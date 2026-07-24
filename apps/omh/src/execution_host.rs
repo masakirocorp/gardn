@@ -1,6 +1,9 @@
 use std::{fmt, path::PathBuf};
 
 use serde::{Deserialize, Deserializer, Serialize};
+mod local;
+
+pub(crate) use local::LocalExecutionHost;
 
 pub(crate) const LOCAL_EXECUTION_HOST_ID: &str = "local";
 const MAX_EXECUTION_HOST_ID_LEN: usize = 128;

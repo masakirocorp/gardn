@@ -301,7 +301,7 @@ impl PaneClickState {
 pub struct App {
     pub state: AppState,
     pub(crate) default_client_view: ClientViewState,
-    pub(crate) terminal_runtimes: crate::terminal::TerminalRuntimeRegistry,
+    pub(crate) terminal_runtimes: crate::execution_host::LocalExecutionHost,
     pub event_tx: mpsc::Sender<AppEvent>,
     pub(crate) event_rx: mpsc::Receiver<AppEvent>,
     pub(crate) api_rx: tokio::sync::mpsc::UnboundedReceiver<crate::api::ApiRequestMessage>,
@@ -1117,7 +1117,7 @@ impl App {
             copy_feedback_deadline: None,
             state,
             default_client_view,
-            terminal_runtimes: restored_terminal_runtimes,
+            terminal_runtimes: restored_terminal_runtimes.into(),
             event_tx,
             event_rx,
             last_git_remote_status_refresh: Instant::now() - GIT_REMOTE_STATUS_REFRESH_INTERVAL,
@@ -1217,7 +1217,7 @@ impl App {
         app.state.group_filter_enabled = snapshot.group_filter_enabled;
         app.state.workspaces = workspaces;
         app.state.terminals = terminals;
-        app.terminal_runtimes = runtimes.into();
+        app.terminal_runtimes = crate::terminal::TerminalRuntimeRegistry::from(runtimes).into();
         app.state.active = snapshot
             .default_view
             .active
