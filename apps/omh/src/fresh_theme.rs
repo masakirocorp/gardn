@@ -1,7 +1,27 @@
+use crate::app::state::Palette;
+use crate::external_tool_theme::{background_fallback, foreground_fallback, palette_color, Rgb};
+use crate::terminal_theme::{DefaultColorKind, TerminalTheme, ThemeAppearance};
+use std::fmt;
+
 pub(crate) const IDE_COMMAND: &str = "fresh .";
 
-pub(crate) fn command() -> String {
-    let theme = "terminal";
+pub(crate) fn command(
+    palette: &Palette,
+    appearance: ThemeAppearance,
+    terminal_theme: TerminalTheme,
+    passthrough_terminal: bool,
+) -> String {
+    let theme_setup = if passthrough_terminal {
+        r#"theme_ref="builtin://terminal""#.to_string()
+    } else {
+        format!(
+            r#"cat > "$config_dir/theme.json" <<'OMH_FRESH_THEME'
+{theme}
+OMH_FRESH_THEME
+theme_ref="file://$config_dir/theme.json""#,
+            theme = theme(palette, appearance, terminal_theme),
+        )
+    };
     format!(
         r#"if command -v fresh >/dev/null 2>&1; then
   config_dir="$(mktemp -d "${{TMPDIR:-/tmp}}/omh-fresh.XXXXXX")" || exec fresh .
@@ -9,14 +29,24 @@ pub(crate) fn command() -> String {
     rm -rf "$config_dir"
   }}
   trap cleanup EXIT INT TERM
+  {theme_setup}
+  fallback_theme_ref="builtin://terminal"
   if fresh --cmd config show > "$config_dir/config.json"; then
-    sed 's|^  "theme":.*|  "theme": "builtin://{theme}",|' \
-      "$config_dir/config.json" > "$config_dir/config.tmp" || exec fresh .
+    awk -v theme_ref="$theme_ref" '
+      /^[[:space:]]*"theme"[[:space:]]*:/ {{
+        indent = $0
+        sub(/[^[:space:]].*/, "", indent)
+        comma = ($0 ~ /,[[:space:]]*$/) ? "," : ""
+        printf "%s\"theme\": \"%s\"%s\n", indent, theme_ref, comma
+        next
+      }}
+      {{ print }}
+    ' "$config_dir/config.json" > "$config_dir/config.tmp" || exec fresh .
     mv "$config_dir/config.tmp" "$config_dir/config.json" || exec fresh .
   else
-    cat > "$config_dir/config.json" <<'OMH_FRESH_CONFIG'
+    cat > "$config_dir/config.json" <<OMH_FRESH_CONFIG
 {{
-  "theme": "builtin://{theme}"
+  "theme": "$fallback_theme_ref"
 }}
 OMH_FRESH_CONFIG
   fi
@@ -38,6 +68,148 @@ printf '%s\n' \
   'press enter to close...'
 read _
 "#
+    )
+}
+
+struct JsonColor(Rgb);
+
+impl fmt::Display for JsonColor {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(formatter, "[{}, {}, {}]", self.0.r, self.0.g, self.0.b)
+    }
+}
+
+fn theme(palette: &Palette, appearance: ThemeAppearance, terminal_theme: TerminalTheme) -> String {
+    let foreground_fallback = foreground_fallback(appearance);
+    let background_fallback = background_fallback(appearance);
+    let foreground = |color| {
+        palette_color(
+            color,
+            terminal_theme,
+            DefaultColorKind::Foreground,
+            foreground_fallback,
+        )
+    };
+    let background = |color| {
+        palette_color(
+            color,
+            terminal_theme,
+            DefaultColorKind::Background,
+            background_fallback,
+        )
+    };
+    let base = match appearance {
+        ThemeAppearance::Light => "light",
+        ThemeAppearance::Dark => "dark",
+    };
+    let canvas = background(palette.panel_bg);
+    let panel = background(palette.surface0);
+    let panel_alt = background(palette.surface1);
+    let border = foreground(palette.overlay0);
+    let accent = foreground(palette.accent);
+    let accent_muted = foreground(palette.overlay1);
+    let text = foreground(palette.text);
+    let muted = foreground(palette.subtext0);
+    let green = foreground(palette.green);
+    let red = foreground(palette.red);
+    let yellow = foreground(palette.yellow);
+    let blue = foreground(palette.blue);
+    let mauve = foreground(palette.mauve);
+    let teal = foreground(palette.teal);
+    let peach = foreground(palette.peach);
+
+    format!(
+        r#"{{
+  "name": "Oh My Herdr",
+  "extends": "builtin://{base}",
+  "editor": {{
+    "bg": {canvas},
+    "fg": {text},
+    "cursor": {accent},
+    "inactive_cursor": {accent_muted},
+    "selection_bg": {selection},
+    "current_line_bg": {panel},
+    "line_number_fg": {muted},
+    "line_number_bg": {canvas},
+    "diff_add_bg": {diff_add},
+    "diff_remove_bg": {diff_remove},
+    "diff_modify_bg": {diff_modify}
+  }},
+  "ui": {{
+    "tab_active_fg": {text},
+    "tab_active_bg": {panel_alt},
+    "tab_inactive_fg": {muted},
+    "tab_inactive_bg": {canvas},
+    "tab_separator_bg": {canvas},
+    "menu_bar_bg": {panel},
+    "menu_bar_fg": {text},
+    "status_bar_bg": {accent},
+    "status_bar_fg": {canvas},
+    "prompt_fg": {text},
+    "prompt_bg": {panel},
+    "prompt_selection_fg": {text},
+    "prompt_selection_bg": {selection},
+    "popup_border_fg": {border},
+    "popup_bg": {panel},
+    "popup_selection_bg": {selection},
+    "popup_text_fg": {text},
+    "suggestion_bg": {panel},
+    "suggestion_selected_bg": {panel_alt},
+    "help_bg": {panel},
+    "help_fg": {text},
+    "help_key_fg": {accent},
+    "help_separator_fg": {border},
+    "help_indicator_fg": {red},
+    "help_indicator_bg": {panel},
+    "split_separator_fg": {border}
+  }},
+  "search": {{
+    "match_bg": {yellow},
+    "match_fg": {canvas}
+  }},
+  "diagnostic": {{
+    "error_fg": {red},
+    "error_bg": {error_bg},
+    "warning_fg": {yellow},
+    "warning_bg": {warning_bg},
+    "info_fg": {blue},
+    "info_bg": {info_bg},
+    "hint_fg": {muted},
+    "hint_bg": {panel}
+  }},
+  "syntax": {{
+    "keyword": {mauve},
+    "string": {green},
+    "comment": {accent_muted},
+    "function": {blue},
+    "type": {teal},
+    "variable": {text},
+    "constant": {peach},
+    "operator": {muted}
+  }}
+}}"#,
+        canvas = JsonColor(canvas),
+        panel = JsonColor(panel),
+        panel_alt = JsonColor(panel_alt),
+        border = JsonColor(border),
+        accent = JsonColor(accent),
+        accent_muted = JsonColor(accent_muted),
+        text = JsonColor(text),
+        muted = JsonColor(muted),
+        green = JsonColor(green),
+        red = JsonColor(red),
+        yellow = JsonColor(yellow),
+        blue = JsonColor(blue),
+        mauve = JsonColor(mauve),
+        teal = JsonColor(teal),
+        peach = JsonColor(peach),
+        selection = JsonColor(canvas.blend(accent, 0.32)),
+        diff_add = JsonColor(canvas.blend(green, 0.18)),
+        diff_remove = JsonColor(canvas.blend(red, 0.18)),
+        diff_modify = JsonColor(canvas.blend(yellow, 0.18)),
+        error_bg = JsonColor(canvas.blend(red, 0.18)),
+        warning_bg = JsonColor(canvas.blend(yellow, 0.18)),
+        info_bg = JsonColor(canvas.blend(blue, 0.18)),
     )
 }
 
@@ -74,10 +246,16 @@ mod tests {
 
     #[test]
     fn terminal_theme_uses_fresh_builtin_terminal_theme_and_cleans_up() {
-        let command = command();
+        let command = command(
+            &Palette::terminal(),
+            ThemeAppearance::Dark,
+            TerminalTheme::default(),
+            true,
+        );
 
         assert!(command.contains("fresh --config \"$config_dir/config.json\" ."));
-        assert!(command.contains("\"theme\": \"builtin://terminal\""));
+        assert!(command.contains("theme_ref=\"builtin://terminal\""));
+        assert!(!command.contains("theme.json"));
         assert!(command.contains("rm -rf \"$config_dir\""));
     }
     #[cfg(unix)]
@@ -106,7 +284,10 @@ if [ "$1" = "--cmd" ]; then
 JSON
   exit 0
 fi
-cat "$2"
+config="$2"
+cat "$config"
+theme_path="$(sed -n 's|.*"theme": "file://\([^"]*\)".*|\1|p' "$config")"
+cat "$theme_path"
 "#,
         )
         .expect("write fake Fresh");
@@ -118,7 +299,12 @@ cat "$2"
 
         let output = Command::new("sh")
             .arg("-c")
-            .arg(command())
+            .arg(command(
+                &Palette::tokyo_night(),
+                ThemeAppearance::Dark,
+                TerminalTheme::default(),
+                false,
+            ))
             .env("PATH", format!("{}:/usr/bin:/bin", bin_dir.display()))
             .output()
             .expect("run Fresh wrapper");
@@ -127,13 +313,18 @@ cat "$2"
         assert!(output.status.success(), "{output:?}");
         assert!(output.stderr.is_empty(), "{output:?}");
         let rendered = String::from_utf8(output.stdout).expect("Fresh config is UTF-8");
-        assert!(rendered.contains("\"theme\": \"builtin://terminal\""));
+        assert!(rendered.contains("\"theme\": \"file://"));
         assert!(rendered.contains("\"line_numbers\": false"));
+        assert!(rendered.contains("\"name\": \"Oh My Herdr\""));
+        assert!(rendered.contains("\"extends\": \"builtin://dark\""));
+        assert!(rendered.contains("\"bg\": [26, 27, 38]"));
+        assert!(rendered.contains("\"cursor\": [122, 162, 247]"));
+        assert!(rendered.contains("\"fg\": [169, 177, 214]"));
     }
 
     #[cfg(unix)]
     #[test]
-    fn terminal_theme_falls_back_when_config_show_is_unavailable() {
+    fn named_theme_falls_back_to_terminal_when_config_show_is_unavailable() {
         let nonce = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .expect("system time after epoch")
@@ -162,7 +353,12 @@ cat "$2"
 
         let output = Command::new("sh")
             .arg("-c")
-            .arg(command())
+            .arg(command(
+                &Palette::tokyo_night(),
+                ThemeAppearance::Dark,
+                TerminalTheme::default(),
+                false,
+            ))
             .env("PATH", format!("{}:/usr/bin:/bin", bin_dir.display()))
             .output()
             .expect("run Fresh fallback wrapper");
@@ -174,13 +370,27 @@ cat "$2"
     }
 
     #[test]
-    fn fresh_always_uses_the_terminal_builtin() {
-        assert!(command().contains("\"theme\": \"builtin://terminal\""));
+    fn named_theme_generates_a_fresh_theme_file() {
+        let command = command(
+            &Palette::tokyo_night_day(),
+            ThemeAppearance::Light,
+            TerminalTheme::default(),
+            false,
+        );
+
+        assert!(command.contains("theme_ref=\"file://$config_dir/theme.json\""));
+        assert!(command.contains("\"extends\": \"builtin://light\""));
+        assert!(command.contains("\"name\": \"Oh My Herdr\""));
     }
 
     #[test]
     fn missing_fresh_screen_is_rendered_with_install_source() {
-        let rendered = render_missing_screen(command());
+        let rendered = render_missing_screen(command(
+            &Palette::terminal(),
+            ThemeAppearance::Dark,
+            TerminalTheme::default(),
+            true,
+        ));
 
         assert_eq!(
             rendered,

@@ -1569,7 +1569,18 @@ impl AppState {
                 )
             }
             (ProjectCommandKind::Ide, crate::fresh_theme::IDE_COMMAND) => {
-                crate::fresh_theme::command()
+                crate::fresh_theme::command(
+                    &ws_idx
+                        .and_then(|idx| {
+                            self.workspaces
+                                .get(idx)
+                                .map(|_| self.palette_for_workspace(idx))
+                        })
+                        .unwrap_or_else(|| self.palette.clone()),
+                    self.theme_appearance_for_mode(self.global_theme_mode),
+                    self.host_terminal_theme,
+                    crate::external_tool_theme::is_terminal_passthrough(&self.global_theme_name),
+                )
             }
             _ => configured.clone(),
         };
@@ -5082,9 +5093,7 @@ mod tests {
         assert!(command
             .command
             .contains("fresh --config \"$config_dir/config.json\" ."));
-        assert!(command
-            .command
-            .contains("\"theme\": \"builtin://terminal\""));
+        assert!(command.command.contains("theme_ref=\"builtin://terminal\""));
         assert!(command.id.starts_with("builtin:ide:"));
     }
 
@@ -5096,6 +5105,7 @@ mod tests {
         state.global_theme_name = "dracula".to_string();
         state.global_theme_mode = ThemeMode::Dark;
         state.palette = Palette::dracula();
+        state.global_palette = state.palette.clone();
 
         let git = state.configured_project_command(root.clone(), ProjectCommandKind::Git, Some(0));
         let diff =
@@ -5104,7 +5114,10 @@ mod tests {
 
         assert!(git.command.contains("LG_CONFIG_FILE"));
         assert!(diff.command.contains("[custom_theme.syntax_scopes]"));
-        assert!(ide.command.contains("\"theme\": \"builtin://terminal\""));
+        assert!(ide
+            .command
+            .contains("theme_ref=\"file://$config_dir/theme.json\""));
+        assert!(ide.command.contains("\"cursor\": [189, 147, 249]"));
     }
     #[tokio::test]
     async fn git_diff_opens_configured_command_tab_named_after_repo_root() {
