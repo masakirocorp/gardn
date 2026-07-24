@@ -3,6 +3,33 @@ use std::time::{Duration, Instant};
 const INITIAL_RECONNECT_DELAY: Duration = Duration::from_secs(1);
 const MAX_RECONNECT_DELAY: Duration = Duration::from_secs(30);
 
+/// Shared user-visible health for one configured execution host.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(crate) enum ConnectionStatus {
+    #[default]
+    Disconnected,
+    Connecting,
+    Connected,
+    Reconnecting {
+        error: String,
+    },
+    Disconnecting,
+    AuthenticationRequired,
+}
+
+impl ConnectionStatus {
+    pub(crate) fn label(&self) -> &'static str {
+        match self {
+            Self::Disconnected => "Disconnected",
+            Self::Connecting => "Connecting",
+            Self::Connected => "Connected",
+            Self::Reconnecting { .. } => "Reconnecting",
+            Self::Disconnecting => "Disconnecting",
+            Self::AuthenticationRequired => "Authentication required",
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum ConnectionState {
     Disconnected,
@@ -39,6 +66,18 @@ impl ConnectionLifecycle {
         &self.state
     }
 
+    pub(crate) fn status(&self) -> ConnectionStatus {
+        match &self.state {
+            ConnectionState::Disconnected => ConnectionStatus::Disconnected,
+            ConnectionState::Connecting { .. } => ConnectionStatus::Connecting,
+            ConnectionState::Connected => ConnectionStatus::Connected,
+            ConnectionState::Backoff { error, .. } => ConnectionStatus::Reconnecting {
+                error: error.clone(),
+            },
+            ConnectionState::Disconnecting => ConnectionStatus::Disconnecting,
+        }
+    }
+
     pub(crate) fn request_connect(&mut self) -> bool {
         self.desired_connected = true;
         if self.state == ConnectionState::Disconnected {
@@ -62,8 +101,9 @@ impl ConnectionLifecycle {
             return;
         }
         let attempt = match self.state {
-            ConnectionState::Connecting { attempt }
-            | ConnectionState::Backoff { attempt, .. } => attempt,
+            ConnectionState::Connecting { attempt } | ConnectionState::Backoff { attempt, .. } => {
+                attempt
+            }
             ConnectionState::Disconnected
             | ConnectionState::Connected
             | ConnectionState::Disconnecting => 1,
@@ -83,6 +123,23 @@ impl ConnectionLifecycle {
             return false;
         };
         if !self.desired_connected || now < *retry_at {
+            return false;
+        }
+        self.state = ConnectionState::Connecting {
+            attempt: attempt.saturating_add(1),
+        };
+        true
+    }
+
+    /// Jump from backoff into a fresh connect attempt without waiting for retry_at.
+    ///
+    /// Used by explicit interactive Connect after auth ownership transfers while
+    /// reconnect backoff is already armed.
+    pub(crate) fn force_retry_now(&mut self) -> bool {
+        let ConnectionState::Backoff { attempt, .. } = &self.state else {
+            return false;
+        };
+        if !self.desired_connected {
             return false;
         }
         self.state = ConnectionState::Connecting {
@@ -137,6 +194,12 @@ mod tests {
             ConnectionState::Backoff { attempt: 1, retry_at, error }
                 if *retry_at == start + Duration::from_secs(1) && error == "offline"
         ));
+        assert_eq!(
+            lifecycle.status(),
+            ConnectionStatus::Reconnecting {
+                error: "offline".to_string()
+            }
+        );
         assert!(!lifecycle.begin_due_retry(start));
         assert!(lifecycle.begin_due_retry(start + Duration::from_secs(1)));
         assert_eq!(
@@ -170,6 +233,7 @@ mod tests {
         let mut lifecycle = ConnectionLifecycle::default();
         lifecycle.request_connect();
         lifecycle.mark_connected();
+        assert_eq!(lifecycle.status(), ConnectionStatus::Connected);
 
         assert!(lifecycle.request_disconnect());
         assert_eq!(lifecycle.state(), &ConnectionState::Disconnecting);

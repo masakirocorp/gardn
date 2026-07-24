@@ -10,6 +10,8 @@ import { docs } from "./.source/server";
 import NotFoundPage from "./src/not-found";
 import { canonicalUrl, siteOrigin } from "./src/site-url";
 
+const generatedApiReferencePrefix = "/docs/api/reference/generated/";
+
 export default defineConfig({
   mode: "static",
   content: docs.toFumadocsSource(),
@@ -73,7 +75,26 @@ export default defineConfig({
     notFound: NotFoundPage,
   })
   .plugins(
-    flexsearchPlugin(),
+    flexsearchPlugin({
+      async buildIndex(page) {
+        for (const adapter of this.adapters) {
+          const structuredData = await adapter["core:get-structured-data"]?.call(this, page);
+          if (structuredData === undefined) continue;
+
+          return {
+            id: page.url,
+            title: page.data.title ?? page.path,
+            description: page.data.description,
+            url: page.url,
+            structuredData: page.url.startsWith(generatedApiReferencePrefix)
+              ? { headings: structuredData.headings, contents: [] }
+              : structuredData,
+          };
+        }
+
+        throw new Error("No adapter supplied structured search data");
+      },
+    }),
     llmsPlugin(),
     sitemapPlugin(),
     linkValidationPlugin(),

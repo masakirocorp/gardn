@@ -29,6 +29,18 @@ pub fn derive_label_from_cwd(cwd: &Path) -> String {
         .unwrap_or_else(|| cwd.display().to_string())
 }
 
+pub fn derive_label_from_location(location: &crate::execution_host::ResourceLocation) -> String {
+    if location.is_local() {
+        return derive_label_from_cwd(location.path.as_path());
+    }
+    let path = location.path.as_path();
+    path.file_name()
+        .and_then(|name| name.to_str())
+        .filter(|name| !name.is_empty())
+        .map(str::to_string)
+        .unwrap_or_else(|| path.display().to_string())
+}
+
 pub fn git_worktree_info(cwd: &Path) -> Option<GitWorktreeInfo> {
     let repo_root = git_repo_root(cwd)?;
     let git_dir = canonicalize_best_effort_path(&git_dir_for_repo_root(&repo_root)?);
@@ -355,6 +367,16 @@ mod tests {
         assert_eq!(derive_label_from_cwd(Path::new(&root)), label);
 
         std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn remote_label_does_not_inspect_coordinator_filesystem() {
+        let location = crate::execution_host::ResourceLocation::new(
+            crate::execution_host::ExecutionHostId::new("ssh:workbox").expect("remote host id"),
+            crate::execution_host::HostPath::new("/srv/project/nested").expect("remote path"),
+        );
+
+        assert_eq!(derive_label_from_location(&location), "nested");
     }
 
     #[test]

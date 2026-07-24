@@ -1,75 +1,39 @@
-use std::ops::{Deref, DerefMut};
+use super::operations::{self, HostOperationError};
+use super::protocol::PortSnapshot;
+use super::ResourceLocation;
 
-use crate::terminal::TerminalRuntimeRegistry;
-
-use super::ExecutionHostId;
-
-/// In-process execution adapter for the coordinator host.
+/// Local-only host probe for the coordinator process.
 ///
-/// Local terminal runtimes remain outside `AppState`; this adapter gives the
-/// built-in Local execution host explicit ownership without changing the
-/// terminal registry's rendering and lifecycle semantics.
-pub(crate) struct LocalExecutionHost {
-    id: ExecutionHostId,
-    terminal_runtimes: TerminalRuntimeRegistry,
-}
-
-impl LocalExecutionHost {
-    pub(crate) fn new(terminal_runtimes: TerminalRuntimeRegistry) -> Self {
-        Self {
-            id: ExecutionHostId::local(),
-            terminal_runtimes,
-        }
-    }
-
-    pub(crate) fn id(&self) -> &ExecutionHostId {
-        &self.id
-    }
-}
-
-impl Default for LocalExecutionHost {
-    fn default() -> Self {
-        Self::new(TerminalRuntimeRegistry::new())
-    }
-}
-
-impl From<TerminalRuntimeRegistry> for LocalExecutionHost {
-    fn from(terminal_runtimes: TerminalRuntimeRegistry) -> Self {
-        Self::new(terminal_runtimes)
-    }
-}
-
-impl Deref for LocalExecutionHost {
-    type Target = TerminalRuntimeRegistry;
-
-    fn deref(&self) -> &Self::Target {
-        &self.terminal_runtimes
-    }
-}
-
-impl DerefMut for LocalExecutionHost {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.terminal_runtimes
-    }
+/// Terminal runtimes stay on the honest `TerminalRuntimeRegistry` owned by App.
+/// This module only validates local ResourceLocation boundaries for in-process
+/// host operations.
+pub(crate) fn observe_ports(
+    location: &ResourceLocation,
+) -> Result<Vec<PortSnapshot>, HostOperationError> {
+    operations::validate_local_location(location)?;
+    Ok(operations::local_ports())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::execution_host::{ExecutionHostId, HostPath};
 
-    #[tokio::test]
-    async fn local_adapter_owns_the_builtin_local_runtime_registry() {
-        let mut host = LocalExecutionHost::default();
-        let terminal_id = crate::terminal::TerminalId::alloc();
-        let runtime =
-            crate::terminal::TerminalRuntime::test_with_screen_bytes(80, 24, b"local shell");
+    #[test]
+    fn local_operations_reject_remote_locations() {
+        let remote = ResourceLocation::new(
+            ExecutionHostId::new("ssh:workbox").expect("remote host id"),
+            HostPath::new("/srv/work").expect("remote path"),
+        );
+        let error =
+            observe_ports(&remote).expect_err("local adapter must not inspect a remote path");
+        assert!(matches!(error, HostOperationError::InvalidLocation(_)));
+    }
 
-        host.insert(terminal_id.clone(), runtime);
-
-        assert!(host.id().is_local());
-        assert_eq!(host.len(), 1);
-        assert!(host
-            .get(&terminal_id)
-            .is_some_and(|runtime| runtime.visible_text().contains("local shell")));
+    #[test]
+    fn local_operations_accept_local_locations() {
+        let local = ResourceLocation::local("/tmp").expect("local location");
+        // May return empty on restricted environments; must not reject location.
+        let _ = observe_ports(&local).expect("local location should be accepted");
     }
 }

@@ -59,6 +59,7 @@ pub(crate) enum CommandPaletteAction {
     OpenNotificationTarget,
     DetachOrQuit,
     CustomCommand(usize),
+    ProjectCommand(String),
     NewAgent,
 }
 impl CommandPaletteAction {
@@ -353,6 +354,13 @@ pub(crate) fn command_palette_commands(state: &AppState) -> Vec<CommandPaletteCo
                 )
             }),
     );
+    commands.extend(state.command_catalog.iter().map(|project_command| {
+        CommandPaletteCommand::new(
+            format!("run project command: {}", project_command.name),
+            "project",
+            CommandPaletteAction::ProjectCommand(project_command.id.clone()),
+        )
+    }));
 
     for command in &mut commands {
         if command.key_label.is_none() {
@@ -433,6 +441,7 @@ fn command_palette_key_label(state: &AppState, action: &CommandPaletteAction) ->
             .custom_commands
             .get(*idx)
             .map(|binding| binding.label.clone()),
+        CommandPaletteAction::ProjectCommand(_) => None,
         CommandPaletteAction::SwitchWorkspace(_)
         | CommandPaletteAction::ShowAllGroups
         | CommandPaletteAction::SwitchGroup(_)

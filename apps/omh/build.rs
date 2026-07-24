@@ -137,6 +137,7 @@ fn main() {
     let simd = env_bool("LIBGHOSTTY_VT_SIMD").unwrap_or(true);
     let target = env::var("TARGET").expect("TARGET");
     let zig_target = zig_target(&target);
+    let install_prefix = PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR")).join("libghostty-vt");
     let version_string = fs::read_to_string(vendored_dir.join("VERSION"))
         .expect("failed to read vendored libghostty-vt VERSION")
         .trim()
@@ -146,6 +147,8 @@ fn main() {
     let mut command = Command::new(zig);
     command
         .arg("build")
+        .arg("--prefix")
+        .arg(&install_prefix)
         .arg("-Demit-lib-vt")
         .arg(format!("-Doptimize={optimize}"))
         .arg(format!("-Dsimd={simd}"))
@@ -164,7 +167,7 @@ fn main() {
         "zig build for vendored libghostty-vt failed: {status}"
     );
 
-    let lib_dir = vendored_dir.join("zig-out/lib");
+    let lib_dir = install_prefix.join("lib");
     println!("cargo:rustc-link-search=native={}", lib_dir.display());
     if target.contains("apple-darwin") {
         let static_lib = lib_dir.join("libghostty-vt.a");

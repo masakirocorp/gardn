@@ -449,7 +449,7 @@ impl AppState {
                                 mouse.row,
                             )
                         {
-                            self.group_modal_selected_field = 1;
+                            self.group_modal_selected_field = 2;
                             self.name_input_replace_on_type = false;
                             return None;
                         }

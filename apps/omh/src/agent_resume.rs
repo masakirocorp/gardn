@@ -391,6 +391,13 @@ pub fn dedupe_key(source: &str, agent: &str, session_ref: &AgentSessionRef) -> S
     )
 }
 
+pub(crate) fn host_qualified_resume_key(
+    host_id: &crate::execution_host::ExecutionHostId,
+    dedupe_key: &str,
+) -> String {
+    format!("{}\u{0}{dedupe_key}", host_id.as_str())
+}
+
 fn dedupe_key_with_env(base: &str, env: &[(String, String)]) -> String {
     let mut key = base.to_string();
     for (name, value) in env {

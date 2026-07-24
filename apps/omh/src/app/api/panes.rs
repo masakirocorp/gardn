@@ -81,145 +81,101 @@ impl App {
         encode_success(id, ResponseResult::PaneInfo { pane })
     }
 
-    pub(super) fn handle_pane_split(&mut self, id: String, params: PaneSplitParams) -> String {
-        let target = match params.target_pane_id.as_deref() {
-            Some(target_pane_id) => self.parse_pane_id(target_pane_id),
-            None => match params.workspace_id.as_deref() {
-                Some(workspace_id) => self.parse_workspace_id(workspace_id).and_then(|ws_idx| {
-                    let pane_id = self.state.workspaces.get(ws_idx)?.focused_pane_id()?;
-                    Some((ws_idx, pane_id))
-                }),
-                None => self.resolve_optional_pane(None),
-            },
-        };
-        let Some((ws_idx, target_pane_id)) = target else {
-            return pane_not_found(
-                id,
-                params.target_pane_id.as_deref().unwrap_or("active pane"),
-            );
-        };
-        let extra_env = match super::env::normalize_launch_env(params.env) {
-            Ok(env) => env,
-            Err((code, message)) => return encode_error(id, &code, message),
-        };
-        let (rows, cols) = self.state.estimate_pane_size();
-        let split_cwd = params.cwd.map(std::path::PathBuf::from).or_else(|| {
-            self.state.workspaces.get(ws_idx).and_then(|ws| {
-                let tab_idx = ws.find_tab_index_for_pane(target_pane_id)?;
-                ws.tabs.get(tab_idx)?.cwd_for_pane(
-                    target_pane_id,
-                    &self.state.terminals,
-                    &self.terminal_runtimes,
-                )
-            })
-        });
-        let default_shell = self.state.default_shell.clone();
-        let scrollback_limit_bytes = self.state.pane_scrollback_limit_bytes;
-        let host_terminal_theme = self.state.host_terminal_theme;
-        let Some(ws) = self.state.workspaces.get_mut(ws_idx) else {
-            return pane_not_found(
-                id,
-                params.target_pane_id.as_deref().unwrap_or("active pane"),
-            );
-        };
-        let direction = match params.direction {
-            crate::api::schema::SplitDirection::Right => ratatui::layout::Direction::Horizontal,
-            crate::api::schema::SplitDirection::Down => ratatui::layout::Direction::Vertical,
-        };
-
-        let shell_config = crate::pane::PaneShellConfig::new(&default_shell, self.state.shell_mode);
-        let split_result = match params.ratio {
-            Some(ratio) => ws.split_pane_with_ratio(
-                target_pane_id,
-                direction,
-                ratio,
-                rows,
-                cols,
-                split_cwd,
-                scrollback_limit_bytes,
-                host_terminal_theme,
-                shell_config,
-                extra_env,
-                params.focus,
-            ),
-            None => ws.split_pane(
-                target_pane_id,
-                direction,
-                rows,
-                cols,
-                split_cwd,
-                scrollback_limit_bytes,
-                host_terminal_theme,
-                shell_config,
-                extra_env,
-                params.focus,
-            ),
-        };
-        let (target_tab_idx, new_pane) = match split_result {
-            Some(Ok(result)) => result,
-            Some(Err(err)) => return encode_error(id, "pane_split_failed", err.to_string()),
-            None => {
-                return pane_not_found(
-                    id,
-                    params.target_pane_id.as_deref().unwrap_or("active pane"),
-                )
-            }
-        };
-        if params.focus {
-            self.state.switch_workspace(ws_idx);
-            self.state.switch_tab(target_tab_idx);
-            self.state.mode = Mode::Terminal;
-        }
-        self.terminal_runtimes
-            .insert(new_pane.terminal.id.clone(), new_pane.runtime);
-        self.state
-            .remove_alias_shadowed_by_new_pane(new_pane.pane_id);
-        self.state
-            .terminals
-            .insert(new_pane.terminal.id.clone(), new_pane.terminal);
-        self.schedule_session_save();
-        let pane = self.pane_info(ws_idx, new_pane.pane_id).unwrap();
-        self.emit_event(EventEnvelope {
-            event: EventKind::PaneCreated,
-            data: EventData::PaneCreated { pane: pane.clone() },
-        });
-        self.emit_layout_updated_event(ws_idx, target_tab_idx);
-
-        encode_success(id, ResponseResult::PaneInfo { pane })
+    pub(super) fn handle_pane_split_disposition(
+        &mut self,
+        id: String,
+        params: PaneSplitParams,
+    ) -> crate::api::ApiRequestDisposition {
+        self.handle_pane_split_with(
+            super::invocation::ApiInvocationContext::ambient(),
+            id,
+            params,
+        )
     }
 
-    pub(super) fn handle_pane_split_for_view(
+    pub(super) fn handle_pane_split_disposition_for_view(
         &mut self,
         view: &mut ClientViewState,
         id: String,
         params: PaneSplitParams,
-    ) -> String {
-        view.reconcile(&self.state);
+    ) -> crate::api::ApiRequestDisposition {
+        self.handle_pane_split_with(
+            super::invocation::ApiInvocationContext::for_view(view),
+            id,
+            params,
+        )
+    }
+
+    fn handle_pane_split_with(
+        &mut self,
+        mut invocation: super::invocation::ApiInvocationContext<'_>,
+        id: String,
+        params: PaneSplitParams,
+    ) -> crate::api::ApiRequestDisposition {
+        if let Some(view) = invocation.view_mut() {
+            view.reconcile(&self.state);
+        }
         let target = match params.target_pane_id.as_deref() {
             Some(target_pane_id) => self.parse_pane_id(target_pane_id),
             None => match params.workspace_id.as_deref() {
                 Some(workspace_id) => self.parse_workspace_id(workspace_id).and_then(|ws_idx| {
-                    view.focused_pane_for_workspace(&self.state, ws_idx)
-                        .map(|(_, pane_id)| (ws_idx, pane_id))
+                    if let Some(view) = invocation.view() {
+                        view.focused_pane_for_workspace(&self.state, ws_idx)
+                            .map(|(_, pane_id)| (ws_idx, pane_id))
+                    } else {
+                        let pane_id = self.state.workspaces.get(ws_idx)?.focused_pane_id()?;
+                        Some((ws_idx, pane_id))
+                    }
                 }),
-                None => view.active_workspace.and_then(|ws_idx| {
-                    view.focused_pane_for_workspace(&self.state, ws_idx)
-                        .map(|(_, pane_id)| (ws_idx, pane_id))
-                }),
+                None => {
+                    if let Some(view) = invocation.view() {
+                        view.active_workspace.and_then(|ws_idx| {
+                            view.focused_pane_for_workspace(&self.state, ws_idx)
+                                .map(|(_, pane_id)| (ws_idx, pane_id))
+                        })
+                    } else {
+                        self.resolve_optional_pane(None)
+                    }
+                }
             },
         };
         let Some((ws_idx, target_pane_id)) = target else {
-            return pane_not_found(
+            return crate::api::ApiRequestDisposition::Respond(pane_not_found(
                 id,
                 params.target_pane_id.as_deref().unwrap_or("active pane"),
-            );
+            ));
+        };
+        if params.cwd.is_some() && params.location.is_some() {
+            return crate::api::ApiRequestDisposition::Respond(encode_error(
+                id,
+                "invalid_params",
+                "cwd and location cannot be used together".to_string(),
+            ));
+        }
+        let location = match pane_creation_location(
+            &self.state,
+            ws_idx,
+            target_pane_id,
+            params.cwd.clone(),
+            params.location,
+        ) {
+            Ok(location) => location,
+            Err(error) => {
+                return crate::api::ApiRequestDisposition::Respond(encode_error(
+                    id,
+                    "invalid_params",
+                    error,
+                ))
+            }
         };
         let extra_env = match super::env::normalize_launch_env(params.env) {
             Ok(env) => env,
-            Err((code, message)) => return encode_error(id, &code, message),
+            Err((code, message)) => {
+                return crate::api::ApiRequestDisposition::Respond(encode_error(id, &code, message))
+            }
         };
         let (rows, cols) = self.state.estimate_pane_size();
-        let split_cwd = params.cwd.map(std::path::PathBuf::from).or_else(|| {
+        let split_cwd = Some(location.path.as_path().to_path_buf()).or_else(|| {
             self.state.workspaces.get(ws_idx).and_then(|ws| {
                 let tab_idx = ws.find_tab_index_for_pane(target_pane_id)?;
                 ws.tabs.get(tab_idx)?.cwd_for_pane(
@@ -232,17 +188,77 @@ impl App {
         let default_shell = self.state.default_shell.clone();
         let scrollback_limit_bytes = self.state.pane_scrollback_limit_bytes;
         let host_terminal_theme = self.state.host_terminal_theme;
-        let Some(ws) = self.state.workspaces.get_mut(ws_idx) else {
-            return pane_not_found(
-                id,
-                params.target_pane_id.as_deref().unwrap_or("active pane"),
-            );
-        };
         let direction = match params.direction {
             crate::api::schema::SplitDirection::Right => ratatui::layout::Direction::Horizontal,
             crate::api::schema::SplitDirection::Down => ratatui::layout::Direction::Vertical,
         };
-
+        let client_local = invocation.is_client_local();
+        let begin_focus = params.focus && !client_local;
+        if !location.is_local() {
+            match self.begin_remote_split(
+                ws_idx,
+                target_pane_id,
+                direction,
+                params.ratio,
+                location,
+                begin_focus,
+                None,
+                extra_env,
+            ) {
+                Ok(terminal_id) => {
+                    let mut pending_focus = None;
+                    if params.focus {
+                        if let Some(view) = invocation.view_mut() {
+                            if let Some(target) = self.pending_remote_creation_target(&terminal_id)
+                            {
+                                if let Some(tab_idx) =
+                                    self.state.workspaces.get(ws_idx).and_then(|ws| {
+                                        ws.tabs
+                                            .iter()
+                                            .position(|tab| tab.number == target.tab_number)
+                                    })
+                                {
+                                    view.mark_pending_remote_split_focus(
+                                        &self.state,
+                                        ws_idx,
+                                        tab_idx,
+                                        target.pane_id,
+                                    );
+                                    pending_focus = Some(crate::api::PendingFocusMarker::Pane {
+                                        workspace_id: target.workspace_id,
+                                        tab_number: target.tab_number,
+                                        pane_id: target.pane_id,
+                                    });
+                                }
+                            }
+                        }
+                    }
+                    return crate::api::ApiRequestDisposition::Deferred(
+                        crate::api::DeferredRemoteCreate {
+                            terminal_id,
+                            request_id: id,
+                            kind: crate::api::DeferredRemoteCreateKind::PaneSplit,
+                            focus: params.focus,
+                            client_view_id: invocation.client_view_id(),
+                            pending_focus,
+                        },
+                    );
+                }
+                Err(err) => {
+                    return crate::api::ApiRequestDisposition::Respond(encode_error(
+                        id,
+                        "pane_split_failed",
+                        err,
+                    ))
+                }
+            }
+        }
+        let Some(ws) = self.state.workspaces.get_mut(ws_idx) else {
+            return crate::api::ApiRequestDisposition::Respond(pane_not_found(
+                id,
+                params.target_pane_id.as_deref().unwrap_or("active pane"),
+            ));
+        };
         let shell_config = crate::pane::PaneShellConfig::new(&default_shell, self.state.shell_mode);
         let split_result = match params.ratio {
             Some(ratio) => ws.split_pane_with_ratio(
@@ -256,7 +272,7 @@ impl App {
                 host_terminal_theme,
                 shell_config,
                 extra_env,
-                false,
+                begin_focus,
             ),
             None => ws.split_pane(
                 target_pane_id,
@@ -268,17 +284,23 @@ impl App {
                 host_terminal_theme,
                 shell_config,
                 extra_env,
-                false,
+                begin_focus,
             ),
         };
         let (target_tab_idx, new_pane) = match split_result {
             Some(Ok(result)) => result,
-            Some(Err(err)) => return encode_error(id, "pane_split_failed", err.to_string()),
+            Some(Err(err)) => {
+                return crate::api::ApiRequestDisposition::Respond(encode_error(
+                    id,
+                    "pane_split_failed",
+                    err.to_string(),
+                ))
+            }
             None => {
-                return pane_not_found(
+                return crate::api::ApiRequestDisposition::Respond(pane_not_found(
                     id,
                     params.target_pane_id.as_deref().unwrap_or("active pane"),
-                )
+                ))
             }
         };
         self.terminal_runtimes
@@ -288,21 +310,36 @@ impl App {
         self.state
             .terminals
             .insert(new_pane.terminal.id.clone(), new_pane.terminal);
-        if params.focus {
-            view.focus_pane_in_workspace(&self.state, ws_idx, target_tab_idx, new_pane.pane_id);
-        } else {
-            view.reconcile(&self.state);
+        if let Some(view) = invocation.view_mut() {
+            if params.focus {
+                view.focus_pane_in_workspace(&self.state, ws_idx, target_tab_idx, new_pane.pane_id);
+            } else {
+                view.reconcile(&self.state);
+            }
+        } else if params.focus {
+            self.state.switch_workspace(ws_idx);
+            self.state.switch_tab(target_tab_idx);
+            self.state.mode = Mode::Terminal;
         }
         self.schedule_session_save();
-        let pane = self
-            .pane_info_for_view(view, ws_idx, new_pane.pane_id)
-            .unwrap();
+        let pane = if let Some(view) = invocation.view() {
+            self.pane_info_for_view(view, ws_idx, new_pane.pane_id)
+                .unwrap()
+        } else {
+            self.pane_info(ws_idx, new_pane.pane_id).unwrap()
+        };
         self.emit_event(EventEnvelope {
             event: EventKind::PaneCreated,
             data: EventData::PaneCreated { pane: pane.clone() },
         });
+        if !client_local {
+            self.emit_layout_updated_event(ws_idx, target_tab_idx);
+        }
 
-        encode_success(id, ResponseResult::PaneInfo { pane })
+        crate::api::ApiRequestDisposition::Respond(encode_success(
+            id,
+            ResponseResult::PaneInfo { pane },
+        ))
     }
 
     pub(super) fn handle_pane_list(&mut self, id: String, params: PaneListParams) -> String {
@@ -435,45 +472,7 @@ impl App {
         let Some((ws_idx, pane_id)) = self.resolve_optional_pane(params.pane_id.as_deref()) else {
             return encode_error(id, "pane_not_found", "pane not found");
         };
-        let Some((runtime, _workspace_id)) = self.lookup_runtime(ws_idx, pane_id) else {
-            return encode_error(id, "pane_not_found", "pane not found");
-        };
-        let Some(public_pane_id) = self.public_pane_id(ws_idx, pane_id) else {
-            return encode_error(id, "pane_not_found", "pane not found");
-        };
-        let shell_pid = runtime.child_pid();
-        let shell_pid = (shell_pid != 0).then_some(shell_pid);
-        let foreground_job = shell_pid.and_then(crate::detect::foreground_job);
-        let foreground_process_group_id = foreground_job.as_ref().map(|job| job.process_group_id);
-        let foreground_processes = foreground_job
-            .map(|job| {
-                job.processes
-                    .into_iter()
-                    .map(|process| PaneProcessInfoProcess {
-                        pid: process.pid,
-                        name: process.name,
-                        argv0: process.argv0,
-                        argv: process.argv,
-                        cmdline: process.cmdline,
-                        cwd: crate::platform::process_cwd(process.pid)
-                            .map(|cwd| cwd.display().to_string()),
-                    })
-                    .collect()
-            })
-            .unwrap_or_default();
-
-        encode_success(
-            id,
-            ResponseResult::PaneProcessInfo {
-                process_info: PaneProcessInfo {
-                    pane_id: public_pane_id,
-                    shell_pid,
-                    foreground_process_group_id,
-                    tty: None,
-                    foreground_processes,
-                },
-            },
-        )
+        self.pane_process_info_response(id, ws_idx, pane_id)
     }
 
     pub(super) fn handle_pane_process_info_for_view(
@@ -487,10 +486,150 @@ impl App {
         else {
             return encode_error(id, "pane_not_found", "pane not found");
         };
-        let Some((runtime, _workspace_id)) = self.lookup_runtime(ws_idx, pane_id) else {
+        self.pane_process_info_response(id, ws_idx, pane_id)
+    }
+
+    fn pane_process_info_response(
+        &mut self,
+        id: String,
+        ws_idx: usize,
+        pane_id: crate::layout::PaneId,
+    ) -> String {
+        let Some(tab_idx) = self.state.workspaces[ws_idx].find_tab_index_for_pane(pane_id) else {
+            return encode_error(id, "pane_not_found", "pane not found");
+        };
+        let Some(terminal_id) = self.state.workspaces[ws_idx].tabs[tab_idx]
+            .terminal_id(pane_id)
+            .cloned()
+        else {
+            return encode_error(id, "pane_not_found", "pane not found");
+        };
+        let Some(location) = self
+            .state
+            .terminals
+            .get(&terminal_id)
+            .map(|terminal| terminal.location.clone())
+        else {
             return encode_error(id, "pane_not_found", "pane not found");
         };
         let Some(public_pane_id) = self.public_pane_id(ws_idx, pane_id) else {
+            return encode_error(id, "pane_not_found", "pane not found");
+        };
+
+        if !location.is_local() {
+            let Some(hosts) = self.execution_hosts.as_mut() else {
+                return encode_error(
+                    id,
+                    "process_observation_unavailable",
+                    format!(
+                        "execution host {} is unavailable",
+                        location.execution_host_id
+                    ),
+                );
+            };
+            // Serve a usable cached snapshot first. request_process_observation
+            // demotes Fresh/Stale to Pending (previous retained but hidden by
+            // to_status), which would turn a just-completed observation into a
+            // spurious "pending" error on the synchronous API path.
+            let process = match hosts
+                .process_observation(&terminal_id)
+                .map(crate::execution_host::HostObservation::to_status)
+            {
+                Some(crate::execution_host::ObservationStatus::Ready(process))
+                | Some(crate::execution_host::ObservationStatus::Stale(process))
+                    if process.pid != 0 =>
+                {
+                    process
+                }
+                Some(crate::execution_host::ObservationStatus::Failed(error)) => {
+                    return encode_error(
+                        id,
+                        "process_observation_unavailable",
+                        format!(
+                            "process observation for execution host {} failed: {}",
+                            location.execution_host_id, error.message
+                        ),
+                    );
+                }
+                Some(crate::execution_host::ObservationStatus::Pending)
+                | Some(crate::execution_host::ObservationStatus::Ready(_))
+                | Some(crate::execution_host::ObservationStatus::Stale(_))
+                | None => {
+                    if let Err(error) = hosts.request_process_observation(&terminal_id) {
+                        let code = if matches!(
+                            error,
+                            crate::execution_host::HostOperationError::Unsupported { .. }
+                        ) {
+                            "process_observation_unsupported"
+                        } else {
+                            "process_observation_unavailable"
+                        };
+                        return encode_error(id, code, error.to_string());
+                    }
+                    match hosts
+                        .process_observation(&terminal_id)
+                        .map(crate::execution_host::HostObservation::to_status)
+                    {
+                        Some(crate::execution_host::ObservationStatus::Ready(process))
+                        | Some(crate::execution_host::ObservationStatus::Stale(process))
+                            if process.pid != 0 =>
+                        {
+                            process
+                        }
+                        Some(crate::execution_host::ObservationStatus::Failed(error)) => {
+                            return encode_error(
+                                id,
+                                "process_observation_unavailable",
+                                format!(
+                                    "process observation for execution host {} failed: {}",
+                                    location.execution_host_id, error.message
+                                ),
+                            );
+                        }
+                        Some(crate::execution_host::ObservationStatus::Pending)
+                        | Some(crate::execution_host::ObservationStatus::Ready(_))
+                        | Some(crate::execution_host::ObservationStatus::Stale(_))
+                        | None => {
+                            return encode_error(
+                                id,
+                                "process_observation_unavailable",
+                                format!(
+                                    "process observation for execution host {} is pending or stale",
+                                    location.execution_host_id
+                                ),
+                            );
+                        }
+                    }
+                }
+            };
+            let shell_pid = (process.pid != 0).then_some(process.pid);
+            let foreground_processes = process
+                .foreground_processes
+                .into_iter()
+                .map(|proc| PaneProcessInfoProcess {
+                    pid: proc.pid,
+                    name: proc.name,
+                    argv0: proc.argv0,
+                    argv: proc.argv,
+                    cmdline: proc.cmdline,
+                    cwd: proc.cwd.map(|cwd| cwd.to_string()),
+                })
+                .collect();
+            return encode_success(
+                id,
+                ResponseResult::PaneProcessInfo {
+                    process_info: PaneProcessInfo {
+                        pane_id: public_pane_id,
+                        shell_pid,
+                        foreground_process_group_id: process.foreground_process_group_id,
+                        tty: None,
+                        foreground_processes,
+                    },
+                },
+            );
+        }
+
+        let Some((runtime, _workspace_id)) = self.lookup_runtime(ws_idx, pane_id) else {
             return encode_error(id, "pane_not_found", "pane not found");
         };
         let shell_pid = runtime.child_pid();
@@ -1939,17 +2078,25 @@ impl App {
                 (target_ws_idx, target_tab_idx, moved_pane_id)
             }
             ResolvedPaneMoveDestination::NewWorkspace { label, tab_label } => {
-                let identity_cwd = self
+                let (identity_cwd, default_location) = self
                     .state
                     .terminals
                     .get(&source_terminal_id)
-                    .map(|terminal| terminal.cwd.clone())
-                    .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| "/".into()));
+                    .map(|terminal| (terminal.cwd.clone(), terminal.location.clone()))
+                    .unwrap_or_else(|| {
+                        let cwd = std::env::current_dir().unwrap_or_else(|_| "/".into());
+                        let location = crate::execution_host::ResourceLocation::local(cwd.clone())
+                            .unwrap_or_else(|_| {
+                                crate::execution_host::ResourceLocation::local("/").expect("root")
+                            });
+                        (cwd, location)
+                    });
                 let moved_pane_id = moved.pane_id;
                 let workspace = crate::workspace::Workspace::from_existing_pane(
                     label,
                     tab_label,
                     identity_cwd,
+                    default_location,
                     moved,
                     self.event_tx.clone(),
                     self.render_notify.clone(),
@@ -2640,6 +2787,48 @@ fn invalid_agent(id: String) -> String {
     encode_error(id, "invalid_agent", "agent label must not be empty")
 }
 
+fn pane_creation_location(
+    state: &crate::app::state::AppState,
+    ws_idx: usize,
+    pane_id: crate::layout::PaneId,
+    cwd: Option<String>,
+    requested: Option<crate::api::schema::ResourceLocationParams>,
+) -> Result<crate::execution_host::ResourceLocation, String> {
+    let explicit = if let Some(requested) = requested {
+        let host_id = crate::execution_host::ExecutionHostId::new(requested.execution_host_id)
+            .map_err(|error| error.to_string())?;
+        let path = crate::execution_host::HostPath::new(requested.path)
+            .map_err(|error| error.to_string())?;
+        Some(crate::execution_host::ResourceLocation::new(host_id, path))
+    } else if let Some(cwd) = cwd {
+        Some(
+            crate::execution_host::ResourceLocation::local(cwd)
+                .map_err(|error| error.to_string())?,
+        )
+    } else {
+        None
+    };
+    let workspace = state
+        .workspaces
+        .get(ws_idx)
+        .ok_or_else(|| "workspace not found".to_string())?;
+    let source_terminal = workspace
+        .pane_state(pane_id)
+        .and_then(|pane| state.terminals.get(&pane.attached_terminal_id))
+        .ok_or_else(|| "source pane location not found".to_string())?;
+    // Prefer the live terminal cwd over the location snapshot path so splits
+    // inherit the source pane's current directory (e.g. after cd).
+    let mut source_location = source_terminal.location.clone();
+    if let Ok(path) = crate::execution_host::HostPath::new(source_terminal.cwd.clone()) {
+        source_location.path = path;
+    }
+    let _ = workspace;
+    Ok(crate::execution_host::placement::resolve_split_creation(
+        explicit,
+        source_location,
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2852,5 +3041,415 @@ mod tests {
         let success: SuccessResponse = serde_json::from_str(&response).unwrap();
         assert!(matches!(success.result, ResponseResult::PaneInfo { .. }));
         assert!(app.state.workspaces[0].tabs[0].panes[&pane_id].seen);
+    }
+
+    #[tokio::test]
+    async fn deferred_remote_pane_split_focus_true_only_initiator_after_ack() {
+        let mut app = test_app();
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::Terminal;
+        app.state.ensure_test_terminals();
+
+        let host_id = crate::execution_host::ExecutionHostId::new("ssh:focus-split").unwrap();
+        app.execution_hosts
+            .as_mut()
+            .unwrap()
+            .connect_test_host(host_id.clone());
+
+        let root_pane = app.state.workspaces[0].tabs[0].root_pane;
+        let source_terminal = app.state.workspaces[0].tabs[0].panes[&root_pane]
+            .attached_terminal_id
+            .clone();
+        let location = crate::execution_host::ResourceLocation::new(
+            host_id.clone(),
+            crate::execution_host::HostPath::new("/srv/split").unwrap(),
+        );
+        app.state
+            .terminals
+            .get_mut(&source_terminal)
+            .unwrap()
+            .location = location.clone();
+        app.state.terminals.get_mut(&source_terminal).unwrap().cwd =
+            std::path::PathBuf::from("/srv/split");
+        let public_pane_id = app.public_pane_id(0, root_pane).unwrap();
+
+        let mut initiator = ClientViewState::from_default_client_state(&app.state);
+        initiator.active_workspace = Some(0);
+        initiator.selected_workspace = 0;
+        let mut other = ClientViewState::from_default_client_state(&app.state);
+        other.active_workspace = Some(0);
+        other.selected_workspace = 0;
+        other.reconcile(&app.state);
+
+        let disposition = app.handle_pane_split_disposition_for_view(
+            &mut initiator,
+            "pane-remote-focus".into(),
+            PaneSplitParams {
+                target_pane_id: Some(public_pane_id),
+                workspace_id: None,
+                direction: SplitDirection::Right,
+                ratio: None,
+                cwd: None,
+                location: None,
+                focus: true,
+                env: Default::default(),
+            },
+        );
+        let deferred = match disposition {
+            crate::api::ApiRequestDisposition::Deferred(deferred) => deferred,
+            other => panic!("expected deferred remote create, got {other:?}"),
+        };
+        assert!(
+            !initiator.pending_focused_panes.is_empty(),
+            "initiator should keep pending split focus until ACK"
+        );
+        assert!(
+            other.pending_focused_panes.is_empty(),
+            "other clients must not inherit initiator pending split focus"
+        );
+        assert_eq!(app.state.workspaces[0].tabs[0].panes.len(), 1);
+
+        let (respond_to, response_rx) = std::sync::mpsc::channel();
+        let (terminal_id, pending) =
+            crate::app::PendingRemoteApiResponse::from_deferred(deferred, respond_to);
+        app.store_pending_remote_api_response(terminal_id.clone(), pending);
+        app.complete_remote_creation_ready(
+            terminal_id,
+            crate::execution_host::protocol::RuntimeIdentity::new(
+                crate::execution_host::protocol::HostBindingGeneration::new(1),
+                crate::execution_host::protocol::WorkerInstanceId::new("worker-split").unwrap(),
+                crate::execution_host::protocol::WorkerRuntimeId::new("runtime-split").unwrap(),
+                crate::execution_host::protocol::RuntimeIncarnation::new(1),
+            ),
+            location,
+        );
+        assert!(app.finish_remote_api_completions());
+        let response = response_rx.try_recv().expect("ACK delivers success");
+        let body: serde_json::Value = serde_json::from_str(&response).expect("json");
+        assert_eq!(body["result"]["type"], "pane_info");
+        assert_eq!(body["result"]["pane"]["focused"], true);
+
+        initiator.reconcile(&app.state);
+        other.reconcile(&app.state);
+        assert_eq!(app.state.workspaces[0].tabs[0].panes.len(), 2);
+        let new_pane = app.state.workspaces[0].tabs[0]
+            .panes
+            .keys()
+            .copied()
+            .find(|pane| *pane != root_pane)
+            .expect("split pane");
+        assert_eq!(
+            initiator.focused_pane_for_tab(&app.state.workspaces[0].id, 1),
+            Some(new_pane),
+            "initiator focuses the new split pane after ACK"
+        );
+        assert_ne!(
+            other.focused_pane_for_tab(&app.state.workspaces[0].id, 1),
+            Some(new_pane),
+            "other client keeps prior focus"
+        );
+        assert!(initiator.pending_focused_panes.is_empty());
+        // Shared layout focus must not flip for view-scoped focus=true.
+        assert_eq!(
+            app.state.workspaces[0].tabs[0].layout.focused(),
+            root_pane,
+            "shared tab layout focus stays on the source pane"
+        );
+    }
+
+    #[tokio::test]
+    async fn deferred_remote_pane_split_focus_false_changes_neither_client() {
+        let mut app = test_app();
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::Terminal;
+        app.state.ensure_test_terminals();
+
+        let host_id = crate::execution_host::ExecutionHostId::new("ssh:nofocus-split").unwrap();
+        app.execution_hosts
+            .as_mut()
+            .unwrap()
+            .connect_test_host(host_id.clone());
+
+        let root_pane = app.state.workspaces[0].tabs[0].root_pane;
+        let source_terminal = app.state.workspaces[0].tabs[0].panes[&root_pane]
+            .attached_terminal_id
+            .clone();
+        let location = crate::execution_host::ResourceLocation::new(
+            host_id.clone(),
+            crate::execution_host::HostPath::new("/srv/nofocus").unwrap(),
+        );
+        app.state
+            .terminals
+            .get_mut(&source_terminal)
+            .unwrap()
+            .location = location.clone();
+        app.state.terminals.get_mut(&source_terminal).unwrap().cwd =
+            std::path::PathBuf::from("/srv/nofocus");
+        let public_pane_id = app.public_pane_id(0, root_pane).unwrap();
+
+        let mut initiator = ClientViewState::from_default_client_state(&app.state);
+        let mut other = ClientViewState::from_default_client_state(&app.state);
+        initiator.active_workspace = Some(0);
+        other.active_workspace = Some(0);
+        initiator.reconcile(&app.state);
+        other.reconcile(&app.state);
+        let initiator_focus_before = initiator.focused_pane_for_tab(&app.state.workspaces[0].id, 1);
+        let other_focus_before = other.focused_pane_for_tab(&app.state.workspaces[0].id, 1);
+
+        let disposition = app.handle_pane_split_disposition_for_view(
+            &mut initiator,
+            "pane-remote-nofocus".into(),
+            PaneSplitParams {
+                target_pane_id: Some(public_pane_id),
+                workspace_id: None,
+                direction: SplitDirection::Right,
+                ratio: None,
+                cwd: None,
+                location: None,
+                focus: false,
+                env: Default::default(),
+            },
+        );
+        let deferred = match disposition {
+            crate::api::ApiRequestDisposition::Deferred(deferred) => deferred,
+            other => panic!("expected deferred remote create, got {other:?}"),
+        };
+        assert!(initiator.pending_focused_panes.is_empty());
+
+        let (respond_to, response_rx) = std::sync::mpsc::channel();
+        let (terminal_id, pending) =
+            crate::app::PendingRemoteApiResponse::from_deferred(deferred, respond_to);
+        app.store_pending_remote_api_response(terminal_id.clone(), pending);
+        app.complete_remote_creation_ready(
+            terminal_id,
+            crate::execution_host::protocol::RuntimeIdentity::new(
+                crate::execution_host::protocol::HostBindingGeneration::new(1),
+                crate::execution_host::protocol::WorkerInstanceId::new("worker-split-nf").unwrap(),
+                crate::execution_host::protocol::WorkerRuntimeId::new("runtime-split-nf").unwrap(),
+                crate::execution_host::protocol::RuntimeIncarnation::new(1),
+            ),
+            location,
+        );
+        assert!(app.finish_remote_api_completions());
+        let response = response_rx.try_recv().expect("success");
+        let body: serde_json::Value = serde_json::from_str(&response).expect("json");
+        assert_eq!(body["result"]["pane"]["focused"], false);
+
+        initiator.reconcile(&app.state);
+        other.reconcile(&app.state);
+        assert_eq!(
+            initiator.focused_pane_for_tab(&app.state.workspaces[0].id, 1),
+            initiator_focus_before
+        );
+        assert_eq!(
+            other.focused_pane_for_tab(&app.state.workspaces[0].id, 1),
+            other_focus_before
+        );
+        app.default_client_view.reconcile(&app.state);
+        assert_eq!(app.state.workspaces[0].tabs[0].layout.focused(), root_pane);
+    }
+
+    #[tokio::test]
+    async fn deferred_remote_pane_split_failure_clears_only_initiator_marker() {
+        let mut app = test_app();
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::Terminal;
+        app.state.ensure_test_terminals();
+
+        let host_id = crate::execution_host::ExecutionHostId::new("ssh:fail-split").unwrap();
+        app.execution_hosts
+            .as_mut()
+            .unwrap()
+            .connect_test_host(host_id.clone());
+
+        let root_pane = app.state.workspaces[0].tabs[0].root_pane;
+        let source_terminal = app.state.workspaces[0].tabs[0].panes[&root_pane]
+            .attached_terminal_id
+            .clone();
+        let location = crate::execution_host::ResourceLocation::new(
+            host_id.clone(),
+            crate::execution_host::HostPath::new("/srv/fail-split").unwrap(),
+        );
+        app.state
+            .terminals
+            .get_mut(&source_terminal)
+            .unwrap()
+            .location = location.clone();
+        app.state.terminals.get_mut(&source_terminal).unwrap().cwd =
+            std::path::PathBuf::from("/srv/fail-split");
+        let public_pane_id = app.public_pane_id(0, root_pane).unwrap();
+        let workspace_id = app.state.workspaces[0].id.clone();
+
+        let mut initiator = ClientViewState::from_default_client_state(&app.state);
+        initiator.active_workspace = Some(0);
+        let mut other = ClientViewState::from_default_client_state(&app.state);
+        other.active_workspace = Some(0);
+        let other_key = crate::app::view_state::ClientTabViewKey::new(&workspace_id, 1);
+        other
+            .pending_focused_panes
+            .insert(other_key.clone(), root_pane);
+
+        let disposition = app.handle_pane_split_disposition_for_view(
+            &mut initiator,
+            "pane-remote-fail".into(),
+            PaneSplitParams {
+                target_pane_id: Some(public_pane_id),
+                workspace_id: None,
+                direction: SplitDirection::Right,
+                ratio: None,
+                cwd: None,
+                location: None,
+                focus: true,
+                env: Default::default(),
+            },
+        );
+        let deferred = match disposition {
+            crate::api::ApiRequestDisposition::Deferred(deferred) => deferred,
+            other => panic!("expected deferred remote create, got {other:?}"),
+        };
+        assert!(!initiator.pending_focused_panes.is_empty());
+        let failed_marker = deferred
+            .pending_focus
+            .clone()
+            .expect("focused create installs pane marker");
+
+        // Replacement marker for the same tab must survive exact cleanup.
+        let replace_pane = crate::layout::PaneId::alloc();
+        if let crate::api::PendingFocusMarker::Pane {
+            workspace_id,
+            tab_number,
+            ..
+        } = &failed_marker
+        {
+            initiator.pending_focused_panes.insert(
+                crate::app::view_state::ClientTabViewKey::new(workspace_id, *tab_number),
+                replace_pane,
+            );
+        }
+
+        let (respond_to, response_rx) = std::sync::mpsc::channel();
+        let (terminal_id, pending) =
+            crate::app::PendingRemoteApiResponse::from_deferred(deferred, respond_to);
+        app.store_pending_remote_api_response(terminal_id.clone(), pending);
+        app.complete_remote_creation_failed(terminal_id, "worker refused split".into());
+        assert!(app.finish_remote_api_completions());
+        let _ = response_rx.try_recv().expect("failure response");
+
+        let effects = app.take_client_view_effects();
+        assert_eq!(effects.len(), 1);
+        for effect in &effects {
+            let _ = initiator.apply_client_view_effect(effect);
+            let _ = other.apply_client_view_effect(effect);
+        }
+        assert_eq!(
+            initiator.pending_focused_panes.values().next().copied(),
+            Some(replace_pane),
+            "newer replacement pane marker must survive"
+        );
+        assert_eq!(
+            other.pending_focused_panes.get(&other_key).copied(),
+            Some(root_pane),
+            "other client pending pane marker must stay"
+        );
+    }
+
+    #[tokio::test]
+    async fn remote_pane_process_info_reports_empty_foreground_for_idle_shell() {
+        let (mut app, public_pane_id) = app_with_test_workspace();
+        let host_id = crate::execution_host::ExecutionHostId::new("ssh:proc-info").unwrap();
+        app.execution_hosts
+            .as_mut()
+            .unwrap()
+            .connect_test_host(host_id.clone());
+
+        let pane_id = app.state.workspaces[0].tabs[0].root_pane;
+        let terminal_id = app.state.workspaces[0].tabs[0]
+            .terminal_id(pane_id)
+            .unwrap()
+            .clone();
+        let location = crate::execution_host::ResourceLocation::new(
+            host_id.clone(),
+            crate::execution_host::HostPath::new("/srv/work").unwrap(),
+        );
+        app.state.terminals.get_mut(&terminal_id).unwrap().location = location.clone();
+
+        let identity = crate::execution_host::protocol::RuntimeIdentity::new(
+            crate::execution_host::protocol::HostBindingGeneration::new(1),
+            crate::execution_host::protocol::WorkerInstanceId::new("worker-proc").unwrap(),
+            crate::execution_host::protocol::WorkerRuntimeId::new("runtime-proc").unwrap(),
+            crate::execution_host::protocol::RuntimeIncarnation::new(1),
+        );
+        let (events_tx, _events_rx) = tokio::sync::mpsc::channel(4);
+        let runtime = app
+            .execution_hosts
+            .as_mut()
+            .unwrap()
+            .adopt_terminal(
+                terminal_id.clone(),
+                pane_id,
+                location.clone(),
+                identity.clone(),
+                24,
+                80,
+                1024,
+                crate::terminal_theme::TerminalTheme::default(),
+                events_tx,
+            )
+            .unwrap();
+
+        let hosts = app.execution_hosts.as_mut().unwrap();
+        let request_id = hosts.request_process_observation(&terminal_id).unwrap();
+        hosts.route_worker_message(
+            host_id,
+            crate::execution_host::protocol::WorkerMessage::ProcessObservationResult {
+                request_id,
+                identity,
+                location,
+                process: Some(crate::execution_host::protocol::ProcessObservation {
+                    pid: 4242,
+                    ppid: None,
+                    command: Some("zsh".into()),
+                    cwd: Some(crate::execution_host::HostPath::new("/srv/work").unwrap()),
+                    foreground_process_group_id: Some(4242),
+                    foreground_processes: Vec::new(),
+                    session_processes: vec![crate::execution_host::protocol::ObservedProcess {
+                        pid: 4242,
+                        name: "zsh".into(),
+                        argv0: None,
+                        argv: None,
+                        cmdline: None,
+                        cwd: Some(crate::execution_host::HostPath::new("/srv/work").unwrap()),
+                    }],
+                }),
+                error: None,
+            },
+            &mut Vec::new(),
+        );
+        let response = app.handle_pane_process_info(
+            "proc-info".into(),
+            PaneProcessInfoParams {
+                pane_id: Some(public_pane_id.clone()),
+            },
+        );
+        let body: serde_json::Value = serde_json::from_str(&response).unwrap();
+        assert_eq!(
+            body["result"]["type"], "pane_process_info",
+            "unexpected process_info response: {body}"
+        );
+        assert_eq!(body["result"]["process_info"]["pane_id"], public_pane_id);
+        assert_eq!(body["result"]["process_info"]["shell_pid"], 4242);
+        let foreground = body["result"]["process_info"]
+            .get("foreground_processes")
+            .and_then(|value| value.as_array())
+            .map(|entries| entries.as_slice())
+            .unwrap_or(&[]);
+        assert!(
+            foreground.is_empty(),
+            "idle remote shell must expose empty foreground_processes: {body}"
+        );
+        runtime.shutdown();
     }
 }

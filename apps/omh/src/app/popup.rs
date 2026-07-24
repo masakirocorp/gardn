@@ -199,6 +199,7 @@ impl App {
         Some(crate::api::schema::PaneInfo {
             pane_id: self.popup_public_pane_id(pane_id),
             terminal_id: terminal.id.to_string(),
+            location: (&terminal.location).into(),
             workspace_id: self.public_workspace_id(ws_idx),
             tab_id: self.public_tab_id(ws_idx, tab_idx)?,
             focused: view.popup_pane == Some(pane_id),

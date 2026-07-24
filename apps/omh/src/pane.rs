@@ -11,9 +11,7 @@ use portable_pty::CommandBuilder;
 #[cfg(test)]
 use portable_pty::{native_pty_system, PtySize};
 use ratatui::{layout::Rect, style::Color, Frame};
-#[cfg(test)]
-use tokio::sync::watch;
-use tokio::sync::{mpsc, Notify};
+use tokio::sync::{mpsc, watch, Notify};
 use tracing::{debug, error, info, warn};
 
 use crate::detect::{Agent, AgentState};
@@ -49,6 +47,8 @@ const RELEASE_REACQUIRE_SUPPRESSION: std::time::Duration = std::time::Duration::
 const PANE_TERM: &str = "xterm-256color";
 const PANE_COLORTERM: &str = "truecolor";
 
+pub(crate) type PaneOutputObserver = Arc<dyn Fn(&[u8]) + Send + Sync>;
+
 fn apply_pane_terminal_env(cmd: &mut CommandBuilder) {
     // Each pane is rendered by Oh My Herdr's own terminal layer, not the outer terminal
     // that launched the app. Advertising the inherited TERM leaks the host terminal
@@ -58,11 +58,16 @@ fn apply_pane_terminal_env(cmd: &mut CommandBuilder) {
     cmd.env("COLORTERM", PANE_COLORTERM);
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone)]
 pub(crate) struct PaneLaunchEnv {
     extra: Vec<(String, String)>,
     identity: Option<PaneLaunchIdentity>,
     include_pane_identity: bool,
+    /// When set, replaces the coordinator Local API socket path in the child env.
+    /// Execution workers pass an empty string to strip `OMH_SOCKET_PATH`.
+    socket_path_override: Option<String>,
+    /// Optional observer invoked for every drained PTY chunk after terminal parse.
+    output_observer: Option<PaneOutputObserver>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -84,12 +89,29 @@ impl PaneLaunchEnv {
             extra,
             identity: None,
             include_pane_identity: true,
+            socket_path_override: None,
+            output_observer: None,
         }
     }
 
     pub(crate) fn without_pane_identity(mut self) -> Self {
         self.include_pane_identity = false;
         self
+    }
+
+    /// Launch without advertising a coordinator Local API socket path.
+    pub(crate) fn without_local_api_socket(mut self) -> Self {
+        self.socket_path_override = Some(String::new());
+        self
+    }
+
+    pub(crate) fn with_output_observer(mut self, observer: PaneOutputObserver) -> Self {
+        self.output_observer = Some(observer);
+        self
+    }
+
+    fn output_observer(&self) -> Option<PaneOutputObserver> {
+        self.output_observer.clone()
     }
 
     pub(crate) fn with_identity(
@@ -116,7 +138,18 @@ fn apply_pane_launch_env(cmd: &mut CommandBuilder, launch_env: &PaneLaunchEnv, p
         cmd.env(key, value);
     }
     cmd.env(crate::OMH_ENV_VAR, crate::OMH_ENV_VALUE);
-    cmd.env(crate::api::SOCKET_PATH_ENV_VAR, crate::api::socket_path());
+    match launch_env.socket_path_override.as_deref() {
+        Some("") => {
+            // Worker-owned launches must not inherit a coordinator Local API socket.
+            cmd.env_remove(crate::api::SOCKET_PATH_ENV_VAR);
+        }
+        Some(path) => {
+            cmd.env(crate::api::SOCKET_PATH_ENV_VAR, path);
+        }
+        None => {
+            cmd.env(crate::api::SOCKET_PATH_ENV_VAR, crate::api::socket_path());
+        }
+    }
     if let Some(identity) = &launch_env.identity {
         cmd.env("OMH_WORKSPACE_ID", &identity.workspace_id);
         cmd.env("OMH_TAB_ID", &identity.tab_id);
@@ -135,11 +168,12 @@ struct PendingAgentRelease {
     until: std::time::Instant,
 }
 
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Default)]
 struct SpawnInitialState<'a> {
     detected_agent: Option<Agent>,
     history_ansi: Option<&'a str>,
     windows_powershell_prompt_cwd_reporting: bool,
+    output_observer: Option<PaneOutputObserver>,
 }
 
 fn active_pending_release(
@@ -538,8 +572,31 @@ pub struct PaneRuntime {
     detect_handle: tokio::task::AbortHandle,
 }
 
+pub(crate) struct RemotePaneControl {
+    input_rx: mpsc::Receiver<Bytes>,
+    resize_rx: watch::Receiver<(u16, u16, u32, u32)>,
+}
+
+impl RemotePaneControl {
+    pub(crate) fn try_recv_input(&mut self) -> Result<Bytes, mpsc::error::TryRecvError> {
+        self.input_rx.try_recv()
+    }
+
+    pub(crate) fn take_resize(&mut self) -> Option<(u16, u16, u32, u32)> {
+        self.resize_rx
+            .has_changed()
+            .ok()
+            .filter(|changed| *changed)
+            .map(|_| *self.resize_rx.borrow_and_update())
+    }
+}
+
 enum PaneRuntimeIo {
     Actor(PtyIoActorHandle),
+    Remote {
+        sender: mpsc::Sender<Bytes>,
+        resize_tx: watch::Sender<(u16, u16, u32, u32)>,
+    },
     #[cfg(test)]
     TestChannel {
         sender: mpsc::Sender<Bytes>,
@@ -551,6 +608,7 @@ impl PaneRuntimeIo {
     fn shutdown(&self) {
         match self {
             PaneRuntimeIo::Actor(actor) => actor.shutdown(),
+            PaneRuntimeIo::Remote { .. } => {}
             #[cfg(test)]
             PaneRuntimeIo::TestChannel { .. } => {}
         }
@@ -560,6 +618,9 @@ impl PaneRuntimeIo {
     fn duplicate_handoff_fd(&self) -> std::io::Result<std::os::fd::RawFd> {
         match self {
             PaneRuntimeIo::Actor(actor) => actor.duplicate_for_handoff(),
+            PaneRuntimeIo::Remote { .. } => Err(std::io::Error::other(
+                "remote runtime has no local PTY master fd",
+            )),
             #[cfg(test)]
             PaneRuntimeIo::TestChannel { .. } => {
                 Err(std::io::Error::other("test runtime has no PTY master fd"))
@@ -571,6 +632,7 @@ impl PaneRuntimeIo {
     fn foreground_process_group_id(&self) -> Option<u32> {
         match self {
             PaneRuntimeIo::Actor(actor) => actor.foreground_process_group_id(),
+            PaneRuntimeIo::Remote { .. } => None,
             #[cfg(test)]
             PaneRuntimeIo::TestChannel { .. } => None,
         }
@@ -580,6 +642,7 @@ impl PaneRuntimeIo {
     fn begin_handoff(&self, timeout: std::time::Duration) -> std::io::Result<()> {
         match self {
             PaneRuntimeIo::Actor(actor) => actor.begin_handoff(timeout),
+            PaneRuntimeIo::Remote { .. } => Ok(()),
             #[cfg(test)]
             PaneRuntimeIo::TestChannel { .. } => Ok(()),
         }
@@ -595,6 +658,15 @@ impl PaneRuntimeIo {
                     actor.rollback_handoff()
                 }
             }
+            PaneRuntimeIo::Remote { .. } => {
+                if paused {
+                    Err(std::io::Error::other(
+                        "remote runtimes use worker adoption instead of PTY handoff",
+                    ))
+                } else {
+                    Ok(())
+                }
+            }
             #[cfg(test)]
             PaneRuntimeIo::TestChannel { .. } => Ok(()),
         }
@@ -604,6 +676,7 @@ impl PaneRuntimeIo {
     fn release_after_commit(&self) -> std::io::Result<()> {
         match self {
             PaneRuntimeIo::Actor(actor) => actor.release_after_commit(),
+            PaneRuntimeIo::Remote { .. } => Ok(()),
             #[cfg(test)]
             PaneRuntimeIo::TestChannel { .. } => Ok(()),
         }
@@ -627,6 +700,9 @@ impl PaneRuntimeIo {
                     terminal_responses,
                 );
             }
+            PaneRuntimeIo::Remote { resize_tx, .. } => {
+                let _ = resize_tx.send((rows, cols, cell_width_px, cell_height_px));
+            }
             #[cfg(test)]
             PaneRuntimeIo::TestChannel { resize_tx, .. } => {
                 let _ = resize_tx.send((rows, cols, cell_width_px, cell_height_px));
@@ -645,6 +721,7 @@ impl PaneRuntimeIo {
             PaneRuntimeIo::Actor(actor) => {
                 actor.nudge_child_redraw_after_handoff(rows, cols, cell_width_px, cell_height_px);
             }
+            PaneRuntimeIo::Remote { .. } => {}
             #[cfg(test)]
             PaneRuntimeIo::TestChannel { .. } => {}
         }
@@ -653,6 +730,7 @@ impl PaneRuntimeIo {
     async fn send_bytes(&self, bytes: Bytes) -> Result<(), mpsc::error::SendError<Bytes>> {
         match self {
             PaneRuntimeIo::Actor(actor) => actor.write_user_input(bytes).await,
+            PaneRuntimeIo::Remote { sender, .. } => sender.send(bytes).await,
             #[cfg(test)]
             PaneRuntimeIo::TestChannel { sender, .. } => sender.send(bytes).await,
         }
@@ -661,8 +739,17 @@ impl PaneRuntimeIo {
     fn try_send_bytes(&self, bytes: Bytes) -> Result<(), mpsc::error::TrySendError<Bytes>> {
         match self {
             PaneRuntimeIo::Actor(actor) => actor.try_write_user_input(bytes),
+            PaneRuntimeIo::Remote { sender, .. } => sender.try_send(bytes),
             #[cfg(test)]
             PaneRuntimeIo::TestChannel { sender, .. } => sender.try_send(bytes),
+        }
+    }
+    fn response_sender(&self) -> Option<mpsc::Sender<Bytes>> {
+        match self {
+            PaneRuntimeIo::Remote { sender, .. } => Some(sender.clone()),
+            PaneRuntimeIo::Actor(_) => None,
+            #[cfg(test)]
+            PaneRuntimeIo::TestChannel { sender, .. } => Some(sender.clone()),
         }
     }
 }
@@ -1126,6 +1213,73 @@ impl PaneRuntime {
         self.child_pid.load(Ordering::Acquire)
     }
 
+    pub(crate) fn remote(
+        pane_id: PaneId,
+        rows: u16,
+        cols: u16,
+        scrollback_limit_bytes: usize,
+        host_terminal_theme: crate::terminal_theme::TerminalTheme,
+        events: mpsc::Sender<AppEvent>,
+    ) -> std::io::Result<(Self, RemotePaneControl)> {
+        let (input_tx, input_rx) = mpsc::channel::<Bytes>(256);
+        let (resize_tx, resize_rx) = watch::channel((rows, cols, 0, 0));
+        let mut terminal = crate::ghostty::Terminal::new(cols, rows, scrollback_limit_bytes)
+            .map_err(|error| std::io::Error::other(error.to_string()))?;
+        if crate::kitty_graphics::is_enabled() {
+            terminal
+                .enable_kitty_graphics(false)
+                .map_err(|error| std::io::Error::other(error.to_string()))?;
+        }
+        let pane_terminal = GhosttyPaneTerminal::new(terminal, input_tx.clone())?;
+        pane_terminal.apply_host_terminal_theme(host_terminal_theme);
+        let terminal = Arc::new(PaneTerminal::new(pane_terminal));
+        let child_pid = Arc::new(AtomicU32::new(0));
+        let detection_content_seq = Arc::new(AtomicU64::new(0));
+        let full_lifecycle_authority_active = Arc::new(AtomicBool::new(false));
+        let (detect_handle, detect_reset_notify, pending_release) = spawn_basic_detection_task(
+            pane_id,
+            child_pid.clone(),
+            terminal.clone(),
+            detection_content_seq.clone(),
+            full_lifecycle_authority_active.clone(),
+            events,
+        );
+        Ok((
+            Self {
+                pane_id,
+                terminal,
+                io: PaneRuntimeIo::Remote {
+                    sender: input_tx,
+                    resize_tx,
+                },
+                current_size: Cell::new((rows, cols, 0, 0)),
+                child_pid,
+                child_wait_completed: None,
+                kitty_keyboard_flags: Arc::new(AtomicU16::new(0)),
+                detection_content_seq,
+                full_lifecycle_authority_active,
+                detect_reset_notify,
+                pending_release,
+                preserve_processes_on_drop: true,
+                detect_handle,
+            },
+            RemotePaneControl {
+                input_rx,
+                resize_rx,
+            },
+        ))
+    }
+
+    pub(crate) fn process_remote_output(&self, bytes: &[u8]) -> Vec<Vec<u8>> {
+        let Some(response_writer) = self.io.response_sender() else {
+            return Vec::new();
+        };
+        observe_detection_content_change(bytes, &self.detection_content_seq);
+        self.terminal
+            .process_pty_bytes(self.pane_id, 0, bytes, &response_writer)
+            .clipboard_writes
+    }
+
     pub fn spawn(
         pane_id: PaneId,
         rows: u16,
@@ -1192,6 +1346,7 @@ impl PaneRuntime {
                 windows_powershell_prompt_cwd_reporting: uses_windows_powershell_pane_shell(
                     shell_config,
                 ),
+                output_observer: launch_env.output_observer(),
             },
         )
     }
@@ -1228,7 +1383,10 @@ impl PaneRuntime {
             render_dirty,
             cmd,
             "failed to spawn agent profile command pane",
-            SpawnInitialState::default(),
+            SpawnInitialState {
+                output_observer: launch_env.output_observer(),
+                ..SpawnInitialState::default()
+            },
         )
     }
 
@@ -1260,7 +1418,10 @@ impl PaneRuntime {
             render_dirty,
             cmd,
             "failed to spawn command pane",
-            SpawnInitialState::default(),
+            SpawnInitialState {
+                output_observer: launch_env.output_observer(),
+                ..SpawnInitialState::default()
+            },
         )
     }
 
@@ -1293,7 +1454,10 @@ impl PaneRuntime {
             render_dirty,
             cmd,
             "failed to spawn custom command pane",
-            SpawnInitialState::default(),
+            SpawnInitialState {
+                output_observer: launch_env.output_observer(),
+                ..SpawnInitialState::default()
+            },
         )
     }
 
@@ -1334,7 +1498,10 @@ impl PaneRuntime {
             render_dirty,
             cmd,
             "failed to spawn argv command pane",
-            SpawnInitialState::default(),
+            SpawnInitialState {
+                output_observer: launch_env.output_observer(),
+                ..SpawnInitialState::default()
+            },
         )
     }
 
@@ -1370,7 +1537,7 @@ impl PaneRuntime {
             .map_err(|e| std::io::Error::other(e.to_string()))?;
         if crate::kitty_graphics::is_enabled() {
             terminal
-                .enable_kitty_graphics()
+                .enable_kitty_graphics(true)
                 .map_err(|e| std::io::Error::other(e.to_string()))?;
         }
         let pane_terminal = GhosttyPaneTerminal::new(terminal, response_tx.clone())?;
@@ -1421,7 +1588,9 @@ impl PaneRuntime {
                     });
                 }
                 for content in result.clipboard_writes {
-                    if let Err(err) = read_events.try_send(AppEvent::ClipboardWrite { content }) {
+                    if let Err(err) =
+                        read_events.try_send(AppEvent::TerminalClipboardWrite { pane_id, content })
+                    {
                         warn!(
                             pane = pane_id.raw(),
                             err = %err,
@@ -1439,6 +1608,8 @@ impl PaneRuntime {
                     pane_id,
                     child_pid: exit_child_pid.load(Ordering::Acquire),
                     exit_success: false,
+                    exit_code: Some(1),
+                    exit_signal: None,
                 }));
                 debug!(pane = pane_id.raw(), "handoff PTY actor exiting");
             });
@@ -1498,7 +1669,7 @@ impl PaneRuntime {
             .map_err(|e| std::io::Error::other(e.to_string()))?;
         if crate::kitty_graphics::is_enabled() {
             terminal
-                .enable_kitty_graphics()
+                .enable_kitty_graphics(true)
                 .map_err(|e| std::io::Error::other(e.to_string()))?;
         }
         let detection_content_seq = Arc::new(AtomicU64::new(0));
@@ -1512,6 +1683,7 @@ impl PaneRuntime {
         }
         let terminal = Arc::new(PaneTerminal::new(pane_terminal));
         let kitty_keyboard_flags = Arc::new(AtomicU16::new(0));
+        let output_observer = initial_state.output_observer.clone();
 
         let spawned = crate::pty::backend::spawn_with_portable_pty(rows, cols, cmd)
             .inspect_err(|err| error!(pane = pane_id.raw(), err = %err, "{spawn_error_message}"))?;
@@ -1530,21 +1702,26 @@ impl PaneRuntime {
                 crate::logging::pane_spawned(pane_id.raw(), pid);
             }
             tokio::task::spawn_blocking(move || {
-                let mut exit_success = false;
-                match child.wait() {
+                let (exit_success, exit_code, exit_signal) = match child.wait() {
                     Ok(status) => {
-                        exit_success = status.success();
+                        let status_parts = exit_status_parts(&status);
                         let status_text = format!("{status:?}");
                         crate::logging::pane_exited(pane_id.raw(), &status_text);
+                        (status.success(), status_parts.0, status_parts.1)
                     }
-                    Err(e) => crate::logging::pane_exit_failed(pane_id.raw(), &e.to_string()),
-                }
+                    Err(e) => {
+                        crate::logging::pane_exit_failed(pane_id.raw(), &e.to_string());
+                        (false, Some(1), None)
+                    }
+                };
                 child_wait_completed.store(true, Ordering::Release);
                 // Use blocking send — PaneDied is critical, must not be dropped
                 if let Err(e) = rt.block_on(events.send(AppEvent::PaneDied {
                     pane_id,
                     child_pid: child_pid.load(Ordering::Acquire),
                     exit_success,
+                    exit_code,
+                    exit_signal,
                 })) {
                     error!(pane = pane_id.raw(), err = %e, "failed to send PaneDied event");
                 }
@@ -1560,11 +1737,15 @@ impl PaneRuntime {
             let events = events.clone();
             let rt = tokio::runtime::Handle::current();
             let detection_content_seq = detection_content_seq.clone();
+            let output_observer = output_observer.clone();
             let on_read = Box::new(move |bytes: &[u8]| {
                 observe_detection_content_change(bytes, &detection_content_seq);
                 let shell_pid = child_pid.load(Ordering::Acquire);
                 let result =
                     terminal.process_pty_bytes(pane_id, shell_pid, bytes, &response_writer);
+                if let Some(observer) = output_observer.as_ref() {
+                    observer(bytes);
+                }
                 if result.request_render && !render_dirty.swap(true, Ordering::AcqRel) {
                     render_notify.notify_one();
                 }
@@ -1579,7 +1760,9 @@ impl PaneRuntime {
                     });
                 }
                 for content in result.clipboard_writes {
-                    if let Err(err) = events.try_send(AppEvent::ClipboardWrite { content }) {
+                    if let Err(err) =
+                        events.try_send(AppEvent::TerminalClipboardWrite { pane_id, content })
+                    {
                         warn!(
                             pane = pane_id.raw(),
                             err = %err,
@@ -2390,6 +2573,73 @@ impl PaneRuntime {
         let shell_pid = self.child_pid.load(Ordering::Acquire);
         self.terminal
             .process_pty_bytes(pane_id, shell_pid, bytes, &tx);
+    }
+}
+
+trait ExitStatusParts {
+    fn exit_code(&self) -> u32;
+    fn signal(&self) -> Option<&str>;
+}
+
+impl ExitStatusParts for portable_pty::ExitStatus {
+    fn exit_code(&self) -> u32 {
+        portable_pty::ExitStatus::exit_code(self)
+    }
+    fn signal(&self) -> Option<&str> {
+        portable_pty::ExitStatus::signal(self)
+    }
+}
+
+fn exit_status_parts(status: &impl ExitStatusParts) -> (Option<i32>, Option<i32>) {
+    if let Some(signal_name) = status.signal() {
+        return (None, Some(signal_number(signal_name)));
+    }
+    let code = i32::try_from(status.exit_code()).unwrap_or(1);
+    (Some(code), None)
+}
+
+fn signal_number(name: &str) -> i32 {
+    let normalized = name.trim();
+    let bare = normalized
+        .strip_prefix("Signal ")
+        .or_else(|| normalized.strip_prefix("SIG"))
+        .unwrap_or(normalized);
+    if let Ok(number) = bare.parse::<i32>() {
+        return number;
+    }
+    match bare.to_ascii_uppercase().as_str() {
+        "HUP" | "SIGHUP" => 1,
+        "INT" | "SIGINT" => 2,
+        "QUIT" | "SIGQUIT" => 3,
+        "ILL" | "SIGILL" => 4,
+        "TRAP" | "SIGTRAP" => 5,
+        "ABRT" | "SIGABRT" | "IOT" | "SIGIOT" => 6,
+        "EMT" | "SIGEMT" => 7,
+        "FPE" | "SIGFPE" => 8,
+        "KILL" | "SIGKILL" => 9,
+        "BUS" | "SIGBUS" => 10,
+        "SEGV" | "SIGSEGV" => 11,
+        "SYS" | "SIGSYS" => 12,
+        "PIPE" | "SIGPIPE" => 13,
+        "ALRM" | "SIGALRM" => 14,
+        "TERM" | "SIGTERM" => 15,
+        "URG" | "SIGURG" => 16,
+        "STOP" | "SIGSTOP" => 17,
+        "TSTP" | "SIGTSTP" => 18,
+        "CONT" | "SIGCONT" => 19,
+        "CHLD" | "SIGCHLD" | "CLD" | "SIGCLD" => 20,
+        "TTIN" | "SIGTTIN" => 21,
+        "TTOU" | "SIGTTOU" => 22,
+        "IO" | "SIGIO" | "POLL" | "SIGPOLL" => 23,
+        "XCPU" | "SIGXCPU" => 24,
+        "XFSZ" | "SIGXFSZ" => 25,
+        "VTALRM" | "SIGVTALRM" => 26,
+        "PROF" | "SIGPROF" => 27,
+        "WINCH" | "SIGWINCH" => 28,
+        "INFO" | "SIGINFO" => 29,
+        "USR1" | "SIGUSR1" => 30,
+        "USR2" | "SIGUSR2" => 31,
+        _ => 1,
     }
 }
 

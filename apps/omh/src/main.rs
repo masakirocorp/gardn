@@ -438,6 +438,9 @@ fn exit_if_nested_disabled(config: &config::Config) {
 
 fn main() -> io::Result<()> {
     let raw_args: Vec<String> = std::env::args().collect();
+    if std::env::var_os(execution_host::auth::ASKPASS_ROLE_ENV).is_some() {
+        return execution_host::auth::run_ssh_askpass(&raw_args[1..]);
+    }
     let args = match session::configure_from_args(&raw_args) {
         Ok(args) => args,
         Err(err) => {
@@ -477,6 +480,10 @@ fn main() -> io::Result<()> {
     }
 
     // subcommands and flags (no tui, no logging needed)
+    if args.get(1).map(|s| s.as_str()) == Some("execution-worker") {
+        return execution_host::worker::run_from_args(&args[2..]);
+    }
+
     if args.get(1).map(|s| s.as_str()) == Some("remote-client-bridge") {
         return remote::run_remote_client_bridge();
     }

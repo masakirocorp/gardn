@@ -613,10 +613,10 @@ impl Terminal {
         }
     }
 
-    pub fn enable_kitty_graphics(&mut self) -> Result<(), Error> {
+    pub fn enable_kitty_graphics(&mut self, allow_host_file_media: bool) -> Result<(), Error> {
         install_png_decoder_once();
         let storage_limit = KITTY_IMAGE_STORAGE_LIMIT_BYTES;
-        let enable_medium = true;
+        let enable_medium = allow_host_file_media;
         unsafe {
             ffi::ghostty_terminal_set(
                 self.raw,
@@ -2903,7 +2903,7 @@ mod tests {
     #[test]
     fn kitty_graphics_local_media_are_enabled() {
         let mut terminal = Terminal::new(10, 5, 0).unwrap();
-        terminal.enable_kitty_graphics().unwrap();
+        terminal.enable_kitty_graphics(true).unwrap();
         assert!(terminal
             .get_bool(ffi::GhosttyTerminalData_GHOSTTY_TERMINAL_DATA_KITTY_IMAGE_MEDIUM_FILE)
             .unwrap());
@@ -2916,6 +2916,28 @@ mod tests {
     }
 
     #[test]
+    fn kitty_graphics_remote_file_media_return_explicit_unsupported() {
+        let mut terminal = Terminal::new(10, 5, 0).unwrap();
+        terminal.enable_kitty_graphics(false).unwrap();
+        let (responses_tx, responses_rx) = std::sync::mpsc::channel();
+        terminal
+            .set_write_pty_callback(move |bytes| {
+                let _ = responses_tx.send(bytes.to_vec());
+            })
+            .unwrap();
+
+        terminal
+            .write(b"\x1b_Ga=T,f=32,t=f,i=9,p=4,s=1,v=1,c=10,r=5,q=1;L3RtcC9waXhlbC5yZ2Jh\x1b\\");
+
+        assert!(terminal.kitty_image_placements().unwrap().is_empty());
+        let response = String::from_utf8(responses_rx.try_iter().flatten().collect()).unwrap();
+        assert!(
+            response.contains("EINVAL: unsupported medium"),
+            "unexpected Kitty response: {response:?}"
+        );
+    }
+
+    #[test]
     fn kitty_graphics_file_medium_rgba_placement_is_queryable() {
         use base64::Engine;
         let dir =
@@ -2924,7 +2946,7 @@ mod tests {
         let path = dir.join("pixel.rgba");
         std::fs::write(&path, [255, 0, 0, 255]).unwrap();
         let mut terminal = Terminal::new(10, 5, 0).unwrap();
-        terminal.enable_kitty_graphics().unwrap();
+        terminal.enable_kitty_graphics(true).unwrap();
         terminal.resize(10, 5, 8, 16).unwrap();
         let encoded_path =
             base64::engine::general_purpose::STANDARD.encode(path.as_os_str().as_encoded_bytes());
@@ -2946,7 +2968,7 @@ mod tests {
     #[test]
     fn kitty_graphics_direct_rgba_placement_is_queryable() {
         let mut terminal = Terminal::new(10, 5, 0).unwrap();
-        terminal.enable_kitty_graphics().unwrap();
+        terminal.enable_kitty_graphics(true).unwrap();
         terminal.resize(10, 5, 8, 16).unwrap();
         terminal.write(b"\x1b_Ga=T,f=32,t=d,i=7,p=3,s=1,v=1,c=10,r=5,q=2;/wAA/w==\x1b\\");
 
@@ -2965,7 +2987,7 @@ mod tests {
     #[test]
     fn kitty_graphics_unicode_placeholder_placement_is_queryable() {
         let mut terminal = Terminal::new(10, 5, 0).unwrap();
-        terminal.enable_kitty_graphics().unwrap();
+        terminal.enable_kitty_graphics(true).unwrap();
         terminal.resize(10, 5, 8, 16).unwrap();
         terminal.write(b"\x1b_Gq=2,a=T,C=1,U=1,f=32,s=1,v=1,i=1193046,c=2,r=1,m=0;/wAA/w==\x1b\\");
         terminal.write("\x1b[2;3H\x1b[38;2;18;52;86m\u{10eeee}\u{0305}\u{0305}\u{10eeee}\u{0305}\u{030d}\x1b[0m".as_bytes());

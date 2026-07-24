@@ -1,11 +1,11 @@
 ---
 title: Extensions and control
-description: Local API methods for server control, notifications, window titles, integrations, plugins, configuration diagnostics, and event subscriptions.
+description: Local API methods for execution hosts, server control, notifications, integrations, plugins, diagnostics, and event subscriptions.
 ---
 
 # Extensions and control
 
-The extension and control methods cover server control, notifications, window titles, integrations, plugins, configuration diagnostics, and event subscriptions. Workspace, tab, agent, and pane methods are documented on [Resources](/docs/api/reference/resources) and [Panes and agents](/docs/api/reference/panes-and-agents). Canonical wire shapes live in the [generated reference](/docs/api/reference/generated); [Error semantics](/docs/api/errors) documents the error envelope, and transport and the request envelope are described in the [Local API overview](/docs/api).
+The extension and control methods cover execution-host connections, server control, notifications, window titles, integrations, plugins, configuration diagnostics, and event subscriptions. Workspace, tab, agent, and pane methods are documented on [Resources](/docs/api/reference/resources) and [Panes and agents](/docs/api/reference/panes-and-agents). Canonical wire shapes live in the [generated reference](/docs/api/reference/generated); [Error semantics](/docs/api/errors) documents the error envelope, and transport and the request envelope are described in the [Local API overview](/docs/api).
 
 > **Trust boundary.** The Local API is a local-user control surface. Any process that can open its socket can ask Oh My Herdr to stop or replace the server, write integration and plugin files, spawn plugin commands and panes as the current user, send content to a client, or hold a long-lived event stream. Treat the socket and every caller as trusted only when that is intended.
 
@@ -14,12 +14,108 @@ The extension and control methods cover server control, notifications, window ti
 The schema defines these methods in the namespaces covered here:
 
 - `ping`.
+- `connection.list`, `connection.save`, `connection.delete`, `connection.install`, `connection.test`, `connection.connect`, and `connection.disconnect`.
 - `server.stop`, `server.live_handoff`, `server.reload_config`, `server.agent_manifests`, and `server.reload_agent_manifests`.
 - `notification.show`.
 - `client.window_title.set` and `client.window_title.clear`.
 - `integration.install` and `integration.uninstall`.
 - `plugin.link`, `plugin.list`, `plugin.unlink`, `plugin.enable`, `plugin.disable`, `plugin.action.list`, `plugin.action.invoke`, `plugin.log.list`, `plugin.pane.open`, `plugin.pane.focus`, and `plugin.pane.close`.
 - `events.subscribe` and `events.wait`.
+
+## Execution-host connections
+
+Connection profiles contain OpenSSH destination metadata. Authentication remains owned by system OpenSSH. Profile ids use ASCII letters, numbers, `.`, `_`, and `-`. The coordinator persists profiles in `~/.config/omh/ssh-profiles.json`.
+
+`ConnectionProfileInfo` has these fields:
+
+| Field                 | Type                   | Description                                                                                                              |
+| --------------------- | ---------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `profile_id`          | `string`               | Stable profile id.                                                                                                       |
+| `name`                | `string`               | Display name.                                                                                                            |
+| `target`              | `string`               | Raw OpenSSH target.                                                                                                      |
+| `suggested_directory` | `string \| null`       | Optional default path on the execution host.                                                                             |
+| `execution_host_id`   | `string`               | Placement id, such as `ssh:workbox:1`.                                                                                   |
+| `status`              | `ConnectionStatusKind` | `disconnected`, `connecting`, `connected`, `reconnecting`, `disconnecting`, `authentication_required`, or `unavailable`. |
+| `error`               | `string \| null`       | Connection detail for `reconnecting` or `unavailable`.                                                                   |
+
+### `connection.list`
+
+Returns `ConnectionList { profiles }`. Each profile includes its current connection status.
+
+```json
+{ "id": "connection-list", "method": "connection.list", "params": {} }
+```
+
+### `connection.save`
+
+Creates or replaces a profile. Updating `target` increments the host-binding generation and changes `execution_host_id`. Updating only `name` or `suggested_directory` preserves the host id.
+
+| Property              | Type             | Required | Description                                |
+| --------------------- | ---------------- | -------- | ------------------------------------------ |
+| `profile_id`          | `string`         | yes      | Stable profile id.                         |
+| `name`                | `string`         | yes      | Non-empty display name.                    |
+| `target`              | `string`         | yes      | Non-empty OpenSSH target.                  |
+| `suggested_directory` | `string \| null` | no       | Default remote path for resource creation. |
+
+Returns `ConnectionProfile { profile }`.
+
+Errors: `connection_profile_invalid`, `connection_profile_save_failed`.
+
+```json
+{
+  "id": "connection-save",
+  "method": "connection.save",
+  "params": {
+    "profile_id": "workbox",
+    "name": "Work box",
+    "target": "alice@workbox",
+    "suggested_directory": "/srv/project"
+  }
+}
+```
+
+### `connection.delete`
+
+Removes a profile by `profile_id`. Returns `ConnectionDeleted { profile_id, removed }`; `removed` is `false` when the id did not exist.
+
+Errors: `connection_profile_delete_failed`.
+
+### `connection.install`
+
+Previews or applies the remote execution-worker install/update for a saved profile. Call this after `connection.save` and before relying on remote placement or `connection.connect` on a clean host.
+
+| Property     | Type      | Required | Description                                                                                         |
+| ------------ | --------- | -------- | --------------------------------------------------------------------------------------------------- |
+| `profile_id` | `string`  | yes      | Saved profile id.                                                                                   |
+| `confirm`    | `boolean` | no       | Default `false`. When false, returns the install/update preview only. When true, applies that plan. |
+
+Returns `ConnectionInstall { profile, preview, report? }`. `preview.kind` is `install` or `update`. `report` is present only when `confirm` is true and installation ran (`installed` or `already_current`).
+
+Without confirmation the remote host is not mutated. Confirmed installs may complete asynchronously; clients must handle the deferred install disposition the same way as other long-running connection work.
+
+Errors: `connection_profile_not_found`, `execution_hosts_unavailable`, and install/preview failures reported with method-specific codes and messages.
+
+```json
+{
+  "id": "connection-install-preview",
+  "method": "connection.install",
+  "params": { "profile_id": "workbox", "confirm": false }
+}
+```
+
+```json
+{
+  "id": "connection-install-apply",
+  "method": "connection.install",
+  "params": { "profile_id": "workbox", "confirm": true }
+}
+```
+
+### `connection.test`, `connection.connect`, and `connection.disconnect`
+
+Each method accepts `{ "profile_id": "..." }` and queues the lifecycle action. The response is `ConnectionActionQueued { profile, action }`. `action` is `test`, `connect`, or `disconnect`. The profile status in this immediate response is the status before the queued action is polled; call `connection.list` to observe the resulting status.
+
+Errors: `connection_profile_not_found`.
 
 ## `ping`
 

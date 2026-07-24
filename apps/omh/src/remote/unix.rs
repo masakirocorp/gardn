@@ -1,10 +1,13 @@
 //! Remote thin-client launcher over SSH command stdio.
 
+use std::fmt;
 use std::fs::{self, File};
 use std::io::{self, IsTerminal, Write as _};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output, Stdio};
+use std::process::{
+    Child, ChildStderr, ChildStdin, ChildStdout, Command, ExitStatus, Output, Stdio,
+};
 
 use serde::Deserialize;
 use std::sync::{
@@ -17,6 +20,62 @@ use std::time::{Duration, Instant};
 const BRIDGE_ACCEPT_POLL: Duration = Duration::from_millis(50);
 const BRIDGE_SOCKET_PERMISSION_MODE: u32 = 0o600;
 const REMOTE_SERVER_SHUTDOWN_CONFIRM_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// Cooperative cancellation for blocking SSH probe/spawn work owned by a connect attempt.
+#[derive(Clone, Debug, Default)]
+pub(crate) struct ConnectCancel {
+    cancelled: Arc<AtomicBool>,
+}
+
+impl ConnectCancel {
+    pub(crate) fn new() -> Self {
+        Self {
+            cancelled: Arc::new(AtomicBool::new(false)),
+        }
+    }
+
+    pub(crate) fn cancel(&self) {
+        self.cancelled.store(true, Ordering::Release);
+    }
+
+    pub(crate) fn is_cancelled(&self) -> bool {
+        self.cancelled.load(Ordering::Acquire)
+    }
+
+    pub(crate) fn check(&self) -> io::Result<()> {
+        if self.is_cancelled() {
+            Err(io::Error::new(
+                io::ErrorKind::Interrupted,
+                "ssh connection attempt cancelled",
+            ))
+        } else {
+            Ok(())
+        }
+    }
+}
+
+fn wait_child_cancellable(
+    child: &mut Child,
+    cancel: Option<&ConnectCancel>,
+) -> io::Result<ExitStatus> {
+    if cancel.is_none() {
+        return child.wait();
+    }
+    loop {
+        if let Some(cancel) = cancel {
+            cancel.check()?;
+        }
+        match child.try_wait()? {
+            Some(status) => return Ok(status),
+            None => thread::sleep(Duration::from_millis(20)),
+        }
+    }
+}
+
+fn kill_child_tree(child: &mut Child) {
+    let _ = child.kill();
+    let _ = child.wait();
+}
 const REMOTE_SERVER_SHUTDOWN_POLL_INTERVAL: Duration = Duration::from_millis(100);
 const CURRENT_VERSION: &str = env!("CARGO_PKG_VERSION");
 const CURRENT_PROTOCOL: u32 = crate::protocol::PROTOCOL_VERSION;
@@ -317,6 +376,8 @@ struct RemoteGitHubRelease {
 struct RemoteGitHubReleaseAsset {
     name: String,
     browser_download_url: String,
+    #[serde(default)]
+    digest: Option<String>,
 }
 
 struct InstallSource {
@@ -350,6 +411,7 @@ impl Drop for ManagedSshConfig {
 struct RemoteSsh {
     target: String,
     managed_config: Option<ManagedSshConfig>,
+    askpass: Option<crate::execution_host::auth::AskpassCommandConfig>,
 }
 
 impl RemoteSsh {
@@ -367,7 +429,18 @@ impl RemoteSsh {
         Self {
             target,
             managed_config,
+            askpass: None,
         }
+    }
+
+    fn with_askpass(
+        target: String,
+        manage_ssh_config: bool,
+        askpass: crate::execution_host::auth::AskpassCommandConfig,
+    ) -> Self {
+        let mut ssh = Self::new(target, manage_ssh_config);
+        ssh.askpass = Some(askpass);
+        ssh
     }
 
     fn target(&self) -> &str {
@@ -387,10 +460,24 @@ impl RemoteSsh {
     fn base_command(&self) -> Command {
         let mut command = Command::new("ssh");
         apply_managed_ssh_options(&mut command, self.options());
+        if let Some(askpass) = &self.askpass {
+            askpass.configure(&mut command);
+        }
         command
     }
 
     fn sh_output(&self, script: &str) -> io::Result<Output> {
+        self.sh_output_cancellable(script, None)
+    }
+
+    fn sh_output_cancellable(
+        &self,
+        script: &str,
+        cancel: Option<&ConnectCancel>,
+    ) -> io::Result<Output> {
+        if let Some(cancel) = cancel {
+            cancel.check()?;
+        }
         let mut child = self
             .command()
             .arg("/bin/sh -s")
@@ -400,16 +487,47 @@ impl RemoteSsh {
             .spawn()?;
 
         let write_result = if let Some(mut stdin) = child.stdin.take() {
-            stdin.write_all(script.as_bytes())
+            let result = stdin.write_all(script.as_bytes());
+            drop(stdin);
+            result
         } else {
             Err(io::Error::new(
                 io::ErrorKind::BrokenPipe,
                 "ssh bootstrap stdin missing",
             ))
         };
-        let output = child.wait_with_output()?;
+
+        let status = match wait_child_cancellable(&mut child, cancel) {
+            Ok(status) => status,
+            Err(err) => {
+                kill_child_tree(&mut child);
+                return Err(err);
+            }
+        };
+        // Child has exited; collect remaining stdio. `wait_with_output` would re-wait, so
+        // read pipes directly after a successful cancellable wait.
+        let stdout = {
+            let mut buf = Vec::new();
+            if let Some(mut out) = child.stdout.take() {
+                use std::io::Read as _;
+                let _ = out.read_to_end(&mut buf);
+            }
+            buf
+        };
+        let stderr = {
+            let mut buf = Vec::new();
+            if let Some(mut err) = child.stderr.take() {
+                use std::io::Read as _;
+                let _ = err.read_to_end(&mut buf);
+            }
+            buf
+        };
         write_result?;
-        Ok(output)
+        Ok(Output {
+            status,
+            stdout,
+            stderr,
+        })
     }
 
     fn user_shell_output(&self, command: &str) -> io::Result<Output> {
@@ -423,40 +541,46 @@ impl RemoteSsh {
         }
         let (tmp_path, dest_path) = parse_remote_install_paths(&output.stdout)?;
 
-        let mut child = self
-            .command()
-            .arg(remote_install_stream_command(&tmp_path))
-            .stdin(Stdio::piped())
-            .stdout(Stdio::null())
-            .stderr(Stdio::inherit())
-            .spawn()
-            .map_err(|err| {
-                io::Error::new(err.kind(), format!("failed to start ssh install: {err}"))
-            })?;
+        let result = (|| {
+            let mut child = self
+                .command()
+                .arg(remote_install_stream_command(&tmp_path))
+                .stdin(Stdio::piped())
+                .stdout(Stdio::null())
+                .stderr(Stdio::inherit())
+                .spawn()
+                .map_err(|err| {
+                    io::Error::new(err.kind(), format!("failed to start ssh install: {err}"))
+                })?;
 
-        let mut source = File::open(source_path)?;
-        let copy_result = if let Some(mut stdin) = child.stdin.take() {
-            io::copy(&mut source, &mut stdin).map(|_| ())
-        } else {
-            Err(io::Error::new(
-                io::ErrorKind::BrokenPipe,
-                "ssh install stdin missing",
-            ))
-        };
-        let status = child.wait()?;
-        copy_result?;
-        if !status.success() {
-            return Err(io::Error::other(format!(
-                "remote install exited with {status}"
-            )));
-        }
+            let mut source = File::open(source_path)?;
+            let copy_result = if let Some(mut stdin) = child.stdin.take() {
+                io::copy(&mut source, &mut stdin).map(|_| ())
+            } else {
+                Err(io::Error::new(
+                    io::ErrorKind::BrokenPipe,
+                    "ssh install stdin missing",
+                ))
+            };
+            let status = child.wait()?;
+            copy_result?;
+            if !status.success() {
+                return Err(io::Error::other(format!(
+                    "remote install exited with {status}"
+                )));
+            }
 
-        let output = self.sh_output(&remote_install_commit_script(&tmp_path, &dest_path))?;
-        if output.status.success() {
-            Ok(())
-        } else {
-            Err(command_failed("remote install commit failed", &output))
+            let output = self.sh_output(&remote_install_commit_script(&tmp_path, &dest_path))?;
+            if output.status.success() {
+                Ok(())
+            } else {
+                Err(command_failed("remote install commit failed", &output))
+            }
+        })();
+        if result.is_err() {
+            let _ = self.sh_output(&format!("rm -f -- {}\n", shell_quote(&tmp_path)));
         }
+        result
     }
 }
 
@@ -493,7 +617,7 @@ fn apply_managed_ssh_options(command: &mut Command, options: Option<&ManagedSshO
         .arg("-o")
         .arg("ControlMaster=auto")
         .arg("-o")
-        .arg("ControlPersist=yes");
+        .arg("ControlPersist=60");
 }
 
 impl InstallSource {
@@ -587,7 +711,14 @@ fn prepare_remote_omh(
 }
 
 fn detect_remote_platform(ssh: &RemoteSsh) -> io::Result<RemotePlatform> {
-    let output = ssh.sh_output("uname -s\nuname -m\n")?;
+    detect_remote_platform_cancellable(ssh, None)
+}
+
+fn detect_remote_platform_cancellable(
+    ssh: &RemoteSsh,
+    cancel: Option<&ConnectCancel>,
+) -> io::Result<RemotePlatform> {
+    let output = ssh.sh_output_cancellable("uname -s\nuname -m\n", cancel)?;
     if !output.status.success() {
         return Err(command_failed("remote platform detection failed", &output));
     }
@@ -1176,7 +1307,7 @@ fn remote_shell_resolves_managed_install(stdout: &str) -> bool {
         .is_some_and(|path| path.ends_with("/.local/bin/omh"))
 }
 
-fn download_release_asset(platform: &RemotePlatform) -> io::Result<InstallSource> {
+fn release_worker_asset(platform: &RemotePlatform) -> io::Result<(String, String)> {
     let release_output = crate::noninteractive_process::curl_command()
         .args([
             "-sfL",
@@ -1200,7 +1331,6 @@ fn download_release_asset(platform: &RemotePlatform) -> io::Result<InstallSource
             &release_output,
         ));
     }
-
     let release: RemoteGitHubRelease =
         serde_json::from_slice(&release_output.stdout).map_err(|err| {
             io::Error::other(format!("failed to parse latest GitHub release JSON: {err}"))
@@ -1212,33 +1342,54 @@ fn download_release_asset(platform: &RemotePlatform) -> io::Result<InstallSource
             release.tag_name
         )));
     }
-
-    let asset_key = platform.asset_key();
-    let asset_name = format!("omh-{asset_key}");
-    let url = release
+    let asset_name = format!("omh-{}", platform.asset_key());
+    let asset = release
         .assets
         .iter()
         .find(|asset| asset.name == asset_name)
-        .map(|asset| asset.browser_download_url.as_str())
         .ok_or_else(|| {
             io::Error::other(format!(
                 "no {asset_name} binary in the latest GitHub release for omh {CURRENT_VERSION}"
             ))
         })?;
+    let checksum = asset
+        .digest
+        .as_deref()
+        .and_then(|digest| digest.strip_prefix("sha256:"))
+        .filter(|digest| {
+            digest.len() == 64
+                && digest
+                    .chars()
+                    .all(|character| character.is_ascii_hexdigit())
+        })
+        .ok_or_else(|| io::Error::other(format!("{asset_name} has no valid SHA-256 digest")))?;
+    Ok((
+        asset.browser_download_url.clone(),
+        checksum.to_ascii_lowercase(),
+    ))
+}
 
+fn download_release_asset(platform: &RemotePlatform) -> io::Result<InstallSource> {
+    let (url, checksum) = release_worker_asset(platform)?;
+    let asset_key = platform.asset_key();
     let dir = private_download_dir(&asset_key)?;
     let path = dir.join("omh.tmp");
     let status = crate::noninteractive_process::curl_command()
         .args(["-sfL", "--max-time", "120", "-o"])
         .arg(&path)
-        .arg(url)
+        .arg(&url)
         .status()
         .map_err(|err| io::Error::new(err.kind(), format!("download failed: {err}")))?;
     if !status.success() {
         let _ = fs::remove_dir_all(&dir);
         return Err(io::Error::other("download failed"));
     }
-
+    if let Err(error) = crate::checksum::verify_sha256(&path, &checksum) {
+        let _ = fs::remove_dir_all(&dir);
+        return Err(io::Error::other(format!(
+            "downloaded remote worker checksum verification failed: {error}"
+        )));
+    }
     Ok(InstallSource::temporary(path, dir))
 }
 
@@ -1739,10 +1890,403 @@ fn sanitize_path_component(input: &str) -> String {
 
     sanitized.trim_matches('-').chars().take(32).collect()
 }
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum WorkerInstallKind {
+    Install,
+    Update,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct WorkerInstallPreview {
+    pub(crate) kind: WorkerInstallKind,
+    pub(crate) source: String,
+    pub(crate) target_path: String,
+    pub(crate) checksum: String,
+    pub(crate) version: String,
+    pub(crate) commands: Vec<String>,
+    pub(crate) capabilities: Vec<String>,
+    pub(crate) already_current: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum WorkerInstallReport {
+    Installed(WorkerInstallPreview),
+    AlreadyCurrent(WorkerInstallPreview),
+}
+
+#[derive(Debug)]
+pub(crate) enum ExecutionWorkerTransportError {
+    BootstrapRequired {
+        target: String,
+        expected_version: String,
+        versioned_remote_path: String,
+    },
+    Io(io::Error),
+}
+
+impl fmt::Display for ExecutionWorkerTransportError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::BootstrapRequired {
+                target,
+                expected_version,
+                versioned_remote_path,
+            } => write!(
+                formatter,
+                "execution worker setup is required for {target}: approve installation of version {expected_version} at {versioned_remote_path}"
+            ),
+            Self::Io(error) => error.fmt(formatter),
+        }
+    }
+}
+
+impl std::error::Error for ExecutionWorkerTransportError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::BootstrapRequired { .. } => None,
+            Self::Io(error) => Some(error),
+        }
+    }
+}
+
+impl From<io::Error> for ExecutionWorkerTransportError {
+    fn from(error: io::Error) -> Self {
+        Self::Io(error)
+    }
+}
+
+pub(crate) struct ExecutionWorkerTransport {
+    child: Child,
+    stdin: Option<ChildStdin>,
+    stdout: Option<ChildStdout>,
+    stderr: Option<ChildStderr>,
+    _ssh: RemoteSsh,
+}
+
+impl ExecutionWorkerTransport {
+    pub(crate) fn stdin_mut(&mut self) -> io::Result<&mut ChildStdin> {
+        self.stdin
+            .as_mut()
+            .ok_or_else(|| io::Error::other("execution worker stdin is unavailable"))
+    }
+
+    pub(crate) fn take_stdin(&mut self) -> io::Result<ChildStdin> {
+        self.stdin
+            .take()
+            .ok_or_else(|| io::Error::other("execution worker stdin is unavailable"))
+    }
+
+    pub(crate) fn take_stdout(&mut self) -> io::Result<ChildStdout> {
+        self.stdout
+            .take()
+            .ok_or_else(|| io::Error::other("execution worker stdout is unavailable"))
+    }
+
+    pub(crate) fn take_stderr(&mut self) -> io::Result<ChildStderr> {
+        self.stderr
+            .take()
+            .ok_or_else(|| io::Error::other("execution worker stderr is unavailable"))
+    }
+
+    pub(crate) fn try_wait(&mut self) -> io::Result<Option<ExitStatus>> {
+        self.child.try_wait()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn blocked_for_test() -> io::Result<Self> {
+        let mut child = Command::new("sh")
+            .arg("-c")
+            .arg("sleep 60")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()?;
+        let stdin = child.stdin.take();
+        let stdout = child.stdout.take();
+        let stderr = child.stderr.take();
+        Ok(Self {
+            child,
+            stdin,
+            stdout,
+            stderr,
+            _ssh: RemoteSsh::new("blocked-test".to_string(), false),
+        })
+    }
+}
+fn worker_install_source_metadata(platform: &RemotePlatform) -> io::Result<(String, String)> {
+    let override_binary = remote_binary_override_path()?;
+    if let Some(path) = override_binary {
+        let checksum = crate::checksum::file_sha256(&path)?;
+        return Ok((
+            format!("{REMOTE_BINARY_ENV_VAR} ({})", path.display()),
+            checksum,
+        ));
+    }
+    if *platform == RemotePlatform::local() {
+        let path = std::env::current_exe()?;
+        let checksum = crate::checksum::file_sha256(&path)?;
+        return Ok((format!("current executable ({})", path.display()), checksum));
+    }
+    let (url, checksum) = release_worker_asset(platform)?;
+    Ok((url, checksum))
+}
+
+pub(crate) fn preview_execution_worker_install(
+    target: &str,
+    askpass: crate::execution_host::auth::AskpassCommandConfig,
+) -> io::Result<WorkerInstallPreview> {
+    let ssh = RemoteSsh::with_askpass(target.to_string(), true, askpass);
+    preview_execution_worker_install_with_ssh(&ssh)
+}
+
+fn preview_execution_worker_install_with_ssh(ssh: &RemoteSsh) -> io::Result<WorkerInstallPreview> {
+    let platform = detect_remote_platform(ssh)?;
+    let remote_omh = execution_worker_remote_omh(platform.clone());
+    let already_current = remote_worker_binary_matches(ssh, &remote_omh)?;
+    let target_exists = remote_binary_exists(ssh, &remote_omh)?;
+    let has_previous = !remote_binary_candidates(ssh, &remote_omh)?.is_empty();
+    let (source, checksum) = worker_install_source_metadata(&platform)?;
+    Ok(WorkerInstallPreview {
+        kind: if target_exists || has_previous {
+            WorkerInstallKind::Update
+        } else {
+            WorkerInstallKind::Install
+        },
+        source,
+        target_path: format!("$HOME/{}", remote_omh.install_suffix),
+        checksum,
+        version: CURRENT_VERSION.to_string(),
+        commands: vec![
+            "omh execution-worker --protocol-version".to_string(),
+            "omh execution-worker --daemon-lifecycle-version".to_string(),
+            "omh execution-worker --daemon <binding>".to_string(),
+            "omh execution-worker".to_string(),
+        ],
+        capabilities: vec![
+            "terminal".to_string(),
+            "path_completion".to_string(),
+            "process_observation".to_string(),
+            "git".to_string(),
+            "worktree".to_string(),
+            "command".to_string(),
+            "agent".to_string(),
+            "ports".to_string(),
+            "file_staging".to_string(),
+            "daemon_lifecycle_v1".to_string(),
+        ],
+        already_current,
+    })
+}
+
+pub(crate) fn install_execution_worker(
+    target: &str,
+    askpass: crate::execution_host::auth::AskpassCommandConfig,
+    approved: &WorkerInstallPreview,
+) -> io::Result<WorkerInstallReport> {
+    let ssh = RemoteSsh::with_askpass(target.to_string(), true, askpass);
+    let platform = detect_remote_platform(&ssh)?;
+    let remote_omh = execution_worker_remote_omh(platform.clone());
+    let current = preview_execution_worker_install_with_ssh(&ssh)?;
+    if &current != approved {
+        return Err(io::Error::other(
+            "execution worker install plan changed; review and approve the new plan",
+        ));
+    }
+    if current.already_current {
+        return Ok(WorkerInstallReport::AlreadyCurrent(current));
+    }
+    if remote_binary_exists(&ssh, &remote_omh)? {
+        return Err(io::Error::other(format!(
+            "refusing to replace incompatible execution worker at {}; stop it or choose a new versioned target",
+            current.target_path
+        )));
+    }
+    let source = resolve_install_source(&platform, remote_binary_override_path()?)?;
+    let verified = crate::checksum::verify_sha256(&source.path, &current.checksum);
+    if let Err(error) = verified {
+        source.cleanup();
+        return Err(io::Error::other(format!(
+            "execution worker source checksum verification failed: {error}"
+        )));
+    }
+    // Side-by-side versioned artifact only. Never touch an incumbent daemon's
+    // socket, lock, or process; activation is a separate lifecycle step.
+    let install_result = ssh.install_omh(&remote_omh, &source.path);
+    source.cleanup();
+    install_result?;
+    if !remote_worker_binary_matches(&ssh, &remote_omh)? {
+        return Err(io::Error::other(
+            "staged execution worker failed version/protocol/lifecycle verification",
+        ));
+    }
+    Ok(WorkerInstallReport::Installed(current))
+}
+
+impl ExecutionWorkerTransport {
+    pub(crate) fn kill(&mut self) -> io::Result<()> {
+        self.child.kill()
+    }
+}
+
+impl Drop for ExecutionWorkerTransport {
+    fn drop(&mut self) {
+        self.stdin = None;
+        if !matches!(self.try_wait(), Ok(Some(_))) {
+            let _ = self.kill();
+        }
+        let _ = self.child.wait();
+    }
+}
+
+pub(crate) fn spawn_execution_worker_cancellable(
+    target: &str,
+    askpass: crate::execution_host::auth::AskpassCommandConfig,
+    cancel: Option<&ConnectCancel>,
+) -> Result<ExecutionWorkerTransport, ExecutionWorkerTransportError> {
+    if let Some(cancel) = cancel {
+        cancel.check()?;
+    }
+    let ssh = RemoteSsh::with_askpass(target.to_string(), true, askpass);
+    let platform = detect_remote_platform_cancellable(&ssh, cancel)?;
+    let remote_omh = execution_worker_remote_omh(platform);
+
+    if !remote_worker_binary_matches_cancellable(&ssh, &remote_omh, cancel)? {
+        return Err(ExecutionWorkerTransportError::BootstrapRequired {
+            target: target.to_string(),
+            expected_version: CURRENT_VERSION.to_string(),
+            versioned_remote_path: remote_omh.install_suffix.clone(),
+        });
+    }
+
+    if let Some(cancel) = cancel {
+        cancel.check()?;
+    }
+
+    let mut child = ssh
+        .command()
+        .arg(execution_worker_command(&remote_omh))
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|err| {
+            io::Error::new(
+                err.kind(),
+                format!("failed to start remote execution worker: {err}"),
+            )
+        })?;
+
+    if let Some(cancel) = cancel {
+        if cancel.is_cancelled() {
+            kill_child_tree(&mut child);
+            return Err(io::Error::new(
+                io::ErrorKind::Interrupted,
+                "ssh connection attempt cancelled",
+            )
+            .into());
+        }
+    }
+
+    let stdin = child.stdin.take();
+    let stdout = child.stdout.take();
+    let stderr = child.stderr.take();
+    if stdin.is_none() || stdout.is_none() || stderr.is_none() {
+        kill_child_tree(&mut child);
+        return Err(io::Error::other("remote execution worker stdio was not available").into());
+    }
+
+    Ok(ExecutionWorkerTransport {
+        child,
+        stdin,
+        stdout,
+        stderr,
+        _ssh: ssh,
+    })
+}
+
+fn execution_worker_remote_omh(platform: RemotePlatform) -> RemoteOmh {
+    let install_suffix = format!(
+        ".local/share/omh/execution-workers/{CURRENT_VERSION}/{}/omh",
+        platform.asset_key()
+    );
+    RemoteOmh {
+        shell_path: format!("\"$HOME/{install_suffix}\""),
+        install_suffix,
+        platform,
+    }
+}
+
+fn execution_worker_command(remote_omh: &RemoteOmh) -> String {
+    format!("{} execution-worker", remote_omh.shell_path)
+}
+fn remote_worker_binary_matches(ssh: &RemoteSsh, remote_omh: &RemoteOmh) -> io::Result<bool> {
+    remote_worker_binary_matches_cancellable(ssh, remote_omh, None)
+}
+
+fn remote_worker_binary_matches_cancellable(
+    ssh: &RemoteSsh,
+    remote_omh: &RemoteOmh,
+    cancel: Option<&ConnectCancel>,
+) -> io::Result<bool> {
+    let output = ssh.sh_output_cancellable(&execution_worker_probe_command(remote_omh), cancel)?;
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let mut lines = stdout.lines();
+    let expected_version = format!("omh {CURRENT_VERSION}");
+    let expected_protocol = crate::execution_host::EXECUTION_WORKER_PROTOCOL_VERSION.to_string();
+    let expected_lifecycle = crate::execution_host::lifecycle::DAEMON_LIFECYCLE_VERSION.to_string();
+    Ok(output.status.success()
+        && lines.next() == Some(expected_version.as_str())
+        && lines.next() == Some(expected_protocol.as_str())
+        && lines.next() == Some(expected_lifecycle.as_str()))
+}
+
+fn execution_worker_probe_command(remote_omh: &RemoteOmh) -> String {
+    format!(
+        "test -x {0} && {0} --version && {0} execution-worker --protocol-version && {0} execution-worker --daemon-lifecycle-version",
+        remote_omh.shell_path
+    )
+}
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn connect_cancel_interrupts_wait_loop() {
+        let cancel = ConnectCancel::new();
+        cancel.cancel();
+        let err = cancel.check().unwrap_err();
+        assert_eq!(err.kind(), io::ErrorKind::Interrupted);
+        assert!(err.to_string().contains("cancelled"));
+    }
+
+    #[test]
+    fn execution_worker_uses_a_role_isolated_versioned_artifact() {
+        let remote_omh = execution_worker_remote_omh(RemotePlatform {
+            os: "linux",
+            arch: "aarch64",
+        });
+
+        assert_eq!(
+            remote_omh.install_suffix,
+            format!(".local/share/omh/execution-workers/{CURRENT_VERSION}/linux-aarch64/omh")
+        );
+        assert_eq!(
+            execution_worker_command(&remote_omh),
+            format!(
+                "\"$HOME/.local/share/omh/execution-workers/{CURRENT_VERSION}/linux-aarch64/omh\" execution-worker"
+            )
+        );
+        let probe = execution_worker_probe_command(&remote_omh);
+        assert!(probe.contains("execution-worker --protocol-version"));
+        assert!(probe.contains("execution-worker --daemon-lifecycle-version"));
+        assert!(!probe.contains("status"));
+        assert!(!probe.contains("server"));
+        assert!(!probe.contains("session"));
+        assert!(
+            !probe.contains("worker.sock") && !probe.contains("worker.lock"),
+            "installer probe must not touch incumbent socket/lock paths"
+        );
+    }
 
     #[test]
     fn bridge_socket_is_user_only() {
@@ -1827,6 +2371,7 @@ mod tests {
         let ssh = RemoteSsh {
             target: "example".to_string(),
             managed_config: Some(managed_config),
+            askpass: None,
         };
 
         let command = ssh.command();
@@ -1845,7 +2390,7 @@ mod tests {
                 "-o".to_string(),
                 "ControlMaster=auto".to_string(),
                 "-o".to_string(),
-                "ControlPersist=yes".to_string(),
+                "ControlPersist=60".to_string(),
                 "-T".to_string(),
                 "example".to_string(),
             ]
@@ -1857,6 +2402,7 @@ mod tests {
         let ssh = RemoteSsh {
             target: "example".to_string(),
             managed_config: None,
+            askpass: None,
         };
 
         let command = ssh.command();
@@ -2332,6 +2878,7 @@ exit 99
         let ssh = RemoteSsh {
             target: "example".to_string(),
             managed_config: None,
+            askpass: None,
         };
         let remote_omh = RemoteOmh::for_platform(RemotePlatform {
             os: "linux",
@@ -2426,6 +2973,7 @@ exit 99
         let ssh = RemoteSsh {
             target: "example".to_string(),
             managed_config: None,
+            askpass: None,
         };
         let remote_omh = RemoteOmh::for_platform(RemotePlatform {
             os: "linux",
@@ -2766,6 +3314,25 @@ exit 99
     }
 
     #[test]
+    fn worker_install_override_preview_has_verified_checksum() {
+        let _environment = crate::integration::integration_env_lock();
+        let path =
+            std::env::temp_dir().join(format!("omh-worker-install-source-{}", std::process::id()));
+        std::fs::write(&path, b"worker-source").unwrap();
+        let _override = crate::config::TestEnvVar::set(REMOTE_BINARY_ENV_VAR, &path);
+        let platform = RemotePlatform {
+            os: std::env::consts::OS,
+            arch: std::env::consts::ARCH,
+        };
+
+        let (source, checksum) = worker_install_source_metadata(&platform).unwrap();
+
+        assert!(source.contains(path.to_string_lossy().as_ref()));
+        assert_eq!(checksum, crate::checksum::file_sha256(&path).unwrap());
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
     fn resolve_install_source_uses_override_binary_without_temporary_cleanup() {
         let platform = RemotePlatform {
             os: "linux",
@@ -2920,5 +3487,293 @@ exit 99
         InstallSource::temporary(path, dir.clone()).cleanup();
 
         assert!(!dir.exists());
+    }
+
+    fn fake_execution_worker_probe(
+        probe_status: i32,
+        probe_stdout: &str,
+        probe_stderr: &str,
+    ) -> (io::Result<bool>, String) {
+        use std::ffi::OsString;
+        use std::os::unix::fs::PermissionsExt;
+
+        let _guard = remote_env_lock().lock().unwrap();
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("system clock should be after the Unix epoch")
+            .as_nanos();
+        let dir =
+            std::env::temp_dir().join(format!("omh-worker-probe-{}-{unique}", std::process::id()));
+        fs::create_dir_all(&dir).expect("fake ssh directory should be created");
+        let fake_ssh = dir.join("ssh");
+        let log = dir.join("invocations");
+        let script = format!(
+            r#"#!/bin/sh
+set -eu
+printf '%s\n' "$*" >> {log}
+last=''
+for arg in "$@"; do
+    last="$arg"
+done
+if [ "$last" = "/bin/sh -s" ]; then
+    script=$(cat)
+    printf '%s\n' "$script" >> {log}
+    printf '%s' {probe_stdout}
+    printf '%s' {probe_stderr} >&2
+    exit {probe_status}
+fi
+printf '%s\n' unexpected >> {log}
+exit 99
+"#,
+            log = shell_quote(&log.to_string_lossy()),
+            probe_stdout = shell_quote(probe_stdout),
+            probe_stderr = shell_quote(probe_stderr),
+            probe_status = probe_status,
+        );
+        fs::write(&fake_ssh, script).expect("fake ssh should be written");
+        let mut permissions = fs::metadata(&fake_ssh)
+            .expect("fake ssh should have metadata")
+            .permissions();
+        permissions.set_mode(0o700);
+        fs::set_permissions(&fake_ssh, permissions).expect("fake ssh should be executable");
+
+        let mut path = OsString::from(dir.as_os_str());
+        if let Some(existing) = std::env::var_os("PATH") {
+            path.push(":");
+            path.push(existing);
+        }
+        let _path = crate::config::TestEnvVar::set("PATH", path);
+        let ssh = RemoteSsh {
+            target: "example".to_string(),
+            managed_config: None,
+            askpass: None,
+        };
+        let remote_omh = execution_worker_remote_omh(RemotePlatform {
+            os: "linux",
+            arch: "x86_64",
+        });
+        let result = remote_worker_binary_matches(&ssh, &remote_omh);
+        let invocations = fs::read_to_string(&log).expect("fake ssh should record invocations");
+        drop(_path);
+        let _ = fs::remove_dir_all(dir);
+        (result, invocations)
+    }
+
+    #[test]
+    fn remote_worker_probe_requires_app_protocol_and_lifecycle_v1() {
+        let protocol = crate::execution_host::EXECUTION_WORKER_PROTOCOL_VERSION;
+        let lifecycle = crate::execution_host::lifecycle::DAEMON_LIFECYCLE_VERSION;
+        let good = format!("omh {CURRENT_VERSION}\n{protocol}\n{lifecycle}\n");
+        let (result, invocations) = fake_execution_worker_probe(0, &good, "");
+        assert!(result.expect("probe should succeed"));
+        assert!(invocations.contains("execution-worker --protocol-version"));
+        assert!(invocations.contains("execution-worker --daemon-lifecycle-version"));
+        assert!(!invocations.contains("worker.sock"));
+        assert!(!invocations.contains("worker.lock"));
+        assert!(!invocations.contains("flock"));
+        assert!(!invocations.contains("kill"));
+
+        let missing_lifecycle = format!("omh {CURRENT_VERSION}\n{protocol}\n");
+        let (result, _) = fake_execution_worker_probe(0, &missing_lifecycle, "");
+        assert!(!result.expect("probe should parse"));
+
+        let wrong_lifecycle = format!("omh {CURRENT_VERSION}\n{protocol}\n0\n");
+        let (result, _) = fake_execution_worker_probe(0, &wrong_lifecycle, "");
+        assert!(!result.expect("probe should parse"));
+    }
+
+    #[test]
+    fn execution_worker_install_scripts_are_side_by_side_only() {
+        let remote_omh = execution_worker_remote_omh(RemotePlatform {
+            os: "linux",
+            arch: "x86_64",
+        });
+        let prepare = remote_install_prepare_script(&remote_omh);
+        let commit = remote_install_commit_script(
+            "/tmp/omh.tmp",
+            &format!("$HOME/{}", remote_omh.install_suffix),
+        );
+        let probe = execution_worker_probe_command(&remote_omh);
+
+        assert!(
+            prepare.contains(&remote_omh.install_suffix),
+            "prepare must target versioned artifact path"
+        );
+        assert!(prepare.contains("mkdir -p"));
+        assert!(!prepare.contains("worker.sock"));
+        assert!(!prepare.contains("worker.lock"));
+        assert!(!prepare.contains("kill"));
+        assert!(!prepare.contains("flock"));
+        assert!(!prepare.contains("execution-worker --daemon"));
+
+        assert!(commit.contains("mv "));
+        assert!(!commit.contains("worker.sock"));
+        assert!(!commit.contains("worker.lock"));
+        assert!(!commit.contains("kill"));
+        assert!(!commit.contains("flock"));
+        assert!(!commit.contains("execution-worker --daemon"));
+
+        assert!(probe.contains("--daemon-lifecycle-version"));
+        assert!(!probe.contains("worker.sock"));
+        assert!(!probe.contains("worker.lock"));
+    }
+
+    fn fake_execution_worker_preview_probe(
+        probe_stdout: &str,
+        probe_status: i32,
+    ) -> (io::Result<WorkerInstallPreview>, String) {
+        use std::ffi::OsString;
+        use std::os::unix::fs::PermissionsExt;
+
+        let _guard = remote_env_lock().lock().unwrap();
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("system clock should be after the Unix epoch")
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!(
+            "omh-worker-preview-{}-{unique}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&dir).expect("fake ssh directory should be created");
+        let fake_ssh = dir.join("ssh");
+        let log = dir.join("invocations");
+        let local_bin = dir.join("local-omh");
+        fs::write(&local_bin, b"#!/bin/sh\necho local\n").expect("write local binary");
+        let mut bin_permissions = fs::metadata(&local_bin)
+            .expect("local binary metadata")
+            .permissions();
+        bin_permissions.set_mode(0o700);
+        fs::set_permissions(&local_bin, bin_permissions).expect("local binary executable");
+
+        let script = format!(
+            r#"#!/bin/sh
+set -eu
+printf '%s\n' "$*" >> {log}
+last=''
+for arg in "$@"; do
+    last="$arg"
+done
+if [ "$last" = "/bin/sh -s" ]; then
+    script=$(cat)
+    printf '%s\n' "$script" >> {log}
+    case "$script" in
+      *uname*)
+        printf 'Linux\n'
+        printf 'x86_64\n'
+        exit 0
+        ;;
+      *daemon-lifecycle-version*)
+        printf '%s' {probe_stdout}
+        exit {probe_status}
+        ;;
+      *'test -x'*)
+        # exists/candidates probes without version lines
+        if printf '%s' "$script" | grep -q -- '--version'; then
+          printf '%s' {probe_stdout}
+          exit {probe_status}
+        fi
+        exit {probe_status}
+        ;;
+      *'emit()'*)
+        # No previous versioned worker candidates.
+        exit 0
+        ;;
+      *'command -v'*|*mise*|*printf*)
+        exit 1
+        ;;
+    esac
+    printf '%s\n' "unmatched-script:$script" >> {log}
+    exit 1
+fi
+printf '%s\n' unexpected >> {log}
+exit 99
+"#,
+            log = shell_quote(&log.to_string_lossy()),
+            probe_stdout = shell_quote(probe_stdout),
+            probe_status = probe_status,
+        );
+        fs::write(&fake_ssh, script).expect("fake ssh should be written");
+        let mut permissions = fs::metadata(&fake_ssh)
+            .expect("fake ssh should have metadata")
+            .permissions();
+        permissions.set_mode(0o700);
+        fs::set_permissions(&fake_ssh, permissions).expect("fake ssh should be executable");
+
+        let mut path = OsString::from(dir.as_os_str());
+        if let Some(existing) = std::env::var_os("PATH") {
+            path.push(":");
+            path.push(existing);
+        }
+        let _path = crate::config::TestEnvVar::set("PATH", path);
+        let _override =
+            crate::config::TestEnvVar::set(REMOTE_BINARY_ENV_VAR, local_bin.as_os_str());
+
+        let ssh = RemoteSsh {
+            target: "example".to_string(),
+            managed_config: None,
+            askpass: None,
+        };
+        let result = preview_execution_worker_install_with_ssh(&ssh);
+        let invocations = fs::read_to_string(&log).expect("fake ssh should record invocations");
+        drop(_override);
+        drop(_path);
+        let _ = fs::remove_dir_all(dir);
+        (result, invocations)
+    }
+
+    #[test]
+    fn execution_worker_preview_requires_lifecycle_and_stages_only() {
+        let protocol = crate::execution_host::EXECUTION_WORKER_PROTOCOL_VERSION;
+        let lifecycle = crate::execution_host::lifecycle::DAEMON_LIFECYCLE_VERSION;
+        let good = format!("omh {CURRENT_VERSION}\n{protocol}\n{lifecycle}\n");
+        let (result, invocations) = fake_execution_worker_preview_probe(&good, 0);
+        let preview = result.expect("preview should succeed");
+        assert!(preview.already_current);
+        assert!(preview
+            .commands
+            .iter()
+            .any(|command| command.contains("--daemon-lifecycle-version")));
+        assert!(preview
+            .capabilities
+            .iter()
+            .any(|capability| capability == "daemon_lifecycle_v1"));
+        assert!(invocations.contains("execution-worker --daemon-lifecycle-version"));
+        assert!(!invocations.contains("worker.sock"));
+        assert!(!invocations.contains("worker.lock"));
+        assert!(!invocations.contains("execution-worker --daemon "));
+
+        let missing = format!("omh {CURRENT_VERSION}\n{protocol}\n");
+        let (result, _) = fake_execution_worker_preview_probe(&missing, 0);
+        let preview = result.expect("preview should succeed with stale worker");
+        assert!(!preview.already_current);
+    }
+
+    #[test]
+    fn worker_install_preview_reports_lifecycle_capability_without_activation() {
+        let preview = WorkerInstallPreview {
+            kind: WorkerInstallKind::Install,
+            source: "test".into(),
+            target_path: "$HOME/.local/share/omh/execution-workers/x/omh".into(),
+            checksum: "abc".into(),
+            version: CURRENT_VERSION.to_string(),
+            commands: vec![
+                "omh execution-worker --protocol-version".into(),
+                "omh execution-worker --daemon-lifecycle-version".into(),
+            ],
+            capabilities: vec!["daemon_lifecycle_v1".into()],
+            already_current: false,
+        };
+        assert!(preview
+            .commands
+            .iter()
+            .any(|command| command.contains("--daemon-lifecycle-version")));
+        assert!(preview
+            .capabilities
+            .iter()
+            .any(|capability| capability == "daemon_lifecycle_v1"));
+        assert!(!preview
+            .commands
+            .iter()
+            .any(|command| command.contains("activate")));
     }
 }

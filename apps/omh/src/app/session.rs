@@ -45,6 +45,7 @@ impl App {
         if self.state.workspaces.is_empty()
             && has_only_default_group
             && self.state.has_default_sidebar_state(&default_view)
+            && self.state.remote_termination_tombstones.is_empty()
         {
             SessionSaveJob::Clear
         } else {
@@ -52,6 +53,8 @@ impl App {
                 &self.state.groups,
                 default_view.active_group,
                 default_view.group_filter_enabled,
+                &self.state.session_namespace_id,
+                &self.state.remote_termination_tombstones,
                 &self.state.workspaces,
                 &self.state.terminals,
                 &self.terminal_runtimes,
@@ -106,36 +109,49 @@ impl App {
         self.session_save_deadline = None;
         match std::thread::Builder::new()
             .name("omh-session-save".into())
-            .spawn(move || run_session_save_job(job))
-        {
+            .spawn(move || {
+                let _ = run_session_save_job(job);
+            }) {
             Ok(thread) => self.session_save_thread = Some(thread),
             Err(err) => {
                 tracing::warn!(err = %err, "failed to spawn session save thread; saving inline");
-                run_session_save_job(self.capture_session_save_job());
+                let _ = run_session_save_job(self.capture_session_save_job());
             }
         }
     }
 
     pub(crate) fn save_session_now(&mut self) {
+        let _ = self.try_save_session_now();
+    }
+
+    /// Synchronously persist the current session snapshot.
+    ///
+    /// Used for write-ahead durability (for example forgetting a remote
+    /// termination tombstone) where a debounced background save is not enough.
+    pub(crate) fn try_save_session_now(&mut self) -> std::io::Result<()> {
         if let Some(thread) = self.session_save_thread.take() {
             let _ = thread.join();
         }
 
         if self.no_session {
             self.session_save_deadline = None;
-            return;
+            return Ok(());
         }
 
-        run_session_save_job(self.capture_session_save_job());
-        self.session_save_deadline = None;
+        let result = run_session_save_job(self.capture_session_save_job());
+        if result.is_ok() {
+            self.session_save_deadline = None;
+            self.state.session_dirty = false;
+        }
+        result
     }
 }
 
-fn run_session_save_job(job: SessionSaveJob) {
+fn run_session_save_job(job: SessionSaveJob) -> std::io::Result<()> {
     match job {
-        SessionSaveJob::Clear => crate::persist::clear(),
+        SessionSaveJob::Clear => crate::persist::try_clear(),
         SessionSaveJob::Save { snapshot, history } => {
-            crate::persist::save(&snapshot, history.as_ref());
+            crate::persist::try_save(&snapshot, history.as_ref())
         }
     }
 }

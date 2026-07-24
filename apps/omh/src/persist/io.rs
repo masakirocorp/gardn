@@ -15,49 +15,12 @@ fn session_history_path() -> PathBuf {
     crate::session::data_dir().join("session-history.json")
 }
 
-// Follow symlinks manually so a write through a (possibly dangling) symlink
-// lands on the target. `fs::canonicalize` requires the target to exist, which
-// excludes the dangling-symlink case stow users hit on the very first save.
-fn resolve_write_target(path: &Path) -> std::io::Result<PathBuf> {
-    let mut current = path.to_path_buf();
-    for _ in 0..16 {
-        let meta = match std::fs::symlink_metadata(&current) {
-            Ok(meta) => meta,
-            Err(_) => return Ok(current),
-        };
-        if !meta.file_type().is_symlink() {
-            return Ok(current);
-        }
-        let link = std::fs::read_link(&current)?;
-        current = if link.is_absolute() {
-            link
-        } else {
-            current
-                .parent()
-                .unwrap_or_else(|| Path::new("."))
-                .join(link)
-        };
-    }
-    Ok(current)
-}
-
 pub(super) fn save_to_path(path: &Path, snapshot: &SessionSnapshot) -> std::io::Result<()> {
-    save_json_to_path(path, snapshot)
+    super::atomic_json::save_json(path, snapshot)
 }
 
 fn save_json_to_path<T: serde::Serialize>(path: &Path, snapshot: &T) -> std::io::Result<()> {
-    let target = resolve_write_target(path)?;
-    if let Some(parent) = target.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-    let json = serde_json::to_string_pretty(snapshot)?;
-    let tmp_path = target.with_extension("json.tmp");
-    std::fs::write(&tmp_path, &json)?;
-    if let Err(err) = std::fs::rename(&tmp_path, &target) {
-        let _ = std::fs::remove_file(&tmp_path);
-        return Err(err);
-    }
-    Ok(())
+    super::atomic_json::save_json(path, snapshot)
 }
 
 pub(super) fn save_to_paths(
@@ -83,24 +46,30 @@ pub(super) fn clear_path(path: &Path) -> std::io::Result<()> {
     }
 }
 
-pub fn save(snapshot: &SessionSnapshot, history: Option<&SessionHistorySnapshot>) {
+pub fn try_save(
+    snapshot: &SessionSnapshot,
+    history: Option<&SessionHistorySnapshot>,
+) -> std::io::Result<()> {
     let path = session_path();
     let history_path = session_history_path();
-    if let Err(err) = save_to_paths(&path, &history_path, snapshot, history) {
-        crate::logging::session_save_failed(&path, &err.to_string());
-        return;
-    }
+    save_to_paths(&path, &history_path, snapshot, history)?;
     crate::logging::session_saved(&path, snapshot.workspaces.len());
+    Ok(())
 }
 
-pub fn clear() {
+pub fn try_clear() -> std::io::Result<()> {
     let path = session_path();
-    if let Err(err) = clear_path(&path) {
-        crate::logging::session_clear_failed(&path, &err.to_string());
-        return;
+    clear_path(&path)?;
+    let history_path = session_history_path();
+    // Best-effort history cleanup after the durable session tombstone file is gone.
+    match clear_path(&history_path) {
+        Ok(()) => {}
+        Err(err) => {
+            crate::logging::session_clear_failed(&history_path, &err.to_string());
+        }
     }
-    clear_history();
     crate::logging::session_cleared(&path);
+    Ok(())
 }
 
 pub fn clear_history() {
@@ -139,6 +108,76 @@ pub fn load() -> Option<SessionSnapshot> {
             None
         }
     }
+}
+
+pub(crate) fn snapshots_reference_host(
+    host_id: &crate::execution_host::ExecutionHostId,
+) -> std::io::Result<bool> {
+    let config_dir = crate::config::config_dir();
+    let mut paths = vec![config_dir.join("session.json")];
+    match std::fs::read_dir(config_dir.join("sessions")) {
+        Ok(entries) => {
+            for entry in entries {
+                let entry = entry?;
+                if entry.file_type()?.is_dir() {
+                    paths.push(entry.path().join("session.json"));
+                }
+            }
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error),
+    }
+    snapshots_reference_host_at(&paths, host_id)
+}
+
+fn snapshots_reference_host_at(
+    paths: &[PathBuf],
+    host_id: &crate::execution_host::ExecutionHostId,
+) -> std::io::Result<bool> {
+    for path in paths {
+        let content = match std::fs::read_to_string(path) {
+            Ok(content) => content,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(error) => return Err(error),
+        };
+        let snapshot = parse_snapshot(&content).map_err(|error| {
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!(
+                    "cannot verify connection profile references in {}: {error}",
+                    path.display()
+                ),
+            )
+        })?;
+        if snapshot_references_host(&snapshot, host_id) {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+fn snapshot_references_host(
+    snapshot: &SessionSnapshot,
+    host_id: &crate::execution_host::ExecutionHostId,
+) -> bool {
+    snapshot.groups.iter().any(|group| {
+        group
+            .default_location
+            .as_ref()
+            .is_some_and(|location| &location.execution_host_id == host_id)
+    }) || snapshot.workspaces.iter().any(|workspace| {
+        &workspace.default_location.execution_host_id == host_id
+            || workspace.tabs.iter().any(|tab| {
+                tab.panes.values().any(|pane| {
+                    pane.location
+                        .as_ref()
+                        .is_some_and(|location| &location.execution_host_id == host_id)
+                })
+            })
+    }) || snapshot
+        .remote_termination_tombstones
+        .iter()
+        .any(|tombstone| &tombstone.location.execution_host_id == host_id)
 }
 
 pub fn load_history() -> Option<SessionHistorySnapshot> {
@@ -202,12 +241,14 @@ mod tests {
     fn empty_snapshot() -> SessionSnapshot {
         SessionSnapshot {
             version: SNAPSHOT_VERSION,
+            session_namespace_id: "session-test".to_string(),
+            remote_termination_tombstones: Vec::new(),
             groups: vec![crate::persist::snapshot::GroupSnapshot {
                 id: crate::workspace::DEFAULT_GROUP_ID.to_string(),
                 name: "group 1".to_string(),
                 icon: crate::app::state::DEFAULT_GROUP_ICON.to_string(),
                 accent: None,
-                default_directory: None,
+                default_location: None,
                 favorite_agent_profile_ids: Vec::new(),
                 default_agent_profile_id: None,
             }],
@@ -243,6 +284,29 @@ mod tests {
                 }],
             }],
         }
+    }
+
+    #[test]
+    fn persisted_reference_in_another_session_is_detected() {
+        let default_path = temp_session_path("host-reference-default");
+        let named_path = temp_session_path("host-reference-named");
+        let mut named_snapshot = empty_snapshot();
+        let host_id = crate::execution_host::ExecutionHostId::new("ssh:workbox:1").unwrap();
+        named_snapshot.groups[0].default_location =
+            Some(crate::execution_host::ResourceLocation::new(
+                host_id.clone(),
+                crate::execution_host::HostPath::new("/srv/work").unwrap(),
+            ));
+        save_to_path(&default_path, &empty_snapshot()).unwrap();
+        save_to_path(&named_path, &named_snapshot).unwrap();
+
+        assert!(
+            snapshots_reference_host_at(&[default_path.clone(), named_path.clone()], &host_id)
+                .unwrap()
+        );
+
+        std::fs::remove_dir_all(default_path.parent().unwrap()).unwrap();
+        std::fs::remove_dir_all(named_path.parent().unwrap()).unwrap();
     }
 
     #[test]

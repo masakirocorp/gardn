@@ -199,7 +199,8 @@ Start a named agent terminal. The new terminal is registered with the supplied `
 | -------------- | --------------------------- | -------- | ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------ |
 | `name`         | `string`                    | yes      | —                                    | Trimmed; empty becomes `invalid_agent_name`. Must not duplicate an existing agent name or `agent_name_taken` is returned.                  |
 | `argv`         | `string[]`                  | yes      | —                                    | Command and arguments. Empty produces `invalid_agent_argv`.                                                                                |
-| `cwd`          | `string \| null`            | no       | process cwd (fallback `/`)           | Working directory for the new terminal.                                                                                                    |
+| `cwd`          | `string \| null`            | no       | inherited placement or local cwd     | Legacy local working directory. Cannot be combined with `location`.                                                                        |
+| `location`     | `ResourceLocation \| null`  | no       | inherited placement                  | Explicit execution host and host-native path.                                                                                              |
 | `workspace_id` | `string \| null`            | no       | active workspace                     | Selects the target workspace. When `tab_id` is also set, both must reference the same workspace or `agent_placement_conflict` is returned. |
 | `tab_id`       | `string \| null`            | no       | active tab of the resolved workspace | Split from this tab's focused pane.                                                                                                        |
 | `split`        | `"right" \| "down" \| null` | no       | `"right"`                            | Direction of the split from the focused pane.                                                                                              |
@@ -213,9 +214,11 @@ Placement rules:
 - `workspace_id` set, no `tab_id`: split the focused pane of the active tab of that workspace.
 - `tab_id` set: split the focused pane of that tab. If `workspace_id` is also set, it must match the tab's workspace.
 
+When neither `cwd` nor `location` is supplied, a split agent inherits the source pane's complete resource location. A root agent without a placement target uses the local process cwd.
+
 Result: `AgentStarted { agent: AgentInfo, argv: string[] }`. `argv` echoes the supplied command after validation.
 
-Errors: `invalid_agent_name`, `invalid_agent_argv`, `agent_name_taken`, `agent_placement_not_found`, `agent_placement_conflict`, `agent_start_failed`, `invalid_env`.
+Errors: `invalid_agent_name`, `invalid_agent_argv`, `agent_name_taken`, `agent_placement_not_found`, `agent_placement_conflict`, `invalid_agent_location`, `agent_start_failed`, `invalid_env`. Supplying both `cwd` and `location` returns `agent_placement_conflict`.
 
 ```json
 {
@@ -618,15 +621,16 @@ Errors: `pane_not_found`.
 
 Split a pane into two, creating a new shell pane beside the existing one. The new pane runs the default shell (not an arbitrary command); use `agent.start` or layout apply for custom commands.
 
-| Property         | Type                | Required | Default                                                      | Behavior                                                                                         |
-| ---------------- | ------------------- | -------- | ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------ |
-| `target_pane_id` | `string \| null`    | no       | focused pane of resolved workspace                           | The pane to split.                                                                               |
-| `workspace_id`   | `string \| null`    | no       | active workspace                                             | Used only when `target_pane_id` is omitted, to select the workspace whose focused pane is split. |
-| `direction`      | `"right" \| "down"` | yes      | —                                                            | `right` splits horizontally (new pane on the right); `down` splits vertically (new pane below).  |
-| `ratio`          | `number \| null`    | no       | implementation default near `0.5`                            | First-pane ratio of the new split, clamped to `[0.1, 0.9]`.                                      |
-| `cwd`            | `string \| null`    | no       | resolved from the source pane's effective cwd when available | Working directory for the new pane.                                                              |
-| `env`            | `object`            | no       | `{}`                                                         | Extra environment variables. See [env behavior](#env-behavior).                                  |
-| `focus`          | `boolean`           | no       | `false`                                                      | Focus the new pane and switch the active workspace and tab.                                      |
+| Property         | Type                       | Required | Default                            | Behavior                                                                                         |
+| ---------------- | -------------------------- | -------- | ---------------------------------- | ------------------------------------------------------------------------------------------------ |
+| `target_pane_id` | `string \| null`           | no       | focused pane of resolved workspace | The pane to split.                                                                               |
+| `workspace_id`   | `string \| null`           | no       | active workspace                   | Used only when `target_pane_id` is omitted, to select the workspace whose focused pane is split. |
+| `direction`      | `"right" \| "down"`        | yes      | —                                  | `right` splits horizontally (new pane on the right); `down` splits vertically (new pane below).  |
+| `ratio`          | `number \| null`           | no       | implementation default near `0.5`  | First-pane ratio of the new split, clamped to `[0.1, 0.9]`.                                      |
+| `cwd`            | `string \| null`           | no       | source pane path                   | Legacy local working directory. Cannot be combined with `location`.                              |
+| `location`       | `ResourceLocation \| null` | no       | source pane location               | Explicit execution host and host-native path.                                                    |
+| `env`            | `object`                   | no       | `{}`                               | Extra environment variables. See [env behavior](#env-behavior).                                  |
+| `focus`          | `boolean`                  | no       | `false`                            | Focus the new pane and switch the active workspace and tab.                                      |
 
 Target resolution order: explicit `target_pane_id`, then `workspace_id`'s focused pane, then `resolve_optional_pane(None)` (the focused pane of the active workspace). Failure returns `pane_not_found` with `target_pane_id` or `active pane` as the target string in the message.
 
@@ -634,7 +638,7 @@ The new pane is registered with a public pane id. The server removes any alias s
 
 Result: `PaneInfo { pane }` for the new pane.
 
-Errors: `pane_not_found`, `invalid_env`, `pane_split_failed`.
+Errors: `pane_not_found`, `invalid_params`, `invalid_env`, `pane_split_failed`. Supplying both `cwd` and `location` returns `invalid_params`.
 
 ```json
 {

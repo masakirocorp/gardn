@@ -42,6 +42,7 @@ fn workspace_list(args: &[String]) -> std::io::Result<i32> {
 
 fn workspace_create(args: &[String]) -> std::io::Result<i32> {
     let mut cwd = None;
+    let mut host = None;
     let mut focus = false;
     let mut label = None;
     let mut env = HashMap::new();
@@ -55,6 +56,14 @@ fn workspace_create(args: &[String]) -> std::io::Result<i32> {
                     return Ok(2);
                 };
                 cwd = Some(value.clone());
+                index += 2;
+            }
+            "--host" => {
+                let Some(value) = args.get(index + 1) else {
+                    eprintln!("missing value for --host");
+                    return Ok(2);
+                };
+                host = Some(value.clone());
                 index += 2;
             }
             "--label" => {
@@ -95,10 +104,19 @@ fn workspace_create(args: &[String]) -> std::io::Result<i32> {
         }
     }
 
+    let location = match super::explicit_resource_location(host, &mut cwd) {
+        Ok(location) => location,
+        Err(error) => {
+            eprintln!("{error}");
+            return Ok(2);
+        }
+    };
+
     super::print_response(&super::send_request(&Request {
         id: "cli:workspace:create".into(),
         method: Method::WorkspaceCreate(WorkspaceCreateParams {
             cwd,
+            location,
             focus,
             label,
             env,
@@ -178,7 +196,7 @@ fn workspace_close(args: &[String]) -> std::io::Result<i32> {
 fn print_workspace_help() {
     eprintln!("omh workspace commands:");
     eprintln!("  omh workspace list");
-    eprintln!("  omh workspace create [--cwd PATH] [--label TEXT] [--env KEY=VALUE] [--focus] [--no-focus]");
+    eprintln!("  omh workspace create [--cwd PATH] [--host EXECUTION_HOST_ID] [--label TEXT] [--env KEY=VALUE] [--focus] [--no-focus]");
     eprintln!("  omh workspace get <workspace_id>");
     eprintln!("  omh workspace focus <workspace_id>");
     eprintln!("  omh workspace rename <workspace_id> <label>");

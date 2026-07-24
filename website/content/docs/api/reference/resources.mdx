@@ -22,7 +22,35 @@ Several resource methods accept optional selectors that pick a starting point wh
 **Active-target defaults.** Tab methods let the caller omit the target workspace. When both an explicit selector and an active fallback are missing, the method returns `invalid_request`.
 
 - `tab.create` uses `workspace_id` when supplied, otherwise the active workspace. With no active workspace it returns `workspace_not_found` and the message `no active workspace`.
-- `workspace.create` derives `cwd` from the workspace creation source and the configured new-terminal cwd policy when `cwd` is omitted. `focus` defaults to `false`, and is treated as `true` when no workspace is active.
+- `workspace.create` derives its location from the workspace creation source, workspace and group defaults, and the configured new-terminal cwd policy when neither `cwd` nor `location` is supplied. `focus` defaults to `false`, and is treated as `true` when no workspace is active.
+
+## Resource locations and placement
+
+A `ResourceLocation` keeps the execution host and host-native path together:
+
+```json
+{ "execution_host_id": "ssh:workbox:1", "path": "/srv/project" }
+```
+
+`execution_host_id` is `local` for the coordinator host or the id returned by `connection.list` for an SSH host. Paths are opaque to the coordinator for remote hosts. Oh My Herdr does not reinterpret a remote Unix path with local path rules.
+
+Creation resolves placement from the first available source in this order:
+
+1. Explicit `location`.
+2. The pane or tab used as the split source.
+3. The target workspace default, including its focused terminal location when available.
+4. The target group default.
+5. A local fallback.
+
+Legacy `cwd` selects a local location. A request must not contain both `cwd` and `location`; that combination returns `invalid_params`.
+
+The created resource and its initial pane report `location` in API responses. `execution_host_id` is also exposed as a convenience field on workspace, tab, and pane records.
+
+## Remote execution constraints
+
+Remote execution requires a configured, reachable Unix SSH host. The coordinator runs the remote worker through system OpenSSH and uses the remote path without local canonicalization. Windows is not supported as a remote execution host.
+
+If a connection is unavailable, creation fails instead of silently running the command locally. Existing local resources are not affected by a remote host failure.
 
 ## Session
 
@@ -95,12 +123,13 @@ Create a new workspace with one initial tab and one root pane.
 
 Params:
 
-| Property | Type             | Required | Notes                                                                                                                                                                                                                                              |
-| -------- | ---------------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `cwd`    | `string \| null` | no       | Working directory for the initial pane. Omitted value is derived from the workspace creation source and the configured new-terminal cwd policy.                                                                                                    |
-| `focus`  | `boolean`        | no       | Defaults to `false`. Treated as `true` when no workspace is currently active.                                                                                                                                                                      |
-| `label`  | `string \| null` | no       | Custom workspace label. A derived label from `cwd` is used when omitted.                                                                                                                                                                           |
-| `env`    | `object`         | no       | Additional environment variables for the initial pane. Keys must be non-empty and must not contain `=` or NUL bytes; values must not contain NUL bytes. Empty or invalid entries fail with `invalid_env`. Entries are sorted by key before launch. |
+| Property   | Type                       | Required | Notes                                                                                                                                                                                                                                              |
+| ---------- | -------------------------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `cwd`      | `string \| null`           | no       | Legacy local working directory for the initial pane. Cannot be combined with `location`.                                                                                                                                                           |
+| `location` | `ResourceLocation \| null` | no       | Explicit execution host and host-native path. Takes precedence over inherited placement.                                                                                                                                                           |
+| `focus`    | `boolean`                  | no       | Defaults to `false`. Treated as `true` when no workspace is currently active.                                                                                                                                                                      |
+| `label`    | `string \| null`           | no       | Custom workspace label. A derived label from the selected path is used when omitted.                                                                                                                                                               |
+| `env`      | `object`                   | no       | Additional environment variables for the initial pane. Keys must be non-empty and must not contain `=` or NUL bytes; values must not contain NUL bytes. Empty or invalid entries fail with `invalid_env`. Entries are sorted by key before launch. |
 
 Result discriminator: `workspace_created`. Fields: `workspace` (`WorkspaceInfo`), `tab` (`TabInfo`), `root_pane` (`PaneInfo`). The server also emits `workspace.created`, `tab.created`, and `pane.created` events.
 
@@ -108,6 +137,7 @@ Errors:
 
 | Code                      | When                                                                                         |
 | ------------------------- | -------------------------------------------------------------------------------------------- |
+| `invalid_params`          | `cwd` and `location` are both supplied, or the location contains an invalid host id or path. |
 | `invalid_env`             | An `env` key is empty, contains `=`, or contains a NUL byte, or a value contains a NUL byte. |
 | `workspace_create_failed` | The workspace could not be created. The message carries the underlying error.                |
 
@@ -402,7 +432,7 @@ List every group in the session.
 
 Params: none.
 
-Result discriminator: `group_list`. Fields: `groups` (`GroupInfo[]`) where each entry has `group_id`, one-based `number`, `name`, `icon`, `focused`, and `workspace_count`. Exactly one group has `focused: true`.
+Result discriminator: `group_list`. Fields: `groups` (`GroupInfo[]`) where each entry has `group_id`, one-based `number`, `name`, `icon`, `focused`, `workspace_count`, and optional `default_location` (`{ execution_host_id, path }`). Exactly one group has `focused: true`.
 
 Errors: none method-specific.
 
@@ -463,22 +493,37 @@ Errors:
 
 ### `group.create`
 
-Create a new group. The new group receives a generated `group_id`, the supplied `name`, and the default group icon. It does not become the active group.
+Create a new group. The new group receives a generated `group_id`, the supplied `name`, the default group icon, and optional `default_location`. It does not become the active group. Invalid placement fails without creating the group.
 
 Params:
 
-| Property | Type     | Required | Notes           |
-| -------- | -------- | -------- | --------------- |
-| `name`   | `string` | yes      | The group name. |
+| Property           | Type                     | Required | Notes                                                                                          |
+| ------------------ | ------------------------ | -------- | ---------------------------------------------------------------------------------------------- |
+| `name`             | `string`                 | yes      | The group name.                                                                                |
+| `default_location` | `ResourceLocationParams` | no       | Host-qualified default for future workspaces: `{ "execution_host_id": "...", "path": "..." }`. |
 
-Result discriminator: `group_info`. Fields: `group` (`GroupInfo`) for the new group, with `focused: false` and `workspace_count: 0`. The session is persisted.
+Result discriminator: `group_info`. Fields: `group` (`GroupInfo`) for the new group, with `focused: false`, `workspace_count: 0`, and `default_location` when supplied. The session is persisted.
 
-Errors: none method-specific.
+Errors:
+
+| Code             | When                                                                    |
+| ---------------- | ----------------------------------------------------------------------- |
+| `invalid_params` | `default_location` has an invalid host id or path. No group is created. |
 
 Example:
 
 ```json
-{ "id": "grp:create", "method": "group.create", "params": { "name": "side" } }
+{
+  "id": "grp:create",
+  "method": "group.create",
+  "params": {
+    "name": "side",
+    "default_location": {
+      "execution_host_id": "ssh:workbox:1",
+      "path": "/srv/work"
+    }
+  }
+}
 ```
 
 ```json
@@ -492,7 +537,11 @@ Example:
       "name": "side",
       "icon": "☀",
       "focused": false,
-      "workspace_count": 0
+      "workspace_count": 0,
+      "default_location": {
+        "execution_host_id": "ssh:workbox:1",
+        "path": "/srv/work"
+      }
     }
   }
 }
@@ -669,13 +718,14 @@ Create a new tab in a workspace. The tab is created with one root pane. When `wo
 
 Params:
 
-| Property       | Type             | Required | Notes                                                                                                                            |
-| -------------- | ---------------- | -------- | -------------------------------------------------------------------------------------------------------------------------------- |
-| `workspace_id` | `string \| null` | no       | Target workspace. Defaults to the active workspace.                                                                              |
-| `cwd`          | `string \| null` | no       | Working directory for the root pane. Defaults to the focused pane's cwd in the target workspace, then the process cwd, then `/`. |
-| `focus`        | `boolean`        | no       | Defaults to `false`. When `true`, the new tab becomes active in its workspace and the workspace becomes active.                  |
-| `label`        | `string \| null` | no       | Custom tab label.                                                                                                                |
-| `env`          | `object`         | no       | Additional environment variables for the root pane. Same validation rules as `workspace.create`.                                 |
+| Property       | Type                       | Required | Notes                                                                                                           |
+| -------------- | -------------------------- | -------- | --------------------------------------------------------------------------------------------------------------- |
+| `workspace_id` | `string \| null`           | no       | Target workspace. Defaults to the active workspace.                                                             |
+| `cwd`          | `string \| null`           | no       | Legacy local working directory for the root pane. Cannot be combined with `location`.                           |
+| `location`     | `ResourceLocation \| null` | no       | Explicit execution host and host-native path. Otherwise the tab inherits placement from the target workspace.   |
+| `focus`        | `boolean`                  | no       | Defaults to `false`. When `true`, the new tab becomes active in its workspace and the workspace becomes active. |
+| `label`        | `string \| null`           | no       | Custom tab label.                                                                                               |
+| `env`          | `object`                   | no       | Additional environment variables for the root pane. Same validation rules as `workspace.create`.                |
 
 Result discriminator: `tab_created`. Fields: `tab` (`TabInfo`), `root_pane` (`PaneInfo`). The server persists the session and emits `tab.created` and `pane.created` events.
 
@@ -683,6 +733,7 @@ Errors:
 
 | Code                  | When                                                                                                                                                                  |
 | --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `invalid_params`      | `cwd` and `location` are both supplied, or the location contains an invalid host id or path.                                                                          |
 | `workspace_not_found` | `workspace_id` is supplied and does not match any workspace, or `workspace_id` is omitted and no workspace is active. The no-active message is `no active workspace`. |
 | `invalid_env`         | An `env` entry is invalid. See `workspace.create`.                                                                                                                    |
 | `tab_create_failed`   | The tab or root pane could not be created. The message carries the underlying error.                                                                                  |

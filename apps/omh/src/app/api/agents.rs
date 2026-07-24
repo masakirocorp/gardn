@@ -45,17 +45,68 @@ impl App {
         encode_success(id, ResponseResult::AgentInfo { agent })
     }
 
-    pub(super) fn handle_agent_start(&mut self, id: String, params: AgentStartParams) -> String {
+    pub(super) fn handle_agent_start_disposition(
+        &mut self,
+        id: String,
+        params: AgentStartParams,
+    ) -> crate::api::ApiRequestDisposition {
+        self.handle_agent_start_with(None, id, params)
+    }
+
+    pub(super) fn handle_agent_start_disposition_for_view(
+        &mut self,
+        view: &crate::app::ClientViewState,
+        id: String,
+        params: AgentStartParams,
+    ) -> crate::api::ApiRequestDisposition {
+        self.handle_agent_start_with(Some(view), id, params)
+    }
+
+    fn handle_agent_start_with(
+        &mut self,
+        view: Option<&crate::app::ClientViewState>,
+        id: String,
+        params: AgentStartParams,
+    ) -> crate::api::ApiRequestDisposition {
+        let argv = params.argv.clone();
+        let focus = params.focus;
         let extra_env = match super::env::normalize_launch_env(params.env.clone()) {
             Ok(env) => env,
-            Err((code, message)) => return encode_error(id, &code, message),
+            Err((code, message)) => {
+                return crate::api::ApiRequestDisposition::Respond(encode_error(id, &code, message))
+            }
         };
-        let (agent, argv) = match self.start_agent(params, extra_env) {
-            Ok(started) => started,
-            Err(err) => return encode_error_body(id, self.agent_start_error_body(err)),
+        let outcome = match view {
+            Some(view) => self.start_agent_for_view(view, params, extra_env),
+            None => self.start_agent(params, extra_env),
         };
-
-        encode_success(id, ResponseResult::AgentStarted { agent, argv })
+        match outcome {
+            Ok(crate::app::agents::AgentStartOutcome::Committed { agent, argv }) => {
+                crate::api::ApiRequestDisposition::Respond(encode_success(
+                    id,
+                    ResponseResult::AgentStarted {
+                        agent: *agent,
+                        argv,
+                    },
+                ))
+            }
+            Ok(crate::app::agents::AgentStartOutcome::Pending(terminal_id)) => {
+                crate::api::ApiRequestDisposition::Deferred(crate::api::DeferredRemoteCreate {
+                    terminal_id,
+                    request_id: id,
+                    kind: crate::api::DeferredRemoteCreateKind::AgentStart { argv },
+                    focus,
+                    client_view_id: view.map(|view| view.id()),
+                    // Agent start may stamp tab/workspace markers via its own path;
+                    // failure cleanup is exact only when a marker was installed.
+                    pending_focus: None,
+                })
+            }
+            Err(err) => crate::api::ApiRequestDisposition::Respond(encode_error_body(
+                id,
+                self.agent_start_error_body(err),
+            )),
+        }
     }
 
     pub(super) fn handle_agent_prompt(&mut self, id: String, params: AgentPromptParams) -> String {

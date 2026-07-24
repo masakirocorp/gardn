@@ -5,13 +5,16 @@
 //! Installed plugins are persisted globally at `~/.config/omh/plugins.json`.
 //! SSH connection profiles are persisted globally at `~/.config/omh/ssh-profiles.json`.
 
+pub(crate) mod atomic_json;
+pub(crate) mod installation;
 mod io;
 pub mod plugin_registry;
 mod restore;
 mod snapshot;
 pub mod ssh_profiles;
 
-pub use self::io::{clear, clear_history, load, load_history, save};
+pub(crate) use self::io::snapshots_reference_host;
+pub use self::io::{clear_history, load, load_history, try_clear, try_save};
 pub use self::restore::restore;
 #[cfg(unix)]
 pub use self::restore::{handoff_pane_aliases, restore_handoff};

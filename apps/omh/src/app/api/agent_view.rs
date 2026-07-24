@@ -155,13 +155,16 @@ mod tests {
         let mut first = ClientViewState::from_default_client_state(&app.state);
         let second = ClientViewState::from_default_client_state(&app.state);
 
-        let response = app.handle_api_request_for_view(
+        let response = match app.handle_api_request_disposition_for_view(
             &mut first,
             Request {
                 id: "set".into(),
                 method: Method::AgentViewSet(working_view("example.views")),
             },
-        );
+        ) {
+            crate::api::ApiRequestDisposition::Respond(response) => response,
+            other => panic!("expected immediate API response, got {other:?}"),
+        };
         let response: crate::api::schema::SuccessResponse =
             serde_json::from_str(&response).unwrap();
         assert_eq!(
@@ -203,13 +206,16 @@ mod tests {
         invalid.filter = Some(AgentViewFilter::Any {
             filters: Vec::new(),
         });
-        let response = app.handle_api_request_for_view(
+        let response = match app.handle_api_request_disposition_for_view(
             &mut view,
             Request {
                 id: "invalid".into(),
                 method: Method::AgentViewSet(invalid),
             },
-        );
+        ) {
+            crate::api::ApiRequestDisposition::Respond(response) => response,
+            other => panic!("expected immediate API response, got {other:?}"),
+        };
         let response: crate::api::schema::ErrorResponse = serde_json::from_str(&response).unwrap();
         assert_eq!(response.error.code, "invalid_agent_view");
         assert_eq!(

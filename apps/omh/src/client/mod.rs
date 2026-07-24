@@ -1160,6 +1160,15 @@ async fn run_client_loop(
                         prefix_input_source.restore();
                     }
                 }
+                ServerMessage::OpenUrl { url } => {
+                    if let Err(err) = crate::platform::open_url(&url) {
+                        warn!(err = %err, url = %url, "failed to open URL on rendering client");
+                    }
+                }
+                ServerMessage::ClientEffectError { code, message } => {
+                    warn!(?code, %message, "client effect rejected by coordinator");
+                    handle_notify(NotifyKind::Toast, &message, &state.sound_config);
+                }
                 ServerMessage::Welcome { .. } => {
                     debug!("received unexpected Welcome in main loop");
                 }

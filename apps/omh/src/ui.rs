@@ -119,9 +119,8 @@ pub(crate) use self::{
         rename_modal_size, rename_modal_size_for_view,
     },
     settings::{
-        settings_agents_editor_back_button_rect, settings_close_button_rect,
-        settings_section_list_rect, settings_stack_areas, settings_tab_chevron_at,
-        settings_tab_hit_areas,
+        settings_close_button_rect, settings_editor_back_button_rect, settings_section_list_rect,
+        settings_stack_areas, settings_tab_chevron_at, settings_tab_hit_areas,
     },
     sidebar::{
         agent_panel_body_rect, agent_panel_entries, agent_panel_entries_for_view,
@@ -1716,6 +1715,9 @@ pub fn render_with_runtime_registry_for_view(
     if client_view.popup_pane.is_some() {
         render_popup_pane_for_view(app, client_view, terminal_runtimes, frame, frame.area());
     }
+    if client_view.authentication_prompt.is_some() {
+        dialogs::render_authentication_overlay_for_view(app, client_view, frame, frame.area());
+    }
 }
 
 fn render_notifications(app: &AppState, frame: &mut Frame, terminal_area: Rect) {
@@ -1924,7 +1926,8 @@ mod tests {
     fn workspace_creation_prompt_renders_new_workspace_title_and_suggestion() {
         let mut app = crate::app::state::AppState::test_new();
         app.mode = Mode::RenameWorkspace;
-        app.pending_workspace_create_cwd = Some("/tmp/project".into());
+        app.pending_workspace_create_location =
+            Some(crate::execution_host::ResourceLocation::local("/tmp/project").unwrap());
         app.name_input = "project".into();
 
         let area = Rect::new(0, 0, 80, 20);

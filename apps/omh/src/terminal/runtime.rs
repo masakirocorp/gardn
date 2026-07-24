@@ -77,6 +77,29 @@ impl TerminalRuntime {
         .map(Self)
     }
 
+    pub(crate) fn remote(
+        pane_id: PaneId,
+        rows: u16,
+        cols: u16,
+        scrollback_limit_bytes: usize,
+        host_terminal_theme: crate::terminal_theme::TerminalTheme,
+        events: mpsc::Sender<AppEvent>,
+    ) -> std::io::Result<(Self, crate::pane::RemotePaneControl)> {
+        crate::pane::PaneRuntime::remote(
+            pane_id,
+            rows,
+            cols,
+            scrollback_limit_bytes,
+            host_terminal_theme,
+            events,
+        )
+        .map(|(runtime, control)| (Self(runtime), control))
+    }
+
+    pub(crate) fn process_remote_output(&self, bytes: &[u8]) -> Vec<Vec<u8>> {
+        self.0.process_remote_output(bytes)
+    }
+
     pub fn spawn(
         pane_id: PaneId,
         rows: u16,

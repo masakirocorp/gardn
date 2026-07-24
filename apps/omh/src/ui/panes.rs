@@ -55,6 +55,57 @@ fn stable_terminal_inner_rect(pane_inner: Rect) -> Rect {
     )
 }
 
+fn pane_border_label(
+    app: &AppState,
+    terminal: &crate::terminal::TerminalState,
+    show_agent_info: crate::config::PaneBorderAgentInfoConfig,
+    seen: bool,
+    show_local_host: bool,
+) -> Option<String> {
+    let label = terminal.border_label(show_agent_info, seen);
+    let location = &terminal.location;
+    if location.is_local() && !show_local_host {
+        return label;
+    }
+    let profile_name = (!location.is_local())
+        .then(|| {
+            app.ssh_connection_profiles
+                .iter()
+                .find(|profile| profile.execution_host_id() == location.execution_host_id)
+                .map(|profile| profile.name().to_string())
+        })
+        .flatten();
+    let host = if location.is_local() {
+        "Local".to_string()
+    } else {
+        profile_name
+            .clone()
+            .unwrap_or_else(|| location.execution_host_id.as_str().to_string())
+    };
+    let health = if location.is_local() {
+        // Local is always available to the coordinator; missing host_connection_states
+        // entries are normal when the manager only tracks SSH hosts.
+        None
+    } else if profile_name.is_none() {
+        Some("Unavailable")
+    } else {
+        match app.host_connection_states.get(&location.execution_host_id) {
+            None => Some("Offline"),
+            Some(crate::execution_host::ConnectionStatus::Disconnected) => Some("Offline"),
+            Some(crate::execution_host::ConnectionStatus::Reconnecting { .. }) => Some("Lost"),
+            Some(crate::execution_host::ConnectionStatus::AuthenticationRequired) => {
+                Some("Unavailable")
+            }
+            Some(_) => None,
+        }
+    };
+    let host = health.map_or_else(|| host.clone(), |health| format!("{host} · {health}"));
+    Some(match label {
+        Some(label) => format!("{label} · {host}"),
+        None => host,
+    })
+}
+
 fn pane_inner_rect(area: Rect, framed: bool) -> Rect {
     if framed {
         Block::default().borders(Borders::ALL).inner(area)
@@ -716,12 +767,26 @@ pub(super) fn render_panes_for_view(
             } else {
                 (Style::default().fg(app.palette.overlay0), false)
             };
+            let show_local_host = tab
+                .panes
+                .values()
+                .filter_map(|pane| app.terminals.get(&pane.attached_terminal_id))
+                .map(|terminal| &terminal.location.execution_host_id)
+                .collect::<std::collections::HashSet<_>>()
+                .len()
+                > 1;
             let title = pane_state
                 .and_then(|pane| {
                     app.terminals
                         .get(&pane.attached_terminal_id)
                         .and_then(|terminal| {
-                            terminal.border_label(app.pane_border_agent_info, pane.seen)
+                            pane_border_label(
+                                app,
+                                terminal,
+                                app.pane_border_agent_info,
+                                pane.seen,
+                                show_local_host,
+                            )
                         })
                 })
                 .and_then(|label| pane_border_title(&label, info.rect.width));
@@ -1353,6 +1418,62 @@ mod tests {
     use crate::terminal::TerminalRuntime;
     use crate::workspace::Workspace;
     use ratatui::{backend::TestBackend, buffer::Buffer, Terminal};
+
+    #[test]
+    fn remote_pane_border_shows_connection_name_and_offline_state() {
+        let mut app = AppState::test_new();
+        let profile = crate::persist::ssh_profiles::SshConnectionProfile::new(
+            "workbox",
+            "Work box",
+            "alice@workbox",
+            None,
+        )
+        .expect("valid profile");
+        let location = crate::execution_host::ResourceLocation::new(
+            profile.execution_host_id(),
+            crate::execution_host::HostPath::new("/srv/app").expect("valid remote path"),
+        );
+        app.ssh_connection_profiles.push(profile);
+        let terminal =
+            crate::terminal::TerminalState::new_at(crate::terminal::TerminalId::alloc(), location);
+
+        assert_eq!(
+            pane_border_label(&app, &terminal, Default::default(), false, false),
+            Some("Work box · Offline".to_string())
+        );
+    }
+
+    #[test]
+    fn remote_pane_border_marks_missing_profile_unavailable() {
+        let app = AppState::test_new();
+        let terminal = crate::terminal::TerminalState::new_at(
+            crate::terminal::TerminalId::alloc(),
+            crate::execution_host::ResourceLocation::new(
+                crate::execution_host::ExecutionHostId::new("ssh:missing:1")
+                    .expect("valid host id"),
+                crate::execution_host::HostPath::new("/srv/app").expect("valid remote path"),
+            ),
+        );
+
+        assert_eq!(
+            pane_border_label(&app, &terminal, Default::default(), false, false),
+            Some("ssh:missing:1 · Unavailable".to_string())
+        );
+    }
+
+    #[test]
+    fn local_pane_border_identifies_local_in_a_mixed_workspace() {
+        let app = AppState::test_new();
+        let terminal = crate::terminal::TerminalState::new_at(
+            crate::terminal::TerminalId::alloc(),
+            crate::execution_host::ResourceLocation::local("/tmp").expect("valid local path"),
+        );
+
+        assert_eq!(
+            pane_border_label(&app, &terminal, Default::default(), false, true),
+            Some("Local".to_string())
+        );
+    }
 
     #[test]
     fn client_overlay_projection_is_owner_only_and_collapses_hidden_geometry() {

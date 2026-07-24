@@ -50,7 +50,7 @@ fn agent_help_shows_target_before_options() {
         "omh agent prompt <target> <text> [--wait-for STATUS] [--timeout MS]",
         "omh agent wait <target> --status <idle|working|blocked|unknown> [--timeout MS]",
         "omh agent attach <target> [--takeover]",
-        "omh agent start <name> [--cwd PATH] [--workspace ID] [--tab ID] [--split right|down] [--focus|--no-focus] -- <argv...>",
+        "omh agent start <name> [--cwd PATH] [--host EXECUTION_HOST_ID] [--workspace ID] [--tab ID] [--split right|down] [--focus|--no-focus] -- <argv...>",
     ] {
         assert!(help.contains(usage), "missing target-first usage {usage:?}: {help}");
     }
@@ -81,7 +81,7 @@ fn agent_subcommand_help_uses_target_first_forms() {
         ),
         (
             ["start", "--help"].as_slice(),
-            "usage: omh agent start <name> [--cwd PATH] [--workspace ID] [--tab ID] [--split right|down] [--focus|--no-focus] -- <argv...>",
+            "usage: omh agent start <name> [--cwd PATH] [--host EXECUTION_HOST_ID] [--workspace ID] [--tab ID] [--split right|down] [--focus|--no-focus] -- <argv...>",
         ),
     ];
 

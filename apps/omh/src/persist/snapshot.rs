@@ -4,12 +4,13 @@ use std::path::PathBuf;
 use ratatui::layout::Direction;
 use serde::{Deserialize, Serialize};
 
+use crate::execution_host::protocol::SessionNamespaceId;
 use crate::layout::Node;
 use crate::terminal::TerminalRuntimeRegistry;
 use crate::workspace::Workspace;
 
 /// Current snapshot format version.
-pub(super) const SNAPSHOT_VERSION: u32 = 3;
+pub(super) const SNAPSHOT_VERSION: u32 = 5;
 
 /// Serializable snapshot of the entire Oh My Herdr session.
 // Legacy mirror fields stay on the in-memory struct so old snapshots migrate
@@ -20,6 +21,12 @@ pub struct SessionSnapshot {
     /// Format version — used to detect incompatible changes.
     #[serde(default)]
     pub version: u32,
+    /// Durable scope used to adopt worker-owned runtimes after coordinator restart.
+    #[serde(default)]
+    pub session_namespace_id: String,
+    /// Remote runtimes removed from the live layout but still awaiting termination acknowledgement.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub remote_termination_tombstones: Vec<RemoteTerminationTombstoneSnapshot>,
     #[serde(default = "default_groups")]
     pub groups: Vec<GroupSnapshot>,
     #[serde(default)]
@@ -178,7 +185,7 @@ pub struct WorkspaceSnapshot {
     #[serde(default = "default_group_id")]
     pub group_id: String,
     pub identity_cwd: PathBuf,
-    pub default_cwd: PathBuf,
+    pub default_location: crate::execution_host::ResourceLocation,
     #[serde(default)]
     pub public_pane_numbers: HashMap<u32, usize>,
     #[serde(default)]
@@ -192,20 +199,70 @@ pub struct WorkspaceSnapshot {
     pub active_tab: usize,
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Clone)]
 pub struct GroupSnapshot {
     pub id: String,
     pub name: String,
-    #[serde(default = "default_group_icon")]
     pub icon: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub accent: Option<crate::config::TerminalAccent>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub default_directory: Option<std::path::PathBuf>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub default_location: Option<crate::execution_host::ResourceLocation>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
     pub favorite_agent_profile_ids: Vec<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub default_agent_profile_id: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct RawGroupSnapshot {
+    id: String,
+    name: String,
+    #[serde(default = "default_group_icon")]
+    icon: String,
+    #[serde(default)]
+    accent: Option<crate::config::TerminalAccent>,
+    #[serde(default)]
+    default_location: Option<crate::execution_host::ResourceLocation>,
+    #[serde(default)]
+    default_directory: Option<PathBuf>,
+    #[serde(default)]
+    favorite_agent_profile_ids: Vec<String>,
+    #[serde(default)]
+    default_agent_profile_id: Option<String>,
+}
+
+impl<'de> Deserialize<'de> for GroupSnapshot {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let raw = RawGroupSnapshot::deserialize(deserializer)?;
+        let default_location = match (raw.default_location, raw.default_directory) {
+            (Some(location), _) => Some(location),
+            (None, Some(path)) => Some(
+                crate::execution_host::ResourceLocation::local(path)
+                    .map_err(serde::de::Error::custom)?,
+            ),
+            (None, None) => None,
+        };
+        Ok(Self {
+            id: raw.id,
+            name: raw.name,
+            icon: raw.icon,
+            accent: raw.accent,
+            default_location,
+            favorite_agent_profile_ids: raw.favorite_agent_profile_ids,
+            default_agent_profile_id: raw.default_agent_profile_id,
+        })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RemoteTerminationTombstoneSnapshot {
+    pub terminal_id: crate::terminal::TerminalId,
+    pub location: crate::execution_host::ResourceLocation,
+    pub remote_runtime_identity: crate::execution_host::protocol::RuntimeIdentity,
 }
 
 fn default_group_id() -> String {
@@ -222,7 +279,7 @@ fn default_groups() -> Vec<GroupSnapshot> {
         name: "group 1".to_string(),
         icon: default_group_icon(),
         accent: None,
-        default_directory: None,
+        default_location: None,
         favorite_agent_profile_ids: Vec::new(),
         default_agent_profile_id: None,
     }]
@@ -257,6 +314,10 @@ pub struct TabSnapshot {
 #[derive(Serialize, Deserialize)]
 pub struct PaneSnapshot {
     pub cwd: PathBuf,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub location: Option<crate::execution_host::ResourceLocation>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub remote_runtime_identity: Option<crate::execution_host::protocol::RuntimeIdentity>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub env_pane_id: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -332,7 +393,10 @@ impl From<LegacyWorkspaceSnapshot> for WorkspaceSnapshot {
             custom_name: snap.custom_name,
             group_id: default_group_id(),
             identity_cwd: identity_cwd.clone(),
-            default_cwd: identity_cwd,
+            default_location: crate::execution_host::ResourceLocation::new(
+                crate::execution_host::ExecutionHostId::local(),
+                crate::execution_host::HostPath::new(identity_cwd).unwrap_or_default(),
+            ),
             public_pane_numbers: HashMap::new(),
             next_public_pane_number: 0,
             public_tab_numbers: Vec::new(),
@@ -347,6 +411,10 @@ impl From<LegacyWorkspaceSnapshot> for WorkspaceSnapshot {
 struct RawSessionSnapshot {
     #[serde(default)]
     version: u32,
+    #[serde(default)]
+    session_namespace_id: String,
+    #[serde(default)]
+    remote_termination_tombstones: Vec<RemoteTerminationTombstoneSnapshot>,
     #[serde(default = "default_groups")]
     groups: Vec<GroupSnapshot>,
     #[serde(default)]
@@ -386,6 +454,8 @@ fn migrate_snapshot(raw: RawSessionSnapshot) -> Result<SessionSnapshot, String> 
         .unwrap_or_else(|| SessionDefaultViewSnapshot::from_legacy(&raw));
     Ok(SessionSnapshot {
         version: raw.version,
+        session_namespace_id: raw.session_namespace_id,
+        remote_termination_tombstones: raw.remote_termination_tombstones,
         groups: if raw.groups.is_empty() {
             default_groups()
         } else {
@@ -413,15 +483,21 @@ fn migrate_snapshot(raw: RawSessionSnapshot) -> Result<SessionSnapshot, String> 
 }
 
 fn migrate_workspace(mut raw: serde_json::Value) -> Result<WorkspaceSnapshot, String> {
+    migrate_pane_locations(&mut raw)?;
     if raw.get("identity_cwd").is_some() {
-        if raw.get("default_cwd").is_none() {
-            if let Some(identity_cwd) = raw.get("identity_cwd").cloned() {
-                if let Some(object) = raw.as_object_mut() {
-                    object.insert("default_cwd".to_string(), identity_cwd);
-                }
-            }
+        let Some(object) = raw.as_object_mut() else {
+            return Err("workspace snapshot must be an object".to_string());
+        };
+        if object.get("default_location").is_none() {
+            let path = object
+                .remove("default_cwd")
+                .or_else(|| object.get("identity_cwd").cloned())
+                .ok_or_else(|| "legacy workspace default path is missing".to_string())?;
+            object.insert("default_location".to_string(), local_location_value(path)?);
+        } else {
+            object.remove("default_cwd");
         }
-        return serde_json::from_value(raw).map_err(|e| e.to_string());
+        return serde_json::from_value(raw).map_err(|error| error.to_string());
     }
 
     if raw.get("layout").is_some() {
@@ -431,6 +507,49 @@ fn migrate_workspace(mut raw: serde_json::Value) -> Result<WorkspaceSnapshot, St
     }
 
     Err("workspace snapshot is neither current nor legacy format".to_string())
+}
+
+fn migrate_pane_locations(raw: &mut serde_json::Value) -> Result<(), String> {
+    if let Some(panes) = raw.get_mut("panes") {
+        migrate_pane_map(panes)?;
+    }
+    if let Some(tabs) = raw
+        .get_mut("tabs")
+        .and_then(serde_json::Value::as_array_mut)
+    {
+        for tab in tabs {
+            if let Some(panes) = tab.get_mut("panes") {
+                migrate_pane_map(panes)?;
+            }
+        }
+    }
+    Ok(())
+}
+
+fn migrate_pane_map(panes: &mut serde_json::Value) -> Result<(), String> {
+    let Some(panes) = panes.as_object_mut() else {
+        return Err("workspace panes must be an object".to_string());
+    };
+    for pane in panes.values_mut() {
+        let Some(pane) = pane.as_object_mut() else {
+            return Err("workspace pane must be an object".to_string());
+        };
+        if pane.get("location").is_none() {
+            let cwd = pane
+                .get("cwd")
+                .cloned()
+                .ok_or_else(|| "legacy pane cwd is missing".to_string())?;
+            pane.insert("location".to_string(), local_location_value(cwd)?);
+        }
+    }
+    Ok(())
+}
+
+fn local_location_value(path: serde_json::Value) -> Result<serde_json::Value, String> {
+    let path = serde_json::from_value::<PathBuf>(path).map_err(|error| error.to_string())?;
+    let location =
+        crate::execution_host::ResourceLocation::local(path).map_err(|error| error.to_string())?;
+    serde_json::to_value(location).map_err(|error| error.to_string())
 }
 
 fn legacy_identity_cwd(snap: &LegacyWorkspaceSnapshot) -> PathBuf {
@@ -471,6 +590,8 @@ pub fn capture(
     groups: &[crate::app::state::Group],
     active_group: usize,
     group_filter_enabled: bool,
+    session_namespace_id: &SessionNamespaceId,
+    remote_termination_tombstones: &[crate::app::state::RemoteTerminationTombstone],
     workspaces: &[Workspace],
     terminals: &std::collections::HashMap<
         crate::terminal::TerminalId,
@@ -490,6 +611,8 @@ pub fn capture(
         groups,
         active_group,
         group_filter_enabled,
+        session_namespace_id,
+        remote_termination_tombstones,
         workspaces,
         terminals,
         terminal_runtimes,
@@ -513,6 +636,8 @@ pub fn capture_handoff(
     groups: &[crate::app::state::Group],
     active_group: usize,
     group_filter_enabled: bool,
+    session_namespace_id: &SessionNamespaceId,
+    remote_termination_tombstones: &[crate::app::state::RemoteTerminationTombstone],
     workspaces: &[Workspace],
     terminals: &std::collections::HashMap<
         crate::terminal::TerminalId,
@@ -532,6 +657,8 @@ pub fn capture_handoff(
         groups,
         active_group,
         group_filter_enabled,
+        session_namespace_id,
+        remote_termination_tombstones,
         workspaces,
         terminals,
         terminal_runtimes,
@@ -552,6 +679,8 @@ fn capture_inner(
     groups: &[crate::app::state::Group],
     active_group: usize,
     group_filter_enabled: bool,
+    session_namespace_id: &SessionNamespaceId,
+    remote_termination_tombstones: &[crate::app::state::RemoteTerminationTombstone],
     workspaces: &[Workspace],
     terminals: &std::collections::HashMap<
         crate::terminal::TerminalId,
@@ -582,6 +711,15 @@ fn capture_inner(
 
     SessionSnapshot {
         version: SNAPSHOT_VERSION,
+        session_namespace_id: session_namespace_id.as_str().to_string(),
+        remote_termination_tombstones: remote_termination_tombstones
+            .iter()
+            .map(|tombstone| RemoteTerminationTombstoneSnapshot {
+                terminal_id: tombstone.terminal_id.clone(),
+                location: tombstone.location.clone(),
+                remote_runtime_identity: tombstone.remote_runtime_identity.clone(),
+            })
+            .collect(),
         groups: groups.iter().map(capture_group).collect(),
         active_group,
         group_filter_enabled,
@@ -616,7 +754,7 @@ fn capture_group(group: &crate::app::state::Group) -> GroupSnapshot {
         name: group.name.clone(),
         icon: group.icon.clone(),
         accent: group.accent,
-        default_directory: group.default_directory.clone(),
+        default_location: group.default_location.clone(),
         favorite_agent_profile_ids: group.favorite_agent_profile_ids.clone(),
         default_agent_profile_id: group.default_agent_profile_id.clone(),
     }
@@ -636,7 +774,7 @@ fn capture_workspace(
         custom_name: ws.custom_name.clone(),
         group_id: ws.group_id.clone(),
         identity_cwd: ws.identity_cwd.clone(),
-        default_cwd: ws.default_cwd.clone(),
+        default_location: ws.default_location.clone(),
         public_pane_numbers: ws
             .public_pane_numbers
             .iter()
@@ -714,7 +852,20 @@ fn capture_tab(
                 env_pane_id: pane
                     .and_then(|pane| pane.env_pane_id_raw)
                     .filter(|env_pane_id| *env_pane_id != id.raw()),
-                cwd,
+                cwd: cwd.clone(),
+                location: Some(
+                    terminal
+                        .map(|terminal| terminal.location.clone())
+                        .unwrap_or_else(|| {
+                            crate::execution_host::ResourceLocation::new(
+                                crate::execution_host::ExecutionHostId::local(),
+                                crate::execution_host::HostPath::new(cwd.clone())
+                                    .unwrap_or_default(),
+                            )
+                        }),
+                ),
+                remote_runtime_identity: terminal
+                    .and_then(|terminal| terminal.remote_runtime_identity.clone()),
                 label,
                 agent_name,
                 agent_session,
@@ -882,6 +1033,8 @@ mod tests {
             &state.groups,
             state.active_group,
             state.group_filter_enabled,
+            &state.session_namespace_id,
+            &state.remote_termination_tombstones,
             &state.workspaces,
             &state.terminals,
             terminal_runtimes,
@@ -908,7 +1061,8 @@ mod tests {
         let mut state = state_with_workspaces(&["space"]);
         state.workspaces[0].custom_name = None;
         state.workspaces[0].identity_cwd = PathBuf::from("/omh-test/space");
-        state.workspaces[0].default_cwd = PathBuf::from("/omh-test/default");
+        state.workspaces[0].default_location =
+            crate::execution_host::ResourceLocation::local("/omh-test/default").unwrap();
         let root_pane = state.workspaces[0].tabs[0].root_pane;
         let terminal_id = state.workspaces[0].terminal_id(root_pane).unwrap().clone();
         state.terminals.get_mut(&terminal_id).unwrap().cwd = PathBuf::from("/omh-test/runtime");
@@ -925,8 +1079,8 @@ mod tests {
             PathBuf::from("/omh-test/space")
         );
         assert_eq!(
-            snap.workspaces[0].default_cwd,
-            PathBuf::from("/omh-test/default")
+            snap.workspaces[0].default_location,
+            crate::execution_host::ResourceLocation::local("/omh-test/default").unwrap()
         );
         assert_eq!(
             snap.workspaces[0].tabs[0].panes[&root_pane.raw()].cwd,
@@ -984,6 +1138,8 @@ mod tests {
             &state.groups,
             state.active_group,
             state.group_filter_enabled,
+            &state.session_namespace_id,
+            &state.remote_termination_tombstones,
             &state.workspaces,
             &state.terminals,
             &terminal_runtimes,
@@ -1042,6 +1198,44 @@ mod tests {
         assert_eq!(workspace.next_public_tab_number, 3);
     }
 
+    #[test]
+    fn capture_preserves_typed_session_namespace_id() {
+        let mut state = AppState::test_new();
+        let namespace =
+            crate::execution_host::protocol::SessionNamespaceId::new("session-capture-ok")
+                .expect("valid namespace");
+        state.session_namespace_id = namespace.clone();
+
+        let snap = capture_from_state(&state);
+        assert_eq!(snap.session_namespace_id, "session-capture-ok");
+
+        let restored = crate::persist::installation::session_namespace_from_snapshot(
+            &snap.session_namespace_id,
+        );
+        assert_eq!(restored, namespace);
+    }
+
+    #[test]
+    fn snapshot_dto_keeps_raw_string_for_legacy_decode() {
+        // DTO stays String so malformed legacy JSON still deserializes; healing
+        // happens after decode via session_namespace_from_snapshot.
+        let json = r#"{
+            "version": 5,
+            "session_namespace_id": "bad id with spaces",
+            "groups": [],
+            "workspaces": []
+        }"#;
+        let snap: SessionSnapshot = serde_json::from_str(json).expect("raw string DTO decodes");
+        assert_eq!(snap.session_namespace_id, "bad id with spaces");
+        let healed = crate::persist::installation::session_namespace_from_snapshot(
+            &snap.session_namespace_id,
+        );
+        assert_ne!(healed.as_str(), "bad id with spaces");
+        assert!(crate::persist::installation::is_valid_session_namespace_id(
+            healed.as_str()
+        ));
+    }
+
     fn root_split_ratio(tab: &TabSnapshot) -> Option<f32> {
         match &tab.layout {
             LayoutSnapshot::Split { ratio, .. } => Some(*ratio),
@@ -1053,6 +1247,8 @@ mod tests {
     fn round_trip_empty_session() {
         let snap = SessionSnapshot {
             version: SNAPSHOT_VERSION,
+            session_namespace_id: "session-test".to_string(),
+            remote_termination_tombstones: Vec::new(),
             groups: default_groups(),
             active_group: 0,
             group_filter_enabled: true,
@@ -1099,7 +1295,7 @@ mod tests {
             name: "Side".to_string(),
             icon: "✿".to_string(),
             accent: Some(crate::config::TerminalAccent::Cyan),
-            default_directory: None,
+            default_location: None,
             favorite_agent_profile_ids: Vec::new(),
             default_agent_profile_id: None,
         });
@@ -1152,6 +1348,8 @@ mod tests {
             PaneSnapshot {
                 env_pane_id: None,
                 cwd: PathBuf::from("/home/can/Projects/omh"),
+                location: None,
+                remote_runtime_identity: None,
                 label: None,
                 agent_name: None,
                 agent_session: None,
@@ -1166,6 +1364,8 @@ mod tests {
             PaneSnapshot {
                 env_pane_id: None,
                 cwd: PathBuf::from("/home/can/Projects/website"),
+                location: None,
+                remote_runtime_identity: None,
                 label: Some("website".into()),
                 agent_name: None,
                 agent_session: None,
@@ -1177,6 +1377,9 @@ mod tests {
         );
 
         let snap = SessionSnapshot {
+            version: SNAPSHOT_VERSION,
+            session_namespace_id: "session-test".to_string(),
+            remote_termination_tombstones: Vec::new(),
             groups: default_groups(),
             active_group: 0,
             group_filter_enabled: true,
@@ -1196,7 +1399,10 @@ mod tests {
                 custom_name: Some("pi-mono".to_string()),
                 group_id: default_group_id(),
                 identity_cwd: PathBuf::from("/home/can/Projects/omh"),
-                default_cwd: PathBuf::from("/home/can/Projects/omh"),
+                default_location: crate::execution_host::ResourceLocation::local(
+                    "/home/can/Projects/omh",
+                )
+                .unwrap(),
                 public_pane_numbers: HashMap::from([(0, 1), (1, 2)]),
                 next_public_pane_number: 3,
                 public_tab_numbers: vec![1],
@@ -1226,7 +1432,6 @@ mod tests {
             right_sidebar_collapsed: false,
             ui: SessionUiSnapshot::default(),
             pane_id_aliases: HashMap::new(),
-            version: SNAPSHOT_VERSION,
         };
 
         let json = serde_json::to_string_pretty(&snap).unwrap();
@@ -1716,8 +1921,42 @@ mod tests {
 
     #[test]
     fn active_tab_default_is_zero() {
-        let json = r#"{"custom_name":"test","identity_cwd":"/tmp","default_cwd":"/tmp","tabs":[]}"#;
+        let json = r#"{"custom_name":"test","identity_cwd":"/tmp","default_location":{"execution_host_id":"local","path":"/tmp"},"tabs":[]}"#;
         let ws: WorkspaceSnapshot = serde_json::from_str(json).unwrap();
         assert_eq!(ws.active_tab, 0);
+    }
+
+    #[test]
+    fn legacy_path_defaults_migrate_once_to_local_locations() {
+        let json = r#"{
+            "version": 4,
+            "groups": [{
+                "id": "group-legacy",
+                "name": "legacy",
+                "default_directory": "/legacy/group"
+            }],
+            "workspaces": [{
+                "id": "workspace-legacy",
+                "group_id": "group-legacy",
+                "identity_cwd": "/legacy/identity",
+                "default_cwd": "/legacy/workspace",
+                "tabs": []
+            }]
+        }"#;
+
+        let snapshot = parse_snapshot(json).unwrap();
+
+        let group_location = snapshot.groups[0].default_location.as_ref().unwrap();
+        assert!(group_location.is_local());
+        assert_eq!(
+            group_location.path.as_path(),
+            std::path::Path::new("/legacy/group")
+        );
+        let workspace_location = &snapshot.workspaces[0].default_location;
+        assert!(workspace_location.is_local());
+        assert_eq!(
+            workspace_location.path.as_path(),
+            std::path::Path::new("/legacy/workspace")
+        );
     }
 }

@@ -495,7 +495,7 @@ pub(super) fn open_rename_workspace(
     terminal_runtimes: &crate::terminal::TerminalRuntimeRegistry,
     ws_idx: usize,
 ) {
-    state.pending_workspace_create_cwd = None;
+    state.pending_workspace_create_location = None;
     state.requested_new_workspace_name = None;
     state.selected = ws_idx;
     state.creating_new_tab = false;
@@ -510,13 +510,16 @@ pub(super) fn open_rename_workspace(
     state.mode = Mode::RenameWorkspace;
 }
 
-pub(crate) fn open_new_workspace_dialog(state: &mut AppState, cwd: std::path::PathBuf) {
-    let suggested_name = crate::workspace::derive_label_from_cwd(&cwd);
+pub(crate) fn open_new_workspace_dialog_at_location(
+    state: &mut AppState,
+    location: crate::execution_host::ResourceLocation,
+) {
+    let suggested_name = crate::workspace::derive_label_from_cwd(location.path.as_path());
     state.creating_new_tab = false;
     state.creating_new_group = false;
     state.group_icon_picker_open = false;
     state.requested_new_tab_name = None;
-    state.pending_workspace_create_cwd = Some(cwd);
+    state.pending_workspace_create_location = Some(location);
     state.requested_new_workspace_name = None;
     state.rename_group_target = None;
     state.rename_pane_target = None;
@@ -527,19 +530,18 @@ pub(crate) fn open_new_workspace_dialog(state: &mut AppState, cwd: std::path::Pa
 
 pub(crate) fn open_new_workspace_dialog_from_state(state: &mut AppState) {
     let group_id = state.active_group_id().to_string();
-    let follow_cwd = state
-        .active
-        .and_then(|ws_idx| state.workspaces.get(ws_idx))
-        .map(|workspace| workspace.default_cwd.clone());
-    let cwd = state
+    let location = state
         .groups
         .iter()
         .find(|group| group.id == group_id)
-        .and_then(|group| group.default_directory.clone())
-        .unwrap_or_else(|| {
-            crate::app::creation::resolve_new_terminal_cwd(&state.new_terminal_cwd, follow_cwd)
+        .and_then(|group| group.default_location.clone())
+        .or_else(|| {
+            let cwd = crate::app::creation::resolve_new_terminal_cwd(&state.new_terminal_cwd, None);
+            crate::execution_host::ResourceLocation::local(cwd).ok()
         });
-    open_new_workspace_dialog(state, cwd);
+    if let Some(location) = location {
+        open_new_workspace_dialog_at_location(state, location);
+    }
 }
 
 pub(super) fn open_rename_group(state: &mut AppState) {
@@ -557,7 +559,7 @@ pub(super) fn open_rename_group_at(state: &mut AppState, group_idx: usize) {
     state.requested_new_tab_name = None;
     state.rename_group_target = None;
     state.rename_pane_target = None;
-    state.pending_workspace_create_cwd = None;
+    state.pending_workspace_create_location = None;
     state.requested_new_workspace_name = None;
     state.rename_group_target = Some(group_idx);
     state.name_input = group.name.clone();
@@ -570,7 +572,7 @@ pub(super) fn open_rename_active_tab(state: &mut AppState, replace_on_type: bool
     state.creating_new_group = false;
     state.group_icon_picker_open = false;
     state.requested_new_tab_name = None;
-    state.pending_workspace_create_cwd = None;
+    state.pending_workspace_create_location = None;
     state.requested_new_workspace_name = None;
     state.rename_group_target = None;
     state.rename_pane_target = None;
@@ -590,7 +592,7 @@ pub(super) fn open_rename_pane(state: &mut AppState, pane_id: crate::layout::Pan
     let Some(pane) = ws.pane_state(pane_id) else {
         return;
     };
-    state.pending_workspace_create_cwd = None;
+    state.pending_workspace_create_location = None;
     state.requested_new_workspace_name = None;
     let terminal = state.terminals.get(&pane.attached_terminal_id);
     state.creating_new_tab = false;
@@ -622,7 +624,7 @@ pub(super) fn open_new_tab_dialog(state: &mut AppState) {
     state.creating_new_group = false;
     state.group_icon_picker_open = false;
     state.requested_new_tab_name = None;
-    state.pending_workspace_create_cwd = None;
+    state.pending_workspace_create_location = None;
     state.requested_new_workspace_name = None;
     state.rename_group_target = None;
     state.rename_pane_target = None;
@@ -647,11 +649,12 @@ pub(super) fn open_new_group_dialog(state: &mut AppState) {
     state.creating_new_tab = false;
     state.group_icon_input = DEFAULT_GROUP_ICON.to_string();
     state.group_default_directory_input.clear();
+    state.group_default_execution_host_id = crate::execution_host::ExecutionHostId::local();
     state.group_modal_selected_field = 0;
     state.group_icon_picker_open = false;
     state.rename_group_target = None;
     state.requested_new_tab_name = None;
-    state.pending_workspace_create_cwd = None;
+    state.pending_workspace_create_location = None;
     state.requested_new_workspace_name = None;
     state.rename_pane_target = None;
     state.name_input = next_new_group_default_name(state);
@@ -719,11 +722,11 @@ pub(super) fn apply_rename_action(state: &mut AppState, action: ModalAction) {
                 state.name_input.trim().to_string()
             };
             match state.mode {
-                Mode::RenameWorkspace if state.pending_workspace_create_cwd.is_some() => {
+                Mode::RenameWorkspace if state.pending_workspace_create_location.is_some() => {
                     let suggested_name = state
-                        .pending_workspace_create_cwd
+                        .pending_workspace_create_location
                         .as_ref()
-                        .map(|cwd| crate::workspace::derive_label_from_cwd(cwd))
+                        .map(crate::workspace::derive_label_from_location)
                         .unwrap_or_default();
                     state.requested_new_workspace_name =
                         crate::app::creation::workspace_create_label(&new_name, &suggested_name);
@@ -744,11 +747,22 @@ pub(super) fn apply_rename_action(state: &mut AppState, action: ModalAction) {
                         new_name
                     };
                     let default_directory = state.group_default_directory_input.trim().to_string();
-                    let group_idx = state.create_group_with_icon_and_default_directory(
+                    let default_location = (!default_directory.is_empty())
+                        .then(|| {
+                            crate::execution_host::HostPath::new(default_directory)
+                                .ok()
+                                .map(|path| {
+                                    crate::execution_host::ResourceLocation::new(
+                                        state.group_default_execution_host_id.clone(),
+                                        path,
+                                    )
+                                })
+                        })
+                        .flatten();
+                    let group_idx = state.create_group_with_icon_and_default_location(
                         name,
                         state.group_icon_input.clone(),
-                        (!default_directory.is_empty())
-                            .then_some(std::path::PathBuf::from(default_directory)),
+                        default_location,
                     );
                     state.switch_group(group_idx);
                     state.group_filter_enabled = preserve_group_filter;
@@ -817,7 +831,7 @@ pub(super) fn apply_rename_action(state: &mut AppState, action: ModalAction) {
         ModalAction::Clear => {
             if state.mode == Mode::RenameGroup
                 && state.creating_new_group
-                && state.group_modal_selected_field == 1
+                && state.group_modal_selected_field == 2
             {
                 state.group_default_directory_input.clear();
             } else {
@@ -833,7 +847,7 @@ pub(super) fn apply_rename_action(state: &mut AppState, action: ModalAction) {
             state.group_modal_selected_field = 0;
             state.rename_group_target = None;
             state.requested_new_tab_name = None;
-            state.pending_workspace_create_cwd = None;
+            state.pending_workspace_create_location = None;
             state.requested_new_workspace_name = None;
             state.rename_pane_target = None;
             state.name_input.clear();
@@ -857,16 +871,17 @@ impl crate::app::App {
 
         let new_name = self.state.name_input.trim().to_string();
         match self.state.mode {
-            Mode::RenameWorkspace if self.state.pending_workspace_create_cwd.is_some() => {
-                let Some(cwd) = self.state.pending_workspace_create_cwd.take() else {
+            Mode::RenameWorkspace if self.state.pending_workspace_create_location.is_some() => {
+                let Some(location) = self.state.pending_workspace_create_location.take() else {
                     return;
                 };
-                let suggested_name = crate::workspace::derive_label_from_cwd(&cwd);
+                let suggested_name = crate::workspace::derive_label_from_location(&location);
                 self.dispatch_runtime_mutation(
                     "tui.workspace.create_named",
                     crate::api::schema::Method::WorkspaceCreate(
                         crate::api::schema::WorkspaceCreateParams {
-                            cwd: Some(cwd.display().to_string()),
+                            cwd: None,
+                            location: Some((&location).into()),
                             focus: true,
                             label: crate::app::creation::workspace_create_label(
                                 &new_name,
@@ -908,6 +923,7 @@ impl crate::app::App {
                             crate::api::schema::TabCreateParams {
                                 workspace_id: Some(workspace_id),
                                 cwd: None,
+                                location: None,
                                 focus: true,
                                 label: (!new_name.is_empty()).then_some(new_name),
                                 env: Default::default(),
@@ -964,7 +980,7 @@ impl crate::app::App {
         self.state.rename_group_target = None;
         self.state.rename_pane_target = None;
         self.state.requested_new_tab_name = None;
-        self.state.pending_workspace_create_cwd = None;
+        self.state.pending_workspace_create_location = None;
         self.state.requested_new_workspace_name = None;
         self.state.name_input.clear();
         self.state.name_input_replace_on_type = false;
@@ -980,7 +996,7 @@ fn clear_rename_input(state: &mut AppState) {
 fn active_rename_text_mut(state: &mut AppState) -> &mut String {
     if state.mode == Mode::RenameGroup
         && state.creating_new_group
-        && state.group_modal_selected_field == 1
+        && state.group_modal_selected_field == 2
     {
         &mut state.group_default_directory_input
     } else {
@@ -991,7 +1007,7 @@ fn active_rename_text_mut(state: &mut AppState) -> &mut String {
 fn rename_primary_input_selected(state: &AppState) -> bool {
     !(state.mode == Mode::RenameGroup
         && state.creating_new_group
-        && state.group_modal_selected_field == 1)
+        && state.group_modal_selected_field == 2)
 }
 
 pub(crate) fn insert_rename_input_text(state: &mut AppState, text: &str) {
@@ -1059,12 +1075,32 @@ pub(crate) fn handle_rename_key(state: &mut AppState, key: KeyEvent) {
                 && state.creating_new_group
                 && !key.modifiers.contains(KeyModifiers::SHIFT) =>
         {
-            state.group_modal_selected_field = (state.group_modal_selected_field + 1) % 2;
+            state.group_modal_selected_field = (state.group_modal_selected_field + 1) % 3;
             state.name_input_replace_on_type = false;
         }
         KeyCode::BackTab if state.mode == Mode::RenameGroup && state.creating_new_group => {
-            state.group_modal_selected_field = (state.group_modal_selected_field + 1) % 2;
+            state.group_modal_selected_field = (state.group_modal_selected_field + 2) % 3;
             state.name_input_replace_on_type = false;
+        }
+        KeyCode::Char(' ')
+            if state.mode == Mode::RenameGroup
+                && state.creating_new_group
+                && state.group_modal_selected_field == 1 =>
+        {
+            let mut hosts = vec![crate::execution_host::ExecutionHostId::local()];
+            hosts.extend(
+                state
+                    .ssh_connection_profiles
+                    .iter()
+                    .map(|profile| profile.execution_host_id()),
+            );
+            let next = hosts
+                .iter()
+                .position(|host| host == &state.group_default_execution_host_id)
+                .map_or(0, |index| (index + 1) % hosts.len());
+            if let Some(host) = hosts.get(next) {
+                state.group_default_execution_host_id = host.clone();
+            }
         }
         KeyCode::Char('u') if key.modifiers.contains(KeyModifiers::CONTROL) => {
             active_rename_text_mut(state).clear();
@@ -1889,29 +1925,56 @@ mod tests {
     }
 
     #[test]
-    fn saving_new_group_dialog_stores_optional_default_directory() {
+    fn new_group_dialog_selects_ssh_default_location_atomically() {
         let mut state = state_with_workspaces(&["test"]);
+        let profile = crate::persist::ssh_profiles::SshConnectionProfile::new(
+            "workbox",
+            "Work box",
+            "alice@workbox",
+            Some(crate::execution_host::HostPath::new("/srv/work").expect("valid path")),
+        )
+        .expect("valid profile");
+        let host_id = profile.execution_host_id();
+        state.ssh_connection_profiles.push(profile);
         open_new_group_dialog(&mut state);
         state.name_input = "client".into();
         state.name_input_replace_on_type = false;
-        state.group_default_directory_input = "/tmp/client".into();
 
+        handle_rename_key(
+            &mut state,
+            KeyEvent::new(KeyCode::Tab, KeyModifiers::empty()),
+        );
+        handle_rename_key(
+            &mut state,
+            KeyEvent::new(KeyCode::Char(' '), KeyModifiers::empty()),
+        );
+        handle_rename_key(
+            &mut state,
+            KeyEvent::new(KeyCode::Tab, KeyModifiers::empty()),
+        );
+        state.group_default_directory_input = "/srv/client".into();
         handle_rename_key(
             &mut state,
             KeyEvent::new(KeyCode::Enter, KeyModifiers::empty()),
         );
 
-        assert_eq!(state.groups[1].name, "client");
-        assert_eq!(
-            state.groups[1].default_directory.as_deref(),
-            Some(std::path::Path::new("/tmp/client"))
-        );
+        let location = state.groups[1]
+            .default_location
+            .as_ref()
+            .expect("group default should be saved");
+        assert_eq!(location.execution_host_id, host_id);
+        assert_eq!(location.path.as_path(), std::path::Path::new("/srv/client"));
     }
 
     #[test]
-    fn new_group_dialog_tabs_between_name_and_default_directory() {
+    fn new_group_dialog_tabs_across_name_host_and_directory() {
         let mut state = state_with_workspaces(&["test"]);
         open_new_group_dialog(&mut state);
+        handle_rename_key(
+            &mut state,
+            KeyEvent::new(KeyCode::Tab, KeyModifiers::empty()),
+        );
+        assert_eq!(state.group_modal_selected_field, 1);
         handle_rename_key(
             &mut state,
             KeyEvent::new(KeyCode::Tab, KeyModifiers::empty()),
@@ -1921,7 +1984,7 @@ mod tests {
             KeyEvent::new(KeyCode::Char('/'), KeyModifiers::empty()),
         );
 
-        assert_eq!(state.group_modal_selected_field, 1);
+        assert_eq!(state.group_modal_selected_field, 2);
         assert_eq!(state.group_default_directory_input, "/");
         assert_eq!(state.name_input, "group 2");
     }

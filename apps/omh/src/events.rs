@@ -17,6 +17,10 @@ pub enum AppEvent {
         pane_id: PaneId,
         child_pid: u32,
         exit_success: bool,
+        /// Present when the process exited with a normal status code.
+        exit_code: Option<i32>,
+        /// Present when the process was terminated by a signal.
+        exit_signal: Option<i32>,
     },
     /// Fallback detector state changed in a pane.
     StateChanged {
@@ -94,9 +98,20 @@ pub enum AppEvent {
         updated: Vec<crate::detect::manifest_update::ManifestUpdateCommit>,
         status: crate::detect::manifest_update::ManifestUpdateStatus,
     },
-    /// A pane child emitted a valid OSC 52 clipboard write. The main loop
-    /// re-emits it through Oh My Herdr's own clipboard writer.
+    /// A user interaction requested a write to the invoking rendering client's clipboard.
     ClipboardWrite { content: Vec<u8> },
+    /// A pane emitted a valid OSC 52 clipboard write.
+    TerminalClipboardWrite { pane_id: PaneId, content: Vec<u8> },
+    /// An execution host finished staging a private temporary file.
+    ExecutionFileStaged {
+        host_id: crate::execution_host::ExecutionHostId,
+        request_id: crate::execution_host::protocol::RequestId,
+        location: crate::execution_host::ResourceLocation,
+        result:
+            Result<crate::execution_host::HostPath, crate::execution_host::protocol::WorkerError>,
+    },
+    /// A terminal hyperlink requested opening on its rendering client's host.
+    OpenUrl { pane_id: PaneId, url: String },
     /// Prefix-mode ASCII input-source intent. The foreground client applies
     /// the host-local switch in server mode; the monolithic app applies it
     /// in-process.
@@ -104,7 +119,7 @@ pub enum AppEvent {
     /// Background git status refresh completed for workspaces.
     GitStatusRefreshed {
         results: Vec<WorkspaceGitStatus>,
-        cache_updates: Vec<(std::path::PathBuf, GitStatusCacheEntry)>,
+        cache_updates: Vec<(crate::execution_host::ResourceLocation, GitStatusCacheEntry)>,
         repo_summaries: Vec<(std::path::PathBuf, crate::workspace::GitWorkSummary)>,
     },
     /// A plugin action or event command finished.
@@ -115,5 +130,19 @@ pub enum AppEvent {
         stdout: String,
         stderr: String,
         error: Option<String>,
+    },
+    /// Background probe completed and is ready for explicit setup confirmation.
+    WorkerInstallPreviewed {
+        /// Client view that initiated the preview; completion must not cross owners.
+        authentication_owner: crate::execution_host::auth::AuthenticationOwner,
+        profile_id: String,
+        result: Result<crate::remote::WorkerInstallPreview, String>,
+    },
+    /// Explicitly approved worker setup completed.
+    WorkerInstalled {
+        /// Client view that initiated the install; completion must not cross owners.
+        authentication_owner: crate::execution_host::auth::AuthenticationOwner,
+        profile_id: String,
+        result: Result<crate::remote::WorkerInstallReport, String>,
     },
 }

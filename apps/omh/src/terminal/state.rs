@@ -120,6 +120,7 @@ pub struct TerminalStateMutation {
 pub struct TerminalState {
     pub id: TerminalId,
     pub cwd: PathBuf,
+    pub location: crate::execution_host::ResourceLocation,
     pub detected_agent: Option<Agent>,
     pub fallback_state: AgentState,
     fallback_visible_blocker: bool,
@@ -139,6 +140,7 @@ pub struct TerminalState {
     pub launch_argv: Option<Vec<String>>,
     pub launch_env: Vec<(String, String)>,
     pub respawn_shell_on_exit: bool,
+    pub remote_runtime_identity: Option<crate::execution_host::protocol::RuntimeIdentity>,
     recent_agent_process_exit_at: Option<Instant>,
     pub pending_agent_resume_plan: Option<crate::agent_resume::AgentResumePlan>,
     last_meaningful_agent_activity_seq: u64,
@@ -148,9 +150,25 @@ pub struct TerminalState {
 
 impl TerminalState {
     pub fn new(id: TerminalId, cwd: PathBuf) -> Self {
+        let path = crate::execution_host::HostPath::new(cwd.clone()).unwrap_or_default();
+        Self::new_at(
+            id,
+            crate::execution_host::ResourceLocation::new(
+                crate::execution_host::ExecutionHostId::local(),
+                path,
+            ),
+        )
+    }
+
+    pub(crate) fn new_at(
+        id: TerminalId,
+        location: crate::execution_host::ResourceLocation,
+    ) -> Self {
+        let cwd = location.path.as_path().to_path_buf();
         Self {
             id,
             cwd,
+            location,
             detected_agent: None,
             fallback_state: AgentState::Unknown,
             fallback_visible_blocker: false,
@@ -169,6 +187,7 @@ impl TerminalState {
             revision: 0,
             launch_argv: None,
             launch_env: Vec::new(),
+            remote_runtime_identity: None,
             recent_agent_process_exit_at: None,
             respawn_shell_on_exit: false,
             pending_agent_resume_plan: None,

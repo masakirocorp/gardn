@@ -46,7 +46,7 @@ The active socket path is reported by `omh status --json`.
 
 ## Trust model
 
-The Local API has no network listener, bearer token, or per-method authorization layer. On Unix, Oh My Herdr creates the socket with mode `0600`. Any process that can connect acts with the user's Oh My Herdr authority and can read terminal content, send input, start processes, change workspace state, or stop the server.
+The Local API has no network listener, bearer token, or per-method authorization layer. On Unix, Oh My Herdr creates the socket with mode `0600`. Any process that can connect acts with the user's Oh My Herdr authority and can read terminal content, send input, start local or SSH-hosted processes, manage SSH connection profiles, change workspace state, or stop the server.
 
 Treat the socket path and access to the local user account as security-sensitive. Do not forward the socket to another machine, expose it through a web server, or give untrusted plugins or subprocesses access unless they should receive the same authority.
 
@@ -64,7 +64,7 @@ Start with the authored method guides for behavior, defaults, side effects, erro
 
 - [Sessions, workspaces, groups, and tabs](/docs/api/reference/resources)
 - [Panes and agents](/docs/api/reference/panes-and-agents)
-- [Extensions, integrations, server control, and subscriptions](/docs/api/reference/extensions-and-control)
+- [Execution-host connections, extensions, integrations, server control, and subscriptions](/docs/api/reference/extensions-and-control)
 
 Use the generated pages for exhaustive wire shapes from the current binary:
 

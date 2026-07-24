@@ -341,33 +341,45 @@ impl App {
         &mut self,
         view: &mut crate::app::ClientViewState,
         id: String,
-        params: PluginPaneOpenParams,
-    ) -> String {
+        mut params: PluginPaneOpenParams,
+    ) -> crate::api::ApiRequestDisposition {
         if let Err(err) = self.refresh_installed_plugins() {
-            return encode_error(id, "plugin_registry_load_failed", err.to_string());
+            return crate::api::ApiRequestDisposition::Respond(encode_error(
+                id,
+                "plugin_registry_load_failed",
+                err.to_string(),
+            ));
         }
         let Some(plugin_id) = normalize_plugin_id(&params.plugin_id) else {
-            return invalid_plugin_id(id);
+            return crate::api::ApiRequestDisposition::Respond(invalid_plugin_id(id));
         };
         let Some(plugin) = self.state.installed_plugins.get(&plugin_id).cloned() else {
-            return encode_error(id, "plugin_not_found", "plugin not found");
+            return crate::api::ApiRequestDisposition::Respond(encode_error(
+                id,
+                "plugin_not_found",
+                "plugin not found",
+            ));
         };
         if !plugin_manifest_available(&plugin) {
-            return encode_error(
+            return crate::api::ApiRequestDisposition::Respond(encode_error(
                 id,
                 "plugin_manifest_unavailable",
                 format!("plugin {plugin_id} manifest is unavailable"),
-            );
+            ));
         }
         if !plugin.enabled {
-            return encode_error(
+            return crate::api::ApiRequestDisposition::Respond(encode_error(
                 id,
                 "plugin_disabled",
                 format!("plugin {plugin_id} is disabled"),
-            );
+            ));
         }
         let Some(entrypoint) = normalize_action_id(&params.entrypoint) else {
-            return encode_error(id, "invalid_plugin_entrypoint", "invalid entrypoint id");
+            return crate::api::ApiRequestDisposition::Respond(encode_error(
+                id,
+                "invalid_plugin_entrypoint",
+                "invalid entrypoint id",
+            ));
         };
         let Some(pane) = plugin
             .panes
@@ -375,94 +387,17 @@ impl App {
             .find(|pane| pane.id == entrypoint)
             .cloned()
         else {
-            return encode_error(
+            return crate::api::ApiRequestDisposition::Respond(encode_error(
                 id,
                 "plugin_pane_not_found",
                 format!("plugin pane entrypoint '{entrypoint}' not found"),
-            );
+            ));
         };
         if let Err((code, message)) = ensure_platform_supported(
             effective_platforms(&pane.platforms, &plugin.platforms),
             "plugin pane",
         ) {
-            return encode_error(id, code, message);
-        }
-        let placement = params.placement.unwrap_or(pane.placement);
-        if placement != PluginPanePlacement::Overlay {
-            return self.handle_plugin_pane_open_legacy(id, params);
-        }
-        if params.workspace_id.is_some()
-            || params.target_pane_id.is_some()
-            || params.direction.is_some()
-        {
-            return encode_error(
-                id,
-                "invalid_params",
-                "overlay plugin panes target the active pane",
-            );
-        }
-        self.open_plugin_popup_pane_for_view(view, id, params, &plugin, pane)
-    }
-
-    pub(super) fn handle_plugin_pane_open(
-        &mut self,
-        id: String,
-        params: PluginPaneOpenParams,
-    ) -> String {
-        let mut view = self.default_client_view.clone_reconciled(&self.state);
-        let response = self.handle_plugin_pane_open_for_view(&mut view, id, params);
-        self.default_client_view = view;
-        response
-    }
-
-    pub(super) fn handle_plugin_pane_open_legacy(
-        &mut self,
-        id: String,
-        params: PluginPaneOpenParams,
-    ) -> String {
-        if let Err(err) = self.refresh_installed_plugins() {
-            return encode_error(id, "plugin_registry_load_failed", err.to_string());
-        }
-        let Some(plugin_id) = normalize_plugin_id(&params.plugin_id) else {
-            return invalid_plugin_id(id);
-        };
-        let Some(plugin) = self.state.installed_plugins.get(&plugin_id).cloned() else {
-            return encode_error(id, "plugin_not_found", "plugin not found");
-        };
-        if !plugin_manifest_available(&plugin) {
-            return encode_error(
-                id,
-                "plugin_manifest_unavailable",
-                format!("plugin {plugin_id} manifest is unavailable"),
-            );
-        }
-        if !plugin.enabled {
-            return encode_error(
-                id,
-                "plugin_disabled",
-                format!("plugin {plugin_id} is disabled"),
-            );
-        }
-        let Some(entrypoint) = normalize_action_id(&params.entrypoint) else {
-            return encode_error(id, "invalid_plugin_entrypoint", "invalid entrypoint id");
-        };
-        let Some(pane) = plugin
-            .panes
-            .iter()
-            .find(|pane| pane.id == entrypoint)
-            .cloned()
-        else {
-            return encode_error(
-                id,
-                "plugin_pane_not_found",
-                format!("plugin pane entrypoint '{entrypoint}' not found"),
-            );
-        };
-        if let Err((code, message)) = ensure_platform_supported(
-            effective_platforms(&pane.platforms, &plugin.platforms),
-            "plugin pane",
-        ) {
-            return encode_error(id, code, message);
+            return crate::api::ApiRequestDisposition::Respond(encode_error(id, code, message));
         }
         let placement = params.placement.unwrap_or(pane.placement);
         match placement {
@@ -471,42 +406,89 @@ impl App {
                     || params.target_pane_id.is_some()
                     || params.direction.is_some()
                 {
-                    return encode_error(
+                    return crate::api::ApiRequestDisposition::Respond(encode_error(
                         id,
                         "invalid_params",
                         "overlay plugin panes target the active pane",
-                    );
+                    ));
                 }
             }
             PluginPanePlacement::Split | PluginPanePlacement::Zoomed => {
                 if params.workspace_id.is_some() {
-                    return encode_error(
+                    return crate::api::ApiRequestDisposition::Respond(encode_error(
                         id,
                         "invalid_params",
                         "split and zoomed plugin panes target an existing pane; use target_pane_id",
-                    );
+                    ));
+                }
+                if params.target_pane_id.is_none() {
+                    let Some(ws_idx) = view.active_workspace else {
+                        return crate::api::ApiRequestDisposition::Respond(encode_error(
+                            id,
+                            "no_active_workspace",
+                            "no active workspace",
+                        ));
+                    };
+                    let Some((_, pane_id)) = view.focused_pane_for_workspace(&self.state, ws_idx)
+                    else {
+                        return crate::api::ApiRequestDisposition::Respond(encode_error(
+                            id,
+                            "no_active_pane",
+                            "no active pane",
+                        ));
+                    };
+                    params.target_pane_id = self.public_pane_id(ws_idx, pane_id);
                 }
             }
             PluginPanePlacement::Tab => {
                 if params.target_pane_id.is_some() || params.direction.is_some() {
-                    return encode_error(
+                    return crate::api::ApiRequestDisposition::Respond(encode_error(
                         id,
                         "invalid_params",
                         "tab plugin panes support workspace_id but not target_pane_id or direction",
-                    );
+                    ));
+                }
+                if params.workspace_id.is_none() {
+                    let Some(ws_idx) = view.active_workspace else {
+                        return crate::api::ApiRequestDisposition::Respond(encode_error(
+                            id,
+                            "no_active_workspace",
+                            "no active workspace",
+                        ));
+                    };
+                    params.workspace_id = Some(self.public_workspace_id(ws_idx));
                 }
             }
         }
+        let location = match self.plugin_pane_target_location_for_view(view, placement, &params) {
+            Ok(location) => location,
+            Err((code, message)) => {
+                return crate::api::ApiRequestDisposition::Respond(encode_error(id, &code, message))
+            }
+        };
 
         match placement {
             PluginPanePlacement::Overlay => {
-                self.open_plugin_overlay_pane(id, params, &plugin, pane)
+                self.open_plugin_popup_pane_for_view(view, id, params, &plugin, pane, location)
             }
             PluginPanePlacement::Split | PluginPanePlacement::Zoomed => {
-                self.open_plugin_split_pane(id, params, &plugin, pane, placement)
+                self.open_plugin_split_pane(view, id, params, &plugin, pane, placement, location)
             }
-            PluginPanePlacement::Tab => self.open_plugin_tab(id, params, &plugin, pane),
+            PluginPanePlacement::Tab => {
+                self.open_plugin_tab(view, id, params, &plugin, pane, location)
+            }
         }
+    }
+
+    pub(super) fn handle_plugin_pane_open(
+        &mut self,
+        id: String,
+        params: PluginPaneOpenParams,
+    ) -> crate::api::ApiRequestDisposition {
+        let mut view = self.default_client_view.clone_reconciled(&self.state);
+        let disposition = self.handle_plugin_pane_open_for_view(&mut view, id, params);
+        self.default_client_view = view;
+        disposition
     }
 
     pub(super) fn handle_plugin_pane_focus(
@@ -1622,6 +1604,251 @@ command = ["echo", " a", "first "]
         });
         let value: serde_json::Value = serde_json::from_str(&response).unwrap();
         assert_eq!(value["error"]["code"], "plugin_not_found");
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn remote_plugin_pane_rejects_before_create_without_project_fallback() {
+        let mut app = test_app();
+        let workspace = crate::workspace::Workspace::test_new("remote-plugin-target");
+        let root_pane = workspace.tabs[0].root_pane;
+        let source_terminal_id = workspace
+            .terminal_id(root_pane)
+            .cloned()
+            .expect("test workspace should have a terminal");
+        app.state.workspaces = vec![workspace];
+        app.state.ensure_test_terminals();
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = crate::app::Mode::Terminal;
+        let host_id = crate::execution_host::ExecutionHostId::new("ssh:workbox")
+            .expect("test host id should be valid");
+        let location = crate::execution_host::ResourceLocation::new(
+            host_id.clone(),
+            crate::execution_host::HostPath::new("/srv/plugin-target")
+                .expect("test host path should be valid"),
+        );
+        app.state
+            .terminals
+            .get_mut(&source_terminal_id)
+            .expect("test terminal state should exist")
+            .location = location;
+
+        let messages = app
+            .execution_hosts
+            .as_mut()
+            .expect("execution hosts should exist")
+            .connect_test_host(host_id);
+
+        // Relative scripts that must never execute from the remote project cwd.
+        for (label, script, command) in [
+            (
+                "bun",
+                "bootstrap.ts",
+                r#"command = ["bun", "run", "bootstrap.ts"]"#,
+            ),
+            ("node", "toggle.mjs", r#"command = ["node", "toggle.mjs"]"#),
+            ("lua", "setup.lua", r#"command = ["lua", "setup.lua"]"#),
+            ("bash", "open.sh", r#"command = ["bash", "open.sh"]"#),
+        ] {
+            let root = unique_temp_path(&format!("plugin-remote-{label}"));
+            write_manifest_content(
+                &root,
+                &format!(
+                    r#"
+id = "example.remote-{label}"
+name = "Remote {label}"
+version = "0.1.0"
+min_omh_version = "0.2.0"
+
+[[panes]]
+id = "board"
+title = "Plugin Board"
+{command}
+"#
+                ),
+            );
+            std::fs::write(root.join(script), b"should-not-run-remotely").unwrap();
+            link_manifest(&mut app, &root);
+
+            let mut view = app.default_client_view.clone_reconciled(&app.state);
+            let disposition = app.handle_plugin_pane_open_for_view(
+                &mut view,
+                format!("remote-{label}"),
+                PluginPaneOpenParams {
+                    plugin_id: format!("example.remote-{label}"),
+                    entrypoint: "board".into(),
+                    placement: Some(PluginPanePlacement::Overlay),
+                    workspace_id: None,
+                    target_pane_id: None,
+                    direction: None,
+                    cwd: None,
+                    focus: true,
+                    env: std::collections::HashMap::new(),
+                },
+            );
+            let response = match disposition {
+                crate::api::ApiRequestDisposition::Respond(response) => response,
+                other => panic!("{label}: expected unsupported host respond, got {other:?}"),
+            };
+            let value: serde_json::Value = serde_json::from_str(&response).unwrap();
+            assert_eq!(
+                value["error"]["code"], "unsupported_execution_host",
+                "{label}"
+            );
+            assert!(
+                value["error"]["message"]
+                    .as_str()
+                    .unwrap_or("")
+                    .contains("cannot run on remote"),
+                "{label}: {}",
+                value["error"]["message"]
+            );
+            let _ = std::fs::remove_dir_all(root);
+        }
+
+        let locked = match messages.lock() {
+            Ok(messages) => messages.clone(),
+            Err(poisoned) => poisoned.into_inner().clone(),
+        };
+        assert!(
+            locked.is_empty(),
+            "must not CreateTerminal against remote project cwd: {locked:?}"
+        );
+        assert!(app.pending_remote_creations.is_empty());
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn remote_plugin_popup_split_and_tab_share_unsupported_host_rejection() {
+        let mut app = test_app();
+        let workspace = crate::workspace::Workspace::test_new("remote-plugin-shared-resolver");
+        let root_pane = workspace.tabs[0].root_pane;
+        let source_terminal_id = workspace
+            .terminal_id(root_pane)
+            .cloned()
+            .expect("test workspace should have a terminal");
+        app.state.workspaces = vec![workspace];
+        app.state.ensure_test_terminals();
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = crate::app::Mode::Terminal;
+        let host_id = crate::execution_host::ExecutionHostId::new("ssh:plugin-shared-resolver")
+            .expect("test host id should be valid");
+        let location = crate::execution_host::ResourceLocation::new(
+            host_id.clone(),
+            crate::execution_host::HostPath::new("/srv/plugin-shared")
+                .expect("test host path should be valid"),
+        );
+        {
+            let terminal = app
+                .state
+                .terminals
+                .get_mut(&source_terminal_id)
+                .expect("test terminal state should exist");
+            terminal.location = location;
+            terminal.cwd = std::path::PathBuf::from("/srv/plugin-shared");
+        }
+        let messages = app
+            .execution_hosts
+            .as_mut()
+            .expect("execution hosts should exist")
+            .connect_test_host(host_id);
+
+        let root = unique_temp_path("plugin-remote-shared-resolver");
+        write_manifest_content(
+            &root,
+            r#"
+id = "example.remote-shared-resolver"
+name = "Remote Shared Resolver"
+version = "0.1.0"
+min_omh_version = "0.2.0"
+
+[[panes]]
+id = "board"
+title = "Plugin Board"
+placement = "split"
+command = ["bun", "run", "board.ts"]
+
+[[panes]]
+id = "overlay-board"
+title = "Overlay Board"
+placement = "overlay"
+command = ["node", "board.ts"]
+
+[[panes]]
+id = "tab-board"
+title = "Tab Board"
+placement = "tab"
+command = ["bash", "open.sh"]
+"#,
+        );
+        std::fs::write(root.join("board.ts"), b"export {}").unwrap();
+        std::fs::write(root.join("open.sh"), b"#!/bin/sh\necho hi\n").unwrap();
+        link_manifest(&mut app, &root);
+        let public_pane_id = app.public_pane_id(0, root_pane).unwrap();
+
+        let mut view = crate::app::ClientViewState::from_default_client_state(&app.state);
+        view.active_workspace = Some(0);
+
+        for (entrypoint, placement, target_pane_id, workspace_id) in [
+            (
+                "overlay-board",
+                PluginPanePlacement::Overlay,
+                None::<String>,
+                None::<String>,
+            ),
+            (
+                "board",
+                PluginPanePlacement::Split,
+                Some(public_pane_id.clone()),
+                None,
+            ),
+            (
+                "tab-board",
+                PluginPanePlacement::Tab,
+                None,
+                Some("1".to_string()),
+            ),
+        ] {
+            let disposition = app.handle_plugin_pane_open_for_view(
+                &mut view,
+                format!("remote-{entrypoint}"),
+                PluginPaneOpenParams {
+                    plugin_id: "example.remote-shared-resolver".into(),
+                    entrypoint: entrypoint.into(),
+                    placement: Some(placement),
+                    workspace_id,
+                    target_pane_id,
+                    direction: (placement == PluginPanePlacement::Split)
+                        .then_some(crate::api::schema::SplitDirection::Right),
+                    cwd: None,
+                    focus: true,
+                    env: std::collections::HashMap::new(),
+                },
+            );
+            let response = match disposition {
+                crate::api::ApiRequestDisposition::Respond(response) => response,
+                other => panic!("{entrypoint}: expected unsupported host, got {other:?}"),
+            };
+            let value: serde_json::Value = serde_json::from_str(&response).unwrap();
+            assert_eq!(
+                value["error"]["code"], "unsupported_execution_host",
+                "{entrypoint}"
+            );
+        }
+
+        let locked = match messages.lock() {
+            Ok(messages) => messages.clone(),
+            Err(poisoned) => poisoned.into_inner().clone(),
+        };
+        assert!(
+            locked.is_empty(),
+            "popup/split/tab must not CreateTerminal on remote: {locked:?}"
+        );
+        assert!(app.pending_remote_creations.is_empty());
+        assert!(view.pending_popup_pane.is_none());
+        assert!(view.pending_focused_panes.is_empty());
+
+        let _ = std::fs::remove_dir_all(root);
     }
 
     #[cfg(unix)]
@@ -2753,7 +2980,8 @@ action = "missing"
         let mut app = test_app();
         app.state.workspaces = vec![crate::workspace::Workspace::test_new("issue")];
         app.state.workspaces[0].identity_cwd = "/tmp/issue".into();
-        app.state.workspaces[0].default_cwd = "/tmp/issue".into();
+        app.state.workspaces[0].default_location =
+            crate::execution_host::ResourceLocation::local("/tmp/issue").unwrap();
         app.state.ensure_test_terminals();
         app.state.active = Some(0);
         app.state.selected = 0;
@@ -3088,6 +3316,8 @@ command = ["sh", "-c", "echo ok"]
             pane_id,
             child_pid: 0,
             exit_success: true,
+            exit_code: None,
+            exit_signal: None,
         });
 
         assert!(!app.state.plugin_panes.contains_key(&pane_id));

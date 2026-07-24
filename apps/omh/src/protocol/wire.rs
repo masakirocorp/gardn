@@ -582,6 +582,13 @@ pub enum NotifyKind {
     SystemToast,
 }
 
+/// Error category for a client-host effect requested through the coordinator.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ClientEffectErrorCode {
+    Unsupported,
+    Failed,
+}
+
 /// Messages sent from the server to the client over the client protocol socket.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ServerMessage {
@@ -646,6 +653,15 @@ pub enum ServerMessage {
     /// Apply the prefix-mode ASCII input-source change on the foreground client.
     /// `active = true` switches to an ASCII-capable source; `false` restores it.
     PrefixInputSource { active: bool },
+
+    /// Open a URL on this rendering client's host.
+    OpenUrl { url: String },
+
+    /// A requested client effect could not be completed.
+    ClientEffectError {
+        code: ClientEffectErrorCode,
+        message: String,
+    },
 }
 
 // ---------------------------------------------------------------------------
@@ -1331,6 +1347,25 @@ mod tests {
                 bincode::serde::decode_from_slice(&encoded, bincode::config::standard()).unwrap();
             assert_eq!(msg, decoded);
         }
+    }
+
+    #[test]
+    fn server_rendering_client_effects_roundtrip() {
+        assert_bincode_bytes(
+            &ServerMessage::OpenUrl {
+                url: "https://x".to_owned(),
+            },
+            &[
+                0x0b, 0x09, b'h', b't', b't', b'p', b's', b':', b'/', b'/', b'x',
+            ],
+        );
+        assert_bincode_bytes(
+            &ServerMessage::ClientEffectError {
+                code: ClientEffectErrorCode::Unsupported,
+                message: "no".to_owned(),
+            },
+            &[0x0c, 0x00, 0x02, b'n', b'o'],
+        );
     }
 
     #[test]

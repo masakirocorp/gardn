@@ -415,7 +415,7 @@ fn restore_workspace(
                     custom_name: snap.custom_name.clone(),
                     group_id: snap.group_id.clone(),
                     identity_cwd: snap.identity_cwd.clone(),
-                    default_cwd: snap.default_cwd.clone(),
+                    default_location: snap.default_location.clone(),
                     cached_git_branch: None,
                     cached_git_ahead_behind: None,
                     cached_git_work_summary: None,
@@ -440,7 +440,7 @@ fn restore_workspace(
             custom_name: snap.custom_name.clone(),
             group_id: snap.group_id.clone(),
             identity_cwd: snap.identity_cwd.clone(),
-            default_cwd: snap.default_cwd.clone(),
+            default_location: snap.default_location.clone(),
             cached_git_branch: None,
             cached_git_ahead_behind: None,
             cached_git_work_summary: None,
@@ -484,10 +484,17 @@ fn restore_tab(
         let old_id = reverse_id_map.get(id);
         let saved_pane = old_id.and_then(|old_id| snap.panes.get(old_id));
         let saved_cwd = saved_pane
-            .map(|p| p.cwd.clone())
+            .map(|pane| pane.cwd.clone())
             .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| "/".into()));
-
-        let cwd = if saved_cwd.exists() {
+        let location = saved_pane
+            .and_then(|pane| pane.location.clone())
+            .unwrap_or_else(|| {
+                crate::execution_host::ResourceLocation::new(
+                    crate::execution_host::ExecutionHostId::local(),
+                    crate::execution_host::HostPath::new(saved_cwd.clone()).unwrap_or_default(),
+                )
+            });
+        let cwd = if !location.is_local() || saved_cwd.exists() {
             saved_cwd
         } else {
             warn!(
@@ -524,6 +531,7 @@ fn restore_tab(
                 saved_history,
                 saved_launch_argv.as_deref(),
                 &saved_launch_env,
+                &location.execution_host_id,
                 &mut agent_restore,
             )
         };
@@ -544,6 +552,37 @@ fn restore_tab(
                 )
             })
             .unwrap_or_default();
+
+        if !location.is_local() {
+            let terminal_id = TerminalId::alloc();
+            let mut terminal = TerminalState::new_at(terminal_id.clone(), location);
+            terminal.remote_runtime_identity =
+                saved_pane.and_then(|pane| pane.remote_runtime_identity.clone());
+            if let Some(argv) = saved_launch_argv {
+                terminal = terminal.with_launch_argv(argv);
+            }
+            if !saved_launch_env.is_empty() {
+                terminal = terminal.with_launch_env(saved_launch_env);
+            }
+            if let Some(label) = saved_label {
+                terminal.set_manual_label(label);
+            }
+            if let Some(agent_name) = saved_agent_name {
+                terminal.set_agent_name(agent_name);
+            }
+            if let Some(semantics) = saved_terminal_semantics {
+                terminal.restore_semantic_snapshot(semantics);
+            }
+            if let Some(session) = restored_terminal_agent_session(saved_agent_session, false) {
+                terminal.set_persisted_agent_session(session);
+            }
+            let mut pane = PaneState::new_with_env_pane_id(terminal_id, *id);
+            pane.env_pane_id_raw = saved_env_pane_id;
+            pane.seen = saved_seen;
+            panes.insert(*id, pane);
+            terminals.push(terminal);
+            continue;
+        }
         let imported_runtime = old_pane_id.and_then(|old_id| imported_panes.remove(&old_id));
         let was_imported = imported_runtime.is_some();
         let pending_native_agent_restore = if was_imported {
@@ -555,8 +594,9 @@ fn restore_tab(
             let restored_launch_argv = plan.preserved_launch_argv.clone();
             let restored_launch_env = plan.env.clone();
             let terminal_id = TerminalId::alloc();
-            let mut terminal = TerminalState::new(terminal_id.clone(), cwd.clone())
-                .with_pending_agent_resume_plan(plan);
+            let mut terminal =
+                terminal_state_for_restore(terminal_id.clone(), location.clone(), cwd.clone())
+                    .with_pending_agent_resume_plan(plan);
             if let Some(argv) = restored_launch_argv {
                 terminal = terminal.with_launch_argv(argv);
             }
@@ -655,7 +695,8 @@ fn restore_tab(
         match runtime_result {
             Ok(runtime) => {
                 let terminal_id = TerminalId::alloc();
-                let mut terminal = TerminalState::new(terminal_id.clone(), cwd.clone());
+                let mut terminal =
+                    terminal_state_for_restore(terminal_id.clone(), location.clone(), cwd.clone());
                 if was_imported {
                     terminal = apply_imported_launch_context(
                         terminal,
@@ -775,11 +816,22 @@ fn restore_tab(
     )
 }
 
+fn terminal_state_for_restore(
+    terminal_id: TerminalId,
+    location: crate::execution_host::ResourceLocation,
+    cwd: PathBuf,
+) -> TerminalState {
+    let mut terminal = TerminalState::new_at(terminal_id, location);
+    terminal.cwd = cwd;
+    terminal
+}
+
 fn pane_restore_startup<'a>(
     session: Option<&PaneAgentSessionSnapshot>,
     history: Option<&'a PaneHistorySnapshot>,
     launch_argv: Option<&[String]>,
     launch_env: &[(String, String)],
+    execution_host_id: &crate::execution_host::ExecutionHostId,
     agent_restore: &mut AgentRestoreState<'_>,
 ) -> PaneRestoreStartup<'a> {
     // Native agent resume owns the conversation history. If a pane has a
@@ -795,11 +847,10 @@ fn pane_restore_startup<'a>(
     // back if runtime spawn fails before any agent process is started.
     let mut reserved_agent_session = None;
     let duplicate_agent_session = restore_plan.as_ref().is_some_and(|plan| {
-        if agent_restore
-            .resumed_sessions
-            .insert(plan.dedupe_key.clone())
-        {
-            reserved_agent_session = Some(plan.dedupe_key.clone());
+        let key =
+            crate::agent_resume::host_qualified_resume_key(execution_host_id, &plan.dedupe_key);
+        if agent_restore.resumed_sessions.insert(key.clone()) {
+            reserved_agent_session = Some(key);
             false
         } else {
             true
@@ -1027,12 +1078,14 @@ mod tests {
         let cwd = std::env::current_dir().unwrap_or_else(|_| "/".into());
         let snapshot = SessionSnapshot {
             version: super::super::snapshot::SNAPSHOT_VERSION,
+            session_namespace_id: "session-test".to_string(),
+            remote_termination_tombstones: Vec::new(),
             groups: vec![super::super::snapshot::GroupSnapshot {
                 id: crate::workspace::DEFAULT_GROUP_ID.to_string(),
                 name: "group 1".to_string(),
                 icon: crate::app::state::DEFAULT_GROUP_ICON.to_string(),
                 accent: None,
-                default_directory: None,
+                default_location: None,
                 favorite_agent_profile_ids: Vec::new(),
                 default_agent_profile_id: None,
             }],
@@ -1044,7 +1097,8 @@ mod tests {
                 custom_name: None,
                 group_id: crate::workspace::DEFAULT_GROUP_ID.to_string(),
                 identity_cwd: cwd.clone(),
-                default_cwd: cwd.clone(),
+                default_location: crate::execution_host::ResourceLocation::local(cwd.clone())
+                    .unwrap(),
                 public_pane_numbers: HashMap::new(),
                 next_public_pane_number: 0,
                 public_tab_numbers: Vec::new(),
@@ -1056,6 +1110,8 @@ mod tests {
                         10,
                         super::super::snapshot::PaneSnapshot {
                             cwd: cwd.clone(),
+                            location: None,
+                            remote_runtime_identity: None,
                             env_pane_id: Some(6),
                             label: None,
                             agent_name: None,
@@ -1137,12 +1193,14 @@ mod tests {
             .unwrap_or_else(|| PathBuf::from("/"));
         let snapshot = SessionSnapshot {
             version: super::super::snapshot::SNAPSHOT_VERSION,
+            session_namespace_id: "session-test".to_string(),
+            remote_termination_tombstones: Vec::new(),
             groups: vec![super::super::snapshot::GroupSnapshot {
                 id: crate::workspace::DEFAULT_GROUP_ID.to_string(),
                 name: "group 1".to_string(),
                 icon: crate::app::state::DEFAULT_GROUP_ICON.to_string(),
                 accent: None,
-                default_directory: None,
+                default_location: None,
                 favorite_agent_profile_ids: Vec::new(),
                 default_agent_profile_id: None,
             }],
@@ -1154,7 +1212,8 @@ mod tests {
                 custom_name: Some("restored".into()),
                 group_id: crate::workspace::DEFAULT_GROUP_ID.to_string(),
                 identity_cwd: missing.clone(),
-                default_cwd: missing.clone(),
+                default_location: crate::execution_host::ResourceLocation::local(missing.clone())
+                    .unwrap(),
                 public_pane_numbers: HashMap::new(),
                 next_public_pane_number: 0,
                 public_tab_numbers: Vec::new(),
@@ -1166,6 +1225,8 @@ mod tests {
                         7,
                         super::super::snapshot::PaneSnapshot {
                             cwd: missing,
+                            location: None,
+                            remote_runtime_identity: None,
                             env_pane_id: None,
                             label: None,
                             agent_name: Some("codex".into()),
@@ -1230,6 +1291,8 @@ mod tests {
                 super::super::snapshot::PaneSnapshot {
                     env_pane_id: None,
                     cwd: cwd.clone(),
+                    location: None,
+                    remote_runtime_identity: None,
                     label: None,
                     agent_name: None,
                     agent_session: None,
@@ -1242,12 +1305,14 @@ mod tests {
         };
         let snapshot = SessionSnapshot {
             version: super::super::snapshot::SNAPSHOT_VERSION,
+            session_namespace_id: "session-test".to_string(),
+            remote_termination_tombstones: Vec::new(),
             groups: vec![super::super::snapshot::GroupSnapshot {
                 id: crate::workspace::DEFAULT_GROUP_ID.to_string(),
                 name: "group 1".to_string(),
                 icon: crate::app::state::DEFAULT_GROUP_ICON.to_string(),
                 accent: None,
-                default_directory: None,
+                default_location: None,
                 favorite_agent_profile_ids: Vec::new(),
                 default_agent_profile_id: None,
             }],
@@ -1259,7 +1324,8 @@ mod tests {
                 custom_name: None,
                 group_id: crate::workspace::DEFAULT_GROUP_ID.to_string(),
                 identity_cwd: cwd.clone(),
-                default_cwd: cwd.clone(),
+                default_location: crate::execution_host::ResourceLocation::local(cwd.clone())
+                    .unwrap(),
                 public_pane_numbers: HashMap::from([(10, 1), (20, 3)]),
                 next_public_pane_number: 4,
                 public_tab_numbers: vec![5],
@@ -1326,7 +1392,7 @@ mod tests {
             custom_name: None,
             group_id: crate::workspace::DEFAULT_GROUP_ID.to_string(),
             identity_cwd: cwd.clone(),
-            default_cwd: cwd,
+            default_location: crate::execution_host::ResourceLocation::local(cwd).unwrap(),
             public_pane_numbers: HashMap::new(),
             next_public_pane_number: 0,
             public_tab_numbers: Vec::new(),
@@ -1586,12 +1652,14 @@ mod tests {
             .to_string();
         let snapshot = SessionSnapshot {
             version: super::super::snapshot::SNAPSHOT_VERSION,
+            session_namespace_id: "session-test".to_string(),
+            remote_termination_tombstones: Vec::new(),
             groups: vec![super::super::snapshot::GroupSnapshot {
                 id: crate::workspace::DEFAULT_GROUP_ID.to_string(),
                 name: "group 1".to_string(),
                 icon: crate::app::state::DEFAULT_GROUP_ICON.to_string(),
                 accent: None,
-                default_directory: None,
+                default_location: None,
                 favorite_agent_profile_ids: Vec::new(),
                 default_agent_profile_id: None,
             }],
@@ -1603,7 +1671,8 @@ mod tests {
                 custom_name: Some("restored".into()),
                 group_id: crate::workspace::DEFAULT_GROUP_ID.to_string(),
                 identity_cwd: cwd.clone(),
-                default_cwd: cwd.clone(),
+                default_location: crate::execution_host::ResourceLocation::local(cwd.clone())
+                    .unwrap(),
                 public_pane_numbers: HashMap::new(),
                 next_public_pane_number: 0,
                 public_tab_numbers: Vec::new(),
@@ -1615,6 +1684,8 @@ mod tests {
                         7,
                         super::super::snapshot::PaneSnapshot {
                             cwd,
+                            location: None,
+                            remote_runtime_identity: None,
                             env_pane_id: None,
                             label: None,
                             agent_name: Some("codex".into()),
@@ -1800,11 +1871,13 @@ mod tests {
             resumed_sessions: &mut resumed,
         };
 
+        let local_host_id = crate::execution_host::ExecutionHostId::local();
         let first = pane_restore_startup(
             Some(&session),
             Some(&history),
             None,
             &[],
+            &local_host_id,
             &mut agent_restore,
         );
         let duplicate = pane_restore_startup(
@@ -1812,6 +1885,7 @@ mod tests {
             Some(&history),
             None,
             &[],
+            &local_host_id,
             &mut agent_restore,
         );
 
@@ -1840,11 +1914,13 @@ mod tests {
             resumed_sessions: &mut resumed,
         };
 
+        let local_host_id = crate::execution_host::ExecutionHostId::local();
         let startup = pane_restore_startup(
             Some(&session),
             Some(&history),
             None,
             &[],
+            &local_host_id,
             &mut agent_restore,
         );
 
@@ -1890,12 +1966,14 @@ mod tests {
         let cwd = std::env::current_dir().unwrap();
         let snapshot = SessionSnapshot {
             version: super::super::snapshot::SNAPSHOT_VERSION,
+            session_namespace_id: "session-test".to_string(),
+            remote_termination_tombstones: Vec::new(),
             groups: vec![super::super::snapshot::GroupSnapshot {
                 id: crate::workspace::DEFAULT_GROUP_ID.to_string(),
                 name: "group 1".to_string(),
                 icon: crate::app::state::DEFAULT_GROUP_ICON.to_string(),
                 accent: None,
-                default_directory: None,
+                default_location: None,
                 favorite_agent_profile_ids: Vec::new(),
                 default_agent_profile_id: None,
             }],
@@ -1907,7 +1985,8 @@ mod tests {
                 custom_name: Some("empty".into()),
                 group_id: crate::workspace::DEFAULT_GROUP_ID.to_string(),
                 identity_cwd: cwd.clone(),
-                default_cwd: cwd,
+                default_location: crate::execution_host::ResourceLocation::local(cwd.clone())
+                    .unwrap(),
                 public_pane_numbers: HashMap::new(),
                 next_public_pane_number: 0,
                 public_tab_numbers: Vec::new(),
@@ -1954,12 +2033,14 @@ mod tests {
         let cwd = std::env::current_dir().unwrap();
         let snapshot = SessionSnapshot {
             version: super::super::snapshot::SNAPSHOT_VERSION,
+            session_namespace_id: "session-test".to_string(),
+            remote_termination_tombstones: Vec::new(),
             groups: vec![super::super::snapshot::GroupSnapshot {
                 id: crate::workspace::DEFAULT_GROUP_ID.to_string(),
                 name: "group 1".to_string(),
                 icon: crate::app::state::DEFAULT_GROUP_ICON.to_string(),
                 accent: None,
-                default_directory: None,
+                default_location: None,
                 favorite_agent_profile_ids: Vec::new(),
                 default_agent_profile_id: None,
             }],
@@ -1971,7 +2052,8 @@ mod tests {
                 custom_name: None,
                 group_id: crate::workspace::DEFAULT_GROUP_ID.to_string(),
                 identity_cwd: cwd.clone(),
-                default_cwd: cwd.clone(),
+                default_location: crate::execution_host::ResourceLocation::local(cwd.clone())
+                    .unwrap(),
                 public_pane_numbers: HashMap::new(),
                 next_public_pane_number: 0,
                 public_tab_numbers: Vec::new(),
@@ -1984,6 +2066,8 @@ mod tests {
                         super::super::snapshot::PaneSnapshot {
                             env_pane_id: None,
                             cwd,
+                            location: None,
+                            remote_runtime_identity: None,
                             label: None,
                             agent_name: None,
                             agent_session: Some(super::super::snapshot::PaneAgentSessionSnapshot {
@@ -2054,6 +2138,8 @@ mod tests {
         let cwd = std::env::current_dir().unwrap();
         let snapshot = SessionSnapshot {
             version: super::super::snapshot::SNAPSHOT_VERSION,
+            session_namespace_id: "session-test".to_string(),
+            remote_termination_tombstones: Vec::new(),
             groups: {
                 let group = crate::app::state::Group::default_group();
                 vec![super::super::snapshot::GroupSnapshot {
@@ -2061,7 +2147,7 @@ mod tests {
                     name: group.name,
                     icon: group.icon,
                     accent: None,
-                    default_directory: None,
+                    default_location: None,
                     favorite_agent_profile_ids: Vec::new(),
                     default_agent_profile_id: None,
                 }]
@@ -2073,7 +2159,8 @@ mod tests {
                 id: Some("workspace".into()),
                 custom_name: None,
                 identity_cwd: cwd.clone(),
-                default_cwd: cwd.clone(),
+                default_location: crate::execution_host::ResourceLocation::local(cwd.clone())
+                    .unwrap(),
                 public_pane_numbers: HashMap::new(),
                 next_public_pane_number: 0,
                 public_tab_numbers: Vec::new(),
@@ -2087,6 +2174,8 @@ mod tests {
                         super::super::snapshot::PaneSnapshot {
                             env_pane_id: None,
                             cwd,
+                            location: None,
+                            remote_runtime_identity: None,
                             label: None,
                             agent_name: None,
                             agent_session: Some(super::super::snapshot::PaneAgentSessionSnapshot {
@@ -2344,6 +2433,8 @@ mod tests {
             super::super::snapshot::PaneSnapshot {
                 env_pane_id: None,
                 cwd: cwd.clone(),
+                location: None,
+                remote_runtime_identity: None,
                 label: None,
                 agent_name: None,
                 agent_session,
@@ -2355,12 +2446,14 @@ mod tests {
         );
         SessionSnapshot {
             version: super::super::snapshot::SNAPSHOT_VERSION,
+            session_namespace_id: "session-test".to_string(),
+            remote_termination_tombstones: Vec::new(),
             groups: vec![super::super::snapshot::GroupSnapshot {
                 id: crate::workspace::DEFAULT_GROUP_ID.to_string(),
                 name: "group 1".to_string(),
                 icon: crate::app::state::DEFAULT_GROUP_ICON.to_string(),
                 accent: None,
-                default_directory: None,
+                default_location: None,
                 favorite_agent_profile_ids: Vec::new(),
                 default_agent_profile_id: None,
             }],
@@ -2372,7 +2465,8 @@ mod tests {
                 custom_name: None,
                 group_id: crate::workspace::DEFAULT_GROUP_ID.to_string(),
                 identity_cwd: cwd.clone(),
-                default_cwd: cwd,
+                default_location: crate::execution_host::ResourceLocation::local(cwd.clone())
+                    .unwrap(),
                 public_pane_numbers: HashMap::new(),
                 next_public_pane_number: 0,
                 public_tab_numbers: Vec::new(),
@@ -2398,6 +2492,66 @@ mod tests {
             ui: super::super::snapshot::SessionUiSnapshot::default(),
             pane_id_aliases: HashMap::new(),
         }
+    }
+
+    #[test]
+    fn missing_remote_host_restores_visible_terminal_without_local_fallback() {
+        let json = r#"{
+            "version": 5,
+            "workspaces": [{
+                "id": "remote-workspace",
+                "identity_cwd": "/srv/missing",
+                "default_location": {
+                    "execution_host_id": "ssh:missing-profile",
+                    "path": "/srv/missing"
+                },
+                "tabs": [{
+                    "layout": {"Pane": 7},
+                    "panes": {
+                        "7": {
+                            "cwd": "/srv/missing",
+                            "location": {
+                                "execution_host_id": "ssh:missing-profile",
+                                "path": "/srv/missing"
+                            }
+                        }
+                    },
+                    "zoomed": false,
+                    "focused": 7,
+                    "root_pane": 7
+                }]
+            }]
+        }"#;
+        let snapshot = super::super::snapshot::parse_snapshot(json).unwrap();
+        let expected = crate::execution_host::ResourceLocation::new(
+            crate::execution_host::ExecutionHostId::new("ssh:missing-profile").unwrap(),
+            crate::execution_host::HostPath::new("/srv/missing").unwrap(),
+        );
+        let (event_tx, _event_rx) = tokio::sync::mpsc::channel(1);
+
+        let (workspaces, terminals, runtimes) = restore(
+            &snapshot,
+            None,
+            24,
+            80,
+            1024,
+            "/bin/sh",
+            crate::config::ShellModeConfig::NonLogin,
+            false,
+            event_tx,
+            Arc::new(Notify::new()),
+            Arc::new(AtomicBool::new(false)),
+        );
+
+        assert_eq!(workspaces.len(), 1);
+        assert_eq!(workspaces[0].default_location, expected);
+        assert_eq!(workspaces[0].tabs[0].panes.len(), 1);
+        assert_eq!(terminals.len(), 1);
+        assert_eq!(terminals.values().next().unwrap().location, expected);
+        assert!(
+            runtimes.is_empty(),
+            "unavailable remote panes have no local PTY"
+        );
     }
 
     fn single_pane_history(ansi: &str) -> SessionHistorySnapshot {

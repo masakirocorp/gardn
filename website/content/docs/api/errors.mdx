@@ -40,6 +40,24 @@ A rejected request returns one newline-delimited JSON object with an `error` mem
 
 Method-specific codes are not a closed enum in schema version 1. Retain unknown codes and use the error envelope; do not treat the categories above as exhaustive.
 
+## Execution-host failures
+
+Remote placement never falls back to the Local Execution Host. A connection, path, worker capability, or runtime failure keeps the requested `execution_host_id` and path in the error context.
+
+| Code                               | Meaning                                                       | Recovery                                                                              |
+| ---------------------------------- | ------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| `connection_profile_not_found`     | A lifecycle action named an unknown SSH profile.              | Refresh `connection.list` and use a current `profile_id`.                             |
+| `connection_profile_invalid`       | Profile identity, target, name, or suggested path is invalid. | Correct the profile fields. Do not include credentials in the profile.                |
+| `connection_profile_save_failed`   | The coordinator could not persist the catalog change.         | Inspect the message and coordinator filesystem permissions before retrying.           |
+| `connection_profile_delete_failed` | The profile is referenced or its removal could not be saved.  | Remove or reassign durable references first; do not delete remote placement metadata. |
+| `invalid_agent_location`           | An agent location contains an invalid host id or host path.   | Submit one complete `location` or a legacy local `cwd`.                               |
+| `agent_placement_conflict`         | Agent placement selectors conflict.                           | Correct the target workspace/tab or remove the `cwd`/`location` conflict.             |
+| `workspace_create_failed`          | Workspace placement or its initial terminal launch failed.    | Reconnect the named host or correct its host-native path, then submit a new request.  |
+| `tab_create_failed`                | Tab placement or its initial terminal launch failed.          | Reconcile the target workspace and host, then retry with a new request id.            |
+| `pane_split_failed`                | The source host is unavailable or the new terminal failed.    | Restore the source host connection or supply a valid explicit location.               |
+
+Remote creation errors preserve the requested placement so callers can show a retryable unavailable resource or reconcile partial creation explicitly. A lost response remains ambiguous; reconcile current resources before retrying a mutating request.
+
 ## Connection failures
 
 A missing socket, refused connection, empty response, invalid JSON response, or connection timeout is a transport failure. It does not produce an API error envelope. Check that the intended session is running and that the client resolved the same socket path. A lost response does not tell you whether a mutating request completed; reconcile state before retrying.

@@ -356,6 +356,13 @@ fn api_method_name(method: &Method) -> &'static str {
         Method::ServerReloadConfig(_) => "server.reload_config",
         Method::ServerAgentManifests(_) => "server.agent_manifests",
         Method::ServerReloadAgentManifests(_) => "server.reload_agent_manifests",
+        Method::ConnectionList(_) => "connection.list",
+        Method::ConnectionSave(_) => "connection.save",
+        Method::ConnectionDelete(_) => "connection.delete",
+        Method::ConnectionTest(_) => "connection.test",
+        Method::ConnectionConnect(_) => "connection.connect",
+        Method::ConnectionDisconnect(_) => "connection.disconnect",
+        Method::ConnectionInstall(_) => "connection.install",
         Method::NotificationShow(_) => "notification.show",
         Method::ClientWindowTitleSet(_) => "client.window_title.set",
         Method::ClientWindowTitleClear(_) => "client.window_title.clear",
@@ -814,6 +821,10 @@ mod tests {
     ) -> crate::api::schema::AgentInfo {
         crate::api::schema::AgentInfo {
             terminal_id: terminal_id.into(),
+            location: crate::api::schema::ResourceLocationParams {
+                execution_host_id: "local".into(),
+                path: "/tmp".into(),
+            },
             name: None,
             agent: agent.map(str::to_string),
             title: None,
@@ -880,6 +891,10 @@ mod tests {
     ) -> crate::api::schema::AgentInfo {
         crate::api::schema::AgentInfo {
             terminal_id: terminal_id.into(),
+            location: crate::api::schema::ResourceLocationParams {
+                execution_host_id: "local".into(),
+                path: "/tmp".into(),
+            },
             name: Some("main".into()),
             agent: Some("pi".into()),
             title: None,
@@ -1614,6 +1629,10 @@ mod tests {
                             pane: crate::api::schema::PaneInfo {
                                 pane_id: "pane_1".into(),
                                 terminal_id: "terminal_1".into(),
+                                location: crate::api::schema::ResourceLocationParams {
+                                    execution_host_id: "local".into(),
+                                    path: "/tmp".into(),
+                                },
                                 workspace_id: "workspace_1".into(),
                                 tab_id: "tab_1".into(),
                                 focused: false,

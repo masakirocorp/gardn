@@ -7,7 +7,7 @@ use super::{App, ClientViewState};
 struct PendingAgentResumeCandidate {
     pane_id: crate::layout::PaneId,
     terminal_id: crate::terminal::TerminalId,
-    cwd: std::path::PathBuf,
+    location: crate::execution_host::ResourceLocation,
     plan: crate::agent_resume::AgentResumePlan,
     rows: u16,
     cols: u16,
@@ -93,7 +93,7 @@ impl App {
         for PendingAgentResumeCandidate {
             pane_id,
             terminal_id,
-            cwd,
+            location,
             plan,
             rows,
             cols,
@@ -105,7 +105,7 @@ impl App {
             changed |= self.start_pending_agent_resume(
                 pane_id,
                 terminal_id,
-                cwd,
+                location,
                 plan,
                 rows,
                 cols,
@@ -177,7 +177,7 @@ impl App {
             pending.push(PendingAgentResumeCandidate {
                 pane_id,
                 terminal_id: pane.attached_terminal_id.clone(),
-                cwd: terminal.cwd.clone(),
+                location: terminal.location.clone(),
                 plan,
                 rows: info.inner_rect.height,
                 cols: info.inner_rect.width,
@@ -190,7 +190,7 @@ impl App {
         &mut self,
         pane_id: crate::layout::PaneId,
         terminal_id: crate::terminal::TerminalId,
-        cwd: std::path::PathBuf,
+        location: crate::execution_host::ResourceLocation,
         plan: crate::agent_resume::AgentResumePlan,
         rows: u16,
         cols: u16,
@@ -214,46 +214,84 @@ impl App {
             }
             return true;
         };
-        let Some(launch_env) = self
-            .find_pane(pane_id)
-            .and_then(|(ws_idx, _)| self.pane_launch_env(ws_idx, pane_id, plan.env.clone()))
-        else {
-            return false;
-        };
-        let shell_config =
-            crate::pane::PaneShellConfig::new(&self.state.default_shell, self.state.shell_mode);
-        let runtime = match plan.command_resolution {
-            crate::agent_resume::AgentResumeCommandResolution::External => {
-                crate::terminal::TerminalRuntime::spawn_argv_command(
-                    pane_id,
-                    rows,
-                    cols,
-                    cwd,
-                    &plan.argv,
-                    &launch_env,
-                    self.state.pane_scrollback_limit_bytes,
-                    host_terminal_theme,
-                    self.event_tx.clone(),
-                    self.render_notify.clone(),
-                    self.render_dirty.clone(),
-                )
+        let runtime = if location.is_local() {
+            let Some(launch_env) = self
+                .find_pane(pane_id)
+                .and_then(|(ws_idx, _)| self.pane_launch_env(ws_idx, pane_id, plan.env.clone()))
+            else {
+                return false;
+            };
+            let cwd = location.path.as_path().to_path_buf();
+            let shell_config =
+                crate::pane::PaneShellConfig::new(&self.state.default_shell, self.state.shell_mode);
+            match plan.command_resolution {
+                crate::agent_resume::AgentResumeCommandResolution::External => {
+                    crate::terminal::TerminalRuntime::spawn_argv_command(
+                        pane_id,
+                        rows,
+                        cols,
+                        cwd,
+                        &plan.argv,
+                        &launch_env,
+                        self.state.pane_scrollback_limit_bytes,
+                        host_terminal_theme,
+                        self.event_tx.clone(),
+                        self.render_notify.clone(),
+                        self.render_dirty.clone(),
+                    )
+                }
+                crate::agent_resume::AgentResumeCommandResolution::ShellWrapper => {
+                    crate::terminal::TerminalRuntime::spawn_profile_command(
+                        pane_id,
+                        rows,
+                        cols,
+                        cwd,
+                        shell_config,
+                        &resume_command,
+                        &launch_env,
+                        self.state.pane_scrollback_limit_bytes,
+                        host_terminal_theme,
+                        self.event_tx.clone(),
+                        self.render_notify.clone(),
+                        self.render_dirty.clone(),
+                    )
+                }
             }
-            crate::agent_resume::AgentResumeCommandResolution::ShellWrapper => {
-                crate::terminal::TerminalRuntime::spawn_profile_command(
+            .map_err(|error| error.to_string())
+        } else {
+            let Some(command) = remote_resume_command_spec(&plan, &resume_command) else {
+                self.notify_agent_restore_failed(
                     pane_id,
-                    rows,
-                    cols,
-                    cwd,
-                    shell_config,
-                    &resume_command,
-                    &launch_env,
-                    self.state.pane_scrollback_limit_bytes,
-                    host_terminal_theme,
-                    self.event_tx.clone(),
-                    self.render_notify.clone(),
-                    self.render_dirty.clone(),
-                )
-            }
+                    &plan,
+                    "restore command missing",
+                    Some(&resume_command),
+                );
+                if let Some(terminal) = self.state.terminals.get_mut(&terminal_id) {
+                    terminal.clear_agent_runtime_identity_after_respawn();
+                }
+                return true;
+            };
+            let Some(hosts) = self.execution_hosts.as_mut() else {
+                self.notify_agent_restore_failed(
+                    pane_id,
+                    &plan,
+                    "execution host manager unavailable",
+                    Some(&resume_command),
+                );
+                return true;
+            };
+            hosts.create_terminal(
+                terminal_id.clone(),
+                pane_id,
+                location,
+                rows,
+                cols,
+                self.state.pane_scrollback_limit_bytes,
+                host_terminal_theme,
+                self.event_tx.clone(),
+                Some(command),
+                plan.env.clone(),
+            )
         };
         let runtime = match runtime {
             Ok(runtime) => runtime,
@@ -261,6 +299,9 @@ impl App {
                 tracing::warn!(
                     pane = pane_id.raw(),
                     terminal = %terminal_id,
+                    host = %self.state.terminals.get(&terminal_id)
+                        .map(|terminal| terminal.location.execution_host_id.as_str())
+                        .unwrap_or("unknown"),
                     agent = %plan.agent,
                     err = %err,
                     "failed to launch deferred agent resume"
@@ -305,6 +346,32 @@ impl App {
             position: None,
             target,
         });
+    }
+}
+
+fn remote_resume_command_spec(
+    plan: &crate::agent_resume::AgentResumePlan,
+    shell_command: &str,
+) -> Option<crate::execution_host::protocol::CommandSpec> {
+    match plan.command_resolution {
+        crate::agent_resume::AgentResumeCommandResolution::External => {
+            let (program, args) = plan.argv.split_first()?;
+            Some(crate::execution_host::protocol::CommandSpec {
+                program: program.clone(),
+                args: args.to_vec(),
+                env: Vec::new(),
+            })
+        }
+        crate::agent_resume::AgentResumeCommandResolution::ShellWrapper => {
+            // Execution Worker Protocol v1 has no coordinator profile catalog.
+            // Resolve saved relative commands in the worker's POSIX shell instead
+            // of consulting the coordinator host or falling back to Local.
+            Some(crate::execution_host::protocol::CommandSpec {
+                program: "/bin/sh".to_string(),
+                args: vec!["-lc".to_string(), shell_command.to_string()],
+                env: Vec::new(),
+            })
+        }
     }
 }
 
@@ -1166,6 +1233,77 @@ mod tests {
         for (_, runtime) in app.terminal_runtimes.drain() {
             runtime.shutdown();
         }
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn pending_remote_agent_resume_uses_terminal_host_and_path() {
+        let mut app = test_app();
+        let workspace = crate::workspace::Workspace::test_new("remote-resume");
+        let pane_id = workspace.tabs[0].root_pane;
+        let terminal_id = workspace
+            .terminal_id(pane_id)
+            .cloned()
+            .expect("test workspace should have a terminal");
+        app.state.view.pane_infos = workspace.tabs[0]
+            .layout
+            .panes(ratatui::layout::Rect::new(0, 0, 100, 30));
+        app.state.workspaces = vec![workspace];
+        app.state.active = Some(0);
+        app.state.ensure_test_terminals();
+        let host_id = crate::execution_host::ExecutionHostId::new("ssh:workbox")
+            .expect("test host id should be valid");
+        let location = crate::execution_host::ResourceLocation::new(
+            host_id.clone(),
+            crate::execution_host::HostPath::new("/srv/agent")
+                .expect("test host path should be valid"),
+        );
+        let messages = app
+            .execution_hosts
+            .as_mut()
+            .expect("test app should have an execution host manager")
+            .connect_test_host(host_id.clone());
+        let terminal = app
+            .state
+            .terminals
+            .get_mut(&terminal_id)
+            .expect("test terminal should exist");
+        terminal.location = location;
+        terminal.pending_agent_resume_plan = Some(crate::agent_resume::AgentResumePlan {
+            agent: "codex".into(),
+            argv: vec!["codex".into(), "resume".into(), "session-42".into()],
+            command_resolution: crate::agent_resume::AgentResumeCommandResolution::External,
+            preserved_launch_argv: None,
+            env: vec![("CODEX_HOME".into(), "/srv/profile".into())],
+            dedupe_key: "omh:codex\0codex\0Id\0session-42".into(),
+        });
+
+        assert!(app.start_pending_agent_resumes(true));
+
+        let messages = messages
+            .lock()
+            .expect("test worker message lock should not be poisoned");
+        let [crate::execution_host::protocol::CoordinatorMessage::CreateTerminal {
+            location,
+            command: Some(command),
+            env,
+            ..
+        }] = messages.as_slice()
+        else {
+            panic!("expected one remote resume creation message: {messages:?}");
+        };
+        assert_eq!(location.execution_host_id, host_id);
+        assert_eq!(location.path.as_path(), std::path::Path::new("/srv/agent"));
+        assert_eq!(command.program, "codex");
+        assert_eq!(command.args, vec!["resume", "session-42"]);
+        assert_eq!(
+            env.as_slice(),
+            &[("CODEX_HOME".to_string(), "/srv/profile".to_string())]
+        );
+        assert!(app
+            .state
+            .terminals
+            .get(&terminal_id)
+            .is_some_and(|terminal| terminal.pending_agent_resume_plan.is_none()));
     }
 
     #[test]

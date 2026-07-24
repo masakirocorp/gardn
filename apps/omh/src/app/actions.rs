@@ -29,8 +29,8 @@ struct NavigatorFocus {
     explicit_hierarchy: bool,
 }
 
-fn configured_project_command(
-    root: std::path::PathBuf,
+fn configured_project_command_at(
+    location: crate::execution_host::ResourceLocation,
     kind: ProjectCommandKind,
     command: &str,
 ) -> crate::commands::ProjectCommand {
@@ -39,27 +39,28 @@ fn configured_project_command(
         ProjectCommandKind::Diff => "diff",
         ProjectCommandKind::Ide => "ide",
     };
-    let name = root
+    let name = location
+        .path
+        .as_path()
         .file_name()
         .and_then(|name| name.to_str())
         .filter(|name| !name.is_empty())
         .map(|name| format!("{role} · {name}"))
         .unwrap_or_else(|| role.to_string());
-    crate::commands::ProjectCommand {
-        id: format!("builtin:{role}:{}", root.display()),
-        root,
-        source: crate::commands::CommandSource::BuiltIn,
+    crate::commands::ProjectCommand::new(
+        location,
+        crate::commands::CommandSource::BuiltIn,
         name,
-        command: command.to_string(),
-        confidence: crate::commands::CommandConfidence::Explicit,
-    }
+        command,
+        crate::commands::CommandConfidence::Explicit,
+    )
 }
 
 fn canonical_git_root(cwd: &std::path::Path) -> Option<std::path::PathBuf> {
     crate::workspace::git_repo_root(cwd).map(|root| std::fs::canonicalize(&root).unwrap_or(root))
 }
 
-fn observed_git_repos_from_cwd(cwd: &std::path::Path) -> Vec<std::path::PathBuf> {
+pub(crate) fn observed_git_repos_from_cwd(cwd: &std::path::Path) -> Vec<std::path::PathBuf> {
     if let Some(root) = canonical_git_root(cwd) {
         return vec![root];
     }
@@ -1364,20 +1365,33 @@ fn activity_summary_for_panes<'a>(
 // ---------------------------------------------------------------------------
 
 impl AppState {
-    #[cfg(test)]
-    fn command_target_for_root(
+    fn command_target_for_location(
         &self,
         terminal_runtimes: &crate::terminal::TerminalRuntimeRegistry,
-        root: &std::path::Path,
+        location: &crate::execution_host::ResourceLocation,
     ) -> Option<(usize, usize, PaneId)> {
         for (ws_idx, workspace) in self.workspaces.iter().enumerate() {
             for (tab_idx, tab) in workspace.tabs.iter().enumerate() {
                 for pane_id in tab.layout.pane_ids() {
+                    let Some(terminal_id) = workspace.terminal_id(pane_id) else {
+                        continue;
+                    };
+                    let Some(terminal) = self.terminals.get(terminal_id) else {
+                        continue;
+                    };
+                    if terminal.location.execution_host_id != location.execution_host_id {
+                        continue;
+                    }
                     let Some(cwd) = tab.cwd_for_pane(pane_id, &self.terminals, terminal_runtimes)
                     else {
                         continue;
                     };
-                    if crate::commands::project_root_from_cwd(&cwd) == root {
+                    let matches_root = if location.is_local() {
+                        crate::commands::project_root_from_cwd(&cwd) == location.path.as_path()
+                    } else {
+                        cwd == location.path.as_path()
+                    };
+                    if matches_root {
                         return Some((ws_idx, tab_idx, pane_id));
                     }
                 }
@@ -1424,8 +1438,7 @@ impl AppState {
         true
     }
 
-    #[cfg(test)]
-    pub(crate) fn run_project_command(
+    fn run_local_project_command(
         &mut self,
         terminal_runtimes: &mut crate::terminal::TerminalRuntimeRegistry,
         command_id: &str,
@@ -1438,8 +1451,8 @@ impl AppState {
             .ok_or_else(|| format!("command {command_id} not found"))?;
 
         let (ws_idx, _, _) = self
-            .command_target_for_root(terminal_runtimes, &command.root)
-            .ok_or_else(|| format!("no pane for {}", command.root.display()))?;
+            .command_target_for_location(terminal_runtimes, &command.location)
+            .ok_or_else(|| format!("no pane for {}", command.root().display()))?;
 
         self.run_project_command_entry(terminal_runtimes, command, ws_idx, None)
     }
@@ -1478,7 +1491,9 @@ impl AppState {
             };
             root.clone()
         };
-        let command = self.configured_project_command(root, kind, Some(ws_idx));
+        let command = self
+            .configured_project_command(root, kind, Some(ws_idx))
+            .ok()?;
         if let Some(run) = self.command_runs.get(&command.id) {
             if let Some((run_ws_idx, tab_idx, _)) = self.command_terminal_target(&run.terminal_id) {
                 return (run_ws_idx == ws_idx).then_some(tab_idx);
@@ -1533,6 +1548,17 @@ impl AppState {
         root: std::path::PathBuf,
         kind: ProjectCommandKind,
         ws_idx: Option<usize>,
+    ) -> Result<crate::commands::ProjectCommand, String> {
+        let location = crate::execution_host::ResourceLocation::local(root)
+            .map_err(|error| error.to_string())?;
+        Ok(self.configured_project_command_for_location(location, kind, ws_idx))
+    }
+
+    fn configured_project_command_for_location(
+        &self,
+        location: crate::execution_host::ResourceLocation,
+        kind: ProjectCommandKind,
+        ws_idx: Option<usize>,
     ) -> crate::commands::ProjectCommand {
         let configured = match kind {
             ProjectCommandKind::Git => &self.git_command,
@@ -1584,7 +1610,7 @@ impl AppState {
             }
             _ => configured.clone(),
         };
-        configured_project_command(root, kind, &command)
+        configured_project_command_at(location, kind, &command)
     }
 
     fn curated_project_command_ansi_palette(
@@ -1631,7 +1657,7 @@ impl AppState {
         kind: ProjectCommandKind,
     ) -> Result<(), String> {
         let ansi_palette = self.curated_project_command_ansi_palette(kind, Some(ws_idx));
-        let command = self.configured_project_command(root, kind, Some(ws_idx));
+        let command = self.configured_project_command(root, kind, Some(ws_idx))?;
         self.run_project_command_entry(terminal_runtimes, command, ws_idx, ansi_palette)
     }
 
@@ -1675,15 +1701,27 @@ impl AppState {
         terminal_runtimes: &crate::terminal::TerminalRuntimeRegistry,
         ws_idx: usize,
     ) -> Vec<std::path::PathBuf> {
-        let mut roots = self
-            .workspaces
-            .get(ws_idx)
-            .into_iter()
-            .flat_map(|workspace| {
-                workspace.git_status_cwds_from(&self.terminals, terminal_runtimes)
-            })
-            .flat_map(|cwd| observed_git_repos_from_cwd(&cwd))
-            .collect::<Vec<_>>();
+        let mut roots = Vec::new();
+        let Some(workspace) = self.workspaces.get(ws_idx) else {
+            return roots;
+        };
+        for tab in &workspace.tabs {
+            for pane_id in tab.layout.pane_ids() {
+                let Some(terminal_id) = workspace.terminal_id(pane_id) else {
+                    continue;
+                };
+                if !self
+                    .terminals
+                    .get(terminal_id)
+                    .is_some_and(|terminal| terminal.location.is_local())
+                {
+                    continue;
+                }
+                if let Some(cwd) = tab.cwd_for_pane(pane_id, &self.terminals, terminal_runtimes) {
+                    roots.extend(observed_git_repos_from_cwd(&cwd));
+                }
+            }
+        }
         roots.sort();
         roots.dedup();
         roots
@@ -1737,6 +1775,12 @@ impl AppState {
         ws_idx: usize,
         ansi_palette: Option<crate::terminal_theme::AnsiPalette>,
     ) -> Result<(), String> {
+        if !command.location.is_local() {
+            return Err(format!(
+                "project command {} targets execution host {}; AppState cannot route host runtime work",
+                command.id, command.location.execution_host_id
+            ));
+        }
         let (rows, cols) = self.estimate_pane_size();
         let workspace = self
             .workspaces
@@ -1746,7 +1790,7 @@ impl AppState {
             .create_command_tab(
                 rows.max(4),
                 cols.max(10),
-                command.root.clone(),
+                command.root().to_path_buf(),
                 &command.command,
                 &[],
                 self.pane_scrollback_limit_bytes,
@@ -1767,6 +1811,7 @@ impl AppState {
             command.id.clone(),
             crate::commands::CommandRun {
                 command_id: command.id,
+                execution_host_id: command.location.execution_host_id,
                 terminal_id,
                 status: crate::commands::CommandRunStatus::Running,
             },
@@ -1789,6 +1834,12 @@ impl AppState {
         pane_id: PaneId,
         ansi_palette: Option<crate::terminal_theme::AnsiPalette>,
     ) -> Result<(), String> {
+        if !command.location.is_local() {
+            return Err(format!(
+                "restarting project commands on execution host {} is unsupported; refusing local fallback",
+                command.location.execution_host_id
+            ));
+        }
         if let Some(runtime) = terminal_runtimes.remove(terminal_id) {
             runtime.shutdown();
         }
@@ -1825,7 +1876,7 @@ impl AppState {
             pane_id,
             rows.max(4),
             cols.max(10),
-            command.root.clone(),
+            command.root().to_path_buf(),
             &command.command,
             &launch_env,
             self.pane_scrollback_limit_bytes,
@@ -1840,7 +1891,7 @@ impl AppState {
         }
         terminal_runtimes.insert(terminal_id.clone(), runtime);
         if let Some(terminal) = self.terminals.get_mut(terminal_id) {
-            terminal.cwd = command.root.clone();
+            terminal.cwd = command.root().to_path_buf();
         }
         if let Some(run) = self.command_runs.get_mut(&command.id) {
             run.status = crate::commands::CommandRunStatus::Running;
@@ -1881,6 +1932,11 @@ impl AppState {
             if run.status != crate::commands::CommandRunStatus::Running {
                 continue;
             }
+            if run.execution_host_id.as_str() != crate::execution_host::LOCAL_EXECUTION_HOST_ID {
+                // Remote runtimes have no coordinator-local child pid. Their
+                // lifecycle is driven by worker events, never local process probes.
+                continue;
+            }
             let alive = terminal_runtimes
                 .get(&run.terminal_id)
                 .map(|runtime| runtime.child_pid())
@@ -1904,44 +1960,146 @@ impl AppState {
             .collect()
     }
 
-    pub(crate) fn refresh_command_catalog(
+    pub(crate) fn refresh_command_catalog_with_hosts(
         &mut self,
         terminal_runtimes: &crate::terminal::TerminalRuntimeRegistry,
+        execution_hosts: Option<&mut crate::execution_host::ExecutionHostManager>,
     ) -> bool {
         let scope_ws_idx = self.command_scope_workspace_indices().into_iter().next();
-        let mut roots = scope_ws_idx
-            .iter()
-            .copied()
-            .filter_map(|ws_idx| self.workspaces.get(ws_idx))
-            .flat_map(|ws| {
-                ws.tabs.iter().flat_map(|tab| {
-                    tab.layout.pane_ids().into_iter().filter_map(|pane_id| {
-                        tab.cwd_for_pane(pane_id, &self.terminals, terminal_runtimes)
-                    })
-                })
-            })
-            .map(|cwd| crate::commands::project_root_from_cwd(&cwd))
-            .collect::<Vec<_>>();
-        roots.sort();
-        roots.dedup();
+        let mut local_roots = Vec::new();
+        let mut remote_locations = Vec::new();
+        for ws_idx in self.command_scope_workspace_indices() {
+            let Some(workspace) = self.workspaces.get(ws_idx) else {
+                continue;
+            };
+            for tab in &workspace.tabs {
+                for pane_id in tab.layout.pane_ids() {
+                    let Some(terminal_id) = workspace.terminal_id(pane_id) else {
+                        continue;
+                    };
+                    let Some(terminal) = self.terminals.get(terminal_id) else {
+                        continue;
+                    };
+                    if terminal.location.is_local() {
+                        if let Some(cwd) =
+                            tab.cwd_for_pane(pane_id, &self.terminals, terminal_runtimes)
+                        {
+                            local_roots.push(crate::commands::project_root_from_cwd(&cwd));
+                        }
+                    } else {
+                        let mut location = terminal.location.clone();
+                        if let Some(cwd) =
+                            tab.cwd_for_pane(pane_id, &self.terminals, terminal_runtimes)
+                        {
+                            if let Ok(path) = crate::execution_host::HostPath::new(cwd) {
+                                location.path = path;
+                            }
+                        }
+                        remote_locations.push(location);
+                    }
+                }
+            }
+        }
+        local_roots.sort();
+        local_roots.dedup();
+        remote_locations.sort_by(|left, right| {
+            (left.execution_host_id.as_str(), left.path.as_path())
+                .cmp(&(right.execution_host_id.as_str(), right.path.as_path()))
+        });
+        remote_locations.dedup();
 
-        let mut catalog = roots
+        let mut catalog = local_roots
             .into_iter()
             .flat_map(|root| {
                 let mut commands = crate::commands::discover_project_commands(&root);
                 if let Some(git_root) = crate::workspace::git_repo_root(&root) {
-                    commands.push(self.configured_project_command(
+                    if let Ok(command) = self.configured_project_command(
                         git_root,
                         crate::app::state::ProjectCommandKind::Diff,
                         scope_ws_idx,
-                    ));
+                    ) {
+                        commands.push(command);
+                    }
                 }
                 commands
             })
             .collect::<Vec<_>>();
+
+        if let Some(hosts) = execution_hosts {
+            for location in remote_locations {
+                // Merge any successful snapshot first. Requesting refresh turns
+                // Fresh into Pending and would hide the value if done first.
+                let mut merge_locations = vec![location.clone()];
+                if let Some(commands) =
+                    hosts
+                        .project_commands(&location)
+                        .and_then(|observation| match observation {
+                            crate::execution_host::HostObservation::Fresh { value, .. }
+                            | crate::execution_host::HostObservation::Stale { value, .. } => {
+                                Some(value.as_slice())
+                            }
+                            crate::execution_host::HostObservation::Pending {
+                                previous: Some(value),
+                                ..
+                            } => Some(value.as_slice()),
+                            crate::execution_host::HostObservation::Pending {
+                                previous: None,
+                                ..
+                            } => None,
+                            crate::execution_host::HostObservation::Failed {
+                                error,
+                                previous,
+                                ..
+                            } => {
+                                if previous.is_none() {
+                                    tracing::warn!(
+                                        "project command observation failed for {}: {}",
+                                        location.execution_host_id,
+                                        error.message
+                                    );
+                                }
+                                previous.as_ref().map(|value| value.as_slice())
+                            }
+                        })
+                {
+                    for snapshot in commands {
+                        if let Some(command) =
+                            crate::commands::project_command_from_snapshot(snapshot.clone())
+                        {
+                            if !merge_locations
+                                .iter()
+                                .any(|existing| existing == &command.location)
+                            {
+                                merge_locations.push(command.location.clone());
+                            }
+                            catalog.push(command);
+                        }
+                    }
+                }
+                // Kick a refresh for the next cycle after merging this one.
+                if let Err(error) = hosts.request_project_commands(location.clone()) {
+                    tracing::warn!(
+                        "project command observation request failed for {}: {error}",
+                        location.execution_host_id
+                    );
+                }
+                // Merge configured git-diff at each worker-qualified root so it stays host-routed.
+                if self.project_command_configured(ProjectCommandKind::Diff) {
+                    for merge_location in merge_locations {
+                        catalog.push(self.configured_project_command_for_location(
+                            merge_location,
+                            ProjectCommandKind::Diff,
+                            scope_ws_idx,
+                        ));
+                    }
+                }
+            }
+        }
+
         catalog.sort_by_key(|command| {
             (
-                command.root.clone(),
+                command.location.execution_host_id.as_str().to_string(),
+                command.location.path.as_path().to_path_buf(),
                 command.confidence,
                 command.source,
                 command.name.clone(),
@@ -2080,26 +2238,27 @@ impl AppState {
         self.switch_group((self.active_group + 1) % self.groups.len());
     }
 
+    #[cfg(test)]
     pub fn create_group(&mut self, name: String) -> usize {
-        self.create_group_with_icon_and_default_directory(
+        self.create_group_with_icon_and_default_location(
             name,
             super::state::DEFAULT_GROUP_ICON.to_string(),
             None,
         )
     }
 
-    pub fn create_group_with_icon_and_default_directory(
+    pub fn create_group_with_icon_and_default_location(
         &mut self,
         name: String,
         icon: String,
-        default_directory: Option<std::path::PathBuf>,
+        default_location: Option<crate::execution_host::ResourceLocation>,
     ) -> usize {
         self.groups.push(Group {
             id: super::state::generate_group_id(),
             name,
             icon: super::state::normalize_group_icon(&icon),
             accent: None,
-            default_directory,
+            default_location,
             favorite_agent_profile_ids: Vec::new(),
             default_agent_profile_id: None,
         });
@@ -2125,29 +2284,33 @@ impl AppState {
         true
     }
 
-    pub fn set_workspace_default_cwd(&mut self, ws_idx: usize, cwd: std::path::PathBuf) -> bool {
+    pub fn set_workspace_default_location(
+        &mut self,
+        ws_idx: usize,
+        location: crate::execution_host::ResourceLocation,
+    ) -> bool {
         let Some(workspace) = self.workspaces.get_mut(ws_idx) else {
             return false;
         };
-        if workspace.record_default_cwd(cwd) {
+        if workspace.record_default_location(location) {
             self.mark_session_dirty();
             return true;
         }
         false
     }
 
-    pub fn set_group_default_directory(
+    pub fn set_group_default_location(
         &mut self,
         group_idx: usize,
-        default_directory: Option<std::path::PathBuf>,
+        default_location: Option<crate::execution_host::ResourceLocation>,
     ) -> bool {
         let Some(group) = self.groups.get_mut(group_idx) else {
             return false;
         };
-        if group.default_directory == default_directory {
+        if group.default_location == default_location {
             return false;
         }
-        group.default_directory = default_directory;
+        group.default_location = default_location;
         self.mark_session_dirty();
         true
     }
@@ -3010,6 +3173,128 @@ impl AppState {
     }
 }
 
+impl crate::app::App {
+    pub(crate) fn run_project_command_on_resolved_host(
+        &mut self,
+        command_id: &str,
+    ) -> Result<(), String> {
+        let command = self
+            .state
+            .command_catalog
+            .iter()
+            .find(|command| command.id == command_id)
+            .cloned()
+            .ok_or_else(|| format!("command {command_id} not found"))?;
+        if command.location.is_local() {
+            return self
+                .state
+                .run_local_project_command(&mut self.terminal_runtimes, command_id);
+        }
+
+        if let Some(run) = self.state.command_runs.get(command_id).cloned() {
+            match run.status {
+                crate::commands::CommandRunStatus::Running => {
+                    if self.pending_remote_creations.contains_key(&run.terminal_id) {
+                        // In-flight remote create is already the active launch for this command.
+                        return Ok(());
+                    }
+                    if self.state.focus_command_run(command_id) {
+                        return Ok(());
+                    }
+                    // Running record without a live target — fall through to a fresh launch.
+                }
+                crate::commands::CommandRunStatus::Stopped
+                | crate::commands::CommandRunStatus::Failed
+                | crate::commands::CommandRunStatus::Unknown => {
+                    // Completed remote commands keep their prior tab for scrollback, but a
+                    // re-run always allocates a fresh remote runtime/tab so stale terminal
+                    // ids are never reused.
+                }
+            }
+        }
+
+        self.launch_remote_project_command(command)
+    }
+
+    fn launch_remote_project_command(
+        &mut self,
+        command: crate::commands::ProjectCommand,
+    ) -> Result<(), String> {
+        let hosts = self
+            .execution_hosts
+            .as_ref()
+            .ok_or_else(|| "execution host manager is unavailable".to_string())?;
+        if let Err(error) = hosts.ensure_host_capability(
+            &command.location.execution_host_id,
+            crate::execution_host::protocol::WorkerCapability::Command,
+        ) {
+            return Err(error.to_string());
+        }
+        if let Err(error) = hosts.ensure_host_capability(
+            &command.location.execution_host_id,
+            crate::execution_host::protocol::WorkerCapability::Terminal,
+        ) {
+            return Err(error.to_string());
+        }
+
+        let (ws_idx, _, _) = self
+            .state
+            .command_target_for_location(&self.terminal_runtimes, &command.location)
+            .ok_or_else(|| {
+                format!(
+                    "no pane for project {} on execution host {}",
+                    command.location.path, command.location.execution_host_id
+                )
+            })?;
+        let spec = crate::execution_host::protocol::CommandSpec {
+            program: "/bin/sh".to_string(),
+            args: vec!["-lc".to_string(), command.command.clone()],
+            env: Vec::new(),
+        };
+        let terminal_id = self.begin_remote_tab(
+            ws_idx,
+            command.location.clone(),
+            true,
+            Some(spec),
+            Vec::new(),
+        )?;
+        if self
+            .configure_pending_remote_agent(&terminal_id, None, Some(command.name.clone()), None)
+            .is_none()
+        {
+            self.complete_remote_creation_failed(
+                terminal_id.clone(),
+                "pending project command creation disappeared".to_string(),
+            );
+            let _ = self.clear_command_runs_for_terminal(&terminal_id);
+            return Err("pending project command creation disappeared".to_string());
+        }
+        self.state.command_runs.insert(
+            command.id.clone(),
+            crate::commands::CommandRun {
+                command_id: command.id,
+                execution_host_id: command.location.execution_host_id,
+                terminal_id,
+                status: crate::commands::CommandRunStatus::Running,
+            },
+        );
+        Ok(())
+    }
+
+    /// Drop command-run records keyed to a terminal that failed before commit so
+    /// TUI/API callers can retry without being stuck on a phantom Running entry.
+    pub(crate) fn clear_command_runs_for_terminal(
+        &mut self,
+        terminal_id: &crate::terminal::TerminalId,
+    ) -> bool {
+        let before = self.state.command_runs.len();
+        self.state
+            .command_runs
+            .retain(|_, run| &run.terminal_id != terminal_id);
+        before != self.state.command_runs.len()
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Pane operations
 // ---------------------------------------------------------------------------
@@ -3118,21 +3403,6 @@ impl AppState {
         })
     }
 
-    fn record_focused_workspace_default_cwd(&mut self, ws_idx: usize) {
-        let cwd = self.workspaces.get(ws_idx).and_then(|ws| {
-            let tab = ws.active_tab()?;
-            let terminal_id = tab.terminal_id(tab.layout.focused())?;
-            self.terminals
-                .get(terminal_id)
-                .map(|terminal| terminal.cwd.clone())
-        });
-        if let Some(cwd) = cwd {
-            if let Some(ws) = self.workspaces.get_mut(ws_idx) {
-                ws.record_default_cwd(cwd);
-            }
-        }
-    }
-
     /// Close the focused pane. Returns true when the close was deferred to confirmation.
     pub fn close_pane(&mut self) -> bool {
         let active = self.active;
@@ -3140,9 +3410,6 @@ impl AppState {
         self.selection = None;
         self.selection_autoscroll = None;
         self.mark_session_dirty();
-        if let Some(ws_idx) = active {
-            self.record_focused_workspace_default_cwd(ws_idx);
-        }
         let terminal_ids = active
             .and_then(|i| {
                 self.workspaces
@@ -3210,7 +3477,6 @@ impl AppState {
             .public_tab_number(tab_idx)
             .map(|number| crate::workspace::public_tab_id_for_number(&workspace_id, number))
             .unwrap_or_else(|| format!("{}:{}", workspace_id, tab_idx + 1));
-        self.record_focused_workspace_default_cwd(ws_idx);
         let Some(ws) = self.workspaces.get_mut(ws_idx) else {
             return false;
         };
@@ -3706,6 +3972,8 @@ impl AppState {
                 pane_id,
                 child_pid,
                 exit_success,
+                exit_code: _,
+                exit_signal: _,
             } => {
                 self.handle_pane_died(terminal_runtimes, pane_id, child_pid, exit_success);
                 Vec::new()
@@ -3926,7 +4194,10 @@ impl AppState {
                 .collect(),
             // Intercepted in App::handle_internal_event before reaching this
             // dispatch; never touches AppState.
-            AppEvent::ClipboardWrite { .. } => Vec::new(),
+            AppEvent::ClipboardWrite { .. }
+            | AppEvent::TerminalClipboardWrite { .. }
+            | AppEvent::ExecutionFileStaged { .. }
+            | AppEvent::OpenUrl { .. } => Vec::new(),
             AppEvent::PrefixInputSource { .. } => Vec::new(),
             AppEvent::GitStatusRefreshed {
                 results,
@@ -3938,7 +4209,9 @@ impl AppState {
                 let _ = repo_summaries;
                 Vec::new()
             }
-            AppEvent::PluginCommandFinished { .. } => Vec::new(),
+            AppEvent::PluginCommandFinished { .. }
+            | AppEvent::WorkerInstallPreviewed { .. }
+            | AppEvent::WorkerInstalled { .. } => Vec::new(),
         }
     }
 
@@ -5091,11 +5364,9 @@ mod tests {
         state.theme_name = "system".to_string();
         state.global_theme_name = "system".to_string();
         state.palette = Palette::terminal();
-        let command = state.configured_project_command(
-            root,
-            crate::app::state::ProjectCommandKind::Diff,
-            Some(0),
-        );
+        let command = state
+            .configured_project_command(root, ProjectCommandKind::Diff, Some(0))
+            .unwrap();
         assert!(command
             .command
             .contains("exec hunk diff --watch --theme auto"));
@@ -5108,7 +5379,9 @@ mod tests {
         state.theme_name = "system".to_string();
         state.global_theme_name = "system".to_string();
         state.palette = Palette::terminal();
-        let command = state.configured_project_command(root, ProjectCommandKind::Git, Some(0));
+        let command = state
+            .configured_project_command(root, ProjectCommandKind::Git, Some(0))
+            .unwrap();
 
         assert!(command.command.contains("exec lazygit"));
         assert!(!command.command.contains("LG_CONFIG_FILE"));
@@ -5123,11 +5396,9 @@ mod tests {
         let mut state = app_with_workspaces(&["web"]);
         state.git_diff_command = "git diff --stat".to_string();
 
-        let command = state.configured_project_command(
-            root,
-            crate::app::state::ProjectCommandKind::Diff,
-            None,
-        );
+        let command = state
+            .configured_project_command(root, ProjectCommandKind::Diff, None)
+            .unwrap();
 
         assert_eq!(command.command, "git diff --stat");
         assert!(state
@@ -5141,13 +5412,15 @@ mod tests {
         let mut state = app_with_workspaces(&["web"]);
         state.theme_name = "system".to_string();
         state.global_theme_name = "system".to_string();
-        let command = state.configured_project_command(root, ProjectCommandKind::Ide, Some(0));
+        let command = state
+            .configured_project_command(root, ProjectCommandKind::Ide, Some(0))
+            .unwrap();
 
         assert!(command
             .command
             .contains("fresh --config \"$config_dir/config.json\" ."));
         assert!(command.command.contains("theme_ref=\"builtin://terminal\""));
-        assert!(command.id.starts_with("builtin:ide:"));
+        assert!(command.location.is_local());
     }
 
     #[test]
@@ -5160,10 +5433,15 @@ mod tests {
         state.palette = Palette::dracula();
         state.global_palette = state.palette.clone();
 
-        let git = state.configured_project_command(root.clone(), ProjectCommandKind::Git, Some(0));
-        let diff =
-            state.configured_project_command(root.clone(), ProjectCommandKind::Diff, Some(0));
-        let ide = state.configured_project_command(root, ProjectCommandKind::Ide, Some(0));
+        let git = state
+            .configured_project_command(root.clone(), ProjectCommandKind::Git, Some(0))
+            .unwrap();
+        let diff = state
+            .configured_project_command(root.clone(), ProjectCommandKind::Diff, Some(0))
+            .unwrap();
+        let ide = state
+            .configured_project_command(root, ProjectCommandKind::Ide, Some(0))
+            .unwrap();
 
         assert!(git.command.contains("LG_CONFIG_FILE"));
         assert!(diff.command.contains("[custom_theme.syntax_scopes]"));
@@ -5238,7 +5516,8 @@ mod tests {
         let mut state = app_with_workspaces(&["web"]);
         let mut terminal_runtimes = crate::terminal::TerminalRuntimeRegistry::new();
         state.workspaces[0].identity_cwd = std::path::PathBuf::from("/stale/identity");
-        state.workspaces[0].default_cwd = root.clone();
+        state.workspaces[0].default_location =
+            crate::execution_host::ResourceLocation::local(root.clone()).unwrap();
         assert!(state.workspaces[0].close_tab_allow_empty(0));
 
         let err = state
@@ -5249,10 +5528,7 @@ mod tests {
             )
             .expect_err("empty workspace has no runtime handles for command tab");
 
-        assert_eq!(
-            err,
-            "cannot create tab in empty workspace without runtime handles"
-        );
+        assert_eq!(err, "no git repo for current space");
         assert!(state.workspaces[0].tabs.is_empty());
     }
 
@@ -5319,11 +5595,11 @@ mod tests {
         let terminal_id = state.terminal_id_for_pane(0, root_pane).unwrap();
         state.terminals.get_mut(&terminal_id).unwrap().cwd = nested;
 
-        assert!(state.refresh_command_catalog(&terminal_runtimes));
+        assert!(state.refresh_command_catalog_with_hosts(&terminal_runtimes, None));
 
         assert_eq!(state.command_catalog.len(), 1);
         assert_eq!(state.command_catalog[0].name, "dev");
-        assert_eq!(state.command_catalog[0].root, project);
+        assert_eq!(state.command_catalog[0].root(), project.as_path());
     }
 
     #[test]
@@ -5350,11 +5626,11 @@ mod tests {
         state.terminals.get_mut(&current_terminal_id).unwrap().cwd = current.clone();
         state.terminals.get_mut(&other_terminal_id).unwrap().cwd = other;
 
-        assert!(state.refresh_command_catalog(&terminal_runtimes));
+        assert!(state.refresh_command_catalog_with_hosts(&terminal_runtimes, None));
 
         assert_eq!(state.command_catalog.len(), 1);
         assert_eq!(state.command_catalog[0].name, "dev");
-        assert_eq!(state.command_catalog[0].root, current);
+        assert_eq!(state.command_catalog[0].root(), current.as_path());
     }
 
     #[test]
@@ -5370,13 +5646,15 @@ mod tests {
         let root_pane = state.workspaces[0].tabs[0].root_pane;
         let terminal_id = state.terminal_id_for_pane(0, root_pane).unwrap();
         state.terminals.get_mut(&terminal_id).unwrap().cwd = root.clone();
-        let expected = state.configured_project_command(root, ProjectCommandKind::Diff, Some(0));
+        let expected = state
+            .configured_project_command(root, ProjectCommandKind::Diff, Some(0))
+            .unwrap();
 
-        assert!(state.refresh_command_catalog(&terminal_runtimes));
+        assert!(state.refresh_command_catalog_with_hosts(&terminal_runtimes, None));
         let diff = state
             .command_catalog
             .iter()
-            .find(|command| command.id.starts_with("builtin:diff:"))
+            .find(|command| command.name.starts_with("diff"))
             .expect("curated diff command");
 
         assert_eq!(diff.command, expected.command);
@@ -5389,7 +5667,7 @@ mod tests {
     ) -> crate::commands::ProjectCommand {
         crate::commands::ProjectCommand {
             id: format!("{}:package.json:{name}", root.display()),
-            root,
+            location: crate::execution_host::ResourceLocation::local(root.clone()).unwrap(),
             source: crate::commands::CommandSource::PackageJson,
             name: name.to_string(),
             command: command.to_string(),
@@ -5441,7 +5719,7 @@ mod tests {
         state.command_catalog = vec![command];
 
         state
-            .run_project_command(&mut terminal_runtimes, &command_id)
+            .run_local_project_command(&mut terminal_runtimes, &command_id)
             .unwrap();
 
         let run = state.command_runs.get(&command_id).unwrap();
@@ -5467,7 +5745,7 @@ mod tests {
         assert!(!terminal_runtimes.contains_key(&command_terminal_id));
 
         state
-            .run_project_command(&mut terminal_runtimes, &command_id)
+            .run_local_project_command(&mut terminal_runtimes, &command_id)
             .unwrap();
 
         let run = state.command_runs.get(&command_id).unwrap();
@@ -5533,7 +5811,7 @@ mod tests {
         state.command_catalog = vec![command];
 
         state
-            .run_project_command(&mut terminal_runtimes, &command_id)
+            .run_local_project_command(&mut terminal_runtimes, &command_id)
             .unwrap();
 
         let terminal_id = state
@@ -5572,7 +5850,7 @@ mod tests {
         state.command_catalog = vec![command];
 
         state
-            .run_project_command(&mut terminal_runtimes, &command_id)
+            .run_local_project_command(&mut terminal_runtimes, &command_id)
             .unwrap();
         let terminal_id = state
             .command_runs
@@ -5584,7 +5862,7 @@ mod tests {
         assert!(state.stop_project_command(&mut terminal_runtimes, &command_id));
 
         state
-            .run_project_command(&mut terminal_runtimes, &command_id)
+            .run_local_project_command(&mut terminal_runtimes, &command_id)
             .unwrap();
         wait_for_runtime_pid(&terminal_runtimes, &terminal_id).await;
         let (_, _, pane_id) = state.command_terminal_target(&terminal_id).unwrap();
@@ -5615,6 +5893,7 @@ mod tests {
             command_id.clone(),
             crate::commands::CommandRun {
                 command_id: command_id.clone(),
+                execution_host_id: crate::execution_host::ExecutionHostId::local(),
                 terminal_id: crate::terminal::TerminalId::alloc(),
                 status: crate::commands::CommandRunStatus::Running,
             },
@@ -5752,7 +6031,7 @@ mod tests {
     fn apply_workspace_git_statuses_updates_matching_workspace() {
         let mut state = app_with_workspaces(&["one", "two"]);
         let first_id = state.workspaces[0].id.clone();
-        let first_cwd = state.workspaces[0].resolved_identity_cwd().unwrap();
+        let first_cwd = state.workspaces[0].identity_cwd.clone();
         let first_cwd_fingerprint = state.workspaces[0].git_status_cwds();
         let second_id = state.workspaces[1].id.clone();
 
@@ -5814,7 +6093,7 @@ mod tests {
     fn apply_workspace_git_statuses_clears_missing_git_status() {
         let mut state = app_with_workspaces(&["one"]);
         let workspace_id = state.workspaces[0].id.clone();
-        let cwd = state.workspaces[0].resolved_identity_cwd().unwrap();
+        let cwd = state.workspaces[0].identity_cwd.clone();
         let cwd_fingerprint = state.workspaces[0].git_status_cwds();
         state.workspaces[0].cached_git_branch = Some("main".into());
         state.workspaces[0].cached_git_ahead_behind = Some((1, 2));
@@ -7155,18 +7434,20 @@ mod tests {
     }
 
     #[test]
-    fn close_tab_records_workspace_default_cwd_before_removing_last_tab() {
+    fn closing_last_tab_does_not_change_workspace_default_location() {
         let root = temp_project("close-tab-default-cwd");
         let mut state = app_with_workspaces(&["test"]);
         let pane_id = state.workspaces[0].tabs[0].root_pane;
         let terminal_id = state.terminal_id_for_pane(0, pane_id).unwrap();
-        state.terminals.get_mut(&terminal_id).unwrap().cwd = root.clone();
-        state.workspaces[0].default_cwd = std::path::PathBuf::from("/stale/default");
+        state.terminals.get_mut(&terminal_id).unwrap().cwd = root;
+        let default_location =
+            crate::execution_host::ResourceLocation::local("/durable/default").unwrap();
+        state.workspaces[0].default_location = default_location.clone();
 
         state.close_tab();
 
         assert!(state.workspaces[0].tabs.is_empty());
-        assert_eq!(state.workspaces[0].default_cwd, root);
+        assert_eq!(state.workspaces[0].default_location, default_location);
     }
 
     #[test]
@@ -7258,5 +7539,40 @@ mod tests {
         assert_eq!(state.workspaces.len(), 1);
         assert_eq!(state.workspaces[0].display_name(), "selected");
         assert!(!state.terminals.contains_key(&active_terminal_id));
+    }
+    #[test]
+    fn changing_defaults_and_group_membership_does_not_move_existing_terminal() {
+        let mut state = app_with_workspaces(&["placed"]);
+        let pane_id = state.workspaces[0].tabs[0].root_pane;
+        let terminal_id = state.terminal_id_for_pane(0, pane_id).unwrap();
+        let original = crate::execution_host::ResourceLocation::new(
+            crate::execution_host::ExecutionHostId::new("ssh:original").unwrap(),
+            crate::execution_host::HostPath::new("/srv/original").unwrap(),
+        );
+        let terminal = state.terminals.get_mut(&terminal_id).unwrap();
+        terminal.location = original.clone();
+        terminal.cwd = original.path.as_path().to_path_buf();
+        let group_idx = state.create_group_with_icon_and_default_location(
+            "remote defaults".into(),
+            crate::app::state::DEFAULT_GROUP_ICON.into(),
+            Some(crate::execution_host::ResourceLocation::new(
+                crate::execution_host::ExecutionHostId::new("ssh:new-default").unwrap(),
+                crate::execution_host::HostPath::new("/srv/group").unwrap(),
+            )),
+        );
+
+        assert!(state.set_workspace_default_location(
+            0,
+            crate::execution_host::ResourceLocation::local("/local/workspace").unwrap(),
+        ));
+        assert!(state.set_group_default_location(
+            group_idx,
+            Some(crate::execution_host::ResourceLocation::local("/local/group").unwrap()),
+        ));
+        assert!(state.move_workspace_to_group(0, group_idx));
+
+        let terminal = state.terminals.get(&terminal_id).unwrap();
+        assert_eq!(terminal.location, original);
+        assert_eq!(terminal.cwd, std::path::PathBuf::from("/srv/original"));
     }
 }

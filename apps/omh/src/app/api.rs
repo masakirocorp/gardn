@@ -5,12 +5,14 @@ const WINDOWS_POWERSHELL_AGENT_EXIT_RESPAWN_GRACE: Duration = Duration::from_sec
 
 mod agent_view;
 mod agents;
+mod connections;
 mod env;
 mod integrations;
+pub(crate) mod invocation;
 mod layouts;
 mod panes;
 pub(crate) mod plugins;
-mod responses;
+pub(crate) mod responses;
 mod session;
 mod tabs;
 mod workspaces;
@@ -30,12 +32,67 @@ enum RuntimeExitAction {
 
 impl App {
     pub(crate) fn handle_internal_event(&mut self, ev: AppEvent) {
+        if let AppEvent::WorkerInstallPreviewed {
+            authentication_owner,
+            profile_id,
+            result,
+        } = &ev
+        {
+            self.apply_worker_install_previewed_for_owner(
+                *authentication_owner,
+                profile_id,
+                result,
+            );
+            return;
+        }
+        if let AppEvent::WorkerInstalled {
+            authentication_owner,
+            profile_id,
+            result,
+        } = &ev
+        {
+            self.apply_worker_installed_for_owner(*authentication_owner, profile_id, result);
+            return;
+        }
         if let AppEvent::ClipboardWrite { content } = ev {
             #[cfg(not(test))]
             crate::selection::write_osc52_bytes(&content);
             #[cfg(test)]
             let _ = content;
             self.show_clipboard_feedback();
+            return;
+        }
+
+        if let AppEvent::TerminalClipboardWrite { content, .. } = ev {
+            #[cfg(not(test))]
+            crate::selection::write_osc52_bytes(&content);
+            #[cfg(test)]
+            let _ = content;
+            self.show_clipboard_feedback();
+            return;
+        }
+
+        if let AppEvent::OpenUrl { pane_id, url } = ev {
+            let execution_host_is_local = self.state.workspaces.iter().any(|workspace| {
+                workspace.tabs.iter().any(|tab| {
+                    tab.panes.get(&pane_id).is_some_and(|pane| {
+                        self.state
+                            .terminals
+                            .get(&pane.attached_terminal_id)
+                            .is_some_and(|terminal| terminal.location.is_local())
+                    })
+                })
+            });
+            if crate::app::rendering_client_may_open_url(&url, execution_host_is_local) {
+                if let Err(err) = crate::platform::open_url(&url) {
+                    tracing::warn!(err = %err, url = %url, "failed to open pane URL");
+                }
+            } else {
+                tracing::warn!(
+                    url = %url,
+                    "refused to reinterpret execution-host-local URL on rendering host"
+                );
+            }
             return;
         }
 
@@ -816,145 +873,194 @@ impl App {
     }
 
     pub(crate) fn handle_api_request(&mut self, request: crate::api::schema::Request) -> String {
-        self.drain_internal_events();
-        self.handle_api_request_after_internal_events_drained(request)
+        match self.handle_api_request_disposition(request) {
+            crate::api::ApiRequestDisposition::Respond(response) => response,
+            crate::api::ApiRequestDisposition::Deferred { .. }
+            | crate::api::ApiRequestDisposition::DeferredConnectionInstall { .. } => {
+                serde_json::to_string(&crate::api::schema::ErrorResponse {
+                    id: String::new(),
+                    error: crate::api::schema::ErrorBody {
+                        code: "deferred_api_response".into(),
+                        message: "request requires disposition-aware API handling".into(),
+                    },
+                })
+                .unwrap_or_else(|_| "{}".into())
+            }
+        }
     }
 
-    pub(crate) fn handle_api_request_for_view(
+    pub(crate) fn handle_api_request_disposition(
+        &mut self,
+        request: crate::api::schema::Request,
+    ) -> crate::api::ApiRequestDisposition {
+        self.drain_internal_events();
+        self.handle_api_request_disposition_after_internal_events_drained(request)
+    }
+
+    pub(crate) fn handle_api_request_disposition_for_view(
         &mut self,
         client_view: &mut ClientViewState,
         request: crate::api::schema::Request,
-    ) -> String {
+    ) -> crate::api::ApiRequestDisposition {
         let method_for_cleanup = request.method.clone();
         match request.method {
             crate::api::schema::Method::AgentViewSet(params) => {
                 self.drain_internal_events();
                 let response = self.handle_agent_view_set_for_view(client_view, request.id, params);
                 client_view.reconcile(&self.state);
-                response
+                crate::api::ApiRequestDisposition::Respond(response)
             }
             crate::api::schema::Method::AgentViewClear(params) => {
                 self.drain_internal_events();
                 let response =
                     self.handle_agent_view_clear_for_view(client_view, request.id, params);
                 client_view.reconcile(&self.state);
-                response
+                crate::api::ApiRequestDisposition::Respond(response)
             }
             crate::api::schema::Method::WorkspaceList(_) => {
                 self.drain_internal_events();
                 let response = self.handle_workspace_list_for_view(client_view, request.id);
                 client_view.reconcile(&self.state);
-                response
+                crate::api::ApiRequestDisposition::Respond(response)
             }
             crate::api::schema::Method::WorkspaceGet(target) => {
                 self.drain_internal_events();
                 let response = self.handle_workspace_get_for_view(client_view, request.id, target);
                 client_view.reconcile(&self.state);
-                response
+                crate::api::ApiRequestDisposition::Respond(response)
             }
             crate::api::schema::Method::WorkspaceCreate(params) => {
                 self.drain_internal_events();
-                let response =
-                    self.handle_workspace_create_for_view(client_view, request.id, params);
+                let disposition = self.handle_workspace_create_disposition_for_view(
+                    client_view,
+                    request.id,
+                    params,
+                );
                 client_view.reconcile(&self.state);
-                response
+                disposition
             }
             crate::api::schema::Method::WorkspaceFocus(target) => {
                 self.drain_internal_events();
                 let response =
                     self.handle_workspace_focus_for_view(client_view, request.id, target);
                 client_view.reconcile(&self.state);
-                response
+                crate::api::ApiRequestDisposition::Respond(response)
             }
             crate::api::schema::Method::WorkspaceRename(params) => {
                 self.drain_internal_events();
                 let response =
                     self.handle_workspace_rename_for_view(client_view, request.id, params);
                 client_view.reconcile(&self.state);
-                response
+                crate::api::ApiRequestDisposition::Respond(response)
             }
             crate::api::schema::Method::WorkspaceClose(target) => {
                 self.drain_internal_events();
                 let response =
                     self.handle_workspace_close_for_view(client_view, request.id, target);
                 client_view.reconcile(&self.state);
-                response
+                crate::api::ApiRequestDisposition::Respond(response)
             }
             crate::api::schema::Method::TabList(params) => {
                 self.drain_internal_events();
                 client_view.reconcile(&self.state);
                 let response = self.handle_tab_list_for_view(client_view, request.id, params);
                 client_view.reconcile(&self.state);
-                response
+                crate::api::ApiRequestDisposition::Respond(response)
             }
             crate::api::schema::Method::TabGet(target) => {
                 self.drain_internal_events();
                 client_view.reconcile(&self.state);
                 let response = self.handle_tab_get_for_view(client_view, request.id, target);
                 client_view.reconcile(&self.state);
-                response
+                crate::api::ApiRequestDisposition::Respond(response)
+            }
+            crate::api::schema::Method::AgentStart(params) => {
+                self.drain_internal_events();
+                client_view.reconcile(&self.state);
+                let disposition =
+                    self.handle_agent_start_disposition_for_view(client_view, request.id, params);
+                client_view.reconcile(&self.state);
+                disposition
             }
             crate::api::schema::Method::TabCreate(params) => {
                 self.drain_internal_events();
                 client_view.reconcile(&self.state);
-                let response = self.handle_tab_create_for_view(client_view, request.id, params);
+                let disposition =
+                    self.handle_tab_create_disposition_for_view(client_view, request.id, params);
                 client_view.reconcile(&self.state);
-                response
+                disposition
             }
             crate::api::schema::Method::TabFocus(target) => {
                 self.drain_internal_events();
                 client_view.reconcile(&self.state);
                 let response = self.handle_tab_focus_for_view(client_view, request.id, target);
                 client_view.reconcile(&self.state);
-                response
+                crate::api::ApiRequestDisposition::Respond(response)
             }
             crate::api::schema::Method::TabRename(params) => {
                 self.drain_internal_events();
                 client_view.reconcile(&self.state);
                 let response = self.handle_tab_rename_for_view(client_view, request.id, params);
                 client_view.reconcile(&self.state);
-                response
+                crate::api::ApiRequestDisposition::Respond(response)
             }
             crate::api::schema::Method::TabClose(target) => {
                 self.drain_internal_events();
                 client_view.reconcile(&self.state);
                 let response = self.handle_tab_close_for_view(client_view, request.id, target);
                 client_view.reconcile(&self.state);
-                response
+                crate::api::ApiRequestDisposition::Respond(response)
             }
             crate::api::schema::Method::PaneFocus(target) => {
                 self.drain_internal_events();
                 client_view.reconcile(&self.state);
                 let response = self.handle_pane_focus_for_view(client_view, request.id, target);
                 client_view.reconcile(&self.state);
-                response
+                crate::api::ApiRequestDisposition::Respond(response)
             }
             crate::api::schema::Method::PaneSplit(params) => {
                 self.drain_internal_events();
                 client_view.reconcile(&self.state);
-                let response = self.handle_pane_split_for_view(client_view, request.id, params);
+                let disposition =
+                    self.handle_pane_split_disposition_for_view(client_view, request.id, params);
                 client_view.reconcile(&self.state);
-                response
+                disposition
             }
             crate::api::schema::Method::PaneLayout(params) => {
                 self.drain_internal_events();
                 client_view.reconcile(&self.state);
-                self.handle_pane_layout_for_view(client_view, request.id, params)
+                crate::api::ApiRequestDisposition::Respond(self.handle_pane_layout_for_view(
+                    client_view,
+                    request.id,
+                    params,
+                ))
             }
             crate::api::schema::Method::PaneProcessInfo(params) => {
                 self.drain_internal_events();
                 client_view.reconcile(&self.state);
-                self.handle_pane_process_info_for_view(client_view, request.id, params)
+                crate::api::ApiRequestDisposition::Respond(self.handle_pane_process_info_for_view(
+                    client_view,
+                    request.id,
+                    params,
+                ))
             }
             crate::api::schema::Method::PaneNeighbor(params) => {
                 self.drain_internal_events();
                 client_view.reconcile(&self.state);
-                self.handle_pane_neighbor_for_view(client_view, request.id, params)
+                crate::api::ApiRequestDisposition::Respond(self.handle_pane_neighbor_for_view(
+                    client_view,
+                    request.id,
+                    params,
+                ))
             }
             crate::api::schema::Method::PaneEdges(params) => {
                 self.drain_internal_events();
                 client_view.reconcile(&self.state);
-                self.handle_pane_edges_for_view(client_view, request.id, params)
+                crate::api::ApiRequestDisposition::Respond(self.handle_pane_edges_for_view(
+                    client_view,
+                    request.id,
+                    params,
+                ))
             }
             crate::api::schema::Method::PaneFocusDirection(params) => {
                 self.drain_internal_events();
@@ -962,41 +1068,57 @@ impl App {
                 let response =
                     self.handle_pane_focus_direction_for_view(client_view, request.id, params);
                 client_view.reconcile(&self.state);
-                response
+                crate::api::ApiRequestDisposition::Respond(response)
             }
             crate::api::schema::Method::PaneList(params) => {
                 self.drain_internal_events();
                 client_view.reconcile(&self.state);
-                self.handle_pane_list_for_view(client_view, request.id, params)
+                crate::api::ApiRequestDisposition::Respond(self.handle_pane_list_for_view(
+                    client_view,
+                    request.id,
+                    params,
+                ))
             }
             crate::api::schema::Method::PaneCurrent(params) => {
                 self.drain_internal_events();
                 client_view.reconcile(&self.state);
-                self.handle_pane_current_for_view(client_view, request.id, params)
+                crate::api::ApiRequestDisposition::Respond(self.handle_pane_current_for_view(
+                    client_view,
+                    request.id,
+                    params,
+                ))
             }
             crate::api::schema::Method::PaneGet(target) => {
                 self.drain_internal_events();
                 client_view.reconcile(&self.state);
-                self.handle_pane_get_for_view(client_view, request.id, target)
+                crate::api::ApiRequestDisposition::Respond(self.handle_pane_get_for_view(
+                    client_view,
+                    request.id,
+                    target,
+                ))
             }
             crate::api::schema::Method::PaneResize(params) => {
                 self.drain_internal_events();
                 client_view.reconcile(&self.state);
-                self.handle_pane_resize_for_view(client_view, request.id, params)
+                crate::api::ApiRequestDisposition::Respond(self.handle_pane_resize_for_view(
+                    client_view,
+                    request.id,
+                    params,
+                ))
             }
             crate::api::schema::Method::PaneZoom(params) => {
                 self.drain_internal_events();
                 client_view.reconcile(&self.state);
                 let response = self.handle_pane_zoom_for_view(client_view, request.id, params);
                 client_view.reconcile(&self.state);
-                response
+                crate::api::ApiRequestDisposition::Respond(response)
             }
             crate::api::schema::Method::PluginPaneOpen(params) => {
                 self.drain_internal_events();
-                let response =
+                let disposition =
                     self.handle_plugin_pane_open_for_view(client_view, request.id, params);
                 client_view.reconcile(&self.state);
-                response
+                disposition
             }
             crate::api::schema::Method::PluginPaneFocus(params) => {
                 self.drain_internal_events();
@@ -1006,7 +1128,7 @@ impl App {
                     self.handle_plugin_pane_focus(request.id, params)
                 };
                 client_view.reconcile(&self.state);
-                response
+                crate::api::ApiRequestDisposition::Respond(response)
             }
             crate::api::schema::Method::PluginPaneClose(params) => {
                 self.drain_internal_events();
@@ -1016,13 +1138,54 @@ impl App {
                     self.handle_plugin_pane_close(request.id, params)
                 };
                 client_view.reconcile(&self.state);
-                response
+                crate::api::ApiRequestDisposition::Respond(response)
+            }
+            crate::api::schema::Method::ConnectionTest(target) => {
+                let owner = crate::execution_host::auth::AuthenticationOwner::new(client_view.id());
+                let response = self.handle_connection_action_for(
+                    request.id,
+                    target,
+                    crate::api::schema::ConnectionAction::Test,
+                    owner,
+                );
+                client_view.reconcile(&self.state);
+                crate::api::ApiRequestDisposition::Respond(response)
+            }
+            crate::api::schema::Method::ConnectionConnect(target) => {
+                let owner = crate::execution_host::auth::AuthenticationOwner::new(client_view.id());
+                let response = self.handle_connection_action_for(
+                    request.id,
+                    target,
+                    crate::api::schema::ConnectionAction::Connect,
+                    owner,
+                );
+                client_view.reconcile(&self.state);
+                crate::api::ApiRequestDisposition::Respond(response)
+            }
+            crate::api::schema::Method::ConnectionDisconnect(target) => {
+                let owner = crate::execution_host::auth::AuthenticationOwner::new(client_view.id());
+                let response = self.handle_connection_action_for(
+                    request.id,
+                    target,
+                    crate::api::schema::ConnectionAction::Disconnect,
+                    owner,
+                );
+                client_view.reconcile(&self.state);
+                crate::api::ApiRequestDisposition::Respond(response)
+            }
+            crate::api::schema::Method::ConnectionInstall(params) => {
+                let owner = crate::execution_host::auth::AuthenticationOwner::new(client_view.id());
+                let disposition =
+                    self.handle_connection_install_disposition_for(request.id, params, owner);
+                client_view.reconcile(&self.state);
+                disposition
             }
             method => {
-                let response = self.handle_api_request(crate::api::schema::Request {
-                    id: request.id,
-                    method,
-                });
+                let disposition =
+                    self.handle_api_request_disposition(crate::api::schema::Request {
+                        id: request.id,
+                        method,
+                    });
                 let plugin_id = match &method_for_cleanup {
                     crate::api::schema::Method::PluginUnlink(params) => Some(&params.plugin_id),
                     crate::api::schema::Method::PluginDisable(params) => Some(&params.plugin_id),
@@ -1035,7 +1198,7 @@ impl App {
                     self.clear_agent_view_for_source(client_view, &source);
                 }
                 client_view.reconcile(&self.state);
-                response
+                disposition
             }
         }
     }
@@ -1044,6 +1207,26 @@ impl App {
         &mut self,
         request: crate::api::schema::Request,
     ) -> String {
+        match self.handle_api_request_disposition_after_internal_events_drained(request) {
+            crate::api::ApiRequestDisposition::Respond(response) => response,
+            crate::api::ApiRequestDisposition::Deferred { .. }
+            | crate::api::ApiRequestDisposition::DeferredConnectionInstall { .. } => {
+                serde_json::to_string(&crate::api::schema::ErrorResponse {
+                    id: String::new(),
+                    error: crate::api::schema::ErrorBody {
+                        code: "deferred_api_response".into(),
+                        message: "request requires disposition-aware API handling".into(),
+                    },
+                })
+                .unwrap_or_else(|_| "{}".into())
+            }
+        }
+    }
+
+    pub(crate) fn handle_api_request_disposition_after_internal_events_drained(
+        &mut self,
+        request: crate::api::schema::Request,
+    ) -> crate::api::ApiRequestDisposition {
         use crate::api::schema::{
             ErrorBody, ErrorResponse, Method, ResponseResult, SuccessResponse,
         };
@@ -1064,7 +1247,9 @@ impl App {
                         message: "live handoff is only supported by the headless server".into(),
                     },
                 };
-                return serde_json::to_string(&response).unwrap_or_else(|_| "{}".to_string());
+                return crate::api::ApiRequestDisposition::Respond(
+                    serde_json::to_string(&response).unwrap_or_else(|_| "{}".to_string()),
+                );
             }
             Method::ServerReloadConfig(_) => {
                 let report = self.reload_config();
@@ -1109,8 +1294,49 @@ impl App {
                     },
                 }
             }
+            Method::ConnectionList(_) => {
+                return crate::api::ApiRequestDisposition::Respond(
+                    self.handle_connection_list(request.id),
+                );
+            }
+            Method::ConnectionSave(params) => {
+                return crate::api::ApiRequestDisposition::Respond(
+                    self.handle_connection_save(request.id, params),
+                );
+            }
+            Method::ConnectionDelete(target) => {
+                return crate::api::ApiRequestDisposition::Respond(
+                    self.handle_connection_delete(request.id, target),
+                );
+            }
+            Method::ConnectionTest(target) => {
+                return crate::api::ApiRequestDisposition::Respond(self.handle_connection_action(
+                    request.id,
+                    target,
+                    crate::api::schema::ConnectionAction::Test,
+                ));
+            }
+            Method::ConnectionConnect(target) => {
+                return crate::api::ApiRequestDisposition::Respond(self.handle_connection_action(
+                    request.id,
+                    target,
+                    crate::api::schema::ConnectionAction::Connect,
+                ));
+            }
+            Method::ConnectionDisconnect(target) => {
+                return crate::api::ApiRequestDisposition::Respond(self.handle_connection_action(
+                    request.id,
+                    target,
+                    crate::api::schema::ConnectionAction::Disconnect,
+                ));
+            }
+            Method::ConnectionInstall(params) => {
+                return self.handle_connection_install_disposition(request.id, params);
+            }
             Method::NotificationShow(params) => {
-                return self.handle_notification_show(request.id, params);
+                return crate::api::ApiRequestDisposition::Respond(
+                    self.handle_notification_show(request.id, params),
+                );
             }
             Method::GroupList(_) => SuccessResponse {
                 id: request.id,
@@ -1125,7 +1351,31 @@ impl App {
                 },
             },
             Method::GroupCreate(params) => {
-                let index = self.state.create_group(params.name);
+                let default_location = match params.default_location {
+                    Some(location) => {
+                        match crate::execution_host::ResourceLocation::try_from(location) {
+                            Ok(location) => Some(location),
+                            Err(message) => {
+                                return crate::api::ApiRequestDisposition::Respond(
+                                    serde_json::to_string(&ErrorResponse {
+                                        id: request.id,
+                                        error: ErrorBody {
+                                            code: "invalid_params".into(),
+                                            message,
+                                        },
+                                    })
+                                    .unwrap_or_else(|_| "{}".to_string()),
+                                );
+                            }
+                        }
+                    }
+                    None => None,
+                };
+                let index = self.state.create_group_with_icon_and_default_location(
+                    params.name,
+                    crate::app::state::DEFAULT_GROUP_ICON.to_string(),
+                    default_location,
+                );
                 self.schedule_session_save();
                 SuccessResponse {
                     id: request.id,
@@ -1136,14 +1386,16 @@ impl App {
             }
             Method::GroupFocus(target) => {
                 let Some(index) = self.parse_group_id(&target.group_id) else {
-                    return serde_json::to_string(&ErrorResponse {
-                        id: request.id,
-                        error: ErrorBody {
-                            code: "group_not_found".into(),
-                            message: format!("group {} not found", target.group_id),
-                        },
-                    })
-                    .unwrap();
+                    return crate::api::ApiRequestDisposition::Respond(
+                        serde_json::to_string(&ErrorResponse {
+                            id: request.id,
+                            error: ErrorBody {
+                                code: "group_not_found".into(),
+                                message: format!("group {} not found", target.group_id),
+                            },
+                        })
+                        .unwrap_or_else(|_| "{}".to_string()),
+                    );
                 };
                 self.state.switch_group(index);
                 self.schedule_session_save();
@@ -1156,14 +1408,16 @@ impl App {
             }
             Method::GroupRename(params) => {
                 let Some(index) = self.parse_group_id(&params.group_id) else {
-                    return serde_json::to_string(&ErrorResponse {
-                        id: request.id,
-                        error: ErrorBody {
-                            code: "group_not_found".into(),
-                            message: format!("group {} not found", params.group_id),
-                        },
-                    })
-                    .unwrap();
+                    return crate::api::ApiRequestDisposition::Respond(
+                        serde_json::to_string(&ErrorResponse {
+                            id: request.id,
+                            error: ErrorBody {
+                                code: "group_not_found".into(),
+                                message: format!("group {} not found", params.group_id),
+                            },
+                        })
+                        .unwrap_or_else(|_| "{}".to_string()),
+                    );
                 };
                 self.state.rename_group(index, params.name);
                 self.schedule_session_save();
@@ -1176,24 +1430,28 @@ impl App {
             }
             Method::GroupDelete(target) => {
                 let Some(index) = self.parse_group_id(&target.group_id) else {
-                    return serde_json::to_string(&ErrorResponse {
-                        id: request.id,
-                        error: ErrorBody {
-                            code: "group_not_found".into(),
-                            message: format!("group {} not found", target.group_id),
-                        },
-                    })
-                    .unwrap();
+                    return crate::api::ApiRequestDisposition::Respond(
+                        serde_json::to_string(&ErrorResponse {
+                            id: request.id,
+                            error: ErrorBody {
+                                code: "group_not_found".into(),
+                                message: format!("group {} not found", target.group_id),
+                            },
+                        })
+                        .unwrap_or_else(|_| "{}".to_string()),
+                    );
                 };
                 if let Err(message) = self.state.delete_group(index) {
-                    return serde_json::to_string(&ErrorResponse {
-                        id: request.id,
-                        error: ErrorBody {
-                            code: "group_delete_failed".into(),
-                            message: message.to_string(),
-                        },
-                    })
-                    .unwrap();
+                    return crate::api::ApiRequestDisposition::Respond(
+                        serde_json::to_string(&ErrorResponse {
+                            id: request.id,
+                            error: ErrorBody {
+                                code: "group_delete_failed".into(),
+                                message: message.to_string(),
+                            },
+                        })
+                        .unwrap_or_else(|_| "{}".to_string()),
+                    );
                 }
                 self.schedule_session_save();
                 SuccessResponse {
@@ -1202,156 +1460,349 @@ impl App {
                 }
             }
             Method::ClientWindowTitleSet(_) | Method::ClientWindowTitleClear(_) => {
-                return responses::encode_success(
+                return crate::api::ApiRequestDisposition::Respond(responses::encode_success(
                     request.id,
                     ResponseResult::ClientWindowTitle {
                         changed: false,
                         reason: crate::api::schema::ClientWindowTitleReason::NoForegroundClient,
                     },
-                );
+                ));
             }
-            Method::SessionSnapshot(_) => return self.handle_session_snapshot(request.id),
-            Method::WorkspaceList(_) => return self.handle_workspace_list(request.id),
-            Method::WorkspaceGet(target) => return self.handle_workspace_get(request.id, target),
+            Method::SessionSnapshot(_) => {
+                return crate::api::ApiRequestDisposition::Respond(
+                    self.handle_session_snapshot(request.id),
+                )
+            }
+            Method::WorkspaceList(_) => {
+                return crate::api::ApiRequestDisposition::Respond(
+                    self.handle_workspace_list(request.id),
+                )
+            }
+            Method::WorkspaceGet(target) => {
+                return crate::api::ApiRequestDisposition::Respond(
+                    self.handle_workspace_get(request.id, target),
+                )
+            }
             Method::WorkspaceCreate(params) => {
-                return self.handle_workspace_create(request.id, params);
+                return self.handle_workspace_create_disposition(request.id, params);
             }
             Method::WorkspaceFocus(target) => {
-                return self.handle_workspace_focus(request.id, target)
+                return crate::api::ApiRequestDisposition::Respond(
+                    self.handle_workspace_focus(request.id, target),
+                );
             }
             Method::WorkspaceRename(params) => {
-                return self.handle_workspace_rename(request.id, params);
+                return crate::api::ApiRequestDisposition::Respond(
+                    self.handle_workspace_rename(request.id, params),
+                );
             }
             Method::WorkspaceClose(target) => {
-                return self.handle_workspace_close(request.id, target)
+                return crate::api::ApiRequestDisposition::Respond(
+                    self.handle_workspace_close(request.id, target),
+                );
             }
-            Method::TabList(params) => return self.handle_tab_list(request.id, params),
-            Method::TabGet(target) => return self.handle_tab_get(request.id, target),
-            Method::TabCreate(params) => return self.handle_tab_create(request.id, params),
-            Method::TabFocus(target) => return self.handle_tab_focus(request.id, target),
-            Method::TabRename(params) => return self.handle_tab_rename(request.id, params),
-            Method::TabClose(target) => return self.handle_tab_close(request.id, target),
+            Method::TabList(params) => {
+                return crate::api::ApiRequestDisposition::Respond(
+                    self.handle_tab_list(request.id, params),
+                )
+            }
+            Method::TabGet(target) => {
+                return crate::api::ApiRequestDisposition::Respond(
+                    self.handle_tab_get(request.id, target),
+                )
+            }
+            Method::TabCreate(params) => {
+                return self.handle_tab_create_disposition(request.id, params);
+            }
+            Method::TabFocus(target) => {
+                return crate::api::ApiRequestDisposition::Respond(
+                    self.handle_tab_focus(request.id, target),
+                )
+            }
+            Method::TabRename(params) => {
+                return crate::api::ApiRequestDisposition::Respond(
+                    self.handle_tab_rename(request.id, params),
+                )
+            }
+            Method::TabClose(target) => {
+                return crate::api::ApiRequestDisposition::Respond(
+                    self.handle_tab_close(request.id, target),
+                )
+            }
             Method::AgentViewSet(params) => {
-                return self.handle_agent_view_set(request.id, params);
+                return crate::api::ApiRequestDisposition::Respond(
+                    self.handle_agent_view_set(request.id, params),
+                );
             }
             Method::AgentViewClear(params) => {
-                return self.handle_agent_view_clear(request.id, params);
+                return crate::api::ApiRequestDisposition::Respond(
+                    self.handle_agent_view_clear(request.id, params),
+                );
             }
-            Method::AgentList(_) => return self.handle_agent_list(request.id),
-            Method::PaneFocus(target) => return self.handle_pane_focus(request.id, target),
-            Method::AgentGet(target) => return self.handle_agent_get(request.id, target),
-            Method::AgentFocus(target) => return self.handle_agent_focus(request.id, target),
-            Method::AgentRename(params) => return self.handle_agent_rename(request.id, params),
-            Method::AgentStart(params) => return self.handle_agent_start(request.id, params),
-            Method::AgentPrompt(params) => return self.handle_agent_prompt(request.id, params),
+            Method::AgentList(_) => {
+                return crate::api::ApiRequestDisposition::Respond(
+                    self.handle_agent_list(request.id),
+                )
+            }
+            Method::PaneFocus(target) => {
+                return crate::api::ApiRequestDisposition::Respond(
+                    self.handle_pane_focus(request.id, target),
+                )
+            }
+            Method::AgentGet(target) => {
+                return crate::api::ApiRequestDisposition::Respond(
+                    self.handle_agent_get(request.id, target),
+                )
+            }
+            Method::AgentFocus(target) => {
+                return crate::api::ApiRequestDisposition::Respond(
+                    self.handle_agent_focus(request.id, target),
+                )
+            }
+            Method::AgentRename(params) => {
+                return crate::api::ApiRequestDisposition::Respond(
+                    self.handle_agent_rename(request.id, params),
+                )
+            }
+            Method::AgentStart(params) => {
+                return self.handle_agent_start_disposition(request.id, params);
+            }
+            Method::AgentPrompt(params) => {
+                return crate::api::ApiRequestDisposition::Respond(
+                    self.handle_agent_prompt(request.id, params),
+                )
+            }
             Method::AgentWait(_) => {
-                return serde_json::to_string(&ErrorResponse {
-                    id: request.id,
-                    error: ErrorBody {
-                        code: "invalid_request".into(),
-                        message: "agent.wait is handled by the api server".into(),
-                    },
-                })
-                .unwrap_or_else(|_| "{}".into());
+                return crate::api::ApiRequestDisposition::Respond(
+                    serde_json::to_string(&ErrorResponse {
+                        id: request.id,
+                        error: ErrorBody {
+                            code: "invalid_request".into(),
+                            message: "agent.wait is handled by the api server".into(),
+                        },
+                    })
+                    .unwrap_or_else(|_| "{}".to_string()),
+                );
             }
-            Method::AgentRead(params) => return self.handle_agent_read(request.id, params),
-            Method::AgentExplain(target) => return self.handle_agent_explain(request.id, target),
+            Method::AgentRead(params) => {
+                return crate::api::ApiRequestDisposition::Respond(
+                    self.handle_agent_read(request.id, params),
+                )
+            }
+            Method::AgentExplain(target) => {
+                return crate::api::ApiRequestDisposition::Respond(
+                    self.handle_agent_explain(request.id, target),
+                )
+            }
             Method::AgentSendKeys(params) => {
-                return self.handle_agent_send_keys(request.id, params)
+                return crate::api::ApiRequestDisposition::Respond(
+                    self.handle_agent_send_keys(request.id, params),
+                );
             }
-            Method::PaneSplit(params) => return self.handle_pane_split(request.id, params),
-            Method::PaneSwap(params) => return self.handle_pane_swap(request.id, params),
-            Method::PaneMove(params) => return self.handle_pane_move(request.id, params),
-            Method::PaneZoom(params) => return self.handle_pane_zoom(request.id, params),
-            Method::PaneLayout(params) => return self.handle_pane_layout(request.id, params),
+            Method::PaneSplit(params) => {
+                return self.handle_pane_split_disposition(request.id, params);
+            }
+            Method::PaneSwap(params) => {
+                return crate::api::ApiRequestDisposition::Respond(
+                    self.handle_pane_swap(request.id, params),
+                )
+            }
+            Method::PaneMove(params) => {
+                return crate::api::ApiRequestDisposition::Respond(
+                    self.handle_pane_move(request.id, params),
+                )
+            }
+            Method::PaneZoom(params) => {
+                return crate::api::ApiRequestDisposition::Respond(
+                    self.handle_pane_zoom(request.id, params),
+                )
+            }
+            Method::PaneLayout(params) => {
+                return crate::api::ApiRequestDisposition::Respond(
+                    self.handle_pane_layout(request.id, params),
+                )
+            }
             Method::PaneProcessInfo(params) => {
-                return self.handle_pane_process_info(request.id, params);
+                return crate::api::ApiRequestDisposition::Respond(
+                    self.handle_pane_process_info(request.id, params),
+                );
             }
-            Method::LayoutExport(params) => return self.handle_layout_export(request.id, params),
-            Method::LayoutApply(params) => return self.handle_layout_apply(request.id, params),
-            Method::PaneNeighbor(params) => return self.handle_pane_neighbor(request.id, params),
-            Method::PaneEdges(params) => return self.handle_pane_edges(request.id, params),
+            Method::LayoutExport(params) => {
+                return crate::api::ApiRequestDisposition::Respond(
+                    self.handle_layout_export(request.id, params),
+                )
+            }
+            Method::LayoutApply(params) => {
+                return crate::api::ApiRequestDisposition::Respond(
+                    self.handle_layout_apply(request.id, params),
+                )
+            }
+            Method::PaneNeighbor(params) => {
+                return crate::api::ApiRequestDisposition::Respond(
+                    self.handle_pane_neighbor(request.id, params),
+                )
+            }
+            Method::PaneEdges(params) => {
+                return crate::api::ApiRequestDisposition::Respond(
+                    self.handle_pane_edges(request.id, params),
+                )
+            }
             Method::PaneFocusDirection(params) => {
-                return self.handle_pane_focus_direction(request.id, params);
+                return crate::api::ApiRequestDisposition::Respond(
+                    self.handle_pane_focus_direction(request.id, params),
+                );
             }
-            Method::PaneResize(params) => return self.handle_pane_resize(request.id, params),
-            Method::PaneList(params) => return self.handle_pane_list(request.id, params),
-            Method::PaneCurrent(params) => return self.handle_pane_current(request.id, params),
-            Method::PaneGet(target) => return self.handle_pane_get(request.id, target),
-            Method::PaneRename(params) => return self.handle_pane_rename(request.id, params),
-            Method::PaneRead(params) => return self.handle_pane_read(request.id, params),
+            Method::PaneResize(params) => {
+                return crate::api::ApiRequestDisposition::Respond(
+                    self.handle_pane_resize(request.id, params),
+                )
+            }
+            Method::PaneList(params) => {
+                return crate::api::ApiRequestDisposition::Respond(
+                    self.handle_pane_list(request.id, params),
+                )
+            }
+            Method::PaneCurrent(params) => {
+                return crate::api::ApiRequestDisposition::Respond(
+                    self.handle_pane_current(request.id, params),
+                )
+            }
+            Method::PaneGet(target) => {
+                return crate::api::ApiRequestDisposition::Respond(
+                    self.handle_pane_get(request.id, target),
+                )
+            }
+            Method::PaneRename(params) => {
+                return crate::api::ApiRequestDisposition::Respond(
+                    self.handle_pane_rename(request.id, params),
+                )
+            }
+            Method::PaneRead(params) => {
+                return crate::api::ApiRequestDisposition::Respond(
+                    self.handle_pane_read(request.id, params),
+                )
+            }
             Method::PaneReportAgent(params) => {
-                return self.handle_pane_report_agent(request.id, params);
+                return crate::api::ApiRequestDisposition::Respond(
+                    self.handle_pane_report_agent(request.id, params),
+                );
             }
             Method::PaneReportAgentSession(params) => {
-                return self.handle_pane_report_agent_session(request.id, params);
+                return crate::api::ApiRequestDisposition::Respond(
+                    self.handle_pane_report_agent_session(request.id, params),
+                );
             }
             Method::PaneReportMetadata(params) => {
-                return self.handle_pane_report_metadata(request.id, params);
+                return crate::api::ApiRequestDisposition::Respond(
+                    self.handle_pane_report_metadata(request.id, params),
+                );
             }
             Method::PaneClearAgentAuthority(params) => {
-                return self.handle_pane_clear_agent_authority(request.id, params);
+                return crate::api::ApiRequestDisposition::Respond(
+                    self.handle_pane_clear_agent_authority(request.id, params),
+                );
             }
             Method::PaneReleaseAgent(params) => {
-                return self.handle_pane_release_agent(request.id, params);
+                return crate::api::ApiRequestDisposition::Respond(
+                    self.handle_pane_release_agent(request.id, params),
+                );
             }
-            Method::PaneSendText(params) => return self.handle_pane_send_text(request.id, params),
+            Method::PaneSendText(params) => {
+                return crate::api::ApiRequestDisposition::Respond(
+                    self.handle_pane_send_text(request.id, params),
+                )
+            }
             Method::PaneSendInput(params) => {
-                return self.handle_pane_send_input(request.id, params)
+                return crate::api::ApiRequestDisposition::Respond(
+                    self.handle_pane_send_input(request.id, params),
+                );
             }
-            Method::PaneClose(target) => return self.handle_pane_close(request.id, target),
-            Method::PaneSendKeys(params) => return self.handle_pane_send_keys(request.id, params),
+            Method::PaneClose(target) => {
+                return crate::api::ApiRequestDisposition::Respond(
+                    self.handle_pane_close(request.id, target),
+                )
+            }
+            Method::PaneSendKeys(params) => {
+                return crate::api::ApiRequestDisposition::Respond(
+                    self.handle_pane_send_keys(request.id, params),
+                )
+            }
             Method::IntegrationInstall(params) => {
-                return self.handle_integration_install(request.id, params);
+                return crate::api::ApiRequestDisposition::Respond(
+                    self.handle_integration_install(request.id, params),
+                );
             }
             Method::IntegrationUninstall(params) => {
-                return self.handle_integration_uninstall(request.id, params);
+                return crate::api::ApiRequestDisposition::Respond(
+                    self.handle_integration_uninstall(request.id, params),
+                );
             }
             Method::PluginLink(params) => {
-                return self.handle_plugin_link(request.id, params);
+                return crate::api::ApiRequestDisposition::Respond(
+                    self.handle_plugin_link(request.id, params),
+                );
             }
             Method::PluginList(params) => {
-                return self.handle_plugin_list(request.id, params);
+                return crate::api::ApiRequestDisposition::Respond(
+                    self.handle_plugin_list(request.id, params),
+                );
             }
             Method::PluginUnlink(params) => {
-                return self.handle_plugin_unlink(request.id, params);
+                return crate::api::ApiRequestDisposition::Respond(
+                    self.handle_plugin_unlink(request.id, params),
+                );
             }
             Method::PluginEnable(params) => {
-                return self.handle_plugin_enable(request.id, params);
+                return crate::api::ApiRequestDisposition::Respond(
+                    self.handle_plugin_enable(request.id, params),
+                );
             }
             Method::PluginDisable(params) => {
-                return self.handle_plugin_disable(request.id, params);
+                return crate::api::ApiRequestDisposition::Respond(
+                    self.handle_plugin_disable(request.id, params),
+                );
             }
             Method::PluginActionList(params) => {
-                return self.handle_plugin_action_list(request.id, params);
+                return crate::api::ApiRequestDisposition::Respond(
+                    self.handle_plugin_action_list(request.id, params),
+                );
             }
             Method::PluginActionInvoke(params) => {
-                return self.handle_plugin_action_invoke(request.id, params);
+                return crate::api::ApiRequestDisposition::Respond(
+                    self.handle_plugin_action_invoke(request.id, params),
+                );
             }
             Method::PluginLogList(params) => {
-                return self.handle_plugin_log_list(request.id, params);
+                return crate::api::ApiRequestDisposition::Respond(
+                    self.handle_plugin_log_list(request.id, params),
+                );
             }
             Method::PluginPaneOpen(params) => {
                 return self.handle_plugin_pane_open(request.id, params);
             }
             Method::PluginPaneFocus(params) => {
-                return self.handle_plugin_pane_focus(request.id, params);
+                return crate::api::ApiRequestDisposition::Respond(
+                    self.handle_plugin_pane_focus(request.id, params),
+                );
             }
             Method::PluginPaneClose(params) => {
-                return self.handle_plugin_pane_close(request.id, params);
+                return crate::api::ApiRequestDisposition::Respond(
+                    self.handle_plugin_pane_close(request.id, params),
+                );
             }
             _ => {
-                return responses::encode_error(
+                return crate::api::ApiRequestDisposition::Respond(responses::encode_error(
                     request.id,
                     "not_implemented",
                     "method not implemented yet",
-                );
+                ));
             }
         };
 
-        serde_json::to_string(&response).unwrap()
+        crate::api::ApiRequestDisposition::Respond(
+            serde_json::to_string(&response).unwrap_or_else(|_| "{}".to_string()),
+        )
     }
-
     fn handle_notification_show(
         &mut self,
         id: String,
@@ -1425,15 +1876,6 @@ impl App {
         )
     }
 
-    fn emit_api_notification_sound(&self, sound: crate::api::schema::NotificationShowSound) {
-        if !self.state.local_sound_playback || !self.state.sound.allows(None) {
-            return;
-        }
-        if let Some(sound) = sound.to_sound() {
-            crate::sound::play(sound, &self.state.sound);
-        }
-    }
-
     pub(crate) fn api_notification_rate_limited(&self, now: Instant) -> bool {
         self.last_api_notification_at
             .is_some_and(|last| now.duration_since(last) < API_NOTIFICATION_RATE_LIMIT)
@@ -1441,6 +1883,15 @@ impl App {
 
     pub(crate) fn mark_api_notification_shown(&mut self, now: Instant) {
         self.last_api_notification_at = Some(now);
+    }
+
+    fn emit_api_notification_sound(&self, sound: crate::api::schema::NotificationShowSound) {
+        if !self.state.local_sound_playback || !self.state.sound.allows(None) {
+            return;
+        }
+        if let Some(sound) = sound.to_sound() {
+            crate::sound::play(sound, &self.state.sound);
+        }
     }
 }
 
@@ -1556,6 +2007,8 @@ mod tests {
             pane_id: overlay_pane,
             child_pid: 0,
             exit_success: true,
+            exit_code: None,
+            exit_signal: None,
         });
 
         let overlay_tab = &app.state.workspaces[0].tabs[0];
@@ -1577,6 +2030,8 @@ mod tests {
             pane_id: overlay_pane,
             child_pid: 0,
             exit_success: true,
+            exit_code: None,
+            exit_signal: None,
         });
 
         let tab = &app.state.workspaces[0].tabs[0];
@@ -2232,6 +2687,8 @@ mod tests {
             pane_id,
             child_pid: 0,
             exit_success: true,
+            exit_code: None,
+            exit_signal: None,
         });
 
         assert!(
@@ -2312,6 +2769,501 @@ mod tests {
         assert_eq!(
             app.state.toast.as_ref().map(|toast| toast.context.as_str()),
             Some("__omh_original__ · 1")
+        );
+    }
+    #[test]
+    fn connection_api_lists_profiles_and_queues_actions() {
+        let (_api_tx, api_rx) = tokio::sync::mpsc::unbounded_channel();
+        let mut app = App::new(
+            &crate::config::Config::default(),
+            true,
+            None,
+            api_rx,
+            crate::api::EventHub::default(),
+        );
+        let profile = crate::persist::ssh_profiles::SshConnectionProfile::new(
+            "workbox",
+            "Work box",
+            "alice@workbox",
+            Some(crate::execution_host::HostPath::new("/srv/project").unwrap()),
+        )
+        .unwrap();
+        app.state.ssh_connection_profiles = vec![profile.clone()];
+        app.state.host_connection_states.insert(
+            profile.execution_host_id(),
+            crate::execution_host::ConnectionStatus::Connected,
+        );
+
+        let response = app.handle_api_request(crate::api::schema::Request {
+            id: "connection-list".into(),
+            method: crate::api::schema::Method::ConnectionList(
+                crate::api::schema::EmptyParams::default(),
+            ),
+        });
+        let body: serde_json::Value = serde_json::from_str(&response).unwrap();
+        assert_eq!(
+            body["result"]["profiles"][0],
+            serde_json::json!({
+                "profile_id": "workbox",
+                "name": "Work box",
+                "target": "alice@workbox",
+                "suggested_directory": "/srv/project",
+                "execution_host_id": "ssh:workbox:1",
+                "status": "connected"
+            })
+        );
+
+        let response = app.handle_api_request(crate::api::schema::Request {
+            id: "connection-connect".into(),
+            method: crate::api::schema::Method::ConnectionConnect(
+                crate::api::schema::ConnectionTarget {
+                    profile_id: "workbox".into(),
+                },
+            ),
+        });
+        let body: serde_json::Value = serde_json::from_str(&response).unwrap();
+        assert_eq!(body["result"]["type"], "connection_action_queued");
+        assert_eq!(body["result"]["action"], "connect");
+        assert_eq!(
+            app.state.pending_ssh_connection_requests,
+            vec![crate::app::state::SshConnectionRequest {
+                profile_id: "workbox".into(),
+                action: crate::execution_host::HostConnectionAction::Connect,
+                authentication_owner: crate::execution_host::auth::AuthenticationOwner::new(
+                    app.default_client_view.id(),
+                ),
+            }]
+        );
+    }
+
+    #[test]
+    fn for_view_connection_install_confirm_preserves_deferred_disposition() {
+        let mut app = crate::app::App::new(
+            &crate::config::Config::default(),
+            true,
+            None,
+            tokio::sync::mpsc::unbounded_channel().1,
+            crate::api::EventHub::default(),
+        );
+        let profile = crate::persist::ssh_profiles::SshConnectionProfile::new(
+            "robotbox-smoke",
+            "Robot",
+            "user@robotbox",
+            None,
+        )
+        .expect("profile");
+        app.state.ssh_connection_profiles = vec![profile];
+        // Install never runs SSH I/O on the disposition path. Without hosts the
+        // handler responds immediately; with hosts it defers preview+install so the
+        // event loop can service the initiating client's auth prompts.
+        let mut view = app.default_client_view.clone_reconciled(&app.state);
+        let owner = crate::execution_host::auth::AuthenticationOwner::new(view.id());
+        let disposition = app.handle_api_request_disposition_for_view(
+            &mut view,
+            crate::api::schema::Request {
+                id: "install-confirm".into(),
+                method: crate::api::schema::Method::ConnectionInstall(
+                    crate::api::schema::ConnectionInstallParams {
+                        profile_id: "robotbox-smoke".into(),
+                        confirm: true,
+                    },
+                ),
+            },
+        );
+        match disposition {
+            crate::api::ApiRequestDisposition::Respond(response) => {
+                let body: serde_json::Value =
+                    serde_json::from_str(&response).expect("json response");
+                assert_eq!(body["id"], "install-confirm");
+                assert_ne!(
+                    body["error"]["code"], "deferred_api_response",
+                    "for_view fallback must not wrap deferred install into deferred_api_response: {body}"
+                );
+                assert_eq!(body["error"]["code"], "execution_hosts_unavailable");
+            }
+            crate::api::ApiRequestDisposition::DeferredConnectionInstall {
+                request_id,
+                confirm,
+                authentication_owner,
+                ..
+            } => {
+                assert_eq!(request_id, "install-confirm");
+                assert!(confirm);
+                assert_eq!(authentication_owner, owner);
+            }
+            crate::api::ApiRequestDisposition::Deferred { .. } => {
+                panic!("connection.install must not use remote-create Deferred terminal path")
+            }
+        }
+    }
+
+    #[test]
+    fn for_view_connection_connect_queues_initiating_client_owner() {
+        let mut app = crate::app::App::new(
+            &crate::config::Config::default(),
+            true,
+            None,
+            tokio::sync::mpsc::unbounded_channel().1,
+            crate::api::EventHub::default(),
+        );
+        let profile = crate::persist::ssh_profiles::SshConnectionProfile::new(
+            "workbox",
+            "Work box",
+            "alice@workbox",
+            None,
+        )
+        .expect("profile");
+        app.state.ssh_connection_profiles = vec![profile];
+
+        let mut initiator = crate::app::ClientViewState::from_default_client_state(&app.state);
+        let other = crate::app::ClientViewState::from_default_client_state(&app.state);
+        let initiator_owner = crate::execution_host::auth::AuthenticationOwner::new(initiator.id());
+        let other_owner = crate::execution_host::auth::AuthenticationOwner::new(other.id());
+        assert_ne!(initiator_owner, other_owner);
+
+        let response = match app.handle_api_request_disposition_for_view(
+            &mut initiator,
+            crate::api::schema::Request {
+                id: "connect-owner".into(),
+                method: crate::api::schema::Method::ConnectionConnect(
+                    crate::api::schema::ConnectionTarget {
+                        profile_id: "workbox".into(),
+                    },
+                ),
+            },
+        ) {
+            crate::api::ApiRequestDisposition::Respond(response) => response,
+            other => panic!("expected immediate queue response, got {other:?}"),
+        };
+        let body: serde_json::Value = serde_json::from_str(&response).unwrap();
+        assert_eq!(body["result"]["type"], "connection_action_queued");
+        assert_eq!(
+            app.state.pending_ssh_connection_requests,
+            vec![crate::app::state::SshConnectionRequest {
+                profile_id: "workbox".into(),
+                action: crate::execution_host::HostConnectionAction::Connect,
+                authentication_owner: initiator_owner,
+            }]
+        );
+
+        if app.execution_hosts.is_some() {
+            match app.handle_api_request_disposition_for_view(
+                &mut initiator,
+                crate::api::schema::Request {
+                    id: "install-owner".into(),
+                    method: crate::api::schema::Method::ConnectionInstall(
+                        crate::api::schema::ConnectionInstallParams {
+                            profile_id: "workbox".into(),
+                            confirm: false,
+                        },
+                    ),
+                },
+            ) {
+                crate::api::ApiRequestDisposition::DeferredConnectionInstall {
+                    authentication_owner,
+                    confirm,
+                    ..
+                } => {
+                    assert_eq!(authentication_owner, initiator_owner);
+                    assert!(!confirm);
+                }
+                other => panic!("expected deferred install with owner, got {other:?}"),
+            }
+        }
+    }
+
+    #[test]
+    fn group_create_persists_remote_default_location_atomically() {
+        let (_api_tx, api_rx) = tokio::sync::mpsc::unbounded_channel();
+        let mut app = App::new(
+            &crate::config::Config::default(),
+            true,
+            None,
+            api_rx,
+            crate::api::EventHub::default(),
+        );
+        let groups_before = app.state.groups.len();
+
+        let response = app.handle_api_request(crate::api::schema::Request {
+            id: "group-create-remote".into(),
+            method: crate::api::schema::Method::GroupCreate(
+                crate::api::schema::GroupCreateParams {
+                    name: "remote-side".into(),
+                    default_location: Some(crate::api::schema::ResourceLocationParams {
+                        execution_host_id: "ssh:workbox:1".into(),
+                        path: "/srv/work".into(),
+                    }),
+                },
+            ),
+        });
+
+        let body: serde_json::Value = serde_json::from_str(&response).expect("json response");
+        assert_eq!(body["id"], "group-create-remote");
+        assert_eq!(body["result"]["type"], "group_info");
+        assert_eq!(body["result"]["group"]["name"], "remote-side");
+        assert_eq!(
+            body["result"]["group"]["default_location"],
+            serde_json::json!({
+                "execution_host_id": "ssh:workbox:1",
+                "path": "/srv/work"
+            })
+        );
+        assert_eq!(app.state.groups.len(), groups_before + 1);
+        let created = app.state.groups.last().expect("created group");
+        let location = created
+            .default_location
+            .as_ref()
+            .expect("default location should persist");
+        assert_eq!(location.execution_host_id.as_str(), "ssh:workbox:1");
+        assert_eq!(location.path.as_path(), std::path::Path::new("/srv/work"));
+    }
+
+    fn sample_worker_preview() -> crate::remote::WorkerInstallPreview {
+        crate::remote::WorkerInstallPreview {
+            kind: crate::remote::WorkerInstallKind::Install,
+            source: "/tmp/omh-worker".into(),
+            target_path: "~/.local/share/omh/worker/v1/omh-worker".into(),
+            checksum: "sha256:abc".into(),
+            version: "1.2.3".into(),
+            commands: vec!["install".into()],
+            capabilities: vec!["pty".into()],
+            already_current: false,
+        }
+    }
+
+    fn open_profile_editor(view: &mut ClientViewState, profile_id: &str) {
+        view.settings.connection_editor =
+            Some(crate::app::state::ConnectionEditorState::edit_profile(
+                profile_id,
+                "Work box",
+                "alice@workbox",
+                "",
+            ));
+    }
+
+    #[test]
+    fn worker_install_preview_completion_routes_only_to_initiating_client() {
+        let mut app = crate::app::App::new(
+            &crate::config::Config::default(),
+            true,
+            None,
+            tokio::sync::mpsc::unbounded_channel().1,
+            crate::api::EventHub::default(),
+        );
+
+        let mut initiator = ClientViewState::from_default_client_state(&app.state);
+        let mut other = ClientViewState::from_default_client_state(&app.state);
+        open_profile_editor(&mut initiator, "workbox");
+        open_profile_editor(&mut other, "workbox");
+        // Shared AppState must not receive ownerless completion writes.
+        app.state.settings.connection_editor =
+            Some(crate::app::state::ConnectionEditorState::edit_profile(
+                "workbox",
+                "Work box",
+                "alice@workbox",
+                "",
+            ));
+
+        let initiator_owner = crate::execution_host::auth::AuthenticationOwner::new(initiator.id());
+        let other_owner = crate::execution_host::auth::AuthenticationOwner::new(other.id());
+        assert_ne!(initiator_owner, other_owner);
+
+        let preview = sample_worker_preview();
+        assert!(App::apply_worker_install_previewed_to_view(
+            &mut initiator,
+            initiator_owner,
+            "workbox",
+            &Ok(preview.clone()),
+        ));
+        assert!(!App::apply_worker_install_previewed_to_view(
+            &mut other,
+            initiator_owner,
+            "workbox",
+            &Ok(preview.clone()),
+        ));
+        // Default-client path only mutates when the owner matches.
+        assert!(!app.apply_worker_install_previewed_for_owner(
+            initiator_owner,
+            "workbox",
+            &Ok(preview.clone()),
+        ));
+
+        assert_eq!(
+            initiator
+                .settings
+                .connection_editor
+                .as_ref()
+                .and_then(|editor| editor.pending_worker_install.as_ref())
+                .map(|pending| pending.preview.clone()),
+            Some(preview)
+        );
+        assert!(other
+            .settings
+            .connection_editor
+            .as_ref()
+            .and_then(|editor| editor.pending_worker_install.as_ref())
+            .is_none());
+        assert!(
+            app.state
+                .settings
+                .connection_editor
+                .as_ref()
+                .and_then(|editor| editor.pending_worker_install.as_ref())
+                .is_none(),
+            "non-owner completion must not write AppState.settings"
+        );
+    }
+
+    #[test]
+    fn worker_install_completion_routes_only_to_initiating_client() {
+        let app = crate::app::App::new(
+            &crate::config::Config::default(),
+            true,
+            None,
+            tokio::sync::mpsc::unbounded_channel().1,
+            crate::api::EventHub::default(),
+        );
+
+        let mut initiator = ClientViewState::from_default_client_state(&app.state);
+        let mut other = ClientViewState::from_default_client_state(&app.state);
+        open_profile_editor(&mut initiator, "workbox");
+        open_profile_editor(&mut other, "workbox");
+        initiator
+            .settings
+            .connection_editor
+            .as_mut()
+            .expect("editor")
+            .pending_worker_install = Some(crate::app::state::ConnectionWorkerInstallPending {
+            preview: sample_worker_preview(),
+        });
+        other
+            .settings
+            .connection_editor
+            .as_mut()
+            .expect("editor")
+            .pending_worker_install = Some(crate::app::state::ConnectionWorkerInstallPending {
+            preview: sample_worker_preview(),
+        });
+
+        let initiator_owner = crate::execution_host::auth::AuthenticationOwner::new(initiator.id());
+        let report = crate::remote::WorkerInstallReport::Installed(sample_worker_preview());
+
+        assert!(App::apply_worker_installed_to_view(
+            &mut initiator,
+            initiator_owner,
+            "workbox",
+            &Ok(report.clone()),
+        ));
+        assert!(!App::apply_worker_installed_to_view(
+            &mut other,
+            initiator_owner,
+            "workbox",
+            &Ok(report.clone()),
+        ));
+
+        let initiator_editor = initiator
+            .settings
+            .connection_editor
+            .as_ref()
+            .expect("initiator editor");
+        assert!(initiator_editor.pending_worker_install.is_none());
+        assert_eq!(
+            initiator_editor
+                .worker_install_result
+                .as_ref()
+                .map(|entry| entry.result.clone()),
+            Some(Ok(report))
+        );
+
+        let other_editor = other
+            .settings
+            .connection_editor
+            .as_ref()
+            .expect("other editor");
+        assert!(other_editor.pending_worker_install.is_some());
+        assert!(other_editor.worker_install_result.is_none());
+    }
+
+    #[test]
+    fn default_client_worker_install_preview_keeps_canonical_editor_aligned() {
+        let mut app = crate::app::App::new(
+            &crate::config::Config::default(),
+            true,
+            None,
+            tokio::sync::mpsc::unbounded_channel().1,
+            crate::api::EventHub::default(),
+        );
+        let profile_id = "workbox";
+        let editor = crate::app::state::ConnectionEditorState::edit_profile(
+            profile_id,
+            "Work box",
+            "alice@workbox",
+            "",
+        );
+        app.default_client_view.settings.connection_editor = Some(editor.clone());
+        app.state.settings.connection_editor = Some(editor);
+
+        let owner =
+            crate::execution_host::auth::AuthenticationOwner::new(app.default_client_view.id());
+        let preview = sample_worker_preview();
+        app.handle_internal_event(AppEvent::WorkerInstallPreviewed {
+            authentication_owner: owner,
+            profile_id: profile_id.into(),
+            result: Ok(preview.clone()),
+        });
+
+        assert_eq!(
+            app.default_client_view
+                .settings
+                .connection_editor
+                .as_ref()
+                .and_then(|editor| editor.pending_worker_install.as_ref())
+                .map(|pending| pending.preview.clone()),
+            Some(preview.clone())
+        );
+        assert_eq!(
+            app.state
+                .settings
+                .connection_editor
+                .as_ref()
+                .and_then(|editor| editor.pending_worker_install.as_ref())
+                .map(|pending| pending.preview.clone()),
+            Some(preview)
+        );
+    }
+
+    #[test]
+    fn group_create_rejects_invalid_default_location_without_partial_group() {
+        let (_api_tx, api_rx) = tokio::sync::mpsc::unbounded_channel();
+        let mut app = App::new(
+            &crate::config::Config::default(),
+            true,
+            None,
+            api_rx,
+            crate::api::EventHub::default(),
+        );
+        let groups_before = app.state.groups.len();
+
+        let response = app.handle_api_request(crate::api::schema::Request {
+            id: "group-create-invalid".into(),
+            method: crate::api::schema::Method::GroupCreate(
+                crate::api::schema::GroupCreateParams {
+                    name: "broken".into(),
+                    default_location: Some(crate::api::schema::ResourceLocationParams {
+                        execution_host_id: "not a host".into(),
+                        path: "/srv/work".into(),
+                    }),
+                },
+            ),
+        });
+
+        let body: serde_json::Value = serde_json::from_str(&response).expect("json response");
+        assert_eq!(body["id"], "group-create-invalid");
+        assert_eq!(body["error"]["code"], "invalid_params");
+        assert_eq!(app.state.groups.len(), groups_before);
+        assert!(
+            app.state.groups.iter().all(|group| group.name != "broken"),
+            "invalid placement must not create a partial group"
         );
     }
 }

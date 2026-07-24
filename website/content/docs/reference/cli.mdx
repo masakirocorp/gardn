@@ -84,14 +84,16 @@ The live handoff and import paths are runtime handoff plumbing rather than publi
 
 ### `group`
 
-| Syntax                               | Description              |
-| ------------------------------------ | ------------------------ |
-| `omh group list`                     | List groups.             |
-| `omh group create <name>`            | Create a group.          |
-| `omh group focus <group_id>`         | Focus a group.           |
-| `omh group switch <group_id>`        | Alias for `group focus`. |
-| `omh group rename <group_id> <name>` | Rename a group.          |
-| `omh group delete <group_id>`        | Delete a group.          |
+| Syntax                                                            | Description                                                                                           |
+| ----------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| `omh group list`                                                  | List groups.                                                                                          |
+| `omh group create <name> [--cwd PATH] [--host EXECUTION_HOST_ID]` | Create a group. Optional `--host` and `--cwd` set the group's default location for future workspaces. |
+| `omh group focus <group_id>`                                      | Focus a group.                                                                                        |
+| `omh group switch <group_id>`                                     | Alias for `group focus`.                                                                              |
+| `omh group rename <group_id> <name>`                              | Rename a group.                                                                                       |
+| `omh group delete <group_id>`                                     | Delete a group.                                                                                       |
+
+For `group create`, `--host` selects the execution host for `--cwd`. It requires `--cwd`. When only `--cwd` is supplied, the default location is Local at that path.
 
 > **Destructive operation:** `group delete` removes the selected group and its group membership. The command does not use a `--force` option.
 
@@ -104,16 +106,34 @@ The live handoff and import paths are runtime handoff plumbing rather than publi
 
 > **Destructive operation:** `config reset-keys` changes `config.toml` and removes custom keybinding configuration after creating its backup. Other configuration sections are retained.
 
+### `connection`
+
+These commands manage coordinator-owned OpenSSH connection profiles and the remote execution worker.
+
+| Syntax                                                                                | Description                                                                         |
+| ------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| `omh connection list`                                                                 | List profiles with execution host ids and connection status.                        |
+| `omh connection save <profile_id> --name NAME --target SSH_TARGET [--directory PATH]` | Create or replace a profile. `--directory` sets its suggested remote path.          |
+| `omh connection delete <profile_id>`                                                  | Delete a profile.                                                                   |
+| `omh connection install <profile_id> [--yes]`                                         | Preview the worker install or update plan; with `--yes`, apply that confirmed plan. |
+| `omh connection test <profile_id>`                                                    | Queue an OpenSSH connectivity test.                                                 |
+| `omh connection connect <profile_id>`                                                 | Queue a connection request.                                                         |
+| `omh connection disconnect <profile_id>`                                              | Queue a disconnect request.                                                         |
+
+Install the worker before `connect` on a clean host. Without `--yes`, `connection install` returns the preview only. Updates use the same confirmation path. The lifecycle commands return when the action is queued; run `omh connection list` to observe the resulting status.
+
 ### `workspace`
 
-| Syntax                                                                                      | Description                                                                                                                  |
-| ------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| `omh workspace list`                                                                        | List workspaces.                                                                                                             |
-| `omh workspace create [--cwd PATH] [--label TEXT] [--env KEY=VALUE] [--focus] [--no-focus]` | Create a workspace, optionally setting its starting directory, label, environment, and focus state. `--env` may be repeated. |
-| `omh workspace get <workspace_id>`                                                          | Get one workspace.                                                                                                           |
-| `omh workspace focus <workspace_id>`                                                        | Focus a workspace.                                                                                                           |
-| `omh workspace rename <workspace_id> <label>`                                               | Set a workspace label.                                                                                                       |
-| `omh workspace close <workspace_id>`                                                        | Close a workspace.                                                                                                           |
+| Syntax                                                                                                                 | Description                                                                                                         |
+| ---------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| `omh workspace list`                                                                                                   | List workspaces.                                                                                                    |
+| `omh workspace create [--cwd PATH] [--host EXECUTION_HOST_ID] [--label TEXT] [--env KEY=VALUE] [--focus] [--no-focus]` | Create a workspace, optionally setting its placement, label, environment, and focus state. `--env` may be repeated. |
+| `omh workspace get <workspace_id>`                                                                                     | Get one workspace.                                                                                                  |
+| `omh workspace focus <workspace_id>`                                                                                   | Focus a workspace.                                                                                                  |
+| `omh workspace rename <workspace_id> <label>`                                                                          | Set a workspace label.                                                                                              |
+| `omh workspace close <workspace_id>`                                                                                   | Close a workspace.                                                                                                  |
+
+`--host` selects the execution host for `--cwd`. It requires `--cwd`.
 
 > **Destructive operation:** `workspace close` closes the workspace and its contained tabs and panes according to the running session's close behavior.
 
@@ -125,14 +145,16 @@ The live handoff and import paths are runtime handoff plumbing rather than publi
 
 ### `tab`
 
-| Syntax                                                                                                          | Description                             |
-| --------------------------------------------------------------------------------------------------------------- | --------------------------------------- |
-| `omh tab list [--workspace WORKSPACE_ID]`                                                                       | List tabs, optionally in one workspace. |
-| `omh tab create [--workspace WORKSPACE_ID] [--cwd PATH] [--label TEXT] [--env KEY=VALUE] [--focus\|--no-focus]` | Create a tab. `--env` may be repeated.  |
-| `omh tab get <tab_id>`                                                                                          | Get one tab.                            |
-| `omh tab focus <tab_id>`                                                                                        | Focus a tab.                            |
-| `omh tab rename <tab_id> <label>`                                                                               | Set a tab label.                        |
-| `omh tab close <tab_id>`                                                                                        | Close a tab.                            |
+| Syntax                                                                                                                                     | Description                             |
+| ------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------- |
+| `omh tab list [--workspace WORKSPACE_ID]`                                                                                                  | List tabs, optionally in one workspace. |
+| `omh tab create [--workspace WORKSPACE_ID] [--cwd PATH] [--host EXECUTION_HOST_ID] [--label TEXT] [--env KEY=VALUE] [--focus\|--no-focus]` | Create a tab. `--env` may be repeated.  |
+| `omh tab get <tab_id>`                                                                                                                     | Get one tab.                            |
+| `omh tab focus <tab_id>`                                                                                                                   | Focus a tab.                            |
+| `omh tab rename <tab_id> <label>`                                                                                                          | Set a tab label.                        |
+| `omh tab close <tab_id>`                                                                                                                   | Close a tab.                            |
+
+`--host` selects the execution host for `--cwd`. It requires `--cwd`.
 
 > **Destructive operation:** `tab close` closes the tab and its panes.
 
@@ -140,20 +162,22 @@ The live handoff and import paths are runtime handoff plumbing rather than publi
 
 An agent target may be a terminal ID, a unique agent name, a detected or reported agent label, or a legacy pane ID.
 
-| Syntax                                                                                                                     | Description                                                                                                                            |
-| -------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
-| `omh agent list`                                                                                                           | List detected and reported agents.                                                                                                     |
-| `omh agent get <target>`                                                                                                   | Get an agent's state and metadata.                                                                                                     |
-| `omh agent read <target> [--source visible\|recent\|recent-unwrapped] [--lines N] [--format text\|ansi] [--ansi]`          | Read an agent's pane output. `--ansi` preserves ANSI formatting; the default text format strips it.                                    |
-| `omh agent prompt <target> <text> [--wait-for idle\|working\|blocked\|unknown] [--timeout MS]`                             | Submit prompt text and Enter through a ready agent runtime; optionally wait for a status transition.                                   |
-| `omh agent send-keys <target> <key>...`                                                                                    | Send one or more named key events through a ready agent runtime.                                                                       |
-| `omh agent rename <target> <name>\|--clear`                                                                                | Set or clear an agent display name.                                                                                                    |
-| `omh agent focus <target>`                                                                                                 | Focus the agent's pane.                                                                                                                |
-| `omh agent wait <target> --status idle\|working\|blocked\|unknown [--timeout MS]`                                          | Wait for the requested agent state.                                                                                                    |
-| `omh agent attach <target> [--takeover]`                                                                                   | Attach the client to an agent terminal; `--takeover` requests takeover of an existing direct attach.                                   |
-| `omh agent start <name> [--cwd PATH] [--workspace ID] [--tab ID] [--split right\|down] [--focus\|--no-focus] -- <argv...>` | Start a named agent process in a pane. The arguments after `--` form the exact process argument vector; no shell parsing is performed. |
-| `omh agent explain <target> [--json]`                                                                                      | Show detection and manifest explanation for an agent target.                                                                           |
-| `omh agent explain --file PATH --agent LABEL [--json]`                                                                     | Explain how `LABEL` would be detected from a manifest input file.                                                                      |
+| Syntax                                                                                                                                                | Description                                                                                                                            |
+| ----------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| `omh agent list`                                                                                                                                      | List detected and reported agents.                                                                                                     |
+| `omh agent get <target>`                                                                                                                              | Get an agent's state and metadata.                                                                                                     |
+| `omh agent read <target> [--source visible\|recent\|recent-unwrapped] [--lines N] [--format text\|ansi] [--ansi]`                                     | Read an agent's pane output. `--ansi` preserves ANSI formatting; the default text format strips it.                                    |
+| `omh agent prompt <target> <text> [--wait-for idle\|working\|blocked\|unknown] [--timeout MS]`                                                        | Submit prompt text and Enter through a ready agent runtime; optionally wait for a status transition.                                   |
+| `omh agent send-keys <target> <key>...`                                                                                                               | Send one or more named key events through a ready agent runtime.                                                                       |
+| `omh agent rename <target> <name>\|--clear`                                                                                                           | Set or clear an agent display name.                                                                                                    |
+| `omh agent focus <target>`                                                                                                                            | Focus the agent's pane.                                                                                                                |
+| `omh agent wait <target> --status idle\|working\|blocked\|unknown [--timeout MS]`                                                                     | Wait for the requested agent state.                                                                                                    |
+| `omh agent attach <target> [--takeover]`                                                                                                              | Attach the client to an agent terminal; `--takeover` requests takeover of an existing direct attach.                                   |
+| `omh agent start <name> [--cwd PATH] [--host EXECUTION_HOST_ID] [--workspace ID] [--tab ID] [--split right\|down] [--focus\|--no-focus] -- <argv...>` | Start a named agent process in a pane. The arguments after `--` form the exact process argument vector; no shell parsing is performed. |
+| `omh agent explain <target> [--json]`                                                                                                                 | Show detection and manifest explanation for an agent target.                                                                           |
+| `omh agent explain --file PATH --agent LABEL [--json]`                                                                                                | Explain how `LABEL` would be detected from a manifest input file.                                                                      |
+
+For `agent start`, `--host` selects the execution host for `--cwd`. It requires `--cwd`. If neither flag is supplied, a split agent inherits the source pane's location.
 
 `agent prompt` uses the target runtime's paste-aware input path and then sends Enter. `agent send-keys` sends only the named key events. Both require a recognized agent in the target runtime; use the corresponding `pane` commands for an ordinary shell or terminal.
 
@@ -171,30 +195,32 @@ A direct terminal attach can be detached with the configured detach key (default
 
 For commands accepting `[--pane ID|--current]`, omitting the selector uses the current pane where the command supports a current-pane default.
 
-| Syntax                                                                                                                                          | Description                                                               |
-| ----------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- | ------------------------------------------------------------- |
-| `omh pane list [--workspace WORKSPACE_ID]`                                                                                                      | List panes, optionally in one workspace.                                  |
-| `omh pane current [--pane ID                                                                                                                    | --current]`                                                               | Resolve the current pane, using `OMH_PANE_ID` when available. |
-| `omh pane get <pane_id>`                                                                                                                        | Get one pane.                                                             |
-| `omh pane layout [--pane ID                                                                                                                     | --current]`                                                               | Get the pane layout.                                          |
-| `omh pane process-info [--pane ID                                                                                                               | --current]`                                                               | Get process information.                                      |
-| `omh pane neighbor --direction left\|right\|up\|down [--pane ID                                                                                 | --current]`                                                               | Resolve a neighboring pane.                                   |
-| `omh pane edges [--pane ID                                                                                                                      | --current]`                                                               | Report pane edge state.                                       |
-| `omh pane focus --direction left\|right\|up\|down [--pane ID                                                                                    | --current]`                                                               | Focus a neighboring pane.                                     |
-| `omh pane resize --direction left\|right\|up\|down [--amount FLOAT] [--pane ID                                                                  | --current]`                                                               | Resize toward a direction.                                    |
-| `omh pane zoom [<pane_id>\|--pane ID\|--current] [--toggle\|--on\|--off]`                                                                       | Toggle, enable, or disable pane zoom.                                     |
-| `omh pane read <pane_id> [--source visible\|recent\|recent-unwrapped] [--lines N] [--format text\|ansi] [--ansi\|--raw]`                        | Read pane output. `--raw` preserves ANSI bytes; default text strips them. |
-| `omh pane rename <pane_id> <label>\|--clear`                                                                                                    | Set or clear a pane label.                                                |
-| `omh pane split [<pane_id>\|--pane ID\|--current] --direction right\|down [--ratio FLOAT] [--cwd PATH] [--env KEY=VALUE] [--focus\|--no-focus]` | Split a pane and create a terminal in the new pane.                       |
-| `omh pane swap --direction left\|right\|up\|down [--pane ID\|--current]`                                                                        | Swap a pane with its directional neighbor.                                |
-| `omh pane swap --source-pane ID --target-pane ID`                                                                                               | Swap two explicitly selected panes.                                       |
-| `omh pane move <pane_id> --tab <tab_id> --split right\|down [--target-pane ID] [--ratio FLOAT] [--focus\|--no-focus]`                           | Move a pane into an existing tab.                                         |
-| `omh pane move <pane_id> --new-tab [--workspace ID] [--label TEXT] [--focus\|--no-focus]`                                                       | Move a pane into a new tab.                                               |
-| `omh pane move <pane_id> --new-workspace [--label TEXT] [--tab-label TEXT] [--focus\|--no-focus]`                                               | Move a pane into a new workspace and tab.                                 |
-| `omh pane close <pane_id>`                                                                                                                      | Close a pane.                                                             |
-| `omh pane send-text <pane_id> <text>`                                                                                                           | Send literal text without an Enter key.                                   |
-| `omh pane send-keys <pane_id> <key> [key ...]`                                                                                                  | Send one or more named key events.                                        |
-| `omh pane run <pane_id> <command>`                                                                                                              | Send command text followed by an Enter key.                               |
+| Syntax                                                                                                                                                                     | Description                                                               |
+| -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- | ------------------------------------------------------------- |
+| `omh pane list [--workspace WORKSPACE_ID]`                                                                                                                                 | List panes, optionally in one workspace.                                  |
+| `omh pane current [--pane ID                                                                                                                                               | --current]`                                                               | Resolve the current pane, using `OMH_PANE_ID` when available. |
+| `omh pane get <pane_id>`                                                                                                                                                   | Get one pane.                                                             |
+| `omh pane layout [--pane ID                                                                                                                                                | --current]`                                                               | Get the pane layout.                                          |
+| `omh pane process-info [--pane ID                                                                                                                                          | --current]`                                                               | Get process information.                                      |
+| `omh pane neighbor --direction left\|right\|up\|down [--pane ID                                                                                                            | --current]`                                                               | Resolve a neighboring pane.                                   |
+| `omh pane edges [--pane ID                                                                                                                                                 | --current]`                                                               | Report pane edge state.                                       |
+| `omh pane focus --direction left\|right\|up\|down [--pane ID                                                                                                               | --current]`                                                               | Focus a neighboring pane.                                     |
+| `omh pane resize --direction left\|right\|up\|down [--amount FLOAT] [--pane ID                                                                                             | --current]`                                                               | Resize toward a direction.                                    |
+| `omh pane zoom [<pane_id>\|--pane ID\|--current] [--toggle\|--on\|--off]`                                                                                                  | Toggle, enable, or disable pane zoom.                                     |
+| `omh pane read <pane_id> [--source visible\|recent\|recent-unwrapped] [--lines N] [--format text\|ansi] [--ansi\|--raw]`                                                   | Read pane output. `--raw` preserves ANSI bytes; default text strips them. |
+| `omh pane rename <pane_id> <label>\|--clear`                                                                                                                               | Set or clear a pane label.                                                |
+| `omh pane split [<pane_id>\|--pane ID\|--current] --direction right\|down [--ratio FLOAT] [--cwd PATH] [--host EXECUTION_HOST_ID] [--env KEY=VALUE] [--focus\|--no-focus]` | Split a pane and create a terminal in the new pane.                       |
+| `omh pane swap --direction left\|right\|up\|down [--pane ID\|--current]`                                                                                                   | Swap a pane with its directional neighbor.                                |
+| `omh pane swap --source-pane ID --target-pane ID`                                                                                                                          | Swap two explicitly selected panes.                                       |
+| `omh pane move <pane_id> --tab <tab_id> --split right\|down [--target-pane ID] [--ratio FLOAT] [--focus\|--no-focus]`                                                      | Move a pane into an existing tab.                                         |
+| `omh pane move <pane_id> --new-tab [--workspace ID] [--label TEXT] [--focus\|--no-focus]`                                                                                  | Move a pane into a new tab.                                               |
+| `omh pane move <pane_id> --new-workspace [--label TEXT] [--tab-label TEXT] [--focus\|--no-focus]`                                                                          | Move a pane into a new workspace and tab.                                 |
+| `omh pane close <pane_id>`                                                                                                                                                 | Close a pane.                                                             |
+| `omh pane send-text <pane_id> <text>`                                                                                                                                      | Send literal text without an Enter key.                                   |
+| `omh pane send-keys <pane_id> <key> [key ...]`                                                                                                                             | Send one or more named key events.                                        |
+| `omh pane run <pane_id> <command>`                                                                                                                                         | Send command text followed by an Enter key.                               |
+
+For `pane split`, `--host` selects the execution host for `--cwd`. It requires `--cwd`. If neither flag is supplied, the new pane inherits the source pane's location.
 
 > **Destructive operation:** `pane close` closes the pane and can terminate the terminal process it owns.
 

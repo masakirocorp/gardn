@@ -6,10 +6,10 @@ use crate::detect::AgentState;
 use crossterm::event::{KeyCode, KeyModifiers};
 use ratatui::layout::{Direction, Rect};
 use ratatui::style::Color;
-use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use crate::execution_host::protocol::SessionNamespaceId;
 use crate::layout::{PaneId, PaneInfo, SplitBorder};
 use crate::selection::Selection;
 use crate::terminal_theme::{TerminalTheme, ThemeAppearance};
@@ -78,7 +78,7 @@ pub struct Group {
     pub name: String,
     pub icon: String,
     pub accent: Option<TerminalAccent>,
-    pub default_directory: Option<PathBuf>,
+    pub default_location: Option<crate::execution_host::ResourceLocation>,
     pub favorite_agent_profile_ids: Vec<String>,
     pub default_agent_profile_id: Option<String>,
 }
@@ -90,7 +90,7 @@ impl Group {
             name: "group 1".to_string(),
             icon: DEFAULT_GROUP_ICON.to_string(),
             accent: None,
-            default_directory: None,
+            default_location: None,
             favorite_agent_profile_ids: Vec::new(),
             default_agent_profile_id: None,
         }
@@ -1741,6 +1741,7 @@ pub enum SettingsSection {
     Experiments,
     Agents,
     Integrations,
+    Connections,
     GroupProfiles,
     GroupGeneral,
     WorkspaceGeneral,
@@ -1754,6 +1755,7 @@ impl SettingsSection {
         Self::Commands,
         Self::Agents,
         Self::Integrations,
+        Self::Connections,
         Self::Experiments,
     ];
 
@@ -1768,6 +1770,7 @@ impl SettingsSection {
             Self::Commands => "commands",
             Self::Experiments => "advanced",
             Self::Integrations => "integrations",
+            Self::Connections => "connections",
             Self::GroupGeneral => "general",
             Self::GroupProfiles => "agents",
             Self::WorkspaceGeneral => "general",
@@ -2173,10 +2176,14 @@ pub struct SettingsState {
     pub pending_workspace_name: Option<String>,
     /// Pending workspace default directory while workspace settings is open.
     pub pending_workspace_default_cwd: Option<String>,
+    /// Pending workspace default execution host while workspace settings is open.
+    pub pending_workspace_default_execution_host_id: Option<crate::execution_host::ExecutionHostId>,
     /// Pending group name while group settings is open.
     pub pending_group_name: Option<String>,
     /// Pending default directory for future spaces while group settings is open.
     pub pending_group_default_directory: Option<String>,
+    /// Pending group default execution host while group settings is open.
+    pub pending_group_default_execution_host_id: Option<crate::execution_host::ExecutionHostId>,
     /// Custom agent profile id loaded into the editor.
     pub pending_agent_profile_id: Option<String>,
     /// Pending custom agent profile name while settings is open.
@@ -2187,6 +2194,8 @@ pub struct SettingsState {
     pub pending_agent_profile_command: Option<String>,
     /// Active agent family filter in the global agents settings tab.
     pub agent_profile_kind_filter: Option<crate::agent_profiles::AgentKind>,
+    /// Connection profile editor draft and related install/forget substate.
+    pub connection_editor: Option<ConnectionEditorState>,
     /// Group whose settings are being edited, if settings was opened from a group menu.
     pub group_settings_target: Option<usize>,
     /// Workspace whose settings are being edited, if settings was opened from a workspace menu.
@@ -2686,6 +2695,150 @@ mod context_menu_tests {
     }
 }
 
+/// Typed connection lifecycle request queued for the connection runtime.
+///
+/// Recorded by Settings → Connections; the runtime worker drains and executes
+/// these against system OpenSSH. Queuing a request never claims success.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SshConnectionRequest {
+    /// Stable id of the saved SSH connection profile the request targets.
+    pub profile_id: String,
+    /// Canonical connection verb shared with the host runtime.
+    pub action: crate::execution_host::HostConnectionAction,
+    /// Client-view owner for any interactive OpenSSH prompt this request may raise.
+    ///
+    /// `AuthenticationOwner::SYSTEM` is reserved for non-interactive / system paths.
+    pub authentication_owner: crate::execution_host::auth::AuthenticationOwner,
+}
+
+/// How the connection editor was opened.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ConnectionEditorMode {
+    /// Creating a new profile (no stable id yet).
+    New,
+    /// Editing an existing catalog profile.
+    Edit { profile_id: String },
+}
+
+/// Non-optional draft fields while the connection editor is open.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct ConnectionDraft {
+    pub name: String,
+    pub target: String,
+    pub directory: String,
+}
+
+/// Install confirmation awaiting explicit user approval inside the editor.
+#[derive(Debug, Clone)]
+pub struct ConnectionWorkerInstallPending {
+    pub preview: crate::remote::WorkerInstallPreview,
+}
+
+/// Last worker setup outcome shown inside the editor.
+#[derive(Debug, Clone)]
+pub struct ConnectionWorkerInstallResult {
+    pub result: Result<crate::remote::WorkerInstallReport, String>,
+}
+
+/// Connection editor state: mode + draft + typed install/forget substates.
+///
+/// Invalid combinations (draft without editor, install for a different profile)
+/// are unrepresentable — install/forget live only inside an open editor.
+#[derive(Debug, Clone)]
+pub struct ConnectionEditorState {
+    pub mode: ConnectionEditorMode,
+    pub draft: ConnectionDraft,
+    pub pending_worker_install: Option<ConnectionWorkerInstallPending>,
+    pub worker_install_result: Option<ConnectionWorkerInstallResult>,
+    pub pending_forget_remote_terminal: Option<crate::terminal::TerminalId>,
+}
+
+impl ConnectionEditorState {
+    pub fn new_draft() -> Self {
+        Self {
+            mode: ConnectionEditorMode::New,
+            draft: ConnectionDraft::default(),
+            pending_worker_install: None,
+            worker_install_result: None,
+            pending_forget_remote_terminal: None,
+        }
+    }
+
+    pub fn edit_profile(
+        profile_id: impl Into<String>,
+        name: impl Into<String>,
+        target: impl Into<String>,
+        directory: impl Into<String>,
+    ) -> Self {
+        Self {
+            mode: ConnectionEditorMode::Edit {
+                profile_id: profile_id.into(),
+            },
+            draft: ConnectionDraft {
+                name: name.into(),
+                target: target.into(),
+                directory: directory.into(),
+            },
+            pending_worker_install: None,
+            worker_install_result: None,
+            pending_forget_remote_terminal: None,
+        }
+    }
+
+    pub fn profile_id(&self) -> Option<&str> {
+        match &self.mode {
+            ConnectionEditorMode::New => None,
+            ConnectionEditorMode::Edit { profile_id } => Some(profile_id.as_str()),
+        }
+    }
+
+    pub fn is_editing(&self) -> bool {
+        matches!(self.mode, ConnectionEditorMode::Edit { .. })
+    }
+
+    /// Apply a background preview completion when this editor owns `profile_id`.
+    pub fn apply_worker_install_previewed(
+        &mut self,
+        profile_id: &str,
+        result: &Result<crate::remote::WorkerInstallPreview, String>,
+    ) -> bool {
+        if self.profile_id() != Some(profile_id) {
+            return false;
+        }
+        match result {
+            Ok(preview) => {
+                self.pending_worker_install = Some(ConnectionWorkerInstallPending {
+                    preview: preview.clone(),
+                });
+                self.worker_install_result = None;
+            }
+            Err(error) => {
+                self.pending_worker_install = None;
+                self.worker_install_result = Some(ConnectionWorkerInstallResult {
+                    result: Err(error.clone()),
+                });
+            }
+        }
+        true
+    }
+
+    /// Apply a background install completion when this editor owns `profile_id`.
+    pub fn apply_worker_installed(
+        &mut self,
+        profile_id: &str,
+        result: &Result<crate::remote::WorkerInstallReport, String>,
+    ) -> bool {
+        if self.profile_id() != Some(profile_id) {
+            return false;
+        }
+        self.pending_worker_install = None;
+        self.worker_install_result = Some(ConnectionWorkerInstallResult {
+            result: result.clone(),
+        });
+        true
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ToastNotification {
     pub kind: ToastKind,
@@ -2841,6 +2994,15 @@ pub(crate) struct PopupPaneState {
     pub owner: Option<u64>,
 }
 
+/// Durable record of a remote runtime that has left the live layout but still
+/// needs a worker-side termination acknowledgement.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct RemoteTerminationTombstone {
+    pub terminal_id: crate::terminal::TerminalId,
+    pub location: crate::execution_host::ResourceLocation,
+    pub remote_runtime_identity: crate::execution_host::protocol::RuntimeIdentity,
+}
+
 /// All application state — pure data, no channels or async runtime.
 /// Testable without PTYs or a tokio runtime.
 #[derive(Clone)]
@@ -2883,6 +3045,7 @@ pub struct AppState {
     /// their client-local sound config from disk.
     pub request_client_config_reload: bool,
     /// Set when UI interaction requested a clipboard write that must be
+    pub group_default_execution_host_id: crate::execution_host::ExecutionHostId,
     /// handled by the outer App/event loop instead of directly from AppState.
     pub request_clipboard_write: Option<Vec<u8>>,
     pub creating_new_tab: bool,
@@ -2893,8 +3056,8 @@ pub struct AppState {
     pub group_icon_picker_open: bool,
     pub rename_group_target: Option<usize>,
     pub requested_new_tab_name: Option<String>,
-    /// Captured cwd for a pending interactive workspace creation prompt.
-    pub pending_workspace_create_cwd: Option<std::path::PathBuf>,
+    /// Host-qualified location captured for a pending interactive workspace creation prompt.
+    pub pending_workspace_create_location: Option<crate::execution_host::ResourceLocation>,
     /// Custom name captured when a pending workspace prompt is saved by mouse input.
     pub requested_new_workspace_name: Option<String>,
     pub rename_pane_target: Option<PaneId>,
@@ -3056,6 +3219,20 @@ pub struct AppState {
     pub settings: SettingsState,
     /// Cached integration recommendations for onboarding/settings UI.
     pub integration_recommendations: Vec<crate::integration::IntegrationRecommendation>,
+    /// Coordinator-owned catalog of saved SSH connection profiles.
+    ///
+    /// Persisted through `persist::ssh_profiles`; replaced only after a
+    /// successful atomic write. Connection drafts live in per-client
+    /// `SettingsState`, never here.
+    pub ssh_connection_profiles: Vec<crate::persist::ssh_profiles::SshConnectionProfile>,
+    /// User-visible health per execution host binding, reported by the
+    /// connection runtime. Pure state: missing entries mean disconnected.
+    pub host_connection_states: std::collections::HashMap<
+        crate::execution_host::ExecutionHostId,
+        crate::execution_host::ConnectionStatus,
+    >,
+    /// Connection lifecycle requests queued for the connection runtime to drain.
+    pub pending_ssh_connection_requests: Vec<SshConnectionRequest>,
     /// Cached detection manifest source/version summaries for runtime/API status.
     pub agent_manifest_summaries: Vec<crate::detect::manifest::AgentManifestSummary>,
     /// Cached remote detection manifest update diagnostics for runtime/API status.
@@ -3078,6 +3255,10 @@ pub struct AppState {
     pub agent_menu: ModalListState,
     /// Resolved host terminal default colors for theming embedded panes.
     pub host_terminal_theme: TerminalTheme,
+    /// Durable namespace for remote execution-worker runtime adoption.
+    pub session_namespace_id: SessionNamespaceId,
+    /// Remote runtimes awaiting acknowledged worker-side termination.
+    pub(crate) remote_termination_tombstones: Vec<RemoteTerminationTombstone>,
     /// Set when a persisted session snapshot would change.
     pub session_dirty: bool,
     /// Terminal runtimes that should be shut down by the app/runtime layer
@@ -3086,6 +3267,35 @@ pub struct AppState {
 }
 
 impl AppState {
+    /// User-visible connection status for a profile's current host binding.
+    ///
+    /// Pure state: defaults to disconnected until the connection runtime
+    /// reports health for this binding.
+    pub(crate) fn ssh_connection_status(
+        &self,
+        profile: &crate::persist::ssh_profiles::SshConnectionProfile,
+    ) -> crate::execution_host::ConnectionStatus {
+        self.host_connection_states
+            .get(&profile.execution_host_id())
+            .cloned()
+            .unwrap_or_default()
+    }
+
+    /// Queue a typed connection lifecycle request for the connection runtime.
+    pub(crate) fn queue_ssh_connection_request(
+        &mut self,
+        profile_id: impl Into<String>,
+        action: crate::execution_host::HostConnectionAction,
+        authentication_owner: crate::execution_host::auth::AuthenticationOwner,
+    ) {
+        self.pending_ssh_connection_requests
+            .push(SshConnectionRequest {
+                profile_id: profile_id.into(),
+                action,
+                authentication_owner,
+            });
+    }
+
     pub(crate) fn next_agent_activity_seq(&mut self) -> u64 {
         self.next_agent_activity_seq = self.next_agent_activity_seq.saturating_add(1);
         self.next_agent_activity_seq
@@ -3662,6 +3872,7 @@ impl AppState {
             request_reload_config: false,
             request_open_project_command: None,
             request_open_project_command_workspace: None,
+            group_default_execution_host_id: crate::execution_host::ExecutionHostId::local(),
             request_client_config_reload: false,
             request_clipboard_write: None,
             creating_new_tab: false,
@@ -3672,7 +3883,7 @@ impl AppState {
             group_icon_picker_open: false,
             rename_group_target: None,
             requested_new_tab_name: None,
-            pending_workspace_create_cwd: None,
+            pending_workspace_create_location: None,
             requested_new_workspace_name: None,
             rename_pane_target: None,
             confirm_delete_group: None,
@@ -3872,17 +4083,23 @@ impl AppState {
                 pending_group_accent_choice: None,
                 pending_group_name: None,
                 pending_group_default_directory: None,
+                pending_group_default_execution_host_id: None,
                 pending_workspace_name: None,
                 pending_workspace_default_cwd: None,
+                pending_workspace_default_execution_host_id: None,
                 pending_agent_profile_id: None,
                 pending_agent_profile_name: None,
                 pending_agent_profile_kind: None,
                 pending_agent_profile_command: None,
                 agent_profile_kind_filter: None,
+                connection_editor: None,
                 group_settings_target: None,
                 workspace_settings_target: None,
             },
             integration_recommendations: Vec::new(),
+            ssh_connection_profiles: Vec::new(),
+            host_connection_states: std::collections::HashMap::new(),
+            pending_ssh_connection_requests: Vec::new(),
             agent_manifest_summaries: Vec::new(),
             agent_manifest_update_status:
                 crate::detect::manifest_update::ManifestUpdateStatus::default(),
@@ -3896,6 +4113,8 @@ impl AppState {
             group_menu: ModalListState::hidden(0),
             agent_menu: ModalListState::hidden(0),
             host_terminal_theme: TerminalTheme::default(),
+            session_namespace_id: crate::persist::installation::new_session_namespace_id(),
+            remote_termination_tombstones: Vec::new(),
             session_dirty: false,
             terminal_runtime_shutdowns: Vec::new(),
         }
@@ -3909,10 +4128,12 @@ impl AppState {
             for tab in &ws.tabs {
                 for pane in tab.panes.values() {
                     if !self.terminals.contains_key(&pane.attached_terminal_id) {
-                        let cwd = ws.default_cwd.clone();
                         self.terminals.insert(
                             pane.attached_terminal_id.clone(),
-                            TerminalState::new(pane.attached_terminal_id.clone(), cwd),
+                            TerminalState::new_at(
+                                pane.attached_terminal_id.clone(),
+                                ws.default_location.clone(),
+                            ),
                         );
                     }
                 }

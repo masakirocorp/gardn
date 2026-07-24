@@ -29,10 +29,58 @@ fn modified_url_click_modifier() -> KeyModifiers {
     KeyModifiers::CONTROL
 }
 
+pub(crate) fn rendering_client_may_open_url(url: &str, execution_host_is_local: bool) -> bool {
+    if execution_host_is_local {
+        return true;
+    }
+    let lower = url.to_ascii_lowercase();
+    if lower.starts_with("file:") {
+        return false;
+    }
+    let Some((scheme, rest)) = lower.split_once("://") else {
+        return true;
+    };
+    if !matches!(scheme, "http" | "https") {
+        return true;
+    }
+    let authority = rest.split(['/', '?', '#']).next().unwrap_or_default();
+    let host_port = authority.rsplit('@').next().unwrap_or_default();
+    let host = if let Some(bracketed) = host_port.strip_prefix('[') {
+        bracketed.split(']').next().unwrap_or_default()
+    } else {
+        host_port.split(':').next().unwrap_or_default()
+    };
+    !(host == "localhost"
+        || host.ends_with(".localhost")
+        || host == "::1"
+        || host == "0.0.0.0"
+        || host == "127.0.0.1"
+        || host.starts_with("127."))
+}
+
 #[cfg(test)]
 #[test]
 fn modified_url_click_modifier_matches_terminal_mouse_reporting() {
     assert_eq!(modified_url_click_modifier(), KeyModifiers::CONTROL);
+}
+
+#[cfg(test)]
+#[test]
+fn remote_execution_urls_never_become_rendering_client_local_targets() {
+    for url in [
+        "file:///srv/private/report.html",
+        "http://localhost:3000",
+        "https://api.localhost/status",
+        "http://127.0.0.1:8080",
+        "http://[::1]:9000",
+    ] {
+        assert!(!rendering_client_may_open_url(url, false), "{url}");
+        assert!(rendering_client_may_open_url(url, true), "{url}");
+    }
+    assert!(rendering_client_may_open_url(
+        "https://example.com/report",
+        false
+    ));
 }
 
 pub(super) mod agent_profile_picker;
@@ -58,8 +106,8 @@ pub(crate) use self::{
         handle_config_diagnostics_key, handle_confirm_close_key, handle_confirm_delete_group_key,
         handle_context_menu_key, handle_global_menu_key, handle_group_menu_key,
         handle_keybind_help_key, handle_navigator_key, handle_rename_key, handle_resize_key,
-        insert_navigator_search_text, modal_action_from_buttons, open_new_workspace_dialog,
-        request_detach, GlobalMenuAction, ModalAction,
+        insert_navigator_search_text, modal_action_from_buttons,
+        open_new_workspace_dialog_at_location, request_detach, GlobalMenuAction, ModalAction,
     },
     navigate::{
         command_for_key, indexed_navigation_action, non_indexed_action_for_key,
@@ -69,18 +117,15 @@ pub(crate) use self::{
     settings::{
         open_settings_at, prepare_general_settings_state, prepare_group_settings_state,
         prepare_workspace_settings_state, update_settings_mouse_for_view,
-        update_settings_state_for_view,
+        update_settings_state_for_view, SettingsAction,
     },
     sidebar::{AgentMenuAction, GroupDropTarget, GroupMenuAction, WorkspaceDropTarget},
 };
 
 #[cfg(test)]
 pub(crate) use self::command_palette::open_command_palette_for_view;
+use self::modal::{modal_action_from_key, ONBOARDING_WELCOME_ACTIONS, RELEASE_NOTES_ACTIONS};
 pub(crate) use self::terminal::TerminalKeyTarget;
-use self::{
-    modal::{modal_action_from_key, ONBOARDING_WELCOME_ACTIONS, RELEASE_NOTES_ACTIONS},
-    settings::SettingsAction,
-};
 use super::state::{AppState, DragState, DragTarget, Mode};
 use super::App;
 
@@ -169,14 +214,14 @@ impl App {
                 if self.state.name_input_replace_on_type
                     && !(self.state.mode == Mode::RenameGroup
                         && self.state.creating_new_group
-                        && self.state.group_modal_selected_field == 1)
+                        && self.state.group_modal_selected_field == 2)
                 {
                     self.state.name_input.clear();
                     self.state.name_input_replace_on_type = false;
                 }
                 if self.state.mode == Mode::RenameGroup
                     && self.state.creating_new_group
-                    && self.state.group_modal_selected_field == 1
+                    && self.state.group_modal_selected_field == 2
                 {
                     self.state.group_default_directory_input.push_str(text);
                 } else {
@@ -664,18 +709,18 @@ impl App {
                     SettingsAction::SaveGroupName { group_idx, name } => {
                         self.state.rename_group(group_idx, name);
                     }
-                    SettingsAction::SaveGroupDefaultDirectory {
+                    SettingsAction::SaveGroupDefaultLocation {
                         group_idx,
-                        default_directory,
+                        default_location,
                     } => {
                         self.state
-                            .set_group_default_directory(group_idx, default_directory);
+                            .set_group_default_location(group_idx, default_location);
                     }
                     SettingsAction::SaveWorkspaceName { ws_idx, name } => {
                         self.state.rename_workspace(ws_idx, name);
                     }
-                    SettingsAction::SaveWorkspaceDefaultCwd { ws_idx, cwd } => {
-                        self.state.set_workspace_default_cwd(ws_idx, cwd);
+                    SettingsAction::SaveWorkspaceDefaultLocation { ws_idx, location } => {
+                        self.state.set_workspace_default_location(ws_idx, location);
                     }
                     SettingsAction::DeleteGroup(group_idx) => {
                         modal::open_confirm_delete_group(&mut self.state, group_idx);
@@ -690,6 +735,52 @@ impl App {
                     SettingsAction::SaveAgentProfile(profile) => self.save_agent_profile(profile),
                     SettingsAction::DeleteAgentProfile(profile_id) => {
                         self.delete_agent_profile(&profile_id)
+                    }
+                    SettingsAction::SaveSshConnectionProfile(profile) => {
+                        self.save_ssh_connection_profile(profile)
+                    }
+                    SettingsAction::DeleteSshConnectionProfile(profile_id) => {
+                        self.delete_ssh_connection_profile(&profile_id)
+                    }
+                    SettingsAction::TestSshConnection { profile_id } => {
+                        let owner = crate::execution_host::auth::AuthenticationOwner::new(
+                            self.default_client_view.id(),
+                        );
+                        self.state.queue_ssh_connection_request(
+                            profile_id,
+                            crate::execution_host::HostConnectionAction::Test,
+                            owner,
+                        )
+                    }
+                    SettingsAction::ConnectSshConnection { profile_id } => {
+                        let owner = crate::execution_host::auth::AuthenticationOwner::new(
+                            self.default_client_view.id(),
+                        );
+                        self.state.queue_ssh_connection_request(
+                            profile_id,
+                            crate::execution_host::HostConnectionAction::Connect,
+                            owner,
+                        )
+                    }
+                    action @ SettingsAction::LaunchSshWorkspace { .. } => {
+                        self.apply_settings_action(action)
+                    }
+                    SettingsAction::DisconnectSshConnection { profile_id } => {
+                        let owner = crate::execution_host::auth::AuthenticationOwner::new(
+                            self.default_client_view.id(),
+                        );
+                        self.state.queue_ssh_connection_request(
+                            profile_id,
+                            crate::execution_host::HostConnectionAction::Disconnect,
+                            owner,
+                        )
+                    }
+                    action @ (SettingsAction::PreviewWorkerInstall { .. }
+                    | SettingsAction::ConfirmWorkerInstall { .. }
+                    | SettingsAction::CancelWorkerInstall) => self.apply_settings_action(action),
+                    action @ (SettingsAction::RequestForgetRemoteTermination { .. }
+                    | SettingsAction::ConfirmForgetRemoteTermination { .. }) => {
+                        self.apply_settings_action(action)
                     }
                 }
             }
@@ -862,8 +953,11 @@ impl App {
                 tracing::warn!(err = %err, url = %url, "failed to invoke plugin link handler");
             }
         }
-        if let Err(err) = crate::platform::open_url(&url) {
-            tracing::warn!(err = %err, url = %url, "failed to open pane URL");
+        if let Err(err) = self.event_tx.try_send(crate::events::AppEvent::OpenUrl {
+            pane_id: info.id,
+            url: url.clone(),
+        }) {
+            tracing::warn!(err = %err, url = %url, "failed to queue pane URL open");
         }
         true
     }
@@ -1153,6 +1247,8 @@ fn capture_snapshot(state: &AppState) -> crate::persist::SessionSnapshot {
         &state.groups,
         state.active_group,
         state.group_filter_enabled,
+        &state.session_namespace_id,
+        &state.remote_termination_tombstones,
         &state.workspaces,
         &state.terminals,
         &terminal_runtimes,

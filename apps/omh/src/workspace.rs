@@ -31,7 +31,10 @@ pub(crate) use self::git::git_repo_root;
 use self::git::{git_work_summary, git_work_summary_for_root as load_git_work_summary_for_root};
 pub(crate) use self::tab::MovedPane;
 pub use self::{
-    git::{derive_label_from_cwd, git_branch, git_status_cache_key, GitStatusCacheEntry},
+    git::{
+        derive_label_from_cwd, derive_label_from_location, git_branch, git_status_cache_key,
+        GitStatusCacheEntry,
+    },
     tab::{NewPane, Tab},
 };
 
@@ -139,8 +142,8 @@ pub struct Workspace {
     pub group_id: String,
     /// Fallback workspace identity source for tests, old snapshots, or missing runtimes.
     pub identity_cwd: PathBuf,
-    /// Workspace default cwd used when no live pane cwd exists.
-    pub default_cwd: PathBuf,
+    /// Durable host-qualified default for future terminals in this workspace.
+    pub default_location: crate::execution_host::ResourceLocation,
     /// Cached current git branch for the workspace repo.
     pub(crate) cached_git_branch: Option<String>,
     /// Cached ahead/behind counts for the workspace repo's current branch upstream.
@@ -164,7 +167,7 @@ impl Clone for Workspace {
             custom_name: self.custom_name.clone(),
             group_id: self.group_id.clone(),
             identity_cwd: self.identity_cwd.clone(),
-            default_cwd: self.default_cwd.clone(),
+            default_location: self.default_location.clone(),
             cached_git_branch: self.cached_git_branch.clone(),
             cached_git_ahead_behind: self.cached_git_ahead_behind,
             cached_git_work_summary: self.cached_git_work_summary,
@@ -210,6 +213,7 @@ impl Workspace {
         custom_name: Option<String>,
         tab_label: Option<String>,
         identity_cwd: PathBuf,
+        default_location: crate::execution_host::ResourceLocation,
         moved: MovedPane,
         events: mpsc::Sender<AppEvent>,
         render_notify: Arc<Notify>,
@@ -224,7 +228,7 @@ impl Workspace {
             custom_name,
             group_id: DEFAULT_GROUP_ID.to_string(),
             identity_cwd: identity_cwd.clone(),
-            default_cwd: identity_cwd,
+            default_location,
             cached_git_branch: None,
             cached_git_ahead_behind: None,
             cached_git_work_summary: None,
@@ -236,6 +240,45 @@ impl Workspace {
             #[cfg(test)]
             test_runtimes: HashMap::new(),
         }
+    }
+
+    pub(crate) fn from_remote_tab(
+        default_location: crate::execution_host::ResourceLocation,
+        tab: Tab,
+    ) -> Self {
+        let initial_cwd = default_location.path.as_path().to_path_buf();
+        let mut public_pane_numbers = HashMap::new();
+        public_pane_numbers.insert(tab.root_pane, 1);
+        Self {
+            id: generate_workspace_id(),
+            custom_name: None,
+            group_id: DEFAULT_GROUP_ID.to_string(),
+            identity_cwd: initial_cwd,
+            default_location,
+            cached_git_branch: None,
+            cached_git_ahead_behind: None,
+            cached_git_work_summary: None,
+            public_pane_numbers,
+            next_public_pane_number: 2,
+            next_public_tab_number: 2,
+            tabs: vec![tab],
+            active_tab: 0,
+            #[cfg(test)]
+            test_runtimes: HashMap::new(),
+        }
+    }
+
+    pub(crate) fn next_remote_tab_number(&self) -> usize {
+        self.next_public_tab_number
+    }
+
+    pub(crate) fn add_remote_tab(&mut self, tab: Tab) -> usize {
+        self.next_public_tab_number = self
+            .next_public_tab_number
+            .max(tab.number.saturating_add(1));
+        self.register_new_pane(tab.root_pane);
+        self.tabs.push(tab);
+        self.tabs.len() - 1
     }
 
     // Test modules construct workspaces through the default constructor; production paths
@@ -407,7 +450,7 @@ impl Workspace {
                 custom_name: None,
                 group_id: DEFAULT_GROUP_ID.to_string(),
                 identity_cwd: initial_cwd.clone(),
-                default_cwd: initial_cwd.clone(),
+                default_location: terminal.location.clone(),
                 cached_git_branch: git_branch(&initial_cwd),
                 cached_git_ahead_behind: None,
                 cached_git_work_summary: None,
@@ -796,6 +839,47 @@ impl Workspace {
             )?;
         self.register_new_pane(new_pane.pane_id);
         Ok(new_pane)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn commit_remote_split(
+        &mut self,
+        target_pane_id: PaneId,
+        new_pane_id: PaneId,
+        direction: Direction,
+        ratio: Option<f32>,
+        focus_new_pane: bool,
+        terminal: TerminalState,
+        runtime: TerminalRuntime,
+    ) -> Option<(usize, crate::workspace::tab::NewPane)> {
+        let tab_idx = self.find_tab_index_for_pane(target_pane_id)?;
+        let tab = &mut self.tabs[tab_idx];
+        let previous_focus = tab.layout.focused();
+        if !tab.layout.insert_pane_near(
+            target_pane_id,
+            new_pane_id,
+            direction,
+            ratio.unwrap_or(0.5),
+        ) {
+            return None;
+        }
+        tab.panes.insert(
+            new_pane_id,
+            PaneState::new_with_env_pane_id(terminal.id.clone(), new_pane_id),
+        );
+        tab.zoomed = false;
+        if !focus_new_pane {
+            tab.layout.focus_pane(previous_focus);
+        }
+        self.register_new_pane(new_pane_id);
+        Some((
+            tab_idx,
+            crate::workspace::tab::NewPane {
+                pane_id: new_pane_id,
+                terminal,
+                runtime,
+            },
+        ))
     }
 
     pub fn split_pane(
@@ -1192,10 +1276,6 @@ impl Workspace {
         self.custom_name = Some(name);
     }
 
-    pub fn resolved_identity_cwd(&self) -> Option<PathBuf> {
-        Some(self.identity_cwd.clone())
-    }
-
     pub fn effective_default_cwd_from(
         &self,
         terminals: &HashMap<TerminalId, TerminalState>,
@@ -1203,14 +1283,17 @@ impl Workspace {
     ) -> PathBuf {
         self.active_tab()
             .and_then(|tab| tab.cwd_for_pane(tab.layout.focused(), terminals, terminal_runtimes))
-            .unwrap_or_else(|| self.default_cwd.clone())
+            .unwrap_or_else(|| self.default_location.path.as_path().to_path_buf())
     }
 
-    pub fn record_default_cwd(&mut self, cwd: PathBuf) -> bool {
-        if self.default_cwd == cwd {
+    pub fn record_default_location(
+        &mut self,
+        location: crate::execution_host::ResourceLocation,
+    ) -> bool {
+        if self.default_location == location {
             return false;
         }
-        self.default_cwd = cwd;
+        self.default_location = location;
         true
     }
 
@@ -1219,9 +1302,49 @@ impl Workspace {
         terminals: &HashMap<TerminalId, TerminalState>,
         terminal_runtimes: &TerminalRuntimeRegistry,
     ) -> Option<PathBuf> {
-        self.active_tab()
-            .and_then(|tab| tab.cwd_for_pane(tab.layout.focused(), terminals, terminal_runtimes))
-            .or_else(|| Some(self.identity_cwd.clone()))
+        self.resolved_identity_location_from(terminals, terminal_runtimes)
+            .map(|location| location.path.as_path().to_path_buf())
+    }
+
+    /// Resolve one atomic host+path identity for the focused terminal, falling
+    /// back to the workspace default location. Host and path always come from
+    /// the same source — never pair a focused path with the default host.
+    pub fn resolved_identity_location_from(
+        &self,
+        terminals: &HashMap<TerminalId, TerminalState>,
+        terminal_runtimes: &TerminalRuntimeRegistry,
+    ) -> Option<crate::execution_host::ResourceLocation> {
+        if let Some(tab) = self.active_tab() {
+            let pane_id = tab.layout.focused();
+            if let Some(terminal_id) = tab.terminal_id(pane_id) {
+                if let Some(terminal) = terminals.get(terminal_id) {
+                    let path = terminal_runtimes
+                        .get(terminal_id)
+                        .and_then(TerminalRuntime::cwd)
+                        .unwrap_or_else(|| terminal.cwd.clone());
+                    let mut location = terminal.location.clone();
+                    if let Ok(host_path) = crate::execution_host::HostPath::new(path) {
+                        location.path = host_path;
+                    }
+                    return Some(location);
+                }
+            }
+        }
+        Some(self.default_location.clone())
+    }
+
+    /// Seed coordinator-local git branch cache from the atomic identity
+    /// location. Remote locations stay empty for worker observation refresh.
+    pub fn seed_cached_git_branch_from(
+        &mut self,
+        terminals: &HashMap<TerminalId, TerminalState>,
+        terminal_runtimes: &TerminalRuntimeRegistry,
+    ) {
+        self.cached_git_branch = self
+            .resolved_identity_location_from(terminals, terminal_runtimes)
+            .filter(|location| location.is_local())
+            .as_ref()
+            .and_then(|location| git_branch(location.path.as_path()));
     }
 
     pub fn display_name(&self) -> String {
@@ -1229,9 +1352,11 @@ impl Workspace {
             return name.clone();
         }
 
-        self.resolved_identity_cwd()
-            .map(|cwd| derive_label_from_cwd(&cwd))
-            .unwrap_or_else(|| "workspace".into())
+        let mut location = self.default_location.clone();
+        if let Ok(path) = crate::execution_host::HostPath::new(self.identity_cwd.clone()) {
+            location.path = path;
+        }
+        derive_label_from_location(&location)
     }
 
     pub fn display_name_from(
@@ -1243,8 +1368,8 @@ impl Workspace {
             return name.clone();
         }
 
-        self.resolved_identity_cwd_from(terminals, terminal_runtimes)
-            .map(|cwd| derive_label_from_cwd(&cwd))
+        self.resolved_identity_location_from(terminals, terminal_runtimes)
+            .map(|location| derive_label_from_location(&location))
             .unwrap_or_else(|| "workspace".into())
     }
 
@@ -1301,9 +1426,9 @@ impl Workspace {
 
     #[cfg(test)]
     pub fn refresh_git_ahead_behind(&mut self) {
-        let cwd = self.resolved_identity_cwd();
-        self.cached_git_branch = cwd.as_deref().and_then(git_branch);
-        self.cached_git_ahead_behind = cwd.as_deref().and_then(git_ahead_behind);
+        let cwd = &self.identity_cwd;
+        self.cached_git_branch = git_branch(cwd);
+        self.cached_git_ahead_behind = git_ahead_behind(cwd);
         self.cached_git_work_summary = git_work_summary(&self.git_status_cwds());
     }
 
@@ -1323,8 +1448,8 @@ impl Workspace {
             .collect::<Vec<_>>();
         cwds.sort();
         cwds.dedup();
-        if cwds.is_empty() {
-            cwds.push(self.default_cwd.clone());
+        if cwds.is_empty() && self.default_location.is_local() {
+            cwds.push(self.default_location.path.as_path().to_path_buf());
         }
         cwds
     }
@@ -1346,8 +1471,8 @@ impl Workspace {
             .collect::<Vec<_>>();
         cwds.sort();
         cwds.dedup();
-        if cwds.is_empty() {
-            cwds.push(self.default_cwd.clone());
+        if cwds.is_empty() && self.default_location.is_local() {
+            cwds.push(self.default_location.path.as_path().to_path_buf());
         }
         cwds
     }
@@ -1469,7 +1594,8 @@ impl Workspace {
             custom_name: Some(name.to_string()),
             group_id: DEFAULT_GROUP_ID.to_string(),
             identity_cwd: identity_cwd.clone(),
-            default_cwd: identity_cwd.clone(),
+            default_location: crate::execution_host::ResourceLocation::local(identity_cwd.clone())
+                .expect("test workspace cwd is non-empty"),
             cached_git_branch: git_branch(&identity_cwd),
             cached_git_ahead_behind: None,
             cached_git_work_summary: None,
@@ -1580,6 +1706,137 @@ mod tests {
             ws.resolved_identity_cwd_from(&terminals, &terminal_runtimes),
             Some(PathBuf::from("/omh-test/live"))
         );
+    }
+
+    #[test]
+    fn remote_restore_seed_does_not_read_coordinator_local_git_branch() {
+        let root = std::env::temp_dir().join(format!(
+            "omh-remote-restore-branch-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(root.join(".git")).unwrap();
+        std::fs::write(root.join(".git/HEAD"), "ref: refs/heads/local-only\n").unwrap();
+
+        let remote = crate::execution_host::ResourceLocation::new(
+            crate::execution_host::ExecutionHostId::new("ssh:workbox").unwrap(),
+            crate::execution_host::HostPath::new(root.clone()).unwrap(),
+        );
+        let mut ws = Workspace::test_new("ignored");
+        ws.custom_name = None;
+        ws.identity_cwd = root.clone();
+        ws.default_location = remote.clone();
+        ws.cached_git_branch = None;
+
+        let root_pane = ws.tabs[0].root_pane;
+        let terminal_id = ws.tabs[0].terminal_id(root_pane).unwrap().clone();
+        let mut terminals = HashMap::new();
+        terminals.insert(
+            terminal_id.clone(),
+            TerminalState::new_at(terminal_id, remote),
+        );
+        let terminal_runtimes = TerminalRuntimeRegistry::new();
+
+        // Same path exists on the coordinator with a real branch, but the
+        // identity location is remote — never inspect the local filesystem.
+        assert_eq!(git_branch(&root).as_deref(), Some("local-only"));
+        ws.seed_cached_git_branch_from(&terminals, &terminal_runtimes);
+        assert_eq!(ws.cached_git_branch, None);
+
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn mixed_host_display_name_uses_focused_terminal_location_atomically() {
+        let local_root = std::env::temp_dir().join(format!(
+            "omh-mixed-host-local-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(local_root.join(".git")).unwrap();
+        std::fs::write(local_root.join(".git/HEAD"), "ref: refs/heads/main\n").unwrap();
+
+        let local_default = crate::execution_host::ResourceLocation::local(local_root.clone())
+            .expect("local default location");
+        let remote_focus = crate::execution_host::ResourceLocation::new(
+            crate::execution_host::ExecutionHostId::new("ssh:workbox").unwrap(),
+            crate::execution_host::HostPath::new("/srv/project/remote-app").unwrap(),
+        );
+
+        let mut ws = Workspace::test_new("ignored");
+        ws.custom_name = None;
+        ws.identity_cwd = local_root.clone();
+        ws.default_location = local_default;
+
+        let root_pane = ws.tabs[0].root_pane;
+        let terminal_id = ws.tabs[0].terminal_id(root_pane).unwrap().clone();
+        let mut terminals = HashMap::new();
+        terminals.insert(
+            terminal_id.clone(),
+            TerminalState::new_at(terminal_id, remote_focus.clone()),
+        );
+        let terminal_runtimes = TerminalRuntimeRegistry::new();
+
+        let location = ws
+            .resolved_identity_location_from(&terminals, &terminal_runtimes)
+            .expect("focused identity location");
+        assert_eq!(location, remote_focus);
+        // Path basename only — never pair remote path with the local default host
+        // (which would label from the coordinator repo root name).
+        assert_eq!(
+            ws.display_name_from(&terminals, &terminal_runtimes),
+            "remote-app"
+        );
+        assert_ne!(
+            ws.display_name_from(&terminals, &terminal_runtimes),
+            local_root
+                .file_name()
+                .and_then(|name| name.to_str())
+                .unwrap()
+        );
+
+        std::fs::remove_dir_all(local_root).unwrap();
+    }
+
+    #[test]
+    fn local_seed_still_reads_coordinator_git_branch() {
+        let root = std::env::temp_dir().join(format!(
+            "omh-local-restore-branch-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(root.join(".git")).unwrap();
+        std::fs::write(root.join(".git/HEAD"), "ref: refs/heads/feature\n").unwrap();
+
+        let local = crate::execution_host::ResourceLocation::local(root.clone()).unwrap();
+        let mut ws = Workspace::test_new("ignored");
+        ws.custom_name = None;
+        ws.identity_cwd = root.clone();
+        ws.default_location = local.clone();
+        ws.cached_git_branch = None;
+
+        let root_pane = ws.tabs[0].root_pane;
+        let terminal_id = ws.tabs[0].terminal_id(root_pane).unwrap().clone();
+        let mut terminals = HashMap::new();
+        terminals.insert(
+            terminal_id.clone(),
+            TerminalState::new_at(terminal_id, local),
+        );
+        let terminal_runtimes = TerminalRuntimeRegistry::new();
+
+        ws.seed_cached_git_branch_from(&terminals, &terminal_runtimes);
+        assert_eq!(ws.cached_git_branch.as_deref(), Some("feature"));
+
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

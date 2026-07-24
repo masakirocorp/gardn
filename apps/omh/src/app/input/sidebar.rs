@@ -1181,7 +1181,7 @@ mod tests {
             name: "work".into(),
             icon: "■".into(),
             accent: None,
-            default_directory: None,
+            default_location: None,
             favorite_agent_profile_ids: Vec::new(),
             default_agent_profile_id: None,
         });
@@ -1224,7 +1224,7 @@ mod tests {
             name: "work".into(),
             icon: "■".into(),
             accent: None,
-            default_directory: None,
+            default_location: None,
             favorite_agent_profile_ids: Vec::new(),
             default_agent_profile_id: None,
         });
@@ -1389,7 +1389,7 @@ mod tests {
             name: "work".into(),
             icon: "■".into(),
             accent: None,
-            default_directory: None,
+            default_location: None,
             favorite_agent_profile_ids: Vec::new(),
             default_agent_profile_id: None,
         });
@@ -1583,7 +1583,7 @@ mod tests {
             name: "work".into(),
             icon: "■".into(),
             accent: None,
-            default_directory: None,
+            default_location: None,
             favorite_agent_profile_ids: Vec::new(),
             default_agent_profile_id: None,
         });
@@ -3099,7 +3099,7 @@ mod tests {
             name: "work".into(),
             icon: "■".into(),
             accent: None,
-            default_directory: None,
+            default_location: None,
             favorite_agent_profile_ids: Vec::new(),
             default_agent_profile_id: None,
         });
@@ -3135,7 +3135,7 @@ mod tests {
             name: "work".into(),
             icon: "■".into(),
             accent: None,
-            default_directory: None,
+            default_location: None,
             favorite_agent_profile_ids: Vec::new(),
             default_agent_profile_id: None,
         });
@@ -3190,7 +3190,7 @@ mod tests {
             name: "work".into(),
             icon: "■".into(),
             accent: None,
-            default_directory: None,
+            default_location: None,
             favorite_agent_profile_ids: Vec::new(),
             default_agent_profile_id: None,
         });
@@ -3245,7 +3245,7 @@ mod tests {
             name: "work".into(),
             icon: "■".into(),
             accent: None,
-            default_directory: None,
+            default_location: None,
             favorite_agent_profile_ids: Vec::new(),
             default_agent_profile_id: None,
         });
@@ -3273,7 +3273,7 @@ mod tests {
             name: "work".into(),
             icon: "■".into(),
             accent: None,
-            default_directory: None,
+            default_location: None,
             favorite_agent_profile_ids: Vec::new(),
             default_agent_profile_id: None,
         });

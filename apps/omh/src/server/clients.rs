@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::path::PathBuf;
 
 use crate::app::ClientViewState;
 use crate::protocol::RenderEncoding;
@@ -10,6 +9,12 @@ use crate::server::render_stream::ClientRenderState;
 pub(crate) enum ClientConnectionMode {
     App,
     TerminalAttach { terminal_id: String },
+}
+
+#[derive(Debug)]
+pub(crate) enum StagedClipboardFile {
+    Local(std::path::PathBuf),
+    Remote(crate::execution_host::ResourceLocation),
 }
 
 pub(crate) type RenderTarget = (
@@ -50,8 +55,8 @@ pub(crate) struct ClientConnection {
     pub(crate) render_pending: bool,
     /// Last host mouse capture mode sent to this client.
     pub(crate) host_mouse_capture_active: Option<bool>,
-    /// Temporary files staged from this client's local clipboard image pastes.
-    pub(crate) staged_clipboard_files: Vec<PathBuf>,
+    /// Temporary files staged on their target terminal's execution host.
+    pub(crate) staged_clipboard_files: Vec<StagedClipboardFile>,
     /// Channels for sending framed ServerMessage data to the client writer thread.
     pub(crate) writer: Option<ClientWriter>,
 }

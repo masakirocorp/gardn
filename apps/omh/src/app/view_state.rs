@@ -61,6 +61,17 @@ impl ClientTabViewKey {
         }
     }
 }
+
+/// Client-scoped effect produced by app logic and applied to matching views.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum ClientViewEffect {
+    /// Clear one pending focus marker if it still matches exactly.
+    ClearPendingFocus {
+        client_view_id: u64,
+        marker: crate::api::PendingFocusMarker,
+    },
+}
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(crate) struct CanvasOrigin {
     pub(crate) col: u16,
@@ -269,6 +280,15 @@ impl TerminalViewportOffset {
 /// looking at. Shared session structures remain in `AppState`; callers must
 /// explicitly run view-sensitive work through the client's state instead of
 /// implicitly reading whichever client last touched the server.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct ClientAuthenticationPrompt {
+    pub(crate) challenge_id: u64,
+    pub(crate) execution_host_id: crate::execution_host::ExecutionHostId,
+    pub(crate) prompt: String,
+    pub(crate) response: String,
+    pub(crate) host_key_confirmation: bool,
+}
+
 #[derive(Clone)]
 pub(crate) struct ClientViewState {
     id: u64,
@@ -311,6 +331,12 @@ pub(crate) struct ClientViewState {
     pub(crate) mode: Mode,
     pub(crate) active_tabs: HashMap<String, usize>,
     pub(crate) pending_active_tabs: HashMap<String, usize>,
+    /// Workspace id to focus once the shared workspace appears (deferred remote create).
+    pub(crate) pending_active_workspace: Option<String>,
+    /// Deferred remote split focus: apply once the preallocated pane appears.
+    pub(crate) pending_focused_panes: HashMap<ClientTabViewKey, PaneId>,
+    /// Deferred remote popup focus: apply once the popup record exists.
+    pub(crate) pending_popup_pane: Option<PaneId>,
     pub(crate) focused_panes: HashMap<ClientTabViewKey, PaneId>,
     pub(crate) zoomed_tabs: HashSet<ClientTabViewKey>,
     /// Client-local popup presentation. The detached runtime remains shared.
@@ -346,11 +372,12 @@ pub(crate) struct ClientViewState {
     pub(crate) creating_new_group: bool,
     pub(crate) group_icon_input: String,
     pub(crate) group_default_directory_input: String,
+    pub(crate) group_default_execution_host_id: crate::execution_host::ExecutionHostId,
     pub(crate) group_modal_selected_field: usize,
     pub(crate) group_icon_picker_open: bool,
     pub(crate) rename_group_target: Option<usize>,
     pub(crate) requested_new_tab_name: Option<String>,
-    pub(crate) pending_workspace_create_cwd: Option<std::path::PathBuf>,
+    pub(crate) pending_workspace_create_location: Option<crate::execution_host::ResourceLocation>,
     pub(crate) pending_workspace_create_group: Option<usize>,
     pub(crate) rename_pane_target: Option<PaneId>,
     pub(crate) confirm_delete_group: Option<usize>,
@@ -359,6 +386,8 @@ pub(crate) struct ClientViewState {
     pub(crate) release_notes: Option<ReleaseNotesState>,
     pub(crate) product_announcement: Option<ProductAnnouncementState>,
     pub(crate) computed: ViewState,
+    /// Runtime-only SSH authentication prompt owned by this client view.
+    pub(crate) authentication_prompt: Option<ClientAuthenticationPrompt>,
 }
 
 impl ClientViewState {
@@ -404,6 +433,9 @@ impl ClientViewState {
             mode: state.mode,
             active_tabs: HashMap::new(),
             pending_active_tabs: HashMap::new(),
+            pending_active_workspace: None,
+            pending_focused_panes: HashMap::new(),
+            pending_popup_pane: None,
             popup_pane: None,
             focused_panes: HashMap::new(),
             zoomed_tabs: HashSet::new(),
@@ -435,11 +467,12 @@ impl ClientViewState {
             creating_new_group: state.creating_new_group,
             group_icon_input: state.group_icon_input.clone(),
             group_default_directory_input: state.group_default_directory_input.clone(),
+            group_default_execution_host_id: state.group_default_execution_host_id.clone(),
             group_modal_selected_field: state.group_modal_selected_field,
             group_icon_picker_open: state.group_icon_picker_open,
             rename_group_target: state.rename_group_target,
             requested_new_tab_name: state.requested_new_tab_name.clone(),
-            pending_workspace_create_cwd: state.pending_workspace_create_cwd.clone(),
+            pending_workspace_create_location: state.pending_workspace_create_location.clone(),
             pending_workspace_create_group: None,
             rename_pane_target: state.rename_pane_target,
             confirm_delete_group: state.confirm_delete_group,
@@ -447,6 +480,7 @@ impl ClientViewState {
             name_input_replace_on_type: state.name_input_replace_on_type,
             release_notes: state.release_notes.clone(),
             product_announcement: state.product_announcement.clone(),
+            authentication_prompt: None,
             computed: state.view.clone(),
             suppressed_repeat_keys: HashSet::new(),
             forwarded_terminal_keys: HashMap::new(),
@@ -521,6 +555,15 @@ impl ClientViewState {
     }
 
     pub(crate) fn reconcile(&mut self, state: &AppState) {
+        if let Some(pane_id) = self.pending_popup_pane {
+            if let Some(popup) = state.popup_panes.get(&pane_id) {
+                if popup.owner.is_none_or(|owner| owner == self.id) {
+                    self.popup_pane = Some(pane_id);
+                    self.mode = Mode::Terminal;
+                    self.pending_popup_pane = None;
+                }
+            }
+        }
         if let Some(pane_id) = self.popup_pane {
             let visible = state
                 .popup_panes
@@ -537,6 +580,8 @@ impl ClientViewState {
                 }
             }
         }
+        // Connection editor drafts (including install/forget substate) remain owned by
+        // this client view. Shared host status is reconciled separately.
 
         if state.groups.is_empty() {
             self.active_group = 0;
@@ -549,6 +594,10 @@ impl ClientViewState {
             self.active_workspace = None;
             self.selected_workspace = 0;
             self.active_tabs.clear();
+            self.pending_active_tabs.clear();
+            // Keep pending_active_workspace / pending_focused_panes / pending_popup_pane:
+            // deferred remote creates may still complete.
+            self.pending_focused_panes.clear();
             self.focused_panes.clear();
             self.zoomed_tabs.clear();
             self.overlay_return_states.clear();
@@ -559,14 +608,16 @@ impl ClientViewState {
             return;
         }
 
+        let active_group = self.active_group;
+        let group_filter_enabled = self.group_filter_enabled;
         let visible_workspace = |idx: usize| {
-            if !self.group_filter_enabled {
+            if !group_filter_enabled {
                 return state.workspaces.get(idx).is_some();
             }
 
             let active_group_id = state
                 .groups
-                .get(self.active_group)
+                .get(active_group)
                 .map(|group| group.id.as_str())
                 .unwrap_or(crate::workspace::DEFAULT_GROUP_ID);
             state
@@ -582,18 +633,41 @@ impl ClientViewState {
                 .find_map(|(idx, _)| visible_workspace(idx).then_some(idx))
         };
 
+        if let Some(pending_workspace_id) = self.pending_active_workspace.clone() {
+            if let Some(ws_idx) = state
+                .workspaces
+                .iter()
+                .position(|workspace| workspace.id == pending_workspace_id)
+            {
+                self.active_workspace = Some(ws_idx);
+                self.selected_workspace = ws_idx;
+                if let Some(group_idx) = state
+                    .groups
+                    .iter()
+                    .position(|group| group.id == state.workspaces[ws_idx].group_id)
+                {
+                    self.active_group = group_idx;
+                }
+                self.mode = Mode::Terminal;
+                self.pending_active_workspace = None;
+            }
+        }
+
         if !self
             .active_workspace
             .is_some_and(|idx| idx < state.workspaces.len() && visible_workspace(idx))
         {
-            self.active_workspace = if self.group_filter_enabled {
-                first_visible_workspace()
-            } else {
-                state
-                    .active
-                    .filter(|idx| *idx < state.workspaces.len())
-                    .or_else(first_visible_workspace)
-            };
+            // Do not steal focus while a deferred remote workspace create is still pending.
+            if self.pending_active_workspace.is_none() {
+                self.active_workspace = if self.group_filter_enabled {
+                    first_visible_workspace()
+                } else {
+                    state
+                        .active
+                        .filter(|idx| *idx < state.workspaces.len())
+                        .or_else(first_visible_workspace)
+                };
+            }
         }
         if self.selected_workspace >= state.workspaces.len()
             || !visible_workspace(self.selected_workspace)
@@ -719,6 +793,8 @@ impl ClientViewState {
                 self.pending_active_tabs.remove(&workspace.id);
                 self.focused_panes
                     .retain(|key, _| key.workspace_id != workspace.id);
+                self.pending_focused_panes
+                    .retain(|key, _| key.workspace_id != workspace.id);
                 self.zoomed_tabs
                     .retain(|key| key.workspace_id != workspace.id);
                 continue;
@@ -747,6 +823,12 @@ impl ClientViewState {
             for tab in &workspace.tabs {
                 let tab_number = tab.number;
                 let tab_key = ClientTabViewKey::new(&workspace.id, tab_number);
+                if let Some(pending_pane) = self.pending_focused_panes.get(&tab_key).copied() {
+                    if tab.panes.contains_key(&pending_pane) {
+                        self.focused_panes.insert(tab_key.clone(), pending_pane);
+                        self.pending_focused_panes.remove(&tab_key);
+                    }
+                }
                 if !tab.panes.contains_key(
                     self.focused_panes
                         .get(&tab_key)
@@ -766,6 +848,13 @@ impl ClientViewState {
             }
 
             self.focused_panes.retain(|key, _| {
+                key.workspace_id != workspace.id
+                    || workspace
+                        .tabs
+                        .iter()
+                        .any(|tab| tab.number == key.tab_number)
+            });
+            self.pending_focused_panes.retain(|key, _| {
                 key.workspace_id != workspace.id
                     || workspace
                         .tabs
@@ -906,8 +995,97 @@ impl ClientViewState {
         true
     }
 
+    /// Stamp requester-local deferred focus for a remote split that has not committed yet.
+    pub(crate) fn mark_pending_remote_split_focus(
+        &mut self,
+        state: &AppState,
+        ws_idx: usize,
+        tab_idx: usize,
+        pane_id: PaneId,
+    ) {
+        let Some(workspace) = state.workspaces.get(ws_idx) else {
+            return;
+        };
+        let Some(tab) = workspace.tabs.get(tab_idx) else {
+            return;
+        };
+        self.active_workspace = Some(ws_idx);
+        self.selected_workspace = ws_idx;
+        if let Some(group_idx) = state
+            .groups
+            .iter()
+            .position(|group| group.id == workspace.group_id)
+        {
+            self.active_group = group_idx;
+        }
+        self.active_tabs.insert(workspace.id.clone(), tab_idx);
+        self.pending_focused_panes
+            .insert(ClientTabViewKey::new(&workspace.id, tab.number), pane_id);
+        self.mode = Mode::Terminal;
+    }
+
+    /// Clear one deferred focus marker only when it still matches exactly.
+    /// Newer/replacement markers and other clients' state are left untouched.
+    pub(crate) fn clear_pending_focus_marker_if_matches(
+        &mut self,
+        marker: &crate::api::PendingFocusMarker,
+    ) -> bool {
+        match marker {
+            crate::api::PendingFocusMarker::Workspace { workspace_id } => {
+                if self.pending_active_workspace.as_deref() == Some(workspace_id.as_str()) {
+                    self.pending_active_workspace = None;
+                    return true;
+                }
+            }
+            crate::api::PendingFocusMarker::Tab {
+                workspace_id,
+                tab_idx,
+            } => {
+                if self.pending_active_tabs.get(workspace_id) == Some(tab_idx) {
+                    self.pending_active_tabs.remove(workspace_id);
+                    return true;
+                }
+            }
+            crate::api::PendingFocusMarker::Pane {
+                workspace_id,
+                tab_number,
+                pane_id,
+            } => {
+                let key = ClientTabViewKey::new(workspace_id, *tab_number);
+                if self.pending_focused_panes.get(&key) == Some(pane_id) {
+                    self.pending_focused_panes.remove(&key);
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
+    /// Apply a client-scoped effect when this view is the target.
+    pub(crate) fn apply_client_view_effect(&mut self, effect: &ClientViewEffect) -> bool {
+        match effect {
+            ClientViewEffect::ClearPendingFocus {
+                client_view_id,
+                marker,
+            } => {
+                if self.id != *client_view_id {
+                    return false;
+                }
+                self.clear_pending_focus_marker_if_matches(marker)
+            }
+        }
+    }
+
     pub(crate) fn id(&self) -> u64 {
         self.id
+    }
+
+    /// Build a temporary encode/projection clone that reports as `client_view_id`.
+    /// Used when finishing deferred remote creates for a non-default requester.
+    pub(crate) fn clone_for_encode_as(&self, client_view_id: u64) -> Self {
+        let mut view = self.clone();
+        view.id = client_view_id;
+        view
     }
 
     pub(crate) fn focus_client_overlay(

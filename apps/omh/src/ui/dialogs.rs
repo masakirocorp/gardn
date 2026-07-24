@@ -91,6 +91,8 @@ pub(crate) fn group_default_directory_input_rect_for_view(
     group_icon_picker_open: bool,
     inner: Rect,
 ) -> Rect {
+    // Keep Directory above the action row when popup height clamps on short
+    // terminals (20-row screens → inner height 16).
     let y = if group_icon_picker_open { 16 } else { 13 };
     group_field_rect_for_view(creating_new_group, inner, y, 7)
 }
@@ -177,7 +179,7 @@ fn render_rename_overlay_with_view_state(
     // The shared data model owns workspace/group metadata and palettes; all modal
     // state below is selected from the requesting client's view.
     let title = match client_view.mode {
-        Mode::RenameWorkspace if client_view.pending_workspace_create_cwd.is_some() => {
+        Mode::RenameWorkspace if client_view.pending_workspace_create_location.is_some() => {
             "new workspace"
         }
         Mode::RenameWorkspace => "rename workspace",
@@ -226,7 +228,7 @@ fn render_rename_overlay_with_view_state(
     }
     if matches!(client_view.mode, Mode::RenameGroup) {
         let section_description = if client_view.creating_new_group {
-            "name + icon + default directory"
+            "name + icon + Runs on + Directory"
         } else {
             "name + icon"
         };
@@ -298,10 +300,40 @@ fn render_rename_overlay_with_view_state(
             icon_rect,
         );
         if client_view.creating_new_group {
-            let directory_y = if picker_open { 15 } else { 12 };
-            let directory_selected = client_view.group_modal_selected_field == 1;
+            // Single-line host keeps Directory at y=12/13 (15/16 with picker)
+            // so save/clear stay hittable on clamped 20-row screens.
+            let host_y = if picker_open { 14 } else { 11 };
+            let host_selected = client_view.group_modal_selected_field == 1;
+            let host_name = if client_view.group_default_execution_host_id.is_local() {
+                "Local".to_string()
+            } else {
+                app.ssh_connection_profiles
+                    .iter()
+                    .find(|profile| {
+                        profile.execution_host_id() == client_view.group_default_execution_host_id
+                    })
+                    .map(|profile| profile.name().to_string())
+                    .unwrap_or_else(|| {
+                        client_view
+                            .group_default_execution_host_id
+                            .as_str()
+                            .to_string()
+                    })
+            };
             frame.render_widget(
-                Paragraph::new("default directory for new spaces").style(if directory_selected {
+                Paragraph::new(format!("Runs on · {host_name}")).style(if host_selected {
+                    Style::default()
+                        .fg(palette.accent)
+                        .add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default().fg(palette.overlay0)
+                }),
+                field(host_y),
+            );
+            let directory_y = host_y + 1;
+            let directory_selected = client_view.group_modal_selected_field == 2;
+            frame.render_widget(
+                Paragraph::new("Directory").style(if directory_selected {
                     Style::default()
                         .fg(palette.accent)
                         .add_modifier(Modifier::BOLD)
@@ -310,7 +342,7 @@ fn render_rename_overlay_with_view_state(
                 }),
                 field(directory_y),
             );
-            let directory_rect = field(if picker_open { 16 } else { 13 });
+            let directory_rect = field(directory_y + 1);
             if directory_selected {
                 render_modal_text_input(
                     frame,
@@ -361,6 +393,25 @@ fn render_rename_overlay_with_view_state(
             &client_view.name_input,
             &palette,
         );
+        if let Some(location) = client_view.pending_workspace_create_location.as_ref() {
+            let host = if location.is_local() {
+                "Local".to_string()
+            } else {
+                app.ssh_connection_profiles
+                    .iter()
+                    .find(|profile| profile.execution_host_id() == location.execution_host_id)
+                    .map(|profile| profile.name().to_string())
+                    .unwrap_or_else(|| location.execution_host_id.as_str().to_string())
+            };
+            frame.render_widget(
+                Paragraph::new(format!(
+                    "Runs on {host} · Directory {}",
+                    location.path.as_path().display()
+                ))
+                .style(Style::default().fg(palette.overlay0)),
+                Rect::new(rows[2].x, rows[2].y + 2, rows[2].width, 1),
+            );
+        }
     }
     let (save_rect, clear_rect, _) = rename_button_rects(inner);
     render_action_button(
@@ -383,7 +434,7 @@ pub(super) fn render_rename_overlay(app: &AppState, frame: &mut Frame, area: Rec
     super::dim_background(frame, area);
 
     let title = match app.mode {
-        Mode::RenameWorkspace if app.pending_workspace_create_cwd.is_some() => "new workspace",
+        Mode::RenameWorkspace if app.pending_workspace_create_location.is_some() => "new workspace",
         Mode::RenameWorkspace => "rename workspace",
         Mode::RenameGroup if app.creating_new_group => "new group",
         Mode::RenameGroup => "rename group",
@@ -416,7 +467,7 @@ pub(super) fn render_rename_overlay(app: &AppState, frame: &mut Frame, area: Rec
 
     if matches!(app.mode, Mode::RenameGroup) {
         let section_description = if app.creating_new_group {
-            "name + icon + default directory"
+            "name + icon + Runs on + Directory"
         } else {
             "name + icon"
         };
@@ -493,20 +544,43 @@ pub(super) fn render_rename_overlay(app: &AppState, frame: &mut Frame, area: Rec
         );
 
         if app.creating_new_group {
-            let directory_label_style = if app.group_modal_selected_field == 1 {
+            let host_y = if app.group_icon_picker_open { 14 } else { 11 };
+            let host_style = if app.group_modal_selected_field == 1 {
                 Style::default()
                     .fg(palette.accent)
                     .add_modifier(Modifier::BOLD)
             } else {
                 Style::default().fg(palette.overlay0)
             };
-            let directory_y = if app.group_icon_picker_open { 15 } else { 12 };
+            let host_name = if app.group_default_execution_host_id.is_local() {
+                "Local".to_string()
+            } else {
+                app.ssh_connection_profiles
+                    .iter()
+                    .find(|profile| {
+                        profile.execution_host_id() == app.group_default_execution_host_id
+                    })
+                    .map(|profile| profile.name().to_string())
+                    .unwrap_or_else(|| app.group_default_execution_host_id.as_str().to_string())
+            };
             frame.render_widget(
-                Paragraph::new("default directory for new spaces").style(directory_label_style),
+                Paragraph::new(format!("Runs on · {host_name}")).style(host_style),
+                group_field_rect(app, inner, host_y, 7),
+            );
+            let directory_y = host_y + 1;
+            let directory_label_style = if app.group_modal_selected_field == 2 {
+                Style::default()
+                    .fg(palette.accent)
+                    .add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(palette.overlay0)
+            };
+            frame.render_widget(
+                Paragraph::new("Directory").style(directory_label_style),
                 group_field_rect(app, inner, directory_y, 7),
             );
             let directory_rect = group_default_directory_input_rect(app, inner);
-            if app.group_modal_selected_field == 1 {
+            if app.group_modal_selected_field == 2 {
                 render_modal_text_input(
                     frame,
                     directory_rect,
@@ -514,28 +588,36 @@ pub(super) fn render_rename_overlay(app: &AppState, frame: &mut Frame, area: Rec
                     &palette,
                 );
             } else {
-                let value = if app.group_default_directory_input.is_empty() {
-                    " optional".to_string()
-                } else {
-                    format!(" {}", app.group_default_directory_input)
-                };
-                frame.render_widget(
-                    Paragraph::new(value).style(
-                        Style::default()
-                            .fg(if app.group_default_directory_input.is_empty() {
-                                palette.overlay0
-                            } else {
-                                palette.text
-                            })
-                            .bg(palette.surface0),
-                    ),
+                super::widgets::render_modal_text_value(
+                    frame,
                     directory_rect,
+                    &app.group_default_directory_input,
+                    &palette,
                 );
             }
         }
     } else {
         let input_rect = Rect::new(rows[2].x, rows[2].y, rows[2].width, 1);
         render_modal_text_input(frame, input_rect, &app.name_input, &palette);
+        if let Some(location) = app.pending_workspace_create_location.as_ref() {
+            let host = if location.is_local() {
+                "Local".to_string()
+            } else {
+                app.ssh_connection_profiles
+                    .iter()
+                    .find(|profile| profile.execution_host_id() == location.execution_host_id)
+                    .map(|profile| profile.name().to_string())
+                    .unwrap_or_else(|| location.execution_host_id.as_str().to_string())
+            };
+            frame.render_widget(
+                Paragraph::new(format!(
+                    "Runs on {host} · Directory {}",
+                    location.path.as_path().display()
+                ))
+                .style(Style::default().fg(palette.overlay0)),
+                Rect::new(rows[2].x, rows[2].y + 2, rows[2].width, 1),
+            );
+        }
     }
 
     if matches!(app.mode, Mode::RenameGroup) && app.group_icon_picker_open {
@@ -804,11 +886,114 @@ pub(crate) fn confirm_close_button_rects(inner: Rect) -> (Rect, Rect) {
     (rects[0], rects[1])
 }
 
+pub(crate) fn render_authentication_overlay_for_view(
+    app: &AppState,
+    client_view: &crate::app::ClientViewState,
+    frame: &mut Frame,
+    area: Rect,
+) {
+    let Some(prompt) = client_view.authentication_prompt.as_ref() else {
+        return;
+    };
+    super::dim_background(frame, area);
+    let palette = client_view
+        .active_workspace
+        .map(|workspace| app.palette_for_workspace(workspace))
+        .unwrap_or_else(|| app.palette.clone());
+    let Some(inner) = render_modal_shell(frame, area, 64, 11, &palette) else {
+        return;
+    };
+    render_modal_header_bar(frame, inner, "SSH authentication required", &palette, true);
+    render_modal_divider(
+        frame,
+        Rect::new(inner.x, inner.y + 1, inner.width, 1),
+        &palette,
+    );
+    frame.render_widget(
+        Paragraph::new(prompt.execution_host_id.as_str())
+            .style(Style::default().fg(palette.overlay0)),
+        Rect::new(inner.x + 1, inner.y + 3, inner.width.saturating_sub(2), 1),
+    );
+    frame.render_widget(
+        Paragraph::new(prompt.prompt.clone())
+            .wrap(ratatui::widgets::Wrap { trim: true })
+            .style(Style::default().fg(palette.text)),
+        Rect::new(inner.x + 1, inner.y + 4, inner.width.saturating_sub(2), 2),
+    );
+    let guidance = if prompt.host_key_confirmation {
+        "Y confirm host key  ·  N / Esc cancel"
+    } else {
+        "Enter submit  ·  Esc cancel"
+    };
+    frame.render_widget(
+        Paragraph::new(guidance).style(Style::default().fg(palette.overlay0)),
+        Rect::new(inner.x + 1, inner.y + 7, inner.width.saturating_sub(2), 1),
+    );
+    if !prompt.host_key_confirmation {
+        let masked = "•".repeat(prompt.response.chars().count());
+        frame.render_widget(
+            Paragraph::new(masked).style(Style::default().fg(palette.text).bg(palette.surface0)),
+            Rect::new(inner.x + 1, inner.y + 8, inner.width.saturating_sub(2), 1),
+        );
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::workspace::Workspace;
     use ratatui::{backend::TestBackend, buffer::Buffer, Terminal};
+
+    #[test]
+    fn authentication_overlay_masks_secret_input() {
+        let app = AppState::test_new();
+        let mut view = crate::app::ClientViewState::from_default_client_state(&app);
+        view.authentication_prompt = Some(crate::app::view_state::ClientAuthenticationPrompt {
+            challenge_id: 7,
+            execution_host_id: crate::execution_host::ExecutionHostId::new("ssh:workbox:1")
+                .unwrap(),
+            prompt: "Password:".to_string(),
+            response: "hunter2".to_string(),
+            host_key_confirmation: false,
+        });
+        let backend = TestBackend::new(80, 24);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal
+            .draw(|frame| {
+                render_authentication_overlay_for_view(&app, &view, frame, Rect::new(0, 0, 80, 24))
+            })
+            .unwrap();
+        let text = buffer_text(terminal.backend().buffer(), 80, 24);
+
+        assert!(text.contains("SSH authentication required"));
+        assert!(text.contains("•••••••"));
+        assert!(!text.contains("hunter2"));
+    }
+
+    #[test]
+    fn host_key_overlay_requires_explicit_yes_or_no() {
+        let app = AppState::test_new();
+        let mut view = crate::app::ClientViewState::from_default_client_state(&app);
+        view.authentication_prompt = Some(crate::app::view_state::ClientAuthenticationPrompt {
+            challenge_id: 8,
+            execution_host_id: crate::execution_host::ExecutionHostId::new("ssh:workbox:1")
+                .unwrap(),
+            prompt: "Continue connecting (yes/no)?".to_string(),
+            response: String::new(),
+            host_key_confirmation: true,
+        });
+        let backend = TestBackend::new(80, 24);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal
+            .draw(|frame| {
+                render_authentication_overlay_for_view(&app, &view, frame, Rect::new(0, 0, 80, 24))
+            })
+            .unwrap();
+        let text = buffer_text(terminal.backend().buffer(), 80, 24);
+
+        assert!(text.contains("Y confirm host key"));
+        assert!(text.contains("N / Esc cancel"));
+    }
 
     #[test]
     fn confirm_close_overlay_renders_empty_workspace() {
@@ -924,6 +1109,7 @@ mod tests {
     }
 
     #[test]
+
     fn confirm_delete_group_uses_group_accent_for_name() {
         let mut app = AppState::test_new();
         let group_idx = app.create_group("work".to_string());
@@ -952,7 +1138,7 @@ mod tests {
         app.name_input = "Work".to_string();
         app.group_icon_input = "✿".to_string();
         app.group_default_directory_input = "/tmp/work".to_string();
-        app.group_modal_selected_field = 1;
+        app.group_modal_selected_field = 2;
 
         let backend = TestBackend::new(90, 28);
         let mut terminal = Terminal::new(backend).unwrap();
@@ -963,8 +1149,8 @@ mod tests {
         let buffer = terminal.backend().buffer();
         let text = buffer_text(buffer, 90, 28);
         assert!(text.contains("new group"));
-        assert!(text.contains("name + icon + default directory"));
-        assert!(text.contains("default directory for new spaces"));
+        assert!(text.contains("name + icon + Runs on + Directory"));
+        assert!(text.contains("Directory"));
         assert!(text.contains("/tmp/work"));
         assert!(text.contains("save"));
         assert!(text.contains("clear"));

@@ -16,7 +16,8 @@ use std::collections::HashMap;
 pub(crate) struct WorkspaceGitRefreshItem {
     pub(crate) workspace_id: String,
     pub(crate) resolved_identity_cwd: std::path::PathBuf,
-    pub(crate) cache_key: std::path::PathBuf,
+    pub(crate) location: crate::execution_host::ResourceLocation,
+    pub(crate) cache_key: crate::execution_host::ResourceLocation,
     pub(crate) cwd_fingerprint: Vec<std::path::PathBuf>,
     pub(crate) observed_repo_roots: Vec<std::path::PathBuf>,
 }
@@ -30,7 +31,7 @@ pub(crate) struct WorkspaceGitRefreshTarget {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct WorkspaceGitRefreshJob {
-    pub(crate) cache_key: std::path::PathBuf,
+    pub(crate) cache_key: crate::execution_host::ResourceLocation,
     pub(crate) status_cwd: std::path::PathBuf,
     pub(crate) cached: Option<GitStatusCacheEntry>,
     pub(crate) targets: Vec<WorkspaceGitRefreshTarget>,
@@ -39,7 +40,7 @@ pub(crate) struct WorkspaceGitRefreshJob {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct WorkspaceGitRefreshOutput {
     pub(crate) results: Vec<WorkspaceGitStatus>,
-    pub(crate) cache_updates: Vec<(std::path::PathBuf, GitStatusCacheEntry)>,
+    pub(crate) cache_updates: Vec<(crate::execution_host::ResourceLocation, GitStatusCacheEntry)>,
     pub(crate) repo_summaries: Vec<(std::path::PathBuf, crate::workspace::GitWorkSummary)>,
 }
 
@@ -89,8 +90,33 @@ impl App {
             response_written: _,
         } = msg;
         let changed = crate::api::request_changes_ui(&request);
-        let response = self.handle_api_request(request);
-        let _ = respond_to.send(response);
+        match self.handle_api_request_disposition(request) {
+            crate::api::ApiRequestDisposition::Respond(response) => {
+                let _ = respond_to.send(response);
+            }
+            crate::api::ApiRequestDisposition::Deferred(deferred) => {
+                // Insert once with the real responder; no placeholder channel.
+                let (terminal_id, pending) =
+                    crate::app::PendingRemoteApiResponse::from_deferred(deferred, respond_to);
+                self.store_pending_remote_api_response(terminal_id, pending);
+            }
+            crate::api::ApiRequestDisposition::DeferredConnectionInstall {
+                request_id,
+                profile_id,
+                profile,
+                confirm,
+                authentication_owner,
+            } => {
+                self.spawn_connection_install_response(
+                    respond_to,
+                    request_id,
+                    profile_id,
+                    profile,
+                    confirm,
+                    authentication_owner,
+                );
+            }
+        }
         self.sync_prefix_input_source(previous_mode);
         changed
     }
@@ -235,48 +261,159 @@ impl App {
     }
 
     pub(crate) fn refresh_ports(&mut self, now: Instant) -> bool {
+        let terminals = &self.state.terminals;
+        let terminal_targets = self
+            .state
+            .workspaces
+            .iter()
+            .flat_map(|workspace| {
+                workspace
+                    .tabs
+                    .iter()
+                    .enumerate()
+                    .flat_map(move |(tab_idx, tab)| {
+                        tab.layout
+                            .pane_ids()
+                            .into_iter()
+                            .filter_map(move |pane_id| {
+                                let terminal_id = tab.terminal_id(pane_id)?.clone();
+                                let terminal = terminals.get(&terminal_id)?;
+                                Some((
+                                    terminal_id,
+                                    terminal.location.clone(),
+                                    crate::ports::PortOwner {
+                                        pid: 0,
+                                        command: None,
+                                        workspace_id: workspace.id.clone(),
+                                        tab_idx,
+                                        pane_id,
+                                        confidence: crate::ports::PortOwnerConfidence::ProcessTree,
+                                    },
+                                ))
+                            })
+                    })
+            })
+            .collect::<Vec<_>>();
         let mut owners = std::collections::HashMap::new();
-        for workspace in &self.state.workspaces {
-            for (tab_idx, tab) in workspace.tabs.iter().enumerate() {
-                for pane_id in tab.layout.pane_ids() {
-                    let Some(terminal_id) = tab.terminal_id(pane_id) else {
-                        continue;
-                    };
-                    let Some(runtime) = self.terminal_runtimes.get(terminal_id) else {
-                        continue;
-                    };
-                    let child_pid = runtime.child_pid();
-                    if child_pid == 0 {
-                        continue;
-                    }
-                    let mut pids = crate::platform::session_processes(child_pid);
-                    if pids.is_empty() {
-                        pids.push(child_pid);
-                    }
-                    for pid in pids {
-                        owners.insert(
-                            pid,
-                            crate::ports::PortOwner {
-                                pid,
-                                command: None,
-                                workspace_id: workspace.id.clone(),
-                                tab_idx,
-                                pane_id,
-                                confidence: crate::ports::PortOwnerConfidence::ProcessTree,
-                            },
-                        );
-                    }
+        let mut remote_locations = std::collections::HashMap::new();
+        for (terminal_id, location, owner) in terminal_targets {
+            if location.is_local() {
+                let Some(runtime) = self.terminal_runtimes.get(&terminal_id) else {
+                    continue;
+                };
+                let child_pid = runtime.child_pid();
+                if child_pid == 0 {
+                    continue;
+                }
+                let mut pids = crate::platform::session_processes(child_pid);
+                if pids.is_empty() {
+                    pids.push(child_pid);
+                }
+                for pid in pids {
+                    let mut owner = owner.clone();
+                    owner.pid = pid;
+                    owners.insert((location.execution_host_id.clone(), pid), owner);
+                }
+                continue;
+            }
+
+            remote_locations
+                .entry(location.execution_host_id.clone())
+                .or_insert_with(|| location.clone());
+            let process = self.execution_hosts.as_mut().and_then(|hosts| {
+                if let Err(error) = hosts.request_process_observation(&terminal_id) {
+                    tracing::warn!("process observation request failed for {terminal_id}: {error}");
+                }
+                hosts
+                    .process_observation(&terminal_id)
+                    .map(crate::execution_host::HostObservation::to_status)
+                    .and_then(|status| match status {
+                        crate::execution_host::ObservationStatus::Ready(value)
+                        | crate::execution_host::ObservationStatus::Stale(value) => Some(value),
+                        crate::execution_host::ObservationStatus::Failed(error) => {
+                            tracing::warn!(
+                                "process observation failed for {terminal_id}: {}",
+                                error.message
+                            );
+                            None
+                        }
+                        crate::execution_host::ObservationStatus::Pending => None,
+                    })
+            });
+            if let Some(process) = process {
+                let mut session = process.session_processes;
+                if session.is_empty() && process.pid != 0 {
+                    session.push(crate::execution_host::protocol::ObservedProcess {
+                        pid: process.pid,
+                        name: process
+                            .command
+                            .clone()
+                            .unwrap_or_else(|| format!("pid-{}", process.pid)),
+                        argv0: None,
+                        argv: None,
+                        cmdline: process.command.clone(),
+                        cwd: process.cwd.clone(),
+                    });
+                }
+                for session_process in session {
+                    let mut owner = owner.clone();
+                    owner.pid = session_process.pid;
+                    owner.command = Some(session_process.name).or(session_process.cmdline);
+                    owners.insert(
+                        (location.execution_host_id.clone(), session_process.pid),
+                        owner,
+                    );
                 }
             }
         }
 
-        let before = self.state.port_registry.endpoints();
-        let observations = crate::platform::active_tcp_listeners()
+        let mut observations = crate::execution_host::ResourceLocation::local("/")
+            .ok()
+            .and_then(|location| crate::execution_host::local::observe_ports(&location).ok())
+            .unwrap_or_default()
             .into_iter()
-            .map(crate::ports::PortObservation::from);
+            .filter_map(crate::ports::PortObservation::from_worker_snapshot)
+            .collect::<Vec<_>>();
+        for location in remote_locations.into_values() {
+            let remote = self.execution_hosts.as_mut().and_then(|hosts| {
+                if let Err(error) = hosts.request_ports(location.clone()) {
+                    tracing::warn!(
+                        "port observation request failed for {}: {error}",
+                        location.execution_host_id
+                    );
+                }
+                hosts
+                    .ports(&location)
+                    .and_then(|observation| match observation.status() {
+                        crate::execution_host::ObservationStatus::Ready(value) => {
+                            Some(value.clone())
+                        }
+                        crate::execution_host::ObservationStatus::Failed(error) => {
+                            tracing::warn!(
+                                "port observation failed for {}: {}",
+                                location.execution_host_id,
+                                error.message
+                            );
+                            None
+                        }
+                        crate::execution_host::ObservationStatus::Pending
+                        | crate::execution_host::ObservationStatus::Stale(_) => None,
+                    })
+            });
+            observations.extend(
+                remote
+                    .into_iter()
+                    .flatten()
+                    .filter_map(crate::ports::PortObservation::from_worker_snapshot),
+            );
+        }
+
+        let before = self.state.port_registry.endpoints();
         self.state
             .port_registry
-            .sync_observations(now, observations, |pid| owners.get(&pid).cloned());
+            .sync_observations(now, observations, |host_id, pid| {
+                owners.get(&(host_id.clone(), pid)).cloned()
+            });
         self.state.port_registry.prune_stale(now, PORT_STALE_TTL);
         self.state.port_registry.endpoints() != before
     }
@@ -299,7 +436,10 @@ impl App {
         }
 
         if now >= self.next_command_scan {
-            changed |= self.state.refresh_command_catalog(&self.terminal_runtimes);
+            changed |= self.state.refresh_command_catalog_with_hosts(
+                &self.terminal_runtimes,
+                self.execution_hosts.as_mut(),
+            );
             changed |= self
                 .state
                 .refresh_command_run_statuses(&self.terminal_runtimes);
@@ -613,11 +753,97 @@ impl App {
             return;
         }
 
+        let mut local_workspaces = Vec::new();
+        let mut remote_results = Vec::new();
+        for item in workspaces {
+            if item.location.is_local() {
+                local_workspaces.push(item);
+                continue;
+            }
+            let snapshot = self.execution_hosts.as_mut().and_then(|hosts| {
+                if let Err(error) = hosts.request_worktrees(item.location.clone()) {
+                    tracing::warn!(
+                        "worktree observation request failed for {}: {error}",
+                        item.location.execution_host_id
+                    );
+                }
+                let status_location = hosts
+                    .worktrees(&item.location)
+                    .and_then(|observation| match observation.status() {
+                        crate::execution_host::ObservationStatus::Ready(worktrees) => {
+                            Some(worktrees.as_slice())
+                        }
+                        crate::execution_host::ObservationStatus::Failed(error) => {
+                            tracing::warn!(
+                                "worktree observation failed for {}: {}",
+                                item.location.execution_host_id,
+                                error.message
+                            );
+                            None
+                        }
+                        crate::execution_host::ObservationStatus::Pending
+                        | crate::execution_host::ObservationStatus::Stale(_) => None,
+                    })
+                    .and_then(|worktrees| {
+                        worktrees
+                            .iter()
+                            .filter(|worktree| {
+                                item.location
+                                    .path
+                                    .as_path()
+                                    .starts_with(worktree.location.path.as_path())
+                            })
+                            .max_by_key(|worktree| {
+                                worktree.location.path.as_path().components().count()
+                            })
+                    })
+                    .map(|worktree| worktree.location.clone())
+                    .unwrap_or_else(|| item.location.clone());
+                if let Err(error) = hosts.request_git_status(status_location.clone()) {
+                    tracing::warn!(
+                        "git observation request failed for {}: {error}",
+                        status_location.execution_host_id
+                    );
+                }
+                hosts.git_status(&status_location).and_then(|observation| {
+                    match observation.status() {
+                        crate::execution_host::ObservationStatus::Ready(status) => {
+                            Some(status.clone())
+                        }
+                        crate::execution_host::ObservationStatus::Failed(error) => {
+                            tracing::warn!(
+                                "git observation failed for {}: {}",
+                                status_location.execution_host_id,
+                                error.message
+                            );
+                            None
+                        }
+                        crate::execution_host::ObservationStatus::Pending
+                        | crate::execution_host::ObservationStatus::Stale(_) => None,
+                    }
+                })
+            });
+            remote_results.push(WorkspaceGitStatus {
+                workspace_id: item.workspace_id,
+                resolved_identity_cwd: item.resolved_identity_cwd,
+                cwd_fingerprint: item.cwd_fingerprint,
+                branch: snapshot.as_ref().and_then(|status| status.branch.clone()),
+                ahead_behind: snapshot.as_ref().and_then(|status| {
+                    status
+                        .upstream
+                        .as_ref()
+                        .map(|_| (status.ahead as usize, status.behind as usize))
+                }),
+                work_summary: None,
+            });
+        }
+
         self.git_refresh_in_flight = true;
         let event_tx = self.event_tx.clone();
         let cache = self.git_status_cache.clone();
         std::thread::spawn(move || {
-            let output = refresh_workspace_git_statuses_with_cache(workspaces, &cache);
+            let mut output = refresh_workspace_git_statuses_with_cache(local_workspaces, &cache);
+            output.results.extend(remote_results);
             let _ = event_tx.blocking_send(AppEvent::GitStatusRefreshed {
                 results: output.results,
                 cache_updates: output.cache_updates,
@@ -681,6 +907,8 @@ impl App {
             include_git_refresh
                 .then(|| self.git_refresh_deadline())
                 .flatten(),
+            self.execution_hosts_need_poll()
+                .then_some(now + Duration::from_millis(50)),
             self.next_auto_update_check,
             self.next_agent_manifest_update_check,
             self.agent_metadata_deadline,
@@ -694,7 +922,6 @@ impl App {
         .flatten()
         .min()
     }
-
     fn workspace_git_refresh_items(&self) -> Vec<WorkspaceGitRefreshItem> {
         self.state
             .workspaces
@@ -705,14 +932,41 @@ impl App {
                     ws.resolved_identity_cwd_from(&self.state.terminals, &self.terminal_runtimes)?;
                 let cwd_fingerprint =
                     ws.git_status_cwds_from(&self.state.terminals, &self.terminal_runtimes);
-                let git_key = crate::workspace::git_status_cache_key(&cwd);
-                let cache_key = git_key.unwrap_or_else(|| cwd.clone());
-                let observed_repo_roots = self
-                    .state
-                    .observed_git_repos_for_workspace(&self.terminal_runtimes, ws_idx);
+                let execution_host_id = ws
+                    .active_tab()
+                    .and_then(|tab| tab.terminal_id(tab.layout.focused()))
+                    .and_then(|terminal_id| self.state.terminals.get(terminal_id))
+                    .map(|terminal| terminal.location.execution_host_id.clone())
+                    .unwrap_or_else(|| ws.default_location.execution_host_id.clone());
+                let location = crate::execution_host::ResourceLocation::new(
+                    execution_host_id.clone(),
+                    crate::execution_host::HostPath::new(cwd.clone()).ok()?,
+                );
+                let cache_path = if execution_host_id.is_local() {
+                    crate::workspace::git_status_cache_key(&cwd).unwrap_or_else(|| cwd.clone())
+                } else {
+                    cwd.clone()
+                };
+                let cache_key = crate::execution_host::ResourceLocation::new(
+                    execution_host_id,
+                    crate::execution_host::HostPath::new(cache_path).ok()?,
+                );
+                let observed_repo_roots = if location.is_local() {
+                    let roots = self
+                        .state
+                        .observed_git_repos_for_workspace(&self.terminal_runtimes, ws_idx);
+                    if roots.is_empty() {
+                        crate::app::actions::observed_git_repos_from_cwd(&cwd)
+                    } else {
+                        roots
+                    }
+                } else {
+                    Vec::new()
+                };
                 Some(WorkspaceGitRefreshItem {
                     workspace_id: ws.id.clone(),
                     resolved_identity_cwd: cwd,
+                    location,
                     cache_key,
                     cwd_fingerprint,
                     observed_repo_roots,
@@ -733,9 +987,9 @@ impl App {
 
 pub(crate) fn deduplicate_git_refresh_items(
     items: Vec<WorkspaceGitRefreshItem>,
-    cache: &HashMap<std::path::PathBuf, GitStatusCacheEntry>,
+    cache: &HashMap<crate::execution_host::ResourceLocation, GitStatusCacheEntry>,
 ) -> Vec<WorkspaceGitRefreshJob> {
-    let mut indexes = HashMap::<std::path::PathBuf, usize>::new();
+    let mut indexes = HashMap::<crate::execution_host::ResourceLocation, usize>::new();
     let mut jobs = Vec::<WorkspaceGitRefreshJob>::new();
 
     for item in items {
@@ -749,11 +1003,11 @@ pub(crate) fn deduplicate_git_refresh_items(
             continue;
         }
 
-        let status_cwd = item.cache_key.clone();
+        let status_cwd = item.cache_key.path.as_path().to_path_buf();
         let cached = cache.get(&item.cache_key).cloned();
-        indexes.insert(item.cache_key, jobs.len());
+        indexes.insert(item.cache_key.clone(), jobs.len());
         jobs.push(WorkspaceGitRefreshJob {
-            cache_key: status_cwd.clone(),
+            cache_key: item.cache_key,
             status_cwd,
             cached,
             targets: vec![target],
@@ -765,7 +1019,7 @@ pub(crate) fn deduplicate_git_refresh_items(
 
 pub(crate) fn refresh_workspace_git_statuses_with_cache(
     items: Vec<WorkspaceGitRefreshItem>,
-    cache: &HashMap<std::path::PathBuf, GitStatusCacheEntry>,
+    cache: &HashMap<crate::execution_host::ResourceLocation, GitStatusCacheEntry>,
 ) -> WorkspaceGitRefreshOutput {
     let mut results = Vec::new();
     let mut cache_updates = Vec::new();
@@ -777,6 +1031,9 @@ pub(crate) fn refresh_workspace_git_statuses_with_cache(
     repo_roots.dedup();
 
     for job in deduplicate_git_refresh_items(items, cache) {
+        if !job.cache_key.is_local() {
+            continue;
+        }
         let (snapshot, cache_entry) =
             Workspace::git_status_snapshot_for_cwd_with_cache(&job.status_cwd, job.cached.as_ref());
         if let Some(cache_entry) = cache_entry {
@@ -861,14 +1118,20 @@ mod tests {
                 WorkspaceGitRefreshItem {
                     workspace_id: "one".into(),
                     resolved_identity_cwd: nested.clone(),
-                    cache_key: repo.clone(),
+                    location: crate::execution_host::ResourceLocation::local(nested.clone())
+                        .expect("local nested location"),
+                    cache_key: crate::execution_host::ResourceLocation::local(repo.clone())
+                        .expect("local repo location"),
                     cwd_fingerprint: vec![nested.clone()],
                     observed_repo_roots: vec![repo.clone()],
                 },
                 WorkspaceGitRefreshItem {
                     workspace_id: "two".into(),
                     resolved_identity_cwd: other.clone(),
-                    cache_key: repo.clone(),
+                    location: crate::execution_host::ResourceLocation::local(other.clone())
+                        .expect("local other location"),
+                    cache_key: crate::execution_host::ResourceLocation::local(repo.clone())
+                        .expect("local repo location"),
                     cwd_fingerprint: vec![other.clone()],
                     observed_repo_roots: vec![repo.clone()],
                 },
@@ -877,7 +1140,11 @@ mod tests {
         );
 
         assert_eq!(output.cache_updates.len(), 1);
-        assert_eq!(output.cache_updates[0].0, repo);
+        assert_eq!(
+            output.cache_updates[0].0,
+            crate::execution_host::ResourceLocation::local(repo.clone())
+                .expect("local repo location")
+        );
         assert_eq!(output.results.len(), 2);
         assert_eq!(output.results[0].workspace_id, "one");
         assert_eq!(
@@ -916,7 +1183,8 @@ mod tests {
         );
         let mut ws = Workspace::test_new("test");
         ws.identity_cwd = parent.clone();
-        ws.default_cwd = parent.clone();
+        ws.default_location = crate::execution_host::ResourceLocation::local(parent.clone())
+            .expect("local parent location");
         ws.tabs.clear();
         app.state.workspaces.push(ws);
 
@@ -943,16 +1211,46 @@ mod tests {
         std::fs::create_dir_all(&cwd).expect("create temp cwd");
         let mut ws = Workspace::test_new("test");
         ws.identity_cwd = cwd.clone();
-        ws.default_cwd = cwd.clone();
+        ws.default_location = crate::execution_host::ResourceLocation::local(cwd.clone())
+            .expect("local cwd location");
         ws.tabs.clear();
         app.state.workspaces.push(ws);
 
         let items = app.workspace_git_refresh_items();
 
         assert_eq!(items.len(), 1);
-        assert_eq!(items[0].cache_key, cwd);
+        assert!(items[0].cache_key.is_local());
+        assert_eq!(items[0].cache_key.path.as_path(), cwd);
         assert_eq!(items[0].cwd_fingerprint, vec![cwd.clone()]);
         let _ = std::fs::remove_dir_all(&cwd);
+    }
+
+    #[test]
+    fn git_cache_does_not_merge_same_path_on_different_hosts() {
+        let path = PathBuf::from("/srv/same-path");
+        let local =
+            crate::execution_host::ResourceLocation::local(path.clone()).expect("local location");
+        let remote = crate::execution_host::ResourceLocation::new(
+            crate::execution_host::ExecutionHostId::new("ssh:workbox").expect("remote host id"),
+            crate::execution_host::HostPath::new(path.clone()).expect("remote path"),
+        );
+        let items = [local, remote]
+            .into_iter()
+            .enumerate()
+            .map(|(index, cache_key)| WorkspaceGitRefreshItem {
+                workspace_id: format!("workspace-{index}"),
+                resolved_identity_cwd: path.clone(),
+                location: cache_key.clone(),
+                cache_key,
+                cwd_fingerprint: vec![path.clone()],
+                observed_repo_roots: Vec::new(),
+            })
+            .collect();
+
+        let jobs = deduplicate_git_refresh_items(items, &HashMap::new());
+
+        assert_eq!(jobs.len(), 2);
+        assert_ne!(jobs[0].cache_key, jobs[1].cache_key);
     }
 
     #[test]
@@ -1164,6 +1462,276 @@ mod tests {
         // At scrollback bottom, can't scroll further down — should stop
         assert!(app.state.selection_autoscroll.is_none());
         assert!(app.selection_autoscroll_deadline.is_none());
+    }
+
+    #[test]
+    fn immediate_api_method_responds_before_return() {
+        let mut app = super::super::App::new(
+            &crate::config::Config::default(),
+            true,
+            None,
+            tokio::sync::mpsc::unbounded_channel().1,
+            crate::api::EventHub::default(),
+        );
+        let (respond_to, response_rx) = std::sync::mpsc::channel();
+        let changed = app.handle_api_request_message(crate::api::ApiRequestMessage {
+            request: crate::api::schema::Request {
+                id: "immediate-1".into(),
+                method: crate::api::schema::Method::WorkspaceList(
+                    crate::api::schema::EmptyParams::default(),
+                ),
+            },
+            respond_to,
+            response_written: None,
+        });
+        let _ = changed;
+        let response = response_rx
+            .try_recv()
+            .expect("immediate methods must respond before handle returns");
+        let body: serde_json::Value = serde_json::from_str(&response).expect("json response");
+        assert_eq!(body["id"], "immediate-1");
+        assert!(
+            body.get("result").is_some(),
+            "expected success result: {body}"
+        );
+        assert!(response_rx.try_recv().is_err(), "must respond exactly once");
+    }
+
+    #[tokio::test]
+    async fn deferred_disposition_attaches_real_responder_once_through_dispatch() {
+        let mut app = super::super::App::new(
+            &crate::config::Config::default(),
+            true,
+            None,
+            tokio::sync::mpsc::unbounded_channel().1,
+            crate::api::EventHub::default(),
+        );
+        app.state.workspaces = vec![crate::workspace::Workspace::test_new("dispatch-deferred")];
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = super::super::Mode::Terminal;
+        app.state.ensure_test_terminals();
+
+        let host_id = crate::execution_host::ExecutionHostId::new("ssh:dispatch-deferred").unwrap();
+        app.execution_hosts
+            .as_mut()
+            .unwrap()
+            .connect_test_host(host_id.clone());
+
+        let (respond_to, response_rx) = std::sync::mpsc::channel();
+        let changed = app.handle_api_request_message(crate::api::ApiRequestMessage {
+            request: crate::api::schema::Request {
+                id: "dispatch-deferred-1".into(),
+                method: crate::api::schema::Method::WorkspaceCreate(
+                    crate::api::schema::WorkspaceCreateParams {
+                        cwd: None,
+                        location: Some(crate::api::schema::ResourceLocationParams {
+                            execution_host_id: host_id.as_str().to_string(),
+                            path: "/srv/dispatch".into(),
+                        }),
+                        focus: false,
+                        label: None,
+                        env: Default::default(),
+                    },
+                ),
+            },
+            respond_to,
+            response_written: None,
+        });
+        let _ = changed;
+
+        assert!(
+            response_rx.try_recv().is_err(),
+            "deferred create must not respond before worker completion"
+        );
+        assert_eq!(
+            app.pending_remote_api_responses.len(),
+            1,
+            "dispatch must insert exactly one pending responder transaction"
+        );
+        let terminal_id = app
+            .pending_remote_api_responses
+            .keys()
+            .next()
+            .expect("pending terminal")
+            .clone();
+
+        app.remote_creation_completions
+            .push(crate::app::creation::RemoteCreationCompletion {
+                terminal_id: terminal_id.clone(),
+                result: Err("dispatch path worker failed".into()),
+            });
+        assert!(app.finish_remote_api_completions());
+
+        let response = response_rx
+            .try_recv()
+            .expect("failure must deliver through the original dispatch responder");
+        let body: serde_json::Value = serde_json::from_str(&response).expect("json");
+        assert_eq!(body["id"], "dispatch-deferred-1");
+        assert_eq!(body["error"]["code"], "workspace_create_failed");
+        assert!(
+            body["error"]["message"]
+                .as_str()
+                .is_some_and(|message| message.contains("dispatch path worker failed")),
+            "unexpected error body: {body}"
+        );
+        assert!(response_rx.try_recv().is_err(), "must respond exactly once");
+        assert!(
+            !app.pending_remote_api_responses.contains_key(&terminal_id),
+            "pending responder must clear after failure completion"
+        );
+    }
+
+    #[test]
+    fn deferred_remote_create_responds_once_on_failure_completion() {
+        let mut app = super::super::App::new(
+            &crate::config::Config::default(),
+            true,
+            None,
+            tokio::sync::mpsc::unbounded_channel().1,
+            crate::api::EventHub::default(),
+        );
+        let terminal_id = crate::terminal::TerminalId::alloc();
+        let (respond_to, response_rx) = std::sync::mpsc::channel();
+        app.store_pending_remote_api_response(
+            terminal_id.clone(),
+            crate::app::PendingRemoteApiResponse {
+                request_id: "remote-fail".into(),
+                kind: crate::app::PendingRemoteApiKind::WorkspaceCreate { label: None },
+                respond_to,
+                focus: false,
+                client_view_id: None,
+                pending_focus: None,
+            },
+        );
+
+        // No completion yet — API client must still be waiting.
+        assert!(
+            response_rx.try_recv().is_err(),
+            "deferred create must not respond before worker ACK/failure"
+        );
+
+        app.remote_creation_completions
+            .push(crate::app::creation::RemoteCreationCompletion {
+                terminal_id: terminal_id.clone(),
+                result: Err("worker refused create".into()),
+            });
+        assert!(app.finish_remote_api_completions());
+
+        let response = response_rx
+            .try_recv()
+            .expect("failure completion must deliver exactly one API error");
+        let body: serde_json::Value = serde_json::from_str(&response).expect("json response");
+        assert_eq!(body["id"], "remote-fail");
+        assert_eq!(body["error"]["code"], "workspace_create_failed");
+        assert!(
+            body["error"]["message"]
+                .as_str()
+                .is_some_and(|message| message.contains("worker refused create")),
+            "unexpected error body: {body}"
+        );
+        assert!(response_rx.try_recv().is_err(), "must respond exactly once");
+        assert!(
+            !app.pending_remote_api_responses.contains_key(&terminal_id),
+            "pending responder must be cleared after completion"
+        );
+    }
+
+    #[test]
+    fn deferred_remote_create_sender_disconnect_does_not_block_completion_drain() {
+        let mut app = super::super::App::new(
+            &crate::config::Config::default(),
+            true,
+            None,
+            tokio::sync::mpsc::unbounded_channel().1,
+            crate::api::EventHub::default(),
+        );
+        let terminal_id = crate::terminal::TerminalId::alloc();
+        let (respond_to, response_rx) = std::sync::mpsc::channel();
+        app.store_pending_remote_api_response(
+            terminal_id.clone(),
+            crate::app::PendingRemoteApiResponse {
+                request_id: "remote-drop".into(),
+                kind: crate::app::PendingRemoteApiKind::PaneSplit,
+                respond_to,
+                focus: false,
+                client_view_id: None,
+                pending_focus: None,
+            },
+        );
+        drop(response_rx);
+
+        app.remote_creation_completions
+            .push(crate::app::creation::RemoteCreationCompletion {
+                terminal_id: terminal_id.clone(),
+                result: Err("transport lost after disconnect".into()),
+            });
+        // Disconnected sender must not panic or leave the pending map stuck.
+        assert!(app.finish_remote_api_completions());
+        assert!(!app.pending_remote_api_responses.contains_key(&terminal_id));
+    }
+
+    #[test]
+    fn deferred_remote_create_success_responds_once_after_commit() {
+        let mut app = super::super::App::new(
+            &crate::config::Config::default(),
+            true,
+            None,
+            tokio::sync::mpsc::unbounded_channel().1,
+            crate::api::EventHub::default(),
+        );
+        let ws = crate::workspace::Workspace::test_new("deferred-ok");
+        let root_pane = ws.tabs[0].root_pane;
+        let attached_terminal_id = ws.tabs[0].panes[&root_pane].attached_terminal_id.clone();
+        app.state.terminals.insert(
+            attached_terminal_id.clone(),
+            crate::terminal::TerminalState::new(
+                attached_terminal_id,
+                std::env::current_dir().unwrap_or_else(|_| "/".into()),
+            ),
+        );
+        app.state.workspaces.push(ws);
+        app.state.active = Some(0);
+
+        let terminal_id = crate::terminal::TerminalId::alloc();
+        let (respond_to, response_rx) = std::sync::mpsc::channel();
+        app.store_pending_remote_api_response(
+            terminal_id.clone(),
+            crate::app::PendingRemoteApiResponse {
+                request_id: "remote-ok".into(),
+                kind: crate::app::PendingRemoteApiKind::WorkspaceCreate {
+                    label: Some("labeled".into()),
+                },
+                respond_to,
+                focus: false,
+                client_view_id: None,
+                pending_focus: None,
+            },
+        );
+        assert!(response_rx.try_recv().is_err());
+
+        app.remote_creation_completions
+            .push(crate::app::creation::RemoteCreationCompletion {
+                terminal_id: terminal_id.clone(),
+                result: Ok(crate::app::creation::CommittedRemoteCreation::Workspace { ws_idx: 0 }),
+            });
+        assert!(app.finish_remote_api_completions());
+
+        let response = response_rx
+            .try_recv()
+            .expect("success completion must deliver exactly one API success");
+        let body: serde_json::Value = serde_json::from_str(&response).expect("json response");
+        assert_eq!(body["id"], "remote-ok");
+        assert!(
+            body.get("result").is_some() && body.get("error").is_none(),
+            "expected success body, got {body}"
+        );
+        assert!(
+            body["result"].get("workspace").is_some(),
+            "expected workspace create result, got {body}"
+        );
+        assert!(response_rx.try_recv().is_err(), "must respond exactly once");
+        assert!(!app.pending_remote_api_responses.contains_key(&terminal_id));
     }
 }
 

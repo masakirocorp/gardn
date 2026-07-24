@@ -122,6 +122,8 @@ The supported event names are:
 
 The pane command's default working directory is the plugin root. A pane-open request can select a working-directory override, placement, focus behavior, split target/direction, workspace, and additional environment entries. Oh My Herdr rejects placement parameters that do not apply to the selected placement.
 
+Plugin pane commands run only on the Local execution host in plugin v1. If the selected Workspace or source pane resolves to an SSH execution host, Oh My Herdr rejects the request with `unsupported_execution_host` before it creates a pane.
+
 ### `[[link_handlers]]`
 
 - `id` is a unique local identifier.

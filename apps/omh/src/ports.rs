@@ -4,9 +4,9 @@ use std::{
     time::{Duration, Instant},
 };
 
-use crate::layout::PaneId;
+use crate::{execution_host::ExecutionHostId, layout::PaneId};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) enum PortTransport {
     Tcp,
 }
@@ -46,20 +46,25 @@ pub(crate) struct PortOwner {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct PortObservation {
+    pub execution_host_id: ExecutionHostId,
+    pub transport: PortTransport,
     pub bind_addr: IpAddr,
     pub port: u16,
     pub pid: u32,
     pub command: Option<String>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 struct PortKey {
+    execution_host_id: ExecutionHostId,
+    transport: PortTransport,
     bind_addr: IpAddr,
     port: u16,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct PortEndpoint {
+    pub execution_host_id: ExecutionHostId,
     pub transport: PortTransport,
     pub bind_addr: IpAddr,
     pub port: u16,
@@ -80,6 +85,8 @@ pub(crate) struct PortRegistry {
 impl PortObservation {
     fn key(&self) -> PortKey {
         PortKey {
+            execution_host_id: self.execution_host_id.clone(),
+            transport: self.transport,
             bind_addr: self.bind_addr,
             port: self.port,
         }
@@ -91,7 +98,8 @@ impl PortEndpoint {
         owners.sort_by_key(|owner| (owner.tab_idx, owner.pane_id.raw(), owner.pid));
         owners.dedup_by_key(|owner| (owner.pid, owner.pane_id));
         Self {
-            transport: PortTransport::Tcp,
+            execution_host_id: observation.execution_host_id.clone(),
+            transport: observation.transport,
             bind_addr: observation.bind_addr,
             port: observation.port,
             exposure: port_exposure(observation.bind_addr),
@@ -118,12 +126,13 @@ impl PortRegistry {
         &mut self,
         now: Instant,
         observations: impl IntoIterator<Item = PortObservation>,
-        mut owner_for_pid: impl FnMut(u32) -> Option<PortOwner>,
+        mut owner_for_pid: impl FnMut(&ExecutionHostId, u32) -> Option<PortOwner>,
     ) {
         let mut observed = HashMap::<PortKey, (PortObservation, Vec<PortOwner>)>::new();
 
         for observation in observations {
-            let Some(mut owner) = owner_for_pid(observation.pid) else {
+            let Some(mut owner) = owner_for_pid(&observation.execution_host_id, observation.pid)
+            else {
                 continue;
             };
             if owner.command.is_none() {
@@ -137,7 +146,7 @@ impl PortRegistry {
             entry.1.push(owner);
         }
 
-        let active_keys = observed.keys().copied().collect::<HashSet<_>>();
+        let active_keys = observed.keys().cloned().collect::<HashSet<_>>();
         for (key, (observation, mut owners)) in observed {
             owners.sort_by_key(|owner| (owner.tab_idx, owner.pane_id.raw(), owner.pid));
             owners.dedup_by_key(|owner| (owner.pid, owner.pane_id));
@@ -165,7 +174,13 @@ impl PortRegistry {
 
     pub(crate) fn endpoints(&self) -> Vec<PortEndpoint> {
         let mut endpoints: Vec<_> = self.endpoints.values().cloned().collect();
-        endpoints.sort_by_key(|endpoint| (endpoint.port, endpoint.bind_addr));
+        endpoints.sort_by(|left, right| {
+            (left.execution_host_id.as_str(), left.port, left.bind_addr).cmp(&(
+                right.execution_host_id.as_str(),
+                right.port,
+                right.bind_addr,
+            ))
+        });
         endpoints
     }
 }
@@ -173,11 +188,31 @@ impl PortRegistry {
 impl From<crate::platform::TcpListenerInfo> for PortObservation {
     fn from(listener: crate::platform::TcpListenerInfo) -> Self {
         Self {
+            execution_host_id: ExecutionHostId::local(),
+            transport: PortTransport::Tcp,
             bind_addr: listener.bind_addr,
             port: listener.port,
             pid: listener.pid,
             command: listener.command,
         }
+    }
+}
+
+impl PortObservation {
+    pub(crate) fn from_worker_snapshot(
+        snapshot: crate::execution_host::protocol::PortSnapshot,
+    ) -> Option<Self> {
+        let pid = snapshot.pid?;
+        Some(Self {
+            execution_host_id: snapshot.execution_host_id,
+            transport: match snapshot.transport {
+                crate::execution_host::protocol::PortTransport::Tcp => PortTransport::Tcp,
+            },
+            bind_addr: snapshot.bind_address.parse().ok()?,
+            port: snapshot.port,
+            pid,
+            command: snapshot.command,
+        })
     }
 }
 
@@ -208,6 +243,8 @@ mod tests {
 
     fn observation(addr: &str, port: u16, pid: u32) -> PortObservation {
         PortObservation {
+            execution_host_id: ExecutionHostId::local(),
+            transport: PortTransport::Tcp,
             bind_addr: addr.parse().expect("test IP address"),
             port,
             pid,
@@ -220,7 +257,7 @@ mod tests {
         let now = Instant::now();
         let mut registry = PortRegistry::default();
 
-        registry.sync_observations(now, [observation("127.0.0.1", 5173, 42)], |pid| {
+        registry.sync_observations(now, [observation("127.0.0.1", 5173, 42)], |_, pid| {
             (pid == 42).then(|| owner(pid, 7))
         });
 
@@ -237,9 +274,11 @@ mod tests {
     fn registry_hides_unowned_ports() {
         let mut registry = PortRegistry::default();
 
-        registry.sync_observations(Instant::now(), [observation("127.0.0.1", 3000, 99)], |_| {
-            None
-        });
+        registry.sync_observations(
+            Instant::now(),
+            [observation("127.0.0.1", 3000, 99)],
+            |_, _| None,
+        );
 
         assert!(registry.endpoints().is_empty());
     }
@@ -249,10 +288,10 @@ mod tests {
         let now = Instant::now();
         let mut registry = PortRegistry::default();
 
-        registry.sync_observations(now, [observation("0.0.0.0", 8787, 10)], |pid| {
+        registry.sync_observations(now, [observation("0.0.0.0", 8787, 10)], |_, pid| {
             Some(owner(pid, 1))
         });
-        registry.sync_observations(now + Duration::from_secs(1), [], |_| None);
+        registry.sync_observations(now + Duration::from_secs(1), [], |_, _| None);
 
         let stale = registry.endpoints();
         assert_eq!(stale.len(), 1);
@@ -275,7 +314,7 @@ mod tests {
                 observation("192.168.1.10", 3000, 1),
                 observation("192.168.1.10", 3000, 2),
             ],
-            |pid| Some(owner(pid, pid)),
+            |_, pid| Some(owner(pid, pid)),
         );
 
         let endpoints = registry.endpoints();
@@ -289,13 +328,13 @@ mod tests {
         let now = Instant::now();
         let mut registry = PortRegistry::default();
 
-        registry.sync_observations(now, [observation("127.0.0.1", 5173, 42)], |pid| {
+        registry.sync_observations(now, [observation("127.0.0.1", 5173, 42)], |_, pid| {
             Some(owner(pid, 1))
         });
         registry.sync_observations(
             now + Duration::from_secs(1),
             [observation("127.0.0.1", 5173, 84)],
-            |pid| Some(owner(pid, 2)),
+            |_, pid| Some(owner(pid, 2)),
         );
 
         let endpoints = registry.endpoints();
@@ -304,5 +343,28 @@ mod tests {
         assert_eq!(endpoints[0].owners.len(), 1);
         assert_eq!(endpoints[0].owners[0].pid, 84);
         assert_eq!(endpoints[0].owners[0].pane_id, PaneId::from_raw(2));
+    }
+    #[test]
+    fn same_endpoint_on_two_hosts_remains_distinct() {
+        let now = Instant::now();
+        let mut registry = PortRegistry::default();
+        let remote_host = ExecutionHostId::new("ssh:workbox").expect("remote host id");
+        let mut remote = observation("127.0.0.1", 5173, 42);
+        remote.execution_host_id = remote_host.clone();
+
+        registry.sync_observations(
+            now,
+            [observation("127.0.0.1", 5173, 42), remote],
+            |host_id, pid| Some(owner(pid, if host_id.is_local() { 1 } else { 2 })),
+        );
+
+        let endpoints = registry.endpoints();
+        assert_eq!(endpoints.len(), 2);
+        assert!(endpoints
+            .iter()
+            .any(|endpoint| endpoint.execution_host_id.is_local()));
+        assert!(endpoints
+            .iter()
+            .any(|endpoint| endpoint.execution_host_id == remote_host));
     }
 }

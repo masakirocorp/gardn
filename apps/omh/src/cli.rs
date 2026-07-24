@@ -9,12 +9,13 @@ use crate::api::schema::{
     AgentStatus, AgentTarget, ClientWindowTitleSetParams, EmptyParams, GroupCreateParams,
     GroupRenameParams, GroupTarget, IntegrationTarget, Method, NotificationShowParams,
     NotificationShowSound, OutputMatch, PaneAgentState, PaneTarget, PaneWaitForOutputParams,
-    PingParams, ReadFormat, ReadSource, Request, ResponseResult, ServerLiveHandoffParams,
-    SplitDirection, Subscription,
+    PingParams, ReadFormat, ReadSource, Request, ResourceLocationParams, ResponseResult,
+    ServerLiveHandoffParams, SplitDirection, Subscription,
 };
 
 #[path = "cli/api.rs"]
 mod api_cli;
+mod connection;
 mod pane;
 mod plugin;
 mod protocol_guard;
@@ -32,6 +33,21 @@ pub(crate) fn parse_env_assignment(raw: &str) -> Result<(String, String), String
         return Err("env must not contain NUL bytes".into());
     }
     Ok((key.to_string(), value.to_string()))
+}
+pub(crate) fn explicit_resource_location(
+    host: Option<String>,
+    cwd: &mut Option<String>,
+) -> Result<Option<ResourceLocationParams>, String> {
+    let Some(execution_host_id) = host else {
+        return Ok(None);
+    };
+    let Some(path) = cwd.take() else {
+        return Err("--host requires --cwd PATH".into());
+    };
+    Ok(Some(ResourceLocationParams {
+        execution_host_id,
+        path,
+    }))
 }
 pub enum CommandOutcome {
     Handled(i32),
@@ -53,6 +69,7 @@ pub fn maybe_run(args: &[String]) -> std::io::Result<CommandOutcome> {
         "api" => api_cli::run_api_command(&args[2..])?,
         "status" => run_status_command(&args[2..])?,
         "group" => run_group_command(&args[2..])?,
+        "connection" => connection::run_connection_command(&args[2..])?,
         "config" => run_config_command(&args[2..])?,
         "workspace" => workspace::run_workspace_command(&args[2..])?,
         "notification" => run_notification_command(&args[2..])?,
@@ -1119,15 +1136,62 @@ fn group_list(args: &[String]) -> std::io::Result<i32> {
 }
 
 fn group_create(args: &[String]) -> std::io::Result<i32> {
-    if args.is_empty() {
-        eprintln!("usage: omh group create <name>");
+    let mut name_parts = Vec::new();
+    let mut cwd = None;
+    let mut host = None;
+    let mut index = 0;
+    while index < args.len() {
+        match args[index].as_str() {
+            "--cwd" => {
+                let Some(value) = args.get(index + 1) else {
+                    eprintln!("missing value for --cwd");
+                    return Ok(2);
+                };
+                cwd = Some(value.clone());
+                index += 2;
+            }
+            "--host" => {
+                let Some(value) = args.get(index + 1) else {
+                    eprintln!("missing value for --host");
+                    return Ok(2);
+                };
+                host = Some(value.clone());
+                index += 2;
+            }
+            other if other.starts_with('-') => {
+                eprintln!("unknown option: {other}");
+                eprintln!("usage: omh group create <name> [--cwd PATH] [--host EXECUTION_HOST_ID]");
+                return Ok(2);
+            }
+            other => {
+                name_parts.push(other.to_string());
+                index += 1;
+            }
+        }
+    }
+
+    if name_parts.is_empty() {
+        eprintln!("usage: omh group create <name> [--cwd PATH] [--host EXECUTION_HOST_ID]");
         return Ok(2);
     }
+
+    let default_location = match explicit_resource_location(host, &mut cwd) {
+        Ok(Some(location)) => Some(location),
+        Ok(None) => cwd.map(|path| ResourceLocationParams {
+            execution_host_id: "local".into(),
+            path,
+        }),
+        Err(error) => {
+            eprintln!("{error}");
+            return Ok(2);
+        }
+    };
 
     print_response(&send_request(&Request {
         id: "cli:group:create".into(),
         method: Method::GroupCreate(GroupCreateParams {
-            name: args.join(" "),
+            name: name_parts.join(" "),
+            default_location,
         }),
     })?)
 }
@@ -1186,18 +1250,18 @@ fn group_delete(args: &[String]) -> std::io::Result<i32> {
 fn agent_start(args: &[String]) -> std::io::Result<i32> {
     if let Some(code) = agent_subcommand_help(
         args,
-        "usage: omh agent start <name> [--cwd PATH] [--workspace ID] [--tab ID] [--split right|down] [--focus|--no-focus] -- <argv...>",
+        "usage: omh agent start <name> [--cwd PATH] [--host EXECUTION_HOST_ID] [--workspace ID] [--tab ID] [--split right|down] [--focus|--no-focus] -- <argv...>",
     ) {
         return Ok(code);
     }
 
     let Some(name) = args.first() else {
-        eprintln!("usage: omh agent start <name> [--cwd PATH] [--workspace ID] [--tab ID] [--split right|down] [--focus|--no-focus] -- <argv...>");
+        eprintln!("usage: omh agent start <name> [--cwd PATH] [--host EXECUTION_HOST_ID] [--workspace ID] [--tab ID] [--split right|down] [--focus|--no-focus] -- <argv...>");
         return Ok(2);
     };
 
     let Some(separator) = args.iter().position(|arg| arg == "--") else {
-        eprintln!("usage: omh agent start <name> [--cwd PATH] [--workspace ID] [--tab ID] [--split right|down] [--focus|--no-focus] -- <argv...>");
+        eprintln!("usage: omh agent start <name> [--cwd PATH] [--host EXECUTION_HOST_ID] [--workspace ID] [--tab ID] [--split right|down] [--focus|--no-focus] -- <argv...>");
         return Ok(2);
     };
     if separator == args.len() - 1 {
@@ -1206,6 +1270,7 @@ fn agent_start(args: &[String]) -> std::io::Result<i32> {
     }
 
     let mut cwd = None;
+    let mut host = None;
     let mut workspace_id = None;
     let mut tab_id = None;
     let mut split = None;
@@ -1220,6 +1285,14 @@ fn agent_start(args: &[String]) -> std::io::Result<i32> {
                     return Ok(2);
                 };
                 cwd = Some(value.clone());
+                index += 2;
+            }
+            "--host" => {
+                let Some(value) = args.get(index + 1).filter(|_| index + 1 < separator) else {
+                    eprintln!("missing value for --host");
+                    return Ok(2);
+                };
+                host = Some(value.clone());
                 index += 2;
             }
             "--workspace" => {
@@ -1261,11 +1334,20 @@ fn agent_start(args: &[String]) -> std::io::Result<i32> {
         }
     }
 
+    let location = match explicit_resource_location(host, &mut cwd) {
+        Ok(location) => location,
+        Err(error) => {
+            eprintln!("{error}");
+            return Ok(2);
+        }
+    };
+
     print_response(&send_request(&Request {
         id: "cli:agent:start".into(),
         method: Method::AgentStart(AgentStartParams {
             name: name.clone(),
             cwd,
+            location,
             workspace_id,
             tab_id,
             split,
@@ -2377,7 +2459,7 @@ fn print_config_help() {
 fn print_group_help() {
     eprintln!("omh group commands:");
     eprintln!("  omh group list");
-    eprintln!("  omh group create <name>");
+    eprintln!("  omh group create <name> [--cwd PATH] [--host EXECUTION_HOST_ID]");
     eprintln!("  omh group focus <group_id>");
     eprintln!("  omh group switch <group_id>");
     eprintln!("  omh group rename <group_id> <name>");
@@ -2395,7 +2477,7 @@ fn print_agent_help() {
     eprintln!("  omh agent focus <target>");
     eprintln!("  omh agent wait <target> --status <idle|working|blocked|unknown> [--timeout MS]");
     eprintln!("  omh agent attach <target> [--takeover]");
-    eprintln!("  omh agent start <name> [--cwd PATH] [--workspace ID] [--tab ID] [--split right|down] [--focus|--no-focus] -- <argv...>");
+    eprintln!("  omh agent start <name> [--cwd PATH] [--host EXECUTION_HOST_ID] [--workspace ID] [--tab ID] [--split right|down] [--focus|--no-focus] -- <argv...>");
     eprintln!("  omh agent explain <target> [--json]");
     eprintln!("  omh agent explain --file PATH --agent LABEL [--json]");
     eprintln!("  targets accept agent terminal ids, unique agent names, detected/reported agent labels, and legacy pane ids");
@@ -2450,6 +2532,53 @@ fn _print_json<T: Serialize>(value: &T) {
 
 #[cfg(test)]
 mod tests {
+    use super::explicit_resource_location;
+    use crate::api::schema::ResourceLocationParams;
+
+    fn parse_group_create_args(
+        args: &[&str],
+    ) -> Result<(String, Option<ResourceLocationParams>), String> {
+        let mut name_parts = Vec::new();
+        let mut cwd = None;
+        let mut host = None;
+        let mut index = 0;
+        while index < args.len() {
+            match args[index] {
+                "--cwd" => {
+                    let Some(value) = args.get(index + 1) else {
+                        return Err("missing value for --cwd".into());
+                    };
+                    cwd = Some((*value).to_string());
+                    index += 2;
+                }
+                "--host" => {
+                    let Some(value) = args.get(index + 1) else {
+                        return Err("missing value for --host".into());
+                    };
+                    host = Some((*value).to_string());
+                    index += 2;
+                }
+                other if other.starts_with('-') => {
+                    return Err(format!("unknown option: {other}"));
+                }
+                other => {
+                    name_parts.push(other.to_string());
+                    index += 1;
+                }
+            }
+        }
+        if name_parts.is_empty() {
+            return Err("missing group name".into());
+        }
+        let default_location = match explicit_resource_location(host, &mut cwd)? {
+            Some(location) => Some(location),
+            None => cwd.map(|path| ResourceLocationParams {
+                execution_host_id: "local".into(),
+                path,
+            }),
+        };
+        Ok((name_parts.join(" "), default_location))
+    }
 
     #[test]
     fn parse_env_assignment_accepts_empty_values() {
@@ -2464,6 +2593,49 @@ mod tests {
         assert_eq!(
             super::parse_env_assignment("OMH_ROLE").unwrap_err(),
             "env must use KEY=VALUE"
+        );
+    }
+
+    #[test]
+    fn group_create_args_accept_remote_default_location() {
+        let (name, location) = parse_group_create_args(&[
+            "side",
+            "project",
+            "--host",
+            "ssh:workbox:1",
+            "--cwd",
+            "/srv/work",
+        ])
+        .expect("group create args should parse");
+
+        assert_eq!(name, "side project");
+        assert_eq!(
+            location,
+            Some(ResourceLocationParams {
+                execution_host_id: "ssh:workbox:1".into(),
+                path: "/srv/work".into(),
+            })
+        );
+    }
+
+    #[test]
+    fn group_create_args_require_cwd_with_host() {
+        let error = parse_group_create_args(&["side", "--host", "ssh:workbox:1"]).unwrap_err();
+        assert_eq!(error, "--host requires --cwd PATH");
+    }
+
+    #[test]
+    fn group_create_args_map_cwd_only_to_local_default_location() {
+        let (name, location) =
+            parse_group_create_args(&["local-group", "--cwd", "/tmp/group"]).unwrap();
+
+        assert_eq!(name, "local-group");
+        assert_eq!(
+            location,
+            Some(ResourceLocationParams {
+                execution_host_id: "local".into(),
+                path: "/tmp/group".into(),
+            })
         );
     }
 }

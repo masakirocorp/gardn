@@ -1,6 +1,6 @@
 ---
 title: Use Oh My Herdr over SSH
-description: Attach a local client to a remote Oh My Herdr server over an SSH target.
+description: Attach to a remote session or run selected workspaces, tabs, panes, and agents on SSH hosts.
 ---
 
 # Use Oh My Herdr over SSH
@@ -36,6 +36,49 @@ Remote support requires a Unix local client. Supported remote binaries are Linux
    ```
 
 The first connection may ask you to verify the host key. Confirm it only when the host identity is expected and trusted.
+
+## Run selected resources on SSH hosts
+
+Use mixed-host placement when one Oh My Herdr session must contain both local and remote panes. This is separate from `omh --remote`, which moves the whole session server to the SSH host.
+
+Prepare a clean host before creating remote resources:
+
+1. Open **Settings > Connections**, or use the CLI, and save a profile with a display name, OpenSSH target, and optional suggested directory. Oh My Herdr assigns its stable profile id.
+2. Select **Preview worker install** / run `omh connection install <id>` without `--yes`. Review the install or update plan (source binary, target path, and checksum).
+3. Confirm with **Install worker** / `omh connection install <id> --yes`. Install confirmation is required before the remote worker binary is written. An update uses the same preview-and-confirm path. If the installed worker is running but has no live terminals, the new worker asks it to shut down and then takes over. If it owns a live terminal, the update stops with a busy error and leaves the running worker unchanged.
+4. Select **Test connection**, then **Connect**. Resolve authentication or host-key failures before continuing.
+5. In Group settings, set **Default location** to the connection and a host-native directory, or create the group with that default. This affects only future workspaces.
+6. Create a workspace. Keep the inherited location or select another execution host and directory.
+
+The suggested directory initializes the location picker when you select that profile. It is not an ambient default and does not override a Group, Workspace, or focused-terminal location.
+
+A new workspace uses an explicit location, then its target Group default, then Local. A new tab or agent uses an explicit location, then the invoking client's focused terminal location, then the Workspace default. A split uses an explicit location or the source terminal location. Host and path always move together.
+
+Changing a Group or Workspace default does not move or restart existing terminals. One workspace can contain terminals on different hosts. Such a workspace shows **Mixed**, and pane badges identify terminals whose host differs from the workspace default. An unavailable remote host does not stop local terminals.
+
+The CLI exposes the same profile lifecycle and placement:
+
+```sh
+omh connection save workbox --name "Work box" --target workbox --directory /srv/project
+omh connection install workbox
+omh connection install workbox --yes
+omh connection test workbox
+omh connection connect workbox
+omh connection list
+omh group create remote-side --host ssh:workbox:1 --cwd /srv/project
+omh workspace create --focus
+```
+
+`connection.list` returns the profile's `execution_host_id`, for example `ssh:workbox:1`. Use that id for explicit resource placement:
+
+```sh
+omh workspace create --host ssh:workbox:1 --cwd /srv/project --focus
+omh tab create --workspace w1943cd2b11a1 --host ssh:workbox:1 --cwd /srv/project
+omh pane split --direction right --host ssh:workbox:1 --cwd /srv/project
+omh agent start reviewer --host ssh:workbox:1 --cwd /srv/project -- codex
+```
+
+`--host` requires `--cwd`. The corresponding Local API methods accept a `location` object with `execution_host_id` and `path`. Do not send both `cwd` and `location`. `group.create` accepts optional `default_location` with the same shape; invalid placement fails without creating the group.
 
 ## Attach through the bridge
 

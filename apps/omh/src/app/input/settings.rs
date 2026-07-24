@@ -1,6 +1,5 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
 use ratatui::layout::{Constraint, Layout, Rect};
-use std::path::PathBuf;
 
 use crate::{
     app::{
@@ -17,13 +16,21 @@ use crate::{
         TerminalAccent, ThemeMode, ToastDelivery,
     },
     settings_rows::{
-        option_count, option_hit_for_visual_row, option_index_for_visual_row, rows_for_section,
-        selected_visual_row, visual_row_count, SettingsRowHit,
+        connection_editor_open as settings_connection_editor_open, option_count,
+        option_hit_for_visual_row, option_index_for_visual_row, rows_for_section,
+        selected_visual_row, visual_row_count, ConnectionField, ConnectionRowId, SettingsRowHit,
     },
     terminal_theme::ThemeAppearance,
 };
 
 use super::ScrollbarClickTarget;
+
+#[cfg(test)]
+use crate::settings_rows::{
+    CONNECTION_CONFIRM_WORKER_INDEX, CONNECTION_DELETE_INDEX, CONNECTION_DISCARD_INDEX,
+    CONNECTION_INSTALL_WORKER_INDEX, CONNECTION_NAME_INDEX, CONNECTION_SAVE_INDEX,
+    CONNECTION_TARGET_INDEX, CONNECTION_TEST_INDEX,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 // The shared `Save` verb is semantic: these actions persist settings.
@@ -63,23 +70,51 @@ pub(crate) enum SettingsAction {
         group_idx: usize,
         name: String,
     },
-    SaveGroupDefaultDirectory {
+    SaveGroupDefaultLocation {
         group_idx: usize,
-        default_directory: Option<PathBuf>,
+        default_location: Option<crate::execution_host::ResourceLocation>,
     },
     SaveWorkspaceName {
         ws_idx: usize,
         name: String,
     },
-    SaveWorkspaceDefaultCwd {
+    SaveWorkspaceDefaultLocation {
         ws_idx: usize,
-        cwd: PathBuf,
+        location: crate::execution_host::ResourceLocation,
     },
     DeleteGroup(usize),
     InstallIntegration(crate::api::schema::IntegrationTarget),
     UninstallIntegration(crate::api::schema::IntegrationTarget),
     SaveAgentProfile(crate::agent_profiles::UserAgentProfileConfig),
     DeleteAgentProfile(String),
+    SaveSshConnectionProfile(crate::persist::ssh_profiles::SshConnectionProfile),
+    DeleteSshConnectionProfile(String),
+    TestSshConnection {
+        profile_id: String,
+    },
+    ConnectSshConnection {
+        profile_id: String,
+    },
+    LaunchSshWorkspace {
+        profile_id: String,
+    },
+    DisconnectSshConnection {
+        profile_id: String,
+    },
+    PreviewWorkerInstall {
+        profile_id: String,
+    },
+    ConfirmWorkerInstall {
+        profile_id: String,
+        preview: crate::remote::WorkerInstallPreview,
+    },
+    CancelWorkerInstall,
+    RequestForgetRemoteTermination {
+        terminal_id: crate::terminal::TerminalId,
+    },
+    ConfirmForgetRemoteTermination {
+        terminal_id: crate::terminal::TerminalId,
+    },
 }
 
 impl App {
@@ -146,8 +181,8 @@ impl App {
             SettingsAction::SaveWorkspaceName { ws_idx, name } => {
                 self.state.rename_workspace(ws_idx, name);
             }
-            SettingsAction::SaveWorkspaceDefaultCwd { ws_idx, cwd } => {
-                self.state.set_workspace_default_cwd(ws_idx, cwd);
+            SettingsAction::SaveWorkspaceDefaultLocation { ws_idx, location } => {
+                self.state.set_workspace_default_location(ws_idx, location);
             }
             SettingsAction::SaveGroupAccent { group_idx, accent } => {
                 self.state.set_group_accent(group_idx, accent);
@@ -156,12 +191,12 @@ impl App {
             SettingsAction::SaveGroupName { group_idx, name } => {
                 self.state.rename_group(group_idx, name);
             }
-            SettingsAction::SaveGroupDefaultDirectory {
+            SettingsAction::SaveGroupDefaultLocation {
                 group_idx,
-                default_directory,
+                default_location,
             } => {
                 self.state
-                    .set_group_default_directory(group_idx, default_directory);
+                    .set_group_default_location(group_idx, default_location);
             }
             SettingsAction::DeleteGroup(group_idx) => {
                 super::modal::open_confirm_delete_group(&mut self.state, group_idx);
@@ -175,6 +210,142 @@ impl App {
             SettingsAction::DeleteAgentProfile(profile_id) => {
                 self.delete_agent_profile(&profile_id)
             }
+            SettingsAction::SaveSshConnectionProfile(profile) => {
+                self.save_ssh_connection_profile(profile)
+            }
+            SettingsAction::DeleteSshConnectionProfile(profile_id) => {
+                self.delete_ssh_connection_profile(&profile_id)
+            }
+            SettingsAction::TestSshConnection { profile_id } => {
+                let owner = crate::execution_host::auth::AuthenticationOwner::new(
+                    self.default_client_view.id(),
+                );
+                self.state.queue_ssh_connection_request(
+                    profile_id,
+                    crate::execution_host::HostConnectionAction::Test,
+                    owner,
+                )
+            }
+            SettingsAction::ConnectSshConnection { profile_id } => {
+                let owner = crate::execution_host::auth::AuthenticationOwner::new(
+                    self.default_client_view.id(),
+                );
+                self.state.queue_ssh_connection_request(
+                    profile_id,
+                    crate::execution_host::HostConnectionAction::Connect,
+                    owner,
+                )
+            }
+            SettingsAction::LaunchSshWorkspace { profile_id } => {
+                let Some(profile) = self
+                    .state
+                    .ssh_connection_profiles
+                    .iter()
+                    .find(|profile| profile.id() == profile_id)
+                    .cloned()
+                else {
+                    return;
+                };
+                let path = profile.suggested_directory().cloned().unwrap_or_default();
+                let location =
+                    crate::execution_host::ResourceLocation::new(profile.execution_host_id(), path);
+                let group_id = self.state.active_group_id().to_string();
+                match self.begin_remote_workspace(location, true, group_id, None, Vec::new()) {
+                    Ok(_) => close_settings(&mut self.state),
+                    Err(error) => {
+                        self.state.toast = Some(crate::app::state::ToastNotification {
+                            kind: crate::app::state::ToastKind::NeedsAttention,
+                            title: "Could not open workspace".to_string(),
+                            context: error,
+                            position: None,
+                            target: None,
+                        });
+                    }
+                }
+            }
+            SettingsAction::DisconnectSshConnection { profile_id } => {
+                let owner = crate::execution_host::auth::AuthenticationOwner::new(
+                    self.default_client_view.id(),
+                );
+                self.state.queue_ssh_connection_request(
+                    profile_id,
+                    crate::execution_host::HostConnectionAction::Disconnect,
+                    owner,
+                )
+            }
+            SettingsAction::PreviewWorkerInstall { profile_id } => {
+                let owner = crate::execution_host::auth::AuthenticationOwner::new(
+                    self.default_client_view.id(),
+                );
+                self.preview_worker_install_for(owner, profile_id);
+            }
+            SettingsAction::ConfirmWorkerInstall {
+                profile_id,
+                preview,
+            } => {
+                let owner = crate::execution_host::auth::AuthenticationOwner::new(
+                    self.default_client_view.id(),
+                );
+                self.install_worker_for(owner, profile_id, preview);
+            }
+            SettingsAction::CancelWorkerInstall => {
+                if let Some(editor) = self.state.settings.connection_editor.as_mut() {
+                    editor.pending_worker_install = None;
+                }
+            }
+            SettingsAction::RequestForgetRemoteTermination { terminal_id } => {
+                if let Some(editor) = self.state.settings.connection_editor.as_mut() {
+                    editor.pending_forget_remote_terminal = Some(terminal_id);
+                }
+            }
+            SettingsAction::ConfirmForgetRemoteTermination { terminal_id } => {
+                match self.forget_remote_termination(&terminal_id) {
+                    Ok(true) => {
+                        if let Some(editor) = self.state.settings.connection_editor.as_mut() {
+                            editor.pending_forget_remote_terminal = None;
+                        }
+                    }
+                    Ok(false) => {}
+                    Err(err) => {
+                        self.state.toast = Some(crate::app::state::ToastNotification {
+                            kind: crate::app::state::ToastKind::NeedsAttention,
+                            title: "remote termination not forgotten".to_string(),
+                            context: err.to_string(),
+                            position: None,
+                            target: None,
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    /// Persist a connection profile after shared reference guards pass.
+    pub(super) fn save_ssh_connection_profile(
+        &mut self,
+        profile: crate::persist::ssh_profiles::SshConnectionProfile,
+    ) {
+        if let Err(err) = self.commit_ssh_connection_profile(profile) {
+            self.state.toast = Some(crate::app::state::ToastNotification {
+                kind: crate::app::state::ToastKind::NeedsAttention,
+                title: "connection profile not saved".to_string(),
+                context: err.to_string(),
+                position: None,
+                target: None,
+            });
+        }
+    }
+
+    /// Remove a connection profile after shared reference guards pass.
+    pub(super) fn delete_ssh_connection_profile(&mut self, profile_id: &str) {
+        if let Err(err) = self.remove_ssh_connection_profile_if_unreferenced(profile_id) {
+            self.state.toast = Some(crate::app::state::ToastNotification {
+                kind: crate::app::state::ToastKind::NeedsAttention,
+                title: "connection profile not deleted".to_string(),
+                context: err.to_string(),
+                position: None,
+                target: None,
+            });
         }
     }
 }
@@ -344,6 +515,7 @@ fn settings_section_choice_len(state: &AppState, section: SettingsSection) -> us
             | SettingsSection::Commands
             | SettingsSection::Experiments
             | SettingsSection::Agents
+            | SettingsSection::Connections
             | SettingsSection::GroupProfiles
             | SettingsSection::GroupGeneral
             | SettingsSection::WorkspaceGeneral => 0,
@@ -490,14 +662,65 @@ fn pending_group_default_directory(state: &AppState) -> String {
                 .settings
                 .group_settings_target
                 .and_then(|group_idx| state.groups.get(group_idx))
-                .and_then(|group| {
-                    group
-                        .default_directory
-                        .as_ref()
-                        .map(|path| path.display().to_string())
-                })
+                .and_then(|group| group.default_location.as_ref())
+                .map(|location| location.path.as_path().display().to_string())
         })
         .unwrap_or_default()
+}
+
+fn pending_group_default_host(state: &AppState) -> crate::execution_host::ExecutionHostId {
+    state
+        .settings
+        .pending_group_default_execution_host_id
+        .clone()
+        .or_else(|| {
+            state
+                .settings
+                .group_settings_target
+                .and_then(|group_idx| state.groups.get(group_idx))
+                .and_then(|group| group.default_location.as_ref())
+                .map(|location| location.execution_host_id.clone())
+        })
+        .unwrap_or_else(crate::execution_host::ExecutionHostId::local)
+}
+
+fn pending_workspace_default_host(state: &AppState) -> crate::execution_host::ExecutionHostId {
+    state
+        .settings
+        .pending_workspace_default_execution_host_id
+        .clone()
+        .or_else(|| {
+            state
+                .settings
+                .workspace_settings_target
+                .and_then(|ws_idx| state.workspaces.get(ws_idx))
+                .map(|workspace| workspace.default_location.execution_host_id.clone())
+        })
+        .unwrap_or_else(crate::execution_host::ExecutionHostId::local)
+}
+
+fn cycle_default_host(state: &mut AppState, workspace: bool) {
+    let current = if workspace {
+        pending_workspace_default_host(state)
+    } else {
+        pending_group_default_host(state)
+    };
+    let mut choices = vec![crate::execution_host::ExecutionHostId::local()];
+    choices.extend(
+        state
+            .ssh_connection_profiles
+            .iter()
+            .map(|profile| profile.execution_host_id()),
+    );
+    let next = choices
+        .iter()
+        .position(|host| host == &current)
+        .map_or(0, |index| (index + 1) % choices.len());
+    if workspace {
+        state.settings.pending_workspace_default_execution_host_id = choices.get(next).cloned();
+    } else {
+        state.settings.pending_group_default_execution_host_id = choices.get(next).cloned();
+    }
 }
 
 fn set_pending_group_default_directory(state: &mut AppState, default_directory: String) {
@@ -603,7 +826,14 @@ fn pending_workspace_default_cwd(state: &AppState) -> String {
                 .settings
                 .workspace_settings_target
                 .and_then(|ws_idx| state.workspaces.get(ws_idx))
-                .map(|workspace| workspace.default_cwd.display().to_string())
+                .map(|workspace| {
+                    workspace
+                        .default_location
+                        .path
+                        .as_path()
+                        .display()
+                        .to_string()
+                })
         })
         .unwrap_or_default()
 }
@@ -991,6 +1221,404 @@ fn selected_agent_profile_action(state: &mut AppState) -> Option<SettingsAction>
     None
 }
 
+fn connection_editor_open(state: &AppState) -> bool {
+    settings_connection_editor_open(&state.settings)
+}
+
+fn connection_editor(state: &AppState) -> Option<&crate::app::state::ConnectionEditorState> {
+    state.settings.connection_editor.as_ref()
+}
+
+fn connection_editor_mut(
+    state: &mut AppState,
+) -> Option<&mut crate::app::state::ConnectionEditorState> {
+    state.settings.connection_editor.as_mut()
+}
+
+fn pending_connection_name(state: &AppState) -> String {
+    connection_editor(state)
+        .map(|editor| editor.draft.name.clone())
+        .unwrap_or_default()
+}
+
+fn pending_connection_target(state: &AppState) -> String {
+    connection_editor(state)
+        .map(|editor| editor.draft.target.clone())
+        .unwrap_or_default()
+}
+
+fn pending_connection_directory(state: &AppState) -> String {
+    connection_editor(state)
+        .map(|editor| editor.draft.directory.clone())
+        .unwrap_or_default()
+}
+
+fn set_pending_connection_field(state: &mut AppState, selected: usize, value: String) {
+    let Some(editor) = connection_editor_mut(state) else {
+        return;
+    };
+    match crate::settings_rows::ConnectionRowId::from_selection_index(selected) {
+        Some(crate::settings_rows::ConnectionRowId::Field(
+            crate::settings_rows::ConnectionField::Name,
+        )) => editor.draft.name = value,
+        Some(crate::settings_rows::ConnectionRowId::Field(
+            crate::settings_rows::ConnectionField::Target,
+        )) => editor.draft.target = value,
+        Some(crate::settings_rows::ConnectionRowId::Field(
+            crate::settings_rows::ConnectionField::Directory,
+        )) => editor.draft.directory = value,
+        _ => {}
+    }
+}
+
+fn delete_pending_connection_word(state: &mut AppState, selected: usize) {
+    let mut value = match crate::settings_rows::ConnectionRowId::from_selection_index(selected) {
+        Some(crate::settings_rows::ConnectionRowId::Field(
+            crate::settings_rows::ConnectionField::Name,
+        )) => pending_connection_name(state),
+        Some(crate::settings_rows::ConnectionRowId::Field(
+            crate::settings_rows::ConnectionField::Target,
+        )) => pending_connection_target(state),
+        Some(crate::settings_rows::ConnectionRowId::Field(
+            crate::settings_rows::ConnectionField::Directory,
+        )) => pending_connection_directory(state),
+        _ => return,
+    };
+    while value.chars().last().is_some_and(char::is_whitespace) {
+        value.pop();
+    }
+    while value.chars().last().is_some_and(|ch| !ch.is_whitespace()) {
+        value.pop();
+    }
+    set_pending_connection_field(state, selected, value);
+}
+
+fn edit_pending_connection_text(state: &mut AppState, key: KeyEvent) -> bool {
+    let Some(selected) = state.settings.focused_input else {
+        return false;
+    };
+    if !matches!(
+        crate::settings_rows::ConnectionRowId::from_selection_index(selected),
+        Some(crate::settings_rows::ConnectionRowId::Field(_))
+    ) {
+        return false;
+    }
+    match key.code {
+        KeyCode::Char('u') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+            set_pending_connection_field(state, selected, String::new());
+            true
+        }
+        KeyCode::Backspace if key.modifiers.contains(KeyModifiers::SUPER) => {
+            set_pending_connection_field(state, selected, String::new());
+            true
+        }
+        KeyCode::Backspace
+            if key
+                .modifiers
+                .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT | KeyModifiers::META) =>
+        {
+            delete_pending_connection_word(state, selected);
+            true
+        }
+        KeyCode::Char('h' | 'w') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+            delete_pending_connection_word(state, selected);
+            true
+        }
+        KeyCode::Backspace => {
+            let mut value =
+                match crate::settings_rows::ConnectionRowId::from_selection_index(selected) {
+                    Some(crate::settings_rows::ConnectionRowId::Field(
+                        crate::settings_rows::ConnectionField::Name,
+                    )) => pending_connection_name(state),
+                    Some(crate::settings_rows::ConnectionRowId::Field(
+                        crate::settings_rows::ConnectionField::Target,
+                    )) => pending_connection_target(state),
+                    _ => pending_connection_directory(state),
+                };
+            value.pop();
+            set_pending_connection_field(state, selected, value);
+            true
+        }
+        KeyCode::Char(c) if key.modifiers.difference(KeyModifiers::SHIFT).is_empty() => {
+            let mut value =
+                match crate::settings_rows::ConnectionRowId::from_selection_index(selected) {
+                    Some(crate::settings_rows::ConnectionRowId::Field(
+                        crate::settings_rows::ConnectionField::Name,
+                    )) => pending_connection_name(state),
+                    Some(crate::settings_rows::ConnectionRowId::Field(
+                        crate::settings_rows::ConnectionField::Target,
+                    )) => pending_connection_target(state),
+                    _ => pending_connection_directory(state),
+                };
+            value.push(c);
+            set_pending_connection_field(state, selected, value);
+            true
+        }
+        _ => false,
+    }
+}
+
+fn browse_connection_profile_id_for_index(state: &AppState, selected: usize) -> Option<String> {
+    if selected == 0 || connection_editor_open(state) {
+        return None;
+    }
+    state
+        .ssh_connection_profiles
+        .get(selected - 1)
+        .map(|profile| profile.id().to_string())
+}
+
+fn open_blank_connection_editor(state: &mut AppState) {
+    state.settings.connection_editor = Some(crate::app::state::ConnectionEditorState::new_draft());
+    let name_index = ConnectionRowId::Field(ConnectionField::Name).selection_index();
+    state.settings.list.select(name_index);
+    state.settings.focused_input = Some(name_index);
+    state.settings.scroll = 0;
+}
+
+fn close_connection_editor(state: &mut AppState) {
+    state.settings.connection_editor = None;
+    state.settings.list.selected = 0;
+    state.settings.focused_input = None;
+    clear_settings_selection(state);
+    state.settings.scroll = 0;
+}
+
+fn load_connection_profile_editor(state: &mut AppState, profile_id: &str) -> bool {
+    let Some(profile) = state
+        .ssh_connection_profiles
+        .iter()
+        .find(|profile| profile.id() == profile_id)
+    else {
+        return false;
+    };
+    state.settings.connection_editor =
+        Some(crate::app::state::ConnectionEditorState::edit_profile(
+            profile.id(),
+            profile.name(),
+            profile.target(),
+            profile
+                .suggested_directory()
+                .map(|directory| directory.to_string())
+                .unwrap_or_default(),
+        ));
+    let name_index = ConnectionRowId::Field(ConnectionField::Name).selection_index();
+    state.settings.list.select(name_index);
+    state.settings.focused_input = Some(name_index);
+    true
+}
+
+/// Readable, id-safe slug for a connection profile display name.
+fn slugify_connection_profile_id(name: &str) -> String {
+    let mut out = String::new();
+    for ch in name.chars() {
+        if ch.is_ascii_alphanumeric() {
+            out.push(ch.to_ascii_lowercase());
+        } else if !out.ends_with('-') {
+            out.push('-');
+        }
+    }
+    let trimmed = out.trim_matches('-');
+    // Leave room for the `ssh:` prefix, generation suffix, and numeric id suffix.
+    let capped: String = trimmed.chars().take(48).collect();
+    let capped = capped.trim_matches('-');
+    if capped.is_empty() {
+        "connection".to_string()
+    } else {
+        capped.to_string()
+    }
+}
+
+/// Stable collision-free profile id: readable slug plus a deterministic
+/// numeric suffix probed against the current catalog.
+fn next_connection_profile_id(state: &AppState, name: &str) -> String {
+    let base = slugify_connection_profile_id(name);
+    let mut candidate = base.clone();
+    let mut suffix = 2;
+    while state
+        .ssh_connection_profiles
+        .iter()
+        .any(|profile| profile.id() == candidate)
+    {
+        candidate = format!("{base}-{suffix}");
+        suffix += 1;
+    }
+    candidate
+}
+
+fn save_pending_connection_profile(state: &mut AppState) -> Option<SettingsAction> {
+    let name = pending_connection_name(state).trim().to_string();
+    let target = pending_connection_target(state).trim().to_string();
+    if name.is_empty() || target.is_empty() {
+        return None;
+    }
+    let directory_input = pending_connection_directory(state).trim().to_string();
+    let suggested_directory = if directory_input.is_empty() {
+        None
+    } else {
+        crate::execution_host::HostPath::new(directory_input).ok()
+    };
+    let profile_id =
+        connection_editor(state).and_then(|editor| editor.profile_id().map(str::to_string));
+    let profile = if let Some(id) = profile_id {
+        // Editing preserves the stable id; a target change bumps the binding generation.
+        let mut profile = match state
+            .ssh_connection_profiles
+            .iter()
+            .find(|profile| profile.id() == id)
+            .cloned()
+        {
+            Some(profile) => profile,
+            None => crate::persist::ssh_profiles::SshConnectionProfile::new(
+                id,
+                name.clone(),
+                target.clone(),
+                suggested_directory.clone(),
+            )
+            .ok()?,
+        };
+        profile.rename(name).ok()?;
+        profile.set_suggested_directory(suggested_directory);
+        profile.set_target(target).ok()?;
+        profile
+    } else {
+        let id = next_connection_profile_id(state, &name);
+        crate::persist::ssh_profiles::SshConnectionProfile::new(
+            id,
+            name,
+            target,
+            suggested_directory,
+        )
+        .ok()?
+    };
+    close_connection_editor(state);
+    Some(SettingsAction::SaveSshConnectionProfile(profile))
+}
+
+fn selected_connection_profile_action(state: &mut AppState) -> Option<SettingsAction> {
+    if !settings_selection_active(state) {
+        return None;
+    }
+    let selected = state.settings.list.selected;
+    if connection_editor_open(state) {
+        let row = crate::settings_rows::ConnectionRowId::from_selection_index(selected)?;
+        return match row {
+            crate::settings_rows::ConnectionRowId::Action(
+                crate::settings_rows::ConnectionAction::Discard,
+            ) => {
+                close_connection_editor(state);
+                None
+            }
+            crate::settings_rows::ConnectionRowId::Action(
+                crate::settings_rows::ConnectionAction::Save,
+            ) => save_pending_connection_profile(state),
+            crate::settings_rows::ConnectionRowId::Action(
+                crate::settings_rows::ConnectionAction::Delete,
+            ) => {
+                let profile_id = connection_editor(state)?.profile_id()?.to_string();
+                close_connection_editor(state);
+                Some(SettingsAction::DeleteSshConnectionProfile(profile_id))
+            }
+            crate::settings_rows::ConnectionRowId::Action(
+                crate::settings_rows::ConnectionAction::Test,
+            ) => connection_editor(state)
+                .and_then(|editor| editor.profile_id().map(str::to_string))
+                .map(|profile_id| SettingsAction::TestSshConnection { profile_id }),
+            crate::settings_rows::ConnectionRowId::Action(
+                crate::settings_rows::ConnectionAction::Toggle,
+            ) => {
+                let profile_id = connection_editor(state)?.profile_id()?.to_string();
+                let profile = state
+                    .ssh_connection_profiles
+                    .iter()
+                    .find(|profile| profile.id() == profile_id)?;
+                use crate::execution_host::ConnectionStatus;
+                match state.ssh_connection_status(profile) {
+                    ConnectionStatus::Disconnected | ConnectionStatus::AuthenticationRequired => {
+                        Some(SettingsAction::ConnectSshConnection { profile_id })
+                    }
+                    ConnectionStatus::Connecting
+                    | ConnectionStatus::Connected
+                    | ConnectionStatus::Reconnecting { .. } => {
+                        Some(SettingsAction::DisconnectSshConnection { profile_id })
+                    }
+                    ConnectionStatus::Disconnecting => None,
+                }
+            }
+            crate::settings_rows::ConnectionRowId::Action(
+                crate::settings_rows::ConnectionAction::LaunchWorkspace,
+            ) => {
+                let profile_id = connection_editor(state)?.profile_id()?.to_string();
+                let profile = state
+                    .ssh_connection_profiles
+                    .iter()
+                    .find(|profile| profile.id() == profile_id)?;
+                matches!(
+                    state.ssh_connection_status(profile),
+                    crate::execution_host::ConnectionStatus::Connected
+                )
+                .then_some(SettingsAction::LaunchSshWorkspace { profile_id })
+            }
+            crate::settings_rows::ConnectionRowId::Action(
+                crate::settings_rows::ConnectionAction::InstallWorker,
+            ) => connection_editor(state)
+                .and_then(|editor| editor.profile_id().map(str::to_string))
+                .map(|profile_id| SettingsAction::PreviewWorkerInstall { profile_id }),
+            crate::settings_rows::ConnectionRowId::Action(
+                crate::settings_rows::ConnectionAction::ConfirmWorker,
+            ) => {
+                let editor = connection_editor(state)?;
+                let profile_id = editor.profile_id()?.to_string();
+                let preview = editor.pending_worker_install.as_ref()?.preview.clone();
+                Some(SettingsAction::ConfirmWorkerInstall {
+                    profile_id,
+                    preview,
+                })
+            }
+            crate::settings_rows::ConnectionRowId::Action(
+                crate::settings_rows::ConnectionAction::CancelWorker,
+            ) => {
+                if let Some(editor) = connection_editor_mut(state) {
+                    editor.pending_worker_install = None;
+                }
+                Some(SettingsAction::CancelWorkerInstall)
+            }
+            crate::settings_rows::ConnectionRowId::Action(
+                crate::settings_rows::ConnectionAction::ForgetTermination { offset },
+            ) => {
+                let profile_id = connection_editor(state)?.profile_id()?.to_string();
+                let tombstone = state
+                    .remote_termination_tombstones_for_profile(&profile_id)
+                    .into_iter()
+                    .nth(offset)?;
+                if connection_editor(state)
+                    .and_then(|editor| editor.pending_forget_remote_terminal.as_ref())
+                    == Some(&tombstone.terminal_id)
+                {
+                    Some(SettingsAction::ConfirmForgetRemoteTermination {
+                        terminal_id: tombstone.terminal_id,
+                    })
+                } else {
+                    Some(SettingsAction::RequestForgetRemoteTermination {
+                        terminal_id: tombstone.terminal_id,
+                    })
+                }
+            }
+            crate::settings_rows::ConnectionRowId::Field(_) => None,
+        };
+    }
+
+    if selected == 0 {
+        open_blank_connection_editor(state);
+        return None;
+    }
+    let profile_id = browse_connection_profile_id_for_index(state, selected)?;
+    if load_connection_profile_editor(state, &profile_id) {
+        return None;
+    }
+    None
+}
+
 fn pending_light_theme_name(state: &AppState) -> String {
     state
         .settings
@@ -1318,7 +1946,7 @@ fn preview_group_accent(state: &mut AppState, accent: Option<TerminalAccent>) {
         state.palette.accent = state.global_palette.theme_accent_color(accent);
     }
 }
-fn close_settings(state: &mut AppState) {
+pub(super) fn close_settings(state: &mut AppState) {
     state.settings.original_palette = None;
     state.settings.original_theme = None;
     clear_settings_pending(state);
@@ -1368,10 +1996,21 @@ fn selected_group_general_action(state: &mut AppState) -> Option<SettingsAction>
         }
         1 => {
             let default_directory = pending_group_default_directory(state).trim().to_string();
-            Some(SettingsAction::SaveGroupDefaultDirectory {
+            let default_location = (!default_directory.is_empty())
+                .then(|| {
+                    crate::execution_host::HostPath::new(default_directory)
+                        .ok()
+                        .map(|path| {
+                            crate::execution_host::ResourceLocation::new(
+                                pending_group_default_host(state),
+                                path,
+                            )
+                        })
+                })
+                .flatten();
+            Some(SettingsAction::SaveGroupDefaultLocation {
                 group_idx,
-                default_directory: (!default_directory.is_empty())
-                    .then_some(PathBuf::from(default_directory)),
+                default_location,
             })
         }
         2 => {
@@ -1394,9 +2033,13 @@ fn selected_workspace_general_action(state: &mut AppState) -> Option<SettingsAct
         }
         1 => {
             let cwd = pending_workspace_default_cwd(state).trim().to_string();
-            (!cwd.is_empty()).then_some(SettingsAction::SaveWorkspaceDefaultCwd {
+            let path = crate::execution_host::HostPath::new(cwd).ok()?;
+            Some(SettingsAction::SaveWorkspaceDefaultLocation {
                 ws_idx,
-                cwd: PathBuf::from(cwd),
+                location: crate::execution_host::ResourceLocation::new(
+                    pending_workspace_default_host(state),
+                    path,
+                ),
             })
         }
         _ => None,
@@ -1479,6 +2122,7 @@ fn clear_settings_pending(state: &mut AppState) {
     state.settings.pending_agent_profile_name = None;
     state.settings.pending_agent_profile_kind = None;
     state.settings.pending_agent_profile_command = None;
+    state.settings.connection_editor = None;
     state.settings.group_settings_target = None;
     state.settings.workspace_settings_target = None;
 }
@@ -1685,6 +2329,7 @@ fn select_pending_setting(state: &mut AppState) -> Option<SettingsAction> {
         SettingsSection::Experiments => selected_experiment_action(state),
         SettingsSection::Agents => selected_agent_profile_action(state),
         SettingsSection::Integrations => selected_integration_action(state),
+        SettingsSection::Connections => selected_connection_profile_action(state),
         SettingsSection::GroupGeneral => selected_group_general_action(state),
         SettingsSection::GroupProfiles => None,
         SettingsSection::WorkspaceGeneral => selected_workspace_general_action(state),
@@ -1708,6 +2353,12 @@ fn settings_row_accepts_text_input(state: &AppState, selected: usize) -> bool {
         SettingsSection::GroupGeneral | SettingsSection::WorkspaceGeneral => selected <= 1,
         SettingsSection::Agents if agent_profile_editor_open(state) => {
             selected == AGENT_PROFILE_NAME_INDEX || selected == agent_profile_command_index(state)
+        }
+        SettingsSection::Connections if connection_editor_open(state) => {
+            matches!(
+                crate::settings_rows::ConnectionRowId::from_selection_index(selected),
+                Some(crate::settings_rows::ConnectionRowId::Field(_))
+            )
         }
         _ => false,
     }
@@ -1787,6 +2438,12 @@ pub(super) fn update_settings_state(state: &mut AppState, key: KeyEvent) -> Opti
         return None;
     }
     if state.settings.section == SettingsSection::Commands && edit_pending_command(state, key) {
+        return None;
+    }
+    if state.settings.section == SettingsSection::Connections
+        && connection_editor_open(state)
+        && edit_pending_connection_text(state, key)
+    {
         return None;
     }
     state.settings.list.restore();
@@ -2034,6 +2691,62 @@ pub(super) fn update_settings_state(state: &mut AppState, key: KeyEvent) -> Opti
                 }
             }
         },
+        SettingsSection::Connections => match key.code {
+            KeyCode::Up | KeyCode::Char('k') => {
+                select_previous_setting(
+                    state,
+                    settings_section_choice_len(state, SettingsSection::Connections),
+                );
+                ensure_settings_selection_visible(state);
+            }
+            KeyCode::Down | KeyCode::Char('j') => {
+                select_next_setting(
+                    state,
+                    settings_section_choice_len(state, SettingsSection::Connections),
+                );
+                ensure_settings_selection_visible(state);
+            }
+            KeyCode::PageUp => {
+                state.settings.scroll = state
+                    .settings
+                    .scroll
+                    .saturating_sub(super::MODAL_PAGE_SCROLL_ROWS as usize);
+            }
+            KeyCode::PageDown => {
+                state.settings.scroll = state
+                    .settings
+                    .scroll
+                    .saturating_add(super::MODAL_PAGE_SCROLL_ROWS as usize)
+                    .min(settings_section_max_scroll(
+                        state,
+                        SettingsSection::Connections,
+                    ));
+            }
+            KeyCode::Enter => {
+                return selected_connection_profile_action(state);
+            }
+            KeyCode::Char(' ') => {
+                return selected_connection_profile_action(state);
+            }
+            KeyCode::Char('d') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                if let Some(profile_id) =
+                    browse_connection_profile_id_for_index(state, state.settings.list.selected)
+                {
+                    return Some(SettingsAction::DeleteSshConnectionProfile(profile_id));
+                }
+            }
+            KeyCode::BackTab | KeyCode::Left | KeyCode::Char('h') => {
+                switch_settings_section(state, SettingsSection::Integrations, 0);
+            }
+            KeyCode::Tab | KeyCode::Right | KeyCode::Char('l') => {
+                switch_settings_section(state, SettingsSection::Experiments, 0);
+            }
+            _ => {
+                if let Some(action) = handle_settings_modal_action(state, &key) {
+                    return Some(action);
+                }
+            }
+        },
         SettingsSection::Experiments => match key.code {
             KeyCode::Up | KeyCode::Char('k') => {
                 select_previous_setting(
@@ -2049,7 +2762,7 @@ pub(super) fn update_settings_state(state: &mut AppState, key: KeyEvent) -> Opti
             }
             KeyCode::Enter | KeyCode::Char(' ') => return selected_experiment_action(state),
             KeyCode::BackTab | KeyCode::Left | KeyCode::Char('h') => {
-                switch_settings_section(state, SettingsSection::Integrations, 0);
+                switch_settings_section(state, SettingsSection::Connections, 0);
             }
             KeyCode::Tab | KeyCode::Right | KeyCode::Char('l') => {
                 switch_settings_section(state, SettingsSection::Theme, target_theme_index(state));
@@ -2079,7 +2792,7 @@ pub(super) fn update_settings_state(state: &mut AppState, key: KeyEvent) -> Opti
                 switch_settings_section(state, SettingsSection::Agents, 0);
             }
             KeyCode::Tab | KeyCode::Right | KeyCode::Char('l') => {
-                switch_settings_section(state, SettingsSection::Experiments, 0);
+                switch_settings_section(state, SettingsSection::Connections, 0);
             }
             _ => {
                 if let Some(action) = handle_settings_modal_action(state, &key) {
@@ -2101,6 +2814,10 @@ pub(super) fn update_settings_state(state: &mut AppState, key: KeyEvent) -> Opti
                 );
             }
             KeyCode::Enter => return selected_group_general_action(state),
+            KeyCode::Char(' ') if state.settings.list.selected == 1 => {
+                cycle_default_host(state, false);
+                return selected_group_general_action(state);
+            }
             KeyCode::Char(' ') if state.settings.list.selected == 2 => {
                 return selected_group_general_action(state);
             }
@@ -2125,10 +2842,21 @@ pub(super) fn update_settings_state(state: &mut AppState, key: KeyEvent) -> Opti
                         1 => {
                             let default_directory =
                                 pending_group_default_directory(state).trim().to_string();
-                            Some(SettingsAction::SaveGroupDefaultDirectory {
+                            let default_location = (!default_directory.is_empty())
+                                .then(|| {
+                                    crate::execution_host::HostPath::new(default_directory)
+                                        .ok()
+                                        .map(|path| {
+                                            crate::execution_host::ResourceLocation::new(
+                                                pending_group_default_host(state),
+                                                path,
+                                            )
+                                        })
+                                })
+                                .flatten();
+                            Some(SettingsAction::SaveGroupDefaultLocation {
                                 group_idx,
-                                default_directory: (!default_directory.is_empty())
-                                    .then_some(PathBuf::from(default_directory)),
+                                default_location,
                             })
                         }
                         _ => None,
@@ -2207,6 +2935,10 @@ pub(super) fn update_settings_state(state: &mut AppState, key: KeyEvent) -> Opti
                 );
             }
             KeyCode::Enter => return selected_workspace_general_action(state),
+            KeyCode::Char(' ') if state.settings.list.selected == 1 => {
+                cycle_default_host(state, true);
+                return selected_workspace_general_action(state);
+            }
             _ => {
                 if state.settings.focused_input.is_some()
                     && edit_pending_workspace_field(state, key)
@@ -2319,6 +3051,7 @@ pub(crate) fn prepare_general_settings_state(
     settings.pending_agent_profile_name = None;
     settings.pending_agent_profile_kind = Some(state.default_agent_profile_kind_choice());
     settings.pending_agent_profile_command = None;
+    settings.connection_editor = None;
     settings.pending_workspace_name = None;
     settings.pending_workspace_default_cwd = None;
     settings.group_settings_target = None;
@@ -2343,6 +3076,7 @@ pub(crate) fn prepare_general_settings_state(
         SettingsSection::Experiments => 0,
         SettingsSection::Agents => 0,
         SettingsSection::Integrations => 0,
+        SettingsSection::Connections => 0,
         SettingsSection::GroupGeneral => 0,
         SettingsSection::GroupProfiles => 0,
         SettingsSection::WorkspaceGeneral => 0,
@@ -2394,8 +3128,13 @@ pub(crate) fn prepare_group_settings_state(
     reset_settings_for_scoped_editor(state, settings);
     settings.pending_group_name = Some(group.name.clone());
     settings.pending_group_default_directory = None;
+    settings.pending_group_default_execution_host_id = group
+        .default_location
+        .as_ref()
+        .map(|location| location.execution_host_id.clone());
     settings.pending_workspace_name = None;
     settings.pending_workspace_default_cwd = None;
+    settings.pending_workspace_default_execution_host_id = None;
     settings.group_settings_target = Some(group_idx);
     settings.workspace_settings_target = None;
     settings.section = SettingsSection::GroupGeneral;
@@ -2417,7 +3156,16 @@ pub(crate) fn prepare_workspace_settings_state(
     settings.pending_group_name = None;
     settings.pending_group_default_directory = None;
     settings.pending_workspace_name = Some(workspace.display_name());
-    settings.pending_workspace_default_cwd = Some(workspace.default_cwd.display().to_string());
+    settings.pending_workspace_default_cwd = Some(
+        workspace
+            .default_location
+            .path
+            .as_path()
+            .display()
+            .to_string(),
+    );
+    settings.pending_workspace_default_execution_host_id =
+        Some(workspace.default_location.execution_host_id.clone());
     settings.group_settings_target = None;
     settings.workspace_settings_target = Some(ws_idx);
     settings.section = SettingsSection::WorkspaceGeneral;
@@ -2460,8 +3208,13 @@ pub(crate) fn open_group_settings(state: &mut AppState, group_idx: usize) {
     state.settings.pending_group_accent_choice = None;
     state.settings.pending_group_name = Some(group_name);
     state.settings.pending_workspace_name = None;
+    state.settings.pending_group_default_execution_host_id = group
+        .default_location
+        .as_ref()
+        .map(|location| location.execution_host_id.clone());
     state.settings.pending_workspace_default_cwd = None;
     state.settings.pending_sound_enabled = None;
+    state.settings.pending_workspace_default_execution_host_id = None;
     state.settings.pending_toast_delivery = None;
     state.settings.pending_confirm_close = None;
     state.settings.pending_prompt_new_tab_name = None;
@@ -2496,7 +3249,13 @@ pub(crate) fn open_workspace_settings(state: &mut AppState, ws_idx: usize) {
         return;
     };
     let workspace_name = workspace.display_name();
-    let default_cwd = workspace.default_cwd.display().to_string();
+    let default_cwd = workspace
+        .default_location
+        .path
+        .as_path()
+        .display()
+        .to_string();
+    let default_execution_host_id = workspace.default_location.execution_host_id.clone();
     state.settings.original_palette = Some(state.palette.clone());
     state.settings.original_theme = Some(state.theme_name.clone());
     state.settings.pending_theme_name = None;
@@ -2509,6 +3268,7 @@ pub(crate) fn open_workspace_settings(state: &mut AppState, ws_idx: usize) {
     state.settings.pending_group_name = None;
     state.settings.pending_workspace_name = Some(workspace_name);
     state.settings.pending_workspace_default_cwd = Some(default_cwd);
+    state.settings.pending_workspace_default_execution_host_id = Some(default_execution_host_id);
     state.settings.pending_sound_enabled = None;
     state.settings.pending_toast_delivery = None;
     state.settings.pending_confirm_close = None;
@@ -2580,9 +3340,9 @@ impl AppState {
             })
     }
 
-    fn settings_agents_editor_back_at(&self, col: u16, row: u16) -> bool {
+    fn settings_editor_back_at(&self, col: u16, row: u16) -> bool {
         let area = self.settings_content_rect();
-        let Some(rect) = crate::ui::settings_agents_editor_back_button_rect(self, area) else {
+        let Some(rect) = crate::ui::settings_editor_back_button_rect(self, area) else {
             return false;
         };
         col >= rect.x && col < rect.x + rect.width && row == rect.y
@@ -2616,6 +3376,7 @@ impl AppState {
             | SettingsSection::Commands
             | SettingsSection::Experiments
             | SettingsSection::Agents
+            | SettingsSection::Connections
             | SettingsSection::GroupGeneral
             | SettingsSection::GroupProfiles
             | SettingsSection::WorkspaceGeneral
@@ -2708,6 +3469,7 @@ impl AppState {
                         SettingsSection::Experiments => 0,
                         SettingsSection::Agents => 0,
                         SettingsSection::Integrations => 0,
+                        SettingsSection::Connections => 0,
                         SettingsSection::GroupGeneral => 0,
                         SettingsSection::GroupProfiles => 0,
                         SettingsSection::WorkspaceGeneral => 0,
@@ -2719,8 +3481,12 @@ impl AppState {
                     return None;
                 }
 
-                if self.settings_agents_editor_back_at(mouse.column, mouse.row) {
-                    close_agent_profile_editor(self);
+                if self.settings_editor_back_at(mouse.column, mouse.row) {
+                    match self.settings.section {
+                        SettingsSection::Agents => close_agent_profile_editor(self),
+                        SettingsSection::Connections => close_connection_editor(self),
+                        _ => {}
+                    }
                     return None;
                 }
                 if let Some(target) = self.settings_list_hit_at(mouse.column, mouse.row) {
@@ -2739,6 +3505,7 @@ impl AppState {
                         | SettingsSection::Commands => select_pending_setting(self),
                         SettingsSection::Experiments => selected_experiment_action(self),
                         SettingsSection::Agents => selected_agent_profile_action(self),
+                        SettingsSection::Connections => selected_connection_profile_action(self),
                         SettingsSection::Integrations => selected_integration_action(self),
                         SettingsSection::GroupGeneral => {
                             if idx == 2 {
@@ -3726,10 +4493,13 @@ mod tests {
     }
 
     #[test]
-    fn group_general_settings_edits_default_directory_for_future_spaces_inline() {
+    fn group_general_settings_edits_default_location_for_future_spaces_inline() {
         let mut state = state_with_workspaces(&["test"]);
         let group_idx = state.create_group("Side".to_string());
-        state.set_group_default_directory(group_idx, Some(PathBuf::from("/tmp/omh-old")));
+        state.set_group_default_location(
+            group_idx,
+            Some(crate::execution_host::ResourceLocation::local("/tmp/omh-old").unwrap()),
+        );
         open_group_settings(&mut state, group_idx);
         state.settings.section = SettingsSection::GroupGeneral;
         state.settings.list.selected = 1;
@@ -3743,9 +4513,11 @@ mod tests {
 
         assert_eq!(
             action,
-            Some(SettingsAction::SaveGroupDefaultDirectory {
+            Some(SettingsAction::SaveGroupDefaultLocation {
                 group_idx,
-                default_directory: Some(PathBuf::from("/tmp/omh-old2")),
+                default_location: Some(
+                    crate::execution_host::ResourceLocation::local("/tmp/omh-old2").unwrap(),
+                ),
             })
         );
     }
@@ -3795,7 +4567,6 @@ mod tests {
                 list_area.x + 2,
                 list_area.y + input_row,
             ));
-
             assert_eq!(hover_action, None);
             assert_eq!(app.state.settings.list.selected, 2);
             assert!(!app.state.settings.list.is_active());
@@ -3806,16 +4577,8 @@ mod tests {
             list_area.x + 2,
             list_area.y + 1,
         ));
-
         assert_eq!(action, None);
         assert_eq!(app.state.settings.list.selected, 0);
-        assert!(app.state.settings.list.is_active());
-        assert_eq!(app.state.settings.focused_input, Some(0));
-        app.state.handle_settings_mouse(mouse(
-            MouseEventKind::Moved,
-            list_area.x + 2,
-            list_area.y + 4,
-        ));
         assert_eq!(app.state.settings.focused_input, Some(0));
         let edit_action = update_settings_state(
             &mut app.state,
@@ -3844,20 +4607,19 @@ mod tests {
 
         open_group_settings(&mut state, group_idx);
         let group_rect = state.settings_popup_rect();
-
         open_settings(&mut state);
         let settings_rect = state.settings_popup_rect();
-
         assert_eq!(group_rect, settings_rect);
     }
 
     #[test]
-    fn workspace_general_settings_edits_name_and_default_directory_inline() {
+    fn workspace_general_settings_edits_name_and_default_location_inline() {
         let mut state = state_with_workspaces(&["space"]);
-        state.workspaces[0].default_cwd = PathBuf::from("/tmp/omh-old");
+        state.workspaces[0].record_default_location(
+            crate::execution_host::ResourceLocation::local("/tmp/omh-old").unwrap(),
+        );
 
         open_workspace_settings(&mut state, 0);
-
         assert_eq!(state.settings.section, SettingsSection::WorkspaceGeneral);
         assert_eq!(state.settings.workspace_settings_target, Some(0));
         assert_eq!(
@@ -3892,9 +4654,9 @@ mod tests {
         );
         assert_eq!(
             cwd_action,
-            Some(SettingsAction::SaveWorkspaceDefaultCwd {
+            Some(SettingsAction::SaveWorkspaceDefaultLocation {
                 ws_idx: 0,
-                cwd: PathBuf::from("/tmp/omh-old2"),
+                location: crate::execution_host::ResourceLocation::local("/tmp/omh-old2").unwrap(),
             })
         );
     }
@@ -4498,6 +5260,11 @@ mod tests {
             &mut state,
             KeyEvent::new(KeyCode::Tab, KeyModifiers::empty()),
         );
+        assert_eq!(state.settings.section, SettingsSection::Connections);
+        update_settings_state(
+            &mut state,
+            KeyEvent::new(KeyCode::Tab, KeyModifiers::empty()),
+        );
         assert_eq!(state.settings.section, SettingsSection::Experiments);
         update_settings_state(
             &mut state,
@@ -4509,6 +5276,11 @@ mod tests {
             KeyEvent::new(KeyCode::BackTab, KeyModifiers::empty()),
         );
         assert_eq!(state.settings.section, SettingsSection::Experiments);
+        update_settings_state(
+            &mut state,
+            KeyEvent::new(KeyCode::BackTab, KeyModifiers::empty()),
+        );
+        assert_eq!(state.settings.section, SettingsSection::Connections);
         update_settings_state(
             &mut state,
             KeyEvent::new(KeyCode::BackTab, KeyModifiers::empty()),
@@ -5458,7 +6230,785 @@ mod tests {
         let hidden_left = state
             .settings_tab_at(tab_row.x, tab_row.y)
             .expect("left chevron target");
-        assert_eq!(hidden_left, SettingsSection::PaneLabels);
+        assert_eq!(hidden_left, SettingsSection::Commands);
+    }
+
+    // ------------------------------------------------------------------
+    // Settings → Connections
+    // ------------------------------------------------------------------
+
+    fn isolated_ssh_catalog(
+        name: &str,
+    ) -> (
+        std::sync::MutexGuard<'static, ()>,
+        crate::config::TestEnvVar,
+    ) {
+        let lock = match crate::config::test_config_env_lock().lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        let base = std::env::temp_dir().join(format!(
+            "omh-connections-settings-{name}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&base).unwrap();
+        let guard = crate::config::TestEnvVar::set("XDG_CONFIG_HOME", &base);
+        (lock, guard)
+    }
+
+    fn connection_key(state: &mut AppState, code: KeyCode) -> Option<SettingsAction> {
+        update_settings_state(state, KeyEvent::new(code, KeyModifiers::empty()))
+    }
+
+    fn connection_type(state: &mut AppState, text: &str) {
+        for ch in text.chars() {
+            let modifiers = if ch.is_uppercase() {
+                KeyModifiers::SHIFT
+            } else {
+                KeyModifiers::empty()
+            };
+            update_settings_state(state, KeyEvent::new(KeyCode::Char(ch), modifiers));
+        }
+    }
+
+    fn seed_connection_profile(
+        app: &mut App,
+        id: &str,
+        name: &str,
+        target: &str,
+        directory: Option<&str>,
+    ) -> crate::persist::ssh_profiles::SshConnectionProfile {
+        let suggested_directory = directory
+            .map(crate::execution_host::HostPath::new)
+            .transpose()
+            .unwrap();
+        let profile = crate::persist::ssh_profiles::SshConnectionProfile::new(
+            id,
+            name,
+            target,
+            suggested_directory,
+        )
+        .unwrap();
+        app.state.ssh_connection_profiles =
+            crate::persist::ssh_profiles::upsert(profile.clone()).unwrap();
+        profile
+    }
+
+    #[test]
+    fn connection_keyboard_create_save_persists_profile() {
+        let (_lock, _xdg) = isolated_ssh_catalog("create-save");
+        let mut app = app_for_mouse_test();
+        open_settings_at(&mut app.state, SettingsSection::Connections);
+
+        // Open a blank editor and fill name, target, and suggested directory.
+        assert_eq!(connection_key(&mut app.state, KeyCode::Down), None);
+        assert_eq!(connection_key(&mut app.state, KeyCode::Char(' ')), None);
+        assert!(app.state.settings.connection_editor.is_some());
+        connection_type(&mut app.state, "build box");
+        connection_key(&mut app.state, KeyCode::Down);
+        connection_type(&mut app.state, "builder@example.com");
+        connection_key(&mut app.state, KeyCode::Down);
+        connection_type(&mut app.state, "~/src");
+        connection_key(&mut app.state, KeyCode::Down);
+        assert_eq!(app.state.settings.list.selected, CONNECTION_SAVE_INDEX);
+
+        let action = connection_key(&mut app.state, KeyCode::Enter);
+        match &action {
+            Some(SettingsAction::SaveSshConnectionProfile(profile)) => {
+                assert_eq!(profile.id(), "build-box");
+                assert_eq!(profile.host_binding_generation(), 1);
+            }
+            other => panic!("expected save action, got {other:?}"),
+        }
+        app.apply_settings_action(action.expect("save action"));
+
+        assert_eq!(app.state.ssh_connection_profiles.len(), 1);
+        let saved = &app.state.ssh_connection_profiles[0];
+        assert_eq!(saved.id(), "build-box");
+        assert_eq!(saved.name(), "build box");
+        assert_eq!(saved.target(), "builder@example.com");
+        assert_eq!(
+            saved
+                .suggested_directory()
+                .map(|dir| dir.to_string())
+                .as_deref(),
+            Some("~/src")
+        );
+        let on_disk = crate::persist::ssh_profiles::load();
+        assert_eq!(on_disk.len(), 1);
+        assert_eq!(on_disk[0].id(), "build-box");
+        assert!(app.state.settings.connection_editor.is_none());
+    }
+
+    #[test]
+    fn connection_edit_rename_preserves_id_and_target_edit_bumps_generation() {
+        let (_lock, _xdg) = isolated_ssh_catalog("edit-generation");
+        let mut app = app_for_mouse_test();
+        seed_connection_profile(
+            &mut app,
+            "build-box",
+            "build box",
+            "builder@example.com",
+            None,
+        );
+        open_settings_at(&mut app.state, SettingsSection::Connections);
+
+        // Open the saved profile in the editor.
+        connection_key(&mut app.state, KeyCode::Down);
+        connection_key(&mut app.state, KeyCode::Down);
+        assert_eq!(connection_key(&mut app.state, KeyCode::Enter), None);
+        assert_eq!(
+            app.state
+                .settings
+                .connection_editor
+                .as_ref()
+                .and_then(|e| e.profile_id()),
+            Some("build-box")
+        );
+
+        // Rename only: id and binding generation stay.
+        update_settings_state(
+            &mut app.state,
+            KeyEvent::new(KeyCode::Char('u'), KeyModifiers::CONTROL),
+        );
+        connection_type(&mut app.state, "build farm");
+        connection_key(&mut app.state, KeyCode::Down);
+        connection_key(&mut app.state, KeyCode::Down);
+        connection_key(&mut app.state, KeyCode::Down);
+        let action = connection_key(&mut app.state, KeyCode::Enter);
+        match &action {
+            Some(SettingsAction::SaveSshConnectionProfile(profile)) => {
+                assert_eq!(profile.id(), "build-box");
+                assert_eq!(profile.name(), "build farm");
+                assert_eq!(profile.target(), "builder@example.com");
+                assert_eq!(profile.host_binding_generation(), 1);
+            }
+            other => panic!("expected save action, got {other:?}"),
+        }
+        app.apply_settings_action(action.expect("save action"));
+        assert_eq!(app.state.ssh_connection_profiles.len(), 1);
+        assert_eq!(app.state.ssh_connection_profiles[0].name(), "build farm");
+        assert_eq!(
+            app.state.ssh_connection_profiles[0].host_binding_generation(),
+            1
+        );
+
+        // Edit the target: same id, generation bumps.
+        assert!(load_connection_profile_editor(&mut app.state, "build-box"));
+        connection_key(&mut app.state, KeyCode::Down);
+        update_settings_state(
+            &mut app.state,
+            KeyEvent::new(KeyCode::Char('u'), KeyModifiers::CONTROL),
+        );
+        connection_type(&mut app.state, "deploy@example.com");
+        connection_key(&mut app.state, KeyCode::Down);
+        connection_key(&mut app.state, KeyCode::Down);
+        assert_eq!(
+            app.state
+                .settings
+                .connection_editor
+                .as_ref()
+                .map(|e| e.draft.target.as_str()),
+            Some("deploy@example.com")
+        );
+        assert_eq!(app.state.settings.list.selected, CONNECTION_SAVE_INDEX);
+        assert_eq!(
+            app.state
+                .settings
+                .connection_editor
+                .as_ref()
+                .and_then(|e| e.profile_id()),
+            Some("build-box")
+        );
+        assert_eq!(
+            app.state
+                .settings
+                .connection_editor
+                .as_ref()
+                .map(|e| e.draft.name.as_str()),
+            Some("build farm")
+        );
+        let action = connection_key(&mut app.state, KeyCode::Enter);
+        match &action {
+            Some(SettingsAction::SaveSshConnectionProfile(profile)) => {
+                assert_eq!(profile.id(), "build-box");
+                assert_eq!(profile.target(), "deploy@example.com");
+                assert_eq!(profile.host_binding_generation(), 2);
+                assert_eq!(profile.execution_host_id().to_string(), "ssh:build-box:2");
+            }
+            other => panic!("expected save action, got {other:?}"),
+        }
+        app.apply_settings_action(action.expect("save action"));
+        assert_eq!(app.state.ssh_connection_profiles.len(), 1);
+        assert_eq!(
+            app.state.ssh_connection_profiles[0].host_binding_generation(),
+            2
+        );
+    }
+
+    #[test]
+    fn connection_ids_get_deterministic_numeric_suffix() {
+        let (_lock, _xdg) = isolated_ssh_catalog("id-suffix");
+        let mut app = app_for_mouse_test();
+        seed_connection_profile(
+            &mut app,
+            "build-box",
+            "primary",
+            "builder@example.com",
+            None,
+        );
+        seed_connection_profile(
+            &mut app,
+            "build-box-2",
+            "secondary",
+            "deploy@example.com",
+            None,
+        );
+        open_settings_at(&mut app.state, SettingsSection::Connections);
+        connection_key(&mut app.state, KeyCode::Down);
+        connection_key(&mut app.state, KeyCode::Char(' '));
+        connection_type(&mut app.state, "build box");
+        connection_key(&mut app.state, KeyCode::Down);
+        connection_type(&mut app.state, "ops@example.com");
+        connection_key(&mut app.state, KeyCode::Down);
+        connection_key(&mut app.state, KeyCode::Down);
+        let action = connection_key(&mut app.state, KeyCode::Enter);
+        match &action {
+            Some(SettingsAction::SaveSshConnectionProfile(profile)) => {
+                assert_eq!(profile.id(), "build-box-3");
+            }
+            other => panic!("expected save action, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn connection_delete_removes_profile_from_catalog() {
+        let (_lock, _xdg) = isolated_ssh_catalog("delete");
+        let mut app = app_for_mouse_test();
+        seed_connection_profile(
+            &mut app,
+            "build-box",
+            "build box",
+            "builder@example.com",
+            None,
+        );
+        seed_connection_profile(&mut app, "staging", "staging", "staging@example.com", None);
+        open_settings_at(&mut app.state, SettingsSection::Connections);
+
+        connection_key(&mut app.state, KeyCode::Down);
+        connection_key(&mut app.state, KeyCode::Down);
+        connection_key(&mut app.state, KeyCode::Enter);
+        for _ in 0..CONNECTION_DELETE_INDEX {
+            connection_key(&mut app.state, KeyCode::Down);
+        }
+        assert_eq!(app.state.settings.list.selected, CONNECTION_DELETE_INDEX);
+        let action = connection_key(&mut app.state, KeyCode::Enter);
+        assert_eq!(
+            action,
+            Some(SettingsAction::DeleteSshConnectionProfile(
+                "build-box".to_string()
+            ))
+        );
+        app.apply_settings_action(action.expect("delete action"));
+
+        assert_eq!(app.state.ssh_connection_profiles.len(), 1);
+        assert_eq!(app.state.ssh_connection_profiles[0].id(), "staging");
+        let on_disk = crate::persist::ssh_profiles::load();
+        assert_eq!(on_disk.len(), 1);
+        assert_eq!(on_disk[0].id(), "staging");
+        assert!(app.state.settings.connection_editor.is_none());
+    }
+
+    #[test]
+    fn connection_browse_ctrl_d_returns_delete_action() {
+        let (_lock, _xdg) = isolated_ssh_catalog("ctrl-d-delete");
+        let mut app = app_for_mouse_test();
+        seed_connection_profile(
+            &mut app,
+            "build-box",
+            "build box",
+            "builder@example.com",
+            None,
+        );
+        open_settings_at(&mut app.state, SettingsSection::Connections);
+        connection_key(&mut app.state, KeyCode::Down);
+        connection_key(&mut app.state, KeyCode::Down);
+        let action = update_settings_state(
+            &mut app.state,
+            KeyEvent::new(KeyCode::Char('d'), KeyModifiers::CONTROL),
+        );
+        assert_eq!(
+            action,
+            Some(SettingsAction::DeleteSshConnectionProfile(
+                "build-box".to_string()
+            ))
+        );
+        assert!(app.state.settings.connection_editor.is_none());
+        assert_eq!(app.state.ssh_connection_profiles.len(), 1);
+    }
+
+    #[test]
+    fn connection_save_requires_name_and_target() {
+        let (_lock, _xdg) = isolated_ssh_catalog("validation");
+        let mut app = app_for_mouse_test();
+        open_settings_at(&mut app.state, SettingsSection::Connections);
+        connection_key(&mut app.state, KeyCode::Down);
+        connection_key(&mut app.state, KeyCode::Char(' '));
+
+        // Empty draft: save is refused and the editor stays open.
+        for _ in 0..CONNECTION_SAVE_INDEX {
+            connection_key(&mut app.state, KeyCode::Down);
+        }
+        assert_eq!(connection_key(&mut app.state, KeyCode::Enter), None);
+        assert!(app.state.settings.connection_editor.is_some());
+        assert!(app.state.ssh_connection_profiles.is_empty());
+
+        // A name without a target is still refused.
+        for _ in 0..CONNECTION_SAVE_INDEX {
+            connection_key(&mut app.state, KeyCode::Up);
+        }
+        connection_type(&mut app.state, "build box");
+        for _ in 0..CONNECTION_SAVE_INDEX {
+            connection_key(&mut app.state, KeyCode::Down);
+        }
+        assert_eq!(connection_key(&mut app.state, KeyCode::Enter), None);
+        assert!(app.state.ssh_connection_profiles.is_empty());
+
+        // Whitespace-only target is refused.
+        connection_key(&mut app.state, KeyCode::Up);
+        connection_key(&mut app.state, KeyCode::Up);
+        connection_type(&mut app.state, "   ");
+        connection_key(&mut app.state, KeyCode::Down);
+        connection_key(&mut app.state, KeyCode::Down);
+        assert_eq!(connection_key(&mut app.state, KeyCode::Enter), None);
+        assert!(app.state.ssh_connection_profiles.is_empty());
+
+        // A real target saves.
+        connection_key(&mut app.state, KeyCode::Up);
+        connection_key(&mut app.state, KeyCode::Up);
+        update_settings_state(
+            &mut app.state,
+            KeyEvent::new(KeyCode::Char('u'), KeyModifiers::CONTROL),
+        );
+        connection_type(&mut app.state, "builder@example.com");
+        connection_key(&mut app.state, KeyCode::Down);
+        connection_key(&mut app.state, KeyCode::Down);
+        let action = connection_key(&mut app.state, KeyCode::Enter);
+        assert!(matches!(
+            action,
+            Some(SettingsAction::SaveSshConnectionProfile(_))
+        ));
+        app.apply_settings_action(action.expect("save action"));
+        assert_eq!(app.state.ssh_connection_profiles.len(), 1);
+    }
+
+    #[test]
+    fn worker_setup_requires_preview_then_explicit_confirmation() {
+        let (_lock, _xdg) = isolated_ssh_catalog("worker-confirm");
+        let mut app = app_for_mouse_test();
+        seed_connection_profile(
+            &mut app,
+            "build-box",
+            "build box",
+            "builder@example.com",
+            None,
+        );
+        open_settings_at(&mut app.state, SettingsSection::Connections);
+        assert!(load_connection_profile_editor(&mut app.state, "build-box"));
+
+        app.state.settings.list.show();
+        app.state
+            .settings
+            .list
+            .select(CONNECTION_INSTALL_WORKER_INDEX);
+        app.state.settings.focused_input = None;
+        assert_eq!(
+            connection_key(&mut app.state, KeyCode::Enter),
+            Some(SettingsAction::PreviewWorkerInstall {
+                profile_id: "build-box".to_string(),
+            })
+        );
+
+        let preview = crate::remote::WorkerInstallPreview {
+            kind: crate::remote::WorkerInstallKind::Install,
+            source: "/tmp/omh-worker".to_string(),
+            target_path: "~/.local/share/omh/worker/v1/omh-worker".to_string(),
+            checksum: "sha256:abc".to_string(),
+            version: "1".to_string(),
+            commands: vec!["install".to_string()],
+            capabilities: vec!["terminal".to_string()],
+            already_current: false,
+        };
+        app.state
+            .settings
+            .connection_editor
+            .as_mut()
+            .expect("editor open")
+            .pending_worker_install = Some(crate::app::state::ConnectionWorkerInstallPending {
+            preview: preview.clone(),
+        });
+        app.state
+            .settings
+            .list
+            .select(CONNECTION_CONFIRM_WORKER_INDEX);
+
+        assert_eq!(
+            connection_key(&mut app.state, KeyCode::Enter),
+            Some(SettingsAction::ConfirmWorkerInstall {
+                profile_id: "build-box".to_string(),
+                preview,
+            })
+        );
+    }
+
+    #[test]
+    fn connection_lifecycle_actions_queue_typed_requests_without_success() {
+        let (_lock, _xdg) = isolated_ssh_catalog("requests");
+        let mut app = app_for_mouse_test();
+        let profile = seed_connection_profile(
+            &mut app,
+            "build-box",
+            "build box",
+            "builder@example.com",
+            None,
+        );
+        open_settings_at(&mut app.state, SettingsSection::Connections);
+
+        connection_key(&mut app.state, KeyCode::Down);
+        connection_key(&mut app.state, KeyCode::Down);
+        connection_key(&mut app.state, KeyCode::Enter);
+
+        for _ in 0..CONNECTION_TEST_INDEX {
+            connection_key(&mut app.state, KeyCode::Down);
+        }
+        let action = connection_key(&mut app.state, KeyCode::Enter);
+        assert_eq!(
+            action,
+            Some(SettingsAction::TestSshConnection {
+                profile_id: "build-box".to_string()
+            })
+        );
+        app.apply_settings_action(action.expect("test action"));
+
+        connection_key(&mut app.state, KeyCode::Down);
+        let action = connection_key(&mut app.state, KeyCode::Enter);
+        assert_eq!(
+            action,
+            Some(SettingsAction::ConnectSshConnection {
+                profile_id: "build-box".to_string()
+            })
+        );
+        app.apply_settings_action(action.expect("connect action"));
+
+        let owner =
+            crate::execution_host::auth::AuthenticationOwner::new(app.default_client_view.id());
+        assert_eq!(
+            app.state.pending_ssh_connection_requests,
+            vec![
+                crate::app::state::SshConnectionRequest {
+                    profile_id: "build-box".to_string(),
+                    action: crate::execution_host::HostConnectionAction::Test,
+                    authentication_owner: owner,
+                },
+                crate::app::state::SshConnectionRequest {
+                    profile_id: "build-box".to_string(),
+                    action: crate::execution_host::HostConnectionAction::Connect,
+                    authentication_owner: owner,
+                },
+            ]
+        );
+        // Queuing never claims success: pure status stays disconnected, no toast.
+        assert!(app.state.host_connection_states.is_empty());
+        assert_eq!(
+            app.state.ssh_connection_status(&profile),
+            crate::execution_host::ConnectionStatus::Disconnected
+        );
+        assert!(app.state.toast.is_none());
+
+        // When pure state reports Connected, the same row offers Disconnect.
+        app.state.host_connection_states.insert(
+            profile.execution_host_id(),
+            crate::execution_host::ConnectionStatus::Connected,
+        );
+        let action = connection_key(&mut app.state, KeyCode::Enter);
+        assert_eq!(
+            action,
+            Some(SettingsAction::DisconnectSshConnection {
+                profile_id: "build-box".to_string()
+            })
+        );
+        app.apply_settings_action(action.expect("disconnect action"));
+        assert_eq!(app.state.pending_ssh_connection_requests.len(), 3);
+        assert_eq!(
+            app.state.pending_ssh_connection_requests[2].action,
+            crate::execution_host::HostConnectionAction::Disconnect
+        );
+    }
+
+    #[test]
+    fn connection_drafts_are_client_local_across_views() {
+        let (_lock, _xdg) = isolated_ssh_catalog("draft-isolation");
+        let mut app = app_for_mouse_test();
+        let mut first = ClientViewState::from_default_client_state(&app.state);
+        let mut second = ClientViewState::from_default_client_state(&app.state);
+        prepare_general_settings_state(
+            &app.state,
+            &mut first.settings,
+            SettingsSection::Connections,
+        );
+        first.mode = Mode::Settings;
+        prepare_general_settings_state(
+            &app.state,
+            &mut second.settings,
+            SettingsSection::Connections,
+        );
+        second.mode = Mode::Settings;
+
+        // First client opens the editor and drafts a profile name.
+        update_settings_state_for_view(
+            &mut app.state,
+            &mut first,
+            KeyEvent::new(KeyCode::Down, KeyModifiers::empty()),
+        );
+        update_settings_state_for_view(
+            &mut app.state,
+            &mut first,
+            KeyEvent::new(KeyCode::Char(' '), KeyModifiers::empty()),
+        );
+        for ch in "alpha".chars() {
+            update_settings_state_for_view(
+                &mut app.state,
+                &mut first,
+                KeyEvent::new(KeyCode::Char(ch), KeyModifiers::empty()),
+            );
+        }
+
+        assert_eq!(
+            first
+                .settings
+                .connection_editor
+                .as_ref()
+                .map(|e| e.draft.name.as_str()),
+            Some("alpha")
+        );
+        assert!(second.settings.connection_editor.is_none());
+        assert!(app.state.settings.connection_editor.is_none());
+
+        // Second client drafts independently; the first draft is untouched.
+        update_settings_state_for_view(
+            &mut app.state,
+            &mut second,
+            KeyEvent::new(KeyCode::Down, KeyModifiers::empty()),
+        );
+        update_settings_state_for_view(
+            &mut app.state,
+            &mut second,
+            KeyEvent::new(KeyCode::Char(' '), KeyModifiers::empty()),
+        );
+        for ch in "beta".chars() {
+            update_settings_state_for_view(
+                &mut app.state,
+                &mut second,
+                KeyEvent::new(KeyCode::Char(ch), KeyModifiers::empty()),
+            );
+        }
+
+        assert_eq!(
+            second
+                .settings
+                .connection_editor
+                .as_ref()
+                .map(|e| e.draft.name.as_str()),
+            Some("beta")
+        );
+        assert_eq!(
+            first
+                .settings
+                .connection_editor
+                .as_ref()
+                .map(|e| e.draft.name.as_str()),
+            Some("alpha")
+        );
+        assert!(app.state.settings.connection_editor.is_none());
+    }
+
+    #[test]
+    fn connections_tab_cycles_between_integrations_and_experiments() {
+        let mut state = state_with_workspaces(&["test"]);
+        open_settings_at(&mut state, SettingsSection::Integrations);
+        connection_key(&mut state, KeyCode::Tab);
+        assert_eq!(state.settings.section, SettingsSection::Connections);
+        connection_key(&mut state, KeyCode::Tab);
+        assert_eq!(state.settings.section, SettingsSection::Experiments);
+        connection_key(&mut state, KeyCode::BackTab);
+        assert_eq!(state.settings.section, SettingsSection::Connections);
+        connection_key(&mut state, KeyCode::BackTab);
+        assert_eq!(state.settings.section, SettingsSection::Integrations);
+        assert_eq!(
+            SettingsSection::ALL,
+            &[
+                SettingsSection::Theme,
+                SettingsSection::Sound,
+                SettingsSection::PaneLabels,
+                SettingsSection::Commands,
+                SettingsSection::Agents,
+                SettingsSection::Integrations,
+                SettingsSection::Connections,
+                SettingsSection::Experiments,
+            ]
+        );
+    }
+
+    #[test]
+    fn connections_tab_is_clickable() {
+        let (_lock, _xdg) = isolated_ssh_catalog("tab-click");
+        let mut app = app_for_mouse_test();
+        app.state.view.terminal_area = Rect::new(0, 0, 100, 30);
+        open_settings_at(&mut app.state, SettingsSection::Connections);
+
+        let inner = app.state.settings_inner_rect();
+        let header_rows = Layout::vertical([
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Length(1),
+        ])
+        .areas::<4>(crate::ui::modal_stack_areas(inner, 4, 1, 0, 1).header);
+        let tab_row = header_rows[2];
+        let visible_tabs = crate::ui::settings_tab_hit_areas(&app.state, tab_row);
+        let integrations_tab = visible_tabs
+            .iter()
+            .find(|(section, _)| *section == SettingsSection::Integrations)
+            .map(|(_, rect)| *rect)
+            .expect("integrations tab visible");
+        app.state.handle_settings_mouse(mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            integrations_tab.x + 1,
+            tab_row.y,
+        ));
+        assert_eq!(app.state.settings.section, SettingsSection::Integrations);
+
+        let visible_tabs = crate::ui::settings_tab_hit_areas(&app.state, tab_row);
+        let connections_tab = visible_tabs
+            .iter()
+            .find(|(section, _)| *section == SettingsSection::Connections)
+            .map(|(_, rect)| *rect)
+            .expect("connections tab visible");
+        app.state.handle_settings_mouse(mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            connections_tab.x + 1,
+            tab_row.y,
+        ));
+        assert_eq!(app.state.settings.section, SettingsSection::Connections);
+    }
+
+    #[test]
+    fn connections_mouse_click_opens_editor_focuses_fields_and_discards() {
+        let (_lock, _xdg) = isolated_ssh_catalog("mouse-editor");
+        let mut app = app_for_mouse_test();
+        app.state.view.terminal_area = Rect::new(26, 0, 100, 30);
+        open_settings_at(&mut app.state, SettingsSection::Connections);
+
+        let list_area = settings_section_list_rect(&app.state, SettingsSection::Connections);
+        let rows = rows_for_section(&app.state, SettingsSection::Connections).unwrap();
+        let row_for = |index| selected_visual_row(&rows, index).unwrap() as u16;
+
+        // Click "new connection profile" to open the blank editor.
+        let action = app.state.handle_settings_mouse(mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            list_area.x + 2,
+            list_area.y + row_for(0),
+        ));
+        assert_eq!(action, None);
+        assert!(app.state.settings.connection_editor.is_some());
+        assert_eq!(
+            app.state.settings.focused_input,
+            Some(CONNECTION_NAME_INDEX)
+        );
+
+        // Click the target field to focus it, then type into it.
+        let editor_rows = rows_for_section(&app.state, SettingsSection::Connections).unwrap();
+        let editor_row_for = |index| selected_visual_row(&editor_rows, index).unwrap() as u16;
+        app.state.handle_settings_mouse(mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            list_area.x + 2,
+            list_area.y + editor_row_for(CONNECTION_TARGET_INDEX),
+        ));
+        assert_eq!(
+            app.state.settings.focused_input,
+            Some(CONNECTION_TARGET_INDEX)
+        );
+        connection_type(&mut app.state, "builder@example.com");
+        assert_eq!(
+            app.state
+                .settings
+                .connection_editor
+                .as_ref()
+                .map(|e| e.draft.target.as_str()),
+            Some("builder@example.com")
+        );
+
+        // Click "discard changes" to close the editor without saving.
+        app.state.handle_settings_mouse(mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            list_area.x + 2,
+            list_area.y + editor_row_for(CONNECTION_DISCARD_INDEX),
+        ));
+        assert!(app.state.settings.connection_editor.is_none());
+        assert!(app.state.ssh_connection_profiles.is_empty());
+    }
+
+    #[test]
+    fn connections_render_shows_saved_profile_and_status() {
+        let (_lock, _xdg) = isolated_ssh_catalog("render-browse");
+        let mut app = app_for_mouse_test();
+        let profile = seed_connection_profile(
+            &mut app,
+            "build-box",
+            "build box",
+            "builder@example.com",
+            Some("~/src"),
+        );
+        app.state.host_connection_states.insert(
+            profile.execution_host_id(),
+            crate::execution_host::ConnectionStatus::Connected,
+        );
+        open_settings_at(&mut app.state, SettingsSection::Connections);
+
+        rendered_text_point(&app, "connections", 100, 30);
+        rendered_text_point(&app, "saved profiles", 100, 30);
+        rendered_text_point(&app, "new connection profile", 100, 30);
+        rendered_text_point(&app, "build box", 100, 30);
+        rendered_text_point(&app, "builder@example.com", 100, 30);
+        rendered_text_point(&app, "~/src", 100, 30);
+        rendered_text_point(&app, "connected", 100, 30);
+    }
+
+    #[test]
+    fn connection_editor_render_shows_form_labels() {
+        let (_lock, _xdg) = isolated_ssh_catalog("render-editor");
+        let mut app = app_for_mouse_test();
+        open_settings_at(&mut app.state, SettingsSection::Connections);
+        connection_key(&mut app.state, KeyCode::Down);
+        connection_key(&mut app.state, KeyCode::Char(' '));
+
+        rendered_text_point(&app, "new connection profile", 100, 30);
+        rendered_text_point(&app, "profile name", 100, 30);
+        rendered_text_point(&app, "ssh target", 100, 30);
+        rendered_text_point(&app, "suggested directory (optional)", 100, 30);
+        rendered_text_point(&app, "credentials and host keys stay with openssh", 100, 30);
+
+        // Move to the action rows so they scroll into view.
+        for _ in 0..CONNECTION_DISCARD_INDEX {
+            connection_key(&mut app.state, KeyCode::Down);
+        }
+        rendered_text_point(&app, "name and ssh target are required", 100, 30);
+        rendered_text_point(&app, "create profile", 100, 30);
+        rendered_text_point(&app, "discard changes", 100, 30);
     }
 
     fn integration_recommendation_for(

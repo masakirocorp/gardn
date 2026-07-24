@@ -68,7 +68,7 @@ fn active_tcp_listeners_from_lsof() -> Vec<TcpListenerInfo> {
     parse_lsof_tcp_listeners(&text)
 }
 
-fn parse_lsof_tcp_listeners(output: &str) -> Vec<TcpListenerInfo> {
+pub(crate) fn parse_lsof_tcp_listeners(output: &str) -> Vec<TcpListenerInfo> {
     let mut listeners = Vec::new();
     let mut pid = None;
     let mut command = None;
@@ -223,6 +223,9 @@ pub(crate) fn read_limited_reader(
         };
     }
 }
+
+mod execution_worker;
+pub(crate) use execution_worker::run as run_execution_worker;
 
 #[cfg(target_os = "linux")]
 mod linux;

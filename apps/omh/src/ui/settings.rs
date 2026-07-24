@@ -278,6 +278,19 @@ fn settings_section_title(app: &AppState, section: SettingsSection) -> &'static 
         } else {
             "new custom profile"
         }
+    } else if section == SettingsSection::Connections
+        && crate::settings_rows::connection_editor_open(&app.settings)
+    {
+        if app
+            .settings
+            .connection_editor
+            .as_ref()
+            .is_some_and(|e| e.is_editing())
+        {
+            "edit connection profile"
+        } else {
+            "new connection profile"
+        }
     } else {
         match section {
             SettingsSection::Theme => "appearance",
@@ -289,6 +302,7 @@ fn settings_section_title(app: &AppState, section: SettingsSection) -> &'static 
             SettingsSection::Experiments => "advanced",
             SettingsSection::Agents => "agents",
             SettingsSection::Integrations => "agent integrations",
+            SettingsSection::Connections => "connections",
             SettingsSection::GroupGeneral => "general",
             SettingsSection::GroupProfiles => "agents",
             SettingsSection::WorkspaceGeneral => "general",
@@ -315,6 +329,12 @@ fn settings_section_description(app: &AppState, section: SettingsSection) -> &'s
         }
         SettingsSection::Agents => "create custom commands and manage agent profiles",
         SettingsSection::Integrations => "install hooks so agents report state directly",
+        SettingsSection::Connections
+            if crate::settings_rows::connection_editor_open(&app.settings) =>
+        {
+            "credentials and host keys stay with openssh; omh never stores them"
+        }
+        SettingsSection::Connections => "add ssh hosts and manage their connections",
         SettingsSection::GroupGeneral => "rename this group or delete it",
         SettingsSection::GroupProfiles => {
             "choose favorite and default agent profiles for this group"
@@ -323,13 +343,16 @@ fn settings_section_description(app: &AppState, section: SettingsSection) -> &'s
     }
 }
 
-pub(crate) fn settings_agents_editor_back_button_rect(app: &AppState, area: Rect) -> Option<Rect> {
-    (app.settings.section == SettingsSection::Agents && settings_agents_editor_open(app)).then(
-        || {
-            let width = action_button_width(None, "← back");
-            Rect::new(area.x + area.width.saturating_sub(width), area.y, width, 1)
-        },
-    )
+pub(crate) fn settings_editor_back_button_rect(app: &AppState, area: Rect) -> Option<Rect> {
+    let editor_open = match app.settings.section {
+        SettingsSection::Agents => settings_agents_editor_open(app),
+        SettingsSection::Connections => crate::settings_rows::connection_editor_open(&app.settings),
+        _ => false,
+    };
+    editor_open.then(|| {
+        let width = action_button_width(None, "← back");
+        Rect::new(area.x + area.width.saturating_sub(width), area.y, width, 1)
+    })
 }
 
 pub(crate) fn settings_section_list_rect(area: Rect) -> Rect {
@@ -357,7 +380,7 @@ fn render_settings_section_intro(
     .areas::<3>(area);
     let [title_area, description_area] =
         Layout::vertical([Constraint::Length(1), Constraint::Length(1)]).areas::<2>(desc_area);
-    let title_width = settings_agents_editor_back_button_rect(app, title_area)
+    let title_width = settings_editor_back_button_rect(app, title_area)
         .map(|back| back.x.saturating_sub(title_area.x).saturating_sub(1))
         .unwrap_or(title_area.width);
     render_modal_description(
@@ -366,7 +389,7 @@ fn render_settings_section_intro(
         settings_section_title(app, section),
         Style::default().fg(p.accent),
     );
-    if let Some(back) = settings_agents_editor_back_button_rect(app, title_area) {
+    if let Some(back) = settings_editor_back_button_rect(app, title_area) {
         render_action_button(frame, back, None, "← back", secondary_action_style(p));
     }
     render_modal_description(
@@ -388,6 +411,14 @@ const SETTINGS_AGENTS_HINTS: &[(&str, &str)] = &[
     ("delete", "ctrl+d"),
     ("section", "←→/tab"),
 ];
+const SETTINGS_CONNECTIONS_HINTS: &[(&str, &str)] = &[
+    ("move", "↑↓"),
+    ("new/edit", "space/↵"),
+    ("delete", "ctrl+d"),
+    ("section", "←→/tab"),
+];
+const SETTINGS_CONNECTIONS_EDITOR_HINTS: &[(&str, &str)] =
+    &[("move", "↑↓"), ("action", "space/↵"), ("section", "←→/tab")];
 const SETTINGS_GROUP_PROFILES_HINTS: &[(&str, &str)] = &[
     ("move", "↑↓"),
     ("favorite", "ctrl+f"),
@@ -410,6 +441,12 @@ fn settings_footer_hints(
             SETTINGS_AGENTS_EDITOR_HINTS
         } else {
             SETTINGS_AGENTS_HINTS
+        }
+    } else if app.settings.section == SettingsSection::Connections {
+        if crate::settings_rows::connection_editor_open(&app.settings) {
+            SETTINGS_CONNECTIONS_EDITOR_HINTS
+        } else {
+            SETTINGS_CONNECTIONS_HINTS
         }
     } else if app.settings.section == SettingsSection::GroupProfiles {
         SETTINGS_GROUP_PROFILES_HINTS
@@ -516,6 +553,12 @@ fn settings_footer_hints_for(
         } else {
             SETTINGS_AGENTS_HINTS
         }
+    } else if settings.section == SettingsSection::Connections {
+        if crate::settings_rows::connection_editor_open(settings) {
+            SETTINGS_CONNECTIONS_EDITOR_HINTS
+        } else {
+            SETTINGS_CONNECTIONS_HINTS
+        }
     } else if settings.section == SettingsSection::GroupProfiles {
         SETTINGS_GROUP_PROFILES_HINTS
     } else if settings.group_settings_target.is_some() {
@@ -535,6 +578,18 @@ fn settings_section_title_for(
         } else {
             "new custom profile"
         }
+    } else if section == SettingsSection::Connections
+        && crate::settings_rows::connection_editor_open(settings)
+    {
+        if settings
+            .connection_editor
+            .as_ref()
+            .is_some_and(|e| e.is_editing())
+        {
+            "edit connection profile"
+        } else {
+            "new connection profile"
+        }
     } else {
         settings_section_title_for_non_editor(section)
     }
@@ -551,6 +606,7 @@ fn settings_section_title_for_non_editor(section: SettingsSection) -> &'static s
         SettingsSection::Experiments => "advanced",
         SettingsSection::Agents => "agents",
         SettingsSection::Integrations => "agent integrations",
+        SettingsSection::Connections => "connections",
         SettingsSection::GroupGeneral => "general",
         SettingsSection::GroupProfiles => "agents",
         SettingsSection::WorkspaceGeneral => "general",
@@ -579,6 +635,10 @@ fn settings_section_description_for(
         }
         SettingsSection::Agents => "create custom commands and manage agent profiles",
         SettingsSection::Integrations => "install hooks so agents report state directly",
+        SettingsSection::Connections if crate::settings_rows::connection_editor_open(settings) => {
+            "credentials and host keys stay with openssh; omh never stores them"
+        }
+        SettingsSection::Connections => "add ssh hosts and manage their connections",
         SettingsSection::GroupGeneral => "rename this group or delete it",
         SettingsSection::GroupProfiles => {
             "choose favorite and default agent profiles for this group"
@@ -602,9 +662,12 @@ fn render_settings_section_intro_for_view(
     .areas::<3>(area);
     let [title_area, description_area] =
         Layout::vertical([Constraint::Length(1), Constraint::Length(1)]).areas::<2>(desc_area);
-    let back = (settings.section == SettingsSection::Agents
-        && settings_agents_editor_open_for(settings))
-    .then(|| {
+    let editor_open = match settings.section {
+        SettingsSection::Agents => settings_agents_editor_open_for(settings),
+        SettingsSection::Connections => crate::settings_rows::connection_editor_open(settings),
+        _ => false,
+    };
+    let back = editor_open.then(|| {
         let width = action_button_width(None, "← back");
         Rect::new(
             title_area.x + title_area.width.saturating_sub(width),
@@ -1028,6 +1091,7 @@ pub(super) fn render_settings_overlay(app: &AppState, frame: &mut Frame, area: R
         | SettingsSection::Commands
         | SettingsSection::Experiments
         | SettingsSection::Agents
+        | SettingsSection::Connections
         | SettingsSection::GroupGeneral
         | SettingsSection::GroupProfiles
         | SettingsSection::WorkspaceGeneral => {
@@ -2486,7 +2550,9 @@ mod tests {
             .lines()
             .find(|line| line.contains("appearance") && line.contains("notifications"))
             .expect("tab line");
-        assert!(tab_line.contains("advanced"));
+        // Eight top-level tabs overflow the 92-col modal; first page ends at connections.
+        assert!(tab_line.contains("connections"));
+        assert!(!tab_line.contains("advanced"));
     }
 
     #[test]
@@ -2547,6 +2613,11 @@ mod tests {
                 SettingsSection::Integrations,
                 "agent integrations",
                 "install hooks so agents report state directly",
+            ),
+            (
+                SettingsSection::Connections,
+                "connections",
+                "add ssh hosts and manage their connections",
             ),
             (
                 SettingsSection::Experiments,

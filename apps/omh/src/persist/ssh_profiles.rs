@@ -5,7 +5,6 @@
 //! passphrases. System OpenSSH owns authentication.
 
 use std::collections::HashSet;
-use std::fs::OpenOptions;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -14,14 +13,9 @@ use tracing::warn;
 use crate::execution_host::{ExecutionHostId, HostPath};
 
 const CATALOG_FILE: &str = "ssh-profiles.json";
-const CATALOG_LOCK_FILE: &str = ".ssh-profiles.lock";
 
 fn catalog_path() -> PathBuf {
     crate::config::config_dir().join(CATALOG_FILE)
-}
-
-fn catalog_lock_path() -> PathBuf {
-    crate::config::config_dir().join(CATALOG_LOCK_FILE)
 }
 
 /// Validation failure for an SSH connection profile field.
@@ -34,6 +28,8 @@ pub(crate) enum SshConnectionProfileError {
     NulInName,
     NulInTarget,
     InvalidIdCharacter,
+    /// OpenSSH would treat a leading `-` as an option, not a destination.
+    TargetStartsWithDash,
     ZeroHostBindingGeneration,
     HostBindingGenerationOverflow,
 }
@@ -48,6 +44,7 @@ impl std::fmt::Display for SshConnectionProfileError {
             Self::NulInName => "ssh connection profile name must not contain NUL",
             Self::NulInTarget => "ssh connection profile target must not contain NUL",
             Self::InvalidIdCharacter => "ssh connection profile id contains an invalid character",
+            Self::TargetStartsWithDash => "ssh connection profile target must not start with '-'",
             Self::ZeroHostBindingGeneration => {
                 "ssh connection profile host-binding generation must be nonzero"
             }
@@ -188,7 +185,7 @@ fn validate_id(id: String) -> Result<String, SshConnectionProfileError> {
         return Err(SshConnectionProfileError::InvalidIdCharacter);
     }
     // Ensure the derived host id stays within ExecutionHostId limits.
-    ExecutionHostId::new(format!("ssh:{id}:1")).map_err(|err| match err {
+    ExecutionHostId::new(format!("ssh:{id}:{}", u64::MAX)).map_err(|err| match err {
         crate::execution_host::ExecutionHostIdError::Empty => SshConnectionProfileError::EmptyId,
         crate::execution_host::ExecutionHostIdError::TooLong
         | crate::execution_host::ExecutionHostIdError::InvalidCharacter => {
@@ -199,6 +196,7 @@ fn validate_id(id: String) -> Result<String, SshConnectionProfileError> {
 }
 
 fn validate_name(name: String) -> Result<String, SshConnectionProfileError> {
+    let name = name.trim().to_string();
     if name.is_empty() {
         return Err(SshConnectionProfileError::EmptyName);
     }
@@ -216,6 +214,10 @@ fn validate_target(target: String) -> Result<String, SshConnectionProfileError> 
     }
     if target.contains('\0') {
         return Err(SshConnectionProfileError::NulInTarget);
+    }
+    // Match validate_remote_target: a leading '-' becomes another ssh option.
+    if target.starts_with('-') {
+        return Err(SshConnectionProfileError::TargetStartsWithDash);
     }
     Ok(target)
 }
@@ -265,51 +267,37 @@ impl<'de> Deserialize<'de> for SshConnectionProfile {
 }
 
 fn with_catalog_lock<T>(operation: impl FnOnce() -> std::io::Result<T>) -> std::io::Result<T> {
-    let lock_path = catalog_lock_path();
-    if let Some(parent) = lock_path.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-    let lock = OpenOptions::new()
-        .create(true)
-        .truncate(false)
-        .read(true)
-        .write(true)
-        .open(lock_path)?;
-    lock.lock()?;
-    operation()
+    super::atomic_json::with_path_lock(&catalog_path(), operation)
 }
 
-fn save_json_to_path<T: serde::Serialize + ?Sized>(path: &Path, value: &T) -> std::io::Result<()> {
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-    let json = serde_json::to_string_pretty(value)?;
-    let tmp_path = path.with_extension("json.tmp");
-    std::fs::write(&tmp_path, &json)?;
-    #[cfg(windows)]
-    if path.exists() {
-        if let Err(err) = std::fs::remove_file(path) {
-            let _ = std::fs::remove_file(&tmp_path);
-            return Err(err);
-        }
-    }
-    if let Err(err) = std::fs::rename(&tmp_path, path) {
-        let _ = std::fs::remove_file(&tmp_path);
-        return Err(err);
-    }
-    Ok(())
-}
-
-/// Atomically write the profile catalog to `path` (test and internal helper).
+/// Validate, sort, and atomically write a profile catalog under its canonical lock.
+#[cfg(test)]
 pub(crate) fn save_to_path(path: &Path, profiles: &[SshConnectionProfile]) -> std::io::Result<()> {
-    ensure_unique_ids(profiles)?;
+    super::atomic_json::with_path_lock(path, || save_to_path_unlocked(path, profiles))
+}
+
+fn save_to_path_unlocked(path: &Path, profiles: &[SshConnectionProfile]) -> std::io::Result<()> {
+    ensure_catalog_invariants(profiles)?;
     let mut ordered = profiles.to_vec();
     sort_profiles(&mut ordered);
-    save_json_to_path(path, &ordered)
+    super::atomic_json::save_json_unlocked(path, &ordered)
 }
 
 fn sort_profiles(profiles: &mut [SshConnectionProfile]) {
     profiles.sort_by(|left, right| left.id.cmp(&right.id));
+}
+
+/// Display-name key used for catalog uniqueness.
+///
+/// Matches UI search: outer whitespace ignored, then Unicode `to_lowercase`
+/// (same path as navigator `text_matches_query`).
+fn display_name_key(name: &str) -> String {
+    name.trim().to_lowercase()
+}
+
+fn ensure_catalog_invariants(profiles: &[SshConnectionProfile]) -> std::io::Result<()> {
+    ensure_unique_ids(profiles)?;
+    ensure_unique_display_names(profiles)
 }
 
 fn ensure_unique_ids(profiles: &[SshConnectionProfile]) -> std::io::Result<()> {
@@ -325,6 +313,23 @@ fn ensure_unique_ids(profiles: &[SshConnectionProfile]) -> std::io::Result<()> {
     Ok(())
 }
 
+fn ensure_unique_display_names(profiles: &[SshConnectionProfile]) -> std::io::Result<()> {
+    let mut seen: HashSet<String> = HashSet::with_capacity(profiles.len());
+    for profile in profiles {
+        let key = display_name_key(profile.name());
+        if !seen.insert(key) {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!(
+                    "duplicate ssh connection profile display name: {}",
+                    profile.name()
+                ),
+            ));
+        }
+    }
+    Ok(())
+}
+
 fn load_from_path_strict(path: &Path) -> std::io::Result<Vec<SshConnectionProfile>> {
     if !path.exists() {
         return Ok(Vec::new());
@@ -332,7 +337,7 @@ fn load_from_path_strict(path: &Path) -> std::io::Result<Vec<SshConnectionProfil
     let content = std::fs::read_to_string(path)?;
     let profiles = serde_json::from_str::<Vec<SshConnectionProfile>>(&content)
         .map_err(|err| std::io::Error::new(std::io::ErrorKind::InvalidData, err))?;
-    ensure_unique_ids(&profiles)?;
+    ensure_catalog_invariants(&profiles)?;
     let mut profiles = profiles;
     sort_profiles(&mut profiles);
     Ok(profiles)
@@ -382,9 +387,9 @@ pub(crate) fn update<T>(
     with_catalog_lock(|| {
         let mut profiles = load_from_path_strict(&catalog_path())?;
         let result = mutation(&mut profiles);
-        ensure_unique_ids(&profiles)?;
+        ensure_catalog_invariants(&profiles)?;
         sort_profiles(&mut profiles);
-        save_to_path(&catalog_path(), &profiles)?;
+        save_to_path_unlocked(&catalog_path(), &profiles)?;
         Ok((result, profiles))
     })
 }
@@ -494,6 +499,44 @@ mod tests {
     }
 
     #[test]
+    fn duplicate_display_names_are_rejected_case_insensitively() {
+        let path = temp_catalog_path("dup-names");
+        let a = SshConnectionProfile::new("a", "Workbox", "host-a", None).unwrap();
+        let b = SshConnectionProfile::new("b", "workbox", "host-b", None).unwrap();
+        let err = save_to_path(&path, &[a, b]).unwrap_err();
+        assert_eq!(err.kind(), std::io::ErrorKind::InvalidData);
+        assert!(
+            err.to_string()
+                .contains("duplicate ssh connection profile display name"),
+            "unexpected error: {err}"
+        );
+
+        // Distinct after lowercase still allowed.
+        let ok = vec![
+            SshConnectionProfile::new("a", "Workbox", "host-a", None).unwrap(),
+            SshConnectionProfile::new("b", "Lab", "host-b", None).unwrap(),
+        ];
+        save_to_path(&path, &ok).unwrap();
+
+        // File with case-colliding names is rejected on strict load.
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).unwrap();
+        }
+        std::fs::write(
+            &path,
+            r#"[
+              {"id":"a","name":"Workbox","target":"a","host_binding_generation":1},
+              {"id":"b","name":"WORKBOX","target":"b","host_binding_generation":1}
+            ]"#,
+        )
+        .unwrap();
+        let err = load_from_path_strict(&path).unwrap_err();
+        assert_eq!(err.kind(), std::io::ErrorKind::InvalidData);
+        assert!(err.to_string().contains("display name"));
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    #[test]
     fn rename_and_suggested_directory_preserve_host_id() {
         let mut profile = SshConnectionProfile::new(
             "workbox",
@@ -566,6 +609,10 @@ mod tests {
             SshConnectionProfileError::EmptyName
         );
         assert_eq!(
+            SshConnectionProfile::new("id", "   ", "t", None).unwrap_err(),
+            SshConnectionProfileError::EmptyName
+        );
+        assert_eq!(
             SshConnectionProfile::new("id", "n", "   ", None).unwrap_err(),
             SshConnectionProfileError::EmptyTarget
         );
@@ -586,8 +633,40 @@ mod tests {
             SshConnectionProfileError::InvalidIdCharacter
         );
         assert_eq!(
+            SshConnectionProfile::new("a".repeat(104), "n", "t", None).unwrap_err(),
+            SshConnectionProfileError::InvalidIdCharacter
+        );
+        assert_eq!(
             SshConnectionProfile::from_parts("id", "n", "t", None, 0).unwrap_err(),
             SshConnectionProfileError::ZeroHostBindingGeneration
+        );
+    }
+
+    #[test]
+    fn rejects_target_beginning_with_dash() {
+        assert_eq!(
+            SshConnectionProfile::new("id", "n", "-oProxyCommand=evil", None).unwrap_err(),
+            SshConnectionProfileError::TargetStartsWithDash
+        );
+        assert_eq!(
+            SshConnectionProfile::new("id", "n", "  -J bastion  ", None).unwrap_err(),
+            SshConnectionProfileError::TargetStartsWithDash
+        );
+
+        let mut profile = sample_profile("id", "host.example");
+        assert_eq!(
+            profile.set_target("-oForwardAgent=yes"),
+            Err(SshConnectionProfileError::TargetStartsWithDash)
+        );
+        assert_eq!(profile.target(), "host.example");
+
+        let err = serde_json::from_str::<SshConnectionProfile>(
+            r#"{"id":"id","name":"n","target":"-evil","host_binding_generation":1}"#,
+        )
+        .unwrap_err();
+        assert!(
+            err.to_string().contains("must not start with '-'"),
+            "unexpected deserialize error: {err}"
         );
     }
 

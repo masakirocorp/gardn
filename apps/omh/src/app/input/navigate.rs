@@ -366,6 +366,7 @@ impl App {
                                 crate::api::schema::TabCreateParams {
                                     workspace_id: None,
                                     cwd: None,
+                                    location: None,
                                     focus: true,
                                     label: None,
                                     env: Default::default(),
@@ -449,6 +450,7 @@ impl App {
                     crate::api::schema::PaneSplitParams {
                         workspace_id: None,
                         target_pane_id: None,
+                        location: None,
                         direction,
                         ratio: None,
                         cwd: None,
@@ -1817,7 +1819,7 @@ mod tests {
         );
 
         assert_eq!(state.mode, Mode::RenameWorkspace);
-        assert!(state.pending_workspace_create_cwd.is_some());
+        assert!(state.pending_workspace_create_location.is_some());
         assert!(!state.name_input.is_empty());
         assert!(state.name_input_replace_on_type);
         assert!(state.workspaces.is_empty());
@@ -1848,7 +1850,7 @@ mod tests {
             KeyEvent::new(KeyCode::Enter, KeyModifiers::empty()),
         );
         assert_eq!(state.requested_new_workspace_name.as_deref(), Some("logs"));
-        assert!(state.pending_workspace_create_cwd.is_some());
+        assert!(state.pending_workspace_create_location.is_some());
         assert_eq!(state.mode, Mode::Navigate);
     }
 
@@ -2393,7 +2395,7 @@ navigate_pane_right = "ctrl+l"
             name: "side".into(),
             icon: "■".into(),
             accent: None,
-            default_directory: None,
+            default_location: None,
             favorite_agent_profile_ids: Vec::new(),
             default_agent_profile_id: None,
         });

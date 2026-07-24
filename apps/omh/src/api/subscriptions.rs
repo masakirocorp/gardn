@@ -107,6 +107,10 @@ impl ActiveSubscription {
                 event_kind: crate::api::schema::EventKind::LayoutUpdated,
                 last_sequence: 0,
             })),
+            Subscription::ConnectionStatusChanged {} => Ok(Self::Event(ActiveEventSubscription {
+                event_kind: crate::api::schema::EventKind::ConnectionStatusChanged,
+                last_sequence: 0,
+            })),
             Subscription::WorkspaceCreated {} => Ok(Self::Event(ActiveEventSubscription {
                 event_kind: crate::api::schema::EventKind::WorkspaceCreated,
                 last_sequence: 0,
@@ -508,4 +512,51 @@ fn pane_get(
             message: "failed to decode pane get result".into(),
         },
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::api::schema::{
+        ConnectionStatusKind, EventData, EventEnvelope, EventKind, Subscription,
+    };
+
+    #[test]
+    fn connection_status_subscription_delivers_shared_transition_event() {
+        let event_hub = EventHub::default();
+        let (api_tx, _api_rx) = tokio::sync::mpsc::unbounded_channel();
+        let mut subscription = ActiveSubscription::new(
+            Subscription::ConnectionStatusChanged {},
+            "status-subscription",
+            0,
+            &api_tx,
+            &event_hub,
+        )
+        .expect("connection status subscription should be valid");
+        event_hub.push(EventEnvelope {
+            event: EventKind::ConnectionStatusChanged,
+            data: EventData::ConnectionStatusChanged {
+                execution_host_id: "ssh:workbox:1".into(),
+                status: ConnectionStatusKind::Unavailable,
+                error: Some("host unreachable".into()),
+            },
+        });
+
+        let event = subscription
+            .poll(&api_tx, &event_hub)
+            .expect("subscription poll should succeed")
+            .expect("transition should produce an event");
+
+        assert_eq!(event["event"], "connection_status_changed");
+        assert_eq!(event["data"]["execution_host_id"], "ssh:workbox:1");
+        assert_eq!(event["data"]["status"], "unavailable");
+        assert_eq!(event["data"]["error"], "host unreachable");
+        assert!(
+            subscription
+                .poll(&api_tx, &event_hub)
+                .expect("repeat poll should succeed")
+                .is_none(),
+            "the same transition must not be delivered twice"
+        );
+    }
 }

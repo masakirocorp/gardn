@@ -548,6 +548,7 @@ fn parse_pane_split_args(args: &[String]) -> Result<PaneSplitParams, String> {
     let mut direction = None;
     let mut ratio = None;
     let mut cwd = None;
+    let mut host = None;
     let mut focus = false;
 
     let mut index = 0;
@@ -599,6 +600,13 @@ fn parse_pane_split_args(args: &[String]) -> Result<PaneSplitParams, String> {
                 cwd = Some(value.clone());
                 index += 2;
             }
+            "--host" => {
+                let Some(value) = args.get(index + 1) else {
+                    return Err("missing value for --host".into());
+                };
+                host = Some(value.clone());
+                index += 2;
+            }
             "--focus" => {
                 focus = true;
                 index += 1;
@@ -621,14 +629,17 @@ fn parse_pane_split_args(args: &[String]) -> Result<PaneSplitParams, String> {
 
     let Some(direction) = direction else {
         return Err(
-            "usage: omh pane split [<pane_id>|--pane ID|--current] --direction right|down [--ratio FLOAT] [--cwd PATH] [--env KEY=VALUE] [--focus] [--no-focus]"
+            "usage: omh pane split [<pane_id>|--pane ID|--current] --direction right|down [--ratio FLOAT] [--cwd PATH] [--host EXECUTION_HOST_ID] [--env KEY=VALUE] [--focus] [--no-focus]"
                 .into(),
         );
     };
 
+    let location = super::explicit_resource_location(host, &mut cwd)?;
+
     Ok(PaneSplitParams {
         workspace_id: None,
         target_pane_id: pane_id,
+        location,
         direction,
         ratio,
         cwd,
@@ -1447,7 +1458,7 @@ fn print_pane_help() {
     eprintln!("  omh pane rename <pane_id> <label>|--clear");
     eprintln!("  omh pane read <pane_id> [--source visible|recent|recent-unwrapped] [--lines N] [--format text|ansi] [--ansi]");
     eprintln!(
-        "  omh pane split [<pane_id>|--pane ID|--current] --direction right|down [--ratio FLOAT] [--cwd PATH] [--env KEY=VALUE] [--focus] [--no-focus]"
+        "  omh pane split [<pane_id>|--pane ID|--current] --direction right|down [--ratio FLOAT] [--cwd PATH] [--host EXECUTION_HOST_ID] [--env KEY=VALUE] [--focus] [--no-focus]"
     );
     eprintln!("  omh pane swap --direction left|right|up|down [--pane ID|--current]");
     eprintln!("  omh pane swap --source-pane ID --target-pane ID");
@@ -1505,6 +1516,36 @@ mod tests {
 
         assert_eq!(params.target_pane_id, Some("issue-2".into()));
         assert_eq!(params.direction, crate::api::schema::SplitDirection::Right);
+    }
+    #[test]
+    fn parse_pane_split_args_builds_explicit_remote_location() {
+        let params = parse_pane_split_args(&args(&[
+            "--direction",
+            "right",
+            "--host",
+            "ssh:workbox:1",
+            "--cwd",
+            "/srv/project",
+        ]))
+        .unwrap();
+
+        assert_eq!(params.cwd, None);
+        assert_eq!(
+            params.location,
+            Some(crate::api::schema::ResourceLocationParams {
+                execution_host_id: "ssh:workbox:1".into(),
+                path: "/srv/project".into(),
+            })
+        );
+    }
+
+    #[test]
+    fn parse_pane_split_args_requires_cwd_with_host() {
+        let error =
+            parse_pane_split_args(&args(&["--direction", "right", "--host", "ssh:workbox:1"]))
+                .unwrap_err();
+
+        assert_eq!(error, "--host requires --cwd PATH");
     }
 
     #[test]

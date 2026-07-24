@@ -1,9 +1,29 @@
 use std::{fmt, path::PathBuf};
 
 use serde::{Deserialize, Deserializer, Serialize};
-mod local;
 
-pub(crate) use local::LocalExecutionHost;
+pub(crate) mod auth;
+mod connection;
+mod connection_catalog;
+pub(crate) mod lifecycle;
+pub(crate) mod local;
+mod observation;
+mod operations;
+pub(crate) mod placement;
+pub(crate) mod protocol;
+mod registry;
+pub(crate) mod remote;
+pub(crate) mod runtime_paths;
+mod stage_requests;
+pub(crate) mod staging;
+mod terminals;
+pub(crate) mod worker;
+
+pub(crate) use connection::ConnectionStatus;
+pub(crate) use connection_catalog::HostConnectionAction;
+pub(crate) use operations::{HostObservation, HostOperationError, ObservationStatus};
+pub(crate) use protocol::PROTOCOL_VERSION as EXECUTION_WORKER_PROTOCOL_VERSION;
+pub(crate) use registry::{ExecutionHostEvent, ExecutionHostManager};
 
 pub(crate) const LOCAL_EXECUTION_HOST_ID: &str = "local";
 const MAX_EXECUTION_HOST_ID_LEN: usize = 128;
@@ -100,9 +120,11 @@ impl HostPath {
     pub(crate) fn as_path(&self) -> &std::path::Path {
         &self.0
     }
+}
 
-    pub(crate) fn into_path_buf(self) -> PathBuf {
-        self.0
+impl Default for HostPath {
+    fn default() -> Self {
+        Self(PathBuf::from("."))
     }
 }
 

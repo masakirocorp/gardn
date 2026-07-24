@@ -42,7 +42,7 @@ use crate::server::client_accept::{
 use crate::server::client_transport::ServerEvent;
 use crate::server::clients::{
     events_include_interaction, latest_app_client, render_targets, terminal_attach_client_ids,
-    ClientConnection, ClientConnectionMode,
+    ClientConnection, ClientConnectionMode, StagedClipboardFile,
 };
 use crate::server::keybindings::{app_keybindings, apply_keybindings};
 use crate::server::notifications::{
@@ -152,6 +152,12 @@ const SHUTDOWN_API_TIMEOUT: Duration = Duration::from_secs(5);
 /// avoid reintroducing the idle CPU spin.
 const CLIENT_ACCEPT_POLL_INTERVAL: Duration = Duration::from_millis(250);
 
+struct PendingClipboardImageStage {
+    client_id: u64,
+    terminal_id: crate::terminal::TerminalId,
+    location: crate::execution_host::ResourceLocation,
+}
+
 // ---------------------------------------------------------------------------
 // Headless server
 // ---------------------------------------------------------------------------
@@ -166,6 +172,13 @@ pub struct HeadlessServer {
     client_socket_identity: SocketFileIdentity,
     clients: HashMap<u64, ClientConnection>,
     next_client_id: u64,
+    pending_clipboard_image_stages: HashMap<
+        (
+            crate::execution_host::ExecutionHostId,
+            crate::execution_host::protocol::RequestId,
+        ),
+        PendingClipboardImageStage,
+    >,
     /// Most recently interactive full app client, used for shared host context only.
     foreground_client_id: Option<u64>,
     /// Server-owned keybindings, restored when foreground clients use server mode.
@@ -239,6 +252,7 @@ impl HeadlessServer {
             client_socket_identity,
             clients: HashMap::new(),
             next_client_id: 1,
+            pending_clipboard_image_stages: HashMap::new(),
             foreground_client_id: None,
             server_keybindings,
             server_config_diagnostic,
@@ -323,6 +337,22 @@ impl HeadlessServer {
 
             // 6. Handle scheduled tasks.
             let now = Instant::now();
+            if self.app.poll_execution_hosts(now) {
+                needs_render = true;
+            }
+            // Deferred focus cleanup is client-scoped; apply exact markers to live views.
+            let client_view_effects = self.app.take_client_view_effects();
+            if !client_view_effects.is_empty() {
+                for effect in &client_view_effects {
+                    for client in self.clients.values_mut() {
+                        if let Some(view) = client.view_state.as_mut() {
+                            if view.apply_client_view_effect(effect) {
+                                needs_render = true;
+                            }
+                        }
+                    }
+                }
+            }
             if self.handle_scheduled_tasks_headless(now, needs_render) {
                 needs_render = true;
             }
@@ -788,6 +818,8 @@ impl HeadlessServer {
             &self.app.state.groups,
             self.app.state.active_group,
             self.app.state.group_filter_enabled,
+            &self.app.state.session_namespace_id,
+            &self.app.state.remote_termination_tombstones,
             &self.app.state.workspaces,
             &self.app.state.terminals,
             &self.app.terminal_runtimes,
@@ -1095,16 +1127,40 @@ impl HeadlessServer {
         self.app_client_count() > 0
     }
 
+    fn remove_staged_clipboard_files(&mut self, files: Vec<StagedClipboardFile>) {
+        let mut local_paths = Vec::new();
+        for file in files {
+            match file {
+                StagedClipboardFile::Local(path) => local_paths.push(path),
+                StagedClipboardFile::Remote(location) => {
+                    if let Some(hosts) = self.app.execution_hosts.as_mut() {
+                        if let Err(error) = hosts.remove_staged_file(location.clone()) {
+                            debug!(path = %location.path, %error, "remote staged clipboard cleanup deferred to TTL");
+                        }
+                    }
+                }
+            }
+        }
+        crate::server::clipboard_image::remove_files(local_paths);
+    }
+
     fn remove_client(&mut self, client_id: u64) -> bool {
         self.client_tab_keys.remove(&client_id);
         let was_foreground = self.foreground_client_id == Some(client_id);
         self.send_client_graphics_cleanup(client_id);
         let removed = self.clients.remove(&client_id);
         let mut removed_terminal_attach = false;
+        self.pending_clipboard_image_stages
+            .retain(|_, pending| pending.client_id != client_id);
         if let Some(removed) = removed {
-            crate::server::clipboard_image::remove_files(removed.staged_clipboard_files);
+            self.remove_staged_clipboard_files(removed.staged_clipboard_files);
             if let Some(view) = removed.view_state.as_ref() {
                 let view_id = view.id();
+                if let Some(hosts) = self.app.execution_hosts.as_ref() {
+                    hosts.cancel_authentication_owner(
+                        crate::execution_host::auth::AuthenticationOwner::new(view_id),
+                    );
+                }
                 self.app
                     .state
                     .client_overlay_owners
@@ -1274,18 +1330,214 @@ impl HeadlessServer {
         self.app.terminal_runtimes.get(&terminal_id)
     }
 
-    fn write_client_clipboard_image(
+    fn client_clipboard_image_terminal(
+        &self,
+        client_id: u64,
+    ) -> Option<crate::terminal::TerminalId> {
+        let client = self.clients.get(&client_id)?;
+        if let ClientConnectionMode::TerminalAttach { terminal_id } = &client.mode {
+            return self.terminal_id_by_string(terminal_id);
+        }
+        let view = client.view_state.as_ref()?;
+        let ws_idx = view.active_workspace?;
+        let (_, pane_id) = view.focused_pane_for_workspace(&self.app.state, ws_idx)?;
+        self.app
+            .state
+            .workspaces
+            .get(ws_idx)?
+            .pane_state(pane_id)
+            .map(|pane| pane.attached_terminal_id.clone())
+    }
+
+    fn send_client_effect_error(
         &mut self,
         client_id: u64,
-        extension: &str,
-        data: &[u8],
-    ) -> std::io::Result<String> {
-        let staged = crate::server::clipboard_image::stage(client_id, extension, data)?;
-        if let Some(client) = self.clients.get_mut(&client_id) {
-            client.staged_clipboard_files.push(staged.path);
+        code: crate::protocol::ClientEffectErrorCode,
+        message: impl Into<String>,
+    ) {
+        self.send_to_client(
+            client_id,
+            ServerMessage::ClientEffectError {
+                code,
+                message: message.into(),
+            },
+        );
+    }
+
+    fn request_client_clipboard_image(
+        &mut self,
+        client_id: u64,
+        extension: String,
+        data: Vec<u8>,
+    ) -> bool {
+        let Some(terminal_id) = self.client_clipboard_image_terminal(client_id) else {
+            self.send_client_effect_error(
+                client_id,
+                crate::protocol::ClientEffectErrorCode::Failed,
+                "Clipboard image paste failed: no target terminal",
+            );
+            return false;
+        };
+        let Some(location) = self
+            .app
+            .state
+            .terminals
+            .get(&terminal_id)
+            .map(|terminal| terminal.location.clone())
+        else {
+            self.send_client_effect_error(
+                client_id,
+                crate::protocol::ClientEffectErrorCode::Failed,
+                "Clipboard image paste failed: target terminal is unavailable",
+            );
+            return false;
+        };
+
+        if location.is_local() {
+            match crate::server::clipboard_image::stage(client_id, &extension, &data) {
+                Ok(staged) => {
+                    if let Some(client) = self.clients.get_mut(&client_id) {
+                        client
+                            .staged_clipboard_files
+                            .push(StagedClipboardFile::Local(staged.path));
+                        info!(client_id, bytes = data.len(), path = %staged.paste_text, "staged local clipboard image");
+                        self.paste_client_clipboard_image_path(client_id, staged.paste_text);
+                        return true;
+                    }
+                    crate::server::clipboard_image::remove_files(vec![staged.path]);
+                    false
+                }
+                Err(error) => {
+                    warn!(client_id, %error, "failed to stage local clipboard image");
+                    self.send_client_effect_error(
+                        client_id,
+                        crate::protocol::ClientEffectErrorCode::Failed,
+                        format!("Clipboard image paste failed: {error}"),
+                    );
+                    false
+                }
+            }
+        } else {
+            let Some(hosts) = self.app.execution_hosts.as_mut() else {
+                self.send_client_effect_error(
+                    client_id,
+                    crate::protocol::ClientEffectErrorCode::Unsupported,
+                    "Unsupported: target execution host cannot stage clipboard images",
+                );
+                return false;
+            };
+            let stage_location = location.clone();
+            match hosts.request_stage_file(
+                location,
+                extension,
+                data,
+                crate::execution_host::staging::DEFAULT_STAGED_FILE_TTL.as_secs() as u32,
+            ) {
+                Ok(request_id) => {
+                    self.pending_clipboard_image_stages.insert(
+                        (stage_location.execution_host_id.clone(), request_id),
+                        PendingClipboardImageStage {
+                            client_id,
+                            terminal_id,
+                            location: stage_location,
+                        },
+                    );
+                    true
+                }
+                Err(error) => {
+                    let code = if matches!(
+                        error,
+                        crate::execution_host::HostOperationError::Unsupported { .. }
+                    ) {
+                        crate::protocol::ClientEffectErrorCode::Unsupported
+                    } else {
+                        crate::protocol::ClientEffectErrorCode::Failed
+                    };
+                    self.send_client_effect_error(
+                        client_id,
+                        code,
+                        format!("Clipboard image paste failed: {error}"),
+                    );
+                    false
+                }
+            }
         }
-        info!(client_id, bytes = data.len(), path = %staged.paste_text, "staged client clipboard image");
-        Ok(staged.paste_text)
+    }
+
+    fn complete_remote_clipboard_image_stage(
+        &mut self,
+        host_id: crate::execution_host::ExecutionHostId,
+        request_id: crate::execution_host::protocol::RequestId,
+        location: crate::execution_host::ResourceLocation,
+        result: Result<
+            crate::execution_host::HostPath,
+            crate::execution_host::protocol::WorkerError,
+        >,
+    ) -> bool {
+        let pending = self
+            .pending_clipboard_image_stages
+            .remove(&(host_id.clone(), request_id));
+        if pending.as_ref().is_some_and(|pending| {
+            pending.location != location || location.execution_host_id != host_id
+        }) {
+            if let Ok(path) = &result {
+                let staged_location = crate::execution_host::ResourceLocation::new(
+                    location.execution_host_id.clone(),
+                    path.clone(),
+                );
+                self.remove_staged_clipboard_files(vec![StagedClipboardFile::Remote(
+                    staged_location,
+                )]);
+            }
+            return false;
+        }
+        let path = match result {
+            Ok(path) => path,
+            Err(error) => {
+                if let Some(pending) = pending {
+                    let code = if error.code
+                        == crate::execution_host::protocol::WorkerErrorCode::UnsupportedCapability
+                    {
+                        crate::protocol::ClientEffectErrorCode::Unsupported
+                    } else {
+                        crate::protocol::ClientEffectErrorCode::Failed
+                    };
+                    self.send_client_effect_error(
+                        pending.client_id,
+                        code,
+                        format!("Clipboard image paste failed: {}", error.message),
+                    );
+                }
+                return false;
+            }
+        };
+        let staged_location =
+            crate::execution_host::ResourceLocation::new(location.execution_host_id, path.clone());
+        let Some(pending) = pending else {
+            self.remove_staged_clipboard_files(vec![StagedClipboardFile::Remote(staged_location)]);
+            return false;
+        };
+        let target_matches = self.client_clipboard_image_terminal(pending.client_id)
+            == Some(pending.terminal_id.clone())
+            && self
+                .app
+                .state
+                .terminals
+                .get(&pending.terminal_id)
+                .is_some_and(|terminal| {
+                    terminal.location.execution_host_id == staged_location.execution_host_id
+                });
+        if !target_matches {
+            self.remove_staged_clipboard_files(vec![StagedClipboardFile::Remote(staged_location)]);
+            return false;
+        }
+        if let Some(client) = self.clients.get_mut(&pending.client_id) {
+            client
+                .staged_clipboard_files
+                .push(StagedClipboardFile::Remote(staged_location));
+        }
+        info!(client_id = pending.client_id, path = %path, "staged remote clipboard image");
+        self.paste_client_clipboard_image_path(pending.client_id, path.to_string())
     }
 
     fn paste_client_clipboard_image_path(&mut self, client_id: u64, path: String) -> bool {
@@ -1512,14 +1764,145 @@ impl HeadlessServer {
     /// in the headless server — use this method instead.
     ///
     /// Returns true if the event changed visual state (requiring a re-render).
+    fn foreground_clipboard_controller(&self) -> Option<u64> {
+        let client_id = self.foreground_client_id?;
+        self.clients
+            .get(&client_id)
+            .is_some_and(ClientConnection::is_full_app_client)
+            .then_some(client_id)
+    }
+
+    fn clipboard_controller_for_pane(&self, pane_id: crate::layout::PaneId) -> Option<u64> {
+        for (terminal_id, owner) in &self.terminal_attach_owners {
+            // Stale attach mappings must not abort ownership resolution for later
+            // valid entries or tab/popup controllers.
+            let Some(terminal_id) = self.terminal_id_by_string(terminal_id) else {
+                continue;
+            };
+            let owns_workspace_pane = self.app.state.workspaces.iter().any(|workspace| {
+                workspace.tabs.iter().any(|tab| {
+                    tab.panes
+                        .get(&pane_id)
+                        .is_some_and(|pane| pane.attached_terminal_id == terminal_id)
+                })
+            });
+            if owns_workspace_pane {
+                return Some(*owner);
+            }
+            let owns_popup_pane = self
+                .app
+                .state
+                .popup_panes
+                .get(&pane_id)
+                .is_some_and(|popup| popup.terminal_id == terminal_id);
+            if owns_popup_pane {
+                return Some(*owner);
+            }
+        }
+
+        if let Some(popup) = self.app.state.popup_panes.get(&pane_id) {
+            if let Some(owner_view_id) = popup.owner {
+                if let Some((&client_id, _)) = self.clients.iter().find(|(_, client)| {
+                    client
+                        .view_state
+                        .as_ref()
+                        .is_some_and(|view| view.id() == owner_view_id)
+                }) {
+                    return Some(client_id);
+                }
+            }
+            if let Some((&client_id, _)) = self.clients.iter().find(|(_, client)| {
+                client
+                    .view_state
+                    .as_ref()
+                    .is_some_and(|view| view.popup_pane == Some(pane_id))
+            }) {
+                return Some(client_id);
+            }
+        }
+
+        self.app.state.workspaces.iter().find_map(|workspace| {
+            workspace.tabs.iter().find_map(|tab| {
+                tab.panes.contains_key(&pane_id).then(|| {
+                    self.tab_controls
+                        .status(&TabControlKey::new(&workspace.id, tab.number))
+                        .controller
+                })
+            })
+        })?
+    }
+
+    fn pane_execution_host_is_local(&self, pane_id: crate::layout::PaneId) -> bool {
+        if let Some(popup) = self.app.state.popup_panes.get(&pane_id) {
+            return self
+                .app
+                .state
+                .terminals
+                .get(&popup.terminal_id)
+                .is_some_and(|terminal| terminal.location.is_local());
+        }
+        self.app.state.workspaces.iter().any(|workspace| {
+            workspace.tabs.iter().any(|tab| {
+                tab.panes.get(&pane_id).is_some_and(|pane| {
+                    self.app
+                        .state
+                        .terminals
+                        .get(&pane.attached_terminal_id)
+                        .is_some_and(|terminal| terminal.location.is_local())
+                })
+            })
+        })
+    }
+
     fn handle_internal_event_with_forwarding(&mut self, ev: AppEvent) -> bool {
         match &ev {
             AppEvent::ClipboardWrite { content } => {
-                // Clipboard writes are client-local side effects. Forward them only to
-                // the foreground client instead of broadcasting to every attached client.
+                // UI clipboard writes belong to the invoking foreground controller.
                 let data = base64::engine::general_purpose::STANDARD.encode(content.as_slice());
-                if self.send_to_foreground_client(ServerMessage::Clipboard { data }) {
-                    self.app.show_clipboard_feedback();
+                if let Some(client_id) = self.foreground_clipboard_controller() {
+                    if self.send_to_client(client_id, ServerMessage::Clipboard { data }) {
+                        self.app.show_clipboard_feedback();
+                    }
+                }
+                true
+            }
+            AppEvent::TerminalClipboardWrite { pane_id, content } => {
+                let data = base64::engine::general_purpose::STANDARD.encode(content.as_slice());
+                if let Some(client_id) = self.clipboard_controller_for_pane(*pane_id) {
+                    if self.send_to_client(client_id, ServerMessage::Clipboard { data }) {
+                        self.app.show_clipboard_feedback();
+                    }
+                }
+                true
+            }
+            AppEvent::ExecutionFileStaged {
+                host_id,
+                request_id,
+                location,
+                result,
+            } => self.complete_remote_clipboard_image_stage(
+                host_id.clone(),
+                *request_id,
+                location.clone(),
+                result.clone(),
+            ),
+            AppEvent::OpenUrl { pane_id, url } => {
+                let Some(client_id) = self.clipboard_controller_for_pane(*pane_id) else {
+                    return true;
+                };
+                if crate::app::rendering_client_may_open_url(
+                    url,
+                    self.pane_execution_host_is_local(*pane_id),
+                ) {
+                    self.send_to_client(client_id, ServerMessage::OpenUrl { url: url.clone() });
+                } else {
+                    self.send_client_effect_error(
+                        client_id,
+                        crate::protocol::ClientEffectErrorCode::Unsupported,
+                        format!(
+                            "Refused to open execution-host-local URL on rendering host: {url}"
+                        ),
+                    );
                 }
                 true
             }
@@ -1771,11 +2154,72 @@ impl HeadlessServer {
 
                 true
             }
+            AppEvent::WorkerInstallPreviewed {
+                authentication_owner,
+                profile_id,
+                result,
+            } => {
+                self.apply_worker_install_previewed_event(*authentication_owner, profile_id, result)
+            }
+            AppEvent::WorkerInstalled {
+                authentication_owner,
+                profile_id,
+                result,
+            } => self.apply_worker_installed_event(*authentication_owner, profile_id, result),
             _ => {
                 self.app.handle_internal_event(ev);
                 true
             }
         }
+    }
+
+    fn apply_worker_install_previewed_event(
+        &mut self,
+        owner: crate::execution_host::auth::AuthenticationOwner,
+        profile_id: &str,
+        result: &Result<crate::remote::WorkerInstallPreview, String>,
+    ) -> bool {
+        let mut changed = false;
+        for client in self.clients.values_mut() {
+            let Some(view) = client.view_state.as_mut() else {
+                continue;
+            };
+            if crate::app::App::apply_worker_install_previewed_to_view(
+                view, owner, profile_id, result,
+            ) {
+                client.render_pending = true;
+                changed = true;
+                break;
+            }
+        }
+        // Keep the ambient/default projection aligned when it owns the completion.
+        changed |= self
+            .app
+            .apply_worker_install_previewed_for_owner(owner, profile_id, result);
+        changed
+    }
+
+    fn apply_worker_installed_event(
+        &mut self,
+        owner: crate::execution_host::auth::AuthenticationOwner,
+        profile_id: &str,
+        result: &Result<crate::remote::WorkerInstallReport, String>,
+    ) -> bool {
+        let mut changed = false;
+        for client in self.clients.values_mut() {
+            let Some(view) = client.view_state.as_mut() else {
+                continue;
+            };
+            if crate::app::App::apply_worker_installed_to_view(view, owner, profile_id, result) {
+                client.render_pending = true;
+                changed = true;
+                break;
+            }
+        }
+        changed |= self
+            .app
+            .apply_worker_installed_for_owner(owner, profile_id, result);
+        changed
     }
 
     /// Drains internal events, forwarding clipboard, sound, and toast
@@ -2332,13 +2776,7 @@ impl HeadlessServer {
                     extension = %extension,
                     "client clipboard image received"
                 );
-                match self.write_client_clipboard_image(client_id, &extension, &data) {
-                    Ok(path) => self.paste_client_clipboard_image_path(client_id, path),
-                    Err(err) => {
-                        warn!(client_id, err = %err, "failed to stage client clipboard image");
-                        true
-                    }
-                }
+                self.request_client_clipboard_image(client_id, extension, data)
             }
             ServerEvent::ClientResize {
                 client_id,
@@ -2545,64 +2983,93 @@ impl HeadlessServer {
         };
 
         self.sync_foreground_client_state();
-        let response = if matches!(
+        let disposition = if matches!(
             &msg.request.method,
             api::schema::Method::ServerReloadConfig(_)
         ) {
             let report = self.reload_server_config(true);
-            serde_json::to_string(&api::schema::SuccessResponse {
-                id: msg.request.id.clone(),
-                result: api::schema::ResponseResult::ConfigReload {
-                    status: report.status,
-                    diagnostics: report.diagnostics,
-                },
-            })
-            .unwrap_or_else(|err| {
-                serde_json::to_string(&api::schema::ErrorResponse {
-                    id: String::new(),
-                    error: api::schema::ErrorBody {
-                        code: "serialization_error".into(),
-                        message: err.to_string(),
+            api::ApiRequestDisposition::Respond(
+                serde_json::to_string(&api::schema::SuccessResponse {
+                    id: msg.request.id.clone(),
+                    result: api::schema::ResponseResult::ConfigReload {
+                        status: report.status,
+                        diagnostics: report.diagnostics,
                     },
                 })
-                .unwrap_or_else(|_| "{}".to_string())
-            })
+                .unwrap_or_else(|err| {
+                    serde_json::to_string(&api::schema::ErrorResponse {
+                        id: String::new(),
+                        error: api::schema::ErrorBody {
+                            code: "serialization_error".into(),
+                            message: err.to_string(),
+                        },
+                    })
+                    .unwrap_or_else(|_| "{}".to_string())
+                }),
+            )
         } else if let Some(client_id) = self.foreground_client_id {
             if let Some(mut view_state) = self
                 .clients
                 .get_mut(&client_id)
                 .and_then(|client| client.view_state.take())
             {
-                let response = self
+                let disposition = self
                     .app
-                    .handle_api_request_for_view(&mut view_state, msg.request);
+                    .handle_api_request_disposition_for_view(&mut view_state, msg.request);
                 if let Some(client) = self.clients.get_mut(&client_id) {
                     client.view_state = Some(view_state);
                 }
-                response
+                disposition
             } else {
                 let mut view_state = self
                     .app
                     .default_client_view
                     .clone_reconciled(&self.app.state);
-                let response = self
+                let disposition = self
                     .app
-                    .handle_api_request_for_view(&mut view_state, msg.request);
+                    .handle_api_request_disposition_for_view(&mut view_state, msg.request);
                 self.app.default_client_view = view_state;
-                response
+                disposition
             }
         } else {
             let mut view_state = self
                 .app
                 .default_client_view
                 .clone_reconciled(&self.app.state);
-            let response = self
+            let disposition = self
                 .app
-                .handle_api_request_for_view(&mut view_state, msg.request);
+                .handle_api_request_disposition_for_view(&mut view_state, msg.request);
             self.app.default_client_view = view_state;
-            response
+            disposition
         };
-        let _ = msg.respond_to.send(response);
+        match disposition {
+            api::ApiRequestDisposition::Respond(response) => {
+                let _ = msg.respond_to.send(response);
+            }
+            api::ApiRequestDisposition::Deferred(deferred) => {
+                // Insert once with the real responder; no placeholder channel.
+                let (terminal_id, pending) =
+                    crate::app::PendingRemoteApiResponse::from_deferred(deferred, msg.respond_to);
+                self.app
+                    .store_pending_remote_api_response(terminal_id, pending);
+            }
+            api::ApiRequestDisposition::DeferredConnectionInstall {
+                request_id,
+                profile_id,
+                profile,
+                confirm,
+                authentication_owner,
+            } => {
+                self.app.spawn_connection_install_response(
+                    msg.respond_to,
+                    request_id,
+                    profile_id,
+                    profile,
+                    confirm,
+                    authentication_owner,
+                );
+            }
+        }
 
         // Forward new toast state only when a client-local delivery mode is selected.
         // Oh My Herdr delivery renders the toast in-frame and must not ask clients to
@@ -3034,10 +3501,10 @@ impl HeadlessServer {
         }
 
         if now >= self.app.next_command_scan {
-            changed |= self
-                .app
-                .state
-                .refresh_command_catalog(&self.app.terminal_runtimes);
+            changed |= self.app.state.refresh_command_catalog_with_hosts(
+                &self.app.terminal_runtimes,
+                self.app.execution_hosts.as_mut(),
+            );
             changed |= self
                 .app
                 .state
@@ -3228,7 +3695,7 @@ impl HeadlessServer {
             .drain()
             .flat_map(|(_, client)| client.staged_clipboard_files)
             .collect::<Vec<_>>();
-        crate::server::clipboard_image::remove_files(staged_files);
+        self.remove_staged_clipboard_files(staged_files);
 
         // Remove socket files.
         self.cleanup_sockets()?;
@@ -3290,7 +3757,7 @@ impl Drop for HeadlessServer {
             .drain()
             .flat_map(|(_, client)| client.staged_clipboard_files)
             .collect::<Vec<_>>();
-        crate::server::clipboard_image::remove_files(staged_files);
+        self.remove_staged_clipboard_files(staged_files);
         let _ = self.cleanup_sockets();
     }
 }
@@ -3602,6 +4069,7 @@ mod tests {
             client_socket_identity,
             clients: HashMap::new(),
             next_client_id: 1,
+            pending_clipboard_image_stages: HashMap::new(),
             foreground_client_id: None,
             server_keybindings,
             server_config_diagnostic: None,
@@ -4495,6 +4963,8 @@ next_tab = ""
                 pane_id,
                 child_pid: 0,
                 exit_success: true,
+                exit_code: None,
+                exit_signal: None,
             })
         );
 
@@ -6458,6 +6928,239 @@ next_tab = ""
     }
 
     #[test]
+    fn terminal_clipboard_write_targets_controller_not_watcher() {
+        let mut server = test_headless_server();
+        let workspace = crate::workspace::Workspace::test_new("osc-controller");
+        let pane_id = workspace.tabs[0].root_pane;
+        server.app.state.workspaces = vec![workspace];
+        server.app.state.active = Some(0);
+        server.app.state.selected = 0;
+        let (controller_writer, controller_rx, _controller_render_rx) = test_client_writer();
+        let (watcher_writer, watcher_rx, _watcher_render_rx) = test_client_writer();
+
+        let mut controller = test_app_client(Some(true), 2);
+        controller.writer = Some(controller_writer);
+        controller.view_state = Some(crate::app::ClientViewState::from_default_client_state(
+            &server.app.state,
+        ));
+        let mut watcher = test_app_client(Some(false), 1);
+        watcher.writer = Some(watcher_writer);
+        watcher.view_state = Some(crate::app::ClientViewState::from_default_client_state(
+            &server.app.state,
+        ));
+        server.clients.insert(1, controller);
+        server.clients.insert(2, watcher);
+        server.foreground_client_id = Some(1);
+        server.sync_foreground_client_state();
+        assert!(server.reconcile_client_tab_control(1));
+
+        assert!(
+            server.handle_internal_event_with_forwarding(AppEvent::TerminalClipboardWrite {
+                pane_id,
+                content: b"osc".to_vec(),
+            },)
+        );
+        match read_server_message(
+            controller_rx
+                .recv_timeout(Duration::from_millis(100))
+                .expect("controller clipboard message"),
+        ) {
+            ServerMessage::Clipboard { data } => assert_eq!(data, "b3Nj"),
+            other => panic!("expected controller clipboard message, got {other:?}"),
+        }
+        assert!(
+            watcher_rx.recv_timeout(Duration::from_millis(50)).is_err(),
+            "watcher must not receive terminal OSC clipboard writes"
+        );
+    }
+
+    fn install_test_popup_pane(
+        server: &mut HeadlessServer,
+        owner_view: &mut crate::app::ClientViewState,
+        location: crate::execution_host::ResourceLocation,
+    ) -> crate::layout::PaneId {
+        let pane_id = crate::layout::PaneId::alloc();
+        let terminal_id = crate::terminal::TerminalId::alloc();
+        server.app.state.terminals.insert(
+            terminal_id.clone(),
+            crate::terminal::TerminalState::new_at(terminal_id.clone(), location),
+        );
+        server.app.state.popup_panes.insert(
+            pane_id,
+            crate::app::state::PopupPaneState {
+                pane_id,
+                terminal_id,
+                width: None,
+                height: None,
+                owner: Some(owner_view.id()),
+            },
+        );
+        owner_view.popup_pane = Some(pane_id);
+        owner_view.mode = crate::app::Mode::Terminal;
+        pane_id
+    }
+
+    #[test]
+    fn popup_terminal_clipboard_write_targets_owning_client() {
+        let mut server = test_headless_server();
+        server.app.state.workspaces = vec![crate::workspace::Workspace::test_new("popup-osc")];
+        server.app.state.active = Some(0);
+        server.app.state.selected = 0;
+
+        let (owner_writer, owner_rx, _owner_render_rx) = test_client_writer();
+        let (other_writer, other_rx, _other_render_rx) = test_client_writer();
+
+        let mut owner = test_app_client(Some(true), 2);
+        owner.writer = Some(owner_writer);
+        let mut owner_view =
+            crate::app::ClientViewState::from_default_client_state(&server.app.state);
+        let mut other = test_app_client(Some(false), 1);
+        other.writer = Some(other_writer);
+        other.view_state = Some(crate::app::ClientViewState::from_default_client_state(
+            &server.app.state,
+        ));
+
+        let pane_id = install_test_popup_pane(
+            &mut server,
+            &mut owner_view,
+            crate::execution_host::ResourceLocation::local("/popup").expect("local popup location"),
+        );
+        owner.view_state = Some(owner_view);
+
+        server.clients.insert(1, owner);
+        server.clients.insert(2, other);
+        server.foreground_client_id = Some(2);
+        server.sync_foreground_client_state();
+
+        assert!(
+            server.handle_internal_event_with_forwarding(AppEvent::TerminalClipboardWrite {
+                pane_id,
+                content: b"popup-osc".to_vec(),
+            })
+        );
+        match read_server_message(
+            owner_rx
+                .recv_timeout(Duration::from_millis(100))
+                .expect("owner popup clipboard message"),
+        ) {
+            ServerMessage::Clipboard { data } => assert_eq!(data, "cG9wdXAtb3Nj"),
+            other => panic!("expected owner clipboard message, got {other:?}"),
+        }
+        assert!(
+            other_rx.recv_timeout(Duration::from_millis(50)).is_err(),
+            "non-owner must not receive popup OSC clipboard writes"
+        );
+    }
+
+    #[test]
+    fn popup_open_url_targets_owning_client() {
+        let mut server = test_headless_server();
+        server.app.state.workspaces = vec![crate::workspace::Workspace::test_new("popup-url")];
+        server.app.state.active = Some(0);
+        server.app.state.selected = 0;
+
+        let (owner_writer, owner_rx, _owner_render_rx) = test_client_writer();
+        let (other_writer, other_rx, _other_render_rx) = test_client_writer();
+
+        let mut owner = test_app_client(Some(true), 2);
+        owner.writer = Some(owner_writer);
+        let mut owner_view =
+            crate::app::ClientViewState::from_default_client_state(&server.app.state);
+        let mut other = test_app_client(Some(false), 1);
+        other.writer = Some(other_writer);
+        other.view_state = Some(crate::app::ClientViewState::from_default_client_state(
+            &server.app.state,
+        ));
+
+        // Remote popup execution host: public URLs still open on the rendering client.
+        let remote_host = crate::execution_host::ExecutionHostId::new("ssh:remote-popup")
+            .expect("remote host id");
+        let remote_path =
+            crate::execution_host::HostPath::new("/remote/popup").expect("remote popup path");
+        let pane_id = install_test_popup_pane(
+            &mut server,
+            &mut owner_view,
+            crate::execution_host::ResourceLocation::new(remote_host, remote_path),
+        );
+        owner.view_state = Some(owner_view);
+
+        server.clients.insert(1, owner);
+        server.clients.insert(2, other);
+        server.foreground_client_id = Some(2);
+        server.sync_foreground_client_state();
+
+        assert!(
+            server.handle_internal_event_with_forwarding(AppEvent::OpenUrl {
+                pane_id,
+                url: "https://example.com/popup".to_owned(),
+            })
+        );
+        match read_server_message(
+            owner_rx
+                .recv_timeout(Duration::from_millis(100))
+                .expect("owner popup open-url message"),
+        ) {
+            ServerMessage::OpenUrl { url } => assert_eq!(url, "https://example.com/popup"),
+            other => panic!("expected owner OpenUrl message, got {other:?}"),
+        }
+        assert!(
+            other_rx.recv_timeout(Duration::from_millis(50)).is_err(),
+            "non-owner must not receive popup OpenUrl"
+        );
+    }
+
+    #[test]
+    fn stale_terminal_attach_owner_does_not_mask_valid_ownership() {
+        let mut server = test_headless_server();
+        let workspace = crate::workspace::Workspace::test_new("stale-owner");
+        let pane_id = workspace.tabs[0].root_pane;
+        server.app.state.workspaces = vec![workspace];
+        server.app.state.active = Some(0);
+        server.app.state.selected = 0;
+        server.app.state.ensure_test_terminals();
+        let terminal_id = server.app.state.workspaces[0]
+            .pane_state(pane_id)
+            .expect("root pane")
+            .attached_terminal_id
+            .clone();
+
+        let (controller_writer, controller_rx, _controller_render_rx) = test_client_writer();
+        let mut controller = test_app_client(Some(true), 2);
+        controller.writer = Some(controller_writer);
+        controller.view_state = Some(crate::app::ClientViewState::from_default_client_state(
+            &server.app.state,
+        ));
+        server.clients.insert(1, controller);
+        server.foreground_client_id = Some(1);
+        server.sync_foreground_client_state();
+        assert!(server.reconcile_client_tab_control(1));
+
+        // Insert a stale mapping before the valid one so HashMap iteration can hit it first.
+        server
+            .terminal_attach_owners
+            .insert("stale-missing-terminal".to_owned(), 99);
+        server
+            .terminal_attach_owners
+            .insert(terminal_id.to_string(), 1);
+
+        assert_eq!(server.clipboard_controller_for_pane(pane_id), Some(1));
+        assert!(
+            server.handle_internal_event_with_forwarding(AppEvent::TerminalClipboardWrite {
+                pane_id,
+                content: b"stale-ok".to_vec(),
+            })
+        );
+        match read_server_message(
+            controller_rx
+                .recv_timeout(Duration::from_millis(100))
+                .expect("controller clipboard after stale owner"),
+        ) {
+            ServerMessage::Clipboard { data } => assert_eq!(data, "c3RhbGUtb2s="),
+            other => panic!("expected controller clipboard message, got {other:?}"),
+        }
+    }
+
+    #[test]
     fn clipboard_write_without_foreground_client_does_not_show_feedback() {
         let mut server = test_headless_server();
         server.foreground_client_id = None;
@@ -6896,6 +7599,139 @@ next_tab = ""
                 .is_err(),
             "stale idle report must not forward a done sound"
         );
+    }
+
+    #[test]
+    fn worker_install_events_route_only_to_owning_client_view() {
+        let mut server = test_headless_server();
+        server.clients.insert(1, test_app_client(Some(true), 1));
+        server.clients.insert(2, test_app_client(Some(false), 2));
+
+        let mut initiator =
+            crate::app::ClientViewState::from_default_client_state(&server.app.state);
+        let mut other = crate::app::ClientViewState::from_default_client_state(&server.app.state);
+        let profile_id = "workbox";
+        initiator.settings.connection_editor =
+            Some(crate::app::state::ConnectionEditorState::edit_profile(
+                profile_id,
+                "Work box",
+                "alice@workbox",
+                "",
+            ));
+        other.settings.connection_editor =
+            Some(crate::app::state::ConnectionEditorState::edit_profile(
+                profile_id,
+                "Work box",
+                "alice@workbox",
+                "",
+            ));
+        // Shared ambient settings must not consume another client's completion.
+        server.app.state.settings.connection_editor =
+            Some(crate::app::state::ConnectionEditorState::edit_profile(
+                profile_id,
+                "Work box",
+                "alice@workbox",
+                "",
+            ));
+        let initiator_owner = crate::execution_host::auth::AuthenticationOwner::new(initiator.id());
+        let other_id = other.id();
+        server.clients.get_mut(&1).unwrap().view_state = Some(initiator);
+        server.clients.get_mut(&2).unwrap().view_state = Some(other);
+        server.foreground_client_id = Some(2);
+        server.sync_foreground_client_state();
+
+        let preview = crate::remote::WorkerInstallPreview {
+            kind: crate::remote::WorkerInstallKind::Install,
+            source: "/tmp/omh-worker".into(),
+            target_path: "~/.local/share/omh/worker/v1/omh-worker".into(),
+            checksum: "sha256:abc".into(),
+            version: "1.2.3".into(),
+            commands: vec!["install".into()],
+            capabilities: vec!["pty".into()],
+            already_current: false,
+        };
+
+        assert!(
+            server.handle_internal_event_with_forwarding(AppEvent::WorkerInstallPreviewed {
+                authentication_owner: initiator_owner,
+                profile_id: profile_id.into(),
+                result: Ok(preview.clone()),
+            })
+        );
+
+        let initiator_view = server.clients[&1]
+            .view_state
+            .as_ref()
+            .expect("initiator view");
+        assert_eq!(
+            initiator_view
+                .settings
+                .connection_editor
+                .as_ref()
+                .and_then(|editor| editor.pending_worker_install.as_ref())
+                .map(|pending| pending.preview.clone()),
+            Some(preview.clone())
+        );
+        let other_view = server.clients[&2].view_state.as_ref().expect("other view");
+        assert_eq!(other_view.id(), other_id);
+        assert!(other_view
+            .settings
+            .connection_editor
+            .as_ref()
+            .and_then(|editor| editor.pending_worker_install.as_ref())
+            .is_none());
+        assert!(server
+            .app
+            .state
+            .settings
+            .connection_editor
+            .as_ref()
+            .and_then(|editor| editor.pending_worker_install.as_ref())
+            .is_none());
+        assert!(server
+            .app
+            .default_client_view
+            .settings
+            .connection_editor
+            .as_ref()
+            .and_then(|editor| editor.pending_worker_install.as_ref())
+            .is_none());
+
+        assert!(
+            server.handle_internal_event_with_forwarding(AppEvent::WorkerInstalled {
+                authentication_owner: initiator_owner,
+                profile_id: profile_id.into(),
+                result: Ok(crate::remote::WorkerInstallReport::Installed(
+                    preview.clone()
+                )),
+            })
+        );
+
+        let initiator_view = server.clients[&1]
+            .view_state
+            .as_ref()
+            .expect("initiator view");
+        let initiator_editor = initiator_view
+            .settings
+            .connection_editor
+            .as_ref()
+            .expect("initiator editor");
+        assert!(initiator_editor.pending_worker_install.is_none());
+        assert_eq!(
+            initiator_editor
+                .worker_install_result
+                .as_ref()
+                .map(|entry| entry.result.clone()),
+            Some(Ok(crate::remote::WorkerInstallReport::Installed(preview)))
+        );
+        let other_view = server.clients[&2].view_state.as_ref().expect("other view");
+        let other_editor = other_view
+            .settings
+            .connection_editor
+            .as_ref()
+            .expect("other editor");
+        assert!(other_editor.pending_worker_install.is_none());
+        assert!(other_editor.worker_install_result.is_none());
     }
 
     /// Verify that no direct calls to `self.app.handle_internal_event`

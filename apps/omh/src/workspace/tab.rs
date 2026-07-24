@@ -211,6 +211,33 @@ impl Tab {
         )
     }
 
+    pub(crate) fn remote(
+        number: usize,
+        terminal_id: TerminalId,
+        events: mpsc::Sender<AppEvent>,
+        render_notify: Arc<Notify>,
+        render_dirty: Arc<AtomicBool>,
+    ) -> Self {
+        let (layout, root_pane) = TileLayout::new();
+        let panes = HashMap::from([(
+            root_pane,
+            PaneState::new_with_env_pane_id(terminal_id, root_pane),
+        )]);
+        Self {
+            custom_name: None,
+            number,
+            root_pane,
+            layout,
+            panes,
+            #[cfg(test)]
+            runtimes: HashMap::new(),
+            zoomed: false,
+            events,
+            render_notify,
+            render_dirty,
+        }
+    }
+
     // Tab construction owns terminal, runtime, launch env, and render channels together.
     #[allow(clippy::too_many_arguments)]
     fn new_with_runtime(

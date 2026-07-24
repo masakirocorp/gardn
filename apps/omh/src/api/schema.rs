@@ -31,6 +31,20 @@ pub enum Method {
     ServerAgentManifests(EmptyParams),
     #[serde(rename = "server.reload_agent_manifests")]
     ServerReloadAgentManifests(EmptyParams),
+    #[serde(rename = "connection.list")]
+    ConnectionList(EmptyParams),
+    #[serde(rename = "connection.save")]
+    ConnectionSave(ConnectionSaveParams),
+    #[serde(rename = "connection.delete")]
+    ConnectionDelete(ConnectionTarget),
+    #[serde(rename = "connection.test")]
+    ConnectionTest(ConnectionTarget),
+    #[serde(rename = "connection.connect")]
+    ConnectionConnect(ConnectionTarget),
+    #[serde(rename = "connection.disconnect")]
+    ConnectionDisconnect(ConnectionTarget),
+    #[serde(rename = "connection.install")]
+    ConnectionInstall(ConnectionInstallParams),
     #[serde(rename = "notification.show")]
     NotificationShow(NotificationShowParams),
     #[serde(rename = "group.create")]
@@ -273,9 +287,118 @@ pub struct ClientWindowTitleSetParams {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct ResourceLocationParams {
+    pub execution_host_id: String,
+    pub path: String,
+}
+
+impl From<&crate::execution_host::ResourceLocation> for ResourceLocationParams {
+    fn from(location: &crate::execution_host::ResourceLocation) -> Self {
+        Self {
+            execution_host_id: location.execution_host_id.as_str().to_string(),
+            path: location.path.as_path().display().to_string(),
+        }
+    }
+}
+
+impl TryFrom<ResourceLocationParams> for crate::execution_host::ResourceLocation {
+    type Error = String;
+
+    fn try_from(location: ResourceLocationParams) -> Result<Self, Self::Error> {
+        let host_id = crate::execution_host::ExecutionHostId::new(location.execution_host_id)
+            .map_err(|error| error.to_string())?;
+        let path = crate::execution_host::HostPath::new(location.path)
+            .map_err(|error| error.to_string())?;
+        Ok(Self::new(host_id, path))
+    }
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct ConnectionTarget {
+    pub profile_id: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct ConnectionInstallParams {
+    pub profile_id: String,
+    /// When false, returns an install preview without mutating the remote host.
+    #[serde(default)]
+    pub confirm: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct ConnectionSaveParams {
+    pub profile_id: String,
+    pub name: String,
+    pub target: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub suggested_directory: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ConnectionAction {
+    Test,
+    Connect,
+    Disconnect,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ConnectionInstallKind {
+    Install,
+    Update,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct ConnectionInstallPreview {
+    pub kind: ConnectionInstallKind,
+    pub source: String,
+    pub target_path: String,
+    pub checksum: String,
+    pub version: String,
+    pub commands: Vec<String>,
+    pub capabilities: Vec<String>,
+    pub already_current: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(tag = "status", rename_all = "snake_case")]
+pub enum ConnectionInstallReport {
+    Installed { preview: ConnectionInstallPreview },
+    AlreadyCurrent { preview: ConnectionInstallPreview },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ConnectionStatusKind {
+    Disconnected,
+    Connecting,
+    Connected,
+    Reconnecting,
+    Disconnecting,
+    AuthenticationRequired,
+    Unavailable,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct ConnectionProfileInfo {
+    pub profile_id: String,
+    pub name: String,
+    pub target: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub suggested_directory: Option<String>,
+    pub execution_host_id: String,
+    pub status: ConnectionStatusKind,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct WorkspaceCreateParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cwd: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub location: Option<ResourceLocationParams>,
     #[serde(default)]
     pub focus: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -287,6 +410,8 @@ pub struct WorkspaceCreateParams {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct GroupCreateParams {
     pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_location: Option<ResourceLocationParams>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
@@ -313,6 +438,8 @@ pub struct TabCreateParams {
     pub workspace_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cwd: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub location: Option<ResourceLocationParams>,
     #[serde(default)]
     pub focus: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -508,6 +635,8 @@ pub struct AgentStartParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cwd: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub location: Option<ResourceLocationParams>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub workspace_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tab_id: Option<String>,
@@ -526,6 +655,8 @@ pub struct PaneSplitParams {
     pub workspace_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub target_pane_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub location: Option<ResourceLocationParams>,
     pub direction: SplitDirection,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ratio: Option<f32>,
@@ -950,6 +1081,8 @@ pub enum Subscription {
     PaneScrollChanged { pane_id: String },
     #[serde(rename = "layout.updated")]
     LayoutUpdated {},
+    #[serde(rename = "connection.status_changed")]
+    ConnectionStatusChanged {},
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
@@ -1444,6 +1577,7 @@ pub enum EventKind {
     PaneExited,
     PaneAgentDetected,
     PaneAgentStatusChanged,
+    ConnectionStatusChanged,
     LayoutUpdated,
 }
 
@@ -1468,6 +1602,7 @@ impl EventKind {
             EventKind::PaneAgentDetected => "pane.agent_detected",
             EventKind::LayoutUpdated => "layout.updated",
             EventKind::PaneAgentStatusChanged => "pane.agent_status_changed",
+            EventKind::ConnectionStatusChanged => "connection.status_changed",
         }
     }
 }
@@ -1544,6 +1679,27 @@ pub enum ResponseResult {
     },
     WorkspaceList {
         workspaces: Vec<WorkspaceInfo>,
+    },
+    ConnectionProfile {
+        profile: ConnectionProfileInfo,
+    },
+    ConnectionList {
+        profiles: Vec<ConnectionProfileInfo>,
+    },
+    ConnectionDeleted {
+        profile_id: String,
+        removed: bool,
+    },
+    ConnectionActionQueued {
+        profile: ConnectionProfileInfo,
+        action: ConnectionAction,
+    },
+    ConnectionInstall {
+        profile: ConnectionProfileInfo,
+        preview: ConnectionInstallPreview,
+        /// Present only when confirm=true and installation ran.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        report: Option<ConnectionInstallReport>,
     },
     GroupInfo {
         group: GroupInfo,
@@ -1732,6 +1888,7 @@ pub struct AgentManifestInfo {
 pub struct WorkspaceInfo {
     pub workspace_id: String,
     pub group_id: String,
+    pub default_location: ResourceLocationParams,
     pub number: usize,
     pub label: String,
     pub focused: bool,
@@ -1749,6 +1906,8 @@ pub struct GroupInfo {
     pub icon: String,
     pub focused: bool,
     pub workspace_count: usize,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_location: Option<ResourceLocationParams>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
@@ -1765,6 +1924,7 @@ pub struct TabInfo {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct AgentInfo {
     pub terminal_id: String,
+    pub location: ResourceLocationParams,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1799,6 +1959,7 @@ pub struct AgentInfo {
 pub struct PaneInfo {
     pub pane_id: String,
     pub terminal_id: String,
+    pub location: ResourceLocationParams,
     pub workspace_id: String,
     pub tab_id: String,
     pub focused: bool,
@@ -2231,6 +2392,12 @@ pub enum EventData {
         #[serde(default, skip_serializing_if = "HashMap::is_empty")]
         tokens: HashMap<String, String>,
     },
+    ConnectionStatusChanged {
+        execution_host_id: String,
+        status: ConnectionStatusKind,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        error: Option<String>,
+    },
     LayoutUpdated {
         layout: PaneLayoutSnapshot,
     },
@@ -2519,6 +2686,7 @@ mod tests {
             id: "req_1".into(),
             method: Method::WorkspaceCreate(WorkspaceCreateParams {
                 cwd: Some("/tmp".into()),
+                location: None,
                 focus: true,
                 label: Some("api".into()),
                 env: HashMap::new(),
@@ -2857,6 +3025,10 @@ mod tests {
                 root_pane: PaneInfo {
                     pane_id: "w_1-3".into(),
                     terminal_id: "term_example".into(),
+                    location: ResourceLocationParams {
+                        execution_host_id: "local".into(),
+                        path: "/tmp/review".into(),
+                    },
                     workspace_id: "w_1".into(),
                     tab_id: "w_1:2".into(),
                     focused: false,
@@ -2882,6 +3054,75 @@ mod tests {
         assert!(json.contains("\"root_pane\""));
         let restored: SuccessResponse = serde_json::from_str(&json).unwrap();
         assert_eq!(restored, response);
+    }
+
+    #[test]
+    fn public_resource_info_exposes_host_ids_via_location_only() {
+        let workspace = WorkspaceInfo {
+            workspace_id: "w_1".into(),
+            group_id: "g_1".into(),
+            default_location: ResourceLocationParams {
+                execution_host_id: "ssh:workbox:1".into(),
+                path: "/srv/work".into(),
+            },
+            number: 1,
+            label: "work".into(),
+            focused: true,
+            pane_count: 2,
+            tab_count: 1,
+            active_tab_id: "w_1:1".into(),
+            agent_status: AgentStatus::Unknown,
+        };
+        let group = GroupInfo {
+            group_id: "g_1".into(),
+            number: 1,
+            name: "Work".into(),
+            icon: "☀".into(),
+            focused: true,
+            workspace_count: 1,
+            default_location: Some(workspace.default_location.clone()),
+        };
+        let pane = PaneInfo {
+            pane_id: "w_1-3".into(),
+            terminal_id: "term_example".into(),
+            location: ResourceLocationParams {
+                execution_host_id: "ssh:workbox:1".into(),
+                path: "/srv/work".into(),
+            },
+            workspace_id: "w_1".into(),
+            tab_id: "w_1:1".into(),
+            focused: false,
+            cwd: Some("/srv/work".into()),
+            foreground_cwd: None,
+            label: None,
+            agent: None,
+            title: None,
+            display_agent: None,
+            agent_status: AgentStatus::Unknown,
+            custom_status: None,
+            state_labels: HashMap::new(),
+            tokens: HashMap::new(),
+            agent_session: None,
+            scroll: None,
+            revision: 0,
+        };
+
+        let workspace_json = serde_json::to_value(workspace).expect("workspace serializes");
+        let group_json = serde_json::to_value(group).expect("group serializes");
+        let pane_json = serde_json::to_value(pane).expect("pane serializes");
+
+        assert!(workspace_json.get("default_execution_host_id").is_none());
+        assert_eq!(
+            workspace_json["default_location"]["execution_host_id"],
+            "ssh:workbox:1"
+        );
+        assert_eq!(workspace_json["default_location"]["path"], "/srv/work");
+        assert_eq!(
+            group_json["default_location"]["execution_host_id"],
+            "ssh:workbox:1"
+        );
+        assert!(pane_json.get("execution_host_id").is_none());
+        assert_eq!(pane_json["location"]["execution_host_id"], "ssh:workbox:1");
     }
 
     #[test]

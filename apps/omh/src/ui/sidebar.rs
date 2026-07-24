@@ -772,6 +772,51 @@ fn resolved_space_rows(
         },
     )
 }
+fn workspace_host_badge(
+    app: &AppState,
+    ws: &crate::workspace::Workspace,
+) -> Option<(String, ratatui::style::Color)> {
+    let hosts = ws
+        .tabs
+        .iter()
+        .flat_map(|tab| tab.panes.values())
+        .filter_map(|pane| app.terminals.get(&pane.attached_terminal_id))
+        .map(|terminal| terminal.location.execution_host_id.clone())
+        .collect::<std::collections::HashSet<_>>();
+    if hosts.is_empty() || (hosts.len() == 1 && hosts.iter().all(|host| host.is_local())) {
+        return None;
+    }
+    let mixed = hosts.len() > 1;
+    let remote = hosts.iter().find(|host| !host.is_local());
+    let name = if mixed {
+        "Mixed".to_string()
+    } else {
+        remote
+            .and_then(|host| {
+                app.ssh_connection_profiles
+                    .iter()
+                    .find(|profile| profile.execution_host_id() == *host)
+                    .map(|profile| profile.name().to_string())
+            })
+            .or_else(|| remote.map(|host| host.as_str().to_string()))
+            .unwrap_or_else(|| "Remote".to_string())
+    };
+    let health = remote.and_then(|host| app.host_connection_states.get(host));
+    let status = health.and_then(|status| match status {
+        crate::execution_host::ConnectionStatus::Disconnected => Some("Offline"),
+        crate::execution_host::ConnectionStatus::Reconnecting { .. } => Some("Lost"),
+        crate::execution_host::ConnectionStatus::AuthenticationRequired => Some("Unavailable"),
+        _ => None,
+    });
+    let label = status.map_or(name.clone(), |status| format!("{name} · {status}"));
+    let color = if status.is_some() {
+        app.palette.yellow
+    } else {
+        app.palette.overlay0
+    };
+    Some((label, color))
+}
+
 fn workspace_has_metadata(ws: &crate::workspace::Workspace) -> bool {
     ws.cached_git_work_summary.is_some_and(|summary| {
         summary.conflicted + summary.added + summary.modified + summary.deleted > 0
@@ -862,7 +907,20 @@ fn render_workspace_token_rows(
             " ".repeat(SIDEBAR_WORKSPACE_NAME_COL as usize),
             Style::default(),
         )];
-        spans.extend(workspace_summary_spans(ws, &app.palette, max_summary_len));
+        let host_badge = workspace_host_badge(app, ws);
+        if let Some((label, color)) = host_badge.as_ref() {
+            spans.push(summary_span(label, *color, max_summary_len));
+        }
+        let used = host_badge.as_ref().map_or(0, |(label, _)| label.len());
+        let summary_width = max_summary_len.saturating_sub(used);
+        let summary = workspace_summary_spans(ws, &app.palette, summary_width);
+        if !summary.is_empty() && host_badge.is_some() {
+            spans.push(Span::styled(
+                " · ",
+                Style::default().fg(app.palette.overlay0),
+            ));
+        }
+        spans.extend(summary);
         frame.render_widget(
             Paragraph::new(Line::from(spans)),
             Rect::new(area.x, row_y + 1, area.width, 1),
@@ -873,7 +931,7 @@ fn render_workspace_token_rows(
 fn workspace_row_height(app: &AppState, ws: &crate::workspace::Workspace) -> u16 {
     let configured = resolved_space_rows(app, ws, &ws.display_name()).len();
     let legacy = if app.sidebar_config.spaces == crate::config::SpacesSidebarConfig::default()
-        && workspace_has_metadata(ws)
+        && (workspace_has_metadata(ws) || workspace_host_badge(app, ws).is_some())
     {
         2
     } else {
@@ -4431,6 +4489,60 @@ mod tests {
     use ratatui::{backend::TestBackend, buffer::Buffer, Terminal};
 
     #[test]
+    fn workspace_badge_reports_mixed_local_and_remote_hosts() {
+        let mut app = crate::app::state::AppState::test_new();
+        let mut workspace = Workspace::test_new("mixed");
+        let remote_pane = workspace.test_split(ratatui::layout::Direction::Horizontal);
+        let remote_terminal_id = workspace.tabs[0].panes[&remote_pane]
+            .attached_terminal_id
+            .clone();
+        app.workspaces = vec![workspace];
+        app.ensure_test_terminals();
+        app.terminals.get_mut(&remote_terminal_id).unwrap().location =
+            crate::execution_host::ResourceLocation::new(
+                crate::execution_host::ExecutionHostId::new("ssh:workbox:1").unwrap(),
+                crate::execution_host::HostPath::new("/srv/work").unwrap(),
+            );
+
+        assert_eq!(
+            workspace_host_badge(&app, &app.workspaces[0])
+                .map(|(label, _)| label)
+                .as_deref(),
+            Some("Mixed")
+        );
+    }
+
+    #[test]
+    fn offline_remote_badge_does_not_hide_local_workspace_state() {
+        let mut app = crate::app::state::AppState::test_new();
+        let local = Workspace::test_new("local");
+        let remote = Workspace::test_new("remote");
+        let remote_terminal_id = remote.tabs[0].panes[&remote.tabs[0].root_pane]
+            .attached_terminal_id
+            .clone();
+        app.workspaces = vec![local, remote];
+        app.ensure_test_terminals();
+        let host_id = crate::execution_host::ExecutionHostId::new("ssh:workbox:1").unwrap();
+        app.terminals.get_mut(&remote_terminal_id).unwrap().location =
+            crate::execution_host::ResourceLocation::new(
+                host_id.clone(),
+                crate::execution_host::HostPath::new("/srv/work").unwrap(),
+            );
+        app.host_connection_states.insert(
+            host_id,
+            crate::execution_host::ConnectionStatus::Disconnected,
+        );
+
+        assert!(workspace_host_badge(&app, &app.workspaces[0]).is_none());
+        assert_eq!(
+            workspace_host_badge(&app, &app.workspaces[1])
+                .map(|(label, _)| label)
+                .as_deref(),
+            Some("ssh:workbox:1 · Offline")
+        );
+    }
+
+    #[test]
     fn agent_panel_toggle_labels_match_control_center_scope() {
         assert_eq!(
             agent_panel_toggle_label(AgentPanelScope::CurrentWorkspace),
@@ -4530,7 +4642,7 @@ mod tests {
             name: "work".into(),
             icon: "■".into(),
             accent: None,
-            default_directory: None,
+            default_location: None,
             favorite_agent_profile_ids: Vec::new(),
             default_agent_profile_id: None,
         });
@@ -4611,7 +4723,7 @@ mod tests {
             name: "work".into(),
             icon: "■".into(),
             accent: Some(crate::config::TerminalAccent::Red),
-            default_directory: None,
+            default_location: None,
             favorite_agent_profile_ids: Vec::new(),
             default_agent_profile_id: None,
         });
@@ -4840,7 +4952,7 @@ mod tests {
             name: "work".into(),
             icon: "■".into(),
             accent: None,
-            default_directory: None,
+            default_location: None,
             favorite_agent_profile_ids: Vec::new(),
             default_agent_profile_id: None,
         });
@@ -4880,7 +4992,7 @@ mod tests {
             name: "work".into(),
             icon: "■".into(),
             accent: None,
-            default_directory: None,
+            default_location: None,
             favorite_agent_profile_ids: Vec::new(),
             default_agent_profile_id: None,
         });
@@ -5035,7 +5147,7 @@ mod tests {
             name: "work".into(),
             icon: "*".into(),
             accent: None,
-            default_directory: None,
+            default_location: None,
             favorite_agent_profile_ids: Vec::new(),
             default_agent_profile_id: None,
         });
@@ -5084,7 +5196,7 @@ mod tests {
             name: "ops".into(),
             icon: "o".into(),
             accent: None,
-            default_directory: None,
+            default_location: None,
             favorite_agent_profile_ids: Vec::new(),
             default_agent_profile_id: None,
         });
@@ -5149,7 +5261,7 @@ mod tests {
             name: "work".into(),
             icon: "■".into(),
             accent: None,
-            default_directory: None,
+            default_location: None,
             favorite_agent_profile_ids: Vec::new(),
             default_agent_profile_id: None,
         });
@@ -5183,7 +5295,7 @@ mod tests {
             name: "work".into(),
             icon: "■".into(),
             accent: None,
-            default_directory: None,
+            default_location: None,
             favorite_agent_profile_ids: Vec::new(),
             default_agent_profile_id: None,
         });

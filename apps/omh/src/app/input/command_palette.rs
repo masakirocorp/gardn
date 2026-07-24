@@ -843,6 +843,21 @@ pub(crate) fn execute_command_palette_action(app: &mut App, action: CommandPalet
             }
         }
         CommandPaletteAction::DetachOrQuit => super::modal::request_detach(&mut app.state),
+        CommandPaletteAction::ProjectCommand(command_id) => {
+            leave_command_palette(&mut app.state);
+            let previous_toast = app.state.toast.clone();
+            if let Err(error) = app.run_project_command_on_resolved_host(&command_id) {
+                app.state.toast = Some(crate::app::state::ToastNotification {
+                    kind: crate::app::state::ToastKind::NeedsAttention,
+                    title: "project command failed".to_string(),
+                    context: error,
+                    position: None,
+                    target: None,
+                });
+                app.sync_toast_deadline(previous_toast);
+            }
+            return;
+        }
         CommandPaletteAction::CustomCommand(idx) => {
             let Some(binding) = app.state.keybinds.custom_commands.get(idx).cloned() else {
                 return;

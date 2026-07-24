@@ -25,6 +25,8 @@ mod terminal_targets;
 mod theme_sync;
 pub(crate) mod view_state;
 
+pub(crate) use input::rendering_client_may_open_url;
+
 use std::collections::{HashMap, HashSet};
 use std::future::pending;
 use std::io::{self, Write};
@@ -301,9 +303,26 @@ impl PaneClickState {
 pub struct App {
     pub state: AppState,
     pub(crate) default_client_view: ClientViewState,
-    pub(crate) terminal_runtimes: crate::execution_host::LocalExecutionHost,
+    pub(crate) terminal_runtimes: crate::terminal::TerminalRuntimeRegistry,
+    pub(crate) execution_hosts: Option<crate::execution_host::ExecutionHostManager>,
+    /// Uncommitted remote creates awaiting worker ACK. Not part of AppState/snapshot.
+    pub(crate) pending_remote_creations: std::collections::HashMap<
+        crate::terminal::TerminalId,
+        crate::app::creation::PendingRemoteCreation,
+    >,
+    /// Committed/failed remote creates waiting for API response encoding.
+    pub(crate) remote_creation_completions: Vec<crate::app::creation::RemoteCreationCompletion>,
+    /// API responders deferred until remote create ACK/failure.
+    pub(crate) pending_remote_api_responses: std::collections::HashMap<
+        crate::terminal::TerminalId,
+        crate::app::PendingRemoteApiResponse,
+    >,
+    /// Client-scoped effects queued by app logic (e.g. deferred focus cleanup).
+    pub(crate) pending_client_view_effects: Vec<crate::app::view_state::ClientViewEffect>,
     pub event_tx: mpsc::Sender<AppEvent>,
     pub(crate) event_rx: mpsc::Receiver<AppEvent>,
+    /// Completions retained when the app-event channel is full.
+    pub(crate) retained_execution_file_staged: Vec<AppEvent>,
     pub(crate) api_rx: tokio::sync::mpsc::UnboundedReceiver<crate::api::ApiRequestMessage>,
     pub(crate) event_hub: crate::api::EventHub,
     pub(crate) last_focus: Option<(usize, crate::layout::PaneId)>,
@@ -316,7 +335,8 @@ pub struct App {
     pub(crate) last_git_remote_status_refresh: Instant,
     pub(crate) git_refresh_in_flight: bool,
     pub(crate) git_refresh_due_after_in_flight: bool,
-    pub(crate) git_status_cache: HashMap<std::path::PathBuf, crate::workspace::GitStatusCacheEntry>,
+    pub(crate) git_status_cache:
+        HashMap<crate::execution_host::ResourceLocation, crate::workspace::GitStatusCacheEntry>,
     pub(crate) last_sidebar_divider_click: Option<Instant>,
     pub(crate) last_pane_click: Option<PaneClickState>,
     pub(crate) next_resize_poll: Instant,
@@ -354,6 +374,42 @@ pub struct App {
     #[cfg(test)]
     pub(crate) host_terminal_theme_query_count: std::cell::Cell<usize>,
 }
+
+/// Deferred API responder for a remote create awaiting worker ACK/failure.
+pub(crate) struct PendingRemoteApiResponse {
+    pub request_id: String,
+    pub kind: PendingRemoteApiKind,
+    pub respond_to: std::sync::mpsc::Sender<String>,
+    /// Whether the requester asked to focus the created resource after ACK.
+    pub focus: bool,
+    /// Originating client view when the create was routed through a view-aware handler.
+    /// `None` means ambient/default (shared) create — focus applies to AppState on commit.
+    pub client_view_id: Option<u64>,
+    /// Exact pending focus marker installed for this create when focus=true.
+    pub pending_focus: Option<crate::api::PendingFocusMarker>,
+}
+
+impl PendingRemoteApiResponse {
+    /// Pair deferred metadata with the real responder for one-shot insertion.
+    pub(crate) fn from_deferred(
+        deferred: crate::api::DeferredRemoteCreate,
+        respond_to: std::sync::mpsc::Sender<String>,
+    ) -> (crate::terminal::TerminalId, Self) {
+        (
+            deferred.terminal_id,
+            Self {
+                request_id: deferred.request_id,
+                kind: deferred.kind,
+                respond_to,
+                focus: deferred.focus,
+                client_view_id: deferred.client_view_id,
+                pending_focus: deferred.pending_focus,
+            },
+        )
+    }
+}
+
+pub(crate) type PendingRemoteApiKind = crate::api::DeferredRemoteCreateKind;
 
 pub(crate) enum LoopEvent {
     Timer,
@@ -554,7 +610,7 @@ fn groups_from_snapshot(snap: &crate::persist::SessionSnapshot) -> Vec<state::Gr
             name: group.name.clone(),
             icon: state::normalize_group_icon(&group.icon),
             accent: group.accent,
-            default_directory: group.default_directory.clone(),
+            default_location: group.default_location.clone(),
             favorite_agent_profile_ids: group.favorite_agent_profile_ids.clone(),
             default_agent_profile_id: group.default_agent_profile_id.clone(),
         })
@@ -569,7 +625,7 @@ fn groups_from_snapshot(snap: &crate::persist::SessionSnapshot) -> Vec<state::Gr
             name: format!("group {}", groups.len() + 1),
             icon: state::DEFAULT_GROUP_ICON.to_string(),
             accent: None,
-            default_directory: None,
+            default_location: None,
             favorite_agent_profile_ids: Vec::new(),
             default_agent_profile_id: None,
         });
@@ -609,6 +665,9 @@ impl App {
         // Try to restore previous session
         let mut restored_terminals = std::collections::HashMap::new();
         let mut restored_terminal_runtimes = crate::terminal::TerminalRuntimeRegistry::new();
+        let mut session_namespace_id = crate::persist::installation::new_session_namespace_id();
+        let mut session_namespace_healed = false;
+        let mut restored_remote_termination_tombstones = Vec::new();
         let (
             groups,
             active_group,
@@ -640,6 +699,23 @@ impl App {
                 initial_sidebar_collapsed,
             )
         } else if let Some(snap) = crate::persist::load() {
+            let restored_namespace = crate::persist::installation::session_namespace_from_snapshot(
+                &snap.session_namespace_id,
+            );
+            // Invalid/empty legacy snapshot IDs self-heal to a fresh typed id and
+            // must be rewritten on the next session save.
+            session_namespace_healed =
+                restored_namespace.as_str() != snap.session_namespace_id.trim();
+            session_namespace_id = restored_namespace;
+            restored_remote_termination_tombstones = snap
+                .remote_termination_tombstones
+                .iter()
+                .map(|tombstone| state::RemoteTerminationTombstone {
+                    terminal_id: tombstone.terminal_id.clone(),
+                    location: tombstone.location.clone(),
+                    remote_runtime_identity: tombstone.remote_runtime_identity.clone(),
+                })
+                .collect();
             let history = config
                 .experimental
                 .pane_history
@@ -821,6 +897,7 @@ impl App {
                 scroll: 0,
             },
             request_client_config_reload: false,
+            group_default_execution_host_id: crate::execution_host::ExecutionHostId::local(),
             request_clipboard_write: None,
             creating_new_tab: false,
             creating_new_group: false,
@@ -830,7 +907,7 @@ impl App {
             group_icon_picker_open: false,
             rename_group_target: None,
             requested_new_tab_name: None,
-            pending_workspace_create_cwd: None,
+            pending_workspace_create_location: None,
             requested_new_workspace_name: None,
             rename_pane_target: None,
             confirm_delete_group: None,
@@ -1031,17 +1108,23 @@ impl App {
                 pending_group_accent_choice: None,
                 pending_group_name: None,
                 pending_group_default_directory: None,
+                pending_group_default_execution_host_id: None,
                 pending_workspace_name: None,
                 pending_workspace_default_cwd: None,
+                pending_workspace_default_execution_host_id: None,
                 pending_agent_profile_id: None,
                 pending_agent_profile_name: None,
                 pending_agent_profile_kind: None,
                 pending_agent_profile_command: None,
                 agent_profile_kind_filter: None,
+                connection_editor: None,
                 group_settings_target: None,
                 workspace_settings_target: None,
             },
             integration_recommendations,
+            ssh_connection_profiles: crate::persist::ssh_profiles::load(),
+            host_connection_states: std::collections::HashMap::new(),
+            pending_ssh_connection_requests: Vec::new(),
             agent_manifest_summaries,
             agent_manifest_update_status: crate::detect::manifest_update::load_status(),
             integration_install_messages: Vec::new(),
@@ -1054,17 +1137,17 @@ impl App {
             group_menu: state::ModalListState::hidden(0),
             agent_menu: state::ModalListState::hidden(0),
             host_terminal_theme,
-            session_dirty: false,
+            session_namespace_id,
+            remote_termination_tombstones: restored_remote_termination_tombstones,
+            session_dirty: session_namespace_healed,
             terminal_runtime_shutdowns: Vec::new(),
         };
 
         state.terminals = restored_terminals;
 
         for ws_idx in 0..state.workspaces.len() {
-            let cwd = state.workspaces[ws_idx]
-                .resolved_identity_cwd_from(&state.terminals, &restored_terminal_runtimes);
-            state.workspaces[ws_idx].cached_git_branch =
-                cwd.as_deref().and_then(crate::workspace::git_branch);
+            state.workspaces[ws_idx]
+                .seed_cached_git_branch_from(&state.terminals, &restored_terminal_runtimes);
         }
 
         if state.group_filter_enabled
@@ -1111,15 +1194,103 @@ impl App {
             .as_ref()
             .map(|_| Instant::now() + Duration::from_secs(8));
 
+        // Installation + session namespace are already typed past the persistence
+        // boundary; only IO failures can disable execution hosts.
+        let execution_hosts = crate::persist::installation::load_or_create_installation_id()
+            .map_err(|err| err.to_string())
+            .map(|installation_id| {
+                let mut hosts = crate::execution_host::ExecutionHostManager::new(
+                    installation_id,
+                    state.session_namespace_id.clone(),
+                );
+                hosts.sync_profiles(&state.ssh_connection_profiles);
+                hosts
+            });
+        let mut execution_hosts = match execution_hosts {
+            Ok(hosts) => Some(hosts),
+            Err(error) => {
+                state.toast.get_or_insert_with(|| state::ToastNotification {
+                    kind: state::ToastKind::NeedsAttention,
+                    title: "execution hosts unavailable".to_string(),
+                    context: error,
+                    position: None,
+                    target: None,
+                });
+                None
+            }
+        };
+
+        // Restored remote identities re-adopt on the worker; next_op_seq resumes from the
+        // worker-reported last_applied_op_seq only after identity validation succeeds.
+        if let Some(hosts) = execution_hosts.as_mut() {
+            let (rows, cols) = state.estimate_pane_size();
+            let mut adopted = std::collections::HashSet::new();
+            let remote_terminals = state
+                .workspaces
+                .iter()
+                .flat_map(|workspace| {
+                    workspace.tabs.iter().flat_map(|tab| {
+                        tab.panes.iter().filter_map(|(pane_id, pane)| {
+                            let terminal = state.terminals.get(&pane.attached_terminal_id)?;
+                            let identity = terminal.remote_runtime_identity.clone()?;
+                            (!terminal.location.is_local()).then(|| {
+                                (
+                                    terminal.id.clone(),
+                                    *pane_id,
+                                    terminal.location.clone(),
+                                    identity,
+                                )
+                            })
+                        })
+                    })
+                })
+                .collect::<Vec<_>>();
+            for (terminal_id, pane_id, location, identity) in remote_terminals {
+                if !adopted.insert(terminal_id.clone()) {
+                    continue;
+                }
+                match hosts.adopt_terminal(
+                    terminal_id.clone(),
+                    pane_id,
+                    location,
+                    identity,
+                    rows,
+                    cols,
+                    state.pane_scrollback_limit_bytes,
+                    state.host_terminal_theme,
+                    event_tx.clone(),
+                ) {
+                    Ok(runtime) => {
+                        restored_terminal_runtimes.insert(terminal_id, runtime);
+                    }
+                    Err(error) => {
+                        state.toast.get_or_insert_with(|| state::ToastNotification {
+                            kind: state::ToastKind::NeedsAttention,
+                            title: "remote terminal restore failed".to_string(),
+                            context: error,
+                            position: None,
+                            target: None,
+                        });
+                    }
+                }
+            }
+        }
+
         Self {
             config_diagnostic_deadline: None,
             toast_deadline,
             copy_feedback_deadline: None,
             state,
             default_client_view,
-            terminal_runtimes: restored_terminal_runtimes.into(),
+            terminal_runtimes: restored_terminal_runtimes,
+            execution_hosts,
+            pending_remote_creations: std::collections::HashMap::new(),
+            remote_creation_completions: Vec::new(),
+            pending_remote_api_responses: std::collections::HashMap::new(),
+            pending_client_view_effects: Vec::new(),
             event_tx,
             event_rx,
+            retained_execution_file_staged: Vec::new(),
             last_git_remote_status_refresh: Instant::now() - GIT_REMOTE_STATUS_REFRESH_INTERVAL,
             git_refresh_in_flight: false,
             git_refresh_due_after_in_flight: false,
@@ -1215,9 +1386,49 @@ impl App {
             .active_group
             .min(app.state.groups.len().saturating_sub(1));
         app.state.group_filter_enabled = snapshot.group_filter_enabled;
+        let restored_namespace = crate::persist::installation::session_namespace_from_snapshot(
+            &snapshot.session_namespace_id,
+        );
+        if restored_namespace.as_str() != snapshot.session_namespace_id.trim() {
+            // Persist the healed namespace on the next session save.
+            app.state.mark_session_dirty();
+        }
+        app.state.session_namespace_id = restored_namespace;
+        // App::new built hosts against a fresh namespace; rebuild with the restored one.
+        app.execution_hosts = match crate::persist::installation::load_or_create_installation_id() {
+            Ok(installation_id) => {
+                let mut hosts = crate::execution_host::ExecutionHostManager::new(
+                    installation_id,
+                    app.state.session_namespace_id.clone(),
+                );
+                hosts.sync_profiles(&app.state.ssh_connection_profiles);
+                Some(hosts)
+            }
+            Err(error) => {
+                app.state
+                    .toast
+                    .get_or_insert_with(|| state::ToastNotification {
+                        kind: state::ToastKind::NeedsAttention,
+                        title: "execution hosts unavailable".to_string(),
+                        context: error.to_string(),
+                        position: None,
+                        target: None,
+                    });
+                None
+            }
+        };
         app.state.workspaces = workspaces;
         app.state.terminals = terminals;
-        app.terminal_runtimes = crate::terminal::TerminalRuntimeRegistry::from(runtimes).into();
+        app.state.remote_termination_tombstones = snapshot
+            .remote_termination_tombstones
+            .iter()
+            .map(|tombstone| state::RemoteTerminationTombstone {
+                terminal_id: tombstone.terminal_id.clone(),
+                location: tombstone.location.clone(),
+                remote_runtime_identity: tombstone.remote_runtime_identity.clone(),
+            })
+            .collect();
+        app.terminal_runtimes = crate::terminal::TerminalRuntimeRegistry::from(runtimes);
         app.state.active = snapshot
             .default_view
             .active
@@ -1332,7 +1543,7 @@ impl App {
 
         if self.state.request_new_workspace {
             self.state.request_new_workspace = false;
-            if self.state.pending_workspace_create_cwd.is_some()
+            if self.state.pending_workspace_create_location.is_some()
                 && self.state.mode != state::Mode::RenameWorkspace
             {
                 self.create_workspace();
@@ -1395,6 +1606,390 @@ impl App {
         terminal.resize(Rect::new(0, 0, size.width, size.height))
     }
 
+    fn enqueue_execution_file_staged(&mut self, event: AppEvent) {
+        match self.event_tx.try_send(event) {
+            Ok(()) => {}
+            Err(tokio::sync::mpsc::error::TrySendError::Full(event))
+            | Err(tokio::sync::mpsc::error::TrySendError::Closed(event)) => {
+                self.retained_execution_file_staged.push(event);
+            }
+        }
+    }
+
+    pub(crate) fn flush_retained_execution_file_staged(&mut self) {
+        if self.retained_execution_file_staged.is_empty() {
+            return;
+        }
+        let retained = std::mem::take(&mut self.retained_execution_file_staged);
+        for event in retained {
+            match self.event_tx.try_send(event) {
+                Ok(()) => {}
+                Err(tokio::sync::mpsc::error::TrySendError::Full(event))
+                | Err(tokio::sync::mpsc::error::TrySendError::Closed(event)) => {
+                    self.retained_execution_file_staged.push(event);
+                }
+            }
+        }
+    }
+
+    pub(crate) fn poll_execution_hosts(&mut self, now: Instant) -> bool {
+        self.flush_retained_execution_file_staged();
+        let requests = std::mem::take(&mut self.state.pending_ssh_connection_requests);
+        let Some(hosts) = &mut self.execution_hosts else {
+            if requests.is_empty() {
+                return false;
+            }
+            self.state.toast = Some(state::ToastNotification {
+                kind: state::ToastKind::NeedsAttention,
+                title: "execution hosts unavailable".to_string(),
+                context: "coordinator installation identity is unavailable".to_string(),
+                position: None,
+                target: None,
+            });
+            self.toast_deadline = Some(now + Duration::from_secs(8));
+            return true;
+        };
+
+        let mut changed = false;
+        let mut immediate_events = Vec::new();
+        for request in requests {
+            match hosts.request_for(
+                request.authentication_owner,
+                &request.profile_id,
+                request.action,
+            ) {
+                Ok(Some(event)) => immediate_events.push(event),
+                Ok(None) => {}
+                Err(error) => {
+                    self.state.toast = Some(state::ToastNotification {
+                        kind: state::ToastKind::NeedsAttention,
+                        title: "SSH connection request failed".to_string(),
+                        context: error,
+                        position: None,
+                        target: None,
+                    });
+                    self.toast_deadline = Some(now + Duration::from_secs(8));
+                    changed = true;
+                }
+            }
+        }
+
+        for tombstone in &self.state.remote_termination_tombstones {
+            hosts.restore_termination_pending(
+                tombstone.terminal_id.clone(),
+                tombstone.location.clone(),
+                tombstone.remote_runtime_identity.clone(),
+            );
+        }
+        let mut live_terminal_ids: std::collections::HashSet<_> =
+            self.state.terminals.keys().cloned().collect();
+        live_terminal_ids.extend(self.pending_remote_creations.keys().cloned());
+        hosts.retain_terminals(&live_terminal_ids);
+        let (statuses, mut events) = hosts.poll(now);
+        events.extend(immediate_events);
+        let status_transitions = statuses
+            .iter()
+            .filter(|(host_id, status)| {
+                self.state.host_connection_states.get(*host_id) != Some(*status)
+            })
+            .map(|(host_id, status)| (host_id.clone(), status.clone()))
+            .collect::<Vec<_>>();
+        if !status_transitions.is_empty()
+            || statuses.len() != self.state.host_connection_states.len()
+        {
+            self.state.host_connection_states = statuses;
+            changed = true;
+        }
+        for (host_id, status) in status_transitions {
+            // Explicit disconnect (not reconnect backoff) fails deferred creates promptly
+            // while host-side request identity remains for late ACK reconcile.
+            if matches!(
+                status,
+                crate::execution_host::ConnectionStatus::Disconnected
+            ) {
+                let pending_on_host = self
+                    .pending_remote_creations
+                    .iter()
+                    .filter(|(_, pending)| {
+                        pending.requested_location().execution_host_id == host_id
+                    })
+                    .map(|(terminal_id, _)| terminal_id.clone())
+                    .collect::<Vec<_>>();
+                for terminal_id in pending_on_host {
+                    if self.abort_pending_remote_creation(
+                        terminal_id,
+                        format!("execution host {host_id} disconnected before create completed"),
+                    ) {
+                        changed = true;
+                    }
+                }
+            }
+            let (status, error) = match status {
+                crate::execution_host::ConnectionStatus::Disconnected => {
+                    (crate::api::schema::ConnectionStatusKind::Disconnected, None)
+                }
+                crate::execution_host::ConnectionStatus::Connecting => {
+                    (crate::api::schema::ConnectionStatusKind::Connecting, None)
+                }
+                crate::execution_host::ConnectionStatus::Connected => {
+                    (crate::api::schema::ConnectionStatusKind::Connected, None)
+                }
+                crate::execution_host::ConnectionStatus::Reconnecting { error } => (
+                    crate::api::schema::ConnectionStatusKind::Reconnecting,
+                    Some(error),
+                ),
+                crate::execution_host::ConnectionStatus::Disconnecting => (
+                    crate::api::schema::ConnectionStatusKind::Disconnecting,
+                    None,
+                ),
+                crate::execution_host::ConnectionStatus::AuthenticationRequired => (
+                    crate::api::schema::ConnectionStatusKind::AuthenticationRequired,
+                    None,
+                ),
+            };
+            self.emit_event(crate::api::schema::EventEnvelope {
+                event: crate::api::schema::EventKind::ConnectionStatusChanged,
+                data: crate::api::schema::EventData::ConnectionStatusChanged {
+                    execution_host_id: host_id.as_str().to_string(),
+                    status,
+                    error,
+                },
+            });
+        }
+        for event in events {
+            match event {
+                crate::execution_host::ExecutionHostEvent::FileStaged {
+                    host_id,
+                    request_id,
+                    location,
+                    result,
+                } => {
+                    self.enqueue_execution_file_staged(
+                        crate::events::AppEvent::ExecutionFileStaged {
+                            host_id,
+                            request_id,
+                            location,
+                            result,
+                        },
+                    );
+                }
+                crate::execution_host::ExecutionHostEvent::Worker { host_id, message } => {
+                    tracing::debug!(host = %host_id.as_str(), ?message, "received execution host message");
+                }
+                crate::execution_host::ExecutionHostEvent::TerminalReady {
+                    terminal_id,
+                    identity,
+                    location,
+                } => {
+                    if self.pending_remote_creations.contains_key(&terminal_id) {
+                        self.complete_remote_creation_ready(terminal_id, identity, location);
+                        changed = true;
+                    } else if let Some(terminal) = self.state.terminals.get_mut(&terminal_id) {
+                        // Placement is immutable after commit/restore; only attach identity.
+                        terminal.remote_runtime_identity = Some(identity);
+                        self.state.mark_session_dirty();
+                        changed = true;
+                    }
+                }
+                crate::execution_host::ExecutionHostEvent::TerminalOutput {
+                    terminal_id,
+                    data,
+                    reset,
+                } => {
+                    if let Some(runtime) = self.terminal_runtimes.get(&terminal_id) {
+                        if reset {
+                            let _ = runtime.process_remote_output(b"\x1bc\x1b[3J");
+                        }
+                        for content in runtime.process_remote_output(&data) {
+                            let _ = self
+                                .event_tx
+                                .try_send(crate::events::AppEvent::ClipboardWrite { content });
+                        }
+                        changed = true;
+                    }
+                }
+                crate::execution_host::ExecutionHostEvent::TerminalStateChanged {
+                    terminal_id,
+                    agent,
+                    state,
+                    visible_blocker,
+                    visible_idle,
+                    visible_working,
+                    process_exited,
+                } => {
+                    let pane_ids = self
+                        .state
+                        .workspaces
+                        .iter()
+                        .flat_map(|workspace| &workspace.tabs)
+                        .flat_map(|tab| &tab.panes)
+                        .filter(|(_, pane)| pane.attached_terminal_id == terminal_id)
+                        .map(|(pane_id, _)| *pane_id)
+                        .collect::<Vec<_>>();
+                    for pane_id in pane_ids {
+                        let _ = self
+                            .event_tx
+                            .try_send(crate::events::AppEvent::StateChanged {
+                                pane_id,
+                                agent,
+                                state,
+                                visible_blocker,
+                                visible_idle,
+                                visible_working,
+                                process_exited,
+                                observed_at: now,
+                            });
+                    }
+                    changed = true;
+                }
+                crate::execution_host::ExecutionHostEvent::TerminalExited {
+                    terminal_id,
+                    status,
+                } => {
+                    let pane_ids = self
+                        .state
+                        .workspaces
+                        .iter()
+                        .flat_map(|workspace| &workspace.tabs)
+                        .flat_map(|tab| &tab.panes)
+                        .filter(|(_, pane)| pane.attached_terminal_id == terminal_id)
+                        .map(|(pane_id, _)| *pane_id)
+                        .collect::<Vec<_>>();
+                    let (exit_success, exit_code, exit_signal) = match status {
+                        crate::execution_host::protocol::RuntimeExitStatus::Code(code) => {
+                            (code == 0, Some(code), None)
+                        }
+                        crate::execution_host::protocol::RuntimeExitStatus::Signal(signal) => {
+                            (false, None, Some(signal))
+                        }
+                    };
+                    for pane_id in pane_ids {
+                        let _ = self.event_tx.try_send(crate::events::AppEvent::PaneDied {
+                            pane_id,
+                            child_pid: 0,
+                            exit_success,
+                            exit_code,
+                            exit_signal,
+                        });
+                    }
+                    changed = true;
+                }
+                crate::execution_host::ExecutionHostEvent::TerminationPending {
+                    terminal_id,
+                    location,
+                    identity,
+                } => {
+                    if !self
+                        .state
+                        .remote_termination_tombstones
+                        .iter()
+                        .any(|tombstone| tombstone.terminal_id == terminal_id)
+                    {
+                        self.state.remote_termination_tombstones.push(
+                            state::RemoteTerminationTombstone {
+                                terminal_id,
+                                location,
+                                remote_runtime_identity: identity,
+                            },
+                        );
+                        self.state.mark_session_dirty();
+                        changed = true;
+                    }
+                }
+                crate::execution_host::ExecutionHostEvent::TerminationFinished { terminal_id } => {
+                    let previous_len = self.state.remote_termination_tombstones.len();
+                    self.state
+                        .remote_termination_tombstones
+                        .retain(|tombstone| tombstone.terminal_id != terminal_id);
+                    if self.state.remote_termination_tombstones.len() != previous_len {
+                        self.state.mark_session_dirty();
+                        changed = true;
+                    }
+                }
+                crate::execution_host::ExecutionHostEvent::TerminalFailed {
+                    terminal_id,
+                    message,
+                } => {
+                    let was_pending_create =
+                        self.pending_remote_creations.contains_key(&terminal_id);
+                    let had_pending_api =
+                        self.pending_remote_api_responses.contains_key(&terminal_id);
+                    self.complete_remote_creation_failed(terminal_id.clone(), message.clone());
+                    let cleared_command_run = self.clear_command_runs_for_terminal(&terminal_id);
+                    if !was_pending_create {
+                        if let Some(runtime) = self.terminal_runtimes.remove(&terminal_id) {
+                            runtime.shutdown();
+                        }
+                    }
+                    // API deferred responders encode their own errors. Non-API TUI
+                    // launches (project commands, settings) need an explicit toast.
+                    if !had_pending_api && (was_pending_create || cleared_command_run) {
+                        self.state.toast = Some(state::ToastNotification {
+                            kind: state::ToastKind::NeedsAttention,
+                            title: if cleared_command_run {
+                                "project command failed".to_string()
+                            } else {
+                                "remote terminal failed".to_string()
+                            },
+                            context: message,
+                            position: None,
+                            target: None,
+                        });
+                        self.toast_deadline = Some(now + Duration::from_secs(8));
+                    } else if !was_pending_create {
+                        self.state.toast = Some(state::ToastNotification {
+                            kind: state::ToastKind::NeedsAttention,
+                            title: "remote terminal failed".to_string(),
+                            context: message,
+                            position: None,
+                            target: None,
+                        });
+                        self.toast_deadline = Some(now + Duration::from_secs(8));
+                    }
+                    changed = true;
+                }
+                crate::execution_host::ExecutionHostEvent::Diagnostic { host_id, message } => {
+                    tracing::warn!(host = %host_id.as_str(), %message, "execution host diagnostic");
+                    self.state.toast = Some(state::ToastNotification {
+                        kind: state::ToastKind::NeedsAttention,
+                        title: "SSH host connection failed".to_string(),
+                        context: message,
+                        position: None,
+                        target: None,
+                    });
+                    self.toast_deadline = Some(now + Duration::from_secs(8));
+                    changed = true;
+                }
+                crate::execution_host::ExecutionHostEvent::TestFinished { host_id, result } => {
+                    let (kind, context) = match result {
+                        Ok(()) => (
+                            state::ToastKind::Finished,
+                            format!("{} is reachable", host_id.as_str()),
+                        ),
+                        Err(error) => (state::ToastKind::NeedsAttention, error),
+                    };
+                    self.state.toast = Some(state::ToastNotification {
+                        kind,
+                        title: "SSH connection test".to_string(),
+                        context,
+                        position: None,
+                        target: None,
+                    });
+                    self.toast_deadline = Some(now + Duration::from_secs(8));
+                    changed = true;
+                }
+            }
+        }
+        changed |= self.finish_remote_api_completions();
+        changed
+    }
+
+    pub(crate) fn execution_hosts_need_poll(&self) -> bool {
+        self.execution_hosts
+            .as_ref()
+            .is_some_and(crate::execution_host::ExecutionHostManager::has_active_connections)
+    }
+
     pub async fn run(&mut self, terminal: &mut DefaultTerminal) -> io::Result<()> {
         if self.input_rx.is_none() {
             self.input_rx = Some(crate::raw_input::spawn_input_reader());
@@ -1422,6 +2017,9 @@ impl App {
             self.sync_session_save_schedule();
 
             let now = Instant::now();
+            if self.poll_execution_hosts(now) {
+                needs_render = true;
+            }
             if self.handle_scheduled_tasks(now, needs_render) {
                 needs_render = true;
             }
@@ -2150,6 +2748,282 @@ impl App {
         }
     }
 
+    fn refresh_client_authentication_prompt(&self, client_view: &mut ClientViewState) {
+        let owner = crate::execution_host::auth::AuthenticationOwner::new(client_view.id());
+        let challenge = self
+            .execution_hosts
+            .as_ref()
+            .and_then(|hosts| hosts.authentication_challenge(owner));
+        match challenge {
+            Some(challenge)
+                if client_view
+                    .authentication_prompt
+                    .as_ref()
+                    .is_none_or(|prompt| prompt.challenge_id != challenge.id) =>
+            {
+                let lower = challenge.prompt.to_ascii_lowercase();
+                client_view.authentication_prompt =
+                    Some(crate::app::view_state::ClientAuthenticationPrompt {
+                        challenge_id: challenge.id,
+                        execution_host_id: challenge.execution_host_id,
+                        prompt: challenge.prompt,
+                        response: String::new(),
+                        host_key_confirmation: lower.contains("yes/no")
+                            || lower.contains("authenticity of host"),
+                    });
+            }
+            None => client_view.authentication_prompt = None,
+            Some(_) => {}
+        }
+    }
+
+    fn handle_client_authentication_key(
+        &mut self,
+        client_view: &mut ClientViewState,
+        key: crossterm::event::KeyEvent,
+    ) -> bool {
+        let owner = crate::execution_host::auth::AuthenticationOwner::new(client_view.id());
+        let Some(prompt) = client_view.authentication_prompt.as_mut() else {
+            return false;
+        };
+        let Some(hosts) = self.execution_hosts.as_ref() else {
+            client_view.authentication_prompt = None;
+            return true;
+        };
+        if prompt.host_key_confirmation {
+            match key.code {
+                crossterm::event::KeyCode::Char('y' | 'Y') => {
+                    let _ = hosts.respond_to_authentication(
+                        owner,
+                        prompt.challenge_id,
+                        crate::execution_host::auth::AuthenticationResponse::new(b"yes".to_vec()),
+                    );
+                    client_view.authentication_prompt = None;
+                }
+                crossterm::event::KeyCode::Char('n' | 'N') | crossterm::event::KeyCode::Esc => {
+                    let _ = hosts.cancel_authentication(owner, prompt.challenge_id);
+                    client_view.authentication_prompt = None;
+                }
+                _ => {}
+            }
+            return true;
+        }
+        match key.code {
+            crossterm::event::KeyCode::Enter => {
+                let response = std::mem::take(&mut prompt.response);
+                let _ = hosts.respond_to_authentication(
+                    owner,
+                    prompt.challenge_id,
+                    crate::execution_host::auth::AuthenticationResponse::new(response.into_bytes()),
+                );
+                client_view.authentication_prompt = None;
+            }
+            crossterm::event::KeyCode::Esc => {
+                let _ = hosts.cancel_authentication(owner, prompt.challenge_id);
+                client_view.authentication_prompt = None;
+            }
+            crossterm::event::KeyCode::Backspace => {
+                prompt.response.pop();
+            }
+            crossterm::event::KeyCode::Char(character)
+                if !key.modifiers.intersects(
+                    crossterm::event::KeyModifiers::CONTROL | crossterm::event::KeyModifiers::ALT,
+                ) =>
+            {
+                prompt.response.push(character);
+            }
+            _ => {}
+        }
+        true
+    }
+
+    fn preview_worker_install_for(
+        &mut self,
+        owner: crate::execution_host::auth::AuthenticationOwner,
+        profile_id: String,
+    ) {
+        let result = self
+            .execution_hosts
+            .as_ref()
+            .ok_or_else(|| "execution hosts unavailable".to_string())
+            .and_then(|hosts| hosts.worker_installer_for(owner, &profile_id));
+        let event_tx = self.event_tx.clone();
+        std::thread::spawn(move || {
+            let result = result.and_then(|installer| installer.preview());
+            let _ = event_tx.blocking_send(crate::events::AppEvent::WorkerInstallPreviewed {
+                authentication_owner: owner,
+                profile_id,
+                result,
+            });
+        });
+    }
+
+    fn install_worker_for(
+        &mut self,
+        owner: crate::execution_host::auth::AuthenticationOwner,
+        profile_id: String,
+        preview: crate::remote::WorkerInstallPreview,
+    ) {
+        let result = self
+            .execution_hosts
+            .as_ref()
+            .ok_or_else(|| "execution hosts unavailable".to_string())
+            .and_then(|hosts| hosts.worker_installer_for(owner, &profile_id));
+        let event_tx = self.event_tx.clone();
+        std::thread::spawn(move || {
+            let result = result.and_then(|installer| installer.install(&preview));
+            let _ = event_tx.blocking_send(crate::events::AppEvent::WorkerInstalled {
+                authentication_owner: owner,
+                profile_id,
+                result,
+            });
+        });
+    }
+
+    /// Apply preview completion only to the initiating client's connection editor.
+    pub(crate) fn apply_worker_install_previewed_for_owner(
+        &mut self,
+        owner: crate::execution_host::auth::AuthenticationOwner,
+        profile_id: &str,
+        result: &Result<crate::remote::WorkerInstallPreview, String>,
+    ) -> bool {
+        self.apply_worker_install_to_owner(owner, |editor| {
+            editor.apply_worker_install_previewed(profile_id, result)
+        })
+    }
+
+    /// Apply install completion only to the initiating client's connection editor.
+    pub(crate) fn apply_worker_installed_for_owner(
+        &mut self,
+        owner: crate::execution_host::auth::AuthenticationOwner,
+        profile_id: &str,
+        result: &Result<crate::remote::WorkerInstallReport, String>,
+    ) -> bool {
+        self.apply_worker_install_to_owner(owner, |editor| {
+            editor.apply_worker_installed(profile_id, result)
+        })
+    }
+
+    /// Apply a worker-install editor mutation to a specific client view when it owns
+    /// the completion. Used by headless multi-client routing.
+    pub(crate) fn apply_worker_install_previewed_to_view(
+        client_view: &mut ClientViewState,
+        owner: crate::execution_host::auth::AuthenticationOwner,
+        profile_id: &str,
+        result: &Result<crate::remote::WorkerInstallPreview, String>,
+    ) -> bool {
+        if client_view.id() != owner.client_view_id() {
+            return false;
+        }
+        client_view
+            .settings
+            .connection_editor
+            .as_mut()
+            .is_some_and(|editor| editor.apply_worker_install_previewed(profile_id, result))
+    }
+
+    pub(crate) fn apply_worker_installed_to_view(
+        client_view: &mut ClientViewState,
+        owner: crate::execution_host::auth::AuthenticationOwner,
+        profile_id: &str,
+        result: &Result<crate::remote::WorkerInstallReport, String>,
+    ) -> bool {
+        if client_view.id() != owner.client_view_id() {
+            return false;
+        }
+        client_view
+            .settings
+            .connection_editor
+            .as_mut()
+            .is_some_and(|editor| editor.apply_worker_installed(profile_id, result))
+    }
+
+    fn apply_worker_install_to_owner(
+        &mut self,
+        owner: crate::execution_host::auth::AuthenticationOwner,
+        mut apply: impl FnMut(&mut crate::app::state::ConnectionEditorState) -> bool,
+    ) -> bool {
+        // Connection editor state is client-owned. Completions never broadcast by
+        // profile_id alone — only the initiating AuthenticationOwner may consume them.
+        if self.default_client_view.id() != owner.client_view_id() {
+            return false;
+        }
+        let mut changed = false;
+        if let Some(editor) = self.default_client_view.settings.connection_editor.as_mut() {
+            changed |= apply(editor);
+        }
+        // Monolithic settings mode still stages the editor on AppState for the same
+        // default owner. Keep that surface aligned — never a second independent consumer.
+        if let Some(editor) = self.state.settings.connection_editor.as_mut() {
+            changed |= apply(editor);
+        }
+        changed
+    }
+
+    fn apply_settings_action_for_client(
+        &mut self,
+        client_view: &ClientViewState,
+        action: input::SettingsAction,
+    ) {
+        let owner = crate::execution_host::auth::AuthenticationOwner::new(client_view.id());
+        match action {
+            input::SettingsAction::PreviewWorkerInstall { profile_id } => {
+                self.preview_worker_install_for(owner, profile_id);
+            }
+            input::SettingsAction::ConfirmWorkerInstall {
+                profile_id,
+                preview,
+            } => {
+                self.install_worker_for(owner, profile_id, preview);
+            }
+            input::SettingsAction::CancelWorkerInstall => {}
+            input::SettingsAction::TestSshConnection { profile_id } => {
+                self.request_connection_for(
+                    owner,
+                    &profile_id,
+                    crate::execution_host::HostConnectionAction::Test,
+                );
+            }
+            input::SettingsAction::ConnectSshConnection { profile_id } => {
+                self.request_connection_for(
+                    owner,
+                    &profile_id,
+                    crate::execution_host::HostConnectionAction::Connect,
+                );
+            }
+            input::SettingsAction::DisconnectSshConnection { profile_id } => {
+                self.request_connection_for(
+                    owner,
+                    &profile_id,
+                    crate::execution_host::HostConnectionAction::Disconnect,
+                );
+            }
+            action => self.apply_settings_action(action),
+        }
+    }
+
+    fn request_connection_for(
+        &mut self,
+        owner: crate::execution_host::auth::AuthenticationOwner,
+        profile_id: &str,
+        action: crate::execution_host::HostConnectionAction,
+    ) {
+        let result = self
+            .execution_hosts
+            .as_mut()
+            .ok_or_else(|| "execution hosts unavailable".to_string())
+            .and_then(|hosts| hosts.request_for(owner, profile_id, action).map(|_| ()));
+        if let Err(error) = result {
+            self.state.toast = Some(state::ToastNotification {
+                kind: state::ToastKind::NeedsAttention,
+                title: "SSH connection request failed".to_string(),
+                context: error,
+                position: None,
+                target: None,
+            });
+        }
+    }
+
     pub(crate) fn route_client_events_for_view(
         &mut self,
         client_view: &mut ClientViewState,
@@ -2157,6 +3031,7 @@ impl App {
         apply_host_terminal_theme: bool,
     ) {
         client_view.reconcile(&self.state);
+        self.refresh_client_authentication_prompt(client_view);
         for event in events {
             let previous_mode = client_view.mode;
             match event {
@@ -2223,6 +3098,11 @@ impl App {
         client_view: &mut ClientViewState,
         key: crate::input::TerminalKey,
     ) {
+        if matches!(key.kind, crossterm::event::KeyEventKind::Press)
+            && self.handle_client_authentication_key(client_view, key.as_key_event())
+        {
+            return;
+        }
         let suppress_direct_command_repeat = client_view.mode == Mode::Terminal
             && input::command_for_key(&self.state, key, input::BindingDispatch::Direct).is_some();
         let physical_id = physical_key_identity(&key);
@@ -2457,7 +3337,7 @@ impl App {
                 if let Some(action) =
                     input::update_settings_state_for_view(&mut self.state, client_view, key)
                 {
-                    self.apply_settings_action(action);
+                    self.apply_settings_action_for_client(client_view, action);
                 }
             }
             Mode::GlobalMenu => {
@@ -3279,15 +4159,19 @@ impl App {
                     return;
                 }
                 match client_view.mode {
-                    Mode::RenameWorkspace if client_view.pending_workspace_create_cwd.is_some() => {
-                        let Some(cwd) = client_view.pending_workspace_create_cwd.take() else {
+                    Mode::RenameWorkspace
+                        if client_view.pending_workspace_create_location.is_some() =>
+                    {
+                        let Some(location) = client_view.pending_workspace_create_location.take()
+                        else {
                             return;
                         };
                         let group_idx = client_view
                             .pending_workspace_create_group
                             .take()
                             .unwrap_or(client_view.active_group);
-                        let suggested_name = crate::workspace::derive_label_from_cwd(&cwd);
+                        let suggested_name =
+                            crate::workspace::derive_label_from_location(&location);
                         let label = crate::app::creation::workspace_create_label(
                             &new_name,
                             &suggested_name,
@@ -3301,7 +4185,7 @@ impl App {
                             return;
                         };
                         match self.create_workspace_with_launch_env_in_group(
-                            cwd,
+                            location.path.as_path().to_path_buf(),
                             false,
                             group_id,
                             Vec::new(),
@@ -3368,10 +4252,20 @@ impl App {
                         };
                         let dir = client_view.group_default_directory_input.trim();
                         let preserve_group_filter = client_view.group_filter_enabled;
-                        let group_idx = self.state.create_group_with_icon_and_default_directory(
+                        let default_location = (!dir.is_empty())
+                            .then(|| {
+                                crate::execution_host::HostPath::new(dir).ok().map(|path| {
+                                    crate::execution_host::ResourceLocation::new(
+                                        client_view.group_default_execution_host_id.clone(),
+                                        path,
+                                    )
+                                })
+                            })
+                            .flatten();
+                        let group_idx = self.state.create_group_with_icon_and_default_location(
                             name,
                             client_view.group_icon_input.clone(),
-                            (!dir.is_empty()).then_some(std::path::PathBuf::from(dir)),
+                            default_location,
                         );
                         client_view.active_group = group_idx;
                         client_view.group_filter_enabled = preserve_group_filter;
@@ -3407,7 +4301,7 @@ impl App {
                 client_view.group_modal_selected_field = 0;
                 client_view.rename_group_target = None;
                 client_view.rename_pane_target = None;
-                client_view.pending_workspace_create_cwd = None;
+                client_view.pending_workspace_create_location = None;
                 client_view.pending_workspace_create_group = None;
                 client_view.name_input.clear();
                 client_view.name_input_replace_on_type = false;
@@ -3427,7 +4321,7 @@ impl App {
                 client_view.rename_group_target = None;
                 client_view.requested_new_tab_name = None;
                 client_view.rename_pane_target = None;
-                client_view.pending_workspace_create_cwd = None;
+                client_view.pending_workspace_create_location = None;
                 client_view.pending_workspace_create_group = None;
                 client_view.name_input.clear();
                 client_view.name_input_replace_on_type = false;
@@ -3436,7 +4330,7 @@ impl App {
             crossterm::event::KeyCode::Backspace => {
                 if client_view.mode == Mode::RenameGroup
                     && client_view.creating_new_group
-                    && client_view.group_modal_selected_field == 1
+                    && client_view.group_modal_selected_field == 2
                 {
                     client_view.group_default_directory_input.pop();
                 } else {
@@ -3452,15 +4346,35 @@ impl App {
                         .contains(crossterm::event::KeyModifiers::SHIFT) =>
             {
                 client_view.group_modal_selected_field =
-                    (client_view.group_modal_selected_field + 1) % 2;
+                    (client_view.group_modal_selected_field + 1) % 3;
                 client_view.name_input_replace_on_type = false;
             }
             crossterm::event::KeyCode::BackTab
                 if client_view.mode == Mode::RenameGroup && client_view.creating_new_group =>
             {
                 client_view.group_modal_selected_field =
-                    (client_view.group_modal_selected_field + 1) % 2;
+                    (client_view.group_modal_selected_field + 2) % 3;
                 client_view.name_input_replace_on_type = false;
+            }
+            crossterm::event::KeyCode::Char(' ')
+                if client_view.mode == Mode::RenameGroup
+                    && client_view.creating_new_group
+                    && client_view.group_modal_selected_field == 1 =>
+            {
+                let mut hosts = vec![crate::execution_host::ExecutionHostId::local()];
+                hosts.extend(
+                    self.state
+                        .ssh_connection_profiles
+                        .iter()
+                        .map(|profile| profile.execution_host_id()),
+                );
+                let next = hosts
+                    .iter()
+                    .position(|host| host == &client_view.group_default_execution_host_id)
+                    .map_or(0, |index| (index + 1) % hosts.len());
+                if let Some(host) = hosts.get(next) {
+                    client_view.group_default_execution_host_id = host.clone();
+                }
             }
             crossterm::event::KeyCode::Char(c)
                 if key
@@ -3471,7 +4385,7 @@ impl App {
                 if client_view.name_input_replace_on_type {
                     if client_view.mode == Mode::RenameGroup
                         && client_view.creating_new_group
-                        && client_view.group_modal_selected_field == 1
+                        && client_view.group_modal_selected_field == 2
                     {
                         client_view.group_default_directory_input.clear();
                     } else {
@@ -3481,7 +4395,7 @@ impl App {
                 }
                 if client_view.mode == Mode::RenameGroup
                     && client_view.creating_new_group
-                    && client_view.group_modal_selected_field == 1
+                    && client_view.group_modal_selected_field == 2
                 {
                     client_view.group_default_directory_input.push(c);
                 } else {
@@ -3647,7 +4561,7 @@ impl App {
         client_view.creating_new_tab = true;
         client_view.creating_new_group = false;
         client_view.requested_new_tab_name = None;
-        client_view.pending_workspace_create_cwd = None;
+        client_view.pending_workspace_create_location = None;
         client_view.pending_workspace_create_group = None;
         client_view.name_input = "tab".to_string();
         client_view.name_input_replace_on_type = true;
@@ -3657,7 +4571,7 @@ impl App {
     fn open_client_view_new_workspace_dialog(
         &self,
         client_view: &mut ClientViewState,
-        cwd: std::path::PathBuf,
+        location: crate::execution_host::ResourceLocation,
         group_idx: usize,
     ) {
         client_view.creating_new_tab = false;
@@ -3666,9 +4580,9 @@ impl App {
         client_view.requested_new_tab_name = None;
         client_view.rename_group_target = None;
         client_view.rename_pane_target = None;
-        client_view.pending_workspace_create_cwd = Some(cwd.clone());
+        client_view.pending_workspace_create_location = Some(location.clone());
         client_view.pending_workspace_create_group = Some(group_idx);
-        client_view.name_input = crate::workspace::derive_label_from_cwd(&cwd);
+        client_view.name_input = crate::workspace::derive_label_from_cwd(location.path.as_path());
         client_view.name_input_replace_on_type = true;
         client_view.mode = Mode::RenameWorkspace;
     }
@@ -3676,7 +4590,7 @@ impl App {
     fn open_client_view_rename_tab_dialog(&self, client_view: &mut ClientViewState) {
         client_view.creating_new_tab = false;
         client_view.requested_new_tab_name = None;
-        client_view.pending_workspace_create_cwd = None;
+        client_view.pending_workspace_create_location = None;
         client_view.pending_workspace_create_group = None;
         client_view.name_input = client_view
             .active_workspace
@@ -3702,7 +4616,7 @@ impl App {
         client_view.creating_new_group = false;
         client_view.group_icon_picker_open = false;
         client_view.requested_new_tab_name = None;
-        client_view.pending_workspace_create_cwd = None;
+        client_view.pending_workspace_create_location = None;
         client_view.pending_workspace_create_group = None;
         client_view.rename_group_target = None;
         client_view.rename_pane_target = None;
@@ -3725,7 +4639,7 @@ impl App {
         client_view.group_icon_input = group.icon.clone();
         client_view.group_icon_picker_open = false;
         client_view.requested_new_tab_name = None;
-        client_view.pending_workspace_create_cwd = None;
+        client_view.pending_workspace_create_location = None;
         client_view.pending_workspace_create_group = None;
         client_view.rename_group_target = Some(group_idx);
         client_view.rename_pane_target = None;
@@ -3753,7 +4667,7 @@ impl App {
         client_view.creating_new_group = false;
         client_view.group_icon_picker_open = false;
         client_view.requested_new_tab_name = None;
-        client_view.pending_workspace_create_cwd = None;
+        client_view.pending_workspace_create_location = None;
         client_view.pending_workspace_create_group = None;
         client_view.rename_group_target = None;
         client_view.rename_pane_target = Some(pane_id);
@@ -3846,6 +4760,8 @@ impl App {
         client_view.creating_new_tab = false;
         client_view.group_icon_input = state::DEFAULT_GROUP_ICON.to_string();
         client_view.group_default_directory_input.clear();
+        client_view.group_default_execution_host_id =
+            crate::execution_host::ExecutionHostId::local();
         client_view.group_modal_selected_field = 0;
         client_view.group_icon_picker_open = false;
         client_view.rename_group_target = None;
@@ -4392,6 +5308,20 @@ impl App {
             }
             crate::app::command_palette::CommandPaletteAction::OpenNotificationTarget => {
                 self.focus_toast_target_for_client_view(client_view);
+            }
+            crate::app::command_palette::CommandPaletteAction::ProjectCommand(command_id) => {
+                Self::leave_client_view_command_mode(client_view);
+                let previous_toast = self.state.toast.clone();
+                if let Err(error) = self.run_project_command_on_resolved_host(&command_id) {
+                    self.state.toast = Some(crate::app::state::ToastNotification {
+                        kind: crate::app::state::ToastKind::NeedsAttention,
+                        title: "project command failed".to_string(),
+                        context: error,
+                        position: None,
+                        target: None,
+                    });
+                    self.sync_toast_deadline(previous_toast);
+                }
             }
             crate::app::command_palette::CommandPaletteAction::CustomCommand(idx) => {
                 let Some(binding) = self.state.keybinds.custom_commands.get(idx).cloned() else {
@@ -5576,24 +6506,44 @@ impl App {
                     .iter()
                     .position(|workspace| workspace.group_id == group_id)
             });
-        let initial_cwd = self.group_default_directory(&group_id).unwrap_or_else(|| {
-            let follow_cwd = source.and_then(|ws_idx| self.seed_cwd_from_workspace(ws_idx));
-            self.resolve_new_terminal_cwd(follow_cwd)
-        });
+        let initial_location = self
+            .state
+            .groups
+            .get(group_idx)
+            .and_then(|group| group.default_location.clone())
+            .or_else(|| {
+                source.and_then(|ws_idx| {
+                    self.state
+                        .workspaces
+                        .get(ws_idx)
+                        .map(|workspace| workspace.default_location.clone())
+                })
+            })
+            .unwrap_or_else(|| {
+                let follow_cwd = source.and_then(|ws_idx| self.seed_cwd_from_workspace(ws_idx));
+                crate::execution_host::ResourceLocation::local(
+                    self.resolve_new_terminal_cwd(follow_cwd),
+                )
+                .expect("resolved local cwd must be valid")
+            });
         if self.state.prompt_new_workspace_name {
             client_view.active_group = group_idx;
-            self.open_client_view_new_workspace_dialog(client_view, initial_cwd, group_idx);
+            self.open_client_view_new_workspace_dialog(client_view, initial_location, group_idx);
             return;
         }
-        match self.create_workspace_with_launch_env_in_group(
-            initial_cwd,
+        match self.create_workspace_with_location_in_group(
+            initial_location,
             false,
             group_id,
             Vec::new(),
         ) {
-            Ok(ws_idx) => {
+            Ok(crate::app::creation::WorkspaceCreation::Committed(ws_idx)) => {
                 client_view.active_group = group_idx;
                 self.switch_client_view_workspace(client_view, ws_idx);
+                Self::leave_client_view_command_mode(client_view);
+            }
+            Ok(crate::app::creation::WorkspaceCreation::Pending(_)) => {
+                client_view.active_group = group_idx;
                 Self::leave_client_view_command_mode(client_view);
             }
             Err(err) => {
@@ -6021,14 +6971,14 @@ impl App {
                 if client_view.name_input_replace_on_type
                     && !(client_view.mode == Mode::RenameGroup
                         && client_view.creating_new_group
-                        && client_view.group_modal_selected_field == 1)
+                        && client_view.group_modal_selected_field == 2)
                 {
                     client_view.name_input.clear();
                     client_view.name_input_replace_on_type = false;
                 }
                 if client_view.mode == Mode::RenameGroup
                     && client_view.creating_new_group
-                    && client_view.group_modal_selected_field == 1
+                    && client_view.group_modal_selected_field == 2
                 {
                     client_view.group_default_directory_input.push_str(text);
                 } else {
@@ -6238,7 +7188,7 @@ impl App {
                     mouse.row,
                 )
             {
-                client_view.group_modal_selected_field = 1;
+                client_view.group_modal_selected_field = 2;
                 client_view.name_input_replace_on_type = false;
                 return true;
             }
@@ -6269,7 +7219,7 @@ impl App {
             Some(input::ModalAction::Clear) => {
                 if client_view.mode == Mode::RenameGroup
                     && client_view.creating_new_group
-                    && client_view.group_modal_selected_field == 1
+                    && client_view.group_modal_selected_field == 2
                 {
                     client_view.group_default_directory_input.clear();
                 } else {
@@ -8472,7 +9422,7 @@ impl App {
     }
 
     fn handle_client_view_terminal_pane_left_click(
-        &self,
+        &mut self,
         client_view: &mut ClientViewState,
         mouse: crossterm::event::MouseEvent,
     ) -> bool {
@@ -8498,6 +9448,38 @@ impl App {
         let Some(canvas_mouse) = Self::client_view_canvas_mouse(client_view, mouse) else {
             return false;
         };
+
+        if mouse
+            .modifiers
+            .contains(crossterm::event::KeyModifiers::CONTROL)
+        {
+            let viewport_row = row.saturating_sub(info.inner_rect.y);
+            let col = column.saturating_sub(info.inner_rect.x);
+            if let Some(url) =
+                self.state
+                    .url_at_pane_cell(&self.terminal_runtimes, info.id, viewport_row, col)
+            {
+                client_view.selection = None;
+                match self.invoke_plugin_link_handler_for_url(&url, info.id) {
+                    Ok(true) => return true,
+                    Ok(false) => {}
+                    Err(err) => {
+                        tracing::warn!(
+                            err = %err,
+                            url = %url,
+                            "failed to invoke plugin link handler"
+                        );
+                    }
+                }
+                if let Err(err) = self.event_tx.try_send(crate::events::AppEvent::OpenUrl {
+                    pane_id: info.id,
+                    url: url.clone(),
+                }) {
+                    tracing::warn!(err = %err, url = %url, "failed to queue pane URL open");
+                }
+                return true;
+            }
+        }
 
         client_view.focus_pane_in_workspace(&self.state, ws_idx, tab_idx, info.id);
         if client_view.mode != Mode::Terminal {
@@ -8681,7 +9663,7 @@ impl App {
             input::update_settings_mouse_for_view(&mut self.state, client_view, mouse)
         {
             if client_view.can_mutate_tab() {
-                self.apply_settings_action(action);
+                self.apply_settings_action_for_client(client_view, action);
                 crate::ui::compute_view_for_client_without_resizing_panes(
                     &self.state,
                     client_view,
@@ -11314,6 +12296,8 @@ mod tests {
     ) -> crate::persist::SessionSnapshot {
         crate::persist::SessionSnapshot {
             version: 3,
+            session_namespace_id: "session-test".to_string(),
+            remote_termination_tombstones: Vec::new(),
             groups,
             active_group: 0,
             group_filter_enabled: true,
@@ -11338,7 +12322,7 @@ mod tests {
             name: name.to_string(),
             icon: "■".to_string(),
             accent: None,
-            default_directory: None,
+            default_location: None,
             favorite_agent_profile_ids: Vec::new(),
             default_agent_profile_id: None,
         }
@@ -11350,7 +12334,7 @@ mod tests {
             custom_name: Some(id.to_string()),
             group_id: group_id.to_string(),
             identity_cwd: std::path::PathBuf::from("/tmp"),
-            default_cwd: std::path::PathBuf::from("/tmp"),
+            default_location: crate::execution_host::ResourceLocation::local("/tmp").unwrap(),
             public_pane_numbers: std::collections::HashMap::new(),
             next_public_pane_number: 0,
             public_tab_numbers: Vec::new(),
@@ -11426,6 +12410,58 @@ mod tests {
     }
 
     #[cfg(unix)]
+    #[test]
+    fn live_handoff_preserves_pending_remote_termination() {
+        let mut snapshot = test_snapshot(
+            vec![test_group_snapshot(
+                crate::workspace::DEFAULT_GROUP_ID,
+                "group 1",
+            )],
+            Vec::new(),
+        );
+        let terminal_id = crate::terminal::TerminalId::alloc();
+        let location = crate::execution_host::ResourceLocation::new(
+            crate::execution_host::ExecutionHostId::new("ssh:workbox:1").unwrap(),
+            crate::execution_host::HostPath::new("/srv/work").unwrap(),
+        );
+        let identity = crate::execution_host::protocol::RuntimeIdentity::new(
+            crate::execution_host::protocol::HostBindingGeneration::new(1),
+            crate::execution_host::protocol::WorkerInstanceId::new("worker-a").unwrap(),
+            crate::execution_host::protocol::WorkerRuntimeId::new("runtime-a").unwrap(),
+            crate::execution_host::protocol::RuntimeIncarnation::new(1),
+        );
+        snapshot.remote_termination_tombstones.push(
+            serde_json::from_value(serde_json::json!({
+                "terminal_id": terminal_id,
+                "location": location,
+                "remote_runtime_identity": identity,
+            }))
+            .unwrap(),
+        );
+        let (_api_tx, api_rx) = tokio::sync::mpsc::unbounded_channel();
+        let mut imports = std::collections::HashMap::new();
+
+        let app = App::new_from_handoff(
+            &Config::default(),
+            None,
+            api_rx,
+            crate::api::EventHub::default(),
+            &snapshot,
+            &mut imports,
+        )
+        .unwrap();
+
+        assert_eq!(
+            app.state.remote_termination_tombstones,
+            vec![state::RemoteTerminationTombstone {
+                terminal_id,
+                location,
+                remote_runtime_identity: identity,
+            }]
+        );
+    }
+
+    #[cfg(unix)]
     #[tokio::test]
     async fn handoff_restores_agent_panel_semantics_before_hooks_report_again() {
         let mut state = state::AppState::test_new();
@@ -11471,6 +12507,8 @@ mod tests {
             &state.groups,
             state.active_group,
             state.group_filter_enabled,
+            &state.session_namespace_id,
+            &state.remote_termination_tombstones,
             &state.workspaces,
             &state.terminals,
             &terminal_runtimes,
@@ -11643,7 +12681,7 @@ mod tests {
         app.state.workspaces.push(Workspace::test_new("one"));
         app.render_dirty.store(false, Ordering::Release);
         let workspace_id = app.state.workspaces[0].id.clone();
-        let resolved_identity_cwd = app.state.workspaces[0].resolved_identity_cwd().unwrap();
+        let resolved_identity_cwd = app.state.workspaces[0].identity_cwd.clone();
         let cwd_fingerprint = app.state.workspaces[0].git_status_cwds();
 
         app.handle_internal_event(AppEvent::GitStatusRefreshed {
@@ -12871,29 +13909,31 @@ mod tests {
     }
 
     #[test]
-    fn workspace_creation_prefers_group_default_directory_over_source_space() {
+    fn workspace_creation_prefers_group_default_location_over_source_space() {
         let mut app = test_app();
         let group_idx = app.state.create_group("Work".to_string());
         let group_id = app.state.groups[group_idx].id.clone();
+        let group_location = crate::execution_host::ResourceLocation::new(
+            crate::execution_host::ExecutionHostId::new("ssh:workbox:1").unwrap(),
+            crate::execution_host::HostPath::new("/srv/group").unwrap(),
+        );
         app.state
-            .set_group_default_directory(group_idx, Some(std::path::PathBuf::from("/tmp/group")));
+            .set_group_default_location(group_idx, Some(group_location.clone()));
         let mut source = Workspace::test_new("source");
-        source.group_id = group_id.clone();
-        source.default_cwd = std::path::PathBuf::from("/tmp/source");
+        source.group_id = group_id;
+        source.record_default_location(
+            crate::execution_host::ResourceLocation::local("/tmp/source").unwrap(),
+        );
         app.state.workspaces = vec![source];
         app.state.active_group = group_idx;
         app.state.active = Some(0);
-        app.state.selected = 0;
-        app.state.mode = Mode::Navigate;
 
-        let source = app.workspace_creation_source();
-        let group_id = app.workspace_creation_group_id(source);
-        let cwd = app.group_default_directory(&group_id).unwrap_or_else(|| {
-            let follow_cwd = source.and_then(|ws_idx| app.seed_cwd_from_workspace(ws_idx));
-            app.resolve_new_terminal_cwd(follow_cwd)
-        });
+        let resolved = app.state.groups[group_idx]
+            .default_location
+            .clone()
+            .or_else(|| Some(app.state.workspaces[0].default_location.clone()));
 
-        assert_eq!(cwd, std::path::PathBuf::from("/tmp/group"));
+        assert_eq!(resolved, Some(group_location));
     }
 
     #[test]
@@ -13223,6 +14263,7 @@ mod tests {
             method: crate::api::schema::Method::PaneSplit(crate::api::schema::PaneSplitParams {
                 workspace_id: None,
                 target_pane_id: Some(target_pane_id),
+                location: None,
                 direction: crate::api::schema::SplitDirection::Right,
                 ratio: None,
                 cwd: None,
@@ -13290,6 +14331,7 @@ mod tests {
             method: crate::api::schema::Method::PaneSplit(crate::api::schema::PaneSplitParams {
                 workspace_id: None,
                 target_pane_id: Some(target_pane_id),
+                location: None,
                 direction: crate::api::schema::SplitDirection::Right,
                 ratio: None,
                 cwd: None,
@@ -13331,6 +14373,7 @@ mod tests {
             method: crate::api::schema::Method::PaneSplit(crate::api::schema::PaneSplitParams {
                 workspace_id: None,
                 target_pane_id: Some(target_pane_id),
+                location: None,
                 direction: crate::api::schema::SplitDirection::Right,
                 ratio: Some(0.333),
                 cwd: None,
@@ -13372,6 +14415,7 @@ mod tests {
             method: crate::api::schema::Method::PaneSplit(crate::api::schema::PaneSplitParams {
                 workspace_id: None,
                 target_pane_id: None,
+                location: None,
                 direction: crate::api::schema::SplitDirection::Right,
                 ratio: None,
                 cwd: None,
@@ -13409,6 +14453,7 @@ mod tests {
             method: crate::api::schema::Method::AgentStart(crate::api::schema::AgentStartParams {
                 name: "worker".into(),
                 cwd: None,
+                location: None,
                 workspace_id: None,
                 tab_id: None,
                 split: Some(crate::api::schema::SplitDirection::Right),
@@ -13638,6 +14683,58 @@ mod tests {
         app.tick_selection_autoscroll(now);
         assert!(app.state.selection_autoscroll.is_none());
         assert!(app.selection_autoscroll_deadline.is_none());
+    }
+
+    #[tokio::test]
+    async fn execution_file_staged_is_retained_when_event_channel_is_full() {
+        let mut app = test_app();
+        // Fill the bounded app-event channel.
+        for i in 0..64 {
+            app.event_tx
+                .try_send(AppEvent::UpdateReady {
+                    version: format!("9.9.{i}"),
+                    install_command: "omh update".into(),
+                })
+                .expect("fill channel");
+        }
+        let host_id = crate::execution_host::ExecutionHostId::new("ssh:workbox:1").unwrap();
+        let location = crate::execution_host::ResourceLocation::new(
+            host_id.clone(),
+            crate::execution_host::HostPath::new("/tmp").unwrap(),
+        );
+        let request_id = crate::execution_host::protocol::RequestId::new(7);
+        app.enqueue_execution_file_staged(AppEvent::ExecutionFileStaged {
+            host_id: host_id.clone(),
+            request_id,
+            location: location.clone(),
+            result: Ok(crate::execution_host::HostPath::new("/tmp/ok.png").unwrap()),
+        });
+        assert_eq!(app.retained_execution_file_staged.len(), 1);
+        // Drain one slot and flush retained completion.
+        let _ = app.event_rx.try_recv();
+        app.flush_retained_execution_file_staged();
+        assert!(app.retained_execution_file_staged.is_empty());
+        let mut found = false;
+        while let Ok(event) = app.event_rx.try_recv() {
+            if let AppEvent::ExecutionFileStaged {
+                host_id: staged_host,
+                request_id: staged_request,
+                location: staged_location,
+                result,
+            } = event
+            {
+                assert_eq!(staged_host, host_id);
+                assert_eq!(staged_request, request_id);
+                assert_eq!(staged_location, location);
+                assert!(result.is_ok());
+                found = true;
+                break;
+            }
+        }
+        assert!(
+            found,
+            "retained ExecutionFileStaged must be delivered after flush"
+        );
     }
 
     #[tokio::test]
@@ -17737,6 +18834,8 @@ command = "printf literal > '{}'"
             pane_id: client_focus,
             child_pid: 0,
             exit_success: true,
+            exit_code: None,
+            exit_signal: None,
         });
         client.reconcile(&app.state);
 
@@ -17803,6 +18902,8 @@ command = "printf literal > '{}'"
             pane_id: first,
             child_pid: 0,
             exit_success: true,
+            exit_code: None,
+            exit_signal: None,
         });
         client.reconcile(&app.state);
         assert_eq!(
@@ -17817,6 +18918,8 @@ command = "printf literal > '{}'"
             pane_id: second,
             child_pid: 0,
             exit_success: true,
+            exit_code: None,
+            exit_signal: None,
         });
         client.reconcile(&app.state);
         assert_eq!(
@@ -18517,7 +19620,10 @@ command = "printf literal > '{}'"
         assert_eq!(created.name, "Work");
         assert_eq!(created.icon, icon);
         assert_eq!(
-            created.default_directory.as_deref(),
+            created
+                .default_location
+                .as_ref()
+                .map(|location| location.path.as_path()),
             Some(std::path::Path::new("/tmp/work"))
         );
         assert_eq!(first_client.mode, Mode::Terminal);
@@ -21930,7 +23036,7 @@ command = "printf literal > '{}'"
         client.reconcile(&app.state);
         let workspace_id = app.state.workspaces[1].id.clone();
 
-        let response = app.handle_api_request_for_view(
+        let response = match app.handle_api_request_disposition_for_view(
             &mut client,
             crate::api::schema::Request {
                 id: "split".into(),
@@ -21938,6 +23044,7 @@ command = "printf literal > '{}'"
                     crate::api::schema::PaneSplitParams {
                         workspace_id: None,
                         target_pane_id: None,
+                        location: None,
                         direction: crate::api::schema::SplitDirection::Right,
                         ratio: None,
                         cwd: None,
@@ -21946,7 +23053,10 @@ command = "printf literal > '{}'"
                     },
                 ),
             },
-        );
+        ) {
+            crate::api::ApiRequestDisposition::Respond(response) => response,
+            other => panic!("expected immediate API response, got {other:?}"),
+        };
 
         let body: serde_json::Value = serde_json::from_str(&response).expect("response json");
         assert_eq!(body["result"]["type"], "pane_info");
@@ -21984,7 +23094,7 @@ command = "printf literal > '{}'"
         let workspace_id = app.state.workspaces[0].id.clone();
         let original_focus = app.state.workspaces[0].tabs[0].root_pane;
 
-        let response = app.handle_api_request_for_view(
+        let response = match app.handle_api_request_disposition_for_view(
             &mut client,
             crate::api::schema::Request {
                 id: "split-no-focus".into(),
@@ -21992,6 +23102,7 @@ command = "printf literal > '{}'"
                     crate::api::schema::PaneSplitParams {
                         workspace_id: None,
                         target_pane_id: None,
+                        location: None,
                         direction: crate::api::schema::SplitDirection::Right,
                         ratio: None,
                         cwd: None,
@@ -22000,7 +23111,10 @@ command = "printf literal > '{}'"
                     },
                 ),
             },
-        );
+        ) {
+            crate::api::ApiRequestDisposition::Respond(response) => response,
+            other => panic!("expected immediate API response, got {other:?}"),
+        };
 
         let body: serde_json::Value = serde_json::from_str(&response).expect("response json");
         assert_eq!(body["result"]["type"], "pane_info");
@@ -22033,7 +23147,7 @@ command = "printf literal > '{}'"
         let workspace_public_id = app.public_workspace_id(1);
         let shared_focus_before = app.state.workspaces[1].tabs[0].layout.focused();
 
-        let response = app.handle_api_request_for_view(
+        let response = match app.handle_api_request_disposition_for_view(
             &mut client,
             crate::api::schema::Request {
                 id: "split-workspace-id".into(),
@@ -22041,6 +23155,7 @@ command = "printf literal > '{}'"
                     crate::api::schema::PaneSplitParams {
                         workspace_id: Some(workspace_public_id.clone()),
                         target_pane_id: None,
+                        location: None,
                         direction: crate::api::schema::SplitDirection::Right,
                         ratio: None,
                         cwd: None,
@@ -22049,7 +23164,10 @@ command = "printf literal > '{}'"
                     },
                 ),
             },
-        );
+        ) {
+            crate::api::ApiRequestDisposition::Respond(response) => response,
+            other => panic!("expected immediate API response, got {other:?}"),
+        };
 
         let body: serde_json::Value = serde_json::from_str(&response).expect("response json");
         assert_eq!(body["result"]["type"], "pane_info");
@@ -22095,7 +23213,7 @@ command = "printf literal > '{}'"
         let workspace_id = app.state.workspaces[1].id.clone();
         client.focus_pane_in_workspace(&app.state, 1, 0, background_second);
 
-        let response = app.handle_api_request_for_view(
+        let response = match app.handle_api_request_disposition_for_view(
             &mut client,
             crate::api::schema::Request {
                 id: "zoom-client-view".into(),
@@ -22104,7 +23222,10 @@ command = "printf literal > '{}'"
                     mode: crate::api::schema::PaneZoomMode::On,
                 }),
             },
-        );
+        ) {
+            crate::api::ApiRequestDisposition::Respond(response) => response,
+            other => panic!("expected immediate API response, got {other:?}"),
+        };
 
         let body: serde_json::Value = serde_json::from_str(&response).expect("response json");
         assert_eq!(body["result"]["type"], "pane_zoom");
@@ -22149,7 +23270,7 @@ command = "printf literal > '{}'"
         let workspace_id = app.state.workspaces[1].id.clone();
         client.focus_pane_in_workspace(&app.state, 1, 0, background_second);
 
-        let response = app.handle_api_request_for_view(
+        let response = match app.handle_api_request_disposition_for_view(
             &mut client,
             crate::api::schema::Request {
                 id: "resize-client-view".into(),
@@ -22161,7 +23282,10 @@ command = "printf literal > '{}'"
                     },
                 ),
             },
-        );
+        ) {
+            crate::api::ApiRequestDisposition::Respond(response) => response,
+            other => panic!("expected immediate API response, got {other:?}"),
+        };
 
         let body: serde_json::Value = serde_json::from_str(&response).expect("response json");
         assert_eq!(body["result"]["type"], "pane_resize");
@@ -22194,7 +23318,7 @@ command = "printf literal > '{}'"
         let mut client = ClientViewState::from_default_client_state(&app.state);
         let workspace_id = app.public_workspace_id(1);
 
-        let response = app.handle_api_request_for_view(
+        let response = match app.handle_api_request_disposition_for_view(
             &mut client,
             crate::api::schema::Request {
                 id: "workspace-focus".into(),
@@ -22202,7 +23326,10 @@ command = "printf literal > '{}'"
                     crate::api::schema::WorkspaceTarget { workspace_id },
                 ),
             },
-        );
+        ) {
+            crate::api::ApiRequestDisposition::Respond(response) => response,
+            other => panic!("expected immediate API response, got {other:?}"),
+        };
 
         let body: serde_json::Value = serde_json::from_str(&response).expect("response json");
         assert_eq!(body["result"]["type"], "workspace_info");
@@ -22226,20 +23353,24 @@ command = "printf literal > '{}'"
 
         let mut client = ClientViewState::from_default_client_state(&app.state);
 
-        let response = app.handle_api_request_for_view(
+        let response = match app.handle_api_request_disposition_for_view(
             &mut client,
             crate::api::schema::Request {
                 id: "workspace-create".into(),
                 method: crate::api::schema::Method::WorkspaceCreate(
                     crate::api::schema::WorkspaceCreateParams {
                         cwd: None,
+                        location: None,
                         label: Some("client workspace".into()),
                         focus: true,
                         env: std::collections::HashMap::new(),
                     },
                 ),
             },
-        );
+        ) {
+            crate::api::ApiRequestDisposition::Respond(response) => response,
+            other => panic!("expected immediate API response, got {other:?}"),
+        };
 
         let body: serde_json::Value = serde_json::from_str(&response).expect("response json");
         assert_eq!(body["result"]["type"], "workspace_created");
@@ -22267,7 +23398,7 @@ command = "printf literal > '{}'"
         client.reconcile(&app.state);
         let workspace_id = app.public_workspace_id(1);
 
-        let response = app.handle_api_request_for_view(
+        let response = match app.handle_api_request_disposition_for_view(
             &mut client,
             crate::api::schema::Request {
                 id: "workspace-close".into(),
@@ -22275,7 +23406,10 @@ command = "printf literal > '{}'"
                     crate::api::schema::WorkspaceTarget { workspace_id },
                 ),
             },
-        );
+        ) {
+            crate::api::ApiRequestDisposition::Respond(response) => response,
+            other => panic!("expected immediate API response, got {other:?}"),
+        };
 
         let body: serde_json::Value = serde_json::from_str(&response).expect("response json");
         assert_eq!(body["result"]["type"], "ok");
@@ -22302,7 +23436,7 @@ command = "printf literal > '{}'"
         let workspace_id = app.state.workspaces[0].id.clone();
         let tab_id = app.public_tab_id(0, 1).expect("tab id");
 
-        let response = app.handle_api_request_for_view(
+        let response = match app.handle_api_request_disposition_for_view(
             &mut client,
             crate::api::schema::Request {
                 id: "tab-focus".into(),
@@ -22310,7 +23444,10 @@ command = "printf literal > '{}'"
                     tab_id,
                 }),
             },
-        );
+        ) {
+            crate::api::ApiRequestDisposition::Respond(response) => response,
+            other => panic!("expected immediate API response, got {other:?}"),
+        };
 
         let body: serde_json::Value = serde_json::from_str(&response).expect("response json");
         assert_eq!(body["result"]["type"], "tab_info");
@@ -22337,7 +23474,7 @@ command = "printf literal > '{}'"
         client.reconcile(&app.state);
         let workspace_id = app.state.workspaces[1].id.clone();
 
-        let response = app.handle_api_request_for_view(
+        let response = match app.handle_api_request_disposition_for_view(
             &mut client,
             crate::api::schema::Request {
                 id: "tab-create".into(),
@@ -22345,13 +23482,17 @@ command = "printf literal > '{}'"
                     crate::api::schema::TabCreateParams {
                         workspace_id: None,
                         cwd: None,
+                        location: None,
                         focus: true,
                         label: Some("client tab".into()),
                         env: std::collections::HashMap::new(),
                     },
                 ),
             },
-        );
+        ) {
+            crate::api::ApiRequestDisposition::Respond(response) => response,
+            other => panic!("expected immediate API response, got {other:?}"),
+        };
 
         let body: serde_json::Value = serde_json::from_str(&response).expect("response json");
         assert_eq!(body["result"]["type"], "tab_created");

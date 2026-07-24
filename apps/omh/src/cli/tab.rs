@@ -58,6 +58,7 @@ fn tab_list(args: &[String]) -> std::io::Result<i32> {
 fn tab_create(args: &[String]) -> std::io::Result<i32> {
     let mut workspace_id = None;
     let mut cwd = None;
+    let mut host = None;
     let mut focus = false;
     let mut label = None;
     let mut env = HashMap::new();
@@ -79,6 +80,14 @@ fn tab_create(args: &[String]) -> std::io::Result<i32> {
                     return Ok(2);
                 };
                 cwd = Some(value.clone());
+                index += 2;
+            }
+            "--host" => {
+                let Some(value) = args.get(index + 1) else {
+                    eprintln!("missing value for --host");
+                    return Ok(2);
+                };
+                host = Some(value.clone());
                 index += 2;
             }
             "--label" => {
@@ -119,11 +128,20 @@ fn tab_create(args: &[String]) -> std::io::Result<i32> {
         }
     }
 
+    let location = match super::explicit_resource_location(host, &mut cwd) {
+        Ok(location) => location,
+        Err(error) => {
+            eprintln!("{error}");
+            return Ok(2);
+        }
+    };
+
     super::print_response(&super::send_request(&Request {
         id: "cli:tab:create".into(),
         method: Method::TabCreate(TabCreateParams {
             workspace_id,
             cwd,
+            location,
             focus,
             label,
             env,
@@ -204,7 +222,7 @@ fn print_tab_help() {
     eprintln!("omh tab commands:");
     eprintln!("  omh tab list [--workspace <workspace_id>]");
     eprintln!(
-        "  omh tab create [--workspace <workspace_id>] [--cwd PATH] [--label TEXT] [--env KEY=VALUE] [--focus] [--no-focus]"
+        "  omh tab create [--workspace <workspace_id>] [--cwd PATH] [--host EXECUTION_HOST_ID] [--label TEXT] [--env KEY=VALUE] [--focus] [--no-focus]"
     );
     eprintln!("  omh tab get <tab_id>");
     eprintln!("  omh tab focus <tab_id>");

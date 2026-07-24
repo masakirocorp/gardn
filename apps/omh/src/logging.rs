@@ -308,17 +308,6 @@ pub(crate) fn session_saved(path: &Path, workspaces: usize) {
     );
 }
 
-pub(crate) fn session_save_failed(path: &Path, err: &str) {
-    tracing::error!(
-        event = "persist.save",
-        subsystem = "persist",
-        outcome = "error",
-        path = %path.display(),
-        err,
-        "failed to save session"
-    );
-}
-
 pub(crate) fn session_cleared(path: &Path) {
     tracing::info!(
         event = "persist.clear",

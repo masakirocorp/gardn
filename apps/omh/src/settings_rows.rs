@@ -169,6 +169,7 @@ fn rows_for_section_with_settings(
         SettingsSection::Experiments => Some(experiment_rows(app, settings)),
         SettingsSection::Agents => Some(agent_profile_rows(app, settings)),
         SettingsSection::Integrations => Some(integration_rows(app)),
+        SettingsSection::Connections => Some(connection_rows(app, settings)),
         SettingsSection::GroupGeneral => Some(group_general_rows(app, settings)),
         SettingsSection::GroupProfiles => Some(group_profile_rows(app, settings)),
         SettingsSection::WorkspaceGeneral => Some(workspace_general_rows(app, settings)),
@@ -411,6 +412,23 @@ fn theme_rows(app: &AppState, settings: &SettingsState) -> Vec<SettingsListRow> 
     rows
 }
 
+fn execution_host_label(
+    app: &AppState,
+    host_id: Option<&crate::execution_host::ExecutionHostId>,
+) -> String {
+    let Some(host_id) = host_id else {
+        return "Local".into();
+    };
+    if host_id.is_local() {
+        return "Local".into();
+    }
+    app.ssh_connection_profiles
+        .iter()
+        .find(|profile| profile.execution_host_id() == *host_id)
+        .map(|profile| profile.name().to_string())
+        .unwrap_or_else(|| host_id.as_str().to_string())
+}
+
 fn group_general_rows(app: &AppState, settings: &SettingsState) -> Vec<SettingsListRow> {
     let group_name = settings
         .pending_group_name
@@ -422,21 +440,20 @@ fn group_general_rows(app: &AppState, settings: &SettingsState) -> Vec<SettingsL
                 .map(|group| group.name.clone())
         })
         .unwrap_or_else(|| "group".to_string());
+    let default_location = settings
+        .group_settings_target
+        .and_then(|group_idx| app.groups.get(group_idx))
+        .and_then(|group| group.default_location.as_ref());
     let default_directory = settings
         .pending_group_default_directory
         .clone()
-        .or_else(|| {
-            settings
-                .group_settings_target
-                .and_then(|group_idx| app.groups.get(group_idx))
-                .and_then(|group| {
-                    group
-                        .default_directory
-                        .as_ref()
-                        .map(|path| path.display().to_string())
-                })
-        })
+        .or_else(|| default_location.map(|location| location.path.as_path().display().to_string()))
         .unwrap_or_default();
+    let host_id = settings
+        .pending_group_default_execution_host_id
+        .as_ref()
+        .or_else(|| default_location.map(|location| &location.execution_host_id));
+    let host_label = execution_host_label(app, host_id);
 
     vec![
         SettingsListRow::TextInput {
@@ -448,7 +465,11 @@ fn group_general_rows(app: &AppState, settings: &SettingsState) -> Vec<SettingsL
         SettingsListRow::TextInput {
             index: 1,
             title: "default directory for new spaces".into(),
-            value: default_directory.into(),
+            value: if default_directory.is_empty() {
+                format!("Runs on {host_label}").into()
+            } else {
+                format!("Runs on {host_label} · {default_directory}").into()
+            },
         },
         SettingsListRow::Spacer,
         SettingsListRow::Header("danger zone"),
@@ -473,8 +494,22 @@ fn workspace_general_rows(app: &AppState, settings: &SettingsState) -> Vec<Setti
     let default_cwd = settings
         .pending_workspace_default_cwd
         .clone()
-        .or_else(|| workspace.map(|workspace| workspace.default_cwd.display().to_string()))
+        .or_else(|| {
+            workspace.map(|workspace| {
+                workspace
+                    .default_location
+                    .path
+                    .as_path()
+                    .display()
+                    .to_string()
+            })
+        })
         .unwrap_or_default();
+    let host_id = settings
+        .pending_workspace_default_execution_host_id
+        .as_ref()
+        .or_else(|| workspace.map(|workspace| &workspace.default_location.execution_host_id));
+    let host_label = execution_host_label(app, host_id);
 
     vec![
         SettingsListRow::TextInput {
@@ -485,7 +520,7 @@ fn workspace_general_rows(app: &AppState, settings: &SettingsState) -> Vec<Setti
         SettingsListRow::Spacer,
         SettingsListRow::TextInput {
             index: 1,
-            title: "default directory".into(),
+            title: format!("Runs on: {host_label} · Directory").into(),
             value: default_cwd.into(),
         },
     ]
@@ -993,6 +1028,393 @@ fn notification_rows(app: &AppState, settings: &SettingsState) -> Vec<SettingsLi
             toast_delivery_label(toast_delivery),
         )],
     ));
+    rows
+}
+
+/// Stable row identity for the connection editor.
+///
+/// Input and render share these typed ids so keyboard/mouse dispatch never
+/// depends on magic contiguous integers or row-order accidents.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ConnectionField {
+    Name,
+    Target,
+    Directory,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ConnectionAction {
+    Save,
+    Discard,
+    Delete,
+    Test,
+    Toggle,
+    LaunchWorkspace,
+    InstallWorker,
+    ConfirmWorker,
+    CancelWorker,
+    ForgetTermination { offset: usize },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ConnectionRowId {
+    Field(ConnectionField),
+    Action(ConnectionAction),
+}
+
+impl ConnectionRowId {
+    /// Dense index used by the existing list selection model.
+    pub(crate) const fn selection_index(self) -> usize {
+        match self {
+            Self::Field(ConnectionField::Name) => 0,
+            Self::Field(ConnectionField::Target) => 1,
+            Self::Field(ConnectionField::Directory) => 2,
+            Self::Action(ConnectionAction::Save) => 3,
+            Self::Action(ConnectionAction::Discard) => 4,
+            Self::Action(ConnectionAction::Delete) => 5,
+            Self::Action(ConnectionAction::Test) => 6,
+            Self::Action(ConnectionAction::Toggle) => 7,
+            Self::Action(ConnectionAction::LaunchWorkspace) => 8,
+            Self::Action(ConnectionAction::InstallWorker) => 9,
+            Self::Action(ConnectionAction::ConfirmWorker) => 10,
+            Self::Action(ConnectionAction::CancelWorker) => 11,
+            Self::Action(ConnectionAction::ForgetTermination { offset }) => 12 + offset,
+        }
+    }
+
+    pub(crate) fn from_selection_index(index: usize) -> Option<Self> {
+        Some(match index {
+            0 => Self::Field(ConnectionField::Name),
+            1 => Self::Field(ConnectionField::Target),
+            2 => Self::Field(ConnectionField::Directory),
+            3 => Self::Action(ConnectionAction::Save),
+            4 => Self::Action(ConnectionAction::Discard),
+            5 => Self::Action(ConnectionAction::Delete),
+            6 => Self::Action(ConnectionAction::Test),
+            7 => Self::Action(ConnectionAction::Toggle),
+            8 => Self::Action(ConnectionAction::LaunchWorkspace),
+            9 => Self::Action(ConnectionAction::InstallWorker),
+            10 => Self::Action(ConnectionAction::ConfirmWorker),
+            11 => Self::Action(ConnectionAction::CancelWorker),
+            offset if offset >= 12 => Self::Action(ConnectionAction::ForgetTermination {
+                offset: offset - 12,
+            }),
+            _ => return None,
+        })
+    }
+}
+
+#[cfg(test)]
+pub(crate) const CONNECTION_NAME_INDEX: usize =
+    ConnectionRowId::Field(ConnectionField::Name).selection_index();
+#[cfg(test)]
+pub(crate) const CONNECTION_TARGET_INDEX: usize =
+    ConnectionRowId::Field(ConnectionField::Target).selection_index();
+#[cfg(test)]
+pub(crate) const CONNECTION_SAVE_INDEX: usize =
+    ConnectionRowId::Action(ConnectionAction::Save).selection_index();
+#[cfg(test)]
+pub(crate) const CONNECTION_DISCARD_INDEX: usize =
+    ConnectionRowId::Action(ConnectionAction::Discard).selection_index();
+#[cfg(test)]
+pub(crate) const CONNECTION_DELETE_INDEX: usize =
+    ConnectionRowId::Action(ConnectionAction::Delete).selection_index();
+#[cfg(test)]
+pub(crate) const CONNECTION_TEST_INDEX: usize =
+    ConnectionRowId::Action(ConnectionAction::Test).selection_index();
+#[cfg(test)]
+pub(crate) const CONNECTION_INSTALL_WORKER_INDEX: usize =
+    ConnectionRowId::Action(ConnectionAction::InstallWorker).selection_index();
+#[cfg(test)]
+pub(crate) const CONNECTION_CONFIRM_WORKER_INDEX: usize =
+    ConnectionRowId::Action(ConnectionAction::ConfirmWorker).selection_index();
+
+fn connection_rows(app: &AppState, settings: &SettingsState) -> Vec<SettingsListRow> {
+    if connection_editor_open(settings) {
+        connection_editor_rows(app, settings)
+    } else {
+        connection_browse_rows(app)
+    }
+}
+
+pub(crate) fn connection_editor_open(settings: &SettingsState) -> bool {
+    settings.connection_editor.is_some()
+}
+
+fn connection_status_tone(status: &crate::execution_host::ConnectionStatus) -> SettingsMarkerTone {
+    use crate::execution_host::ConnectionStatus;
+    match status {
+        ConnectionStatus::Disconnected | ConnectionStatus::Disconnecting => {
+            SettingsMarkerTone::Disabled
+        }
+        ConnectionStatus::Connecting => SettingsMarkerTone::Accent,
+        ConnectionStatus::Connected => SettingsMarkerTone::Good,
+        ConnectionStatus::Reconnecting { .. } | ConnectionStatus::AuthenticationRequired => {
+            SettingsMarkerTone::Warning
+        }
+    }
+}
+
+fn connection_browse_rows(app: &AppState) -> Vec<SettingsListRow> {
+    let mut rows = vec![
+        SettingsListRow::Action {
+            index: 0,
+            icon: "".into(),
+            label: "new connection profile".into(),
+            tone: SettingsMarkerTone::Accent,
+        },
+        SettingsListRow::Spacer,
+        SettingsListRow::Header("saved profiles"),
+    ];
+    if app.ssh_connection_profiles.is_empty() {
+        rows.push(SettingsListRow::Caption(
+            "none yet — add one to connect to ssh hosts".into(),
+        ));
+    }
+    for (index, profile) in (1..).zip(&app.ssh_connection_profiles) {
+        let status = app.ssh_connection_status(profile);
+        let detail = match profile.suggested_directory() {
+            Some(directory) => format!("{} · {directory}", profile.target()),
+            None => profile.target().to_string(),
+        };
+        rows.push(SettingsListRow::Profile {
+            index,
+            name: profile.name().to_string().into(),
+            detail: detail.into(),
+            badge: Some(status.label().to_lowercase().into()),
+            tone: connection_status_tone(&status),
+        });
+    }
+    rows
+}
+
+fn connection_editor_rows(app: &AppState, settings: &SettingsState) -> Vec<SettingsListRow> {
+    let Some(editor) = settings.connection_editor.as_ref() else {
+        return Vec::new();
+    };
+    let editing = editor.is_editing();
+    let name = editor.draft.name.clone();
+    let target = editor.draft.target.clone();
+    let directory = editor.draft.directory.clone();
+    let mut rows = vec![
+        SettingsListRow::Header("1. name"),
+        SettingsListRow::Caption("label shown in settings and menus".into()),
+        SettingsListRow::TextInput {
+            index: ConnectionRowId::Field(ConnectionField::Name).selection_index(),
+            title: "profile name".into(),
+            value: name.clone().into(),
+        },
+        SettingsListRow::Spacer,
+        SettingsListRow::Header("2. ssh target"),
+        SettingsListRow::Caption(
+            "raw openssh destination, like admin@example.com or an ssh config alias".into(),
+        ),
+        SettingsListRow::TextInput {
+            index: ConnectionRowId::Field(ConnectionField::Target).selection_index(),
+            title: "ssh target".into(),
+            value: target.clone().into(),
+        },
+        SettingsListRow::Spacer,
+        SettingsListRow::Header("3. suggested directory"),
+        SettingsListRow::Caption(
+            "optional remote directory offered for new terminals on this host".into(),
+        ),
+        SettingsListRow::TextInput {
+            index: ConnectionRowId::Field(ConnectionField::Directory).selection_index(),
+            title: "suggested directory (optional)".into(),
+            value: directory.into(),
+        },
+        SettingsListRow::Spacer,
+        SettingsListRow::Header("4. actions"),
+    ];
+    let valid = !name.trim().is_empty() && !target.trim().is_empty();
+    rows.push(SettingsListRow::Caption(
+        if valid {
+            "save the profile, discard changes, or delete it"
+        } else {
+            "name and ssh target are required"
+        }
+        .into(),
+    ));
+    rows.push(SettingsListRow::Action {
+        index: ConnectionRowId::Action(ConnectionAction::Save).selection_index(),
+        icon: "".into(),
+        label: if editing {
+            "save profile".into()
+        } else {
+            "create profile".into()
+        },
+        tone: SettingsMarkerTone::Accent,
+    });
+    rows.push(SettingsListRow::Action {
+        index: ConnectionRowId::Action(ConnectionAction::Discard).selection_index(),
+        icon: "×".into(),
+        label: "discard changes".into(),
+        tone: SettingsMarkerTone::Disabled,
+    });
+    if editing {
+        rows.push(SettingsListRow::Action {
+            index: ConnectionRowId::Action(ConnectionAction::Delete).selection_index(),
+            icon: "×".into(),
+            label: "delete connection profile".into(),
+            tone: SettingsMarkerTone::Danger,
+        });
+        let profile = editor.profile_id().and_then(|profile_id| {
+            app.ssh_connection_profiles
+                .iter()
+                .find(|profile| profile.id() == profile_id)
+        });
+        if let Some(profile) = profile {
+            let status = app.ssh_connection_status(profile);
+            rows.push(SettingsListRow::Spacer);
+            rows.push(SettingsListRow::Header("5. connection"));
+            let mut status_text = status.label().to_lowercase();
+            if let crate::execution_host::ConnectionStatus::Reconnecting { error } = &status {
+                status_text = format!("{status_text} · {error}");
+            }
+            rows.push(SettingsListRow::Caption(
+                format!("current status: {status_text}").into(),
+            ));
+            rows.push(SettingsListRow::Action {
+                index: ConnectionRowId::Action(ConnectionAction::Test).selection_index(),
+                icon: "".into(),
+                label: "test connection".into(),
+                tone: SettingsMarkerTone::Accent,
+            });
+            use crate::execution_host::ConnectionStatus;
+            let (toggle_label, toggle_tone) = match &status {
+                ConnectionStatus::Disconnected | ConnectionStatus::AuthenticationRequired => {
+                    ("connect", SettingsMarkerTone::Good)
+                }
+                ConnectionStatus::Connecting
+                | ConnectionStatus::Connected
+                | ConnectionStatus::Reconnecting { .. } => {
+                    ("disconnect", SettingsMarkerTone::Danger)
+                }
+                ConnectionStatus::Disconnecting => ("disconnect", SettingsMarkerTone::Disabled),
+            };
+            rows.push(SettingsListRow::Action {
+                index: ConnectionRowId::Action(ConnectionAction::Toggle).selection_index(),
+                icon: "".into(),
+                label: toggle_label.into(),
+                tone: toggle_tone,
+            });
+            rows.push(SettingsListRow::Action {
+                index: ConnectionRowId::Action(ConnectionAction::LaunchWorkspace).selection_index(),
+                icon: "".into(),
+                label: "open workspace".into(),
+                tone: if matches!(status, ConnectionStatus::Connected) {
+                    SettingsMarkerTone::Good
+                } else {
+                    SettingsMarkerTone::Disabled
+                },
+            });
+            rows.push(SettingsListRow::Spacer);
+            rows.push(SettingsListRow::Header("6. execution worker"));
+            if let Some(pending) = editor.pending_worker_install.as_ref() {
+                let preview = &pending.preview;
+                let verb = match preview.kind {
+                    crate::remote::WorkerInstallKind::Install => "Install",
+                    crate::remote::WorkerInstallKind::Update => "Update",
+                };
+                rows.push(SettingsListRow::Caption(
+                    format!(
+                        "{verb} worker {} at {}",
+                        preview.version, preview.target_path
+                    )
+                    .into(),
+                ));
+                rows.push(SettingsListRow::Caption(
+                    format!(
+                        "source: {} · checksum: {}",
+                        preview.source, preview.checksum
+                    )
+                    .into(),
+                ));
+                rows.push(SettingsListRow::Caption(
+                    format!("commands: {}", preview.commands.join(" · ")).into(),
+                ));
+                rows.push(SettingsListRow::Caption(
+                    format!("capabilities: {}", preview.capabilities.join(", ")).into(),
+                ));
+                rows.push(SettingsListRow::Action {
+                    index: ConnectionRowId::Action(ConnectionAction::ConfirmWorker)
+                        .selection_index(),
+                    icon: "✓".into(),
+                    label: format!("confirm {} worker", verb.to_lowercase()).into(),
+                    tone: SettingsMarkerTone::Good,
+                });
+                rows.push(SettingsListRow::Action {
+                    index: ConnectionRowId::Action(ConnectionAction::CancelWorker)
+                        .selection_index(),
+                    icon: "×".into(),
+                    label: "cancel worker setup".into(),
+                    tone: SettingsMarkerTone::Disabled,
+                });
+            } else {
+                rows.push(SettingsListRow::Caption(
+                    "probe first; setup never runs during test or connect".into(),
+                ));
+                rows.push(SettingsListRow::Action {
+                    index: ConnectionRowId::Action(ConnectionAction::InstallWorker)
+                        .selection_index(),
+                    icon: "".into(),
+                    label: "preview worker install / update".into(),
+                    tone: SettingsMarkerTone::Accent,
+                });
+            }
+            if let Some(result) = editor.worker_install_result.as_ref() {
+                let result_text = match &result.result {
+                    Ok(crate::remote::WorkerInstallReport::Installed(preview)) => {
+                        format!("installed worker {}", preview.version)
+                    }
+                    Ok(crate::remote::WorkerInstallReport::AlreadyCurrent(preview)) => {
+                        format!("worker {} is already current", preview.version)
+                    }
+                    Err(error) => format!("worker setup failed: {error}"),
+                };
+                rows.push(SettingsListRow::Caption(result_text.into()));
+            }
+            let tombstones = app.remote_termination_tombstones_for_profile(profile.id());
+            if !tombstones.is_empty() {
+                rows.push(SettingsListRow::Spacer);
+                rows.push(SettingsListRow::Header("6. pending cleanup"));
+                rows.push(SettingsListRow::Caption(
+                    "the remote host has not acknowledged terminal shutdown".into(),
+                ));
+                for (offset, tombstone) in tombstones.iter().enumerate() {
+                    let confirming = editor.pending_forget_remote_terminal.as_ref()
+                        == Some(&tombstone.terminal_id);
+                    rows.push(SettingsListRow::Caption(
+                        format!(
+                            "{} · {}",
+                            tombstone.terminal_id,
+                            tombstone.path.as_path().display()
+                        )
+                        .into(),
+                    ));
+                    if confirming {
+                        rows.push(SettingsListRow::Caption(
+                            "Warning: the remote process may remain running.".into(),
+                        ));
+                    }
+                    rows.push(SettingsListRow::Action {
+                        index: ConnectionRowId::Action(ConnectionAction::ForgetTermination {
+                            offset,
+                        })
+                        .selection_index(),
+                        icon: "×".into(),
+                        label: if confirming {
+                            "confirm forget without terminating".into()
+                        } else {
+                            "forget without terminating".into()
+                        },
+                        tone: SettingsMarkerTone::Danger,
+                    });
+                }
+            }
+        }
+    }
     rows
 }
 
