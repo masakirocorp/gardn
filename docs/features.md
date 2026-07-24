@@ -199,7 +199,7 @@ Oh My Herdr can discover and run project commands. The command palette is also a
 - Command status sections include running, failed, unknown, and stopped commands.
 - Custom keybindings can launch shell helpers or pane commands.
 - **Panel actions** — command rows can run, focus, expand, or stop commands from the right sidebar.
-- **Git diff command** — set the diff command in **Settings > Behavior** to show **Diff** in the `+` menu, command palette, and contextual Git actions. Curated review-command suggestions include Hunk watch mode, plain Git diff, Delta, and Difftastic, while the field remains freely editable. Oh My Herdr opens the command in a managed tab for the selected repository; leaving it empty hides the shortcut.
+- **Git diff command** — set the diff review command in **Settings > Commands** to show **Diff** in the `+` menu, command palette, and contextual Git actions. Curated suggestions include LazyGit (`lazygit`), Hunk watch mode (`hunk diff --watch`), and Plannotator (`plannotator review`), while the field remains freely editable. Oh My Herdr opens the command in a managed tab for the selected repository; leaving it empty hides the shortcut.
 - **Command discovery** — Oh My Herdr discovers VS Code tasks, package scripts, just recipes, Make targets, and defaults for common Cargo, Go, Java, Python, .NET, PHP, and Ruby projects.
 - **Managed reruns** — rerunning a managed command focuses an existing run or restarts a stopped/failed run in the same pane instead of spawning duplicates.
 
@@ -217,11 +217,12 @@ Tabs include:
 - Appearance
 - Notifications
 - Behavior
+- Commands
 - Agents
 - Integrations
 - Advanced
 
-The modal supports keyboard navigation, mouse navigation, scrollbars, immediate settings updates, a top-right `esc close` affordance, a responsive tab bar, and install/update/uninstall actions in the integrations tab. Appearance owns theme, sidebar, and pane-label settings; notifications owns sounds and toasts; behavior owns prompts, terminal defaults, and the optional Git diff command.
+The modal supports keyboard navigation, mouse navigation, scrollbars, immediate settings updates, a top-right `esc close` affordance, a responsive tab bar, and install/update/uninstall actions in the integrations tab. Appearance owns theme, sidebar, and pane-label settings; notifications owns sounds and toasts; behavior owns prompts and terminal defaults; commands owns the optional Git diff review command.
 
 ### Help and confirmations
 

@@ -338,6 +338,7 @@ fn settings_section_choice_len(state: &AppState, section: SettingsSection) -> us
             | SettingsSection::Sound
             | SettingsSection::Toast
             | SettingsSection::PaneLabels
+            | SettingsSection::Commands
             | SettingsSection::Experiments
             | SettingsSection::Agents
             | SettingsSection::GroupProfiles
@@ -1092,10 +1093,10 @@ fn delete_pending_git_diff_command_word(state: &mut AppState) {
 }
 
 fn edit_pending_git_diff_command(state: &mut AppState, key: KeyEvent) -> bool {
-    if state.settings.focused_input != Some(5) {
+    if state.settings.focused_input != Some(0) {
         return false;
     }
-    state.settings.list.select(5);
+    state.settings.list.select(0);
     match key.code {
         KeyCode::Char('u') if key.modifiers.contains(KeyModifiers::CONTROL) => {
             state.settings.pending_git_diff_command = Some(String::new());
@@ -1647,15 +1648,19 @@ fn select_pending_setting(state: &mut AppState) -> Option<SettingsAction> {
                     let next = next_mouse_scroll_lines(pending_mouse_scroll_lines(state));
                     state.settings.pending_mouse_scroll_lines = Some(next);
                 }
-                5 => {}
-                selected => {
-                    if let Some((_, command)) = selected
-                        .checked_sub(GIT_DIFF_COMMAND_SUGGESTION_START)
-                        .and_then(|offset| GIT_DIFF_COMMAND_SUGGESTIONS.get(offset))
-                    {
-                        state.settings.pending_git_diff_command = Some((*command).to_string());
-                    }
-                }
+                _ => {}
+            }
+            Some(current_settings_action(state))
+        }
+        SettingsSection::Commands => {
+            if let Some((_, command)) = state
+                .settings
+                .list
+                .selected
+                .checked_sub(GIT_DIFF_COMMAND_SUGGESTION_START)
+                .and_then(|offset| GIT_DIFF_COMMAND_SUGGESTIONS.get(offset))
+            {
+                state.settings.pending_git_diff_command = Some((*command).to_string());
             }
             Some(current_settings_action(state))
         }
@@ -1681,7 +1686,7 @@ fn selected_experiment_action(state: &mut AppState) -> Option<SettingsAction> {
 }
 fn settings_row_accepts_text_input(state: &AppState, selected: usize) -> bool {
     match state.settings.section {
-        SettingsSection::PaneLabels => selected == 5,
+        SettingsSection::Commands => selected == 0,
         SettingsSection::GroupGeneral | SettingsSection::WorkspaceGeneral => selected <= 1,
         SettingsSection::Agents if agent_profile_editor_open(state) => {
             selected == AGENT_PROFILE_NAME_INDEX || selected == agent_profile_command_index(state)
@@ -1763,7 +1768,7 @@ pub(super) fn update_settings_state(state: &mut AppState, key: KeyEvent) -> Opti
     {
         return None;
     }
-    if state.settings.section == SettingsSection::PaneLabels
+    if state.settings.section == SettingsSection::Commands
         && edit_pending_git_diff_command(state, key)
     {
         return None;
@@ -1924,6 +1929,34 @@ pub(super) fn update_settings_state(state: &mut AppState, key: KeyEvent) -> Opti
                 switch_settings_section(state, SettingsSection::Sound, 0);
             }
             KeyCode::Tab | KeyCode::Right | KeyCode::Char('l') => {
+                switch_settings_section(state, SettingsSection::Commands, 0);
+            }
+            _ => {
+                if let Some(action) = handle_settings_modal_action(state, &key) {
+                    return Some(action);
+                }
+            }
+        },
+        SettingsSection::Commands => match key.code {
+            KeyCode::Up | KeyCode::Char('k') => {
+                select_previous_setting(
+                    state,
+                    settings_section_choice_len(state, SettingsSection::Commands),
+                );
+                ensure_settings_selection_visible(state);
+            }
+            KeyCode::Down | KeyCode::Char('j') => {
+                select_next_setting(
+                    state,
+                    settings_section_choice_len(state, SettingsSection::Commands),
+                );
+                ensure_settings_selection_visible(state);
+            }
+            KeyCode::Enter | KeyCode::Char(' ') => return select_pending_setting(state),
+            KeyCode::BackTab | KeyCode::Left | KeyCode::Char('h') => {
+                switch_settings_section(state, SettingsSection::PaneLabels, 0);
+            }
+            KeyCode::Tab | KeyCode::Right | KeyCode::Char('l') => {
                 switch_settings_section(state, SettingsSection::Agents, 0);
             }
             _ => {
@@ -1974,7 +2007,7 @@ pub(super) fn update_settings_state(state: &mut AppState, key: KeyEvent) -> Opti
                 }
             }
             KeyCode::BackTab | KeyCode::Left | KeyCode::Char('h') => {
-                switch_settings_section(state, SettingsSection::PaneLabels, 0);
+                switch_settings_section(state, SettingsSection::Commands, 0);
             }
             KeyCode::Tab | KeyCode::Right | KeyCode::Char('l') => {
                 switch_settings_section(state, SettingsSection::Integrations, 0);
@@ -2288,6 +2321,7 @@ pub(crate) fn prepare_general_settings_state(
         SettingsSection::Sound => 0,
         SettingsSection::Toast => 0,
         SettingsSection::PaneLabels => 0,
+        SettingsSection::Commands => 0,
         SettingsSection::Experiments => 0,
         SettingsSection::Agents => 0,
         SettingsSection::Integrations => 0,
@@ -2555,6 +2589,7 @@ impl AppState {
             | SettingsSection::Sound
             | SettingsSection::Toast
             | SettingsSection::PaneLabels
+            | SettingsSection::Commands
             | SettingsSection::Experiments
             | SettingsSection::Agents
             | SettingsSection::GroupGeneral
@@ -2645,6 +2680,7 @@ impl AppState {
                         | SettingsSection::Sound
                         | SettingsSection::Toast => 0,
                         SettingsSection::PaneLabels => 0,
+                        SettingsSection::Commands => 0,
                         SettingsSection::Experiments => 0,
                         SettingsSection::Agents => 0,
                         SettingsSection::Integrations => 0,
@@ -2675,7 +2711,8 @@ impl AppState {
                         | SettingsSection::Layout
                         | SettingsSection::Sound
                         | SettingsSection::Toast
-                        | SettingsSection::PaneLabels => select_pending_setting(self),
+                        | SettingsSection::PaneLabels
+                        | SettingsSection::Commands => select_pending_setting(self),
                         SettingsSection::Experiments => selected_experiment_action(self),
                         SettingsSection::Agents => selected_agent_profile_action(self),
                         SettingsSection::Integrations => selected_integration_action(self),
@@ -4326,19 +4363,15 @@ mod tests {
     }
 
     #[test]
-    fn behavior_settings_edits_and_saves_diff_command() {
+    fn commands_settings_edits_and_saves_diff_command() {
         let mut state = state_with_workspaces(&["test"]);
         state.git_diff_command = "git diff".to_string();
-        open_settings_at(&mut state, SettingsSection::PaneLabels);
-
-        for _ in 0..6 {
-            update_settings_state(
-                &mut state,
-                KeyEvent::new(KeyCode::Down, KeyModifiers::empty()),
-            );
-        }
-        assert_eq!(state.settings.focused_input, Some(5));
-
+        open_settings_at(&mut state, SettingsSection::Commands);
+        update_settings_state(
+            &mut state,
+            KeyEvent::new(KeyCode::Down, KeyModifiers::empty()),
+        );
+        assert_eq!(state.settings.focused_input, Some(0));
         update_settings_state(
             &mut state,
             KeyEvent::new(KeyCode::Char('u'), KeyModifiers::CONTROL),
@@ -4353,7 +4386,6 @@ mod tests {
             &mut state,
             KeyEvent::new(KeyCode::Enter, KeyModifiers::empty()),
         );
-
         assert!(matches!(
             action,
             Some(SettingsAction::SaveSettings {
@@ -4364,32 +4396,36 @@ mod tests {
     }
 
     #[test]
-    fn behavior_settings_selects_hunk_watch_suggestion() {
-        let mut state = state_with_workspaces(&["test"]);
-        open_settings_at(&mut state, SettingsSection::PaneLabels);
-
-        for _ in 0..7 {
-            update_settings_state(
+    fn commands_settings_selects_curated_suggestions() {
+        for (suggestion_index, expected_command) in [
+            (1, "lazygit"),
+            (2, "hunk diff --watch"),
+            (3, "plannotator review"),
+        ] {
+            let mut state = state_with_workspaces(&["test"]);
+            open_settings_at(&mut state, SettingsSection::Commands);
+            for _ in 0..=suggestion_index {
+                update_settings_state(
+                    &mut state,
+                    KeyEvent::new(KeyCode::Down, KeyModifiers::empty()),
+                );
+            }
+            let action = update_settings_state(
                 &mut state,
-                KeyEvent::new(KeyCode::Down, KeyModifiers::empty()),
+                KeyEvent::new(KeyCode::Enter, KeyModifiers::empty()),
+            );
+            assert!(matches!(
+                action,
+                Some(SettingsAction::SaveSettings {
+                    git_diff_command,
+                    ..
+                }) if git_diff_command == expected_command
+            ));
+            assert_eq!(
+                state.settings.pending_git_diff_command.as_deref(),
+                Some(expected_command)
             );
         }
-        let action = update_settings_state(
-            &mut state,
-            KeyEvent::new(KeyCode::Enter, KeyModifiers::empty()),
-        );
-
-        assert!(matches!(
-            action,
-            Some(SettingsAction::SaveSettings {
-                git_diff_command,
-                ..
-            }) if git_diff_command == "hunk diff --watch"
-        ));
-        assert_eq!(
-            state.settings.pending_git_diff_command.as_deref(),
-            Some("hunk diff --watch")
-        );
     }
 
     #[test]
@@ -4412,53 +4448,54 @@ mod tests {
     }
 
     #[test]
-    fn settings_tab_cycle_places_experiments_last() {
+    fn settings_tab_cycle_includes_commands_and_places_experiments_last() {
         let mut state = state_with_workspaces(&["test"]);
         open_settings_at(&mut state, SettingsSection::PaneLabels);
-
+        update_settings_state(
+            &mut state,
+            KeyEvent::new(KeyCode::Tab, KeyModifiers::empty()),
+        );
+        assert_eq!(state.settings.section, SettingsSection::Commands);
         update_settings_state(
             &mut state,
             KeyEvent::new(KeyCode::Tab, KeyModifiers::empty()),
         );
         assert_eq!(state.settings.section, SettingsSection::Agents);
-
         update_settings_state(
             &mut state,
             KeyEvent::new(KeyCode::Tab, KeyModifiers::empty()),
         );
-
         assert_eq!(state.settings.section, SettingsSection::Integrations);
-
         update_settings_state(
             &mut state,
             KeyEvent::new(KeyCode::Tab, KeyModifiers::empty()),
         );
         assert_eq!(state.settings.section, SettingsSection::Experiments);
-
         update_settings_state(
             &mut state,
             KeyEvent::new(KeyCode::Tab, KeyModifiers::empty()),
         );
         assert_eq!(state.settings.section, SettingsSection::Theme);
-
         update_settings_state(
             &mut state,
             KeyEvent::new(KeyCode::BackTab, KeyModifiers::empty()),
         );
         assert_eq!(state.settings.section, SettingsSection::Experiments);
-
         update_settings_state(
             &mut state,
             KeyEvent::new(KeyCode::BackTab, KeyModifiers::empty()),
         );
         assert_eq!(state.settings.section, SettingsSection::Integrations);
-
         update_settings_state(
             &mut state,
             KeyEvent::new(KeyCode::BackTab, KeyModifiers::empty()),
         );
         assert_eq!(state.settings.section, SettingsSection::Agents);
-
+        update_settings_state(
+            &mut state,
+            KeyEvent::new(KeyCode::BackTab, KeyModifiers::empty()),
+        );
+        assert_eq!(state.settings.section, SettingsSection::Commands);
         update_settings_state(
             &mut state,
             KeyEvent::new(KeyCode::BackTab, KeyModifiers::empty()),
@@ -5387,13 +5424,13 @@ mod tests {
         let hidden_right = state
             .settings_tab_at(right_chevron_x, tab_row.y)
             .expect("right chevron target");
-        assert_eq!(hidden_right, SettingsSection::Integrations);
+        assert_eq!(hidden_right, SettingsSection::Agents);
 
         state.settings.section = SettingsSection::Experiments;
         let hidden_left = state
             .settings_tab_at(tab_row.x, tab_row.y)
             .expect("left chevron target");
-        assert_eq!(hidden_left, SettingsSection::Sound);
+        assert_eq!(hidden_left, SettingsSection::PaneLabels);
     }
 
     fn integration_recommendation_for(

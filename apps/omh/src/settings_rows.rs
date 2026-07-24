@@ -12,12 +12,11 @@ use crate::{
     terminal_theme::ThemeAppearance,
 };
 
-pub(crate) const GIT_DIFF_COMMAND_SUGGESTION_START: usize = 6;
-pub(crate) const GIT_DIFF_COMMAND_SUGGESTIONS: [(&str, &str); 4] = [
+pub(crate) const GIT_DIFF_COMMAND_SUGGESTION_START: usize = 1;
+pub(crate) const GIT_DIFF_COMMAND_SUGGESTIONS: [(&str, &str); 3] = [
+    ("LazyGit", "lazygit"),
     ("Hunk", "hunk diff --watch"),
-    ("Git diff", "git diff"),
-    ("Delta", "git diff | delta"),
-    ("Difftastic", "git -c diff.external=difft diff"),
+    ("Plannotator", "plannotator review"),
 ];
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -161,6 +160,7 @@ fn rows_for_section_with_settings(
         SettingsSection::Sound => Some(notification_rows(app, settings)),
         SettingsSection::Toast => Some(toast_rows(app, settings)),
         SettingsSection::PaneLabels => Some(behavior_rows(app, settings)),
+        SettingsSection::Commands => Some(command_rows(app, settings)),
         SettingsSection::Experiments => Some(experiment_rows(app, settings)),
         SettingsSection::Agents => Some(agent_profile_rows(app, settings)),
         SettingsSection::Integrations => Some(integration_rows(app)),
@@ -902,23 +902,26 @@ fn behavior_rows(app: &AppState, settings: &SettingsState) -> Vec<SettingsListRo
             ),
         ],
     ));
+    rows
+}
+
+fn command_rows(app: &AppState, settings: &SettingsState) -> Vec<SettingsListRow> {
     let diff_command = settings
         .pending_git_diff_command
         .clone()
         .unwrap_or_else(|| app.git_diff_command.clone());
-    rows.push(SettingsListRow::Spacer);
-    rows.extend([
-        SettingsListRow::Header("commands"),
+    let mut rows = vec![
         SettingsListRow::TextInput {
-            index: 5,
-            title: "diff command".into(),
+            index: 0,
+            title: "diff review command".into(),
             value: diff_command.clone().into(),
         },
         SettingsListRow::Caption(
             "runs in the repository root; leave empty to hide the Diff shortcut".into(),
         ),
+        SettingsListRow::Spacer,
         SettingsListRow::Caption("suggested commands".into()),
-    ]);
+    ];
     rows.extend(GIT_DIFF_COMMAND_SUGGESTIONS.iter().enumerate().map(
         |(offset, (name, command))| SettingsListRow::Choice {
             index: GIT_DIFF_COMMAND_SUGGESTION_START + offset,

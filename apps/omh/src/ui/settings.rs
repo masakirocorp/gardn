@@ -285,6 +285,7 @@ fn settings_section_title(app: &AppState, section: SettingsSection) -> &'static 
             SettingsSection::Sound => "notifications",
             SettingsSection::Toast => "toasts",
             SettingsSection::PaneLabels => "behavior",
+            SettingsSection::Commands => "commands",
             SettingsSection::Experiments => "advanced",
             SettingsSection::Agents => "agents",
             SettingsSection::Integrations => "agent integrations",
@@ -307,6 +308,7 @@ fn settings_section_description(app: &AppState, section: SettingsSection) -> &'s
         SettingsSection::PaneLabels => {
             "control workspace prompts and terminal interaction defaults"
         }
+        SettingsSection::Commands => "choose the command launched by the Diff shortcut",
         SettingsSection::Experiments => "configure advanced or platform-specific behavior",
         SettingsSection::Agents if settings_agents_editor_open(app) => {
             "name the profile and provide the command omh should launch"
@@ -545,6 +547,7 @@ fn settings_section_title_for_non_editor(section: SettingsSection) -> &'static s
         SettingsSection::Sound => "notifications",
         SettingsSection::Toast => "toasts",
         SettingsSection::PaneLabels => "behavior",
+        SettingsSection::Commands => "commands",
         SettingsSection::Experiments => "advanced",
         SettingsSection::Agents => "agents",
         SettingsSection::Integrations => "agent integrations",
@@ -569,6 +572,7 @@ fn settings_section_description_for(
         SettingsSection::PaneLabels => {
             "control workspace prompts and terminal interaction defaults"
         }
+        SettingsSection::Commands => "choose the command launched by the Diff shortcut",
         SettingsSection::Experiments => "configure advanced or platform-specific behavior",
         SettingsSection::Agents if settings_agents_editor_open_for(settings) => {
             "name the profile and provide the command omh should launch"
@@ -1017,6 +1021,7 @@ pub(super) fn render_settings_overlay(app: &AppState, frame: &mut Frame, area: R
         | SettingsSection::Sound
         | SettingsSection::Toast
         | SettingsSection::PaneLabels
+        | SettingsSection::Commands
         | SettingsSection::Experiments
         | SettingsSection::Agents
         | SettingsSection::GroupGeneral
@@ -1730,28 +1735,29 @@ mod tests {
     }
 
     #[test]
-    fn behavior_settings_show_curated_diff_command_suggestions() {
+    fn commands_settings_show_curated_diff_command_suggestions() {
         let mut app = AppState::test_new();
-        app.settings.section = SettingsSection::PaneLabels;
-        app.settings.pending_git_diff_command = Some("git diff".to_string());
-        app.settings.list.select(5);
+        app.settings.section = SettingsSection::Commands;
+        app.settings.pending_git_diff_command = Some("lazygit".to_string());
+        app.settings.list.select(0);
         app.settings.list.show();
-        app.settings.scroll = 11;
 
         let backend = TestBackend::new(100, 40);
         let mut terminal = Terminal::new(backend).expect("test backend");
         terminal
             .draw(|frame| render_settings_overlay(&app, frame, Rect::new(0, 0, 100, 40)))
-            .expect("render behavior settings overlay");
+            .expect("render Commands settings overlay");
 
         let text = buffer_text(terminal.backend().buffer(), 100, 40);
-        assert!(text.contains("diff command"));
-        assert!(text.contains("git diff"));
+        assert!(text.contains("commands"));
+        assert!(text.contains("diff review command"));
         assert!(text.contains("leave empty to hide the Diff shortcut"));
         assert!(text.contains("suggested commands"));
+        assert!(text.contains("LazyGit · lazygit"));
         assert!(text.contains("Hunk · hunk diff --watch"));
-        assert!(text.contains("Delta · git diff | delta"));
-        assert!(text.contains("Difftastic · git -c diff.external=difft diff"));
+        assert!(text.contains("Plannotator · plannotator review"));
+        assert!(!text.contains("Delta ·"));
+        assert!(!text.contains("Difftastic ·"));
     }
 
     #[test]
@@ -2384,7 +2390,7 @@ mod tests {
                 .iter()
                 .map(|(section, _)| *section)
                 .collect::<Vec<_>>(),
-            vec![SettingsSection::PaneLabels, SettingsSection::Agents]
+            vec![SettingsSection::Commands, SettingsSection::Agents]
         );
         for (section, rect) in &hit_areas {
             assert_eq!(
@@ -2396,7 +2402,7 @@ mod tests {
 
         assert_eq!(
             settings_tab_chevron_at_for_view(&client_view, row, row.x),
-            Some(SettingsSection::Sound)
+            Some(SettingsSection::PaneLabels)
         );
         let right_chevron_x = hit_areas
             .last()
@@ -2410,9 +2416,9 @@ mod tests {
         let tab_text = (row.x..row.x + row.width)
             .map(|x| terminal.backend().buffer()[(x, row.y)].symbol())
             .collect::<String>();
-        assert!(tab_text.contains("behavior"));
+        assert!(tab_text.contains("commands"));
         assert!(tab_text.contains("agents"));
-        assert!(!tab_text.contains("appearance"));
+        assert!(!tab_text.contains("behavior"));
         assert!(!tab_text.contains("notifications"));
         assert!(!tab_text.contains("toasts"));
         assert!(!tab_text.contains("advanced"));
@@ -2482,6 +2488,11 @@ mod tests {
                 SettingsSection::PaneLabels,
                 "behavior",
                 "control workspace prompts and terminal interaction defaults",
+            ),
+            (
+                SettingsSection::Commands,
+                "commands",
+                "choose the command launched by the Diff shortcut",
             ),
             (
                 SettingsSection::Agents,

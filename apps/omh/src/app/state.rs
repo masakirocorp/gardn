@@ -1737,6 +1737,7 @@ pub enum SettingsSection {
     #[allow(dead_code)] // Legacy standalone tab; settings now groups toasts under notifications.
     Toast,
     PaneLabels,
+    Commands,
     Experiments,
     Agents,
     Integrations,
@@ -1750,6 +1751,7 @@ impl SettingsSection {
         Self::Theme,
         Self::Sound,
         Self::PaneLabels,
+        Self::Commands,
         Self::Agents,
         Self::Integrations,
         Self::Experiments,
@@ -1763,6 +1765,7 @@ impl SettingsSection {
             Self::Sound => "notifications",
             Self::Toast => "toasts",
             Self::PaneLabels => "behavior",
+            Self::Commands => "commands",
             Self::Experiments => "advanced",
             Self::Integrations => "integrations",
             Self::GroupGeneral => "general",
