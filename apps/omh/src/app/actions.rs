@@ -5116,7 +5116,7 @@ mod tests {
         assert!(diff.command.contains("[custom_theme.syntax_scopes]"));
         assert!(ide
             .command
-            .contains("theme_ref=\"file://$config_dir/theme.json\""));
+            .contains("theme_ref=\"file://$theme_dir/theme.json\""));
         assert!(ide.command.contains("\"cursor\": [189, 147, 249]"));
     }
     #[tokio::test]

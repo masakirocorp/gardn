@@ -12,25 +12,48 @@ pub(crate) fn command(
     passthrough_terminal: bool,
 ) -> String {
     let theme_setup = if passthrough_terminal {
-        r#"theme_ref="builtin://terminal""#.to_string()
+        String::new()
     } else {
         format!(
-            r#"cat > "$config_dir/theme.json" <<'OMH_FRESH_THEME'
+            r#"fresh_themes_dir="$(
+    fresh --cmd config paths 2>/dev/null | awk '
+      /^[[:space:]]*themes\/:[[:space:]]*/ {{
+        sub(/^[[:space:]]*themes\/:[[:space:]]*/, "")
+        print
+        exit
+      }}
+    '
+  )"
+  if [ -n "$fresh_themes_dir" ] && mkdir -p "$fresh_themes_dir"; then
+    if theme_dir="$(mktemp -d "$fresh_themes_dir/.omh-theme.XXXXXX")"; then
+      if cat > "$theme_dir/theme.json" <<'OMH_FRESH_THEME'
 {theme}
 OMH_FRESH_THEME
-theme_ref="file://$config_dir/theme.json""#,
+      then
+        theme_ref="file://$theme_dir/theme.json"
+      else
+        rm -rf "$theme_dir"
+        theme_dir=""
+      fi
+    fi
+  fi"#,
             theme = theme(palette, appearance, terminal_theme),
         )
     };
     format!(
         r#"if command -v fresh >/dev/null 2>&1; then
   config_dir="$(mktemp -d "${{TMPDIR:-/tmp}}/omh-fresh.XXXXXX")" || exec fresh .
+  theme_dir=""
   cleanup() {{
+    if [ -n "$theme_dir" ]; then
+      rm -rf "$theme_dir"
+    fi
     rm -rf "$config_dir"
   }}
   trap cleanup EXIT INT TERM
-  {theme_setup}
   fallback_theme_ref="builtin://terminal"
+  theme_ref="$fallback_theme_ref"
+  {theme_setup}
   if fresh --cmd config show > "$config_dir/config.json"; then
     awk -v theme_ref="$theme_ref" '
       /^[[:space:]]*"theme"[[:space:]]*:/ {{
@@ -41,8 +64,14 @@ theme_ref="file://$config_dir/theme.json""#,
         next
       }}
       {{ print }}
-    ' "$config_dir/config.json" > "$config_dir/config.tmp" || exec fresh .
-    mv "$config_dir/config.tmp" "$config_dir/config.json" || exec fresh .
+    ' "$config_dir/config.json" > "$config_dir/config.tmp" || {{
+      cleanup
+      exec fresh .
+    }}
+    mv "$config_dir/config.tmp" "$config_dir/config.json" || {{
+      cleanup
+      exec fresh .
+    }}
   else
     cat > "$config_dir/config.json" <<OMH_FRESH_CONFIG
 {{
@@ -272,7 +301,11 @@ mod tests {
         std::fs::write(
             &fresh,
             r#"#!/bin/sh
-if [ "$1" = "--cmd" ]; then
+if [ "$1" = "--cmd" ] && [ "$2" = "config" ] && [ "$3" = "paths" ]; then
+  printf '  themes/:      %s\n' "$FAKE_FRESH_THEMES_DIR"
+  exit 0
+fi
+if [ "$1" = "--cmd" ] && [ "$2" = "config" ] && [ "$3" = "show" ]; then
   cat <<'JSON'
 {
   "version": 2,
@@ -287,6 +320,10 @@ fi
 config="$2"
 cat "$config"
 theme_path="$(sed -n 's|.*"theme": "file://\([^"]*\)".*|\1|p' "$config")"
+case "$theme_path" in
+  "$FAKE_FRESH_THEMES_DIR"/*/theme.json) ;;
+  *) exit 9 ;;
+esac
 cat "$theme_path"
 "#,
         )
@@ -296,6 +333,8 @@ cat "$theme_path"
             .permissions();
         permissions.set_mode(0o755);
         std::fs::set_permissions(&fresh, permissions).expect("make fake Fresh executable");
+        let themes_dir = bin_dir.join("themes");
+        std::fs::create_dir_all(&themes_dir).expect("create fake Fresh themes directory");
 
         let output = Command::new("sh")
             .arg("-c")
@@ -306,8 +345,16 @@ cat "$theme_path"
                 false,
             ))
             .env("PATH", format!("{}:/usr/bin:/bin", bin_dir.display()))
+            .env("FAKE_FRESH_THEMES_DIR", &themes_dir)
             .output()
             .expect("run Fresh wrapper");
+        assert!(
+            std::fs::read_dir(&themes_dir)
+                .expect("read fake Fresh themes directory")
+                .next()
+                .is_none(),
+            "wrapper should remove its registered theme directory"
+        );
         std::fs::remove_dir_all(&bin_dir).expect("remove fake Fresh bin directory");
 
         assert!(output.status.success(), "{output:?}");
@@ -378,7 +425,8 @@ cat "$2"
             false,
         );
 
-        assert!(command.contains("theme_ref=\"file://$config_dir/theme.json\""));
+        assert!(command.contains("theme_ref=\"file://$theme_dir/theme.json\""));
+        assert!(command.contains("fresh --cmd config paths"));
         assert!(command.contains("\"extends\": \"builtin://light\""));
         assert!(command.contains("\"name\": \"Oh My Herdr\""));
     }
