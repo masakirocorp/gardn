@@ -44,7 +44,9 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Check Turbo task graph
-        run: pnpm turbo run quality check --dry=json
+        run: pnpm turbo run quality --dry=json
+      - name: Check Tegami release scope
+        run: pnpm turbo run release-scope:check --filter=omh-rust
 
       - name: Check static website
         run: pnpm turbo run check --filter=@omh/website
@@ -79,7 +81,7 @@ jobs:
       - name: Install Rust tools
         uses: taiki-e/install-action@65851e10cd6c377f11a60e600abc07cb08643468 # v2
         with:
-          tool: just,cargo-nextest
+          tool: cargo-nextest
 
       - name: Select Xcode for Zig
         if: runner.os == 'macOS'

@@ -61,6 +61,11 @@
     },
     "omh#check": {
       "command": ["cargo", "check", "--package=omh", "--all-targets", "--locked"],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/Cargo.lock",
+        "$TURBO_ROOT$/Cargo.toml"
+      ],
       "outputs": []
     },
     "omh#format": {
@@ -69,45 +74,35 @@
     },
     "omh#format:check": {
       "command": ["cargo", "fmt", "--package", "omh", "--", "--check"],
+      "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/Cargo.toml"],
       "outputs": []
     },
     "omh#lint": {
       "command": ["cargo", "clippy", "--package=omh", "--all-targets", "--locked", "--no-deps", "--", "-D", "warnings"],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/Cargo.lock",
+        "$TURBO_ROOT$/Cargo.toml"
+      ],
       "outputs": []
     },
     "omh#test": {
-      "command": [
-        "cargo",
-        "nextest",
-        "run",
-        "--locked",
-        "--status-level",
-        "fail",
-        "--final-status-level",
-        "fail",
-        "--failure-output",
-        "final",
-        "--success-output",
-        "never"
+      "command": ["cargo", "nextest", "run", "--locked"],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/Cargo.lock",
+        "$TURBO_ROOT$/Cargo.toml",
+        "$TURBO_ROOT$/.config/nextest.toml"
       ],
       "outputs": []
     },
     "omh#ci:test": {
-      "command": [
-        "cargo",
-        "nextest",
-        "run",
-        "-P",
-        "ci",
-        "--locked",
-        "--status-level",
-        "slow",
-        "--final-status-level",
-        "slow",
-        "--failure-output",
-        "final",
-        "--success-output",
-        "never"
+      "command": ["cargo", "nextest", "run", "-P", "ci", "--locked"],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/Cargo.lock",
+        "$TURBO_ROOT$/Cargo.toml",
+        "$TURBO_ROOT$/.config/nextest.toml"
       ],
       "dependsOn": ["format:check", "lint"],
       "env": ["CARGO_INCREMENTAL"],
@@ -124,6 +119,14 @@
         "--report-style",
         "short",
         "--error"
+      ],
+      "inputs": [
+        "apps/omh/src/**",
+        "ast-grep/rules/**",
+        "package.json",
+        "pnpm-lock.yaml",
+        "scripts/run-ast-grep.mjs",
+        "sgconfig.yml"
       ],
       "outputs": []
     },
@@ -157,25 +160,46 @@
         "scripts.test_remaining_status_fallback",
         "scripts.test_agent_workflows"
       ],
-      "outputs": []
-    },
-    "omh-rust#test:all": {
-      "dependsOn": ["omh#test", "omh-rust#maintenance:test"]
-    },
-    "omh-rust#docs:reminder": {
-      "command": [
-        "python3",
-        "-c",
-        "print('docs reminder: if this changes user-facing behavior, update docs/features.md or call it out before release.')"
+      "inputs": [
+        ".github/workflows/live-agent-tests.yml",
+        "Cargo.lock",
+        "Cargo.toml",
+        "apps/omh/Cargo.toml",
+        "apps/omh/src/**",
+        "apps/omh/tests/**",
+        "apps/omh/vendor/**",
+        "ci/agent-test/**",
+        "ci/agent-tests/**",
+        "nix/package.nix",
+        "scripts/**",
+        "website/agent-detection/**"
       ],
       "outputs": []
     },
+    "omh-rust#test:all": {
+      "inputs": ["$TURBO_ROOT$/turbo.json"],
+      "dependsOn": ["omh#test", "omh-rust#maintenance:test"]
+    },
+    "omh-rust#release-scope:check": {
+      "command": ["node", "scripts/check-tegami-release-scope.mts", "omh"],
+      "inputs": [
+        ".tegami/**",
+        "scripts/check-tegami-release-scope.mts",
+        "scripts/tegami.mts"
+      ],
+      "outputs": []
+    },
+    "omh-rust#lint:all": {
+      "dependsOn": ["@omh/website#lint", "omh#lint", "omh-rust#ast:check"],
+      "inputs": ["$TURBO_ROOT$/turbo.json"]
+    },
     "omh-rust#quality": {
+      "inputs": ["$TURBO_ROOT$/turbo.json"],
       "dependsOn": [
         "omh#ci:test",
-        "omh-rust#docs:reminder",
         "omh-rust#ast:check",
-        "omh-rust#maintenance:test"
+        "omh-rust#maintenance:test",
+        "omh-rust#release-scope:check"
       ]
     }
   }

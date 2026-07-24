@@ -3,6 +3,7 @@
   "tasks": {
     "build": {
       "dependsOn": ["omh-rust#api:contract"],
+      "env": ["OMH_API_BINARY"],
       "outputs": ["dist/**"]
     },
     "check": {
@@ -17,6 +18,7 @@
       ]
     },
     "api:check": {
+      "env": ["OMH_API_BINARY"],
       "dependsOn": ["build"],
       "outputs": []
     },
@@ -36,11 +38,19 @@
     "format:check": {
       "outputs": []
     },
+    "quality": {
+      "inputs": ["$TURBO_ROOT$/turbo.json"],
+      "dependsOn": ["check"]
+    },
     "lint": {
       "outputs": []
     },
     "test": {
       "outputs": []
+    },
+    "test:all": {
+      "inputs": ["$TURBO_ROOT$/turbo.json"],
+      "dependsOn": ["test"]
     }
   }
 }

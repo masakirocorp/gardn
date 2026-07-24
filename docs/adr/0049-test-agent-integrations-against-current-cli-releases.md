@@ -35,7 +35,7 @@ The supported coding agents are fast-moving developer tools. Users normally run 
 
 Provider availability is a separate volatile dependency. Free OpenRouter models can disappear, timeout, or reject a route independently of Oh My Herdr. Retrying complete smoke scenarios against an ordered fallback list preserves the compatibility signal while keeping the assertion boundary honest: retry before Oh My Herdr receives a provider-backed answer, fail after Oh My Herdr-observable behavior is wrong.
 
-The smoke workflow intentionally accepts some external volatility. A current-agent smoke failure may be caused by Oh My Herdr, by an upstream CLI change, or by provider availability. That is acceptable because these checks are optional scheduled/manual compatibility probes, not the core deterministic `CARGO_INCREMENTAL=0 pnpm check` gate.
+The smoke workflow intentionally accepts some external volatility. A current-agent smoke failure may be caused by Oh My Herdr, by an upstream CLI change, or by provider availability. That is acceptable because these checks are optional scheduled/manual compatibility probes, not the core deterministic `pnpm check` gate.
 
 ## Considered options
 

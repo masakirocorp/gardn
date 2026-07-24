@@ -43,7 +43,7 @@ The crate is not published to crates.io. See the [installation guide](https://oh
 corepack enable
 pnpm install --frozen-lockfile
 pnpm test
-CARGO_INCREMENTAL=0 pnpm check
+pnpm check
 ```
 
 Turborepo discovers the native Cargo workspace and orchestrates Rust and website tasks in one graph. Native Cargo discovery and custom task commands are intentionally enabled while experimental, with Turbo pinned exactly to 2.10.6 so upgrades are explicit. Root pnpm scripts are the canonical build, format, test, lint, and check interface; Just is reserved for imperative release, upstream-sync, vendored-build, and live-agent workflows.

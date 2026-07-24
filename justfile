@@ -22,7 +22,7 @@ release:
     fi
     node scripts/check-tegami-release-scope.mts omh
     CI=true pnpm tegami version
-    CARGO_INCREMENTAL=0 pnpm check
+    pnpm check
     @version="$(python3 -c 'import tomllib; print(tomllib.load(open("apps/omh/Cargo.toml", "rb"))["package"]["version"])')"; \
     tag="v$version"; \
     if git rev-parse "$tag" >/dev/null 2>&1; then \

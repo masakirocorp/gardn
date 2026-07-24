@@ -93,7 +93,7 @@ def write_pr_body(path: Path, branch: str, base_ref: str, upstream_ref: str, com
             "## Verification",
             "- `python3 scripts/guard_upstream_sync.py --base " + base_ref + " --upstream " + upstream_ref + " --head HEAD`",
             "- `python3 scripts/upstream_status.py --base " + base_ref + " --upstream " + upstream_ref + " --check`",
-            "- `CARGO_INCREMENTAL=0 pnpm check` before merge",
+            "- `pnpm check` before merge",
             "",
             "## Guard report",
             guard_text,

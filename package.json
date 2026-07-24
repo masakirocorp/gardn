@@ -6,9 +6,9 @@
   },
   "scripts": {
     "build": "turbo run build",
-    "check": "turbo run quality @omh/website#check",
-    "format": "turbo run omh#format @omh/website#format",
-    "lint": "turbo run omh#lint omh-rust#ast:check @omh/website#lint",
+    "check": "node scripts/run-check.mjs",
+    "format": "turbo run format",
+    "lint": "turbo run lint:all",
     "tegami": "node scripts/tegami.mts",
     "test": "turbo run test:all"
   },

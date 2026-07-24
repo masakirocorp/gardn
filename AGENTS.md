@@ -41,7 +41,7 @@ This repo is a long-lived Masakiro product fork of `ogulcancelik/herdr`, branded
 - Merge upstream with merge commits, not rebase or squash.
 - Open upstream-sync PRs into `masakirocorp/oh-my-herdr:master`.
 - Always verify the PR base is `masakirocorp/oh-my-herdr`, not upstream.
-- Run `CARGO_INCREMENTAL=0 pnpm check` before merging sync PRs.
+- Run `pnpm check` before merging sync PRs.
 - Daily upstream syncs should use the checked-in automation instead of hand-rolled commands:
   ```bash
   just sync-upstream
@@ -51,7 +51,7 @@ This repo is a long-lived Masakiro product fork of `ogulcancelik/herdr`, branded
 - For every upstream port, identify the invariant the change protects, check whether Oh My Herdr has the same context, add or adjust tests in Oh My Herdr for that invariant, and only then merge.
 - Review `sync-report.md` in every upstream-sync PR. It calls out Oh My Herdr-owned files, sensitive plumbing, and forbidden upstream identity/plumbing that must not be resurrected silently.
 - Oh My Herdr-owned files are intentionally protected in `.gitattributes` with `merge=keep-omh`: `README.md`, `AGENTS.md`, `SKILL.md`, `apps/omh/assets/logo.svg`, `docs/**`, and `website/**`. Do not ignore these paths during upstream syncs; review upstream changes against Oh My Herdr's custom product/docs/site direction.
-- If an upstream sync conflicts, resolve toward Oh My Herdr product identity first, rerun `python3 scripts/guard_upstream_sync.py --base origin/master --upstream upstream/master --head HEAD`, then run `CARGO_INCREMENTAL=0 pnpm check`.
+- If an upstream sync conflicts, resolve toward Oh My Herdr product identity first, rerun `python3 scripts/guard_upstream_sync.py --base origin/master --upstream upstream/master --head HEAD`, then run `pnpm check`.
 - Upstream-sync PRs must pass PR CI before merge. After merge, watch the `master` CI run too; push a follow-up fix if trunk CI exposes a platform-only failure.
 
 ## Testing
@@ -59,17 +59,17 @@ This repo is a long-lived Masakiro product fork of `ogulcancelik/herdr`, branded
 Turborepo is the canonical repository task graph. Use root pnpm scripts for routine tests and checks:
 
 ```bash
-pnpm test                       # local incremental Cargo nextest + maintenance script tests
-CARGO_INCREMENTAL=0 pnpm check # complete Rust and website quality graph
+pnpm test  # local incremental Rust, maintenance, and website tests
+pnpm check # complete non-incremental Rust and website quality graph
 ```
 
-During development, focused `cargo test --locked <test-name>` runs are fine for tight iteration. Turbo also forwards nextest filters with `pnpm turbo run omh#test -- <filter>`. Before committing non-trivial changes, run `CARGO_INCREMENTAL=0 pnpm check` unless Can explicitly accepts a narrower validation for that commit.
+During development, focused `cargo test --locked <test-name>` runs are fine for tight iteration. Turbo also forwards nextest filters with `pnpm turbo run omh#test -- <filter>`. Before committing non-trivial changes, run `pnpm check` unless Can explicitly accepts a narrower validation for that commit.
 
 ### Interactive development loop
 
 When the user is actively iterating, prefer the shortest verification that can catch the specific mistake just introduced.
 
-Do not run long gates (`CARGO_INCREMENTAL=0 pnpm check`, full `pnpm test`, broad test suites, release builds) during the iteration loop unless the user explicitly asks or the change is about to be committed, merged, or released.
+Do not run long gates (`pnpm check`, full `pnpm test`, broad test suites, release builds) during the iteration loop unless the user explicitly asks or the change is about to be committed, merged, or released.
 
 For small UI or behavior tweaks, make the edit, run formatting/build only if needed to produce a usable `omh-dev`, and let the user manually review. For logic/state changes, run one focused test that covers the changed behavior.
 
@@ -129,7 +129,7 @@ Track ADR backfill and new ADR work in Linear with `kind:adr` and `app:omh`. Whe
 Default release flow:
 
 ```bash
-CARGO_INCREMENTAL=0 pnpm check
+pnpm check
 just release
 ```
 
