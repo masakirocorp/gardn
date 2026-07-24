@@ -589,12 +589,13 @@ impl AppState {
                 }
                 if self.on_new_tab_button(mouse.column, mouse.row) {
                     if let Some(ws_idx) = self.active {
-                        let can_diff = self.git_diff_command_configured()
-                            && !self
-                                .observed_git_repos_for_workspace(terminal_runtimes, ws_idx)
-                                .is_empty();
+                        let project_commands = self
+                            .project_command_availability_for_workspace(terminal_runtimes, ws_idx);
                         self.context_menu = Some(ContextMenuState {
-                            kind: ContextMenuKind::NewTabButton { ws_idx, can_diff },
+                            kind: ContextMenuKind::NewTabButton {
+                                ws_idx,
+                                project_commands,
+                            },
                             x: mouse.column,
                             y: mouse.row,
                             list: ModalListState::hidden(1),
@@ -1137,6 +1138,18 @@ impl AppState {
             }
 
             MouseEventKind::ScrollUp | MouseEventKind::ScrollDown
+                if self.mode == Mode::ContextMenu =>
+            {
+                if let Some(menu) = &mut self.context_menu {
+                    match mouse.kind {
+                        MouseEventKind::ScrollUp => menu.move_prev(),
+                        MouseEventKind::ScrollDown => menu.move_next(),
+                        _ => {}
+                    }
+                }
+            }
+
+            MouseEventKind::ScrollUp | MouseEventKind::ScrollDown
                 if self.on_tab_bar(mouse.column, mouse.row) =>
             {
                 match mouse.kind {
@@ -1273,15 +1286,12 @@ impl AppState {
                     return None;
                 }
                 if let Some(idx) = self.workspace_at_row(mouse.row) {
-                    self.selected = idx;
-                    let can_diff = self.git_diff_command_configured()
-                        && !self
-                            .observed_git_repos_for_workspace(terminal_runtimes, idx)
-                            .is_empty();
+                    let project_commands =
+                        self.project_command_availability_for_workspace(terminal_runtimes, idx);
                     self.context_menu = Some(ContextMenuState {
                         kind: ContextMenuKind::Workspace {
                             ws_idx: idx,
-                            can_diff,
+                            project_commands,
                         },
                         x: mouse.column,
                         y: mouse.row,
@@ -1298,16 +1308,8 @@ impl AppState {
                     (self.active, self.tab_at(mouse.column, mouse.row))
                 {
                     self.switch_tab(tab_idx);
-                    let can_diff = self.git_diff_command_configured()
-                        && !self
-                            .observed_git_repos_for_workspace(terminal_runtimes, ws_idx)
-                            .is_empty();
                     self.context_menu = Some(ContextMenuState {
-                        kind: ContextMenuKind::Tab {
-                            ws_idx,
-                            tab_idx,
-                            can_diff,
-                        },
+                        kind: ContextMenuKind::Tab { ws_idx, tab_idx },
                         x: mouse.column,
                         y: mouse.row,
                         list: ModalListState::hidden(0),
@@ -1536,17 +1538,9 @@ impl AppState {
         let inner_y = menu_rect.y + 1;
         let inner_w = menu_rect.width.saturating_sub(2);
         let inner_h = menu_rect.height.saturating_sub(2);
-        let item_count = self
-            .context_menu
-            .as_ref()
-            .map(|menu| menu.items().len() as u16)
-            .unwrap_or(0);
-        if col >= inner_x
-            && col < inner_x + inner_w
-            && row >= inner_y
-            && row < inner_y + inner_h.min(item_count)
-        {
-            Some((row - inner_y) as usize)
+        let menu = self.context_menu.as_ref()?;
+        if col >= inner_x && col < inner_x + inner_w && row >= inner_y && row < inner_y + inner_h {
+            menu.item_at_visible_row((row - inner_y) as usize, inner_h as usize)
         } else {
             None
         }
@@ -2315,7 +2309,7 @@ mod tests {
         app.state.context_menu = Some(ContextMenuState {
             kind: ContextMenuKind::Workspace {
                 ws_idx: 0,
-                can_diff: false,
+                project_commands: crate::app::state::ProjectCommandAvailability::NONE,
             },
             x: 2,
             y: 2,
@@ -2356,6 +2350,32 @@ mod tests {
         let list = &app.state.context_menu.as_ref().unwrap().list;
         assert_eq!(list.selected, 1);
         assert_eq!(list.visible(), Some(1));
+    }
+
+    #[test]
+    fn short_context_menu_wheel_reveals_and_maps_final_action() {
+        let mut app = app_for_mouse_test();
+        crate::ui::compute_view(&mut app.state, Rect::new(0, 0, 80, 13));
+        app.state.context_menu = Some(ContextMenuState {
+            kind: ContextMenuKind::Workspace {
+                ws_idx: 0,
+                project_commands: crate::app::state::ProjectCommandAvailability::ALL,
+            },
+            x: 2,
+            y: 2,
+            list: ModalListState::new(12),
+        });
+        app.state.mode = Mode::ContextMenu;
+
+        let menu = app.state.context_menu_rect().unwrap();
+        assert_eq!(menu.height, 13);
+        assert_eq!(
+            app.state.context_menu_item_at(menu.x + 2, menu.y + 11),
+            Some(12)
+        );
+
+        app.handle_mouse(mouse(MouseEventKind::ScrollUp, menu.x + 2, menu.y + 11));
+        assert_eq!(app.state.context_menu.as_ref().unwrap().list.selected, 9);
     }
 
     #[test]
@@ -2835,7 +2855,7 @@ mod tests {
         app.state.context_menu = Some(ContextMenuState {
             kind: ContextMenuKind::Workspace {
                 ws_idx: 1,
-                can_diff: false,
+                project_commands: crate::app::state::ProjectCommandAvailability::NONE,
             },
             x: 2,
             y: 2,
@@ -2879,7 +2899,7 @@ mod tests {
         app.state.context_menu = Some(ContextMenuState {
             kind: ContextMenuKind::Workspace {
                 ws_idx: 0,
-                can_diff: false,
+                project_commands: crate::app::state::ProjectCommandAvailability::NONE,
             },
             x: 2,
             y: 2,
@@ -2924,7 +2944,7 @@ mod tests {
         app.state.context_menu = Some(ContextMenuState {
             kind: ContextMenuKind::Workspace {
                 ws_idx: 0,
-                can_diff: false,
+                project_commands: crate::app::state::ProjectCommandAvailability::NONE,
             },
             x: 2,
             y: 2,
@@ -2971,7 +2991,7 @@ mod tests {
         app.state.context_menu = Some(ContextMenuState {
             kind: ContextMenuKind::Workspace {
                 ws_idx: 0,
-                can_diff: false,
+                project_commands: crate::app::state::ProjectCommandAvailability::NONE,
             },
             x: 2,
             y: 2,

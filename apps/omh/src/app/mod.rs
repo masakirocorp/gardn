@@ -4242,13 +4242,25 @@ impl App {
             action @ (crate::app::command_palette::CommandPaletteAction::OpenGit
             | crate::app::command_palette::CommandPaletteAction::OpenDiff
             | crate::app::command_palette::CommandPaletteAction::OpenIde) => {
-                self.state.request_open_project_command = action.project_command_kind();
+                let Some(kind) = action.project_command_kind() else {
+                    unreachable!("project command action matched above");
+                };
+                let pending_tab = client_view.active_workspace.and_then(|ws_idx| {
+                    self.state
+                        .pending_project_command_tab_for_workspace(
+                            &self.terminal_runtimes,
+                            ws_idx,
+                            kind,
+                        )
+                        .map(|tab_idx| (ws_idx, tab_idx))
+                });
+                self.state.request_open_project_command = Some(kind);
                 self.state.request_open_project_command_workspace = client_view.active_workspace;
-                if let Some(ws_idx) = client_view.active_workspace {
+                if let Some((ws_idx, tab_idx)) = pending_tab {
                     if let Some(ws) = self.state.workspaces.get(ws_idx) {
                         client_view
                             .pending_active_tabs
-                            .insert(ws.id.clone(), ws.tabs.len());
+                            .insert(ws.id.clone(), tab_idx);
                     }
                 }
                 Self::leave_client_view_command_mode(client_view);
@@ -5079,17 +5091,32 @@ impl App {
                     Self::leave_client_view_command_mode(client_view);
                 }
             }
-            (state::ContextMenuKind::Workspace { ws_idx, .. }, Some("diff"))
-            | (state::ContextMenuKind::NewTabButton { ws_idx, .. }, Some("diff")) => {
+            (
+                state::ContextMenuKind::Workspace { ws_idx, .. }
+                | state::ContextMenuKind::NewTabButton { ws_idx, .. },
+                Some("ide" | "git" | "diff"),
+            ) => {
                 client_view.selected_workspace = ws_idx;
                 client_view.active_workspace = Some(ws_idx);
+                let kind = match item {
+                    Some("ide") => crate::app::state::ProjectCommandKind::Ide,
+                    Some("git") => crate::app::state::ProjectCommandKind::Git,
+                    Some("diff") => crate::app::state::ProjectCommandKind::Diff,
+                    _ => unreachable!("project command menu item matched above"),
+                };
+                let pending_tab = self.state.pending_project_command_tab_for_workspace(
+                    &self.terminal_runtimes,
+                    ws_idx,
+                    kind,
+                );
                 self.state.request_open_project_command_workspace = Some(ws_idx);
-                self.state.request_open_project_command =
-                    Some(crate::app::state::ProjectCommandKind::Diff);
-                if let Some(workspace) = self.state.workspaces.get(ws_idx) {
-                    client_view
-                        .pending_active_tabs
-                        .insert(workspace.id.clone(), workspace.tabs.len());
+                self.state.request_open_project_command = Some(kind);
+                if let Some(tab_idx) = pending_tab {
+                    if let Some(workspace) = self.state.workspaces.get(ws_idx) {
+                        client_view
+                            .pending_active_tabs
+                            .insert(workspace.id.clone(), tab_idx);
+                    }
                 }
                 Self::leave_client_view_command_mode(client_view);
             }
@@ -7278,13 +7305,14 @@ impl App {
         let Some(ws_idx) = client_view.active_workspace else {
             return false;
         };
-        let can_diff = self.state.git_diff_command_configured()
-            && !self
-                .state
-                .observed_git_repos_for_workspace(&self.terminal_runtimes, ws_idx)
-                .is_empty();
+        let project_commands = self
+            .state
+            .project_command_availability_for_workspace(&self.terminal_runtimes, ws_idx);
         client_view.context_menu = Some(state::ContextMenuState {
-            kind: state::ContextMenuKind::NewTabButton { ws_idx, can_diff },
+            kind: state::ContextMenuKind::NewTabButton {
+                ws_idx,
+                project_commands,
+            },
             x: mouse.column,
             y: mouse.row,
             list: state::ModalListState::hidden(1),
@@ -8534,17 +8562,8 @@ impl App {
         client_view
             .active_tabs
             .insert(workspace.id.clone(), tab_idx);
-        let can_diff = self.state.git_diff_command_configured()
-            && !self
-                .state
-                .observed_git_repos_for_workspace(&self.terminal_runtimes, ws_idx)
-                .is_empty();
         client_view.context_menu = Some(state::ContextMenuState {
-            kind: state::ContextMenuKind::Tab {
-                ws_idx,
-                tab_idx,
-                can_diff,
-            },
+            kind: state::ContextMenuKind::Tab { ws_idx, tab_idx },
             x: mouse.column,
             y: mouse.row,
             list: state::ModalListState::hidden(0),
@@ -9982,15 +10001,13 @@ impl App {
                     Self::client_view_workspace_at(client_view, mouse.column, mouse.row)
                 {
                     client_view.selected_workspace = idx;
-                    let can_diff = self.state.git_diff_command_configured()
-                        && !self
-                            .state
-                            .observed_git_repos_for_workspace(&self.terminal_runtimes, idx)
-                            .is_empty();
+                    let project_commands = self
+                        .state
+                        .project_command_availability_for_workspace(&self.terminal_runtimes, idx);
                     client_view.context_menu = Some(state::ContextMenuState {
                         kind: state::ContextMenuKind::Workspace {
                             ws_idx: idx,
-                            can_diff,
+                            project_commands,
                         },
                         x: mouse.column,
                         y: mouse.row,
@@ -10037,6 +10054,16 @@ impl App {
         }
 
         match mouse.kind {
+            MouseEventKind::ScrollUp => {
+                if let Some(menu) = &mut client_view.context_menu {
+                    menu.move_prev();
+                }
+            }
+            MouseEventKind::ScrollDown => {
+                if let Some(menu) = &mut client_view.context_menu {
+                    menu.move_next();
+                }
+            }
             MouseEventKind::Moved => {
                 let hovered = Self::context_menu_item_at_for_client_view(
                     client_view,
@@ -10099,14 +10126,9 @@ impl App {
         let inner_y = menu_y + 1;
         let inner_w = menu_w.saturating_sub(2);
         let inner_h = menu_h.saturating_sub(2);
-        let item_count = menu.items().len() as u16;
 
-        if col >= inner_x
-            && col < inner_x + inner_w
-            && row >= inner_y
-            && row < inner_y + inner_h.min(item_count)
-        {
-            Some((row - inner_y) as usize)
+        if col >= inner_x && col < inner_x + inner_w && row >= inner_y && row < inner_y + inner_h {
+            menu.item_at_visible_row((row - inner_y) as usize, inner_h as usize)
         } else {
             None
         }
@@ -11041,6 +11063,23 @@ mod tests {
                 .as_nanos()
         );
         std::env::temp_dir().join(unique).join("config.toml")
+    }
+
+    fn temp_git_repo(name: &str) -> std::path::PathBuf {
+        let config_path = temp_config_path(name);
+        let root = config_path
+            .parent()
+            .expect("temporary config path has parent")
+            .to_path_buf();
+        std::fs::create_dir_all(&root).expect("create temporary repository");
+        let status = std::process::Command::new("git")
+            .arg("init")
+            .arg("-q")
+            .arg(&root)
+            .status()
+            .expect("initialize temporary repository");
+        assert!(status.success());
+        std::fs::canonicalize(&root).unwrap_or(root)
     }
 
     fn clear_integration_path_env() -> [crate::config::TestEnvVar; 11] {
@@ -19902,6 +19941,14 @@ command = "printf literal > '{}'"
         api.group_id = work_group_id;
         app.state.workspaces = vec![home, api];
         app.state.ensure_test_terminals();
+        let non_repo = temp_config_path("non-repo-menu");
+        let non_repo = non_repo
+            .parent()
+            .expect("temporary non-repository path has parent");
+        std::fs::create_dir_all(non_repo).expect("create non-repository directory");
+        let api_root_pane = app.state.workspaces[1].tabs[0].root_pane;
+        let api_terminal_id = app.state.terminal_id_for_pane(1, api_root_pane).unwrap();
+        app.state.terminals.get_mut(&api_terminal_id).unwrap().cwd = non_repo.to_path_buf();
         app.state.active = Some(0);
         app.state.selected = 0;
         app.state.mode = Mode::Terminal;
@@ -19937,6 +19984,9 @@ command = "printf literal > '{}'"
             .context_menu
             .as_ref()
             .expect("right-clicking a visible space should open its context menu");
+        assert!(menu.items().contains(&"ide"));
+        assert!(!menu.items().contains(&"git"));
+        assert!(!menu.items().contains(&"diff"));
         match menu.kind {
             state::ContextMenuKind::Workspace { ws_idx, .. } => assert_eq!(ws_idx, 1),
             other => panic!("expected workspace context menu, got {other:?}"),
@@ -20533,6 +20583,56 @@ command = "printf literal > '{}'"
     }
 
     #[test]
+    fn short_client_context_menu_scrolls_and_maps_visible_rows() {
+        let mut app = test_app();
+        app.state.workspaces = vec![Workspace::test_new("shell")];
+        app.state.ensure_test_terminals();
+
+        let mut client = ClientViewState::from_default_client_state(&app.state);
+        compute_client_view(&app, &mut client, ratatui::layout::Rect::new(0, 0, 80, 13));
+        client.context_menu = Some(state::ContextMenuState {
+            kind: state::ContextMenuKind::Workspace {
+                ws_idx: 0,
+                project_commands: state::ProjectCommandAvailability::ALL,
+            },
+            x: 10,
+            y: 5,
+            list: state::ModalListState::new(12),
+        });
+        client.mode = Mode::ContextMenu;
+
+        let rendered = rendered_client_view_text(&app, &client, 80, 13);
+        assert!(
+            rendered
+                .lines()
+                .nth(11)
+                .unwrap_or_default()
+                .contains("close"),
+            "keyboard selection keeps the final menu action visible"
+        );
+        assert_eq!(
+            App::context_menu_item_at_for_client_view(&client, 11, 11),
+            Some(12),
+            "hit testing maps the final visible row back to the final menu item"
+        );
+
+        app.route_client_events_for_view(
+            &mut client,
+            vec![raw_mouse(
+                crossterm::event::MouseEventKind::ScrollUp,
+                11,
+                11,
+            )],
+            true,
+        );
+        assert_eq!(
+            client.context_menu.as_ref().unwrap().list.selected,
+            9,
+            "wheel navigation skips section labels and separators"
+        );
+    }
+
+    #[test]
     fn route_client_events_for_view_new_agent_button_click_opens_keyboard_picker() {
         let mut app = test_app();
         app.state.workspaces = vec![Workspace::test_new("shell")];
@@ -20594,14 +20694,14 @@ command = "printf literal > '{}'"
                 "new tab button",
                 state::ContextMenuKind::NewTabButton {
                     ws_idx: 0,
-                    can_diff: false,
+                    project_commands: state::ProjectCommandAvailability::NONE,
                 },
             ),
             (
                 "workspace",
                 state::ContextMenuKind::Workspace {
                     ws_idx: 0,
-                    can_diff: false,
+                    project_commands: state::ProjectCommandAvailability::NONE,
                 },
             ),
         ] {
@@ -21134,7 +21234,7 @@ command = "printf literal > '{}'"
         client.context_menu = Some(state::ContextMenuState {
             kind: state::ContextMenuKind::NewTabButton {
                 ws_idx: 0,
-                can_diff: false,
+                project_commands: state::ProjectCommandAvailability::NONE,
             },
             x: 4,
             y: 4,
@@ -21420,7 +21520,7 @@ command = "printf literal > '{}'"
         client.context_menu = Some(state::ContextMenuState {
             kind: state::ContextMenuKind::NewTabButton {
                 ws_idx: 0,
-                can_diff: false,
+                project_commands: state::ProjectCommandAvailability::NONE,
             },
             x: 4,
             y: 4,
@@ -21473,9 +21573,13 @@ command = "printf literal > '{}'"
 
     #[test]
     fn route_client_events_for_view_context_diff_queues_shared_git_diff() {
+        let repo = temp_git_repo("context-diff");
         let mut app = test_app();
         app.state.workspaces = vec![Workspace::test_new("shell")];
         app.state.ensure_test_terminals();
+        let root_pane = app.state.workspaces[0].tabs[0].root_pane;
+        let terminal_id = app.state.terminal_id_for_pane(0, root_pane).unwrap();
+        app.state.terminals.get_mut(&terminal_id).unwrap().cwd = repo;
         app.state.active = Some(0);
         app.state.selected = 0;
         app.state.mode = Mode::Terminal;
@@ -21485,7 +21589,7 @@ command = "printf literal > '{}'"
         client.context_menu = Some(state::ContextMenuState {
             kind: state::ContextMenuKind::NewTabButton {
                 ws_idx: 0,
-                can_diff: true,
+                project_commands: state::ProjectCommandAvailability::DIFF,
             },
             x: 4,
             y: 4,
@@ -21532,6 +21636,104 @@ command = "printf literal > '{}'"
             "invoking client follows the diff tab after an intervening render"
         );
         assert!(!client.pending_active_tabs.contains_key(&workspace_id));
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn reused_project_command_keeps_client_focus_on_managed_tab() {
+        let repo = temp_git_repo("reused-context-diff");
+        let mut app = test_app();
+        app.state.workspaces = vec![Workspace::test_new("shell")];
+        app.state.ensure_test_terminals();
+        app.state.git_diff_command = "sleep 30".to_string();
+        let root_pane = app.state.workspaces[0].tabs[0].root_pane;
+        let root_terminal_id = app.state.terminal_id_for_pane(0, root_pane).unwrap();
+        app.state.terminals.get_mut(&root_terminal_id).unwrap().cwd = repo;
+        app.state
+            .open_project_command_for_workspace(
+                &mut app.terminal_runtimes,
+                0,
+                state::ProjectCommandKind::Diff,
+            )
+            .unwrap();
+        app.state.workspaces[0].active_tab = 0;
+        let workspace_id = app.state.workspaces[0].id.clone();
+        let command_id = app.state.command_runs.keys().next().unwrap().clone();
+
+        let mut client = ClientViewState::from_default_client_state(&app.state);
+        let menu = state::ContextMenuState {
+            kind: state::ContextMenuKind::NewTabButton {
+                ws_idx: 0,
+                project_commands: state::ProjectCommandAvailability::DIFF,
+            },
+            x: 4,
+            y: 4,
+            list: state::ModalListState::new(3),
+        };
+        app.apply_client_view_context_menu_action(&mut client, menu, 3);
+
+        assert_eq!(client.pending_active_tabs.get(&workspace_id), Some(&1));
+        client.reconcile(&app.state);
+        assert_eq!(client.active_tabs.get(&workspace_id), Some(&1));
+        assert!(!client.pending_active_tabs.contains_key(&workspace_id));
+
+        app.state.workspaces[0].test_add_tab(Some("unrelated"));
+        app.state.workspaces[0].active_tab = 2;
+        client.reconcile(&app.state);
+
+        assert_eq!(client.active_tabs.get(&workspace_id), Some(&1));
+        assert!(app
+            .state
+            .stop_project_command(&mut app.terminal_runtimes, &command_id));
+    }
+
+    #[test]
+    fn route_client_context_menu_queues_each_project_command_kind() {
+        for (label, expected_kind) in [
+            ("ide", state::ProjectCommandKind::Ide),
+            ("git", state::ProjectCommandKind::Git),
+            ("diff", state::ProjectCommandKind::Diff),
+        ] {
+            let mut app = test_app();
+            app.state.workspaces = vec![Workspace::test_new("shell")];
+            app.state.ensure_test_terminals();
+            app.state.active = Some(0);
+            app.state.selected = 0;
+            app.state.mode = Mode::Terminal;
+            app.state.mouse_capture = true;
+
+            let mut client = ClientViewState::from_default_client_state(&app.state);
+            let mut menu = state::ContextMenuState {
+                kind: state::ContextMenuKind::NewTabButton {
+                    ws_idx: 0,
+                    project_commands: state::ProjectCommandAvailability::ALL,
+                },
+                x: 4,
+                y: 4,
+                list: state::ModalListState::new(0),
+            };
+            let row = menu
+                .items()
+                .iter()
+                .position(|item| *item == label)
+                .expect("project command menu item");
+            menu.list.selected = row;
+            client.context_menu = Some(menu);
+            client.mode = Mode::ContextMenu;
+
+            app.route_client_events_for_view(
+                &mut client,
+                vec![raw_key(
+                    KeyCode::Enter,
+                    KeyModifiers::empty(),
+                    KeyEventKind::Press,
+                )],
+                true,
+            );
+
+            assert_eq!(app.state.request_open_project_command, Some(expected_kind));
+            assert_eq!(app.state.request_open_project_command_workspace, Some(0));
+            assert_eq!(client.mode, Mode::Terminal);
+        }
     }
 
     #[tokio::test]

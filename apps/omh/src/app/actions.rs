@@ -55,8 +55,12 @@ fn configured_project_command(
     }
 }
 
+fn canonical_git_root(cwd: &std::path::Path) -> Option<std::path::PathBuf> {
+    crate::workspace::git_repo_root(cwd).map(|root| std::fs::canonicalize(&root).unwrap_or(root))
+}
+
 fn observed_git_repos_from_cwd(cwd: &std::path::Path) -> Vec<std::path::PathBuf> {
-    if let Some(root) = crate::workspace::git_repo_root(cwd) {
+    if let Some(root) = canonical_git_root(cwd) {
         return vec![root];
     }
 
@@ -69,7 +73,7 @@ fn observed_git_repos_from_cwd(cwd: &std::path::Path) -> Vec<std::path::PathBuf>
             let file_type = entry.file_type().ok()?;
             file_type.is_dir().then(|| entry.path())
         })
-        .filter_map(|path| crate::workspace::git_repo_root(&path))
+        .filter_map(|path| canonical_git_root(&path))
         .collect()
 }
 
@@ -1454,6 +1458,37 @@ impl AppState {
         self.open_project_command_for_workspace(terminal_runtimes, ws_idx, kind)
     }
 
+    pub(crate) fn pending_project_command_tab_for_workspace(
+        &self,
+        terminal_runtimes: &crate::terminal::TerminalRuntimeRegistry,
+        ws_idx: usize,
+        kind: ProjectCommandKind,
+    ) -> Option<usize> {
+        if !self.project_command_configured(kind) {
+            return None;
+        }
+        let root = if kind == ProjectCommandKind::Ide {
+            self.workspaces
+                .get(ws_idx)?
+                .effective_default_cwd_from(&self.terminals, terminal_runtimes)
+        } else {
+            let roots = self.observed_git_repos_for_workspace(terminal_runtimes, ws_idx);
+            let [root] = roots.as_slice() else {
+                return None;
+            };
+            root.clone()
+        };
+        let command = self.configured_project_command(root, kind, Some(ws_idx));
+        if let Some(run) = self.command_runs.get(&command.id) {
+            if let Some((run_ws_idx, tab_idx, _)) = self.command_terminal_target(&run.terminal_id) {
+                return (run_ws_idx == ws_idx).then_some(tab_idx);
+            }
+        }
+        self.workspaces
+            .get(ws_idx)
+            .map(|workspace| workspace.tabs.len())
+    }
+
     pub(crate) fn open_project_command_for_workspace(
         &mut self,
         terminal_runtimes: &mut crate::terminal::TerminalRuntimeRegistry,
@@ -1497,6 +1532,7 @@ impl AppState {
         &self,
         root: std::path::PathBuf,
         kind: ProjectCommandKind,
+        ws_idx: Option<usize>,
     ) -> crate::commands::ProjectCommand {
         let configured = match kind {
             ProjectCommandKind::Git => &self.git_command,
@@ -1505,10 +1541,32 @@ impl AppState {
         };
         let command = match (kind, configured.trim()) {
             (ProjectCommandKind::Git, crate::lazygit_theme::GIT_COMMAND) => {
-                crate::lazygit_theme::command()
+                crate::lazygit_theme::command(
+                    &ws_idx
+                        .and_then(|idx| {
+                            self.workspaces
+                                .get(idx)
+                                .map(|_| self.palette_for_workspace(idx))
+                        })
+                        .unwrap_or_else(|| self.palette.clone()),
+                    self.theme_appearance_for_mode(self.global_theme_mode),
+                    self.host_terminal_theme,
+                    crate::external_tool_theme::is_terminal_passthrough(&self.global_theme_name),
+                )
             }
             (ProjectCommandKind::Diff, crate::hunk_theme::DIFF_COMMAND) => {
-                crate::hunk_theme::command()
+                crate::hunk_theme::command(
+                    &ws_idx
+                        .and_then(|idx| {
+                            self.workspaces
+                                .get(idx)
+                                .map(|_| self.palette_for_workspace(idx))
+                        })
+                        .unwrap_or_else(|| self.palette.clone()),
+                    self.theme_appearance_for_mode(self.global_theme_mode),
+                    self.host_terminal_theme,
+                    crate::external_tool_theme::is_terminal_passthrough(&self.global_theme_name),
+                )
             }
             (ProjectCommandKind::Ide, crate::fresh_theme::IDE_COMMAND) => {
                 crate::fresh_theme::command()
@@ -1525,7 +1583,7 @@ impl AppState {
         ws_idx: usize,
         kind: ProjectCommandKind,
     ) -> Result<(), String> {
-        let command = self.configured_project_command(root, kind);
+        let command = self.configured_project_command(root, kind, Some(ws_idx));
         self.run_project_command_entry(terminal_runtimes, command, ws_idx)
     }
 
@@ -1792,9 +1850,10 @@ impl AppState {
         &mut self,
         terminal_runtimes: &crate::terminal::TerminalRuntimeRegistry,
     ) -> bool {
-        let mut roots = self
-            .command_scope_workspace_indices()
-            .into_iter()
+        let scope_ws_idx = self.command_scope_workspace_indices().into_iter().next();
+        let mut roots = scope_ws_idx
+            .iter()
+            .copied()
             .filter_map(|ws_idx| self.workspaces.get(ws_idx))
             .flat_map(|ws| {
                 ws.tabs.iter().flat_map(|tab| {
@@ -1816,6 +1875,7 @@ impl AppState {
                     commands.push(self.configured_project_command(
                         git_root,
                         crate::app::state::ProjectCommandKind::Diff,
+                        scope_ws_idx,
                     ));
                 }
                 commands
@@ -4358,7 +4418,7 @@ mod tests {
             .status()
             .unwrap();
         assert!(status.success());
-        root
+        std::fs::canonicalize(&root).unwrap_or(root)
     }
 
     #[test]
@@ -4956,32 +5016,41 @@ mod tests {
         let terminal_id = state.terminal_id_for_pane(0, root_pane).unwrap();
         state.terminals.get_mut(&terminal_id).unwrap().cwd = parent;
 
+        let expected = vec![
+            std::fs::canonicalize(first).unwrap(),
+            std::fs::canonicalize(second).unwrap(),
+        ];
         assert_eq!(
             state.observed_git_repos_for_workspace(&terminal_runtimes, 0),
-            vec![first, second]
+            expected
         );
     }
 
     #[test]
     fn hunk_diff_command_uses_terminal_detected_theme() {
         let root = temp_git_repo("hunk-terminal-command");
-        let state = app_with_workspaces(&["web"]);
-
-        let command =
-            state.configured_project_command(root, crate::app::state::ProjectCommandKind::Diff);
-
+        let mut state = app_with_workspaces(&["web"]);
+        state.theme_name = "system".to_string();
+        state.global_theme_name = "system".to_string();
+        state.palette = Palette::terminal();
+        let command = state.configured_project_command(
+            root,
+            crate::app::state::ProjectCommandKind::Diff,
+            Some(0),
+        );
         assert!(command
             .command
             .contains("exec hunk diff --watch --theme auto"));
         assert!(!command.command.contains("XDG_CONFIG_HOME"));
     }
-
     #[test]
     fn lazygit_command_uses_native_terminal_palette() {
         let root = temp_git_repo("lazygit-terminal-command");
-        let state = app_with_workspaces(&["web"]);
-
-        let command = state.configured_project_command(root, ProjectCommandKind::Git);
+        let mut state = app_with_workspaces(&["web"]);
+        state.theme_name = "system".to_string();
+        state.global_theme_name = "system".to_string();
+        state.palette = Palette::terminal();
+        let command = state.configured_project_command(root, ProjectCommandKind::Git, Some(0));
 
         assert!(command.command.contains("exec lazygit"));
         assert!(!command.command.contains("LG_CONFIG_FILE"));
@@ -4993,24 +5062,49 @@ mod tests {
         let mut state = app_with_workspaces(&["web"]);
         state.git_diff_command = "git diff --stat".to_string();
 
-        let command =
-            state.configured_project_command(root, crate::app::state::ProjectCommandKind::Diff);
+        let command = state.configured_project_command(
+            root,
+            crate::app::state::ProjectCommandKind::Diff,
+            None,
+        );
 
         assert_eq!(command.command, "git diff --stat");
     }
 
     #[test]
-    fn fresh_ide_command_forces_terminal_theme() {
+    fn fresh_ide_command_uses_terminal_builtin_theme() {
         let root = temp_project("fresh-ide-command");
-        let state = app_with_workspaces(&["web"]);
-
-        let command = state.configured_project_command(root, ProjectCommandKind::Ide);
+        let mut state = app_with_workspaces(&["web"]);
+        state.theme_name = "system".to_string();
+        state.global_theme_name = "system".to_string();
+        let command = state.configured_project_command(root, ProjectCommandKind::Ide, Some(0));
 
         assert!(command
             .command
             .contains("fresh --config \"$config_dir/config.json\" ."));
-        assert!(command.command.contains("\"theme\": \"terminal\""));
+        assert!(command
+            .command
+            .contains("\"theme\": \"builtin://terminal\""));
         assert!(command.id.starts_with("builtin:ide:"));
+    }
+
+    #[test]
+    fn named_theme_curated_commands_receive_theme_adapters() {
+        let root = temp_git_repo("named-themed-commands");
+        let mut state = app_with_workspaces(&["web"]);
+        state.theme_name = "dracula".to_string();
+        state.global_theme_name = "dracula".to_string();
+        state.global_theme_mode = ThemeMode::Dark;
+        state.palette = Palette::dracula();
+
+        let git = state.configured_project_command(root.clone(), ProjectCommandKind::Git, Some(0));
+        let diff =
+            state.configured_project_command(root.clone(), ProjectCommandKind::Diff, Some(0));
+        let ide = state.configured_project_command(root, ProjectCommandKind::Ide, Some(0));
+
+        assert!(git.command.contains("LG_CONFIG_FILE"));
+        assert!(diff.command.contains("[custom_theme.syntax_scopes]"));
+        assert!(ide.command.contains("\"theme\": \"builtin://terminal\""));
     }
     #[tokio::test]
     async fn git_diff_opens_configured_command_tab_named_after_repo_root() {
@@ -5162,6 +5256,31 @@ mod tests {
         assert_eq!(state.command_catalog[0].root, current);
     }
 
+    #[test]
+    fn command_catalog_uses_scoped_workspace_theme_for_curated_diff() {
+        let root = temp_git_repo("catalog-workspace-theme");
+        let mut state = app_with_workspaces(&["themed"]);
+        let terminal_runtimes = crate::terminal::TerminalRuntimeRegistry::new();
+        state.global_theme_name = "tokyo-night".to_string();
+        state.global_theme_mode = ThemeMode::Dark;
+        state.global_palette = Palette::tokyo_night();
+        state.palette = state.global_palette.clone();
+        assert!(state.set_group_accent(0, Some(crate::config::TerminalAccent::Red)));
+        let root_pane = state.workspaces[0].tabs[0].root_pane;
+        let terminal_id = state.terminal_id_for_pane(0, root_pane).unwrap();
+        state.terminals.get_mut(&terminal_id).unwrap().cwd = root.clone();
+        let expected = state.configured_project_command(root, ProjectCommandKind::Diff, Some(0));
+
+        assert!(state.refresh_command_catalog(&terminal_runtimes));
+        let diff = state
+            .command_catalog
+            .iter()
+            .find(|command| command.id.starts_with("builtin:diff:"))
+            .expect("curated diff command");
+
+        assert_eq!(diff.command, expected.command);
+    }
+
     fn project_command(
         root: std::path::PathBuf,
         name: &str,
@@ -5257,6 +5376,46 @@ mod tests {
         assert_eq!(state.workspaces[0].active_tab, 1);
         assert!(terminal_runtimes.contains_key(&command_terminal_id));
         wait_for_runtime_pid(&terminal_runtimes, &command_terminal_id).await;
+        assert!(state.stop_project_command(&mut terminal_runtimes, &command_id));
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn pending_project_command_tab_tracks_reused_managed_run() {
+        let project = temp_git_repo("pending-managed-run");
+        let mut state = app_with_workspaces(&["web"]);
+        state.git_diff_command = "sleep 30".to_string();
+        let mut terminal_runtimes = crate::terminal::TerminalRuntimeRegistry::new();
+        let root_pane = state.workspaces[0].tabs[0].root_pane;
+        let root_terminal_id = state.terminal_id_for_pane(0, root_pane).unwrap();
+        state.terminals.get_mut(&root_terminal_id).unwrap().cwd = project;
+
+        assert_eq!(
+            state.pending_project_command_tab_for_workspace(
+                &terminal_runtimes,
+                0,
+                ProjectCommandKind::Diff,
+            ),
+            Some(1)
+        );
+        state
+            .open_project_command_for_workspace(&mut terminal_runtimes, 0, ProjectCommandKind::Diff)
+            .unwrap();
+        let command_id = state.command_runs.keys().next().unwrap().clone();
+        let command_terminal_id = state.command_runs[&command_id].terminal_id.clone();
+        wait_for_runtime_pid(&terminal_runtimes, &command_terminal_id).await;
+        state.workspaces[0].active_tab = 0;
+
+        assert_eq!(
+            state.pending_project_command_tab_for_workspace(
+                &terminal_runtimes,
+                0,
+                ProjectCommandKind::Diff,
+            ),
+            Some(1)
+        );
+        state.workspaces[0].test_add_tab(Some("unrelated"));
+        state.workspaces[0].active_tab = 2;
+        assert_eq!(state.workspaces[0].active_tab, 2);
         assert!(state.stop_project_command(&mut terminal_runtimes, &command_id));
     }
 

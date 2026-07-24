@@ -1684,7 +1684,7 @@ mod tests {
         app.state.context_menu = Some(crate::app::state::ContextMenuState {
             kind: ContextMenuKind::Workspace {
                 ws_idx: 1,
-                can_diff: false,
+                project_commands: crate::app::state::ProjectCommandAvailability::NONE,
             },
             x: 2,
             y: 2,

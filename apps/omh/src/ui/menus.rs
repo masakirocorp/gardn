@@ -798,14 +798,16 @@ pub(super) fn render_context_menu(app: &AppState, frame: &mut Frame) {
     let dim_style = Style::default().fg(p.overlay0);
 
     let visible = menu.list.visible();
-    for (idx, item) in menu.items().iter().enumerate() {
+    let visible_range = menu.visible_item_range(inner.height as usize);
+    for (row, item) in menu.items()[visible_range.clone()].iter().enumerate() {
+        let idx = visible_range.start + row;
         if ContextMenuState::item_is_separator(item) {
-            render_menu_separator(frame, inner, idx, dim_style);
+            render_menu_separator(frame, inner, row, dim_style);
         } else if ContextMenuState::item_is_section_header(item) {
             render_menu_row(
                 frame,
                 inner,
-                idx,
+                row,
                 Line::from(format!(" {item}")),
                 false,
                 selected_style,
@@ -820,7 +822,7 @@ pub(super) fn render_context_menu(app: &AppState, frame: &mut Frame) {
             render_menu_row(
                 frame,
                 inner,
-                idx,
+                row,
                 Line::from(label),
                 visible == Some(idx),
                 selected_style,
@@ -1074,15 +1076,17 @@ pub(super) fn render_context_menu_for_view(
     let text = Style::default().fg(palette.text);
     let dim = Style::default().fg(palette.overlay0);
     let visible = menu.list.visible();
-    for (idx, item) in menu.items().iter().enumerate() {
+    let visible_range = menu.visible_item_range(inner.height as usize);
+    for (row, item) in menu.items()[visible_range.clone()].iter().enumerate() {
+        let idx = visible_range.start + row;
         if ContextMenuState::item_is_separator(item) {
-            render_menu_separator(frame, inner, idx, dim);
+            render_menu_separator(frame, inner, row, dim);
         } else {
             let header = ContextMenuState::item_is_section_header(item);
             render_menu_row(
                 frame,
                 inner,
-                idx,
+                row,
                 Line::from(if header {
                     format!(" {item}")
                 } else {

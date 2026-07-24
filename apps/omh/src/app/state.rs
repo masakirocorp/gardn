@@ -2294,16 +2294,15 @@ pub enum ContextMenuKind {
     },
     Workspace {
         ws_idx: usize,
-        can_diff: bool,
+        project_commands: ProjectCommandAvailability,
     },
     Tab {
         ws_idx: usize,
         tab_idx: usize,
-        can_diff: bool,
     },
     NewTabButton {
         ws_idx: usize,
-        can_diff: bool,
+        project_commands: ProjectCommandAvailability,
     },
     Pane {
         ws_idx: usize,
@@ -2321,6 +2320,51 @@ pub struct ContextMenuState {
     pub list: ModalListState,
 }
 
+const WORKSPACE_CONTEXT_MENU_ITEMS: [&[&str]; 8] = [
+    &[
+        "new", "tab", "agent", "---", "manage", "rename", "settings", "---", "danger", "close",
+    ],
+    &[
+        "new", "tab", "agent", "diff", "---", "manage", "rename", "settings", "---", "danger",
+        "close",
+    ],
+    &[
+        "new", "tab", "agent", "git", "---", "manage", "rename", "settings", "---", "danger",
+        "close",
+    ],
+    &[
+        "new", "tab", "agent", "git", "diff", "---", "manage", "rename", "settings", "---",
+        "danger", "close",
+    ],
+    &[
+        "new", "tab", "agent", "ide", "---", "manage", "rename", "settings", "---", "danger",
+        "close",
+    ],
+    &[
+        "new", "tab", "agent", "ide", "diff", "---", "manage", "rename", "settings", "---",
+        "danger", "close",
+    ],
+    &[
+        "new", "tab", "agent", "ide", "git", "---", "manage", "rename", "settings", "---",
+        "danger", "close",
+    ],
+    &[
+        "new", "tab", "agent", "ide", "git", "diff", "---", "manage", "rename", "settings", "---",
+        "danger", "close",
+    ],
+];
+
+const NEW_TAB_CONTEXT_MENU_ITEMS: [&[&str]; 8] = [
+    &["new", "tab", "agent"],
+    &["new", "tab", "agent", "diff"],
+    &["new", "tab", "agent", "git"],
+    &["new", "tab", "agent", "git", "diff"],
+    &["new", "tab", "agent", "ide"],
+    &["new", "tab", "agent", "ide", "diff"],
+    &["new", "tab", "agent", "ide", "git"],
+    &["new", "tab", "agent", "ide", "git", "diff"],
+];
+
 impl ContextMenuState {
     pub fn items(&self) -> &'static [&'static str] {
         match self.kind {
@@ -2333,23 +2377,13 @@ impl ContextMenuState {
             ContextMenuKind::Group {
                 can_delete: false, ..
             } => &["new", "space", "group", "---", "manage", "settings"],
-            ContextMenuKind::Workspace { can_diff: true, .. } => &[
-                "new", "tab", "agent", "diff", "---", "manage", "rename", "settings", "---",
-                "danger", "close",
-            ],
             ContextMenuKind::Workspace {
-                can_diff: false, ..
-            } => &[
-                "new", "tab", "agent", "---", "manage", "rename", "settings", "---", "danger",
-                "close",
-            ],
+                project_commands, ..
+            } => WORKSPACE_CONTEXT_MENU_ITEMS[project_commands.menu_index()],
             ContextMenuKind::Tab { .. } => &["rename", "close", "close other tabs"],
-            ContextMenuKind::NewTabButton { can_diff: true, .. } => {
-                &["new", "tab", "agent", "diff"]
-            }
             ContextMenuKind::NewTabButton {
-                can_diff: false, ..
-            } => &["new", "tab", "agent"],
+                project_commands, ..
+            } => NEW_TAB_CONTEXT_MENU_ITEMS[project_commands.menu_index()],
             ContextMenuKind::Pane {
                 has_manual_label: true,
                 ..
@@ -2386,6 +2420,29 @@ impl ContextMenuState {
 
     pub fn item_is_section_header(item: &str) -> bool {
         matches!(item, "new" | "manage" | "danger")
+    }
+
+    pub fn visible_item_range(&self, row_count: usize) -> std::ops::Range<usize> {
+        let item_count = self.items().len();
+        let visible_count = row_count.min(item_count);
+        if visible_count == 0 {
+            return 0..0;
+        }
+
+        let anchor = self
+            .list
+            .visible()
+            .unwrap_or(self.list.selected)
+            .min(item_count - 1);
+        let start = anchor
+            .saturating_add(1)
+            .saturating_sub(visible_count)
+            .min(item_count - visible_count);
+        start..start + visible_count
+    }
+
+    pub fn item_at_visible_row(&self, row: usize, row_count: usize) -> Option<usize> {
+        self.visible_item_range(row_count).nth(row)
     }
 
     pub fn move_prev(&mut self) {
@@ -2533,56 +2590,99 @@ mod context_menu_tests {
     use super::*;
 
     #[test]
-    fn workspace_context_menu_shows_diff_only_when_git_repo_available() {
-        let with_diff = ContextMenuState {
+    fn workspace_context_menu_orders_all_project_roles_before_management() {
+        let menu = ContextMenuState {
             kind: ContextMenuKind::Workspace {
                 ws_idx: 0,
-                can_diff: true,
-            },
-            x: 0,
-            y: 0,
-            list: ModalListState::new(1),
-        };
-        let without_diff = ContextMenuState {
-            kind: ContextMenuKind::Workspace {
-                ws_idx: 0,
-                can_diff: false,
+                project_commands: ProjectCommandAvailability::ALL,
             },
             x: 0,
             y: 0,
             list: ModalListState::new(1),
         };
 
-        assert!(with_diff.items().contains(&"diff"));
-        assert!(!without_diff.items().contains(&"diff"));
+        assert_eq!(
+            menu.items(),
+            &[
+                "new", "tab", "agent", "ide", "git", "diff", "---", "manage", "rename", "settings",
+                "---", "danger", "close",
+            ]
+        );
     }
 
     #[test]
-    fn tab_context_menu_exposes_only_tab_operations_even_when_workspace_can_diff() {
-        let expected = &["rename", "close", "close other tabs"];
-        let with_diff = ContextMenuState {
-            kind: ContextMenuKind::Tab {
+    fn context_menu_window_follows_keyboard_selection_on_short_screens() {
+        let mut menu = ContextMenuState {
+            kind: ContextMenuKind::Workspace {
                 ws_idx: 0,
-                tab_idx: 1,
-                can_diff: true,
+                project_commands: ProjectCommandAvailability::ALL,
             },
             x: 0,
             y: 0,
-            list: ModalListState::new(0),
+            list: ModalListState::new(1),
         };
-        let without_diff = ContextMenuState {
+
+        assert_eq!(menu.visible_item_range(11), 0..11);
+        menu.list.select(12);
+        assert_eq!(menu.visible_item_range(11), 2..13);
+        assert_eq!(menu.item_at_visible_row(10, 11), Some(12));
+    }
+
+    #[test]
+    fn project_command_menu_hides_each_unavailable_role() {
+        let menu = |project_commands| ContextMenuState {
+            kind: ContextMenuKind::NewTabButton {
+                ws_idx: 0,
+                project_commands,
+            },
+            x: 0,
+            y: 0,
+            list: ModalListState::new(1),
+        };
+
+        assert_eq!(
+            menu(ProjectCommandAvailability::NONE).items(),
+            &["new", "tab", "agent"]
+        );
+        assert_eq!(
+            menu(ProjectCommandAvailability::IDE).items(),
+            &["new", "tab", "agent", "ide"]
+        );
+        assert_eq!(
+            menu(ProjectCommandAvailability::GIT).items(),
+            &["new", "tab", "agent", "git"]
+        );
+        assert_eq!(
+            menu(ProjectCommandAvailability::DIFF).items(),
+            &["new", "tab", "agent", "diff"]
+        );
+    }
+
+    #[test]
+    fn project_command_availability_requires_repos_only_for_git_roles() {
+        assert_eq!(
+            ProjectCommandAvailability::from_repo_and_configured(true, true, false, true),
+            ProjectCommandAvailability::GIT.union(ProjectCommandAvailability::IDE)
+        );
+        assert_eq!(
+            ProjectCommandAvailability::from_repo_and_configured(false, true, true, true),
+            ProjectCommandAvailability::IDE
+        );
+    }
+
+    #[test]
+    fn tab_context_menu_exposes_only_tab_operations() {
+        let menu = ContextMenuState {
             kind: ContextMenuKind::Tab {
                 ws_idx: 0,
                 tab_idx: 1,
-                can_diff: false,
             },
             x: 0,
             y: 0,
             list: ModalListState::new(0),
         };
 
-        assert_eq!(with_diff.items(), expected);
-        assert_eq!(without_diff.items(), expected);
+        assert_eq!(menu.items(), &["rename", "close", "close other tabs"]);
     }
 }
 
@@ -2667,6 +2767,47 @@ pub(crate) enum ProjectCommandKind {
     Git,
     Diff,
     Ide,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct ProjectCommandAvailability(u8);
+
+impl ProjectCommandAvailability {
+    #[cfg(test)]
+    pub const NONE: Self = Self(0);
+    pub const GIT: Self = Self(1 << 1);
+    pub const DIFF: Self = Self(1 << 0);
+    pub const IDE: Self = Self(1 << 2);
+    #[cfg(test)]
+    pub const ALL: Self = Self(Self::GIT.0 | Self::DIFF.0 | Self::IDE.0);
+
+    pub(crate) const fn from_repo_and_configured(
+        has_repo: bool,
+        git_configured: bool,
+        diff_configured: bool,
+        ide_configured: bool,
+    ) -> Self {
+        let mut bits = 0;
+        if has_repo && git_configured {
+            bits |= Self::GIT.0;
+        }
+        if has_repo && diff_configured {
+            bits |= Self::DIFF.0;
+        }
+        if ide_configured {
+            bits |= Self::IDE.0;
+        }
+        Self(bits)
+    }
+
+    #[cfg(test)]
+    pub const fn union(self, other: Self) -> Self {
+        Self(self.0 | other.0)
+    }
+
+    const fn menu_index(self) -> usize {
+        self.0 as usize
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -3208,6 +3349,22 @@ impl AppState {
         self.session_dirty = true;
     }
 
+    pub(crate) fn project_command_availability_for_workspace(
+        &self,
+        terminal_runtimes: &crate::terminal::TerminalRuntimeRegistry,
+        ws_idx: usize,
+    ) -> ProjectCommandAvailability {
+        let has_repo = !self
+            .observed_git_repos_for_workspace(terminal_runtimes, ws_idx)
+            .is_empty();
+        ProjectCommandAvailability::from_repo_and_configured(
+            has_repo,
+            self.project_command_configured(ProjectCommandKind::Git),
+            self.project_command_configured(ProjectCommandKind::Diff),
+            self.project_command_configured(ProjectCommandKind::Ide),
+        )
+    }
+
     pub(crate) fn remove_alias_shadowed_by_new_pane(&mut self, pane_id: PaneId) {
         self.pane_id_aliases.remove(&pane_id.raw());
     }
@@ -3243,10 +3400,6 @@ impl AppState {
             ProjectCommandKind::Ide => &self.ide_command,
         };
         !command.trim().is_empty()
-    }
-
-    pub(crate) fn git_diff_command_configured(&self) -> bool {
-        self.project_command_configured(ProjectCommandKind::Diff)
     }
 
     pub fn pane_border_agent_info(&self) -> PaneBorderAgentInfoConfig {

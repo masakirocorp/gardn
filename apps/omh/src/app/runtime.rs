@@ -920,13 +920,14 @@ mod tests {
         ws.tabs.clear();
         app.state.workspaces.push(ws);
 
+        let canonical_child = std::fs::canonicalize(&child).expect("canonicalize child repo");
         let items = app.workspace_git_refresh_items();
 
         assert_eq!(items.len(), 1);
-        assert_eq!(items[0].observed_repo_roots, vec![child.clone()]);
+        assert_eq!(items[0].observed_repo_roots, vec![canonical_child.clone()]);
         let output = refresh_workspace_git_statuses_with_cache(items, &HashMap::new());
         assert_eq!(output.repo_summaries.len(), 1);
-        assert_eq!(output.repo_summaries[0].0, child);
+        assert_eq!(output.repo_summaries[0].0, canonical_child);
         let _ = std::fs::remove_dir_all(parent);
     }
     #[test]

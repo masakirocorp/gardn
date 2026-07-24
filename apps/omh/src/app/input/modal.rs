@@ -1248,11 +1248,19 @@ pub(crate) fn apply_context_menu_action(
             state.active = Some(ws_idx);
             super::agent_profile_picker::open_new_agent_picker_for_workspace(state, ws_idx);
         }
-        (ContextMenuKind::Workspace { ws_idx, .. }, Some("diff"))
-        | (ContextMenuKind::NewTabButton { ws_idx, .. }, Some("diff")) => {
+        (
+            ContextMenuKind::Workspace { ws_idx, .. }
+            | ContextMenuKind::NewTabButton { ws_idx, .. },
+            Some("ide" | "git" | "diff"),
+        ) => {
             state.selected = ws_idx;
             state.active = Some(ws_idx);
-            state.request_open_project_command = Some(crate::app::state::ProjectCommandKind::Diff);
+            state.request_open_project_command = Some(match item {
+                Some("ide") => crate::app::state::ProjectCommandKind::Ide,
+                Some("git") => crate::app::state::ProjectCommandKind::Git,
+                Some("diff") => crate::app::state::ProjectCommandKind::Diff,
+                _ => unreachable!("project command menu item matched above"),
+            });
             leave_modal(state);
         }
         (ContextMenuKind::Workspace { ws_idx, .. }, Some("rename")) => {
@@ -2068,7 +2076,7 @@ mod tests {
         let menu = ContextMenuState {
             kind: ContextMenuKind::Workspace {
                 ws_idx: 0,
-                can_diff: false,
+                project_commands: crate::app::state::ProjectCommandAvailability::NONE,
             },
             x: 0,
             y: 0,
@@ -2082,6 +2090,36 @@ mod tests {
     }
 
     #[test]
+    fn project_command_context_menu_routes_each_role() {
+        for (label, expected_kind) in [
+            ("ide", crate::app::state::ProjectCommandKind::Ide),
+            ("git", crate::app::state::ProjectCommandKind::Git),
+            ("diff", crate::app::state::ProjectCommandKind::Diff),
+        ] {
+            let mut state = state_with_workspaces(&["test"]);
+            let mut terminal_runtimes = crate::terminal::TerminalRuntimeRegistry::new();
+            let menu = ContextMenuState {
+                kind: ContextMenuKind::Workspace {
+                    ws_idx: 0,
+                    project_commands: crate::app::state::ProjectCommandAvailability::ALL,
+                },
+                x: 0,
+                y: 0,
+                list: ModalListState::new(0),
+            };
+            let row = menu
+                .items()
+                .iter()
+                .position(|item| *item == label)
+                .expect("project command menu item");
+
+            apply_context_menu_action(&mut state, &mut terminal_runtimes, menu, row);
+
+            assert_eq!(state.request_open_project_command, Some(expected_kind));
+        }
+    }
+
+    #[test]
     fn closing_last_tab_from_context_menu_empties_workspace() {
         let mut state = state_with_workspaces(&["test"]);
         let mut terminal_runtimes = crate::terminal::TerminalRuntimeRegistry::new();
@@ -2089,7 +2127,6 @@ mod tests {
             kind: ContextMenuKind::Tab {
                 ws_idx: 0,
                 tab_idx: 0,
-                can_diff: false,
             },
             x: 0,
             y: 0,
@@ -2116,7 +2153,6 @@ mod tests {
             kind: ContextMenuKind::Tab {
                 ws_idx: 1,
                 tab_idx: 1,
-                can_diff: false,
             },
             x: 0,
             y: 0,
