@@ -1,4 +1,7 @@
-use crate::terminal_theme::{DefaultColorKind, RgbColor, TerminalTheme, ThemeAppearance};
+use crate::app::state::Palette;
+use crate::terminal_theme::{
+    AnsiPalette, DefaultColorKind, RgbColor, TerminalTheme, ThemeAppearance,
+};
 use ratatui::style::Color;
 
 #[derive(Clone, Copy)]
@@ -50,6 +53,63 @@ pub(crate) fn is_terminal_passthrough(theme_name: &str) -> bool {
         theme_name.to_lowercase().replace([' ', '_'], "-").as_str(),
         "system" | "terminal"
     )
+}
+pub(crate) fn ansi_palette(
+    palette: &Palette,
+    appearance: ThemeAppearance,
+    terminal_theme: TerminalTheme,
+) -> AnsiPalette {
+    let (black, white, bright_black, bright_white) = match appearance {
+        ThemeAppearance::Dark => (
+            palette.surface_dim,
+            palette.subtext0,
+            palette.overlay0,
+            palette.text,
+        ),
+        ThemeAppearance::Light => (
+            palette.text,
+            palette.overlay0,
+            palette.subtext0,
+            palette.surface0,
+        ),
+    };
+    [
+        terminal_color(black, terminal_theme, appearance),
+        terminal_color(palette.red, terminal_theme, appearance),
+        terminal_color(palette.green, terminal_theme, appearance),
+        terminal_color(palette.yellow, terminal_theme, appearance),
+        terminal_color(palette.blue, terminal_theme, appearance),
+        terminal_color(palette.mauve, terminal_theme, appearance),
+        terminal_color(palette.teal, terminal_theme, appearance),
+        terminal_color(white, terminal_theme, appearance),
+        terminal_color(bright_black, terminal_theme, appearance),
+        terminal_color(palette.red, terminal_theme, appearance),
+        terminal_color(palette.green, terminal_theme, appearance),
+        terminal_color(palette.yellow, terminal_theme, appearance),
+        terminal_color(palette.blue, terminal_theme, appearance),
+        terminal_color(palette.mauve, terminal_theme, appearance),
+        terminal_color(palette.teal, terminal_theme, appearance),
+        terminal_color(bright_white, terminal_theme, appearance),
+    ]
+}
+
+fn terminal_color(
+    color: Color,
+    terminal_theme: TerminalTheme,
+    appearance: ThemeAppearance,
+) -> RgbColor {
+    let fallback = foreground_fallback(appearance);
+    let color = palette_color(
+        color,
+        terminal_theme,
+        DefaultColorKind::Foreground,
+        fallback,
+    );
+    RgbColor {
+        r: color.r,
+        g: color.g,
+        b: color.b,
+    }
 }
 
 pub(crate) fn palette_color(

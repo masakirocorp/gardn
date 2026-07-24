@@ -264,6 +264,10 @@ impl TerminalRuntime {
     pub fn apply_host_terminal_theme(&self, theme: crate::terminal_theme::TerminalTheme) {
         self.0.apply_host_terminal_theme(theme);
     }
+    pub(crate) fn apply_ansi_palette_override(&self, palette: crate::terminal_theme::AnsiPalette) {
+        self.0.apply_ansi_palette_override(palette);
+    }
+
     pub fn child_pid(&self) -> u32 {
         self.0.child_pid()
     }

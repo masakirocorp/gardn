@@ -1118,6 +1118,9 @@ impl PaneRuntime {
     pub fn apply_host_terminal_theme(&self, theme: crate::terminal_theme::TerminalTheme) {
         self.terminal.apply_host_terminal_theme(theme);
     }
+    pub(crate) fn apply_ansi_palette_override(&self, palette: crate::terminal_theme::AnsiPalette) {
+        self.terminal.apply_ansi_palette_override(palette);
+    }
 
     pub fn child_pid(&self) -> u32 {
         self.child_pid.load(Ordering::Acquire)

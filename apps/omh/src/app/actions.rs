@@ -1441,7 +1441,7 @@ impl AppState {
             .command_target_for_root(terminal_runtimes, &command.root)
             .ok_or_else(|| format!("no pane for {}", command.root.display()))?;
 
-        self.run_project_command_entry(terminal_runtimes, command, ws_idx)
+        self.run_project_command_entry(terminal_runtimes, command, ws_idx, None)
     }
 
     pub(crate) fn open_project_command(
@@ -1587,6 +1587,42 @@ impl AppState {
         configured_project_command(root, kind, &command)
     }
 
+    fn curated_project_command_ansi_palette(
+        &self,
+        kind: ProjectCommandKind,
+        ws_idx: Option<usize>,
+    ) -> Option<crate::terminal_theme::AnsiPalette> {
+        if crate::external_tool_theme::is_terminal_passthrough(&self.global_theme_name) {
+            return None;
+        }
+        let configured = match kind {
+            ProjectCommandKind::Git => &self.git_command,
+            ProjectCommandKind::Diff => &self.git_diff_command,
+            ProjectCommandKind::Ide => &self.ide_command,
+        };
+        let curated = matches!(
+            (kind, configured.trim()),
+            (ProjectCommandKind::Git, crate::lazygit_theme::GIT_COMMAND)
+                | (ProjectCommandKind::Diff, crate::hunk_theme::DIFF_COMMAND)
+                | (ProjectCommandKind::Ide, crate::fresh_theme::IDE_COMMAND)
+        );
+        if !curated {
+            return None;
+        }
+        let palette = ws_idx
+            .and_then(|idx| {
+                self.workspaces
+                    .get(idx)
+                    .map(|_| self.palette_for_workspace(idx))
+            })
+            .unwrap_or_else(|| self.palette.clone());
+        Some(crate::external_tool_theme::ansi_palette(
+            &palette,
+            self.theme_appearance_for_mode(self.global_theme_mode),
+            self.host_terminal_theme,
+        ))
+    }
+
     fn open_project_command_tab(
         &mut self,
         terminal_runtimes: &mut crate::terminal::TerminalRuntimeRegistry,
@@ -1594,8 +1630,9 @@ impl AppState {
         ws_idx: usize,
         kind: ProjectCommandKind,
     ) -> Result<(), String> {
+        let ansi_palette = self.curated_project_command_ansi_palette(kind, Some(ws_idx));
         let command = self.configured_project_command(root, kind, Some(ws_idx));
-        self.run_project_command_entry(terminal_runtimes, command, ws_idx)
+        self.run_project_command_entry(terminal_runtimes, command, ws_idx, ansi_palette)
     }
 
     fn run_project_command_entry(
@@ -1603,6 +1640,7 @@ impl AppState {
         terminal_runtimes: &mut crate::terminal::TerminalRuntimeRegistry,
         command: crate::commands::ProjectCommand,
         ws_idx: usize,
+        ansi_palette: Option<crate::terminal_theme::AnsiPalette>,
     ) -> Result<(), String> {
         let command_id = command.id.clone();
         if let Some(run) = self.command_runs.get(&command_id).cloned() {
@@ -1620,6 +1658,7 @@ impl AppState {
                     ws_idx,
                     tab_idx,
                     pane_id,
+                    ansi_palette,
                 )?;
                 return Ok(());
             }
@@ -1628,7 +1667,7 @@ impl AppState {
             }
         }
 
-        self.open_command_tab(terminal_runtimes, command, ws_idx)
+        self.open_command_tab(terminal_runtimes, command, ws_idx, ansi_palette)
     }
 
     pub(crate) fn observed_git_repos_for_workspace(
@@ -1696,6 +1735,7 @@ impl AppState {
         terminal_runtimes: &mut crate::terminal::TerminalRuntimeRegistry,
         command: crate::commands::ProjectCommand,
         ws_idx: usize,
+        ansi_palette: Option<crate::terminal_theme::AnsiPalette>,
     ) -> Result<(), String> {
         let (rows, cols) = self.estimate_pane_size();
         let workspace = self
@@ -1715,6 +1755,9 @@ impl AppState {
             .map_err(|err| err.to_string())?;
         if let Some(tab) = workspace.tabs.get_mut(tab_idx) {
             tab.set_custom_name(command.name.clone());
+        }
+        if let Some(palette) = ansi_palette {
+            runtime.apply_ansi_palette_override(palette);
         }
         let terminal_id = terminal.id.clone();
         terminal_runtimes.insert(terminal.id.clone(), runtime);
@@ -1744,6 +1787,7 @@ impl AppState {
         ws_idx: usize,
         tab_idx: usize,
         pane_id: PaneId,
+        ansi_palette: Option<crate::terminal_theme::AnsiPalette>,
     ) -> Result<(), String> {
         if let Some(runtime) = terminal_runtimes.remove(terminal_id) {
             runtime.shutdown();
@@ -1791,6 +1835,9 @@ impl AppState {
             render_dirty,
         )
         .map_err(|err| err.to_string())?;
+        if let Some(palette) = ansi_palette {
+            runtime.apply_ansi_palette_override(palette);
+        }
         terminal_runtimes.insert(terminal_id.clone(), runtime);
         if let Some(terminal) = self.terminals.get_mut(terminal_id) {
             terminal.cwd = command.root.clone();
@@ -5065,6 +5112,9 @@ mod tests {
 
         assert!(command.command.contains("exec lazygit"));
         assert!(!command.command.contains("LG_CONFIG_FILE"));
+        assert!(state
+            .curated_project_command_ansi_palette(ProjectCommandKind::Git, Some(0))
+            .is_none());
     }
 
     #[test]
@@ -5080,6 +5130,9 @@ mod tests {
         );
 
         assert_eq!(command.command, "git diff --stat");
+        assert!(state
+            .curated_project_command_ansi_palette(ProjectCommandKind::Diff, None)
+            .is_none());
     }
 
     #[test]
@@ -5118,6 +5171,41 @@ mod tests {
             .command
             .contains("theme_ref=\"file://$theme_dir/theme.json\""));
         assert!(ide.command.contains("\"cursor\": [189, 147, 249]"));
+        let ansi_palette = state
+            .curated_project_command_ansi_palette(ProjectCommandKind::Git, Some(0))
+            .expect("named curated command should receive an ANSI palette");
+        assert_eq!(
+            ansi_palette[1],
+            crate::terminal_theme::RgbColor {
+                r: 255,
+                g: 85,
+                b: 85,
+            }
+        );
+        assert_eq!(
+            ansi_palette[2],
+            crate::terminal_theme::RgbColor {
+                r: 80,
+                g: 250,
+                b: 123,
+            }
+        );
+        assert_eq!(
+            ansi_palette[5],
+            crate::terminal_theme::RgbColor {
+                r: 255,
+                g: 121,
+                b: 198,
+            }
+        );
+        assert_eq!(
+            ansi_palette[15],
+            crate::terminal_theme::RgbColor {
+                r: 248,
+                g: 248,
+                b: 242,
+            }
+        );
     }
     #[tokio::test]
     async fn git_diff_opens_configured_command_tab_named_after_repo_root() {

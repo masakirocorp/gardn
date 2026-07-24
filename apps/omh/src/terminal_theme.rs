@@ -4,6 +4,7 @@ pub struct RgbColor {
     pub g: u8,
     pub b: u8,
 }
+pub(crate) type AnsiPalette = [RgbColor; 16];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct TerminalTheme {

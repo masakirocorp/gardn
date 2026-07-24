@@ -25,9 +25,10 @@ use super::{
     osc::{
         contains_scrollback_clear_sequence, current_transient_default_color_owner,
         maybe_filter_primary_screen_scrollback_clear, parse_default_color_events,
-        restore_host_terminal_theme_if_needed, write_host_terminal_theme_selective,
-        AgentOscStateTracker, DefaultColorEvent, DefaultColorOscTracker, DefaultColorQuery,
-        Osc52Forwarder, OscColorQueryResponder, OscColorSnapshot,
+        restore_host_terminal_theme_if_needed, write_ansi_palette,
+        write_host_terminal_theme_selective, AgentOscStateTracker, DefaultColorEvent,
+        DefaultColorOscTracker, DefaultColorQuery, Osc52Forwarder, OscColorQueryResponder,
+        OscColorSnapshot,
     },
 };
 
@@ -148,6 +149,7 @@ pub(crate) struct GhosttyPaneCore {
     pub initial_default_foreground: Option<crate::ghostty::RgbColor>,
     pub initial_default_background: Option<crate::ghostty::RgbColor>,
     pub host_terminal_theme: crate::terminal_theme::TerminalTheme,
+    pub resolve_ansi_palette: bool,
     pub windows_powershell_prompt_cwd_reporting: bool,
     pub transient_default_color_owner_pgid: Option<u32>,
     pub default_color_tracker: DefaultColorOscTracker,
@@ -335,6 +337,9 @@ impl PaneTerminal {
 
     pub fn apply_host_terminal_theme(&self, theme: crate::terminal_theme::TerminalTheme) {
         self.ghostty.apply_host_terminal_theme(theme);
+    }
+    pub fn apply_ansi_palette_override(&self, palette: crate::terminal_theme::AnsiPalette) {
+        self.ghostty.apply_ansi_palette_override(palette);
     }
 
     pub fn has_transient_default_color_override(&self) -> bool {
@@ -782,6 +787,7 @@ impl GhosttyPaneTerminal {
                 initial_default_foreground,
                 initial_default_background,
                 host_terminal_theme: crate::terminal_theme::TerminalTheme::default(),
+                resolve_ansi_palette: false,
                 windows_powershell_prompt_cwd_reporting: false,
                 transient_default_color_owner_pgid: None,
                 default_color_tracker: DefaultColorOscTracker::default(),
@@ -813,6 +819,12 @@ impl GhosttyPaneTerminal {
                 foreground_unowned,
                 background_unowned,
             );
+        }
+    }
+    pub fn apply_ansi_palette_override(&self, palette: crate::terminal_theme::AnsiPalette) {
+        if let Ok(mut core) = self.core.lock() {
+            write_ansi_palette(&mut core.terminal, palette);
+            core.resolve_ansi_palette = true;
         }
     }
 
@@ -1679,6 +1691,7 @@ impl GhosttyPaneTerminal {
         let host_theme = core.host_terminal_theme;
         let initial_default_foreground = core.initial_default_foreground;
         let initial_default_background = core.initial_default_background;
+        let resolve_ansi_palette = core.resolve_ansi_palette;
         let GhosttyPaneCore {
             terminal,
             render_state,
@@ -1690,12 +1703,19 @@ impl GhosttyPaneTerminal {
         }
         let colors = render_state.colors().ok();
         let default_bg = colors
+            .as_ref()
             .and_then(|c| ghostty_default_bg(c.background, host_theme, initial_default_background));
         let default_bg = default_bg.or(theme_default_bg);
         let default_fg = colors
+            .as_ref()
             .and_then(|c| ghostty_default_fg(c.foreground, host_theme, initial_default_foreground));
-        let resolved_fg = colors.map(|c| ghostty_color(c.foreground));
-        let resolved_bg = colors.map(|c| ghostty_color(c.background));
+        let resolved_fg = colors.as_ref().map(|c| ghostty_color(c.foreground));
+        let resolved_bg = colors.as_ref().map(|c| ghostty_color(c.background));
+        let resolved_ansi_palette = if resolve_ansi_palette {
+            colors.as_ref().map(|c| &c.palette)
+        } else {
+            None
+        };
         let hide_kitty_placeholders = crate::kitty_graphics::is_enabled();
 
         let mut row_iterator = match crate::ghostty::RowIterator::new() {
@@ -1750,6 +1770,7 @@ impl GhosttyPaneTerminal {
                                 &cells,
                                 default_fg,
                                 default_bg,
+                                resolved_ansi_palette,
                                 resolved_fg,
                                 resolved_bg,
                             );
@@ -2299,13 +2320,14 @@ fn ghostty_cell_style(
     cells: &crate::ghostty::RowCellIter<'_>,
     default_fg: Option<Color>,
     default_bg: Option<Color>,
+    resolved_ansi_palette: Option<&[crate::ghostty::RgbColor; 256]>,
     resolved_fg: Option<Color>,
     resolved_bg: Option<Color>,
 ) -> Style {
     let style_data = cells.style().unwrap_or_default();
     let mut fg = style_data
         .fg_color
-        .map(ghostty_cell_color)
+        .map(|color| ghostty_cell_color(color, resolved_ansi_palette))
         .or_else(|| cells.fg_color().ok().flatten().map(ghostty_color))
         .or(default_fg);
     let mut bg = cells
@@ -2313,7 +2335,7 @@ fn ghostty_cell_style(
         .ok()
         .flatten()
         .or(style_data.bg_color)
-        .map(ghostty_cell_color)
+        .map(|color| ghostty_cell_color(color, resolved_ansi_palette))
         .or_else(|| cells.bg_color().ok().flatten().map(ghostty_color))
         .or(default_bg);
     if style_data.invisible {
@@ -2341,7 +2363,10 @@ fn ghostty_cell_style(
     if let Some(bg) = bg {
         style = style.bg(bg);
     }
-    if let Some(underline_color) = style_data.underline_color.map(ghostty_cell_color) {
+    if let Some(underline_color) = style_data
+        .underline_color
+        .map(|color| ghostty_cell_color(color, resolved_ansi_palette))
+    {
         style = style.underline_color(underline_color);
     }
 
@@ -2821,8 +2846,14 @@ fn host_theme_color_to_ghostty(color: crate::terminal_theme::RgbColor) -> crate:
     }
 }
 
-fn ghostty_cell_color(color: crate::ghostty::CellColor) -> Color {
+fn ghostty_cell_color(
+    color: crate::ghostty::CellColor,
+    resolved_ansi_palette: Option<&[crate::ghostty::RgbColor; 256]>,
+) -> Color {
     match color {
+        crate::ghostty::CellColor::Palette(index) if index < 16 => resolved_ansi_palette
+            .map(|palette| ghostty_color(palette[usize::from(index)]))
+            .unwrap_or(Color::Indexed(index)),
         crate::ghostty::CellColor::Palette(index) => Color::Indexed(index),
         crate::ghostty::CellColor::Rgb(color) => ghostty_color(color),
     }
@@ -4467,6 +4498,49 @@ mod tests {
         assert_eq!(buffer[(4, 0)].symbol(), "B");
         assert_eq!(buffer[(4, 0)].style().bg, Some(Color::Indexed(4)));
         assert_eq!(buffer[(6, 0)].symbol(), "T");
+        assert_eq!(buffer[(6, 0)].style().fg, Some(Color::Rgb(1, 2, 3)));
+    }
+
+    #[test]
+    fn render_resolves_basic_colors_from_a_pane_ansi_palette() {
+        let (tx, _rx) = mpsc::channel(4);
+        let terminal = crate::ghostty::Terminal::new(20, 5, 0).unwrap();
+        let pane = GhosttyPaneTerminal::new(terminal, tx).unwrap();
+        let mut palette = [crate::terminal_theme::RgbColor { r: 0, g: 0, b: 0 }; 16];
+        palette[1] = crate::terminal_theme::RgbColor {
+            r: 0xff,
+            g: 0x55,
+            b: 0x55,
+        };
+        palette[4] = crate::terminal_theme::RgbColor {
+            r: 0x8b,
+            g: 0xe9,
+            b: 0xfd,
+        };
+        pane.apply_ansi_palette_override(palette);
+        {
+            let mut core = pane.core.lock().unwrap();
+            core.terminal.write(
+                b"\x1b[31mR\x1b[0m \x1b[38;5;171mI\x1b[0m \x1b[48;5;4mB\x1b[0m \x1b[38;2;1;2;3mT",
+            );
+        }
+
+        let backend = ratatui::backend::TestBackend::new(20, 5);
+        let mut terminal = ratatui::Terminal::new(backend).unwrap();
+        terminal
+            .draw(|frame| pane.render(frame, Rect::new(0, 0, 20, 5), false))
+            .unwrap();
+
+        let buffer = terminal.backend().buffer();
+        assert_eq!(
+            buffer[(0, 0)].style().fg,
+            Some(Color::Rgb(0xff, 0x55, 0x55))
+        );
+        assert_eq!(buffer[(2, 0)].style().fg, Some(Color::Indexed(171)));
+        assert_eq!(
+            buffer[(4, 0)].style().bg,
+            Some(Color::Rgb(0x8b, 0xe9, 0xfd))
+        );
         assert_eq!(buffer[(6, 0)].style().fg, Some(Color::Rgb(1, 2, 3)));
     }
 

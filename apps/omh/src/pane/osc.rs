@@ -851,6 +851,23 @@ pub(super) fn write_host_terminal_theme_selective(
     }
 }
 
+pub(super) fn write_ansi_palette(
+    terminal: &mut crate::ghostty::Terminal,
+    palette: crate::terminal_theme::AnsiPalette,
+) {
+    use std::fmt::Write;
+
+    let mut sequence = String::with_capacity(palette.len() * 28);
+    for (index, color) in palette.into_iter().enumerate() {
+        let _ = write!(
+            sequence,
+            "\x1b]4;{index};rgb:{:02x}/{:02x}/{:02x}\x1b\\",
+            color.r, color.g, color.b
+        );
+    }
+    terminal.write(sequence.as_bytes());
+}
+
 fn write_host_default_color(
     terminal: &mut crate::ghostty::Terminal,
     kind: crate::terminal_theme::DefaultColorKind,
