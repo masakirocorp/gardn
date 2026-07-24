@@ -45,7 +45,9 @@ pub(crate) enum CommandPaletteAction {
     SetAgentScope(AgentPanelScope),
     PreviousAgent,
     NextAgent,
-    OpenGitDiff,
+    OpenGit,
+    OpenDiff,
+    OpenIde,
     ToggleSidebar,
     ToggleContextBar,
     ZenMode,
@@ -58,6 +60,16 @@ pub(crate) enum CommandPaletteAction {
     DetachOrQuit,
     CustomCommand(usize),
     NewAgent,
+}
+impl CommandPaletteAction {
+    pub(crate) fn project_command_kind(&self) -> Option<super::state::ProjectCommandKind> {
+        match self {
+            Self::OpenGit => Some(super::state::ProjectCommandKind::Git),
+            Self::OpenDiff => Some(super::state::ProjectCommandKind::Diff),
+            Self::OpenIde => Some(super::state::ProjectCommandKind::Ide),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -237,7 +249,9 @@ pub(crate) fn command_palette_commands(state: &AppState) -> Vec<CommandPaletteCo
             CommandPaletteAction::PreviousAgent,
         ),
         CommandPaletteCommand::new("next agent", "agents", CommandPaletteAction::NextAgent),
-        CommandPaletteCommand::new("open git diff", "git", CommandPaletteAction::OpenGitDiff),
+        CommandPaletteCommand::new("open git", "project", CommandPaletteAction::OpenGit),
+        CommandPaletteCommand::new("open diff", "project", CommandPaletteAction::OpenDiff),
+        CommandPaletteCommand::new("open ide", "project", CommandPaletteAction::OpenIde),
         CommandPaletteCommand::new(
             "toggle sidebar",
             "layout",
@@ -403,7 +417,9 @@ fn command_palette_key_label(state: &AppState, action: &CommandPaletteAction) ->
         CommandPaletteAction::OpenAgentMenu => label(&kb.open_agent_menu),
         CommandPaletteAction::PreviousAgent => label(&kb.previous_agent),
         CommandPaletteAction::NextAgent => label(&kb.next_agent),
-        CommandPaletteAction::OpenGitDiff => None,
+        CommandPaletteAction::OpenGit
+        | CommandPaletteAction::OpenDiff
+        | CommandPaletteAction::OpenIde => None,
         CommandPaletteAction::ToggleSidebar => label(&kb.toggle_sidebar),
         CommandPaletteAction::ToggleContextBar => label(&kb.toggle_context_bar),
         CommandPaletteAction::ZenMode => label(&kb.zen_mode),

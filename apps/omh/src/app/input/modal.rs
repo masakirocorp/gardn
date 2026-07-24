@@ -1252,7 +1252,7 @@ pub(crate) fn apply_context_menu_action(
         | (ContextMenuKind::NewTabButton { ws_idx, .. }, Some("diff")) => {
             state.selected = ws_idx;
             state.active = Some(ws_idx);
-            state.request_open_git_diff_command = true;
+            state.request_open_project_command = Some(crate::app::state::ProjectCommandKind::Diff);
             leave_modal(state);
         }
         (ContextMenuKind::Workspace { ws_idx, .. }, Some("rename")) => {

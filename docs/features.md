@@ -199,7 +199,7 @@ Oh My Herdr can discover and run project commands. The command palette is also a
 - Command status sections include running, failed, unknown, and stopped commands.
 - Custom keybindings can launch shell helpers or pane commands.
 - **Panel actions** — command rows can run, focus, expand, or stop commands from the right sidebar.
-- **Git diff command** — set the diff review command in **Settings > Commands** to show **Diff** in the `+` menu, command palette, and contextual Git actions. Curated suggestions include LazyGit (`lazygit`) and Hunk watch mode (`hunk diff --watch`), while the field remains freely editable. For Terminal and System themes, curated LazyGit uses its native terminal-palette colors; named Oh My Herdr themes add a generated LazyGit theme overlay after the user's global configuration. Curated Hunk receives a generated custom theme from the target workspace's active palette and group accent. Oh My Herdr opens the command in a managed tab for the selected repository; leaving it empty hides the shortcut.
+- **Project commands** — **Settings > Commands** configures three independent repository-scoped actions: **Git** for a terminal Git UI, **Diff** for review, and **IDE** for editing. They default to LazyGit (`lazygit`), Hunk watch mode (`hunk diff --watch`), and Fresh (`fresh .`). Each field is freely editable; leaving one empty hides only that action. All three appear in the command palette, while Diff also appears in contextual Git surfaces and the `+` menu. Oh My Herdr opens each command in a managed tab for the selected repository. Curated LazyGit uses its native terminal palette, Hunk launches with `--theme auto`, and Fresh uses its built-in terminal theme so all three derive colors from the host terminal.
 - **Command discovery** — Oh My Herdr discovers VS Code tasks, package scripts, just recipes, Make targets, and defaults for common Cargo, Go, Java, Python, .NET, PHP, and Ruby projects.
 - **Managed reruns** — rerunning a managed command focuses an existing run or restarts a stopped/failed run in the same pane instead of spawning duplicates.
 
@@ -283,7 +283,7 @@ Oh My Herdr is a terminal workspace manager, so some features call user-installe
 | Tool | Used for | Requirement |
 | --- | --- | --- |
 | `git` | Git status, repository discovery, and Git-aware project commands. | Required for Git-aware features. |
-| Configured Git diff command | Repository review from command palette and contextual Git actions. Defaults to `lazygit`; configure `[git].diff_command` for another command. | Optional; required only when using the Git diff action. |
+| Configured project commands | Terminal Git UI, diff review, and IDE actions from repository contexts. Configure `[commands].git`, `[commands].diff`, and `[commands].ide`; defaults are LazyGit, Hunk watch mode, and Fresh. | Each tool is optional; required only when its configured action is used. |
 | Agent CLIs such as `pi`, `omp`, `claude`, `codex`, `grok`, `opencode`, `hermes`, `copilot`, `kimi`, `droid`, `qodercli`, and `cursor-agent` | Launching agent panes and installing/updating matching Oh My Herdr integrations. | Required only for the agent/profile the user launches or integrates. |
 | `python3` | Installed hook scripts for agent integrations. | Required for hook-based state/session reports; hooks exit quietly when it is missing. |
 | `curl` | Update checks, release downloads, manifest refreshes, and remote bootstrap downloads. | Required for those networked update/bootstrap features. |

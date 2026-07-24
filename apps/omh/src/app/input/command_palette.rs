@@ -145,18 +145,18 @@ impl App {
             return;
         };
 
-        if command.action == CommandPaletteAction::OpenGitDiff {
+        if let Some(kind) = command.action.project_command_kind() {
             leave_command_palette(&mut self.state);
             self.refresh_host_terminal_theme_for(std::time::Duration::from_millis(500))
                 .await;
             let previous_toast = self.state.toast.clone();
             if let Err(err) = self
                 .state
-                .open_git_diff_command(&mut self.terminal_runtimes)
+                .open_project_command(&mut self.terminal_runtimes, kind)
             {
                 self.state.toast = Some(crate::app::state::ToastNotification {
                     kind: crate::app::state::ToastKind::NeedsAttention,
-                    title: "git diff command failed".to_string(),
+                    title: format!("{} command failed", self.state.project_command_role(kind)),
                     context: err,
                     position: None,
                     target: None,
@@ -794,7 +794,18 @@ pub(crate) fn execute_command_palette_action(app: &mut App, action: CommandPalet
         }
         CommandPaletteAction::PreviousAgent => app.state.previous_agent(),
         CommandPaletteAction::NextAgent => app.state.next_agent(),
-        CommandPaletteAction::OpenGitDiff => app.state.request_open_git_diff_command = true,
+        CommandPaletteAction::OpenGit => {
+            app.state.request_open_project_command =
+                Some(crate::app::state::ProjectCommandKind::Git);
+        }
+        CommandPaletteAction::OpenDiff => {
+            app.state.request_open_project_command =
+                Some(crate::app::state::ProjectCommandKind::Diff);
+        }
+        CommandPaletteAction::OpenIde => {
+            app.state.request_open_project_command =
+                Some(crate::app::state::ProjectCommandKind::Ide);
+        }
         CommandPaletteAction::ToggleSidebar => {
             app.state.sidebar_collapsed = !app.state.sidebar_collapsed;
             app.state.mark_session_dirty();
@@ -1009,13 +1020,16 @@ mod tests {
     }
 
     #[test]
-    fn command_palette_enter_requests_git_diff_and_closes_palette() {
+    fn command_palette_enter_requests_diff_and_closes_palette() {
         let mut app = app_with_space();
-        app.state.command_palette.query = "open git diff".to_string();
+        app.state.command_palette.query = "open diff".to_string();
 
         app.handle_command_palette_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::empty()));
 
-        assert!(app.state.request_open_git_diff_command);
+        assert_eq!(
+            app.state.request_open_project_command,
+            Some(crate::app::state::ProjectCommandKind::Diff)
+        );
         assert_eq!(app.state.mode, Mode::Terminal);
     }
 
@@ -1212,15 +1226,19 @@ mod tests {
     }
 
     #[test]
-    fn command_palette_includes_git_diff_launcher() {
+    fn command_palette_includes_all_project_command_launchers() {
         let app = app_with_space();
 
         let commands = command_palette_visible_commands(&app.state);
 
-        assert!(commands.iter().any(|command| {
-            command.title == "open git diff"
-                && command.group == "git"
-                && command.action == CommandPaletteAction::OpenGitDiff
-        }));
+        for (title, action) in [
+            ("open git", CommandPaletteAction::OpenGit),
+            ("open diff", CommandPaletteAction::OpenDiff),
+            ("open ide", CommandPaletteAction::OpenIde),
+        ] {
+            assert!(commands.iter().any(|command| {
+                command.title == title && command.group == "project" && command.action == action
+            }));
+        }
     }
 }

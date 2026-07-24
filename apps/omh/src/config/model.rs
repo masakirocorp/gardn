@@ -330,11 +330,25 @@ impl Default for SessionConfig {
     }
 }
 
-#[derive(Debug, Default, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(default)]
-pub struct GitConfig {
-    /// Command launched by "open git diff". Runs in the selected repository root.
-    pub diff_command: String,
+pub struct CommandsConfig {
+    /// Terminal Git UI launched in the selected repository root.
+    pub git: String,
+    /// Diff review command launched in the selected repository root.
+    pub diff: String,
+    /// Project editor launched in the selected workspace directory.
+    pub ide: String,
+}
+
+impl Default for CommandsConfig {
+    fn default() -> Self {
+        Self {
+            git: "lazygit".to_string(),
+            diff: "hunk diff --watch".to_string(),
+            ide: "fresh .".to_string(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, Deserialize)]
@@ -392,7 +406,7 @@ pub struct Config {
     pub keys: KeysConfig,
     pub ui: UiConfig,
     pub advanced: AdvancedConfig,
-    pub git: GitConfig,
+    pub commands: CommandsConfig,
     pub update: UpdateConfig,
     pub experimental: ExperimentalConfig,
     pub remote: RemoteConfig,
@@ -1309,17 +1323,24 @@ shell_mode = "non_login"
     }
 
     #[test]
-    fn git_diff_command_defaults_unconfigured_and_parses() {
-        assert!(Config::default().git.diff_command.is_empty());
+    fn commands_default_and_parse_as_three_distinct_roles() {
+        let defaults = Config::default().commands;
+        assert_eq!(defaults.git, "lazygit");
+        assert_eq!(defaults.diff, "hunk diff --watch");
+        assert_eq!(defaults.ide, "fresh .");
 
         let config: Config = toml::from_str(
             r#"
-[git]
-diff_command = "lazygit"
+[commands]
+git = "gitui"
+diff = "difft"
+ide = "helix ."
 "#,
         )
         .unwrap();
-        assert_eq!(config.git.diff_command, "lazygit");
+        assert_eq!(config.commands.git, "gitui");
+        assert_eq!(config.commands.diff, "difft");
+        assert_eq!(config.commands.ide, "helix .");
     }
 
     #[test]

@@ -19,9 +19,9 @@ pub use self::{
         IndexedKeybind, Keybinds, LiveKeybindConfig,
     },
     model::{
-        validated_sidebar_bounds, AgentPanelScopeConfig, Config, ConfigReloadReport,
-        ConfigReloadStatus, ContextBarVisibilityConfig, HostCursorModeConfig, NewTerminalCwdConfig,
-        PaneBorderAgentInfoConfig, ShellModeConfig, SidebarArrangementConfig,
+        validated_sidebar_bounds, AgentPanelScopeConfig, CommandsConfig, Config,
+        ConfigReloadReport, ConfigReloadStatus, ContextBarVisibilityConfig, HostCursorModeConfig,
+        NewTerminalCwdConfig, PaneBorderAgentInfoConfig, ShellModeConfig, SidebarArrangementConfig,
         SidebarCollapsedModeConfig, ToastClipboardPosition, ToastConfig, ToastDelivery,
         ToastOmhPosition, MAX_TOAST_DELAY_SECONDS,
     },

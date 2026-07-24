@@ -1743,11 +1743,12 @@ mod tests {
     }
 
     #[test]
-    fn commands_settings_reuse_standard_grouped_row_hierarchy() {
+    fn commands_settings_show_three_editable_project_roles() {
         let mut app = AppState::test_new();
         app.settings.section = SettingsSection::Commands;
-        app.settings.pending_git_diff_command = Some("lazygit".to_string());
-        app.settings.list.select(2);
+        app.settings.pending_git_command = Some("lazygit".to_string());
+        app.settings.pending_diff_command = Some("hunk diff --watch".to_string());
+        app.settings.pending_ide_command = Some("fresh .".to_string());
         app.settings.list.show();
 
         let area = Rect::new(0, 0, 100, 40);
@@ -1759,60 +1760,38 @@ mod tests {
 
         let buffer = terminal.backend().buffer();
         let text = buffer_text(buffer, area.width, area.height);
-        let (diff_header_y, diff_header_x) =
-            find_text_cell(&text, "diff review").expect("diff review header");
-        let command_y = diff_header_y + 1;
-        let command_line = text
-            .lines()
-            .nth(command_y as usize)
-            .expect("command row line");
-        let command_x = command_line
-            .find("command")
-            .map(|byte_x| command_line[..byte_x].chars().count() as u16)
-            .expect("command row");
-        let (description_y, description_x) = find_text_cell(
-            &text,
-            "runs in the repository root; leave empty to hide the Diff shortcut",
-        )
-        .expect("command description");
-        let (suggestions_y, suggestions_x) =
-            find_text_cell(&text, "suggested commands").expect("suggestions header");
+        let (header_y, header_x) =
+            find_text_cell(&text, "project commands").expect("project commands header");
+        let (git_y, git_x) = find_text_cell(&text, "git").expect("git command row");
+        let (diff_y, diff_x) = find_text_cell(&text, "diff").expect("diff command row");
+        let (ide_y, ide_x) = find_text_cell(&text, "ide").expect("ide command row");
 
-        assert_eq!(description_y, command_y + 1);
-        assert_eq!(suggestions_y, description_y + 2);
-        assert_eq!(command_x, diff_header_x + 1);
-        assert_eq!(description_x, command_x + 2);
-        assert_eq!(suggestions_x, diff_header_x);
+        assert!(git_y < diff_y && diff_y < ide_y);
+        assert_eq!(git_x, header_x + 1);
+        assert_eq!(diff_x, git_x);
+        assert_eq!(ide_x, git_x);
         assert_eq!(
-            buffer[(diff_header_x, diff_header_y)].style().fg,
+            buffer[(header_x, header_y)].style().fg,
             Some(app.palette.accent)
         );
-        assert!(buffer[(diff_header_x, diff_header_y)]
+        assert!(buffer[(header_x, header_y)]
             .style()
             .add_modifier
             .contains(Modifier::BOLD));
-        assert_eq!(
-            buffer[(description_x, description_y)].style().fg,
-            Some(app.palette.subtext0)
-        );
-        assert_eq!(
-            buffer[(suggestions_x, suggestions_y)].style().fg,
-            Some(app.palette.accent)
-        );
-        assert!(text.contains("LazyGit · lazygit"));
-        assert!(text.contains("Hunk · hunk diff --watch"));
-        assert!(!text.contains("Delta ·"));
-        assert!(!text.contains("Difftastic ·"));
+        assert!(text.contains("lazygit"));
+        assert!(text.contains("hunk diff --watch"));
+        assert!(text.contains("fresh ."));
+        assert!(!text.contains("suggested commands"));
     }
 
     #[test]
     fn commands_settings_show_edit_cursor_in_standard_value_row() {
         let mut app = AppState::test_new();
         app.settings.section = SettingsSection::Commands;
-        app.settings.pending_git_diff_command = Some("hunk diff --watch".to_string());
-        app.settings.list.select(0);
+        app.settings.pending_diff_command = Some("hunk diff --watch".to_string());
+        app.settings.list.select(1);
         app.settings.list.show();
-        app.settings.focused_input = Some(0);
+        app.settings.focused_input = Some(1);
 
         let area = Rect::new(0, 0, 100, 40);
         let backend = TestBackend::new(area.width, area.height);

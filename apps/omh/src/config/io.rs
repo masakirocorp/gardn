@@ -7,8 +7,8 @@ use super::{model::LoadedConfig, Config, CONFIG_PATH_ENV_VAR};
 const KNOWN_TOP_LEVEL_CONFIG_KEYS: &[&str] = &[
     "advanced",
     "agent_profiles",
+    "commands",
     "experimental",
-    "git",
     "keys",
     "onboarding",
     "remote",
@@ -291,11 +291,11 @@ fn load_live_config_from_str(content: &str) -> Result<LoadedConfig, Vec<String>>
     );
     load_live_section(
         &table,
-        "git",
-        "git config",
+        "commands",
+        "command config",
         &mut diagnostics,
         &mut invalid_sections,
-        |section| config.git = section,
+        |section| config.commands = section,
     );
     load_live_section(
         &table,

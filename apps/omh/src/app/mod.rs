@@ -811,10 +811,11 @@ impl App {
             request_new_tab_for_client: None,
             request_agent_profile_tab: None,
             request_reload_config: false,
-            request_open_git_diff_command: false,
-            request_open_git_diff_workspace: None,
+            request_open_project_command: None,
+            request_open_project_command_workspace: None,
             git_repo_picker: state::GitRepoPickerState {
                 ws_idx: 0,
+                command_kind: state::ProjectCommandKind::Diff,
                 roots: Vec::new(),
                 list: state::ModalListState::hidden(0),
                 scroll: 0,
@@ -948,7 +949,9 @@ impl App {
             confirm_close: config.ui.confirm_close,
             prompt_new_tab_name: config.ui.prompt_new_tab_name,
             prompt_new_workspace_name: config.ui.prompt_new_workspace_name,
-            git_diff_command: config.git.diff_command.clone(),
+            git_command: config.commands.git.clone(),
+            git_diff_command: config.commands.diff.clone(),
+            ide_command: config.commands.ide.clone(),
             pane_border_agent_info: config.ui.pane_border_agent_info,
             pane_borders: config.ui.pane_borders,
             pane_gaps: config.ui.pane_gaps,
@@ -1013,7 +1016,9 @@ impl App {
                 pending_show_counters: None,
                 pending_new_terminal_cwd: None,
                 pending_mouse_scroll_lines: None,
-                pending_git_diff_command: None,
+                pending_git_command: None,
+                pending_diff_command: None,
+                pending_ide_command: None,
                 pending_sidebar_width: None,
                 pending_sidebar_min_width: None,
                 pending_sidebar_max_width: None,
@@ -1431,23 +1436,25 @@ impl App {
                 needs_render = true;
             }
 
-            if self.state.request_open_git_diff_command {
-                self.state.request_open_git_diff_command = false;
+            if let Some(kind) = self.state.request_open_project_command.take() {
                 self.refresh_host_terminal_theme_for(Duration::from_millis(500))
                     .await;
-                let target_workspace = self.state.request_open_git_diff_workspace.take();
+                let target_workspace = self.state.request_open_project_command_workspace.take();
                 let previous_toast = self.state.toast.clone();
                 let result = if let Some(ws_idx) = target_workspace {
-                    self.state
-                        .open_git_diff_command_for_workspace(&mut self.terminal_runtimes, ws_idx)
+                    self.state.open_project_command_for_workspace(
+                        &mut self.terminal_runtimes,
+                        ws_idx,
+                        kind,
+                    )
                 } else {
                     self.state
-                        .open_git_diff_command(&mut self.terminal_runtimes)
+                        .open_project_command(&mut self.terminal_runtimes, kind)
                 };
                 if let Err(err) = result {
                     self.state.toast = Some(crate::app::state::ToastNotification {
                         kind: crate::app::state::ToastKind::NeedsAttention,
-                        title: "git diff command failed".to_string(),
+                        title: format!("{} command failed", self.state.project_command_role(kind)),
                         context: err,
                         position: None,
                         target: None,
@@ -1782,6 +1789,14 @@ impl App {
                     );
                 }
             }
+        }
+
+        if !invalid_section("commands") {
+            self.state.git_command.clone_from(&config.commands.git);
+            self.state
+                .git_diff_command
+                .clone_from(&config.commands.diff);
+            self.state.ide_command.clone_from(&config.commands.ide);
         }
 
         if !invalid_section("ui") {
@@ -4224,9 +4239,11 @@ impl App {
                 self.state.request_reload_config = true;
                 Self::leave_client_view_command_mode(client_view);
             }
-            crate::app::command_palette::CommandPaletteAction::OpenGitDiff => {
-                self.state.request_open_git_diff_command = true;
-                self.state.request_open_git_diff_workspace = client_view.active_workspace;
+            action @ (crate::app::command_palette::CommandPaletteAction::OpenGit
+            | crate::app::command_palette::CommandPaletteAction::OpenDiff
+            | crate::app::command_palette::CommandPaletteAction::OpenIde) => {
+                self.state.request_open_project_command = action.project_command_kind();
+                self.state.request_open_project_command_workspace = client_view.active_workspace;
                 if let Some(ws_idx) = client_view.active_workspace {
                     if let Some(ws) = self.state.workspaces.get(ws_idx) {
                         client_view
@@ -4912,7 +4929,7 @@ impl App {
                 self.state.git_repo_picker = client_view.git_repo_picker.clone();
                 if let Err(err) = self
                     .state
-                    .open_selected_git_diff_command(&mut self.terminal_runtimes)
+                    .open_selected_project_command(&mut self.terminal_runtimes)
                 {
                     self.state.toast = Some(crate::app::state::ToastNotification {
                         kind: crate::app::state::ToastKind::NeedsAttention,
@@ -5066,8 +5083,9 @@ impl App {
             | (state::ContextMenuKind::NewTabButton { ws_idx, .. }, Some("diff")) => {
                 client_view.selected_workspace = ws_idx;
                 client_view.active_workspace = Some(ws_idx);
-                self.state.request_open_git_diff_workspace = Some(ws_idx);
-                self.state.request_open_git_diff_command = true;
+                self.state.request_open_project_command_workspace = Some(ws_idx);
+                self.state.request_open_project_command =
+                    Some(crate::app::state::ProjectCommandKind::Diff);
                 if let Some(workspace) = self.state.workspaces.get(ws_idx) {
                     client_view
                         .pending_active_tabs
@@ -12078,6 +12096,63 @@ mod tests {
     }
 
     #[test]
+    fn reload_config_applies_project_commands() {
+        let _guard = config_env_lock().lock().unwrap();
+        let path = temp_config_path("reload-config-project-commands");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(
+            &path,
+            "[commands]\ngit = \"gitui\"\ndiff = \"difft\"\nide = \"hx .\"\n",
+        )
+        .unwrap();
+        let _config_path_env =
+            crate::config::TestEnvVar::set(crate::config::CONFIG_PATH_ENV_VAR, &path);
+
+        let mut app = test_app();
+        let report = app.reload_config();
+
+        assert_eq!(report.status, crate::config::ConfigReloadStatus::Applied);
+        assert_eq!(app.state.git_command, "gitui");
+        assert_eq!(app.state.git_diff_command, "difft");
+        assert_eq!(app.state.ide_command, "hx .");
+
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    #[test]
+    fn reload_config_preserves_invalid_commands_section_but_applies_valid_ui() {
+        let _guard = config_env_lock().lock().unwrap();
+        let path = temp_config_path("reload-config-invalid-commands-section");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(
+            &path,
+            "[commands]\ngit = 42\n[ui]\nmouse_scroll_lines = 7\n",
+        )
+        .unwrap();
+        let _config_path_env =
+            crate::config::TestEnvVar::set(crate::config::CONFIG_PATH_ENV_VAR, &path);
+
+        let mut app = test_app();
+        app.state.git_command = "gitui".to_string();
+        app.state.git_diff_command = "difft".to_string();
+        app.state.ide_command = "hx .".to_string();
+        let report = app.reload_config();
+
+        assert_eq!(report.status, crate::config::ConfigReloadStatus::Partial);
+        assert_eq!(app.state.git_command, "gitui");
+        assert_eq!(app.state.git_diff_command, "difft");
+        assert_eq!(app.state.ide_command, "hx .");
+        assert_eq!(app.state.mouse_scroll_lines, 7);
+        assert!(app
+            .state
+            .config_diagnostic
+            .as_deref()
+            .is_some_and(|message| message.contains("invalid command config")));
+
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    #[test]
     fn settings_save_toast_delivery_persists_then_applies_live_config() {
         let _guard = config_env_lock().lock().unwrap();
         let path = temp_config_path("settings-save-toast-delivery");
@@ -17084,7 +17159,7 @@ command = "printf literal > '{}'"
         app.state.active = Some(0);
         app.state.selected = 0;
         app.state.mode = Mode::Terminal;
-        app.state.request_open_git_diff_command = false;
+        app.state.request_open_project_command = None;
 
         let mut client = ClientViewState::from_default_client_state(&app.state);
 
@@ -17100,7 +17175,7 @@ command = "printf literal > '{}'"
                 KeyEventKind::Press,
             ),
         ];
-        for ch in "git diff".chars() {
+        for ch in "open diff".chars() {
             events.push(raw_key(
                 KeyCode::Char(ch),
                 KeyModifiers::empty(),
@@ -17116,7 +17191,10 @@ command = "printf literal > '{}'"
         app.route_client_events_for_view(&mut client, events, true);
 
         let workspace_id = app.state.workspaces[0].id.clone();
-        assert!(app.state.request_open_git_diff_command);
+        assert_eq!(
+            app.state.request_open_project_command,
+            Some(crate::app::state::ProjectCommandKind::Diff)
+        );
         assert_eq!(app.state.mode, Mode::Terminal);
         assert_eq!(client.mode, Mode::Terminal);
         assert_eq!(client.pending_active_tabs.get(&workspace_id), Some(&1));
@@ -20372,6 +20450,7 @@ command = "printf literal > '{}'"
         app.state.mode = Mode::Terminal;
         app.state.mouse_capture = true;
         app.state.prompt_new_tab_name = false;
+        app.state.git_diff_command.clear();
 
         let mut client = ClientViewState::from_default_client_state(&app.state);
         compute_client_view(&app, &mut client, ratatui::layout::Rect::new(0, 0, 120, 30));
@@ -20957,7 +21036,7 @@ command = "printf literal > '{}'"
 
         let mut client = ClientViewState::from_default_client_state(&app.state);
         input::open_command_palette_for_view(&mut client);
-        client.command_palette.query = "open git diff".to_string();
+        client.command_palette.query = "open diff".to_string();
 
         app.route_client_events_for_view(
             &mut client,
@@ -20971,7 +21050,10 @@ command = "printf literal > '{}'"
 
         let workspace_id = app.state.workspaces[0].id.clone();
         assert_eq!(client.mode, Mode::Terminal);
-        assert!(app.state.request_open_git_diff_command);
+        assert_eq!(
+            app.state.request_open_project_command,
+            Some(crate::app::state::ProjectCommandKind::Diff)
+        );
         assert_eq!(client.active_tabs.get(&workspace_id), Some(&0));
         assert_eq!(client.pending_active_tabs.get(&workspace_id), Some(&1));
     }
@@ -20987,6 +21069,7 @@ command = "printf literal > '{}'"
         app.state.mouse_capture = true;
         app.state.git_repo_picker = state::GitRepoPickerState {
             ws_idx: 0,
+            command_kind: state::ProjectCommandKind::Diff,
             roots: vec!["/tmp/one".into(), "/tmp/two".into()],
             list: state::ModalListState::new(0),
             scroll: 0,
@@ -21423,7 +21506,10 @@ command = "printf literal > '{}'"
         );
 
         assert_eq!(client.mode, Mode::Terminal);
-        assert!(app.state.request_open_git_diff_command);
+        assert_eq!(
+            app.state.request_open_project_command,
+            Some(crate::app::state::ProjectCommandKind::Diff)
+        );
         let workspace_id = app.state.workspaces[0].id.clone();
         assert_eq!(client.active_tabs.get(&workspace_id), Some(&0));
         assert_eq!(

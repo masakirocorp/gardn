@@ -144,13 +144,37 @@ impl App {
             self.apply_config_from_disk(false);
         }
     }
-    pub(super) fn save_git_diff_command(&mut self, command: &str) {
-        let command = command.trim().to_string();
-        self.state.git_diff_command = command.clone();
-        self.state.settings.pending_git_diff_command = Some(command.clone());
-        let value = toml::Value::String(command).to_string();
-        if self.update_config_file("git diff command", |content| {
-            crate::config::upsert_section_value(content, "git", "diff_command", &value)
+    pub(super) fn save_commands(&mut self, git: &str, diff: &str, ide: &str) {
+        let commands = crate::config::CommandsConfig {
+            git: git.trim().to_string(),
+            diff: diff.trim().to_string(),
+            ide: ide.trim().to_string(),
+        };
+        self.state.git_command.clone_from(&commands.git);
+        self.state.git_diff_command.clone_from(&commands.diff);
+        self.state.ide_command.clone_from(&commands.ide);
+        self.state.settings.pending_git_command = Some(commands.git.clone());
+        self.state.settings.pending_diff_command = Some(commands.diff.clone());
+        self.state.settings.pending_ide_command = Some(commands.ide.clone());
+        if self.update_config_file("project commands", |content| {
+            let content = crate::config::upsert_section_value(
+                content,
+                "commands",
+                "git",
+                &toml::Value::String(commands.git.clone()).to_string(),
+            );
+            let content = crate::config::upsert_section_value(
+                &content,
+                "commands",
+                "diff",
+                &toml::Value::String(commands.diff.clone()).to_string(),
+            );
+            crate::config::upsert_section_value(
+                &content,
+                "commands",
+                "ide",
+                &toml::Value::String(commands.ide.clone()).to_string(),
+            )
         }) {
             self.apply_config_from_disk(false);
         }
@@ -552,13 +576,13 @@ mod tests {
         assert!(app.state.session_dirty);
     }
     #[test]
-    fn save_git_diff_command_persists_valid_toml_and_runtime_state() {
+    fn save_commands_persists_valid_toml_and_runtime_state() {
         let _lock = match crate::config::test_config_env_lock().lock() {
             Ok(guard) => guard,
             Err(poisoned) => poisoned.into_inner(),
         };
         let path = std::env::temp_dir().join(format!(
-            "omh-diff-command-{}-{}.toml",
+            "omh-commands-{}-{}.toml",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -569,12 +593,20 @@ mod tests {
             crate::config::TestEnvVar::set(crate::config::CONFIG_PATH_ENV_VAR, &path);
         let mut app = test_app();
 
-        app.save_git_diff_command(r#"  git difftool --tool="custom"  "#);
+        app.save_commands(
+            "  gitui  ",
+            r#"  git difftool --tool="custom"  "#,
+            "  fresh .  ",
+        );
 
         let content = std::fs::read_to_string(&path).unwrap();
         let config: crate::config::Config = toml::from_str(&content).unwrap();
-        assert_eq!(config.git.diff_command, r#"git difftool --tool="custom""#);
-        assert_eq!(app.state.git_diff_command, config.git.diff_command);
+        assert_eq!(config.commands.git, "gitui");
+        assert_eq!(config.commands.diff, r#"git difftool --tool="custom""#);
+        assert_eq!(config.commands.ide, "fresh .");
+        assert_eq!(app.state.git_command, config.commands.git);
+        assert_eq!(app.state.git_diff_command, config.commands.diff);
+        assert_eq!(app.state.ide_command, config.commands.ide);
         let _ = std::fs::remove_file(path);
     }
 }

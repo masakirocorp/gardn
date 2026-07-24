@@ -15,8 +15,8 @@ use unicode_width::UnicodeWidthChar;
 
 use super::state::{
     AgentNotificationDelivery, AppState, Group, Mode, NavigatorRow, NavigatorStateFilter,
-    NavigatorTarget, PaneFocusTarget, PendingAgentNotification, ToastKind, ToastNotification,
-    ToastTarget, ViewLayout,
+    NavigatorTarget, PaneFocusTarget, PendingAgentNotification, ProjectCommandKind, ToastKind,
+    ToastNotification, ToastTarget, ViewLayout,
 };
 use super::ClientViewState;
 
@@ -29,21 +29,27 @@ struct NavigatorFocus {
     explicit_hierarchy: bool,
 }
 
-fn configured_git_diff_project_command(
+fn configured_project_command(
     root: std::path::PathBuf,
+    kind: ProjectCommandKind,
     command: &str,
 ) -> crate::commands::ProjectCommand {
-    let repo_name = root
+    let role = match kind {
+        ProjectCommandKind::Git => "git",
+        ProjectCommandKind::Diff => "diff",
+        ProjectCommandKind::Ide => "ide",
+    };
+    let name = root
         .file_name()
         .and_then(|name| name.to_str())
         .filter(|name| !name.is_empty())
-        .map(|name| format!("diff · {name}"))
-        .unwrap_or_else(|| "diff".to_string());
+        .map(|name| format!("{role} · {name}"))
+        .unwrap_or_else(|| role.to_string());
     crate::commands::ProjectCommand {
-        id: format!("builtin:git-diff:{}", root.display()),
+        id: format!("builtin:{role}:{}", root.display()),
         root,
         source: crate::commands::CommandSource::BuiltIn,
-        name: repo_name,
+        name,
         command: command.to_string(),
         confidence: crate::commands::CommandConfidence::Explicit,
     }
@@ -1434,33 +1440,48 @@ impl AppState {
         self.run_project_command_entry(terminal_runtimes, command, ws_idx)
     }
 
-    pub(crate) fn open_git_diff_command(
+    pub(crate) fn open_project_command(
         &mut self,
         terminal_runtimes: &mut crate::terminal::TerminalRuntimeRegistry,
+        kind: ProjectCommandKind,
     ) -> Result<(), String> {
         let fallback_ws_idx = if matches!(self.mode, Mode::Navigate) {
             Some(self.selected)
         } else {
             self.active
         };
-        let ws_idx = fallback_ws_idx.ok_or_else(|| "no git repo for current space".to_string())?;
-        self.open_git_diff_command_for_workspace(terminal_runtimes, ws_idx)
+        let ws_idx = fallback_ws_idx.ok_or_else(|| "no project for current space".to_string())?;
+        self.open_project_command_for_workspace(terminal_runtimes, ws_idx, kind)
     }
 
-    pub(crate) fn open_git_diff_command_for_workspace(
+    pub(crate) fn open_project_command_for_workspace(
         &mut self,
         terminal_runtimes: &mut crate::terminal::TerminalRuntimeRegistry,
         ws_idx: usize,
+        kind: ProjectCommandKind,
     ) -> Result<(), String> {
-        if !self.git_diff_command_configured() {
-            return Err("configure a diff command in Settings > behavior".to_string());
+        if !self.project_command_configured(kind) {
+            return Err(format!(
+                "configure the {} command in Settings > Commands",
+                self.project_command_role(kind)
+            ));
         }
+        if kind == ProjectCommandKind::Ide {
+            let root = self
+                .workspaces
+                .get(ws_idx)
+                .ok_or_else(|| "workspace not found".to_string())?
+                .effective_default_cwd_from(&self.terminals, terminal_runtimes);
+            return self.open_project_command_tab(terminal_runtimes, root, ws_idx, kind);
+        }
+
         let roots = self.observed_git_repos_for_workspace(terminal_runtimes, ws_idx);
         let root = match roots.as_slice() {
             [] => return Err("no git repo for current space".to_string()),
             [root] => root.clone(),
             _ => {
                 self.git_repo_picker.ws_idx = ws_idx;
+                self.git_repo_picker.command_kind = kind;
                 self.git_repo_picker.roots = roots;
                 self.git_repo_picker.list.select(0);
                 self.git_repo_picker.list.hide();
@@ -1469,39 +1490,42 @@ impl AppState {
                 return Ok(());
             }
         };
-        self.open_git_diff_command_tab(terminal_runtimes, root, ws_idx)
+        self.open_project_command_tab(terminal_runtimes, root, ws_idx, kind)
     }
 
-    fn configured_git_diff_project_command(
+    fn configured_project_command(
         &self,
         root: std::path::PathBuf,
-        ws_idx: usize,
+        kind: ProjectCommandKind,
     ) -> crate::commands::ProjectCommand {
-        let command = match self.git_diff_command.trim() {
-            crate::hunk_theme::DIFF_COMMAND => crate::hunk_theme::command(
-                &self.palette_for_workspace(ws_idx),
-                self.theme_appearance_for_mode(self.global_theme_mode),
-                self.host_terminal_theme,
-                matches!(self.global_theme_name.as_str(), "system" | "terminal"),
-            ),
-            crate::lazygit_theme::DIFF_COMMAND => crate::lazygit_theme::command(
-                &self.palette_for_workspace(ws_idx),
-                self.theme_appearance_for_mode(self.global_theme_mode),
-                self.host_terminal_theme,
-                matches!(self.global_theme_name.as_str(), "system" | "terminal"),
-            ),
-            _ => self.git_diff_command.clone(),
+        let configured = match kind {
+            ProjectCommandKind::Git => &self.git_command,
+            ProjectCommandKind::Diff => &self.git_diff_command,
+            ProjectCommandKind::Ide => &self.ide_command,
         };
-        configured_git_diff_project_command(root, &command)
+        let command = match (kind, configured.trim()) {
+            (ProjectCommandKind::Git, crate::lazygit_theme::GIT_COMMAND) => {
+                crate::lazygit_theme::command()
+            }
+            (ProjectCommandKind::Diff, crate::hunk_theme::DIFF_COMMAND) => {
+                crate::hunk_theme::command()
+            }
+            (ProjectCommandKind::Ide, crate::fresh_theme::IDE_COMMAND) => {
+                crate::fresh_theme::command()
+            }
+            _ => configured.clone(),
+        };
+        configured_project_command(root, kind, &command)
     }
 
-    fn open_git_diff_command_tab(
+    fn open_project_command_tab(
         &mut self,
         terminal_runtimes: &mut crate::terminal::TerminalRuntimeRegistry,
         root: std::path::PathBuf,
         ws_idx: usize,
+        kind: ProjectCommandKind,
     ) -> Result<(), String> {
-        let command = self.configured_git_diff_project_command(root, ws_idx);
+        let command = self.configured_project_command(root, kind);
         self.run_project_command_entry(terminal_runtimes, command, ws_idx)
     }
 
@@ -1557,9 +1581,9 @@ impl AppState {
         roots
     }
 
-    pub(crate) fn open_selected_git_diff_command(
+    pub(crate) fn open_selected_project_command(
         &mut self,
-        _terminal_runtimes: &mut crate::terminal::TerminalRuntimeRegistry,
+        terminal_runtimes: &mut crate::terminal::TerminalRuntimeRegistry,
     ) -> Result<(), String> {
         let Some(root) = self
             .git_repo_picker
@@ -1570,7 +1594,8 @@ impl AppState {
             return Err("no git repo selected".to_string());
         };
         let ws_idx = self.git_repo_picker.ws_idx;
-        self.open_git_diff_command_tab(_terminal_runtimes, root, ws_idx)
+        let kind = self.git_repo_picker.command_kind;
+        self.open_project_command_tab(terminal_runtimes, root, ws_idx, kind)
     }
     #[cfg(test)]
     fn git_diff_target_for_workspace(
@@ -1788,9 +1813,9 @@ impl AppState {
             .flat_map(|root| {
                 let mut commands = crate::commands::discover_project_commands(&root);
                 if let Some(git_root) = crate::workspace::git_repo_root(&root) {
-                    commands.push(self.configured_git_diff_project_command(
+                    commands.push(self.configured_project_command(
                         git_root,
-                        self.active.unwrap_or(self.selected),
+                        crate::app::state::ProjectCommandKind::Diff,
                     ));
                 }
                 commands
@@ -4898,7 +4923,11 @@ mod tests {
         state.terminals.get_mut(&terminal).unwrap().cwd = second.clone();
 
         state
-            .open_git_diff_command_for_workspace(&mut terminal_runtimes, 0)
+            .open_project_command_for_workspace(
+                &mut terminal_runtimes,
+                0,
+                crate::app::state::ProjectCommandKind::Diff,
+            )
             .expect("multi-repo diff should open picker");
 
         assert_eq!(state.mode, Mode::GitRepoPicker);
@@ -4934,58 +4963,25 @@ mod tests {
     }
 
     #[test]
-    fn hunk_diff_command_uses_target_workspace_palette() {
-        let root = temp_git_repo("hunk-themed-command");
-        let mut state = app_with_workspaces(&["web"]);
-        state.git_diff_command = crate::hunk_theme::DIFF_COMMAND.to_string();
-        state.global_palette = Palette::tokyo_night();
-        state.palette = state.global_palette.clone();
-        state.global_theme_name = "tokyo-night".to_string();
-        let group_idx = state.create_group("review".to_string());
-        state.move_workspace_to_group(0, group_idx);
-        state.set_group_accent(group_idx, Some(crate::config::TerminalAccent::Magenta));
+    fn hunk_diff_command_uses_terminal_detected_theme() {
+        let root = temp_git_repo("hunk-terminal-command");
+        let state = app_with_workspaces(&["web"]);
 
-        let command = state.configured_git_diff_project_command(root, 0);
-        assert!(command.command.contains("accent = \"#ad8ee6\""));
-        assert!(command.command.contains("theme = \"custom\""));
-        assert!(command.command.contains("label = \"Oh My Herdr\""));
+        let command =
+            state.configured_project_command(root, crate::app::state::ProjectCommandKind::Diff);
+
         assert!(command
             .command
-            .contains("XDG_CONFIG_HOME=\"$config_dir\" hunk diff --watch"));
+            .contains("exec hunk diff --watch --theme auto"));
+        assert!(!command.command.contains("XDG_CONFIG_HOME"));
     }
 
     #[test]
-    fn lazygit_diff_command_uses_target_workspace_palette() {
-        let root = temp_git_repo("lazygit-themed-command");
-        let mut state = app_with_workspaces(&["web"]);
-        state.git_diff_command = crate::lazygit_theme::DIFF_COMMAND.to_string();
-        state.global_palette = Palette::tokyo_night();
-        state.palette = state.global_palette.clone();
-        state.global_theme_name = "tokyo-night".to_string();
-        let group_idx = state.create_group("review".to_string());
-        state.move_workspace_to_group(0, group_idx);
-        state.set_group_accent(group_idx, Some(crate::config::TerminalAccent::Magenta));
-
-        let command = state.configured_git_diff_project_command(root, 0);
-
-        assert!(command
-            .command
-            .contains("activeBorderColor:\n      - \"#ad8ee6\""));
-        assert!(command
-            .command
-            .contains("LG_CONFIG_FILE=\"$config_files\" lazygit"));
-    }
-
-    #[test]
-    fn lazygit_diff_command_preserves_terminal_palette_mode() {
+    fn lazygit_command_uses_native_terminal_palette() {
         let root = temp_git_repo("lazygit-terminal-command");
-        let mut state = app_with_workspaces(&["web"]);
-        state.git_diff_command = crate::lazygit_theme::DIFF_COMMAND.to_string();
-        state.global_palette = Palette::terminal();
-        state.palette = state.global_palette.clone();
-        state.global_theme_name = "terminal".to_string();
+        let state = app_with_workspaces(&["web"]);
 
-        let command = state.configured_git_diff_project_command(root, 0);
+        let command = state.configured_project_command(root, ProjectCommandKind::Git);
 
         assert!(command.command.contains("exec lazygit"));
         assert!(!command.command.contains("LG_CONFIG_FILE"));
@@ -4997,9 +4993,24 @@ mod tests {
         let mut state = app_with_workspaces(&["web"]);
         state.git_diff_command = "git diff --stat".to_string();
 
-        let command = state.configured_git_diff_project_command(root, 0);
+        let command =
+            state.configured_project_command(root, crate::app::state::ProjectCommandKind::Diff);
 
         assert_eq!(command.command, "git diff --stat");
+    }
+
+    #[test]
+    fn fresh_ide_command_forces_terminal_theme() {
+        let root = temp_project("fresh-ide-command");
+        let state = app_with_workspaces(&["web"]);
+
+        let command = state.configured_project_command(root, ProjectCommandKind::Ide);
+
+        assert!(command
+            .command
+            .contains("fresh --config \"$config_dir/config.json\" ."));
+        assert!(command.command.contains("\"theme\": \"terminal\""));
+        assert!(command.id.starts_with("builtin:ide:"));
     }
     #[tokio::test]
     async fn git_diff_opens_configured_command_tab_named_after_repo_root() {
@@ -5011,7 +5022,11 @@ mod tests {
         state.terminals.get_mut(&terminal_id).unwrap().cwd = root.clone();
 
         state
-            .open_git_diff_command_for_workspace(&mut terminal_runtimes, 0)
+            .open_project_command_for_workspace(
+                &mut terminal_runtimes,
+                0,
+                crate::app::state::ProjectCommandKind::Diff,
+            )
             .expect("single repo diff should open command tab");
 
         assert_eq!(state.mode, Mode::Terminal);
@@ -5032,7 +5047,11 @@ mod tests {
         assert!(state.workspaces[0].close_tab_allow_empty(0));
 
         let err = state
-            .open_git_diff_command_for_workspace(&mut terminal_runtimes, 0)
+            .open_project_command_for_workspace(
+                &mut terminal_runtimes,
+                0,
+                crate::app::state::ProjectCommandKind::Diff,
+            )
             .expect_err("empty workspace has no runtime handles for command tab");
 
         assert_eq!(

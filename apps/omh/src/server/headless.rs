@@ -339,7 +339,7 @@ impl HeadlessServer {
                 needs_render = true;
             }
 
-            if self.handle_open_git_diff_command_request() {
+            if self.handle_open_project_command_request() {
                 needs_render = true;
             }
 
@@ -1163,26 +1163,30 @@ impl HeadlessServer {
         }
     }
 
-    fn handle_open_git_diff_command_request(&mut self) -> bool {
-        if !self.app.state.request_open_git_diff_command {
+    fn handle_open_project_command_request(&mut self) -> bool {
+        let Some(kind) = self.app.state.request_open_project_command.take() else {
             return false;
-        }
+        };
 
-        self.app.state.request_open_git_diff_command = false;
-        let target_workspace = self.app.state.request_open_git_diff_workspace.take();
+        let target_workspace = self.app.state.request_open_project_command_workspace.take();
         let result = if let Some(ws_idx) = target_workspace {
-            self.app
-                .state
-                .open_git_diff_command_for_workspace(&mut self.app.terminal_runtimes, ws_idx)
+            self.app.state.open_project_command_for_workspace(
+                &mut self.app.terminal_runtimes,
+                ws_idx,
+                kind,
+            )
         } else {
             self.app
                 .state
-                .open_git_diff_command(&mut self.app.terminal_runtimes)
+                .open_project_command(&mut self.app.terminal_runtimes, kind)
         };
         if let Err(err) = result {
             self.app.state.toast = Some(app::state::ToastNotification {
                 kind: app::state::ToastKind::NeedsAttention,
-                title: "git diff command failed".to_string(),
+                title: format!(
+                    "{} command failed",
+                    self.app.state.project_command_role(kind)
+                ),
                 context: err,
                 position: None,
                 target: None,
@@ -3741,13 +3745,14 @@ mod tests {
     }
 
     #[test]
-    fn headless_handles_git_diff_open_request() {
+    fn headless_handles_project_command_open_request() {
         let mut server = test_headless_server();
-        server.app.state.request_open_git_diff_command = true;
+        server.app.state.request_open_project_command =
+            Some(crate::app::state::ProjectCommandKind::Diff);
 
-        assert!(server.handle_open_git_diff_command_request());
+        assert!(server.handle_open_project_command_request());
 
-        assert!(!server.app.state.request_open_git_diff_command);
+        assert_eq!(server.app.state.request_open_project_command, None);
         assert_eq!(
             server
                 .app
@@ -3755,7 +3760,7 @@ mod tests {
                 .toast
                 .as_ref()
                 .map(|toast| toast.title.as_str()),
-            Some("git diff command failed")
+            Some("diff command failed")
         );
         assert!(server.app.toast_deadline.is_some());
     }

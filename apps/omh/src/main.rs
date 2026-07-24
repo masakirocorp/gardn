@@ -32,7 +32,7 @@ mod commands;
 mod config;
 mod detect;
 mod events;
-mod external_tool_theme;
+mod fresh_theme;
 mod ghostty;
 mod handoff_runtime;
 mod hunk_theme;
@@ -230,10 +230,11 @@ const DEFAULT_CONFIG: &str = r##"# Oh My Herdr configuration
 # command = "lazygit"
 # description = "open lazygit"
 
-#[git]
-# Optional diff command configured in Settings > behavior.
-# The Diff shortcut is hidden until this is set.
-# diff_command = ""
+#[commands]
+# Commands run in the selected project context.
+git = "lazygit"
+diff = "hunk diff --watch"
+ide = "fresh ."
 
 # Legacy indexed shortcut config is still parsed for compatibility.
 # Prefer switch_tab, switch_workspace, switch_group, and focus_agent for new configs.
@@ -815,10 +816,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn default_config_parses_with_diff_command_unconfigured() {
+    fn default_config_parses_configured_commands() {
         let config: config::Config = toml::from_str(DEFAULT_CONFIG).unwrap();
 
-        assert!(config.git.diff_command.is_empty());
+        assert_eq!(config.commands, config::CommandsConfig::default());
     }
 
     #[test]

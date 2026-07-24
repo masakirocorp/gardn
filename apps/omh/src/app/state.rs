@@ -2147,8 +2147,10 @@ pub struct SettingsState {
     pub pending_new_terminal_cwd: Option<NewTerminalCwdConfig>,
     /// Pending mouse wheel scroll amount while settings is open.
     pub pending_mouse_scroll_lines: Option<usize>,
-    /// Pending command launched by the global diff shortcut while settings is open.
-    pub pending_git_diff_command: Option<String>,
+    /// Pending commands while the Commands settings tab is open.
+    pub pending_git_command: Option<String>,
+    pub pending_diff_command: Option<String>,
+    pub pending_ide_command: Option<String>,
     /// Pending default sidebar width while settings is open.
     pub pending_sidebar_width: Option<u16>,
     /// Pending minimum expanded sidebar width while settings is open.
@@ -2660,9 +2662,17 @@ pub struct AgentProfilePickerState {
     pub scroll: usize,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ProjectCommandKind {
+    Git,
+    Diff,
+    Ide,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GitRepoPickerState {
     pub ws_idx: usize,
+    pub command_kind: ProjectCommandKind,
     pub roots: Vec<std::path::PathBuf>,
     pub list: ModalListState,
     pub scroll: usize,
@@ -2726,8 +2736,8 @@ pub struct AppState {
     pub request_new_tab_for_client: Option<(usize, Option<String>)>,
     pub request_agent_profile_tab: Option<(usize, String)>,
     pub request_reload_config: bool,
-    pub request_open_git_diff_command: bool,
-    pub request_open_git_diff_workspace: Option<usize>,
+    pub request_open_project_command: Option<ProjectCommandKind>,
+    pub request_open_project_command_workspace: Option<usize>,
     /// Set when the headless server should ask attached clients to reload
     /// their client-local sound config from disk.
     pub request_client_config_reload: bool,
@@ -2846,7 +2856,9 @@ pub struct AppState {
     pub hide_tab_bar_when_single_tab: bool,
     pub show_counters: bool,
     pub sidebar_collapsed_mode: crate::config::SidebarCollapsedModeConfig,
+    pub git_command: String,
     pub git_diff_command: String,
+    pub ide_command: String,
     pub pane_border_agent_info: PaneBorderAgentInfoConfig,
     pub pane_history_persistence: bool,
     pub resume_agents_on_restore: bool,
@@ -3216,8 +3228,25 @@ impl AppState {
         self.prompt_new_tab_name
     }
 
+    pub(crate) fn project_command_role(&self, kind: ProjectCommandKind) -> &'static str {
+        match kind {
+            ProjectCommandKind::Git => "git",
+            ProjectCommandKind::Diff => "diff",
+            ProjectCommandKind::Ide => "ide",
+        }
+    }
+
+    pub(crate) fn project_command_configured(&self, kind: ProjectCommandKind) -> bool {
+        let command = match kind {
+            ProjectCommandKind::Git => &self.git_command,
+            ProjectCommandKind::Diff => &self.git_diff_command,
+            ProjectCommandKind::Ide => &self.ide_command,
+        };
+        !command.trim().is_empty()
+    }
+
     pub(crate) fn git_diff_command_configured(&self) -> bool {
-        !self.git_diff_command.trim().is_empty()
+        self.project_command_configured(ProjectCommandKind::Diff)
     }
 
     pub fn pane_border_agent_info(&self) -> PaneBorderAgentInfoConfig {
@@ -3478,8 +3507,8 @@ impl AppState {
             request_new_tab_for_client: None,
             request_agent_profile_tab: None,
             request_reload_config: false,
-            request_open_git_diff_command: false,
-            request_open_git_diff_workspace: None,
+            request_open_project_command: None,
+            request_open_project_command_workspace: None,
             request_client_config_reload: false,
             request_clipboard_write: None,
             creating_new_tab: false,
@@ -3515,6 +3544,7 @@ impl AppState {
             },
             git_repo_picker: GitRepoPickerState {
                 ws_idx: 0,
+                command_kind: ProjectCommandKind::Diff,
                 roots: Vec::new(),
                 list: ModalListState::hidden(0),
                 scroll: 0,
@@ -3611,7 +3641,9 @@ impl AppState {
             show_counters: false,
             sidebar_collapsed_mode: crate::config::SidebarCollapsedModeConfig::default(),
             copy_feedback: None,
-            git_diff_command: "lazygit".to_string(),
+            git_command: "lazygit".to_string(),
+            git_diff_command: "hunk diff --watch".to_string(),
+            ide_command: "fresh .".to_string(),
             pane_border_agent_info: PaneBorderAgentInfoConfig::default(),
             mobile_width_threshold: crate::config::DEFAULT_MOBILE_WIDTH_THRESHOLD,
             pane_history_persistence: true,
@@ -3673,7 +3705,9 @@ impl AppState {
                 pending_new_terminal_cwd: None,
                 pending_context_bar_visibility: None,
                 pending_mouse_scroll_lines: None,
-                pending_git_diff_command: None,
+                pending_git_command: None,
+                pending_diff_command: None,
+                pending_ide_command: None,
                 pending_sidebar_width: None,
                 pending_sidebar_arrangement: None,
                 pending_sidebar_initial_state: None,
