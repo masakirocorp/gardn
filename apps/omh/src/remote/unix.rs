@@ -169,13 +169,14 @@ pub(crate) fn run_remote(remote: RemoteLaunch) -> io::Result<()> {
         .remote
         .manage_ssh_config;
     let remote_ssh = RemoteSsh::new(remote.target.clone(), manage_ssh_config);
-    let prepared_remote = prepare_remote_omh(&remote_ssh, remote.live_handoff)?;
+    let prepared_remote = prepare_remote_omh(&remote_ssh, remote.live_handoff, &session_name)?;
     ensure_remote_server_ready(
         &remote_ssh,
         &prepared_remote.remote_omh,
         prepared_remote.installed_or_replaced,
         prepared_remote.stop_after_install_approved,
         remote.live_handoff,
+        &session_name,
     )?;
 
     let _bridge = SshStdioBridge::start(
@@ -520,6 +521,7 @@ impl InstallSource {
 fn prepare_remote_omh(
     ssh: &RemoteSsh,
     live_handoff_enabled: bool,
+    session_name: &str,
 ) -> io::Result<PreparedRemoteOmh> {
     let platform = detect_remote_platform(ssh)?;
     let remote_omh = RemoteOmh::for_platform(platform);
@@ -555,6 +557,7 @@ fn prepare_remote_omh(
             ssh,
             status_probe_omh,
             live_handoff_enabled,
+            session_name,
         )?;
         stop_after_install_approved = approved;
     }
@@ -822,8 +825,9 @@ fn ensure_remote_server_ready(
     remote_binary_changed: bool,
     stop_after_install_approved: bool,
     live_handoff_enabled: bool,
+    session_name: &str,
 ) -> io::Result<()> {
-    let status = remote_server_status(ssh, remote_omh)?;
+    let status = remote_server_status(ssh, remote_omh, session_name)?;
     let RemoteServerStatus::Running {
         version,
         protocol,
@@ -840,7 +844,7 @@ fn ensure_remote_server_ready(
     };
 
     if live_handoff_enabled && live_handoff {
-        match live_handoff_remote_server(ssh, remote_omh) {
+        match live_handoff_remote_server(ssh, remote_omh, session_name) {
             Ok(()) => return Ok(()),
             Err(err) => {
                 eprintln!("remote live handoff failed: {err}");
@@ -850,12 +854,12 @@ fn ensure_remote_server_ready(
     }
 
     if stop_after_install_approved {
-        stop_remote_server(ssh, remote_omh)?;
+        stop_remote_server(ssh, remote_omh, session_name)?;
         return Ok(());
     }
 
     if confirm_remote_server_stop(ssh.target(), version.as_deref(), protocol, reason)? {
-        stop_remote_server(ssh, remote_omh)?;
+        stop_remote_server(ssh, remote_omh, session_name)?;
     }
     Ok(())
 }
@@ -881,9 +885,10 @@ fn confirm_remote_install_with_running_server(
     ssh: &RemoteSsh,
     remote_omh: &RemoteOmh,
     live_handoff_enabled: bool,
+    session_name: &str,
 ) -> io::Result<bool> {
     let target = ssh.target();
-    let status = match remote_server_status(ssh, remote_omh) {
+    let status = match remote_server_status(ssh, remote_omh, session_name) {
         Ok(status) => status,
         Err(err) => {
             if !io::stdin().is_terminal() {
@@ -960,8 +965,12 @@ fn confirm_remote_install_with_running_server(
     Ok(true)
 }
 
-fn remote_server_status(ssh: &RemoteSsh, remote_omh: &RemoteOmh) -> io::Result<RemoteServerStatus> {
-    let command = format!("{} status server --json", remote_omh.shell_path);
+fn remote_server_status(
+    ssh: &RemoteSsh,
+    remote_omh: &RemoteOmh,
+    session_name: &str,
+) -> io::Result<RemoteServerStatus> {
+    let command = remote_server_status_command(remote_omh, session_name);
     let output = ssh.sh_output(&command)?;
     if !output.status.success() {
         return Err(command_failed("remote server status failed", &output));
@@ -1080,12 +1089,12 @@ fn confirm_remote_server_stop(
     Ok(false)
 }
 
-fn live_handoff_remote_server(ssh: &RemoteSsh, remote_omh: &RemoteOmh) -> io::Result<()> {
-    let command = format!(
-        "{} server live-handoff --import-exe {} --expected-protocol {CURRENT_PROTOCOL} --expected-version {CURRENT_VERSION}",
-        remote_omh.shell_path,
-        remote_omh.shell_path
-    );
+fn live_handoff_remote_server(
+    ssh: &RemoteSsh,
+    remote_omh: &RemoteOmh,
+    session_name: &str,
+) -> io::Result<()> {
+    let command = remote_server_live_handoff_command(remote_omh, session_name);
     let output = ssh.sh_output(&command)?;
     if !output.status.success() {
         return Err(command_failed("remote server live handoff failed", &output));
@@ -1098,14 +1107,18 @@ fn live_handoff_remote_server(ssh: &RemoteSsh, remote_omh: &RemoteOmh) -> io::Re
     Ok(())
 }
 
-fn stop_remote_server(ssh: &RemoteSsh, remote_omh: &RemoteOmh) -> io::Result<()> {
-    let command = format!("{} server stop", remote_omh.shell_path);
+fn stop_remote_server(
+    ssh: &RemoteSsh,
+    remote_omh: &RemoteOmh,
+    session_name: &str,
+) -> io::Result<()> {
+    let command = remote_server_stop_command(remote_omh, session_name);
     let output = ssh.sh_output(&command)?;
     if !output.status.success() {
         return Err(command_failed("remote server stop failed", &output));
     }
 
-    wait_for_remote_server_shutdown(ssh, remote_omh)?;
+    wait_for_remote_server_shutdown(ssh, remote_omh, session_name)?;
     eprintln!(
         "stopped the remote Oh My Herdr server on {}; it will restart when the remote client bridge attaches.",
         ssh.target()
@@ -1113,10 +1126,14 @@ fn stop_remote_server(ssh: &RemoteSsh, remote_omh: &RemoteOmh) -> io::Result<()>
     Ok(())
 }
 
-fn wait_for_remote_server_shutdown(ssh: &RemoteSsh, remote_omh: &RemoteOmh) -> io::Result<()> {
+fn wait_for_remote_server_shutdown(
+    ssh: &RemoteSsh,
+    remote_omh: &RemoteOmh,
+    session_name: &str,
+) -> io::Result<()> {
     let deadline = Instant::now() + REMOTE_SERVER_SHUTDOWN_CONFIRM_TIMEOUT;
     loop {
-        if remote_server_status(ssh, remote_omh)? == RemoteServerStatus::NotRunning {
+        if remote_server_status(ssh, remote_omh, session_name)? == RemoteServerStatus::NotRunning {
             return Ok(());
         }
         if Instant::now() >= deadline {
@@ -1328,12 +1345,40 @@ fn remote_install_commit_script(tmp_path: &str, dest_path: &str) -> String {
     )
 }
 
-fn remote_bridge_command(remote_omh: &RemoteOmh, session_name: &str) -> String {
-    let mut command = format!("exec {}", remote_omh.shell_path);
+fn append_remote_session_flag(command: &mut String, session_name: &str) {
     if session_name != crate::session::DEFAULT_SESSION_NAME {
         command.push_str(" --session ");
         command.push_str(&shell_quote(session_name));
     }
+}
+
+fn remote_server_status_command(remote_omh: &RemoteOmh, session_name: &str) -> String {
+    let mut command = remote_omh.shell_path.clone();
+    append_remote_session_flag(&mut command, session_name);
+    command.push_str(" status server --json");
+    command
+}
+
+fn remote_server_stop_command(remote_omh: &RemoteOmh, session_name: &str) -> String {
+    let mut command = remote_omh.shell_path.clone();
+    append_remote_session_flag(&mut command, session_name);
+    command.push_str(" server stop");
+    command
+}
+
+fn remote_server_live_handoff_command(remote_omh: &RemoteOmh, session_name: &str) -> String {
+    let mut command = remote_omh.shell_path.clone();
+    append_remote_session_flag(&mut command, session_name);
+    command.push_str(&format!(
+        " server live-handoff --import-exe {} --expected-protocol {CURRENT_PROTOCOL} --expected-version {CURRENT_VERSION}",
+        remote_omh.shell_path
+    ));
+    command
+}
+
+fn remote_bridge_command(remote_omh: &RemoteOmh, session_name: &str) -> String {
+    let mut command = format!("exec {}", remote_omh.shell_path);
+    append_remote_session_flag(&mut command, session_name);
     command.push_str(" remote-client-bridge");
     command
 }
@@ -1354,10 +1399,7 @@ fn reattach_command(
     if live_handoff {
         command.push_str(" --handoff");
     }
-    if session_name != crate::session::DEFAULT_SESSION_NAME {
-        command.push_str(" --session ");
-        command.push_str(&shell_quote(session_name));
-    }
+    append_remote_session_flag(&mut command, session_name);
     command
 }
 
@@ -2052,6 +2094,86 @@ mod tests {
         assert_eq!(
             remote_bridge_command(&remote_omh, crate::session::DEFAULT_SESSION_NAME),
             "exec \"$HOME/.local/bin/omh\" remote-client-bridge"
+        );
+    }
+
+    #[test]
+    fn remote_lifecycle_commands_omit_session_for_default() {
+        let remote_omh = RemoteOmh::for_platform(RemotePlatform {
+            os: "linux",
+            arch: "x86_64",
+        });
+        let session = crate::session::DEFAULT_SESSION_NAME;
+
+        assert_eq!(
+            remote_server_status_command(&remote_omh, session),
+            "\"$HOME/.local/bin/omh\" status server --json"
+        );
+        assert_eq!(
+            remote_server_stop_command(&remote_omh, session),
+            "\"$HOME/.local/bin/omh\" server stop"
+        );
+        assert_eq!(
+            remote_server_live_handoff_command(&remote_omh, session),
+            format!(
+                "\"$HOME/.local/bin/omh\" server live-handoff --import-exe \"$HOME/.local/bin/omh\" --expected-protocol {CURRENT_PROTOCOL} --expected-version {CURRENT_VERSION}"
+            )
+        );
+        assert_eq!(
+            remote_bridge_command(&remote_omh, session),
+            "exec \"$HOME/.local/bin/omh\" remote-client-bridge"
+        );
+    }
+
+    #[test]
+    fn remote_lifecycle_commands_qualify_named_session() {
+        let remote_omh = RemoteOmh::for_platform(RemotePlatform {
+            os: "linux",
+            arch: "x86_64",
+        });
+        let session = "work";
+
+        assert_eq!(
+            remote_server_status_command(&remote_omh, session),
+            "\"$HOME/.local/bin/omh\" --session work status server --json"
+        );
+        assert_eq!(
+            remote_server_stop_command(&remote_omh, session),
+            "\"$HOME/.local/bin/omh\" --session work server stop"
+        );
+        assert_eq!(
+            remote_server_live_handoff_command(&remote_omh, session),
+            format!(
+                "\"$HOME/.local/bin/omh\" --session work server live-handoff --import-exe \"$HOME/.local/bin/omh\" --expected-protocol {CURRENT_PROTOCOL} --expected-version {CURRENT_VERSION}"
+            )
+        );
+        assert_eq!(
+            remote_bridge_command(&remote_omh, session),
+            "exec \"$HOME/.local/bin/omh\" --session work remote-client-bridge"
+        );
+    }
+
+    #[test]
+    fn remote_lifecycle_commands_quote_session_names() {
+        let remote_omh = RemoteOmh::for_platform(RemotePlatform {
+            os: "linux",
+            arch: "x86_64",
+        });
+        let remote_omh =
+            remote_omh_from_path_discovery(&remote_omh, "/usr/bin/omh\n").expect("path binary");
+        let session = "my session";
+
+        assert_eq!(
+            remote_server_status_command(&remote_omh, session),
+            "/usr/bin/omh --session 'my session' status server --json"
+        );
+        assert_eq!(
+            remote_server_stop_command(&remote_omh, session),
+            "/usr/bin/omh --session 'my session' server stop"
+        );
+        assert_eq!(
+            remote_bridge_command(&remote_omh, session),
+            "exec /usr/bin/omh --session 'my session' remote-client-bridge"
         );
     }
 
