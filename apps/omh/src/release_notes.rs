@@ -80,16 +80,19 @@ pub fn load_changelog() -> ReleaseNotes {
 }
 
 fn bundled_changelog() -> ReleaseNotes {
-    let body = normalize_body(BUNDLED_CHANGELOG);
-
     ReleaseNotes {
         version: env!("CARGO_PKG_VERSION").to_string(),
-        body: if body.is_empty() {
-            "No public releases yet.".to_string()
-        } else {
-            body
-        },
+        body: bundled_changelog_body(BUNDLED_CHANGELOG),
         preview: false,
+    }
+}
+
+fn bundled_changelog_body(changelog: &str) -> String {
+    let body = normalize_body(changelog);
+    if body.is_empty() {
+        "No public releases yet.".to_string()
+    } else {
+        body
     }
 }
 
@@ -167,12 +170,17 @@ mod tests {
     }
 
     #[test]
-    fn bundled_changelog_starts_clean_before_public_release() {
+    fn bundled_changelog_is_visible_before_and_after_first_release() {
         let notes = bundled_changelog();
 
         assert_eq!(notes.version, env!("CARGO_PKG_VERSION"));
         assert!(!notes.preview);
-        assert_eq!(notes.body, "No public releases yet.");
+        assert!(!notes.body.is_empty());
+        assert_eq!(bundled_changelog_body(""), "No public releases yet.");
+        assert_eq!(
+            bundled_changelog_body("## omh@0.3.0\n\n- Added"),
+            "## omh@0.3.0\n\n- Added"
+        );
     }
 
     #[test]

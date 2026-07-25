@@ -1659,7 +1659,8 @@ mod tests {
             .release_notes
             .as_ref()
             .expect("release notes modal state");
-        assert_eq!(notes.body, "No public releases yet.");
+        assert_eq!(notes.version, env!("CARGO_PKG_VERSION"));
+        assert!(!notes.body.is_empty());
     }
 
     #[test]
