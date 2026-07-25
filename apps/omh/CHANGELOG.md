@@ -1,3 +1,25 @@
+## omh@0.3.2
+
+### Complete cross-platform release packaging
+
+Release builds now preserve Cargo arguments on Windows so all five platform binaries can be published from one tag.
+
+### Open GitHub projects in managed tabs
+
+Add a configurable GitHub project command that opens ghui in a managed Space tab from Settings, the command palette, and project menus.
+
+### Match group accents to terminal themes
+
+Match group accent choices to the active theme palette, including Terminal themes.
+
+### Complete live handoff responses
+
+Fixed a live handoff race that could close the API connection before the success response reached the client, even though the replacement server started correctly.
+
+### Improve remote and server reliability
+
+Improved remote and server reliability: high-latency remote handshakes get a longer connection window, remote helper installs work with non-POSIX login shells, SSH authentication failures include actionable guidance, and `omh server stop` waits for both sockets to become unreachable before returning.
+
 ## omh@0.3.1
 
 ### Restore Windows builds for mixed-host support

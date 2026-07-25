@@ -1,15 +1,31 @@
 core:changelogs:
-  - content: "---\npackages:\n  omh:\n    type: patch\n---\n\n### Restore Windows builds for mixed-host support\n\nWindows builds now keep Unix-only SSH execution workers behind the platform boundary while preserving explicit unsupported results for SSH connection actions.\n"
-    filename: windows-remote-platform-boundaries.md
+  - content: "---\npackages:\n  omh:\n    type: patch\n---\n\n### Complete cross-platform release packaging\n\nRelease builds now preserve Cargo arguments on Windows so all five platform binaries can be published from one tag.\n"
+    filename: cross-platform-release-packaging.md
+    v: 0.0.0
+  - content: "---\npackages:\n  omh:\n    type: patch\n---\n\n### Open GitHub projects in managed tabs\n\nAdd a configurable GitHub project command that opens ghui in a managed Space tab from Settings, the command palette, and project menus.\n"
+    filename: github-project-command.md
+    v: 0.0.0
+  - content: "---\npackages:\n  omh:\n    type: patch\n---\n\n### Match group accents to terminal themes\n\nMatch group accent choices to the active theme palette, including Terminal themes.\n"
+    filename: group-accent-theme-colors.md
+    v: 0.0.0
+  - content: "---\npackages:\n  omh:\n    type: patch\n---\n\n### Complete live handoff responses\n\nFixed a live handoff race that could close the API connection before the success response reached the client, even though the replacement server started correctly.\n"
+    filename: live-handoff-response.md
+    v: 0.0.0
+  - content: "---\npackages:\n  omh:\n    type: patch\n---\n\n### Improve remote and server reliability\n\nImproved remote and server reliability: high-latency remote handshakes get a longer connection window, remote helper installs work with non-POSIX login shells, SSH authentication failures include actionable guidance, and `omh server stop` waits for both sockets to become unreachable before returning.\n"
+    filename: remote-server-reliability.md
     v: 0.0.0
 core:packages:
   - id: npm:@omh/website
     updated: false
-  - changelogIds:
-      - windows-remote-platform-boundaries.md
-    id: cargo:omh
-    updated: true
   - id: cargo:portable-pty
     updated: false
+  - changelogIds:
+      - cross-platform-release-packaging.md
+      - github-project-command.md
+      - group-accent-theme-colors.md
+      - live-handoff-response.md
+      - remote-server-reliability.md
+    id: cargo:omh
+    updated: true
 npm:packages:
   - id: npm:@omh/website
