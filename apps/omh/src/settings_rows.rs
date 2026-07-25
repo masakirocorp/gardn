@@ -949,8 +949,7 @@ fn command_rows(app: &AppState, settings: &SettingsState) -> Vec<SettingsListRow
     let values = [
         (
             0,
-            "git",
-            "terminal Git UI; runs in the selected repository root",
+            "git · terminal Git UI · selected repository root",
             settings
                 .pending_git_command
                 .clone()
@@ -958,8 +957,7 @@ fn command_rows(app: &AppState, settings: &SettingsState) -> Vec<SettingsListRow
         ),
         (
             1,
-            "diff",
-            "diff review UI; runs in the selected repository root",
+            "diff · review UI · selected repository root",
             settings
                 .pending_diff_command
                 .clone()
@@ -967,8 +965,7 @@ fn command_rows(app: &AppState, settings: &SettingsState) -> Vec<SettingsListRow
         ),
         (
             2,
-            "ide",
-            "project editor; runs in the selected repository root",
+            "ide · project editor · selected project root",
             settings
                 .pending_ide_command
                 .clone()
@@ -976,8 +973,7 @@ fn command_rows(app: &AppState, settings: &SettingsState) -> Vec<SettingsListRow
         ),
         (
             3,
-            "github",
-            "GitHub pull request and issue UI; runs in the selected space root",
+            "github · pull requests and issues · selected space root",
             settings
                 .pending_github_command
                 .clone()
@@ -985,13 +981,16 @@ fn command_rows(app: &AppState, settings: &SettingsState) -> Vec<SettingsListRow
         ),
     ];
     let mut rows = vec![SettingsListRow::Header("project commands")];
-    for (index, title, description, value) in values {
-        rows.push(SettingsListRow::Value {
+    for (index, title, value) in values {
+        let title = if value.trim().is_empty() {
+            format!("{title} · disabled")
+        } else {
+            title.to_string()
+        };
+        rows.push(SettingsListRow::TextInput {
             index,
             title: title.into(),
-            description: description.into(),
             value: value.into(),
-            editable: true,
         });
     }
     rows

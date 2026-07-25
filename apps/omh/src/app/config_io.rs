@@ -621,4 +621,34 @@ mod tests {
         assert_eq!(app.state.github_command, config.commands.github);
         let _ = std::fs::remove_file(path);
     }
+
+    #[test]
+    fn save_commands_persists_an_empty_value_as_disabled() {
+        let _lock = match crate::config::test_config_env_lock().lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        let path = std::env::temp_dir().join(format!(
+            "omh-disabled-command-{}-{}.toml",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let _config_path =
+            crate::config::TestEnvVar::set(crate::config::CONFIG_PATH_ENV_VAR, &path);
+        let mut app = test_app();
+
+        app.save_commands("lazygit", "", "fresh .", "ghui");
+
+        let content = std::fs::read_to_string(&path).unwrap();
+        let config: crate::config::Config = toml::from_str(&content).unwrap();
+        assert_eq!(config.commands.diff, "");
+        assert_eq!(app.state.git_diff_command, "");
+        assert!(!app
+            .state
+            .project_command_configured(crate::app::state::ProjectCommandKind::Diff));
+        let _ = std::fs::remove_file(path);
+    }
 }

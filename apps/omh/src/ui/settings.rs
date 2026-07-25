@@ -322,7 +322,7 @@ fn settings_section_description(app: &AppState, section: SettingsSection) -> &'s
         SettingsSection::PaneLabels => {
             "control workspace prompts and terminal interaction defaults"
         }
-        SettingsSection::Commands => "choose commands launched in the selected project context",
+        SettingsSection::Commands => "edit launch commands; clear one to disable and hide it",
         SettingsSection::Experiments => "configure advanced or platform-specific behavior",
         SettingsSection::Agents if settings_agents_editor_open(app) => {
             "name the profile and provide the command omh should launch"
@@ -628,7 +628,7 @@ fn settings_section_description_for(
         SettingsSection::PaneLabels => {
             "control workspace prompts and terminal interaction defaults"
         }
-        SettingsSection::Commands => "choose commands launched in the selected project context",
+        SettingsSection::Commands => "edit launch commands; clear one to disable and hide it",
         SettingsSection::Experiments => "configure advanced or platform-specific behavior",
         SettingsSection::Agents if settings_agents_editor_open_for(settings) => {
             "name the profile and provide the command omh should launch"
@@ -1827,10 +1827,10 @@ mod tests {
         let text = buffer_text(buffer, area.width, area.height);
         let (header_y, header_x) =
             find_text_cell(&text, "project commands").expect("project commands header");
-        let (git_y, git_x) = find_text_cell(&text, "git").expect("git command row");
-        let (diff_y, diff_x) = find_text_cell(&text, "diff").expect("diff command row");
-        let (ide_y, ide_x) = find_text_cell(&text, "ide").expect("ide command row");
-        let (github_y, github_x) = find_text_cell(&text, "github").expect("github command row");
+        let (git_y, git_x) = find_text_cell(&text, "git ·").expect("git command field");
+        let (diff_y, diff_x) = find_text_cell(&text, "diff ·").expect("diff command field");
+        let (ide_y, ide_x) = find_text_cell(&text, "ide ·").expect("ide command field");
+        let (github_y, github_x) = find_text_cell(&text, "github ·").expect("github command field");
 
         assert!(git_y < diff_y && diff_y < ide_y && ide_y < github_y);
         assert_eq!(git_x, header_x + 1);
@@ -1845,6 +1845,13 @@ mod tests {
             .style()
             .add_modifier
             .contains(Modifier::BOLD));
+        let (git_value_y, git_value_x) =
+            find_text_cell(&text, "lazygit").expect("git command value");
+        assert_eq!(git_value_y, git_y + 1);
+        assert_eq!(
+            buffer[(git_value_x, git_value_y)].style().bg,
+            Some(app.palette.surface0)
+        );
         assert!(text.contains("lazygit"));
         assert!(text.contains("hunk diff --watch"));
         assert!(text.contains("fresh ."));
@@ -1853,7 +1860,7 @@ mod tests {
     }
 
     #[test]
-    fn commands_settings_show_edit_cursor_in_standard_value_row() {
+    fn commands_settings_show_edit_cursor_in_input_field() {
         let mut app = AppState::test_new();
         app.settings.section = SettingsSection::Commands;
         app.settings.pending_diff_command = Some("hunk diff --watch".to_string());
@@ -1870,6 +1877,24 @@ mod tests {
 
         let text = buffer_text(terminal.backend().buffer(), area.width, area.height);
         assert!(text.contains("hunk diff --watch█"));
+    }
+
+    #[test]
+    fn commands_settings_mark_an_empty_input_disabled() {
+        let mut app = AppState::test_new();
+        app.settings.section = SettingsSection::Commands;
+        app.settings.pending_diff_command = Some(String::new());
+
+        let area = Rect::new(0, 0, 100, 40);
+        let backend = TestBackend::new(area.width, area.height);
+        let mut terminal = Terminal::new(backend).expect("test backend");
+        terminal
+            .draw(|frame| render_settings_overlay(&app, frame, area))
+            .expect("render Commands settings overlay");
+
+        let text = buffer_text(terminal.backend().buffer(), area.width, area.height);
+        assert!(text.contains("diff · review UI · selected repository root · disabled"));
+        assert!(text.contains("clear one to disable and hide it"));
     }
 
     #[test]
@@ -2606,7 +2631,7 @@ mod tests {
             (
                 SettingsSection::Commands,
                 "commands",
-                "choose commands launched in the selected project context",
+                "edit launch commands; clear one to disable and hide it",
             ),
             (
                 SettingsSection::Agents,
