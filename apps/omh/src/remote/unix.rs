@@ -1,4 +1,5 @@
 //! Remote thin-client launcher over SSH command stdio.
+use super::{ConnectCancel, WorkerInstallKind, WorkerInstallPreview, WorkerInstallReport};
 
 use std::fmt;
 use std::fs::{self, File};
@@ -20,39 +21,6 @@ use std::time::{Duration, Instant};
 const BRIDGE_ACCEPT_POLL: Duration = Duration::from_millis(50);
 const BRIDGE_SOCKET_PERMISSION_MODE: u32 = 0o600;
 const REMOTE_SERVER_SHUTDOWN_CONFIRM_TIMEOUT: Duration = Duration::from_secs(5);
-
-/// Cooperative cancellation for blocking SSH probe/spawn work owned by a connect attempt.
-#[derive(Clone, Debug, Default)]
-pub(crate) struct ConnectCancel {
-    cancelled: Arc<AtomicBool>,
-}
-
-impl ConnectCancel {
-    pub(crate) fn new() -> Self {
-        Self {
-            cancelled: Arc::new(AtomicBool::new(false)),
-        }
-    }
-
-    pub(crate) fn cancel(&self) {
-        self.cancelled.store(true, Ordering::Release);
-    }
-
-    pub(crate) fn is_cancelled(&self) -> bool {
-        self.cancelled.load(Ordering::Acquire)
-    }
-
-    pub(crate) fn check(&self) -> io::Result<()> {
-        if self.is_cancelled() {
-            Err(io::Error::new(
-                io::ErrorKind::Interrupted,
-                "ssh connection attempt cancelled",
-            ))
-        } else {
-            Ok(())
-        }
-    }
-}
 
 fn wait_child_cancellable(
     child: &mut Child,
@@ -1889,29 +1857,6 @@ fn sanitize_path_component(input: &str) -> String {
         .collect();
 
     sanitized.trim_matches('-').chars().take(32).collect()
-}
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) enum WorkerInstallKind {
-    Install,
-    Update,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct WorkerInstallPreview {
-    pub(crate) kind: WorkerInstallKind,
-    pub(crate) source: String,
-    pub(crate) target_path: String,
-    pub(crate) checksum: String,
-    pub(crate) version: String,
-    pub(crate) commands: Vec<String>,
-    pub(crate) capabilities: Vec<String>,
-    pub(crate) already_current: bool,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) enum WorkerInstallReport {
-    Installed(WorkerInstallPreview),
-    AlreadyCurrent(WorkerInstallPreview),
 }
 
 #[derive(Debug)]

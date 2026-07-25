@@ -224,8 +224,18 @@ pub(crate) fn read_limited_reader(
     }
 }
 
+#[cfg(unix)]
 mod execution_worker;
+#[cfg(unix)]
 pub(crate) use execution_worker::run as run_execution_worker;
+
+#[cfg(not(unix))]
+pub(crate) fn run_execution_worker(_args: &[String]) -> std::io::Result<()> {
+    Err(std::io::Error::new(
+        std::io::ErrorKind::Unsupported,
+        "the persistent execution worker is not available on this platform",
+    ))
+}
 
 #[cfg(target_os = "linux")]
 mod linux;

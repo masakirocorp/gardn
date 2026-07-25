@@ -31,25 +31,14 @@ use std::io;
 
 /// Entry point for `omh execution-worker` (bridge) and `--daemon` mode.
 pub(crate) fn run(args: &[String]) -> io::Result<()> {
-    #[cfg(unix)]
-    {
-        if args.first().map(String::as_str) == Some("--daemon") {
-            return lifecycle::run_daemon(binding::DaemonBinding::parse(&args[1..])?);
-        }
-        if !args.is_empty() {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                format!("unknown execution-worker argument: {}", args[0]),
-            ));
-        }
-        lifecycle::run_bridge_stdio()
+    if args.first().map(String::as_str) == Some("--daemon") {
+        return lifecycle::run_daemon(binding::DaemonBinding::parse(&args[1..])?);
     }
-    #[cfg(not(unix))]
-    {
-        let _ = args;
-        Err(io::Error::new(
-            io::ErrorKind::Unsupported,
-            "the persistent execution worker is not available on this platform",
-        ))
+    if !args.is_empty() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("unknown execution-worker argument: {}", args[0]),
+        ));
     }
+    lifecycle::run_bridge_stdio()
 }

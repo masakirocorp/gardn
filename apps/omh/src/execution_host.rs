@@ -12,6 +12,10 @@ mod operations;
 pub(crate) mod placement;
 pub(crate) mod protocol;
 mod registry;
+#[cfg(unix)]
+pub(crate) mod remote;
+#[cfg(not(unix))]
+#[path = "execution_host/remote_unsupported.rs"]
 pub(crate) mod remote;
 pub(crate) mod runtime_paths;
 mod stage_requests;
