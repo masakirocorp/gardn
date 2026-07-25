@@ -1,4 +1,5 @@
-use std::process::Stdio;
+use portable_pty::{native_pty_system, CommandBuilder, PtySize};
+use std::io::Write;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -265,15 +266,23 @@ fn observe_runtime_process_idle_shell_has_empty_foreground() {
         ExecutionHostId::new("ssh:test").unwrap(),
         HostPath::new(std::env::temp_dir()).unwrap(),
     );
-    // Idle shell waiting on a pipe (no foreground command job).
-    let mut child = std::process::Command::new("/bin/sh")
-        .stdin(Stdio::piped())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
+    // Use a real PTY so the shell owns a controlling terminal and foreground
+    // process group, as it does in an execution worker.
+    let pair = native_pty_system()
+        .openpty(PtySize {
+            rows: 24,
+            cols: 80,
+            pixel_width: 0,
+            pixel_height: 0,
+        })
         .unwrap();
+    let child = pair
+        .slave
+        .spawn_command(CommandBuilder::new("/bin/sh"))
+        .unwrap();
+    drop(pair.slave);
     std::thread::sleep(Duration::from_millis(50));
-    let shell_pid = child.id();
+    let shell_pid = child.process_id().expect("shell process id");
     let observation = observe_runtime_process(shell_pid, &location);
     assert_eq!(observation.pid, shell_pid);
     assert!(
@@ -288,8 +297,9 @@ fn observe_runtime_process_idle_shell_has_empty_foreground() {
             .any(|process| process.pid == shell_pid),
         "session_processes should include the shell"
     );
-    let _ = child.kill();
-    let _ = child.wait();
+    let mut writer = pair.master.take_writer().unwrap();
+    writer.write_all(b"exit\n").unwrap();
+    drop(writer);
 }
 
 #[test]
