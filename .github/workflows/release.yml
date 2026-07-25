@@ -162,6 +162,7 @@ jobs:
         run: rm -rf .zig-cache apps/omh/vendor/libghostty-vt/.zig-cache apps/omh/vendor/libghostty-vt/zig-out
 
       - name: Build through Turbo
+        shell: bash
         run: pnpm turbo run build --filter=omh -- --release --target ${{ matrix.target }}
 
       - name: Run Windows smoke
