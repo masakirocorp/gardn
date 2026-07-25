@@ -173,6 +173,7 @@ struct SpawnInitialState<'a> {
     detected_agent: Option<Agent>,
     history_ansi: Option<&'a str>,
     windows_powershell_prompt_cwd_reporting: bool,
+    resolved_terminal_theme_override: Option<crate::terminal_theme::ResolvedTerminalTheme>,
     output_observer: Option<PaneOutputObserver>,
 }
 
@@ -1205,9 +1206,6 @@ impl PaneRuntime {
     pub fn apply_host_terminal_theme(&self, theme: crate::terminal_theme::TerminalTheme) {
         self.terminal.apply_host_terminal_theme(theme);
     }
-    pub(crate) fn apply_ansi_palette_override(&self, palette: crate::terminal_theme::AnsiPalette) {
-        self.terminal.apply_ansi_palette_override(palette);
-    }
 
     pub fn child_pid(&self) -> u32 {
         self.child_pid.load(Ordering::Acquire)
@@ -1346,6 +1344,7 @@ impl PaneRuntime {
                 windows_powershell_prompt_cwd_reporting: uses_windows_powershell_pane_shell(
                     shell_config,
                 ),
+                resolved_terminal_theme_override: None,
                 output_observer: launch_env.output_observer(),
             },
         )
@@ -1398,7 +1397,7 @@ impl PaneRuntime {
         command: &str,
         launch_env: &PaneLaunchEnv,
         scrollback_limit_bytes: usize,
-        host_terminal_theme: crate::terminal_theme::TerminalTheme,
+        terminal_theme: crate::terminal_theme::PaneTerminalTheme,
         events: mpsc::Sender<AppEvent>,
         render_notify: Arc<Notify>,
         render_dirty: Arc<AtomicBool>,
@@ -1412,13 +1411,14 @@ impl PaneRuntime {
             rows,
             cols,
             scrollback_limit_bytes,
-            host_terminal_theme,
+            terminal_theme.host,
             events,
             render_notify,
             render_dirty,
             cmd,
             "failed to spawn command pane",
             SpawnInitialState {
+                resolved_terminal_theme_override: terminal_theme.resolved_override,
                 output_observer: launch_env.output_observer(),
                 ..SpawnInitialState::default()
             },
@@ -1675,6 +1675,9 @@ impl PaneRuntime {
         let detection_content_seq = Arc::new(AtomicU64::new(0));
         let pane_terminal = GhosttyPaneTerminal::new(terminal, response_tx.clone())?;
         pane_terminal.apply_host_terminal_theme(host_terminal_theme);
+        if let Some(theme) = initial_state.resolved_terminal_theme_override {
+            pane_terminal.apply_resolved_terminal_theme_override(theme);
+        }
         pane_terminal.set_windows_powershell_prompt_cwd_reporting(
             initial_state.windows_powershell_prompt_cwd_reporting,
         );

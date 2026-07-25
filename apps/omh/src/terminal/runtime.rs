@@ -204,7 +204,7 @@ impl TerminalRuntime {
         command: &str,
         launch_env: &crate::pane::PaneLaunchEnv,
         scrollback_limit_bytes: usize,
-        host_terminal_theme: crate::terminal_theme::TerminalTheme,
+        terminal_theme: crate::terminal_theme::PaneTerminalTheme,
         events: mpsc::Sender<AppEvent>,
         render_notify: Arc<Notify>,
         render_dirty: Arc<AtomicBool>,
@@ -217,7 +217,7 @@ impl TerminalRuntime {
             command,
             launch_env,
             scrollback_limit_bytes,
-            host_terminal_theme,
+            terminal_theme,
             events,
             render_notify,
             render_dirty,
@@ -286,9 +286,6 @@ impl TerminalRuntime {
 
     pub fn apply_host_terminal_theme(&self, theme: crate::terminal_theme::TerminalTheme) {
         self.0.apply_host_terminal_theme(theme);
-    }
-    pub(crate) fn apply_ansi_palette_override(&self, palette: crate::terminal_theme::AnsiPalette) {
-        self.0.apply_ansi_palette_override(palette);
     }
 
     pub fn child_pid(&self) -> u32 {

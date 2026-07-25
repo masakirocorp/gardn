@@ -185,6 +185,7 @@ impl Clone for Workspace {
 enum NewWorkspaceTabCommand<'a> {
     Shell {
         command: &'a str,
+        resolved_terminal_theme_override: Option<crate::terminal_theme::ResolvedTerminalTheme>,
     },
     Profile {
         command: &'a str,
@@ -596,6 +597,7 @@ impl Workspace {
         extra_env: &[(String, String)],
         scrollback_limit_bytes: usize,
         host_terminal_theme: crate::terminal_theme::TerminalTheme,
+        resolved_terminal_theme_override: Option<crate::terminal_theme::ResolvedTerminalTheme>,
     ) -> std::io::Result<(usize, TerminalState, TerminalRuntime)> {
         self.create_tab_with_runtime(
             rows,
@@ -604,7 +606,10 @@ impl Workspace {
             scrollback_limit_bytes,
             host_terminal_theme,
             crate::pane::PaneShellConfig::new("", crate::config::ShellModeConfig::NonLogin),
-            Some(NewWorkspaceTabCommand::Shell { command }),
+            Some(NewWorkspaceTabCommand::Shell {
+                command,
+                resolved_terminal_theme_override,
+            }),
             None,
             extra_env.to_vec(),
             None,
@@ -688,7 +693,10 @@ impl Workspace {
 
         let (tab, terminal, runtime) = if let Some(command) = command {
             match command {
-                NewWorkspaceTabCommand::Shell { command } => Tab::new_shell_command(
+                NewWorkspaceTabCommand::Shell {
+                    command,
+                    resolved_terminal_theme_override,
+                } => Tab::new_shell_command(
                     number,
                     cwd,
                     rows,
@@ -697,6 +705,7 @@ impl Workspace {
                     &launch_env,
                     scrollback_limit_bytes,
                     host_terminal_theme,
+                    resolved_terminal_theme_override,
                     events,
                     render_notify,
                     render_dirty,

@@ -1610,16 +1610,19 @@ impl AppState {
                     crate::external_tool_theme::is_terminal_passthrough(&self.global_theme_name),
                 )
             }
+            (ProjectCommandKind::Github, crate::ghui_theme::GITHUB_COMMAND) => {
+                crate::ghui_theme::command()
+            }
             _ => configured.clone(),
         };
         configured_project_command_at(location, kind, &command)
     }
 
-    fn curated_project_command_ansi_palette(
+    fn curated_project_command_terminal_theme(
         &self,
         kind: ProjectCommandKind,
         ws_idx: Option<usize>,
-    ) -> Option<crate::terminal_theme::AnsiPalette> {
+    ) -> Option<crate::terminal_theme::ResolvedTerminalTheme> {
         if crate::external_tool_theme::is_terminal_passthrough(&self.global_theme_name) {
             return None;
         }
@@ -1634,6 +1637,10 @@ impl AppState {
             (ProjectCommandKind::Git, crate::lazygit_theme::GIT_COMMAND)
                 | (ProjectCommandKind::Diff, crate::hunk_theme::DIFF_COMMAND)
                 | (ProjectCommandKind::Ide, crate::fresh_theme::IDE_COMMAND)
+                | (
+                    ProjectCommandKind::Github,
+                    crate::ghui_theme::GITHUB_COMMAND
+                )
         );
         if !curated {
             return None;
@@ -1645,7 +1652,7 @@ impl AppState {
                     .map(|_| self.palette_for_workspace(idx))
             })
             .unwrap_or_else(|| self.palette.clone());
-        Some(crate::external_tool_theme::ansi_palette(
+        Some(crate::external_tool_theme::resolved_terminal_theme(
             &palette,
             self.theme_appearance_for_mode(self.global_theme_mode),
             self.host_terminal_theme,
@@ -1659,9 +1666,9 @@ impl AppState {
         ws_idx: usize,
         kind: ProjectCommandKind,
     ) -> Result<(), String> {
-        let ansi_palette = self.curated_project_command_ansi_palette(kind, Some(ws_idx));
+        let terminal_theme = self.curated_project_command_terminal_theme(kind, Some(ws_idx));
         let command = self.configured_project_command(root, kind, Some(ws_idx))?;
-        self.run_project_command_entry(terminal_runtimes, command, ws_idx, ansi_palette)
+        self.run_project_command_entry(terminal_runtimes, command, ws_idx, terminal_theme)
     }
 
     fn run_project_command_entry(
@@ -1669,7 +1676,7 @@ impl AppState {
         terminal_runtimes: &mut crate::terminal::TerminalRuntimeRegistry,
         command: crate::commands::ProjectCommand,
         ws_idx: usize,
-        ansi_palette: Option<crate::terminal_theme::AnsiPalette>,
+        terminal_theme: Option<crate::terminal_theme::ResolvedTerminalTheme>,
     ) -> Result<(), String> {
         let command_id = command.id.clone();
         if let Some(run) = self.command_runs.get(&command_id).cloned() {
@@ -1687,7 +1694,7 @@ impl AppState {
                     ws_idx,
                     tab_idx,
                     pane_id,
-                    ansi_palette,
+                    terminal_theme,
                 )?;
                 return Ok(());
             }
@@ -1696,7 +1703,7 @@ impl AppState {
             }
         }
 
-        self.open_command_tab(terminal_runtimes, command, ws_idx, ansi_palette)
+        self.open_command_tab(terminal_runtimes, command, ws_idx, terminal_theme)
     }
 
     pub(crate) fn observed_git_repos_for_workspace(
@@ -1776,7 +1783,7 @@ impl AppState {
         terminal_runtimes: &mut crate::terminal::TerminalRuntimeRegistry,
         command: crate::commands::ProjectCommand,
         ws_idx: usize,
-        ansi_palette: Option<crate::terminal_theme::AnsiPalette>,
+        terminal_theme: Option<crate::terminal_theme::ResolvedTerminalTheme>,
     ) -> Result<(), String> {
         if !command.location.is_local() {
             return Err(format!(
@@ -1798,13 +1805,11 @@ impl AppState {
                 &[],
                 self.pane_scrollback_limit_bytes,
                 self.host_terminal_theme,
+                terminal_theme,
             )
             .map_err(|err| err.to_string())?;
         if let Some(tab) = workspace.tabs.get_mut(tab_idx) {
             tab.set_custom_name(command.name.clone());
-        }
-        if let Some(palette) = ansi_palette {
-            runtime.apply_ansi_palette_override(palette);
         }
         let terminal_id = terminal.id.clone();
         terminal_runtimes.insert(terminal.id.clone(), runtime);
@@ -1835,7 +1840,7 @@ impl AppState {
         ws_idx: usize,
         tab_idx: usize,
         pane_id: PaneId,
-        ansi_palette: Option<crate::terminal_theme::AnsiPalette>,
+        terminal_theme: Option<crate::terminal_theme::ResolvedTerminalTheme>,
     ) -> Result<(), String> {
         if !command.location.is_local() {
             return Err(format!(
@@ -1883,15 +1888,15 @@ impl AppState {
             &command.command,
             &launch_env,
             self.pane_scrollback_limit_bytes,
-            self.host_terminal_theme,
+            crate::terminal_theme::PaneTerminalTheme {
+                host: self.host_terminal_theme,
+                resolved_override: terminal_theme,
+            },
             events,
             render_notify,
             render_dirty,
         )
         .map_err(|err| err.to_string())?;
-        if let Some(palette) = ansi_palette {
-            runtime.apply_ansi_palette_override(palette);
-        }
         terminal_runtimes.insert(terminal_id.clone(), runtime);
         if let Some(terminal) = self.terminals.get_mut(terminal_id) {
             terminal.cwd = command.root().to_path_buf();
@@ -5389,7 +5394,7 @@ mod tests {
         assert!(command.command.contains("exec lazygit"));
         assert!(!command.command.contains("LG_CONFIG_FILE"));
         assert!(state
-            .curated_project_command_ansi_palette(ProjectCommandKind::Git, Some(0))
+            .curated_project_command_terminal_theme(ProjectCommandKind::Git, Some(0))
             .is_none());
     }
 
@@ -5405,7 +5410,7 @@ mod tests {
 
         assert_eq!(command.command, "git diff --stat");
         assert!(state
-            .curated_project_command_ansi_palette(ProjectCommandKind::Diff, None)
+            .curated_project_command_terminal_theme(ProjectCommandKind::Diff, None)
             .is_none());
     }
 
@@ -5430,6 +5435,9 @@ mod tests {
     fn github_command_targets_workspace_without_git_repository() {
         let project = temp_project("github-workspace-command");
         let mut state = app_with_workspaces(&["web"]);
+        state.theme_name = "system".to_string();
+        state.global_theme_name = "system".to_string();
+        state.palette = Palette::terminal();
         let terminal_runtimes = crate::terminal::TerminalRuntimeRegistry::new();
         let root_pane = state.workspaces[0].tabs[0].root_pane;
         let root_terminal_id = state.terminal_id_for_pane(0, root_pane).unwrap();
@@ -5449,7 +5457,10 @@ mod tests {
         let command = state
             .configured_project_command(project.clone(), ProjectCommandKind::Github, Some(0))
             .unwrap();
-        assert_eq!(command.command, "ghui");
+        assert!(command.command.contains("GHUI_THEME=system exec ghui"));
+        assert!(state
+            .curated_project_command_terminal_theme(ProjectCommandKind::Github, Some(0))
+            .is_none());
         assert_eq!(command.location.path.as_path(), project.as_path());
     }
 
@@ -5472,6 +5483,13 @@ mod tests {
         let ide = state
             .configured_project_command(root, ProjectCommandKind::Ide, Some(0))
             .unwrap();
+        let github = state
+            .configured_project_command(
+                temp_project("named-themed-github"),
+                ProjectCommandKind::Github,
+                Some(0),
+            )
+            .unwrap();
 
         assert!(git.command.contains("LG_CONFIG_FILE"));
         assert!(diff.command.contains("[custom_theme.syntax_scopes]"));
@@ -5479,9 +5497,35 @@ mod tests {
             .command
             .contains("theme_ref=\"file://$theme_dir/theme.json\""));
         assert!(ide.command.contains("\"cursor\": [189, 147, 249]"));
-        let ansi_palette = state
-            .curated_project_command_ansi_palette(ProjectCommandKind::Git, Some(0))
-            .expect("named curated command should receive an ANSI palette");
+        assert!(github.command.contains("GHUI_THEME=system exec ghui"));
+        let terminal_theme = state
+            .curated_project_command_terminal_theme(ProjectCommandKind::Github, Some(0))
+            .expect("named curated command should receive a complete terminal theme");
+        assert_eq!(
+            terminal_theme.foreground,
+            crate::terminal_theme::RgbColor {
+                r: 248,
+                g: 248,
+                b: 242,
+            }
+        );
+        assert_eq!(
+            terminal_theme.background,
+            crate::terminal_theme::RgbColor {
+                r: 40,
+                g: 42,
+                b: 54,
+            }
+        );
+        assert_eq!(
+            terminal_theme.cursor,
+            crate::terminal_theme::RgbColor {
+                r: 189,
+                g: 147,
+                b: 249,
+            }
+        );
+        let ansi_palette = terminal_theme.palette;
         assert_eq!(
             ansi_palette[1],
             crate::terminal_theme::RgbColor {

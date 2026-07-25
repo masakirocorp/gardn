@@ -6,6 +6,31 @@ pub struct RgbColor {
 }
 pub(crate) type AnsiPalette = [RgbColor; 16];
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct ResolvedTerminalTheme {
+    pub foreground: RgbColor,
+    pub background: RgbColor,
+    pub cursor: RgbColor,
+    pub palette: AnsiPalette,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct PaneTerminalTheme {
+    pub host: TerminalTheme,
+    pub resolved_override: Option<ResolvedTerminalTheme>,
+}
+
+impl From<ResolvedTerminalTheme> for TerminalTheme {
+    fn from(theme: ResolvedTerminalTheme) -> Self {
+        Self {
+            foreground: Some(theme.foreground),
+            background: Some(theme.background),
+            cursor: Some(theme.cursor),
+            palette: theme.palette.map(Some),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct TerminalTheme {
     pub foreground: Option<RgbColor>,

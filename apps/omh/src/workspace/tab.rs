@@ -39,6 +39,7 @@ enum NewTabCommand<'a> {
     Shell {
         command: &'a str,
         launch_env: &'a PaneLaunchEnv,
+        resolved_terminal_theme_override: Option<crate::terminal_theme::ResolvedTerminalTheme>,
     },
     Profile {
         command: &'a str,
@@ -153,6 +154,7 @@ impl Tab {
         launch_env: &PaneLaunchEnv,
         scrollback_limit_bytes: usize,
         host_terminal_theme: crate::terminal_theme::TerminalTheme,
+        resolved_terminal_theme_override: Option<crate::terminal_theme::ResolvedTerminalTheme>,
         events: mpsc::Sender<AppEvent>,
         render_notify: Arc<Notify>,
         render_dirty: Arc<AtomicBool>,
@@ -172,6 +174,7 @@ impl Tab {
             Some(NewTabCommand::Shell {
                 command,
                 launch_env,
+                resolved_terminal_theme_override,
             }),
         )
     }
@@ -269,6 +272,7 @@ impl Tab {
             Some(NewTabCommand::Shell {
                 command,
                 launch_env,
+                resolved_terminal_theme_override,
             }) => TerminalRuntime::spawn_shell_command(
                 root_id,
                 rows,
@@ -277,7 +281,10 @@ impl Tab {
                 command,
                 launch_env,
                 scrollback_limit_bytes,
-                host_terminal_theme,
+                crate::terminal_theme::PaneTerminalTheme {
+                    host: host_terminal_theme,
+                    resolved_override: resolved_terminal_theme_override,
+                },
                 events.clone(),
                 render_notify.clone(),
                 render_dirty.clone(),

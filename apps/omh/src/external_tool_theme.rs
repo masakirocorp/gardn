@@ -1,6 +1,6 @@
 use crate::app::state::Palette;
 use crate::terminal_theme::{
-    AnsiPalette, DefaultColorKind, RgbColor, TerminalTheme, ThemeAppearance,
+    AnsiPalette, DefaultColorKind, ResolvedTerminalTheme, RgbColor, TerminalTheme, ThemeAppearance,
 };
 use ratatui::style::Color;
 
@@ -54,6 +54,31 @@ pub(crate) fn is_terminal_passthrough(theme_name: &str) -> bool {
         "system" | "terminal"
     )
 }
+pub(crate) fn resolved_terminal_theme(
+    palette: &Palette,
+    appearance: ThemeAppearance,
+    terminal_theme: TerminalTheme,
+) -> ResolvedTerminalTheme {
+    let foreground = terminal_color(palette.text, terminal_theme, appearance);
+    let background = palette_color(
+        palette.panel_bg,
+        terminal_theme,
+        DefaultColorKind::Background,
+        background_fallback(appearance),
+    );
+    let cursor = terminal_color(palette.accent, terminal_theme, appearance);
+    ResolvedTerminalTheme {
+        foreground,
+        background: RgbColor {
+            r: background.r,
+            g: background.g,
+            b: background.b,
+        },
+        cursor,
+        palette: ansi_palette(palette, appearance, terminal_theme),
+    }
+}
+
 pub(crate) fn ansi_palette(
     palette: &Palette,
     appearance: ThemeAppearance,
