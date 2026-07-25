@@ -1,6 +1,6 @@
 [package]
 name = "omh"
-version = "0.2.19"
+version = "0.3.0"
 edition = "2021"
 build = "build.rs"
 description = "terminal workspace manager for AI coding agents"
@@ -51,3 +51,4 @@ windows-sys = { version = "0.61.2", features = [
     "Win32_UI_Shell",
     "Win32_UI_WindowsAndMessaging",
 ] }
+
