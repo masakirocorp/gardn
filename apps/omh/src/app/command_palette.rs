@@ -48,6 +48,7 @@ pub(crate) enum CommandPaletteAction {
     OpenGit,
     OpenDiff,
     OpenIde,
+    OpenGithub,
     ToggleSidebar,
     ToggleContextBar,
     ZenMode,
@@ -68,6 +69,7 @@ impl CommandPaletteAction {
             Self::OpenGit => Some(super::state::ProjectCommandKind::Git),
             Self::OpenDiff => Some(super::state::ProjectCommandKind::Diff),
             Self::OpenIde => Some(super::state::ProjectCommandKind::Ide),
+            Self::OpenGithub => Some(super::state::ProjectCommandKind::Github),
             _ => None,
         }
     }
@@ -253,6 +255,7 @@ pub(crate) fn command_palette_commands(state: &AppState) -> Vec<CommandPaletteCo
         CommandPaletteCommand::new("open git", "project", CommandPaletteAction::OpenGit),
         CommandPaletteCommand::new("open diff", "project", CommandPaletteAction::OpenDiff),
         CommandPaletteCommand::new("open ide", "project", CommandPaletteAction::OpenIde),
+        CommandPaletteCommand::new("open github", "project", CommandPaletteAction::OpenGithub),
         CommandPaletteCommand::new(
             "toggle sidebar",
             "layout",
@@ -427,7 +430,8 @@ fn command_palette_key_label(state: &AppState, action: &CommandPaletteAction) ->
         CommandPaletteAction::NextAgent => label(&kb.next_agent),
         CommandPaletteAction::OpenGit
         | CommandPaletteAction::OpenDiff
-        | CommandPaletteAction::OpenIde => None,
+        | CommandPaletteAction::OpenIde
+        | CommandPaletteAction::OpenGithub => None,
         CommandPaletteAction::ToggleSidebar => label(&kb.toggle_sidebar),
         CommandPaletteAction::ToggleContextBar => label(&kb.toggle_context_bar),
         CommandPaletteAction::ZenMode => label(&kb.zen_mode),

@@ -144,18 +144,21 @@ impl App {
             self.apply_config_from_disk(false);
         }
     }
-    pub(super) fn save_commands(&mut self, git: &str, diff: &str, ide: &str) {
+    pub(super) fn save_commands(&mut self, git: &str, diff: &str, ide: &str, github: &str) {
         let commands = crate::config::CommandsConfig {
             git: git.trim().to_string(),
             diff: diff.trim().to_string(),
             ide: ide.trim().to_string(),
+            github: github.trim().to_string(),
         };
         self.state.git_command.clone_from(&commands.git);
         self.state.git_diff_command.clone_from(&commands.diff);
         self.state.ide_command.clone_from(&commands.ide);
+        self.state.github_command.clone_from(&commands.github);
         self.state.settings.pending_git_command = Some(commands.git.clone());
         self.state.settings.pending_diff_command = Some(commands.diff.clone());
         self.state.settings.pending_ide_command = Some(commands.ide.clone());
+        self.state.settings.pending_github_command = Some(commands.github.clone());
         if self.update_config_file("project commands", |content| {
             let content = crate::config::upsert_section_value(
                 content,
@@ -169,11 +172,17 @@ impl App {
                 "diff",
                 &toml::Value::String(commands.diff.clone()).to_string(),
             );
-            crate::config::upsert_section_value(
+            let content = crate::config::upsert_section_value(
                 &content,
                 "commands",
                 "ide",
                 &toml::Value::String(commands.ide.clone()).to_string(),
+            );
+            crate::config::upsert_section_value(
+                &content,
+                "commands",
+                "github",
+                &toml::Value::String(commands.github.clone()).to_string(),
             )
         }) {
             self.apply_config_from_disk(false);
@@ -597,6 +606,7 @@ mod tests {
             "  gitui  ",
             r#"  git difftool --tool="custom"  "#,
             "  fresh .  ",
+            "  custom-ghui  ",
         );
 
         let content = std::fs::read_to_string(&path).unwrap();
@@ -604,9 +614,11 @@ mod tests {
         assert_eq!(config.commands.git, "gitui");
         assert_eq!(config.commands.diff, r#"git difftool --tool="custom""#);
         assert_eq!(config.commands.ide, "fresh .");
+        assert_eq!(config.commands.github, "custom-ghui");
         assert_eq!(app.state.git_command, config.commands.git);
         assert_eq!(app.state.git_diff_command, config.commands.diff);
         assert_eq!(app.state.ide_command, config.commands.ide);
+        assert_eq!(app.state.github_command, config.commands.github);
         let _ = std::fs::remove_file(path);
     }
 }

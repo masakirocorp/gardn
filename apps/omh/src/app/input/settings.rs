@@ -52,6 +52,7 @@ pub(crate) enum SettingsAction {
         git_command: String,
         diff_command: String,
         ide_command: String,
+        github_command: String,
         sidebar_width: u16,
         sidebar_min_width: u16,
         sidebar_max_width: u16,
@@ -148,6 +149,7 @@ impl App {
                 git_command,
                 diff_command,
                 ide_command,
+                github_command,
                 sidebar_width,
                 sidebar_min_width,
                 sidebar_max_width,
@@ -170,7 +172,7 @@ impl App {
                 self.save_show_counters(show_counters);
                 self.save_new_terminal_cwd(&new_terminal_cwd);
                 self.save_mouse_scroll_lines(mouse_scroll_lines);
-                self.save_commands(&git_command, &diff_command, &ide_command);
+                self.save_commands(&git_command, &diff_command, &ide_command, &github_command);
                 self.save_sidebar_widths(sidebar_width, sidebar_min_width, sidebar_max_width);
                 self.save_sidebar_arrangement(sidebar_arrangement);
                 self.save_context_bar_visibility(context_bar_visibility);
@@ -1721,6 +1723,11 @@ fn pending_command(state: &AppState, index: usize) -> String {
             .pending_ide_command
             .clone()
             .unwrap_or_else(|| state.ide_command.clone()),
+        3 => state
+            .settings
+            .pending_github_command
+            .clone()
+            .unwrap_or_else(|| state.github_command.clone()),
         _ => String::new(),
     }
 }
@@ -1730,6 +1737,7 @@ fn set_pending_command(state: &mut AppState, index: usize, value: String) {
         0 => state.settings.pending_git_command = Some(value),
         1 => state.settings.pending_diff_command = Some(value),
         2 => state.settings.pending_ide_command = Some(value),
+        3 => state.settings.pending_github_command = Some(value),
         _ => {}
     }
 }
@@ -1746,7 +1754,7 @@ fn delete_pending_command_word(state: &mut AppState, index: usize) {
 }
 
 fn edit_pending_command(state: &mut AppState, key: KeyEvent) -> bool {
-    let Some(index @ 0..=2) = state.settings.focused_input else {
+    let Some(index @ 0..=3) = state.settings.focused_input else {
         return false;
     };
     state.settings.list.select(index);
@@ -2104,6 +2112,7 @@ fn clear_settings_pending(state: &mut AppState) {
     state.settings.pending_git_command = None;
     state.settings.pending_diff_command = None;
     state.settings.pending_ide_command = None;
+    state.settings.pending_github_command = None;
     state.settings.pending_sidebar_width = None;
     state.settings.pending_sidebar_min_width = None;
     state.settings.pending_sidebar_max_width = None;
@@ -2143,6 +2152,7 @@ fn current_settings_action(state: &AppState) -> SettingsAction {
         git_command: pending_command(state, 0),
         diff_command: pending_command(state, 1),
         ide_command: pending_command(state, 2),
+        github_command: pending_command(state, 3),
         sidebar_width: pending_sidebar_width(state),
         sidebar_min_width: pending_sidebar_min_width(state),
         sidebar_max_width: pending_sidebar_max_width(state),
@@ -2349,7 +2359,7 @@ fn selected_experiment_action(state: &mut AppState) -> Option<SettingsAction> {
 }
 fn settings_row_accepts_text_input(state: &AppState, selected: usize) -> bool {
     match state.settings.section {
-        SettingsSection::Commands => selected <= 2,
+        SettingsSection::Commands => selected <= 3,
         SettingsSection::GroupGeneral | SettingsSection::WorkspaceGeneral => selected <= 1,
         SettingsSection::Agents if agent_profile_editor_open(state) => {
             selected == AGENT_PROFILE_NAME_INDEX || selected == agent_profile_command_index(state)
@@ -3039,6 +3049,7 @@ pub(crate) fn prepare_general_settings_state(
     settings.pending_git_command = Some(state.git_command.clone());
     settings.pending_diff_command = Some(state.git_diff_command.clone());
     settings.pending_ide_command = Some(state.ide_command.clone());
+    settings.pending_github_command = Some(state.github_command.clone());
     settings.pending_sidebar_width = Some(state.default_sidebar_width);
     settings.pending_sidebar_min_width = Some(state.sidebar_min_width);
     settings.pending_sidebar_max_width = Some(state.sidebar_max_width);
@@ -3106,6 +3117,7 @@ fn reset_settings_for_scoped_editor(state: &AppState, settings: &mut SettingsSta
     settings.pending_git_command = None;
     settings.pending_diff_command = None;
     settings.pending_ide_command = None;
+    settings.pending_github_command = None;
     settings.pending_sidebar_width = None;
     settings.pending_sidebar_min_width = None;
     settings.pending_sidebar_max_width = None;
@@ -3224,6 +3236,7 @@ pub(crate) fn open_group_settings(state: &mut AppState, group_idx: usize) {
     state.settings.pending_git_command = None;
     state.settings.pending_diff_command = None;
     state.settings.pending_ide_command = None;
+    state.settings.pending_github_command = None;
     state.settings.pending_sidebar_width = None;
     state.settings.pending_sidebar_min_width = None;
     state.settings.pending_sidebar_max_width = None;
@@ -3279,6 +3292,7 @@ pub(crate) fn open_workspace_settings(state: &mut AppState, ws_idx: usize) {
     state.settings.pending_git_command = None;
     state.settings.pending_diff_command = None;
     state.settings.pending_ide_command = None;
+    state.settings.pending_github_command = None;
     state.settings.pending_sidebar_width = None;
     state.settings.pending_sidebar_min_width = None;
     state.settings.pending_sidebar_max_width = None;
@@ -4717,6 +4731,7 @@ mod tests {
                 git_command: "lazygit".to_string(),
                 diff_command: "hunk diff --watch".to_string(),
                 ide_command: "fresh .".to_string(),
+                github_command: "ghui".to_string(),
                 sidebar_width: 26,
                 sidebar_min_width: 18,
                 sidebar_max_width: 36,
@@ -5215,6 +5230,43 @@ mod tests {
             }) if git_command == "lazygit"
                 && diff_command == "hunk diff --watch"
                 && ide_command == "hx ."
+        ));
+    }
+
+    #[test]
+    fn commands_settings_edits_github_command_independently() {
+        let mut state = state_with_workspaces(&["test"]);
+        open_settings_at(&mut state, SettingsSection::Commands);
+        state.settings.list.select(3);
+        state.settings.focused_input = Some(3);
+
+        update_settings_state(
+            &mut state,
+            KeyEvent::new(KeyCode::Char('u'), KeyModifiers::CONTROL),
+        );
+        for ch in "custom-ghui".chars() {
+            update_settings_state(
+                &mut state,
+                KeyEvent::new(KeyCode::Char(ch), KeyModifiers::empty()),
+            );
+        }
+        let action = update_settings_state(
+            &mut state,
+            KeyEvent::new(KeyCode::Enter, KeyModifiers::empty()),
+        );
+
+        assert!(matches!(
+            action,
+            Some(SettingsAction::SaveSettings {
+                git_command,
+                diff_command,
+                ide_command,
+                github_command,
+                ..
+            }) if git_command == "lazygit"
+                && diff_command == "hunk diff --watch"
+                && ide_command == "fresh ."
+                && github_command == "custom-ghui"
         ));
     }
 

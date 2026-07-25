@@ -2363,7 +2363,7 @@ mod tests {
             },
             x: 2,
             y: 2,
-            list: ModalListState::new(12),
+            list: ModalListState::new(13),
         });
         app.state.mode = Mode::ContextMenu;
 
@@ -2371,11 +2371,11 @@ mod tests {
         assert_eq!(menu.height, 13);
         assert_eq!(
             app.state.context_menu_item_at(menu.x + 2, menu.y + 11),
-            Some(12)
+            Some(13)
         );
 
         app.handle_mouse(mouse(MouseEventKind::ScrollUp, menu.x + 2, menu.y + 11));
-        assert_eq!(app.state.context_menu.as_ref().unwrap().list.selected, 9);
+        assert_eq!(app.state.context_menu.as_ref().unwrap().list.selected, 10);
     }
 
     #[test]

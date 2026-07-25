@@ -237,6 +237,7 @@ const DEFAULT_CONFIG: &str = r##"# Oh My Herdr configuration
 git = "lazygit"
 diff = "hunk diff --watch"
 ide = "fresh ."
+github = "ghui"
 
 # Legacy indexed shortcut config is still parsed for compatibility.
 # Prefer switch_tab, switch_workspace, switch_group, and focus_agent for new configs.

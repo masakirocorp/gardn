@@ -322,7 +322,7 @@ fn settings_section_description(app: &AppState, section: SettingsSection) -> &'s
         SettingsSection::PaneLabels => {
             "control workspace prompts and terminal interaction defaults"
         }
-        SettingsSection::Commands => "choose the command launched by the Diff shortcut",
+        SettingsSection::Commands => "choose commands launched in the selected project context",
         SettingsSection::Experiments => "configure advanced or platform-specific behavior",
         SettingsSection::Agents if settings_agents_editor_open(app) => {
             "name the profile and provide the command omh should launch"
@@ -628,7 +628,7 @@ fn settings_section_description_for(
         SettingsSection::PaneLabels => {
             "control workspace prompts and terminal interaction defaults"
         }
-        SettingsSection::Commands => "choose the command launched by the Diff shortcut",
+        SettingsSection::Commands => "choose commands launched in the selected project context",
         SettingsSection::Experiments => "configure advanced or platform-specific behavior",
         SettingsSection::Agents if settings_agents_editor_open_for(settings) => {
             "name the profile and provide the command omh should launch"
@@ -1807,12 +1807,13 @@ mod tests {
     }
 
     #[test]
-    fn commands_settings_show_three_editable_project_roles() {
+    fn commands_settings_show_four_editable_project_roles() {
         let mut app = AppState::test_new();
         app.settings.section = SettingsSection::Commands;
         app.settings.pending_git_command = Some("lazygit".to_string());
         app.settings.pending_diff_command = Some("hunk diff --watch".to_string());
         app.settings.pending_ide_command = Some("fresh .".to_string());
+        app.settings.pending_github_command = Some("ghui".to_string());
         app.settings.list.show();
 
         let area = Rect::new(0, 0, 100, 40);
@@ -1829,11 +1830,13 @@ mod tests {
         let (git_y, git_x) = find_text_cell(&text, "git").expect("git command row");
         let (diff_y, diff_x) = find_text_cell(&text, "diff").expect("diff command row");
         let (ide_y, ide_x) = find_text_cell(&text, "ide").expect("ide command row");
+        let (github_y, github_x) = find_text_cell(&text, "github").expect("github command row");
 
-        assert!(git_y < diff_y && diff_y < ide_y);
+        assert!(git_y < diff_y && diff_y < ide_y && ide_y < github_y);
         assert_eq!(git_x, header_x + 1);
         assert_eq!(diff_x, git_x);
         assert_eq!(ide_x, git_x);
+        assert_eq!(github_x, git_x);
         assert_eq!(
             buffer[(header_x, header_y)].style().fg,
             Some(app.palette.accent)
@@ -1845,6 +1848,7 @@ mod tests {
         assert!(text.contains("lazygit"));
         assert!(text.contains("hunk diff --watch"));
         assert!(text.contains("fresh ."));
+        assert!(text.contains("ghui"));
         assert!(!text.contains("suggested commands"));
     }
 
@@ -2602,7 +2606,7 @@ mod tests {
             (
                 SettingsSection::Commands,
                 "commands",
-                "choose the command launched by the Diff shortcut",
+                "choose commands launched in the selected project context",
             ),
             (
                 SettingsSection::Agents,

@@ -806,6 +806,10 @@ pub(crate) fn execute_command_palette_action(app: &mut App, action: CommandPalet
             app.state.request_open_project_command =
                 Some(crate::app::state::ProjectCommandKind::Ide);
         }
+        CommandPaletteAction::OpenGithub => {
+            app.state.request_open_project_command =
+                Some(crate::app::state::ProjectCommandKind::Github);
+        }
         CommandPaletteAction::ToggleSidebar => {
             app.state.sidebar_collapsed = !app.state.sidebar_collapsed;
             app.state.mark_session_dirty();
@@ -1250,6 +1254,7 @@ mod tests {
             ("open git", CommandPaletteAction::OpenGit),
             ("open diff", CommandPaletteAction::OpenDiff),
             ("open ide", CommandPaletteAction::OpenIde),
+            ("open github", CommandPaletteAction::OpenGithub),
         ] {
             assert!(commands.iter().any(|command| {
                 command.title == title && command.group == "project" && command.action == action

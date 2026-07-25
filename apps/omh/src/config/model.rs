@@ -339,6 +339,8 @@ pub struct CommandsConfig {
     pub diff: String,
     /// Project editor launched in the selected workspace directory.
     pub ide: String,
+    /// GitHub pull request and issue UI launched in the selected workspace directory.
+    pub github: String,
 }
 
 impl Default for CommandsConfig {
@@ -347,6 +349,7 @@ impl Default for CommandsConfig {
             git: "lazygit".to_string(),
             diff: "hunk diff --watch".to_string(),
             ide: "fresh .".to_string(),
+            github: "ghui".to_string(),
         }
     }
 }
@@ -1323,11 +1326,12 @@ shell_mode = "non_login"
     }
 
     #[test]
-    fn commands_default_and_parse_as_three_distinct_roles() {
+    fn commands_default_and_parse_as_four_distinct_roles() {
         let defaults = Config::default().commands;
         assert_eq!(defaults.git, "lazygit");
         assert_eq!(defaults.diff, "hunk diff --watch");
         assert_eq!(defaults.ide, "fresh .");
+        assert_eq!(defaults.github, "ghui");
 
         let config: Config = toml::from_str(
             r#"
@@ -1335,12 +1339,14 @@ shell_mode = "non_login"
 git = "gitui"
 diff = "difft"
 ide = "helix ."
+github = "custom-ghui"
 "#,
         )
         .unwrap();
         assert_eq!(config.commands.git, "gitui");
         assert_eq!(config.commands.diff, "difft");
         assert_eq!(config.commands.ide, "helix .");
+        assert_eq!(config.commands.github, "custom-ghui");
     }
 
     #[test]

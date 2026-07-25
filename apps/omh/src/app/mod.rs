@@ -1029,6 +1029,7 @@ impl App {
             git_command: config.commands.git.clone(),
             git_diff_command: config.commands.diff.clone(),
             ide_command: config.commands.ide.clone(),
+            github_command: config.commands.github.clone(),
             pane_border_agent_info: config.ui.pane_border_agent_info,
             pane_borders: config.ui.pane_borders,
             pane_gaps: config.ui.pane_gaps,
@@ -1096,6 +1097,7 @@ impl App {
                 pending_git_command: None,
                 pending_diff_command: None,
                 pending_ide_command: None,
+                pending_github_command: None,
                 pending_sidebar_width: None,
                 pending_sidebar_min_width: None,
                 pending_sidebar_max_width: None,
@@ -2395,6 +2397,9 @@ impl App {
                 .git_diff_command
                 .clone_from(&config.commands.diff);
             self.state.ide_command.clone_from(&config.commands.ide);
+            self.state
+                .github_command
+                .clone_from(&config.commands.github);
         }
 
         if !invalid_section("ui") {
@@ -5157,7 +5162,8 @@ impl App {
             }
             action @ (crate::app::command_palette::CommandPaletteAction::OpenGit
             | crate::app::command_palette::CommandPaletteAction::OpenDiff
-            | crate::app::command_palette::CommandPaletteAction::OpenIde) => {
+            | crate::app::command_palette::CommandPaletteAction::OpenIde
+            | crate::app::command_palette::CommandPaletteAction::OpenGithub) => {
                 let Some(kind) = action.project_command_kind() else {
                     unreachable!("project command action matched above");
                 };
@@ -6024,7 +6030,7 @@ impl App {
             (
                 state::ContextMenuKind::Workspace { ws_idx, .. }
                 | state::ContextMenuKind::NewTabButton { ws_idx, .. },
-                Some("ide" | "git" | "diff"),
+                Some("ide" | "git" | "diff" | "github"),
             ) => {
                 client_view.selected_workspace = ws_idx;
                 client_view.active_workspace = Some(ws_idx);
@@ -6032,6 +6038,7 @@ impl App {
                     Some("ide") => crate::app::state::ProjectCommandKind::Ide,
                     Some("git") => crate::app::state::ProjectCommandKind::Git,
                     Some("diff") => crate::app::state::ProjectCommandKind::Diff,
+                    Some("github") => crate::app::state::ProjectCommandKind::Github,
                     _ => unreachable!("project command menu item matched above"),
                 };
                 let pending_tab = self.state.pending_project_command_tab_for_workspace(
@@ -21703,7 +21710,7 @@ command = "printf literal > '{}'"
             },
             x: 10,
             y: 5,
-            list: state::ModalListState::new(12),
+            list: state::ModalListState::new(13),
         });
         client.mode = Mode::ContextMenu;
 
@@ -21718,7 +21725,7 @@ command = "printf literal > '{}'"
         );
         assert_eq!(
             App::context_menu_item_at_for_client_view(&client, 11, 11),
-            Some(12),
+            Some(13),
             "hit testing maps the final visible row back to the final menu item"
         );
 
@@ -21733,7 +21740,7 @@ command = "printf literal > '{}'"
         );
         assert_eq!(
             client.context_menu.as_ref().unwrap().list.selected,
-            9,
+            10,
             "wheel navigation skips section labels and separators"
         );
     }
@@ -22798,6 +22805,7 @@ command = "printf literal > '{}'"
             ("ide", state::ProjectCommandKind::Ide),
             ("git", state::ProjectCommandKind::Git),
             ("diff", state::ProjectCommandKind::Diff),
+            ("github", state::ProjectCommandKind::Github),
         ] {
             let mut app = test_app();
             app.state.workspaces = vec![Workspace::test_new("shell")];

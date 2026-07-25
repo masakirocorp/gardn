@@ -974,6 +974,15 @@ fn command_rows(app: &AppState, settings: &SettingsState) -> Vec<SettingsListRow
                 .clone()
                 .unwrap_or_else(|| app.ide_command.clone()),
         ),
+        (
+            3,
+            "github",
+            "GitHub pull request and issue UI; runs in the selected space root",
+            settings
+                .pending_github_command
+                .clone()
+                .unwrap_or_else(|| app.github_command.clone()),
+        ),
     ];
     let mut rows = vec![SettingsListRow::Header("project commands")];
     for (index, title, description, value) in values {

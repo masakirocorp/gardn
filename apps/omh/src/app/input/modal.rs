@@ -1287,7 +1287,7 @@ pub(crate) fn apply_context_menu_action(
         (
             ContextMenuKind::Workspace { ws_idx, .. }
             | ContextMenuKind::NewTabButton { ws_idx, .. },
-            Some("ide" | "git" | "diff"),
+            Some("ide" | "git" | "diff" | "github"),
         ) => {
             state.selected = ws_idx;
             state.active = Some(ws_idx);
@@ -1295,6 +1295,7 @@ pub(crate) fn apply_context_menu_action(
                 Some("ide") => crate::app::state::ProjectCommandKind::Ide,
                 Some("git") => crate::app::state::ProjectCommandKind::Git,
                 Some("diff") => crate::app::state::ProjectCommandKind::Diff,
+                Some("github") => crate::app::state::ProjectCommandKind::Github,
                 _ => unreachable!("project command menu item matched above"),
             });
             leave_modal(state);
@@ -2159,6 +2160,7 @@ mod tests {
             ("ide", crate::app::state::ProjectCommandKind::Ide),
             ("git", crate::app::state::ProjectCommandKind::Git),
             ("diff", crate::app::state::ProjectCommandKind::Diff),
+            ("github", crate::app::state::ProjectCommandKind::Github),
         ] {
             let mut state = state_with_workspaces(&["test"]);
             let mut terminal_runtimes = crate::terminal::TerminalRuntimeRegistry::new();

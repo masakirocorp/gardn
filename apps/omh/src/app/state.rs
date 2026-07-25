@@ -2154,6 +2154,7 @@ pub struct SettingsState {
     pub pending_git_command: Option<String>,
     pub pending_diff_command: Option<String>,
     pub pending_ide_command: Option<String>,
+    pub pending_github_command: Option<String>,
     /// Pending default sidebar width while settings is open.
     pub pending_sidebar_width: Option<u16>,
     /// Pending minimum expanded sidebar width while settings is open.
@@ -2329,7 +2330,7 @@ pub struct ContextMenuState {
     pub list: ModalListState,
 }
 
-const WORKSPACE_CONTEXT_MENU_ITEMS: [&[&str]; 8] = [
+const WORKSPACE_CONTEXT_MENU_ITEMS: [&[&str]; 16] = [
     &[
         "new", "tab", "agent", "---", "manage", "rename", "settings", "---", "danger", "close",
     ],
@@ -2361,9 +2362,41 @@ const WORKSPACE_CONTEXT_MENU_ITEMS: [&[&str]; 8] = [
         "new", "tab", "agent", "ide", "git", "diff", "---", "manage", "rename", "settings", "---",
         "danger", "close",
     ],
+    &[
+        "new", "tab", "agent", "github", "---", "manage", "rename", "settings", "---", "danger",
+        "close",
+    ],
+    &[
+        "new", "tab", "agent", "diff", "github", "---", "manage", "rename", "settings", "---",
+        "danger", "close",
+    ],
+    &[
+        "new", "tab", "agent", "git", "github", "---", "manage", "rename", "settings", "---",
+        "danger", "close",
+    ],
+    &[
+        "new", "tab", "agent", "git", "diff", "github", "---", "manage", "rename", "settings",
+        "---", "danger", "close",
+    ],
+    &[
+        "new", "tab", "agent", "ide", "github", "---", "manage", "rename", "settings", "---",
+        "danger", "close",
+    ],
+    &[
+        "new", "tab", "agent", "ide", "diff", "github", "---", "manage", "rename", "settings",
+        "---", "danger", "close",
+    ],
+    &[
+        "new", "tab", "agent", "ide", "git", "github", "---", "manage", "rename", "settings",
+        "---", "danger", "close",
+    ],
+    &[
+        "new", "tab", "agent", "ide", "git", "diff", "github", "---", "manage", "rename",
+        "settings", "---", "danger", "close",
+    ],
 ];
 
-const NEW_TAB_CONTEXT_MENU_ITEMS: [&[&str]; 8] = [
+const NEW_TAB_CONTEXT_MENU_ITEMS: [&[&str]; 16] = [
     &["new", "tab", "agent"],
     &["new", "tab", "agent", "diff"],
     &["new", "tab", "agent", "git"],
@@ -2372,6 +2405,14 @@ const NEW_TAB_CONTEXT_MENU_ITEMS: [&[&str]; 8] = [
     &["new", "tab", "agent", "ide", "diff"],
     &["new", "tab", "agent", "ide", "git"],
     &["new", "tab", "agent", "ide", "git", "diff"],
+    &["new", "tab", "agent", "github"],
+    &["new", "tab", "agent", "diff", "github"],
+    &["new", "tab", "agent", "git", "github"],
+    &["new", "tab", "agent", "git", "diff", "github"],
+    &["new", "tab", "agent", "ide", "github"],
+    &["new", "tab", "agent", "ide", "diff", "github"],
+    &["new", "tab", "agent", "ide", "git", "github"],
+    &["new", "tab", "agent", "ide", "git", "diff", "github"],
 ];
 
 impl ContextMenuState {
@@ -2613,8 +2654,8 @@ mod context_menu_tests {
         assert_eq!(
             menu.items(),
             &[
-                "new", "tab", "agent", "ide", "git", "diff", "---", "manage", "rename", "settings",
-                "---", "danger", "close",
+                "new", "tab", "agent", "ide", "git", "diff", "github", "---", "manage", "rename",
+                "settings", "---", "danger", "close",
             ]
         );
     }
@@ -2632,9 +2673,9 @@ mod context_menu_tests {
         };
 
         assert_eq!(menu.visible_item_range(11), 0..11);
-        menu.list.select(12);
-        assert_eq!(menu.visible_item_range(11), 2..13);
-        assert_eq!(menu.item_at_visible_row(10, 11), Some(12));
+        menu.list.select(13);
+        assert_eq!(menu.visible_item_range(11), 3..14);
+        assert_eq!(menu.item_at_visible_row(10, 11), Some(13));
     }
 
     #[test]
@@ -2665,17 +2706,23 @@ mod context_menu_tests {
             menu(ProjectCommandAvailability::DIFF).items(),
             &["new", "tab", "agent", "diff"]
         );
+        assert_eq!(
+            menu(ProjectCommandAvailability::GITHUB).items(),
+            &["new", "tab", "agent", "github"]
+        );
     }
 
     #[test]
     fn project_command_availability_requires_repos_only_for_git_roles() {
         assert_eq!(
-            ProjectCommandAvailability::from_repo_and_configured(true, true, false, true),
-            ProjectCommandAvailability::GIT.union(ProjectCommandAvailability::IDE)
+            ProjectCommandAvailability::from_repo_and_configured(true, true, false, true, true,),
+            ProjectCommandAvailability::GIT
+                .union(ProjectCommandAvailability::IDE)
+                .union(ProjectCommandAvailability::GITHUB)
         );
         assert_eq!(
-            ProjectCommandAvailability::from_repo_and_configured(false, true, true, true),
-            ProjectCommandAvailability::IDE
+            ProjectCommandAvailability::from_repo_and_configured(false, true, true, true, true,),
+            ProjectCommandAvailability::IDE.union(ProjectCommandAvailability::GITHUB)
         );
     }
 
@@ -2920,6 +2967,7 @@ pub(crate) enum ProjectCommandKind {
     Git,
     Diff,
     Ide,
+    Github,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -2931,14 +2979,16 @@ impl ProjectCommandAvailability {
     pub const GIT: Self = Self(1 << 1);
     pub const DIFF: Self = Self(1 << 0);
     pub const IDE: Self = Self(1 << 2);
+    pub const GITHUB: Self = Self(1 << 3);
     #[cfg(test)]
-    pub const ALL: Self = Self(Self::GIT.0 | Self::DIFF.0 | Self::IDE.0);
+    pub const ALL: Self = Self(Self::GIT.0 | Self::DIFF.0 | Self::IDE.0 | Self::GITHUB.0);
 
     pub(crate) const fn from_repo_and_configured(
         has_repo: bool,
         git_configured: bool,
         diff_configured: bool,
         ide_configured: bool,
+        github_configured: bool,
     ) -> Self {
         let mut bits = 0;
         if has_repo && git_configured {
@@ -2949,6 +2999,9 @@ impl ProjectCommandAvailability {
         }
         if ide_configured {
             bits |= Self::IDE.0;
+        }
+        if github_configured {
+            bits |= Self::GITHUB.0;
         }
         Self(bits)
     }
@@ -3163,6 +3216,7 @@ pub struct AppState {
     pub git_command: String,
     pub git_diff_command: String,
     pub ide_command: String,
+    pub github_command: String,
     pub pane_border_agent_info: PaneBorderAgentInfoConfig,
     pub pane_history_persistence: bool,
     pub resume_agents_on_restore: bool,
@@ -3572,6 +3626,7 @@ impl AppState {
             self.project_command_configured(ProjectCommandKind::Git),
             self.project_command_configured(ProjectCommandKind::Diff),
             self.project_command_configured(ProjectCommandKind::Ide),
+            self.project_command_configured(ProjectCommandKind::Github),
         )
     }
 
@@ -3600,6 +3655,7 @@ impl AppState {
             ProjectCommandKind::Git => "git",
             ProjectCommandKind::Diff => "diff",
             ProjectCommandKind::Ide => "ide",
+            ProjectCommandKind::Github => "github",
         }
     }
 
@@ -3608,6 +3664,7 @@ impl AppState {
             ProjectCommandKind::Git => &self.git_command,
             ProjectCommandKind::Diff => &self.git_diff_command,
             ProjectCommandKind::Ide => &self.ide_command,
+            ProjectCommandKind::Github => &self.github_command,
         };
         !command.trim().is_empty()
     }
@@ -4008,6 +4065,7 @@ impl AppState {
             git_command: "lazygit".to_string(),
             git_diff_command: "hunk diff --watch".to_string(),
             ide_command: "fresh .".to_string(),
+            github_command: "ghui".to_string(),
             pane_border_agent_info: PaneBorderAgentInfoConfig::default(),
             mobile_width_threshold: crate::config::DEFAULT_MOBILE_WIDTH_THRESHOLD,
             pane_history_persistence: true,
@@ -4072,6 +4130,7 @@ impl AppState {
                 pending_git_command: None,
                 pending_diff_command: None,
                 pending_ide_command: None,
+                pending_github_command: None,
                 pending_sidebar_width: None,
                 pending_sidebar_arrangement: None,
                 pending_sidebar_initial_state: None,

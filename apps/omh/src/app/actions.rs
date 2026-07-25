@@ -38,6 +38,7 @@ fn configured_project_command_at(
         ProjectCommandKind::Git => "git",
         ProjectCommandKind::Diff => "diff",
         ProjectCommandKind::Ide => "ide",
+        ProjectCommandKind::Github => "github",
     };
     let name = location
         .path
@@ -1480,7 +1481,7 @@ impl AppState {
         if !self.project_command_configured(kind) {
             return None;
         }
-        let root = if kind == ProjectCommandKind::Ide {
+        let root = if matches!(kind, ProjectCommandKind::Ide | ProjectCommandKind::Github) {
             self.workspaces
                 .get(ws_idx)?
                 .effective_default_cwd_from(&self.terminals, terminal_runtimes)
@@ -1516,7 +1517,7 @@ impl AppState {
                 self.project_command_role(kind)
             ));
         }
-        if kind == ProjectCommandKind::Ide {
+        if matches!(kind, ProjectCommandKind::Ide | ProjectCommandKind::Github) {
             let root = self
                 .workspaces
                 .get(ws_idx)
@@ -1564,6 +1565,7 @@ impl AppState {
             ProjectCommandKind::Git => &self.git_command,
             ProjectCommandKind::Diff => &self.git_diff_command,
             ProjectCommandKind::Ide => &self.ide_command,
+            ProjectCommandKind::Github => &self.github_command,
         };
         let command = match (kind, configured.trim()) {
             (ProjectCommandKind::Git, crate::lazygit_theme::GIT_COMMAND) => {
@@ -1625,6 +1627,7 @@ impl AppState {
             ProjectCommandKind::Git => &self.git_command,
             ProjectCommandKind::Diff => &self.git_diff_command,
             ProjectCommandKind::Ide => &self.ide_command,
+            ProjectCommandKind::Github => &self.github_command,
         };
         let curated = matches!(
             (kind, configured.trim()),
@@ -5421,6 +5424,33 @@ mod tests {
             .contains("fresh --config \"$config_dir/config.json\" ."));
         assert!(command.command.contains("theme_ref=\"builtin://terminal\""));
         assert!(command.location.is_local());
+    }
+
+    #[test]
+    fn github_command_targets_workspace_without_git_repository() {
+        let project = temp_project("github-workspace-command");
+        let mut state = app_with_workspaces(&["web"]);
+        let terminal_runtimes = crate::terminal::TerminalRuntimeRegistry::new();
+        let root_pane = state.workspaces[0].tabs[0].root_pane;
+        let root_terminal_id = state.terminal_id_for_pane(0, root_pane).unwrap();
+        state.terminals.get_mut(&root_terminal_id).unwrap().cwd = project.clone();
+
+        assert!(state
+            .observed_git_repos_for_workspace(&terminal_runtimes, 0)
+            .is_empty());
+        assert_eq!(
+            state.pending_project_command_tab_for_workspace(
+                &terminal_runtimes,
+                0,
+                ProjectCommandKind::Github,
+            ),
+            Some(1)
+        );
+        let command = state
+            .configured_project_command(project.clone(), ProjectCommandKind::Github, Some(0))
+            .unwrap();
+        assert_eq!(command.command, "ghui");
+        assert_eq!(command.location.path.as_path(), project.as_path());
     }
 
     #[test]
