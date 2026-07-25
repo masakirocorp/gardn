@@ -1,3 +1,9 @@
+## omh@0.3.1
+
+### Restore Windows builds for mixed-host support
+
+Windows builds now keep Unix-only SSH execution workers behind the platform boundary while preserving explicit unsupported results for SSH connection actions.
+
 ## omh@0.3.0
 
 ### Automate live agents from the CLI and Local API
