@@ -1,7 +1,7 @@
 use crate::api::schema::{
     ConnectionAction, ConnectionInstallKind, ConnectionInstallParams, ConnectionInstallPreview,
-    ConnectionInstallReport, ConnectionProfileInfo, ConnectionSaveParams, ConnectionStatusKind,
-    ConnectionTarget, ResponseResult,
+    ConnectionInstallReport, ConnectionProfileInfo, ConnectionRetireParams, ConnectionSaveParams,
+    ConnectionStatusKind, ConnectionTarget, ResponseResult,
 };
 use crate::execution_host::{ConnectionStatus, HostPath};
 
@@ -105,24 +105,33 @@ impl App {
         Ok(())
     }
 
-    pub(crate) fn remove_ssh_connection_profile_if_unreferenced(
-        &mut self,
+    pub(crate) fn ensure_ssh_connection_profile_is_unreferenced(
+        &self,
         profile_id: &str,
-    ) -> Result<bool, ConnectionProfileMutationError> {
-        if let Some(profile) = self
+    ) -> Result<(), ConnectionProfileMutationError> {
+        let Some(profile) = self
             .state
             .ssh_connection_profiles
             .iter()
             .find(|profile| profile.id() == profile_id)
-        {
-            let host_id = profile.execution_host_id();
-            if let Some(reference) = self.ssh_host_reference(&host_id)? {
-                return Err(ConnectionProfileMutationError::Referenced(format!(
-                    "connection profile {} cannot be deleted while referenced by {reference}",
-                    profile.name()
-                )));
-            }
+        else {
+            return Ok(());
+        };
+        let host_id = profile.execution_host_id();
+        if let Some(reference) = self.ssh_host_reference(&host_id)? {
+            return Err(ConnectionProfileMutationError::Referenced(format!(
+                "connection profile {} cannot be deleted while referenced by {reference}",
+                profile.name()
+            )));
         }
+        Ok(())
+    }
+
+    pub(crate) fn remove_ssh_connection_profile_if_unreferenced(
+        &mut self,
+        profile_id: &str,
+    ) -> Result<bool, ConnectionProfileMutationError> {
+        self.ensure_ssh_connection_profile_is_unreferenced(profile_id)?;
         let (removed, catalog) = crate::persist::ssh_profiles::remove(profile_id)
             .map_err(ConnectionProfileMutationError::Persistence)?;
         self.state.ssh_connection_profiles = catalog;
@@ -483,6 +492,316 @@ impl App {
             authentication_owner,
         }
     }
+
+    pub(super) fn handle_connection_retire_start(
+        &mut self,
+        id: String,
+        params: ConnectionRetireParams,
+    ) -> String {
+        let host_id = match self.resolve_connection_retire_host(&id, &params) {
+            Ok(host_id) => host_id,
+            Err(response) => return response,
+        };
+
+        let terminal_ids = params.local_only.then(|| {
+            self.state
+                .terminals
+                .iter()
+                .filter(|(_, terminal)| terminal.location.execution_host_id == host_id)
+                .map(|(terminal_id, _)| terminal_id.clone())
+                .chain(
+                    self.state
+                        .remote_termination_tombstones
+                        .iter()
+                        .filter(|tombstone| tombstone.location.execution_host_id == host_id)
+                        .map(|tombstone| tombstone.terminal_id.clone()),
+                )
+                .collect::<Vec<_>>()
+        });
+        let Some(hosts) = self.execution_hosts.as_mut() else {
+            return encode_error(
+                id,
+                "execution_hosts_unavailable",
+                "execution host manager is unavailable",
+            );
+        };
+        // Idempotent fence: re-start is safe once the host is already retiring.
+        let _ = hosts.begin_host_retirement(host_id.clone());
+        if let Some(terminal_ids) = &terminal_ids {
+            for terminal_id in terminal_ids {
+                let _ = hosts.forget_terminal(terminal_id);
+            }
+        }
+        if params.local_only {
+            self.state
+                .remote_termination_tombstones
+                .retain(|tombstone| tombstone.location.execution_host_id != host_id);
+        }
+
+        if self
+            .state
+            .pending_workspace_create_location
+            .as_ref()
+            .is_some_and(|location| location.execution_host_id == host_id)
+        {
+            self.state.pending_workspace_create_location = None;
+            self.state.requested_new_workspace_name = None;
+            self.state.name_input.clear();
+            self.state.name_input_replace_on_type = false;
+            if self.state.mode == crate::app::state::Mode::RenameWorkspace {
+                self.state.mode = if self.state.active.is_some() {
+                    crate::app::state::Mode::Terminal
+                } else {
+                    crate::app::state::Mode::Navigate
+                };
+            }
+        }
+        if self
+            .default_client_view
+            .pending_workspace_create_location
+            .as_ref()
+            .is_some_and(|location| location.execution_host_id == host_id)
+        {
+            self.default_client_view.pending_workspace_create_location = None;
+            self.default_client_view.pending_workspace_create_group = None;
+            self.default_client_view.name_input.clear();
+            self.default_client_view.name_input_replace_on_type = false;
+            if self.default_client_view.mode == crate::app::state::Mode::RenameWorkspace {
+                self.default_client_view.mode =
+                    if self.default_client_view.active_workspace.is_some() {
+                        crate::app::state::Mode::Terminal
+                    } else {
+                        crate::app::state::Mode::Navigate
+                    };
+            }
+        }
+
+        self.rewrite_live_session_defaults_for_host(&host_id);
+
+        let pane_ids = self.public_pane_ids_on_host(&host_id);
+        for pane_id in pane_ids {
+            if let Err(response) = self.close_pane(
+                id.clone(),
+                &crate::api::schema::PaneTarget {
+                    pane_id: pane_id.clone(),
+                },
+            ) {
+                // A pane may disappear between inventory and close (race with
+                // another client). Continue closing the rest so retirement stays
+                // progress-oriented; fail closed only on unexpected codes.
+                if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&response) {
+                    if parsed["error"]["code"] == "pane_not_found" {
+                        continue;
+                    }
+                }
+                return response;
+            }
+        }
+
+        // Durability before accept: schedule/persist so a crash after acceptance
+        // still sees fenced cleanup state (defaults rewritten, panes closed).
+        self.schedule_session_save();
+        if let Err(error) = self.try_save_session_now() {
+            return encode_error(id, "connection_retire_persist_failed", error.to_string());
+        }
+
+        let counts = self.connection_retire_counts(&host_id);
+        encode_success(
+            id,
+            ResponseResult::ConnectionRetireStart {
+                profile_id: params.profile_id,
+                execution_host_id: host_id.as_str().to_string(),
+                accepted: true,
+                remaining_panes: counts.remaining_panes,
+                remaining_terminals: counts.remaining_terminals,
+                pending_terminations: counts.pending_terminations,
+            },
+        )
+    }
+
+    pub(super) fn handle_connection_retire_status(
+        &mut self,
+        id: String,
+        params: ConnectionRetireParams,
+    ) -> String {
+        let host_id = match self.resolve_connection_retire_host(&id, &params) {
+            Ok(host_id) => host_id,
+            Err(response) => return response,
+        };
+
+        let counts = self.connection_retire_counts(&host_id);
+        let manager_ready = self
+            .execution_hosts
+            .as_ref()
+            .is_some_and(|hosts| hosts.host_retirement_ready(&host_id));
+        let ready = counts.is_clear() && manager_ready;
+
+        if ready {
+            // Cooperative worker shutdown once live references are gone. Repeated
+            // status must stay safe when the transport is already gone.
+            if let Some(hosts) = self.execution_hosts.as_mut() {
+                match hosts.request_worker_shutdown(&host_id) {
+                    Ok(_) => {}
+                    Err(crate::execution_host::HostOperationError::Unavailable { .. }) => {}
+                    Err(error) => {
+                        tracing::debug!(
+                            host_id = %host_id.as_str(),
+                            error = %error,
+                            "connection retire status: worker shutdown request skipped"
+                        );
+                    }
+                }
+            }
+        }
+
+        encode_success(
+            id,
+            ResponseResult::ConnectionRetireStatus {
+                profile_id: params.profile_id,
+                execution_host_id: host_id.as_str().to_string(),
+                ready,
+                remaining_panes: counts.remaining_panes,
+                remaining_terminals: counts.remaining_terminals,
+                pending_terminations: counts.pending_terminations,
+            },
+        )
+    }
+
+    fn resolve_connection_retire_host(
+        &self,
+        id: &str,
+        params: &ConnectionRetireParams,
+    ) -> Result<crate::execution_host::ExecutionHostId, String> {
+        let Some(profile) = self
+            .state
+            .ssh_connection_profiles
+            .iter()
+            .find(|profile| profile.id() == params.profile_id)
+        else {
+            return Err(encode_error(
+                id.to_string(),
+                "connection_profile_not_found",
+                format!("connection profile {} not found", params.profile_id),
+            ));
+        };
+
+        let requested =
+            match crate::execution_host::ExecutionHostId::new(params.execution_host_id.clone()) {
+                Ok(host_id) => host_id,
+                Err(error) => {
+                    return Err(encode_error(
+                        id.to_string(),
+                        "connection_retire_host_invalid",
+                        error.to_string(),
+                    ));
+                }
+            };
+
+        let profile_host = profile.execution_host_id();
+        if profile_host != requested {
+            return Err(encode_error(
+                id.to_string(),
+                "connection_retire_host_mismatch",
+                format!(
+                    "connection profile {} maps to execution host {}, not {}",
+                    params.profile_id,
+                    profile_host.as_str(),
+                    requested.as_str()
+                ),
+            ));
+        }
+
+        Ok(profile_host)
+    }
+
+    fn rewrite_live_session_defaults_for_host(
+        &mut self,
+        host_id: &crate::execution_host::ExecutionHostId,
+    ) {
+        let group_indexes: Vec<usize> = self
+            .state
+            .groups
+            .iter()
+            .enumerate()
+            .filter_map(|(idx, group)| {
+                group
+                    .default_location
+                    .as_ref()
+                    .is_some_and(|location| &location.execution_host_id == host_id)
+                    .then_some(idx)
+            })
+            .collect();
+        for group_idx in group_indexes {
+            let _ = self.state.set_group_default_location(group_idx, None);
+        }
+
+        let workspace_rewrites: Vec<(usize, crate::execution_host::ResourceLocation)> = self
+            .state
+            .workspaces
+            .iter()
+            .enumerate()
+            .filter(|(_, workspace)| &workspace.default_location.execution_host_id == host_id)
+            .map(|(idx, _)| {
+                let replacement =
+                    crate::execution_host::connection_retirement::local_retirement_replacement();
+                (idx, replacement)
+            })
+            .collect();
+        for (ws_idx, location) in workspace_rewrites {
+            let _ = self.state.set_workspace_default_location(ws_idx, location);
+        }
+    }
+
+    fn public_pane_ids_on_host(
+        &self,
+        host_id: &crate::execution_host::ExecutionHostId,
+    ) -> Vec<String> {
+        let mut pane_ids = Vec::new();
+        for (ws_idx, workspace) in self.state.workspaces.iter().enumerate() {
+            for tab in &workspace.tabs {
+                let mut panes: Vec<_> = tab.panes.iter().collect();
+                panes.sort_by_key(|(pane_id, _)| pane_id.raw());
+                for (pane_id, pane) in panes {
+                    let Some(terminal) = self.state.terminals.get(&pane.attached_terminal_id)
+                    else {
+                        continue;
+                    };
+                    if &terminal.location.execution_host_id != host_id {
+                        continue;
+                    }
+                    if let Some(public_id) = self.public_pane_id(ws_idx, *pane_id) {
+                        pane_ids.push(public_id);
+                    }
+                }
+            }
+        }
+        pane_ids
+    }
+
+    fn connection_retire_counts(
+        &self,
+        host_id: &crate::execution_host::ExecutionHostId,
+    ) -> ConnectionRetireCounts {
+        let remaining_panes = self.public_pane_ids_on_host(host_id).len();
+        let remaining_terminals = self
+            .state
+            .terminals
+            .values()
+            .filter(|terminal| &terminal.location.execution_host_id == host_id)
+            .count();
+        let pending_terminations = self
+            .state
+            .remote_termination_tombstones
+            .iter()
+            .filter(|tombstone| &tombstone.location.execution_host_id == host_id)
+            .count();
+        ConnectionRetireCounts {
+            remaining_panes,
+            remaining_terminals,
+            pending_terminations,
+        }
+    }
+
     fn connection_profile_info(
         &self,
         profile: &crate::persist::ssh_profiles::SshConnectionProfile,
@@ -510,6 +829,19 @@ impl App {
             status,
             error,
         }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct ConnectionRetireCounts {
+    remaining_panes: usize,
+    remaining_terminals: usize,
+    pending_terminations: usize,
+}
+
+impl ConnectionRetireCounts {
+    fn is_clear(self) -> bool {
+        self.remaining_panes == 0 && self.remaining_terminals == 0 && self.pending_terminations == 0
     }
 }
 
@@ -1121,5 +1453,485 @@ mod tests {
             Err(crate::execution_host::auth::AuthenticationCancelled)
         ));
         assert_eq!(channel.challenge_for(initiator_owner), None);
+    }
+
+    fn retire_params(profile_id: &str, execution_host_id: &str) -> ConnectionRetireParams {
+        ConnectionRetireParams {
+            profile_id: profile_id.into(),
+            execution_host_id: execution_host_id.into(),
+            local_only: false,
+        }
+    }
+
+    fn seed_mixed_local_remote_session(app: &mut App) -> crate::execution_host::ExecutionHostId {
+        let profile = profile();
+        let host_id = profile.execution_host_id();
+        app.state.ssh_connection_profiles = vec![profile];
+        app.state.workspaces = vec![crate::workspace::Workspace::test_new("retire-ws")];
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.ensure_test_terminals();
+
+        let remote_location = crate::execution_host::ResourceLocation::new(
+            host_id.clone(),
+            crate::execution_host::HostPath::new("/srv/work").expect("valid host path"),
+        );
+        app.state.groups[0].default_location = Some(remote_location.clone());
+        assert!(app
+            .state
+            .set_workspace_default_location(0, remote_location.clone()));
+
+        // Keep a local pane and add a remote pane on the same workspace.
+        let local_root = app.state.workspaces[0].tabs[0].root_pane;
+        let remote_pane =
+            app.state.workspaces[0].test_split(ratatui::layout::Direction::Horizontal);
+        app.state.ensure_test_terminals();
+        let remote_terminal = app.state.workspaces[0].tabs[0].panes[&remote_pane]
+            .attached_terminal_id
+            .clone();
+        let terminal = app
+            .state
+            .terminals
+            .get_mut(&remote_terminal)
+            .expect("remote terminal");
+        terminal.location = remote_location;
+        terminal.cwd = std::path::PathBuf::from("/srv/work");
+
+        // Local root remains local via ensure_test_terminals defaults.
+        let local_terminal = app.state.workspaces[0].tabs[0].panes[&local_root]
+            .attached_terminal_id
+            .clone();
+        assert!(app
+            .state
+            .terminals
+            .get(&local_terminal)
+            .expect("local terminal")
+            .location
+            .is_local());
+
+        if let Some(hosts) = app.execution_hosts.as_mut() {
+            hosts.connect_test_host(host_id.clone());
+        }
+
+        host_id
+    }
+
+    #[test]
+    fn connection_retire_rejects_host_profile_mismatch() {
+        let mut app = app();
+        app.state.ssh_connection_profiles = vec![profile()];
+        let response = app.handle_connection_retire_start(
+            "retire-mismatch".into(),
+            retire_params("workbox", "ssh:other:1"),
+        );
+        let body: serde_json::Value = serde_json::from_str(&response).expect("json");
+        assert_eq!(body["error"]["code"], "connection_retire_host_mismatch");
+        assert_eq!(app.state.ssh_connection_profiles.len(), 1);
+    }
+
+    #[test]
+    fn connection_retire_start_closes_remote_panes_and_rewrites_defaults() {
+        let (_lock, _env, _base) = isolated_session_home("retire-start-ok");
+        let mut app = session_app();
+        app.no_session = false;
+        if app.execution_hosts.is_none() {
+            return;
+        }
+        let host_id = seed_mixed_local_remote_session(&mut app);
+        let local_root = app.state.workspaces[0].tabs[0].root_pane;
+        let local_terminal = app.state.workspaces[0].tabs[0].panes[&local_root]
+            .attached_terminal_id
+            .clone();
+
+        let pending_location = crate::execution_host::ResourceLocation::new(
+            host_id.clone(),
+            crate::execution_host::HostPath::new("/srv/pending").expect("path"),
+        );
+        app.state.pending_workspace_create_location = Some(pending_location.clone());
+        app.state.mode = crate::app::state::Mode::RenameWorkspace;
+        app.default_client_view.pending_workspace_create_location = Some(pending_location);
+        app.default_client_view.active_workspace = Some(0);
+        app.default_client_view.mode = crate::app::state::Mode::RenameWorkspace;
+
+        let response = app.handle_connection_retire_start(
+            "retire-start".into(),
+            retire_params("workbox", host_id.as_str()),
+        );
+        let body: serde_json::Value = serde_json::from_str(&response).expect("json");
+        assert_eq!(body["result"]["type"], "connection_retire_start");
+        assert_eq!(body["result"]["accepted"], true);
+        assert_eq!(body["result"]["remaining_panes"], 0);
+        assert_eq!(body["result"]["remaining_terminals"], 0);
+        // No tombstones in this pure-state close path.
+        assert_eq!(body["result"]["pending_terminations"], 0);
+
+        assert!(app.state.pending_workspace_create_location.is_none());
+        assert_eq!(app.state.mode, crate::app::state::Mode::Terminal);
+        assert!(app
+            .default_client_view
+            .pending_workspace_create_location
+            .is_none());
+        assert_eq!(
+            app.default_client_view.mode,
+            crate::app::state::Mode::Terminal
+        );
+
+        assert!(app.state.groups[0].default_location.is_none());
+        assert!(app.state.workspaces[0].default_location.is_local());
+        assert_eq!(
+            app.state.workspaces[0].default_location,
+            crate::execution_host::connection_retirement::local_retirement_replacement()
+        );
+        assert_eq!(app.state.workspaces[0].tabs[0].panes.len(), 1);
+        assert!(app.state.terminals.contains_key(&local_terminal));
+        assert!(app.state.terminals.values().all(|terminal| {
+            terminal.location.is_local() || terminal.location.execution_host_id != host_id
+        }));
+        assert_eq!(app.state.ssh_connection_profiles.len(), 1);
+
+        // Fence blocks new host work via a public operation.
+        let probe = crate::execution_host::ResourceLocation::new(
+            host_id.clone(),
+            crate::execution_host::HostPath::new("/srv/new").expect("path"),
+        );
+        let err = app
+            .execution_hosts
+            .as_mut()
+            .expect("hosts")
+            .request_git_status(probe)
+            .expect_err("retiring host must reject new work");
+        assert!(
+            err.to_string().contains("retiring"),
+            "unexpected fence error: {err}"
+        );
+    }
+    #[test]
+    fn successful_retirement_allows_recreating_the_same_connection() {
+        let (_lock, _env, _base) = isolated_session_home("retire-recreate");
+        let mut app = session_app();
+        let profile = profile();
+        let host_id = profile.execution_host_id();
+        app.commit_ssh_connection_profile(profile.clone())
+            .expect("persist profile");
+        let hosts = app.execution_hosts.as_mut().expect("hosts");
+        hosts.connect_test_host(host_id.clone());
+        assert!(hosts.begin_host_retirement(host_id.clone()));
+
+        let approved =
+            crate::execution_host::connection_retirement::ApprovedConnectionRetirement::LocalOnly {
+                plan: crate::execution_host::connection_retirement::ConnectionRetirementPlan {
+                    host_id: host_id.clone(),
+                    sessions: Vec::new(),
+                },
+            };
+        let journal =
+            crate::execution_host::connection_retirement::begin_connection_retirement_journal(
+                profile.id(),
+                approved,
+            )
+            .expect("retirement journal");
+        let result = app
+            .finalize_connection_retirement(
+                profile.id(),
+                &Ok("retired".to_string()),
+                &Some(journal),
+            )
+            .expect("finalize retirement");
+        assert_eq!(result, "retired");
+
+        app.commit_ssh_connection_profile(profile)
+            .expect("recreate profile");
+        let hosts = app.execution_hosts.as_mut().expect("hosts");
+        hosts.connect_test_host(host_id.clone());
+        let probe = crate::execution_host::ResourceLocation::new(
+            host_id,
+            crate::execution_host::HostPath::new("/srv/new").expect("path"),
+        );
+        hosts
+            .request_git_status(probe)
+            .expect("recreated host should accept work");
+    }
+
+    #[test]
+    fn failed_profile_removal_keeps_retirement_journal_for_retry() {
+        let (_lock, _env, _base) = isolated_session_home("retire-finalize-retry");
+        let mut app = session_app();
+        let profile = profile();
+        let host_id = profile.execution_host_id();
+        app.commit_ssh_connection_profile(profile.clone())
+            .expect("persist profile");
+        app.state.pending_workspace_create_location =
+            Some(crate::execution_host::ResourceLocation::new(
+                host_id.clone(),
+                crate::execution_host::HostPath::new("/srv/pending").expect("path"),
+            ));
+        let approved =
+            crate::execution_host::connection_retirement::ApprovedConnectionRetirement::LocalOnly {
+                plan: crate::execution_host::connection_retirement::ConnectionRetirementPlan {
+                    host_id: host_id.clone(),
+                    sessions: Vec::new(),
+                },
+            };
+        let journal =
+            crate::execution_host::connection_retirement::begin_connection_retirement_journal(
+                profile.id(),
+                approved,
+            )
+            .expect("retirement journal");
+
+        let error = app
+            .finalize_connection_retirement(
+                profile.id(),
+                &Ok("retired".to_string()),
+                &Some(journal),
+            )
+            .expect_err("pending create must block profile removal");
+        assert!(error.contains("pending terminal create"));
+        assert_eq!(app.state.ssh_connection_profiles.len(), 1);
+        assert_eq!(
+            crate::execution_host::connection_retirement::pending_connection_retirement_host()
+                .expect("journal state")
+                .as_ref(),
+            Some(&host_id)
+        );
+    }
+
+    #[test]
+    fn pending_local_forget_resumes_and_completes_after_restart() {
+        let (_lock, _env, _base) = isolated_session_home("retire-resume");
+        let mut app = session_app();
+        let profile = profile();
+        let host_id = profile.execution_host_id();
+        app.commit_ssh_connection_profile(profile.clone())
+            .expect("persist profile");
+        let plan =
+            crate::execution_host::connection_retirement::plan_connection_retirement(&host_id)
+                .expect("retirement plan");
+        let approved =
+            crate::execution_host::connection_retirement::ApprovedConnectionRetirement::LocalOnly {
+                plan,
+            };
+        let journal =
+            crate::execution_host::connection_retirement::begin_connection_retirement_journal(
+                profile.id(),
+                approved,
+            )
+            .expect("retirement journal");
+
+        drop(journal);
+
+        app.resume_pending_connection_retirement()
+            .expect("resume retirement");
+        let completion = app.event_rx.blocking_recv().expect("retirement completion");
+        assert!(matches!(
+            &completion,
+            crate::events::AppEvent::ConnectionRetired {
+                result: Ok(_),
+                journal: Some(_),
+                ..
+            }
+        ));
+        app.handle_internal_event(completion);
+
+        assert!(app.state.ssh_connection_profiles.is_empty());
+        assert_eq!(
+            crate::execution_host::connection_retirement::pending_connection_retirement_host()
+                .expect("journal state"),
+            None
+        );
+    }
+
+    #[test]
+    fn restart_finishes_journal_after_profile_was_already_removed() {
+        let (_lock, _env, _base) = isolated_session_home("retire-profile-removed");
+        let mut app = session_app();
+        let profile = profile();
+        let host_id = profile.execution_host_id();
+        let approved =
+            crate::execution_host::connection_retirement::ApprovedConnectionRetirement::LocalOnly {
+                plan: crate::execution_host::connection_retirement::ConnectionRetirementPlan {
+                    host_id: host_id.clone(),
+                    sessions: Vec::new(),
+                },
+            };
+        let journal =
+            crate::execution_host::connection_retirement::begin_connection_retirement_journal(
+                profile.id(),
+                approved,
+            )
+            .expect("retirement journal");
+        drop(journal);
+        let hosts = app.execution_hosts.as_mut().expect("hosts");
+        hosts.connect_test_host(host_id.clone());
+        assert!(hosts.begin_host_retirement(host_id.clone()));
+
+        app.resume_pending_connection_retirement()
+            .expect("finish pending journal");
+        assert_eq!(
+            crate::execution_host::connection_retirement::pending_connection_retirement_host()
+                .expect("journal state"),
+            None
+        );
+
+        app.commit_ssh_connection_profile(profile)
+            .expect("recreate profile");
+        let hosts = app.execution_hosts.as_mut().expect("hosts");
+        hosts.connect_test_host(host_id.clone());
+        hosts
+            .request_git_status(crate::execution_host::ResourceLocation::new(
+                host_id,
+                crate::execution_host::HostPath::new("/srv/new").expect("path"),
+            ))
+            .expect("recreated host should accept work");
+    }
+
+    #[test]
+    fn local_only_forget_drops_coordinator_state_without_remote_cleanup() {
+        let (_lock, _env, _base) = isolated_session_home("retire-local-forget");
+        let mut app = session_app();
+        app.no_session = false;
+        if app.execution_hosts.is_none() {
+            return;
+        }
+        let host_id = seed_mixed_local_remote_session(&mut app);
+        let tombstone_id = crate::terminal::TerminalId::alloc();
+        app.state
+            .remote_termination_tombstones
+            .push(remote_tombstone(tombstone_id.clone(), host_id.clone()));
+        app.execution_hosts
+            .as_mut()
+            .expect("hosts")
+            .restore_termination_pending(
+                tombstone_id,
+                app.state.remote_termination_tombstones[0].location.clone(),
+                app.state.remote_termination_tombstones[0]
+                    .remote_runtime_identity
+                    .clone(),
+            );
+
+        let mut params = retire_params("workbox", host_id.as_str());
+        params.local_only = true;
+        let response = app.handle_connection_retire_start("forget-local".into(), params);
+        let body: serde_json::Value = serde_json::from_str(&response).expect("json");
+
+        assert_eq!(body["result"]["accepted"], true);
+        assert_eq!(body["result"]["remaining_panes"], 0);
+        assert_eq!(body["result"]["remaining_terminals"], 0);
+        assert_eq!(body["result"]["pending_terminations"], 0);
+        assert!(app.state.remote_termination_tombstones.is_empty());
+        assert!(!app
+            .execution_hosts
+            .as_ref()
+            .expect("hosts")
+            .has_host_references(&host_id));
+        assert_eq!(app.state.ssh_connection_profiles.len(), 1);
+    }
+
+    #[test]
+    fn connection_retire_start_is_idempotent() {
+        let (_lock, _env, _base) = isolated_session_home("retire-idempotent");
+        let mut app = session_app();
+        app.no_session = false;
+        if app.execution_hosts.is_none() {
+            return;
+        }
+        let host_id = seed_mixed_local_remote_session(&mut app);
+        let first = app.handle_connection_retire_start(
+            "retire-1".into(),
+            retire_params("workbox", host_id.as_str()),
+        );
+        let second = app.handle_connection_retire_start(
+            "retire-2".into(),
+            retire_params("workbox", host_id.as_str()),
+        );
+        let first_body: serde_json::Value = serde_json::from_str(&first).expect("json");
+        let second_body: serde_json::Value = serde_json::from_str(&second).expect("json");
+        assert_eq!(first_body["result"]["accepted"], true);
+        assert_eq!(second_body["result"]["accepted"], true);
+        assert_eq!(second_body["result"]["remaining_panes"], 0);
+        assert!(app.state.groups[0].default_location.is_none());
+        assert_eq!(app.state.workspaces[0].tabs[0].panes.len(), 1);
+    }
+
+    #[test]
+    fn connection_retire_status_not_ready_while_pending_termination() {
+        let (_lock, _env, _base) = isolated_session_home("retire-status-pending");
+        let mut app = session_app();
+        app.no_session = false;
+        if app.execution_hosts.is_none() {
+            return;
+        }
+        let host_id = seed_mixed_local_remote_session(&mut app);
+        let _ = app.handle_connection_retire_start(
+            "retire-start".into(),
+            retire_params("workbox", host_id.as_str()),
+        );
+
+        let terminal_id = crate::terminal::TerminalId::alloc();
+        let tombstone = remote_tombstone(terminal_id.clone(), host_id.clone());
+        app.state
+            .remote_termination_tombstones
+            .push(tombstone.clone());
+        app.execution_hosts
+            .as_mut()
+            .expect("hosts")
+            .restore_termination_pending(
+                terminal_id,
+                tombstone.location.clone(),
+                tombstone.remote_runtime_identity.clone(),
+            );
+
+        let status = app.handle_connection_retire_status(
+            "retire-status".into(),
+            retire_params("workbox", host_id.as_str()),
+        );
+        let body: serde_json::Value = serde_json::from_str(&status).expect("json");
+        assert_eq!(body["result"]["type"], "connection_retire_status");
+        assert_eq!(body["result"]["ready"], false);
+        assert_eq!(body["result"]["pending_terminations"], 1);
+        assert_eq!(body["result"]["remaining_panes"], 0);
+    }
+
+    #[test]
+    fn connection_retire_status_ready_when_clear_and_fenced() {
+        let (_lock, _env, _base) = isolated_session_home("retire-status-ready");
+        let mut app = session_app();
+        app.no_session = false;
+        if app.execution_hosts.is_none() {
+            return;
+        }
+        let host_id = seed_mixed_local_remote_session(&mut app);
+        let _ = app.handle_connection_retire_start(
+            "retire-start".into(),
+            retire_params("workbox", host_id.as_str()),
+        );
+
+        // First status may not be ready if manager still tracks host refs from
+        // connect_test_host alone; with no panes/terminals/tombstones and fence
+        // set, host_retirement_ready requires no manager host references.
+        // Ensure manager refs are empty.
+        assert!(!app
+            .execution_hosts
+            .as_ref()
+            .expect("hosts")
+            .has_host_references(&host_id));
+
+        let status = app.handle_connection_retire_status(
+            "retire-status".into(),
+            retire_params("workbox", host_id.as_str()),
+        );
+        let body: serde_json::Value = serde_json::from_str(&status).expect("json");
+        assert_eq!(body["result"]["ready"], true);
+        assert_eq!(body["result"]["remaining_panes"], 0);
+        assert_eq!(body["result"]["remaining_terminals"], 0);
+        assert_eq!(body["result"]["pending_terminations"], 0);
+
+        // Repeated status remains safe when transport is already gone.
+        let again = app.handle_connection_retire_status(
+            "retire-status-2".into(),
+            retire_params("workbox", host_id.as_str()),
+        );
+        let again_body: serde_json::Value = serde_json::from_str(&again).expect("json");
+        assert_eq!(again_body["result"]["ready"], true);
     }
 }

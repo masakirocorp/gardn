@@ -218,11 +218,14 @@ Tabs include:
 - Notifications
 - Behavior
 - Commands
+- Connections
 - Agents
 - Integrations
 - Advanced
 
 The modal supports keyboard navigation, mouse navigation, scrollbars, immediate settings updates, a top-right `esc close` affordance, a responsive tab bar, and install/update/uninstall actions in the integrations tab. Appearance owns theme, sidebar, and pane-label settings; notifications owns sounds and toasts; behavior owns prompts and terminal defaults; commands owns the Git, Diff, IDE, and GitHub project launchers.
+
+The Connections tab manages SSH execution hosts and their workers. Connecting installs or updates the versioned execution worker automatically. A compatible worker with live runtimes stays active until it is unused. Removing a connection first inventories every session and managed worker binding, shows each affected Group, Workspace, pane, pending termination, and owned binding, and requires confirmation. Affected Workspace defaults move to the displayed local home directory. Oh My Herdr then fences new work, drains or closes remote panes, rewrites dormant session placement, removes only bindings owned by the connection, and deletes the connection profile only after all sessions are clear. A durable journal keeps a partial removal fenced and resumable after restart. If remote inventory is unavailable, a separate two-step local-only forget shows its local effects and makes no claim that remote processes or worker files were removed.
 
 ### Help and confirmations
 

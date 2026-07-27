@@ -283,6 +283,7 @@ impl HeadlessServer {
     /// - Renders virtually and streams frames to clients
     pub async fn run(&mut self) -> io::Result<()> {
         crate::logging::startup("server");
+        self.app.resume_pending_connection_retirement()?;
 
         // Register SIGINT handler for graceful shutdown.
         let should_quit = self.should_quit.clone();
@@ -2166,6 +2167,39 @@ impl HeadlessServer {
                 profile_id,
                 result,
             } => self.apply_worker_installed_event(*authentication_owner, profile_id, result),
+            AppEvent::ConnectionRetirementPreviewed {
+                authentication_owner,
+                profile_id,
+                result,
+            } => self.apply_connection_retirement_previewed_event(
+                *authentication_owner,
+                profile_id,
+                result,
+            ),
+            AppEvent::ConnectionRetirementStarted {
+                authentication_owner,
+                profile_id,
+                preview,
+            } => self.apply_connection_retirement_started_event(
+                *authentication_owner,
+                profile_id,
+                preview,
+            ),
+            AppEvent::ConnectionRetired {
+                authentication_owner,
+                profile_id,
+                result,
+                journal,
+            } => {
+                let final_result = self
+                    .app
+                    .finalize_connection_retirement(profile_id, result, journal);
+                self.apply_connection_retired_event(
+                    *authentication_owner,
+                    profile_id,
+                    &final_result,
+                )
+            }
             _ => {
                 self.app.handle_internal_event(ev);
                 true
@@ -2219,6 +2253,79 @@ impl HeadlessServer {
         changed |= self
             .app
             .apply_worker_installed_for_owner(owner, profile_id, result);
+        changed
+    }
+
+    fn apply_connection_retirement_previewed_event(
+        &mut self,
+        owner: crate::execution_host::auth::AuthenticationOwner,
+        profile_id: &str,
+        result: &Result<crate::app::state::ConnectionRetirementPreview, String>,
+    ) -> bool {
+        let mut changed = false;
+        for client in self.clients.values_mut() {
+            let Some(view) = client.view_state.as_mut() else {
+                continue;
+            };
+            if crate::app::App::apply_connection_retirement_previewed_to_view(
+                view, owner, profile_id, result,
+            ) {
+                client.render_pending = true;
+                changed = true;
+                break;
+            }
+        }
+        changed |= self
+            .app
+            .apply_connection_retirement_previewed_for_owner(owner, profile_id, result);
+        changed
+    }
+
+    fn apply_connection_retirement_started_event(
+        &mut self,
+        owner: crate::execution_host::auth::AuthenticationOwner,
+        profile_id: &str,
+        preview: &crate::app::state::ConnectionRetirementPreview,
+    ) -> bool {
+        let mut changed = false;
+        for client in self.clients.values_mut() {
+            let Some(view) = client.view_state.as_mut() else {
+                continue;
+            };
+            if crate::app::App::apply_connection_retirement_started_to_view(
+                view, owner, profile_id, preview,
+            ) {
+                client.render_pending = true;
+                changed = true;
+                break;
+            }
+        }
+        changed |= self
+            .app
+            .apply_connection_retirement_started_for_owner(owner, profile_id, preview);
+        changed
+    }
+
+    fn apply_connection_retired_event(
+        &mut self,
+        owner: crate::execution_host::auth::AuthenticationOwner,
+        profile_id: &str,
+        result: &Result<String, String>,
+    ) -> bool {
+        let mut changed = false;
+        for client in self.clients.values_mut() {
+            let Some(view) = client.view_state.as_mut() else {
+                continue;
+            };
+            if crate::app::App::apply_connection_retired_to_view(view, owner, profile_id, result) {
+                client.render_pending = true;
+                changed = true;
+                break;
+            }
+        }
+        changed |= self
+            .app
+            .apply_connection_retired_for_owner(owner, profile_id, result);
         changed
     }
 

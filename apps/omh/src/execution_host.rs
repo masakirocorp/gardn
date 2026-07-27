@@ -5,6 +5,8 @@ use serde::{Deserialize, Deserializer, Serialize};
 pub(crate) mod auth;
 mod connection;
 mod connection_catalog;
+pub(crate) mod connection_retirement;
+pub(crate) mod connection_retirement_runner;
 pub(crate) mod lifecycle;
 pub(crate) mod local;
 mod observation;

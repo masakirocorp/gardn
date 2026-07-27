@@ -97,6 +97,7 @@ pub(crate) struct ExecutionHostManager {
     connections: ConnectionCatalog,
     terminals: RemoteTerminalCoordinator,
     lifecycle_events: Vec<ExecutionHostEvent>,
+    retiring_hosts: HashSet<ExecutionHostId>,
     process_observations: ObservationBroker<TerminalId, ProcessObservation>,
     git_observations: ObservationBroker<ResourceLocation, GitStatusSnapshot>,
     worktree_observations: ObservationBroker<ResourceLocation, Vec<WorktreeSnapshot>>,
@@ -114,6 +115,7 @@ impl ExecutionHostManager {
             connections: ConnectionCatalog::new(installation_id, session_namespace_id),
             terminals: RemoteTerminalCoordinator::new(),
             lifecycle_events: Vec::new(),
+            retiring_hosts: HashSet::new(),
             process_observations: ObservationBroker::new(),
             git_observations: ObservationBroker::new(),
             worktree_observations: ObservationBroker::new(),
@@ -223,12 +225,44 @@ impl ExecutionHostManager {
         self.connections.ensure_host_capability(host_id, capability)
     }
 
+    pub(crate) fn begin_host_retirement(&mut self, host_id: ExecutionHostId) -> bool {
+        self.retiring_hosts.insert(host_id)
+    }
+
+    pub(crate) fn cancel_host_retirement(&mut self, host_id: &ExecutionHostId) -> bool {
+        self.retiring_hosts.remove(host_id)
+    }
+
+    pub(crate) fn host_retirement_ready(&self, host_id: &ExecutionHostId) -> bool {
+        self.retiring_hosts.contains(host_id) && !self.has_host_references(host_id)
+    }
+
+    pub(crate) fn request_worker_shutdown(
+        &mut self,
+        host_id: &ExecutionHostId,
+    ) -> Result<RequestId, HostOperationError> {
+        if !self.host_retirement_ready(host_id) {
+            return Err(HostOperationError::Failed(format!(
+                "execution host {host_id} still owns managed runtimes"
+            )));
+        }
+        self.connections
+            .allocate_and_send(host_id, true, |request_id| CoordinatorMessage::Shutdown {
+                request_id,
+            })
+    }
+
     fn send_host_operation(
         &mut self,
         host_id: ExecutionHostId,
         capability: WorkerCapability,
         build: impl FnOnce(RequestId) -> CoordinatorMessage,
     ) -> Result<RequestId, HostOperationError> {
+        if self.retiring_hosts.contains(&host_id) {
+            return Err(HostOperationError::Failed(format!(
+                "execution host {host_id} is retiring"
+            )));
+        }
         self.connections
             .send_host_operation(host_id, capability, build)
     }
@@ -457,6 +491,9 @@ impl ExecutionHostManager {
             );
         }
         let host_id = location.execution_host_id.clone();
+        if self.retiring_hosts.contains(&host_id) {
+            return Err(format!("execution host {host_id} is retiring"));
+        }
         let pending_create = PendingCreate::new(
             terminal_id.clone(),
             location,
@@ -675,9 +712,9 @@ impl ExecutionHostManager {
             .iter()
             .filter(|(_, record)| {
                 record.attach_pending()
-                    && record.op_seq_ready()
                     && !record.adopt_pending()
                     && !record.termination_pending()
+                    && !self.retiring_hosts.contains(record.host_id())
             })
             .map(|(terminal_id, _)| terminal_id.clone())
             .collect::<Vec<_>>();
@@ -834,7 +871,10 @@ impl ExecutionHostManager {
             return;
         }
         for ((pending_host_id, request_id), pending) in self.terminals.pending_creates() {
-            if pending_host_id != host_id || !should_replay(pending) {
+            if pending_host_id != host_id
+                || self.retiring_hosts.contains(host_id)
+                || !should_replay(pending)
+            {
                 continue;
             }
             if let Err(error) = self
@@ -1563,8 +1603,45 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn retirement_fence_blocks_new_work_until_explicitly_cancelled() {
+        let mut manager = manager();
+        let host_id = ExecutionHostId::new("ssh:workbox:1").unwrap();
+        manager.connect_test_host(host_id.clone());
+        assert!(manager.begin_host_retirement(host_id.clone()));
+
+        let location = ResourceLocation::new(host_id.clone(), HostPath::new("/srv/work").unwrap());
+        let (events_tx, _events_rx) = tokio::sync::mpsc::channel(4);
+        let error = match manager.create_terminal(
+            TerminalId::alloc(),
+            PaneId::alloc(),
+            location.clone(),
+            24,
+            80,
+            1024,
+            crate::terminal_theme::TerminalTheme::default(),
+            events_tx,
+            None,
+            Vec::new(),
+        ) {
+            Ok(_) => panic!("retiring host must reject terminal creation"),
+            Err(error) => error,
+        };
+        assert!(error.contains("retiring"));
+        assert!(matches!(
+            manager.request_git_status(location.clone()),
+            Err(HostOperationError::Failed(message)) if message.contains("retiring")
+        ));
+
+        assert!(manager.cancel_host_retirement(&host_id));
+        manager
+            .request_git_status(location)
+            .expect("cancelled retirement should allow new work");
+    }
+
+    #[tokio::test]
     async fn adopt_result_sets_next_op_seq_and_first_input_uses_last_plus_one() {
         let mut manager = manager();
+
         let host_id = ExecutionHostId::new("ssh:workbox:1").unwrap();
         let messages = manager.connect_test_host(host_id.clone());
         let location = ResourceLocation::new(host_id.clone(), HostPath::new("/srv/work").unwrap());

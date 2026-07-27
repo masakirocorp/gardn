@@ -363,6 +363,8 @@ fn api_method_name(method: &Method) -> &'static str {
         Method::ConnectionConnect(_) => "connection.connect",
         Method::ConnectionDisconnect(_) => "connection.disconnect",
         Method::ConnectionInstall(_) => "connection.install",
+        Method::ConnectionRetireStart(_) => "connection.retire.start",
+        Method::ConnectionRetireStatus(_) => "connection.retire.status",
         Method::NotificationShow(_) => "notification.show",
         Method::ClientWindowTitleSet(_) => "client.window_title.set",
         Method::ClientWindowTitleClear(_) => "client.window_title.clear",

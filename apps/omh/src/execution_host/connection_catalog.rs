@@ -180,6 +180,7 @@ impl ConnectionCatalog {
             .ok_or_else(|| format!("unknown SSH connection profile {profile_id}"))?;
         Ok(WorkerInstaller::new(
             profile,
+            self.installation_id.clone(),
             self.authentication.clone(),
             owner,
         ))

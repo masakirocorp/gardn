@@ -9,10 +9,10 @@ use crate::execution_host::protocol::{
     validate_first_coordinator_message, CoordinatorInstallationId, CoordinatorMessage,
     HostBindingGeneration, SessionNamespaceId, WorkerInstanceId, PROTOCOL_VERSION,
 };
-use crate::execution_host::runtime_paths::WorkerRolePaths;
+use crate::execution_host::runtime_paths::{BindingOwnershipManifest, WorkerRolePaths};
 use crate::execution_host::ExecutionHostId;
 
-use super::util::required;
+use super::util::{required, WORKER_APP_VERSION};
 
 #[cfg(unix)]
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -50,15 +50,16 @@ impl DaemonBinding {
             *host_binding_generation,
         );
         role_paths.prepare()?;
-        let socket_path = role_paths.socket_path();
-        Ok(Self {
+        let binding = Self {
             installation_id: coordinator_installation_id.clone(),
             session_namespace_id: session_namespace_id.clone(),
             execution_host_id: execution_host_id.clone(),
             host_binding_generation: *host_binding_generation,
             worker_instance_id,
-            socket_path,
-        })
+            socket_path: role_paths.socket_path(),
+        };
+        binding.write_ownership_manifest()?;
+        Ok(binding)
     }
 
     pub(super) fn parse(args: &[String]) -> io::Result<Self> {
@@ -124,14 +125,16 @@ impl DaemonBinding {
             ));
         }
         role_paths.prepare()?;
-        Ok(Self {
+        let binding = Self {
             installation_id,
             session_namespace_id,
             execution_host_id,
             host_binding_generation,
             worker_instance_id,
             socket_path,
-        })
+        };
+        binding.write_ownership_manifest()?;
+        Ok(binding)
     }
 
     pub(super) fn daemon_args(&self) -> Vec<String> {
@@ -187,6 +190,19 @@ impl DaemonBinding {
             &self.execution_host_id,
             self.host_binding_generation,
         )
+    }
+
+    pub(super) fn write_ownership_manifest(&self) -> io::Result<()> {
+        let role_paths = self.role_paths();
+        let manifest = BindingOwnershipManifest::new(
+            &self.installation_id,
+            &self.session_namespace_id,
+            &self.execution_host_id,
+            self.host_binding_generation,
+            self.worker_instance_id.to_string(),
+            WORKER_APP_VERSION,
+        );
+        role_paths.write_ownership_manifest(&manifest)
     }
 }
 

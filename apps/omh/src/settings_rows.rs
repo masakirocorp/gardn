@@ -1061,6 +1061,7 @@ pub(crate) enum ConnectionAction {
     InstallWorker,
     ConfirmWorker,
     CancelWorker,
+    ForgetConnection,
     ForgetTermination { offset: usize },
 }
 
@@ -1086,7 +1087,8 @@ impl ConnectionRowId {
             Self::Action(ConnectionAction::InstallWorker) => 9,
             Self::Action(ConnectionAction::ConfirmWorker) => 10,
             Self::Action(ConnectionAction::CancelWorker) => 11,
-            Self::Action(ConnectionAction::ForgetTermination { offset }) => 12 + offset,
+            Self::Action(ConnectionAction::ForgetConnection) => 12,
+            Self::Action(ConnectionAction::ForgetTermination { offset }) => 13 + offset,
         }
     }
 
@@ -1104,8 +1106,9 @@ impl ConnectionRowId {
             9 => Self::Action(ConnectionAction::InstallWorker),
             10 => Self::Action(ConnectionAction::ConfirmWorker),
             11 => Self::Action(ConnectionAction::CancelWorker),
-            offset if offset >= 12 => Self::Action(ConnectionAction::ForgetTermination {
-                offset: offset - 12,
+            12 => Self::Action(ConnectionAction::ForgetConnection),
+            offset if offset >= 13 => Self::Action(ConnectionAction::ForgetTermination {
+                offset: offset - 13,
             }),
             _ => return None,
         })
@@ -1261,12 +1264,60 @@ fn connection_editor_rows(app: &AppState, settings: &SettingsState) -> Vec<Setti
         tone: SettingsMarkerTone::Disabled,
     });
     if editing {
+        let (delete_label, delete_tone) = match editor.connection_retirement.as_ref() {
+            None => (
+                "remove connection and managed worker",
+                SettingsMarkerTone::Danger,
+            ),
+            Some(crate::app::state::ConnectionRetirementState::InventoryPending) => (
+                "inventorying removal impact...",
+                SettingsMarkerTone::Disabled,
+            ),
+            Some(crate::app::state::ConnectionRetirementState::Review(_)) => (
+                "confirm stop managed work and remove connection",
+                SettingsMarkerTone::Danger,
+            ),
+            Some(crate::app::state::ConnectionRetirementState::Running(_)) => {
+                ("removing connection...", SettingsMarkerTone::Disabled)
+            }
+            Some(crate::app::state::ConnectionRetirementState::Failed(_)) => {
+                ("retry removal inventory", SettingsMarkerTone::Danger)
+            }
+            Some(crate::app::state::ConnectionRetirementState::LocalForgetReview { .. }) => {
+                ("retry full removal inventory", SettingsMarkerTone::Danger)
+            }
+            Some(crate::app::state::ConnectionRetirementState::LocalForgetRunning) => (
+                "forgetting local connection state...",
+                SettingsMarkerTone::Disabled,
+            ),
+        };
         rows.push(SettingsListRow::Action {
             index: ConnectionRowId::Action(ConnectionAction::Delete).selection_index(),
             icon: "×".into(),
-            label: "delete connection profile".into(),
-            tone: SettingsMarkerTone::Danger,
+            label: delete_label.into(),
+            tone: delete_tone,
         });
+        rows.extend(connection_retirement_preview_rows(editor));
+        if matches!(
+            editor.connection_retirement,
+            Some(crate::app::state::ConnectionRetirementState::Failed(_))
+                | Some(crate::app::state::ConnectionRetirementState::LocalForgetReview { .. })
+        ) {
+            rows.push(SettingsListRow::Action {
+                index: ConnectionRowId::Action(ConnectionAction::ForgetConnection)
+                    .selection_index(),
+                icon: "×".into(),
+                label: if matches!(
+                    editor.connection_retirement,
+                    Some(crate::app::state::ConnectionRetirementState::LocalForgetReview { .. })
+                ) {
+                    "confirm forget local state without remote cleanup".into()
+                } else {
+                    "review local-only forget".into()
+                },
+                tone: SettingsMarkerTone::Danger,
+            });
+        }
         let profile = editor.profile_id().and_then(|profile_id| {
             app.ssh_connection_profiles
                 .iter()
@@ -1361,7 +1412,8 @@ fn connection_editor_rows(app: &AppState, settings: &SettingsState) -> Vec<Setti
                 });
             } else {
                 rows.push(SettingsListRow::Caption(
-                    "probe first; setup never runs during test or connect".into(),
+                    "saving this profile authorizes managed worker setup; connect installs or updates it automatically"
+                        .into(),
                 ));
                 rows.push(SettingsListRow::Action {
                     index: ConnectionRowId::Action(ConnectionAction::InstallWorker)
@@ -1421,6 +1473,116 @@ fn connection_editor_rows(app: &AppState, settings: &SettingsState) -> Vec<Setti
                     });
                 }
             }
+        }
+    }
+    rows
+}
+
+fn connection_retirement_preview_rows(
+    editor: &crate::app::state::ConnectionEditorState,
+) -> Vec<SettingsListRow> {
+    use crate::app::state::ConnectionRetirementState;
+
+    let Some(state) = editor.connection_retirement.as_ref() else {
+        return Vec::new();
+    };
+    if matches!(state, ConnectionRetirementState::InventoryPending) {
+        return vec![SettingsListRow::Caption(
+            "Checking every session and managed worker binding. No resources have changed.".into(),
+        )];
+    }
+    if let ConnectionRetirementState::Failed(error) = state {
+        return vec![
+            SettingsListRow::Caption(format!("Removal inventory failed safely: {error}").into()),
+            SettingsListRow::Caption(
+                "Local-only forget does not stop remote processes or remove managed worker files."
+                    .into(),
+            ),
+        ];
+    }
+    if let ConnectionRetirementState::LocalForgetReview { plan, reason } = state {
+        let mut rows = vec![
+            SettingsListRow::Caption(
+                format!("Remote cleanup is unavailable: {reason}").into(),
+            ),
+            SettingsListRow::Caption(
+                "Review local effects. Confirmation does not stop remote processes or remove managed worker files."
+                    .into(),
+            ),
+        ];
+        rows.extend(connection_retirement_plan_rows(plan));
+        return rows;
+    }
+    let (preview, running) = match state {
+        ConnectionRetirementState::Review(preview) => (preview, false),
+        ConnectionRetirementState::Running(preview) => (preview, true),
+        ConnectionRetirementState::InventoryPending
+        | ConnectionRetirementState::Failed(_)
+        | ConnectionRetirementState::LocalForgetReview { .. }
+        | ConnectionRetirementState::LocalForgetRunning => unreachable!(),
+    };
+
+    let mut rows = vec![SettingsListRow::Caption(
+        if running {
+            "Stopping only Oh My Herdr-managed work. Unrelated remote processes are untouched."
+        } else {
+            "Review all effects. Confirmation stops Oh My Herdr-managed processes across sessions."
+        }
+        .into(),
+    )];
+    rows.extend(connection_retirement_plan_rows(&preview.plan));
+    for binding in &preview.bindings.bindings {
+        rows.push(SettingsListRow::Caption(
+            format!(
+                "managed worker pid {}: {}",
+                binding.ownership.pid,
+                if binding.lock_live {
+                    "running"
+                } else {
+                    "stopped"
+                },
+            )
+            .into(),
+        ));
+    }
+    if preview.plan.sessions.is_empty() && preview.bindings.bindings.is_empty() {
+        rows.push(SettingsListRow::Caption(
+            "No session resources or managed worker bindings remain.".into(),
+        ));
+    }
+    rows
+}
+fn connection_retirement_plan_rows(
+    plan: &crate::execution_host::connection_retirement::ConnectionRetirementPlan,
+) -> Vec<SettingsListRow> {
+    let mut rows = Vec::new();
+    for session in &plan.sessions {
+        rows.push(SettingsListRow::Caption(
+            format!(
+                "session {}: {} pane(s), {} pending termination(s)",
+                session.session_name,
+                session.remote_panes.len(),
+                session.pending_terminations.len(),
+            )
+            .into(),
+        ));
+        for group in &session.group_defaults {
+            rows.push(SettingsListRow::Caption(
+                format!("group default cleared: {}", group.group_name).into(),
+            ));
+        }
+        for workspace in &session.workspace_defaults {
+            let name = workspace.workspace_id.as_deref().map_or_else(
+                || format!("#{}", workspace.workspace_index + 1),
+                str::to_string,
+            );
+            rows.push(SettingsListRow::Caption(
+                format!(
+                    "workspace {name}: default becomes Local at {}",
+                    workspace.replacement.path.as_path().display(),
+                )
+                .into(),
+            ));
         }
     }
     rows
@@ -1689,6 +1851,39 @@ mod tests {
         assert_eq!(option_index_for_visual_row(&rows, 1), Some(3));
         assert_eq!(option_index_for_visual_row(&rows, 2), Some(4));
         assert_eq!(option_index_for_visual_row(&rows, 3), None);
+    }
+
+    #[test]
+    fn connection_retirement_preview_discloses_scope_before_confirmation() {
+        let mut editor = crate::app::state::ConnectionEditorState::edit_profile(
+            "robotbox", "Robotbox", "robotbox", "",
+        );
+        editor.connection_retirement = Some(crate::app::state::ConnectionRetirementState::Review(
+            crate::app::state::ConnectionRetirementPreview {
+                plan: crate::execution_host::connection_retirement::ConnectionRetirementPlan {
+                    host_id: crate::execution_host::ExecutionHostId::new("ssh:robotbox:1").unwrap(),
+                    sessions: Vec::new(),
+                },
+                bindings: crate::execution_host::runtime_paths::BindingInventoryReport {
+                    bindings: Vec::new(),
+                },
+            },
+        ));
+
+        let rows = connection_retirement_preview_rows(&editor);
+        let captions: Vec<&str> = rows
+            .iter()
+            .filter_map(|row| match row {
+                SettingsListRow::Caption(text) => Some(text.as_ref()),
+                _ => None,
+            })
+            .collect();
+        assert!(captions
+            .iter()
+            .any(|text| text.contains("Review all effects")));
+        assert!(captions
+            .iter()
+            .any(|text| text.contains("No session resources")));
     }
 
     #[test]

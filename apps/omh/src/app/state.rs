@@ -2787,6 +2787,27 @@ pub struct ConnectionWorkerInstallResult {
     pub result: Result<crate::remote::WorkerInstallReport, String>,
 }
 
+/// Cross-session and managed-binding impact shown before connection retirement.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConnectionRetirementPreview {
+    pub plan: crate::execution_host::connection_retirement::ConnectionRetirementPlan,
+    pub bindings: crate::execution_host::runtime_paths::BindingInventoryReport,
+}
+
+/// Destructive connection retirement state owned by one connection editor.
+#[derive(Debug, Clone)]
+pub enum ConnectionRetirementState {
+    InventoryPending,
+    Review(ConnectionRetirementPreview),
+    Running(ConnectionRetirementPreview),
+    Failed(String),
+    LocalForgetReview {
+        plan: crate::execution_host::connection_retirement::ConnectionRetirementPlan,
+        reason: String,
+    },
+    LocalForgetRunning,
+}
+
 /// Connection editor state: mode + draft + typed install/forget substates.
 ///
 /// Invalid combinations (draft without editor, install for a different profile)
@@ -2798,6 +2819,7 @@ pub struct ConnectionEditorState {
     pub pending_worker_install: Option<ConnectionWorkerInstallPending>,
     pub worker_install_result: Option<ConnectionWorkerInstallResult>,
     pub pending_forget_remote_terminal: Option<crate::terminal::TerminalId>,
+    pub connection_retirement: Option<ConnectionRetirementState>,
 }
 
 impl ConnectionEditorState {
@@ -2808,6 +2830,7 @@ impl ConnectionEditorState {
             pending_worker_install: None,
             worker_install_result: None,
             pending_forget_remote_terminal: None,
+            connection_retirement: None,
         }
     }
 
@@ -2829,6 +2852,7 @@ impl ConnectionEditorState {
             pending_worker_install: None,
             worker_install_result: None,
             pending_forget_remote_terminal: None,
+            connection_retirement: None,
         }
     }
 
@@ -2866,6 +2890,21 @@ impl ConnectionEditorState {
                 });
             }
         }
+        true
+    }
+
+    pub fn apply_retirement_preview(
+        &mut self,
+        profile_id: &str,
+        result: &Result<ConnectionRetirementPreview, String>,
+    ) -> bool {
+        if self.profile_id() != Some(profile_id) {
+            return false;
+        }
+        self.connection_retirement = Some(match result {
+            Ok(preview) => ConnectionRetirementState::Review(preview.clone()),
+            Err(error) => ConnectionRetirementState::Failed(error.clone()),
+        });
         true
     }
 

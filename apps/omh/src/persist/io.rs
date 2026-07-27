@@ -19,6 +19,32 @@ pub(super) fn save_to_path(path: &Path, snapshot: &SessionSnapshot) -> std::io::
     super::atomic_json::save_json(path, snapshot)
 }
 
+/// Atomically persist a session snapshot at an explicit path.
+///
+/// Used by cross-session connection retirement so dormant named sessions can be
+/// rewritten without switching the process-wide active session directory.
+pub(crate) fn try_save_snapshot_at(path: &Path, snapshot: &SessionSnapshot) -> std::io::Result<()> {
+    save_to_path(path, snapshot)
+}
+
+/// Load and parse a session snapshot from an explicit path.
+///
+/// Missing files return `Ok(None)`. Unreadable or invalid snapshots return
+/// `Err` so callers can fail closed.
+pub(crate) fn try_load_snapshot_at(path: &Path) -> std::io::Result<Option<SessionSnapshot>> {
+    if !path.exists() {
+        return Ok(None);
+    }
+    let content = std::fs::read_to_string(path)?;
+    let snapshot = parse_snapshot(&content).map_err(|error| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            format!("cannot parse session snapshot {}: {error}", path.display()),
+        )
+    })?;
+    Ok(Some(snapshot))
+}
+
 fn save_json_to_path<T: serde::Serialize>(path: &Path, snapshot: &T) -> std::io::Result<()> {
     super::atomic_json::save_json(path, snapshot)
 }

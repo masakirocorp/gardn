@@ -89,7 +89,18 @@ pub(crate) enum SettingsAction {
     SaveAgentProfile(crate::agent_profiles::UserAgentProfileConfig),
     DeleteAgentProfile(String),
     SaveSshConnectionProfile(crate::persist::ssh_profiles::SshConnectionProfile),
-    DeleteSshConnectionProfile(String),
+    PreviewSshConnectionRetirement(String),
+    ConfirmSshConnectionRetirement {
+        profile_id: String,
+        preview: crate::app::state::ConnectionRetirementPreview,
+    },
+    RequestLocalConnectionForget {
+        profile_id: String,
+    },
+    ConfirmLocalConnectionForget {
+        profile_id: String,
+        plan: crate::execution_host::connection_retirement::ConnectionRetirementPlan,
+    },
     TestSshConnection {
         profile_id: String,
     },
@@ -215,8 +226,67 @@ impl App {
             SettingsAction::SaveSshConnectionProfile(profile) => {
                 self.save_ssh_connection_profile(profile)
             }
-            SettingsAction::DeleteSshConnectionProfile(profile_id) => {
-                self.delete_ssh_connection_profile(&profile_id)
+            SettingsAction::PreviewSshConnectionRetirement(profile_id) => {
+                let owner = crate::execution_host::auth::AuthenticationOwner::new(
+                    self.default_client_view.id(),
+                );
+                self.preview_connection_retirement_for(owner, profile_id);
+            }
+            SettingsAction::ConfirmSshConnectionRetirement {
+                profile_id,
+                preview,
+            } => {
+                let owner = crate::execution_host::auth::AuthenticationOwner::new(
+                    self.default_client_view.id(),
+                );
+                self.retire_connection_for(owner, profile_id, preview);
+            }
+            SettingsAction::RequestLocalConnectionForget { profile_id } => {
+                let reason = self
+                    .state
+                    .settings
+                    .connection_editor
+                    .as_ref()
+                    .and_then(|editor| match editor.connection_retirement.as_ref() {
+                        Some(crate::app::state::ConnectionRetirementState::Failed(error)) => {
+                            Some(error.clone())
+                        }
+                        _ => None,
+                    })
+                    .unwrap_or_else(|| "remote cleanup is unavailable".to_string());
+                let plan = self
+                    .state
+                    .ssh_connection_profiles
+                    .iter()
+                    .find(|profile| profile.id() == profile_id)
+                    .ok_or_else(|| "connection profile no longer exists".to_string())
+                    .and_then(|profile| {
+                        crate::execution_host::connection_retirement::plan_connection_retirement(
+                            &profile.execution_host_id(),
+                        )
+                        .map_err(|error| error.to_string())
+                    });
+                if let Some(editor) = self.state.settings.connection_editor.as_mut() {
+                    if editor.profile_id() == Some(profile_id.as_str()) {
+                        editor.connection_retirement = Some(match plan {
+                            Ok(plan) => {
+                                crate::app::state::ConnectionRetirementState::LocalForgetReview {
+                                    plan,
+                                    reason,
+                                }
+                            }
+                            Err(error) => {
+                                crate::app::state::ConnectionRetirementState::Failed(error)
+                            }
+                        });
+                    }
+                }
+            }
+            SettingsAction::ConfirmLocalConnectionForget { profile_id, plan } => {
+                let owner = crate::execution_host::auth::AuthenticationOwner::new(
+                    self.default_client_view.id(),
+                );
+                self.forget_connection_locally_for(owner, profile_id, plan);
             }
             SettingsAction::TestSshConnection { profile_id } => {
                 let owner = crate::execution_host::auth::AuthenticationOwner::new(
@@ -331,19 +401,6 @@ impl App {
             self.state.toast = Some(crate::app::state::ToastNotification {
                 kind: crate::app::state::ToastKind::NeedsAttention,
                 title: "connection profile not saved".to_string(),
-                context: err.to_string(),
-                position: None,
-                target: None,
-            });
-        }
-    }
-
-    /// Remove a connection profile after shared reference guards pass.
-    pub(super) fn delete_ssh_connection_profile(&mut self, profile_id: &str) {
-        if let Err(err) = self.remove_ssh_connection_profile_if_unreferenced(profile_id) {
-            self.state.toast = Some(crate::app::state::ToastNotification {
-                kind: crate::app::state::ToastKind::NeedsAttention,
-                title: "connection profile not deleted".to_string(),
                 context: err.to_string(),
                 position: None,
                 target: None,
@@ -1517,9 +1574,45 @@ fn selected_connection_profile_action(state: &mut AppState) -> Option<SettingsAc
             crate::settings_rows::ConnectionRowId::Action(
                 crate::settings_rows::ConnectionAction::Delete,
             ) => {
-                let profile_id = connection_editor(state)?.profile_id()?.to_string();
-                close_connection_editor(state);
-                Some(SettingsAction::DeleteSshConnectionProfile(profile_id))
+                let editor = connection_editor(state)?;
+                let profile_id = editor.profile_id()?.to_string();
+                match editor.connection_retirement.as_ref() {
+                    None
+                    | Some(crate::app::state::ConnectionRetirementState::InventoryPending)
+                    | Some(crate::app::state::ConnectionRetirementState::Failed(_)) => {
+                        Some(SettingsAction::PreviewSshConnectionRetirement(profile_id))
+                    }
+                    Some(crate::app::state::ConnectionRetirementState::Review(preview)) => {
+                        Some(SettingsAction::ConfirmSshConnectionRetirement {
+                            profile_id,
+                            preview: preview.clone(),
+                        })
+                    }
+                    Some(crate::app::state::ConnectionRetirementState::LocalForgetReview {
+                        ..
+                    }) => Some(SettingsAction::PreviewSshConnectionRetirement(profile_id)),
+                    Some(crate::app::state::ConnectionRetirementState::LocalForgetRunning) => None,
+                    Some(crate::app::state::ConnectionRetirementState::Running(_)) => None,
+                }
+            }
+            crate::settings_rows::ConnectionRowId::Action(
+                crate::settings_rows::ConnectionAction::ForgetConnection,
+            ) => {
+                let editor = connection_editor(state)?;
+                let profile_id = editor.profile_id()?.to_string();
+                match editor.connection_retirement.as_ref() {
+                    Some(crate::app::state::ConnectionRetirementState::Failed(_)) => {
+                        Some(SettingsAction::RequestLocalConnectionForget { profile_id })
+                    }
+                    Some(crate::app::state::ConnectionRetirementState::LocalForgetReview {
+                        plan,
+                        ..
+                    }) => Some(SettingsAction::ConfirmLocalConnectionForget {
+                        profile_id,
+                        plan: plan.clone(),
+                    }),
+                    _ => None,
+                }
             }
             crate::settings_rows::ConnectionRowId::Action(
                 crate::settings_rows::ConnectionAction::Test,
@@ -2742,7 +2835,14 @@ pub(super) fn update_settings_state(state: &mut AppState, key: KeyEvent) -> Opti
                 if let Some(profile_id) =
                     browse_connection_profile_id_for_index(state, state.settings.list.selected)
                 {
-                    return Some(SettingsAction::DeleteSshConnectionProfile(profile_id));
+                    let _ = load_connection_profile_editor(state, &profile_id);
+                    state.settings.list.select(
+                        crate::settings_rows::ConnectionRowId::Action(
+                            crate::settings_rows::ConnectionAction::Delete,
+                        )
+                        .selection_index(),
+                    );
+                    return Some(SettingsAction::PreviewSshConnectionRetirement(profile_id));
                 }
             }
             KeyCode::BackTab | KeyCode::Left | KeyCode::Char('h') => {
@@ -6538,7 +6638,7 @@ mod tests {
     }
 
     #[test]
-    fn connection_delete_removes_profile_from_catalog() {
+    fn connection_delete_requires_retirement_preview_before_catalog_mutation() {
         let (_lock, _xdg) = isolated_ssh_catalog("delete");
         let mut app = app_for_mouse_test();
         seed_connection_profile(
@@ -6557,26 +6657,79 @@ mod tests {
         for _ in 0..CONNECTION_DELETE_INDEX {
             connection_key(&mut app.state, KeyCode::Down);
         }
-        assert_eq!(app.state.settings.list.selected, CONNECTION_DELETE_INDEX);
         let action = connection_key(&mut app.state, KeyCode::Enter);
         assert_eq!(
             action,
-            Some(SettingsAction::DeleteSshConnectionProfile(
+            Some(SettingsAction::PreviewSshConnectionRetirement(
                 "build-box".to_string()
             ))
         );
-        app.apply_settings_action(action.expect("delete action"));
-
-        assert_eq!(app.state.ssh_connection_profiles.len(), 1);
-        assert_eq!(app.state.ssh_connection_profiles[0].id(), "staging");
-        let on_disk = crate::persist::ssh_profiles::load();
-        assert_eq!(on_disk.len(), 1);
-        assert_eq!(on_disk[0].id(), "staging");
-        assert!(app.state.settings.connection_editor.is_none());
+        assert_eq!(app.state.ssh_connection_profiles.len(), 2);
+        assert!(app.state.settings.connection_editor.is_some());
     }
 
     #[test]
-    fn connection_browse_ctrl_d_returns_delete_action() {
+    fn failed_retirement_requires_separate_confirmation_for_local_forget() {
+        let (_lock, _xdg) = isolated_ssh_catalog("local-forget");
+        let mut app = app_for_mouse_test();
+        seed_connection_profile(
+            &mut app,
+            "build-box",
+            "build box",
+            "builder@example.com",
+            None,
+        );
+        open_settings_at(&mut app.state, SettingsSection::Connections);
+        connection_key(&mut app.state, KeyCode::Down);
+        connection_key(&mut app.state, KeyCode::Down);
+        connection_key(&mut app.state, KeyCode::Enter);
+        app.state
+            .settings
+            .connection_editor
+            .as_mut()
+            .expect("editor")
+            .connection_retirement = Some(crate::app::state::ConnectionRetirementState::Failed(
+            "remote host unavailable".to_string(),
+        ));
+        app.state.settings.list.selected = crate::settings_rows::ConnectionRowId::Action(
+            crate::settings_rows::ConnectionAction::ForgetConnection,
+        )
+        .selection_index();
+
+        let request = selected_connection_profile_action(&mut app.state);
+        assert_eq!(
+            request,
+            Some(SettingsAction::RequestLocalConnectionForget {
+                profile_id: "build-box".to_string()
+            })
+        );
+        app.apply_settings_action(request.expect("request"));
+        match selected_connection_profile_action(&mut app.state) {
+            Some(SettingsAction::ConfirmLocalConnectionForget { profile_id, plan }) => {
+                assert_eq!(profile_id, "build-box");
+                assert_eq!(plan.host_id.as_str(), "ssh:build-box:1");
+            }
+            other => panic!("expected confirmed local forget, got {other:?}"),
+        }
+        let rows = crate::settings_rows::rows_for_section(
+            &app.state,
+            crate::app::state::SettingsSection::Connections,
+        )
+        .expect("connection rows");
+        assert!(rows.iter().any(|row| matches!(
+            row,
+            crate::settings_rows::SettingsListRow::Caption(text)
+                if text.contains("does not stop remote processes")
+        )));
+        assert!(rows.iter().any(|row| matches!(
+            row,
+            crate::settings_rows::SettingsListRow::Action { label, .. }
+                if label.contains("confirm forget local state")
+        )));
+    }
+
+    #[test]
+    fn connection_browse_ctrl_d_opens_retirement_confirmation() {
         let (_lock, _xdg) = isolated_ssh_catalog("ctrl-d-delete");
         let mut app = app_for_mouse_test();
         seed_connection_profile(
@@ -6595,11 +6748,12 @@ mod tests {
         );
         assert_eq!(
             action,
-            Some(SettingsAction::DeleteSshConnectionProfile(
+            Some(SettingsAction::PreviewSshConnectionRetirement(
                 "build-box".to_string()
             ))
         );
-        assert!(app.state.settings.connection_editor.is_none());
+        assert!(app.state.settings.connection_editor.is_some());
+        assert_eq!(app.state.settings.list.selected, CONNECTION_DELETE_INDEX);
         assert_eq!(app.state.ssh_connection_profiles.len(), 1);
     }
 

@@ -745,8 +745,11 @@ impl App {
                     SettingsAction::SaveSshConnectionProfile(profile) => {
                         self.save_ssh_connection_profile(profile)
                     }
-                    SettingsAction::DeleteSshConnectionProfile(profile_id) => {
-                        self.delete_ssh_connection_profile(&profile_id)
+                    action @ (SettingsAction::PreviewSshConnectionRetirement(_)
+                    | SettingsAction::ConfirmSshConnectionRetirement { .. }
+                    | SettingsAction::RequestLocalConnectionForget { .. }
+                    | SettingsAction::ConfirmLocalConnectionForget { .. }) => {
+                        self.apply_settings_action(action)
                     }
                     SettingsAction::TestSshConnection { profile_id } => {
                         let owner = crate::execution_host::auth::AuthenticationOwner::new(

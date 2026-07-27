@@ -145,4 +145,24 @@ pub enum AppEvent {
         profile_id: String,
         result: Result<crate::remote::WorkerInstallReport, String>,
     },
+    /// Cross-session and managed-binding inventory completed for destructive removal.
+    ConnectionRetirementPreviewed {
+        authentication_owner: crate::execution_host::auth::AuthenticationOwner,
+        profile_id: String,
+        result: Result<crate::app::state::ConnectionRetirementPreview, String>,
+    },
+    /// Confirmed connection retirement started for one client-owned editor.
+    ConnectionRetirementStarted {
+        authentication_owner: crate::execution_host::auth::AuthenticationOwner,
+        profile_id: String,
+        preview: crate::app::state::ConnectionRetirementPreview,
+    },
+    /// Global connection retirement finished or stopped safely.
+    ConnectionRetired {
+        authentication_owner: crate::execution_host::auth::AuthenticationOwner,
+        profile_id: String,
+        result: Result<String, String>,
+        journal:
+            Option<crate::execution_host::connection_retirement::ConnectionRetirementJournalGuard>,
+    },
 }

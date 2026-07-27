@@ -1199,15 +1199,20 @@ impl App {
         // Installation + session namespace are already typed past the persistence
         // boundary; only IO failures can disable execution hosts.
         let execution_hosts = crate::persist::installation::load_or_create_installation_id()
-            .map_err(|err| err.to_string())
-            .map(|installation_id| {
+            .and_then(|installation_id| {
                 let mut hosts = crate::execution_host::ExecutionHostManager::new(
                     installation_id,
                     state.session_namespace_id.clone(),
                 );
                 hosts.sync_profiles(&state.ssh_connection_profiles);
-                hosts
-            });
+                if let Some(host_id) = crate::execution_host::connection_retirement::
+                    pending_connection_retirement_host()?
+                {
+                    hosts.begin_host_retirement(host_id);
+                }
+                Ok(hosts)
+            })
+            .map_err(|err| err.to_string());
         let mut execution_hosts = match execution_hosts {
             Ok(hosts) => Some(hosts),
             Err(error) => {
@@ -1397,15 +1402,21 @@ impl App {
         }
         app.state.session_namespace_id = restored_namespace;
         // App::new built hosts against a fresh namespace; rebuild with the restored one.
-        app.execution_hosts = match crate::persist::installation::load_or_create_installation_id() {
-            Ok(installation_id) => {
+        app.execution_hosts = match crate::persist::installation::load_or_create_installation_id()
+            .and_then(|installation_id| {
                 let mut hosts = crate::execution_host::ExecutionHostManager::new(
                     installation_id,
                     app.state.session_namespace_id.clone(),
                 );
                 hosts.sync_profiles(&app.state.ssh_connection_profiles);
-                Some(hosts)
-            }
+                if let Some(host_id) = crate::execution_host::connection_retirement::
+                    pending_connection_retirement_host()?
+                {
+                    hosts.begin_host_retirement(host_id);
+                }
+                Ok(hosts)
+            }) {
+            Ok(hosts) => Some(hosts),
             Err(error) => {
                 app.state
                     .toast
@@ -1993,6 +2004,7 @@ impl App {
     }
 
     pub async fn run(&mut self, terminal: &mut DefaultTerminal) -> io::Result<()> {
+        self.resume_pending_connection_retirement()?;
         if self.input_rx.is_none() {
             self.input_rx = Some(crate::raw_input::spawn_input_reader());
         }
@@ -2884,6 +2896,257 @@ impl App {
             });
         });
     }
+    pub(crate) fn resume_pending_connection_retirement(&mut self) -> io::Result<()> {
+        let Some(pending) =
+            crate::execution_host::connection_retirement::pending_connection_retirement()?
+        else {
+            return Ok(());
+        };
+        let host_id = pending.approved.host_id().clone();
+        if !self
+            .state
+            .ssh_connection_profiles
+            .iter()
+            .any(|profile| profile.id() == pending.profile_id.as_str())
+        {
+            crate::execution_host::connection_retirement::complete_connection_retirement_journal(
+                &pending.profile_id,
+            )?;
+            if let Some(hosts) = self.execution_hosts.as_mut() {
+                hosts.cancel_host_retirement(&host_id);
+            }
+            return Ok(());
+        }
+        if let Some(hosts) = self.execution_hosts.as_mut() {
+            hosts.begin_host_retirement(host_id);
+        }
+        match pending.approved {
+            crate::execution_host::connection_retirement::ApprovedConnectionRetirement::Full {
+                plan,
+                bindings,
+            } => self.retire_connection_for(
+                crate::execution_host::auth::AuthenticationOwner::SYSTEM,
+                pending.profile_id,
+                crate::app::state::ConnectionRetirementPreview { plan, bindings },
+            ),
+            crate::execution_host::connection_retirement::ApprovedConnectionRetirement::LocalOnly {
+                plan,
+            } => self.forget_connection_locally_for(
+                crate::execution_host::auth::AuthenticationOwner::SYSTEM,
+                pending.profile_id,
+                plan,
+            ),
+        }
+        Ok(())
+    }
+
+    fn preview_connection_retirement_for(
+        &mut self,
+        owner: crate::execution_host::auth::AuthenticationOwner,
+        profile_id: String,
+    ) {
+        let Some(profile) = self
+            .state
+            .ssh_connection_profiles
+            .iter()
+            .find(|profile| profile.id() == profile_id)
+        else {
+            return;
+        };
+        let host_id = profile.execution_host_id();
+        let installer = self
+            .execution_hosts
+            .as_ref()
+            .ok_or_else(|| "execution hosts unavailable".to_string())
+            .and_then(|hosts| hosts.worker_installer_for(owner, &profile_id));
+        let _ = self.apply_worker_install_to_owner(owner, |editor| {
+            if editor.profile_id() != Some(profile_id.as_str()) {
+                return false;
+            }
+            editor.connection_retirement =
+                Some(crate::app::state::ConnectionRetirementState::InventoryPending);
+            true
+        });
+        let event_tx = self.event_tx.clone();
+        std::thread::spawn(move || {
+            let result = installer.and_then(|installer| {
+                let plan =
+                    crate::execution_host::connection_retirement::plan_connection_retirement(
+                        &host_id,
+                    )
+                    .map_err(|error| error.to_string())?;
+                let bindings = installer.inventory_owned_bindings()?;
+                Ok(crate::app::state::ConnectionRetirementPreview { plan, bindings })
+            });
+            let _ =
+                event_tx.blocking_send(crate::events::AppEvent::ConnectionRetirementPreviewed {
+                    authentication_owner: owner,
+                    profile_id,
+                    result,
+                });
+        });
+    }
+
+    fn retire_connection_for(
+        &mut self,
+        owner: crate::execution_host::auth::AuthenticationOwner,
+        profile_id: String,
+        preview: crate::app::state::ConnectionRetirementPreview,
+    ) {
+        let profile_matches = self
+            .state
+            .ssh_connection_profiles
+            .iter()
+            .find(|profile| profile.id() == profile_id)
+            .is_some_and(|profile| profile.execution_host_id() == preview.plan.host_id);
+        let installer = if profile_matches {
+            self.execution_hosts
+                .as_ref()
+                .ok_or_else(|| "execution hosts unavailable".to_string())
+                .and_then(|hosts| hosts.worker_installer_for(owner, &profile_id))
+        } else {
+            Err("connection changed after removal preview; review the new impact".to_string())
+        };
+        let journal =
+            crate::execution_host::connection_retirement::begin_connection_retirement_journal(
+                &profile_id,
+                crate::execution_host::connection_retirement::ApprovedConnectionRetirement::Full {
+                    plan: preview.plan.clone(),
+                    bindings: preview.bindings.clone(),
+                },
+            )
+            .map_err(|error| error.to_string());
+        let installer = match &journal {
+            Ok(_) => installer,
+            Err(error) => Err(error.clone()),
+        };
+        let event_tx = self.event_tx.clone();
+        let _ = event_tx.try_send(crate::events::AppEvent::ConnectionRetirementStarted {
+            authentication_owner: owner,
+            profile_id: profile_id.clone(),
+            preview: preview.clone(),
+        });
+        std::thread::spawn(move || {
+            let mut journal = journal.ok();
+            let mut result = installer.and_then(|installer| {
+                let current_plan =
+                    crate::execution_host::connection_retirement::plan_connection_retirement(
+                        &preview.plan.host_id,
+                    )
+                    .map_err(|error| error.to_string())?;
+                let current_bindings = installer.inventory_owned_bindings()?;
+                if current_plan != preview.plan || current_bindings != preview.bindings {
+                    return Err(
+                        "connection removal impact changed; review the refreshed impact before confirming"
+                            .to_string(),
+                    );
+                }
+                crate::execution_host::connection_retirement_runner::run_connection_retirement(
+                    &preview.plan,
+                    &profile_id,
+                    || installer.retire_owned_bindings(),
+                )
+                .map(|report| {
+                    format!(
+                        "{} session(s) cleaned; {} dormant snapshot(s) rewritten; {} managed worker binding(s) removed",
+                        report.sessions_handled,
+                        report.dormant_rewrites,
+                        report.remote_bindings_removed,
+                    )
+                })
+                .map_err(|error| error.to_string())
+            });
+            if let (Some(journal), Err(error)) = (journal.as_mut(), &result) {
+                if let Err(journal_error) = journal.pause(error) {
+                    result = Err(format!(
+                        "{error}; failed to persist paused retirement: {journal_error}"
+                    ));
+                }
+            }
+            let _ = event_tx.blocking_send(crate::events::AppEvent::ConnectionRetired {
+                authentication_owner: owner,
+                profile_id,
+                result,
+                journal,
+            });
+        });
+    }
+    fn forget_connection_locally_for(
+        &mut self,
+        owner: crate::execution_host::auth::AuthenticationOwner,
+        profile_id: String,
+        approved_plan: crate::execution_host::connection_retirement::ConnectionRetirementPlan,
+    ) {
+        let profile_matches = self
+            .state
+            .ssh_connection_profiles
+            .iter()
+            .find(|profile| profile.id() == profile_id)
+            .is_some_and(|profile| profile.execution_host_id() == approved_plan.host_id);
+        let journal = if profile_matches {
+            crate::execution_host::connection_retirement::begin_connection_retirement_journal(
+                &profile_id,
+                crate::execution_host::connection_retirement::ApprovedConnectionRetirement::LocalOnly {
+                    plan: approved_plan.clone(),
+                },
+            )
+            .map_err(|error| error.to_string())
+        } else {
+            Err(
+                "connection changed after local-only forget review; review the new impact"
+                    .to_string(),
+            )
+        };
+        let _ = self.apply_worker_install_to_owner(owner, |editor| {
+            if editor.profile_id() != Some(profile_id.as_str()) {
+                return false;
+            }
+            editor.connection_retirement =
+                Some(crate::app::state::ConnectionRetirementState::LocalForgetRunning);
+            true
+        });
+        let journal_error = journal.as_ref().err().cloned();
+        let event_tx = self.event_tx.clone();
+        std::thread::spawn(move || {
+            let mut journal = journal.ok();
+            let mut result = journal_error.map_or_else(
+                || {
+                    let current_plan = crate::execution_host::connection_retirement::
+                        plan_connection_retirement(&approved_plan.host_id)
+                        .map_err(|error| error.to_string())?;
+                    if current_plan != approved_plan {
+                        return Err(
+                            "local-only forget impact changed; review the refreshed impact before confirming"
+                                .to_string(),
+                        );
+                    }
+                    crate::execution_host::connection_retirement_runner::
+                        run_connection_local_forget(&approved_plan, &profile_id)
+                        .map(|report| {
+                            format!(
+                                "forgot local state in {} session(s); remote processes and worker files were not changed",
+                                report.sessions_handled
+                            )
+                        })
+                        .map_err(|error| error.to_string())
+                },
+                Err,
+            );
+            if let (Some(journal), Err(error)) = (journal.as_mut(), &result) {
+                if let Err(journal_error) = journal.pause(error) {
+                    result = Err(format!(
+                        "{error}; failed to persist paused retirement: {journal_error}"
+                    ));
+                }
+            }
+            let _ = event_tx.blocking_send(crate::events::AppEvent::ConnectionRetired {
+                authentication_owner: owner,
+                profile_id,
+                result,
+                journal,
+            });
+        });
+    }
 
     /// Apply preview completion only to the initiating client's connection editor.
     pub(crate) fn apply_worker_install_previewed_for_owner(
@@ -2907,6 +3170,88 @@ impl App {
         self.apply_worker_install_to_owner(owner, |editor| {
             editor.apply_worker_installed(profile_id, result)
         })
+    }
+
+    pub(crate) fn apply_connection_retirement_previewed_for_owner(
+        &mut self,
+        owner: crate::execution_host::auth::AuthenticationOwner,
+        profile_id: &str,
+        result: &Result<crate::app::state::ConnectionRetirementPreview, String>,
+    ) -> bool {
+        self.apply_worker_install_to_owner(owner, |editor| {
+            editor.apply_retirement_preview(profile_id, result)
+        })
+    }
+
+    pub(crate) fn apply_connection_retirement_started_for_owner(
+        &mut self,
+        owner: crate::execution_host::auth::AuthenticationOwner,
+        profile_id: &str,
+        preview: &crate::app::state::ConnectionRetirementPreview,
+    ) -> bool {
+        self.apply_worker_install_to_owner(owner, |editor| {
+            if editor.profile_id() != Some(profile_id) {
+                return false;
+            }
+            editor.connection_retirement = Some(
+                crate::app::state::ConnectionRetirementState::Running(preview.clone()),
+            );
+            true
+        })
+    }
+
+    pub(crate) fn finalize_connection_retirement(
+        &mut self,
+        profile_id: &str,
+        result: &Result<String, String>,
+        journal: &Option<
+            crate::execution_host::connection_retirement::ConnectionRetirementJournalGuard,
+        >,
+    ) -> Result<String, String> {
+        if result.is_ok() && journal.is_none() {
+            return Err("successful connection retirement lost its exclusive journal lock".into());
+        }
+        let summary = result.clone()?;
+        self.ensure_ssh_connection_profile_is_unreferenced(profile_id)
+            .map_err(|error| error.to_string())?;
+        let host_id = self
+            .state
+            .ssh_connection_profiles
+            .iter()
+            .find(|profile| profile.id() == profile_id)
+            .map(|profile| profile.execution_host_id());
+        self.remove_ssh_connection_profile_if_unreferenced(profile_id)
+            .map_err(|error| error.to_string())?;
+        crate::execution_host::connection_retirement::complete_connection_retirement_journal(
+            profile_id,
+        )
+        .map_err(|error| error.to_string())?;
+        if let (Some(hosts), Some(host_id)) = (self.execution_hosts.as_mut(), host_id.as_ref()) {
+            hosts.cancel_host_retirement(host_id);
+        }
+        Ok(summary)
+    }
+
+    pub(crate) fn apply_connection_retired_for_owner(
+        &mut self,
+        owner: crate::execution_host::auth::AuthenticationOwner,
+        profile_id: &str,
+        result: &Result<String, String>,
+    ) -> bool {
+        if self.default_client_view.id() != owner.client_view_id() {
+            return false;
+        }
+        let mut changed = Self::apply_connection_retired_to_settings(
+            &mut self.default_client_view.settings,
+            profile_id,
+            result,
+        );
+        changed |= Self::apply_connection_retired_to_settings(
+            &mut self.state.settings,
+            profile_id,
+            result,
+        );
+        changed
     }
 
     /// Apply a worker-install editor mutation to a specific client view when it owns
@@ -2941,6 +3286,81 @@ impl App {
             .connection_editor
             .as_mut()
             .is_some_and(|editor| editor.apply_worker_installed(profile_id, result))
+    }
+
+    pub(crate) fn apply_connection_retirement_previewed_to_view(
+        client_view: &mut ClientViewState,
+        owner: crate::execution_host::auth::AuthenticationOwner,
+        profile_id: &str,
+        result: &Result<crate::app::state::ConnectionRetirementPreview, String>,
+    ) -> bool {
+        if client_view.id() != owner.client_view_id() {
+            return false;
+        }
+        client_view
+            .settings
+            .connection_editor
+            .as_mut()
+            .is_some_and(|editor| editor.apply_retirement_preview(profile_id, result))
+    }
+
+    pub(crate) fn apply_connection_retirement_started_to_view(
+        client_view: &mut ClientViewState,
+        owner: crate::execution_host::auth::AuthenticationOwner,
+        profile_id: &str,
+        preview: &crate::app::state::ConnectionRetirementPreview,
+    ) -> bool {
+        if client_view.id() != owner.client_view_id() {
+            return false;
+        }
+        let Some(editor) = client_view.settings.connection_editor.as_mut() else {
+            return false;
+        };
+        if editor.profile_id() != Some(profile_id) {
+            return false;
+        }
+        editor.connection_retirement = Some(crate::app::state::ConnectionRetirementState::Running(
+            preview.clone(),
+        ));
+        true
+    }
+
+    pub(crate) fn apply_connection_retired_to_view(
+        client_view: &mut ClientViewState,
+        owner: crate::execution_host::auth::AuthenticationOwner,
+        profile_id: &str,
+        result: &Result<String, String>,
+    ) -> bool {
+        if client_view.id() != owner.client_view_id() {
+            return false;
+        }
+        Self::apply_connection_retired_to_settings(&mut client_view.settings, profile_id, result)
+    }
+
+    fn apply_connection_retired_to_settings(
+        settings: &mut crate::app::state::SettingsState,
+        profile_id: &str,
+        result: &Result<String, String>,
+    ) -> bool {
+        let Some(editor) = settings.connection_editor.as_mut() else {
+            return false;
+        };
+        if editor.profile_id() != Some(profile_id) {
+            return false;
+        }
+        match result {
+            Ok(_) => {
+                settings.connection_editor = None;
+                settings.list.selected = 0;
+                settings.focused_input = None;
+            }
+            Err(error) => {
+                editor.connection_retirement = Some(
+                    crate::app::state::ConnectionRetirementState::Failed(error.clone()),
+                );
+            }
+        }
+        true
     }
 
     fn apply_worker_install_to_owner(
@@ -2980,6 +3400,15 @@ impl App {
                 preview,
             } => {
                 self.install_worker_for(owner, profile_id, preview);
+            }
+            input::SettingsAction::PreviewSshConnectionRetirement(profile_id) => {
+                self.preview_connection_retirement_for(owner, profile_id);
+            }
+            input::SettingsAction::ConfirmSshConnectionRetirement {
+                profile_id,
+                preview,
+            } => {
+                self.retire_connection_for(owner, profile_id, preview);
             }
             input::SettingsAction::CancelWorkerInstall => {}
             input::SettingsAction::TestSshConnection { profile_id } => {
