@@ -16,6 +16,7 @@ if (!pluginPath || !expectedAgent) {
 
 const expectedSource = `omh:${expectedAgent}`;
 const pane = `pane-${expectedAgent}`;
+const agentSettledEvent = expectedAgent === "pi" ? "agent_settled" : "agent_end";
 const root = mkdtempSync(path.join(os.tmpdir(), `omh-${expectedAgent}-plugin-`));
 const socketPath = path.join(root, "omh.sock");
 const requests = [];
@@ -240,7 +241,7 @@ pi.emit("event:masakiro:permission_gate", {
 await waitForRequests(8);
 assertContainsInOrder(["blocked", "working", "blocked", "working", "blocked", "working"]);
 
-pi.emit("agent_end", { messages: [] });
+pi.emit(agentSettledEvent, { messages: [] }, context());
 await sleep(20);
 assert.equal(states().at(-1), "idle", JSON.stringify(states()));
 
@@ -257,7 +258,7 @@ assert.equal(
   "manual compaction completion must not publish idle while the agent continues",
 );
 assert.equal(states().at(-1), "working", JSON.stringify(states()));
-pi.emit("agent_end", { messages: [] });
+pi.emit(agentSettledEvent, { messages: [] }, context());
 await waitForNewRequests(beforeManualCompactEnd);
 assert.equal(states().at(-1), "idle", JSON.stringify(states()));
 
@@ -274,14 +275,14 @@ assert.equal(
   "automatic compaction completion must not publish idle while the agent continues",
 );
 assert.equal(states().at(-1), "working", JSON.stringify(states()));
-pi.emit("agent_end", { messages: [] });
+pi.emit(agentSettledEvent, { messages: [] }, context());
 await waitForNewRequests(beforeAutoCompactEnd);
 assert.equal(states().at(-1), "idle", JSON.stringify(states()));
 
 const beforeDuplicateEnd = states().length;
-pi.emit("agent_end", { messages: [] });
+pi.emit(agentSettledEvent, { messages: [] }, context());
 await sleep(20);
-assert.equal(states().length, beforeDuplicateEnd, "duplicate agent_end should not publish another state");
+assert.equal(states().length, beforeDuplicateEnd, "duplicate settlement should not publish another state");
 
 if (expectedAgent === "omp") {
   const beforeDroppedLifecycle = lifecycleRequests().length;
@@ -290,7 +291,7 @@ if (expectedAgent === "omp") {
   pi.emit("agent_start");
   await waitForNewRequests(beforeDroppedLifecycle);
   const droppedRequest = reports()[beforeDroppedReports];
-  pi.emit("agent_end", { messages: [] });
+  pi.emit(agentSettledEvent, { messages: [] }, context());
   await waitForNewRequests(beforeDroppedLifecycle + 1);
   assert.deepEqual(
     reports()[beforeDroppedReports + 1],
@@ -311,18 +312,25 @@ if (expectedAgent === "omp") {
 const beforeRetryStart = lifecycleRequests().length;
 pi.emit("agent_start");
 await waitForNewRequests(beforeRetryStart);
-pi.emit("agent_end", {
-  messages: [
-    {
-      role: "assistant",
-      stopReason: "error",
-      errorMessage: "provider returned error 503",
-    },
-  ],
-});
-assert.equal(states().at(-1), "working", JSON.stringify(states()));
-await sleep(30);
-assert.equal(states().at(-1), "blocked", JSON.stringify(states()));
+if (expectedAgent === "omp") {
+  pi.emit(agentSettledEvent, {
+    messages: [
+      {
+        role: "assistant",
+        stopReason: "error",
+        errorMessage: "provider returned error 503",
+      },
+    ],
+  }, context());
+  assert.equal(states().at(-1), "working", JSON.stringify(states()));
+  await sleep(30);
+  assert.equal(states().at(-1), "blocked", JSON.stringify(states()));
+} else {
+  const beforePiSettlement = lifecycleRequests().length;
+  pi.emit(agentSettledEvent, { messages: [] }, context());
+  await waitForNewRequests(beforePiSettlement);
+  assert.equal(states().at(-1), "idle", JSON.stringify(states()));
+}
 
 const beforeBlockedRecovery = lifecycleRequests().length;
 pi.emit("agent_start");
@@ -331,12 +339,13 @@ assert.equal(states().at(-1), "working", JSON.stringify(states()));
 
 const child = new Harness();
 plugin(child);
-child.emit("session_start", {}, context(`${root}/project/session/child.jsonl`, "child-session"));
+const childCtx = context(`${root}/project/session/child.jsonl`, "child-session");
+child.emit("session_start", {}, childCtx);
 const beforeChildStart = lifecycleRequests().length;
 child.emit("agent_start");
 await waitForNewRequests(beforeChildStart);
 assert.equal(states().at(-1), "working", JSON.stringify(states()));
-child.emit("agent_end", { messages: [] });
+child.emit(agentSettledEvent, { messages: [] }, childCtx);
 await sleep(20);
 assert.equal(states().at(-1), "working", "child end must not idle the parent while parent is active");
 const releasesBeforeChildShutdown = releases().length;
@@ -344,7 +353,7 @@ child.emit("session_shutdown");
 await sleep(20);
 assert.equal(releases().length, releasesBeforeChildShutdown, "child shutdown must not release the parent pane");
 
-pi.emit("agent_end", { messages: [] });
+pi.emit(agentSettledEvent, { messages: [] }, context());
 await sleep(20);
 assert.equal(states().at(-1), "idle", JSON.stringify(states()));
 
@@ -356,4 +365,5 @@ assertCommon();
 
 await new Promise((resolve) => server.close(resolve));
 rmSync(root, { recursive: true, force: true });
-console.log(`${expectedAgent} plugin status test ok: session refs, working, blocked, compaction, idle debounce, retry hold, release`);
+const retrySummary = expectedAgent === "omp" ? ", retry hold" : "";
+console.log(`${expectedAgent} plugin status test ok: session refs, working, blocked, compaction, idle debounce${retrySummary}, release`);
