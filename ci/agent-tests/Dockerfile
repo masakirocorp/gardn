@@ -43,9 +43,11 @@ RUN --mount=type=cache,id=omh-agent-tests-pnpm,target=/pnpm/store \
         'minimumReleaseAge: 0' \
         'allowBuilds:' \
         '  "@anthropic-ai/claude-code": true' \
+        '  "@google/genai": false' \
         '  "droid": true' \
         '  "hermes-agent": true' \
         '  "opencode-ai": true' \
+        '  "protobufjs": false' \
         > pnpm-workspace.yaml \
     && printf '%s\n' \
         '{' \
