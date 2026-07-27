@@ -72,14 +72,21 @@ pub(crate) struct WorkerConnection {
     stderr_reader: Option<JoinHandle<()>>,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum WorkerSetupPolicy {
+    Ensure,
+    ProbeOnly,
+}
+
 impl WorkerConnection {
-    pub(crate) fn connect(
+    fn connect(
         profile: &SshConnectionProfile,
         installation_id: CoordinatorInstallationId,
         session_namespace_id: SessionNamespaceId,
         authentication: Arc<AuthenticationChallengeChannel>,
         authentication_owner: AuthenticationOwner,
         next_request_id: Arc<AtomicU64>,
+        setup_policy: WorkerSetupPolicy,
         cancel: Option<&crate::remote::ConnectCancel>,
     ) -> std::io::Result<Self> {
         if let Some(cancel) = cancel {
@@ -91,12 +98,24 @@ impl WorkerConnection {
             cancel.check()?;
         }
         let askpass_config = askpass.command_config()?;
-        let mut transport = crate::remote::spawn_execution_worker_cancellable(
+        let mut transport = match crate::remote::spawn_execution_worker_cancellable(
             profile.target(),
-            askpass_config,
+            askpass_config.clone(),
             cancel,
-        )
-        .map_err(std::io::Error::other)?;
+        ) {
+            Err(crate::remote::ExecutionWorkerTransportError::BootstrapRequired { .. })
+                if setup_policy == WorkerSetupPolicy::Ensure =>
+            {
+                crate::remote::ensure_execution_worker(profile.target(), askpass_config.clone())?;
+                crate::remote::spawn_execution_worker_cancellable(
+                    profile.target(),
+                    askpass_config,
+                    cancel,
+                )
+                .map_err(std::io::Error::other)?
+            }
+            result => result.map_err(std::io::Error::other)?,
+        };
         if let Some(cancel) = cancel {
             if let Err(err) = cancel.check() {
                 drop(transport);
@@ -298,6 +317,7 @@ fn read_worker_hello(
 #[derive(Clone)]
 pub(crate) struct WorkerInstaller {
     profile: SshConnectionProfile,
+    installation_id: CoordinatorInstallationId,
     authentication: Arc<AuthenticationChallengeChannel>,
     owner: AuthenticationOwner,
 }
@@ -305,10 +325,12 @@ pub(crate) struct WorkerInstaller {
 impl WorkerInstaller {
     pub(crate) fn new(
         profile: SshConnectionProfile,
+        installation_id: CoordinatorInstallationId,
         authentication: Arc<AuthenticationChallengeChannel>,
         owner: AuthenticationOwner,
     ) -> Self {
         Self {
+            installation_id,
             profile,
             authentication,
             owner,
@@ -344,6 +366,47 @@ impl WorkerInstaller {
             .map_err(|error| error.to_string())?;
         crate::remote::install_execution_worker(self.profile.target(), config, approved)
             .map_err(|error| error.to_string())
+    }
+    pub(crate) fn inventory_owned_bindings(
+        &self,
+    ) -> Result<crate::execution_host::runtime_paths::BindingInventoryReport, String> {
+        let askpass = AskpassServer::start(
+            self.authentication.clone(),
+            self.owner,
+            self.profile.execution_host_id(),
+        )
+        .map_err(|error| error.to_string())?;
+        let config = askpass
+            .command_config()
+            .map_err(|error| error.to_string())?;
+        crate::remote::inventory_execution_worker_bindings(
+            self.profile.target(),
+            config,
+            self.installation_id.as_str(),
+            self.profile.execution_host_id().as_str(),
+        )
+        .map_err(|error| error.to_string())
+    }
+
+    pub(crate) fn retire_owned_bindings(
+        &self,
+    ) -> Result<crate::execution_host::runtime_paths::BindingRetirementReport, String> {
+        let askpass = AskpassServer::start(
+            self.authentication.clone(),
+            self.owner,
+            self.profile.execution_host_id(),
+        )
+        .map_err(|error| error.to_string())?;
+        let config = askpass
+            .command_config()
+            .map_err(|error| error.to_string())?;
+        crate::remote::retire_execution_worker_bindings(
+            self.profile.target(),
+            config,
+            self.installation_id.as_str(),
+            self.profile.execution_host_id().as_str(),
+        )
+        .map_err(|error| error.to_string())
     }
 }
 
@@ -666,6 +729,11 @@ impl SshExecutionHost {
         let authentication = self.authentication.clone();
         let authentication_owner = self.authentication_owner;
         let next_request_id = self.next_request_id.clone();
+        let setup_policy = if self.testing {
+            WorkerSetupPolicy::ProbeOnly
+        } else {
+            WorkerSetupPolicy::Ensure
+        };
         let cancel = crate::remote::ConnectCancel::new();
         let cancel_for_task = cancel.clone();
         let (sender, receiver) = mpsc::sync_channel(1);
@@ -677,6 +745,7 @@ impl SshExecutionHost {
                 authentication,
                 authentication_owner,
                 next_request_id,
+                setup_policy,
                 Some(&cancel_for_task),
             );
             let result = match result {
@@ -772,6 +841,13 @@ impl SshExecutionHost {
 
     pub(crate) fn set_next_request_id_for_test(&self, value: u64) {
         self.next_request_id.store(value, Ordering::Relaxed);
+    }
+    fn worker_setup_policy_for_test(&self) -> WorkerSetupPolicy {
+        if self.testing {
+            WorkerSetupPolicy::ProbeOnly
+        } else {
+            WorkerSetupPolicy::Ensure
+        }
     }
 }
 
@@ -870,6 +946,22 @@ mod tests {
         ));
         host.cancel_pending_connect();
         host.lifecycle.finish_disconnect();
+    }
+
+    #[test]
+    fn saved_connection_ensures_worker_but_test_connection_only_probes() {
+        let channel = Arc::new(AuthenticationChallengeChannel::default());
+        let mut host = test_host(channel);
+        assert_eq!(
+            host.worker_setup_policy_for_test(),
+            WorkerSetupPolicy::Ensure
+        );
+
+        host.testing = true;
+        assert_eq!(
+            host.worker_setup_policy_for_test(),
+            WorkerSetupPolicy::ProbeOnly
+        );
     }
 
     #[test]

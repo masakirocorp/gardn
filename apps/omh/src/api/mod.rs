@@ -53,6 +53,7 @@ pub(crate) fn request_changes_ui(request: &Request) -> bool {
             | Method::PaneReportMetadata(_)
             | Method::PaneClearAgentAuthority(_)
             | Method::PaneReleaseAgent(_)
+            | Method::ConnectionRetireStart(_)
             | Method::PaneClose(_)
             | Method::PluginActionInvoke(_)
             | Method::PluginPaneOpen(_)

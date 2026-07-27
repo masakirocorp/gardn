@@ -54,6 +54,47 @@ impl App {
             self.apply_worker_installed_for_owner(*authentication_owner, profile_id, result);
             return;
         }
+        if let AppEvent::ConnectionRetirementPreviewed {
+            authentication_owner,
+            profile_id,
+            result,
+        } = &ev
+        {
+            self.apply_connection_retirement_previewed_for_owner(
+                *authentication_owner,
+                profile_id,
+                result,
+            );
+            return;
+        }
+        if let AppEvent::ConnectionRetirementStarted {
+            authentication_owner,
+            profile_id,
+            preview,
+        } = &ev
+        {
+            self.apply_connection_retirement_started_for_owner(
+                *authentication_owner,
+                profile_id,
+                preview,
+            );
+            return;
+        }
+        if let AppEvent::ConnectionRetired {
+            authentication_owner,
+            profile_id,
+            result,
+            journal,
+        } = &ev
+        {
+            let final_result = self.finalize_connection_retirement(profile_id, result, journal);
+            self.apply_connection_retired_for_owner(
+                *authentication_owner,
+                profile_id,
+                &final_result,
+            );
+            return;
+        }
         if let AppEvent::ClipboardWrite { content } = ev {
             #[cfg(not(test))]
             crate::selection::write_osc52_bytes(&content);
@@ -1332,6 +1373,16 @@ impl App {
             }
             Method::ConnectionInstall(params) => {
                 return self.handle_connection_install_disposition(request.id, params);
+            }
+            Method::ConnectionRetireStart(params) => {
+                return crate::api::ApiRequestDisposition::Respond(
+                    self.handle_connection_retire_start(request.id, params),
+                );
+            }
+            Method::ConnectionRetireStatus(params) => {
+                return crate::api::ApiRequestDisposition::Respond(
+                    self.handle_connection_retire_status(request.id, params),
+                );
             }
             Method::NotificationShow(params) => {
                 return crate::api::ApiRequestDisposition::Respond(

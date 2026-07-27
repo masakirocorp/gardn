@@ -45,6 +45,10 @@ pub enum Method {
     ConnectionDisconnect(ConnectionTarget),
     #[serde(rename = "connection.install")]
     ConnectionInstall(ConnectionInstallParams),
+    #[serde(rename = "connection.retire.start")]
+    ConnectionRetireStart(ConnectionRetireParams),
+    #[serde(rename = "connection.retire.status")]
+    ConnectionRetireStatus(ConnectionRetireParams),
     #[serde(rename = "notification.show")]
     NotificationShow(NotificationShowParams),
     #[serde(rename = "group.create")]
@@ -315,6 +319,14 @@ impl TryFrom<ResourceLocationParams> for crate::execution_host::ResourceLocation
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct ConnectionTarget {
     pub profile_id: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct ConnectionRetireParams {
+    pub profile_id: String,
+    pub execution_host_id: String,
+    #[serde(default)]
+    pub local_only: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
@@ -1700,6 +1712,22 @@ pub enum ResponseResult {
         /// Present only when confirm=true and installation ran.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         report: Option<ConnectionInstallReport>,
+    },
+    ConnectionRetireStart {
+        profile_id: String,
+        execution_host_id: String,
+        accepted: bool,
+        remaining_panes: usize,
+        remaining_terminals: usize,
+        pending_terminations: usize,
+    },
+    ConnectionRetireStatus {
+        profile_id: String,
+        execution_host_id: String,
+        ready: bool,
+        remaining_panes: usize,
+        remaining_terminals: usize,
+        pending_terminations: usize,
     },
     GroupInfo {
         group: GroupInfo,

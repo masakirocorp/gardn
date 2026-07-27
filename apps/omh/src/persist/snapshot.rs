@@ -10,7 +10,7 @@ use crate::terminal::TerminalRuntimeRegistry;
 use crate::workspace::Workspace;
 
 /// Current snapshot format version.
-pub(super) const SNAPSHOT_VERSION: u32 = 5;
+pub(crate) const SNAPSHOT_VERSION: u32 = 5;
 
 /// Serializable snapshot of the entire Oh My Herdr session.
 // Legacy mirror fields stay on the in-memory struct so old snapshots migrate

@@ -4219,7 +4219,10 @@ impl AppState {
             }
             AppEvent::PluginCommandFinished { .. }
             | AppEvent::WorkerInstallPreviewed { .. }
-            | AppEvent::WorkerInstalled { .. } => Vec::new(),
+            | AppEvent::WorkerInstalled { .. }
+            | AppEvent::ConnectionRetirementPreviewed { .. }
+            | AppEvent::ConnectionRetirementStarted { .. }
+            | AppEvent::ConnectionRetired { .. } => Vec::new(),
         }
     }
 

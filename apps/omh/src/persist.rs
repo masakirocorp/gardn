@@ -13,8 +13,8 @@ mod restore;
 mod snapshot;
 pub mod ssh_profiles;
 
-pub(crate) use self::io::snapshots_reference_host;
 pub use self::io::{clear_history, load, load_history, try_clear, try_save};
+pub(crate) use self::io::{snapshots_reference_host, try_load_snapshot_at, try_save_snapshot_at};
 pub use self::restore::restore;
 #[cfg(unix)]
 pub use self::restore::{handoff_pane_aliases, restore_handoff};
@@ -26,4 +26,6 @@ pub use self::snapshot::{
     SessionSnapshot, TabSnapshot, WorkspaceSnapshot,
 };
 #[cfg(test)]
-pub use self::snapshot::{GroupSnapshot, SessionDefaultViewSnapshot};
+pub use self::snapshot::{
+    GroupSnapshot, PaneSnapshot, RemoteTerminationTombstoneSnapshot, SessionDefaultViewSnapshot,
+};

@@ -16,7 +16,7 @@ use super::ExecutionHostId;
 
 /// Frozen lifecycle protocol version advertised by
 /// `execution-worker --daemon-lifecycle-version`.
-pub(crate) const DAEMON_LIFECYCLE_VERSION: u16 = 1;
+pub(crate) const DAEMON_LIFECYCLE_VERSION: u16 = 2;
 
 /// Four-byte length/prefix that looks like `u32::MAX` so pre-lifecycle worker
 /// framing rejects the message as oversized rather than mis-decoding it.
@@ -619,8 +619,8 @@ mod tests {
                 0xff, 0xff, 0xff, 0xff, //
                 // magic OMHEWLC\0
                 b'O', b'M', b'H', b'E', b'W', b'L', b'C', 0x00, //
-                // version 1 u16 LE
-                0x01, 0x00, //
+                // version 2 u16 LE
+                0x02, 0x00, //
                 // kind request
                 0x01, //
                 // reserved
@@ -656,7 +656,7 @@ mod tests {
             vec![
                 0xff, 0xff, 0xff, 0xff, //
                 b'O', b'M', b'H', b'E', b'W', b'L', b'C', 0x00, //
-                0x01, 0x00, //
+                0x02, 0x00, // lifecycle version 2
                 0x02, // reply kind
                 0x00, //
                 // payload_len = 16 + 1 + 4 + 8 + 1 + 5 + 1 + 8 = 44
