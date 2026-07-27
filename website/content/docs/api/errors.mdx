@@ -44,17 +44,22 @@ Method-specific codes are not a closed enum in schema version 1. Retain unknown 
 
 Remote placement never falls back to the Local Execution Host. A connection, path, worker capability, or runtime failure keeps the requested `execution_host_id` and path in the error context.
 
-| Code                               | Meaning                                                       | Recovery                                                                              |
-| ---------------------------------- | ------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
-| `connection_profile_not_found`     | A lifecycle action named an unknown SSH profile.              | Refresh `connection.list` and use a current `profile_id`.                             |
-| `connection_profile_invalid`       | Profile identity, target, name, or suggested path is invalid. | Correct the profile fields. Do not include credentials in the profile.                |
-| `connection_profile_save_failed`   | The coordinator could not persist the catalog change.         | Inspect the message and coordinator filesystem permissions before retrying.           |
-| `connection_profile_delete_failed` | The profile is referenced or its removal could not be saved.  | Remove or reassign durable references first; do not delete remote placement metadata. |
-| `invalid_agent_location`           | An agent location contains an invalid host id or host path.   | Submit one complete `location` or a legacy local `cwd`.                               |
-| `agent_placement_conflict`         | Agent placement selectors conflict.                           | Correct the target workspace/tab or remove the `cwd`/`location` conflict.             |
-| `workspace_create_failed`          | Workspace placement or its initial terminal launch failed.    | Reconnect the named host or correct its host-native path, then submit a new request.  |
-| `tab_create_failed`                | Tab placement or its initial terminal launch failed.          | Reconcile the target workspace and host, then retry with a new request id.            |
-| `pane_split_failed`                | The source host is unavailable or the new terminal failed.    | Restore the source host connection or supply a valid explicit location.               |
+| Code                               | Meaning                                                                | Recovery                                                                                |
+| ---------------------------------- | ---------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| `connection_profile_not_found`     | A lifecycle action named an unknown SSH profile.                       | Refresh `connection.list` and use a current `profile_id`.                               |
+| `connection_profile_invalid`       | Profile identity, target, name, or suggested path is invalid.          | Correct the profile fields. Do not include credentials in the profile.                  |
+| `connection_profile_referenced`    | A live or persisted resource still uses the profile's execution host.  | Complete the cross-session retirement workflow before deleting or changing the binding. |
+| `connection_profile_save_failed`   | The coordinator could not persist the catalog change.                  | Inspect the message and coordinator filesystem permissions before retrying.             |
+| `connection_profile_delete_failed` | An unreferenced profile could not be removed from the catalog.         | Inspect the message and coordinator filesystem permissions before retrying.             |
+| `connection_retire_host_invalid`   | A retirement request supplied an invalid execution host id.            | Refresh `connection.list` and submit its exact `execution_host_id`.                     |
+| `connection_retire_host_mismatch`  | The supplied host id does not match the profile's current binding.     | Refresh `connection.list`. Do not retire a host through a stale profile binding.        |
+| `connection_retire_persist_failed` | Retirement changed the session but could not persist the fenced state. | Stop mutation, preserve the error, and repair session persistence before retrying.      |
+| `execution_hosts_unavailable`      | The running mode has no execution-host manager.                        | Run the operation through a normal session server that supports execution hosts.        |
+| `invalid_agent_location`           | An agent location contains an invalid host id or host path.            | Submit one complete `location` or a legacy local `cwd`.                                 |
+| `agent_placement_conflict`         | Agent placement selectors conflict.                                    | Correct the target workspace/tab or remove the `cwd`/`location` conflict.               |
+| `workspace_create_failed`          | Workspace placement or its initial terminal launch failed.             | Reconnect the named host or correct its host-native path, then submit a new request.    |
+| `tab_create_failed`                | Tab placement or its initial terminal launch failed.                   | Reconcile the target workspace and host, then retry with a new request id.              |
+| `pane_split_failed`                | The source host is unavailable or the new terminal failed.             | Restore the source host connection or supply a valid explicit location.                 |
 
 Remote creation errors preserve the requested placement so callers can show a retryable unavailable resource or reconcile partial creation explicitly. A lost response remains ambiguous; reconcile current resources before retrying a mutating request.
 

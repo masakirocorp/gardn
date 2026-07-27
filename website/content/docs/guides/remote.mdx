@@ -41,14 +41,13 @@ The first connection may ask you to verify the host key. Confirm it only when th
 
 Use mixed-host placement when one Oh My Herdr session must contain both local and remote panes. This is separate from `omh --remote`, which moves the whole session server to the SSH host.
 
-Prepare a clean host before creating remote resources:
+Save a connection before creating remote resources:
 
-1. Open **Settings > Connections**, or use the CLI, and save a profile with a display name, OpenSSH target, and optional suggested directory. Oh My Herdr assigns its stable profile id.
-2. Select **Preview worker install** / run `omh connection install <id>` without `--yes`. Review the install or update plan (source binary, target path, and checksum).
-3. Confirm with **Install worker** / `omh connection install <id> --yes`. Install confirmation is required before the remote worker binary is written. An update uses the same preview-and-confirm path. If the installed worker is running but has no live terminals, the new worker asks it to shut down and then takes over. If it owns a live terminal, the update stops with a busy error and leaves the running worker unchanged.
-4. Select **Test connection**, then **Connect**. Resolve authentication or host-key failures before continuing.
-5. In Group settings, set **Default location** to the connection and a host-native directory, or create the group with that default. This affects only future workspaces.
-6. Create a workspace. Keep the inherited location or select another execution host and directory.
+1. Open **Settings > Connections**, or use the CLI, and save a profile with a display name, OpenSSH target, and optional suggested directory. Saving authorizes Oh My Herdr to manage its versioned worker on that host.
+2. Select **Test connection** if you want a read-only connectivity check. Resolve authentication or host-key failures before continuing.
+3. Select **Connect**. Oh My Herdr installs or updates the worker automatically. A compatible worker with live runtimes remains active until it is unused, then the current worker activates.
+4. In Group settings, set **Default location** to the connection and a host-native directory, or create the group with that default. This affects only future workspaces.
+5. Create a workspace. Keep the inherited location or select another execution host and directory.
 
 The suggested directory initializes the location picker when you select that profile. It is not an ambient default and does not override a Group, Workspace, or focused-terminal location.
 
@@ -56,12 +55,10 @@ A new workspace uses an explicit location, then its target Group default, then L
 
 Changing a Group or Workspace default does not move or restart existing terminals. One workspace can contain terminals on different hosts. Such a workspace shows **Mixed**, and pane badges identify terminals whose host differs from the workspace default. An unavailable remote host does not stop local terminals.
 
-The CLI exposes the same profile lifecycle and placement:
+The CLI exposes profile setup and placement:
 
 ```sh
 omh connection save workbox --name "Work box" --target workbox --directory /srv/project
-omh connection install workbox
-omh connection install workbox --yes
 omh connection test workbox
 omh connection connect workbox
 omh connection list
@@ -79,6 +76,21 @@ omh agent start reviewer --host ssh:workbox:1 --cwd /srv/project -- codex
 ```
 
 `--host` requires `--cwd`. The corresponding Local API methods accept a `location` object with `execution_host_id` and `path`. Do not send both `cwd` and `location`. `group.create` accepts optional `default_location` with the same shape; invalid placement fails without creating the group.
+
+## Remove a managed connection
+
+Remove a saved connection from **Settings > Connections**:
+
+1. Open the connection and select **Remove connection and managed worker**.
+2. Wait while Oh My Herdr inventories every named session and owned worker binding. No resource changes during inventory.
+3. Review the listed Group defaults, Workspace defaults, panes, pending terminations, and worker processes.
+4. Confirm the removal. Oh My Herdr blocks new work on the host, closes remote panes, moves affected Workspace defaults to the displayed Local directory, removes owned worker bindings, and deletes the profile only after every session is clear.
+
+Removal progress is journaled. If the app stops, the next server start resumes the approved removal before it accepts new work for that host. Unrelated remote processes and standalone Oh My Herdr sessions are not removed.
+
+If remote inventory is unavailable, the UI offers a separate two-step local-only forget. Use it only when you accept that remote processes and worker files can remain. It removes local profile and placement state but does not claim remote cleanup.
+
+The Local API exposes per-session retirement primitives for automation. See [`connection.retire.start` and `connection.retire.status`](/docs/api/reference/extensions-and-control#connectionretirestart-and-connectionretirestatus). The CLI `connection delete` command removes only an unreferenced profile; it does not perform the cross-session retirement workflow.
 
 ## Attach through the bridge
 
