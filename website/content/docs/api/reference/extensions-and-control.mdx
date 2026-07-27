@@ -14,7 +14,7 @@ The extension and control methods cover execution-host connections, server contr
 The schema defines these methods in the namespaces covered here:
 
 - `ping`.
-- `connection.list`, `connection.save`, `connection.delete`, `connection.install`, `connection.test`, `connection.connect`, and `connection.disconnect`.
+- `connection.list`, `connection.save`, `connection.delete`, `connection.install`, `connection.test`, `connection.connect`, `connection.disconnect`, `connection.retire.start`, and `connection.retire.status`.
 - `server.stop`, `server.live_handoff`, `server.reload_config`, `server.agent_manifests`, and `server.reload_agent_manifests`.
 - `notification.show`.
 - `client.window_title.set` and `client.window_title.clear`.
@@ -76,13 +76,15 @@ Errors: `connection_profile_invalid`, `connection_profile_save_failed`.
 
 ### `connection.delete`
 
-Removes a profile by `profile_id`. Returns `ConnectionDeleted { profile_id, removed }`; `removed` is `false` when the id did not exist.
+Removes an unreferenced profile by `profile_id`. Returns `ConnectionDeleted { profile_id, removed }`; `removed` is `false` when the id did not exist. The method fails while any live or persisted session, pending creation, or managed worker binding still references the profile's execution host.
 
-Errors: `connection_profile_delete_failed`.
+Use the Settings removal workflow for cross-session inventory and cleanup. API automation must retire the execution host in every affected session before it calls `connection.delete`.
+
+Errors: `connection_profile_referenced`, `connection_profile_delete_failed`.
 
 ### `connection.install`
 
-Previews or applies the remote execution-worker install/update for a saved profile. Call this after `connection.save` and before relying on remote placement or `connection.connect` on a clean host.
+Previews or explicitly applies the remote execution-worker install/update for a saved profile. Normal `connection.connect` and demand-driven remote use install or update the worker automatically. Use this method when a caller must inspect the plan or apply it before connecting.
 
 | Property     | Type      | Required | Description                                                                                         |
 | ------------ | --------- | -------- | --------------------------------------------------------------------------------------------------- |
@@ -91,7 +93,7 @@ Previews or applies the remote execution-worker install/update for a saved profi
 
 Returns `ConnectionInstall { profile, preview, report? }`. `preview.kind` is `install` or `update`. `report` is present only when `confirm` is true and installation ran (`installed` or `already_current`).
 
-Without confirmation the remote host is not mutated. Confirmed installs may complete asynchronously; clients must handle the deferred install disposition the same way as other long-running connection work.
+Without confirmation this method does not mutate the remote host. Confirmed installs may complete asynchronously; clients must handle the deferred install disposition the same way as other long-running connection work.
 
 Errors: `connection_profile_not_found`, `execution_hosts_unavailable`, and install/preview failures reported with method-specific codes and messages.
 
@@ -108,6 +110,52 @@ Errors: `connection_profile_not_found`, `execution_hosts_unavailable`, and insta
   "id": "connection-install-apply",
   "method": "connection.install",
   "params": { "profile_id": "workbox", "confirm": true }
+}
+```
+
+### `connection.retire.start` and `connection.retire.status`
+
+These methods are per-session retirement primitives. They do not inventory other named sessions or delete the global profile. Use the Settings removal workflow unless the caller coordinates every affected session.
+
+Both methods accept:
+
+| Property            | Type      | Required | Description                                                                                                              |
+| ------------------- | --------- | -------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `profile_id`        | `string`  | yes      | Saved profile id.                                                                                                        |
+| `execution_host_id` | `string`  | yes      | Exact host id currently mapped by the profile. A stale or mismatched id fails closed.                                    |
+| `local_only`        | `boolean` | no       | Default `false`. When true, forgets local runtime and termination records without claiming that remote cleanup occurred. |
+
+`connection.retire.start` fences new work on the execution host, clears affected Group defaults, moves affected Workspace defaults to the coordinator's Local home directory, closes panes on that host, and persists the changed session before returning. It is idempotent after the host is fenced.
+
+The response is `ConnectionRetireStart { profile_id, execution_host_id, accepted, remaining_panes, remaining_terminals, pending_terminations }`.
+
+Poll `connection.retire.status` until `ready` is `true`. The response is `ConnectionRetireStatus { profile_id, execution_host_id, ready, remaining_panes, remaining_terminals, pending_terminations }`. A ready status also requests a cooperative worker shutdown when the worker is reachable.
+
+After every affected session reports ready and owned worker bindings are removed, call `connection.delete`.
+
+Errors include `connection_profile_not_found`, `connection_retire_host_invalid`, `connection_retire_host_mismatch`, `execution_hosts_unavailable`, and `connection_retire_persist_failed`.
+
+```json
+{
+  "id": "connection-retire-start",
+  "method": "connection.retire.start",
+  "params": {
+    "profile_id": "workbox",
+    "execution_host_id": "ssh:workbox:1",
+    "local_only": false
+  }
+}
+```
+
+```json
+{
+  "id": "connection-retire-status",
+  "method": "connection.retire.status",
+  "params": {
+    "profile_id": "workbox",
+    "execution_host_id": "ssh:workbox:1",
+    "local_only": false
+  }
 }
 ```
 

@@ -105,14 +105,18 @@ Pass when PTYs and the listener survive, every pane has one owner, input remains
 
 Pass when state matches the visible agent, identity remains stable, restore works, and install or uninstall changes only Oh My Herdr-owned integration files.
 
-## M08: Remote attach and bootstrap
+## M08: Remote attach and managed worker lifecycle
 
-1. Attach to a clean Linux host over SSH with no running Oh My Herdr server and exercise bootstrap.
+1. Attach to a clean Linux host over SSH with no running Oh My Herdr server and exercise standalone bootstrap.
 2. Create a pane workload, interrupt the SSH connection, and reconnect.
-3. Repeat with an older remote Oh My Herdr binary to exercise the compatibility and restart prompt.
+3. Repeat with an older remote Oh My Herdr binary to exercise the standalone compatibility and restart prompt.
 4. Verify resize, keyboard input, direct terminal attach, and clipboard behavior supported by the client and host pair.
+5. Save the same host in **Settings > Connections**. Connect without a manual worker install and verify that Oh My Herdr installs the current managed worker.
+6. Keep a remote terminal active, connect with a newer compatible worker version, and verify that the active runtime is not interrupted. End the runtime and verify that the deferred worker update activates.
+7. Reference the connection from two named local sessions. Start removal, verify that inventory lists both sessions and owned bindings, then confirm. Interrupt one removal after approval and restart the server to verify journal recovery.
+8. Repeat with the remote host unavailable. Verify that full removal fails closed and that the separate two-step local-only forget states that remote processes and files can remain.
 
-Pass when prompts are accurate, no silent destructive restart occurs, workloads survive transport loss, and reconnect selects the intended session.
+Pass when prompts are accurate, transport loss does not lose workloads, updates do not interrupt compatible live runtimes, retirement removes only Oh My Herdr-owned state, and an approved partial retirement resumes after restart.
 
 ## M09: Downloaded release artifacts
 
@@ -151,7 +155,7 @@ Pass when the server and workloads survive, sockets recover, no stuck mouse or i
 
 A release is manually cleared when:
 
-- M01-M08 pass against the release candidate, including M08 against a real Linux SSH host
+- M01-M08 pass against the release candidate, including the M08 attach, worker update, and retirement paths against a real Linux SSH host
 - M09 passes against the published macOS arm64, Linux x86_64, and Windows x86_64 artifacts
 - the published macOS x86_64 and Linux aarch64 artifacts launch and report the correct version on native hardware or supported emulation
 - no unresolved failure risks data or process loss, wrong input targeting, unsafe destructive action, unusable rendering, broken restore, or release artifact startup
