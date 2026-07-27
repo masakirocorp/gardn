@@ -36,6 +36,7 @@ pub(crate) struct WorkerInstaller;
 impl WorkerInstaller {
     pub(crate) fn new(
         _profile: SshConnectionProfile,
+        _installation_id: CoordinatorInstallationId,
         _authentication: Arc<AuthenticationChallengeChannel>,
         _owner: AuthenticationOwner,
     ) -> Self {
@@ -50,6 +51,17 @@ impl WorkerInstaller {
         &self,
         _approved: &crate::remote::WorkerInstallPreview,
     ) -> Result<crate::remote::WorkerInstallReport, String> {
+        Err(UNSUPPORTED_MESSAGE.to_string())
+    }
+    pub(crate) fn inventory_owned_bindings(
+        &self,
+    ) -> Result<crate::execution_host::runtime_paths::BindingInventoryReport, String> {
+        Err(UNSUPPORTED_MESSAGE.to_string())
+    }
+
+    pub(crate) fn retire_owned_bindings(
+        &self,
+    ) -> Result<crate::execution_host::runtime_paths::BindingRetirementReport, String> {
         Err(UNSUPPORTED_MESSAGE.to_string())
     }
 }
