@@ -12,6 +12,7 @@
 mod binding;
 mod dispatch;
 mod event;
+mod hook_ingress;
 mod host_job;
 mod host_job_ops;
 mod lifecycle;

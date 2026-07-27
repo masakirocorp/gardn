@@ -84,6 +84,7 @@ pub(crate) enum SettingsAction {
         location: crate::execution_host::ResourceLocation,
     },
     DeleteGroup(usize),
+    CycleIntegrationHost,
     InstallIntegration(crate::api::schema::IntegrationTarget),
     UninstallIntegration(crate::api::schema::IntegrationTarget),
     SaveAgentProfile(crate::agent_profiles::UserAgentProfileConfig),
@@ -138,7 +139,9 @@ impl App {
         if previous_section != SettingsSection::Integrations
             && self.state.settings.section == SettingsSection::Integrations
         {
-            self.refresh_integration_recommendations();
+            self.apply_integration_operation(
+                crate::integration::host::HostIntegrationOperation::Inspect,
+            );
         }
     }
 
@@ -217,8 +220,13 @@ impl App {
             SettingsAction::SaveSwitchAsciiInputSourceInPrefix(enabled) => {
                 self.save_switch_ascii_input_source_in_prefix(enabled)
             }
-            SettingsAction::InstallIntegration(target) => self.install_integration(target),
-            SettingsAction::UninstallIntegration(target) => self.uninstall_integration(target),
+            SettingsAction::CycleIntegrationHost => self.cycle_integration_host(),
+            SettingsAction::InstallIntegration(target) => self.apply_integration_operation(
+                crate::integration::host::HostIntegrationOperation::EnsureCurrent { target },
+            ),
+            SettingsAction::UninstallIntegration(target) => self.apply_integration_operation(
+                crate::integration::host::HostIntegrationOperation::UninstallOwned { target },
+            ),
             SettingsAction::SaveAgentProfile(profile) => self.save_agent_profile(profile),
             SettingsAction::DeleteAgentProfile(profile_id) => {
                 self.delete_agent_profile(&profile_id)
@@ -405,6 +413,93 @@ impl App {
                 position: None,
                 target: None,
             });
+        }
+    }
+
+    fn cycle_integration_host(&mut self) {
+        let current = self.state.settings.integration_host_profile_id.as_deref();
+        let next_index = current
+            .and_then(|profile_id| {
+                self.state
+                    .ssh_connection_profiles
+                    .iter()
+                    .position(|profile| profile.id() == profile_id)
+            })
+            .map_or(0, |index| index + 1);
+        let next = if next_index < self.state.ssh_connection_profiles.len() {
+            Some(
+                self.state.ssh_connection_profiles[next_index]
+                    .id()
+                    .to_string(),
+            )
+        } else {
+            None
+        };
+        self.state.settings.integration_host_profile_id = next.clone();
+        self.state.settings.list.selected = 0;
+        if next.is_some() {
+            self.apply_integration_operation(
+                crate::integration::host::HostIntegrationOperation::Inspect,
+            );
+        }
+    }
+
+    pub(super) fn apply_integration_operation(
+        &mut self,
+        operation: crate::integration::host::HostIntegrationOperation,
+    ) {
+        let selected_profile_id = self.state.settings.integration_host_profile_id.clone();
+        let host_id = crate::app::integration_host::resolve(&self.state, &self.state.settings)
+            .host_id()
+            .cloned();
+        if selected_profile_id.is_some() && host_id.is_none() {
+            self.state.settings.integration_host_profile_id = None;
+        }
+        let Some(host_id) = host_id else {
+            match operation {
+                crate::integration::host::HostIntegrationOperation::Inspect => {
+                    self.refresh_integration_recommendations();
+                }
+                crate::integration::host::HostIntegrationOperation::EnsureCurrent { target } => {
+                    self.install_integration(target);
+                }
+                crate::integration::host::HostIntegrationOperation::UninstallOwned { target } => {
+                    self.uninstall_integration(target);
+                }
+            }
+            return;
+        };
+
+        self.state
+            .host_integration_install_messages
+            .remove(&host_id);
+        let request =
+            crate::integration::host::request_for_catalog(operation, &self.state.agent_profiles);
+        let outcome = self.execution_hosts.as_mut().map_or_else(
+            || Err("execution host manager is unavailable".to_string()),
+            |hosts| {
+                hosts
+                    .request_agent_integrations(host_id.clone(), request)
+                    .map_err(|error| error.to_string())
+            },
+        );
+        match outcome {
+            Ok(request_id) => {
+                self.state
+                    .host_integration_request_ids
+                    .insert(host_id.clone(), request_id);
+                self.state.host_integration_observations.insert(
+                    host_id,
+                    crate::integration::host::HostIntegrationObservation::Pending,
+                );
+            }
+            Err(message) => {
+                self.state.host_integration_request_ids.remove(&host_id);
+                self.state.host_integration_observations.insert(
+                    host_id,
+                    crate::integration::host::HostIntegrationObservation::Failed(message),
+                );
+            }
         }
     }
 }
@@ -2033,6 +2128,70 @@ fn preview_selected_theme(state: &mut AppState) {
     }
 }
 
+fn selected_integration_action(state: &AppState) -> Option<SettingsAction> {
+    if !settings_selection_active(state) {
+        return None;
+    }
+    let selected = state.settings.list.selected;
+    let has_host_selector = !state.ssh_connection_profiles.is_empty();
+    if has_host_selector && selected == 0 {
+        return Some(SettingsAction::CycleIntegrationHost);
+    }
+    let entry_index = selected.saturating_sub(usize::from(has_host_selector));
+
+    if let Some(host_id) = crate::app::integration_host::resolve(state, &state.settings).host_id() {
+        let crate::integration::host::HostIntegrationObservation::Ready(snapshot) =
+            state.host_integration_observations.get(host_id)?
+        else {
+            return None;
+        };
+        let entry = snapshot.entries.get(entry_index)?;
+        return integration_action_for_status(
+            entry.target,
+            entry.state,
+            entry.available,
+            entry.missing_profile_hooks,
+        );
+    }
+
+    let recommendation = state.integration_recommendations.get(entry_index)?;
+    let missing_profile_hooks = crate::integration::missing_profile_hook_count_for_target(
+        recommendation.target,
+        &state.agent_profiles,
+    );
+    integration_action_for_status(
+        recommendation.target,
+        recommendation.state,
+        recommendation.available,
+        missing_profile_hooks,
+    )
+}
+
+fn integration_action_for_status(
+    target: crate::api::schema::IntegrationTarget,
+    state: crate::integration::IntegrationStatusKind,
+    available: bool,
+    missing_profile_hooks: usize,
+) -> Option<SettingsAction> {
+    if state == crate::integration::IntegrationStatusKind::Current {
+        return if missing_profile_hooks > 0 {
+            Some(SettingsAction::InstallIntegration(target))
+        } else {
+            Some(SettingsAction::UninstallIntegration(target))
+        };
+    }
+    match state {
+        crate::integration::IntegrationStatusKind::Outdated => {
+            Some(SettingsAction::InstallIntegration(target))
+        }
+        crate::integration::IntegrationStatusKind::NotInstalled if available => {
+            Some(SettingsAction::InstallIntegration(target))
+        }
+        crate::integration::IntegrationStatusKind::NotInstalled
+        | crate::integration::IntegrationStatusKind::Current => None,
+    }
+}
+
 fn pending_theme_mode(state: &AppState) -> ThemeMode {
     state
         .settings
@@ -2052,37 +2211,6 @@ pub(super) fn close_settings(state: &mut AppState) {
     state.settings.original_theme = None;
     clear_settings_pending(state);
     super::modal::leave_modal(state);
-}
-
-fn selected_integration_action(state: &AppState) -> Option<SettingsAction> {
-    if !settings_selection_active(state) {
-        return None;
-    }
-    let recommendation = state
-        .integration_recommendations
-        .get(state.settings.list.selected)?;
-
-    if recommendation.state == crate::integration::IntegrationStatusKind::Current {
-        let missing_profile_hooks = crate::integration::missing_profile_hook_count_for_target(
-            recommendation.target,
-            &state.agent_profiles,
-        );
-        if missing_profile_hooks > 0 {
-            return Some(SettingsAction::InstallIntegration(recommendation.target));
-        }
-        return Some(SettingsAction::UninstallIntegration(recommendation.target));
-    }
-
-    match recommendation.state {
-        crate::integration::IntegrationStatusKind::Outdated => {
-            Some(SettingsAction::InstallIntegration(recommendation.target))
-        }
-        crate::integration::IntegrationStatusKind::NotInstalled if recommendation.available => {
-            Some(SettingsAction::InstallIntegration(recommendation.target))
-        }
-        crate::integration::IntegrationStatusKind::NotInstalled
-        | crate::integration::IntegrationStatusKind::Current => None,
-    }
 }
 
 fn selected_group_general_action(state: &mut AppState) -> Option<SettingsAction> {
@@ -5598,6 +5726,31 @@ mod tests {
             true,
         )];
         open_settings_at(&mut state, SettingsSection::Integrations);
+        state.settings.list.show();
+
+        let action = update_settings_state(
+            &mut state,
+            KeyEvent::new(KeyCode::Enter, KeyModifiers::empty()),
+        );
+
+        assert_eq!(
+            action,
+            Some(SettingsAction::InstallIntegration(
+                crate::api::schema::IntegrationTarget::Omp
+            ))
+        );
+    }
+
+    #[test]
+    fn integrations_stale_host_selection_falls_back_to_local_actions() {
+        let mut state = state_with_workspaces(&["test"]);
+        state.integration_recommendations = vec![integration_recommendation_for(
+            crate::api::schema::IntegrationTarget::Omp,
+            crate::integration::IntegrationStatusKind::NotInstalled,
+            true,
+        )];
+        open_settings_at(&mut state, SettingsSection::Integrations);
+        state.settings.integration_host_profile_id = Some("deleted-host".to_string());
         state.settings.list.show();
 
         let action = update_settings_state(

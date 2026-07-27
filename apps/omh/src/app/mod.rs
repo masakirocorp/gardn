@@ -16,6 +16,7 @@ mod config_io;
 mod creation;
 mod ids;
 mod input;
+pub(crate) mod integration_host;
 mod popup;
 mod runtime;
 mod runtime_mutations;
@@ -1119,11 +1120,15 @@ impl App {
                 pending_agent_profile_kind: None,
                 pending_agent_profile_command: None,
                 agent_profile_kind_filter: None,
+                integration_host_profile_id: None,
                 connection_editor: None,
                 group_settings_target: None,
                 workspace_settings_target: None,
             },
             integration_recommendations,
+            host_integration_observations: std::collections::HashMap::new(),
+            host_integration_request_ids: std::collections::HashMap::new(),
+            host_integration_install_messages: std::collections::HashMap::new(),
             ssh_connection_profiles: crate::persist::ssh_profiles::load(),
             host_connection_states: std::collections::HashMap::new(),
             pending_ssh_connection_requests: Vec::new(),
@@ -1820,6 +1825,53 @@ impl App {
                         }
                         changed = true;
                     }
+                }
+                crate::execution_host::ExecutionHostEvent::AgentHookReported {
+                    terminal_id,
+                    report,
+                } => {
+                    let pane = self
+                        .state
+                        .workspaces
+                        .iter()
+                        .enumerate()
+                        .flat_map(|(ws_idx, workspace)| {
+                            workspace.tabs.iter().flat_map(move |tab| {
+                                tab.panes.iter().map(move |entry| (ws_idx, entry))
+                            })
+                        })
+                        .find(|(_, (_, pane))| pane.attached_terminal_id == terminal_id)
+                        .and_then(|(ws_idx, (pane_id, _))| self.public_pane_id(ws_idx, *pane_id));
+                    if let Some(public_pane_id) = pane {
+                        match report {
+                            crate::integration::host::WorkerHookReport::Agent(report) => {
+                                let _ = self.handle_pane_report_agent(
+                                    "worker-hook".into(),
+                                    report.into_params(public_pane_id),
+                                );
+                            }
+                            crate::integration::host::WorkerHookReport::Session(report) => {
+                                let _ = self.handle_pane_report_agent_session(
+                                    "worker-hook".into(),
+                                    report.into_params(public_pane_id),
+                                );
+                            }
+                            crate::integration::host::WorkerHookReport::Release(report) => {
+                                let _ = self.handle_pane_release_agent(
+                                    "worker-hook".into(),
+                                    report.into_params(public_pane_id),
+                                );
+                            }
+                        }
+                        changed = true;
+                    }
+                }
+                crate::execution_host::ExecutionHostEvent::AgentIntegrationsUpdated {
+                    host_id,
+                    request_id,
+                    result,
+                } => {
+                    changed |= self.apply_host_integration_update(host_id, request_id, result);
                 }
                 crate::execution_host::ExecutionHostEvent::TerminalStateChanged {
                     terminal_id,
@@ -12359,6 +12411,47 @@ mod tests {
             api_rx,
             crate::api::EventHub::default(),
         )
+    }
+
+    #[test]
+    fn host_integration_updates_ignore_superseded_requests() {
+        let mut app = test_app();
+        let host_id = crate::execution_host::ExecutionHostId::new("ssh:workbox:1").unwrap();
+        let current_request = crate::execution_host::protocol::RequestId::new(2);
+        app.state
+            .host_integration_request_ids
+            .insert(host_id.clone(), current_request);
+        let result = || crate::integration::host::HostIntegrationResult {
+            snapshot: crate::integration::host::HostIntegrationSnapshot {
+                entries: Vec::new(),
+            },
+            messages: vec!["installed on workbox".to_string()],
+        };
+
+        assert!(!app.apply_host_integration_update(
+            host_id.clone(),
+            crate::execution_host::protocol::RequestId::new(1),
+            Ok(result()),
+        ));
+        assert!(!app
+            .state
+            .host_integration_observations
+            .contains_key(&host_id));
+
+        assert!(app.apply_host_integration_update(host_id.clone(), current_request, Ok(result()),));
+        assert!(matches!(
+            app.state.host_integration_observations.get(&host_id),
+            Some(crate::integration::host::HostIntegrationObservation::Ready(
+                _
+            ))
+        ));
+        assert_eq!(
+            app.state
+                .host_integration_install_messages
+                .get(&host_id)
+                .map(Vec::as_slice),
+            Some(["installed on workbox".to_string()].as_slice())
+        );
     }
     #[test]
     fn startup_configuration_diagnostic_creates_transient_toast_and_persistent_issue() {

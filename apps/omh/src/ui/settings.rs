@@ -719,7 +719,7 @@ fn render_settings_content_for_view(
 
     let [list_area, hint_area] =
         Layout::vertical([Constraint::Min(0), Constraint::Length(2)]).areas::<2>(body_area);
-    if app.integration_recommendations.is_empty() {
+    if app.integration_recommendations.is_empty() && app.ssh_connection_profiles.is_empty() {
         frame.render_widget(
             Paragraph::new(settings_description_line(
                 "no integration targets available",
@@ -739,33 +739,106 @@ fn render_settings_content_for_view(
         );
     }
 
-    if !app.integration_install_messages.is_empty() {
-        render_settings_integration_feedback(
-            frame,
-            hint_area,
-            p,
-            &app.integration_install_messages,
-        );
+    let feedback = integration_feedback_for_settings(app, settings);
+    if !feedback.is_empty() {
+        render_settings_integration_feedback(frame, hint_area, p, feedback);
         return;
     }
 
-    let found_any = app.integration_recommendations.iter().any(|item| {
-        item.available || item.state != crate::integration::IntegrationStatusKind::NotInstalled
-    });
-    let hint = integration_hint_for_selection(app, settings.list.selected, found_any);
+    let hint = integration_hint_for_selection(app, settings);
     frame.render_widget(
         Paragraph::new(format!(" {hint}")).style(Style::default().fg(p.overlay0)),
         settings_integration_hint_row(hint_area),
     );
 }
 
-fn integration_hint_for_selection(app: &AppState, selected: usize, found_any: bool) -> String {
-    if let Some(item) = app.integration_recommendations.get(selected) {
-        let missing_profile_hooks = crate::integration::missing_profile_hook_count_for_target(
-            item.target,
-            &app.agent_profiles,
-        );
-        match item.state {
+fn integration_feedback_for_settings<'a>(
+    app: &'a AppState,
+    settings: &crate::app::state::SettingsState,
+) -> &'a [String] {
+    let selection = crate::app::integration_host::resolve(app, settings);
+    let Some(host_id) = selection.host_id() else {
+        return &app.integration_install_messages;
+    };
+    app.host_integration_install_messages
+        .get(host_id)
+        .map(Vec::as_slice)
+        .unwrap_or_default()
+}
+
+fn integration_hint_for_selection(
+    app: &AppState,
+    settings: &crate::app::state::SettingsState,
+) -> String {
+    let has_host_selector = !app.ssh_connection_profiles.is_empty();
+    let selected = settings.list.selected;
+    if has_host_selector && selected == 0 {
+        return "press enter to change the integration host".to_string();
+    }
+    let entry_index = selected.saturating_sub(usize::from(has_host_selector));
+
+    let selection = crate::app::integration_host::resolve(app, settings);
+    if let Some(host_id) = selection.host_id() {
+        return match app.host_integration_observations.get(host_id) {
+            Some(crate::integration::host::HostIntegrationObservation::Ready(snapshot)) => {
+                let selected_entry = snapshot.entries.get(entry_index);
+                let needs_install = snapshot.entries.iter().any(|entry| {
+                    integration_status_needs_install(
+                        entry.state,
+                        entry.available,
+                        entry.missing_profile_hooks,
+                    )
+                });
+                let found_any = snapshot.entries.iter().any(|entry| {
+                    entry.available
+                        || entry.state != crate::integration::IntegrationStatusKind::NotInstalled
+                });
+                integration_hint_for_status(
+                    selected_entry
+                        .map(|entry| (entry.state, entry.available, entry.missing_profile_hooks)),
+                    needs_install,
+                    found_any,
+                )
+            }
+            Some(crate::integration::host::HostIntegrationObservation::Failed(_)) => {
+                "integration status check failed on the selected host".to_string()
+            }
+            Some(crate::integration::host::HostIntegrationObservation::Pending) | None => {
+                "waiting for integration status from the selected host".to_string()
+            }
+        };
+    }
+
+    let selected_entry = app
+        .integration_recommendations
+        .get(entry_index)
+        .map(|item| {
+            (
+                item.state,
+                item.available,
+                crate::integration::missing_profile_hook_count_for_target(
+                    item.target,
+                    &app.agent_profiles,
+                ),
+            )
+        });
+    let needs_install = app
+        .integration_recommendations
+        .iter()
+        .any(crate::integration::IntegrationRecommendation::needs_install);
+    let found_any = app.integration_recommendations.iter().any(|item| {
+        item.available || item.state != crate::integration::IntegrationStatusKind::NotInstalled
+    });
+    integration_hint_for_status(selected_entry, needs_install, found_any)
+}
+
+fn integration_hint_for_status(
+    selected: Option<(crate::integration::IntegrationStatusKind, bool, usize)>,
+    needs_install: bool,
+    found_any: bool,
+) -> String {
+    if let Some((state, available, missing_profile_hooks)) = selected {
+        match state {
             crate::integration::IntegrationStatusKind::Current if missing_profile_hooks > 0 => {
                 "press enter to repair profile hooks".to_string()
             }
@@ -776,24 +849,31 @@ fn integration_hint_for_selection(app: &AppState, selected: usize, found_any: bo
             crate::integration::IntegrationStatusKind::Outdated => {
                 "press enter to update selected integration".to_string()
             }
-            crate::integration::IntegrationStatusKind::NotInstalled if item.available => {
+            crate::integration::IntegrationStatusKind::NotInstalled if available => {
                 "press enter to install selected integration".to_string()
             }
             crate::integration::IntegrationStatusKind::NotInstalled => {
                 "selected integration is unavailable".to_string()
             }
         }
-    } else if app
-        .integration_recommendations
-        .iter()
-        .any(crate::integration::IntegrationRecommendation::needs_install)
-    {
+    } else if needs_install {
         "press enter to add available or outdated integrations".to_string()
     } else if found_any {
         "all detected integrations are installed".to_string()
     } else {
         "no supported agent CLIs found on PATH".to_string()
     }
+}
+
+fn integration_status_needs_install(
+    state: crate::integration::IntegrationStatusKind,
+    available: bool,
+    missing_profile_hooks: usize,
+) -> bool {
+    state == crate::integration::IntegrationStatusKind::Outdated
+        || (state == crate::integration::IntegrationStatusKind::NotInstalled && available)
+        || (state == crate::integration::IntegrationStatusKind::Current
+            && missing_profile_hooks > 0)
 }
 fn render_settings_rows_for_view(
     model_rows: Option<Vec<SettingsListRow>>,
@@ -1135,7 +1215,7 @@ fn render_settings_integrations(
     let [list_area, hint_area] =
         Layout::vertical([Constraint::Min(0), Constraint::Length(2)]).areas::<2>(body_area);
 
-    if app.integration_recommendations.is_empty() {
+    if app.integration_recommendations.is_empty() && app.ssh_connection_profiles.is_empty() {
         frame.render_widget(
             Paragraph::new(settings_description_line(
                 "no integration targets available",
@@ -1149,56 +1229,13 @@ fn render_settings_integrations(
         render_settings_rows(app, frame, list_area, p);
     }
 
-    let found_any = app.integration_recommendations.iter().any(|item| {
-        item.available || item.state != crate::integration::IntegrationStatusKind::NotInstalled
-    });
-    if !app.integration_install_messages.is_empty() {
-        render_settings_integration_feedback(
-            frame,
-            hint_area,
-            p,
-            &app.integration_install_messages,
-        );
+    let feedback = integration_feedback_for_settings(app, &app.settings);
+    if !feedback.is_empty() {
+        render_settings_integration_feedback(frame, hint_area, p, feedback);
         return;
     }
 
-    let hint = if let Some(item) = app
-        .integration_recommendations
-        .get(app.settings.list.selected)
-    {
-        let missing_profile_hooks = crate::integration::missing_profile_hook_count_for_target(
-            item.target,
-            &app.agent_profiles,
-        );
-        match item.state {
-            crate::integration::IntegrationStatusKind::Current if missing_profile_hooks > 0 => {
-                "press enter to repair profile hooks".to_string()
-            }
-            crate::integration::IntegrationStatusKind::Current => {
-                "press enter to uninstall selected integration (affects configured profiles)"
-                    .to_string()
-            }
-            crate::integration::IntegrationStatusKind::Outdated => {
-                "press enter to update selected integration".to_string()
-            }
-            crate::integration::IntegrationStatusKind::NotInstalled if item.available => {
-                "press enter to install selected integration".to_string()
-            }
-            crate::integration::IntegrationStatusKind::NotInstalled => {
-                "selected integration is unavailable".to_string()
-            }
-        }
-    } else if app
-        .integration_recommendations
-        .iter()
-        .any(crate::integration::IntegrationRecommendation::needs_install)
-    {
-        "press enter to add available or outdated integrations".to_string()
-    } else if found_any {
-        "all detected integrations are installed".to_string()
-    } else {
-        "no supported agent CLIs found on PATH".to_string()
-    };
+    let hint = integration_hint_for_selection(app, &app.settings);
     frame.render_widget(
         Paragraph::new(format!(" {hint}")).style(Style::default().fg(p.overlay0)),
         settings_integration_hint_row(hint_area),
@@ -3008,6 +3045,50 @@ mod tests {
         let text = buffer_text(terminal.backend().buffer(), area.width, area.height);
         assert!(text.contains("integrations"));
         assert!(!text.contains("● integrations"));
+    }
+
+    #[test]
+    fn integrations_render_selected_ssh_host_and_pending_status() {
+        let mut app = AppState::test_new();
+        let profile = crate::persist::ssh_profiles::SshConnectionProfile::new(
+            "build-box",
+            "Build box",
+            "dev@build.example",
+            None,
+        )
+        .expect("valid SSH profile");
+        app.ssh_connection_profiles.push(profile);
+        app.integration_recommendations = vec![crate::integration::IntegrationRecommendation {
+            target: crate::api::schema::IntegrationTarget::Omp,
+            label: "omp",
+            command: "omp",
+            available: true,
+            path: std::path::PathBuf::from("/tmp/omh-test-omp"),
+            state: crate::integration::IntegrationStatusKind::Current,
+        }];
+        app.settings.section = SettingsSection::Integrations;
+        app.settings.integration_host_profile_id = Some("build-box".to_string());
+        app.settings.list.show();
+
+        let area = Rect::new(0, 0, 100, 30);
+        let backend = TestBackend::new(area.width, area.height);
+        let mut terminal = Terminal::new(backend).expect("test backend");
+        terminal
+            .draw(|frame| render_settings_overlay(&app, frame, area))
+            .expect("render settings overlay");
+
+        let text = buffer_text(terminal.backend().buffer(), area.width, area.height);
+        assert!(text.contains("Integration host"), "{text}");
+        assert!(text.contains("Build box"), "{text}");
+        assert!(
+            text.contains("Checking integrations on Build box"),
+            "{text}"
+        );
+        assert!(
+            text.contains("press enter to change the integration host"),
+            "{text}"
+        );
+        assert!(!text.contains("uninstall selected integration"), "{text}");
     }
     #[test]
     fn integrations_selected_row_highlight_extends_to_row_end() {

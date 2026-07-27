@@ -18,6 +18,7 @@ use crate::terminal::TerminalId;
 use super::super::binding::DaemonBinding;
 use super::super::dispatch::handle_request;
 use super::super::event::{RuntimeLocalId, WorkerEvent};
+use super::super::hook_ingress::WorkerHookIngress;
 use super::super::host_job::HostJobResult;
 use super::super::lifecycle::ConnectionOutcome;
 use super::super::output::OutputLog;
@@ -97,6 +98,146 @@ async fn worker_terminal_runs_command_and_captures_output() {
     ));
 
     state.shutdown_runtime_for_test(&identity.runtime_id);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn worker_terminal_routes_authenticated_hook_report_without_coordinator_socket() {
+    let binding = test_binding("hook-report", 1);
+    let location = ResourceLocation::new(
+        binding.execution_host_id.clone(),
+        HostPath::new(std::env::temp_dir()).unwrap(),
+    );
+    let mut state = WorkerState::new(binding).unwrap();
+    let script = r#"import json, os, socket, time
+request = {
+    "id": "hook-proof",
+    "method": "pane.report_agent",
+    "params": {
+        "pane_id": os.environ["OMH_PANE_ID"],
+        "source": "omh:test",
+        "agent": "codex",
+        "state": "working",
+        "seq": 7
+    }
+}
+client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+client.connect(os.environ["OMH_SOCKET_PATH"])
+client.sendall((json.dumps(request) + "\n").encode())
+client.recv(4096)
+client.close()
+time.sleep(30)
+"#;
+    let (identity, _) = state
+        .create_terminal(
+            location,
+            TerminalSize { cols: 80, rows: 24 },
+            Some(CommandSpec {
+                program: "python3".to_string(),
+                args: vec!["-c".to_string(), script.to_string()],
+                env: vec![
+                    (
+                        "OMH_SOCKET_PATH".to_string(),
+                        "/tmp/spoofed.sock".to_string(),
+                    ),
+                    ("OMH_PANE_ID".to_string(), "spoofed-pane".to_string()),
+                ],
+            }),
+            Vec::new(),
+            DEFAULT_WORKER_SCROLLBACK_BYTES,
+        )
+        .unwrap();
+
+    for _ in 0..100 {
+        if state.next_hook_report().is_some() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    assert!(
+        state.next_hook_report().is_some(),
+        "managed hook report should reach the worker"
+    );
+
+    let (mut worker_stream, mut coordinator_stream) = UnixStream::pair().unwrap();
+    flush_state_events(&mut state, &mut worker_stream).unwrap();
+    let message = read_worker_message(&mut coordinator_stream).unwrap();
+    assert!(matches!(
+        message,
+        WorkerMessage::AgentHookReported {
+            identity: message_identity,
+            report: crate::integration::host::WorkerHookReport::Agent(params),
+        } if message_identity == identity
+            && params.source == "omh:test"
+            && params.agent == "codex"
+            && params.seq == Some(7)
+    ));
+
+    state.shutdown_runtime_for_test(&identity.runtime_id);
+}
+
+#[test]
+fn worker_hook_ingress_rejects_unknown_runtime_token() {
+    let binding = test_binding("hook-reject", 1);
+    let hook_socket = binding.role_paths().hook_socket_path();
+    let state = WorkerState::new(binding).unwrap();
+    let mut client = UnixStream::connect(hook_socket).unwrap();
+    let request = serde_json::json!({
+        "id": "hook-reject",
+        "method": "pane.report_agent",
+        "params": {
+            "pane_id": "not-a-runtime-token",
+            "source": "omh:test",
+            "agent": "codex",
+            "state": "working",
+            "seq": 1
+        }
+    });
+    std::io::Write::write_all(&mut client, format!("{request}\n").as_bytes()).unwrap();
+    let mut response = String::new();
+    std::io::Read::read_to_string(&mut client, &mut response).unwrap();
+
+    assert!(response.contains("\"code\":\"unauthorized\""));
+    assert!(state.next_hook_report().is_none());
+}
+
+#[test]
+fn stalled_hook_client_does_not_block_authenticated_report() {
+    let binding = test_binding("hook-stalled-client", 1);
+    let ingress = WorkerHookIngress::start(binding.role_paths().hook_socket_path()).unwrap();
+    let identity = RuntimeIdentity::new(
+        binding.host_binding_generation,
+        binding.worker_instance_id.clone(),
+        WorkerRuntimeId::new("hook-runtime").unwrap(),
+        RuntimeIncarnation::new(1),
+    );
+    let token = ingress.register(identity.clone()).unwrap();
+    let _stalled_client = UnixStream::connect(ingress.socket_path()).unwrap();
+    std::thread::sleep(Duration::from_millis(40));
+
+    let mut authenticated = UnixStream::connect(ingress.socket_path()).unwrap();
+    authenticated
+        .set_read_timeout(Some(Duration::from_millis(500)))
+        .unwrap();
+    let request = serde_json::json!({
+        "id": "hook-after-stall",
+        "method": "pane.report_agent",
+        "params": {
+            "pane_id": token,
+            "source": "omh:test",
+            "agent": "codex",
+            "state": "working",
+            "seq": 2
+        }
+    });
+    std::io::Write::write_all(&mut authenticated, format!("{request}\n").as_bytes()).unwrap();
+    let mut response = String::new();
+    std::io::Read::read_to_string(&mut authenticated, &mut response).unwrap();
+
+    assert!(response.contains("\"result\":{}"));
+    assert!(matches!(
+        ingress.next_report(),
+        Some(report) if report.identity == identity
+    ));
 }
 
 #[test]

@@ -1502,7 +1502,7 @@ impl App {
         )
     }
 
-    pub(super) fn handle_pane_report_agent(
+    pub(crate) fn handle_pane_report_agent(
         &mut self,
         id: String,
         params: PaneReportAgentParams,
@@ -1537,7 +1537,7 @@ impl App {
         encode_success(id, ResponseResult::Ok {})
     }
 
-    pub(super) fn handle_pane_report_agent_session(
+    pub(crate) fn handle_pane_report_agent_session(
         &mut self,
         id: String,
         params: PaneReportAgentSessionParams,
@@ -1710,7 +1710,7 @@ impl App {
         encode_success(id, ResponseResult::Ok {})
     }
 
-    pub(super) fn handle_pane_release_agent(
+    pub(crate) fn handle_pane_release_agent(
         &mut self,
         id: String,
         params: PaneReleaseAgentParams,

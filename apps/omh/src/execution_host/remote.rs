@@ -78,6 +78,21 @@ enum WorkerSetupPolicy {
     ProbeOnly,
 }
 
+fn coordinator_worker_capabilities() -> Vec<WorkerCapability> {
+    vec![
+        WorkerCapability::Terminal,
+        WorkerCapability::PathCompletion,
+        WorkerCapability::ProcessObservation,
+        WorkerCapability::Git,
+        WorkerCapability::Worktree,
+        WorkerCapability::Command,
+        WorkerCapability::Agent,
+        WorkerCapability::Ports,
+        WorkerCapability::FileStaging,
+        WorkerCapability::AgentIntegrations,
+    ]
+}
+
 impl WorkerConnection {
     fn connect(
         profile: &SshConnectionProfile,
@@ -129,17 +144,7 @@ impl WorkerConnection {
             execution_host_id: host_id.clone(),
             host_binding_generation: HostBindingGeneration::new(profile.host_binding_generation()),
             auth_proof: None,
-            capabilities: vec![
-                WorkerCapability::Terminal,
-                WorkerCapability::PathCompletion,
-                WorkerCapability::ProcessObservation,
-                WorkerCapability::Git,
-                WorkerCapability::Worktree,
-                WorkerCapability::Command,
-                WorkerCapability::Agent,
-                WorkerCapability::Ports,
-                WorkerCapability::FileStaging,
-            ],
+            capabilities: coordinator_worker_capabilities(),
         };
         write_worker_message(transport.stdin_mut()?, &hello)
             .map_err(|err| std::io::Error::other(format!("worker hello failed: {err}")))?;
@@ -872,6 +877,11 @@ mod tests {
             SessionNamespaceId::new("session-a").unwrap(),
             channel,
         )
+    }
+
+    #[test]
+    fn coordinator_requests_agent_integration_capability() {
+        assert!(coordinator_worker_capabilities().contains(&WorkerCapability::AgentIntegrations));
     }
 
     #[test]

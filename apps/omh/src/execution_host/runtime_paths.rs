@@ -19,6 +19,7 @@ const ROLES_COMPONENT: &str = "roles";
 const EXECUTION_WORKER_ROLE: &str = "execution-worker";
 const EXECUTION_WORKER_RUNTIME_PREFIX: &str = "omh-ew";
 const SOCKET_NAME: &str = "worker.sock";
+const HOOK_SOCKET_NAME: &str = "hooks.sock";
 const LOCK_NAME: &str = "worker.lock";
 const OWNERSHIP_MANIFEST_NAME: &str = "ownership.json";
 
@@ -149,6 +150,10 @@ impl WorkerRolePaths {
         self.runtime_dir.join(SOCKET_NAME)
     }
 
+    pub(crate) fn hook_socket_path(&self) -> PathBuf {
+        self.runtime_dir.join(HOOK_SOCKET_NAME)
+    }
+
     pub(crate) fn lock_path(&self) -> PathBuf {
         self.runtime_dir.join(LOCK_NAME)
     }
@@ -189,11 +194,16 @@ impl WorkerRolePaths {
         remove_file_if_exists(&self.socket_path())
     }
 
+    pub(crate) fn remove_hook_socket_if_present(&self) -> io::Result<()> {
+        remove_file_if_exists(&self.hook_socket_path())
+    }
+
     /// Ordinary daemon-exit cleanup. Removes the socket (lock owner only) and
     /// owned artifacts, but never the stable lock inode, runtime directory, or
     /// durable ownership manifest.
     pub(crate) fn cleanup(&self) -> io::Result<()> {
         self.remove_socket_if_present()?;
+        self.remove_hook_socket_if_present()?;
         remove_dir_if_exists(&self.artifact_dir)?;
         match fs::remove_dir(&self.binding_root) {
             Ok(()) => {}
@@ -211,6 +221,7 @@ impl WorkerRolePaths {
     /// Full retirement of this binding's roots after the lock is proven idle.
     pub(crate) fn retire_owned_paths(&self) -> io::Result<()> {
         self.remove_socket_if_present()?;
+        self.remove_hook_socket_if_present()?;
         remove_dir_if_exists(&self.artifact_dir)?;
         remove_file_if_exists(&self.ownership_manifest_path())?;
         remove_dir_if_exists(&self.runtime_dir)?;

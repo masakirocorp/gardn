@@ -8,7 +8,7 @@ use crate::execution_host::protocol::{
     CoordinatorMessage, WorkerErrorCode, WorkerMessage, WorkerRuntimeId,
 };
 
-use super::host_job::{HostJobKind, HostJobResult};
+use super::host_job::{spawn_integration_job, HostJobKind, HostJobResult};
 use super::protocol_io::write_message;
 use super::staging::{handle_remove_staged_file, handle_stage_file};
 use super::state::WorkerState;
@@ -257,6 +257,10 @@ pub(super) fn handle_request(
             request_id,
             location,
         } => handle_remove_staged_file(state, stream, request_id, location)?,
+        CoordinatorMessage::ManageAgentIntegrations {
+            request_id,
+            request,
+        } => spawn_integration_job(state, request_id, request, job_tx, stream)?,
         CoordinatorMessage::Shutdown { request_id } => {
             return handle_shutdown(state, stream, request_id);
         }

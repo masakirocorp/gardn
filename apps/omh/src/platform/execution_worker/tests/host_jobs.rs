@@ -1,7 +1,7 @@
 use portable_pty::{native_pty_system, CommandBuilder, PtySize};
 use std::io::Write;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::{mpsc, Arc};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use std::os::unix::net::UnixStream;
@@ -13,8 +13,8 @@ use crate::execution_host::protocol::{
 use crate::execution_host::{ExecutionHostId, HostPath, ResourceLocation};
 
 use super::super::host_job::{
-    discover_project_commands_at, expire_host_jobs, observe_runtime_process, run_command_at,
-    HostJobKind,
+    discover_project_commands_at, expire_host_jobs, flush_host_job_results,
+    observe_runtime_process, run_command_at, HostJobKind, HostJobOutcome, HostJobResult,
 };
 use super::super::lifecycle::ConnectionOutcome;
 use super::super::state::WorkerState;
@@ -26,6 +26,10 @@ use super::support::{
     hello, tempfile_dir, test_binding, wait_for_worker_message, with_worker_connection,
 };
 
+use crate::integration::host::{
+    HostIntegrationOperation, HostIntegrationRequest, HostIntegrationResult,
+    HostIntegrationSnapshot,
+};
 #[test]
 fn worker_command_returns_separate_bounded_output_and_exit() {
     let cancel = Arc::new(AtomicBool::new(false));
@@ -45,6 +49,278 @@ fn worker_command_returns_separate_bounded_output_and_exit() {
     assert_eq!(exit, RuntimeExitStatus::Code(7));
     assert_eq!(stdout, b"command-out");
     assert_eq!(stderr, b"command-err");
+}
+
+#[test]
+fn worker_queues_integration_jobs_without_timing_them_out() {
+    let binding = test_binding("integration-serialization", 1);
+    let mut state = WorkerState::new(binding.clone()).unwrap();
+    let location = ResourceLocation::new(
+        binding.execution_host_id.clone(),
+        HostPath::new("~").unwrap(),
+    );
+    let request = HostIntegrationRequest {
+        operation: HostIntegrationOperation::Inspect,
+        profiles: Vec::new(),
+    };
+    state
+        .insert_host_job(
+            RequestId::new(1),
+            HostJobKind::ManageAgentIntegrations {
+                request: request.clone(),
+            },
+            location.clone(),
+        )
+        .unwrap();
+
+    state
+        .insert_host_job(
+            RequestId::new(2),
+            HostJobKind::ManageAgentIntegrations { request },
+            location,
+        )
+        .unwrap();
+
+    assert!(!state
+        .timed_out_host_jobs(Duration::ZERO)
+        .contains(&RequestId::new(1)));
+    assert!(!state
+        .timed_out_host_jobs(Duration::ZERO)
+        .contains(&RequestId::new(2)));
+}
+
+#[test]
+fn worker_runs_integration_turns_in_request_order() {
+    let binding = test_binding("integration-order", 1);
+    let mut state = WorkerState::new(binding).unwrap();
+    let first_turn = state.reserve_integration_job_turn();
+    let second_turn = state.reserve_integration_job_turn();
+    let (first_started_tx, first_started_rx) = mpsc::channel();
+    let (release_first_tx, release_first_rx) = mpsc::channel();
+    let (order_tx, order_rx) = mpsc::channel();
+
+    let first_order_tx = order_tx.clone();
+    let first = std::thread::spawn(move || {
+        first_turn.run(|| {
+            first_started_tx.send(()).unwrap();
+            release_first_rx.recv().unwrap();
+            first_order_tx.send(1).unwrap();
+        });
+    });
+    first_started_rx.recv().unwrap();
+    let second = std::thread::spawn(move || {
+        second_turn.run(|| {
+            order_tx.send(2).unwrap();
+        });
+    });
+    std::thread::sleep(Duration::from_millis(20));
+    assert!(order_rx.try_recv().is_err());
+
+    release_first_tx.send(()).unwrap();
+    assert_eq!(order_rx.recv().unwrap(), 1);
+    assert_eq!(order_rx.recv().unwrap(), 2);
+    first.join().unwrap();
+    second.join().unwrap();
+}
+
+#[test]
+fn disconnect_cancels_queued_integration_turns_and_preserves_later_results() {
+    let binding = test_binding("integration-disconnect", 1);
+    let mut state = WorkerState::new(binding.clone()).unwrap();
+    let location = ResourceLocation::new(
+        binding.execution_host_id.clone(),
+        HostPath::new("~").unwrap(),
+    );
+    let request = HostIntegrationRequest {
+        operation: HostIntegrationOperation::Inspect,
+        profiles: Vec::new(),
+    };
+    let (first_cancel, _, first_generation) = state
+        .insert_host_job(
+            RequestId::new(1),
+            HostJobKind::ManageAgentIntegrations {
+                request: request.clone(),
+            },
+            location.clone(),
+        )
+        .unwrap();
+    let (second_cancel, _, second_generation) = state
+        .insert_host_job(
+            RequestId::new(2),
+            HostJobKind::ManageAgentIntegrations {
+                request: request.clone(),
+            },
+            location.clone(),
+        )
+        .unwrap();
+    let first_turn = state.reserve_integration_job_turn();
+    let second_turn = state.reserve_integration_job_turn();
+    let (first_started_tx, first_started_rx) = mpsc::channel();
+    let (release_first_tx, release_first_rx) = mpsc::channel();
+    let (second_cancelled_tx, second_cancelled_rx) = mpsc::channel();
+
+    let first = std::thread::spawn(move || {
+        first_turn.run(|| {
+            first_started_tx.send(()).unwrap();
+            release_first_rx.recv().unwrap();
+        });
+    });
+    first_started_rx.recv().unwrap();
+    let second = std::thread::spawn(move || {
+        second_turn.run(|| {
+            second_cancelled_tx
+                .send(second_cancel.load(Ordering::Relaxed))
+                .unwrap();
+        });
+    });
+
+    state.cancel_host_jobs_for_disconnect();
+    assert!(first_cancel.load(Ordering::Relaxed));
+    release_first_tx.send(()).unwrap();
+    assert!(second_cancelled_rx.recv().unwrap());
+    first.join().unwrap();
+    second.join().unwrap();
+
+    let result = || HostIntegrationResult {
+        snapshot: HostIntegrationSnapshot {
+            entries: Vec::new(),
+        },
+        messages: Vec::new(),
+    };
+    let sender = state.host_job_sender();
+    sender
+        .send(HostJobResult {
+            request_id: RequestId::new(1),
+            generation: first_generation,
+            outcome: HostJobOutcome::AgentIntegrations(Ok(result())),
+        })
+        .unwrap();
+    sender
+        .send(HostJobResult {
+            request_id: RequestId::new(2),
+            generation: second_generation,
+            outcome: HostJobOutcome::AgentIntegrations(Ok(result())),
+        })
+        .unwrap();
+
+    let (mut cleanup_stream, _peer) = UnixStream::pair().unwrap();
+    flush_host_job_results(&mut state, &mut cleanup_stream).unwrap();
+    assert!(!state.host_job_contains(&RequestId::new(1)));
+    assert!(!state.host_job_contains(&RequestId::new(2)));
+
+    for request_id in [RequestId::new(3), RequestId::new(4)] {
+        let (_, _, generation) = state
+            .insert_host_job(
+                request_id,
+                HostJobKind::ManageAgentIntegrations {
+                    request: request.clone(),
+                },
+                location.clone(),
+            )
+            .unwrap();
+        sender
+            .send(HostJobResult {
+                request_id,
+                generation,
+                outcome: HostJobOutcome::AgentIntegrations(Ok(result())),
+            })
+            .unwrap();
+    }
+
+    let (mut closed_stream, peer) = UnixStream::pair().unwrap();
+    drop(peer);
+    assert!(flush_host_job_results(&mut state, &mut closed_stream).is_err());
+    assert!(!state.host_job_contains(&RequestId::new(3)));
+    assert!(state.host_job_contains(&RequestId::new(4)));
+
+    let (mut live_stream, _peer) = UnixStream::pair().unwrap();
+    flush_host_job_results(&mut state, &mut live_stream).unwrap();
+    assert!(!state.host_job_contains(&RequestId::new(4)));
+
+    let reused_request_id = RequestId::new(5);
+    let (_, old_finished, old_generation) = state
+        .insert_host_job(
+            reused_request_id,
+            HostJobKind::ManageAgentIntegrations {
+                request: request.clone(),
+            },
+            location.clone(),
+        )
+        .unwrap();
+    sender
+        .send(HostJobResult {
+            request_id: reused_request_id,
+            generation: old_generation,
+            outcome: HostJobOutcome::AgentIntegrations(Ok(result())),
+        })
+        .unwrap();
+    old_finished.store(true, Ordering::Relaxed);
+    state.cancel_host_jobs_for_disconnect();
+    state.reap_completed_host_jobs();
+    assert!(!state.host_job_contains(&reused_request_id));
+
+    let (new_cancel, _, new_generation) = state
+        .insert_host_job(
+            reused_request_id,
+            HostJobKind::ManageAgentIntegrations { request },
+            location,
+        )
+        .unwrap();
+    let (mut reused_stream, _peer) = UnixStream::pair().unwrap();
+    flush_host_job_results(&mut state, &mut reused_stream).unwrap();
+    assert!(state.host_job_contains(&reused_request_id));
+
+    state.cancel_host_jobs_for_disconnect();
+    assert!(new_cancel.load(Ordering::Relaxed));
+    sender
+        .send(HostJobResult {
+            request_id: reused_request_id,
+            generation: new_generation,
+            outcome: HostJobOutcome::AgentIntegrations(Ok(result())),
+        })
+        .unwrap();
+    flush_host_job_results(&mut state, &mut reused_stream).unwrap();
+    assert!(!state.host_job_contains(&reused_request_id));
+}
+
+#[test]
+fn worker_inspects_agent_integrations_on_its_own_host() {
+    let binding = test_binding("integration-inspect", 1);
+    let mut state = WorkerState::new(binding.clone()).unwrap();
+    let (message, outcome) = with_worker_connection(&mut state, hello(&binding, 1), |connection| {
+        let ack: WorkerMessage = read_worker_message(connection).unwrap();
+        assert!(matches!(ack, WorkerMessage::HelloAck { error: None, .. }));
+        write_worker_message(
+            connection,
+            &CoordinatorMessage::ManageAgentIntegrations {
+                request_id: RequestId::new(44),
+                request: HostIntegrationRequest {
+                    operation: HostIntegrationOperation::Inspect,
+                    profiles: Vec::new(),
+                },
+            },
+        )
+        .unwrap();
+        wait_for_worker_message(connection, |message| {
+            matches!(
+                message,
+                WorkerMessage::AgentIntegrationsResult {
+                    request_id,
+                    ..
+                } if *request_id == RequestId::new(44)
+            )
+        })
+    });
+
+    assert!(matches!(outcome, ConnectionOutcome::Continue));
+    assert!(matches!(
+        message,
+        WorkerMessage::AgentIntegrationsResult {
+            request_id,
+            result: Some(result),
+            error: None,
+        } if request_id == RequestId::new(44) && !result.snapshot.entries.is_empty()
+    ));
 }
 
 #[test]

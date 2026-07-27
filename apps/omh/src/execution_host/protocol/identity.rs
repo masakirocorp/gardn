@@ -13,9 +13,9 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 /// Execution Worker Protocol compatibility marker.
 ///
-/// Exact-match negotiation only for v1. Distinct from the thin-client
+/// Exact-match negotiation. Distinct from the thin-client
 /// [`crate::protocol::PROTOCOL_VERSION`].
-pub(crate) const PROTOCOL_VERSION: u32 = 1;
+pub(crate) const PROTOCOL_VERSION: u32 = 2;
 
 /// Maximum worker-protocol frame payload (16 MiB).
 ///

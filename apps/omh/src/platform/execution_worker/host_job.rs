@@ -16,7 +16,7 @@ use crate::execution_host::{HostPath, ResourceLocation};
 use super::host_job_ops::{git_status_at, list_worktrees_at, observe_ports_at};
 use super::protocol_io::write_message;
 #[cfg(unix)]
-use super::state::{remote_home, CreateKind, CreateRequest, WorkerState};
+use super::state::{remote_home, CreateKind, CreateRequest, HostJobGeneration, WorkerState};
 use super::util::{worker_error, HOST_JOB_TIMEOUT, MAX_PATH_COMPLETION_ENTRIES};
 
 // pub use also brings names into this module's scope for spawn arms + siblings/tests.
@@ -39,6 +39,7 @@ pub(super) enum HostJobOutcome {
     ProjectCommands(Result<(ResourceLocation, Vec<ProjectCommandSnapshot>), WorkerError>),
     PathCompletion(Result<Vec<PathCompletionEntry>, WorkerError>),
     PathValidation(Result<(bool, bool), WorkerError>),
+    AgentIntegrations(Result<crate::integration::host::HostIntegrationResult, WorkerError>),
     /// Successful preflight yields the resolved launch location for on-loop commit.
     CreatePreflight(Result<ResourceLocation, WorkerError>),
 }
@@ -46,6 +47,7 @@ pub(super) enum HostJobOutcome {
 #[cfg(unix)]
 pub(super) struct HostJobResult {
     pub(super) request_id: RequestId,
+    pub(super) generation: HostJobGeneration,
     pub(super) outcome: HostJobOutcome,
 }
 
@@ -70,6 +72,27 @@ pub(super) fn spawn_create_job(
 }
 
 #[cfg(unix)]
+pub(super) fn spawn_integration_job(
+    state: &mut WorkerState,
+    request_id: RequestId,
+    request: crate::integration::host::HostIntegrationRequest,
+    job_tx: &std_mpsc::Sender<HostJobResult>,
+    stream: &mut UnixStream,
+) -> io::Result<()> {
+    let path = HostPath::new("~").map_err(|error| io::Error::other(error.to_string()))?;
+    let location = ResourceLocation::new(state.binding().execution_host_id.clone(), path);
+    spawn_host_job(
+        state,
+        request_id,
+        location,
+        HostJobKind::ManageAgentIntegrations { request },
+        None,
+        job_tx,
+        stream,
+    )
+}
+
+#[cfg(unix)]
 pub(super) fn spawn_host_job(
     state: &mut WorkerState,
     request_id: RequestId,
@@ -80,7 +103,10 @@ pub(super) fn spawn_host_job(
     stream: &mut UnixStream,
 ) -> io::Result<()> {
     // Create jobs validate location off-loop so a stalled filesystem cannot block PTY I/O.
-    let cwd = if matches!(kind, HostJobKind::Create(_)) {
+    let cwd = if matches!(
+        kind,
+        HostJobKind::Create(_) | HostJobKind::ManageAgentIntegrations { .. }
+    ) {
         PathBuf::new()
     } else {
         match state.validate_location(&location) {
@@ -109,13 +135,15 @@ pub(super) fn spawn_host_job(
         }
     }
 
-    let (cancel, finished) = match state.insert_host_job(request_id, kind.clone(), location.clone())
-    {
-        Ok(flags) => flags,
-        Err(error) => {
-            return write_host_job_error(stream, &kind, request_id, location, error);
-        }
-    };
+    let (cancel, finished, generation) =
+        match state.insert_host_job(request_id, kind.clone(), location.clone()) {
+            Ok(flags) => flags,
+            Err(error) => {
+                return write_host_job_error(stream, &kind, request_id, location, error);
+            }
+        };
+    let integration_turn = matches!(&kind, HostJobKind::ManageAgentIntegrations { .. })
+        .then(|| state.reserve_integration_job_turn());
 
     let job_tx = job_tx.clone();
     let host_id = state.binding().execution_host_id.clone();
@@ -152,6 +180,26 @@ pub(super) fn spawn_host_job(
             HostJobKind::ValidatePath => {
                 HostJobOutcome::PathValidation(validate_path_at(&cwd, cancel.clone()))
             }
+            HostJobKind::ManageAgentIntegrations { request } => {
+                let turn = integration_turn
+                    .expect("agent integration jobs reserve a serialized execution turn");
+                let result = turn.run(|| {
+                    if cancel.load(Ordering::Relaxed) {
+                        Err(worker_error(
+                            WorkerErrorCode::TimedOut,
+                            "agent integration operation cancelled before execution",
+                        ))
+                    } else {
+                        crate::integration::host::execute(&request).map_err(|error| {
+                            worker_error(
+                                WorkerErrorCode::Failed,
+                                crate::integration::host::operation_failure_message(&error),
+                            )
+                        })
+                    }
+                });
+                HostJobOutcome::AgentIntegrations(result)
+            }
             HostJobKind::Create(_) => {
                 // Create commit happens on the connection loop after preflight succeeds.
                 let request = create_request.expect("create jobs carry a request");
@@ -161,6 +209,7 @@ pub(super) fn spawn_host_job(
         finished.store(true, Ordering::Relaxed);
         let _ = job_tx.send(HostJobResult {
             request_id,
+            generation,
             outcome,
         });
     });
@@ -199,58 +248,58 @@ pub(super) fn expire_host_jobs(state: &mut WorkerState, stream: &mut UnixStream)
 #[cfg(unix)]
 pub(super) fn flush_host_job_results(
     state: &mut WorkerState,
-    job_rx: &std_mpsc::Receiver<HostJobResult>,
     stream: &mut UnixStream,
 ) -> io::Result<()> {
-    while let Ok(result) = job_rx.try_recv() {
-        let Some(job) = state.host_job_snapshot(&result.request_id) else {
+    while let Ok(result) = state.try_recv_host_job_result() {
+        let request_id = result.request_id;
+        let Some(job) = state.host_job_snapshot(&request_id) else {
             continue;
         };
+        if job.generation != result.generation {
+            continue;
+        }
         if job.responded {
-            // Timeout/disconnect already answered; only reap accounting.
-            state.finish_host_job_after_response(result.request_id);
+            state.finish_host_job_after_response(request_id, result.generation);
             continue;
         }
 
-        match result.outcome {
+        let write_result = match result.outcome {
             HostJobOutcome::CreatePreflight(Ok(resolved)) => {
                 let HostJobKind::Create(request) = &job.kind else {
-                    state.complete_host_job(result.request_id);
+                    state.complete_host_job(request_id, result.generation);
                     continue;
                 };
                 if job.cancelled {
                     write_host_job_error(
                         stream,
                         &HostJobKind::Create(request.clone()),
-                        result.request_id,
+                        request_id,
                         resolved,
                         worker_error(
                             WorkerErrorCode::TimedOut,
                             "create preflight cancelled before spawn commit",
                         ),
-                    )?;
-                    state.complete_host_job(result.request_id);
-                    continue;
+                    )
+                } else {
+                    let mut commit = request.clone();
+                    commit.location = resolved;
+                    let commit_result = state.create_once(request_id, commit);
+                    write_create_result(stream, &job.kind, request_id, commit_result)
                 }
-                let mut commit = request.clone();
-                commit.location = resolved.clone();
-                let commit_result = state.create_once(result.request_id, commit);
-                write_create_result(stream, &job.kind, result.request_id, commit_result)?;
-                state.complete_host_job(result.request_id);
             }
             HostJobOutcome::CreatePreflight(Err(error)) => {
-                write_host_job_error(stream, &job.kind, result.request_id, job.location, error)?;
-                state.complete_host_job(result.request_id);
+                write_host_job_error(stream, &job.kind, request_id, job.location, error)
             }
             outcome => {
                 let response_location = match &outcome {
                     HostJobOutcome::ProjectCommands(Ok((resolved, _))) => resolved.clone(),
                     _ => job.location,
                 };
-                write_host_job_outcome(stream, result.request_id, response_location, outcome)?;
-                state.complete_host_job(result.request_id);
+                write_host_job_outcome(stream, request_id, response_location, outcome)
             }
-        }
+        };
+        state.complete_host_job(request_id, result.generation);
+        write_result?;
     }
     Ok(())
 }
@@ -407,6 +456,18 @@ pub(super) fn write_host_job_outcome(
                 },
             )
         }
+        HostJobOutcome::AgentIntegrations(result) => {
+            let (result, error) =
+                result.map_or_else(|error| (None, Some(error)), |result| (Some(result), None));
+            write_message(
+                stream,
+                WorkerMessage::AgentIntegrationsResult {
+                    request_id,
+                    result,
+                    error,
+                },
+            )
+        }
         HostJobOutcome::CreatePreflight(_) => {
             // Create results are committed/written by flush_host_job_results.
             Ok(())
@@ -486,6 +547,14 @@ pub(super) fn write_host_job_error(
                 location,
                 exists: false,
                 is_dir: false,
+                error: Some(error),
+            },
+        ),
+        HostJobKind::ManageAgentIntegrations { .. } => write_message(
+            stream,
+            WorkerMessage::AgentIntegrationsResult {
+                request_id,
+                result: None,
                 error: Some(error),
             },
         ),

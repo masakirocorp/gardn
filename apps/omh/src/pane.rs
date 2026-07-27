@@ -99,9 +99,29 @@ impl PaneLaunchEnv {
         self
     }
 
-    /// Launch without advertising a coordinator Local API socket path.
-    pub(crate) fn without_local_api_socket(mut self) -> Self {
-        self.socket_path_override = Some(String::new());
+    pub(crate) fn with_worker_hook_endpoint(
+        mut self,
+        socket_path: &Path,
+        runtime_token: String,
+    ) -> Self {
+        const RESERVED_IDENTITY_KEYS: [&str; 7] = [
+            crate::api::SOCKET_PATH_ENV_VAR,
+            "OMH_WORKSPACE_ID",
+            "OMH_TAB_ID",
+            "OMH_PANE_ID",
+            "HERDR_WORKSPACE_ID",
+            "HERDR_TAB_ID",
+            "HERDR_PANE_ID",
+        ];
+        self.extra
+            .retain(|(key, _)| !RESERVED_IDENTITY_KEYS.contains(&key.as_str()));
+        self.extra.push((
+            crate::integration::OMH_PANE_ID_ENV_VAR.to_string(),
+            runtime_token,
+        ));
+        self.identity = None;
+        self.include_pane_identity = false;
+        self.socket_path_override = Some(socket_path.to_string_lossy().into_owned());
         self
     }
 

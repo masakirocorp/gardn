@@ -223,7 +223,7 @@ Tabs include:
 - Integrations
 - Advanced
 
-The modal supports keyboard navigation, mouse navigation, scrollbars, immediate settings updates, a top-right `esc close` affordance, a responsive tab bar, and install/update/uninstall actions in the integrations tab. Appearance owns theme, sidebar, and pane-label settings; notifications owns sounds and toasts; behavior owns prompts and terminal defaults; commands owns the Git, Diff, IDE, and GitHub project launchers.
+The modal supports keyboard navigation, mouse navigation, scrollbars, immediate settings updates, a top-right `esc close` affordance, and a responsive tab bar. The Integrations tab can select Local or a configured SSH connection before it checks, installs, updates, or uninstalls an integration. Appearance owns theme, sidebar, and pane-label settings. Notifications owns sounds and toasts. Behavior owns prompts and terminal defaults. Commands owns the Git, Diff, IDE, and GitHub project launchers.
 
 The Connections tab manages SSH execution hosts and their workers. Connecting installs or updates the versioned execution worker automatically. A compatible worker with live runtimes stays active until it is unused. Removing a connection first inventories every session and managed worker binding, shows each affected Group, Workspace, pane, pending termination, and owned binding, and requires confirmation. Affected Workspace defaults move to the displayed local home directory. Oh My Herdr then fences new work, drains or closes remote panes, rewrites dormant session placement, removes only bindings owned by the connection, and deletes the connection profile only after all sessions are clear. A durable journal keeps a partial removal fenced and resumable after restart. If remote inventory is unavailable, a separate two-step local-only forget shows its local effects and makes no claim that remote processes or worker files were removed.
 
@@ -256,10 +256,13 @@ Integration management supports:
 - status checks
 - outdated-version detection
 - in-app integration management
+- Local and configured SSH execution-host selection
 
 Integration install side effects are agent-specific: pi and OMP install extensions, Claude, Codex, Grok Build, Kimi, Droid, Cursor, Copilot, and Qoder-style CLIs install/update hooks or settings, OpenCode installs a plugin, and Hermes installs/enables a plugin.
 
 Claude Code, Codex, Pi, OMP, OpenCode, Hermes, Copilot, Qoder-style, and Grok Build integrations can report state directly. Pi uses its settled lifecycle as the idle boundary, so compaction completion and stale settlement signals do not prematurely end active work. The Grok Build integration reports native session identity plus parent-agent working, blocked, idle, and release transitions while ignoring child-agent completion as a parent completion. Its Oh My Herdr-owned hook also prevents Grok's Claude and Cursor compatibility hooks from claiming Grok panes.
+
+Integration management runs on the selected host. SSH integration operations use the managed execution worker. Agent panes on an SSH host send lifecycle reports to a restricted worker-local endpoint. They do not receive the coordinator Local API socket.
 
 Integration path overrides include `PI_CODING_AGENT_DIR`, `PI_CONFIG_DIR`, `CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `GROK_HOME`, `KIMI_CODE_HOME`, and `CURSOR_CONFIG_DIR`. OMP install/status checks scan `.omp` and `.omp-*` extension directories.
 - On Windows, installable integrations include the Pi, OMP, and OpenCode JavaScript integrations plus CLI hook integrations with supported path layouts: Claude, Codex, Copilot, Grok Build, Kimi, Droid, and Qoder-style CLIs. Kilo has no Oh My Herdr installable integration.

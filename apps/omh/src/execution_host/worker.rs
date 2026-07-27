@@ -129,7 +129,7 @@ mod tests {
         // the same condition the CLI uses so the flag stays wired.
         let args = ["--protocol-version".to_string()];
         assert!(args.iter().any(|arg| arg == "--protocol-version"));
-        assert_eq!(PROTOCOL_VERSION, 1);
+        assert_eq!(PROTOCOL_VERSION, 2);
     }
 
     #[test]

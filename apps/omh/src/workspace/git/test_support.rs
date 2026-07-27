@@ -40,6 +40,12 @@ pub(super) fn run_git(cwd: &Path, args: &[&str]) {
         .arg("-C")
         .arg(cwd)
         .args(args)
+        .env("GIT_AUTHOR_NAME", "Oh My Herdr Tests")
+        .env("GIT_AUTHOR_EMAIL", "tests@ohmyherdr.dev")
+        .env("GIT_COMMITTER_NAME", "Oh My Herdr Tests")
+        .env("GIT_COMMITTER_EMAIL", "tests@ohmyherdr.dev")
+        .env("GIT_CONFIG_GLOBAL", cwd.join(".omh-test-global-gitconfig"))
+        .env("GIT_CONFIG_NOSYSTEM", "1")
         .output()
         .unwrap();
     assert!(

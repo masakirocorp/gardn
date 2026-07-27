@@ -168,7 +168,7 @@ fn rows_for_section_with_settings(
         SettingsSection::Commands => Some(command_rows(app, settings)),
         SettingsSection::Experiments => Some(experiment_rows(app, settings)),
         SettingsSection::Agents => Some(agent_profile_rows(app, settings)),
-        SettingsSection::Integrations => Some(integration_rows(app)),
+        SettingsSection::Integrations => Some(integration_rows(app, settings)),
         SettingsSection::Connections => Some(connection_rows(app, settings)),
         SettingsSection::GroupGeneral => Some(group_general_rows(app, settings)),
         SettingsSection::GroupProfiles => Some(group_profile_rows(app, settings)),
@@ -1588,51 +1588,113 @@ fn connection_retirement_plan_rows(
     rows
 }
 
-fn integration_rows(app: &AppState) -> Vec<SettingsListRow> {
-    app.integration_recommendations
-        .iter()
-        .enumerate()
-        .map(|(index, item)| {
-            let missing_profile_hooks = crate::integration::missing_profile_hook_count_for_target(
-                item.target,
-                &app.agent_profiles,
-            );
-            let profile_hooks_missing = item.state
-                == crate::integration::IntegrationStatusKind::Current
-                && missing_profile_hooks > 0;
-            let tone = if profile_hooks_missing {
-                SettingsMarkerTone::Warning
-            } else {
-                match item.state {
-                    crate::integration::IntegrationStatusKind::Current => SettingsMarkerTone::Good,
-                    crate::integration::IntegrationStatusKind::Outdated => {
+fn integration_rows(app: &AppState, settings: &SettingsState) -> Vec<SettingsListRow> {
+    let selection = crate::app::integration_host::resolve(app, settings);
+    let host_label = selection.label();
+    let host_id = selection.host_id().cloned();
+    let has_host_selector = !app.ssh_connection_profiles.is_empty();
+    let mut rows = if has_host_selector {
+        vec![
+            SettingsListRow::Value {
+                index: 0,
+                title: "Integration host".into(),
+                description: "Choose Local or a configured SSH connection.".into(),
+                value: host_label.to_string().into(),
+                editable: true,
+            },
+            SettingsListRow::Spacer,
+        ]
+    } else {
+        Vec::new()
+    };
+    let first_integration_index = usize::from(has_host_selector);
+
+    let Some(host_id) = host_id else {
+        rows.extend(
+            app.integration_recommendations
+                .iter()
+                .enumerate()
+                .map(|(offset, item)| {
+                    let missing_profile_hooks =
+                        crate::integration::missing_profile_hook_count_for_target(
+                            item.target,
+                            &app.agent_profiles,
+                        );
+                    let profile_hooks_missing = item.state
+                        == crate::integration::IntegrationStatusKind::Current
+                        && missing_profile_hooks > 0;
+                    let tone = if profile_hooks_missing {
                         SettingsMarkerTone::Warning
+                    } else {
+                        integration_status_tone(item.state, item.available)
+                    };
+                    let status = if profile_hooks_missing {
+                        missing_profile_hook_label(missing_profile_hooks)
+                    } else {
+                        item.status_label().to_string()
+                    };
+                    SettingsListRow::Status {
+                        index: offset + first_integration_index,
+                        label: item.label.into(),
+                        status: status.into(),
+                        tone,
                     }
-                    crate::integration::IntegrationStatusKind::NotInstalled if item.available => {
-                        SettingsMarkerTone::Accent
-                    }
-                    crate::integration::IntegrationStatusKind::NotInstalled => {
-                        SettingsMarkerTone::Disabled
-                    }
+                }),
+        );
+        return rows;
+    };
+
+    match app.host_integration_observations.get(&host_id) {
+        Some(crate::integration::host::HostIntegrationObservation::Ready(snapshot)) => {
+            rows.extend(snapshot.entries.iter().enumerate().map(|(offset, entry)| {
+                SettingsListRow::Status {
+                    index: offset + first_integration_index,
+                    label: crate::integration::integration_target_label(entry.target).into(),
+                    status: entry.status_label().into(),
+                    tone: if entry.state == crate::integration::IntegrationStatusKind::Current
+                        && entry.missing_profile_hooks > 0
+                    {
+                        SettingsMarkerTone::Warning
+                    } else {
+                        integration_status_tone(entry.state, entry.available)
+                    },
                 }
-            };
-            let status = if profile_hooks_missing {
-                if missing_profile_hooks == 1 {
-                    "installed · 1 profile hook missing".to_string()
-                } else {
-                    format!("installed · {missing_profile_hooks} profile hooks missing")
-                }
-            } else {
-                item.status_label().to_string()
-            };
-            SettingsListRow::Status {
-                index,
-                label: item.label.into(),
-                status: status.into(),
-                tone,
-            }
-        })
-        .collect()
+            }));
+        }
+        Some(crate::integration::host::HostIntegrationObservation::Failed(message)) => {
+            rows.push(SettingsListRow::Caption(
+                format!("Could not inspect {host_label}: {message}").into(),
+            ));
+        }
+        Some(crate::integration::host::HostIntegrationObservation::Pending) | None => {
+            rows.push(SettingsListRow::Caption(
+                format!("Checking integrations on {host_label}...").into(),
+            ));
+        }
+    }
+    rows
+}
+
+fn integration_status_tone(
+    state: crate::integration::IntegrationStatusKind,
+    available: bool,
+) -> SettingsMarkerTone {
+    match state {
+        crate::integration::IntegrationStatusKind::Current => SettingsMarkerTone::Good,
+        crate::integration::IntegrationStatusKind::Outdated => SettingsMarkerTone::Warning,
+        crate::integration::IntegrationStatusKind::NotInstalled if available => {
+            SettingsMarkerTone::Accent
+        }
+        crate::integration::IntegrationStatusKind::NotInstalled => SettingsMarkerTone::Disabled,
+    }
+}
+
+fn missing_profile_hook_label(count: usize) -> String {
+    if count == 1 {
+        "installed · 1 profile hook missing".to_string()
+    } else {
+        format!("installed · {count} profile hooks missing")
+    }
 }
 
 fn toast_delivery_label(delivery: ToastDelivery) -> &'static str {
@@ -2024,6 +2086,63 @@ mod tests {
         }
 
         let _ = std::fs::remove_dir_all(base);
+    }
+
+    #[test]
+    fn integrations_rows_select_local_or_configured_ssh_host() {
+        let mut app = AppState::test_new();
+        let profile = crate::persist::ssh_profiles::SshConnectionProfile::new(
+            "workbox", "Work box", "workbox", None,
+        )
+        .unwrap();
+        let host_id = profile.execution_host_id();
+        app.ssh_connection_profiles.push(profile);
+        app.integration_recommendations = vec![crate::integration::IntegrationRecommendation {
+            target: crate::api::schema::IntegrationTarget::Codex,
+            label: "codex",
+            command: "codex",
+            available: true,
+            path: "/tmp/omh-test-codex".into(),
+            state: crate::integration::IntegrationStatusKind::Current,
+        }];
+
+        let local_rows =
+            rows_for_section(&app, SettingsSection::Integrations).expect("local integration rows");
+        assert!(matches!(
+            &local_rows[0],
+            SettingsListRow::Value { title, value, .. }
+                if title.as_ref() == "Integration host" && value.as_ref() == "Local"
+        ));
+
+        app.settings.integration_host_profile_id = Some("workbox".to_string());
+        app.host_integration_observations.insert(
+            host_id,
+            crate::integration::host::HostIntegrationObservation::Ready(
+                crate::integration::host::HostIntegrationSnapshot {
+                    entries: vec![crate::integration::host::HostIntegrationEntry {
+                        target: crate::api::schema::IntegrationTarget::Codex,
+                        available: true,
+                        state: crate::integration::IntegrationStatusKind::Outdated,
+                        missing_profile_hooks: 0,
+                    }],
+                },
+            ),
+        );
+        let remote_rows =
+            rows_for_section(&app, SettingsSection::Integrations).expect("remote integration rows");
+        assert!(matches!(
+            &remote_rows[0],
+            SettingsListRow::Value { value, .. } if value.as_ref() == "Work box"
+        ));
+        assert!(remote_rows.iter().any(|row| matches!(
+            row,
+            SettingsListRow::Status {
+                label,
+                status,
+                tone: SettingsMarkerTone::Warning,
+                ..
+            } if label.as_ref() == "codex" && status.as_ref() == "update available"
+        )));
     }
 
     #[test]

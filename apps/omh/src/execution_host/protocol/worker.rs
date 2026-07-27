@@ -169,6 +169,15 @@ pub(crate) enum WorkerMessage {
         commands: Vec<ProjectCommandSnapshot>,
         error: Option<WorkerError>,
     },
+    AgentIntegrationsResult {
+        request_id: RequestId,
+        result: Option<crate::integration::host::HostIntegrationResult>,
+        error: Option<WorkerError>,
+    },
+    AgentHookReported {
+        identity: RuntimeIdentity,
+        report: crate::integration::host::WorkerHookReport,
+    },
 }
 
 /// Ephemeral authentication challenge issued by the worker.

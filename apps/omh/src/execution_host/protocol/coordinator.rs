@@ -140,6 +140,10 @@ pub(crate) enum CoordinatorMessage {
         location: ResourceLocation,
         revision: OutputRevision,
     },
+    ManageAgentIntegrations {
+        request_id: RequestId,
+        request: crate::integration::host::HostIntegrationRequest,
+    },
     Shutdown {
         request_id: RequestId,
     },

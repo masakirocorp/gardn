@@ -18,7 +18,6 @@ use crate::execution_host::protocol::{
 };
 
 use super::binding::DaemonBinding;
-use super::host_job::HostJobResult;
 use super::state::WorkerState;
 use super::util::{
     framing_io, is_disconnect, worker_error, LIFECYCLE_ACTIVATE_TIMEOUT, LOCK_WAIT_POLL_INTERVAL,
@@ -579,39 +578,37 @@ pub(super) fn serve_normal_hello(
             }
         }
     });
-    let (job_tx, job_rx) = std_mpsc::channel::<HostJobResult>();
+    let job_tx = state.host_job_sender();
     let mut sent_revisions = HashMap::<WorkerRuntimeId, u64>::new();
-    let outcome = loop {
-        match request_rx.recv_timeout(SESSION_POLL_INTERVAL) {
-            Ok(Ok(message)) => {
-                if super::dispatch::handle_request(
-                    message,
-                    state,
-                    &mut stream,
-                    &mut sent_revisions,
-                    &job_tx,
-                )? {
-                    break ConnectionOutcome::Shutdown;
+    let session_result = (|| -> io::Result<ConnectionOutcome> {
+        loop {
+            match request_rx.recv_timeout(SESSION_POLL_INTERVAL) {
+                Ok(Ok(message)) => {
+                    if super::dispatch::handle_request(
+                        message,
+                        state,
+                        &mut stream,
+                        &mut sent_revisions,
+                        &job_tx,
+                    )? {
+                        break Ok(ConnectionOutcome::Shutdown);
+                    }
+                }
+                Ok(Err(err)) if is_disconnect(&err) => break Ok(ConnectionOutcome::Continue),
+                Ok(Err(err)) => return Err(err),
+                Err(std_mpsc::RecvTimeoutError::Timeout) => {}
+                Err(std_mpsc::RecvTimeoutError::Disconnected) => {
+                    break Ok(ConnectionOutcome::Continue);
                 }
             }
-            Ok(Err(err)) if is_disconnect(&err) => break ConnectionOutcome::Continue,
-            Ok(Err(err)) => {
-                state.cancel_host_jobs_for_disconnect();
-                return Err(err);
-            }
-            Err(std_mpsc::RecvTimeoutError::Timeout) => {}
-            Err(std_mpsc::RecvTimeoutError::Disconnected) => break ConnectionOutcome::Continue,
+            super::host_job::expire_host_jobs(state, &mut stream)?;
+            super::host_job::flush_host_job_results(state, &mut stream)?;
+            super::terminal::flush_output(state, &mut stream, &mut sent_revisions)?;
+            super::terminal::flush_state_events(state, &mut stream)?;
+            state.staging_mut().cleanup_expired(SystemTime::now());
         }
-        super::host_job::expire_host_jobs(state, &mut stream)?;
-        super::host_job::flush_host_job_results(state, &job_rx, &mut stream)?;
-        super::terminal::flush_output(state, &mut stream, &mut sent_revisions)?;
-        super::terminal::flush_state_events(state, &mut stream)?;
-        state.staging_mut().cleanup_expired(SystemTime::now());
-    };
+    })();
     state.cancel_host_jobs_for_disconnect();
-    // Reap any results that arrived during teardown without writing to a dead stream.
-    while let Ok(result) = job_rx.try_recv() {
-        state.reap_host_job_teardown_result(result.request_id);
-    }
-    Ok(outcome)
+    state.reap_completed_host_jobs();
+    session_result
 }

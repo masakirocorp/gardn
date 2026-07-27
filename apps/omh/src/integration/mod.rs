@@ -9,6 +9,8 @@ use serde_json::{json, Map, Value};
 
 use crate::layout::PaneId;
 
+pub(crate) mod host;
+
 pub(crate) const OMH_PANE_ID_ENV_VAR: &str = "OMH_PANE_ID";
 const PI_EXTENSION_INSTALL_NAME: &str = "omh-pi-agent-state.ts";
 const PI_EXTENSION_ASSET: &str = include_str!("assets/pi/omh-agent-state.ts");
@@ -290,7 +292,7 @@ pub(crate) struct IntegrationStatus {
     pub expected_version: u32,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub(crate) enum IntegrationStatusKind {
     NotInstalled,
     Current,
@@ -473,11 +475,19 @@ pub(crate) fn install_target_for_agent_profiles(
     target: crate::api::schema::IntegrationTarget,
     agent_profiles: &crate::agent_profiles::AgentProfileCatalog,
 ) -> io::Result<Vec<String>> {
+    let profiles = host::ProfileIntegrationContext::from_catalog(agent_profiles);
+    install_target_for_profile_contexts(target, &profiles)
+}
+
+pub(crate) fn install_target_for_profile_contexts(
+    target: crate::api::schema::IntegrationTarget,
+    profiles: &[host::ProfileIntegrationContext],
+) -> io::Result<Vec<String>> {
     if target != crate::api::schema::IntegrationTarget::Codex {
         return install_target(target);
     }
 
-    let result = install_codex_for_agent_profiles_inner(agent_profiles);
+    let result = install_codex_for_profile_contexts_inner(profiles);
     let outcome = if result.is_ok() { "ok" } else { "error" };
     crate::logging::integration_action("install", integration_target_label(target), outcome);
     result
@@ -487,11 +497,19 @@ pub(crate) fn uninstall_target_for_agent_profiles(
     target: crate::api::schema::IntegrationTarget,
     agent_profiles: &crate::agent_profiles::AgentProfileCatalog,
 ) -> io::Result<Vec<String>> {
+    let profiles = host::ProfileIntegrationContext::from_catalog(agent_profiles);
+    uninstall_target_for_profile_contexts(target, &profiles)
+}
+
+pub(crate) fn uninstall_target_for_profile_contexts(
+    target: crate::api::schema::IntegrationTarget,
+    profiles: &[host::ProfileIntegrationContext],
+) -> io::Result<Vec<String>> {
     if target != crate::api::schema::IntegrationTarget::Codex {
         return uninstall_target(target);
     }
 
-    let result = uninstall_codex_for_agent_profiles_inner(agent_profiles);
+    let result = uninstall_codex_for_profile_contexts_inner(profiles);
     let outcome = if result.is_ok() { "ok" } else { "error" };
     crate::logging::integration_action("uninstall", integration_target_label(target), outcome);
     result
@@ -500,32 +518,17 @@ pub(crate) fn uninstall_target_for_agent_profiles(
 fn codex_home_dir_for_profile(
     profile: &crate::agent_profiles::AgentProfile,
 ) -> io::Result<Option<PathBuf>> {
-    if let Some((_, codex_home)) = profile
+    let codex_home = profile
         .env
         .iter()
-        .find(|(key, _)| key == CODEX_HOME_ENV_VAR)
-    {
-        return expand_tilde_path(PathBuf::from(codex_home)).map(Some);
-    }
-
-    let Some(command) = profile.argv.first() else {
-        return Ok(None);
-    };
-    let command_name = Path::new(command)
-        .file_name()
-        .and_then(|name| name.to_str())
-        .unwrap_or(command);
-    if command_name == "codex" {
-        return codex_dir().map(Some);
-    }
-    let Some(profile_suffix) = command_name.strip_prefix("codex-") else {
-        return Ok(None);
-    };
-    if profile_suffix.is_empty() {
-        return Ok(None);
-    }
-
-    Ok(Some(home_dir()?.join(format!(".codex-{profile_suffix}"))))
+        .find_map(|(key, value)| (key == CODEX_HOME_ENV_VAR).then_some(value.as_str()));
+    let command_name = profile.argv.first().map(|command| {
+        Path::new(command)
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or(command)
+    });
+    resolve_codex_home_dir(codex_home, command_name)
 }
 
 pub(crate) fn agent_profile_integration_warning(
@@ -595,15 +598,46 @@ pub(crate) fn agent_profile_integration_badge(
     }
 }
 
-fn codex_dirs_for_agent_profiles(
-    agent_profiles: &crate::agent_profiles::AgentProfileCatalog,
+fn codex_home_dir_for_profile_context(
+    profile: &host::ProfileIntegrationContext,
+) -> io::Result<Option<PathBuf>> {
+    resolve_codex_home_dir(
+        profile.codex_home.as_deref(),
+        profile.command_name.as_deref(),
+    )
+}
+
+fn resolve_codex_home_dir(
+    codex_home: Option<&str>,
+    command_name: Option<&str>,
+) -> io::Result<Option<PathBuf>> {
+    if let Some(codex_home) = codex_home {
+        return expand_tilde_path(PathBuf::from(codex_home)).map(Some);
+    }
+    let Some(command_name) = command_name else {
+        return Ok(None);
+    };
+    if command_name == "codex" {
+        return codex_dir().map(Some);
+    }
+    let Some(profile_suffix) = command_name.strip_prefix("codex-") else {
+        return Ok(None);
+    };
+    if profile_suffix.is_empty() {
+        return Ok(None);
+    }
+    Ok(Some(home_dir()?.join(format!(".codex-{profile_suffix}"))))
+}
+
+fn codex_dirs_for_profile_contexts(
+    profiles: &[host::ProfileIntegrationContext],
 ) -> io::Result<Vec<PathBuf>> {
     let mut dirs = vec![codex_dir()?];
-    for profile in agent_profiles.profiles() {
-        if profile.kind != crate::agent_profiles::AgentKind::Codex || !profile.enabled {
+    for profile in profiles {
+        if profile.kind != crate::agent_profiles::AgentKind::Codex {
             continue;
         }
-        let Some(dir) = codex_home_dir_for_profile(profile)? else {
+        let Some(dir) = codex_home_dir_for_profile_context(profile)? else {
             continue;
         };
         if !dirs.contains(&dir) {
@@ -613,8 +647,8 @@ fn codex_dirs_for_agent_profiles(
     Ok(dirs)
 }
 
-fn install_codex_for_agent_profiles_inner(
-    agent_profiles: &crate::agent_profiles::AgentProfileCatalog,
+fn install_codex_for_profile_contexts_inner(
+    profiles: &[host::ProfileIntegrationContext],
 ) -> io::Result<Vec<String>> {
     if !integration_target_supported(crate::api::schema::IntegrationTarget::Codex) {
         return Err(io::Error::other(
@@ -622,7 +656,7 @@ fn install_codex_for_agent_profiles_inner(
         ));
     }
 
-    let dirs = codex_dirs_for_agent_profiles(agent_profiles)?;
+    let dirs = codex_dirs_for_profile_contexts(profiles)?;
 
     let mut messages = Vec::new();
     let mut skipped_missing_dirs = Vec::new();
@@ -654,8 +688,8 @@ fn install_codex_for_agent_profiles_inner(
     Ok(messages)
 }
 
-fn uninstall_codex_for_agent_profiles_inner(
-    agent_profiles: &crate::agent_profiles::AgentProfileCatalog,
+fn uninstall_codex_for_profile_contexts_inner(
+    profiles: &[host::ProfileIntegrationContext],
 ) -> io::Result<Vec<String>> {
     if !integration_target_supported(crate::api::schema::IntegrationTarget::Codex) {
         return Err(io::Error::other(
@@ -663,7 +697,7 @@ fn uninstall_codex_for_agent_profiles_inner(
         ));
     }
 
-    let dirs = codex_dirs_for_agent_profiles(agent_profiles)?;
+    let dirs = codex_dirs_for_profile_contexts(profiles)?;
     let mut messages = Vec::new();
     for (index, dir) in dirs.into_iter().enumerate() {
         if index > 0 && !dir.is_dir() {
@@ -1290,6 +1324,19 @@ pub(crate) fn missing_profile_hook_count_for_target(
         .count()
 }
 
+pub(crate) fn missing_profile_hook_count_for_contexts(
+    target: crate::api::schema::IntegrationTarget,
+    profiles: &[host::ProfileIntegrationContext],
+) -> usize {
+    if target != crate::api::schema::IntegrationTarget::Codex {
+        return 0;
+    }
+    profiles
+        .iter()
+        .filter(|profile| codex_profile_context_needs_hook_install(profile))
+        .count()
+}
+
 fn codex_profile_needs_hook_install(profile: &crate::agent_profiles::AgentProfile) -> bool {
     if !profile.available()
         || profile.kind.integration_target() != Some(crate::api::schema::IntegrationTarget::Codex)
@@ -1298,6 +1345,25 @@ fn codex_profile_needs_hook_install(profile: &crate::agent_profiles::AgentProfil
     }
 
     let Ok(Some(dir)) = codex_home_dir_for_profile(profile) else {
+        return false;
+    };
+    integration_status_at(
+        crate::api::schema::IntegrationTarget::Codex,
+        dir.join(CODEX_HOOK_INSTALL_NAME),
+        CODEX_INTEGRATION_VERSION,
+    )
+    .state
+        != IntegrationStatusKind::Current
+}
+
+fn codex_profile_context_needs_hook_install(profile: &host::ProfileIntegrationContext) -> bool {
+    if profile.kind.integration_target() != Some(crate::api::schema::IntegrationTarget::Codex)
+        || profile.command_name.is_none()
+    {
+        return false;
+    }
+
+    let Ok(Some(dir)) = codex_home_dir_for_profile_context(profile) else {
         return false;
     };
     integration_status_at(

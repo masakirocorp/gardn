@@ -47,12 +47,12 @@ fn coordinator_hello_bincode_bytes_are_stable() {
         capabilities: vec![WorkerCapability::Terminal, WorkerCapability::Git],
     };
 
-    // Enum tag 0, version 1, string lens, generation 1, None proof, two capabilities.
+    // Enum tag 0, version 2, string lens, generation 1, None proof, two capabilities.
     assert_bincode_bytes(
         &msg,
         &[
             0x00, // CoordinatorMessage::Hello
-            0x01, // version
+            0x02, // version
             0x09, b'i', b'n', b's', b't', b'a', b'l', b'l', b'-', b'a', // installation id
             0x24, // session namespace len 36
             b'0', b'1', b'2', b'3', b'4', b'5', b'6', b'7', b'-', b'8', b'9', b'a', b'b', b'-',
@@ -81,7 +81,7 @@ fn worker_hello_ack_framing_matches_golden_fixture() {
     };
     let expected_payload = [
         0x00, // WorkerMessage::HelloAck
-        0x01, // version
+        0x02, // version
         0x08, b'w', b'o', b'r', b'k', b'e', b'r', b'-', b'1', // instance
         0x01, // host_binding_generation
         0x05, b's', b's', b'h', b':', b'a', // execution host id

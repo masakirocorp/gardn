@@ -4,6 +4,8 @@ use std::collections::{HashMap, VecDeque};
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicBool;
+#[cfg(unix)]
+use std::sync::mpsc as std_mpsc;
 use std::sync::Arc;
 #[cfg(test)]
 use std::time::Instant;
@@ -26,6 +28,10 @@ use crate::terminal_theme::TerminalTheme;
 
 use super::binding::DaemonBinding;
 use super::event::{RuntimeLocalId, WorkerEvent};
+#[cfg(unix)]
+use super::hook_ingress::{QueuedHookReport, WorkerHookIngress};
+#[cfg(unix)]
+use super::host_job::HostJobResult;
 use super::output::OutputLog;
 #[cfg(unix)]
 use super::state_tables::{HostJobTable, RuntimeTable};
@@ -37,7 +43,8 @@ use super::util::{
 // Re-export public-to-sibling types from the private owner module.
 #[cfg(unix)]
 pub(super) use super::state_tables::{
-    CreateKind, CreateRequest, HostJobKind, HostJobSnapshot, HostJobTimeout, RuntimeRecord,
+    CreateKind, CreateRequest, HostJobGeneration, HostJobKind, HostJobSnapshot, HostJobTimeout,
+    IntegrationJobTurn, RuntimeRecord,
 };
 
 #[cfg(unix)]
@@ -130,6 +137,9 @@ pub(super) struct WorkerState {
     staging: StagedFileStore,
     /// Host observation/create-preflight jobs owned across bridge connections.
     host_jobs: HostJobTable,
+    host_job_tx: std_mpsc::Sender<HostJobResult>,
+    host_job_rx: std_mpsc::Receiver<HostJobResult>,
+    hook_ingress: WorkerHookIngress,
     /// Worker-native runtime events (no AppEvent in the worker core).
     events: mpsc::Sender<WorkerEvent>,
     event_rx: mpsc::Receiver<WorkerEvent>,
@@ -140,8 +150,12 @@ pub(super) struct WorkerState {
 #[cfg(unix)]
 impl WorkerState {
     pub(super) fn new(binding: DaemonBinding) -> io::Result<Self> {
+        let role_paths = binding.role_paths();
+        role_paths.prepare()?;
         let (events, event_rx) = mpsc::channel(256);
-        let staging_root = binding.role_paths().artifact_dir().join("staged-files");
+        let (host_job_tx, host_job_rx) = std_mpsc::channel();
+        let staging_root = role_paths.artifact_dir().join("staged-files");
+        let hook_ingress = WorkerHookIngress::start(role_paths.hook_socket_path())?;
         Ok(Self {
             binding,
             app_version: WORKER_APP_VERSION.to_string(),
@@ -154,6 +168,9 @@ impl WorkerState {
             termination_order: VecDeque::new(),
             staging: StagedFileStore::new(staging_root)?,
             host_jobs: HostJobTable::new(),
+            host_job_tx,
+            host_job_rx,
+            hook_ingress,
             events,
             event_rx,
             render_notify: Arc::new(Notify::new()),
@@ -238,6 +255,7 @@ impl WorkerState {
             WorkerCapability::Agent,
             WorkerCapability::Ports,
             WorkerCapability::FileStaging,
+            WorkerCapability::AgentIntegrations,
         ]
     }
 
@@ -365,20 +383,23 @@ impl WorkerState {
         let output = OutputLog::new(scrollback_limit_bytes);
         let mut env = env;
         if let Some(command) = &command {
+            command
+                .validate()
+                .map_err(|err| worker_error(WorkerErrorCode::Failed, err.to_string()))?;
             env.extend(command.env.clone());
         }
+        let hook_token = self
+            .hook_ingress
+            .register(identity.clone())
+            .map_err(|error| worker_error(WorkerErrorCode::Failed, error.to_string()))?;
         let launch_env = PaneLaunchEnv::from_extra(env)
-            .without_pane_identity()
-            .without_local_api_socket()
+            .with_worker_hook_endpoint(self.hook_ingress.socket_path(), hook_token)
             .with_output_observer(output.observer());
         // PaneId is still required by TerminalRuntime's PTY adapter; it is not
         // stored on worker records or exposed through worker events.
         let pane_id = PaneId::alloc();
         let app_events = RuntimeEventBridge::spawn(local_id, self.events.clone());
-        let runtime = if let Some(command) = command {
-            command
-                .validate()
-                .map_err(|err| worker_error(WorkerErrorCode::Failed, err.to_string()))?;
+        let runtime_result = if let Some(command) = command {
             let mut argv = Vec::with_capacity(command.args.len() + 1);
             argv.push(command.program);
             argv.extend(command.args);
@@ -410,8 +431,14 @@ impl WorkerState {
                 self.render_notify.clone(),
                 self.render_dirty.clone(),
             )
-        }
-        .map_err(|err| worker_error(WorkerErrorCode::Failed, err.to_string()))?;
+        };
+        let runtime = match runtime_result {
+            Ok(runtime) => runtime,
+            Err(error) => {
+                self.hook_ingress.unregister(&identity);
+                return Err(worker_error(WorkerErrorCode::Failed, error.to_string()));
+            }
+        };
         self.runtimes.insert_pair(
             runtime_id,
             RuntimeRecord {
@@ -611,6 +638,7 @@ impl WorkerState {
         identity: RuntimeIdentity,
         location: ResourceLocation,
     ) {
+        self.hook_ingress.unregister(&identity);
         self.termination_tombstones
             .insert(identity.clone(), location);
         self.termination_order.push_back(identity);
@@ -628,6 +656,14 @@ impl WorkerState {
 
     pub(super) fn try_recv_event(&mut self) -> Result<WorkerEvent, mpsc::error::TryRecvError> {
         self.event_rx.try_recv()
+    }
+
+    pub(super) fn next_hook_report(&self) -> Option<QueuedHookReport> {
+        self.hook_ingress.next_report()
+    }
+
+    pub(super) fn confirm_hook_report(&self, delivered: &QueuedHookReport) {
+        self.hook_ingress.confirm_report(delivered);
     }
 
     #[cfg(test)]
@@ -661,8 +697,20 @@ impl WorkerState {
         request_id: RequestId,
         kind: HostJobKind,
         location: ResourceLocation,
-    ) -> Result<(Arc<AtomicBool>, Arc<AtomicBool>), WorkerError> {
+    ) -> Result<(Arc<AtomicBool>, Arc<AtomicBool>, HostJobGeneration), WorkerError> {
         self.host_jobs.insert(request_id, kind, location)
+    }
+
+    pub(super) fn reserve_integration_job_turn(&mut self) -> IntegrationJobTurn {
+        self.host_jobs.reserve_integration_turn()
+    }
+
+    pub(super) fn host_job_sender(&self) -> std_mpsc::Sender<HostJobResult> {
+        self.host_job_tx.clone()
+    }
+
+    pub(super) fn try_recv_host_job_result(&self) -> Result<HostJobResult, std_mpsc::TryRecvError> {
+        self.host_job_rx.try_recv()
     }
 
     pub(super) fn cancel_host_jobs_for_disconnect(&mut self) {
@@ -684,16 +732,20 @@ impl WorkerState {
         self.host_jobs.remove(request_id);
     }
 
-    pub(super) fn finish_host_job_after_response(&mut self, request_id: RequestId) {
-        self.host_jobs.finish_after_response(request_id);
+    pub(super) fn finish_host_job_after_response(
+        &mut self,
+        request_id: RequestId,
+        generation: HostJobGeneration,
+    ) {
+        self.host_jobs.finish_after_response(request_id, generation);
     }
 
-    pub(super) fn complete_host_job(&mut self, request_id: RequestId) {
-        self.host_jobs.complete_and_remove(request_id);
-    }
-
-    pub(super) fn reap_host_job_teardown_result(&mut self, request_id: RequestId) {
-        self.host_jobs.reap_teardown_result(request_id);
+    pub(super) fn complete_host_job(
+        &mut self,
+        request_id: RequestId,
+        generation: HostJobGeneration,
+    ) {
+        self.host_jobs.complete_and_remove(request_id, generation);
     }
 
     pub(super) fn reap_completed_host_jobs(&mut self) {
@@ -778,10 +830,13 @@ mod ownership_tests {
     use super::*;
     use crate::execution_host::protocol::{HostBindingGeneration, WorkerInstanceId};
     use crate::execution_host::ExecutionHostId;
-    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
     use std::time::{Duration, Instant};
+    static NEXT_TEST_STATE_ID: AtomicU64 = AtomicU64::new(1);
 
     fn test_state() -> WorkerState {
+        let state_id = NEXT_TEST_STATE_ID.fetch_add(1, Ordering::Relaxed);
+        let host_id = format!("ssh:own-{}-{state_id}", std::process::id());
         let binding = DaemonBinding {
             installation_id: crate::execution_host::protocol::CoordinatorInstallationId::new(
                 "own-install",
@@ -791,7 +846,7 @@ mod ownership_tests {
                 "own-session",
             )
             .unwrap(),
-            execution_host_id: ExecutionHostId::new("ssh:own").unwrap(),
+            execution_host_id: ExecutionHostId::new(host_id).unwrap(),
             host_binding_generation: HostBindingGeneration::new(1),
             worker_instance_id: WorkerInstanceId::new("own-worker").unwrap(),
             socket_path: std::env::temp_dir().join("omh-own-worker.sock"),
@@ -807,18 +862,18 @@ mod ownership_tests {
             HostPath::new(std::env::temp_dir()).unwrap(),
         );
         let request_id = RequestId::new(1);
-        state
+        let (_, _, generation) = state
             .insert_host_job(request_id, HostJobKind::ValidatePath, location)
             .unwrap();
         assert_eq!(state.live_host_job_count(), 1);
         assert!(state.host_job_contains(&request_id));
 
-        state.complete_host_job(request_id);
+        state.complete_host_job(request_id, generation);
         assert!(!state.host_job_contains(&request_id));
         assert_eq!(state.live_host_job_count(), 0);
 
         // A second completion cannot resurrect the removed slot.
-        state.complete_host_job(request_id);
+        state.complete_host_job(request_id, generation);
         assert!(state.host_jobs_is_empty());
     }
 

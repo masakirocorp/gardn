@@ -56,6 +56,16 @@ pub(super) fn flush_state_events(
     state: &mut WorkerState,
     stream: &mut UnixStream,
 ) -> io::Result<()> {
+    while let Some(queued) = state.next_hook_report() {
+        write_message(
+            stream,
+            WorkerMessage::AgentHookReported {
+                identity: queued.identity.clone(),
+                report: queued.report.clone(),
+            },
+        )?;
+        state.confirm_hook_report(&queued);
+    }
     while let Ok(event) = state.try_recv_event() {
         match event {
             WorkerEvent::StateChanged {

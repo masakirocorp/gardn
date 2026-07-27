@@ -2195,6 +2195,8 @@ pub struct SettingsState {
     pub pending_agent_profile_command: Option<String>,
     /// Active agent family filter in the global agents settings tab.
     pub agent_profile_kind_filter: Option<crate::agent_profiles::AgentKind>,
+    /// SSH profile selected for integration inspection and actions; `None` is Local.
+    pub integration_host_profile_id: Option<String>,
     /// Connection profile editor draft and related install/forget substate.
     pub connection_editor: Option<ConnectionEditorState>,
     /// Group whose settings are being edited, if settings was opened from a group menu.
@@ -3312,6 +3314,19 @@ pub struct AppState {
     pub settings: SettingsState,
     /// Cached integration recommendations for onboarding/settings UI.
     pub integration_recommendations: Vec<crate::integration::IntegrationRecommendation>,
+    /// Host-qualified integration state reported by managed execution workers.
+    pub(crate) host_integration_observations: std::collections::HashMap<
+        crate::execution_host::ExecutionHostId,
+        crate::integration::host::HostIntegrationObservation,
+    >,
+    /// Latest coordinator integration request for each execution host.
+    pub(crate) host_integration_request_ids: std::collections::HashMap<
+        crate::execution_host::ExecutionHostId,
+        crate::execution_host::protocol::RequestId,
+    >,
+    /// Integration action feedback scoped to its execution host.
+    pub(crate) host_integration_install_messages:
+        std::collections::HashMap<crate::execution_host::ExecutionHostId, Vec<String>>,
     /// Coordinator-owned catalog of saved SSH connection profiles.
     ///
     /// Persisted through `persist::ssh_profiles`; replaced only after a
@@ -4190,11 +4205,15 @@ impl AppState {
                 pending_agent_profile_kind: None,
                 pending_agent_profile_command: None,
                 agent_profile_kind_filter: None,
+                integration_host_profile_id: None,
                 connection_editor: None,
                 group_settings_target: None,
                 workspace_settings_target: None,
             },
             integration_recommendations: Vec::new(),
+            host_integration_observations: std::collections::HashMap::new(),
+            host_integration_request_ids: std::collections::HashMap::new(),
+            host_integration_install_messages: std::collections::HashMap::new(),
             ssh_connection_profiles: Vec::new(),
             host_connection_states: std::collections::HashMap::new(),
             pending_ssh_connection_requests: Vec::new(),

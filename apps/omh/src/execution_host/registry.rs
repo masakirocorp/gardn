@@ -1,5 +1,5 @@
 use std::collections::{HashMap, HashSet};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use super::auth::{
     AuthenticationChallenge, AuthenticationOwner, AuthenticationResponse,
@@ -36,6 +36,14 @@ use crate::terminal::{TerminalId, TerminalRuntime};
 #[cfg(test)]
 use std::sync::Arc;
 
+const INTEGRATION_INSPECT_TIMEOUT: Duration = Duration::from_secs(30);
+
+#[derive(Clone, Copy, Debug)]
+struct PendingAgentIntegration {
+    requested_at: Instant,
+    operation: crate::integration::host::HostIntegrationOperation,
+}
+
 #[derive(Debug)]
 pub(crate) enum ExecutionHostEvent {
     Worker {
@@ -60,6 +68,16 @@ pub(crate) enum ExecutionHostEvent {
         visible_idle: bool,
         visible_working: bool,
         process_exited: bool,
+    },
+    AgentHookReported {
+        terminal_id: TerminalId,
+        report: crate::integration::host::WorkerHookReport,
+    },
+    AgentIntegrationsUpdated {
+        host_id: ExecutionHostId,
+        request_id: RequestId,
+        result:
+            Result<crate::integration::host::HostIntegrationResult, super::protocol::WorkerError>,
     },
     TerminalExited {
         terminal_id: TerminalId,
@@ -100,6 +118,7 @@ pub(crate) struct ExecutionHostManager {
     retiring_hosts: HashSet<ExecutionHostId>,
     process_observations: ObservationBroker<TerminalId, ProcessObservation>,
     git_observations: ObservationBroker<ResourceLocation, GitStatusSnapshot>,
+    pending_agent_integrations: HashMap<(ExecutionHostId, RequestId), PendingAgentIntegration>,
     worktree_observations: ObservationBroker<ResourceLocation, Vec<WorktreeSnapshot>>,
     port_observations: ObservationBroker<ResourceLocation, Vec<PortSnapshot>>,
     project_command_observations: ObservationBroker<ResourceLocation, Vec<ProjectCommandSnapshot>>,
@@ -119,6 +138,7 @@ impl ExecutionHostManager {
             process_observations: ObservationBroker::new(),
             git_observations: ObservationBroker::new(),
             worktree_observations: ObservationBroker::new(),
+            pending_agent_integrations: HashMap::new(),
             port_observations: ObservationBroker::new(),
             project_command_observations: ObservationBroker::new(),
             stage_requests: StageRequestTracker::new(),
@@ -454,6 +474,30 @@ impl ExecutionHostManager {
         )?;
         self.stage_requests
             .track(host_id, request_id, expected_location);
+        Ok(request_id)
+    }
+
+    pub(crate) fn request_agent_integrations(
+        &mut self,
+        host_id: ExecutionHostId,
+        request: crate::integration::host::HostIntegrationRequest,
+    ) -> Result<RequestId, HostOperationError> {
+        let operation = request.operation;
+        let expected_host = host_id.clone();
+        let request_id =
+            self.send_host_operation(host_id, WorkerCapability::AgentIntegrations, |request_id| {
+                CoordinatorMessage::ManageAgentIntegrations {
+                    request_id,
+                    request,
+                }
+            })?;
+        self.pending_agent_integrations.insert(
+            (expected_host, request_id),
+            PendingAgentIntegration {
+                requested_at: Instant::now(),
+                operation,
+            },
+        );
         Ok(request_id)
     }
 
@@ -1321,6 +1365,15 @@ impl ExecutionHostManager {
                     self.apply_terminal_effects(effects, events);
                 }
             }
+            WorkerMessage::AgentHookReported { identity, report } => {
+                if let Some((terminal_id, _)) = self.terminals.find_by_identity(&host_id, &identity)
+                {
+                    events.push(ExecutionHostEvent::AgentHookReported {
+                        terminal_id: terminal_id.clone(),
+                        report,
+                    });
+                }
+            }
             WorkerMessage::ProcessObservationResult {
                 request_id,
                 identity,
@@ -1425,6 +1478,32 @@ impl ExecutionHostManager {
                     });
                 }
             }
+            WorkerMessage::AgentIntegrationsResult {
+                request_id,
+                result,
+                error,
+            } => {
+                if self
+                    .pending_agent_integrations
+                    .remove(&(host_id.clone(), request_id))
+                    .is_none()
+                {
+                    return;
+                }
+                let result = match (result, error) {
+                    (Some(result), None) => Ok(result),
+                    (_, Some(error)) => Err(error),
+                    (None, None) => Err(super::protocol::WorkerError::new(
+                        super::protocol::WorkerErrorCode::Failed,
+                        "worker returned no integration result",
+                    )),
+                };
+                events.push(ExecutionHostEvent::AgentIntegrationsUpdated {
+                    host_id,
+                    request_id,
+                    result,
+                });
+            }
             message => events.push(ExecutionHostEvent::Worker { host_id, message }),
         }
     }
@@ -1451,6 +1530,25 @@ impl ExecutionHostManager {
                 result: completion.result,
             });
         }
+        let pending = self
+            .pending_agent_integrations
+            .keys()
+            .filter(|(pending_host, _)| pending_host == host_id)
+            .cloned()
+            .collect::<Vec<_>>();
+        for (pending_host, request_id) in pending {
+            self.pending_agent_integrations
+                .remove(&(pending_host.clone(), request_id));
+            self.lifecycle_events
+                .push(ExecutionHostEvent::AgentIntegrationsUpdated {
+                    host_id: pending_host,
+                    request_id,
+                    result: Err(super::protocol::WorkerError::new(
+                        super::protocol::WorkerErrorCode::Gone,
+                        "integration result is unknown because the execution host disconnected",
+                    )),
+                });
+        }
     }
 
     fn expire_pending_observations(&mut self, now: Instant) {
@@ -1459,6 +1557,45 @@ impl ExecutionHostManager {
         self.worktree_observations.expire_pending(now);
         self.port_observations.expire_pending(now);
         self.project_command_observations.expire_pending(now);
+        let expired = self
+            .pending_agent_integrations
+            .iter()
+            .filter_map(|(key, pending)| {
+                (pending.operation == crate::integration::host::HostIntegrationOperation::Inspect
+                    && now.saturating_duration_since(pending.requested_at)
+                        >= INTEGRATION_INSPECT_TIMEOUT)
+                    .then_some(key.clone())
+            })
+            .collect::<Vec<_>>();
+        for (host_id, request_id) in expired {
+            self.pending_agent_integrations
+                .remove(&(host_id.clone(), request_id));
+            self.lifecycle_events
+                .push(ExecutionHostEvent::AgentIntegrationsUpdated {
+                    host_id,
+                    request_id,
+                    result: Err(super::protocol::WorkerError::new(
+                        super::protocol::WorkerErrorCode::TimedOut,
+                        "integration inspection timed out",
+                    )),
+                });
+        }
+    }
+
+    fn reconcile_host_observations(
+        &mut self,
+        now: Instant,
+        statuses: &HashMap<ExecutionHostId, ConnectionStatus>,
+    ) {
+        for host_id in statuses
+            .iter()
+            .filter(|(_, status)| **status != ConnectionStatus::Connected)
+            .map(|(host_id, _)| host_id.clone())
+            .collect::<Vec<_>>()
+        {
+            self.mark_host_observations_stale(&host_id);
+        }
+        self.expire_pending_observations(now);
     }
 
     pub(crate) fn has_active_connections(&self) -> bool {
@@ -1490,15 +1627,8 @@ impl ExecutionHostManager {
                 }
             }
         }
-        self.expire_pending_observations(now);
-        for host_id in statuses
-            .iter()
-            .filter(|(_, status)| **status != ConnectionStatus::Connected)
-            .map(|(host_id, _)| host_id.clone())
-            .collect::<Vec<_>>()
-        {
-            self.mark_host_observations_stale(&host_id);
-        }
+        self.reconcile_host_observations(now, &statuses);
+        events.append(&mut self.lifecycle_events);
         for host_id in reconnected_hosts {
             self.replay_pending_creates(&host_id, &mut events);
             self.replay_pending_terminations(&host_id, &mut events);
@@ -1538,6 +1668,209 @@ mod tests {
             CoordinatorInstallationId::new("install-a").unwrap(),
             SessionNamespaceId::new("session-a").unwrap(),
         )
+    }
+
+    fn integration_request(
+        operation: crate::integration::host::HostIntegrationOperation,
+    ) -> crate::integration::host::HostIntegrationRequest {
+        crate::integration::host::HostIntegrationRequest {
+            operation,
+            profiles: Vec::new(),
+        }
+    }
+
+    fn empty_integration_result() -> crate::integration::host::HostIntegrationResult {
+        crate::integration::host::HostIntegrationResult {
+            snapshot: crate::integration::host::HostIntegrationSnapshot {
+                entries: Vec::new(),
+            },
+            messages: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn integration_request_ids_are_scoped_by_execution_host() {
+        let mut manager = manager();
+        let first_host = ExecutionHostId::new("ssh:first:1").unwrap();
+        let second_host = ExecutionHostId::new("ssh:second:1").unwrap();
+        manager.connect_test_host(first_host.clone());
+        manager.connect_test_host(second_host.clone());
+
+        manager.connections.set_next_test_request_id_for_test(1);
+        let first_request = manager
+            .request_agent_integrations(
+                first_host.clone(),
+                integration_request(crate::integration::host::HostIntegrationOperation::Inspect),
+            )
+            .unwrap();
+        manager.connections.set_next_test_request_id_for_test(1);
+        let second_request = manager
+            .request_agent_integrations(
+                second_host.clone(),
+                integration_request(crate::integration::host::HostIntegrationOperation::Inspect),
+            )
+            .unwrap();
+        assert_eq!(first_request, second_request);
+
+        let mut events = Vec::new();
+        manager.route_worker_message(
+            first_host.clone(),
+            WorkerMessage::AgentIntegrationsResult {
+                request_id: first_request,
+                result: Some(empty_integration_result()),
+                error: None,
+            },
+            &mut events,
+        );
+        manager.route_worker_message(
+            second_host.clone(),
+            WorkerMessage::AgentIntegrationsResult {
+                request_id: second_request,
+                result: Some(empty_integration_result()),
+                error: None,
+            },
+            &mut events,
+        );
+
+        assert!(matches!(
+            events.as_slice(),
+            [
+                ExecutionHostEvent::AgentIntegrationsUpdated {
+                    host_id: first,
+                    request_id: first_id,
+                    result: Ok(_),
+                },
+                ExecutionHostEvent::AgentIntegrationsUpdated {
+                    host_id: second,
+                    request_id: second_id,
+                    result: Ok(_),
+                },
+            ] if first == &first_host
+                && second == &second_host
+                && *first_id == first_request
+                && *second_id == second_request
+        ));
+    }
+
+    #[test]
+    fn integration_inspection_expires_without_timing_out_mutations() {
+        let mut manager = manager();
+        let host_id = ExecutionHostId::new("ssh:workbox:1").unwrap();
+        manager.connect_test_host(host_id.clone());
+        let inspect_id = manager
+            .request_agent_integrations(
+                host_id.clone(),
+                integration_request(crate::integration::host::HostIntegrationOperation::Inspect),
+            )
+            .unwrap();
+        let mutation_id = manager
+            .request_agent_integrations(
+                host_id.clone(),
+                integration_request(
+                    crate::integration::host::HostIntegrationOperation::EnsureCurrent {
+                        target: crate::api::schema::IntegrationTarget::Omp,
+                    },
+                ),
+            )
+            .unwrap();
+        let now = Instant::now();
+        manager
+            .pending_agent_integrations
+            .get_mut(&(host_id.clone(), inspect_id))
+            .unwrap()
+            .requested_at = now - INTEGRATION_INSPECT_TIMEOUT;
+        manager
+            .pending_agent_integrations
+            .get_mut(&(host_id.clone(), mutation_id))
+            .unwrap()
+            .requested_at = now - INTEGRATION_INSPECT_TIMEOUT;
+
+        manager.expire_pending_observations(now);
+
+        assert!(!manager
+            .pending_agent_integrations
+            .contains_key(&(host_id.clone(), inspect_id)));
+        assert!(manager
+            .pending_agent_integrations
+            .contains_key(&(host_id.clone(), mutation_id)));
+        assert!(matches!(
+            manager.lifecycle_events.as_slice(),
+            [ExecutionHostEvent::AgentIntegrationsUpdated {
+                host_id: expired_host,
+                request_id,
+                result: Err(error),
+            }] if expired_host == &host_id
+                && *request_id == inspect_id
+                && error.code == WorkerErrorCode::TimedOut
+        ));
+    }
+
+    #[test]
+    fn disconnect_completes_pending_integration_request_as_unknown() {
+        let mut manager = manager();
+        let host_id = ExecutionHostId::new("ssh:workbox:1").unwrap();
+        manager.connect_test_host(host_id.clone());
+        let request_id = manager
+            .request_agent_integrations(
+                host_id.clone(),
+                integration_request(
+                    crate::integration::host::HostIntegrationOperation::EnsureCurrent {
+                        target: crate::api::schema::IntegrationTarget::Omp,
+                    },
+                ),
+            )
+            .unwrap();
+
+        manager.mark_host_observations_stale(&host_id);
+
+        assert!(!manager
+            .pending_agent_integrations
+            .contains_key(&(host_id.clone(), request_id)));
+        assert!(matches!(
+            manager.lifecycle_events.as_slice(),
+            [ExecutionHostEvent::AgentIntegrationsUpdated {
+                host_id: failed_host,
+                request_id: failed_request,
+                result: Err(error),
+            }] if failed_host == &host_id
+                && *failed_request == request_id
+                && error.code == WorkerErrorCode::Gone
+                && error.message.contains("result is unknown")
+        ));
+    }
+
+    #[test]
+    fn disconnect_at_inspection_deadline_reports_unknown_instead_of_timeout() {
+        let mut manager = manager();
+        let host_id = ExecutionHostId::new("ssh:workbox:1").unwrap();
+        manager.connect_test_host(host_id.clone());
+        let request_id = manager
+            .request_agent_integrations(
+                host_id.clone(),
+                integration_request(crate::integration::host::HostIntegrationOperation::Inspect),
+            )
+            .unwrap();
+        let now = Instant::now();
+        manager
+            .pending_agent_integrations
+            .get_mut(&(host_id.clone(), request_id))
+            .unwrap()
+            .requested_at = now - INTEGRATION_INSPECT_TIMEOUT;
+        let statuses = HashMap::from([(host_id.clone(), ConnectionStatus::Disconnected)]);
+
+        manager.reconcile_host_observations(now, &statuses);
+
+        assert!(matches!(
+            manager.lifecycle_events.as_slice(),
+            [ExecutionHostEvent::AgentIntegrationsUpdated {
+                host_id: failed_host,
+                request_id: failed_request,
+                result: Err(error),
+            }] if failed_host == &host_id
+                && *failed_request == request_id
+                && error.code == WorkerErrorCode::Gone
+                && error.message.contains("result is unknown")
+        ));
     }
 
     #[test]

@@ -29,6 +29,7 @@ pub(crate) enum WorkerCapability {
     Agent,
     Ports,
     FileStaging,
+    AgentIntegrations,
 }
 
 /// Process signal applied on the execution host.

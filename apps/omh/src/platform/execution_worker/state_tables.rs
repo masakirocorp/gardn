@@ -2,7 +2,7 @@
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Condvar, Mutex, MutexGuard};
 use std::time::Instant;
 
 use crate::execution_host::protocol::{
@@ -53,8 +53,13 @@ pub(super) enum HostJobKind {
     RunCommand,
     ObservePorts,
     DiscoverProjectCommands,
-    CompletePath { prefix: String },
+    CompletePath {
+        prefix: String,
+    },
     ValidatePath,
+    ManageAgentIntegrations {
+        request: crate::integration::host::HostIntegrationRequest,
+    },
     Create(CreateRequest),
 }
 
@@ -154,9 +159,12 @@ impl RuntimeTable {
     }
 }
 
+pub(super) type HostJobGeneration = u64;
+
 /// Pending host observation/create job. Transition flags are owned by [`HostJobTable`].
 #[cfg(unix)]
 struct PendingHostJob {
+    generation: HostJobGeneration,
     kind: HostJobKind,
     location: ResourceLocation,
     started_at: Instant,
@@ -169,6 +177,7 @@ struct PendingHostJob {
 #[cfg(unix)]
 #[derive(Clone)]
 pub(super) struct HostJobSnapshot {
+    pub(super) generation: HostJobGeneration,
     pub(super) kind: HostJobKind,
     pub(super) location: ResourceLocation,
     pub(super) responded: bool,
@@ -183,20 +192,85 @@ pub(super) struct HostJobTimeout {
     pub(super) finished: bool,
 }
 
+#[cfg(unix)]
+struct IntegrationJobGate {
+    active_ticket: Mutex<u64>,
+    ready: Condvar,
+}
+
+#[cfg(unix)]
+pub(super) struct IntegrationJobTurn {
+    ticket: u64,
+    gate: Arc<IntegrationJobGate>,
+}
+
+#[cfg(unix)]
+impl IntegrationJobTurn {
+    pub(super) fn run<T>(self, operation: impl FnOnce() -> T) -> T {
+        let mut active_ticket = self
+            .gate
+            .active_ticket
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        while *active_ticket != self.ticket {
+            active_ticket = self
+                .gate
+                .ready
+                .wait(active_ticket)
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+        }
+        let _advance = IntegrationTurnAdvance {
+            active_ticket,
+            ready: &self.gate.ready,
+        };
+        operation()
+    }
+}
+
+#[cfg(unix)]
+struct IntegrationTurnAdvance<'a> {
+    active_ticket: MutexGuard<'a, u64>,
+    ready: &'a Condvar,
+}
+
+#[cfg(unix)]
+impl Drop for IntegrationTurnAdvance<'_> {
+    fn drop(&mut self) {
+        *self.active_ticket = self.active_ticket.wrapping_add(1);
+        self.ready.notify_all();
+    }
+}
+
 /// Host-job map with atomic responded/finished/remove transitions.
 #[cfg(unix)]
 pub(super) struct HostJobTable {
     jobs: HashMap<RequestId, PendingHostJob>,
+    next_job_generation: HostJobGeneration,
+    next_integration_ticket: u64,
+    integration_gate: Arc<IntegrationJobGate>,
 }
 
 #[cfg(unix)]
 impl HostJobTable {
     pub(super) fn new() -> Self {
         Self {
+            next_job_generation: 1,
             jobs: HashMap::new(),
+            next_integration_ticket: 0,
+            integration_gate: Arc::new(IntegrationJobGate {
+                active_ticket: Mutex::new(0),
+                ready: Condvar::new(),
+            }),
         }
     }
-
+    pub(super) fn reserve_integration_turn(&mut self) -> IntegrationJobTurn {
+        let ticket = self.next_integration_ticket;
+        self.next_integration_ticket = self.next_integration_ticket.wrapping_add(1);
+        IntegrationJobTurn {
+            ticket,
+            gate: Arc::clone(&self.integration_gate),
+        }
+    }
     #[cfg(test)]
     pub(super) fn is_empty(&self) -> bool {
         self.jobs.is_empty()
@@ -216,6 +290,7 @@ impl HostJobTable {
 
     pub(super) fn snapshot(&self, request_id: &RequestId) -> Option<HostJobSnapshot> {
         self.jobs.get(request_id).map(|job| HostJobSnapshot {
+            generation: job.generation,
             kind: job.kind.clone(),
             location: job.location.clone(),
             responded: job.responded,
@@ -229,7 +304,7 @@ impl HostJobTable {
         request_id: RequestId,
         kind: HostJobKind,
         location: ResourceLocation,
-    ) -> Result<(Arc<AtomicBool>, Arc<AtomicBool>), WorkerError> {
+    ) -> Result<(Arc<AtomicBool>, Arc<AtomicBool>, HostJobGeneration), WorkerError> {
         if self.jobs.contains_key(&request_id) {
             return Err(worker_error(
                 WorkerErrorCode::Conflict,
@@ -244,9 +319,12 @@ impl HostJobTable {
         }
         let cancel = Arc::new(AtomicBool::new(false));
         let finished = Arc::new(AtomicBool::new(false));
+        let generation = self.next_job_generation;
+        self.next_job_generation = self.next_job_generation.wrapping_add(1);
         self.jobs.insert(
             request_id,
             PendingHostJob {
+                generation,
                 kind,
                 location,
                 started_at: Instant::now(),
@@ -255,7 +333,7 @@ impl HostJobTable {
                 finished: finished.clone(),
             },
         );
-        Ok((cancel, finished))
+        Ok((cancel, finished, generation))
     }
 
     pub(super) fn cancel_for_disconnect(&mut self) {
@@ -272,7 +350,10 @@ impl HostJobTable {
         self.jobs
             .iter()
             .filter_map(|(request_id, job)| {
-                (!job.responded && job.started_at.elapsed() >= timeout).then_some(*request_id)
+                (!job.responded
+                    && !matches!(&job.kind, HostJobKind::ManageAgentIntegrations { .. })
+                    && job.started_at.elapsed() >= timeout)
+                    .then_some(*request_id)
             })
             .collect()
     }
@@ -300,7 +381,18 @@ impl HostJobTable {
     }
 
     /// Thread returned after a prior response (timeout/disconnect): mark finished and drop.
-    pub(super) fn finish_after_response(&mut self, request_id: RequestId) {
+    pub(super) fn finish_after_response(
+        &mut self,
+        request_id: RequestId,
+        generation: HostJobGeneration,
+    ) {
+        let matches_generation = self
+            .jobs
+            .get(&request_id)
+            .is_some_and(|job| job.generation == generation);
+        if !matches_generation {
+            return;
+        }
         if let Some(job) = self.jobs.get_mut(&request_id) {
             job.finished.store(true, Ordering::Relaxed);
         }
@@ -308,19 +400,21 @@ impl HostJobTable {
     }
 
     /// Mark responded+finished and remove in one transition (normal completion path).
-    pub(super) fn complete_and_remove(&mut self, request_id: RequestId) {
-        if let Some(job) = self.jobs.get_mut(&request_id) {
-            job.responded = true;
-            job.finished.store(true, Ordering::Relaxed);
+    pub(super) fn complete_and_remove(
+        &mut self,
+        request_id: RequestId,
+        generation: HostJobGeneration,
+    ) {
+        let matches_generation = self
+            .jobs
+            .get(&request_id)
+            .is_some_and(|job| job.generation == generation);
+        if !matches_generation {
+            return;
         }
-        self.jobs.remove(&request_id);
-    }
-
-    /// Teardown drain: accept late results without writing, drop accounting.
-    pub(super) fn reap_teardown_result(&mut self, request_id: RequestId) {
         if let Some(job) = self.jobs.get_mut(&request_id) {
-            job.finished.store(true, Ordering::Relaxed);
             job.responded = true;
+            job.finished.store(true, Ordering::Relaxed);
         }
         self.jobs.remove(&request_id);
     }
@@ -343,6 +437,7 @@ impl HostJobTable {
         self.jobs.insert(
             request_id,
             PendingHostJob {
+                generation: 0,
                 kind,
                 location,
                 started_at,

@@ -734,9 +734,10 @@ impl App {
                     SettingsAction::SaveSwitchAsciiInputSourceInPrefix(enabled) => {
                         self.save_switch_ascii_input_source_in_prefix(enabled)
                     }
-                    SettingsAction::InstallIntegration(target) => self.install_integration(target),
-                    SettingsAction::UninstallIntegration(target) => {
-                        self.uninstall_integration(target)
+                    action @ (SettingsAction::CycleIntegrationHost
+                    | SettingsAction::InstallIntegration(_)
+                    | SettingsAction::UninstallIntegration(_)) => {
+                        self.apply_settings_action(action)
                     }
                     SettingsAction::SaveAgentProfile(profile) => self.save_agent_profile(profile),
                     SettingsAction::DeleteAgentProfile(profile_id) => {
@@ -807,7 +808,9 @@ impl App {
         if previous_settings_section != crate::app::state::SettingsSection::Integrations
             && self.state.settings.section == crate::app::state::SettingsSection::Integrations
         {
-            self.refresh_integration_recommendations();
+            self.apply_integration_operation(
+                crate::integration::host::HostIntegrationOperation::Inspect,
+            );
         }
 
         if let Some(content) = self.state.request_clipboard_write.take() {
