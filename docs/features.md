@@ -122,6 +122,7 @@ Supported built-in detection includes:
 - **Integration authority** — installed hooks either report native session identity for restore or report state directly. Claude Code, Codex, Pi, OMP, OpenCode, Hermes, Copilot, Qoder-style, and Grok Build integrations can report state directly; Kimi, Droid, and Cursor use session identity plus screen detection for state.
 - **Pi settled lifecycle** — the Pi integration keeps an active root agent working through compaction and reports it idle only after Pi emits `agent_settled` while the root session is actually idle. Stale or non-idle settlement signals do not end active work.
 - **Missing integration warning** — if screen detection sees an integration-capable agent such as Codex but no accepted Oh My Herdr hook, session, or metadata report arrives for that pane, Oh My Herdr shows a pane-targeted toast with the matching `omh integration install <agent>` command.
+- **Host-scoped integration management** — Settings can inspect, install, update, and uninstall agent integrations on Local or a saved SSH Execution Host. Remote operations run through the managed worker in order, and remote hooks report through a restricted authenticated worker endpoint instead of receiving the coordinator's Local API socket.
 
 
 ### Agent profiles

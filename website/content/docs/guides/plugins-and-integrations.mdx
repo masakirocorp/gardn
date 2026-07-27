@@ -5,9 +5,9 @@ description: Install, inspect, run, and remove Oh My Herdr integrations and plug
 
 # Install and operate plugins and integrations
 
-This guide shows how to manage built-in agent integrations and Oh My Herdr plugins from the CLI. It assumes that `omh` is already available on your `PATH`.
+This guide shows how to manage built-in agent integrations and Oh My Herdr plugins. It assumes that `omh` is already available on your `PATH`.
 
-Use the CLI for normal installation and inspection. Use the [Local API plugin and integration methods](/docs/api/reference/extensions-and-control) when an automation process needs structured results or must invoke plugin actions without parsing terminal output.
+Use the CLI for integrations on the Coordinator Host. Use **Settings > Integrations** for Local or saved SSH Execution Hosts. The [Local API plugin and integration methods](/docs/api/reference/extensions-and-control) provide structured results for Coordinator Host automation.
 
 > **Trust boundary:** Plugins are not sandboxed. A linked or installed plugin executes as your current user, can read and change anything that user can access, and can launch more processes. A remote plugin's build commands also execute as your current user. Review the repository, the pinned revision, the preview, every command, and every requested pane or action before you continue. Oh My Herdr does not review or endorse plugin code.
 
@@ -44,6 +44,21 @@ The built-in integration writes hooks, extensions, or agent configuration entrie
 Integration paths are platform-aware. By default, Oh My Herdr uses `$XDG_CONFIG_HOME/omh` (or `~/.config/omh`) on Unix-like systems and `%APPDATA%\\omh` on Windows; `OMH_CONFIG_PATH` can select a specific `config.toml`. Agent-specific environment variables such as `CODEX_HOME`, `CLAUDE_CONFIG_DIR`, `COPILOT_HOME`, `KIMI_CODE_HOME`, `QODER_CONFIG_DIR`, and `CURSOR_CONFIG_DIR` can move the corresponding agent configuration. The command output is the authoritative path.
 
 > **Managed files:** Re-running an integration install rewrites the Oh My Herdr-managed hook, extension, or plugin file at its reported path. Do not edit that file to customize behavior; put custom configuration beside it or remove the integration first. A later install or update can overwrite it.
+
+### Manage an integration on an SSH Execution Host
+
+1. Save and connect the host in **Settings > Connections**.
+2. Open **Settings > Integrations**.
+3. Change **Integration host** from **Local** to the saved connection.
+4. Wait for the host inspection to finish. The list shows whether each integration is missing, current, or needs an update on that host.
+5. Select **Install**, **Update**, or **Uninstall** for the target.
+6. Restart affected agent panes on that host.
+
+Oh My Herdr sends the operation to its managed execution worker. The worker reads and writes the selected host's agent configuration. It does not expose the Coordinator Host's Local API socket, profile arguments, or environment to remote agent hooks.
+
+The host selector is client-local. Changing it does not change another attached client's Settings view. If a saved connection is deleted, the selector returns to **Local**.
+
+The `omh integration` CLI and `integration.install` or `integration.uninstall` Local API methods do not select an SSH Execution Host. They continue to manage the Coordinator Host only.
 
 ## Link a local plugin
 

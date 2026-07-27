@@ -376,7 +376,7 @@ It has no title to validate, so it does not return `invalid_params`.
 
 ## Integrations
 
-Integration methods write or remove Oh My Herdr-managed hooks, extensions, plugins, and configuration entries in the selected agent's configuration area. They run with the Local API process's user permissions. Message strings describe paths and warnings and are not a stable machine-readable sub-protocol.
+Integration methods write or remove Oh My Herdr-managed hooks, extensions, plugins, and configuration entries in the selected agent's configuration area on the Coordinator Host. They run with the Local API process's user permissions. They do not target saved SSH Execution Hosts; use **Settings > Integrations** for remote integration management. Message strings describe paths and warnings and are not a stable machine-readable sub-protocol.
 
 The `IntegrationTarget` values are `pi`, `omp`, `claude`, `codex`, `copilot`, `devin`, `kimi`, `droid`, `opencode`, `hermes`, `qodercli`, `cursor`, and `grok`.
 

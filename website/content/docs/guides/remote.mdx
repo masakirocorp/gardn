@@ -77,6 +77,18 @@ omh agent start reviewer --host ssh:workbox:1 --cwd /srv/project -- codex
 
 `--host` requires `--cwd`. The corresponding Local API methods accept a `location` object with `execution_host_id` and `path`. Do not send both `cwd` and `location`. `group.create` accepts optional `default_location` with the same shape; invalid placement fails without creating the group.
 
+## Install agent integrations on an SSH host
+
+Use the managed connection when an agent running on that Execution Host needs an Oh My Herdr integration:
+
+1. Connect the profile in **Settings > Connections**.
+2. Open **Settings > Integrations**.
+3. Set **Integration host** to the saved connection.
+4. Wait for the host status to load, then install or update the target integration.
+5. Restart the affected remote agent pane.
+
+The selected execution worker performs the inspection and mutation on that host. Integration operations for one host run in order. Disconnecting the host fails pending operations instead of applying them to Local. The `omh integration` CLI and Local API integration methods manage only the Coordinator Host.
+
 ## Remove a managed connection
 
 Remove a saved connection from **Settings > Connections**:

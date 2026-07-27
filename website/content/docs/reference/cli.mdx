@@ -271,7 +271,7 @@ Pane placement defaults to the entrypoint's manifest setting. `overlay` is clien
 
 Targets are `pi`, `omp`, `claude`, `codex`, `copilot`, `devin`, `kimi`, `droid`, `opencode`, `hermes`, `qodercli`, `cursor`, and `grok`.
 
-> **Trust boundary:** integration installation and removal write files used by the selected agent. The target name determines which integration is changed.
+> **Trust boundary:** integration installation and removal write files used by the selected agent on the Coordinator Host. These commands do not select a saved SSH Execution Host. Use **Settings > Integrations** for remote integration management.
 
 > **Destructive operation:** `integration uninstall` removes the selected integration files.
 
