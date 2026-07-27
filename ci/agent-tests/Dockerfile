@@ -9,6 +9,7 @@ ARG OPENCODE_VERSION=latest
 ARG COPILOT_VERSION=latest
 ARG HERMES_VERSION=latest
 ARG DROID_VERSION=latest
+ARG PI_VERSION=latest
 ARG PNPM_VERSION=11.6.0
 ARG KIMI_VERSION=latest
 ARG MAKI_VERSION=0.3.27
@@ -55,12 +56,13 @@ RUN --mount=type=cache,id=omh-agent-tests-pnpm,target=/pnpm/store \
         "    \"opencode-ai\": \"${OPENCODE_VERSION}\"," \
         "    \"@github/copilot\": \"${COPILOT_VERSION}\"," \
         "    \"hermes-agent\": \"${HERMES_VERSION}\"," \
-        "    \"droid\": \"${DROID_VERSION}\"" \
+        "    \"droid\": \"${DROID_VERSION}\"," \
+        "    \"@earendil-works/pi-coding-agent\": \"${PI_VERSION}\"" \
         '  }' \
         '}' \
         > package.json \
     && pnpm install --prod \
-    && for bin in claude codex opencode copilot hermes droid; do \
+    && for bin in claude codex opencode copilot hermes droid pi; do \
         printf '%s\n' '#!/bin/sh' "exec /opt/agent-tests-node/node_modules/.bin/${bin} \"\$@\"" > "/usr/local/bin/${bin}"; \
         chmod +x "/usr/local/bin/${bin}"; \
     done \
@@ -137,9 +139,8 @@ RUN curl -fsSL https://qoder.com/install | bash \
     && ln -s /usr/local/bin/qodercli /usr/local/bin/qoder \
     && rm -rf /root/.qoder /root/.local/bin/qodercli /tmp/qodercli-natives-* /tmp/.setup-qodercli-natives-*
 
-# OMP is distributed as a compact release binary. Oh My Herdr also supports `pi`; keep a
-# `pi` entrypoint so launch/profile plumbing can be exercised without installing
-# a second copy of the same agent family.
+# OMP is distributed as a compact release binary. Pi is installed separately above so
+# each integration smoke exercises the current release of the CLI it claims to cover.
 RUN set -eux; \
     arch="$(dpkg --print-architecture)"; \
     case "$arch" in \
@@ -153,8 +154,7 @@ RUN set -eux; \
       tag="$(curl -fsSL https://api.github.com/repos/can1357/oh-my-pi/releases/latest | jq -r .tag_name)"; \
     fi; \
     curl -fsSL "https://github.com/can1357/oh-my-pi/releases/download/${tag}/omp-linux-${omp_arch}" -o /usr/local/bin/omp; \
-    chmod +x /usr/local/bin/omp; \
-    ln -s /usr/local/bin/omp /usr/local/bin/pi
+    chmod +x /usr/local/bin/omp
 
 COPY test-env.sh /usr/local/bin/omh-agent-tests-env
 COPY doctor.sh /usr/local/bin/omh-agent-tests-doctor

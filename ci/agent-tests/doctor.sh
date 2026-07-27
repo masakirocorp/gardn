@@ -14,6 +14,11 @@ if (( missing )); then
   exit 1
 fi
 
+if [[ "$(realpath "$(command -v pi)")" == "$(realpath "$(command -v omp)")" ]]; then
+  printf 'pi and omp resolve to the same executable\n' >&2
+  exit 1
+fi
+
 printf 'agent test image ok\n'
 printf 'node: '; node --version
 printf 'pnpm: '; pnpm --version

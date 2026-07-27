@@ -105,7 +105,9 @@ if tools == "none":
     argv.append("--no-tools")
 else:
     argv.extend(["--tools", tools])
-argv.extend(["--auto-approve", "-e", extension])
+if agent == "omp":
+    argv.append("--auto-approve")
+argv.extend(["-e", extension])
 
 proc = subprocess.Popen(
     argv,
@@ -192,7 +194,8 @@ try:
         "working-to-idle lifecycle",
     )
     if proc.poll() is None:
-        os.write(master, b"/exit" + enter)
+        command = b"/exit" if agent == "omp" else b"/quit"
+        os.write(master, command + enter)
         exit_deadline = time.monotonic() + 20
         while proc.poll() is None and time.monotonic() < exit_deadline:
             read_output()
@@ -241,7 +244,6 @@ if [[ "$target" == "all" || "$target" == "omp" ]]; then
 fi
 if [[ "$target" == "all" || "$target" == "pi" ]]; then
   run_basic_agent pi "$repo_dir/apps/omh/src/integration/assets/pi/omh-agent-state.ts" pane-pi-real
-  run_subagent_agent pi "$repo_dir/apps/omh/src/integration/assets/pi/omh-agent-state.ts" pane-pi-subagent
 fi
 
 REQUEST_LOG="$request_log" WORKDIR="$workdir" TARGET="$target" python3 - <<'PY'
@@ -357,7 +359,8 @@ def assert_agent(agent, scenario, pane_id, marker_suffix):
 selected_agents = ["omp", "pi"] if target == "all" else [target]
 for agent in selected_agents:
     assert_agent(agent, "basic", f"pane-{agent}-real", "STATUS_OK")
-    assert_agent(agent, "subagent", f"pane-{agent}-subagent", "SUBAGENT_OK")
+    if agent == "omp":
+        assert_agent(agent, "subagent", f"pane-{agent}-subagent", "SUBAGENT_OK")
 scope = "pi/omp" if target == "all" else target
-print(f"{scope} status test ok: real cli reports session root identity, working, idle, release, launch env, and scoped subagent identity")
+print(f"{scope} status test ok: real cli reports session root identity, working, idle, release, launch env, and OMP scoped subagent identity")
 PY

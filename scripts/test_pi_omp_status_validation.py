@@ -75,6 +75,7 @@ class PiOmpStatusTestValidationTests(unittest.TestCase):
                 import os
                 import socket
                 import sys
+                import tty
                 from pathlib import Path
 
 
@@ -120,8 +121,18 @@ class PiOmpStatusTestValidationTests(unittest.TestCase):
                         file=sys.stderr,
                     )
                     sys.exit(65)
+                if agent == "pi" and "--auto-approve" in sys.argv:
+                    print(f"pi received OMP-only --auto-approve in {sys.argv!r}", file=sys.stderr)
+                    sys.exit(65)
+                if agent == "omp" and sys.argv.count("--auto-approve") != 1:
+                    print(f"omp missing --auto-approve in {sys.argv!r}", file=sys.stderr)
+                    sys.exit(65)
+                tty.setraw(sys.stdin.fileno())
                 pane_id = os.environ["OMH_PANE_ID"]
                 scenario = "subagent" if "subagent" in pane_id else "basic"
+                if agent == "pi" and scenario == "subagent":
+                    print("pi received unsupported subagent smoke scenario", file=sys.stderr)
+                    sys.exit(65)
                 session_root = Path(os.environ["OMH_TEST_SESSION_ROOT"]) / agent / "sessions" / "project"
                 parent_session = session_root / "parent.jsonl"
                 second_report_session = parent_session
@@ -188,6 +199,18 @@ class PiOmpStatusTestValidationTests(unittest.TestCase):
 
                 marker_suffix = "SUBAGENT_OK" if scenario == "subagent" else "STATUS_OK"
                 print(f"OMH_{agent.upper()}_{marker_suffix}")
+                sys.stdout.flush()
+                expected_exit = b"/exit\\x1b[13u" if agent == "omp" else b"/quit\\x1b[13u"
+                received = b""
+                while expected_exit not in received:
+                    chunk = os.read(sys.stdin.fileno(), 4096)
+                    if not chunk:
+                        print(
+                            f"missing expected exit input {expected_exit!r}; received {received!r}",
+                            file=sys.stderr,
+                        )
+                        sys.exit(65)
+                    received += chunk
                 """
             )
             for agent_name in ("pi", "omp"):
