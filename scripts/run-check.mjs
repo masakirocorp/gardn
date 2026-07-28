@@ -11,4 +11,13 @@ const result = spawnSync(process.execPath, [turbo, "run", "quality", ...args], {
 });
 
 if (result.error) throw result.error;
+
+if (result.status === 0) {
+  console.log(`
+post-check review:
+- User-facing behavior: update docs/features.md and the relevant website guide or reference, or record why no docs changed.
+- Public contract: update affected API, CLI, config, protocol references, generated schemas, and explicit fixtures.
+- Durable architecture decision: add or amend an ADR and its index only when the ADR threshold is met.
+- Release-worthy change: add or update the Tegami changefile.`);
+}
 process.exitCode = result.status ?? 1;
