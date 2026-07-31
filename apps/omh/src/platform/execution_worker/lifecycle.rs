@@ -5,11 +5,12 @@ use std::io::{self, Read, Write};
 use std::path::Path;
 use std::process::{Command, Stdio};
 use std::sync::mpsc as std_mpsc;
-use std::time::{Instant, SystemTime};
+use std::time::{Duration, Instant, SystemTime};
 
 use crate::execution_host::lifecycle::{
-    complete_lifecycle_frame, decide_activate, read_lifecycle_frame, write_lifecycle_frame,
-    ActivateReply, ActivateRequest, LifecycleDecision, LIFECYCLE_FRAME_PREFIX,
+    complete_lifecycle_frame, decide_activate, read_legacy_lifecycle_frame, read_lifecycle_frame,
+    write_lifecycle_frame, ActivateReply, ActivateRequest, LifecycleDecision,
+    LIFECYCLE_FRAME_PREFIX,
 };
 use crate::execution_host::protocol::{
     read_worker_message, validate_first_coordinator_message, write_worker_message,
@@ -169,6 +170,7 @@ pub(super) fn try_activate_existing_daemon(
 
     let request = ActivateRequest::new(
         binding.binding_digest(),
+        super::artifact_digest()?,
         PROTOCOL_VERSION,
         WORKER_APP_VERSION,
     )
@@ -180,7 +182,10 @@ pub(super) fn try_activate_existing_daemon(
 
     let reply_bytes = match read_lifecycle_frame(&mut stream) {
         Ok(bytes) => bytes,
-        Err(error) => return activation_transport_error(binding, error),
+        Err(error) => {
+            return try_activate_legacy_v1(binding)
+                .or_else(|_| activation_transport_error(binding, error));
+        }
     };
     let reply = match ActivateReply::decode(&reply_bytes) {
         Ok(reply) => reply,
@@ -226,6 +231,59 @@ pub(super) fn try_activate_existing_daemon(
                     "execution worker update unsupported by incumbent (running {}/protocol {})",
                     reply.running_app_version, reply.running_worker_protocol
                 ),
+                parse_worker_instance_id(&reply.worker_instance_id),
+            ),
+        ))),
+    }
+}
+
+#[cfg(unix)]
+fn try_activate_legacy_v1(binding: &DaemonBinding) -> io::Result<BridgeActivateResult> {
+    let mut stream = UnixStream::connect(&binding.socket_path)?;
+    stream.set_read_timeout(Some(LIFECYCLE_ACTIVATE_TIMEOUT))?;
+    stream.set_write_timeout(Some(LIFECYCLE_ACTIVATE_TIMEOUT))?;
+    // Force an incompatibility decision. V1 cannot compare artifact checksums,
+    // so it may only drain an idle incumbent or report that live work blocks it.
+    let forced_protocol = if PROTOCOL_VERSION == u32::MAX {
+        0
+    } else {
+        PROTOCOL_VERSION + 1
+    };
+    let request = ActivateRequest::new(
+        binding.binding_digest(),
+        super::artifact_digest()?,
+        forced_protocol,
+        WORKER_APP_VERSION,
+    )
+    .map_err(io::Error::from)?;
+    write_lifecycle_frame(
+        &mut stream,
+        &request.encode_legacy_v1().map_err(io::Error::from)?,
+    )?;
+    let reply = ActivateReply::decode_legacy_v1(&read_legacy_lifecycle_frame(&mut stream)?)
+        .map_err(io::Error::from)?;
+    match reply.decision {
+        LifecycleDecision::ShuttingDownIdle => Ok(BridgeActivateResult::ShuttingDownIdle),
+        LifecycleDecision::BlockedBusy => Ok(BridgeActivateResult::Rejected(Box::new(
+            lifecycle_rejection_hello_ack(
+                binding,
+                WorkerErrorCode::Busy,
+                format!(
+                    "execution worker update blocked: legacy incumbent owns {} live runtime(s) (running {}/protocol {})",
+                    reply.owned_runtime_count,
+                    reply.running_app_version,
+                    reply.running_worker_protocol
+                ),
+                parse_worker_instance_id(&reply.worker_instance_id),
+            ),
+        ))),
+        LifecycleDecision::UseExisting
+        | LifecycleDecision::UseExistingDeferred
+        | LifecycleDecision::Unsupported => Ok(BridgeActivateResult::Rejected(Box::new(
+            lifecycle_rejection_hello_ack(
+                binding,
+                WorkerErrorCode::ProtocolMismatch,
+                "legacy execution worker could not prove exact artifact compatibility",
                 parse_worker_instance_id(&reply.worker_instance_id),
             ),
         ))),
@@ -372,8 +430,19 @@ pub(super) fn run_daemon(binding: DaemonBinding) -> io::Result<()> {
     let listener = UnixListener::bind(&binding.socket_path)?;
     std::fs::set_permissions(&binding.socket_path, std::fs::Permissions::from_mode(0o600))?;
     let mut state = WorkerState::new(binding.clone())?;
+    let (lease_heartbeat_stop, heartbeat_stop) = std_mpsc::channel();
+    let lease_heartbeat = std::thread::spawn(move || {
+        while let Err(std_mpsc::RecvTimeoutError::Timeout) =
+            heartbeat_stop.recv_timeout(Duration::from_secs(60))
+        {
+            let _ = super::touch_artifact_lease();
+        }
+    });
     let result = loop {
-        let (stream, _) = listener.accept()?;
+        let (stream, _) = match listener.accept() {
+            Ok(accepted) => accepted,
+            Err(error) => break Err(error),
+        };
         match serve_connection(stream, &mut state) {
             Ok(ConnectionOutcome::Continue) => {}
             Ok(ConnectionOutcome::Shutdown) => break Ok(()),
@@ -381,6 +450,8 @@ pub(super) fn run_daemon(binding: DaemonBinding) -> io::Result<()> {
             Err(err) => eprintln!("execution worker connection failed: {err}"),
         }
     };
+    let _ = lease_heartbeat_stop.send(());
+    let _ = lease_heartbeat.join();
     drop(listener);
     drop(state);
     // Socket removed while lock still held; lock inode + runtime dir persist.
@@ -470,6 +541,7 @@ pub(super) fn handle_lifecycle_activate(
             let reply = ActivateReply::from_decision_input(
                 &ActivateRequest {
                     binding_digest: input.binding_digest,
+                    artifact_digest: input.running_artifact_digest,
                     desired_worker_protocol: PROTOCOL_VERSION,
                     desired_app_version: WORKER_APP_VERSION.to_string(),
                 },

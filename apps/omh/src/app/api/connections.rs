@@ -1,6 +1,5 @@
 use crate::api::schema::{
-    ConnectionAction, ConnectionInstallKind, ConnectionInstallParams, ConnectionInstallPreview,
-    ConnectionInstallReport, ConnectionProfileInfo, ConnectionRetireParams, ConnectionSaveParams,
+    ConnectionAction, ConnectionProfileInfo, ConnectionRetireParams, ConnectionSaveParams,
     ConnectionStatusKind, ConnectionTarget, ResponseResult,
 };
 use crate::execution_host::{ConnectionStatus, HostPath};
@@ -369,130 +368,6 @@ impl App {
         )
     }
 
-    pub(crate) fn spawn_connection_install_response(
-        &self,
-        respond_to: std::sync::mpsc::Sender<String>,
-        request_id: String,
-        profile_id: String,
-        profile: ConnectionProfileInfo,
-        confirm: bool,
-        authentication_owner: crate::execution_host::auth::AuthenticationOwner,
-    ) {
-        let Some(hosts) = self.execution_hosts.as_ref() else {
-            let _ = respond_to.send(encode_error(
-                request_id,
-                "execution_hosts_unavailable",
-                "execution host manager is unavailable",
-            ));
-            return;
-        };
-        let installer = match hosts.worker_installer_for(authentication_owner, &profile_id) {
-            Ok(installer) => installer,
-            Err(error) => {
-                let _ =
-                    respond_to.send(encode_error(request_id, "connection_install_failed", error));
-                return;
-            }
-        };
-        std::thread::spawn(move || {
-            let response = match installer.preview() {
-                Ok(remote_preview) => {
-                    let preview = connection_install_preview_from_remote(remote_preview);
-                    if !confirm {
-                        encode_success(
-                            request_id,
-                            ResponseResult::ConnectionInstall {
-                                profile,
-                                preview,
-                                report: None,
-                            },
-                        )
-                    } else {
-                        let approved = crate::remote::WorkerInstallPreview {
-                            kind: match preview.kind {
-                                ConnectionInstallKind::Install => {
-                                    crate::remote::WorkerInstallKind::Install
-                                }
-                                ConnectionInstallKind::Update => {
-                                    crate::remote::WorkerInstallKind::Update
-                                }
-                            },
-                            source: preview.source.clone(),
-                            target_path: preview.target_path.clone(),
-                            checksum: preview.checksum.clone(),
-                            version: preview.version.clone(),
-                            commands: preview.commands.clone(),
-                            capabilities: preview.capabilities.clone(),
-                            already_current: preview.already_current,
-                        };
-                        match installer.install(&approved) {
-                            Ok(report) => encode_success(
-                                request_id,
-                                ResponseResult::ConnectionInstall {
-                                    profile,
-                                    preview,
-                                    report: Some(connection_install_report_from_remote(report)),
-                                },
-                            ),
-                            Err(error) => {
-                                encode_error(request_id, "connection_install_failed", error)
-                            }
-                        }
-                    }
-                }
-                Err(error) => encode_error(request_id, "connection_install_failed", error),
-            };
-            let _ = respond_to.send(response);
-        });
-    }
-
-    pub(super) fn handle_connection_install_disposition(
-        &mut self,
-        id: String,
-        params: ConnectionInstallParams,
-    ) -> crate::api::ApiRequestDisposition {
-        let owner =
-            crate::execution_host::auth::AuthenticationOwner::new(self.default_client_view.id());
-        self.handle_connection_install_disposition_for(id, params, owner)
-    }
-
-    pub(super) fn handle_connection_install_disposition_for(
-        &mut self,
-        id: String,
-        params: ConnectionInstallParams,
-        authentication_owner: crate::execution_host::auth::AuthenticationOwner,
-    ) -> crate::api::ApiRequestDisposition {
-        let Some(profile) = self
-            .state
-            .ssh_connection_profiles
-            .iter()
-            .find(|profile| profile.id() == params.profile_id)
-            .cloned()
-        else {
-            return crate::api::ApiRequestDisposition::Respond(encode_error(
-                id,
-                "connection_profile_not_found",
-                format!("connection profile {} not found", params.profile_id),
-            ));
-        };
-        if self.execution_hosts.is_none() {
-            return crate::api::ApiRequestDisposition::Respond(encode_error(
-                id,
-                "execution_hosts_unavailable",
-                "execution host manager is unavailable",
-            ));
-        }
-        // Never run SSH preview/install on the API handler thread: askpass prompts
-        // must remain serviceable by the owning client view on the event loop.
-        crate::api::ApiRequestDisposition::DeferredConnectionInstall {
-            request_id: id,
-            profile_id: params.profile_id,
-            profile: self.connection_profile_info(&profile),
-            confirm: params.confirm,
-            authentication_owner,
-        }
-    }
-
     pub(super) fn handle_connection_retire_start(
         &mut self,
         id: String,
@@ -842,41 +717,6 @@ struct ConnectionRetireCounts {
 impl ConnectionRetireCounts {
     fn is_clear(self) -> bool {
         self.remaining_panes == 0 && self.remaining_terminals == 0 && self.pending_terminations == 0
-    }
-}
-
-fn connection_install_preview_from_remote(
-    preview: crate::remote::WorkerInstallPreview,
-) -> ConnectionInstallPreview {
-    ConnectionInstallPreview {
-        kind: match preview.kind {
-            crate::remote::WorkerInstallKind::Install => ConnectionInstallKind::Install,
-            crate::remote::WorkerInstallKind::Update => ConnectionInstallKind::Update,
-        },
-        source: preview.source,
-        target_path: preview.target_path,
-        checksum: preview.checksum,
-        version: preview.version,
-        commands: preview.commands,
-        capabilities: preview.capabilities,
-        already_current: preview.already_current,
-    }
-}
-
-fn connection_install_report_from_remote(
-    report: crate::remote::WorkerInstallReport,
-) -> ConnectionInstallReport {
-    match report {
-        crate::remote::WorkerInstallReport::Installed(preview) => {
-            ConnectionInstallReport::Installed {
-                preview: connection_install_preview_from_remote(preview),
-            }
-        }
-        crate::remote::WorkerInstallReport::AlreadyCurrent(preview) => {
-            ConnectionInstallReport::AlreadyCurrent {
-                preview: connection_install_preview_from_remote(preview),
-            }
-        }
     }
 }
 
@@ -1240,47 +1080,6 @@ mod tests {
                     authentication_owner: default_owner,
                 }]
             );
-        }
-    }
-
-    #[test]
-    fn non_view_connection_install_defers_with_default_client_owner() {
-        let mut app = app();
-        app.state.ssh_connection_profiles = vec![profile()];
-        let default_owner =
-            crate::execution_host::auth::AuthenticationOwner::new(app.default_client_view.id());
-
-        let disposition = app.handle_connection_install_disposition(
-            "install-owner".into(),
-            ConnectionInstallParams {
-                profile_id: "workbox".into(),
-                confirm: true,
-            },
-        );
-        match disposition {
-            crate::api::ApiRequestDisposition::Respond(response) => {
-                let body: serde_json::Value =
-                    serde_json::from_str(&response).expect("json response");
-                assert_eq!(body["id"], "install-owner");
-                assert_eq!(body["error"]["code"], "execution_hosts_unavailable");
-            }
-            crate::api::ApiRequestDisposition::DeferredConnectionInstall {
-                request_id,
-                confirm,
-                authentication_owner,
-                ..
-            } => {
-                assert_eq!(request_id, "install-owner");
-                assert!(confirm);
-                assert_eq!(authentication_owner, default_owner);
-                assert_ne!(
-                    authentication_owner,
-                    crate::execution_host::auth::AuthenticationOwner::SYSTEM
-                );
-            }
-            crate::api::ApiRequestDisposition::Deferred { .. } => {
-                panic!("connection.install must not use remote-create Deferred terminal path")
-            }
         }
     }
 

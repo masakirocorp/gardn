@@ -1,4 +1,4 @@
-//! Fenced execution-worker daemon lifecycle protocol V1.
+//! Fenced execution-worker daemon lifecycle protocol V2.
 //!
 //! Independent of the normal worker bincode protocol. Bytes are frozen: manual
 //! little-endian encoding only — no serde, no bincode, no changeable enums on
@@ -17,6 +17,7 @@ use super::ExecutionHostId;
 /// Frozen lifecycle protocol version advertised by
 /// `execution-worker --daemon-lifecycle-version`.
 pub(crate) const DAEMON_LIFECYCLE_VERSION: u16 = 2;
+const LEGACY_DAEMON_LIFECYCLE_VERSION: u16 = 1;
 
 /// Four-byte length/prefix that looks like `u32::MAX` so pre-lifecycle worker
 /// framing rejects the message as oversized rather than mis-decoding it.
@@ -34,6 +35,7 @@ pub(crate) const MAX_PAYLOAD_LEN: usize = 256;
 pub(crate) const MAX_APP_VERSION_LEN: usize = 64;
 pub(crate) const MAX_WORKER_INSTANCE_ID_LEN: usize = 128;
 pub(crate) const BINDING_DIGEST_LEN: usize = 16;
+pub(crate) const ARTIFACT_DIGEST_LEN: usize = 32;
 
 const HEADER_LEN: usize = 4 + 8 + 2 + 1 + 1 + 2;
 
@@ -80,6 +82,7 @@ impl fmt::Display for LifecycleDecision {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct ActivateRequest {
     pub(crate) binding_digest: [u8; BINDING_DIGEST_LEN],
+    pub(crate) artifact_digest: [u8; ARTIFACT_DIGEST_LEN],
     pub(crate) desired_worker_protocol: u32,
     pub(crate) desired_app_version: String,
 }
@@ -100,6 +103,7 @@ pub(crate) struct ActivateReply {
 pub(crate) struct LifecycleDecisionInput {
     pub(crate) supports_lifecycle_v1: bool,
     pub(crate) binding_digest: [u8; BINDING_DIGEST_LEN],
+    pub(crate) running_artifact_digest: [u8; ARTIFACT_DIGEST_LEN],
     pub(crate) running_worker_protocol: u32,
     pub(crate) running_app_version: String,
     pub(crate) worker_instance_id: String,
@@ -175,6 +179,7 @@ pub(crate) fn binding_digest_for(
 impl ActivateRequest {
     pub(crate) fn new(
         binding_digest: [u8; BINDING_DIGEST_LEN],
+        artifact_digest: [u8; ARTIFACT_DIGEST_LEN],
         desired_worker_protocol: u32,
         desired_app_version: impl Into<String>,
     ) -> Result<Self, LifecycleCodecError> {
@@ -182,6 +187,7 @@ impl ActivateRequest {
         validate_app_version(&desired_app_version)?;
         Ok(Self {
             binding_digest,
+            artifact_digest,
             desired_worker_protocol,
             desired_app_version,
         })
@@ -190,7 +196,7 @@ impl ActivateRequest {
     pub(crate) fn encode(&self) -> Result<Vec<u8>, LifecycleCodecError> {
         let version_bytes = self.desired_app_version.as_bytes();
         validate_app_version(&self.desired_app_version)?;
-        let payload_len = BINDING_DIGEST_LEN + 4 + 1 + version_bytes.len();
+        let payload_len = BINDING_DIGEST_LEN + ARTIFACT_DIGEST_LEN + 4 + 1 + version_bytes.len();
         if payload_len > MAX_PAYLOAD_LEN {
             return Err(LifecycleCodecError::FieldTooLong(
                 "activate request payload",
@@ -198,6 +204,25 @@ impl ActivateRequest {
         }
         let mut out = Vec::with_capacity(HEADER_LEN + payload_len);
         write_header(&mut out, KIND_ACTIVATE_REQUEST, payload_len as u16);
+        out.extend_from_slice(&self.binding_digest);
+        out.extend_from_slice(&self.artifact_digest);
+        out.extend_from_slice(&self.desired_worker_protocol.to_le_bytes());
+        out.push(version_bytes.len() as u8);
+        out.extend_from_slice(version_bytes);
+        Ok(out)
+    }
+
+    pub(crate) fn encode_legacy_v1(&self) -> Result<Vec<u8>, LifecycleCodecError> {
+        let version_bytes = self.desired_app_version.as_bytes();
+        validate_app_version(&self.desired_app_version)?;
+        let payload_len = BINDING_DIGEST_LEN + 4 + 1 + version_bytes.len();
+        let mut out = Vec::with_capacity(HEADER_LEN + payload_len);
+        write_header_version(
+            &mut out,
+            LEGACY_DAEMON_LIFECYCLE_VERSION,
+            KIND_ACTIVATE_REQUEST,
+            payload_len as u16,
+        );
         out.extend_from_slice(&self.binding_digest);
         out.extend_from_slice(&self.desired_worker_protocol.to_le_bytes());
         out.push(version_bytes.len() as u8);
@@ -209,6 +234,7 @@ impl ActivateRequest {
         let payload = decode_header(bytes, KIND_ACTIVATE_REQUEST)?;
         let mut offset = 0;
         let binding_digest = read_digest(payload, &mut offset)?;
+        let artifact_digest = read_artifact_digest(payload, &mut offset)?;
         let desired_worker_protocol = read_u32(payload, &mut offset)?;
         let desired_app_version = read_bounded_string(
             payload,
@@ -219,7 +245,12 @@ impl ActivateRequest {
         if offset != payload.len() {
             return Err(LifecycleCodecError::TrailingBytes);
         }
-        Self::new(binding_digest, desired_worker_protocol, desired_app_version)
+        Self::new(
+            binding_digest,
+            artifact_digest,
+            desired_worker_protocol,
+            desired_app_version,
+        )
     }
 }
 
@@ -303,6 +334,47 @@ impl ActivateReply {
         )
     }
 
+    pub(crate) fn decode_legacy_v1(bytes: &[u8]) -> Result<Self, LifecycleCodecError> {
+        Self::decode_with_version(bytes, LEGACY_DAEMON_LIFECYCLE_VERSION)
+    }
+
+    fn decode_with_version(
+        bytes: &[u8],
+        lifecycle_version: u16,
+    ) -> Result<Self, LifecycleCodecError> {
+        let payload = decode_header_version(bytes, lifecycle_version, KIND_ACTIVATE_REPLY)?;
+        let mut offset = 0;
+        let binding_digest = read_digest(payload, &mut offset)?;
+        let decision_code = read_u8(payload, &mut offset)?;
+        let decision = LifecycleDecision::from_u8(decision_code)
+            .ok_or(LifecycleCodecError::InvalidDecision(decision_code))?;
+        let running_worker_protocol = read_u32(payload, &mut offset)?;
+        let owned_runtime_count = read_u64(payload, &mut offset)?;
+        let running_app_version = read_bounded_string(
+            payload,
+            &mut offset,
+            MAX_APP_VERSION_LEN,
+            "running_app_version",
+        )?;
+        let worker_instance_id = read_bounded_string(
+            payload,
+            &mut offset,
+            MAX_WORKER_INSTANCE_ID_LEN,
+            "worker_instance_id",
+        )?;
+        if offset != payload.len() {
+            return Err(LifecycleCodecError::TrailingBytes);
+        }
+        Self::new(
+            binding_digest,
+            decision,
+            running_worker_protocol,
+            owned_runtime_count,
+            running_app_version,
+            worker_instance_id,
+        )
+    }
+
     pub(crate) fn from_decision_input(
         request: &ActivateRequest,
         input: &LifecycleDecisionInput,
@@ -343,7 +415,8 @@ pub(crate) fn decide_activate(
     }
 
     let same_protocol = input.running_worker_protocol == request.desired_worker_protocol;
-    let same_build = input.running_app_version == request.desired_app_version;
+    let same_build = input.running_app_version == request.desired_app_version
+        && input.running_artifact_digest == request.artifact_digest;
     let busy = input.busy || input.owned_runtime_count > 0;
 
     if same_protocol && same_build {
@@ -356,10 +429,11 @@ pub(crate) fn decide_activate(
     }
 
     if same_protocol {
-        // Different app build, same worker protocol: keep serving while live
-        // runtimes exist; otherwise cooperatively drain for replacement.
+        // A different app build is not an exact compatibility match. Keep a
+        // busy incumbent isolated until its runtimes drain; an idle incumbent
+        // can cooperatively release the binding for replacement.
         if busy {
-            return LifecycleDecision::UseExistingDeferred;
+            return LifecycleDecision::BlockedBusy;
         }
         return LifecycleDecision::ShuttingDownIdle;
     }
@@ -378,6 +452,7 @@ pub(crate) fn decide_activate(
 pub(crate) fn lifecycle_decision_input(
     supports_lifecycle_v1: bool,
     binding_digest: [u8; BINDING_DIGEST_LEN],
+    running_artifact_digest: [u8; ARTIFACT_DIGEST_LEN],
     running_worker_protocol: u32,
     running_app_version: impl Into<String>,
     worker_instance_id: impl Into<String>,
@@ -388,6 +463,7 @@ pub(crate) fn lifecycle_decision_input(
     LifecycleDecisionInput {
         supports_lifecycle_v1,
         binding_digest,
+        running_artifact_digest,
         running_worker_protocol,
         running_app_version: running_app_version.into(),
         worker_instance_id: worker_instance_id.into(),
@@ -402,9 +478,13 @@ pub(crate) fn worker_instance_id_string(id: &WorkerInstanceId) -> String {
 }
 
 fn write_header(out: &mut Vec<u8>, kind: u8, payload_len: u16) {
+    write_header_version(out, DAEMON_LIFECYCLE_VERSION, kind, payload_len);
+}
+
+fn write_header_version(out: &mut Vec<u8>, version: u16, kind: u8, payload_len: u16) {
     out.extend_from_slice(&LIFECYCLE_FRAME_PREFIX);
     out.extend_from_slice(FRAME_MAGIC);
-    out.extend_from_slice(&DAEMON_LIFECYCLE_VERSION.to_le_bytes());
+    out.extend_from_slice(&version.to_le_bytes());
     out.push(kind);
     out.push(0);
     out.extend_from_slice(&payload_len.to_le_bytes());
@@ -412,6 +492,17 @@ fn write_header(out: &mut Vec<u8>, kind: u8, payload_len: u16) {
 
 /// Read one complete lifecycle frame (header + payload) from `reader`.
 pub(crate) fn read_lifecycle_frame<R: Read>(reader: &mut R) -> io::Result<Vec<u8>> {
+    read_lifecycle_frame_version(reader, DAEMON_LIFECYCLE_VERSION)
+}
+
+pub(crate) fn read_legacy_lifecycle_frame<R: Read>(reader: &mut R) -> io::Result<Vec<u8>> {
+    read_lifecycle_frame_version(reader, LEGACY_DAEMON_LIFECYCLE_VERSION)
+}
+
+fn read_lifecycle_frame_version<R: Read>(
+    reader: &mut R,
+    expected_version: u16,
+) -> io::Result<Vec<u8>> {
     let mut header = [0u8; HEADER_LEN];
     reader.read_exact(&mut header)?;
     if header[..4] != LIFECYCLE_FRAME_PREFIX {
@@ -421,7 +512,7 @@ pub(crate) fn read_lifecycle_frame<R: Read>(reader: &mut R) -> io::Result<Vec<u8
         return Err(LifecycleCodecError::BadMagic.into());
     }
     let version = u16::from_le_bytes([header[12], header[13]]);
-    if version != DAEMON_LIFECYCLE_VERSION {
+    if version != expected_version {
         return Err(LifecycleCodecError::UnsupportedVersion(version).into());
     }
     let reserved = header[15];
@@ -486,6 +577,14 @@ pub(crate) fn write_lifecycle_frame<W: Write>(writer: &mut W, frame: &[u8]) -> i
 }
 
 fn decode_header(bytes: &[u8], expected_kind: u8) -> Result<&[u8], LifecycleCodecError> {
+    decode_header_version(bytes, DAEMON_LIFECYCLE_VERSION, expected_kind)
+}
+
+fn decode_header_version(
+    bytes: &[u8],
+    expected_version: u16,
+    expected_kind: u8,
+) -> Result<&[u8], LifecycleCodecError> {
     if bytes.len() < HEADER_LEN {
         return Err(LifecycleCodecError::Truncated);
     }
@@ -496,7 +595,7 @@ fn decode_header(bytes: &[u8], expected_kind: u8) -> Result<&[u8], LifecycleCode
         return Err(LifecycleCodecError::BadMagic);
     }
     let version = u16::from_le_bytes([bytes[12], bytes[13]]);
-    if version != DAEMON_LIFECYCLE_VERSION {
+    if version != expected_version {
         return Err(LifecycleCodecError::UnsupportedVersion(version));
     }
     let kind = bytes[14];
@@ -531,6 +630,19 @@ fn read_digest(
     let mut digest = [0u8; BINDING_DIGEST_LEN];
     digest.copy_from_slice(&payload[*offset..*offset + BINDING_DIGEST_LEN]);
     *offset += BINDING_DIGEST_LEN;
+    Ok(digest)
+}
+
+fn read_artifact_digest(
+    payload: &[u8],
+    offset: &mut usize,
+) -> Result<[u8; ARTIFACT_DIGEST_LEN], LifecycleCodecError> {
+    if payload.len() < *offset + ARTIFACT_DIGEST_LEN {
+        return Err(LifecycleCodecError::IncompletePayload);
+    }
+    let mut digest = [0u8; ARTIFACT_DIGEST_LEN];
+    digest.copy_from_slice(&payload[*offset..*offset + ARTIFACT_DIGEST_LEN]);
+    *offset += ARTIFACT_DIGEST_LEN;
     Ok(digest)
 }
 
@@ -608,9 +720,14 @@ mod tests {
         ]
     }
 
+    fn sample_artifact_digest() -> [u8; 32] {
+        [0xa5; 32]
+    }
+
     #[test]
     fn activate_request_golden_bytes() {
-        let request = ActivateRequest::new(sample_digest(), 1, "0.1.0").unwrap();
+        let request =
+            ActivateRequest::new(sample_digest(), sample_artifact_digest(), 1, "0.1.0").unwrap();
         let bytes = request.encode().unwrap();
         assert_eq!(
             bytes,
@@ -625,11 +742,15 @@ mod tests {
                 0x01, //
                 // reserved
                 0x00, //
-                // payload_len = 16 + 4 + 1 + 5 = 26
-                0x1a, 0x00, //
+                // payload_len = 16 + 32 + 4 + 1 + 5 = 58
+                0x3a, 0x00, //
                 // digest
                 0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd,
                 0xee, 0xff, //
+                // artifact SHA-256 digest
+                0xa5, 0xa5, 0xa5, 0xa5, 0xa5, 0xa5, 0xa5, 0xa5, 0xa5, 0xa5, 0xa5, 0xa5, 0xa5, 0xa5,
+                0xa5, 0xa5, 0xa5, 0xa5, 0xa5, 0xa5, 0xa5, 0xa5, 0xa5, 0xa5, 0xa5, 0xa5, 0xa5, 0xa5,
+                0xa5, 0xa5, 0xa5, 0xa5, //
                 // desired protocol 1
                 0x01, 0x00, 0x00, 0x00, //
                 // version len + "0.1.0"
@@ -637,6 +758,20 @@ mod tests {
             ]
         );
         assert_eq!(ActivateRequest::decode(&bytes).unwrap(), request);
+    }
+    #[test]
+    fn legacy_v1_activate_request_golden_bytes() {
+        let request =
+            ActivateRequest::new(sample_digest(), sample_artifact_digest(), 3, "0.1.0").unwrap();
+        assert_eq!(
+            request.encode_legacy_v1().unwrap(),
+            vec![
+                0xff, 0xff, 0xff, 0xff, b'O', b'M', b'H', b'E', b'W', b'L', b'C', 0x00, 0x01, 0x00,
+                0x01, 0x00, 0x1a, 0x00, 0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99,
+                0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff, 0x03, 0x00, 0x00, 0x00, 0x05, b'0', b'.', b'1',
+                b'.', b'0',
+            ]
+        );
     }
 
     #[test]
@@ -686,7 +821,8 @@ mod tests {
 
     #[test]
     fn rejects_trailing_bytes_and_oversize_version() {
-        let request = ActivateRequest::new(sample_digest(), 1, "0.1.0").unwrap();
+        let request =
+            ActivateRequest::new(sample_digest(), sample_artifact_digest(), 1, "0.1.0").unwrap();
         let mut bytes = request.encode().unwrap();
         bytes.push(0x00);
         assert_eq!(
@@ -696,7 +832,7 @@ mod tests {
 
         let too_long = "v".repeat(MAX_APP_VERSION_LEN + 1);
         assert_eq!(
-            ActivateRequest::new(sample_digest(), 1, too_long),
+            ActivateRequest::new(sample_digest(), sample_artifact_digest(), 1, too_long),
             Err(LifecycleCodecError::FieldTooLong("app_version"))
         );
     }
@@ -704,11 +840,14 @@ mod tests {
     #[test]
     fn decide_activate_covers_primary_seams() {
         let digest = sample_digest();
-        let request = ActivateRequest::new(digest, PROTOCOL_VERSION, "1.2.3").unwrap();
+        let artifact_digest = sample_artifact_digest();
+        let request =
+            ActivateRequest::new(digest, artifact_digest, PROTOCOL_VERSION, "1.2.3").unwrap();
 
         let compatible = lifecycle_decision_input(
             true,
             digest,
+            artifact_digest,
             PROTOCOL_VERSION,
             "1.2.3",
             "worker-a",
@@ -719,6 +858,23 @@ mod tests {
         assert_eq!(
             decide_activate(&request, &compatible),
             LifecycleDecision::UseExisting
+        );
+
+        let idle_other_artifact = LifecycleDecisionInput {
+            running_artifact_digest: [0x5a; 32],
+            ..compatible.clone()
+        };
+        assert_eq!(
+            decide_activate(&request, &idle_other_artifact),
+            LifecycleDecision::ShuttingDownIdle
+        );
+        let busy_other_artifact = LifecycleDecisionInput {
+            busy: true,
+            ..idle_other_artifact
+        };
+        assert_eq!(
+            decide_activate(&request, &busy_other_artifact),
+            LifecycleDecision::BlockedBusy
         );
 
         let deferred = LifecycleDecisionInput {
@@ -733,6 +889,7 @@ mod tests {
         let idle_upgrade = lifecycle_decision_input(
             true,
             digest,
+            artifact_digest,
             PROTOCOL_VERSION,
             "1.2.2",
             "worker-a",
@@ -745,9 +902,10 @@ mod tests {
             LifecycleDecision::ShuttingDownIdle
         );
 
-        let deferred_same_protocol = lifecycle_decision_input(
+        let busy_different_build = lifecycle_decision_input(
             true,
             digest,
+            artifact_digest,
             PROTOCOL_VERSION,
             "1.2.2",
             "worker-a",
@@ -756,13 +914,14 @@ mod tests {
             false,
         );
         assert_eq!(
-            decide_activate(&request, &deferred_same_protocol),
-            LifecycleDecision::UseExistingDeferred
+            decide_activate(&request, &busy_different_build),
+            LifecycleDecision::BlockedBusy
         );
 
         let busy_incompatible_protocol = lifecycle_decision_input(
             true,
             digest,
+            artifact_digest,
             PROTOCOL_VERSION.saturating_add(1),
             "1.2.2",
             "worker-a",
@@ -778,6 +937,7 @@ mod tests {
         let idle_incompatible_protocol = lifecycle_decision_input(
             true,
             digest,
+            artifact_digest,
             PROTOCOL_VERSION.saturating_add(1),
             "1.2.2",
             "worker-a",
@@ -793,6 +953,7 @@ mod tests {
         let unsupported = lifecycle_decision_input(
             false,
             digest,
+            artifact_digest,
             PROTOCOL_VERSION,
             "1.2.3",
             "worker-a",
@@ -808,6 +969,7 @@ mod tests {
         let other_binding = lifecycle_decision_input(
             true,
             [0; 16],
+            artifact_digest,
             PROTOCOL_VERSION,
             "1.2.3",
             "worker-a",

@@ -28,12 +28,60 @@ mod util;
 #[cfg(all(test, unix))]
 mod tests;
 
-use std::io;
+use std::{ffi::OsString, io, path::PathBuf};
 
 use crate::execution_host::runtime_paths::{inventory_owned_bindings, retire_owned_bindings};
 
+fn sibling_artifact_path(suffix: &str) -> io::Result<PathBuf> {
+    let executable = std::env::current_exe()?;
+    let mut path = OsString::from(executable.as_os_str());
+    path.push(suffix);
+    Ok(PathBuf::from(path))
+}
+
+#[cfg(test)]
+pub(super) fn artifact_digest() -> io::Result<[u8; 32]> {
+    Ok([0xa5; 32])
+}
+
+#[cfg(not(test))]
+pub(super) fn artifact_digest() -> io::Result<[u8; 32]> {
+    let executable = std::env::current_exe()?;
+    let checksum = crate::checksum::file_sha256(&executable)?;
+    if checksum.len() != 64 {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "execution worker SHA-256 digest has invalid length",
+        ));
+    }
+    let mut digest = [0u8; 32];
+    for (index, byte) in digest.iter_mut().enumerate() {
+        *byte = u8::from_str_radix(&checksum[index * 2..index * 2 + 2], 16)
+            .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
+    }
+    Ok(digest)
+}
+
+pub(super) fn touch_artifact_lease() -> io::Result<()> {
+    let manifest = sibling_artifact_path(".manifest.json")?;
+    if !manifest.is_file() {
+        return Ok(());
+    }
+    let lease = sibling_artifact_path(".last-used")?;
+    let mut temporary = OsString::from(lease.as_os_str());
+    temporary.push(format!(".tmp.{}", std::process::id()));
+    let temporary = PathBuf::from(temporary);
+    let unix_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_err(io::Error::other)?
+        .as_millis();
+    std::fs::write(&temporary, format!("{unix_ms}\n"))?;
+    std::fs::rename(temporary, lease)
+}
+
 /// Entry point for `omh execution-worker` (bridge) and `--daemon` mode.
 pub(crate) fn run(args: &[String]) -> io::Result<()> {
+    touch_artifact_lease()?;
     if args.first().map(String::as_str) == Some("--daemon") {
         return lifecycle::run_daemon(binding::DaemonBinding::parse(&args[1..])?);
     }

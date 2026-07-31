@@ -78,19 +78,6 @@ pub struct ApiRequestMessage {
 pub enum ApiRequestDisposition {
     Respond(String),
     Deferred(DeferredRemoteCreate),
-    /// Background connection.install preview and optional confirm install.
-    ///
-    /// Callers must spawn work with `respond_to`. No SSH I/O runs while building
-    /// this disposition — preview/install happen on the worker thread so the
-    /// app/headless event loop can service owner-scoped auth prompts.
-    DeferredConnectionInstall {
-        request_id: String,
-        profile_id: String,
-        profile: crate::api::schema::ConnectionProfileInfo,
-        /// When false, only build and return the install preview.
-        confirm: bool,
-        authentication_owner: crate::execution_host::auth::AuthenticationOwner,
-    },
 }
 
 /// Kind of remote create whose API response is deferred until worker ACK/failure.

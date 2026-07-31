@@ -43,16 +43,6 @@ impl WorkerInstaller {
         Self
     }
 
-    pub(crate) fn preview(&self) -> Result<crate::remote::WorkerInstallPreview, String> {
-        Err(UNSUPPORTED_MESSAGE.to_string())
-    }
-
-    pub(crate) fn install(
-        &self,
-        _approved: &crate::remote::WorkerInstallPreview,
-    ) -> Result<crate::remote::WorkerInstallReport, String> {
-        Err(UNSUPPORTED_MESSAGE.to_string())
-    }
     pub(crate) fn inventory_owned_bindings(
         &self,
     ) -> Result<crate::execution_host::runtime_paths::BindingInventoryReport, String> {

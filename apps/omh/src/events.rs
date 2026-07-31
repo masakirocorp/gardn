@@ -131,20 +131,6 @@ pub enum AppEvent {
         stderr: String,
         error: Option<String>,
     },
-    /// Background probe completed and is ready for explicit setup confirmation.
-    WorkerInstallPreviewed {
-        /// Client view that initiated the preview; completion must not cross owners.
-        authentication_owner: crate::execution_host::auth::AuthenticationOwner,
-        profile_id: String,
-        result: Result<crate::remote::WorkerInstallPreview, String>,
-    },
-    /// Explicitly approved worker setup completed.
-    WorkerInstalled {
-        /// Client view that initiated the install; completion must not cross owners.
-        authentication_owner: crate::execution_host::auth::AuthenticationOwner,
-        profile_id: String,
-        result: Result<crate::remote::WorkerInstallReport, String>,
-    },
     /// Cross-session and managed-binding inventory completed for destructive removal.
     ConnectionRetirementPreviewed {
         authentication_owner: crate::execution_host::auth::AuthenticationOwner,

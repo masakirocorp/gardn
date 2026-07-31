@@ -100,22 +100,6 @@ impl App {
                     crate::app::PendingRemoteApiResponse::from_deferred(deferred, respond_to);
                 self.store_pending_remote_api_response(terminal_id, pending);
             }
-            crate::api::ApiRequestDisposition::DeferredConnectionInstall {
-                request_id,
-                profile_id,
-                profile,
-                confirm,
-                authentication_owner,
-            } => {
-                self.spawn_connection_install_response(
-                    respond_to,
-                    request_id,
-                    profile_id,
-                    profile,
-                    confirm,
-                    authentication_owner,
-                );
-            }
         }
         self.sync_prefix_input_source(previous_mode);
         changed

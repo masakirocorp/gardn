@@ -32,28 +32,6 @@ enum RuntimeExitAction {
 
 impl App {
     pub(crate) fn handle_internal_event(&mut self, ev: AppEvent) {
-        if let AppEvent::WorkerInstallPreviewed {
-            authentication_owner,
-            profile_id,
-            result,
-        } = &ev
-        {
-            self.apply_worker_install_previewed_for_owner(
-                *authentication_owner,
-                profile_id,
-                result,
-            );
-            return;
-        }
-        if let AppEvent::WorkerInstalled {
-            authentication_owner,
-            profile_id,
-            result,
-        } = &ev
-        {
-            self.apply_worker_installed_for_owner(*authentication_owner, profile_id, result);
-            return;
-        }
         if let AppEvent::ConnectionRetirementPreviewed {
             authentication_owner,
             profile_id,
@@ -916,8 +894,7 @@ impl App {
     pub(crate) fn handle_api_request(&mut self, request: crate::api::schema::Request) -> String {
         match self.handle_api_request_disposition(request) {
             crate::api::ApiRequestDisposition::Respond(response) => response,
-            crate::api::ApiRequestDisposition::Deferred { .. }
-            | crate::api::ApiRequestDisposition::DeferredConnectionInstall { .. } => {
+            crate::api::ApiRequestDisposition::Deferred { .. } => {
                 serde_json::to_string(&crate::api::schema::ErrorResponse {
                     id: String::new(),
                     error: crate::api::schema::ErrorBody {
@@ -1214,13 +1191,6 @@ impl App {
                 client_view.reconcile(&self.state);
                 crate::api::ApiRequestDisposition::Respond(response)
             }
-            crate::api::schema::Method::ConnectionInstall(params) => {
-                let owner = crate::execution_host::auth::AuthenticationOwner::new(client_view.id());
-                let disposition =
-                    self.handle_connection_install_disposition_for(request.id, params, owner);
-                client_view.reconcile(&self.state);
-                disposition
-            }
             method => {
                 let disposition =
                     self.handle_api_request_disposition(crate::api::schema::Request {
@@ -1250,8 +1220,7 @@ impl App {
     ) -> String {
         match self.handle_api_request_disposition_after_internal_events_drained(request) {
             crate::api::ApiRequestDisposition::Respond(response) => response,
-            crate::api::ApiRequestDisposition::Deferred { .. }
-            | crate::api::ApiRequestDisposition::DeferredConnectionInstall { .. } => {
+            crate::api::ApiRequestDisposition::Deferred { .. } => {
                 serde_json::to_string(&crate::api::schema::ErrorResponse {
                     id: String::new(),
                     error: crate::api::schema::ErrorBody {
@@ -1370,9 +1339,6 @@ impl App {
                     target,
                     crate::api::schema::ConnectionAction::Disconnect,
                 ));
-            }
-            Method::ConnectionInstall(params) => {
-                return self.handle_connection_install_disposition(request.id, params);
             }
             Method::ConnectionRetireStart(params) => {
                 return crate::api::ApiRequestDisposition::Respond(
@@ -2888,67 +2854,6 @@ mod tests {
     }
 
     #[test]
-    fn for_view_connection_install_confirm_preserves_deferred_disposition() {
-        let mut app = crate::app::App::new(
-            &crate::config::Config::default(),
-            true,
-            None,
-            tokio::sync::mpsc::unbounded_channel().1,
-            crate::api::EventHub::default(),
-        );
-        let profile = crate::persist::ssh_profiles::SshConnectionProfile::new(
-            "robotbox-smoke",
-            "Robot",
-            "user@robotbox",
-            None,
-        )
-        .expect("profile");
-        app.state.ssh_connection_profiles = vec![profile];
-        // Install never runs SSH I/O on the disposition path. Without hosts the
-        // handler responds immediately; with hosts it defers preview+install so the
-        // event loop can service the initiating client's auth prompts.
-        let mut view = app.default_client_view.clone_reconciled(&app.state);
-        let owner = crate::execution_host::auth::AuthenticationOwner::new(view.id());
-        let disposition = app.handle_api_request_disposition_for_view(
-            &mut view,
-            crate::api::schema::Request {
-                id: "install-confirm".into(),
-                method: crate::api::schema::Method::ConnectionInstall(
-                    crate::api::schema::ConnectionInstallParams {
-                        profile_id: "robotbox-smoke".into(),
-                        confirm: true,
-                    },
-                ),
-            },
-        );
-        match disposition {
-            crate::api::ApiRequestDisposition::Respond(response) => {
-                let body: serde_json::Value =
-                    serde_json::from_str(&response).expect("json response");
-                assert_eq!(body["id"], "install-confirm");
-                assert_ne!(
-                    body["error"]["code"], "deferred_api_response",
-                    "for_view fallback must not wrap deferred install into deferred_api_response: {body}"
-                );
-                assert_eq!(body["error"]["code"], "execution_hosts_unavailable");
-            }
-            crate::api::ApiRequestDisposition::DeferredConnectionInstall {
-                request_id,
-                confirm,
-                authentication_owner,
-                ..
-            } => {
-                assert_eq!(request_id, "install-confirm");
-                assert!(confirm);
-                assert_eq!(authentication_owner, owner);
-            }
-            crate::api::ApiRequestDisposition::Deferred { .. } => {
-                panic!("connection.install must not use remote-create Deferred terminal path")
-            }
-        }
-    }
-
-    #[test]
     fn for_view_connection_connect_queues_initiating_client_owner() {
         let mut app = crate::app::App::new(
             &crate::config::Config::default(),
@@ -2996,31 +2901,6 @@ mod tests {
                 authentication_owner: initiator_owner,
             }]
         );
-
-        if app.execution_hosts.is_some() {
-            match app.handle_api_request_disposition_for_view(
-                &mut initiator,
-                crate::api::schema::Request {
-                    id: "install-owner".into(),
-                    method: crate::api::schema::Method::ConnectionInstall(
-                        crate::api::schema::ConnectionInstallParams {
-                            profile_id: "workbox".into(),
-                            confirm: false,
-                        },
-                    ),
-                },
-            ) {
-                crate::api::ApiRequestDisposition::DeferredConnectionInstall {
-                    authentication_owner,
-                    confirm,
-                    ..
-                } => {
-                    assert_eq!(authentication_owner, initiator_owner);
-                    assert!(!confirm);
-                }
-                other => panic!("expected deferred install with owner, got {other:?}"),
-            }
-        }
     }
 
     #[test]
@@ -3067,220 +2947,6 @@ mod tests {
             .expect("default location should persist");
         assert_eq!(location.execution_host_id.as_str(), "ssh:workbox:1");
         assert_eq!(location.path.as_path(), std::path::Path::new("/srv/work"));
-    }
-
-    fn sample_worker_preview() -> crate::remote::WorkerInstallPreview {
-        crate::remote::WorkerInstallPreview {
-            kind: crate::remote::WorkerInstallKind::Install,
-            source: "/tmp/omh-worker".into(),
-            target_path: "~/.local/share/omh/worker/v1/omh-worker".into(),
-            checksum: "sha256:abc".into(),
-            version: "1.2.3".into(),
-            commands: vec!["install".into()],
-            capabilities: vec!["pty".into()],
-            already_current: false,
-        }
-    }
-
-    fn open_profile_editor(view: &mut ClientViewState, profile_id: &str) {
-        view.settings.connection_editor =
-            Some(crate::app::state::ConnectionEditorState::edit_profile(
-                profile_id,
-                "Work box",
-                "alice@workbox",
-                "",
-            ));
-    }
-
-    #[test]
-    fn worker_install_preview_completion_routes_only_to_initiating_client() {
-        let mut app = crate::app::App::new(
-            &crate::config::Config::default(),
-            true,
-            None,
-            tokio::sync::mpsc::unbounded_channel().1,
-            crate::api::EventHub::default(),
-        );
-
-        let mut initiator = ClientViewState::from_default_client_state(&app.state);
-        let mut other = ClientViewState::from_default_client_state(&app.state);
-        open_profile_editor(&mut initiator, "workbox");
-        open_profile_editor(&mut other, "workbox");
-        // Shared AppState must not receive ownerless completion writes.
-        app.state.settings.connection_editor =
-            Some(crate::app::state::ConnectionEditorState::edit_profile(
-                "workbox",
-                "Work box",
-                "alice@workbox",
-                "",
-            ));
-
-        let initiator_owner = crate::execution_host::auth::AuthenticationOwner::new(initiator.id());
-        let other_owner = crate::execution_host::auth::AuthenticationOwner::new(other.id());
-        assert_ne!(initiator_owner, other_owner);
-
-        let preview = sample_worker_preview();
-        assert!(App::apply_worker_install_previewed_to_view(
-            &mut initiator,
-            initiator_owner,
-            "workbox",
-            &Ok(preview.clone()),
-        ));
-        assert!(!App::apply_worker_install_previewed_to_view(
-            &mut other,
-            initiator_owner,
-            "workbox",
-            &Ok(preview.clone()),
-        ));
-        // Default-client path only mutates when the owner matches.
-        assert!(!app.apply_worker_install_previewed_for_owner(
-            initiator_owner,
-            "workbox",
-            &Ok(preview.clone()),
-        ));
-
-        assert_eq!(
-            initiator
-                .settings
-                .connection_editor
-                .as_ref()
-                .and_then(|editor| editor.pending_worker_install.as_ref())
-                .map(|pending| pending.preview.clone()),
-            Some(preview)
-        );
-        assert!(other
-            .settings
-            .connection_editor
-            .as_ref()
-            .and_then(|editor| editor.pending_worker_install.as_ref())
-            .is_none());
-        assert!(
-            app.state
-                .settings
-                .connection_editor
-                .as_ref()
-                .and_then(|editor| editor.pending_worker_install.as_ref())
-                .is_none(),
-            "non-owner completion must not write AppState.settings"
-        );
-    }
-
-    #[test]
-    fn worker_install_completion_routes_only_to_initiating_client() {
-        let app = crate::app::App::new(
-            &crate::config::Config::default(),
-            true,
-            None,
-            tokio::sync::mpsc::unbounded_channel().1,
-            crate::api::EventHub::default(),
-        );
-
-        let mut initiator = ClientViewState::from_default_client_state(&app.state);
-        let mut other = ClientViewState::from_default_client_state(&app.state);
-        open_profile_editor(&mut initiator, "workbox");
-        open_profile_editor(&mut other, "workbox");
-        initiator
-            .settings
-            .connection_editor
-            .as_mut()
-            .expect("editor")
-            .pending_worker_install = Some(crate::app::state::ConnectionWorkerInstallPending {
-            preview: sample_worker_preview(),
-        });
-        other
-            .settings
-            .connection_editor
-            .as_mut()
-            .expect("editor")
-            .pending_worker_install = Some(crate::app::state::ConnectionWorkerInstallPending {
-            preview: sample_worker_preview(),
-        });
-
-        let initiator_owner = crate::execution_host::auth::AuthenticationOwner::new(initiator.id());
-        let report = crate::remote::WorkerInstallReport::Installed(sample_worker_preview());
-
-        assert!(App::apply_worker_installed_to_view(
-            &mut initiator,
-            initiator_owner,
-            "workbox",
-            &Ok(report.clone()),
-        ));
-        assert!(!App::apply_worker_installed_to_view(
-            &mut other,
-            initiator_owner,
-            "workbox",
-            &Ok(report.clone()),
-        ));
-
-        let initiator_editor = initiator
-            .settings
-            .connection_editor
-            .as_ref()
-            .expect("initiator editor");
-        assert!(initiator_editor.pending_worker_install.is_none());
-        assert_eq!(
-            initiator_editor
-                .worker_install_result
-                .as_ref()
-                .map(|entry| entry.result.clone()),
-            Some(Ok(report))
-        );
-
-        let other_editor = other
-            .settings
-            .connection_editor
-            .as_ref()
-            .expect("other editor");
-        assert!(other_editor.pending_worker_install.is_some());
-        assert!(other_editor.worker_install_result.is_none());
-    }
-
-    #[test]
-    fn default_client_worker_install_preview_keeps_canonical_editor_aligned() {
-        let mut app = crate::app::App::new(
-            &crate::config::Config::default(),
-            true,
-            None,
-            tokio::sync::mpsc::unbounded_channel().1,
-            crate::api::EventHub::default(),
-        );
-        let profile_id = "workbox";
-        let editor = crate::app::state::ConnectionEditorState::edit_profile(
-            profile_id,
-            "Work box",
-            "alice@workbox",
-            "",
-        );
-        app.default_client_view.settings.connection_editor = Some(editor.clone());
-        app.state.settings.connection_editor = Some(editor);
-
-        let owner =
-            crate::execution_host::auth::AuthenticationOwner::new(app.default_client_view.id());
-        let preview = sample_worker_preview();
-        app.handle_internal_event(AppEvent::WorkerInstallPreviewed {
-            authentication_owner: owner,
-            profile_id: profile_id.into(),
-            result: Ok(preview.clone()),
-        });
-
-        assert_eq!(
-            app.default_client_view
-                .settings
-                .connection_editor
-                .as_ref()
-                .and_then(|editor| editor.pending_worker_install.as_ref())
-                .map(|pending| pending.preview.clone()),
-            Some(preview.clone())
-        );
-        assert_eq!(
-            app.state
-                .settings
-                .connection_editor
-                .as_ref()
-                .and_then(|editor| editor.pending_worker_install.as_ref())
-                .map(|pending| pending.preview.clone()),
-            Some(preview)
-        );
     }
 
     #[test]

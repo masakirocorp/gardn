@@ -1,6 +1,4 @@
-use crate::api::schema::{
-    ConnectionInstallParams, ConnectionSaveParams, ConnectionTarget, EmptyParams, Method, Request,
-};
+use crate::api::schema::{ConnectionSaveParams, ConnectionTarget, EmptyParams, Method, Request};
 
 pub(super) fn run_connection_command(args: &[String]) -> std::io::Result<i32> {
     let Some(subcommand) = args.first().map(String::as_str) else {
@@ -14,7 +12,6 @@ pub(super) fn run_connection_command(args: &[String]) -> std::io::Result<i32> {
         "test" => connection_action(&args[1..], "test"),
         "connect" => connection_action(&args[1..], "connect"),
         "disconnect" => connection_action(&args[1..], "disconnect"),
-        "install" => connection_install(&args[1..]),
         "help" | "--help" | "-h" => {
             print_connection_help();
             Ok(0)
@@ -115,38 +112,4 @@ fn print_connection_help() {
     eprintln!("  omh connection test <profile-id>");
     eprintln!("  omh connection connect <profile-id>");
     eprintln!("  omh connection disconnect <profile-id>");
-    eprintln!("  omh connection install <profile-id> [--yes]");
-}
-
-fn connection_install(args: &[String]) -> std::io::Result<i32> {
-    let mut profile_id = None;
-    let mut confirm = false;
-    let mut index = 0;
-    while index < args.len() {
-        match args[index].as_str() {
-            "--yes" | "-y" => confirm = true,
-            flag if flag.starts_with('-') => {
-                eprintln!("unknown flag for connection install: {flag}");
-                eprintln!("usage: omh connection install <profile-id> [--yes]");
-                return Ok(2);
-            }
-            value if profile_id.is_none() => profile_id = Some(value.to_string()),
-            _ => {
-                eprintln!("usage: omh connection install <profile-id> [--yes]");
-                return Ok(2);
-            }
-        }
-        index += 1;
-    }
-    let Some(profile_id) = profile_id else {
-        eprintln!("usage: omh connection install <profile-id> [--yes]");
-        return Ok(2);
-    };
-    super::print_response(&super::send_request(&Request {
-        id: "cli:connection:install".into(),
-        method: Method::ConnectionInstall(ConnectionInstallParams {
-            profile_id,
-            confirm,
-        }),
-    })?)
 }

@@ -14,7 +14,7 @@ The extension and control methods cover execution-host connections, server contr
 The schema defines these methods in the namespaces covered here:
 
 - `ping`.
-- `connection.list`, `connection.save`, `connection.delete`, `connection.install`, `connection.test`, `connection.connect`, `connection.disconnect`, `connection.retire.start`, and `connection.retire.status`.
+- `connection.list`, `connection.save`, `connection.delete`, `connection.test`, `connection.connect`, `connection.disconnect`, `connection.retire.start`, and `connection.retire.status`.
 - `server.stop`, `server.live_handoff`, `server.reload_config`, `server.agent_manifests`, and `server.reload_agent_manifests`.
 - `notification.show`.
 - `client.window_title.set` and `client.window_title.clear`.
@@ -82,37 +82,6 @@ Use the Settings removal workflow for cross-session inventory and cleanup. API a
 
 Errors: `connection_profile_referenced`, `connection_profile_delete_failed`.
 
-### `connection.install`
-
-Previews or explicitly applies the remote execution-worker install/update for a saved profile. Normal `connection.connect` and demand-driven remote use install or update the worker automatically. Use this method when a caller must inspect the plan or apply it before connecting.
-
-| Property     | Type      | Required | Description                                                                                         |
-| ------------ | --------- | -------- | --------------------------------------------------------------------------------------------------- |
-| `profile_id` | `string`  | yes      | Saved profile id.                                                                                   |
-| `confirm`    | `boolean` | no       | Default `false`. When false, returns the install/update preview only. When true, applies that plan. |
-
-Returns `ConnectionInstall { profile, preview, report? }`. `preview.kind` is `install` or `update`. `report` is present only when `confirm` is true and installation ran (`installed` or `already_current`).
-
-Without confirmation this method does not mutate the remote host. Confirmed installs may complete asynchronously; clients must handle the deferred install disposition the same way as other long-running connection work.
-
-Errors: `connection_profile_not_found`, `execution_hosts_unavailable`, and install/preview failures reported with method-specific codes and messages.
-
-```json
-{
-  "id": "connection-install-preview",
-  "method": "connection.install",
-  "params": { "profile_id": "workbox", "confirm": false }
-}
-```
-
-```json
-{
-  "id": "connection-install-apply",
-  "method": "connection.install",
-  "params": { "profile_id": "workbox", "confirm": true }
-}
-```
-
 ### `connection.retire.start` and `connection.retire.status`
 
 These methods are per-session retirement primitives. They do not inventory other named sessions or delete the global profile. Use the Settings removal workflow unless the caller coordinates every affected session.
@@ -161,7 +130,7 @@ Errors include `connection_profile_not_found`, `connection_retire_host_invalid`,
 
 ### `connection.test`, `connection.connect`, and `connection.disconnect`
 
-Each method accepts `{ "profile_id": "..." }` and queues the lifecycle action. The response is `ConnectionActionQueued { profile, action }`. `action` is `test`, `connect`, or `disconnect`. The profile status in this immediate response is the status before the queued action is polled; call `connection.list` to observe the resulting status.
+Each method accepts `{ "profile_id": "..." }` and queues the lifecycle action. The response is `ConnectionActionQueued { profile, action }`. `action` is `test`, `connect`, or `disconnect`. `connection.connect` automatically installs or selects the exact checksum-addressed worker required by this Oh My Herdr build. A busy incompatible worker drains without losing its runtimes; a compatible artifact is reused. The profile status in this immediate response is the status before the queued action is polled; call `connection.list` to observe the resulting status.
 
 Errors: `connection_profile_not_found`.
 

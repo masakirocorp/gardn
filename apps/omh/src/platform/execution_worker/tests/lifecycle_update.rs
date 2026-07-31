@@ -6,7 +6,8 @@ use std::os::unix::fs::PermissionsExt as _;
 use std::os::unix::net::{UnixListener, UnixStream};
 
 use crate::execution_host::lifecycle::{
-    read_lifecycle_frame, write_lifecycle_frame, ActivateReply, ActivateRequest, LifecycleDecision,
+    read_legacy_lifecycle_frame, read_lifecycle_frame, write_lifecycle_frame, ActivateReply,
+    ActivateRequest, LifecycleDecision,
 };
 use crate::execution_host::protocol::{
     read_worker_message, write_worker_message, CommandSpec, CoordinatorMessage, RequestId,
@@ -21,7 +22,7 @@ use super::super::lifecycle::{
     ConnectionOutcome,
 };
 use super::super::state::WorkerState;
-use super::super::util::{is_disconnect, DEFAULT_WORKER_SCROLLBACK_BYTES};
+use super::super::util::{is_disconnect, DEFAULT_WORKER_SCROLLBACK_BYTES, WORKER_APP_VERSION};
 use super::support::{hello, test_binding};
 
 fn start_locked_daemon(
@@ -97,6 +98,43 @@ fn incompatible_idle_daemon_is_replaced_cooperatively() {
     drop(successor_lock);
 }
 
+#[test]
+fn legacy_v1_idle_daemon_is_drained_before_replacement() {
+    let binding = test_binding("lifecycle-legacy-idle", 1);
+    let role_paths = binding.role_paths();
+    role_paths.prepare().unwrap();
+    role_paths.remove_socket_if_present().unwrap();
+    let listener = UnixListener::bind(&binding.socket_path).unwrap();
+    let server_binding = binding.clone();
+    let daemon = std::thread::spawn(move || {
+        let (mut first, _) = listener.accept().unwrap();
+        let _ = read_lifecycle_frame(&mut first).unwrap();
+        drop(first);
+
+        let (mut legacy, _) = listener.accept().unwrap();
+        let request = read_legacy_lifecycle_frame(&mut legacy).unwrap();
+        assert_eq!(&request[12..14], &1u16.to_le_bytes());
+        let mut reply = ActivateReply::new(
+            server_binding.binding_digest(),
+            LifecycleDecision::ShuttingDownIdle,
+            PROTOCOL_VERSION.saturating_sub(1),
+            0,
+            "0.3.1",
+            "legacy-worker",
+        )
+        .unwrap()
+        .encode()
+        .unwrap();
+        reply[12..14].copy_from_slice(&1u16.to_le_bytes());
+        write_lifecycle_frame(&mut legacy, &reply).unwrap();
+    });
+
+    let result = try_activate_existing_daemon(&binding).unwrap();
+    assert!(matches!(result, BridgeActivateResult::ShuttingDownIdle));
+    daemon.join().unwrap();
+    role_paths.cleanup().unwrap();
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn incompatible_busy_daemon_refuses_update_and_preserves_runtime() {
     let binding = test_binding("lifecycle-busy", 1);
@@ -106,7 +144,7 @@ async fn incompatible_busy_daemon_refuses_update_and_preserves_runtime() {
     );
     let (identity_tx, identity_rx) = std_mpsc::channel();
     let (daemon, role_paths, _) = start_locked_daemon(binding.clone(), move |state| {
-        state.set_advertised_versions_for_test("0.0.1", PROTOCOL_VERSION.saturating_add(1));
+        state.set_artifact_digest_for_test([0x5a; 32]);
         let (identity, _) = state
             .create_terminal(
                 location,
@@ -145,7 +183,7 @@ async fn incompatible_busy_daemon_refuses_update_and_preserves_runtime() {
     assert!(role_paths.lock_path().exists());
     assert!(acquire_daemon_lock(&role_paths.lock_path()).is_err());
 
-    // Previous-protocol style reconnect via normal Hello still works.
+    // A bridge from the incumbent artifact can still reconnect normally.
     let mut stream = UnixStream::connect(&binding.socket_path).unwrap();
     write_worker_message(&mut stream, &hello(&binding, 1)).unwrap();
     let ack: WorkerMessage = read_worker_message(&mut stream).unwrap();
@@ -164,8 +202,9 @@ async fn incompatible_busy_daemon_refuses_update_and_preserves_runtime() {
     // Lifecycle then Hello so we can send Terminate.
     let request = ActivateRequest::new(
         binding.binding_digest(),
-        PROTOCOL_VERSION.saturating_add(1),
-        "0.0.1",
+        [0x5a; 32],
+        PROTOCOL_VERSION,
+        WORKER_APP_VERSION,
     )
     .unwrap();
     write_lifecycle_frame(&mut stream, &request.encode().unwrap()).unwrap();
@@ -290,6 +329,7 @@ fn two_bridges_converge_on_one_worker_instance() {
     let mut stream = UnixStream::connect(&binding.socket_path).unwrap();
     let request = ActivateRequest::new(
         binding.binding_digest(),
+        super::super::artifact_digest().unwrap(),
         PROTOCOL_VERSION.saturating_add(1),
         "9.9.9",
     )

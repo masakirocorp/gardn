@@ -113,24 +113,28 @@ impl WorkerConnection {
             cancel.check()?;
         }
         let askpass_config = askpass.command_config()?;
-        let mut transport = match crate::remote::spawn_execution_worker_cancellable(
-            profile.target(),
-            askpass_config.clone(),
-            cancel,
-        ) {
-            Err(crate::remote::ExecutionWorkerTransportError::BootstrapRequired { .. })
-                if setup_policy == WorkerSetupPolicy::Ensure =>
-            {
-                crate::remote::ensure_execution_worker(profile.target(), askpass_config.clone())?;
-                crate::remote::spawn_execution_worker_cancellable(
+        let worker = match setup_policy {
+            WorkerSetupPolicy::Ensure => {
+                match crate::remote::ensure_execution_worker(
                     profile.target(),
-                    askpass_config,
-                    cancel,
-                )
-                .map_err(std::io::Error::other)?
+                    askpass_config.clone(),
+                )? {
+                    crate::remote::WorkerInstallReport::Installed(preview)
+                    | crate::remote::WorkerInstallReport::AlreadyCurrent(preview) => preview,
+                }
             }
-            result => result.map_err(std::io::Error::other)?,
+            WorkerSetupPolicy::ProbeOnly => crate::remote::preview_execution_worker_install(
+                profile.target(),
+                askpass_config.clone(),
+            )?,
         };
+        let mut transport = crate::remote::spawn_execution_worker_cancellable(
+            profile.target(),
+            askpass_config,
+            &worker,
+            cancel,
+        )
+        .map_err(std::io::Error::other)?;
         if let Some(cancel) = cancel {
             if let Err(err) = cancel.check() {
                 drop(transport);
@@ -342,36 +346,6 @@ impl WorkerInstaller {
         }
     }
 
-    pub(crate) fn preview(&self) -> Result<crate::remote::WorkerInstallPreview, String> {
-        let askpass = AskpassServer::start(
-            self.authentication.clone(),
-            self.owner,
-            self.profile.execution_host_id(),
-        )
-        .map_err(|error| error.to_string())?;
-        let config = askpass
-            .command_config()
-            .map_err(|error| error.to_string())?;
-        crate::remote::preview_execution_worker_install(self.profile.target(), config)
-            .map_err(|error| error.to_string())
-    }
-
-    pub(crate) fn install(
-        &self,
-        approved: &crate::remote::WorkerInstallPreview,
-    ) -> Result<crate::remote::WorkerInstallReport, String> {
-        let askpass = AskpassServer::start(
-            self.authentication.clone(),
-            self.owner,
-            self.profile.execution_host_id(),
-        )
-        .map_err(|error| error.to_string())?;
-        let config = askpass
-            .command_config()
-            .map_err(|error| error.to_string())?;
-        crate::remote::install_execution_worker(self.profile.target(), config, approved)
-            .map_err(|error| error.to_string())
-    }
     pub(crate) fn inventory_owned_bindings(
         &self,
     ) -> Result<crate::execution_host::runtime_paths::BindingInventoryReport, String> {

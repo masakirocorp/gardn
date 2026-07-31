@@ -27,9 +27,8 @@ use super::ScrollbarClickTarget;
 
 #[cfg(test)]
 use crate::settings_rows::{
-    CONNECTION_CONFIRM_WORKER_INDEX, CONNECTION_DELETE_INDEX, CONNECTION_DISCARD_INDEX,
-    CONNECTION_INSTALL_WORKER_INDEX, CONNECTION_NAME_INDEX, CONNECTION_SAVE_INDEX,
-    CONNECTION_TARGET_INDEX, CONNECTION_TEST_INDEX,
+    CONNECTION_DELETE_INDEX, CONNECTION_DISCARD_INDEX, CONNECTION_NAME_INDEX,
+    CONNECTION_SAVE_INDEX, CONNECTION_TARGET_INDEX, CONNECTION_TEST_INDEX,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -114,14 +113,6 @@ pub(crate) enum SettingsAction {
     DisconnectSshConnection {
         profile_id: String,
     },
-    PreviewWorkerInstall {
-        profile_id: String,
-    },
-    ConfirmWorkerInstall {
-        profile_id: String,
-        preview: crate::remote::WorkerInstallPreview,
-    },
-    CancelWorkerInstall,
     RequestForgetRemoteTermination {
         terminal_id: crate::terminal::TerminalId,
     },
@@ -352,26 +343,6 @@ impl App {
                     crate::execution_host::HostConnectionAction::Disconnect,
                     owner,
                 )
-            }
-            SettingsAction::PreviewWorkerInstall { profile_id } => {
-                let owner = crate::execution_host::auth::AuthenticationOwner::new(
-                    self.default_client_view.id(),
-                );
-                self.preview_worker_install_for(owner, profile_id);
-            }
-            SettingsAction::ConfirmWorkerInstall {
-                profile_id,
-                preview,
-            } => {
-                let owner = crate::execution_host::auth::AuthenticationOwner::new(
-                    self.default_client_view.id(),
-                );
-                self.install_worker_for(owner, profile_id, preview);
-            }
-            SettingsAction::CancelWorkerInstall => {
-                if let Some(editor) = self.state.settings.connection_editor.as_mut() {
-                    editor.pending_worker_install = None;
-                }
             }
             SettingsAction::RequestForgetRemoteTermination { terminal_id } => {
                 if let Some(editor) = self.state.settings.connection_editor.as_mut() {
@@ -1748,30 +1719,6 @@ fn selected_connection_profile_action(state: &mut AppState) -> Option<SettingsAc
                     crate::execution_host::ConnectionStatus::Connected
                 )
                 .then_some(SettingsAction::LaunchSshWorkspace { profile_id })
-            }
-            crate::settings_rows::ConnectionRowId::Action(
-                crate::settings_rows::ConnectionAction::InstallWorker,
-            ) => connection_editor(state)
-                .and_then(|editor| editor.profile_id().map(str::to_string))
-                .map(|profile_id| SettingsAction::PreviewWorkerInstall { profile_id }),
-            crate::settings_rows::ConnectionRowId::Action(
-                crate::settings_rows::ConnectionAction::ConfirmWorker,
-            ) => {
-                let editor = connection_editor(state)?;
-                let profile_id = editor.profile_id()?.to_string();
-                let preview = editor.pending_worker_install.as_ref()?.preview.clone();
-                Some(SettingsAction::ConfirmWorkerInstall {
-                    profile_id,
-                    preview,
-                })
-            }
-            crate::settings_rows::ConnectionRowId::Action(
-                crate::settings_rows::ConnectionAction::CancelWorker,
-            ) => {
-                if let Some(editor) = connection_editor_mut(state) {
-                    editor.pending_worker_install = None;
-                }
-                Some(SettingsAction::CancelWorkerInstall)
             }
             crate::settings_rows::ConnectionRowId::Action(
                 crate::settings_rows::ConnectionAction::ForgetTermination { offset },
@@ -5858,6 +5805,7 @@ mod tests {
     #[test]
     fn integrations_mouse_click_selects_row() {
         let mut app = app_for_mouse_test();
+        app.state.ssh_connection_profiles.clear();
         app.state.integration_recommendations = vec![
             integration_recommendation_for(
                 crate::api::schema::IntegrationTarget::Pi,
@@ -5885,6 +5833,7 @@ mod tests {
     #[test]
     fn integrations_mouse_click_installs_available_not_installed_row() {
         let mut app = app_for_mouse_test();
+        app.state.ssh_connection_profiles.clear();
         app.state.integration_recommendations = vec![
             integration_recommendation_for(
                 crate::api::schema::IntegrationTarget::Pi,
@@ -5920,6 +5869,7 @@ mod tests {
     #[test]
     fn integrations_mouse_click_uninstalls_current_row() {
         let mut app = app_for_mouse_test();
+        app.state.ssh_connection_profiles.clear();
         app.state.integration_recommendations = vec![
             integration_recommendation_for(
                 crate::api::schema::IntegrationTarget::Pi,
@@ -5955,6 +5905,7 @@ mod tests {
     #[test]
     fn integrations_mouse_click_unavailable_not_installed_row_only_selects() {
         let mut app = app_for_mouse_test();
+        app.state.ssh_connection_profiles.clear();
         app.state.integration_recommendations = vec![
             integration_recommendation_for(
                 crate::api::schema::IntegrationTarget::Omp,
@@ -6963,65 +6914,6 @@ mod tests {
         ));
         app.apply_settings_action(action.expect("save action"));
         assert_eq!(app.state.ssh_connection_profiles.len(), 1);
-    }
-
-    #[test]
-    fn worker_setup_requires_preview_then_explicit_confirmation() {
-        let (_lock, _xdg) = isolated_ssh_catalog("worker-confirm");
-        let mut app = app_for_mouse_test();
-        seed_connection_profile(
-            &mut app,
-            "build-box",
-            "build box",
-            "builder@example.com",
-            None,
-        );
-        open_settings_at(&mut app.state, SettingsSection::Connections);
-        assert!(load_connection_profile_editor(&mut app.state, "build-box"));
-
-        app.state.settings.list.show();
-        app.state
-            .settings
-            .list
-            .select(CONNECTION_INSTALL_WORKER_INDEX);
-        app.state.settings.focused_input = None;
-        assert_eq!(
-            connection_key(&mut app.state, KeyCode::Enter),
-            Some(SettingsAction::PreviewWorkerInstall {
-                profile_id: "build-box".to_string(),
-            })
-        );
-
-        let preview = crate::remote::WorkerInstallPreview {
-            kind: crate::remote::WorkerInstallKind::Install,
-            source: "/tmp/omh-worker".to_string(),
-            target_path: "~/.local/share/omh/worker/v1/omh-worker".to_string(),
-            checksum: "sha256:abc".to_string(),
-            version: "1".to_string(),
-            commands: vec!["install".to_string()],
-            capabilities: vec!["terminal".to_string()],
-            already_current: false,
-        };
-        app.state
-            .settings
-            .connection_editor
-            .as_mut()
-            .expect("editor open")
-            .pending_worker_install = Some(crate::app::state::ConnectionWorkerInstallPending {
-            preview: preview.clone(),
-        });
-        app.state
-            .settings
-            .list
-            .select(CONNECTION_CONFIRM_WORKER_INDEX);
-
-        assert_eq!(
-            connection_key(&mut app.state, KeyCode::Enter),
-            Some(SettingsAction::ConfirmWorkerInstall {
-                profile_id: "build-box".to_string(),
-                preview,
-            })
-        );
     }
 
     #[test]

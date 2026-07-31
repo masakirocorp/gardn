@@ -362,7 +362,6 @@ fn api_method_name(method: &Method) -> &'static str {
         Method::ConnectionTest(_) => "connection.test",
         Method::ConnectionConnect(_) => "connection.connect",
         Method::ConnectionDisconnect(_) => "connection.disconnect",
-        Method::ConnectionInstall(_) => "connection.install",
         Method::ConnectionRetireStart(_) => "connection.retire.start",
         Method::ConnectionRetireStatus(_) => "connection.retire.status",
         Method::NotificationShow(_) => "notification.show",

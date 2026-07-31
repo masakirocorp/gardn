@@ -125,6 +125,8 @@ pub(super) struct WorkerState {
     binding: DaemonBinding,
     /// App version advertised by this daemon process (frozen at boot).
     app_version: String,
+    /// SHA-256 identity of the executable that started this daemon.
+    artifact_digest: [u8; 32],
     /// Worker protocol advertised by this daemon process (frozen at boot).
     worker_protocol: u32,
     /// Once set, the daemon refuses new work and exits after draining.
@@ -159,6 +161,7 @@ impl WorkerState {
         Ok(Self {
             binding,
             app_version: WORKER_APP_VERSION.to_string(),
+            artifact_digest: super::artifact_digest()?,
             worker_protocol: PROTOCOL_VERSION,
             draining: false,
             runtimes: RuntimeTable::new(),
@@ -235,6 +238,7 @@ impl WorkerState {
         lifecycle_decision_input(
             true,
             self.binding.binding_digest(),
+            self.artifact_digest,
             self.worker_protocol,
             self.app_version.clone(),
             worker_instance_id_string(&self.binding.worker_instance_id),
@@ -761,6 +765,11 @@ impl WorkerState {
     ) {
         self.app_version = app_version.into();
         self.worker_protocol = worker_protocol;
+    }
+
+    #[cfg(test)]
+    pub(super) fn set_artifact_digest_for_test(&mut self, artifact_digest: [u8; 32]) {
+        self.artifact_digest = artifact_digest;
     }
 
     /// Test-only: insert a stale pending job for timeout accounting tests.

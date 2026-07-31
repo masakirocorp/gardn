@@ -1058,9 +1058,6 @@ pub(crate) enum ConnectionAction {
     Test,
     Toggle,
     LaunchWorkspace,
-    InstallWorker,
-    ConfirmWorker,
-    CancelWorker,
     ForgetConnection,
     ForgetTermination { offset: usize },
 }
@@ -1084,11 +1081,8 @@ impl ConnectionRowId {
             Self::Action(ConnectionAction::Test) => 6,
             Self::Action(ConnectionAction::Toggle) => 7,
             Self::Action(ConnectionAction::LaunchWorkspace) => 8,
-            Self::Action(ConnectionAction::InstallWorker) => 9,
-            Self::Action(ConnectionAction::ConfirmWorker) => 10,
-            Self::Action(ConnectionAction::CancelWorker) => 11,
-            Self::Action(ConnectionAction::ForgetConnection) => 12,
-            Self::Action(ConnectionAction::ForgetTermination { offset }) => 13 + offset,
+            Self::Action(ConnectionAction::ForgetConnection) => 9,
+            Self::Action(ConnectionAction::ForgetTermination { offset }) => 10 + offset,
         }
     }
 
@@ -1103,12 +1097,9 @@ impl ConnectionRowId {
             6 => Self::Action(ConnectionAction::Test),
             7 => Self::Action(ConnectionAction::Toggle),
             8 => Self::Action(ConnectionAction::LaunchWorkspace),
-            9 => Self::Action(ConnectionAction::InstallWorker),
-            10 => Self::Action(ConnectionAction::ConfirmWorker),
-            11 => Self::Action(ConnectionAction::CancelWorker),
-            12 => Self::Action(ConnectionAction::ForgetConnection),
-            offset if offset >= 13 => Self::Action(ConnectionAction::ForgetTermination {
-                offset: offset - 13,
+            9 => Self::Action(ConnectionAction::ForgetConnection),
+            offset if offset >= 10 => Self::Action(ConnectionAction::ForgetTermination {
+                offset: offset - 10,
             }),
             _ => return None,
         })
@@ -1133,12 +1124,6 @@ pub(crate) const CONNECTION_DELETE_INDEX: usize =
 #[cfg(test)]
 pub(crate) const CONNECTION_TEST_INDEX: usize =
     ConnectionRowId::Action(ConnectionAction::Test).selection_index();
-#[cfg(test)]
-pub(crate) const CONNECTION_INSTALL_WORKER_INDEX: usize =
-    ConnectionRowId::Action(ConnectionAction::InstallWorker).selection_index();
-#[cfg(test)]
-pub(crate) const CONNECTION_CONFIRM_WORKER_INDEX: usize =
-    ConnectionRowId::Action(ConnectionAction::ConfirmWorker).selection_index();
 
 fn connection_rows(app: &AppState, settings: &SettingsState) -> Vec<SettingsListRow> {
     if connection_editor_open(settings) {
@@ -1370,71 +1355,9 @@ fn connection_editor_rows(app: &AppState, settings: &SettingsState) -> Vec<Setti
             });
             rows.push(SettingsListRow::Spacer);
             rows.push(SettingsListRow::Header("6. execution worker"));
-            if let Some(pending) = editor.pending_worker_install.as_ref() {
-                let preview = &pending.preview;
-                let verb = match preview.kind {
-                    crate::remote::WorkerInstallKind::Install => "Install",
-                    crate::remote::WorkerInstallKind::Update => "Update",
-                };
-                rows.push(SettingsListRow::Caption(
-                    format!(
-                        "{verb} worker {} at {}",
-                        preview.version, preview.target_path
-                    )
-                    .into(),
-                ));
-                rows.push(SettingsListRow::Caption(
-                    format!(
-                        "source: {} · checksum: {}",
-                        preview.source, preview.checksum
-                    )
-                    .into(),
-                ));
-                rows.push(SettingsListRow::Caption(
-                    format!("commands: {}", preview.commands.join(" · ")).into(),
-                ));
-                rows.push(SettingsListRow::Caption(
-                    format!("capabilities: {}", preview.capabilities.join(", ")).into(),
-                ));
-                rows.push(SettingsListRow::Action {
-                    index: ConnectionRowId::Action(ConnectionAction::ConfirmWorker)
-                        .selection_index(),
-                    icon: "✓".into(),
-                    label: format!("confirm {} worker", verb.to_lowercase()).into(),
-                    tone: SettingsMarkerTone::Good,
-                });
-                rows.push(SettingsListRow::Action {
-                    index: ConnectionRowId::Action(ConnectionAction::CancelWorker)
-                        .selection_index(),
-                    icon: "×".into(),
-                    label: "cancel worker setup".into(),
-                    tone: SettingsMarkerTone::Disabled,
-                });
-            } else {
-                rows.push(SettingsListRow::Caption(
-                    "saving this profile authorizes managed worker setup; connect installs or updates it automatically"
-                        .into(),
-                ));
-                rows.push(SettingsListRow::Action {
-                    index: ConnectionRowId::Action(ConnectionAction::InstallWorker)
-                        .selection_index(),
-                    icon: "".into(),
-                    label: "preview worker install / update".into(),
-                    tone: SettingsMarkerTone::Accent,
-                });
-            }
-            if let Some(result) = editor.worker_install_result.as_ref() {
-                let result_text = match &result.result {
-                    Ok(crate::remote::WorkerInstallReport::Installed(preview)) => {
-                        format!("installed worker {}", preview.version)
-                    }
-                    Ok(crate::remote::WorkerInstallReport::AlreadyCurrent(preview)) => {
-                        format!("worker {} is already current", preview.version)
-                    }
-                    Err(error) => format!("worker setup failed: {error}"),
-                };
-                rows.push(SettingsListRow::Caption(result_text.into()));
-            }
+            rows.push(SettingsListRow::Caption(
+                "managed automatically when this connection is used".into(),
+            ));
             let tombstones = app.remote_termination_tombstones_for_profile(profile.id());
             if !tombstones.is_empty() {
                 rows.push(SettingsListRow::Spacer);

@@ -2777,18 +2777,6 @@ pub struct ConnectionDraft {
     pub directory: String,
 }
 
-/// Install confirmation awaiting explicit user approval inside the editor.
-#[derive(Debug, Clone)]
-pub struct ConnectionWorkerInstallPending {
-    pub preview: crate::remote::WorkerInstallPreview,
-}
-
-/// Last worker setup outcome shown inside the editor.
-#[derive(Debug, Clone)]
-pub struct ConnectionWorkerInstallResult {
-    pub result: Result<crate::remote::WorkerInstallReport, String>,
-}
-
 /// Cross-session and managed-binding impact shown before connection retirement.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ConnectionRetirementPreview {
@@ -2810,16 +2798,14 @@ pub enum ConnectionRetirementState {
     LocalForgetRunning,
 }
 
-/// Connection editor state: mode + draft + typed install/forget substates.
+/// Connection editor state: mode + draft + typed retirement state.
 ///
-/// Invalid combinations (draft without editor, install for a different profile)
-/// are unrepresentable — install/forget live only inside an open editor.
+/// Invalid combinations (draft without editor or retirement for a different
+/// profile) are unrepresentable because retirement lives inside an open editor.
 #[derive(Debug, Clone)]
 pub struct ConnectionEditorState {
     pub mode: ConnectionEditorMode,
     pub draft: ConnectionDraft,
-    pub pending_worker_install: Option<ConnectionWorkerInstallPending>,
-    pub worker_install_result: Option<ConnectionWorkerInstallResult>,
     pub pending_forget_remote_terminal: Option<crate::terminal::TerminalId>,
     pub connection_retirement: Option<ConnectionRetirementState>,
 }
@@ -2829,8 +2815,6 @@ impl ConnectionEditorState {
         Self {
             mode: ConnectionEditorMode::New,
             draft: ConnectionDraft::default(),
-            pending_worker_install: None,
-            worker_install_result: None,
             pending_forget_remote_terminal: None,
             connection_retirement: None,
         }
@@ -2851,8 +2835,6 @@ impl ConnectionEditorState {
                 target: target.into(),
                 directory: directory.into(),
             },
-            pending_worker_install: None,
-            worker_install_result: None,
             pending_forget_remote_terminal: None,
             connection_retirement: None,
         }
@@ -2869,32 +2851,6 @@ impl ConnectionEditorState {
         matches!(self.mode, ConnectionEditorMode::Edit { .. })
     }
 
-    /// Apply a background preview completion when this editor owns `profile_id`.
-    pub fn apply_worker_install_previewed(
-        &mut self,
-        profile_id: &str,
-        result: &Result<crate::remote::WorkerInstallPreview, String>,
-    ) -> bool {
-        if self.profile_id() != Some(profile_id) {
-            return false;
-        }
-        match result {
-            Ok(preview) => {
-                self.pending_worker_install = Some(ConnectionWorkerInstallPending {
-                    preview: preview.clone(),
-                });
-                self.worker_install_result = None;
-            }
-            Err(error) => {
-                self.pending_worker_install = None;
-                self.worker_install_result = Some(ConnectionWorkerInstallResult {
-                    result: Err(error.clone()),
-                });
-            }
-        }
-        true
-    }
-
     pub fn apply_retirement_preview(
         &mut self,
         profile_id: &str,
@@ -2906,22 +2862,6 @@ impl ConnectionEditorState {
         self.connection_retirement = Some(match result {
             Ok(preview) => ConnectionRetirementState::Review(preview.clone()),
             Err(error) => ConnectionRetirementState::Failed(error.clone()),
-        });
-        true
-    }
-
-    /// Apply a background install completion when this editor owns `profile_id`.
-    pub fn apply_worker_installed(
-        &mut self,
-        profile_id: &str,
-        result: &Result<crate::remote::WorkerInstallReport, String>,
-    ) -> bool {
-        if self.profile_id() != Some(profile_id) {
-            return false;
-        }
-        self.pending_worker_install = None;
-        self.worker_install_result = Some(ConnectionWorkerInstallResult {
-            result: result.clone(),
         });
         true
     }

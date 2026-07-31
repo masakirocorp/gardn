@@ -43,8 +43,6 @@ pub enum Method {
     ConnectionConnect(ConnectionTarget),
     #[serde(rename = "connection.disconnect")]
     ConnectionDisconnect(ConnectionTarget),
-    #[serde(rename = "connection.install")]
-    ConnectionInstall(ConnectionInstallParams),
     #[serde(rename = "connection.retire.start")]
     ConnectionRetireStart(ConnectionRetireParams),
     #[serde(rename = "connection.retire.status")]
@@ -330,14 +328,6 @@ pub struct ConnectionRetireParams {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
-pub struct ConnectionInstallParams {
-    pub profile_id: String,
-    /// When false, returns an install preview without mutating the remote host.
-    #[serde(default)]
-    pub confirm: bool,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct ConnectionSaveParams {
     pub profile_id: String,
     pub name: String,
@@ -352,32 +342,6 @@ pub enum ConnectionAction {
     Test,
     Connect,
     Disconnect,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum ConnectionInstallKind {
-    Install,
-    Update,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
-pub struct ConnectionInstallPreview {
-    pub kind: ConnectionInstallKind,
-    pub source: String,
-    pub target_path: String,
-    pub checksum: String,
-    pub version: String,
-    pub commands: Vec<String>,
-    pub capabilities: Vec<String>,
-    pub already_current: bool,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
-#[serde(tag = "status", rename_all = "snake_case")]
-pub enum ConnectionInstallReport {
-    Installed { preview: ConnectionInstallPreview },
-    AlreadyCurrent { preview: ConnectionInstallPreview },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
@@ -1705,13 +1669,6 @@ pub enum ResponseResult {
     ConnectionActionQueued {
         profile: ConnectionProfileInfo,
         action: ConnectionAction,
-    },
-    ConnectionInstall {
-        profile: ConnectionProfileInfo,
-        preview: ConnectionInstallPreview,
-        /// Present only when confirm=true and installation ran.
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        report: Option<ConnectionInstallReport>,
     },
     ConnectionRetireStart {
         profile_id: String,

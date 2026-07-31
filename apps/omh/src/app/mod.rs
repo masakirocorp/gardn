@@ -2906,48 +2906,6 @@ impl App {
         true
     }
 
-    fn preview_worker_install_for(
-        &mut self,
-        owner: crate::execution_host::auth::AuthenticationOwner,
-        profile_id: String,
-    ) {
-        let result = self
-            .execution_hosts
-            .as_ref()
-            .ok_or_else(|| "execution hosts unavailable".to_string())
-            .and_then(|hosts| hosts.worker_installer_for(owner, &profile_id));
-        let event_tx = self.event_tx.clone();
-        std::thread::spawn(move || {
-            let result = result.and_then(|installer| installer.preview());
-            let _ = event_tx.blocking_send(crate::events::AppEvent::WorkerInstallPreviewed {
-                authentication_owner: owner,
-                profile_id,
-                result,
-            });
-        });
-    }
-
-    fn install_worker_for(
-        &mut self,
-        owner: crate::execution_host::auth::AuthenticationOwner,
-        profile_id: String,
-        preview: crate::remote::WorkerInstallPreview,
-    ) {
-        let result = self
-            .execution_hosts
-            .as_ref()
-            .ok_or_else(|| "execution hosts unavailable".to_string())
-            .and_then(|hosts| hosts.worker_installer_for(owner, &profile_id));
-        let event_tx = self.event_tx.clone();
-        std::thread::spawn(move || {
-            let result = result.and_then(|installer| installer.install(&preview));
-            let _ = event_tx.blocking_send(crate::events::AppEvent::WorkerInstalled {
-                authentication_owner: owner,
-                profile_id,
-                result,
-            });
-        });
-    }
     pub(crate) fn resume_pending_connection_retirement(&mut self) -> io::Result<()> {
         let Some(pending) =
             crate::execution_host::connection_retirement::pending_connection_retirement()?
@@ -3011,7 +2969,7 @@ impl App {
             .as_ref()
             .ok_or_else(|| "execution hosts unavailable".to_string())
             .and_then(|hosts| hosts.worker_installer_for(owner, &profile_id));
-        let _ = self.apply_worker_install_to_owner(owner, |editor| {
+        let _ = self.apply_connection_editor_to_owner(owner, |editor| {
             if editor.profile_id() != Some(profile_id.as_str()) {
                 return false;
             }
@@ -3149,7 +3107,7 @@ impl App {
                     .to_string(),
             )
         };
-        let _ = self.apply_worker_install_to_owner(owner, |editor| {
+        let _ = self.apply_connection_editor_to_owner(owner, |editor| {
             if editor.profile_id() != Some(profile_id.as_str()) {
                 return false;
             }
@@ -3200,37 +3158,13 @@ impl App {
         });
     }
 
-    /// Apply preview completion only to the initiating client's connection editor.
-    pub(crate) fn apply_worker_install_previewed_for_owner(
-        &mut self,
-        owner: crate::execution_host::auth::AuthenticationOwner,
-        profile_id: &str,
-        result: &Result<crate::remote::WorkerInstallPreview, String>,
-    ) -> bool {
-        self.apply_worker_install_to_owner(owner, |editor| {
-            editor.apply_worker_install_previewed(profile_id, result)
-        })
-    }
-
-    /// Apply install completion only to the initiating client's connection editor.
-    pub(crate) fn apply_worker_installed_for_owner(
-        &mut self,
-        owner: crate::execution_host::auth::AuthenticationOwner,
-        profile_id: &str,
-        result: &Result<crate::remote::WorkerInstallReport, String>,
-    ) -> bool {
-        self.apply_worker_install_to_owner(owner, |editor| {
-            editor.apply_worker_installed(profile_id, result)
-        })
-    }
-
     pub(crate) fn apply_connection_retirement_previewed_for_owner(
         &mut self,
         owner: crate::execution_host::auth::AuthenticationOwner,
         profile_id: &str,
         result: &Result<crate::app::state::ConnectionRetirementPreview, String>,
     ) -> bool {
-        self.apply_worker_install_to_owner(owner, |editor| {
+        self.apply_connection_editor_to_owner(owner, |editor| {
             editor.apply_retirement_preview(profile_id, result)
         })
     }
@@ -3241,7 +3175,7 @@ impl App {
         profile_id: &str,
         preview: &crate::app::state::ConnectionRetirementPreview,
     ) -> bool {
-        self.apply_worker_install_to_owner(owner, |editor| {
+        self.apply_connection_editor_to_owner(owner, |editor| {
             if editor.profile_id() != Some(profile_id) {
                 return false;
             }
@@ -3304,40 +3238,6 @@ impl App {
             result,
         );
         changed
-    }
-
-    /// Apply a worker-install editor mutation to a specific client view when it owns
-    /// the completion. Used by headless multi-client routing.
-    pub(crate) fn apply_worker_install_previewed_to_view(
-        client_view: &mut ClientViewState,
-        owner: crate::execution_host::auth::AuthenticationOwner,
-        profile_id: &str,
-        result: &Result<crate::remote::WorkerInstallPreview, String>,
-    ) -> bool {
-        if client_view.id() != owner.client_view_id() {
-            return false;
-        }
-        client_view
-            .settings
-            .connection_editor
-            .as_mut()
-            .is_some_and(|editor| editor.apply_worker_install_previewed(profile_id, result))
-    }
-
-    pub(crate) fn apply_worker_installed_to_view(
-        client_view: &mut ClientViewState,
-        owner: crate::execution_host::auth::AuthenticationOwner,
-        profile_id: &str,
-        result: &Result<crate::remote::WorkerInstallReport, String>,
-    ) -> bool {
-        if client_view.id() != owner.client_view_id() {
-            return false;
-        }
-        client_view
-            .settings
-            .connection_editor
-            .as_mut()
-            .is_some_and(|editor| editor.apply_worker_installed(profile_id, result))
     }
 
     pub(crate) fn apply_connection_retirement_previewed_to_view(
@@ -3415,13 +3315,13 @@ impl App {
         true
     }
 
-    fn apply_worker_install_to_owner(
+    fn apply_connection_editor_to_owner(
         &mut self,
         owner: crate::execution_host::auth::AuthenticationOwner,
         mut apply: impl FnMut(&mut crate::app::state::ConnectionEditorState) -> bool,
     ) -> bool {
         // Connection editor state is client-owned. Completions never broadcast by
-        // profile_id alone — only the initiating AuthenticationOwner may consume them.
+        // profile ID alone; only the initiating owner may consume them.
         if self.default_client_view.id() != owner.client_view_id() {
             return false;
         }
@@ -3444,15 +3344,6 @@ impl App {
     ) {
         let owner = crate::execution_host::auth::AuthenticationOwner::new(client_view.id());
         match action {
-            input::SettingsAction::PreviewWorkerInstall { profile_id } => {
-                self.preview_worker_install_for(owner, profile_id);
-            }
-            input::SettingsAction::ConfirmWorkerInstall {
-                profile_id,
-                preview,
-            } => {
-                self.install_worker_for(owner, profile_id, preview);
-            }
             input::SettingsAction::PreviewSshConnectionRetirement(profile_id) => {
                 self.preview_connection_retirement_for(owner, profile_id);
             }
@@ -3462,7 +3353,6 @@ impl App {
             } => {
                 self.retire_connection_for(owner, profile_id, preview);
             }
-            input::SettingsAction::CancelWorkerInstall => {}
             input::SettingsAction::TestSshConnection { profile_id } => {
                 self.request_connection_for(
                     owner,

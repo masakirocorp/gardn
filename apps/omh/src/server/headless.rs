@@ -2155,18 +2155,6 @@ impl HeadlessServer {
 
                 true
             }
-            AppEvent::WorkerInstallPreviewed {
-                authentication_owner,
-                profile_id,
-                result,
-            } => {
-                self.apply_worker_install_previewed_event(*authentication_owner, profile_id, result)
-            }
-            AppEvent::WorkerInstalled {
-                authentication_owner,
-                profile_id,
-                result,
-            } => self.apply_worker_installed_event(*authentication_owner, profile_id, result),
             AppEvent::ConnectionRetirementPreviewed {
                 authentication_owner,
                 profile_id,
@@ -2205,55 +2193,6 @@ impl HeadlessServer {
                 true
             }
         }
-    }
-
-    fn apply_worker_install_previewed_event(
-        &mut self,
-        owner: crate::execution_host::auth::AuthenticationOwner,
-        profile_id: &str,
-        result: &Result<crate::remote::WorkerInstallPreview, String>,
-    ) -> bool {
-        let mut changed = false;
-        for client in self.clients.values_mut() {
-            let Some(view) = client.view_state.as_mut() else {
-                continue;
-            };
-            if crate::app::App::apply_worker_install_previewed_to_view(
-                view, owner, profile_id, result,
-            ) {
-                client.render_pending = true;
-                changed = true;
-                break;
-            }
-        }
-        // Keep the ambient/default projection aligned when it owns the completion.
-        changed |= self
-            .app
-            .apply_worker_install_previewed_for_owner(owner, profile_id, result);
-        changed
-    }
-
-    fn apply_worker_installed_event(
-        &mut self,
-        owner: crate::execution_host::auth::AuthenticationOwner,
-        profile_id: &str,
-        result: &Result<crate::remote::WorkerInstallReport, String>,
-    ) -> bool {
-        let mut changed = false;
-        for client in self.clients.values_mut() {
-            let Some(view) = client.view_state.as_mut() else {
-                continue;
-            };
-            if crate::app::App::apply_worker_installed_to_view(view, owner, profile_id, result) {
-                client.render_pending = true;
-                changed = true;
-                break;
-            }
-        }
-        changed |= self
-            .app
-            .apply_worker_installed_for_owner(owner, profile_id, result);
-        changed
     }
 
     fn apply_connection_retirement_previewed_event(
@@ -3159,22 +3098,6 @@ impl HeadlessServer {
                     crate::app::PendingRemoteApiResponse::from_deferred(deferred, msg.respond_to);
                 self.app
                     .store_pending_remote_api_response(terminal_id, pending);
-            }
-            api::ApiRequestDisposition::DeferredConnectionInstall {
-                request_id,
-                profile_id,
-                profile,
-                confirm,
-                authentication_owner,
-            } => {
-                self.app.spawn_connection_install_response(
-                    msg.respond_to,
-                    request_id,
-                    profile_id,
-                    profile,
-                    confirm,
-                    authentication_owner,
-                );
             }
         }
 
@@ -7706,139 +7629,6 @@ next_tab = ""
                 .is_err(),
             "stale idle report must not forward a done sound"
         );
-    }
-
-    #[test]
-    fn worker_install_events_route_only_to_owning_client_view() {
-        let mut server = test_headless_server();
-        server.clients.insert(1, test_app_client(Some(true), 1));
-        server.clients.insert(2, test_app_client(Some(false), 2));
-
-        let mut initiator =
-            crate::app::ClientViewState::from_default_client_state(&server.app.state);
-        let mut other = crate::app::ClientViewState::from_default_client_state(&server.app.state);
-        let profile_id = "workbox";
-        initiator.settings.connection_editor =
-            Some(crate::app::state::ConnectionEditorState::edit_profile(
-                profile_id,
-                "Work box",
-                "alice@workbox",
-                "",
-            ));
-        other.settings.connection_editor =
-            Some(crate::app::state::ConnectionEditorState::edit_profile(
-                profile_id,
-                "Work box",
-                "alice@workbox",
-                "",
-            ));
-        // Shared ambient settings must not consume another client's completion.
-        server.app.state.settings.connection_editor =
-            Some(crate::app::state::ConnectionEditorState::edit_profile(
-                profile_id,
-                "Work box",
-                "alice@workbox",
-                "",
-            ));
-        let initiator_owner = crate::execution_host::auth::AuthenticationOwner::new(initiator.id());
-        let other_id = other.id();
-        server.clients.get_mut(&1).unwrap().view_state = Some(initiator);
-        server.clients.get_mut(&2).unwrap().view_state = Some(other);
-        server.foreground_client_id = Some(2);
-        server.sync_foreground_client_state();
-
-        let preview = crate::remote::WorkerInstallPreview {
-            kind: crate::remote::WorkerInstallKind::Install,
-            source: "/tmp/omh-worker".into(),
-            target_path: "~/.local/share/omh/worker/v1/omh-worker".into(),
-            checksum: "sha256:abc".into(),
-            version: "1.2.3".into(),
-            commands: vec!["install".into()],
-            capabilities: vec!["pty".into()],
-            already_current: false,
-        };
-
-        assert!(
-            server.handle_internal_event_with_forwarding(AppEvent::WorkerInstallPreviewed {
-                authentication_owner: initiator_owner,
-                profile_id: profile_id.into(),
-                result: Ok(preview.clone()),
-            })
-        );
-
-        let initiator_view = server.clients[&1]
-            .view_state
-            .as_ref()
-            .expect("initiator view");
-        assert_eq!(
-            initiator_view
-                .settings
-                .connection_editor
-                .as_ref()
-                .and_then(|editor| editor.pending_worker_install.as_ref())
-                .map(|pending| pending.preview.clone()),
-            Some(preview.clone())
-        );
-        let other_view = server.clients[&2].view_state.as_ref().expect("other view");
-        assert_eq!(other_view.id(), other_id);
-        assert!(other_view
-            .settings
-            .connection_editor
-            .as_ref()
-            .and_then(|editor| editor.pending_worker_install.as_ref())
-            .is_none());
-        assert!(server
-            .app
-            .state
-            .settings
-            .connection_editor
-            .as_ref()
-            .and_then(|editor| editor.pending_worker_install.as_ref())
-            .is_none());
-        assert!(server
-            .app
-            .default_client_view
-            .settings
-            .connection_editor
-            .as_ref()
-            .and_then(|editor| editor.pending_worker_install.as_ref())
-            .is_none());
-
-        assert!(
-            server.handle_internal_event_with_forwarding(AppEvent::WorkerInstalled {
-                authentication_owner: initiator_owner,
-                profile_id: profile_id.into(),
-                result: Ok(crate::remote::WorkerInstallReport::Installed(
-                    preview.clone()
-                )),
-            })
-        );
-
-        let initiator_view = server.clients[&1]
-            .view_state
-            .as_ref()
-            .expect("initiator view");
-        let initiator_editor = initiator_view
-            .settings
-            .connection_editor
-            .as_ref()
-            .expect("initiator editor");
-        assert!(initiator_editor.pending_worker_install.is_none());
-        assert_eq!(
-            initiator_editor
-                .worker_install_result
-                .as_ref()
-                .map(|entry| entry.result.clone()),
-            Some(Ok(crate::remote::WorkerInstallReport::Installed(preview)))
-        );
-        let other_view = server.clients[&2].view_state.as_ref().expect("other view");
-        let other_editor = other_view
-            .settings
-            .connection_editor
-            .as_ref()
-            .expect("other editor");
-        assert!(other_editor.pending_worker_install.is_none());
-        assert!(other_editor.worker_install_result.is_none());
     }
 
     /// Verify that no direct calls to `self.app.handle_internal_event`

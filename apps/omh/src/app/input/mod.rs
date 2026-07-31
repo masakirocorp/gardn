@@ -785,9 +785,6 @@ impl App {
                             owner,
                         )
                     }
-                    action @ (SettingsAction::PreviewWorkerInstall { .. }
-                    | SettingsAction::ConfirmWorkerInstall { .. }
-                    | SettingsAction::CancelWorkerInstall) => self.apply_settings_action(action),
                     action @ (SettingsAction::RequestForgetRemoteTermination { .. }
                     | SettingsAction::ConfirmForgetRemoteTermination { .. }) => {
                         self.apply_settings_action(action)

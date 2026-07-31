@@ -115,12 +115,11 @@ These commands manage coordinator-owned OpenSSH connection profiles and the remo
 | `omh connection list`                                                                 | List profiles with execution host ids and connection status.                                     |
 | `omh connection save <profile_id> --name NAME --target SSH_TARGET [--directory PATH]` | Create or replace a profile. `--directory` sets its suggested remote path.                       |
 | `omh connection delete <profile_id>`                                                  | Delete an unreferenced profile. This command does not run the cross-session retirement workflow. |
-| `omh connection install <profile_id> [--yes]`                                         | Preview a worker install or update plan; with `--yes`, apply that confirmed plan explicitly.     |
 | `omh connection test <profile_id>`                                                    | Queue a read-only OpenSSH connectivity test.                                                     |
 | `omh connection connect <profile_id>`                                                 | Queue a connection request and install or update the managed worker when required.               |
 | `omh connection disconnect <profile_id>`                                              | Queue a disconnect request.                                                                      |
 
-Saving a profile authorizes managed worker installation and updates. `connection connect` installs or updates the worker automatically. A compatible worker with live runtimes remains active until it is unused. Use `connection install` only when you want to inspect or explicitly apply the worker plan.
+Saving a profile authorizes managed worker installation and updates. `connection connect` installs or selects the exact checksum-addressed worker automatically. A busy incompatible worker remains active until its runtimes drain. Stale unused artifacts are pruned after a lease grace period.
 
 `connection delete` fails while any session or owned worker binding references the profile. Use **Settings > Connections** for the inventory, confirmation, and cross-session removal workflow. Lifecycle commands return when the action is queued; run `omh connection list` to observe the resulting status.
 
