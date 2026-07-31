@@ -274,22 +274,20 @@ fn render_settings_tabs_for_view(
 fn settings_section_title(app: &AppState, section: SettingsSection) -> &'static str {
     if section == SettingsSection::Agents && settings_agents_editor_open(app) {
         if app.settings.pending_agent_profile_id.is_some() {
-            "edit custom profile"
+            "edit agent profile"
         } else {
-            "new custom profile"
+            "new agent profile"
         }
     } else if section == SettingsSection::Connections
         && crate::settings_rows::connection_editor_open(&app.settings)
     {
-        if app
-            .settings
-            .connection_editor
-            .as_ref()
-            .is_some_and(|e| e.is_editing())
-        {
-            "edit connection profile"
+        let editor = app.settings.connection_editor.as_ref();
+        if editor.is_some_and(|editor| editor.is_detail()) {
+            "connection details"
+        } else if editor.is_some_and(|editor| editor.is_editing()) {
+            "edit connection"
         } else {
-            "new connection profile"
+            "add connection"
         }
     } else {
         match section {
@@ -325,10 +323,19 @@ fn settings_section_description(app: &AppState, section: SettingsSection) -> &'s
         SettingsSection::Commands => "edit launch commands; clear one to disable and hide it",
         SettingsSection::Experiments => "configure advanced or platform-specific behavior",
         SettingsSection::Agents if settings_agents_editor_open(app) => {
-            "name the profile and provide the command omh should launch"
+            "configure the label, agent type, and launch command"
         }
-        SettingsSection::Agents => "create custom commands and manage agent profiles",
+        SettingsSection::Agents => "create and manage agent launch profiles",
         SettingsSection::Integrations => "install hooks so agents report state directly",
+        SettingsSection::Connections
+            if app
+                .settings
+                .connection_editor
+                .as_ref()
+                .is_some_and(|editor| editor.is_detail()) =>
+        {
+            "connect, test, or open a workspace on this ssh host"
+        }
         SettingsSection::Connections
             if crate::settings_rows::connection_editor_open(&app.settings) =>
         {
@@ -574,21 +581,20 @@ fn settings_section_title_for(
 ) -> &'static str {
     if section == SettingsSection::Agents && settings_agents_editor_open_for(settings) {
         if settings.pending_agent_profile_id.is_some() {
-            "edit custom profile"
+            "edit agent profile"
         } else {
-            "new custom profile"
+            "new agent profile"
         }
     } else if section == SettingsSection::Connections
         && crate::settings_rows::connection_editor_open(settings)
     {
-        if settings
-            .connection_editor
-            .as_ref()
-            .is_some_and(|e| e.is_editing())
-        {
-            "edit connection profile"
+        let editor = settings.connection_editor.as_ref();
+        if editor.is_some_and(|editor| editor.is_detail()) {
+            "connection details"
+        } else if editor.is_some_and(|editor| editor.is_editing()) {
+            "edit connection"
         } else {
-            "new connection profile"
+            "add connection"
         }
     } else {
         settings_section_title_for_non_editor(section)
@@ -631,10 +637,18 @@ fn settings_section_description_for(
         SettingsSection::Commands => "edit launch commands; clear one to disable and hide it",
         SettingsSection::Experiments => "configure advanced or platform-specific behavior",
         SettingsSection::Agents if settings_agents_editor_open_for(settings) => {
-            "name the profile and provide the command omh should launch"
+            "configure the label, agent type, and launch command"
         }
-        SettingsSection::Agents => "create custom commands and manage agent profiles",
+        SettingsSection::Agents => "create and manage agent launch profiles",
         SettingsSection::Integrations => "install hooks so agents report state directly",
+        SettingsSection::Connections
+            if settings
+                .connection_editor
+                .as_ref()
+                .is_some_and(|editor| editor.is_detail()) =>
+        {
+            "connect, test, or open a workspace on this ssh host"
+        }
         SettingsSection::Connections if crate::settings_rows::connection_editor_open(settings) => {
             "credentials and host keys stay with openssh; omh never stores them"
         }
@@ -2363,8 +2377,8 @@ mod tests {
 
         let text = buffer_text(terminal.backend().buffer(), area.width, area.height);
         assert!(text.contains("agents"));
-        assert!(text.contains("new custom profile"));
-        assert!(text.contains("custom profiles"));
+        assert!(text.contains("new agent profile"));
+        assert!(text.contains("saved profiles"));
         assert!(!text.contains("show shift+←→"));
     }
 
@@ -2390,7 +2404,7 @@ mod tests {
         assert!(!text.contains("show shift+←→"));
     }
     #[test]
-    fn agent_profile_editor_renders_numbered_steps() {
+    fn agent_profile_editor_renders_compact_form() {
         let mut app = AppState::test_new();
         app.settings.section = SettingsSection::Agents;
         app.settings.pending_agent_profile_name = Some("omp mk".to_string());
@@ -2414,19 +2428,20 @@ mod tests {
 
         let text = buffer_text(terminal.backend().buffer(), area.width, area.height);
         assert!(text.contains("← back"));
-        assert!(text.contains("1. name"));
+        assert!(text.contains("new agent profile"));
         assert!(text.contains("label shown in menus"));
-        assert!(text.contains("2. kind"));
-        assert!(text.contains("choose an installed integration family"));
-        app.settings.scroll = 12;
+        assert!(text.contains("agent type"));
+        assert!(text.contains("choose an installed integration"));
+        assert!(text.contains("shell command to run"));
+        assert!(!text.contains("1. name"));
+        assert!(!text.contains("4. actions"));
+        app.settings.scroll = 2;
         terminal
             .draw(|frame| render_settings_overlay(&app, frame, area))
             .expect("render scrolled settings overlay");
-
         let text = buffer_text(terminal.backend().buffer(), area.width, area.height);
-        assert!(text.contains("3. command"));
-        assert!(text.contains("shell command to run"));
-        assert!(text.contains("4. actions"));
+        assert!(text.contains("create profile"));
+        assert!(text.contains("cancel"));
     }
 
     #[test]
@@ -2673,7 +2688,7 @@ mod tests {
             (
                 SettingsSection::Agents,
                 "agents",
-                "create custom commands and manage agent profiles",
+                "create and manage agent launch profiles",
             ),
             (
                 SettingsSection::Integrations,

@@ -2760,12 +2760,14 @@ pub struct SshConnectionRequest {
     pub authentication_owner: crate::execution_host::auth::AuthenticationOwner,
 }
 
-/// How the connection editor was opened.
+/// Active screen in the connection settings workflow.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ConnectionEditorMode {
     /// Creating a new profile (no stable id yet).
     New,
-    /// Editing an existing catalog profile.
+    /// Viewing status and controls for an existing profile.
+    Detail { profile_id: String },
+    /// Editing the persistent fields of an existing profile.
     Edit { profile_id: String },
 }
 
@@ -2798,10 +2800,10 @@ pub enum ConnectionRetirementState {
     LocalForgetRunning,
 }
 
-/// Connection editor state: mode + draft + typed retirement state.
+/// Connection workflow state: screen mode + draft + typed retirement state.
 ///
-/// Invalid combinations (draft without editor or retirement for a different
-/// profile) are unrepresentable because retirement lives inside an open editor.
+/// Invalid combinations (draft without a screen or retirement for a different
+/// profile) are unrepresentable because retirement lives inside this state.
 #[derive(Debug, Clone)]
 pub struct ConnectionEditorState {
     pub mode: ConnectionEditorMode,
@@ -2820,16 +2822,29 @@ impl ConnectionEditorState {
         }
     }
 
-    pub fn edit_profile(
+    pub fn detail_profile(
         profile_id: impl Into<String>,
         name: impl Into<String>,
         target: impl Into<String>,
         directory: impl Into<String>,
     ) -> Self {
-        Self {
-            mode: ConnectionEditorMode::Edit {
+        Self::existing_profile(
+            ConnectionEditorMode::Detail {
                 profile_id: profile_id.into(),
             },
+            name,
+            target,
+            directory,
+        )
+    }
+    fn existing_profile(
+        mode: ConnectionEditorMode,
+        name: impl Into<String>,
+        target: impl Into<String>,
+        directory: impl Into<String>,
+    ) -> Self {
+        Self {
+            mode,
             draft: ConnectionDraft {
                 name: name.into(),
                 target: target.into(),
@@ -2843,12 +2858,37 @@ impl ConnectionEditorState {
     pub fn profile_id(&self) -> Option<&str> {
         match &self.mode {
             ConnectionEditorMode::New => None,
-            ConnectionEditorMode::Edit { profile_id } => Some(profile_id.as_str()),
+            ConnectionEditorMode::Detail { profile_id }
+            | ConnectionEditorMode::Edit { profile_id } => Some(profile_id.as_str()),
         }
+    }
+
+    pub fn is_detail(&self) -> bool {
+        matches!(self.mode, ConnectionEditorMode::Detail { .. })
     }
 
     pub fn is_editing(&self) -> bool {
         matches!(self.mode, ConnectionEditorMode::Edit { .. })
+    }
+
+    pub fn start_editing(&mut self) -> bool {
+        let ConnectionEditorMode::Detail { profile_id } = &self.mode else {
+            return false;
+        };
+        self.mode = ConnectionEditorMode::Edit {
+            profile_id: profile_id.clone(),
+        };
+        true
+    }
+
+    pub fn show_detail(&mut self) -> bool {
+        let ConnectionEditorMode::Edit { profile_id } = &self.mode else {
+            return false;
+        };
+        self.mode = ConnectionEditorMode::Detail {
+            profile_id: profile_id.clone(),
+        };
+        true
     }
 
     pub fn apply_retirement_preview(

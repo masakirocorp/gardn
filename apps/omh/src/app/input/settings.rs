@@ -27,8 +27,8 @@ use super::ScrollbarClickTarget;
 
 #[cfg(test)]
 use crate::settings_rows::{
-    CONNECTION_DELETE_INDEX, CONNECTION_DISCARD_INDEX, CONNECTION_NAME_INDEX,
-    CONNECTION_SAVE_INDEX, CONNECTION_TARGET_INDEX, CONNECTION_TEST_INDEX,
+    CONNECTION_DELETE_INDEX, CONNECTION_DISCARD_INDEX, CONNECTION_SAVE_INDEX,
+    CONNECTION_TARGET_INDEX, CONNECTION_TEST_INDEX,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1495,9 +1495,9 @@ fn browse_connection_profile_id_for_index(state: &AppState, selected: usize) -> 
 
 fn open_blank_connection_editor(state: &mut AppState) {
     state.settings.connection_editor = Some(crate::app::state::ConnectionEditorState::new_draft());
-    let name_index = ConnectionRowId::Field(ConnectionField::Name).selection_index();
-    state.settings.list.select(name_index);
-    state.settings.focused_input = Some(name_index);
+    let target_index = ConnectionRowId::Field(ConnectionField::Target).selection_index();
+    state.settings.list.select(target_index);
+    state.settings.focused_input = Some(target_index);
     state.settings.scroll = 0;
 }
 
@@ -1508,8 +1508,45 @@ fn close_connection_editor(state: &mut AppState) {
     clear_settings_selection(state);
     state.settings.scroll = 0;
 }
+fn back_from_connection_screen(state: &mut AppState) {
+    let persisted_draft = state
+        .settings
+        .connection_editor
+        .as_ref()
+        .filter(|editor| editor.is_editing())
+        .and_then(|editor| editor.profile_id())
+        .and_then(|profile_id| {
+            state
+                .ssh_connection_profiles
+                .iter()
+                .find(|profile| profile.id() == profile_id)
+        })
+        .map(|profile| crate::app::state::ConnectionDraft {
+            name: profile.name().to_string(),
+            target: profile.target().to_string(),
+            directory: profile
+                .suggested_directory()
+                .map(ToString::to_string)
+                .unwrap_or_default(),
+        });
+    if let (Some(editor), Some(draft)) =
+        (state.settings.connection_editor.as_mut(), persisted_draft)
+    {
+        if editor.show_detail() {
+            editor.draft = draft;
+            let edit_index =
+                ConnectionRowId::Action(crate::settings_rows::ConnectionAction::EditDetails)
+                    .selection_index();
+            state.settings.list.select(edit_index);
+            state.settings.focused_input = None;
+            state.settings.scroll = 0;
+            return;
+        }
+    }
+    close_connection_editor(state);
+}
 
-fn load_connection_profile_editor(state: &mut AppState, profile_id: &str) -> bool {
+fn load_connection_profile_detail(state: &mut AppState, profile_id: &str) -> bool {
     let Some(profile) = state
         .ssh_connection_profiles
         .iter()
@@ -1518,7 +1555,7 @@ fn load_connection_profile_editor(state: &mut AppState, profile_id: &str) -> boo
         return false;
     };
     state.settings.connection_editor =
-        Some(crate::app::state::ConnectionEditorState::edit_profile(
+        Some(crate::app::state::ConnectionEditorState::detail_profile(
             profile.id(),
             profile.name(),
             profile.target(),
@@ -1527,9 +1564,11 @@ fn load_connection_profile_editor(state: &mut AppState, profile_id: &str) -> boo
                 .map(|directory| directory.to_string())
                 .unwrap_or_default(),
         ));
-    let name_index = ConnectionRowId::Field(ConnectionField::Name).selection_index();
-    state.settings.list.select(name_index);
-    state.settings.focused_input = Some(name_index);
+    let toggle_index =
+        ConnectionRowId::Action(crate::settings_rows::ConnectionAction::Toggle).selection_index();
+    state.settings.list.select(toggle_index);
+    state.settings.focused_input = None;
+    state.settings.scroll = 0;
     true
 }
 
@@ -1572,11 +1611,16 @@ fn next_connection_profile_id(state: &AppState, name: &str) -> String {
 }
 
 fn save_pending_connection_profile(state: &mut AppState) -> Option<SettingsAction> {
-    let name = pending_connection_name(state).trim().to_string();
     let target = pending_connection_target(state).trim().to_string();
-    if name.is_empty() || target.is_empty() {
+    if target.is_empty() {
         return None;
     }
+    let name_input = pending_connection_name(state).trim().to_string();
+    let name = if name_input.is_empty() {
+        target.clone()
+    } else {
+        name_input
+    };
     let directory_input = pending_connection_directory(state).trim().to_string();
     let suggested_directory = if directory_input.is_empty() {
         None
@@ -1631,12 +1675,25 @@ fn selected_connection_profile_action(state: &mut AppState) -> Option<SettingsAc
             crate::settings_rows::ConnectionRowId::Action(
                 crate::settings_rows::ConnectionAction::Discard,
             ) => {
-                close_connection_editor(state);
+                back_from_connection_screen(state);
                 None
             }
             crate::settings_rows::ConnectionRowId::Action(
                 crate::settings_rows::ConnectionAction::Save,
             ) => save_pending_connection_profile(state),
+            crate::settings_rows::ConnectionRowId::Action(
+                crate::settings_rows::ConnectionAction::EditDetails,
+            ) => {
+                let editor = connection_editor_mut(state)?;
+                if editor.start_editing() {
+                    let target_index =
+                        ConnectionRowId::Field(ConnectionField::Target).selection_index();
+                    state.settings.list.select(target_index);
+                    state.settings.focused_input = Some(target_index);
+                    state.settings.scroll = 0;
+                }
+                None
+            }
             crate::settings_rows::ConnectionRowId::Action(
                 crate::settings_rows::ConnectionAction::Delete,
             ) => {
@@ -1750,7 +1807,7 @@ fn selected_connection_profile_action(state: &mut AppState) -> Option<SettingsAc
         return None;
     }
     let profile_id = browse_connection_profile_id_for_index(state, selected)?;
-    if load_connection_profile_editor(state, &profile_id) {
+    if load_connection_profile_detail(state, &profile_id) {
         return None;
     }
     None
@@ -2910,7 +2967,7 @@ pub(super) fn update_settings_state(state: &mut AppState, key: KeyEvent) -> Opti
                 if let Some(profile_id) =
                     browse_connection_profile_id_for_index(state, state.settings.list.selected)
                 {
-                    let _ = load_connection_profile_editor(state, &profile_id);
+                    let _ = load_connection_profile_detail(state, &profile_id);
                     state.settings.list.select(
                         crate::settings_rows::ConnectionRowId::Action(
                             crate::settings_rows::ConnectionAction::Delete,
@@ -3673,7 +3730,7 @@ impl AppState {
                 if self.settings_editor_back_at(mouse.column, mouse.row) {
                     match self.settings.section {
                         SettingsSection::Agents => close_agent_profile_editor(self),
-                        SettingsSection::Connections => close_connection_editor(self),
+                        SettingsSection::Connections => back_from_connection_screen(self),
                         _ => {}
                     }
                     return None;
@@ -4281,7 +4338,7 @@ mod tests {
             matches!(
                 row,
                 crate::settings_rows::SettingsListRow::Action { label, .. }
-                    if label.as_ref() == "new custom profile"
+                    if label.as_ref() == "new agent profile"
             )
         }));
         assert!(!rows.iter().any(|row| {
@@ -4336,15 +4393,9 @@ mod tests {
         assert!(rows.iter().any(|row| {
             matches!(
                 row,
-                crate::settings_rows::SettingsListRow::Header(title)
-                    if *title == "custom agents are launch-only"
-            )
-        }));
-        assert!(rows.iter().any(|row| {
-            matches!(
-                row,
                 crate::settings_rows::SettingsListRow::Caption(text)
-                    if text.as_ref() == "status, restore, and integration install are unavailable"
+                    if text.as_ref().contains("Custom commands are launch-only")
+                        && text.as_ref().contains("Status, restore, and integrations are unavailable")
             )
         }));
         assert!(!rows.iter().any(|row| {
@@ -6560,13 +6611,13 @@ mod tests {
         let mut app = app_for_mouse_test();
         open_settings_at(&mut app.state, SettingsSection::Connections);
 
-        // Open a blank editor and fill name, target, and suggested directory.
+        // Open a blank form and fill target, optional name, and optional directory.
         assert_eq!(connection_key(&mut app.state, KeyCode::Down), None);
         assert_eq!(connection_key(&mut app.state, KeyCode::Char(' ')), None);
         assert!(app.state.settings.connection_editor.is_some());
-        connection_type(&mut app.state, "build box");
-        connection_key(&mut app.state, KeyCode::Down);
         connection_type(&mut app.state, "builder@example.com");
+        connection_key(&mut app.state, KeyCode::Down);
+        connection_type(&mut app.state, "build box");
         connection_key(&mut app.state, KeyCode::Down);
         connection_type(&mut app.state, "~/src");
         connection_key(&mut app.state, KeyCode::Down);
@@ -6613,26 +6664,43 @@ mod tests {
         );
         open_settings_at(&mut app.state, SettingsSection::Connections);
 
-        // Open the saved profile in the editor.
+        // Open the saved profile, then choose the explicit edit action.
         connection_key(&mut app.state, KeyCode::Down);
         connection_key(&mut app.state, KeyCode::Down);
         assert_eq!(connection_key(&mut app.state, KeyCode::Enter), None);
+        app.state.settings.list.select(
+            ConnectionRowId::Action(crate::settings_rows::ConnectionAction::EditDetails)
+                .selection_index(),
+        );
+        assert!(app
+            .state
+            .settings
+            .connection_editor
+            .as_ref()
+            .is_some_and(crate::app::state::ConnectionEditorState::is_detail));
+        assert_eq!(connection_key(&mut app.state, KeyCode::Enter), None);
+        assert!(app
+            .state
+            .settings
+            .connection_editor
+            .as_ref()
+            .is_some_and(crate::app::state::ConnectionEditorState::is_editing));
         assert_eq!(
             app.state
                 .settings
                 .connection_editor
                 .as_ref()
-                .and_then(|e| e.profile_id()),
+                .and_then(|editor| editor.profile_id()),
             Some("build-box")
         );
 
         // Rename only: id and binding generation stay.
+        connection_key(&mut app.state, KeyCode::Down);
         update_settings_state(
             &mut app.state,
             KeyEvent::new(KeyCode::Char('u'), KeyModifiers::CONTROL),
         );
         connection_type(&mut app.state, "build farm");
-        connection_key(&mut app.state, KeyCode::Down);
         connection_key(&mut app.state, KeyCode::Down);
         connection_key(&mut app.state, KeyCode::Down);
         let action = connection_key(&mut app.state, KeyCode::Enter);
@@ -6654,13 +6722,18 @@ mod tests {
         );
 
         // Edit the target: same id, generation bumps.
-        assert!(load_connection_profile_editor(&mut app.state, "build-box"));
-        connection_key(&mut app.state, KeyCode::Down);
+        assert!(load_connection_profile_detail(&mut app.state, "build-box"));
+        app.state.settings.list.select(
+            ConnectionRowId::Action(crate::settings_rows::ConnectionAction::EditDetails)
+                .selection_index(),
+        );
+        assert_eq!(connection_key(&mut app.state, KeyCode::Enter), None);
         update_settings_state(
             &mut app.state,
             KeyEvent::new(KeyCode::Char('u'), KeyModifiers::CONTROL),
         );
         connection_type(&mut app.state, "deploy@example.com");
+        connection_key(&mut app.state, KeyCode::Down);
         connection_key(&mut app.state, KeyCode::Down);
         connection_key(&mut app.state, KeyCode::Down);
         assert_eq!(
@@ -6707,6 +6780,43 @@ mod tests {
     }
 
     #[test]
+    fn connection_discard_returns_to_detail_and_restores_persisted_fields() {
+        let (_lock, _xdg) = isolated_ssh_catalog("discard-edit");
+        let mut app = app_for_mouse_test();
+        seed_connection_profile(
+            &mut app,
+            "build-box",
+            "build box",
+            "builder@example.com",
+            None,
+        );
+        open_settings_at(&mut app.state, SettingsSection::Connections);
+        assert!(load_connection_profile_detail(&mut app.state, "build-box"));
+        app.state.settings.list.select(
+            ConnectionRowId::Action(crate::settings_rows::ConnectionAction::EditDetails)
+                .selection_index(),
+        );
+        assert_eq!(connection_key(&mut app.state, KeyCode::Enter), None);
+        update_settings_state(
+            &mut app.state,
+            KeyEvent::new(KeyCode::Char('u'), KeyModifiers::CONTROL),
+        );
+        connection_type(&mut app.state, "changed@example.com");
+
+        app.state.settings.list.select(CONNECTION_DISCARD_INDEX);
+        assert_eq!(connection_key(&mut app.state, KeyCode::Enter), None);
+        let editor = app
+            .state
+            .settings
+            .connection_editor
+            .as_ref()
+            .expect("detail remains open");
+        assert!(editor.is_detail());
+        assert_eq!(editor.draft.target, "builder@example.com");
+        assert_eq!(app.state.settings.focused_input, None);
+    }
+
+    #[test]
     fn connection_ids_get_deterministic_numeric_suffix() {
         let (_lock, _xdg) = isolated_ssh_catalog("id-suffix");
         let mut app = app_for_mouse_test();
@@ -6727,9 +6837,9 @@ mod tests {
         open_settings_at(&mut app.state, SettingsSection::Connections);
         connection_key(&mut app.state, KeyCode::Down);
         connection_key(&mut app.state, KeyCode::Char(' '));
-        connection_type(&mut app.state, "build box");
-        connection_key(&mut app.state, KeyCode::Down);
         connection_type(&mut app.state, "ops@example.com");
+        connection_key(&mut app.state, KeyCode::Down);
+        connection_type(&mut app.state, "build box");
         connection_key(&mut app.state, KeyCode::Down);
         connection_key(&mut app.state, KeyCode::Down);
         let action = connection_key(&mut app.state, KeyCode::Enter);
@@ -6758,9 +6868,7 @@ mod tests {
         connection_key(&mut app.state, KeyCode::Down);
         connection_key(&mut app.state, KeyCode::Down);
         connection_key(&mut app.state, KeyCode::Enter);
-        for _ in 0..CONNECTION_DELETE_INDEX {
-            connection_key(&mut app.state, KeyCode::Down);
-        }
+        app.state.settings.list.select(CONNECTION_DELETE_INDEX);
         let action = connection_key(&mut app.state, KeyCode::Enter);
         assert_eq!(
             action,
@@ -6862,56 +6970,40 @@ mod tests {
     }
 
     #[test]
-    fn connection_save_requires_name_and_target() {
+    fn connection_save_requires_target_and_defaults_name() {
         let (_lock, _xdg) = isolated_ssh_catalog("validation");
         let mut app = app_for_mouse_test();
         open_settings_at(&mut app.state, SettingsSection::Connections);
         connection_key(&mut app.state, KeyCode::Down);
         connection_key(&mut app.state, KeyCode::Char(' '));
 
-        // Empty draft: save is refused and the editor stays open.
-        for _ in 0..CONNECTION_SAVE_INDEX {
-            connection_key(&mut app.state, KeyCode::Down);
-        }
+        // Empty and whitespace-only targets are refused.
+        app.state.settings.list.select(CONNECTION_SAVE_INDEX);
         assert_eq!(connection_key(&mut app.state, KeyCode::Enter), None);
         assert!(app.state.settings.connection_editor.is_some());
         assert!(app.state.ssh_connection_profiles.is_empty());
-
-        // A name without a target is still refused.
-        for _ in 0..CONNECTION_SAVE_INDEX {
-            connection_key(&mut app.state, KeyCode::Up);
-        }
-        connection_type(&mut app.state, "build box");
-        for _ in 0..CONNECTION_SAVE_INDEX {
-            connection_key(&mut app.state, KeyCode::Down);
-        }
-        assert_eq!(connection_key(&mut app.state, KeyCode::Enter), None);
-        assert!(app.state.ssh_connection_profiles.is_empty());
-
-        // Whitespace-only target is refused.
-        connection_key(&mut app.state, KeyCode::Up);
-        connection_key(&mut app.state, KeyCode::Up);
+        app.state.settings.list.select(CONNECTION_TARGET_INDEX);
+        app.state.settings.focused_input = Some(CONNECTION_TARGET_INDEX);
         connection_type(&mut app.state, "   ");
-        connection_key(&mut app.state, KeyCode::Down);
-        connection_key(&mut app.state, KeyCode::Down);
+        app.state.settings.list.select(CONNECTION_SAVE_INDEX);
         assert_eq!(connection_key(&mut app.state, KeyCode::Enter), None);
         assert!(app.state.ssh_connection_profiles.is_empty());
 
-        // A real target saves.
-        connection_key(&mut app.state, KeyCode::Up);
-        connection_key(&mut app.state, KeyCode::Up);
+        // A target is sufficient; it becomes the display name when no label is given.
+        app.state.settings.list.select(CONNECTION_TARGET_INDEX);
+        app.state.settings.focused_input = Some(CONNECTION_TARGET_INDEX);
         update_settings_state(
             &mut app.state,
             KeyEvent::new(KeyCode::Char('u'), KeyModifiers::CONTROL),
         );
         connection_type(&mut app.state, "builder@example.com");
-        connection_key(&mut app.state, KeyCode::Down);
-        connection_key(&mut app.state, KeyCode::Down);
+        app.state.settings.list.select(CONNECTION_SAVE_INDEX);
         let action = connection_key(&mut app.state, KeyCode::Enter);
-        assert!(matches!(
-            action,
-            Some(SettingsAction::SaveSshConnectionProfile(_))
-        ));
+        let Some(SettingsAction::SaveSshConnectionProfile(profile)) = &action else {
+            panic!("expected save action, got {action:?}");
+        };
+        assert_eq!(profile.name(), "builder@example.com");
+        assert_eq!(profile.target(), "builder@example.com");
         app.apply_settings_action(action.expect("save action"));
         assert_eq!(app.state.ssh_connection_profiles.len(), 1);
     }
@@ -6933,9 +7025,7 @@ mod tests {
         connection_key(&mut app.state, KeyCode::Down);
         connection_key(&mut app.state, KeyCode::Enter);
 
-        for _ in 0..CONNECTION_TEST_INDEX {
-            connection_key(&mut app.state, KeyCode::Down);
-        }
+        app.state.settings.list.select(CONNECTION_TEST_INDEX);
         let action = connection_key(&mut app.state, KeyCode::Enter);
         assert_eq!(
             action,
@@ -6945,7 +7035,10 @@ mod tests {
         );
         app.apply_settings_action(action.expect("test action"));
 
-        connection_key(&mut app.state, KeyCode::Down);
+        app.state.settings.list.select(
+            ConnectionRowId::Action(crate::settings_rows::ConnectionAction::Toggle)
+                .selection_index(),
+        );
         let action = connection_key(&mut app.state, KeyCode::Enter);
         assert_eq!(
             action,
@@ -7019,7 +7112,7 @@ mod tests {
         );
         second.mode = Mode::Settings;
 
-        // First client opens the editor and drafts a profile name.
+        // First client opens the form and drafts an SSH target.
         update_settings_state_for_view(
             &mut app.state,
             &mut first,
@@ -7043,7 +7136,7 @@ mod tests {
                 .settings
                 .connection_editor
                 .as_ref()
-                .map(|e| e.draft.name.as_str()),
+                .map(|e| e.draft.target.as_str()),
             Some("alpha")
         );
         assert!(second.settings.connection_editor.is_none());
@@ -7073,7 +7166,7 @@ mod tests {
                 .settings
                 .connection_editor
                 .as_ref()
-                .map(|e| e.draft.name.as_str()),
+                .map(|e| e.draft.target.as_str()),
             Some("beta")
         );
         assert_eq!(
@@ -7081,7 +7174,7 @@ mod tests {
                 .settings
                 .connection_editor
                 .as_ref()
-                .map(|e| e.draft.name.as_str()),
+                .map(|e| e.draft.target.as_str()),
             Some("alpha")
         );
         assert!(app.state.settings.connection_editor.is_none());
@@ -7168,7 +7261,7 @@ mod tests {
         let rows = rows_for_section(&app.state, SettingsSection::Connections).unwrap();
         let row_for = |index| selected_visual_row(&rows, index).unwrap() as u16;
 
-        // Click "new connection profile" to open the blank editor.
+        // Click "add ssh connection" to open the blank form.
         let action = app.state.handle_settings_mouse(mouse(
             MouseEventKind::Down(MouseButton::Left),
             list_area.x + 2,
@@ -7178,7 +7271,7 @@ mod tests {
         assert!(app.state.settings.connection_editor.is_some());
         assert_eq!(
             app.state.settings.focused_input,
-            Some(CONNECTION_NAME_INDEX)
+            Some(CONNECTION_TARGET_INDEX)
         );
 
         // Click the target field to focus it, then type into it.
@@ -7203,11 +7296,25 @@ mod tests {
             Some("builder@example.com")
         );
 
-        // Click "discard changes" to close the editor without saving.
+        // Scroll to the action rows, then click "cancel" to close without saving.
+        let current_rows =
+            rows_for_section(&app.state, SettingsSection::Connections).expect("connection rows");
+        let discard_row = selected_visual_row(&current_rows, CONNECTION_DISCARD_INDEX)
+            .expect("cancel row") as u16;
+        app.state.settings.scroll =
+            settings_section_max_scroll(&app.state, SettingsSection::Connections);
+        let list = settings_section_list_geometry(&app.state, SettingsSection::Connections);
+        let visible_discard_row = discard_row.saturating_sub(list.viewport.scroll() as u16);
+        assert_eq!(
+            app.state
+                .settings_list_hit_at(list.rect.x + 2, list.rect.y + visible_discard_row)
+                .map(|target| target.index),
+            Some(CONNECTION_DISCARD_INDEX)
+        );
         app.state.handle_settings_mouse(mouse(
             MouseEventKind::Down(MouseButton::Left),
-            list_area.x + 2,
-            list_area.y + editor_row_for(CONNECTION_DISCARD_INDEX),
+            list.rect.x + 2,
+            list.rect.y + visible_discard_row,
         ));
         assert!(app.state.settings.connection_editor.is_none());
         assert!(app.state.ssh_connection_profiles.is_empty());
@@ -7232,11 +7339,40 @@ mod tests {
 
         rendered_text_point(&app, "connections", 100, 30);
         rendered_text_point(&app, "saved profiles", 100, 30);
-        rendered_text_point(&app, "new connection profile", 100, 30);
+        rendered_text_point(&app, "add ssh connection", 100, 30);
         rendered_text_point(&app, "build box", 100, 30);
         rendered_text_point(&app, "builder@example.com", 100, 30);
         rendered_text_point(&app, "~/src", 100, 30);
         rendered_text_point(&app, "connected", 100, 30);
+    }
+
+    #[test]
+    fn connection_detail_render_prioritizes_runtime_controls_over_editing() {
+        let (_lock, _xdg) = isolated_ssh_catalog("render-detail");
+        let mut app = app_for_mouse_test();
+        seed_connection_profile(
+            &mut app,
+            "build-box",
+            "build box",
+            "builder@example.com",
+            Some("~/src"),
+        );
+        open_settings_at(&mut app.state, SettingsSection::Connections);
+        connection_key(&mut app.state, KeyCode::Down);
+        connection_key(&mut app.state, KeyCode::Down);
+        connection_key(&mut app.state, KeyCode::Enter);
+
+        rendered_text_point(&app, "connection details", 100, 30);
+        rendered_text_point(&app, "connect", 100, 30);
+        rendered_text_point(&app, "test connection", 100, 30);
+        rendered_text_point(&app, "open workspace", 100, 30);
+        rendered_text_point(&app, "SSH target  builder@example.com", 100, 30);
+        rendered_text_point(&app, "edit details", 100, 30);
+
+        app.state.settings.scroll =
+            settings_section_max_scroll(&app.state, SettingsSection::Connections);
+        rendered_text_point(&app, "danger zone", 100, 30);
+        rendered_text_point(&app, "remove connection", 100, 30);
     }
 
     #[test]
@@ -7247,19 +7383,19 @@ mod tests {
         connection_key(&mut app.state, KeyCode::Down);
         connection_key(&mut app.state, KeyCode::Char(' '));
 
-        rendered_text_point(&app, "new connection profile", 100, 30);
-        rendered_text_point(&app, "profile name", 100, 30);
+        rendered_text_point(&app, "add connection", 100, 30);
         rendered_text_point(&app, "ssh target", 100, 30);
-        rendered_text_point(&app, "suggested directory (optional)", 100, 30);
+        rendered_text_point(&app, "name (optional)", 100, 30);
+        rendered_text_point(&app, "starting directory (optional)", 100, 30);
         rendered_text_point(&app, "credentials and host keys stay with openssh", 100, 30);
 
         // Move to the action rows so they scroll into view.
         for _ in 0..CONNECTION_DISCARD_INDEX {
             connection_key(&mut app.state, KeyCode::Down);
         }
-        rendered_text_point(&app, "name and ssh target are required", 100, 30);
-        rendered_text_point(&app, "create profile", 100, 30);
-        rendered_text_point(&app, "discard changes", 100, 30);
+        rendered_text_point(&app, "ssh target is required", 100, 30);
+        rendered_text_point(&app, "add connection", 100, 30);
+        rendered_text_point(&app, "cancel", 100, 30);
     }
 
     fn integration_recommendation_for(

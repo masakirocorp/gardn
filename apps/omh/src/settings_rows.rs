@@ -591,17 +591,16 @@ fn agent_profile_rows(app: &AppState, settings: &SettingsState) -> Vec<SettingsL
     }
     let editing = settings.pending_agent_profile_id.is_some();
 
-    rows.push(SettingsListRow::Header("1. name"));
     rows.push(SettingsListRow::Caption("label shown in menus".into()));
     rows.push(SettingsListRow::TextInput {
         index: 0,
-        title: "profile name".into(),
+        title: "name".into(),
         value: name.into(),
     });
     rows.push(SettingsListRow::Spacer);
-    rows.push(SettingsListRow::Header("2. kind"));
+    rows.push(SettingsListRow::Header("agent type"));
     rows.push(SettingsListRow::Caption(
-        "choose an installed integration family, or custom for launch-only commands".into(),
+        "choose an installed integration, or a custom command for launch-only use".into(),
     ));
     let kind_choices = app.agent_profile_kind_choices().collect::<Vec<_>>();
     for (offset, agent_kind) in kind_choices.iter().copied().enumerate() {
@@ -612,14 +611,12 @@ fn agent_profile_rows(app: &AppState, settings: &SettingsState) -> Vec<SettingsL
         });
     }
     if !kind.is_supported() {
-        rows.push(SettingsListRow::Spacer);
-        rows.push(SettingsListRow::Header("custom agents are launch-only"));
         rows.push(SettingsListRow::Caption(
-            "status, restore, and integration install are unavailable".into(),
+            "Custom commands are launch-only. Status, restore, and integrations are unavailable."
+                .into(),
         ));
     }
     rows.push(SettingsListRow::Spacer);
-    rows.push(SettingsListRow::Header("3. command"));
     rows.push(SettingsListRow::Caption("shell command to run".into()));
     let command_index = 1 + kind_choices.len();
     rows.push(SettingsListRow::TextInput {
@@ -628,10 +625,6 @@ fn agent_profile_rows(app: &AppState, settings: &SettingsState) -> Vec<SettingsL
         value: command.into(),
     });
     rows.push(SettingsListRow::Spacer);
-    rows.push(SettingsListRow::Header("4. actions"));
-    rows.push(SettingsListRow::Caption(
-        "save the profile, discard changes, or delete a custom profile".into(),
-    ));
     let save_index = command_index + 1;
     rows.push(SettingsListRow::Action {
         index: save_index,
@@ -646,14 +639,23 @@ fn agent_profile_rows(app: &AppState, settings: &SettingsState) -> Vec<SettingsL
     rows.push(SettingsListRow::Action {
         index: save_index + 1,
         icon: "×".into(),
-        label: "discard changes".into(),
+        label: if editing {
+            "discard changes".into()
+        } else {
+            "cancel".into()
+        },
         tone: SettingsMarkerTone::Disabled,
     });
     if editing {
+        rows.push(SettingsListRow::Spacer);
+        rows.push(SettingsListRow::Header("danger zone"));
+        rows.push(SettingsListRow::Caption(
+            "remove this profile from agent launch menus".into(),
+        ));
         rows.push(SettingsListRow::Action {
             index: save_index + 2,
             icon: "×".into(),
-            label: "delete custom profile".into(),
+            label: "delete profile".into(),
             tone: SettingsMarkerTone::Danger,
         });
     }
@@ -665,11 +667,11 @@ fn agent_profile_browse_rows(app: &AppState) -> Vec<SettingsListRow> {
         SettingsListRow::Action {
             index: 0,
             icon: "".into(),
-            label: "new custom profile".into(),
+            label: "new agent profile".into(),
             tone: SettingsMarkerTone::Accent,
         },
         SettingsListRow::Spacer,
-        SettingsListRow::Header("custom profiles"),
+        SettingsListRow::Header("saved profiles"),
     ];
     let custom_profiles = app
         .agent_profiles
@@ -688,7 +690,7 @@ fn agent_profile_browse_rows(app: &AppState) -> Vec<SettingsListRow> {
     }
     if !has_custom_profiles {
         rows.push(SettingsListRow::Caption(
-            "none yet — create one to add custom launch commands".into(),
+            "none yet — create one to add a launch command".into(),
         ));
     }
     rows
@@ -1058,6 +1060,7 @@ pub(crate) enum ConnectionAction {
     Test,
     Toggle,
     LaunchWorkspace,
+    EditDetails,
     ForgetConnection,
     ForgetTermination { offset: usize },
 }
@@ -1072,8 +1075,8 @@ impl ConnectionRowId {
     /// Dense index used by the existing list selection model.
     pub(crate) const fn selection_index(self) -> usize {
         match self {
-            Self::Field(ConnectionField::Name) => 0,
-            Self::Field(ConnectionField::Target) => 1,
+            Self::Field(ConnectionField::Target) => 0,
+            Self::Field(ConnectionField::Name) => 1,
             Self::Field(ConnectionField::Directory) => 2,
             Self::Action(ConnectionAction::Save) => 3,
             Self::Action(ConnectionAction::Discard) => 4,
@@ -1081,15 +1084,16 @@ impl ConnectionRowId {
             Self::Action(ConnectionAction::Test) => 6,
             Self::Action(ConnectionAction::Toggle) => 7,
             Self::Action(ConnectionAction::LaunchWorkspace) => 8,
-            Self::Action(ConnectionAction::ForgetConnection) => 9,
-            Self::Action(ConnectionAction::ForgetTermination { offset }) => 10 + offset,
+            Self::Action(ConnectionAction::EditDetails) => 9,
+            Self::Action(ConnectionAction::ForgetConnection) => 10,
+            Self::Action(ConnectionAction::ForgetTermination { offset }) => 11 + offset,
         }
     }
 
     pub(crate) fn from_selection_index(index: usize) -> Option<Self> {
         Some(match index {
-            0 => Self::Field(ConnectionField::Name),
-            1 => Self::Field(ConnectionField::Target),
+            0 => Self::Field(ConnectionField::Target),
+            1 => Self::Field(ConnectionField::Name),
             2 => Self::Field(ConnectionField::Directory),
             3 => Self::Action(ConnectionAction::Save),
             4 => Self::Action(ConnectionAction::Discard),
@@ -1097,18 +1101,16 @@ impl ConnectionRowId {
             6 => Self::Action(ConnectionAction::Test),
             7 => Self::Action(ConnectionAction::Toggle),
             8 => Self::Action(ConnectionAction::LaunchWorkspace),
-            9 => Self::Action(ConnectionAction::ForgetConnection),
-            offset if offset >= 10 => Self::Action(ConnectionAction::ForgetTermination {
-                offset: offset - 10,
+            9 => Self::Action(ConnectionAction::EditDetails),
+            10 => Self::Action(ConnectionAction::ForgetConnection),
+            offset if offset >= 11 => Self::Action(ConnectionAction::ForgetTermination {
+                offset: offset - 11,
             }),
             _ => return None,
         })
     }
 }
 
-#[cfg(test)]
-pub(crate) const CONNECTION_NAME_INDEX: usize =
-    ConnectionRowId::Field(ConnectionField::Name).selection_index();
 #[cfg(test)]
 pub(crate) const CONNECTION_TARGET_INDEX: usize =
     ConnectionRowId::Field(ConnectionField::Target).selection_index();
@@ -1156,7 +1158,7 @@ fn connection_browse_rows(app: &AppState) -> Vec<SettingsListRow> {
         SettingsListRow::Action {
             index: 0,
             icon: "".into(),
-            label: "new connection profile".into(),
+            label: "add ssh connection".into(),
             tone: SettingsMarkerTone::Accent,
         },
         SettingsListRow::Spacer,
@@ -1188,22 +1190,21 @@ fn connection_editor_rows(app: &AppState, settings: &SettingsState) -> Vec<Setti
     let Some(editor) = settings.connection_editor.as_ref() else {
         return Vec::new();
     };
+    if editor.is_detail() {
+        connection_detail_rows(app, editor)
+    } else {
+        connection_form_rows(editor)
+    }
+}
+
+fn connection_form_rows(editor: &crate::app::state::ConnectionEditorState) -> Vec<SettingsListRow> {
     let editing = editor.is_editing();
-    let name = editor.draft.name.clone();
     let target = editor.draft.target.clone();
+    let name = editor.draft.name.clone();
     let directory = editor.draft.directory.clone();
     let mut rows = vec![
-        SettingsListRow::Header("1. name"),
-        SettingsListRow::Caption("label shown in settings and menus".into()),
-        SettingsListRow::TextInput {
-            index: ConnectionRowId::Field(ConnectionField::Name).selection_index(),
-            title: "profile name".into(),
-            value: name.clone().into(),
-        },
-        SettingsListRow::Spacer,
-        SettingsListRow::Header("2. ssh target"),
         SettingsListRow::Caption(
-            "raw openssh destination, like admin@example.com or an ssh config alias".into(),
+            "OpenSSH destination, such as admin@example.com or an SSH config alias.".into(),
         ),
         SettingsListRow::TextInput {
             index: ConnectionRowId::Field(ConnectionField::Target).selection_index(),
@@ -1211,192 +1212,220 @@ fn connection_editor_rows(app: &AppState, settings: &SettingsState) -> Vec<Setti
             value: target.clone().into(),
         },
         SettingsListRow::Spacer,
-        SettingsListRow::Header("3. suggested directory"),
         SettingsListRow::Caption(
-            "optional remote directory offered for new terminals on this host".into(),
+            "Optional label. The SSH target is used when this is empty.".into(),
+        ),
+        SettingsListRow::TextInput {
+            index: ConnectionRowId::Field(ConnectionField::Name).selection_index(),
+            title: "name (optional)".into(),
+            value: name.into(),
+        },
+        SettingsListRow::Spacer,
+        SettingsListRow::Caption(
+            "Optional remote directory for new workspaces on this connection.".into(),
         ),
         SettingsListRow::TextInput {
             index: ConnectionRowId::Field(ConnectionField::Directory).selection_index(),
-            title: "suggested directory (optional)".into(),
+            title: "starting directory (optional)".into(),
             value: directory.into(),
         },
         SettingsListRow::Spacer,
-        SettingsListRow::Header("4. actions"),
     ];
-    let valid = !name.trim().is_empty() && !target.trim().is_empty();
-    rows.push(SettingsListRow::Caption(
-        if valid {
-            "save the profile, discard changes, or delete it"
-        } else {
-            "name and ssh target are required"
-        }
-        .into(),
-    ));
+    if target.trim().is_empty() {
+        rows.push(SettingsListRow::Caption("ssh target is required".into()));
+    }
     rows.push(SettingsListRow::Action {
         index: ConnectionRowId::Action(ConnectionAction::Save).selection_index(),
         icon: "".into(),
         label: if editing {
-            "save profile".into()
+            "save changes".into()
         } else {
-            "create profile".into()
+            "add connection".into()
         },
         tone: SettingsMarkerTone::Accent,
     });
     rows.push(SettingsListRow::Action {
         index: ConnectionRowId::Action(ConnectionAction::Discard).selection_index(),
         icon: "×".into(),
-        label: "discard changes".into(),
+        label: if editing {
+            "discard changes".into()
+        } else {
+            "cancel".into()
+        },
         tone: SettingsMarkerTone::Disabled,
     });
-    if editing {
-        let (delete_label, delete_tone) = match editor.connection_retirement.as_ref() {
-            None => (
-                "remove connection and managed worker",
-                SettingsMarkerTone::Danger,
-            ),
-            Some(crate::app::state::ConnectionRetirementState::InventoryPending) => (
-                "inventorying removal impact...",
-                SettingsMarkerTone::Disabled,
-            ),
-            Some(crate::app::state::ConnectionRetirementState::Review(_)) => (
-                "confirm stop managed work and remove connection",
-                SettingsMarkerTone::Danger,
-            ),
-            Some(crate::app::state::ConnectionRetirementState::Running(_)) => {
-                ("removing connection...", SettingsMarkerTone::Disabled)
+    rows
+}
+
+fn connection_detail_rows(
+    app: &AppState,
+    editor: &crate::app::state::ConnectionEditorState,
+) -> Vec<SettingsListRow> {
+    let Some(profile) = editor.profile_id().and_then(|profile_id| {
+        app.ssh_connection_profiles
+            .iter()
+            .find(|profile| profile.id() == profile_id)
+    }) else {
+        return vec![SettingsListRow::Caption(
+            "This connection profile no longer exists.".into(),
+        )];
+    };
+    let status = app.ssh_connection_status(profile);
+    let mut status_text = status.label().to_lowercase();
+    if let crate::execution_host::ConnectionStatus::Reconnecting { error } = &status {
+        status_text = format!("{status_text} · {error}");
+    }
+    let mut rows = vec![
+        SettingsListRow::Header("connection"),
+        SettingsListRow::Caption(format!("{} · {status_text}", profile.name()).into()),
+    ];
+    use crate::execution_host::ConnectionStatus;
+    let (toggle_label, toggle_tone) = match &status {
+        ConnectionStatus::Disconnected | ConnectionStatus::AuthenticationRequired => {
+            ("connect", SettingsMarkerTone::Good)
+        }
+        ConnectionStatus::Connecting
+        | ConnectionStatus::Connected
+        | ConnectionStatus::Reconnecting { .. } => ("disconnect", SettingsMarkerTone::Danger),
+        ConnectionStatus::Disconnecting => ("disconnect", SettingsMarkerTone::Disabled),
+    };
+    rows.push(SettingsListRow::Action {
+        index: ConnectionRowId::Action(ConnectionAction::Toggle).selection_index(),
+        icon: "".into(),
+        label: toggle_label.into(),
+        tone: toggle_tone,
+    });
+    rows.push(SettingsListRow::Action {
+        index: ConnectionRowId::Action(ConnectionAction::Test).selection_index(),
+        icon: "".into(),
+        label: "test connection".into(),
+        tone: SettingsMarkerTone::Accent,
+    });
+    rows.push(SettingsListRow::Action {
+        index: ConnectionRowId::Action(ConnectionAction::LaunchWorkspace).selection_index(),
+        icon: "".into(),
+        label: "open workspace".into(),
+        tone: if matches!(status, ConnectionStatus::Connected) {
+            SettingsMarkerTone::Good
+        } else {
+            SettingsMarkerTone::Disabled
+        },
+    });
+    rows.push(SettingsListRow::Spacer);
+    rows.push(SettingsListRow::Header("details"));
+    rows.push(SettingsListRow::Caption(
+        format!("SSH target  {}", profile.target()).into(),
+    ));
+    rows.push(SettingsListRow::Caption(
+        format!(
+            "Starting directory  {}",
+            profile
+                .suggested_directory()
+                .map_or("(not set)".to_string(), ToString::to_string)
+        )
+        .into(),
+    ));
+    rows.push(SettingsListRow::Action {
+        index: ConnectionRowId::Action(ConnectionAction::EditDetails).selection_index(),
+        icon: "".into(),
+        label: "edit details".into(),
+        tone: SettingsMarkerTone::Accent,
+    });
+    rows.push(SettingsListRow::Spacer);
+    rows.push(SettingsListRow::Header("execution worker"));
+    rows.push(SettingsListRow::Caption(
+        "Managed automatically when this connection is used.".into(),
+    ));
+    let tombstones = app.remote_termination_tombstones_for_profile(profile.id());
+    if !tombstones.is_empty() {
+        rows.push(SettingsListRow::Spacer);
+        rows.push(SettingsListRow::Header("pending cleanup"));
+        rows.push(SettingsListRow::Caption(
+            "The remote host has not acknowledged terminal shutdown.".into(),
+        ));
+        for (offset, tombstone) in tombstones.iter().enumerate() {
+            let confirming =
+                editor.pending_forget_remote_terminal.as_ref() == Some(&tombstone.terminal_id);
+            rows.push(SettingsListRow::Caption(
+                format!(
+                    "{} · {}",
+                    tombstone.terminal_id,
+                    tombstone.path.as_path().display()
+                )
+                .into(),
+            ));
+            if confirming {
+                rows.push(SettingsListRow::Caption(
+                    "Warning: the remote process may remain running.".into(),
+                ));
             }
-            Some(crate::app::state::ConnectionRetirementState::Failed(_)) => {
-                ("retry removal inventory", SettingsMarkerTone::Danger)
-            }
-            Some(crate::app::state::ConnectionRetirementState::LocalForgetReview { .. }) => {
-                ("retry full removal inventory", SettingsMarkerTone::Danger)
-            }
-            Some(crate::app::state::ConnectionRetirementState::LocalForgetRunning) => (
-                "forgetting local connection state...",
-                SettingsMarkerTone::Disabled,
-            ),
-        };
-        rows.push(SettingsListRow::Action {
-            index: ConnectionRowId::Action(ConnectionAction::Delete).selection_index(),
-            icon: "×".into(),
-            label: delete_label.into(),
-            tone: delete_tone,
-        });
-        rows.extend(connection_retirement_preview_rows(editor));
-        if matches!(
-            editor.connection_retirement,
-            Some(crate::app::state::ConnectionRetirementState::Failed(_))
-                | Some(crate::app::state::ConnectionRetirementState::LocalForgetReview { .. })
-        ) {
             rows.push(SettingsListRow::Action {
-                index: ConnectionRowId::Action(ConnectionAction::ForgetConnection)
+                index: ConnectionRowId::Action(ConnectionAction::ForgetTermination { offset })
                     .selection_index(),
                 icon: "×".into(),
-                label: if matches!(
-                    editor.connection_retirement,
-                    Some(crate::app::state::ConnectionRetirementState::LocalForgetReview { .. })
-                ) {
-                    "confirm forget local state without remote cleanup".into()
+                label: if confirming {
+                    "confirm forget without terminating".into()
                 } else {
-                    "review local-only forget".into()
+                    "forget without terminating".into()
                 },
                 tone: SettingsMarkerTone::Danger,
             });
         }
-        let profile = editor.profile_id().and_then(|profile_id| {
-            app.ssh_connection_profiles
-                .iter()
-                .find(|profile| profile.id() == profile_id)
-        });
-        if let Some(profile) = profile {
-            let status = app.ssh_connection_status(profile);
-            rows.push(SettingsListRow::Spacer);
-            rows.push(SettingsListRow::Header("5. connection"));
-            let mut status_text = status.label().to_lowercase();
-            if let crate::execution_host::ConnectionStatus::Reconnecting { error } = &status {
-                status_text = format!("{status_text} · {error}");
-            }
-            rows.push(SettingsListRow::Caption(
-                format!("current status: {status_text}").into(),
-            ));
-            rows.push(SettingsListRow::Action {
-                index: ConnectionRowId::Action(ConnectionAction::Test).selection_index(),
-                icon: "".into(),
-                label: "test connection".into(),
-                tone: SettingsMarkerTone::Accent,
-            });
-            use crate::execution_host::ConnectionStatus;
-            let (toggle_label, toggle_tone) = match &status {
-                ConnectionStatus::Disconnected | ConnectionStatus::AuthenticationRequired => {
-                    ("connect", SettingsMarkerTone::Good)
-                }
-                ConnectionStatus::Connecting
-                | ConnectionStatus::Connected
-                | ConnectionStatus::Reconnecting { .. } => {
-                    ("disconnect", SettingsMarkerTone::Danger)
-                }
-                ConnectionStatus::Disconnecting => ("disconnect", SettingsMarkerTone::Disabled),
-            };
-            rows.push(SettingsListRow::Action {
-                index: ConnectionRowId::Action(ConnectionAction::Toggle).selection_index(),
-                icon: "".into(),
-                label: toggle_label.into(),
-                tone: toggle_tone,
-            });
-            rows.push(SettingsListRow::Action {
-                index: ConnectionRowId::Action(ConnectionAction::LaunchWorkspace).selection_index(),
-                icon: "".into(),
-                label: "open workspace".into(),
-                tone: if matches!(status, ConnectionStatus::Connected) {
-                    SettingsMarkerTone::Good
-                } else {
-                    SettingsMarkerTone::Disabled
-                },
-            });
-            rows.push(SettingsListRow::Spacer);
-            rows.push(SettingsListRow::Header("6. execution worker"));
-            rows.push(SettingsListRow::Caption(
-                "managed automatically when this connection is used".into(),
-            ));
-            let tombstones = app.remote_termination_tombstones_for_profile(profile.id());
-            if !tombstones.is_empty() {
-                rows.push(SettingsListRow::Spacer);
-                rows.push(SettingsListRow::Header("6. pending cleanup"));
-                rows.push(SettingsListRow::Caption(
-                    "the remote host has not acknowledged terminal shutdown".into(),
-                ));
-                for (offset, tombstone) in tombstones.iter().enumerate() {
-                    let confirming = editor.pending_forget_remote_terminal.as_ref()
-                        == Some(&tombstone.terminal_id);
-                    rows.push(SettingsListRow::Caption(
-                        format!(
-                            "{} · {}",
-                            tombstone.terminal_id,
-                            tombstone.path.as_path().display()
-                        )
-                        .into(),
-                    ));
-                    if confirming {
-                        rows.push(SettingsListRow::Caption(
-                            "Warning: the remote process may remain running.".into(),
-                        ));
-                    }
-                    rows.push(SettingsListRow::Action {
-                        index: ConnectionRowId::Action(ConnectionAction::ForgetTermination {
-                            offset,
-                        })
-                        .selection_index(),
-                        icon: "×".into(),
-                        label: if confirming {
-                            "confirm forget without terminating".into()
-                        } else {
-                            "forget without terminating".into()
-                        },
-                        tone: SettingsMarkerTone::Danger,
-                    });
-                }
-            }
+    }
+    rows.push(SettingsListRow::Spacer);
+    rows.push(SettingsListRow::Header("danger zone"));
+    rows.push(SettingsListRow::Caption(
+        "Review affected sessions and managed workers before removal.".into(),
+    ));
+    let (delete_label, delete_tone) = match editor.connection_retirement.as_ref() {
+        None => ("remove connection", SettingsMarkerTone::Danger),
+        Some(crate::app::state::ConnectionRetirementState::InventoryPending) => (
+            "inventorying removal impact...",
+            SettingsMarkerTone::Disabled,
+        ),
+        Some(crate::app::state::ConnectionRetirementState::Review(_)) => (
+            "confirm stop managed work and remove connection",
+            SettingsMarkerTone::Danger,
+        ),
+        Some(crate::app::state::ConnectionRetirementState::Running(_)) => {
+            ("removing connection...", SettingsMarkerTone::Disabled)
         }
+        Some(crate::app::state::ConnectionRetirementState::Failed(_)) => {
+            ("retry removal inventory", SettingsMarkerTone::Danger)
+        }
+        Some(crate::app::state::ConnectionRetirementState::LocalForgetReview { .. }) => {
+            ("retry full removal inventory", SettingsMarkerTone::Danger)
+        }
+        Some(crate::app::state::ConnectionRetirementState::LocalForgetRunning) => (
+            "forgetting local connection state...",
+            SettingsMarkerTone::Disabled,
+        ),
+    };
+    rows.push(SettingsListRow::Action {
+        index: ConnectionRowId::Action(ConnectionAction::Delete).selection_index(),
+        icon: "×".into(),
+        label: delete_label.into(),
+        tone: delete_tone,
+    });
+    rows.extend(connection_retirement_preview_rows(editor));
+    if matches!(
+        editor.connection_retirement,
+        Some(crate::app::state::ConnectionRetirementState::Failed(_))
+            | Some(crate::app::state::ConnectionRetirementState::LocalForgetReview { .. })
+    ) {
+        rows.push(SettingsListRow::Action {
+            index: ConnectionRowId::Action(ConnectionAction::ForgetConnection).selection_index(),
+            icon: "×".into(),
+            label: if matches!(
+                editor.connection_retirement,
+                Some(crate::app::state::ConnectionRetirementState::LocalForgetReview { .. })
+            ) {
+                "confirm forget local state without remote cleanup".into()
+            } else {
+                "review local-only forget".into()
+            },
+            tone: SettingsMarkerTone::Danger,
+        });
     }
     rows
 }
@@ -1840,7 +1869,7 @@ mod tests {
 
     #[test]
     fn connection_retirement_preview_discloses_scope_before_confirmation() {
-        let mut editor = crate::app::state::ConnectionEditorState::edit_profile(
+        let mut editor = crate::app::state::ConnectionEditorState::detail_profile(
             "robotbox", "Robotbox", "robotbox", "",
         );
         editor.connection_retirement = Some(crate::app::state::ConnectionRetirementState::Review(
