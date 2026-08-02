@@ -819,6 +819,12 @@ impl GhosttyPaneTerminal {
                 foreground_unowned,
                 background_unowned,
             );
+            let ansi_palette = effective_theme
+                .palette
+                .map(|color| color.map(host_theme_color_to_ghostty));
+            if let Err(err) = core.terminal.update_default_ansi_palette(ansi_palette) {
+                error!(%err, "failed to apply host terminal ANSI palette");
+            }
         }
     }
 
@@ -3556,6 +3562,95 @@ mod tests {
         assert_eq!(
             result.terminal_responses,
             vec![expected_osc_rgb_response("4;0", color)]
+        );
+        assert!(rx.try_recv().is_err());
+    }
+
+    #[test]
+    fn host_palette_is_returned_to_child_queries() {
+        let (tx, mut rx) = mpsc::channel(4);
+        let terminal = crate::ghostty::Terminal::new(80, 24, 0).unwrap();
+        let pane = GhosttyPaneTerminal::new(terminal, tx.clone()).unwrap();
+        pane.apply_host_terminal_theme(
+            crate::terminal_theme::TerminalTheme::default().with_palette_color(
+                0,
+                crate::terminal_theme::RgbColor {
+                    r: 0x12,
+                    g: 0x34,
+                    b: 0x56,
+                },
+            ),
+        );
+
+        let result = pane.process_pty_bytes(PaneId::from_raw(1), 0, b"\x1b]4;0;?\x07", &tx);
+
+        assert_eq!(
+            result.terminal_responses,
+            vec![Bytes::from_static(b"\x1b]4;0;rgb:1212/3434/5656\x1b\\")]
+        );
+        assert!(rx.try_recv().is_err());
+    }
+
+    #[test]
+    fn host_palette_refresh_preserves_child_overrides_until_reset() {
+        let (tx, mut rx) = mpsc::channel(4);
+        let terminal = crate::ghostty::Terminal::new(80, 24, 0).unwrap();
+        let pane = GhosttyPaneTerminal::new(terminal, tx.clone()).unwrap();
+        let pane_id = PaneId::from_raw(1);
+        let initial_host = crate::terminal_theme::TerminalTheme::default()
+            .with_palette_color(
+                0,
+                crate::terminal_theme::RgbColor {
+                    r: 0x12,
+                    g: 0x34,
+                    b: 0x56,
+                },
+            )
+            .with_palette_color(
+                1,
+                crate::terminal_theme::RgbColor {
+                    r: 0x22,
+                    g: 0x44,
+                    b: 0x66,
+                },
+            );
+        pane.apply_host_terminal_theme(initial_host);
+        pane.process_pty_bytes(pane_id, 0, b"\x1b]4;0;rgb:aa/bb/cc\x07", &tx);
+        let refreshed_host = initial_host
+            .with_palette_color(
+                0,
+                crate::terminal_theme::RgbColor {
+                    r: 0x65,
+                    g: 0x43,
+                    b: 0x21,
+                },
+            )
+            .with_palette_color(
+                1,
+                crate::terminal_theme::RgbColor {
+                    r: 0x11,
+                    g: 0x22,
+                    b: 0x33,
+                },
+            );
+        pane.apply_host_terminal_theme(refreshed_host);
+
+        let child_override = pane.process_pty_bytes(pane_id, 0, b"\x1b]4;0;?\x07", &tx);
+        let refreshed_default = pane.process_pty_bytes(pane_id, 0, b"\x1b]4;1;?\x07", &tx);
+
+        assert_eq!(
+            child_override.terminal_responses,
+            vec![Bytes::from_static(b"\x1b]4;0;rgb:aaaa/bbbb/cccc\x1b\\")]
+        );
+        assert_eq!(
+            refreshed_default.terminal_responses,
+            vec![Bytes::from_static(b"\x1b]4;1;rgb:1111/2222/3333\x1b\\")]
+        );
+        pane.process_pty_bytes(pane_id, 0, b"\x1b]104;0\x07", &tx);
+        let reset_to_refreshed_default = pane.process_pty_bytes(pane_id, 0, b"\x1b]4;0;?\x07", &tx);
+        assert_eq!(
+            reset_to_refreshed_default.terminal_responses,
+            vec![Bytes::from_static(b"\x1b]4;0;rgb:6565/4343/2121\x1b\\")]
         );
         assert!(rx.try_recv().is_err());
     }

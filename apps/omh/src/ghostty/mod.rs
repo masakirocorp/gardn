@@ -599,6 +599,40 @@ impl Terminal {
         }
     }
 
+    pub fn update_default_ansi_palette(
+        &mut self,
+        ansi_palette: [Option<RgbColor>; 16],
+    ) -> Result<(), Error> {
+        let mut palette = [ffi::GhosttyColorRgb::default(); 256];
+        // SAFETY: palette has exactly the 256 entries required by this data query.
+        unsafe {
+            ffi::ghostty_terminal_get(
+                self.raw,
+                ffi::GhosttyTerminalData_GHOSTTY_TERMINAL_DATA_COLOR_PALETTE_DEFAULT,
+                palette.as_mut_ptr().cast(),
+            )
+            .into_result()?;
+        }
+        for (target, color) in palette.iter_mut().zip(ansi_palette).take(16) {
+            if let Some(color) = color {
+                *target = ffi::GhosttyColorRgb {
+                    r: color.r,
+                    g: color.g,
+                    b: color.b,
+                };
+            }
+        }
+        // SAFETY: palette remains alive for the call and contains exactly 256 entries.
+        unsafe {
+            ffi::ghostty_terminal_set(
+                self.raw,
+                ffi::GhosttyTerminalOption_GHOSTTY_TERMINAL_OPT_COLOR_PALETTE,
+                palette.as_ptr().cast(),
+            )
+            .into_result()
+        }
+    }
+
     pub fn resize(
         &mut self,
         cols: u16,
