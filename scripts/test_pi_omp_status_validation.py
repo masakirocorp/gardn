@@ -19,16 +19,49 @@ class PiOmpStatusTestValidationTests(unittest.TestCase):
             output,
         )
 
-    def test_openrouter_free_active_model_is_passed_to_agents_unchanged(self):
+    def test_canonical_openrouter_model_is_rendered_once_for_agents(self):
         result = self.run_test_with_subagent_session_variant(
             "child",
-            active_model="openrouter/openrouter/free",
+            active_model="openrouter/free",
         )
 
         output = result.stdout + result.stderr
         self.assertEqual(result.returncode, 0, output)
         self.assertIn(
             "pi/omp status test ok: real cli reports session root identity",
+            output,
+        )
+
+    def test_nonzero_provider_failure_requests_the_next_candidate(self):
+        result = self.run_test_with_subagent_session_variant(
+            "child",
+            provider_failure="nonzero",
+        )
+
+        output = result.stdout + result.stderr
+        self.assertEqual(result.returncode, 75, output)
+        self.assertIn("retryable pi/OpenRouter provider failure", output)
+
+    def test_zero_exit_provider_failure_without_completion_requests_next_candidate(self):
+        result = self.run_test_with_subagent_session_variant(
+            "child",
+            provider_failure="zero_exit",
+        )
+
+        output = result.stdout + result.stderr
+        self.assertEqual(result.returncode, 75, output)
+        self.assertIn("retryable pi/OpenRouter provider failure", output)
+
+    def test_completion_marker_wins_over_provider_text(self):
+        result = self.run_test_with_subagent_session_variant(
+            "child",
+            provider_failure="with_marker",
+        )
+
+        output = result.stdout + result.stderr
+        self.assertEqual(result.returncode, 0, output)
+        self.assertIn(
+            "pi status test ok: real cli reports session root identity",
             output,
         )
 
@@ -40,7 +73,9 @@ class PiOmpStatusTestValidationTests(unittest.TestCase):
         self.assertIn("expected one session identity", output)
         self.assertIn("other.jsonl", output)
 
-    def run_test_with_subagent_session_variant(self, variant, active_model="test-model"):
+    def run_test_with_subagent_session_variant(
+        self, variant, active_model="test/model", provider_failure=None
+    ):
         repo_root = Path(__file__).resolve().parents[1]
         source_script = repo_root / "ci" / "agent-tests" / "pi-omp-status-test.sh"
 
@@ -54,7 +89,13 @@ class PiOmpStatusTestValidationTests(unittest.TestCase):
             test_dir.mkdir()
 
             models_stub = lib_dir / "omh-agent-test-models.sh"
-            models_stub.write_text("# test stub: OMH_TEST_ACTIVE_MODEL bypasses fallback lookup\n")
+            models_stub.write_text(
+                "OMH_TEST_DEFAULT_MODEL=openrouter/free\n"
+                "omh_test_provider_model() { printf 'openrouter/%s\\n' \"$1\"; }\n"
+                "omh_test_configure_model() { :; }\n"
+                "omh_test_retryable_output() { grep -Eq '429|no endpoint' \"$1\"; }\n"
+                "omh_test_retryable_status_or_output() { [[ \"$1\" -ne 0 ]] && omh_test_retryable_output \"$2\"; }\n"
+            )
 
             script_copy = bin_dir / "omh-agent-tests-pi-omp-status"
             script_text = source_script.read_text()
@@ -121,6 +162,9 @@ class PiOmpStatusTestValidationTests(unittest.TestCase):
                         file=sys.stderr,
                     )
                     sys.exit(65)
+                if os.environ.get("OMH_TEST_PROVIDER_FAILURE") == "nonzero":
+                    print("OpenRouter provider error: HTTP 429 no endpoint available", file=sys.stderr)
+                    sys.exit(1)
                 if agent == "pi" and "--auto-approve" in sys.argv:
                     print(f"pi received OMP-only --auto-approve in {sys.argv!r}", file=sys.stderr)
                     sys.exit(65)
@@ -198,7 +242,10 @@ class PiOmpStatusTestValidationTests(unittest.TestCase):
                 )
 
                 marker_suffix = "SUBAGENT_OK" if scenario == "subagent" else "STATUS_OK"
-                print(f"OMH_{agent.upper()}_{marker_suffix}")
+                if os.environ.get("OMH_TEST_PROVIDER_FAILURE") in {"zero_exit", "with_marker"}:
+                    print("OpenRouter provider error: HTTP 429 no endpoint available", file=sys.stderr)
+                if os.environ.get("OMH_TEST_PROVIDER_FAILURE") != "zero_exit":
+                    print(f"OMH_{agent.upper()}_{marker_suffix}")
                 sys.stdout.flush()
                 expected_exit = b"/exit\\x1b[13u" if agent == "omp" else b"/quit\\x1b[13u"
                 received = b""
@@ -237,10 +284,12 @@ class PiOmpStatusTestValidationTests(unittest.TestCase):
                 "OMH_REPO_DIR": str(repo_root),
                 "OMH_PI_OMP_STATUS_DIR": str(test_dir),
                 "OMH_PI_OMP_STATUS_TIMEOUT": "5",
+                "OMH_PI_OMP_STATUS_TARGET": "pi" if provider_failure else "all",
                 "OMH_TEST_ACTIVE_MODEL": active_model,
                 "OMH_TEST_SESSION_ROOT": str(tmp_path / "run" / "agent"),
                 "OMH_TEST_SUBAGENT_SESSION_VARIANT": variant,
-                "OMH_EXPECTED_ACTIVE_MODEL": active_model,
+                "OMH_TEST_PROVIDER_FAILURE": provider_failure or "",
+                "OMH_EXPECTED_ACTIVE_MODEL": f"openrouter/{active_model}",
             }
 
             return subprocess.run(

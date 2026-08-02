@@ -1,16 +1,17 @@
 #!/usr/bin/env bash
 set -euo pipefail
 source /usr/local/lib/omh-agent-test-models.sh
-primary_model="${OMH_TEST_MODEL:-poolside/laguna-m.1:free}"
+primary_model="${OMH_TEST_MODEL:-$OMH_TEST_DEFAULT_MODEL}"
 if [[ -z "${OMH_TEST_ACTIVE_MODEL:-}" ]]; then
   omh_test_unique_candidates "$primary_model" "${OMH_TEST_FALLBACK_MODELS:-}" \
-    | omh_test_openrouter_api_candidates \
+    | omh_test_available_candidates \
     | omh_test_non_anthropic_candidates \
-    | omh_test_run_with_fallbacks "$0" OMH_TEST_MODEL "$@"
+    | omh_test_run_with_fallbacks "$0" "$@"
   exit $?
 fi
 
 model="$OMH_TEST_ACTIVE_MODEL"
+omh_test_configure_model "$model"
 repo_dir="${OMH_REPO_DIR:-/repo}"
 hook_path="$repo_dir/apps/omh/src/integration/assets/claude/omh-agent-state.sh"
 workdir="${OMH_CLAUDE_STATUS_TEST_DIR:-$(mktemp -d)}"
@@ -271,7 +272,7 @@ def assert_output_contains(run_dir, marker):
     output = (workdir / run_dir / "output.jsonl").read_text(errors="replace")
     if marker not in output:
         print(f"{run_dir}: missing output marker {marker}", file=sys.stderr)
-        raise SystemExit(75)
+        raise SystemExit(1)
 
 
 for pane in (

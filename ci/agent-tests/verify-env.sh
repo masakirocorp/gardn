@@ -15,6 +15,8 @@ required_env=(
   COPILOT_PROVIDER_BASE_URL
   COPILOT_MODEL
   CODEX_HOME
+  FACTORY_HOME
+  KIMI_CODE_HOME
   OMH_TEST_MODEL
   OMH_TEST_FALLBACK_MODELS
   OPENCODE_AUTH_CONTENT
@@ -28,18 +30,20 @@ for key in "${required_env[@]}"; do
 done
 
 test -f "$CODEX_HOME/config.toml"
-test -f "$HOME/.factory/settings.json"
+test -f "$FACTORY_HOME/settings.json"
+test -f "$KIMI_CODE_HOME/config.toml"
 test -f "$HOME/.hermes/config.yaml"
 test -f "$HOME/.qoder/settings.json"
 
-grep -q 'poolside/laguna-m.1:free' "$CODEX_HOME/config.toml"
+grep -Fq "$OMH_TEST_MODEL" "$CODEX_HOME/config.toml"
 grep -q 'model_provider = "openrouter"' "$CODEX_HOME/config.toml"
 grep -q 'env_key = "OPENROUTER_API_KEY"' "$CODEX_HOME/config.toml"
 grep -q 'https://openrouter.ai/api/v1' "$CODEX_HOME/config.toml"
-grep -q 'poolside/laguna-m.1:free' "$HOME/.factory/settings.json"
-grep -q 'generic-chat-completion-api' "$HOME/.factory/settings.json"
+grep -Fq "$OMH_TEST_MODEL" "$FACTORY_HOME/settings.json"
+grep -q 'generic-chat-completion-api' "$FACTORY_HOME/settings.json"
 grep -q 'provider: openrouter' "$HOME/.hermes/config.yaml"
-grep -q "default: \"poolside/laguna-m.1:free\"" "$HOME/.hermes/config.yaml"
+grep -Fq "$OMH_TEST_MODEL" "$HOME/.hermes/config.yaml"
+grep -Fq "$OMH_TEST_MODEL" "$KIMI_CODE_HOME/config.toml"
 grep -q 'openrouter' <<<"$OPENCODE_AUTH_CONTENT"
 
 if [[ "$(id -un)" != "agenttest" ]]; then

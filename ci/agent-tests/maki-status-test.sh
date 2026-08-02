@@ -92,12 +92,12 @@ if [[ ! -f "$test_model_lib" ]]; then
 fi
 source "$test_model_lib"
 
-primary_model="${OMH_TEST_MODEL:-poolside/laguna-m.1:free}"
+primary_model="${OMH_TEST_MODEL:-$OMH_TEST_DEFAULT_MODEL}"
 if [[ -z "${OMH_TEST_ACTIVE_MODEL:-}" ]]; then
   omh_test_unique_candidates "$primary_model" "${OMH_TEST_FALLBACK_MODELS:-}" \
-    | omh_test_openrouter_prefixed_candidates \
+    | omh_test_available_candidates \
     | omh_test_non_openai_candidates \
-    | omh_test_run_with_fallbacks "$0" OMH_TEST_MODEL "$@"
+    | omh_test_run_with_fallbacks "$0" "$@"
   exit $?
 fi
 
@@ -106,10 +106,8 @@ if [[ -z "${OPENROUTER_API_KEY:-}" ]]; then
   exit 1
 fi
 model="$OMH_TEST_ACTIVE_MODEL"
-case "$model" in
-  openrouter/*) model_spec="$model" ;;
-  *) model_spec="openrouter/$model" ;;
-esac
+model_spec="$(omh_test_provider_model "$model")"
+omh_test_configure_model "$model"
 workdir="${OMH_MAKI_STATUS_TEST_DIR:-$(mktemp -d)}"
 output="$workdir/maki-screen.txt"
 mkdir -p "$workdir"
@@ -230,5 +228,9 @@ status=$?
 set -e
 if [[ "$status" -ne 0 ]]; then
   sed -n '1,240p' "$output" >&2 || true
+  if omh_test_retryable_status_or_output "$status" "$output"; then
+    echo "retryable Maki/OpenRouter provider failure with $model" >&2
+    exit 75
+  fi
   exit "$status"
 fi

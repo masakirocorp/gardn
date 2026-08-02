@@ -24,11 +24,11 @@ class QoderProxyStatusTestValidationTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, output)
         self.assertIn("qoder proxy inference URL matching test ok", output)
 
-    def test_forbidden_pricing_response_is_retryable_status_acceptance_failure(self):
+    def test_forbidden_pricing_response_is_a_hard_acceptance_failure(self):
         result = self.run_test_with_fake_qodercli("entitlement_forbidden")
 
         output = result.stdout + result.stderr
-        self.assertEqual(result.returncode, 75, output)
+        self.assertEqual(result.returncode, 1, output)
         self.assertIn("qoder proxy test did not return expected marker", output)
         self.assertIn("Qoder API error: FORBIDDEN", output)
         self.assertIn("pricingUrl", output)
@@ -38,7 +38,7 @@ class QoderProxyStatusTestValidationTests(unittest.TestCase):
         result = self.run_test_with_fake_qodercli("missing_marker")
 
         output = result.stdout + result.stderr
-        self.assertEqual(result.returncode, 75, output)
+        self.assertEqual(result.returncode, 1, output)
         self.assertIn("qoder proxy test did not return expected marker", output)
         self.assertIn("ordinary qoder output without expected marker", output)
 
@@ -72,7 +72,10 @@ class QoderProxyStatusTestValidationTests(unittest.TestCase):
             hook_dir.mkdir(parents=True)
 
             models_stub = lib_dir / "omh-agent-test-models.sh"
-            models_stub.write_text("# test stub: OMH_TEST_ACTIVE_MODEL bypasses fallback lookup\n")
+            models_stub.write_text(
+                "OMH_TEST_DEFAULT_MODEL=openrouter/free\n"
+                "omh_test_configure_model() { :; }\n"
+            )
 
             script_copy = bin_dir / "omh-agent-tests-qoder-proxy-status"
             script_text = source_script.read_text()

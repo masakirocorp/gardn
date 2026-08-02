@@ -152,6 +152,9 @@
         "scripts.test_extract_release_notes",
         "scripts.test_check_tegami_release_scope",
         "scripts.test_codex_status_fallback",
+        "scripts.test_agent_cohort_resolve",
+        "scripts.test_agent_image_doctor",
+        "scripts.test_maki_status_fallback",
         "scripts.test_opencode_status_fallback",
         "scripts.test_pi_omp_status_validation",
         "scripts.test_qoder_proxy_status_validation",
@@ -161,6 +164,7 @@
         "scripts.test_agent_workflows"
       ],
       "inputs": [
+        ".github/workflows/agent-tests.yml",
         ".github/workflows/live-agent-tests.yml",
         "Cargo.lock",
         "Cargo.toml",

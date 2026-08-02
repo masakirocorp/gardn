@@ -16,15 +16,11 @@ on:
       model:
         description: Optional OpenRouter model slug.
         type: string
-        default: poolside/laguna-m.1:free
+        default: openrouter/free
       fallback_models:
-        description: Optional comma-separated fallback OpenRouter model slugs.
+        description: Optional comma-separated canonical OpenRouter model IDs.
         type: string
-        default: openrouter/free,openai/gpt-oss-120b:free,nvidia/nemotron-3-super-120b-a12b:free,openrouter/owl-alpha
-      opencode_model:
-        description: Optional OpenCode model id.
-        type: string
-        default: openrouter/openrouter/free
+        default: nvidia/nemotron-3-super-120b-a12b:free
       target:
         description: Agent to run, or all agents.
         type: choice
@@ -57,9 +53,8 @@ concurrency:
 
 env:
   IMAGE: ghcr.io/${{ github.repository_owner }}/omh-agent-tests
-  OMH_TEST_MODEL: ${{ inputs.model || 'poolside/laguna-m.1:free' }}
-  OMH_TEST_FALLBACK_MODELS: ${{ inputs.fallback_models || 'openrouter/free,openai/gpt-oss-120b:free,nvidia/nemotron-3-super-120b-a12b:free,openrouter/owl-alpha' }}
-  OMH_OPENCODE_TEST_MODEL: ${{ inputs.opencode_model || 'openrouter/openrouter/free' }}
+  OMH_TEST_MODEL: ${{ inputs.model || 'openrouter/free' }}
+  OMH_TEST_FALLBACK_MODELS: ${{ inputs.fallback_models || 'nvidia/nemotron-3-super-120b-a12b:free' }}
 
 jobs:
   plan:
@@ -83,30 +78,125 @@ jobs:
     name: build and publish agent test image
     runs-on: ubuntu-latest
     timeout-minutes: 120
+    outputs:
+      image_ref: ${{ steps.digest.outputs.image_ref }}
+      image_tag: ${{ steps.meta.outputs.image_tag }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
         with:
           persist-credentials: false
 
+      - name: Derive run-unique image tag
+        id: meta
+        env:
+          IMAGE_NAME: ${{ env.IMAGE }}
+        run: |
+          tag="${GITHUB_SHA}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          echo "image_tag=${tag}" >> "$GITHUB_OUTPUT"
+          echo "image_ref=${IMAGE_NAME}:${tag}" >> "$GITHUB_OUTPUT"
+
+      - name: Resolve current agent CLI cohort
+        id: cohort
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_TOKEN: ${{ github.token }}
+          SOURCE_REVISION: ${{ github.sha }}
+          BUILD_RUN_ID: ${{ github.run_id }}
+          BUILD_RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          cohort_path="$RUNNER_TEMP/cohort.json"
+          node ci/agent-tests/resolve-versions.mjs > "$cohort_path"
+          cp "$cohort_path" ci/agent-tests/cohort.json
+          {
+            echo "CLAUDE_CODE_VERSION=$(jq -r '.build_args.CLAUDE_CODE_VERSION' "$cohort_path")"
+            echo "CODEX_VERSION=$(jq -r '.build_args.CODEX_VERSION' "$cohort_path")"
+            echo "OPENCODE_VERSION=$(jq -r '.build_args.OPENCODE_VERSION' "$cohort_path")"
+            echo "COPILOT_VERSION=$(jq -r '.build_args.COPILOT_VERSION' "$cohort_path")"
+            echo "HERMES_VERSION=$(jq -r '.build_args.HERMES_VERSION' "$cohort_path")"
+            echo "DROID_VERSION=$(jq -r '.build_args.DROID_VERSION' "$cohort_path")"
+            echo "PI_VERSION=$(jq -r '.build_args.PI_VERSION' "$cohort_path")"
+            echo "KIMI_VERSION=$(jq -r '.build_args.KIMI_VERSION' "$cohort_path")"
+            echo "MAKI_VERSION=$(jq -r '.build_args.MAKI_VERSION' "$cohort_path")"
+            echo "OMP_REF=$(jq -r '.build_args.OMP_REF' "$cohort_path")"
+          } >> "$GITHUB_OUTPUT"
+          if jq -e '.. | strings | select(test("^latest$"))' "$cohort_path" >/dev/null; then
+            echo "resolved cohort still contains latest" >&2
+            cat "$cohort_path" >&2
+            exit 1
+          fi
+
       - name: Build image
-        run: docker build -t "$IMAGE:${{ github.sha }}" ci/agent-tests
+        env:
+          IMAGE_REF: ${{ steps.meta.outputs.image_ref }}
+          CLAUDE_CODE_VERSION: ${{ steps.cohort.outputs.CLAUDE_CODE_VERSION }}
+          CODEX_VERSION: ${{ steps.cohort.outputs.CODEX_VERSION }}
+          OPENCODE_VERSION: ${{ steps.cohort.outputs.OPENCODE_VERSION }}
+          COPILOT_VERSION: ${{ steps.cohort.outputs.COPILOT_VERSION }}
+          HERMES_VERSION: ${{ steps.cohort.outputs.HERMES_VERSION }}
+          DROID_VERSION: ${{ steps.cohort.outputs.DROID_VERSION }}
+          PI_VERSION: ${{ steps.cohort.outputs.PI_VERSION }}
+          KIMI_VERSION: ${{ steps.cohort.outputs.KIMI_VERSION }}
+          MAKI_VERSION: ${{ steps.cohort.outputs.MAKI_VERSION }}
+          OMP_REF: ${{ steps.cohort.outputs.OMP_REF }}
+        run: |
+          set -euo pipefail
+          docker build \
+            --build-arg "CLAUDE_CODE_VERSION=${CLAUDE_CODE_VERSION}" \
+            --build-arg "CODEX_VERSION=${CODEX_VERSION}" \
+            --build-arg "OPENCODE_VERSION=${OPENCODE_VERSION}" \
+            --build-arg "COPILOT_VERSION=${COPILOT_VERSION}" \
+            --build-arg "HERMES_VERSION=${HERMES_VERSION}" \
+            --build-arg "DROID_VERSION=${DROID_VERSION}" \
+            --build-arg "PI_VERSION=${PI_VERSION}" \
+            --build-arg "KIMI_VERSION=${KIMI_VERSION}" \
+            --build-arg "MAKI_VERSION=${MAKI_VERSION}" \
+            --build-arg "OMP_REF=${OMP_REF}" \
+            -t "$IMAGE_REF" \
+            ci/agent-tests
 
       - name: Check installed CLIs
-        run: docker run --rm "$IMAGE:${{ github.sha }}"
+        env:
+          IMAGE_REF: ${{ steps.meta.outputs.image_ref }}
+        run: docker run --rm "$IMAGE_REF"
 
       - name: Check provider env wiring
+        env:
+          IMAGE_REF: ${{ steps.meta.outputs.image_ref }}
         run: >-
           docker run --rm
           -e OPENROUTER_API_KEY=sk-omh-agent-test
-          "$IMAGE:${{ github.sha }}"
+          "$IMAGE_REF"
           omh-agent-tests-env omh-agent-tests-verify-env
 
       - name: Log in to GHCR
         run: echo "${{ github.token }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
 
       - name: Publish image
-        run: docker push "$IMAGE:${{ github.sha }}"
+        env:
+          IMAGE_REF: ${{ steps.meta.outputs.image_ref }}
+        run: docker push "$IMAGE_REF"
+
+      - name: Resolve published image digest
+        id: digest
+        env:
+          IMAGE_NAME: ${{ env.IMAGE }}
+          IMAGE_REF: ${{ steps.meta.outputs.image_ref }}
+        run: |
+          set -euo pipefail
+          docker pull "$IMAGE_REF"
+          image_ref="$(docker image inspect --format '{{index .RepoDigests 0}}' "$IMAGE_REF")"
+          case "$image_ref" in
+            "${IMAGE_NAME}@sha256:"*)
+              ;;
+            *)
+              echo "unexpected image digest reference: $image_ref" >&2
+              exit 1
+              ;;
+          esac
+          echo "image_ref=${image_ref}" >> "$GITHUB_OUTPUT"
+          echo "Published immutable image: ${image_ref}"
 
   test:
     name: ${{ matrix.target == 'devin' && 'Devin hook status test' || matrix.target == 'pi' && 'Pi integration status test' || format('{0} live status test', matrix.target) }}
@@ -118,17 +208,31 @@ jobs:
       max-parallel: 1
       matrix:
         target: ${{ fromJSON(needs.plan.outputs.targets) }}
+    env:
+      IMAGE_REF: ${{ needs.image.outputs.image_ref }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
         with:
           persist-credentials: false
 
+      - name: Require immutable image digest
+        run: |
+          set -euo pipefail
+          case "$IMAGE_REF" in
+            *@sha256:*)
+              ;;
+            *)
+              echo "test jobs must consume an immutable digest reference, got: ${IMAGE_REF:-}" >&2
+              exit 1
+              ;;
+          esac
+
       - name: Log in to GHCR
         run: echo "${{ github.token }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
 
       - name: Pull image
-        run: docker pull "$IMAGE:${{ github.sha }}"
+        run: docker pull "$IMAGE_REF"
 
       - name: Run ${{ matrix.target == 'devin' && 'Devin hook status test' || matrix.target == 'pi' && 'Pi integration status test' || format('{0} live status test', matrix.target) }}
         env:
@@ -141,7 +245,6 @@ jobs:
             -e OPENROUTER_API_KEY
             -e OMH_TEST_MODEL
             -e OMH_TEST_FALLBACK_MODELS
-            -e OMH_OPENCODE_TEST_MODEL
             -v "${{ github.workspace }}:/repo:ro"
           )
           case "$TARGET" in
@@ -165,7 +268,7 @@ jobs:
               )
               ;;
           esac
-          docker run "${args[@]}" "$IMAGE:${{ github.sha }}" \
+          docker run "${args[@]}" "$IMAGE_REF" \
             omh-agent-tests-env omh-agent-tests-target "$TARGET"
 
       - name: Cool down provider quota

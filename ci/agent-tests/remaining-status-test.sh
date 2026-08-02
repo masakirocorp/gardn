@@ -23,16 +23,19 @@ elif [[ "$seam_only" != "1" && "$needs_model" == "1" ]]; then
   echo "remaining status test needs $test_model_lib" >&2
   exit 1
 fi
-primary_model="${OMH_TEST_MODEL:-poolside/laguna-m.1:free}"
+primary_model="${OMH_TEST_MODEL:-${OMH_TEST_DEFAULT_MODEL:-openrouter/free}}"
 if [[ -z "${OMH_TEST_ACTIVE_MODEL:-}" && "$seam_only" != "1" && "$needs_model" == "1" ]]; then
   omh_test_unique_candidates "$primary_model" "${OMH_TEST_FALLBACK_MODELS:-}" \
-    | omh_test_openrouter_api_candidates \
+    | omh_test_available_candidates \
     | omh_test_non_openai_candidates \
-    | omh_test_run_with_fallbacks "$0" OMH_TEST_MODEL "$@"
+    | omh_test_run_with_fallbacks "$0" "$@"
   exit $?
 fi
 
 model="${OMH_TEST_ACTIVE_MODEL:-$primary_model}"
+if [[ "$seam_only" != "1" && "$needs_model" == "1" ]]; then
+  omh_test_configure_model "$model"
+fi
 repo_dir="${OMH_REPO_DIR:-/repo}"
 workdir="${OMH_REMAINING_STATUS_TEST_DIR:-$(mktemp -d)}"
 socket_path="$workdir/omh.sock"

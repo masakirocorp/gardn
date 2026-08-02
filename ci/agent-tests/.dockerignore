@@ -1,5 +1,6 @@
 **
 !Dockerfile
+!cohort.json
 !doctor.sh
 !test-env.sh
 !test-models.sh

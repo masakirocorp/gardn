@@ -54,17 +54,21 @@ def run_opencode_status_test(primary_model: str, fallback_model: str):
             args = sys.argv[1:]
             model = args[args.index("--model") + 1]
             title = args[args.index("--title") + 1]
+            if title == "omh-opencode-status-working-idle":
+                with open({str(attempts_log)!r}, "a", encoding="utf-8") as attempts:
+                    attempts.write(model + "\\n")
+            if model == "openrouter/vendor/provider-down":
+                print("OpenRouter provider error: HTTP 429 no endpoint available", file=sys.stderr)
+                raise SystemExit(1)
+
             scenarios = {{
                 "omh-opencode-status-working-idle": ("pane-opencode-allowed", ["working"]),
                 "omh-opencode-status-blocked": ("pane-opencode-blocked", ["working", "blocked"]),
                 "omh-opencode-status-subagent": ("pane-opencode-subagent", ["working"]),
             }}
             pane_id, states = scenarios[title]
-            if pane_id == "pane-opencode-allowed":
-                with open({str(attempts_log)!r}, "a", encoding="utf-8") as attempts:
-                    attempts.write(model + "\\n")
 
-            source = "wrong:source" if model == "openrouter/omh-broken" else "omh:opencode"
+            source = "wrong:source" if model == "openrouter/vendor/omh-broken" else "omh:opencode"
             session_id = f"{{model}}-{{pane_id}}"
             requests = [{{
                 "id": 1,
@@ -96,7 +100,7 @@ def run_opencode_status_test(primary_model: str, fallback_model: str):
 
             if pane_id == "pane-opencode-allowed":
                 print("OMH_OPENCODE_STATUS_WORKING")
-                if model != "openrouter/noncompliant":
+                if model != "openrouter/vendor/noncompliant":
                     print("OMH_OPENCODE_STATUS_IDLE")
             elif pane_id == "pane-opencode-subagent":
                 print("OMH_OPENCODE_SUBAGENT_OK")
@@ -114,8 +118,11 @@ def run_opencode_status_test(primary_model: str, fallback_model: str):
         "OMH_REPO_DIR": str(repo_root),
         "TMPDIR": str(tmp_path),
         "OMH_OPENCODE_STATUS_TEST_TIMEOUT": "5",
-        "OMH_OPENCODE_TEST_MODEL": primary_model,
+        "HOME": str(tmp_path / "home"),
+        "OPENROUTER_API_KEY": "sk-test",
+        "OMH_TEST_MODEL": primary_model,
         "OMH_TEST_FALLBACK_MODELS": fallback_model,
+        "OMH_TEST_SKIP_MODEL_PREFLIGHT": "1",
     }
     result = subprocess.run(
         [str(script_copy)],
@@ -131,30 +138,43 @@ def run_opencode_status_test(primary_model: str, fallback_model: str):
 
 
 class OpenCodeStatusTestFallbackTests(unittest.TestCase):
-    def test_retries_another_free_model_when_the_first_omits_completion_marker(self):
+    def test_retries_after_an_explicit_provider_failure(self):
         temp_dir, result, attempts = run_opencode_status_test(
-            "openrouter/noncompliant", "openrouter/ok"
+            "vendor/provider-down", "vendor/ok"
         )
         self.addCleanup(temp_dir.cleanup)
 
         output = result.stdout + result.stderr
         self.assertEqual(result.returncode, 0, output)
-        self.assertEqual(attempts, ["openrouter/noncompliant", "openrouter/ok"], output)
-        self.assertIn(
-            "retrying after provider/model failure: openrouter/noncompliant", output
+        self.assertEqual(
+            attempts,
+            ["openrouter/vendor/provider-down", "openrouter/vendor/ok"],
+            output,
         )
+        self.assertIn("retrying after provider/model failure: vendor/provider-down", output)
         self.assertIn("opencode status test ok:", output)
 
-    def test_does_not_retry_omh_status_assertion_failures(self):
+    def test_does_not_retry_after_a_valid_response_omits_completion_evidence(self):
         temp_dir, result, attempts = run_opencode_status_test(
-            "openrouter/omh-broken", "openrouter/ok"
+            "vendor/noncompliant", "vendor/ok"
         )
         self.addCleanup(temp_dir.cleanup)
 
         output = result.stdout + result.stderr
         self.assertNotEqual(result.returncode, 0, output)
-        self.assertEqual(attempts, ["openrouter/omh-broken"], output)
-        self.assertNotIn("trying test model: openrouter/ok", output)
+        self.assertEqual(attempts, ["openrouter/vendor/noncompliant"], output)
+        self.assertNotIn("trying test model: vendor/ok", output)
+
+    def test_does_not_retry_omh_status_assertion_failures(self):
+        temp_dir, result, attempts = run_opencode_status_test(
+            "vendor/omh-broken", "vendor/ok"
+        )
+        self.addCleanup(temp_dir.cleanup)
+
+        output = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, output)
+        self.assertEqual(attempts, ["openrouter/vendor/omh-broken"], output)
+        self.assertNotIn("trying test model: vendor/ok", output)
         self.assertIn("wrong:source", output)
 
 

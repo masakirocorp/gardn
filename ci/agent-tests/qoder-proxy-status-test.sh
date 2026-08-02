@@ -5,15 +5,16 @@ set -euo pipefail
 # proxy. Provider, pricing, or entitlement failures are inputs to fix or route
 # around, never successful skips.
 source /usr/local/lib/omh-agent-test-models.sh
-primary_model="${OMH_TEST_QODER_PROXY_MODEL:-${OMH_TEST_MODEL:-poolside/laguna-m.1:free}}"
+primary_model="${OMH_TEST_QODER_PROXY_MODEL:-${OMH_TEST_MODEL:-$OMH_TEST_DEFAULT_MODEL}}"
 if [[ -z "${OMH_TEST_ACTIVE_MODEL:-}" ]]; then
   omh_test_unique_candidates "$primary_model" "${OMH_TEST_FALLBACK_MODELS:-}" \
-    | omh_test_openrouter_api_candidates \
-    | omh_test_run_with_fallbacks "$0" OMH_TEST_QODER_PROXY_MODEL "$@"
+    | omh_test_available_candidates \
+    | omh_test_run_with_fallbacks "$0" "$@"
   exit $?
 fi
 
 model="$OMH_TEST_ACTIVE_MODEL"
+omh_test_configure_model "$model"
 workdir="${OMH_QODER_PROXY_STATUS_TEST_DIR:-$(mktemp -d)}"
 proxy_log="$workdir/qoder-proxy.log"
 repo_dir="${OMH_REPO_DIR:-/repo}"
@@ -163,7 +164,7 @@ requests = [json.loads(line) for line in Path(sys.argv[3]).read_text(errors='rep
 if 'OMH_QODER_PROXY_OK' not in output:
     print(f'qoder proxy test did not return expected marker: {output[-1000:]}', file=sys.stderr)
     print('qoder proxy log:', proxy[-2000:], file=sys.stderr)
-    raise SystemExit(75)
+    raise SystemExit(1)
 if 'request POST /model/v1/chat/completions' not in proxy:
     raise SystemExit(f'qoder proxy log missing model chat request: {proxy[-1000:]}')
 if 'static-complete' not in proxy:

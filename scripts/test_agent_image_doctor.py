@@ -27,7 +27,6 @@ class AgentImageDoctorTests(unittest.TestCase):
                 "droid",
                 "kimi",
                 "maki",
-                "kiro-cli",
                 "cursor-agent",
                 "qoder",
                 "qodercli",
@@ -56,6 +55,12 @@ class AgentImageDoctorTests(unittest.TestCase):
             output = result.stdout + result.stderr
             self.assertNotEqual(result.returncode, 0, output)
             self.assertIn("pi and omp resolve to the same executable", output)
+
+    def test_doctor_does_not_require_kiro(self):
+        doctor = (
+            Path(__file__).resolve().parents[1] / "ci" / "agent-tests" / "doctor.sh"
+        ).read_text()
+        self.assertNotIn("kiro", doctor)
 
 
 if __name__ == "__main__":

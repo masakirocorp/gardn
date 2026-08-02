@@ -10,7 +10,7 @@ import { pathToFileURL } from 'node:url';
 const LOG = process.env.OMH_QODER_PROXY_LOG || '/tmp/omh-qoder-proxy.log';
 const CERT = process.env.OMH_QODER_PROXY_CERT;
 const KEY = process.env.OMH_QODER_PROXY_KEY;
-const MODEL = process.env.OMH_TEST_QODER_PROXY_MODEL || process.env.OMH_TEST_MODEL || 'poolside/laguna-m.1:free';
+const MODEL = process.env.OMH_TEST_QODER_PROXY_MODEL || process.env.OMH_TEST_MODEL || 'openrouter/free';
 const OPENROUTER_KEY = process.env.OPENROUTER_API_KEY || '';
 
 const isDirectRun = Boolean(process.argv[1]) && import.meta.url === pathToFileURL(process.argv[1]).href;

@@ -97,12 +97,14 @@ class CodexStatusTestFallbackTests(unittest.TestCase):
             env = {
                 **os.environ,
                 "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}",
+                "HOME": str(tmp_path / "home"),
                 "OPENROUTER_API_KEY": "sk-test-fake-openrouter-key",
                 "OMH_REPO_DIR": str(repo_root),
                 "OMH_CODEX_STATUS_TEST_DIR": str(test_dir),
                 "OMH_CODEX_STATUS_TEST_TIMEOUT": "5",
-                "OMH_TEST_MODEL": "openrouter/anthropic/overloaded",
-                "OMH_TEST_FALLBACK_MODELS": "openrouter/anthropic/ok",
+                "OMH_TEST_MODEL": "anthropic/overloaded",
+                "OMH_TEST_FALLBACK_MODELS": "anthropic/ok",
+                "OMH_TEST_SKIP_MODEL_PREFLIGHT": "1",
             }
 
             result = subprocess.run(

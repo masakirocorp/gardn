@@ -38,8 +38,59 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Resolve current agent CLI cohort
+        id: cohort
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_TOKEN: ${{ github.token }}
+          SOURCE_REVISION: ${{ github.sha }}
+          BUILD_RUN_ID: ${{ github.run_id }}
+          BUILD_RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          cohort_path="$RUNNER_TEMP/cohort.json"
+          node ci/agent-tests/resolve-versions.mjs > "$cohort_path"
+          cp "$cohort_path" ci/agent-tests/cohort.json
+          {
+            echo "CLAUDE_CODE_VERSION=$(jq -r '.build_args.CLAUDE_CODE_VERSION' "$cohort_path")"
+            echo "CODEX_VERSION=$(jq -r '.build_args.CODEX_VERSION' "$cohort_path")"
+            echo "OPENCODE_VERSION=$(jq -r '.build_args.OPENCODE_VERSION' "$cohort_path")"
+            echo "COPILOT_VERSION=$(jq -r '.build_args.COPILOT_VERSION' "$cohort_path")"
+            echo "HERMES_VERSION=$(jq -r '.build_args.HERMES_VERSION' "$cohort_path")"
+            echo "DROID_VERSION=$(jq -r '.build_args.DROID_VERSION' "$cohort_path")"
+            echo "PI_VERSION=$(jq -r '.build_args.PI_VERSION' "$cohort_path")"
+            echo "KIMI_VERSION=$(jq -r '.build_args.KIMI_VERSION' "$cohort_path")"
+            echo "MAKI_VERSION=$(jq -r '.build_args.MAKI_VERSION' "$cohort_path")"
+            echo "OMP_REF=$(jq -r '.build_args.OMP_REF' "$cohort_path")"
+          } >> "$GITHUB_OUTPUT"
+
       - name: Build image
-        run: docker build -t omh-agent-tests:ci ci/agent-tests
+        env:
+          CLAUDE_CODE_VERSION: ${{ steps.cohort.outputs.CLAUDE_CODE_VERSION }}
+          CODEX_VERSION: ${{ steps.cohort.outputs.CODEX_VERSION }}
+          OPENCODE_VERSION: ${{ steps.cohort.outputs.OPENCODE_VERSION }}
+          COPILOT_VERSION: ${{ steps.cohort.outputs.COPILOT_VERSION }}
+          HERMES_VERSION: ${{ steps.cohort.outputs.HERMES_VERSION }}
+          DROID_VERSION: ${{ steps.cohort.outputs.DROID_VERSION }}
+          PI_VERSION: ${{ steps.cohort.outputs.PI_VERSION }}
+          KIMI_VERSION: ${{ steps.cohort.outputs.KIMI_VERSION }}
+          MAKI_VERSION: ${{ steps.cohort.outputs.MAKI_VERSION }}
+          OMP_REF: ${{ steps.cohort.outputs.OMP_REF }}
+        run: |
+          set -euo pipefail
+          docker build \
+            --build-arg "CLAUDE_CODE_VERSION=${CLAUDE_CODE_VERSION}" \
+            --build-arg "CODEX_VERSION=${CODEX_VERSION}" \
+            --build-arg "OPENCODE_VERSION=${OPENCODE_VERSION}" \
+            --build-arg "COPILOT_VERSION=${COPILOT_VERSION}" \
+            --build-arg "HERMES_VERSION=${HERMES_VERSION}" \
+            --build-arg "DROID_VERSION=${DROID_VERSION}" \
+            --build-arg "PI_VERSION=${PI_VERSION}" \
+            --build-arg "KIMI_VERSION=${KIMI_VERSION}" \
+            --build-arg "MAKI_VERSION=${MAKI_VERSION}" \
+            --build-arg "OMP_REF=${OMP_REF}" \
+            -t omh-agent-tests:ci \
+            ci/agent-tests
 
       - name: Check installed CLIs
         run: docker run --rm omh-agent-tests:ci

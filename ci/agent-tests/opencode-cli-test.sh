@@ -1,15 +1,16 @@
 #!/usr/bin/env bash
 set -euo pipefail
 source /usr/local/lib/omh-agent-test-models.sh
-primary_model="${OMH_OPENCODE_TEST_MODEL:-openrouter/openrouter/free}"
+primary_model="${OMH_TEST_MODEL:-$OMH_TEST_DEFAULT_MODEL}"
 if [[ -z "${OMH_TEST_ACTIVE_MODEL:-}" ]]; then
   omh_test_unique_candidates "$primary_model" "${OMH_TEST_FALLBACK_MODELS:-}" \
-    | omh_test_opencode_candidates \
-    | omh_test_run_with_fallbacks "$0" OMH_OPENCODE_TEST_MODEL "$@"
+    | omh_test_available_candidates \
+    | omh_test_run_with_fallbacks "$0" "$@"
   exit $?
 fi
 
-model="$OMH_TEST_ACTIVE_MODEL"
+model="$(omh_test_provider_model "$OMH_TEST_ACTIVE_MODEL")"
+omh_test_configure_model "$OMH_TEST_ACTIVE_MODEL"
 workdir="${OMH_OPENCODE_TEST_DIR:-$(mktemp -d)}"
 output="${OMH_OPENCODE_TEST_OUTPUT:-$workdir/opencode-test.jsonl}"
 mkdir -p "$workdir"

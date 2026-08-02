@@ -42,7 +42,17 @@ release:
 
 # Build the live agent test image
 agent-test-image:
-    docker build -t omh-agent-tests:local ci/agent-tests
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [[ -z "${GH_TOKEN:-${GITHUB_TOKEN:-}}" ]]; then
+        export GH_TOKEN="$(gh auth token)"
+    fi
+    node ci/agent-tests/resolve-versions.mjs > ci/agent-tests/cohort.json
+    args=()
+    while IFS=$'\t' read -r key value; do
+        args+=(--build-arg "$key=$value")
+    done < <(jq -r '.build_args | to_entries[] | [.key, .value] | @tsv' ci/agent-tests/cohort.json)
+    docker build "${args[@]}" -t omh-agent-tests:local ci/agent-tests
 
 # Print versions from the live agent test image
 agent-test-doctor:
@@ -54,11 +64,11 @@ agent-test-verify:
 
 # Run OpenCode against the configured free OpenRouter test model
 agent-test-opencode:
-    docker run --rm -e OPENROUTER_API_KEY -e OMH_TEST_FALLBACK_MODELS -e OMH_OPENCODE_TEST_MODEL omh-agent-tests:local omh-agent-tests-env omh-agent-tests-opencode
+    docker run --rm -e OPENROUTER_API_KEY -e OMH_TEST_MODEL -e OMH_TEST_FALLBACK_MODELS omh-agent-tests:local omh-agent-tests-env omh-agent-tests-opencode
 
 # Run OpenCode and verify Oh My Herdr status reports from the real plugin
 agent-test-opencode-status:
-    docker run --rm -e OPENROUTER_API_KEY -e OMH_TEST_MODEL -e OMH_TEST_FALLBACK_MODELS -e OMH_OPENCODE_TEST_MODEL -v "$PWD:/repo:ro" omh-agent-tests:local omh-agent-tests-env omh-agent-tests-opencode-status
+    docker run --rm -e OPENROUTER_API_KEY -e OMH_TEST_MODEL -e OMH_TEST_FALLBACK_MODELS -v "$PWD:/repo:ro" omh-agent-tests:local omh-agent-tests-env omh-agent-tests-opencode-status
 
 # Run Pi/OMP and verify Oh My Herdr status reports from the real plugin
 agent-test-pi-omp-status:

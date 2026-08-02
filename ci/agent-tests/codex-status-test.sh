@@ -1,16 +1,17 @@
 #!/usr/bin/env bash
 set -euo pipefail
 source /usr/local/lib/omh-agent-test-models.sh
-primary_model="${OMH_TEST_MODEL:-poolside/laguna-m.1:free}"
+primary_model="${OMH_TEST_MODEL:-$OMH_TEST_DEFAULT_MODEL}"
 if [[ -z "${OMH_TEST_ACTIVE_MODEL:-}" ]]; then
   omh_test_unique_candidates "$primary_model" "${OMH_TEST_FALLBACK_MODELS:-}" \
-    | omh_test_openrouter_api_candidates \
+    | omh_test_available_candidates \
     | omh_test_non_openai_candidates \
-    | omh_test_run_with_fallbacks "$0" OMH_TEST_MODEL "$@"
+    | omh_test_run_with_fallbacks "$0" "$@"
   exit $?
 fi
 
 model="$OMH_TEST_ACTIVE_MODEL"
+omh_test_configure_model "$model"
 repo_dir="${OMH_REPO_DIR:-/repo}"
 hook_path="$repo_dir/apps/omh/src/integration/assets/codex/omh-agent-state.sh"
 workdir="${OMH_CODEX_STATUS_TEST_DIR:-$(mktemp -d)}"
@@ -132,6 +133,10 @@ EOF_CONFIG
     set -e
     if [[ "$status" -ne 0 ]]; then
       cat "$dir/output.txt" >&2
+      if omh_test_retryable_status_or_output "$status" "$dir/output.txt"; then
+        echo "retryable Codex/OpenRouter provider failure with $model" >&2
+        exit 75
+      fi
       return "$status"
     fi
   )

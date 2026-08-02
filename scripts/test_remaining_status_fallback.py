@@ -148,7 +148,13 @@ class RemainingStatusTestFallbackTests(unittest.TestCase):
                           ;;
                       esac
                     done
-                    printf 'droid:%s\n' "$model" >> {shlex.quote(str(attempts_log))}
+                    configured_model="$(python3 - "$FACTORY_HOME/settings.json" <<'PY'
+                    import json
+                    import sys
+                    print(json.load(open(sys.argv[1]))["model"])
+                    PY
+                    )"
+                    printf 'droid:%s:%s\n' "$model" "$configured_model" >> {shlex.quote(str(attempts_log))}
                     if [[ "$model" != "anthropic/ok" ]]; then
                       echo "unexpected droid model: $model" >&2
                       exit 65
@@ -167,7 +173,8 @@ class RemainingStatusTestFallbackTests(unittest.TestCase):
                     fr"""
                     #!/usr/bin/env bash
                     set -euo pipefail
-                    printf 'kimi:%s\n' "${{OMH_PANE_ID:-missing-pane}}" >> {shlex.quote(str(attempts_log))}
+                    configured_model="$(sed -n 's/^model = "\(.*\)"/\1/p' "$KIMI_CODE_HOME/config.toml")"
+                    printf 'kimi:%s:%s\n' "${{OMH_PANE_ID:-missing-pane}}" "$configured_model" >> {shlex.quote(str(attempts_log))}
                     omh-test-report pane-kimi-real kimi omh:kimi kimi-real report idle
                     omh-test-report pane-kimi-real kimi omh:kimi kimi-real report working
                     omh-test-report pane-kimi-real kimi omh:kimi kimi-real report idle
@@ -258,8 +265,9 @@ class RemainingStatusTestFallbackTests(unittest.TestCase):
                 "OMH_AGENT_TEST_MODELS_LIB": str(models_copy),
                 "OMH_REMAINING_STATUS_TEST_DIR": str(test_dir),
                 "OMH_REMAINING_STATUS_TEST_TIMEOUT": "5",
-                "OMH_TEST_MODEL": "openrouter/anthropic/overloaded",
-                "OMH_TEST_FALLBACK_MODELS": "openrouter/anthropic/ok",
+                "OMH_TEST_MODEL": "anthropic/overloaded",
+                "OMH_TEST_FALLBACK_MODELS": "anthropic/ok",
+                "OMH_TEST_SKIP_MODEL_PREFLIGHT": "1",
                 "DROID_HOME": str(factory_home),
                 "FACTORY_HOME": str(factory_home),
                 "KIMI_CODE_HOME": str(kimi_home),
@@ -284,8 +292,8 @@ class RemainingStatusTestFallbackTests(unittest.TestCase):
                 [
                     "copilot:anthropic/overloaded",
                     "copilot:anthropic/ok",
-                    "droid:anthropic/ok",
-                    "kimi:pane-kimi-real",
+                    "droid:anthropic/ok:anthropic/ok",
+                    "kimi:pane-kimi-real:anthropic/ok",
                     "hermes:anthropic/ok",
                 ],
                 output,

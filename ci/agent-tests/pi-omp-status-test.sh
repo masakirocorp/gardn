@@ -9,15 +9,16 @@ case "$target" in
     ;;
 esac
 source /usr/local/lib/omh-agent-test-models.sh
-primary_model="${OMH_TEST_MODEL:-poolside/laguna-m.1:free}"
+primary_model="${OMH_TEST_MODEL:-$OMH_TEST_DEFAULT_MODEL}"
 if [[ -z "${OMH_TEST_ACTIVE_MODEL:-}" ]]; then
   omh_test_unique_candidates "$primary_model" "${OMH_TEST_FALLBACK_MODELS:-}" \
-    | omh_test_opencode_candidates \
-    | omh_test_run_with_fallbacks "$0" OMH_TEST_MODEL "$@"
+    | omh_test_available_candidates \
+    | omh_test_run_with_fallbacks "$0" "$@"
   exit $?
 fi
 
-model="$OMH_TEST_ACTIVE_MODEL"
+model="$(omh_test_provider_model "$OMH_TEST_ACTIVE_MODEL")"
+omh_test_configure_model "$OMH_TEST_ACTIVE_MODEL"
 repo_dir="${OMH_REPO_DIR:-/repo}"
 workdir="${OMH_PI_OMP_STATUS_DIR:-$(mktemp -d)}"
 socket_path="$workdir/omh.sock"
@@ -76,13 +77,14 @@ run_agent() {
   local prompt="$6"
   local dir="$workdir/$agent-$scenario"
   mkdir -p "$dir/config" "$dir/agent" "$dir/project"
-  if ! OMH_ENV=1 \
-    OMH_SOCKET_PATH="$socket_path" \
-    OMH_PANE_ID="$pane" \
-    PI_CONFIG_DIR="$dir/config" \
-    PI_CODING_AGENT_DIR="$dir/agent" \
-    python3 - "$agent" "$model" "$tools" "$extension" "$prompt" "$pane" \
-      "$request_log" "$dir/output.txt" "$dir/project" "${OMH_PI_OMP_STATUS_TIMEOUT:-180}" <<'PY'
+  set +e
+  OMH_ENV=1 \
+  OMH_SOCKET_PATH="$socket_path" \
+  OMH_PANE_ID="$pane" \
+  PI_CONFIG_DIR="$dir/config" \
+  PI_CODING_AGENT_DIR="$dir/agent" \
+  python3 - "$agent" "$model" "$tools" "$extension" "$prompt" "$pane" \
+    "$request_log" "$dir/output.txt" "$dir/project" "${OMH_PI_OMP_STATUS_TIMEOUT:-180}" <<'PY'
 import fcntl
 import json
 import os
@@ -217,10 +219,30 @@ finally:
     Path(output_path).write_bytes(raw)
     os.close(master)
 PY
-  then
+  local status=$?
+  set -e
+  if [[ "$status" -ne 0 ]]; then
     printf '%s\n' "$agent $scenario test failed; output:" >&2
     sed -n '1,200p' "$dir/output.txt" >&2
-    return 1
+    if omh_test_retryable_status_or_output "$status" "$dir/output.txt"; then
+      echo "retryable $agent/OpenRouter provider failure with $OMH_TEST_ACTIVE_MODEL" >&2
+      return 75
+    fi
+    return "$status"
+  fi
+  local marker_suffix="STATUS_OK"
+  if [[ "$scenario" == "subagent" ]]; then
+    marker_suffix="SUBAGENT_OK"
+  fi
+  local agent_marker="OMH_PI"
+  if [[ "$agent" == "omp" ]]; then
+    agent_marker="OMH_OMP"
+  fi
+  local expected_marker="${agent_marker}_${marker_suffix}"
+  if ! grep -Fq "$expected_marker" "$dir/output.txt" \
+    && omh_test_retryable_output "$dir/output.txt"; then
+    echo "retryable $agent/OpenRouter provider failure with $OMH_TEST_ACTIVE_MODEL" >&2
+    return 75
   fi
 }
 
@@ -305,7 +327,7 @@ def assert_agent(agent, scenario, pane_id, marker_suffix):
     marker = f"OMH_{agent.upper()}_{marker_suffix}"
     if marker not in output:
         print(f"{agent} {scenario}: missing output marker {marker}; output was {output!r}", file=sys.stderr)
-        raise SystemExit(75)
+        raise SystemExit(1)
 
     pane_reports = for_pane(reports, pane_id)
     pane_releases = for_pane(releases, pane_id)

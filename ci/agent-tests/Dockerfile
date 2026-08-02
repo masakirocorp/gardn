@@ -1,19 +1,21 @@
 # syntax=docker/dockerfile:1.7
 # Runtime image for live agent tests.
 # Secrets are never baked in; pass OPENROUTER_API_KEY at docker run time.
+# Agent CLI versions are resolved once outside the build (see resolve-versions.mjs)
+# and passed as exact build args. Do not pass floating dist-tags such as latest.
 FROM node:24-bookworm-slim
 
-ARG CLAUDE_CODE_VERSION=latest
-ARG CODEX_VERSION=latest
-ARG OPENCODE_VERSION=latest
-ARG COPILOT_VERSION=latest
-ARG HERMES_VERSION=latest
-ARG DROID_VERSION=latest
-ARG PI_VERSION=latest
+ARG CLAUDE_CODE_VERSION
+ARG CODEX_VERSION
+ARG OPENCODE_VERSION
+ARG COPILOT_VERSION
+ARG HERMES_VERSION
+ARG DROID_VERSION
+ARG PI_VERSION
 ARG PNPM_VERSION=11.6.0
-ARG KIMI_VERSION=latest
-ARG MAKI_VERSION=0.3.27
-ARG OMP_REF=
+ARG KIMI_VERSION
+ARG MAKI_VERSION
+ARG OMP_REF
 ENV DEBIAN_FRONTEND=noninteractive \
     PIP_BREAK_SYSTEM_PACKAGES=1 \
     COREPACK_ENABLE_DOWNLOAD_PROMPT=0 \
@@ -35,6 +37,24 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 RUN --mount=type=cache,id=omh-agent-tests-pnpm,target=/pnpm/store \
+    set -eux; \
+    for required in \
+      CLAUDE_CODE_VERSION \
+      CODEX_VERSION \
+      OPENCODE_VERSION \
+      COPILOT_VERSION \
+      HERMES_VERSION \
+      DROID_VERSION \
+      PI_VERSION \
+      KIMI_VERSION \
+      MAKI_VERSION \
+      OMP_REF; do \
+      eval "value=\${$required:-}"; \
+      if [ -z "$value" ] || [ "$value" = "latest" ]; then \
+        echo "refusing floating or empty build arg: $required=${value:-}" >&2; \
+        exit 1; \
+      fi; \
+    done; \
     corepack enable pnpm \
     && corepack prepare "pnpm@${PNPM_VERSION}" --activate \
     && mkdir -p /opt/agent-tests-node \
@@ -77,13 +97,10 @@ RUN set -eux; \
       arm64) kimi_arch=arm64 ;; \
       *) echo "unsupported Kimi arch: $arch" >&2; exit 1 ;; \
     esac; \
-    if [ "$KIMI_VERSION" = "latest" ]; then \
-      tag="$(curl -fsSL https://api.github.com/repos/MoonshotAI/kimi-code/releases/latest | jq -r .tag_name)"; \
-      version="${tag#@moonshot-ai/kimi-code@}"; \
-    else \
-      tag="@moonshot-ai/kimi-code@${KIMI_VERSION}"; \
-      version="$KIMI_VERSION"; \
-    fi; \
+    version="$KIMI_VERSION"; \
+    case "$version" in \
+      latest|"") echo "KIMI_VERSION must be an exact resolved version" >&2; exit 1 ;; \
+    esac; \
     base_url="https://github.com/MoonshotAI/kimi-code/releases/download/%40moonshot-ai%2Fkimi-code%40${version}"; \
     curl -fsSL "$base_url/kimi-code-linux-${kimi_arch}.zip" -o "/tmp/kimi-code-linux-${kimi_arch}.zip"; \
     curl -fsSL "$base_url/kimi-code-linux-${kimi_arch}.zip.sha256" -o "/tmp/kimi-code-linux-${kimi_arch}.zip.sha256"; \
@@ -95,21 +112,6 @@ RUN set -eux; \
     ln -s "$kimi_bin" /usr/local/bin/kimi; \
     rm -f "/tmp/kimi-code-linux-${kimi_arch}.zip" "/tmp/kimi-code-linux-${kimi_arch}.zip.sha256"
 
-RUN set -eux; \
-    arch="$(dpkg --print-architecture)"; \
-    case "$arch" in \
-      amd64) kiro_arch=x86_64 ;; \
-      arm64) kiro_arch=aarch64 ;; \
-      *) echo "unsupported Kiro arch: $arch" >&2; exit 1 ;; \
-    esac; \
-    curl --proto '=https' --tlsv1.2 -fsSL "https://desktop-release.q.us-east-1.amazonaws.com/latest/kirocli-${kiro_arch}-linux.zip" -o /tmp/kirocli.zip; \
-    unzip -q /tmp/kirocli.zip -d /opt/kiro-cli; \
-    kiro_bin="$(find /opt/kiro-cli -type f -name kiro-cli | sort | tail -n 1)"; \
-    chmod +x "$kiro_bin"; \
-    ln -s "$kiro_bin" /usr/local/bin/kiro-cli; \
-    ln -s "$kiro_bin" /usr/local/bin/kiro; \
-    rm -f /tmp/kirocli.zip
-
 # Maki publishes static musl binaries for the two architectures used by CI.
 RUN set -eux; \
     arch="$(dpkg --print-architecture)"; \
@@ -118,14 +120,15 @@ RUN set -eux; \
       arm64) maki_arch=aarch64 ;; \
       *) echo "unsupported Maki arch: $arch" >&2; exit 1 ;; \
     esac; \
-    if [ "$MAKI_VERSION" = "latest" ]; then \
-      tag="$(curl -fsSL https://api.github.com/repos/tontinton/maki/releases/latest | jq -r .tag_name)"; \
-    else \
-      case "$MAKI_VERSION" in v*) tag="$MAKI_VERSION" ;; *) tag="v$MAKI_VERSION" ;; esac; \
-    fi; \
+    case "$MAKI_VERSION" in \
+      latest|"") echo "MAKI_VERSION must be an exact resolved tag" >&2; exit 1 ;; \
+      v*) tag="$MAKI_VERSION" ;; \
+      *) tag="v$MAKI_VERSION" ;; \
+    esac; \
     curl -fsSL "https://github.com/tontinton/maki/releases/download/${tag}/maki-${tag}-${maki_arch}-unknown-linux-musl.tar.gz" \
       | tar xz -C /usr/local/bin; \
     chmod +x /usr/local/bin/maki
+
 RUN curl -fsSL https://cursor.com/install | bash \
     && mkdir -p /opt \
     && cp -a /root/.local/share/cursor-agent /opt/cursor-agent \
@@ -150,12 +153,10 @@ RUN set -eux; \
       arm64) omp_arch=arm64 ;; \
       *) echo "unsupported OMP arch: $arch" >&2; exit 1 ;; \
     esac; \
-    if [ -n "$OMP_REF" ]; then \
-      tag="$OMP_REF"; \
-    else \
-      tag="$(curl -fsSL https://api.github.com/repos/can1357/oh-my-pi/releases/latest | jq -r .tag_name)"; \
-    fi; \
-    curl -fsSL "https://github.com/can1357/oh-my-pi/releases/download/${tag}/omp-linux-${omp_arch}" -o /usr/local/bin/omp; \
+    case "$OMP_REF" in \
+      latest|"") echo "OMP_REF must be an exact resolved release tag" >&2; exit 1 ;; \
+    esac; \
+    curl -fsSL "https://github.com/can1357/oh-my-pi/releases/download/${OMP_REF}/omp-linux-${omp_arch}" -o /usr/local/bin/omp; \
     chmod +x /usr/local/bin/omp
 
 COPY test-env.sh /usr/local/bin/omh-agent-tests-env
@@ -176,8 +177,11 @@ COPY qoder-openrouter-proxy.mjs /usr/local/bin/omh-agent-qoder-openrouter-proxy
 COPY qoder-proxy-status-test.sh /usr/local/bin/omh-agent-tests-qoder-proxy-status
 COPY maki-status-test.sh /usr/local/bin/omh-agent-tests-maki-status
 COPY run-target.sh /usr/local/bin/omh-agent-tests-target
+# Pre-resolved cohort manifest written by resolve-versions.mjs before docker build.
+COPY cohort.json /usr/local/share/omh-agent-tests/cohort.json
 RUN chmod +x /usr/local/bin/omh-agent-tests-env /usr/local/bin/omh-agent-tests-doctor /usr/local/bin/omh-agent-tests-verify-env /usr/local/bin/omh-agent-tests-opencode /usr/local/bin/omh-agent-tests-opencode-status /usr/local/bin/omh-agent-tests-pi-omp-status /usr/local/bin/omh-agent-tests-claude-status /usr/local/bin/omh-agent-tests-codex-status /usr/local/bin/omh-agent-tests-remaining-status /usr/local/bin/omh-agent-tests-cursor-proxy-status /usr/local/bin/omh-agent-tests-qoder-proxy-status /usr/local/bin/omh-agent-tests-maki-status /usr/local/bin/omh-agent-tests-target /usr/local/bin/omh-agent-cursor-openrouter-proxy /usr/local/bin/omh-agent-qoder-openrouter-proxy /usr/local/bin/omh-agent-opencode-plugin-status-test /usr/local/bin/omh-agent-pi-omp-plugin-status-test \
-    && useradd --create-home --shell /bin/bash agenttest
+    && useradd --create-home --shell /bin/bash agenttest \
+    && chmod 0644 /usr/local/share/omh-agent-tests/cohort.json
 
 USER agenttest
 WORKDIR /work

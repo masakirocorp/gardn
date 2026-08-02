@@ -1,15 +1,16 @@
 #!/usr/bin/env bash
 set -euo pipefail
 source /usr/local/lib/omh-agent-test-models.sh
-primary_model="${OMH_TEST_CURSOR_MODEL:-${OMH_TEST_MODEL:-poolside/laguna-m.1:free}}"
+primary_model="${OMH_TEST_CURSOR_MODEL:-${OMH_TEST_MODEL:-$OMH_TEST_DEFAULT_MODEL}}"
 if [[ -z "${OMH_TEST_ACTIVE_MODEL:-}" ]]; then
   omh_test_unique_candidates "$primary_model" "${OMH_TEST_FALLBACK_MODELS:-}" \
-    | omh_test_openrouter_api_candidates \
-    | omh_test_run_with_fallbacks "$0" OMH_TEST_CURSOR_MODEL "$@"
+    | omh_test_available_candidates \
+    | omh_test_run_with_fallbacks "$0" "$@"
   exit $?
 fi
 
 model="$OMH_TEST_ACTIVE_MODEL"
+omh_test_configure_model "$model"
 repo_dir="${OMH_REPO_DIR:-/repo}"
 workdir="${OMH_CURSOR_PROXY_STATUS_TEST_DIR:-$(mktemp -d)}"
 socket_path="$workdir/omh.sock"
@@ -196,7 +197,7 @@ proxy = Path(sys.argv[2]).read_text(errors='replace')
 requests = [json.loads(line) for line in Path(sys.argv[3]).read_text(errors='replace').splitlines() if line.strip()]
 if 'OMH_CURSOR_PROXY_OK' not in output:
     print(f'cursor proxy test did not return expected marker: {output[-1000:]}', file=sys.stderr)
-    raise SystemExit(75)
+    raise SystemExit(1)
 for needle in ['unary', 'agent-stream', 'static-complete']:
     if needle not in proxy:
         raise SystemExit(f'cursor proxy log missing {needle}: {proxy[-1000:]}')

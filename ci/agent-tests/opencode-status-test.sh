@@ -1,15 +1,16 @@
 #!/usr/bin/env bash
 set -euo pipefail
 source /usr/local/lib/omh-agent-test-models.sh
-primary_model="${OMH_OPENCODE_TEST_MODEL:-openrouter/openrouter/free}"
+primary_model="${OMH_TEST_MODEL:-$OMH_TEST_DEFAULT_MODEL}"
 if [[ -z "${OMH_TEST_ACTIVE_MODEL:-}" ]]; then
   omh_test_unique_candidates "$primary_model" "${OMH_TEST_FALLBACK_MODELS:-}" \
-    | omh_test_opencode_candidates \
-    | omh_test_run_with_fallbacks "$0" OMH_OPENCODE_TEST_MODEL "$@"
+    | omh_test_available_candidates \
+    | omh_test_run_with_fallbacks "$0" "$@"
   exit $?
 fi
 
-model="$OMH_TEST_ACTIVE_MODEL"
+model="$(omh_test_provider_model "$OMH_TEST_ACTIVE_MODEL")"
+omh_test_configure_model "$OMH_TEST_ACTIVE_MODEL"
 repo_dir="${OMH_REPO_DIR:-/repo}"
 plugin_path="$repo_dir/apps/omh/src/integration/assets/opencode/omh-agent-state.js"
 workdir="${OMH_OPENCODE_STATUS_TEST_DIR:-$(mktemp -d)}"
@@ -237,7 +238,7 @@ def assert_output_contains(run_dir, marker):
     output = (workdir / run_dir / "output.jsonl").read_text(errors="replace")
     if marker not in output:
         print(f"{run_dir}: missing output marker {marker}", file=sys.stderr)
-        raise SystemExit(75)
+        raise SystemExit(1)
 
 
 for pane in ("pane-opencode-allowed", "pane-opencode-blocked", "pane-opencode-subagent"):
