@@ -242,21 +242,53 @@ pub(crate) fn visual_row_count(rows: &[SettingsListRow]) -> usize {
         .sum()
 }
 
+fn option_index(row: &SettingsListRow) -> Option<usize> {
+    match row {
+        SettingsListRow::Toggle { index, .. }
+        | SettingsListRow::Value { index, .. }
+        | SettingsListRow::TextInput { index, .. }
+        | SettingsListRow::Choice { index, .. }
+        | SettingsListRow::Action { index, .. }
+        | SettingsListRow::Status { index, .. }
+        | SettingsListRow::Profile { index, .. } => Some(*index),
+        SettingsListRow::Header(_) | SettingsListRow::Caption(_) | SettingsListRow::Spacer => None,
+    }
+}
+
 pub(crate) fn option_count(rows: &[SettingsListRow]) -> usize {
     rows.iter()
-        .filter(|row| {
-            matches!(
-                row,
-                SettingsListRow::Toggle { .. }
-                    | SettingsListRow::Value { .. }
-                    | SettingsListRow::TextInput { .. }
-                    | SettingsListRow::Choice { .. }
-                    | SettingsListRow::Action { .. }
-                    | SettingsListRow::Status { .. }
-                    | SettingsListRow::Profile { .. }
-            )
-        })
+        .filter(|row| option_index(row).is_some())
         .count()
+}
+
+pub(crate) fn next_option_index(rows: &[SettingsListRow], selected: usize) -> Option<usize> {
+    let first = rows.iter().find_map(option_index)?;
+    let mut found_selected = false;
+    for index in rows.iter().filter_map(option_index) {
+        if found_selected {
+            return Some(index);
+        }
+        found_selected = index == selected;
+    }
+    Some(first)
+}
+
+pub(crate) fn previous_option_index(rows: &[SettingsListRow], selected: usize) -> Option<usize> {
+    let mut previous = None;
+    let mut before_selected = None;
+    let mut found_selected = false;
+    for index in rows.iter().filter_map(option_index) {
+        if index == selected {
+            before_selected = previous;
+            found_selected = true;
+        }
+        previous = Some(index);
+    }
+    if found_selected {
+        before_selected.or(previous)
+    } else {
+        previous
+    }
 }
 
 fn theme_settings_choices_group_accent(

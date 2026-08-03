@@ -16,9 +16,10 @@ use crate::{
         TerminalAccent, ThemeMode, ToastDelivery,
     },
     settings_rows::{
-        connection_editor_open as settings_connection_editor_open, option_count,
-        option_hit_for_visual_row, option_index_for_visual_row, rows_for_section,
-        selected_visual_row, visual_row_count, ConnectionField, ConnectionRowId, SettingsRowHit,
+        connection_editor_open as settings_connection_editor_open, next_option_index, option_count,
+        option_hit_for_visual_row, option_index_for_visual_row, previous_option_index,
+        rows_for_section, selected_visual_row, visual_row_count, ConnectionField, ConnectionRowId,
+        SettingsRowHit,
     },
     terminal_theme::ThemeAppearance,
 };
@@ -2610,16 +2611,29 @@ fn select_previous_setting(state: &mut AppState, item_count: usize) {
         return;
     }
 
-    if !state.settings.list.restore() {
-        state.settings.list.select(item_count - 1);
-    } else {
-        let selected = state.settings.list.selected.min(item_count - 1);
-        state.settings.list.select(if selected == 0 {
+    let had_selection = state.settings.list.restore();
+    if let Some(rows) = rows_for_section(state, state.settings.section) {
+        let selected = if had_selection {
+            previous_option_index(&rows, state.settings.list.selected)
+        } else {
+            previous_option_index(&rows, usize::MAX)
+        };
+        if let Some(selected) = selected {
+            state.settings.list.select(selected);
+        }
+        focus_selected_settings_input(state);
+        return;
+    }
+
+    let selected = state.settings.list.selected.min(item_count - 1);
+    state
+        .settings
+        .list
+        .select(if !had_selection || selected == 0 {
             item_count - 1
         } else {
             selected - 1
         });
-    }
     focus_selected_settings_input(state);
 }
 
@@ -2628,16 +2642,29 @@ fn select_next_setting(state: &mut AppState, item_count: usize) {
         return;
     }
 
-    if !state.settings.list.restore() {
-        state.settings.list.select(0);
-    } else {
-        let selected = state.settings.list.selected.min(item_count - 1);
-        state.settings.list.select(if selected + 1 == item_count {
+    let had_selection = state.settings.list.restore();
+    if let Some(rows) = rows_for_section(state, state.settings.section) {
+        let selected = if had_selection {
+            next_option_index(&rows, state.settings.list.selected)
+        } else {
+            next_option_index(&rows, usize::MAX)
+        };
+        if let Some(selected) = selected {
+            state.settings.list.select(selected);
+        }
+        focus_selected_settings_input(state);
+        return;
+    }
+
+    let selected = state.settings.list.selected.min(item_count - 1);
+    state
+        .settings
+        .list
+        .select(if !had_selection || selected + 1 == item_count {
             0
         } else {
             selected + 1
         });
-    }
     focus_selected_settings_input(state);
 }
 
@@ -6878,6 +6905,58 @@ mod tests {
         );
         assert_eq!(app.state.ssh_connection_profiles.len(), 2);
         assert!(app.state.settings.connection_editor.is_some());
+    }
+
+    #[test]
+    fn connection_detail_down_reaches_test_action() {
+        let (_lock, _xdg) = isolated_ssh_catalog("detail-keyboard-test");
+        let mut app = app_for_mouse_test();
+        seed_connection_profile(
+            &mut app,
+            "build-box",
+            "build box",
+            "builder@example.com",
+            None,
+        );
+        open_settings_at(&mut app.state, SettingsSection::Connections);
+        connection_key(&mut app.state, KeyCode::Down);
+        connection_key(&mut app.state, KeyCode::Down);
+        connection_key(&mut app.state, KeyCode::Enter);
+
+        connection_key(&mut app.state, KeyCode::Down);
+
+        assert_eq!(
+            connection_key(&mut app.state, KeyCode::Enter),
+            Some(SettingsAction::TestSshConnection {
+                profile_id: "build-box".to_string(),
+            })
+        );
+    }
+
+    #[test]
+    fn connection_detail_up_reaches_remove_action() {
+        let (_lock, _xdg) = isolated_ssh_catalog("detail-keyboard-remove");
+        let mut app = app_for_mouse_test();
+        seed_connection_profile(
+            &mut app,
+            "build-box",
+            "build box",
+            "builder@example.com",
+            None,
+        );
+        open_settings_at(&mut app.state, SettingsSection::Connections);
+        connection_key(&mut app.state, KeyCode::Down);
+        connection_key(&mut app.state, KeyCode::Down);
+        connection_key(&mut app.state, KeyCode::Enter);
+
+        connection_key(&mut app.state, KeyCode::Up);
+
+        assert_eq!(
+            connection_key(&mut app.state, KeyCode::Enter),
+            Some(SettingsAction::PreviewSshConnectionRetirement(
+                "build-box".to_string()
+            ))
+        );
     }
 
     #[test]
