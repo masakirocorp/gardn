@@ -3339,19 +3339,81 @@ impl App {
 
     fn apply_settings_action_for_client(
         &mut self,
-        client_view: &ClientViewState,
+        client_view: &mut ClientViewState,
         action: input::SettingsAction,
     ) {
         let owner = crate::execution_host::auth::AuthenticationOwner::new(client_view.id());
         match action {
             input::SettingsAction::PreviewSshConnectionRetirement(profile_id) => {
+                if let Some(editor) = client_view.settings.connection_editor.as_mut() {
+                    if editor.profile_id() == Some(profile_id.as_str()) {
+                        editor.connection_retirement =
+                            Some(crate::app::state::ConnectionRetirementState::InventoryPending);
+                    }
+                }
                 self.preview_connection_retirement_for(owner, profile_id);
             }
             input::SettingsAction::ConfirmSshConnectionRetirement {
                 profile_id,
                 preview,
             } => {
+                if let Some(editor) = client_view.settings.connection_editor.as_mut() {
+                    if editor.profile_id() == Some(profile_id.as_str()) {
+                        editor.connection_retirement = Some(
+                            crate::app::state::ConnectionRetirementState::Running(preview.clone()),
+                        );
+                    }
+                }
                 self.retire_connection_for(owner, profile_id, preview);
+            }
+            input::SettingsAction::RequestLocalConnectionForget { profile_id } => {
+                let reason = client_view
+                    .settings
+                    .connection_editor
+                    .as_ref()
+                    .and_then(|editor| match editor.connection_retirement.as_ref() {
+                        Some(crate::app::state::ConnectionRetirementState::Failed(error)) => {
+                            Some(error.clone())
+                        }
+                        _ => None,
+                    })
+                    .unwrap_or_else(|| "remote cleanup is unavailable".to_string());
+                let plan = self
+                    .state
+                    .ssh_connection_profiles
+                    .iter()
+                    .find(|profile| profile.id() == profile_id)
+                    .ok_or_else(|| "connection profile no longer exists".to_string())
+                    .and_then(|profile| {
+                        crate::execution_host::connection_retirement::plan_connection_retirement(
+                            &profile.execution_host_id(),
+                        )
+                        .map_err(|error| error.to_string())
+                    });
+                if let Some(editor) = client_view.settings.connection_editor.as_mut() {
+                    if editor.profile_id() == Some(profile_id.as_str()) {
+                        editor.connection_retirement = Some(match plan {
+                            Ok(plan) => {
+                                crate::app::state::ConnectionRetirementState::LocalForgetReview {
+                                    plan,
+                                    reason,
+                                }
+                            }
+                            Err(error) => {
+                                crate::app::state::ConnectionRetirementState::Failed(error)
+                            }
+                        });
+                    }
+                }
+            }
+            input::SettingsAction::ConfirmLocalConnectionForget { profile_id, plan } => {
+                if let Some(editor) = client_view.settings.connection_editor.as_mut() {
+                    if editor.profile_id() == Some(profile_id.as_str()) {
+                        editor.connection_retirement =
+                            Some(crate::app::state::ConnectionRetirementState::LocalForgetRunning);
+                    }
+                }
+                self.forget_connection_locally_for(owner, profile_id, plan);
             }
             input::SettingsAction::TestSshConnection { profile_id } => {
                 self.request_connection_for(
@@ -10040,17 +10102,13 @@ impl App {
         if let Some(action) =
             input::update_settings_mouse_for_view(&mut self.state, client_view, mouse)
         {
-            if client_view.can_mutate_tab() {
-                self.apply_settings_action_for_client(client_view, action);
-                crate::ui::compute_view_for_client_without_resizing_panes(
-                    &self.state,
-                    client_view,
-                    &self.terminal_runtimes,
-                    screen,
-                );
-            } else {
-                Self::reject_client_view_shared_mutation(client_view);
-            }
+            self.apply_settings_action_for_client(client_view, action);
+            crate::ui::compute_view_for_client_without_resizing_panes(
+                &self.state,
+                client_view,
+                &self.terminal_runtimes,
+                screen,
+            );
         }
 
         true
@@ -19421,6 +19479,66 @@ command = "printf literal > '{}'"
         assert_eq!(second_client.settings.list.selected, 0);
         assert_eq!(app.state.mode, Mode::Terminal);
         assert_eq!(app.state.settings.list.selected, 0);
+    }
+
+    #[test]
+    fn route_client_events_for_view_connection_remove_click_does_not_require_tab_control() {
+        let mut app = test_app();
+        let profile = crate::persist::ssh_profiles::SshConnectionProfile::new(
+            "build-box",
+            "build box",
+            "builder@example.com",
+            Some(crate::execution_host::HostPath::new("~/src").expect("valid host path")),
+        )
+        .expect("valid SSH profile");
+        app.state.ssh_connection_profiles.push(profile);
+
+        let mut client = ClientViewState::from_default_client_state(&app.state);
+        client.mode = Mode::Settings;
+        client.tab_control = ClientTabControl::WatchingControlled { epoch: 1 };
+        client.settings.section = state::SettingsSection::Connections;
+        client.settings.connection_editor = Some(state::ConnectionEditorState::detail_profile(
+            "build-box",
+            "build box",
+            "builder@example.com",
+            "~/src",
+        ));
+        compute_client_view(&app, &mut client, ratatui::layout::Rect::new(0, 0, 120, 80));
+
+        let rows = crate::settings_rows::rows_for_section_for_view(&app.state, &client)
+            .expect("connection detail rows");
+        let delete_index = crate::settings_rows::ConnectionRowId::Action(
+            crate::settings_rows::ConnectionAction::Delete,
+        )
+        .selection_index();
+        let delete_row = crate::settings_rows::selected_visual_row(&rows, delete_index)
+            .expect("remove connection row");
+        let mut projected = app.state.clone();
+        projected.view = client.computed.clone();
+        projected.settings = client.settings.clone();
+        let list = crate::ui::settings_section_list_rect(projected.settings_content_rect());
+        client.settings.scroll =
+            crate::settings_rows::visual_row_count(&rows).saturating_sub(list.height as usize);
+        let visible_delete_row = delete_row.saturating_sub(client.settings.scroll) as u16;
+
+        app.route_client_events_for_view(
+            &mut client,
+            vec![raw_mouse(
+                crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left),
+                list.x + 2,
+                list.y + visible_delete_row,
+            )],
+            false,
+        );
+
+        assert!(matches!(
+            client
+                .settings
+                .connection_editor
+                .as_ref()
+                .and_then(|editor| editor.connection_retirement.as_ref()),
+            Some(state::ConnectionRetirementState::InventoryPending)
+        ));
     }
 
     #[test]
