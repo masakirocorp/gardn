@@ -3,6 +3,7 @@
 
   inputs = {
     # Nixpkgs 26.11 dropped x86_64-darwin; 26.05 supports every release target.
+    # Reconsider this pin when 26.05 reaches end of support or we drop Intel macOS.
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-26.05-darwin";
   };
 
