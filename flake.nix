@@ -2,7 +2,8 @@
   description = "Oh My Herdr — terminal workspace manager for AI coding agents";
 
   inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+    # Nixpkgs 26.11 dropped x86_64-darwin; 26.05 supports every release target.
+    nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-26.05-darwin";
   };
 
   outputs =
