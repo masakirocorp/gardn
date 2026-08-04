@@ -220,6 +220,14 @@ fn emit_build_identity(manifest_dir: &Path, target: &str) {
     println!("cargo:rustc-env=OMH_RELEASE_TAG_EMBEDDED={release_tag}");
 }
 
+fn default_zig_optimize() -> &'static str {
+    if env::var("OPT_LEVEL").as_deref() == Ok("0") {
+        "Debug"
+    } else {
+        "ReleaseFast"
+    }
+}
+
 fn main() {
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed=vendor/libghostty-vt.vendor.json");
@@ -237,7 +245,8 @@ fn main() {
 
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR"));
     let vendored_dir = manifest_dir.join("vendor/libghostty-vt");
-    let optimize = env::var("LIBGHOSTTY_VT_OPTIMIZE").unwrap_or_else(|_| "ReleaseFast".into());
+    let optimize =
+        env::var("LIBGHOSTTY_VT_OPTIMIZE").unwrap_or_else(|_| default_zig_optimize().to_string());
     let simd = env_bool("LIBGHOSTTY_VT_SIMD").unwrap_or(true);
     let target = env::var("TARGET").expect("TARGET");
     emit_build_identity(&manifest_dir, &target);

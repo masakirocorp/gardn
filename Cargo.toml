@@ -11,7 +11,7 @@ portable-pty = { path = "apps/omh/vendor/portable-pty" }
 
 # Keep routine builds fast; use `cargo build --profile debugging` for full LLDB symbols.
 [profile.dev]
-debug = 1
+debug = 0
 
 [profile.debugging]
 inherits = "dev"
