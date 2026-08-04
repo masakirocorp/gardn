@@ -6,6 +6,10 @@
 build-libghostty-vt:
     scripts/build_vendored_libghostty_vt.sh
 
+# Build, install, sign, and bundle matching local development binaries
+install-local:
+    scripts/install_local_binaries.sh
+
 # Create a merge-commit PR for upstream Herdr changes
 sync-upstream:
     python3 scripts/sync_upstream.py

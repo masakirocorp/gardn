@@ -70,6 +70,9 @@ jobs:
     env:
       LIBGHOSTTY_VT_OPTIMIZE: ${{ matrix.libghostty_vt_optimize }}
       LIBGHOSTTY_VT_SIMD: ${{ matrix.libghostty_vt_simd }}
+      OMH_BUILD_CHANNEL: release
+      OMH_BUILD_COHORT: ${{ github.sha }}
+      OMH_RELEASE_TAG: ${{ github.ref_name }}
 
     steps:
       - uses: actions/checkout@v6

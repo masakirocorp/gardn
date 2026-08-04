@@ -47,9 +47,10 @@ fn kill_child_tree(child: &mut Child) {
 const REMOTE_SERVER_SHUTDOWN_POLL_INTERVAL: Duration = Duration::from_millis(100);
 const CURRENT_VERSION: &str = env!("CARGO_PKG_VERSION");
 const CURRENT_PROTOCOL: u32 = crate::protocol::PROTOCOL_VERSION;
-const GITHUB_LATEST_RELEASE_API_URL: &str =
-    "https://api.github.com/repos/masakirocorp/oh-my-herdr/releases/latest";
+const GITHUB_RELEASE_BY_TAG_API_URL: &str =
+    "https://api.github.com/repos/masakirocorp/oh-my-herdr/releases/tags";
 const REMOTE_BINARY_ENV_VAR: &str = "OMH_REMOTE_BINARY";
+const DEV_WORKER_DATA_DIR_ENV_VAR: &str = "OMH_DEV_WORKER_DIR";
 const SSH_CONTROL_SOCKET_NAME: &str = "ctl";
 pub(crate) const REATTACH_COMMAND_ENV_VAR: &str = "OMH_REATTACH_COMMAND";
 
@@ -321,10 +322,15 @@ struct RemoteOmh {
 struct ArtifactManifest<'a> {
     schema_version: u32,
     sha256: &'a str,
-    platform: String,
-    app_version: &'static str,
+    platform: &'a str,
+    app_version: &'a str,
+    build_channel: &'a str,
+    build_cohort: &'a str,
+    target: &'a str,
+    client_protocol: u32,
     worker_protocol: u32,
     daemon_lifecycle_version: u16,
+    capabilities: &'a [String],
     source: &'a str,
     installed_unix_ms: u128,
 }
@@ -528,7 +534,7 @@ impl RemoteSsh {
         remote_omh: &RemoteOmh,
         source_path: &Path,
         expected_checksum: &str,
-        artifact_manifest: &str,
+        source_description: &str,
     ) -> io::Result<()> {
         let output = self.sh_output(&remote_install_prepare_script(remote_omh))?;
         if !output.status.success() {
@@ -565,11 +571,19 @@ impl RemoteSsh {
                 )));
             }
 
+            let staged_path = shell_quote(&tmp_path);
+            let output = self.sh_output(&format!(
+                "chmod 755 {staged_path} && {}",
+                worker_build_info_command(&staged_path)
+            ))?;
+            let identity = parse_worker_build_identity(&output)?;
+            validate_worker_build_identity(&identity, &remote_omh.platform)?;
+            let manifest = artifact_manifest(expected_checksum, source_description, &identity)?;
             let output = self.sh_output(&remote_install_commit_script(
                 &tmp_path,
                 &dest_path,
                 expected_checksum,
-                artifact_manifest,
+                &manifest,
             ))?;
             if output.status.success() {
                 Ok(())
@@ -690,8 +704,7 @@ fn prepare_remote_omh(
     confirm_remote_install(ssh.target(), &remote_omh, &source_description)?;
     let source = resolve_install_source(&remote_omh.platform, override_binary)?;
     let checksum = crate::checksum::file_sha256(&source.path)?;
-    let install_result = artifact_manifest(&remote_omh, &checksum, &source_description)
-        .and_then(|manifest| ssh.install_omh(&remote_omh, &source.path, &checksum, &manifest));
+    let install_result = ssh.install_omh(&remote_omh, &source.path, &checksum, &source_description);
     source.cleanup();
     install_result?;
 
@@ -843,24 +856,106 @@ fn remote_omh_from_path(remote_omh: &RemoteOmh, path: &str) -> Option<RemoteOmh>
     Some(remote_omh.clone().with_shell_path(shell_quote(path)))
 }
 
-fn remote_binary_matches(ssh: &RemoteSsh, remote_omh: &RemoteOmh) -> io::Result<bool> {
-    let command = format!(
-        "test -x {0} && {0} --version && {0} status client --json",
-        remote_omh.shell_path
-    );
-    let output = ssh.sh_output(&command)?;
-    if !output.status.success() {
-        return Ok(false);
-    }
+fn worker_build_info_command(shell_path: &str) -> String {
+    format!(
+        "test -x {0} && {0} execution-worker --build-info",
+        shell_path
+    )
+}
 
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let mut lines = stdout.lines();
-    let version = lines.next().unwrap_or_default().trim();
-    let status = lines.next().unwrap_or_default();
-    Ok(version == format!("omh {CURRENT_VERSION}")
-        && parse_client_status_json(status)
-            .map(|status| status.protocol == CURRENT_PROTOCOL)
-            .unwrap_or(false))
+fn parse_worker_build_identity(
+    output: &Output,
+) -> io::Result<crate::build_info::WorkerBuildIdentity> {
+    if !output.status.success() {
+        return Err(command_failed(
+            "execution worker build identity probe failed",
+            output,
+        ));
+    }
+    serde_json::from_slice(&output.stdout).map_err(|error| {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("invalid execution worker build identity: {error}"),
+        )
+    })
+}
+
+fn validate_worker_build_identity(
+    identity: &crate::build_info::WorkerBuildIdentity,
+    platform: &RemotePlatform,
+) -> io::Result<()> {
+    let expected = crate::build_info::worker_identity();
+    let expected_platform = platform.asset_key();
+    let target_platform = crate::build_info::platform_for_target(&identity.target);
+    let mut mismatches = Vec::new();
+    if identity.app_version != expected.app_version {
+        mismatches.push(format!(
+            "app_version expected {}, got {}",
+            expected.app_version, identity.app_version
+        ));
+    }
+    if identity.build_channel != expected.build_channel {
+        mismatches.push(format!(
+            "build_channel expected {}, got {}",
+            expected.build_channel, identity.build_channel
+        ));
+    }
+    if identity.build_cohort != expected.build_cohort {
+        mismatches.push(format!(
+            "build_cohort expected {}, got {}",
+            expected.build_cohort, identity.build_cohort
+        ));
+    }
+    if identity.platform != expected_platform || target_platform != Some(expected_platform.as_str())
+    {
+        mismatches.push(format!(
+            "target expected {expected_platform}, got {} ({})",
+            identity.platform, identity.target
+        ));
+    }
+    if identity.client_protocol != expected.client_protocol {
+        mismatches.push(format!(
+            "client_protocol expected {}, got {}",
+            expected.client_protocol, identity.client_protocol
+        ));
+    }
+    if identity.worker_protocol != expected.worker_protocol {
+        mismatches.push(format!(
+            "worker_protocol expected {}, got {}",
+            expected.worker_protocol, identity.worker_protocol
+        ));
+    }
+    if identity.daemon_lifecycle_version != expected.daemon_lifecycle_version {
+        mismatches.push(format!(
+            "daemon_lifecycle_version expected {}, got {}",
+            expected.daemon_lifecycle_version, identity.daemon_lifecycle_version
+        ));
+    }
+    if identity.capabilities != expected.capabilities {
+        mismatches.push(format!(
+            "capabilities expected {:?}, got {:?}",
+            expected.capabilities, identity.capabilities
+        ));
+    }
+    if mismatches.is_empty() {
+        Ok(())
+    } else {
+        Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!(
+                "execution worker build identity mismatch: {}",
+                mismatches.join("; ")
+            ),
+        ))
+    }
+}
+
+fn remote_binary_matches(ssh: &RemoteSsh, remote_omh: &RemoteOmh) -> io::Result<bool> {
+    let output = ssh.sh_output(&worker_build_info_command(&remote_omh.shell_path))?;
+    let Ok(identity) = parse_worker_build_identity(&output) else {
+        return Ok(false);
+    };
+    Ok(validate_worker_build_identity(&identity, &remote_omh.platform).is_ok())
 }
 
 fn remote_binary_exists(ssh: &RemoteSsh, remote_omh: &RemoteOmh) -> io::Result<bool> {
@@ -902,19 +997,50 @@ fn remote_binary_override_path() -> io::Result<Option<PathBuf>> {
     Ok(Some(path))
 }
 
+fn development_worker_bundle_path(platform: &RemotePlatform) -> PathBuf {
+    let root = std::env::var_os(DEV_WORKER_DATA_DIR_ENV_VAR)
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+        .or_else(|| {
+            std::env::var_os("XDG_DATA_HOME")
+                .map(PathBuf::from)
+                .map(|path| path.join(crate::config::app_dir_name()).join("workers"))
+        })
+        .or_else(|| {
+            std::env::var_os("HOME").map(|home| {
+                PathBuf::from(home)
+                    .join(".local/share")
+                    .join(crate::config::app_dir_name())
+                    .join("workers")
+            })
+        })
+        .unwrap_or_else(|| {
+            std::env::temp_dir()
+                .join(crate::config::app_dir_name())
+                .join("workers")
+        });
+    root.join(crate::build_info::BUILD_COHORT)
+        .join(format!("omh-{}", platform.asset_key()))
+}
+
 fn install_source_description(platform: &RemotePlatform, override_binary: Option<&Path>) -> String {
     if let Some(path) = override_binary {
         return format!("{REMOTE_BINARY_ENV_VAR} ({})", path.display());
     }
-
     if *platform == RemotePlatform::local() {
-        "the current local Oh My Herdr binary".to_string()
-    } else {
-        format!(
-            "the {CURRENT_VERSION} release asset for {}",
-            platform.asset_key()
-        )
+        return "the current local Oh My Herdr binary".to_string();
     }
+    if crate::build_info::is_official_release() {
+        return format!(
+            "the {} release asset for {}",
+            crate::build_info::RELEASE_TAG,
+            platform.asset_key()
+        );
+    }
+    format!(
+        "the matching development worker sidecar at {}",
+        development_worker_bundle_path(platform).display()
+    )
 }
 
 fn resolve_install_source(
@@ -929,8 +1055,32 @@ fn resolve_install_source(
         let path = std::env::current_exe()?;
         return Ok(InstallSource::persistent(path));
     }
+    if crate::build_info::is_official_release() {
+        return download_release_asset(platform);
+    }
 
-    download_release_asset(platform)
+    let path = development_worker_bundle_path(platform);
+    let metadata = fs::metadata(&path).map_err(|error| {
+        io::Error::new(
+            error.kind(),
+            format!(
+                "development build {} has no matching {} worker sidecar at {}; run `just install-local` from the same source state",
+                crate::build_info::BUILD_COHORT,
+                platform.asset_key(),
+                path.display()
+            ),
+        )
+    })?;
+    if !metadata.is_file() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!(
+                "development worker sidecar is not a file: {}",
+                path.display()
+            ),
+        ));
+    }
+    Ok(InstallSource::persistent(path))
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1112,11 +1262,6 @@ fn remote_server_status(
 }
 
 #[derive(Debug, Deserialize)]
-struct RemoteClientStatusJson {
-    protocol: u32,
-}
-
-#[derive(Debug, Deserialize)]
 struct RemoteServerStatusJson {
     running: bool,
     version: Option<String>,
@@ -1127,10 +1272,6 @@ struct RemoteServerStatusJson {
 #[derive(Debug, Deserialize)]
 struct RemoteServerCapabilitiesJson {
     live_handoff: bool,
-}
-
-fn parse_client_status_json(status: &str) -> Option<RemoteClientStatusJson> {
-    serde_json::from_str(status).ok()
 }
 
 fn parse_remote_server_status_json(status: &str) -> io::Result<RemoteServerStatus> {
@@ -1308,6 +1449,13 @@ fn remote_shell_resolves_managed_install(stdout: &str) -> bool {
 }
 
 fn release_worker_asset(platform: &RemotePlatform) -> io::Result<(String, String)> {
+    if !crate::build_info::is_official_release() {
+        return Err(io::Error::other(
+            "development builds must use a matching local worker sidecar",
+        ));
+    }
+    let release_tag = crate::build_info::RELEASE_TAG;
+    let release_url = format!("{GITHUB_RELEASE_BY_TAG_API_URL}/{release_tag}");
     let release_output = crate::noninteractive_process::curl_command()
         .args([
             "-sfL",
@@ -1321,24 +1469,25 @@ fn release_worker_asset(platform: &RemotePlatform) -> io::Result<(String, String
             "Accept: application/vnd.github+json",
             "-H",
             "User-Agent: omh-remote-installer",
-            GITHUB_LATEST_RELEASE_API_URL,
         ])
+        .arg(&release_url)
         .output()
         .map_err(|err| io::Error::new(err.kind(), format!("curl failed: {err}")))?;
     if !release_output.status.success() {
         return Err(command_failed(
-            "failed to fetch latest GitHub release",
+            &format!("failed to fetch GitHub release {release_tag}"),
             &release_output,
         ));
     }
     let release: RemoteGitHubRelease =
         serde_json::from_slice(&release_output.stdout).map_err(|err| {
-            io::Error::other(format!("failed to parse latest GitHub release JSON: {err}"))
+            io::Error::other(format!(
+                "failed to parse GitHub release {release_tag} JSON: {err}"
+            ))
         })?;
-    if release.tag_name.trim_start_matches('v') != CURRENT_VERSION {
+    if release.tag_name != release_tag {
         return Err(io::Error::other(format!(
-            "remote host is {}, but this local Oh My Herdr is {CURRENT_VERSION} and the latest GitHub release is {}; build omh for the remote platform or install it there manually",
-            platform.asset_key(),
+            "GitHub returned release {} for requested tag {release_tag}",
             release.tag_name
         )));
     }
@@ -1349,7 +1498,7 @@ fn release_worker_asset(platform: &RemotePlatform) -> io::Result<(String, String
         .find(|asset| asset.name == asset_name)
         .ok_or_else(|| {
             io::Error::other(format!(
-                "no {asset_name} binary in the latest GitHub release for omh {CURRENT_VERSION}"
+                "no {asset_name} binary in GitHub release {release_tag}"
             ))
         })?;
     let checksum = asset
@@ -2057,10 +2206,10 @@ fn worker_install_source_metadata(platform: &RemotePlatform) -> io::Result<(Stri
             checksum,
         ));
     }
-    if *platform == RemotePlatform::local() {
-        let path = std::env::current_exe()?;
-        let checksum = crate::checksum::file_sha256(&path)?;
-        return Ok((format!("current executable ({})", path.display()), checksum));
+    if *platform == RemotePlatform::local() || !crate::build_info::is_official_release() {
+        let source = resolve_install_source(platform, None)?;
+        let checksum = crate::checksum::file_sha256(&source.path)?;
+        return Ok((install_source_description(platform, None), checksum));
     }
     let (url, checksum) = release_worker_asset(platform)?;
     Ok((url, checksum))
@@ -2092,23 +2241,16 @@ fn preview_execution_worker_install_with_ssh(ssh: &RemoteSsh) -> io::Result<Work
         checksum,
         version: CURRENT_VERSION.to_string(),
         commands: vec![
+            "omh execution-worker --build-info".to_string(),
             "omh execution-worker --protocol-version".to_string(),
             "omh execution-worker --daemon-lifecycle-version".to_string(),
             "omh execution-worker --daemon <binding>".to_string(),
             "omh execution-worker".to_string(),
         ],
-        capabilities: vec![
-            "terminal".to_string(),
-            "path_completion".to_string(),
-            "process_observation".to_string(),
-            "git".to_string(),
-            "worktree".to_string(),
-            "command".to_string(),
-            "agent".to_string(),
-            "ports".to_string(),
-            "file_staging".to_string(),
-            "daemon_lifecycle_v2".to_string(),
-        ],
+        capabilities: crate::execution_host::worker::CAPABILITY_NAMES
+            .iter()
+            .map(|capability| (*capability).to_string())
+            .collect(),
         already_current,
     })
 }
@@ -2192,18 +2334,27 @@ fn ensure_execution_worker_with_ssh(ssh: &RemoteSsh) -> io::Result<WorkerInstall
     install_execution_worker_with_ssh(ssh, &preview)
 }
 
-fn artifact_manifest(remote_omh: &RemoteOmh, checksum: &str, source: &str) -> io::Result<String> {
+fn artifact_manifest(
+    checksum: &str,
+    source: &str,
+    identity: &crate::build_info::WorkerBuildIdentity,
+) -> io::Result<String> {
     let installed_unix_ms = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_err(io::Error::other)?
         .as_millis();
     serde_json::to_string(&ArtifactManifest {
-        schema_version: 2,
+        schema_version: 3,
         sha256: checksum,
-        platform: remote_omh.platform.asset_key(),
-        app_version: CURRENT_VERSION,
-        worker_protocol: crate::execution_host::EXECUTION_WORKER_PROTOCOL_VERSION,
-        daemon_lifecycle_version: crate::execution_host::lifecycle::DAEMON_LIFECYCLE_VERSION,
+        platform: &identity.platform,
+        app_version: &identity.app_version,
+        build_channel: &identity.build_channel,
+        build_cohort: &identity.build_cohort,
+        target: &identity.target,
+        client_protocol: identity.client_protocol,
+        worker_protocol: identity.worker_protocol,
+        daemon_lifecycle_version: identity.daemon_lifecycle_version,
+        capabilities: &identity.capabilities,
         source,
         installed_unix_ms,
     })
@@ -2365,10 +2516,12 @@ fn install_execution_worker_with_ssh(
     }
     // Immutable addressed artifact only. Never touch an incumbent daemon's
     // socket, lock, or process; activation is a separate lifecycle step.
-    let install_result = artifact_manifest(&remote_omh, &current.checksum, &current.source)
-        .and_then(|manifest| {
-            ssh.install_omh(&remote_omh, &source.path, &current.checksum, &manifest)
-        });
+    let install_result = ssh.install_omh(
+        &remote_omh,
+        &source.path,
+        &current.checksum,
+        &current.source,
+    );
     source.cleanup();
     install_result?;
     if !remote_worker_binary_matches(ssh, &remote_omh)? {
@@ -2493,6 +2646,7 @@ fn execution_worker_remote_omh(platform: RemotePlatform, checksum: &str) -> io::
 fn execution_worker_command(remote_omh: &RemoteOmh) -> String {
     format!("{} execution-worker", remote_omh.shell_path)
 }
+
 fn remote_worker_binary_matches(ssh: &RemoteSsh, remote_omh: &RemoteOmh) -> io::Result<bool> {
     remote_worker_binary_matches_cancellable(ssh, remote_omh, None)
 }
@@ -2503,22 +2657,14 @@ fn remote_worker_binary_matches_cancellable(
     cancel: Option<&ConnectCancel>,
 ) -> io::Result<bool> {
     let output = ssh.sh_output_cancellable(&execution_worker_probe_command(remote_omh), cancel)?;
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let mut lines = stdout.lines();
-    let expected_version = format!("omh {CURRENT_VERSION}");
-    let expected_protocol = crate::execution_host::EXECUTION_WORKER_PROTOCOL_VERSION.to_string();
-    let expected_lifecycle = crate::execution_host::lifecycle::DAEMON_LIFECYCLE_VERSION.to_string();
-    Ok(output.status.success()
-        && lines.next() == Some(expected_version.as_str())
-        && lines.next() == Some(expected_protocol.as_str())
-        && lines.next() == Some(expected_lifecycle.as_str()))
+    let Ok(identity) = parse_worker_build_identity(&output) else {
+        return Ok(false);
+    };
+    Ok(validate_worker_build_identity(&identity, &remote_omh.platform).is_ok())
 }
 
 fn execution_worker_probe_command(remote_omh: &RemoteOmh) -> String {
-    format!(
-        "test -x {0} && {0} --version && {0} execution-worker --protocol-version && {0} execution-worker --daemon-lifecycle-version",
-        remote_omh.shell_path
-    )
+    worker_build_info_command(&remote_omh.shell_path)
 }
 
 fn execution_worker_inventory_command(
@@ -2553,6 +2699,21 @@ mod tests {
 
     const TEST_WORKER_CHECKSUM: &str =
         "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+
+    fn test_worker_build_info(platform: &RemotePlatform) -> String {
+        let mut identity = crate::build_info::worker_identity();
+        identity.platform = platform.asset_key();
+        identity.target = match (platform.os, platform.arch) {
+            ("linux", "x86_64") => "x86_64-unknown-linux-musl",
+            ("linux", "aarch64") => "aarch64-unknown-linux-musl",
+            ("macos", "x86_64") => "x86_64-apple-darwin",
+            ("macos", "aarch64") => "aarch64-apple-darwin",
+            ("windows", "x86_64") => "x86_64-pc-windows-msvc",
+            _ => "unknown",
+        }
+        .to_string();
+        serde_json::to_string(&identity).expect("test worker identity should serialize")
+    }
 
     fn test_execution_worker_remote_omh(platform: RemotePlatform) -> RemoteOmh {
         execution_worker_remote_omh(platform, TEST_WORKER_CHECKSUM)
@@ -2611,8 +2772,8 @@ mod tests {
             )
         );
         let probe = execution_worker_probe_command(&remote_omh);
-        assert!(probe.contains("execution-worker --protocol-version"));
-        assert!(probe.contains("execution-worker --daemon-lifecycle-version"));
+        assert!(probe.contains("execution-worker --build-info"));
+        assert!(!probe.contains("daemon-lifecycle-version"));
         assert!(!probe.contains("status"));
         assert!(!probe.contains("server"));
         assert!(!probe.contains("session"));
@@ -3549,16 +3710,6 @@ exit 99
     }
 
     #[test]
-    fn parse_client_status_json_reads_protocol() {
-        assert_eq!(
-            parse_client_status_json(r#"{"version":"x","protocol":8,"binary":"/bin/omh"}"#)
-                .map(|status| status.protocol),
-            Some(8)
-        );
-        assert!(parse_client_status_json(r#"{"protocol":"unknown"}"#).is_none());
-    }
-
-    #[test]
     fn parse_remote_server_status_json_reads_running_server() {
         assert_eq!(
             parse_remote_server_status_json(
@@ -3901,26 +4052,30 @@ exit 99
     }
 
     #[test]
-    fn remote_worker_probe_requires_app_protocol_and_lifecycle_v1() {
-        let protocol = crate::execution_host::EXECUTION_WORKER_PROTOCOL_VERSION;
-        let lifecycle = crate::execution_host::lifecycle::DAEMON_LIFECYCLE_VERSION;
-        let good = format!("omh {CURRENT_VERSION}\n{protocol}\n{lifecycle}\n");
+    fn remote_worker_probe_requires_matching_build_identity() {
+        let platform = RemotePlatform {
+            os: "linux",
+            arch: "x86_64",
+        };
+        let good = test_worker_build_info(&platform);
         let (result, invocations) = fake_execution_worker_probe(0, &good, "");
         assert!(result.expect("probe should succeed"));
-        assert!(invocations.contains("execution-worker --protocol-version"));
-        assert!(invocations.contains("execution-worker --daemon-lifecycle-version"));
+        assert!(invocations.contains("execution-worker --build-info"));
         assert!(!invocations.contains("worker.sock"));
         assert!(!invocations.contains("worker.lock"));
         assert!(!invocations.contains("flock"));
         assert!(!invocations.contains("kill"));
 
-        let missing_lifecycle = format!("omh {CURRENT_VERSION}\n{protocol}\n");
-        let (result, _) = fake_execution_worker_probe(0, &missing_lifecycle, "");
-        assert!(!result.expect("probe should parse"));
+        let (result, _) = fake_execution_worker_probe(0, "{}", "");
+        assert!(!result.expect("incomplete identity should be stale"));
 
-        let wrong_lifecycle = format!("omh {CURRENT_VERSION}\n{protocol}\n0\n");
-        let (result, _) = fake_execution_worker_probe(0, &wrong_lifecycle, "");
-        assert!(!result.expect("probe should parse"));
+        let mut wrong = crate::build_info::worker_identity();
+        wrong.platform = platform.asset_key();
+        wrong.target = "x86_64-unknown-linux-musl".to_string();
+        wrong.build_cohort = "different-source-state".to_string();
+        let wrong = serde_json::to_string(&wrong).expect("wrong identity should serialize");
+        let (result, _) = fake_execution_worker_probe(0, &wrong, "");
+        assert!(!result.expect("mismatched identity should be stale"));
     }
 
     #[test]
@@ -3959,7 +4114,7 @@ exit 99
         assert!(!commit.contains("flock"));
         assert!(!commit.contains("execution-worker --daemon"));
 
-        assert!(probe.contains("--daemon-lifecycle-version"));
+        assert!(probe.contains("--build-info"));
         assert!(!probe.contains("worker.sock"));
         assert!(!probe.contains("worker.lock"));
     }
@@ -4008,7 +4163,7 @@ if [ "$last" = "/bin/sh -s" ]; then
         printf 'x86_64\n'
         exit 0
         ;;
-      *daemon-lifecycle-version*)
+      *'execution-worker --build-info'*)
         printf '%s' {probe_stdout}
         exit {probe_status}
         ;;
@@ -4068,28 +4223,29 @@ exit 99
     }
 
     #[test]
-    fn execution_worker_preview_requires_lifecycle_and_stages_only() {
-        let protocol = crate::execution_host::EXECUTION_WORKER_PROTOCOL_VERSION;
-        let lifecycle = crate::execution_host::lifecycle::DAEMON_LIFECYCLE_VERSION;
-        let good = format!("omh {CURRENT_VERSION}\n{protocol}\n{lifecycle}\n");
+    fn execution_worker_preview_requires_matching_build_identity_and_stages_only() {
+        let platform = RemotePlatform {
+            os: "linux",
+            arch: "x86_64",
+        };
+        let good = test_worker_build_info(&platform);
         let (result, invocations) = fake_execution_worker_preview_probe(&good, 0);
         let preview = result.expect("preview should succeed");
         assert!(preview.already_current);
         assert!(preview
             .commands
             .iter()
-            .any(|command| command.contains("--daemon-lifecycle-version")));
+            .any(|command| command.contains("--build-info")));
         assert!(preview
             .capabilities
             .iter()
             .any(|capability| capability == "daemon_lifecycle_v2"));
-        assert!(invocations.contains("execution-worker --daemon-lifecycle-version"));
+        assert!(invocations.contains("execution-worker --build-info"));
         assert!(!invocations.contains("worker.sock"));
         assert!(!invocations.contains("worker.lock"));
         assert!(!invocations.contains("execution-worker --daemon "));
 
-        let missing = format!("omh {CURRENT_VERSION}\n{protocol}\n");
-        let (result, _) = fake_execution_worker_preview_probe(&missing, 0);
+        let (result, _) = fake_execution_worker_preview_probe("{}", 0);
         let preview = result.expect("preview should succeed with stale worker");
         assert!(!preview.already_current);
     }
@@ -4286,14 +4442,14 @@ exec /bin/sh -c "$last"
         fs::set_permissions(&fake_ssh, ssh_permissions).expect("fake ssh should be executable");
 
         let source = dir.join("omh-source");
-        fs::write(
-            &source,
-            format!(
-                r#"#!/bin/sh
+        let valid_identity = shell_quote(&crate::build_info::worker_identity_json());
+        let source_script = format!(
+            r#"#!/bin/sh
 case "${{1:-}}" in
   --version) printf '%s\n' 'omh {CURRENT_VERSION}' ;;
   execution-worker)
     case "${{2:-}}" in
+      --build-info) printf '%s\n' {valid_identity} ;;
       --protocol-version) printf '%s\n' '{}' ;;
       --daemon-lifecycle-version) printf '%s\n' '{}' ;;
       *) exit 2 ;;
@@ -4302,11 +4458,10 @@ case "${{1:-}}" in
   *) exit 2 ;;
 esac
 "#,
-                crate::execution_host::EXECUTION_WORKER_PROTOCOL_VERSION,
-                crate::execution_host::lifecycle::DAEMON_LIFECYCLE_VERSION,
-            ),
-        )
-        .expect("worker source should be written");
+            crate::execution_host::EXECUTION_WORKER_PROTOCOL_VERSION,
+            crate::execution_host::lifecycle::DAEMON_LIFECYCLE_VERSION,
+        );
+        fs::write(&source, &source_script).expect("worker source should be written");
         let mut source_permissions = fs::metadata(&source)
             .expect("worker source metadata")
             .permissions();
@@ -4323,12 +4478,35 @@ esac
         let _override = crate::config::TestEnvVar::set(REMOTE_BINARY_ENV_VAR, source.as_os_str());
         let ssh = RemoteSsh::new("example".to_string(), false);
 
+        let platform = detect_remote_platform(&ssh).expect("fake remote platform");
+        let mut wrong_identity = crate::build_info::worker_identity();
+        wrong_identity.build_cohort = "wrong-build-cohort".to_string();
+        let wrong_identity = shell_quote(
+            &serde_json::to_string(&wrong_identity).expect("wrong identity should serialize"),
+        );
+        fs::write(
+            &source,
+            source_script.replace(&valid_identity, &wrong_identity),
+        )
+        .expect("mismatched worker source should be written");
+        let bad_checksum = crate::checksum::file_sha256(&source).expect("bad source checksum");
+        let rejected_path = remote_home.join(
+            execution_worker_remote_omh(platform.clone(), &bad_checksum)
+                .expect("bad source checksum should be valid")
+                .install_suffix,
+        );
+        let error = ensure_execution_worker_with_ssh(&ssh)
+            .expect_err("mismatched worker must be rejected before publication");
+        assert!(error.to_string().contains("build_cohort expected"));
+        assert!(!rejected_path.exists());
+
+        fs::write(&source, &source_script).expect("valid worker source should be restored");
+
         let first = ensure_execution_worker_with_ssh(&ssh).expect("first ensure should install");
         assert!(matches!(first, WorkerInstallReport::Installed(_)));
         let second = ensure_execution_worker_with_ssh(&ssh).expect("second ensure should reuse");
         assert!(matches!(second, WorkerInstallReport::AlreadyCurrent(_)));
 
-        let platform = detect_remote_platform(&ssh).expect("fake remote platform");
         let checksum = crate::checksum::file_sha256(&source).expect("source checksum");
         let installed = remote_home.join(
             execution_worker_remote_omh(platform, &checksum)

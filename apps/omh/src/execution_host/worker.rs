@@ -10,7 +10,25 @@ use super::lifecycle::DAEMON_LIFECYCLE_VERSION;
 use super::protocol::PROTOCOL_VERSION;
 use super::runtime_paths::{inventory_owned_bindings, retire_owned_bindings};
 
+pub(crate) const CAPABILITY_NAMES: &[&str] = &[
+    "terminal",
+    "path_completion",
+    "process_observation",
+    "git",
+    "worktree",
+    "command",
+    "agent",
+    "ports",
+    "file_staging",
+    "agent_integrations",
+    "daemon_lifecycle_v2",
+];
+
 pub(crate) fn run_from_args(args: &[String]) -> io::Result<()> {
+    if args.iter().any(|arg| arg == "--build-info") {
+        println!("{}", crate::build_info::worker_identity_json());
+        return Ok(());
+    }
     if args.iter().any(|arg| arg == "--protocol-version") {
         println!("{PROTOCOL_VERSION}");
         return Ok(());
@@ -21,7 +39,7 @@ pub(crate) fn run_from_args(args: &[String]) -> io::Result<()> {
     }
     if args.iter().any(|arg| arg == "--help" || arg == "-h") {
         eprintln!(
-            "usage: omh execution-worker [--protocol-version]\n       omh execution-worker [--daemon-lifecycle-version]\n       omh execution-worker --inventory --installation <id> --execution-host <id>\n       omh execution-worker --retire --installation <id> --execution-host <id>\n       omh execution-worker --daemon <binding arguments>"
+            "usage: omh execution-worker [--build-info]\n       omh execution-worker [--protocol-version]\n       omh execution-worker [--daemon-lifecycle-version]\n       omh execution-worker --inventory --installation <id> --execution-host <id>\n       omh execution-worker --retire --installation <id> --execution-host <id>\n       omh execution-worker --daemon <binding arguments>"
         );
         return Ok(());
     }

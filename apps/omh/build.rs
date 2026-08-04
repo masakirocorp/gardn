@@ -3,6 +3,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use sha2::{Digest, Sha256};
+
 fn zig_target(target: &str) -> &str {
     match target {
         "x86_64-unknown-linux-gnu" => "x86_64-linux-gnu",
@@ -116,6 +118,108 @@ fn resolve_zig(required_version: &str) -> String {
     );
 }
 
+fn git_output(root: &Path, args: &[&str]) -> Option<Vec<u8>> {
+    let output = Command::new("git")
+        .args(args)
+        .current_dir(root)
+        .output()
+        .ok()?;
+    output.status.success().then_some(output.stdout)
+}
+
+fn source_state_fingerprint(manifest_dir: &Path) -> String {
+    let Some(root_bytes) = git_output(manifest_dir, &["rev-parse", "--show-toplevel"]) else {
+        return "source:unknown".to_string();
+    };
+    let root = PathBuf::from(String::from_utf8_lossy(&root_bytes).trim());
+    let Some(head_bytes) = git_output(&root, &["rev-parse", "HEAD"]) else {
+        return "source:unknown".to_string();
+    };
+    let head = String::from_utf8_lossy(&head_bytes).trim().to_string();
+    let scope = ["Cargo.toml", "Cargo.lock", "apps/omh"];
+    let mut status_args = vec!["status", "--porcelain=v1", "--untracked-files=all", "--"];
+    status_args.extend(scope);
+    let Some(status) = git_output(&root, &status_args) else {
+        return format!("git:{head}");
+    };
+    if status.is_empty() {
+        return format!("git:{head}");
+    }
+
+    let mut hasher = Sha256::new();
+    hasher.update(b"omh-source-state-v1\0");
+    hasher.update(head.as_bytes());
+    let mut diff_args = vec!["diff", "--binary", "HEAD", "--"];
+    diff_args.extend(scope);
+    if let Some(diff) = git_output(&root, &diff_args) {
+        hasher.update(&diff);
+    }
+
+    let mut untracked_args = vec!["ls-files", "--others", "--exclude-standard", "-z", "--"];
+    untracked_args.extend(scope);
+    if let Some(untracked) = git_output(&root, &untracked_args) {
+        for path in untracked
+            .split(|byte| *byte == 0)
+            .filter(|path| !path.is_empty())
+        {
+            hasher.update([0]);
+            hasher.update(path);
+            if let Ok(contents) = fs::read(root.join(String::from_utf8_lossy(path).as_ref())) {
+                hasher.update([0]);
+                hasher.update(contents);
+            }
+        }
+    }
+
+    format!(
+        "dirty:{}:{:x}",
+        &head[..head.len().min(12)],
+        hasher.finalize()
+    )
+}
+
+fn emit_build_identity(manifest_dir: &Path, target: &str) {
+    println!("cargo:rerun-if-env-changed=OMH_BUILD_CHANNEL");
+    println!("cargo:rerun-if-env-changed=OMH_BUILD_COHORT");
+    println!("cargo:rerun-if-env-changed=OMH_RELEASE_TAG");
+    println!("cargo:rerun-if-changed=src");
+    println!("cargo:rerun-if-changed=Cargo.toml");
+    println!("cargo:rerun-if-changed=../../Cargo.toml");
+    println!("cargo:rerun-if-changed=../../Cargo.lock");
+
+    let channel = env::var("OMH_BUILD_CHANNEL").unwrap_or_else(|_| "development".to_string());
+    assert!(
+        matches!(channel.as_str(), "development" | "release"),
+        "OMH_BUILD_CHANNEL must be 'development' or 'release'"
+    );
+    let cohort =
+        env::var("OMH_BUILD_COHORT").unwrap_or_else(|_| source_state_fingerprint(manifest_dir));
+    assert!(
+        !cohort.trim().is_empty(),
+        "OMH_BUILD_COHORT must not be empty"
+    );
+    let release_tag = env::var("OMH_RELEASE_TAG").unwrap_or_default();
+    if channel == "release" {
+        let expected_tag = format!(
+            "v{}",
+            env::var("CARGO_PKG_VERSION").expect("CARGO_PKG_VERSION")
+        );
+        assert_eq!(
+            release_tag, expected_tag,
+            "official release builds require OMH_RELEASE_TAG={expected_tag}"
+        );
+        assert!(
+            env::var("OMH_BUILD_COHORT").is_ok(),
+            "official release builds require an explicit OMH_BUILD_COHORT"
+        );
+    }
+
+    println!("cargo:rustc-env=OMH_BUILD_CHANNEL_EMBEDDED={channel}");
+    println!("cargo:rustc-env=OMH_BUILD_COHORT_EMBEDDED={cohort}");
+    println!("cargo:rustc-env=OMH_BUILD_TARGET_EMBEDDED={target}");
+    println!("cargo:rustc-env=OMH_RELEASE_TAG_EMBEDDED={release_tag}");
+}
+
 fn main() {
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed=vendor/libghostty-vt.vendor.json");
@@ -136,6 +240,7 @@ fn main() {
     let optimize = env::var("LIBGHOSTTY_VT_OPTIMIZE").unwrap_or_else(|_| "ReleaseFast".into());
     let simd = env_bool("LIBGHOSTTY_VT_SIMD").unwrap_or(true);
     let target = env::var("TARGET").expect("TARGET");
+    emit_build_identity(&manifest_dir, &target);
     let zig_target = zig_target(&target);
     let install_prefix = PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR")).join("libghostty-vt");
     let version_string = fs::read_to_string(vendored_dir.join("VERSION"))
