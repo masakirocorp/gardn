@@ -1111,7 +1111,7 @@ impl App {
         Some(crate::api::schema::PaneInfo {
             pane_id: self.public_pane_id(ws_idx, pane_id)?,
             terminal_id: terminal.id.to_string(),
-            location: (&terminal.location).into(),
+            location: crate::api::schema::resource_location_params_from(&terminal.location),
             workspace_id: self.public_workspace_id(ws_idx),
             tab_id: self.public_tab_id(ws_idx, tab_idx)?,
             focused,
@@ -1154,7 +1154,7 @@ impl App {
         Some(crate::api::schema::PaneInfo {
             pane_id: self.public_pane_id(ws_idx, pane_id)?,
             terminal_id: terminal.id.to_string(),
-            location: (&terminal.location).into(),
+            location: crate::api::schema::resource_location_params_from(&terminal.location),
             workspace_id: self.public_workspace_id(ws_idx),
             tab_id: self.public_tab_id(ws_idx, tab_idx)?,
             focused,
@@ -1221,7 +1221,9 @@ impl App {
         crate::api::schema::WorkspaceInfo {
             workspace_id: self.public_workspace_id(index),
             group_id: ws.group_id.clone(),
-            default_location: (&ws.default_location).into(),
+            default_location: crate::api::schema::resource_location_params_from(
+                &ws.default_location,
+            ),
             number: index + 1,
             label: ws.display_name_from(&self.state.terminals, &self.terminal_runtimes),
             focused: self.state.active == Some(index),
@@ -1249,7 +1251,10 @@ impl App {
             icon: group.icon.clone(),
             focused: self.state.active_group == index,
             workspace_count,
-            default_location: group.default_location.as_ref().map(Into::into),
+            default_location: group
+                .default_location
+                .as_ref()
+                .map(crate::api::schema::resource_location_params_from),
         }
     }
     pub(crate) fn set_pending_remote_container_name(
@@ -1814,7 +1819,7 @@ fn terminal_agent_session_info(
             return Some(crate::api::schema::AgentSessionInfo {
                 source: authority.source.clone(),
                 agent: authority.agent_label.clone(),
-                kind: session_ref.kind,
+                kind: crate::api::schema::agent_session_ref_kind_from_resume(session_ref.kind),
                 value: session_ref.value.clone(),
             });
         }
@@ -1826,7 +1831,7 @@ fn terminal_agent_session_info(
         .map(|session| crate::api::schema::AgentSessionInfo {
             source: session.source.clone(),
             agent: session.agent.clone(),
-            kind: session.session_ref.kind,
+            kind: crate::api::schema::agent_session_ref_kind_from_resume(session.session_ref.kind),
             value: session.session_ref.value.clone(),
         })
 }

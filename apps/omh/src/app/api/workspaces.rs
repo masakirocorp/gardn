@@ -36,7 +36,9 @@ impl App {
         WorkspaceInfo {
             workspace_id: self.public_workspace_id(index),
             group_id: ws.group_id.clone(),
-            default_location: (&ws.default_location).into(),
+            default_location: crate::api::schema::resource_location_params_from(
+                &ws.default_location,
+            ),
             number: index + 1,
             label: ws.display_name_from(&self.state.terminals, &self.terminal_runtimes),
             focused: view.active_workspace == Some(index),

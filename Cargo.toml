@@ -1,5 +1,5 @@
 [workspace]
-members = ["apps/omh", "apps/omh/vendor/portable-pty"]
+members = ["apps/omh", "apps/omh/vendor/portable-pty", "crates/omh-local-api"]
 default-members = ["apps/omh"]
 resolver = "2"
 

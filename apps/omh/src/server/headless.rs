@@ -1747,7 +1747,7 @@ impl HeadlessServer {
     }
 
     fn forward_api_notification_sound(&mut self, sound: api::schema::NotificationShowSound) {
-        let Some(sound) = sound.to_sound() else {
+        let Some(sound) = api::schema::notification_show_sound_to_sound(sound) else {
             return;
         };
         self.send_notify_to_foreground_client(
@@ -3038,7 +3038,7 @@ impl HeadlessServer {
                 serde_json::to_string(&api::schema::SuccessResponse {
                     id: msg.request.id.clone(),
                     result: api::schema::ResponseResult::ConfigReload {
-                        status: report.status,
+                        status: api::schema::config_reload_status_from_config(report.status),
                         diagnostics: report.diagnostics,
                     },
                 })

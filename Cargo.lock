@@ -1228,6 +1228,7 @@ dependencies = [
  "ctrlc",
  "interprocess",
  "libc",
+ "omh-local-api",
  "png",
  "portable-pty",
  "ratatui",
@@ -1244,6 +1245,15 @@ dependencies = [
  "tracing-subscriber",
  "unicode-width",
  "windows-sys",
+]
+
+[[package]]
+name = "omh-local-api"
+version = "0.3.2"
+dependencies = [
+ "schemars",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

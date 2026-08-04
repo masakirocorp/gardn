@@ -881,7 +881,9 @@ impl crate::app::App {
                     crate::api::schema::Method::WorkspaceCreate(
                         crate::api::schema::WorkspaceCreateParams {
                             cwd: None,
-                            location: Some((&location).into()),
+                            location: Some(crate::api::schema::resource_location_params_from(
+                                &location,
+                            )),
                             focus: true,
                             label: crate::app::creation::workspace_create_label(
                                 &new_name,

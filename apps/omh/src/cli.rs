@@ -571,12 +571,12 @@ fn notification_show(args: &[String]) -> std::io::Result<i32> {
     print_response(&response)
 }
 
-fn parse_omh_toast_position(value: &str) -> std::io::Result<crate::config::ToastOmhPosition> {
+fn parse_omh_toast_position(value: &str) -> std::io::Result<crate::api::schema::ToastPosition> {
     match value {
-        "top-left" => Ok(crate::config::ToastOmhPosition::TopLeft),
-        "top-right" => Ok(crate::config::ToastOmhPosition::TopRight),
-        "bottom-left" => Ok(crate::config::ToastOmhPosition::BottomLeft),
-        "bottom-right" => Ok(crate::config::ToastOmhPosition::BottomRight),
+        "top-left" => Ok(crate::api::schema::ToastPosition::TopLeft),
+        "top-right" => Ok(crate::api::schema::ToastPosition::TopRight),
+        "bottom-left" => Ok(crate::api::schema::ToastPosition::BottomLeft),
+        "bottom-right" => Ok(crate::api::schema::ToastPosition::BottomRight),
         _ => Err(std::io::Error::other(
             "invalid notification position: expected top-left, top-right, bottom-left, or bottom-right",
         )),

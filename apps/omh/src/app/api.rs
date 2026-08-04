@@ -1266,7 +1266,7 @@ impl App {
                 SuccessResponse {
                     id: request.id,
                     result: ResponseResult::ConfigReload {
-                        status: report.status,
+                        status: crate::api::schema::config_reload_status_from_config(report.status),
                         diagnostics: report.diagnostics,
                     },
                 }
@@ -1851,7 +1851,9 @@ impl App {
                         kind: ToastKind::UpdateInstalled,
                         title,
                         context: body.unwrap_or_default(),
-                        position: params.position,
+                        position: params
+                            .position
+                            .map(crate::api::schema::toast_position_to_config),
                         target: None,
                     });
                     self.sync_toast_deadline(previous_toast);
@@ -1906,7 +1908,7 @@ impl App {
         if !self.state.local_sound_playback || !self.state.sound.allows(None) {
             return;
         }
-        if let Some(sound) = sound.to_sound() {
+        if let Some(sound) = crate::api::schema::notification_show_sound_to_sound(sound) {
             crate::sound::play(sound, &self.state.sound);
         }
     }
