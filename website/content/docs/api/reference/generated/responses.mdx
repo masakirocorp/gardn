@@ -46,6 +46,60 @@ description: "Generated successful Local API response result shapes."
 | `type` | `"workspace_list"` | yes |  |
 | `workspaces` | `WorkspaceInfo[]` | yes |  |
 
+## `connection_profile`
+
+| Property | Type | Required | Description |
+| --- | --- | --- | --- |
+| `profile` | `ConnectionProfileInfo` | yes |  |
+| `type` | `"connection_profile"` | yes |  |
+
+## `connection_list`
+
+| Property | Type | Required | Description |
+| --- | --- | --- | --- |
+| `profiles` | `ConnectionProfileInfo[]` | yes |  |
+| `type` | `"connection_list"` | yes |  |
+
+## `connection_deleted`
+
+| Property | Type | Required | Description |
+| --- | --- | --- | --- |
+| `profile_id` | `string` | yes |  |
+| `removed` | `boolean` | yes |  |
+| `type` | `"connection_deleted"` | yes |  |
+
+## `connection_action_queued`
+
+| Property | Type | Required | Description |
+| --- | --- | --- | --- |
+| `action` | `ConnectionAction` | yes |  |
+| `profile` | `ConnectionProfileInfo` | yes |  |
+| `type` | `"connection_action_queued"` | yes |  |
+
+## `connection_retire_start`
+
+| Property | Type | Required | Description |
+| --- | --- | --- | --- |
+| `accepted` | `boolean` | yes |  |
+| `execution_host_id` | `string` | yes |  |
+| `pending_terminations` | `integer` | yes |  |
+| `profile_id` | `string` | yes |  |
+| `remaining_panes` | `integer` | yes |  |
+| `remaining_terminals` | `integer` | yes |  |
+| `type` | `"connection_retire_start"` | yes |  |
+
+## `connection_retire_status`
+
+| Property | Type | Required | Description |
+| --- | --- | --- | --- |
+| `execution_host_id` | `string` | yes |  |
+| `pending_terminations` | `integer` | yes |  |
+| `profile_id` | `string` | yes |  |
+| `ready` | `boolean` | yes |  |
+| `remaining_panes` | `integer` | yes |  |
+| `remaining_terminals` | `integer` | yes |  |
+| `type` | `"connection_retire_status"` | yes |  |
+
 ## `group_info`
 
 | Property | Type | Required | Description |
@@ -97,12 +151,28 @@ description: "Generated successful Local API response result shapes."
 | `argv` | `string[]` | yes |  |
 | `type` | `"agent_started"` | yes |  |
 
+## `agent_prompted`
+
+| Property | Type | Required | Description |
+| --- | --- | --- | --- |
+| `agent` | `AgentInfo` | yes |  |
+| `type` | `"agent_prompted"` | yes |  |
+
 ## `agent_list`
 
 | Property | Type | Required | Description |
 | --- | --- | --- | --- |
 | `agents` | `AgentInfo[]` | yes |  |
 | `type` | `"agent_list"` | yes |  |
+
+## `agent_view`
+
+| Property | Type | Required | Description |
+| --- | --- | --- | --- |
+| `active` | `boolean` | yes |  |
+| `label` | `string \| null` | no |  |
+| `source` | `string \| null` | no |  |
+| `type` | `"agent_view"` | yes |  |
 
 ## `pane_info`
 
@@ -395,6 +465,7 @@ description: "Generated successful Local API response result shapes."
 | `display_agent` | `string \| null` | no |  |
 | `focused` | `boolean` | yes |  |
 | `foreground_cwd` | `string \| null` | no |  |
+| `location` | `ResourceLocationParams` | yes |  |
 | `name` | `string \| null` | no |  |
 | `pane_id` | `string` | yes |  |
 | `revision` | `integer` | yes |  |
@@ -430,6 +501,18 @@ description: "Generated successful Local API response result shapes."
 | `source` | `string` | yes |  |
 | `value` | `string` | yes |  |
 
+### `ConnectionProfileInfo`
+
+| Property | Type | Required | Description |
+| --- | --- | --- | --- |
+| `error` | `string \| null` | no |  |
+| `execution_host_id` | `string` | yes |  |
+| `name` | `string` | yes |  |
+| `profile_id` | `string` | yes |  |
+| `status` | `ConnectionStatusKind` | yes |  |
+| `suggested_directory` | `string \| null` | no |  |
+| `target` | `string` | yes |  |
+
 ### `EventData`
 
 Variants:
@@ -451,6 +534,7 @@ Variants:
 - `pane_exited`
 - `pane_agent_detected`
 - `pane_agent_status_changed`
+- `connection_status_changed`
 - `layout_updated`
 
 ### `EventEnvelope`
@@ -464,6 +548,7 @@ Variants:
 
 | Property | Type | Required | Description |
 | --- | --- | --- | --- |
+| `default_location` | `ResourceLocationParams \| null` | no |  |
 | `focused` | `boolean` | yes |  |
 | `group_id` | `string` | yes |  |
 | `icon` | `string` | yes |  |
@@ -489,6 +574,7 @@ Variants:
 | `plugin_id` | `string` | yes |  |
 | `plugin_root` | `string` | yes |  |
 | `source` | `PluginSourceInfo` | no |  |
+| `startup` | `PluginManifestStartup[]` | no |  |
 | `version` | `string` | yes |  |
 | `warnings` | `string[]` | no |  |
 
@@ -555,6 +641,7 @@ Variants:
 | `focused` | `boolean` | yes |  |
 | `foreground_cwd` | `string \| null` | no |  |
 | `label` | `string \| null` | no |  |
+| `location` | `ResourceLocationParams` | yes |  |
 | `pane_id` | `string` | yes |  |
 | `revision` | `integer` | yes |  |
 | `scroll` | `PaneScrollInfo \| null` | no |  |
@@ -801,6 +888,13 @@ Variants:
 | `platforms` | `array \| null` | no |  |
 | `title` | `string` | yes |  |
 
+### `PluginManifestStartup`
+
+| Property | Type | Required | Description |
+| --- | --- | --- | --- |
+| `command` | `string[]` | yes |  |
+| `platforms` | `array \| null` | no |  |
+
 ### `PluginPaneInfo`
 
 | Property | Type | Required | Description |
@@ -821,6 +915,13 @@ Variants:
 | `requested_ref` | `string \| null` | no |  |
 | `resolved_commit` | `string \| null` | no |  |
 | `subdir` | `string \| null` | no |  |
+
+### `ResourceLocationParams`
+
+| Property | Type | Required | Description |
+| --- | --- | --- | --- |
+| `execution_host_id` | `string` | yes |  |
+| `path` | `string` | yes |  |
 
 ### `ServerCapabilities`
 
@@ -861,6 +962,7 @@ Variants:
 | --- | --- | --- | --- |
 | `active_tab_id` | `string` | yes |  |
 | `agent_status` | `AgentStatus` | yes |  |
+| `default_location` | `ResourceLocationParams` | yes |  |
 | `focused` | `boolean` | yes |  |
 | `group_id` | `string` | yes |  |
 | `label` | `string` | yes |  |

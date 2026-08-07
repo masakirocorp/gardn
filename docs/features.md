@@ -228,6 +228,8 @@ The modal supports keyboard navigation, mouse navigation, scrollbars, immediate 
 
 The Connections tab manages SSH execution hosts and their workers. A saved connection opens to its status and runtime controls. Editing persistent details is a separate action. The new-connection form starts with the SSH target and uses it as the display name when the optional name is empty. Connecting installs or updates the versioned execution worker automatically. A compatible worker with live runtimes stays active until it is unused. Removing a connection first inventories every session and managed worker binding, shows each affected Group, Workspace, pane, pending termination, and owned binding, and requires confirmation. Affected Workspace defaults move to the displayed local home directory. Oh My Herdr then fences new work, drains or closes remote panes, rewrites dormant session placement, removes only bindings owned by the connection, and deletes the connection profile only after all sessions are clear. A durable journal keeps a partial removal fenced and resumable after restart. If full cleanup is unavailable, the failure screen states that remote processes or files might remain and offers three choices: remove the saved connection, try again, or cancel.
 
+After a coordinator restart, restored remote panes reconnect their saved SSH connection and re-adopt the live worker runtime automatically.
+
 ### Help and confirmations
 
 Oh My Herdr includes a scrollable keybinding help modal generated from current bindings, including custom command bindings. Destructive actions such as workspace close and group delete use confirmation dialogs that show the affected target.

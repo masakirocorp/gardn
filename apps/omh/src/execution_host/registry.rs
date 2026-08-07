@@ -235,6 +235,11 @@ impl ExecutionHostManager {
         self.connections.connect_test_host(host_id)
     }
 
+    #[cfg(test)]
+    pub(crate) fn disconnect_test_host(&mut self, host_id: &ExecutionHostId) {
+        self.connections.disconnect_test_host(host_id);
+    }
+
     /// Validate that a connected worker advertises `capability` before starting
     /// host-routed work that depends on it. Test hosts always pass.
     pub(crate) fn ensure_host_capability(
@@ -246,11 +251,20 @@ impl ExecutionHostManager {
     }
 
     pub(crate) fn begin_host_retirement(&mut self, host_id: ExecutionHostId) -> bool {
-        self.retiring_hosts.insert(host_id)
+        let inserted = self.retiring_hosts.insert(host_id.clone());
+        self.connections.begin_host_retirement(&host_id);
+        inserted
     }
 
     pub(crate) fn cancel_host_retirement(&mut self, host_id: &ExecutionHostId) -> bool {
-        self.retiring_hosts.remove(host_id)
+        let removed = self.retiring_hosts.remove(host_id);
+        if removed {
+            self.connections.cancel_host_retirement(host_id);
+        }
+        removed
+    }
+    pub(crate) fn host_has_transport(&self, host_id: &ExecutionHostId) -> bool {
+        self.connections.has_transport(host_id)
     }
 
     pub(crate) fn host_retirement_ready(&self, host_id: &ExecutionHostId) -> bool {

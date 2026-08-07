@@ -154,6 +154,15 @@ description: "Generated operational and subscription event shapes."
 | `type` | `"pane_agent_status_changed"` | yes |  |
 | `workspace_id` | `string` | yes |  |
 
+## `connection_status_changed`
+
+| Property | Type | Required | Description |
+| --- | --- | --- | --- |
+| `error` | `string \| null` | no |  |
+| `execution_host_id` | `string` | yes |  |
+| `status` | `ConnectionStatusKind` | yes |  |
+| `type` | `"connection_status_changed"` | yes |  |
+
 ## `layout_updated`
 
 | Property | Type | Required | Description |
@@ -215,6 +224,7 @@ description: "Generated operational and subscription event shapes."
 | `focused` | `boolean` | yes |  |
 | `foreground_cwd` | `string \| null` | no |  |
 | `label` | `string \| null` | no |  |
+| `location` | `ResourceLocationParams` | yes |  |
 | `pane_id` | `string` | yes |  |
 | `revision` | `integer` | yes |  |
 | `scroll` | `PaneScrollInfo \| null` | no |  |
@@ -271,6 +281,13 @@ description: "Generated operational and subscription event shapes."
 | `offset_from_bottom` | `integer` | yes |  |
 | `viewport_rows` | `integer` | yes |  |
 
+### `ResourceLocationParams`
+
+| Property | Type | Required | Description |
+| --- | --- | --- | --- |
+| `execution_host_id` | `string` | yes |  |
+| `path` | `string` | yes |  |
+
 ### `TabInfo`
 
 | Property | Type | Required | Description |
@@ -289,6 +306,7 @@ description: "Generated operational and subscription event shapes."
 | --- | --- | --- | --- |
 | `active_tab_id` | `string` | yes |  |
 | `agent_status` | `AgentStatus` | yes |  |
+| `default_location` | `ResourceLocationParams` | yes |  |
 | `focused` | `boolean` | yes |  |
 | `group_id` | `string` | yes |  |
 | `label` | `string` | yes |  |

@@ -134,6 +134,18 @@ impl ConnectionCatalog {
         }
     }
 
+    pub(crate) fn begin_host_retirement(&mut self, host_id: &ExecutionHostId) {
+        if let Some(host) = self.ssh_hosts.get_mut(host_id) {
+            host.begin_retirement();
+        }
+    }
+
+    pub(crate) fn cancel_host_retirement(&mut self, host_id: &ExecutionHostId) {
+        if let Some(host) = self.ssh_hosts.get_mut(host_id) {
+            host.cancel_retirement();
+        }
+    }
+
     pub(crate) fn authentication_challenge(
         &self,
         owner: AuthenticationOwner,
@@ -194,6 +206,11 @@ impl ConnectionCatalog {
         let messages = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
         self.test_worker_messages.insert(host_id, messages.clone());
         messages
+    }
+
+    #[cfg(test)]
+    pub(crate) fn disconnect_test_host(&mut self, host_id: &ExecutionHostId) {
+        self.test_worker_messages.remove(host_id);
     }
 
     /// Whether this host can journal runtime ops offline or online.

@@ -505,15 +505,21 @@ impl App {
         };
 
         let counts = self.connection_retire_counts(&host_id);
-        let manager_ready = self
-            .execution_hosts
-            .as_ref()
-            .is_some_and(|hosts| hosts.host_retirement_ready(&host_id));
-        let ready = counts.is_clear() && manager_ready;
+        let (manager_ready, transport_active) =
+            self.execution_hosts
+                .as_ref()
+                .map_or((false, false), |hosts| {
+                    (
+                        hosts.host_retirement_ready(&host_id),
+                        hosts.host_has_transport(&host_id),
+                    )
+                });
+        let local_cleanup_complete = counts.is_clear() && manager_ready;
 
-        if ready {
-            // Cooperative worker shutdown once live references are gone. Repeated
-            // status must stay safe when the transport is already gone.
+        if local_cleanup_complete && transport_active {
+            // A worker can reject the first shutdown request while its final
+            // runtime is still exiting. Keep status pending so polling retries
+            // shutdown until the transport actually closes.
             if let Some(hosts) = self.execution_hosts.as_mut() {
                 match hosts.request_worker_shutdown(&host_id) {
                     Ok(_) => {}
@@ -528,6 +534,7 @@ impl App {
                 }
             }
         }
+        let ready = local_cleanup_complete && !transport_active;
 
         encode_success(
             id,
@@ -1720,10 +1727,18 @@ mod tests {
             retire_params("workbox", host_id.as_str()),
         );
         let body: serde_json::Value = serde_json::from_str(&status).expect("json");
-        assert_eq!(body["result"]["ready"], true);
+        assert_eq!(
+            body["result"]["ready"], false,
+            "retirement must wait for the managed worker transport to close"
+        );
         assert_eq!(body["result"]["remaining_panes"], 0);
         assert_eq!(body["result"]["remaining_terminals"], 0);
         assert_eq!(body["result"]["pending_terminations"], 0);
+
+        app.execution_hosts
+            .as_mut()
+            .expect("hosts")
+            .disconnect_test_host(&host_id);
 
         // Repeated status remains safe when transport is already gone.
         let again = app.handle_connection_retire_status(

@@ -112,11 +112,12 @@ Pass when state matches the visible agent, identity remains stable, restore work
 3. Repeat with an older remote Oh My Herdr binary to exercise the standalone compatibility and restart prompt.
 4. Verify resize, keyboard input, direct terminal attach, and clipboard behavior supported by the client and host pair.
 5. Save the same host in **Settings > Connections**. Connect without a manual worker install and verify that Oh My Herdr installs the current managed worker.
-6. Keep a remote terminal active, connect with a newer compatible worker version, and verify that the active runtime is not interrupted. End the runtime and verify that the deferred worker update activates.
-7. Reference the connection from two named local sessions. Start removal, verify that inventory lists both sessions and owned bindings, then confirm. Interrupt one removal after approval and restart the server to verify journal recovery.
-8. Repeat with the remote host unavailable. Verify that full removal fails closed. Verify that the failure screen identifies the connection, warns that remote processes or files might remain, and offers **Remove saved connection**, **Try again**, and **Cancel**.
+6. Stop and restart the local coordinator while the remote terminal remains active. Verify that the saved connection reconnects without a manual **Connect** action and that the pane renders the preserved terminal output.
+7. Keep a remote terminal active, connect with a newer compatible worker version, and verify that the active runtime is not interrupted. End the runtime and verify that the deferred worker update activates.
+8. Reference the connection from two named local sessions. Start removal, verify that inventory lists both sessions and owned bindings, then confirm. Interrupt one removal after approval and restart the server to verify journal recovery.
+9. Repeat with the remote host unavailable. Verify that full removal fails closed. Verify that the failure screen identifies the connection, warns that remote processes or files might remain, and offers **Remove Saved Connection**, **Try Again**, and **Cancel**.
 
-Pass when prompts are accurate, transport loss does not lose workloads, updates do not interrupt compatible live runtimes, retirement removes only Oh My Herdr-owned state, and an approved partial retirement resumes after restart.
+Pass when prompts are accurate, transport loss and coordinator restart do not lose workloads, restored remote panes reconnect automatically, updates do not interrupt compatible live runtimes, retirement removes only Oh My Herdr-owned state, and an approved partial retirement resumes after restart.
 
 ## M09: Downloaded release artifacts
 

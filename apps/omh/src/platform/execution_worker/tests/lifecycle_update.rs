@@ -13,13 +13,16 @@ use crate::execution_host::protocol::{
     read_worker_message, write_worker_message, CommandSpec, CoordinatorMessage, RequestId,
     TerminalSize, TerminateMode, WorkerErrorCode, WorkerMessage, PROTOCOL_VERSION,
 };
-use crate::execution_host::runtime_paths::WorkerRolePaths;
+use crate::execution_host::runtime_paths::{
+    inventory_owned_bindings, retire_owned_bindings, BindingOwnershipManifest, WorkerRolePaths,
+};
 use crate::execution_host::{HostPath, ResourceLocation};
 
 use super::super::binding::DaemonBinding;
+use super::super::event::WorkerEvent;
 use super::super::lifecycle::{
-    acquire_daemon_lock, serve_connection, try_activate_existing_daemon, BridgeActivateResult,
-    ConnectionOutcome,
+    acquire_daemon_lock, serve_connection, shutdown_owned_binding, try_activate_existing_daemon,
+    BridgeActivateResult, ConnectionOutcome,
 };
 use super::super::state::WorkerState;
 use super::super::util::{is_disconnect, DEFAULT_WORKER_SCROLLBACK_BYTES, WORKER_APP_VERSION};
@@ -470,6 +473,77 @@ fn shutdown_message_exits_when_worker_is_empty() {
         outcome
     });
     assert!(matches!(outcome, ConnectionOutcome::Shutdown));
+}
+
+#[test]
+fn retirement_reconciles_a_queued_runtime_exit_before_removing_its_binding() {
+    let binding = test_binding("retire-disconnected", 1);
+    let role_paths = binding.role_paths();
+    let ownership = BindingOwnershipManifest::new(
+        &binding.installation_id,
+        &binding.session_namespace_id,
+        &binding.execution_host_id,
+        binding.host_binding_generation,
+        binding.worker_instance_id.to_string(),
+        WORKER_APP_VERSION,
+    );
+    role_paths.write_ownership_manifest(&ownership).unwrap();
+    let location = ResourceLocation::new(
+        binding.execution_host_id.clone(),
+        HostPath::new(std::env::temp_dir()).unwrap(),
+    );
+    let (daemon, _, _) = start_locked_daemon(binding.clone(), move |state| {
+        state.set_artifact_digest_for_test([0x5a; 32]);
+        let (identity, _) = state
+            .create_terminal(
+                location,
+                TerminalSize { cols: 80, rows: 24 },
+                Some(CommandSpec {
+                    program: "/bin/sh".to_string(),
+                    args: vec!["-c".to_string(), "sleep 120".to_string()],
+                    env: Vec::new(),
+                }),
+                Vec::new(),
+                DEFAULT_WORKER_SCROLLBACK_BYTES,
+            )
+            .unwrap();
+        let local_id = state
+            .runtime_record(&identity.runtime_id)
+            .expect("runtime should be registered")
+            .local_id;
+        state
+            .try_send_event(WorkerEvent::RuntimeExit {
+                local_id,
+                exit_code: Some(0),
+                exit_signal: None,
+            })
+            .unwrap();
+    });
+    let inventory = inventory_owned_bindings(
+        binding.installation_id.as_str(),
+        binding.execution_host_id.as_str(),
+    )
+    .unwrap();
+    let entry = inventory
+        .bindings
+        .first()
+        .expect("live binding should be inventoried");
+    assert!(entry.lock_live);
+    assert!(matches!(
+        activate_on_binding(&binding).unwrap(),
+        BridgeActivateResult::Rejected(_)
+    ));
+
+    shutdown_owned_binding(entry).unwrap();
+    daemon.join().unwrap().unwrap();
+    let report = retire_owned_bindings(
+        binding.installation_id.as_str(),
+        binding.execution_host_id.as_str(),
+    )
+    .unwrap();
+
+    assert_eq!(report.removed_bindings.len(), 1);
+    assert!(report.blocked_bindings.is_empty());
 }
 
 #[test]

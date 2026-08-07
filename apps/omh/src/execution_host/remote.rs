@@ -539,6 +539,28 @@ impl SshExecutionHost {
         None
     }
 
+    pub(crate) fn begin_retirement(&mut self) {
+        self.authentication
+            .cancel_host(self.authentication_owner, &self.profile.execution_host_id());
+        self.lifecycle.request_disconnect();
+        self.cancel_pending_connect();
+        if self.connection.is_none() {
+            self.lifecycle.finish_disconnect();
+        }
+        self.testing = false;
+        self.status_override = None;
+    }
+
+    pub(crate) fn cancel_retirement(&mut self) {
+        let has_connection = self.connection.is_some();
+        let started_connect = self.lifecycle.request_connect();
+        if has_connection {
+            self.lifecycle.mark_connected();
+        } else if started_connect {
+            self.start_connect_attempt();
+        }
+    }
+
     pub(crate) fn request_disconnect_for(&mut self, owner: AuthenticationOwner) {
         self.authentication
             .cancel_host(owner, &self.profile.execution_host_id());
@@ -1008,6 +1030,27 @@ mod tests {
             host.status(),
             ConnectionStatus::Disconnected | ConnectionStatus::Disconnecting
         ));
+    }
+
+    #[test]
+    fn retirement_prevents_reconnect_after_transport_closes() {
+        let channel = Arc::new(AuthenticationChallengeChannel::default());
+        let mut host = test_host(channel);
+        assert!(host.lifecycle.request_connect());
+        host.lifecycle.mark_connected();
+
+        host.begin_retirement();
+        assert!(matches!(
+            host.lifecycle.state(),
+            super::super::connection::ConnectionState::Disconnected
+        ));
+        host.lifecycle
+            .mark_connection_failed(Instant::now(), "worker stopped".to_string());
+        assert!(matches!(
+            host.lifecycle.state(),
+            super::super::connection::ConnectionState::Disconnected
+        ));
+        assert!(!host.lifecycle.begin_due_retry(Instant::now()));
     }
 
     #[test]

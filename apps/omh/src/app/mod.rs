@@ -491,7 +491,7 @@ fn mode_accepts_repeat_key(mode: Mode, key: &crate::input::TerminalKey) -> bool 
 }
 
 fn auto_updates_enabled(no_session: bool) -> bool {
-    !no_session && !cfg!(debug_assertions)
+    !no_session && crate::build_info::is_official_release()
 }
 
 fn background_update_check_enabled(no_session: bool, check_enabled: bool) -> bool {
@@ -633,6 +633,17 @@ fn groups_from_snapshot(snap: &crate::persist::SessionSnapshot) -> Vec<state::Gr
     }
 
     groups
+}
+
+fn restored_connection_profile_ids(
+    profiles: &[crate::persist::ssh_profiles::SshConnectionProfile],
+    host_ids: &HashSet<crate::execution_host::ExecutionHostId>,
+) -> Vec<String> {
+    profiles
+        .iter()
+        .filter(|profile| host_ids.contains(&profile.execution_host_id()))
+        .map(|profile| profile.id().to_string())
+        .collect()
 }
 
 impl App {
@@ -1257,6 +1268,10 @@ impl App {
                     })
                 })
                 .collect::<Vec<_>>();
+            let restored_host_ids = remote_terminals
+                .iter()
+                .map(|(_, _, location, _)| location.execution_host_id.clone())
+                .collect::<HashSet<_>>();
             for (terminal_id, pane_id, location, identity) in remote_terminals {
                 if !adopted.insert(terminal_id.clone()) {
                     continue;
@@ -1284,6 +1299,23 @@ impl App {
                             target: None,
                         });
                     }
+                }
+            }
+            for profile_id in
+                restored_connection_profile_ids(&state.ssh_connection_profiles, &restored_host_ids)
+            {
+                if let Err(error) = hosts.request_for(
+                    crate::execution_host::auth::AuthenticationOwner::SYSTEM,
+                    &profile_id,
+                    crate::execution_host::HostConnectionAction::Connect,
+                ) {
+                    state.toast.get_or_insert_with(|| state::ToastNotification {
+                        kind: state::ToastKind::NeedsAttention,
+                        title: "remote terminal restore failed".to_string(),
+                        context: error,
+                        position: None,
+                        target: None,
+                    });
                 }
             }
         }
@@ -11950,6 +11982,29 @@ mod tests {
         KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseButton, MouseEventKind,
     };
     use std::sync::Mutex;
+
+    #[test]
+    fn development_build_disables_auto_updates() {
+        assert!(!auto_updates_enabled(false));
+    }
+
+    #[test]
+    fn restored_remote_panes_select_their_connection_profiles_for_reconnect() {
+        let robotbox = crate::persist::ssh_profiles::SshConnectionProfile::new(
+            "robotbox", "Robotbox", "robotbox", None,
+        )
+        .unwrap();
+        let workbox = crate::persist::ssh_profiles::SshConnectionProfile::new(
+            "workbox", "Workbox", "workbox", None,
+        )
+        .unwrap();
+        let restored_host_ids = HashSet::from([robotbox.execution_host_id()]);
+
+        assert_eq!(
+            restored_connection_profile_ids(&[robotbox, workbox], &restored_host_ids),
+            vec!["robotbox"]
+        );
+    }
 
     struct CursorQueryFailingBackend;
 

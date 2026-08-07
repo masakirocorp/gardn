@@ -55,6 +55,8 @@ A new workspace uses an explicit location, then its target Group default, then L
 
 Changing a Group or Workspace default does not move or restart existing terminals. One workspace can contain terminals on different hosts. Such a workspace shows **Mixed**, and pane badges identify terminals whose host differs from the workspace default. An unavailable remote host does not stop local terminals.
 
+When the local coordinator restarts, each restored remote pane reconnects its saved SSH profile and re-adopts the live worker runtime automatically. If SSH authentication or worker compatibility blocks the connection, the pane remains unavailable until you resolve the connection status in **Settings > Connections**.
+
 The CLI exposes profile setup and placement:
 
 ```sh

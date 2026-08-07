@@ -20,10 +20,10 @@ const KNOWN_TOP_LEVEL_CONFIG_KEYS: &[&str] = &[
 ];
 
 pub fn app_dir_name() -> &'static str {
-    if cfg!(debug_assertions) {
-        "omh-dev"
-    } else {
+    if crate::build_info::is_official_release() {
         "omh"
+    } else {
+        "omh-dev"
     }
 }
 
@@ -697,7 +697,7 @@ fn upsert_section_raw(content: &str, section: &str, key: &str, value: &str) -> S
 mod tests {
     use super::*;
     #[test]
-    fn app_dir_uses_omh_namespace() {
+    fn development_build_uses_omh_dev_namespace() {
         assert_eq!(app_dir_name(), "omh-dev");
     }
 

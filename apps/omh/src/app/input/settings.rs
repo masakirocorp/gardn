@@ -6905,6 +6905,7 @@ mod tests {
         connection_key(&mut app.state, KeyCode::Enter);
 
         connection_key(&mut app.state, KeyCode::Up);
+        connection_key(&mut app.state, KeyCode::Up);
 
         assert_eq!(
             connection_key(&mut app.state, KeyCode::Enter),
@@ -7382,12 +7383,16 @@ mod tests {
     fn connection_detail_render_prioritizes_runtime_controls_over_editing() {
         let (_lock, _xdg) = isolated_ssh_catalog("render-detail");
         let mut app = app_for_mouse_test();
-        seed_connection_profile(
+        let profile = seed_connection_profile(
             &mut app,
             "build-box",
             "build box",
             "builder@example.com",
             Some("~/src"),
+        );
+        app.state.host_connection_states.insert(
+            profile.execution_host_id(),
+            crate::execution_host::ConnectionStatus::Connected,
         );
         open_settings_at(&mut app.state, SettingsSection::Connections);
         connection_key(&mut app.state, KeyCode::Down);
@@ -7395,11 +7400,31 @@ mod tests {
         connection_key(&mut app.state, KeyCode::Enter);
 
         rendered_text_point(&app, "connection details", 100, 30);
-        rendered_text_point(&app, "connect", 100, 30);
-        rendered_text_point(&app, "test connection", 100, 30);
-        rendered_text_point(&app, "open workspace", 100, 30);
+        let (_, open_workspace_row) = rendered_text_point(&app, "open workspace", 100, 30);
+        let (_, disconnect_row) = rendered_text_point(&app, "disconnect", 100, 30);
+        let (_, test_row) = rendered_text_point(&app, "test connection", 100, 30);
+        assert!(
+            open_workspace_row < disconnect_row && disconnect_row < test_row,
+            "the primary workspace action should appear before maintenance controls"
+        );
         rendered_text_point(&app, "SSH target  builder@example.com", 100, 30);
         rendered_text_point(&app, "edit details", 100, 30);
+        let backend = ratatui::backend::TestBackend::new(100, 30);
+        let mut terminal = ratatui::Terminal::new(backend).expect("test backend");
+        terminal
+            .draw(|frame| crate::ui::render(&app.state, frame))
+            .expect("render connection details");
+        let buffer = terminal.backend().buffer();
+        let mut rendered = String::new();
+        for y in 0..30 {
+            for x in 0..100 {
+                rendered.push_str(buffer[(x, y)].symbol());
+            }
+        }
+        assert!(
+            !rendered.contains("execution worker"),
+            "connection details should not expose managed implementation details"
+        );
 
         app.state.settings.scroll =
             settings_section_max_scroll(&app.state, SettingsSection::Connections);

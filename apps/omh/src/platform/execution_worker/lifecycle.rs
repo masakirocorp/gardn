@@ -14,8 +14,8 @@ use crate::execution_host::lifecycle::{
 };
 use crate::execution_host::protocol::{
     read_worker_message, validate_first_coordinator_message, write_worker_message,
-    CoordinatorMessage, WorkerErrorCode, WorkerInstanceId, WorkerMessage, WorkerRuntimeId,
-    PROTOCOL_VERSION,
+    CoordinatorMessage, RequestId, WorkerErrorCode, WorkerInstanceId, WorkerMessage,
+    WorkerRuntimeId, PROTOCOL_VERSION,
 };
 
 use super::binding::DaemonBinding;
@@ -234,6 +234,135 @@ pub(super) fn try_activate_existing_daemon(
                 parse_worker_instance_id(&reply.worker_instance_id),
             ),
         ))),
+    }
+}
+
+#[cfg(unix)]
+fn retirement_hello(binding: &DaemonBinding) -> CoordinatorMessage {
+    CoordinatorMessage::Hello {
+        version: PROTOCOL_VERSION,
+        coordinator_installation_id: binding.installation_id.clone(),
+        session_namespace_id: binding.session_namespace_id.clone(),
+        execution_host_id: binding.execution_host_id.clone(),
+        host_binding_generation: binding.host_binding_generation,
+        auth_proof: None,
+        capabilities: Vec::new(),
+    }
+}
+
+#[cfg(unix)]
+fn flush_daemon_events_before_retirement(binding: &DaemonBinding) -> io::Result<()> {
+    let mut stream = UnixStream::connect(&binding.socket_path)?;
+    stream.set_read_timeout(Some(LIFECYCLE_ACTIVATE_TIMEOUT))?;
+    stream.set_write_timeout(Some(LIFECYCLE_ACTIVATE_TIMEOUT))?;
+    write_worker_message(&mut stream, &retirement_hello(binding)).map_err(framing_io)?;
+    match read_worker_message::<_, WorkerMessage>(&mut stream).map_err(framing_io)? {
+        WorkerMessage::HelloAck { error: None, .. } => {}
+        WorkerMessage::HelloAck {
+            error: Some(error), ..
+        } => return Err(io::Error::new(io::ErrorKind::ResourceBusy, error.message)),
+        _ => {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "live execution worker returned an invalid retirement handshake",
+            ));
+        }
+    }
+
+    // The daemon flushes queued runtime exits after each session poll. A short
+    // quiet read lets it reconcile children that exited while disconnected.
+    stream.set_read_timeout(Some(SESSION_POLL_INTERVAL * 5))?;
+    loop {
+        match read_worker_message::<_, WorkerMessage>(&mut stream) {
+            Ok(_) => {}
+            Err(crate::protocol::FramingError::UnexpectedEof) => return Ok(()),
+            Err(crate::protocol::FramingError::Io(error))
+                if matches!(
+                    error.kind(),
+                    io::ErrorKind::WouldBlock
+                        | io::ErrorKind::TimedOut
+                        | io::ErrorKind::ConnectionReset
+                        | io::ErrorKind::BrokenPipe
+                ) =>
+            {
+                return Ok(());
+            }
+            Err(error) => return Err(framing_io(error)),
+        }
+    }
+}
+
+#[cfg(unix)]
+pub(super) fn shutdown_owned_binding(
+    entry: &crate::execution_host::runtime_paths::OwnedBindingInventoryEntry,
+) -> io::Result<()> {
+    let binding = DaemonBinding::from_inventory_entry(entry)?;
+    match flush_daemon_events_before_retirement(&binding) {
+        Ok(()) => {}
+        Err(error)
+            if matches!(
+                error.kind(),
+                io::ErrorKind::NotFound | io::ErrorKind::ConnectionRefused
+            ) => {}
+        Err(error) => return Err(error),
+    }
+    let deadline = Instant::now() + READY_TIMEOUT;
+    match try_activate_existing_daemon(&binding) {
+        Ok(BridgeActivateResult::ShuttingDownIdle) => {
+            wait_for_lock_release(&binding.role_paths().lock_path(), deadline)
+        }
+        Ok(BridgeActivateResult::UseExisting(mut stream)) => {
+            write_worker_message(&mut stream, &retirement_hello(&binding)).map_err(framing_io)?;
+            let hello_ack: WorkerMessage = read_worker_message(&mut stream).map_err(framing_io)?;
+            if !matches!(hello_ack, WorkerMessage::HelloAck { error: None, .. }) {
+                return Err(io::Error::new(
+                    io::ErrorKind::ResourceBusy,
+                    "live execution worker rejected retirement",
+                ));
+            }
+            let request_id = RequestId::new(1);
+            write_worker_message(&mut stream, &CoordinatorMessage::Shutdown { request_id })
+                .map_err(framing_io)?;
+            let shutdown_ack: WorkerMessage =
+                read_worker_message(&mut stream).map_err(framing_io)?;
+            match shutdown_ack {
+                WorkerMessage::RequestAck {
+                    request_id: ack_id,
+                    error: None,
+                } if ack_id == request_id => {
+                    drop(stream);
+                    wait_for_lock_release(&binding.role_paths().lock_path(), deadline)
+                }
+                WorkerMessage::RequestAck {
+                    request_id: ack_id,
+                    error: Some(error),
+                } if ack_id == request_id => {
+                    Err(io::Error::new(io::ErrorKind::ResourceBusy, error.message))
+                }
+                _ => Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "live execution worker returned an invalid retirement response",
+                )),
+            }
+        }
+        Ok(BridgeActivateResult::Rejected(ack)) => match *ack {
+            WorkerMessage::HelloAck {
+                error: Some(error), ..
+            } => Err(io::Error::new(io::ErrorKind::ResourceBusy, error.message)),
+            _ => Err(io::Error::new(
+                io::ErrorKind::ResourceBusy,
+                "live execution worker rejected retirement",
+            )),
+        },
+        Err(error)
+            if matches!(
+                error.kind(),
+                io::ErrorKind::NotFound | io::ErrorKind::ConnectionRefused
+            ) =>
+        {
+            Ok(())
+        }
+        Err(error) => Err(error),
     }
 }
 

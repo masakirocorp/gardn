@@ -1064,10 +1064,8 @@ fn resolve_install_source(
         io::Error::new(
             error.kind(),
             format!(
-                "development build {} has no matching {} worker sidecar at {}; run `just install-local` from the same source state",
-                crate::build_info::BUILD_COHORT,
-                platform.asset_key(),
-                path.display()
+                "matching {} development worker is not installed; run `just install-dev`, then retry",
+                platform.asset_key()
             ),
         )
     })?;
@@ -3827,6 +3825,28 @@ exit 99
             .expect("override source");
         assert_eq!(source.path, PathBuf::from("/tmp/omh-aarch64"));
         assert!(source.temporary_dir.is_none());
+    }
+
+    #[test]
+    fn missing_development_worker_points_to_atomic_install_command() {
+        let _environment = crate::integration::integration_env_lock();
+        let worker_root =
+            std::env::temp_dir().join(format!("omh-missing-worker-sidecar-{}", std::process::id()));
+        let _worker_dir = crate::config::TestEnvVar::set(DEV_WORKER_DATA_DIR_ENV_VAR, &worker_root);
+        let platform = RemotePlatform {
+            os: "linux",
+            arch: "x86_64",
+        };
+
+        let error = match resolve_install_source(&platform, None) {
+            Ok(_) => panic!("worker should be absent"),
+            Err(error) => error,
+        };
+
+        assert_eq!(
+            error.to_string(),
+            "matching linux-x86_64 development worker is not installed; run `just install-dev`, then retry"
+        );
     }
 
     #[test]

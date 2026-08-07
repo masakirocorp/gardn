@@ -20,6 +20,37 @@ description: "Generated Local API enum values."
 - `"done"`
 - `"unknown"`
 
+## `AgentViewBuiltinField`
+
+- `"status"`
+- `"workspace_id"`
+- `"tab_id"`
+- `"pane_id"`
+- `"agent"`
+- `"seen"`
+- `"state_change_seq"`
+
+## `AgentViewBuiltinSortField`
+
+- `"workspace_order"`
+- `"tab_order"`
+- `"pane_order"`
+- `"attention"`
+- `"status"`
+- `"agent"`
+- `"seen"`
+- `"state_change_seq"`
+
+## `AgentViewContext`
+
+- `"current_workspace_id"`
+- `"current_tab_id"`
+
+## `AgentViewSortOrder`
+
+- `"asc"`
+- `"desc"`
+
 ## `ClientWindowTitleReason`
 
 - `"set"`
@@ -31,6 +62,22 @@ description: "Generated Local API enum values."
 - `"applied"`
 - `"partial"`
 - `"failed"`
+
+## `ConnectionAction`
+
+- `"test"`
+- `"connect"`
+- `"disconnect"`
+
+## `ConnectionStatusKind`
+
+- `"disconnected"`
+- `"connecting"`
+- `"connected"`
+- `"reconnecting"`
+- `"disconnecting"`
+- `"authentication_required"`
+- `"unavailable"`
 
 ## `EventKind`
 
@@ -51,6 +98,7 @@ description: "Generated Local API enum values."
 - `"pane_exited"`
 - `"pane_agent_detected"`
 - `"pane_agent_status_changed"`
+- `"connection_status_changed"`
 - `"layout_updated"`
 
 ## `IntegrationTarget`
@@ -184,7 +232,7 @@ description: "Generated Local API enum values."
 - `"pane.agent_status_changed"`
 - `"pane.scroll_changed"`
 
-## `ToastOmhPosition`
+## `ToastPosition`
 
 - `"top-left"`
 - `"top-right"`

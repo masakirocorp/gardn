@@ -1307,10 +1307,9 @@ fn connection_detail_rows(
     if let crate::execution_host::ConnectionStatus::Reconnecting { error } = &status {
         status_text = format!("{status_text} · {error}");
     }
-    let mut rows = vec![
-        SettingsListRow::Header("connection"),
-        SettingsListRow::Caption(format!("{} · {status_text}", profile.name()).into()),
-    ];
+    let mut rows = vec![SettingsListRow::Caption(
+        format!("{} · {status_text}", profile.name()).into(),
+    )];
     use crate::execution_host::ConnectionStatus;
     let (toggle_label, toggle_tone) = match &status {
         ConnectionStatus::Disconnected | ConnectionStatus::AuthenticationRequired => {
@@ -1322,6 +1321,16 @@ fn connection_detail_rows(
         ConnectionStatus::Disconnecting => ("disconnect", SettingsMarkerTone::Disabled),
     };
     rows.push(SettingsListRow::Action {
+        index: ConnectionRowId::Action(ConnectionAction::LaunchWorkspace).selection_index(),
+        icon: "".into(),
+        label: "open workspace".into(),
+        tone: if matches!(status, ConnectionStatus::Connected) {
+            SettingsMarkerTone::Good
+        } else {
+            SettingsMarkerTone::Disabled
+        },
+    });
+    rows.push(SettingsListRow::Action {
         index: ConnectionRowId::Action(ConnectionAction::Toggle).selection_index(),
         icon: "".into(),
         label: toggle_label.into(),
@@ -1332,16 +1341,6 @@ fn connection_detail_rows(
         icon: "".into(),
         label: "test connection".into(),
         tone: SettingsMarkerTone::Accent,
-    });
-    rows.push(SettingsListRow::Action {
-        index: ConnectionRowId::Action(ConnectionAction::LaunchWorkspace).selection_index(),
-        icon: "".into(),
-        label: "open workspace".into(),
-        tone: if matches!(status, ConnectionStatus::Connected) {
-            SettingsMarkerTone::Good
-        } else {
-            SettingsMarkerTone::Disabled
-        },
     });
     rows.push(SettingsListRow::Spacer);
     rows.push(SettingsListRow::Header("details"));
@@ -1363,11 +1362,6 @@ fn connection_detail_rows(
         label: "edit details".into(),
         tone: SettingsMarkerTone::Accent,
     });
-    rows.push(SettingsListRow::Spacer);
-    rows.push(SettingsListRow::Header("execution worker"));
-    rows.push(SettingsListRow::Caption(
-        "Managed automatically when this connection is used.".into(),
-    ));
     let tombstones = app.remote_termination_tombstones_for_profile(profile.id());
     if !tombstones.is_empty() {
         rows.push(SettingsListRow::Spacer);

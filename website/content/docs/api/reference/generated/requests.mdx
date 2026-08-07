@@ -49,6 +49,75 @@ Parameters: `EmptyParams`
 
 No properties.
 
+## `connection.list`
+
+Parameters: `EmptyParams`
+
+No properties.
+
+## `connection.save`
+
+Parameters: `ConnectionSaveParams`
+
+| Property | Type | Required | Description |
+| --- | --- | --- | --- |
+| `name` | `string` | yes |  |
+| `profile_id` | `string` | yes |  |
+| `suggested_directory` | `string \| null` | no |  |
+| `target` | `string` | yes |  |
+
+## `connection.delete`
+
+Parameters: `ConnectionTarget`
+
+| Property | Type | Required | Description |
+| --- | --- | --- | --- |
+| `profile_id` | `string` | yes |  |
+
+## `connection.test`
+
+Parameters: `ConnectionTarget`
+
+| Property | Type | Required | Description |
+| --- | --- | --- | --- |
+| `profile_id` | `string` | yes |  |
+
+## `connection.connect`
+
+Parameters: `ConnectionTarget`
+
+| Property | Type | Required | Description |
+| --- | --- | --- | --- |
+| `profile_id` | `string` | yes |  |
+
+## `connection.disconnect`
+
+Parameters: `ConnectionTarget`
+
+| Property | Type | Required | Description |
+| --- | --- | --- | --- |
+| `profile_id` | `string` | yes |  |
+
+## `connection.retire.start`
+
+Parameters: `ConnectionRetireParams`
+
+| Property | Type | Required | Description |
+| --- | --- | --- | --- |
+| `execution_host_id` | `string` | yes |  |
+| `local_only` | `boolean` | no |  |
+| `profile_id` | `string` | yes |  |
+
+## `connection.retire.status`
+
+Parameters: `ConnectionRetireParams`
+
+| Property | Type | Required | Description |
+| --- | --- | --- | --- |
+| `execution_host_id` | `string` | yes |  |
+| `local_only` | `boolean` | no |  |
+| `profile_id` | `string` | yes |  |
+
 ## `notification.show`
 
 Parameters: `NotificationShowParams`
@@ -56,7 +125,7 @@ Parameters: `NotificationShowParams`
 | Property | Type | Required | Description |
 | --- | --- | --- | --- |
 | `body` | `string \| null` | no |  |
-| `position` | `ToastOmhPosition \| null` | no |  |
+| `position` | `ToastPosition \| null` | no |  |
 | `sound` | `NotificationShowSound` | no |  |
 | `title` | `string` | yes |  |
 
@@ -66,6 +135,7 @@ Parameters: `GroupCreateParams`
 
 | Property | Type | Required | Description |
 | --- | --- | --- | --- |
+| `default_location` | `ResourceLocationParams \| null` | no |  |
 | `name` | `string` | yes |  |
 
 ## `group.list`
@@ -129,6 +199,7 @@ Parameters: `WorkspaceCreateParams`
 | `env` | `object` | no |  |
 | `focus` | `boolean` | no |  |
 | `label` | `string \| null` | no |  |
+| `location` | `ResourceLocationParams \| null` | no |  |
 
 ## `workspace.list`
 
@@ -188,6 +259,7 @@ Parameters: `TabCreateParams`
 | `env` | `object` | no |  |
 | `focus` | `boolean` | no |  |
 | `label` | `string \| null` | no |  |
+| `location` | `ResourceLocationParams \| null` | no |  |
 | `workspace_id` | `string \| null` | no |  |
 
 ## `tab.list`
@@ -265,14 +337,24 @@ Parameters: `AgentTarget`
 | --- | --- | --- | --- |
 | `target` | `string` | yes |  |
 
-## `agent.send`
+## `agent.send_keys`
 
-Parameters: `AgentSendParams`
+Parameters: `AgentSendKeysParams`
+
+| Property | Type | Required | Description |
+| --- | --- | --- | --- |
+| `keys` | `string[]` | yes |  |
+| `target` | `string` | yes |  |
+
+## `agent.prompt`
+
+Parameters: `AgentPromptParams`
 
 | Property | Type | Required | Description |
 | --- | --- | --- | --- |
 | `target` | `string` | yes |  |
 | `text` | `string` | yes |  |
+| `wait` | `AgentPromptWaitOptions \| null` | no |  |
 
 ## `agent.rename`
 
@@ -282,6 +364,25 @@ Parameters: `AgentRenameParams`
 | --- | --- | --- | --- |
 | `name` | `string \| null` | no |  |
 | `target` | `string` | yes |  |
+
+## `agent.view.set`
+
+Parameters: `AgentViewSetParams`
+
+| Property | Type | Required | Description |
+| --- | --- | --- | --- |
+| `filter` | `AgentViewFilter \| null` | no |  |
+| `label` | `string \| null` | no |  |
+| `sort` | `AgentViewSort[]` | no |  |
+| `source` | `string` | yes |  |
+
+## `agent.view.clear`
+
+Parameters: `AgentViewClearParams`
+
+| Property | Type | Required | Description |
+| --- | --- | --- | --- |
+| `source` | `string \| null` | no |  |
 
 ## `agent.focus`
 
@@ -301,10 +402,21 @@ Parameters: `AgentStartParams`
 | `cwd` | `string \| null` | no |  |
 | `env` | `object` | no |  |
 | `focus` | `boolean` | no |  |
+| `location` | `ResourceLocationParams \| null` | no |  |
 | `name` | `string` | yes |  |
 | `split` | `SplitDirection \| null` | no |  |
 | `tab_id` | `string \| null` | no |  |
 | `workspace_id` | `string \| null` | no |  |
+
+## `agent.wait`
+
+Parameters: `AgentWaitParams`
+
+| Property | Type | Required | Description |
+| --- | --- | --- | --- |
+| `target` | `string` | yes |  |
+| `timeout_ms` | `integer \| null` | no |  |
+| `until` | `AgentStatus[]` | no |  |
 
 ## `pane.split`
 
@@ -316,6 +428,7 @@ Parameters: `PaneSplitParams`
 | `direction` | `SplitDirection` | yes |  |
 | `env` | `object` | no |  |
 | `focus` | `boolean` | no |  |
+| `location` | `ResourceLocationParams \| null` | no |  |
 | `ratio` | `number \| null` | no |  |
 | `target_pane_id` | `string \| null` | no |  |
 | `workspace_id` | `string \| null` | no |  |
@@ -738,6 +851,54 @@ Parameters: `PluginPaneCloseParams`
 
 ## Data types
 
+### `AgentPromptWaitOptions`
+
+| Property | Type | Required | Description |
+| --- | --- | --- | --- |
+| `timeout_ms` | `integer \| null` | no |  |
+| `until` | `AgentStatus[]` | no |  |
+
+### `AgentViewField`
+
+Variants:
+
+- `AgentViewBuiltinField`
+- `object`
+
+### `AgentViewFilter`
+
+Variants:
+
+- `object`
+- `object`
+- `object`
+- `object`
+- `object`
+- `object`
+
+### `AgentViewSort`
+
+| Property | Type | Required | Description |
+| --- | --- | --- | --- |
+| `field` | `AgentViewSortField` | yes |  |
+| `order` | `AgentViewSortOrder` | no |  |
+
+### `AgentViewSortField`
+
+Variants:
+
+- `AgentViewBuiltinSortField`
+- `object`
+
+### `AgentViewValue`
+
+Variants:
+
+- `string`
+- `boolean`
+- `integer`
+- `object`
+
 ### `EventMatch`
 
 Variants:
@@ -814,6 +975,13 @@ Variants:
 | `resolved_commit` | `string \| null` | no |  |
 | `subdir` | `string \| null` | no |  |
 
+### `ResourceLocationParams`
+
+| Property | Type | Required | Description |
+| --- | --- | --- | --- |
+| `execution_host_id` | `string` | yes |  |
+| `path` | `string` | yes |  |
+
 ### `Subscription`
 
 Variants:
@@ -837,3 +1005,4 @@ Variants:
 - `pane.agent_status_changed`
 - `pane.scroll_changed`
 - `layout.updated`
+- `connection.status_changed`

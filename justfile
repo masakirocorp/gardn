@@ -10,6 +10,10 @@ build-libghostty-vt:
 install-local:
     scripts/install_local_binaries.sh
 
+# Build and atomically install omh-dev with matching Linux workers
+install-dev:
+    scripts/install_local_binaries.sh --dev-only
+
 # Create a merge-commit PR for upstream Herdr changes
 sync-upstream:
     python3 scripts/sync_upstream.py

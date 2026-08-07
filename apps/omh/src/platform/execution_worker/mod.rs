@@ -96,6 +96,16 @@ pub(crate) fn run(args: &[String]) -> io::Result<()> {
     }
     if args.iter().any(|arg| arg == "--retire") {
         let (installation, execution_host) = parse_owner_filters(args, "--retire")?;
+        let inventory = inventory_owned_bindings(&installation, &execution_host)?;
+        let mut shutdown_errors = Vec::new();
+        for entry in inventory.bindings.iter().filter(|entry| entry.lock_live) {
+            if let Err(error) = lifecycle::shutdown_owned_binding(entry) {
+                if error.kind() != io::ErrorKind::ResourceBusy {
+                    return Err(error);
+                }
+                shutdown_errors.push(error.to_string());
+            }
+        }
         let report = retire_owned_bindings(&installation, &execution_host)?;
         println!(
             "{}",
@@ -105,8 +115,9 @@ pub(crate) fn run(args: &[String]) -> io::Result<()> {
             return Err(io::Error::new(
                 io::ErrorKind::ResourceBusy,
                 format!(
-                    "refusing to retire {} live execution-worker binding(s)",
-                    report.blocked_bindings.len()
+                    "refusing to retire {} live execution-worker binding(s): {}",
+                    report.blocked_bindings.len(),
+                    shutdown_errors.join("; ")
                 ),
             ));
         }

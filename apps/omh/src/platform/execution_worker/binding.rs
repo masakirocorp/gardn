@@ -9,7 +9,9 @@ use crate::execution_host::protocol::{
     validate_first_coordinator_message, CoordinatorInstallationId, CoordinatorMessage,
     HostBindingGeneration, SessionNamespaceId, WorkerInstanceId, PROTOCOL_VERSION,
 };
-use crate::execution_host::runtime_paths::{BindingOwnershipManifest, WorkerRolePaths};
+use crate::execution_host::runtime_paths::{
+    BindingOwnershipManifest, OwnedBindingInventoryEntry, WorkerRolePaths,
+};
 use crate::execution_host::ExecutionHostId;
 
 use super::util::{required, WORKER_APP_VERSION};
@@ -135,6 +137,45 @@ impl DaemonBinding {
         };
         binding.write_ownership_manifest()?;
         Ok(binding)
+    }
+
+    pub(super) fn from_inventory_entry(entry: &OwnedBindingInventoryEntry) -> io::Result<Self> {
+        let installation_id =
+            CoordinatorInstallationId::new(&entry.ownership.coordinator_installation_id)
+                .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error.to_string()))?;
+        let session_namespace_id =
+            SessionNamespaceId::new(&entry.ownership.session_namespace_id)
+                .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error.to_string()))?;
+        let execution_host_id = ExecutionHostId::new(&entry.ownership.execution_host_id)
+            .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error.to_string()))?;
+        let host_binding_generation =
+            HostBindingGeneration::new(entry.ownership.host_binding_generation);
+        let worker_instance_id = WorkerInstanceId::new(&entry.ownership.worker_instance_id)
+            .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error.to_string()))?;
+        let role_paths = WorkerRolePaths::for_binding(
+            &installation_id,
+            &session_namespace_id,
+            &execution_host_id,
+            host_binding_generation,
+        );
+        let socket_path = role_paths.socket_path();
+        if role_paths.ownership_manifest_path().parent()
+            != Some(PathBuf::from(&entry.binding_root).as_path())
+            || socket_path.parent() != Some(PathBuf::from(&entry.runtime_dir).as_path())
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "owned worker binding paths do not match its identity",
+            ));
+        }
+        Ok(Self {
+            installation_id,
+            session_namespace_id,
+            execution_host_id,
+            host_binding_generation,
+            worker_instance_id,
+            socket_path,
+        })
     }
 
     pub(super) fn daemon_args(&self) -> Vec<String> {
