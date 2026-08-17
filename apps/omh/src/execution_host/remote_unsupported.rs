@@ -127,6 +127,14 @@ impl SshExecutionHost {
         self.pending_diagnostic = false;
     }
 
+    pub(crate) fn begin_retirement(&mut self) {
+        self.pending_diagnostic = false;
+    }
+
+    pub(crate) fn cancel_retirement(&mut self) {
+        self.pending_diagnostic = true;
+    }
+
     pub(crate) fn poll(&mut self, _now: Instant) -> Vec<SshExecutionHostEvent> {
         if std::mem::take(&mut self.pending_diagnostic) {
             vec![SshExecutionHostEvent::Diagnostic(
