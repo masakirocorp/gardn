@@ -3164,9 +3164,14 @@ impl App {
         profile_id: &str,
         result: &Result<crate::app::state::ConnectionRetirementPreview, String>,
     ) -> bool {
-        self.apply_connection_editor_to_owner(owner, |editor| {
+        let changed = self.apply_connection_editor_to_owner(owner, |editor| {
             editor.apply_retirement_preview(profile_id, result)
-        })
+        });
+        if changed {
+            self.default_client_view.settings.scroll = usize::MAX;
+            self.state.settings.scroll = usize::MAX;
+        }
+        changed
     }
 
     pub(crate) fn apply_connection_retirement_started_for_owner(
@@ -3249,11 +3254,15 @@ impl App {
         if client_view.id() != owner.client_view_id() {
             return false;
         }
-        client_view
+        let changed = client_view
             .settings
             .connection_editor
             .as_mut()
-            .is_some_and(|editor| editor.apply_retirement_preview(profile_id, result))
+            .is_some_and(|editor| editor.apply_retirement_preview(profile_id, result));
+        if changed {
+            client_view.settings.scroll = usize::MAX;
+        }
+        changed
     }
 
     pub(crate) fn apply_connection_retirement_started_to_view(
@@ -3307,9 +3316,9 @@ impl App {
                 settings.focused_input = None;
             }
             Err(error) => {
-                editor.connection_retirement = Some(
-                    crate::app::state::ConnectionRetirementState::Failed(error.clone()),
-                );
+                tracing::warn!(profile_id, %error, "connection retirement failed");
+                editor.connection_retirement =
+                    Some(crate::app::state::ConnectionRetirementState::Failed);
             }
         }
         true
@@ -3365,46 +3374,6 @@ impl App {
                     }
                 }
                 self.retire_connection_for(owner, profile_id, preview);
-            }
-            input::SettingsAction::RequestLocalConnectionForget { profile_id } => {
-                let reason = client_view
-                    .settings
-                    .connection_editor
-                    .as_ref()
-                    .and_then(|editor| match editor.connection_retirement.as_ref() {
-                        Some(crate::app::state::ConnectionRetirementState::Failed(error)) => {
-                            Some(error.clone())
-                        }
-                        _ => None,
-                    })
-                    .unwrap_or_else(|| "remote cleanup is unavailable".to_string());
-                let plan = self
-                    .state
-                    .ssh_connection_profiles
-                    .iter()
-                    .find(|profile| profile.id() == profile_id)
-                    .ok_or_else(|| "connection profile no longer exists".to_string())
-                    .and_then(|profile| {
-                        crate::execution_host::connection_retirement::plan_connection_retirement(
-                            &profile.execution_host_id(),
-                        )
-                        .map_err(|error| error.to_string())
-                    });
-                if let Some(editor) = client_view.settings.connection_editor.as_mut() {
-                    if editor.profile_id() == Some(profile_id.as_str()) {
-                        editor.connection_retirement = Some(match plan {
-                            Ok(plan) => {
-                                crate::app::state::ConnectionRetirementState::LocalForgetReview {
-                                    plan,
-                                    reason,
-                                }
-                            }
-                            Err(error) => {
-                                crate::app::state::ConnectionRetirementState::Failed(error)
-                            }
-                        });
-                    }
-                }
             }
             input::SettingsAction::ConfirmLocalConnectionForget { profile_id, plan } => {
                 if let Some(editor) = client_view.settings.connection_editor.as_mut() {
@@ -19538,6 +19507,38 @@ command = "printf literal > '{}'"
                 .as_ref()
                 .and_then(|editor| editor.connection_retirement.as_ref()),
             Some(state::ConnectionRetirementState::InventoryPending)
+        ));
+    }
+    #[test]
+    fn retirement_preview_completion_scrolls_client_to_result() {
+        let app = test_app();
+        let mut client = ClientViewState::from_default_client_state(&app.state);
+        client.settings.section = state::SettingsSection::Connections;
+        client.settings.connection_editor = Some(state::ConnectionEditorState::detail_profile(
+            "build-box",
+            "build box",
+            "builder@example.com",
+            "~/src",
+        ));
+        client.settings.scroll = 0;
+        let owner = crate::execution_host::auth::AuthenticationOwner::new(client.id());
+
+        let changed = App::apply_connection_retirement_previewed_to_view(
+            &mut client,
+            owner,
+            "build-box",
+            &Err("remote host unavailable".to_string()),
+        );
+
+        assert!(changed);
+        assert_eq!(client.settings.scroll, usize::MAX);
+        assert!(matches!(
+            client
+                .settings
+                .connection_editor
+                .as_ref()
+                .and_then(|editor| editor.connection_retirement.as_ref()),
+            Some(state::ConnectionRetirementState::Failed)
         ));
     }
 

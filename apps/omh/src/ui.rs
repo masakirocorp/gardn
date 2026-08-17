@@ -1567,9 +1567,6 @@ pub fn render_with_runtime_registry(
     }
     render_context_bar(app, &app.view.context_bar, frame);
 
-    // Ambient notifications sit above panes, but below interactive overlays.
-    render_notifications(app, frame, terminal_area);
-
     match app.mode {
         Mode::Onboarding => render_onboarding_overlay(app, frame, frame.area()),
         Mode::ReleaseNotes => render_release_notes_overlay(app, frame, frame.area()),
@@ -1601,6 +1598,8 @@ pub fn render_with_runtime_registry(
         Mode::ConfigDiagnostics => render_config_diagnostics_overlay(app, frame),
         Mode::Terminal => {}
     }
+    // Notifications remain legible above interactive overlays.
+    render_notifications(app, frame, terminal_area);
 }
 
 pub fn render_with_runtime_registry_for_view(
@@ -1663,8 +1662,6 @@ pub fn render_with_runtime_registry_for_view(
     }
     render_context_bar(app, &client_view.computed.context_bar, frame);
 
-    render_notifications_for_view(app, client_view, frame, terminal_area);
-
     match client_view.mode {
         Mode::Onboarding => render_onboarding_overlay(app, frame, frame.area()),
         Mode::ReleaseNotes => {
@@ -1712,6 +1709,7 @@ pub fn render_with_runtime_registry_for_view(
         }
         Mode::Terminal => {}
     }
+    render_notifications_for_view(app, client_view, frame, terminal_area);
     if client_view.popup_pane.is_some() {
         render_popup_pane_for_view(app, client_view, terminal_runtimes, frame, frame.area());
     }
@@ -1894,6 +1892,47 @@ mod tests {
         let large = small.clone();
         let terminal_runtimes = TerminalRuntimeRegistry::new();
         (app, small, large, terminal_runtimes)
+    }
+
+    #[test]
+    fn settings_modal_keeps_toast_in_foreground() {
+        let mut app = crate::app::state::AppState::test_new();
+        app.toast = Some(crate::app::state::ToastNotification {
+            kind: crate::app::state::ToastKind::NeedsAttention,
+            title: "SSH connection test".to_string(),
+            context: "execution worker setup is required".to_string(),
+            position: Some(crate::config::ToastOmhPosition::BottomLeft),
+            target: None,
+        });
+        let area = Rect::new(0, 0, 100, 30);
+        let terminal_runtimes = TerminalRuntimeRegistry::new();
+        let mut client_view = ClientViewState::from_default_client_state(&app);
+        client_view.mode = Mode::Settings;
+        compute_view_for_client_without_resizing_panes(
+            &app,
+            &mut client_view,
+            &terminal_runtimes,
+            area,
+        );
+        let mut terminal =
+            Terminal::new(TestBackend::new(area.width, area.height)).expect("test terminal");
+
+        terminal
+            .draw(|frame| {
+                render_with_runtime_registry_for_view(&app, &client_view, &terminal_runtimes, frame)
+            })
+            .expect("render attached-client settings with toast");
+
+        let toast = app.toast.as_ref().expect("toast");
+        let toast_area =
+            toast_notification_rect(area, toast, crate::config::ToastOmhPosition::BottomLeft);
+        assert!(
+            !terminal.backend().buffer()[(toast_area.x, toast_area.y)]
+                .style()
+                .add_modifier
+                .contains(Modifier::DIM),
+            "toast must remain legible above the settings modal"
+        );
     }
 
     fn pane_geometry(view: &ClientViewState) -> Vec<(crate::layout::PaneId, Rect, Rect, bool)> {

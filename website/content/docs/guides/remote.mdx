@@ -93,14 +93,14 @@ The selected execution worker performs the inspection and mutation on that host.
 
 Remove a saved connection from **Settings > Connections**:
 
-1. Open the connection and select **Remove connection and managed worker**.
+1. Open the connection and select **Remove connection**.
 2. Wait while Oh My Herdr inventories every named session and owned worker binding. No resource changes during inventory.
 3. Review the listed Group defaults, Workspace defaults, panes, pending terminations, and worker processes.
 4. Confirm the removal. Oh My Herdr blocks new work on the host, closes remote panes, moves affected Workspace defaults to the displayed Local directory, removes owned worker bindings, and deletes the profile only after every session is clear.
 
 Removal progress is journaled. If the app stops, the next server start resumes the approved removal before it accepts new work for that host. Unrelated remote processes and standalone Oh My Herdr sessions are not removed.
 
-If remote inventory is unavailable, the UI offers a separate two-step local-only forget. Use it only when you accept that remote processes and worker files can remain. It removes local profile and placement state but does not claim remote cleanup.
+If full cleanup is unavailable, the failure screen warns that remote processes or worker files might remain. Select **Remove saved connection** to delete the local profile and placement state without claiming remote cleanup. Select **Try again** to retry full cleanup, or **Cancel** to leave the connection unchanged.
 
 The Local API exposes per-session retirement primitives for automation. See [`connection.retire.start` and `connection.retire.status`](/docs/api/reference/extensions-and-control#connectionretirestart-and-connectionretirestatus). The CLI `connection delete` command removes only an unreferenced profile; it does not perform the cross-session retirement workflow.
 

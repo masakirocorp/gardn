@@ -561,19 +561,48 @@ impl App {
     }
 
     pub(crate) fn sync_animation_timer(&mut self, now: Instant) {
-        self.sync_animation_timer_with_interval(now, ANIMATION_INTERVAL);
+        self.sync_animation_timer_with_interval(now, ANIMATION_INTERVAL, false);
     }
 
-    pub(crate) fn sync_headless_animation_timer(&mut self, now: Instant) {
-        self.sync_animation_timer_with_interval(now, crate::app::HEADLESS_ANIMATION_INTERVAL);
+    pub(crate) fn sync_headless_animation_timer(
+        &mut self,
+        now: Instant,
+        client_view_has_animation: bool,
+    ) {
+        self.sync_animation_timer_with_interval(
+            now,
+            crate::app::HEADLESS_ANIMATION_INTERVAL,
+            client_view_has_animation,
+        );
     }
 
-    fn sync_animation_timer_with_interval(&mut self, now: Instant, interval: Duration) {
-        if self.agent_panel_has_animation() {
+    fn sync_animation_timer_with_interval(
+        &mut self,
+        now: Instant,
+        interval: Duration,
+        client_view_has_animation: bool,
+    ) {
+        if client_view_has_animation || self.has_local_animation() {
             self.next_animation_tick.get_or_insert(now + interval);
         } else {
             self.next_animation_tick = None;
         }
+    }
+
+    fn has_local_animation(&self) -> bool {
+        self.agent_panel_has_animation()
+            || self
+                .state
+                .settings
+                .connection_editor
+                .as_ref()
+                .is_some_and(crate::app::state::ConnectionEditorState::retirement_in_progress)
+            || self
+                .default_client_view
+                .settings
+                .connection_editor
+                .as_ref()
+                .is_some_and(crate::app::state::ConnectionEditorState::retirement_in_progress)
     }
 
     fn agent_panel_has_animation(&self) -> bool {

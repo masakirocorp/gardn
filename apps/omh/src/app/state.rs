@@ -2792,11 +2792,7 @@ pub enum ConnectionRetirementState {
     InventoryPending,
     Review(ConnectionRetirementPreview),
     Running(ConnectionRetirementPreview),
-    Failed(String),
-    LocalForgetReview {
-        plan: crate::execution_host::connection_retirement::ConnectionRetirementPlan,
-        reason: String,
-    },
+    Failed,
     LocalForgetRunning,
 }
 
@@ -2871,6 +2867,17 @@ impl ConnectionEditorState {
         matches!(self.mode, ConnectionEditorMode::Edit { .. })
     }
 
+    pub(crate) fn retirement_in_progress(&self) -> bool {
+        matches!(
+            self.connection_retirement,
+            Some(
+                ConnectionRetirementState::InventoryPending
+                    | ConnectionRetirementState::Running(_)
+                    | ConnectionRetirementState::LocalForgetRunning
+            )
+        )
+    }
+
     pub fn start_editing(&mut self) -> bool {
         let ConnectionEditorMode::Detail { profile_id } = &self.mode else {
             return false;
@@ -2901,7 +2908,7 @@ impl ConnectionEditorState {
         }
         self.connection_retirement = Some(match result {
             Ok(preview) => ConnectionRetirementState::Review(preview.clone()),
-            Err(error) => ConnectionRetirementState::Failed(error.clone()),
+            Err(_) => ConnectionRetirementState::Failed,
         });
         true
     }

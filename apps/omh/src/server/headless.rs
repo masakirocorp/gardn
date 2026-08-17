@@ -377,7 +377,7 @@ impl HeadlessServer {
             self.drain_client_config_reload_request();
             self.stream_host_mouse_capture_mode();
 
-            self.app.sync_headless_animation_timer(now);
+            self.sync_animation_timer(now);
 
             // 7. Render virtually and stream frames.
             if needs_render && self.app.can_render_now(now) {
@@ -3520,7 +3520,7 @@ impl HeadlessServer {
     fn handle_scheduled_tasks_headless(&mut self, now: Instant, geometry_dirty: bool) -> bool {
         let mut changed = false;
 
-        self.app.sync_headless_animation_timer(now);
+        self.sync_animation_timer(now);
 
         // No resize polling needed — server has no terminal.
         // Client resize messages drive size changes instead.
@@ -3670,8 +3670,20 @@ impl HeadlessServer {
                 .start_pending_agent_resumes(self.app.pending_agent_resume_due(now));
         }
 
-        self.app.sync_headless_animation_timer(now);
+        self.sync_animation_timer(now);
         changed
+    }
+
+    fn sync_animation_timer(&mut self, now: Instant) {
+        let client_view_has_animation = self.clients.values().any(|client| {
+            client
+                .view_state
+                .as_ref()
+                .and_then(|view| view.settings.connection_editor.as_ref())
+                .is_some_and(crate::app::state::ConnectionEditorState::retirement_in_progress)
+        });
+        self.app
+            .sync_headless_animation_timer(now, client_view_has_animation);
     }
 
     /// Initiates graceful shutdown.

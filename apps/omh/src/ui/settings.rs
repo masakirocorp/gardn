@@ -2383,6 +2383,124 @@ mod tests {
     }
 
     #[test]
+    fn failed_connection_removal_renders_plain_language_choices() {
+        let mut app = AppState::test_new();
+        app.ssh_connection_profiles.push(
+            crate::persist::ssh_profiles::SshConnectionProfile::new(
+                "robotbox",
+                "Robotbox",
+                "robotbox",
+                Some(
+                    crate::execution_host::HostPath::new("/home/charlie/projects")
+                        .expect("valid host path"),
+                ),
+            )
+            .expect("valid SSH profile"),
+        );
+        let mut client_view = crate::app::ClientViewState::from_default_client_state(&app);
+        client_view.settings.section = SettingsSection::Connections;
+        client_view.settings.connection_editor =
+            Some(crate::app::state::ConnectionEditorState::detail_profile(
+                "robotbox",
+                "Robotbox",
+                "robotbox",
+                "/home/charlie/projects",
+            ));
+        client_view
+            .settings
+            .connection_editor
+            .as_mut()
+            .expect("connection editor")
+            .connection_retirement = Some(crate::app::state::ConnectionRetirementState::Failed);
+        client_view.settings.list.show();
+        client_view.settings.scroll = 10;
+
+        let area = Rect::new(0, 0, 100, 40);
+        let backend = TestBackend::new(area.width, area.height);
+        let mut terminal = Terminal::new(backend).expect("test backend");
+        terminal
+            .draw(|frame| render_settings_overlay_for_view(&app, &client_view, frame, area))
+            .expect("render connection failure");
+
+        let text = buffer_text(terminal.backend().buffer(), area.width, area.height);
+        assert!(
+            text.contains("Full cleanup is unavailable for Robotbox."),
+            "{text}"
+        );
+        assert!(
+            text.contains("Processes or worker files on that machine might remain."),
+            "{text}"
+        );
+        assert!(
+            text.contains("Remove the saved connection anyway?"),
+            "{text}"
+        );
+        assert!(text.contains("remove saved connection"), "{text}");
+        assert!(text.contains("try again"), "{text}");
+        assert!(text.contains("cancel"), "{text}");
+        assert!(!text.contains("remote host unavailable"), "{text}");
+        assert!(!text.contains("inventory"), "{text}");
+        assert!(!text.contains("local-only forget"), "{text}");
+    }
+
+    #[test]
+    fn connection_removal_check_renders_animated_progress() {
+        let mut app = AppState::test_new();
+        app.ssh_connection_profiles.push(
+            crate::persist::ssh_profiles::SshConnectionProfile::new(
+                "robotbox",
+                "Robotbox",
+                "robotbox",
+                Some(
+                    crate::execution_host::HostPath::new("/home/charlie/projects")
+                        .expect("valid host path"),
+                ),
+            )
+            .expect("valid SSH profile"),
+        );
+        let mut client_view = crate::app::ClientViewState::from_default_client_state(&app);
+        client_view.settings.section = SettingsSection::Connections;
+        client_view.settings.connection_editor =
+            Some(crate::app::state::ConnectionEditorState::detail_profile(
+                "robotbox",
+                "Robotbox",
+                "robotbox",
+                "/home/charlie/projects",
+            ));
+        client_view
+            .settings
+            .connection_editor
+            .as_mut()
+            .expect("connection editor")
+            .connection_retirement =
+            Some(crate::app::state::ConnectionRetirementState::InventoryPending);
+        client_view.settings.scroll = 10;
+
+        let area = Rect::new(0, 0, 100, 40);
+        let backend = TestBackend::new(area.width, area.height);
+        let mut terminal = Terminal::new(backend).expect("test backend");
+        terminal
+            .draw(|frame| render_settings_overlay_for_view(&app, &client_view, frame, area))
+            .expect("render first cleanup progress frame");
+        let first_frame = buffer_text(terminal.backend().buffer(), area.width, area.height);
+
+        app.spinner_tick = 8;
+        terminal
+            .draw(|frame| render_settings_overlay_for_view(&app, &client_view, frame, area))
+            .expect("render second cleanup progress frame");
+        let second_frame = buffer_text(terminal.backend().buffer(), area.width, area.height);
+
+        assert!(
+            first_frame.contains("⠋ checking removal impact..."),
+            "{first_frame}"
+        );
+        assert!(
+            second_frame.contains("⠙ checking removal impact..."),
+            "{second_frame}"
+        );
+    }
+
+    #[test]
     fn group_profile_settings_renders_profile_sections_without_filters() {
         let mut app = AppState::test_new();
         let group_idx = app.create_group("Work".to_string());

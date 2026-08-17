@@ -1406,15 +1406,44 @@ fn connection_detail_rows(
     }
     rows.push(SettingsListRow::Spacer);
     rows.push(SettingsListRow::Header("danger zone"));
+    if matches!(
+        editor.connection_retirement,
+        Some(crate::app::state::ConnectionRetirementState::Failed)
+    ) {
+        rows.extend(connection_retirement_preview_rows(editor));
+        rows.push(SettingsListRow::Action {
+            index: ConnectionRowId::Action(ConnectionAction::ForgetConnection).selection_index(),
+            icon: "×".into(),
+            label: "remove saved connection".into(),
+            tone: SettingsMarkerTone::Danger,
+        });
+        rows.push(SettingsListRow::Action {
+            index: ConnectionRowId::Action(ConnectionAction::Delete).selection_index(),
+            icon: "↻".into(),
+            label: "try again".into(),
+            tone: SettingsMarkerTone::Accent,
+        });
+        rows.push(SettingsListRow::Action {
+            index: ConnectionRowId::Action(ConnectionAction::Discard).selection_index(),
+            icon: "".into(),
+            label: "cancel".into(),
+            tone: SettingsMarkerTone::Accent,
+        });
+        return rows;
+    }
     rows.push(SettingsListRow::Caption(
         "Review affected sessions and managed workers before removal.".into(),
     ));
+    let delete_icon = if editor.retirement_in_progress() {
+        crate::ui::spinner_frame(app.spinner_tick)
+    } else {
+        "×"
+    };
     let (delete_label, delete_tone) = match editor.connection_retirement.as_ref() {
         None => ("remove connection", SettingsMarkerTone::Danger),
-        Some(crate::app::state::ConnectionRetirementState::InventoryPending) => (
-            "inventorying removal impact...",
-            SettingsMarkerTone::Disabled,
-        ),
+        Some(crate::app::state::ConnectionRetirementState::InventoryPending) => {
+            ("checking removal impact...", SettingsMarkerTone::Disabled)
+        }
         Some(crate::app::state::ConnectionRetirementState::Review(_)) => (
             "confirm stop managed work and remove connection",
             SettingsMarkerTone::Danger,
@@ -1422,43 +1451,18 @@ fn connection_detail_rows(
         Some(crate::app::state::ConnectionRetirementState::Running(_)) => {
             ("removing connection...", SettingsMarkerTone::Disabled)
         }
-        Some(crate::app::state::ConnectionRetirementState::Failed(_)) => {
-            ("retry removal inventory", SettingsMarkerTone::Danger)
+        Some(crate::app::state::ConnectionRetirementState::LocalForgetRunning) => {
+            ("removing saved connection...", SettingsMarkerTone::Disabled)
         }
-        Some(crate::app::state::ConnectionRetirementState::LocalForgetReview { .. }) => {
-            ("retry full removal inventory", SettingsMarkerTone::Danger)
-        }
-        Some(crate::app::state::ConnectionRetirementState::LocalForgetRunning) => (
-            "forgetting local connection state...",
-            SettingsMarkerTone::Disabled,
-        ),
+        Some(crate::app::state::ConnectionRetirementState::Failed) => unreachable!(),
     };
     rows.push(SettingsListRow::Action {
         index: ConnectionRowId::Action(ConnectionAction::Delete).selection_index(),
-        icon: "×".into(),
+        icon: delete_icon.into(),
         label: delete_label.into(),
         tone: delete_tone,
     });
     rows.extend(connection_retirement_preview_rows(editor));
-    if matches!(
-        editor.connection_retirement,
-        Some(crate::app::state::ConnectionRetirementState::Failed(_))
-            | Some(crate::app::state::ConnectionRetirementState::LocalForgetReview { .. })
-    ) {
-        rows.push(SettingsListRow::Action {
-            index: ConnectionRowId::Action(ConnectionAction::ForgetConnection).selection_index(),
-            icon: "×".into(),
-            label: if matches!(
-                editor.connection_retirement,
-                Some(crate::app::state::ConnectionRetirementState::LocalForgetReview { .. })
-            ) {
-                "confirm forget local state without remote cleanup".into()
-            } else {
-                "review local-only forget".into()
-            },
-            tone: SettingsMarkerTone::Danger,
-        });
-    }
     rows
 }
 
@@ -1475,34 +1479,27 @@ fn connection_retirement_preview_rows(
             "Checking every session and managed worker binding. No resources have changed.".into(),
         )];
     }
-    if let ConnectionRetirementState::Failed(error) = state {
+    if matches!(state, ConnectionRetirementState::Failed) {
+        let connection_name = if editor.draft.name.trim().is_empty() {
+            editor.draft.target.trim()
+        } else {
+            editor.draft.name.trim()
+        };
         return vec![
-            SettingsListRow::Caption(format!("Removal inventory failed safely: {error}").into()),
             SettingsListRow::Caption(
-                "Local-only forget does not stop remote processes or remove managed worker files."
-                    .into(),
+                format!("Full cleanup is unavailable for {connection_name}.").into(),
             ),
+            SettingsListRow::Caption(
+                "Processes or worker files on that machine might remain.".into(),
+            ),
+            SettingsListRow::Caption("Remove the saved connection anyway?".into()),
         ];
-    }
-    if let ConnectionRetirementState::LocalForgetReview { plan, reason } = state {
-        let mut rows = vec![
-            SettingsListRow::Caption(
-                format!("Remote cleanup is unavailable: {reason}").into(),
-            ),
-            SettingsListRow::Caption(
-                "Review local effects. Confirmation does not stop remote processes or remove managed worker files."
-                    .into(),
-            ),
-        ];
-        rows.extend(connection_retirement_plan_rows(plan));
-        return rows;
     }
     let (preview, running) = match state {
         ConnectionRetirementState::Review(preview) => (preview, false),
         ConnectionRetirementState::Running(preview) => (preview, true),
         ConnectionRetirementState::InventoryPending
-        | ConnectionRetirementState::Failed(_)
-        | ConnectionRetirementState::LocalForgetReview { .. }
+        | ConnectionRetirementState::Failed
         | ConnectionRetirementState::LocalForgetRunning => unreachable!(),
     };
 

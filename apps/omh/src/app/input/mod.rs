@@ -748,7 +748,6 @@ impl App {
                     }
                     action @ (SettingsAction::PreviewSshConnectionRetirement(_)
                     | SettingsAction::ConfirmSshConnectionRetirement { .. }
-                    | SettingsAction::RequestLocalConnectionForget { .. }
                     | SettingsAction::ConfirmLocalConnectionForget { .. }) => {
                         self.apply_settings_action(action)
                     }

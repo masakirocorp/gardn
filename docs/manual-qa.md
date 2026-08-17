@@ -114,7 +114,7 @@ Pass when state matches the visible agent, identity remains stable, restore work
 5. Save the same host in **Settings > Connections**. Connect without a manual worker install and verify that Oh My Herdr installs the current managed worker.
 6. Keep a remote terminal active, connect with a newer compatible worker version, and verify that the active runtime is not interrupted. End the runtime and verify that the deferred worker update activates.
 7. Reference the connection from two named local sessions. Start removal, verify that inventory lists both sessions and owned bindings, then confirm. Interrupt one removal after approval and restart the server to verify journal recovery.
-8. Repeat with the remote host unavailable. Verify that full removal fails closed and that the separate two-step local-only forget states that remote processes and files can remain.
+8. Repeat with the remote host unavailable. Verify that full removal fails closed. Verify that the failure screen identifies the connection, warns that remote processes or files might remain, and offers **Remove saved connection**, **Try again**, and **Cancel**.
 
 Pass when prompts are accurate, transport loss does not lose workloads, updates do not interrupt compatible live runtimes, retirement removes only Oh My Herdr-owned state, and an approved partial retirement resumes after restart.
 
