@@ -171,6 +171,12 @@ def read_until(predicate, timeout, label, start=0):
         if predicate(screen):
             return screen
         if proc.poll() is not None and not readable:
+            final_readable, _, _ = select.select([master], [], [], 0.1)
+            if final_readable:
+                try:
+                    raw.extend(os.read(master, 65536))
+                except OSError:
+                    pass
             break
     screen = clean(bytes(raw[start:]))
     raise RuntimeError(f"timed out waiting for {label}; process={proc.poll()} tail={screen[-2000:]!r}")
