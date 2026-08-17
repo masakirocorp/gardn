@@ -262,6 +262,9 @@ pub(super) fn handle_request(
             request,
         } => spawn_integration_job(state, request_id, request, job_tx, stream)?,
         CoordinatorMessage::Shutdown { request_id } => {
+            // Reconcile exits that were queued after the retirement preflight.
+            // Shutdown must decide from current ownership, not stale runtime records.
+            super::terminal::flush_state_events(state, stream)?;
             return handle_shutdown(state, stream, request_id);
         }
     }

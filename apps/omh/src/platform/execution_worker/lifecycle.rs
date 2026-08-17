@@ -323,26 +323,25 @@ pub(super) fn shutdown_owned_binding(
             let request_id = RequestId::new(1);
             write_worker_message(&mut stream, &CoordinatorMessage::Shutdown { request_id })
                 .map_err(framing_io)?;
-            let shutdown_ack: WorkerMessage =
-                read_worker_message(&mut stream).map_err(framing_io)?;
-            match shutdown_ack {
-                WorkerMessage::RequestAck {
-                    request_id: ack_id,
-                    error: None,
-                } if ack_id == request_id => {
-                    drop(stream);
-                    wait_for_lock_release(&binding.role_paths().lock_path(), deadline)
+            loop {
+                match read_worker_message::<_, WorkerMessage>(&mut stream).map_err(framing_io)? {
+                    WorkerMessage::RequestAck {
+                        request_id: ack_id,
+                        error: None,
+                    } if ack_id == request_id => {
+                        drop(stream);
+                        break wait_for_lock_release(&binding.role_paths().lock_path(), deadline);
+                    }
+                    WorkerMessage::RequestAck {
+                        request_id: ack_id,
+                        error: Some(error),
+                    } if ack_id == request_id => {
+                        break Err(io::Error::new(io::ErrorKind::ResourceBusy, error.message));
+                    }
+                    // Runtime events can race the shutdown request. The daemon
+                    // emits them before the acknowledgement so ownership is current.
+                    _ => {}
                 }
-                WorkerMessage::RequestAck {
-                    request_id: ack_id,
-                    error: Some(error),
-                } if ack_id == request_id => {
-                    Err(io::Error::new(io::ErrorKind::ResourceBusy, error.message))
-                }
-                _ => Err(io::Error::new(
-                    io::ErrorKind::InvalidData,
-                    "live execution worker returned an invalid retirement response",
-                )),
             }
         }
         Ok(BridgeActivateResult::Rejected(ack)) => match *ack {
