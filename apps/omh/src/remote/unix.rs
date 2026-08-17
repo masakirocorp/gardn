@@ -452,6 +452,25 @@ impl RemoteSsh {
         command
     }
 
+    fn dedicated_command(&self) -> Command {
+        let mut command = Command::new("ssh");
+        if let Some(options) = self.options() {
+            command.arg("-F").arg(&options.config_path);
+        }
+        command
+            .arg("-o")
+            .arg("ControlMaster=no")
+            .arg("-o")
+            .arg("ControlPath=none")
+            .arg("-o")
+            .arg("ControlPersist=no");
+        if let Some(askpass) = &self.askpass {
+            askpass.configure(&mut command);
+        }
+        command.arg("-T").arg(&self.target);
+        command
+    }
+
     fn base_command(&self) -> Command {
         let mut command = Command::new("ssh");
         apply_managed_ssh_options(&mut command, self.options());
@@ -2575,7 +2594,7 @@ pub(crate) fn spawn_execution_worker_cancellable(
     }
 
     let mut child = ssh
-        .command()
+        .dedicated_command()
         .arg(execution_worker_command(&remote_omh))
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -2884,6 +2903,39 @@ mod tests {
                 "ControlMaster=auto".to_string(),
                 "-o".to_string(),
                 "ControlPersist=60".to_string(),
+                "-T".to_string(),
+                "example".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn execution_worker_command_uses_dedicated_ssh_transport() {
+        let managed_config = write_managed_ssh_config().expect("write managed config");
+        let config_path = managed_config.options.config_path.clone();
+        let ssh = RemoteSsh {
+            target: "example".to_string(),
+            managed_config: Some(managed_config),
+            askpass: None,
+        };
+
+        let command = ssh.dedicated_command();
+        let args = command
+            .get_args()
+            .map(|arg| arg.to_string_lossy().into_owned())
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            args,
+            vec![
+                "-F".to_string(),
+                config_path.to_string_lossy().into_owned(),
+                "-o".to_string(),
+                "ControlMaster=no".to_string(),
+                "-o".to_string(),
+                "ControlPath=none".to_string(),
+                "-o".to_string(),
+                "ControlPersist=no".to_string(),
                 "-T".to_string(),
                 "example".to_string(),
             ]
