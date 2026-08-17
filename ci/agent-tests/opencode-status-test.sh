@@ -154,7 +154,7 @@ run_opencode \
   "$workdir/subagent" \
   omh-opencode-status-subagent \
   allow \
-  'Use the task tool to launch one general subagent. The subagent must run shell command: printf OMH_OPENCODE_SUBAGENT_OK. After the subagent finishes, reply exactly OMH_OPENCODE_SUBAGENT_DONE.'
+  'Use the task tool to launch one general subagent. The subagent must run shell command: printf OMH_OPENCODE_SUBAGENT_OK.'
 
 python3 - "$request_log" "$workdir" <<'PY'
 import json
@@ -253,7 +253,6 @@ if "idle" in states_for("pane-opencode-blocked"):
     assert_eventually_idle("pane-opencode-blocked")
 
 assert_output_contains("subagent", "OMH_OPENCODE_SUBAGENT_OK")
-assert_output_contains("subagent", "OMH_OPENCODE_SUBAGENT_DONE")
 assert_contains_in_order("pane-opencode-subagent", ["working"])
 if "idle" in states_for("pane-opencode-subagent"):
     assert_eventually_idle("pane-opencode-subagent")

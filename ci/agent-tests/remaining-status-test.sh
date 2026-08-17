@@ -800,8 +800,8 @@ if "droid" in selected_targets:
 if "kimi" in selected_targets:
     if not seam_only:
         assert_in_order("pane-kimi-real", ["idle", "working", "idle"])
-        if not by_pane(releases, "pane-kimi-real"):
-            raise SystemExit("pane-kimi-real: missing release")
+        # Kimi print mode can exit after final idle without waiting for its
+        # SessionEnd hook. The deterministic hook seam below still requires release.
     assert_in_order("pane-kimi-allowed", ["idle", "working", "idle"])
     if not by_pane(releases, "pane-kimi-allowed"):
         raise SystemExit("pane-kimi-allowed: missing release")

@@ -3880,14 +3880,18 @@ exit 99
     }
 
     #[test]
-    fn missing_development_worker_points_to_atomic_install_command() {
+    fn missing_non_local_development_worker_points_to_atomic_install_command() {
         let _environment = crate::integration::integration_env_lock();
         let worker_root =
             std::env::temp_dir().join(format!("omh-missing-worker-sidecar-{}", std::process::id()));
         let _worker_dir = crate::config::TestEnvVar::set(DEV_WORKER_DATA_DIR_ENV_VAR, &worker_root);
         let platform = RemotePlatform {
             os: "linux",
-            arch: "x86_64",
+            arch: if cfg!(all(target_os = "linux", target_arch = "x86_64")) {
+                "aarch64"
+            } else {
+                "x86_64"
+            },
         };
 
         let error = match resolve_install_source(&platform, None) {
@@ -3897,7 +3901,10 @@ exit 99
 
         assert_eq!(
             error.to_string(),
-            "matching linux-x86_64 development worker is not installed; run `just install-dev`, then retry"
+            format!(
+                "matching {} development worker is not installed; run `just install-dev`, then retry",
+                platform.asset_key()
+            )
         );
     }
 

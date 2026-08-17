@@ -38,3 +38,34 @@ cargo nextest run --locked grapheme_cluster_mode_is_default_and_survives_full_re
 cargo nextest run --locked grapheme_cluster_mode_renders_flag_emoji_in_single_wide_cell
 cargo nextest run --locked grapheme_cluster_mode_renders_zwj_family_in_single_wide_cell
 ```
+
+## 0002 skip unused Ghostty bench initialization
+
+status: active
+
+patch: `apps/omh/vendor/patches/libghostty-vt/0002-skip-unused-ghostty-bench-init.patch`
+
+upstream discussion: not opened; the upstream build initializes all named
+artifacts before deciding which ones to install
+
+vendored base: `c5a21edfcbc2d5b46540ad91b7980aca31f5f1f3`
+
+local files:
+
+- `apps/omh/vendor/libghostty-vt/build.zig`
+
+reason: Oh My Herdr builds only `-Demit-lib-vt`. Unconditional
+`GhosttyBench.init` resolves unused dcimgui, vaxis, and zf packages. These
+packages fetch ImGui and zigimg from GitHub and make CI depend on unrelated
+network downloads.
+
+remove when: the vendored build initializes GhosttyBench only for
+`-Demit-bench`, or the build graph otherwise avoids resolving bench-only
+packages for `-Demit-lib-vt`.
+
+verification:
+
+```sh
+python3 -m unittest scripts.test_vendor_libghostty_vt
+(cd apps/omh/vendor/libghostty-vt && ZIG_GLOBAL_CACHE_DIR=$(mktemp -d) zig build -Demit-lib-vt -Doptimize=ReleaseFast -Dsimd=true)
+```

@@ -1,0 +1,27 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Oh My Herdr maintainers <maintainers@masakiro.com>
+Date: Mon, 17 Aug 2026 00:00:00 +0000
+Subject: [PATCH] skip unused Ghostty bench initialization
+
+Oh My Herdr builds only libghostty-vt. Initializing GhosttyBench resolves its
+unused dcimgui, vaxis, and zf dependencies, which causes network fetches for
+ImGui and zigimg. Initialize the bench only when the build emits it.
+
+Vendored base: c5a21edfcbc2d5b46540ad91b7980aca31f5f1f3
+---
+diff --git a/apps/omh/vendor/libghostty-vt/build.zig b/apps/omh/vendor/libghostty-vt/build.zig
+--- a/apps/omh/vendor/libghostty-vt/build.zig
++++ b/apps/omh/vendor/libghostty-vt/build.zig
+@@ -100,8 +100,10 @@ pub fn build(b: *std.Build) !void {
+     if (config.emit_webdata) webdata.install();
+ 
+     // Ghostty bench tools
+-    const bench = try buildpkg.GhosttyBench.init(b, &deps);
+-    if (config.emit_bench) bench.install();
++    if (config.emit_bench) {
++        const bench = try buildpkg.GhosttyBench.init(b, &deps);
++        bench.install();
++    }
+ 
+     // Ghostty dist tarball
+     const dist = try buildpkg.GhosttyDist.init(b, &config);

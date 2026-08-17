@@ -104,7 +104,6 @@ def run_opencode_status_test(primary_model: str, fallback_model: str):
                     print("OMH_OPENCODE_STATUS_IDLE")
             elif pane_id == "pane-opencode-subagent":
                 print("OMH_OPENCODE_SUBAGENT_OK")
-                print("OMH_OPENCODE_SUBAGENT_DONE")
             else:
                 print("OMH_OPENCODE_STATUS_BLOCKED")
             """

@@ -627,15 +627,18 @@ mod tests {
         )
     }
 
-    fn unique_base(label: &str) -> PathBuf {
-        std::env::temp_dir().join(format!(
-            "omh-role-{}-{}-{}",
-            label,
+    fn unique_base(_label: &str) -> PathBuf {
+        static NEXT_BASE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+        #[cfg(unix)]
+        let temp_root = PathBuf::from("/tmp");
+        #[cfg(not(unix))]
+        let temp_root = std::env::temp_dir();
+
+        temp_root.join(format!(
+            "omh-t-{}-{}",
             std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|duration| duration.as_nanos())
-                .unwrap_or(0)
+            NEXT_BASE.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
         ))
     }
 

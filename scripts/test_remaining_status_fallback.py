@@ -178,7 +178,6 @@ class RemainingStatusTestFallbackTests(unittest.TestCase):
                     omh-test-report pane-kimi-real kimi omh:kimi kimi-real report idle
                     omh-test-report pane-kimi-real kimi omh:kimi kimi-real report working
                     omh-test-report pane-kimi-real kimi omh:kimi kimi-real report idle
-                    omh-test-report pane-kimi-real kimi omh:kimi kimi-real release release
                     echo "OMH_KIMI_STATUS_OK"
                     """
                 )
