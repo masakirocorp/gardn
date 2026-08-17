@@ -359,8 +359,8 @@ impl App {
 
             if let Some((version, install_command)) = update_ready {
                 let _ = notify(
-                    &format!("v{version} available"),
-                    Some(&format!("detach, then run `{install_command}`")),
+                    &format!("v{version} Available"),
+                    Some(&format!("Detach, then run `{install_command}`")),
                 );
             } else {
                 for update in &pane_updates {

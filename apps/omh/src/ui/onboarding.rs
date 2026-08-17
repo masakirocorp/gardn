@@ -12,7 +12,7 @@ use super::widgets::{
 };
 use crate::app::AppState;
 
-const ONBOARDING_PREFIX_LABEL: &str = "ctrl+b";
+const ONBOARDING_PREFIX_LABEL: &str = "Ctrl+B";
 
 pub(super) fn render_onboarding_overlay(app: &AppState, frame: &mut Frame, area: Rect) {
     super::dim_background(frame, area);
@@ -23,7 +23,7 @@ pub(crate) fn onboarding_welcome_continue_rect(area: Rect) -> Rect {
     Rect::new(
         area.x,
         area.y,
-        action_button_width(Some("↵"), "continue"),
+        action_button_width(Some("↵"), "Continue"),
         1,
     )
 }
@@ -47,16 +47,16 @@ fn render_onboarding_welcome(app: &AppState, frame: &mut Frame, area: Rect) {
     ])
     .areas::<4>(stack.content);
 
-    render_modal_header(frame, header_rows[0], "omh", &app.palette);
+    render_modal_header(frame, header_rows[0], "Oh My Herdr", &app.palette);
     frame.render_widget(
-        Paragraph::new("  terminal workspace manager for coding agents")
+        Paragraph::new("  Terminal workspace manager for coding agents")
             .style(Style::default().fg(app.palette.overlay0)),
         header_rows[1],
     );
 
     frame.render_widget(
         Paragraph::new(
-            "  this is a mouse-first terminal.\n  click the sidebar to switch workspaces, drag pane\n  borders to resize, right-click for context menus.",
+            "  This is a mouse-first terminal.\n  Click the sidebar to switch workspaces, drag pane\n  borders to resize, right-click for context menus.",
         )
         .style(Style::default().fg(app.palette.overlay1)),
         content_rows[0],
@@ -88,7 +88,7 @@ fn render_onboarding_welcome(app: &AppState, frame: &mut Frame, area: Rect) {
     frame.render_widget(Paragraph::new(key_line), content_rows[2]);
 
     frame.render_widget(
-        Paragraph::new("  next: install optional agent integrations for more reliable state")
+        Paragraph::new("  Next: install optional agent integrations for more reliable state")
             .style(Style::default().fg(app.palette.overlay1)),
         content_rows[3],
     );
@@ -98,7 +98,7 @@ fn render_onboarding_welcome(app: &AppState, frame: &mut Frame, area: Rect) {
         frame,
         continue_rect,
         Some("↵"),
-        "continue",
+        "Continue",
         primary_action_style(&app.palette),
     );
 }

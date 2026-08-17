@@ -126,173 +126,173 @@ fn command_palette_group_order(group: &str) -> usize {
 
 pub(crate) fn command_palette_commands(state: &AppState) -> Vec<CommandPaletteCommand> {
     let mut commands = vec![
-        CommandPaletteCommand::new("new space", "spaces", CommandPaletteAction::NewWorkspace),
+        CommandPaletteCommand::new("New Space", "spaces", CommandPaletteAction::NewWorkspace),
         CommandPaletteCommand::new(
-            "rename selected space",
+            "Rename Selected Space",
             "spaces",
             CommandPaletteAction::RenameWorkspace,
         ),
         CommandPaletteCommand::new(
-            "close selected space",
+            "Close Selected Space",
             "spaces",
             CommandPaletteAction::CloseWorkspace,
         ),
         CommandPaletteCommand::new(
-            "previous space",
+            "Previous Space",
             "spaces",
             CommandPaletteAction::PreviousWorkspace,
         ),
-        CommandPaletteCommand::new("next space", "spaces", CommandPaletteAction::NextWorkspace),
+        CommandPaletteCommand::new("Next Space", "spaces", CommandPaletteAction::NextWorkspace),
         CommandPaletteCommand::new(
-            "open workspace navigator",
+            "Open Workspace Navigator",
             "spaces",
             CommandPaletteAction::OpenNavigator,
         ),
-        CommandPaletteCommand::new("new tab", "tabs", CommandPaletteAction::NewTab),
-        CommandPaletteCommand::new("rename tab", "tabs", CommandPaletteAction::RenameTab),
-        CommandPaletteCommand::new("previous tab", "tabs", CommandPaletteAction::PreviousTab),
-        CommandPaletteCommand::new("next tab", "tabs", CommandPaletteAction::NextTab),
-        CommandPaletteCommand::new("close tab", "tabs", CommandPaletteAction::CloseTab),
+        CommandPaletteCommand::new("New Tab", "tabs", CommandPaletteAction::NewTab),
+        CommandPaletteCommand::new("Rename Tab", "tabs", CommandPaletteAction::RenameTab),
+        CommandPaletteCommand::new("Previous Tab", "tabs", CommandPaletteAction::PreviousTab),
+        CommandPaletteCommand::new("Next Tab", "tabs", CommandPaletteAction::NextTab),
+        CommandPaletteCommand::new("Close Tab", "tabs", CommandPaletteAction::CloseTab),
         CommandPaletteCommand::new(
-            "split pane vertical",
+            "Split Pane Vertical",
             "panes",
             CommandPaletteAction::SplitVertical,
         ),
         CommandPaletteCommand::new(
-            "split pane horizontal",
+            "Split Pane Horizontal",
             "panes",
             CommandPaletteAction::SplitHorizontal,
         ),
-        CommandPaletteCommand::new("close pane", "panes", CommandPaletteAction::ClosePane),
-        CommandPaletteCommand::new("rename pane", "panes", CommandPaletteAction::RenamePane),
-        CommandPaletteCommand::new("zoom pane", "panes", CommandPaletteAction::Fullscreen),
+        CommandPaletteCommand::new("Close Pane", "panes", CommandPaletteAction::ClosePane),
+        CommandPaletteCommand::new("Rename Pane", "panes", CommandPaletteAction::RenamePane),
+        CommandPaletteCommand::new("Zoom Pane", "panes", CommandPaletteAction::Fullscreen),
         CommandPaletteCommand::new(
-            "edit scrollback",
+            "Edit Scrollback",
             "panes",
             CommandPaletteAction::EditScrollback,
         ),
-        CommandPaletteCommand::new("resize panes", "panes", CommandPaletteAction::ResizeMode),
+        CommandPaletteCommand::new("Resize Panes", "panes", CommandPaletteAction::ResizeMode),
         CommandPaletteCommand::new(
-            "focus pane left",
+            "Focus Pane Left",
             "panes",
             CommandPaletteAction::FocusPane(NavDirection::Left),
         ),
         CommandPaletteCommand::new(
-            "focus pane down",
+            "Focus Pane Down",
             "panes",
             CommandPaletteAction::FocusPane(NavDirection::Down),
         ),
         CommandPaletteCommand::new(
-            "focus pane up",
+            "Focus Pane Up",
             "panes",
             CommandPaletteAction::FocusPane(NavDirection::Up),
         ),
         CommandPaletteCommand::new(
-            "focus pane right",
+            "Focus Pane Right",
             "panes",
             CommandPaletteAction::FocusPane(NavDirection::Right),
         ),
         CommandPaletteCommand::new(
-            "cycle pane next",
+            "Cycle Pane Next",
             "panes",
             CommandPaletteAction::CyclePaneNext,
         ),
         CommandPaletteCommand::new(
-            "cycle pane previous",
+            "Cycle Pane Previous",
             "panes",
             CommandPaletteAction::CyclePanePrevious,
         ),
         CommandPaletteCommand::new(
-            "open group menu",
+            "Open Group Menu",
             "groups",
             CommandPaletteAction::OpenGroupMenu,
         ),
         CommandPaletteCommand::new(
-            "show all spaces",
+            "Show All Spaces",
             "groups",
             CommandPaletteAction::ShowAllGroups,
         ),
-        CommandPaletteCommand::new("new group", "groups", CommandPaletteAction::NewGroup),
-        CommandPaletteCommand::new("rename group", "groups", CommandPaletteAction::RenameGroup),
-        CommandPaletteCommand::new("delete group", "groups", CommandPaletteAction::DeleteGroup),
+        CommandPaletteCommand::new("New Group", "groups", CommandPaletteAction::NewGroup),
+        CommandPaletteCommand::new("Rename Group", "groups", CommandPaletteAction::RenameGroup),
+        CommandPaletteCommand::new("Delete Group", "groups", CommandPaletteAction::DeleteGroup),
         CommandPaletteCommand::new(
-            "toggle current/all groups",
+            "Toggle Current/All Groups",
             "groups",
             CommandPaletteAction::ToggleGroupFilter,
         ),
         CommandPaletteCommand::new(
-            "previous group",
+            "Previous Group",
             "groups",
             CommandPaletteAction::PreviousGroup,
         ),
-        CommandPaletteCommand::new("next group", "groups", CommandPaletteAction::NextGroup),
+        CommandPaletteCommand::new("Next Group", "groups", CommandPaletteAction::NextGroup),
         CommandPaletteCommand::new(
-            "open agent menu",
+            "Open Agent Menu",
             "agents",
             CommandPaletteAction::OpenAgentMenu,
         ),
         CommandPaletteCommand::new(
-            "agents: space",
+            "Agents: Space",
             "agents",
             CommandPaletteAction::SetAgentScope(AgentPanelScope::CurrentWorkspace),
         ),
         CommandPaletteCommand::new(
-            "agents: group",
+            "Agents: Group",
             "agents",
             CommandPaletteAction::SetAgentScope(AgentPanelScope::CurrentGroup),
         ),
         CommandPaletteCommand::new(
-            "agents: all",
+            "Agents: All",
             "agents",
             CommandPaletteAction::SetAgentScope(AgentPanelScope::AllWorkspaces),
         ),
         CommandPaletteCommand::new(
-            "previous agent",
+            "Previous Agent",
             "agents",
             CommandPaletteAction::PreviousAgent,
         ),
-        CommandPaletteCommand::new("next agent", "agents", CommandPaletteAction::NextAgent),
-        CommandPaletteCommand::new("open git", "project", CommandPaletteAction::OpenGit),
-        CommandPaletteCommand::new("open diff", "project", CommandPaletteAction::OpenDiff),
-        CommandPaletteCommand::new("open ide", "project", CommandPaletteAction::OpenIde),
-        CommandPaletteCommand::new("open github", "project", CommandPaletteAction::OpenGithub),
+        CommandPaletteCommand::new("Next Agent", "agents", CommandPaletteAction::NextAgent),
+        CommandPaletteCommand::new("Open Git", "project", CommandPaletteAction::OpenGit),
+        CommandPaletteCommand::new("Open Diff", "project", CommandPaletteAction::OpenDiff),
+        CommandPaletteCommand::new("Open IDE", "project", CommandPaletteAction::OpenIde),
+        CommandPaletteCommand::new("Open GitHub", "project", CommandPaletteAction::OpenGithub),
         CommandPaletteCommand::new(
-            "toggle sidebar",
+            "Toggle Sidebar",
             "layout",
             CommandPaletteAction::ToggleSidebar,
         ),
         CommandPaletteCommand::new(
-            "toggle context bar",
+            "Toggle Context Bar",
             "layout",
             CommandPaletteAction::ToggleContextBar,
         ),
-        CommandPaletteCommand::new("toggle zen mode", "layout", CommandPaletteAction::ZenMode),
+        CommandPaletteCommand::new("Toggle Zen Mode", "layout", CommandPaletteAction::ZenMode),
         CommandPaletteCommand::new(
-            "toggle right sidebar",
+            "Toggle Right Sidebar",
             "layout",
             CommandPaletteAction::ToggleRightSidebar,
         ),
         CommandPaletteCommand::new(
-            "open global menu",
+            "Open Global Menu",
             "app",
             CommandPaletteAction::OpenGlobalMenu,
         ),
-        CommandPaletteCommand::new("open settings", "app", CommandPaletteAction::OpenSettings),
-        CommandPaletteCommand::new("open keybinds", "app", CommandPaletteAction::OpenKeybinds),
-        CommandPaletteCommand::new("reload config", "app", CommandPaletteAction::ReloadConfig),
+        CommandPaletteCommand::new("Open Settings", "app", CommandPaletteAction::OpenSettings),
+        CommandPaletteCommand::new("Open Keybinds", "app", CommandPaletteAction::OpenKeybinds),
+        CommandPaletteCommand::new("Reload Config", "app", CommandPaletteAction::ReloadConfig),
         CommandPaletteCommand::new(
-            "open notification target",
+            "Open Notification Target",
             "app",
             CommandPaletteAction::OpenNotificationTarget,
         ),
-        CommandPaletteCommand::new("detach / quit", "app", CommandPaletteAction::DetachOrQuit),
+        CommandPaletteCommand::new("Detach / Quit", "app", CommandPaletteAction::DetachOrQuit),
     ];
 
     if let Some(ws) = state.active.and_then(|idx| state.workspaces.get(idx)) {
         commands.extend(ws.tabs.iter().enumerate().map(|(idx, _tab)| {
             CommandPaletteCommand::new(
                 format!(
-                    "switch to tab: {}",
+                    "Switch to Tab: {}",
                     ws.tab_display_name(idx)
                         .unwrap_or_else(|| (idx + 1).to_string())
                 ),
@@ -311,7 +311,7 @@ pub(crate) fn command_palette_commands(state: &AppState) -> Vec<CommandPaletteCo
             .filter_map(|(shortcut_idx, idx)| {
                 state.workspaces.get(idx).map(|workspace| {
                     CommandPaletteCommand::new(
-                        format!("switch to space: {}", workspace.display_name()),
+                        format!("Switch to Space: {}", workspace.display_name()),
                         "spaces",
                         CommandPaletteAction::SwitchWorkspace(idx),
                     )
@@ -325,7 +325,7 @@ pub(crate) fn command_palette_commands(state: &AppState) -> Vec<CommandPaletteCo
 
     commands.extend(state.groups.iter().enumerate().map(|(idx, group)| {
         CommandPaletteCommand::new(
-            format!("switch to group: {} {}", group.icon, group.name),
+            format!("Switch to Group: {} {}", group.icon, group.name),
             "groups",
             CommandPaletteAction::SwitchGroup(idx),
         )
@@ -337,7 +337,7 @@ pub(crate) fn command_palette_commands(state: &AppState) -> Vec<CommandPaletteCo
         .is_some_and(|ws_idx| workspace_agent_profile_ids(state, ws_idx).next().is_some())
     {
         commands.push(CommandPaletteCommand::new(
-            "new agent",
+            "New Agent",
             "agents",
             CommandPaletteAction::NewAgent,
         ));
@@ -351,7 +351,7 @@ pub(crate) fn command_palette_commands(state: &AppState) -> Vec<CommandPaletteCo
             .enumerate()
             .map(|(idx, binding)| {
                 CommandPaletteCommand::new(
-                    format!("run command: {}", binding.command),
+                    format!("Run Command: {}", binding.command),
                     "custom",
                     CommandPaletteAction::CustomCommand(idx),
                 )
@@ -359,7 +359,7 @@ pub(crate) fn command_palette_commands(state: &AppState) -> Vec<CommandPaletteCo
     );
     commands.extend(state.command_catalog.iter().map(|project_command| {
         CommandPaletteCommand::new(
-            format!("run project command: {}", project_command.name),
+            format!("Run Project Command: {}", project_command.name),
             "project",
             CommandPaletteAction::ProjectCommand(project_command.id.clone()),
         )
@@ -475,7 +475,7 @@ pub(crate) fn command_palette_commands_for_view(
         commands.extend(ws.tabs.iter().enumerate().map(|(idx, _tab)| {
             CommandPaletteCommand::new(
                 format!(
-                    "switch to tab: {}",
+                    "Switch to Tab: {}",
                     ws.tab_display_name(idx)
                         .unwrap_or_else(|| (idx + 1).to_string())
                 ),
@@ -490,7 +490,7 @@ pub(crate) fn command_palette_commands_for_view(
         .is_some_and(|ws_idx| workspace_agent_profile_ids(state, ws_idx).next().is_some())
     {
         commands.push(CommandPaletteCommand::new(
-            "new agent",
+            "New Agent",
             "agents",
             CommandPaletteAction::NewAgent,
         ));
@@ -511,7 +511,7 @@ pub(crate) fn command_palette_commands_for_view(
             .enumerate()
             .map(|(shortcut_idx, (idx, workspace))| {
                 CommandPaletteCommand::new(
-                    format!("switch to space: {}", workspace.display_name()),
+                    format!("Switch to Space: {}", workspace.display_name()),
                     "spaces",
                     CommandPaletteAction::SwitchWorkspace(idx),
                 )

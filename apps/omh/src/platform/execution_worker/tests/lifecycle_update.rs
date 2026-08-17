@@ -139,7 +139,7 @@ fn legacy_v1_idle_daemon_is_drained_before_replacement() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn incompatible_busy_daemon_refuses_update_and_preserves_runtime() {
+async fn compatible_busy_daemon_is_reused_and_preserves_runtime() {
     let binding = test_binding("lifecycle-busy", 1);
     let location = ResourceLocation::new(
         binding.execution_host_id.clone(),
@@ -168,18 +168,10 @@ async fn incompatible_busy_daemon_refuses_update_and_preserves_runtime() {
     // Give the child a moment to start.
     tokio::time::sleep(Duration::from_millis(50)).await;
 
-    match activate_on_binding(&binding).unwrap() {
-        BridgeActivateResult::Rejected(ack) => match *ack {
-            WorkerMessage::HelloAck {
-                error: Some(error), ..
-            } => {
-                assert_eq!(error.code, WorkerErrorCode::Busy);
-                assert!(error.message.contains("1"));
-            }
-            other => panic!("expected busy rejection HelloAck, got {other:?}"),
-        },
-        other => panic!("expected busy rejection, got {other:?}"),
-    }
+    assert!(matches!(
+        activate_on_binding(&binding).unwrap(),
+        BridgeActivateResult::UseExisting(_)
+    ));
 
     // Incumbent remains owner; socket/lock/runtime preserved.
     assert!(role_paths.socket_path().exists());
@@ -531,7 +523,7 @@ fn retirement_reconciles_a_queued_runtime_exit_before_removing_its_binding() {
     assert!(entry.lock_live);
     assert!(matches!(
         activate_on_binding(&binding).unwrap(),
-        BridgeActivateResult::Rejected(_)
+        BridgeActivateResult::UseExisting(_)
     ));
 
     shutdown_owned_binding(entry).unwrap();

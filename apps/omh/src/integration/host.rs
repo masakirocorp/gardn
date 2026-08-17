@@ -200,11 +200,11 @@ pub(crate) struct HostIntegrationEntry {
 impl HostIntegrationEntry {
     pub(crate) fn status_label(&self) -> &'static str {
         match (self.available, self.state, self.missing_profile_hooks) {
-            (_, IntegrationStatusKind::Current, count) if count > 0 => "profile hooks missing",
-            (_, IntegrationStatusKind::Current, _) => "installed",
-            (_, IntegrationStatusKind::Outdated, _) => "update available",
-            (true, IntegrationStatusKind::NotInstalled, _) => "available",
-            (false, IntegrationStatusKind::NotInstalled, _) => "not found",
+            (_, IntegrationStatusKind::Current, count) if count > 0 => "Profile Hooks Missing",
+            (_, IntegrationStatusKind::Current, _) => "Installed",
+            (_, IntegrationStatusKind::Outdated, _) => "Update Available",
+            (true, IntegrationStatusKind::NotInstalled, _) => "Available",
+            (false, IntegrationStatusKind::NotInstalled, _) => "Not Found",
         }
     }
 }

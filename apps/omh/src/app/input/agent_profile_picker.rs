@@ -1191,7 +1191,7 @@ mod tests {
         let filter_y = (0..24)
             .find(|&y| {
                 (0..=80 - 6).any(|x| {
-                    ["f", "i", "l", "t", "e", "r"]
+                    ["F", "i", "l", "t", "e", "r"]
                         .iter()
                         .enumerate()
                         .all(|(idx, ch)| buffer[(x + idx as u16, y)].symbol() == *ch)
@@ -1246,7 +1246,7 @@ mod tests {
         let (codex_x, codex_y) = (0..48)
             .flat_map(|y| {
                 (0..153).filter_map(move |x| {
-                    ["c", "o", "d", "e", "x"]
+                    ["C", "o", "d", "e", "x"]
                         .iter()
                         .enumerate()
                         .all(|(idx, ch)| buffer[(x + idx as u16, y)].symbol() == *ch)
@@ -1310,7 +1310,7 @@ mod tests {
         let (codex_x, codex_y) = (0..24)
             .flat_map(|y| {
                 (0..114).filter_map(move |x| {
-                    ["c", "o", "d", "e", "x"]
+                    ["C", "o", "d", "e", "x"]
                         .iter()
                         .enumerate()
                         .all(|(idx, ch)| buffer[(x + idx as u16, y)].symbol() == *ch)

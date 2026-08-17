@@ -87,7 +87,7 @@ fn right_aligned_count_gap(width: u16, left_width: usize, count_width: usize) ->
 
 fn group_menu_all_line(app: &AppState, selected: bool, width: u16) -> Line<'static> {
     let marker = if app.group_filter_enabled { " " } else { "✓" };
-    let left = format!("{marker} all");
+    let left = format!("{marker} All");
     let selected_style = Style::default()
         .fg(panel_contrast_fg(&app.palette))
         .bg(app.palette.accent)
@@ -195,7 +195,7 @@ fn group_menu_group_line_for_selection(
 fn prefix_rhs_label(bindings: &crate::config::ActionKeybinds) -> String {
     bindings
         .prefix_rhs_label()
-        .unwrap_or_else(|| "unset".to_string())
+        .unwrap_or_else(|| "Unset".to_string())
 }
 
 fn indexed_prefix_rhs_label(bindings: &[crate::config::IndexedKeybind]) -> String {
@@ -205,13 +205,13 @@ fn indexed_prefix_rhs_label(bindings: &[crate::config::IndexedKeybind]) -> Strin
         .map(|binding| {
             binding
                 .label
-                .strip_prefix("prefix+")
+                .strip_prefix("Prefix+")
                 .unwrap_or(&binding.label)
         })
         .collect();
 
     if labels.is_empty() {
-        return "unset".to_string();
+        return "Unset".to_string();
     }
 
     if let (Some(first), Some(last)) = (labels.first(), labels.last()) {
@@ -246,7 +246,7 @@ fn append_prefix_hint(
     label: &'static str,
     optional: bool,
 ) {
-    if key_label == "unset" {
+    if key_label == "Unset" {
         return;
     }
     let label = format!(" {label} ");
@@ -261,7 +261,7 @@ fn append_prefix_hint(
 }
 
 fn keybind_label(bindings: &crate::config::ActionKeybinds) -> String {
-    bindings.label().unwrap_or_else(|| "unset".to_string())
+    bindings.label().unwrap_or_else(|| "Unset".to_string())
 }
 
 fn render_bottom_bar(frame: &mut Frame, area: Rect, line: Line<'_>, bg: ratatui::style::Color) {
@@ -293,8 +293,8 @@ pub(super) fn render_prefix_overlay(app: &AppState, frame: &mut Frame, area: Rec
         max_width,
         key,
         dim,
-        "esc".to_string(),
-        "cancel",
+        "Esc".to_string(),
+        "Cancel",
         false,
     );
     append_prefix_hint(
@@ -304,7 +304,7 @@ pub(super) fn render_prefix_overlay(app: &AppState, frame: &mut Frame, area: Rec
         key,
         dim,
         prefix,
-        "send",
+        "Send",
         false,
     );
     append_prefix_hint(
@@ -314,7 +314,7 @@ pub(super) fn render_prefix_overlay(app: &AppState, frame: &mut Frame, area: Rec
         key,
         dim,
         prefix_rhs_label(&app.keybinds.command_palette),
-        "cmds",
+        "Commands",
         false,
     );
     append_prefix_hint(
@@ -324,7 +324,7 @@ pub(super) fn render_prefix_overlay(app: &AppState, frame: &mut Frame, area: Rec
         key,
         dim,
         prefix_rhs_label(&app.keybinds.workspace_picker),
-        "spaces",
+        "Spaces",
         false,
     );
     append_prefix_hint(
@@ -334,19 +334,19 @@ pub(super) fn render_prefix_overlay(app: &AppState, frame: &mut Frame, area: Rec
         key,
         dim,
         prefix_rhs_label(&app.keybinds.help),
-        "keys",
+        "Keys",
         false,
     );
 
     for (key_label, label) in [
-        (indexed_prefix_rhs_label(&app.keybinds.switch_tab), "tabs"),
+        (indexed_prefix_rhs_label(&app.keybinds.switch_tab), "Tabs"),
         (
             indexed_prefix_rhs_label(&app.keybinds.switch_workspace),
-            "spaces",
+            "Spaces",
         ),
         (
             indexed_prefix_rhs_label(&app.keybinds.switch_group),
-            "groups",
+            "Groups",
         ),
     ] {
         append_prefix_hint(
@@ -361,11 +361,11 @@ pub(super) fn render_prefix_overlay(app: &AppState, frame: &mut Frame, area: Rec
         );
     }
     for (key_label, label) in [
-        (prefix_rhs_label(&app.keybinds.new_tab), "tab"),
-        (prefix_rhs_label(&app.keybinds.split_vertical), "split│"),
-        (prefix_rhs_label(&app.keybinds.split_horizontal), "split─"),
-        (prefix_rhs_label(&app.keybinds.close_pane), "close"),
-        (prefix_rhs_label(&app.keybinds.detach), "detach"),
+        (prefix_rhs_label(&app.keybinds.new_tab), "Tab"),
+        (prefix_rhs_label(&app.keybinds.split_vertical), "Split│"),
+        (prefix_rhs_label(&app.keybinds.split_horizontal), "Split─"),
+        (prefix_rhs_label(&app.keybinds.close_pane), "Close"),
+        (prefix_rhs_label(&app.keybinds.detach), "Detach"),
     ] {
         append_prefix_hint(
             &mut spans,
@@ -403,18 +403,18 @@ pub(super) fn render_copy_mode_overlay(app: &AppState, frame: &mut Frame, area: 
             crate::app::state::CopyModeSearchDirection::Backward => "?",
         };
         Line::from(vec![
-            Span::styled(" COPY ", mode_style),
+            Span::styled(" Copy ", mode_style),
             Span::raw(" "),
             Span::styled(marker, key),
             Span::styled(prompt.query.clone(), Style::default().fg(app.palette.text)),
             Span::styled("█", key),
-            Span::styled("  enter search  esc cancel", dim),
+            Span::styled("  Enter Search  Esc Cancel", dim),
         ])
     } else {
         let select = if copy_mode.selection.is_some() {
-            "selecting"
+            "Selecting"
         } else {
-            "select"
+            "Select"
         };
         let match_status = copy_mode
             .search
@@ -424,23 +424,23 @@ pub(super) fn render_copy_mode_overlay(app: &AppState, frame: &mut Frame, area: 
             .unwrap_or_default();
         let (exit_keys, exit_label) =
             if copy_mode.search.query.is_empty() && copy_mode.selection.is_none() {
-                ("q/esc", " exit")
+                ("q/Esc", " Exit")
             } else {
-                ("esc", " clear  q exit")
+                ("Esc", " Clear  q Exit")
             };
         Line::from(vec![
-            Span::styled(" COPY ", mode_style),
+            Span::styled(" Copy ", mode_style),
             Span::raw(" "),
             Span::styled("h/j/k/l w/b/e { }", key),
-            Span::styled(" move  ", dim),
+            Span::styled(" Move  ", dim),
             Span::styled("/ ?", key),
-            Span::styled(" search  ", dim),
+            Span::styled(" Search  ", dim),
             Span::styled("n/N", key),
-            Span::styled(format!(" repeat{match_status}  "), dim),
-            Span::styled("v/space", key),
+            Span::styled(format!(" Repeat{match_status}  "), dim),
+            Span::styled("v/Space", key),
             Span::styled(format!(" {select}  "), dim),
-            Span::styled("y/enter", key),
-            Span::styled(" copy  ", dim),
+            Span::styled("y/Enter", key),
+            Span::styled(" Copy  ", dim),
             Span::styled(exit_keys, key),
             Span::styled(exit_label, dim),
         ])
@@ -477,36 +477,36 @@ pub(super) fn render_navigate_overlay(app: &AppState, frame: &mut Frame, area: R
         keybind_label(&kb.navigate.workspace_down)
     );
     let line = Line::from(vec![
-        Span::styled(" navigate ", mode_style),
+        Span::styled(" Navigate ", mode_style),
         Span::raw(" "),
-        Span::styled("esc", key),
-        Span::styled(" back  ", dim),
+        Span::styled("Esc", key),
+        Span::styled(" Back  ", dim),
         Span::styled(workspace_nav, key),
-        Span::styled(" space  ", dim),
+        Span::styled(" Space  ", dim),
         Span::styled("↵", key),
-        Span::styled(" open  ", dim),
+        Span::styled(" Open  ", dim),
         Span::styled("⇥", key),
-        Span::styled(" pane  ", dim),
+        Span::styled(" Pane  ", dim),
         Span::styled(command_palette, key),
-        Span::styled(" commands  ", dim),
+        Span::styled(" Commands  ", dim),
         Span::styled(new_tab, key),
-        Span::styled(" new tab  ", dim),
+        Span::styled(" New Tab  ", dim),
         Span::styled(split_vertical, key),
-        Span::styled(" split│  ", dim),
+        Span::styled(" Split│  ", dim),
         Span::styled(split_horizontal, key),
-        Span::styled(" split─  ", dim),
+        Span::styled(" Split─  ", dim),
         Span::styled(close_pane, key),
-        Span::styled(" close  ", dim),
+        Span::styled(" Close  ", dim),
         Span::styled(zoom, key),
-        Span::styled(" zoom  ", dim),
+        Span::styled(" Zoom  ", dim),
         Span::styled(resize, key),
-        Span::styled(" resize  ", dim),
+        Span::styled(" Resize  ", dim),
         Span::styled(help, key),
-        Span::styled(" keybinds  ", dim),
+        Span::styled(" Keybinds  ", dim),
         Span::styled(settings, key),
-        Span::styled(" settings  ", dim),
+        Span::styled(" Settings  ", dim),
         Span::styled(detach, key),
-        Span::styled(" detach", dim),
+        Span::styled(" Detach", dim),
     ]);
 
     let overlay_y = area.y + area.height.saturating_sub(1);
@@ -515,7 +515,7 @@ pub(super) fn render_navigate_overlay(app: &AppState, frame: &mut Frame, area: R
 
     if app.update_available.is_some() {
         let status = Line::from(vec![Span::styled(
-            " update ready",
+            " Update Ready",
             Style::default()
                 .fg(app.palette.accent)
                 .add_modifier(Modifier::BOLD),
@@ -746,14 +746,14 @@ pub(super) fn render_resize_overlay(app: &AppState, frame: &mut Frame, area: Rec
         .add_modifier(Modifier::BOLD);
 
     let line = Line::from(vec![
-        Span::styled(" resize ", mode_style),
+        Span::styled(" Resize ", mode_style),
         Span::raw("  "),
         Span::styled("h/l", key),
-        Span::styled(" width  ", dim),
+        Span::styled(" Width  ", dim),
         Span::styled("j/k", key),
-        Span::styled(" height  ", dim),
-        Span::styled("esc/↵", key),
-        Span::styled(" done", dim),
+        Span::styled(" Height  ", dim),
+        Span::styled("Esc/↵", key),
+        Span::styled(" Done", dim),
     ]);
 
     let overlay_y = area.y + area.height.saturating_sub(1);
@@ -801,6 +801,7 @@ pub(super) fn render_context_menu(app: &AppState, frame: &mut Frame) {
     let visible_range = menu.visible_item_range(inner.height as usize);
     for (row, item) in menu.items()[visible_range.clone()].iter().enumerate() {
         let idx = visible_range.start + row;
+        let display_item = ContextMenuState::item_display_label(item);
         if ContextMenuState::item_is_separator(item) {
             render_menu_separator(frame, inner, row, dim_style);
         } else if ContextMenuState::item_is_section_header(item) {
@@ -808,16 +809,16 @@ pub(super) fn render_context_menu(app: &AppState, frame: &mut Frame) {
                 frame,
                 inner,
                 row,
-                Line::from(format!(" {item}")),
+                Line::from(format!(" {display_item}")),
                 false,
                 selected_style,
                 dim_style,
             );
         } else {
-            let label = if item.starts_with(" +") {
-                format!(" {item}")
+            let label = if display_item.starts_with(" +") {
+                format!(" {display_item}")
             } else {
-                format!("  {item}")
+                format!("  {display_item}")
             };
             render_menu_row(
                 frame,
@@ -862,15 +863,15 @@ pub(super) fn render_prefix_overlay_for_view(
         .bg(accent)
         .add_modifier(Modifier::BOLD);
     let line = Line::from(vec![
-        Span::styled(" PREFIX ", mode_style),
+        Span::styled(" Prefix ", mode_style),
         Span::raw(" "),
-        Span::styled("esc", key),
-        Span::styled(" cancel  ", dim),
+        Span::styled("Esc", key),
+        Span::styled(" Cancel  ", dim),
         Span::styled(
             crate::config::format_key_combo((app.prefix_code, app.prefix_mods)),
             key,
         ),
-        Span::styled(" send", dim),
+        Span::styled(" Send", dim),
     ]);
     let y = area.y + area.height.saturating_sub(1);
     render_bottom_bar(
@@ -903,18 +904,18 @@ pub(super) fn render_copy_mode_overlay_for_view(
             crate::app::state::CopyModeSearchDirection::Backward => "?",
         };
         Line::from(vec![
-            Span::styled(" COPY ", mode_style),
+            Span::styled(" Copy ", mode_style),
             Span::raw(" "),
             Span::styled(marker, key),
             Span::styled(prompt.query.clone(), Style::default().fg(app.palette.text)),
             Span::styled("█", key),
-            Span::styled("  enter search  esc cancel", dim),
+            Span::styled("  Enter Search  Esc Cancel", dim),
         ])
     } else {
         let select = if copy_mode.selection.is_some() {
-            "selecting"
+            "Selecting"
         } else {
-            "select"
+            "Select"
         };
         let match_status = copy_mode
             .search
@@ -923,18 +924,18 @@ pub(super) fn render_copy_mode_overlay_for_view(
             .or_else(|| (!copy_mode.search.query.is_empty()).then(|| " 0/0".to_string()))
             .unwrap_or_default();
         Line::from(vec![
-            Span::styled(" COPY ", mode_style),
+            Span::styled(" Copy ", mode_style),
             Span::raw(" "),
             Span::styled("h/j/k/l w/b/e { }", key),
-            Span::styled(" move  ", dim),
+            Span::styled(" Move  ", dim),
             Span::styled("/ ?", key),
-            Span::styled(" search  ", dim),
+            Span::styled(" Search  ", dim),
             Span::styled("n/N", key),
-            Span::styled(format!(" repeat{match_status}  "), dim),
-            Span::styled("v/space", key),
+            Span::styled(format!(" Repeat{match_status}  "), dim),
+            Span::styled("v/Space", key),
             Span::styled(format!(" {select}  "), dim),
-            Span::styled("y/enter", key),
-            Span::styled(" copy  q/esc exit", dim),
+            Span::styled("y/Enter", key),
+            Span::styled(" Copy  q/Esc Exit", dim),
         ])
     };
     let y = area.y + area.height.saturating_sub(1);
@@ -960,10 +961,10 @@ pub(super) fn render_navigate_overlay_for_view(
         .bg(accent)
         .add_modifier(Modifier::BOLD);
     let line = Line::from(vec![
-        Span::styled(" navigate ", mode_style),
+        Span::styled(" Navigate ", mode_style),
         Span::raw(" "),
-        Span::styled("esc", key),
-        Span::styled(" back  ", dim),
+        Span::styled("Esc", key),
+        Span::styled(" Back  ", dim),
         Span::styled(
             format!(
                 "{} / {}",
@@ -972,7 +973,7 @@ pub(super) fn render_navigate_overlay_for_view(
             ),
             key,
         ),
-        Span::styled(" space  ↵ open  ⇥ pane", dim),
+        Span::styled(" Space  ↵ Open  ⇥ Pane", dim),
     ]);
     let y = area.y + area.height.saturating_sub(1);
     render_bottom_bar(
@@ -990,7 +991,7 @@ pub(super) fn render_navigate_overlay_for_view(
         );
         frame.render_widget(
             Paragraph::new(Line::from(Span::styled(
-                " update ready",
+                " Update Ready",
                 Style::default()
                     .fg(app.palette.accent)
                     .add_modifier(Modifier::BOLD),
@@ -1013,7 +1014,7 @@ pub(super) fn render_resize_overlay_for_view(
     let dim = Style::default().fg(app.palette.overlay0);
     let line = Line::from(vec![
         Span::styled(
-            " resize ",
+            " Resize ",
             Style::default()
                 .fg(panel_contrast_fg(&app.palette))
                 .bg(app.palette.mauve)
@@ -1021,9 +1022,9 @@ pub(super) fn render_resize_overlay_for_view(
         ),
         Span::raw("  "),
         Span::styled("h/l", key),
-        Span::styled(" width  ", dim),
+        Span::styled(" Width  ", dim),
         Span::styled("j/k", key),
-        Span::styled(" height  esc/↵ done", dim),
+        Span::styled(" Height  Esc/↵ Done", dim),
     ]);
     let y = area.y + area.height.saturating_sub(1);
     render_bottom_bar(
@@ -1039,7 +1040,7 @@ fn client_context_menu_rect(view: &ClientViewState, menu: &ContextMenuState) -> 
     let max_width = menu
         .items()
         .iter()
-        .map(|item| item.len() as u16)
+        .map(|item| ContextMenuState::item_display_label(item).len() as u16)
         .max()
         .unwrap_or(0);
     let width = (max_width + 4).max(14).min(screen.width.max(1));
@@ -1079,6 +1080,7 @@ pub(super) fn render_context_menu_for_view(
     let visible_range = menu.visible_item_range(inner.height as usize);
     for (row, item) in menu.items()[visible_range.clone()].iter().enumerate() {
         let idx = visible_range.start + row;
+        let display_item = ContextMenuState::item_display_label(item);
         if ContextMenuState::item_is_separator(item) {
             render_menu_separator(frame, inner, row, dim);
         } else {
@@ -1088,9 +1090,9 @@ pub(super) fn render_context_menu_for_view(
                 inner,
                 row,
                 Line::from(if header {
-                    format!(" {item}")
+                    format!(" {display_item}")
                 } else {
-                    format!("  {item}")
+                    format!("  {display_item}")
                 }),
                 !header && visible == Some(idx),
                 selected,
@@ -1325,7 +1327,7 @@ mod tests {
             .expect("render prefix overlay");
 
         let buffer = terminal.backend().buffer();
-        let (x, y) = first_cell_with_text(buffer, 96, 8, "esc").expect("esc hint");
+        let (x, y) = first_cell_with_text(buffer, 96, 8, "Esc").expect("esc hint");
         assert_eq!(buffer[(x, y)].style().fg, Some(expected_accent));
         assert_eq!(buffer[(x, y)].style().bg, Some(app.palette.panel_bg));
     }
@@ -1338,7 +1340,7 @@ mod tests {
         app.group_filter_enabled = false;
         app.workspaces = vec![crate::workspace::Workspace::test_new("a")];
         app.workspaces[0].group_id = app.groups[group_idx].id.clone();
-        assert_eq!(line_text(&group_menu_all_line(&app, false, 12)), "✓ all");
+        assert_eq!(line_text(&group_menu_all_line(&app, false, 12)), "✓ All");
         assert_eq!(
             line_text(&group_menu_group_line(&app, group_idx, false, 12)),
             "  ■ work"
@@ -1348,7 +1350,7 @@ mod tests {
 
         let all = group_menu_all_line(&app, false, 12);
         let all_text = line_text(&all);
-        assert!(all_text.starts_with("✓ all"));
+        assert!(all_text.starts_with("✓ All"));
         assert_eq!(all_text.chars().last(), Some('1'));
         assert_eq!(all_text.chars().count(), 11);
         let all_count = all
@@ -1393,13 +1395,13 @@ mod tests {
 
         let buffer = terminal.backend().buffer();
         let text = buffer_text(buffer, 80, 20);
-        assert!(text.contains("all"));
-        assert!(text.contains("space"));
-        assert!(text.contains("group"));
+        assert!(text.contains("All"));
+        assert!(text.contains("Space"));
+        assert!(text.contains("Group"));
         assert!(!text.contains("follow"));
 
         let (agent_filter_x, agent_filter_y) =
-            first_cell_with_text(buffer, 80, 20, "filter").expect("agent filter row");
+            first_cell_with_text(buffer, 80, 20, "Filter").expect("agent filter row");
         assert_eq!(
             buffer[(agent_filter_x, agent_filter_y)].style().fg,
             Some(app.palette.overlay0)
@@ -1410,7 +1412,7 @@ mod tests {
             "agent filter row should not use selected background"
         );
 
-        for label in ["all", "space", "group"] {
+        for label in ["All", "Space", "Group"] {
             let (x, y) = first_cell_with_text(buffer, 80, 20, label)
                 .unwrap_or_else(|| panic!("{label} agent scope row"));
             assert_eq!(
@@ -1438,7 +1440,7 @@ mod tests {
 
         let group_buffer = terminal.backend().buffer();
         let (group_filter_x, group_filter_y) =
-            first_cell_with_text(group_buffer, 80, 20, "filter").expect("group filter row");
+            first_cell_with_text(group_buffer, 80, 20, "Filter").expect("group filter row");
         assert_eq!(
             buffer[(agent_filter_x, agent_filter_y)].style(),
             group_buffer[(group_filter_x, group_filter_y)].style(),

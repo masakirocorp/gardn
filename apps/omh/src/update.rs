@@ -1335,18 +1335,18 @@ pub(crate) fn update_install_command() -> &'static str {
 pub(crate) fn update_install_instruction(install_command: &str) -> String {
     match install_command {
         OMH_UPDATE_COMMAND => {
-            "detach, run `omh update`, then follow its restart guidance".to_string()
+            "Detach, run `omh update`, then follow its restart guidance".to_string()
         }
         MISE_UPDATE_COMMAND => {
-            "detach, run `mise upgrade omh`, then restart this Oh My Herdr session when ready"
+            "Detach, run `mise upgrade omh`, then restart this Oh My Herdr session when ready"
                 .to_string()
         }
         NIX_UPDATE_COMMAND => {
-            "detach, update through Nix, then restart this Oh My Herdr session when ready"
+            "Detach, update through Nix, then restart this Oh My Herdr session when ready"
                 .to_string()
         }
         command => {
-            format!("detach, run `{command}`, then restart this Oh My Herdr session when ready")
+            format!("Detach, run `{command}`, then restart this Oh My Herdr session when ready")
         }
     }
 }
@@ -1828,15 +1828,15 @@ mod tests {
     fn update_install_instruction_distinguishes_install_from_restart() {
         assert_eq!(
             update_install_instruction(OMH_UPDATE_COMMAND),
-            "detach, run `omh update`, then follow its restart guidance"
+            "Detach, run `omh update`, then follow its restart guidance"
         );
         assert_eq!(
             update_install_instruction(MISE_UPDATE_COMMAND),
-            "detach, run `mise upgrade omh`, then restart this Oh My Herdr session when ready"
+            "Detach, run `mise upgrade omh`, then restart this Oh My Herdr session when ready"
         );
         assert_eq!(
             update_install_instruction(NIX_UPDATE_COMMAND),
-            "detach, update through Nix, then restart this Oh My Herdr session when ready"
+            "Detach, update through Nix, then restart this Oh My Herdr session when ready"
         );
     }
 

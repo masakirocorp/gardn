@@ -1518,7 +1518,7 @@ impl AppState {
         let max_item_w = menu
             .items()
             .iter()
-            .map(|item| item.len() as u16)
+            .map(|item| ContextMenuState::item_display_label(item).len() as u16)
             .max()
             .unwrap_or(0);
         let menu_w = (max_item_w + 4).max(14).min(screen.width.max(1));
@@ -2443,12 +2443,12 @@ mod tests {
         let mut app = app_for_mouse_test();
         app.state.mode = Mode::CommandPalette;
 
-        let first = rendered_text_point(&app, "new space");
+        let first = rendered_text_point(&app, "New Space");
         app.handle_mouse(mouse(MouseEventKind::Moved, first.0, first.1));
         assert_eq!(app.state.command_palette.list.selected, 0);
         assert_eq!(app.state.command_palette.list.visible(), Some(0));
 
-        let second = rendered_text_point(&app, "rename selected space");
+        let second = rendered_text_point(&app, "Rename Selected Space");
         app.handle_mouse(mouse(MouseEventKind::Moved, second.0, second.1));
         assert_eq!(app.state.command_palette.list.selected, 0);
         assert_eq!(app.state.command_palette.list.visible(), Some(1));
@@ -2730,7 +2730,7 @@ mod tests {
         app.state.name_input = "Work".to_string();
         app.state.group_icon_input = "✿".to_string();
 
-        let save = rendered_text_point(&app, "save");
+        let save = rendered_text_point(&app, "Save");
         app.handle_mouse(mouse(
             MouseEventKind::Down(MouseButton::Left),
             save.0,
@@ -2749,7 +2749,7 @@ mod tests {
         super::super::modal::open_new_group_dialog(&mut app.state);
         app.state.name_input = "Work".to_string();
 
-        let clear = rendered_text_point(&app, "clear");
+        let clear = rendered_text_point(&app, "Clear");
         app.handle_mouse(mouse(
             MouseEventKind::Down(MouseButton::Left),
             clear.0,
@@ -2766,7 +2766,7 @@ mod tests {
         app.state.view.right_sidebar_rect = Rect::new(106, 0, 34, 20);
         super::super::modal::open_new_group_dialog(&mut app.state);
 
-        let close = rendered_text_point(&app, "close");
+        let close = rendered_text_point(&app, "Close");
         app.handle_mouse(mouse(
             MouseEventKind::Down(MouseButton::Left),
             close.0,

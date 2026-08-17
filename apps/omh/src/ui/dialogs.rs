@@ -23,11 +23,11 @@ pub(crate) fn rename_button_rects(inner: Rect) -> (Rect, Rect, Rect) {
         &[
             ActionButtonSpec {
                 hint: Some("↵"),
-                label: "save",
+                label: "Save",
             },
             ActionButtonSpec {
                 hint: Some("^c"),
-                label: "clear",
+                label: "Clear",
             },
         ],
         2,
@@ -180,14 +180,14 @@ fn render_rename_overlay_with_view_state(
     // state below is selected from the requesting client's view.
     let title = match client_view.mode {
         Mode::RenameWorkspace if client_view.pending_workspace_create_location.is_some() => {
-            "new workspace"
+            "New Workspace"
         }
-        Mode::RenameWorkspace => "rename workspace",
-        Mode::RenameGroup if client_view.creating_new_group => "new group",
-        Mode::RenameGroup => "rename group",
-        Mode::RenameTab if client_view.creating_new_tab => "new tab",
-        Mode::RenameTab => "rename tab",
-        Mode::RenamePane => "rename pane",
+        Mode::RenameWorkspace => "Rename Workspace",
+        Mode::RenameGroup if client_view.creating_new_group => "New Group",
+        Mode::RenameGroup => "Rename Group",
+        Mode::RenameTab if client_view.creating_new_tab => "New Tab",
+        Mode::RenameTab => "Rename Tab",
+        Mode::RenamePane => "Rename Pane",
         _ => return,
     };
     let palette = match client_view.mode {
@@ -228,9 +228,9 @@ fn render_rename_overlay_with_view_state(
     }
     if matches!(client_view.mode, Mode::RenameGroup) {
         let section_description = if client_view.creating_new_group {
-            "name + icon + Runs on + Directory"
+            "Name + Icon + Runs On + Directory"
         } else {
-            "name + icon"
+            "Name + Icon"
         };
         let group_left = if client_view.creating_new_group { 1 } else { 2 };
         let field = |y| {
@@ -244,7 +244,7 @@ fn render_rename_overlay_with_view_state(
         render_modal_description(
             frame,
             Rect::new(inner.x, inner.y + 3, inner.width, 1),
-            "general",
+            "General",
             Style::default().fg(palette.accent),
         );
         render_modal_description(
@@ -255,7 +255,7 @@ fn render_rename_overlay_with_view_state(
         );
         let name_selected = client_view.group_modal_selected_field == 0;
         frame.render_widget(
-            Paragraph::new("name").style(if name_selected {
+            Paragraph::new("Name").style(if name_selected {
                 Style::default()
                     .fg(palette.accent)
                     .add_modifier(Modifier::BOLD)
@@ -277,7 +277,7 @@ fn render_rename_overlay_with_view_state(
         }
         let picker_open = client_view.group_icon_picker_open;
         frame.render_widget(
-            Paragraph::new("icon").style(if picker_open {
+            Paragraph::new("Icon").style(if picker_open {
                 Style::default()
                     .fg(palette.accent)
                     .add_modifier(Modifier::BOLD)
@@ -321,7 +321,7 @@ fn render_rename_overlay_with_view_state(
                     })
             };
             frame.render_widget(
-                Paragraph::new(format!("Runs on · {host_name}")).style(if host_selected {
+                Paragraph::new(format!("Runs On · {host_name}")).style(if host_selected {
                     Style::default()
                         .fg(palette.accent)
                         .add_modifier(Modifier::BOLD)
@@ -405,7 +405,7 @@ fn render_rename_overlay_with_view_state(
             };
             frame.render_widget(
                 Paragraph::new(format!(
-                    "Runs on {host} · Directory {}",
+                    "Runs On {host} · Directory {}",
                     location.path.as_path().display()
                 ))
                 .style(Style::default().fg(palette.overlay0)),
@@ -418,14 +418,14 @@ fn render_rename_overlay_with_view_state(
         frame,
         save_rect,
         Some("↵"),
-        "save",
+        "Save",
         primary_action_style(&palette),
     );
     render_action_button(
         frame,
         clear_rect,
         Some("^c"),
-        "clear",
+        "Clear",
         secondary_action_style(&palette),
     );
 }
@@ -434,13 +434,13 @@ pub(super) fn render_rename_overlay(app: &AppState, frame: &mut Frame, area: Rec
     super::dim_background(frame, area);
 
     let title = match app.mode {
-        Mode::RenameWorkspace if app.pending_workspace_create_location.is_some() => "new workspace",
-        Mode::RenameWorkspace => "rename workspace",
-        Mode::RenameGroup if app.creating_new_group => "new group",
-        Mode::RenameGroup => "rename group",
-        Mode::RenameTab if app.creating_new_tab => "new tab",
-        Mode::RenameTab => "rename tab",
-        Mode::RenamePane => "rename pane",
+        Mode::RenameWorkspace if app.pending_workspace_create_location.is_some() => "New Workspace",
+        Mode::RenameWorkspace => "Rename Workspace",
+        Mode::RenameGroup if app.creating_new_group => "New Group",
+        Mode::RenameGroup => "Rename Group",
+        Mode::RenameTab if app.creating_new_tab => "New Tab",
+        Mode::RenameTab => "Rename Tab",
+        Mode::RenamePane => "Rename Pane",
         _ => return,
     };
 
@@ -467,15 +467,15 @@ pub(super) fn render_rename_overlay(app: &AppState, frame: &mut Frame, area: Rec
 
     if matches!(app.mode, Mode::RenameGroup) {
         let section_description = if app.creating_new_group {
-            "name + icon + Runs on + Directory"
+            "Name + Icon + Runs On + Directory"
         } else {
-            "name + icon"
+            "Name + Icon"
         };
         if app.creating_new_group {
             render_modal_description(
                 frame,
                 Rect::new(inner.x, inner.y + 3, inner.width, 1),
-                "general",
+                "General",
                 Style::default().fg(palette.accent),
             );
             render_modal_description(
@@ -486,7 +486,7 @@ pub(super) fn render_rename_overlay(app: &AppState, frame: &mut Frame, area: Rec
             );
         } else {
             frame.render_widget(
-                Paragraph::new("general").style(modal_section_heading_style(&palette)),
+                Paragraph::new("General").style(modal_section_heading_style(&palette)),
                 Rect::new(inner.x, inner.y + 3, inner.width, 1),
             );
             frame.render_widget(
@@ -503,7 +503,7 @@ pub(super) fn render_rename_overlay(app: &AppState, frame: &mut Frame, area: Rec
             Style::default().fg(palette.overlay0)
         };
         frame.render_widget(
-            Paragraph::new("name").style(name_label_style),
+            Paragraph::new("Name").style(name_label_style),
             group_field_rect(app, inner, 6, 6),
         );
         let name_rect = group_name_input_rect(app, inner);
@@ -521,7 +521,7 @@ pub(super) fn render_rename_overlay(app: &AppState, frame: &mut Frame, area: Rec
             Style::default().fg(palette.overlay0)
         };
         frame.render_widget(
-            Paragraph::new("icon").style(icon_label_style),
+            Paragraph::new("Icon").style(icon_label_style),
             group_field_rect(app, inner, 9, 4),
         );
         let icon_rect = group_icon_button_rect(app, inner);
@@ -564,7 +564,7 @@ pub(super) fn render_rename_overlay(app: &AppState, frame: &mut Frame, area: Rec
                     .unwrap_or_else(|| app.group_default_execution_host_id.as_str().to_string())
             };
             frame.render_widget(
-                Paragraph::new(format!("Runs on · {host_name}")).style(host_style),
+                Paragraph::new(format!("Runs On · {host_name}")).style(host_style),
                 group_field_rect(app, inner, host_y, 7),
             );
             let directory_y = host_y + 1;
@@ -611,7 +611,7 @@ pub(super) fn render_rename_overlay(app: &AppState, frame: &mut Frame, area: Rec
             };
             frame.render_widget(
                 Paragraph::new(format!(
-                    "Runs on {host} · Directory {}",
+                    "Runs On {host} · Directory {}",
                     location.path.as_path().display()
                 ))
                 .style(Style::default().fg(palette.overlay0)),
@@ -646,14 +646,14 @@ pub(super) fn render_rename_overlay(app: &AppState, frame: &mut Frame, area: Rec
         frame,
         save_rect,
         Some("↵"),
-        "save",
+        "Save",
         primary_action_style(&palette),
     );
     render_action_button(
         frame,
         clear_rect,
         Some("^c"),
-        "clear",
+        "Clear",
         secondary_action_style(&palette),
     );
 }
@@ -693,9 +693,9 @@ fn render_confirm_close_overlay_with(
         .unwrap_or(0);
 
     let pane_text = if pane_count == 1 {
-        "1 pane".to_string()
+        "1 Pane".to_string()
     } else {
-        format!("{pane_count} panes")
+        format!("{pane_count} Panes")
     };
 
     super::dim_background(frame, area);
@@ -710,7 +710,7 @@ fn render_confirm_close_overlay_with(
         .add_modifier(Modifier::BOLD);
     let dim = Style::default().fg(palette.overlay0);
 
-    let title_line = Line::from(vec![Span::styled(" close workspace?", warn)]);
+    let title_line = Line::from(vec![Span::styled(" Close Workspace?", warn)]);
 
     let detail_line = Line::from(vec![
         Span::styled(
@@ -742,14 +742,14 @@ fn render_confirm_close_overlay_with(
             frame,
             confirm_rect,
             Some("↵"),
-            "confirm",
+            "Confirm",
             danger_action_style(&palette),
         );
         render_action_button(
             frame,
             cancel_rect,
-            Some("esc"),
-            "cancel",
+            Some("Esc"),
+            "Cancel",
             secondary_action_style(&palette),
         );
     }
@@ -798,9 +798,9 @@ fn render_confirm_delete_group_overlay_with(
         })
         .unwrap_or(0);
     let spaces = if space_count == 1 {
-        "1 space".to_string()
+        "1 Space".to_string()
     } else {
-        format!("{space_count} spaces")
+        format!("{space_count} Spaces")
     };
 
     super::dim_background(frame, area);
@@ -813,7 +813,7 @@ fn render_confirm_delete_group_overlay_with(
         .fg(palette.red)
         .add_modifier(Modifier::BOLD);
     let dim = Style::default().fg(palette.overlay0);
-    let title_line = Line::from(vec![Span::styled(" delete group?", warn)]);
+    let title_line = Line::from(vec![Span::styled(" Delete Group?", warn)]);
     let detail_line = Line::from(vec![
         Span::styled(
             format!(" {group_name}"),
@@ -821,7 +821,7 @@ fn render_confirm_delete_group_overlay_with(
                 .fg(app.group_accent_color(group_idx))
                 .add_modifier(Modifier::BOLD),
         ),
-        Span::styled(format!(" — closes {spaces}"), dim),
+        Span::styled(format!(" — Closes {spaces}"), dim),
     ]);
 
     let Some(inner) = render_panel_shell(frame, popup, palette.red, palette.panel_bg) else {
@@ -841,14 +841,14 @@ fn render_confirm_delete_group_overlay_with(
             frame,
             confirm_rect,
             Some("↵"),
-            "confirm",
+            "Confirm",
             danger_action_style(&palette),
         );
         render_action_button(
             frame,
             cancel_rect,
-            Some("esc"),
-            "cancel",
+            Some("Esc"),
+            "Cancel",
             secondary_action_style(&palette),
         );
     }
@@ -873,11 +873,11 @@ pub(crate) fn confirm_close_button_rects(inner: Rect) -> (Rect, Rect) {
         &[
             ActionButtonSpec {
                 hint: Some("↵"),
-                label: "confirm",
+                label: "Confirm",
             },
             ActionButtonSpec {
-                hint: Some("esc"),
-                label: "cancel",
+                hint: Some("Esc"),
+                label: "Cancel",
             },
         ],
         2,
@@ -903,7 +903,7 @@ pub(crate) fn render_authentication_overlay_for_view(
     let Some(inner) = render_modal_shell(frame, area, 64, 11, &palette) else {
         return;
     };
-    render_modal_header_bar(frame, inner, "SSH authentication required", &palette, true);
+    render_modal_header_bar(frame, inner, "SSH Authentication Required", &palette, true);
     render_modal_divider(
         frame,
         Rect::new(inner.x, inner.y + 1, inner.width, 1),
@@ -921,9 +921,9 @@ pub(crate) fn render_authentication_overlay_for_view(
         Rect::new(inner.x + 1, inner.y + 4, inner.width.saturating_sub(2), 2),
     );
     let guidance = if prompt.host_key_confirmation {
-        "Y confirm host key  ·  N / Esc cancel"
+        "Y Confirm Host Key  ·  N / Esc Cancel"
     } else {
-        "Enter submit  ·  Esc cancel"
+        "Enter Submit  ·  Esc Cancel"
     };
     frame.render_widget(
         Paragraph::new(guidance).style(Style::default().fg(palette.overlay0)),
@@ -965,7 +965,7 @@ mod tests {
             .unwrap();
         let text = buffer_text(terminal.backend().buffer(), 80, 24);
 
-        assert!(text.contains("SSH authentication required"));
+        assert!(text.contains("SSH Authentication Required"));
         assert!(text.contains("•••••••"));
         assert!(!text.contains("hunter2"));
     }
@@ -991,8 +991,8 @@ mod tests {
             .unwrap();
         let text = buffer_text(terminal.backend().buffer(), 80, 24);
 
-        assert!(text.contains("Y confirm host key"));
-        assert!(text.contains("N / Esc cancel"));
+        assert!(text.contains("Y Confirm Host Key"));
+        assert!(text.contains("N / Esc Cancel"));
     }
 
     #[test]
@@ -1018,13 +1018,13 @@ mod tests {
             .unwrap();
 
         let text = buffer_text(terminal.backend().buffer(), 80, 24);
-        assert!(text.contains("close workspace?"));
+        assert!(text.contains("Close Workspace?"));
         assert!(text.contains("empty"));
-        assert!(text.contains("0 panes"));
+        assert!(text.contains("0 Panes"));
         assert!(text.contains("↵"));
-        assert!(text.contains("confirm"));
-        assert!(text.contains("esc"));
-        assert!(text.contains("cancel"));
+        assert!(text.contains("Confirm"));
+        assert!(text.contains("Esc"));
+        assert!(text.contains("Cancel"));
     }
 
     #[test]
@@ -1148,12 +1148,12 @@ mod tests {
 
         let buffer = terminal.backend().buffer();
         let text = buffer_text(buffer, 90, 28);
-        assert!(text.contains("new group"));
-        assert!(text.contains("name + icon + Runs on + Directory"));
+        assert!(text.contains("New Group"));
+        assert!(text.contains("Name + Icon + Runs On + Directory"));
         assert!(text.contains("Directory"));
         assert!(text.contains("/tmp/work"));
-        assert!(text.contains("save"));
-        assert!(text.contains("clear"));
+        assert!(text.contains("Save"));
+        assert!(text.contains("Clear"));
 
         let (popup_w, popup_h) = rename_modal_size(&app);
         let popup = centered_popup_rect(Rect::new(0, 0, 90, 28), popup_w, popup_h).unwrap();
@@ -1167,7 +1167,7 @@ mod tests {
         assert!(row_text(buffer, inner.x, inner.width, inner.y + 2)
             .trim()
             .is_empty());
-        assert_eq!(buffer[(inner.x + 1, inner.y + 3)].symbol(), "g");
+        assert_eq!(buffer[(inner.x + 1, inner.y + 3)].symbol(), "G");
         assert_eq!(
             buffer[(inner.x + 1, inner.y + 3)].style().fg,
             Some(app.palette.accent)
@@ -1176,7 +1176,7 @@ mod tests {
             buffer[(inner.x + 1, inner.y + 4)].style().fg,
             Some(app.palette.overlay0)
         );
-        assert_eq!(buffer[(inner.x + 1, inner.y + 6)].symbol(), "n");
+        assert_eq!(buffer[(inner.x + 1, inner.y + 6)].symbol(), "N");
         assert_eq!(group_name_input_rect(&app, inner).x, inner.x + 1);
         assert_eq!(
             group_default_directory_input_rect(&app, inner),

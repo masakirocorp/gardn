@@ -317,10 +317,10 @@ impl IntegrationRecommendation {
 
     pub fn status_label(&self) -> &'static str {
         match (self.available, self.state) {
-            (_, IntegrationStatusKind::Current) => "installed",
-            (_, IntegrationStatusKind::Outdated) => "update available",
-            (true, IntegrationStatusKind::NotInstalled) => "available",
-            (false, IntegrationStatusKind::NotInstalled) => "not found",
+            (_, IntegrationStatusKind::Current) => "Installed",
+            (_, IntegrationStatusKind::Outdated) => "Update Available",
+            (true, IntegrationStatusKind::NotInstalled) => "Available",
+            (false, IntegrationStatusKind::NotInstalled) => "Not Found",
         }
     }
 }
@@ -593,8 +593,8 @@ pub(crate) fn agent_profile_integration_badge(
     );
     match status.state {
         IntegrationStatusKind::Current => None,
-        IntegrationStatusKind::NotInstalled => Some("hook missing"),
-        IntegrationStatusKind::Outdated => Some("hook outdated"),
+        IntegrationStatusKind::NotInstalled => Some("Hook Missing"),
+        IntegrationStatusKind::Outdated => Some("Hook Outdated"),
     }
 }
 

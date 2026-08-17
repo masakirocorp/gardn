@@ -1241,7 +1241,7 @@ impl HeadlessServer {
             self.app.state.toast = Some(app::state::ToastNotification {
                 kind: app::state::ToastKind::NeedsAttention,
                 title: format!(
-                    "{} command failed",
+                    "{} Command Failed",
                     self.app.state.project_command_role(kind)
                 ),
                 context: err,
@@ -2114,7 +2114,7 @@ impl HeadlessServer {
                             .map(|toast| format!("{}: {}", toast.title, toast.context))
                     } else {
                         Some(format!(
-                            "v{version} available: detach, then run `{install_command}`"
+                            "v{version} Available: Detach, then run `{install_command}`"
                         ))
                     }
                 } else {
@@ -4270,7 +4270,7 @@ mod tests {
                 .toast
                 .as_ref()
                 .map(|toast| toast.title.as_str()),
-            Some("diff command failed")
+            Some("Diff Command Failed")
         );
         assert!(server.app.toast_deadline.is_some());
     }
@@ -7555,7 +7555,7 @@ next_tab = ""
         ) {
             ServerMessage::Notify { kind, message } => {
                 assert_eq!(kind, protocol::NotifyKind::SystemToast);
-                assert_eq!(message, "v9.9.9 available: detach, then run `omh update`");
+                assert_eq!(message, "v9.9.9 Available: Detach, then run `omh update`");
             }
             other => panic!("expected system toast notify, got {other:?}"),
         }

@@ -163,7 +163,7 @@ pub(super) fn render_modal_header(frame: &mut Frame, area: Rect, title: &str, p:
 }
 
 pub(crate) fn modal_close_button_rect(area: Rect) -> Rect {
-    let width = action_button_width(Some("esc"), "close");
+    let width = action_button_width(Some("Esc"), "Close");
     Rect::new(area.x + area.width.saturating_sub(width), area.y, width, 1)
 }
 
@@ -188,8 +188,8 @@ pub(super) fn render_modal_header_bar(
         render_action_button(
             frame,
             button,
-            Some("esc"),
-            "close",
+            Some("Esc"),
+            "Close",
             secondary_action_style(p),
         );
     }
@@ -223,7 +223,7 @@ pub(super) fn render_modal_divider(frame: &mut Frame, area: Rect, p: &Palette) {
 }
 
 pub(super) const MODAL_SCROLL_HINTS: &[(&str, &str)] =
-    &[("scroll", "wheel ↑↓"), ("jump", "pgup / pgdn")];
+    &[("Scroll", "Wheel ↑↓"), ("Jump", "PgUp / PgDn")];
 
 pub(super) fn modal_scroll_hint_line_count(area_width: u16, max_rows: u16) -> u16 {
     modal_hint_line_count(area_width, MODAL_SCROLL_HINTS, max_rows)
@@ -818,12 +818,12 @@ mod tests {
         let area = Rect::new(4, 7, 8, 2);
         let buttons = [
             ActionButtonSpec {
-                hint: Some("enter"),
-                label: "confirm",
+                hint: Some("Enter"),
+                label: "Confirm",
             },
             ActionButtonSpec {
-                hint: Some("esc"),
-                label: "cancel",
+                hint: Some("Esc"),
+                label: "Cancel",
             },
         ];
 

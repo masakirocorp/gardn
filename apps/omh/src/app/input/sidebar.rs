@@ -265,7 +265,7 @@ impl AppState {
         if self.config_issue.is_none() {
             "?"
         } else if width >= 14 {
-            "? config issue"
+            "? Config Issue"
         } else if width >= 2 {
             "?!"
         } else {
@@ -276,13 +276,13 @@ impl AppState {
     pub(crate) fn global_menu_labels(&self) -> Vec<&'static str> {
         let mut labels = Vec::new();
         if self.config_issue.is_some() {
-            labels.push("configuration issue");
+            labels.push("Configuration Issue");
         }
-        labels.push("changelog");
+        labels.push("Changelog");
         if self.integration_updates_available() {
-            labels.push("integrations");
+            labels.push("Integrations");
         }
-        labels.extend(["settings", "keybinds", "reload config", "detach"]);
+        labels.extend(["Settings", "Keybinds", "Reload Config", "Detach"]);
         labels
     }
 
@@ -339,7 +339,7 @@ impl AppState {
         if self.group_filter_enabled {
             format!("{} {}", self.active_group_icon(), self.active_group_name())
         } else {
-            "all".to_string()
+            "All".to_string()
         }
     }
 
@@ -350,8 +350,8 @@ impl AppState {
             "✓"
         };
         let mut labels = vec![
-            "filter".to_string(),
-            format!("{all_marker} all {}", self.workspaces.len()),
+            "Filter".to_string(),
+            format!("{all_marker} All {}", self.workspaces.len()),
         ];
         labels.extend(self.groups.iter().enumerate().map(|(idx, group)| {
             let marker = if self.group_filter_enabled && idx == self.active_group {
@@ -367,9 +367,9 @@ impl AppState {
             format!("{marker} {} {} {count}", group.icon, group.name)
         }));
         labels.push("---".to_string());
-        labels.push("new".to_string());
-        labels.push("  space".to_string());
-        labels.push("  group".to_string());
+        labels.push("New".to_string());
+        labels.push("  Space".to_string());
+        labels.push("  Group".to_string());
         labels
     }
 
@@ -451,10 +451,10 @@ impl AppState {
             " "
         };
         vec![
-            "filter".to_string(),
-            format!("{all_marker} all"),
-            format!("{space_marker} space"),
-            format!("{group_marker} group"),
+            "Filter".to_string(),
+            format!("{all_marker} All"),
+            format!("{space_marker} Space"),
+            format!("{group_marker} Group"),
         ]
     }
 
@@ -1118,7 +1118,7 @@ mod tests {
             "opening the spaces dropdown should not hide the active agent label; rendered UI:\n{rendered}"
         );
         assert!(
-            rendered.contains("working"),
+            rendered.contains("Working"),
             "opening the spaces dropdown should not hide the active agent status; rendered UI:\n{rendered}"
         );
 
@@ -1163,7 +1163,7 @@ mod tests {
             "active agent tab should render its label instead of a blank tab; tab text: {active_tab_text:?}"
         );
         assert!(
-            rendered.contains("working"),
+            rendered.contains("Working"),
             "active agent tab should render the agent status in the visible agent panel; rendered UI:\n{rendered}"
         );
         assert!(
@@ -1318,14 +1318,14 @@ mod tests {
             .iter()
             .map(|group| group.name.as_str())
             .collect();
-        assert_eq!(names, vec!["group 1", "ops", "work"]);
+        assert_eq!(names, vec!["Group 1", "ops", "work"]);
         let snapshot = capture_snapshot(&app.state);
         let captured_names: Vec<_> = snapshot
             .groups
             .iter()
             .map(|group| group.name.as_str())
             .collect();
-        assert_eq!(captured_names, vec!["group 1", "ops", "work"]);
+        assert_eq!(captured_names, vec!["Group 1", "ops", "work"]);
     }
 
     #[test]
@@ -1450,14 +1450,14 @@ mod tests {
 
         let labels = app.state.group_menu_labels();
 
-        assert_eq!(labels[0], "filter");
-        assert!(labels[1].contains("all 2"));
-        assert!(labels[2].contains("group 1 1"));
+        assert_eq!(labels[0], "Filter");
+        assert!(labels[1].contains("All 2"));
+        assert!(labels[2].contains("Group 1 1"));
         assert!(labels[3].contains("Work 1"));
         assert_eq!(labels[4], "---");
-        assert_eq!(labels[5], "new");
-        assert_eq!(labels[6], "  space");
-        assert_eq!(labels[7], "  group");
+        assert_eq!(labels[5], "New");
+        assert_eq!(labels[6], "  Space");
+        assert_eq!(labels[7], "  Group");
     }
 
     #[test]
@@ -1503,7 +1503,7 @@ mod tests {
             .state
             .group_menu_labels()
             .iter()
-            .position(|label| label == "  group")
+            .position(|label| label == "  Group")
             .unwrap() as u16;
         app.handle_mouse(mouse(
             MouseEventKind::Down(MouseButton::Left),
@@ -1531,7 +1531,7 @@ mod tests {
             .state
             .group_menu_labels()
             .iter()
-            .position(|label| label == "  space")
+            .position(|label| label == "  Space")
             .unwrap() as u16;
         app.handle_mouse(mouse(
             MouseEventKind::Down(MouseButton::Left),
@@ -1751,7 +1751,7 @@ mod tests {
             .state
             .group_menu_labels()
             .iter()
-            .position(|label| label == "  group")
+            .position(|label| label == "  Group")
             .unwrap() as u16;
         app.handle_mouse(mouse(
             MouseEventKind::Moved,
@@ -1791,7 +1791,7 @@ mod tests {
         ));
 
         assert_eq!(app.state.groups.len(), 1);
-        assert_eq!(app.state.groups[0].name, "group 1");
+        assert_eq!(app.state.groups[0].name, "Group 1");
         assert_eq!(app.state.workspaces.len(), 1);
         assert_eq!(app.state.workspaces[0].display_name(), "a");
         assert_eq!(app.state.active_group, 0);
@@ -1906,12 +1906,12 @@ mod tests {
         assert_eq!(
             app.state.global_menu_labels(),
             vec![
-                "changelog",
-                "integrations",
-                "settings",
-                "keybinds",
-                "reload config",
-                "detach"
+                "Changelog",
+                "Integrations",
+                "Settings",
+                "Keybinds",
+                "Reload Config",
+                "Detach"
             ]
         );
 
@@ -1919,7 +1919,7 @@ mod tests {
         let menu = app.state.global_menu_rect();
         let marker_x = menu.x + menu.width.saturating_sub(2);
         assert_eq!(buffer[(marker_x, menu.y + 2)].symbol(), "●");
-        assert!(text.contains("integrations"));
+        assert!(text.contains("Integrations"));
 
         app.handle_mouse(mouse(
             MouseEventKind::Down(MouseButton::Left),
@@ -1982,7 +1982,7 @@ mod tests {
 
         let (_, buffer) = render_app(&mut app, 120, 30);
         let launcher = app.state.global_launcher_rect();
-        assert_eq!(buffer_rect_text(&buffer, launcher), "? config issue");
+        assert_eq!(buffer_rect_text(&buffer, launcher), "? Config Issue");
 
         app.handle_mouse(mouse(
             MouseEventKind::Down(MouseButton::Left),
@@ -1992,7 +1992,7 @@ mod tests {
         assert_eq!(app.state.mode, Mode::GlobalMenu);
         assert_eq!(
             app.state.global_menu_labels().first(),
-            Some(&"configuration issue")
+            Some(&"Configuration Issue")
         );
 
         let menu = app.state.global_menu_rect();
@@ -2004,8 +2004,8 @@ mod tests {
         assert_eq!(app.state.mode, Mode::ConfigDiagnostics);
 
         let (text, _) = render_app(&mut app, 120, 30);
-        assert!(text.contains("configuration issue"));
-        assert!(text.contains("diagnostics · 2"));
+        assert!(text.contains("Configuration Issue"));
+        assert!(text.contains("Diagnostics · 2"));
         assert!(text.contains("CLI"));
         assert!(text.contains("$ omh config check"));
         assert!(text.contains("1. config.toml"));
@@ -2016,7 +2016,7 @@ mod tests {
         let lines: Vec<_> = text.lines().collect();
         let heading_row = lines
             .iter()
-            .position(|line| line.contains("diagnostics"))
+            .position(|line| line.contains("Diagnostics"))
             .expect("diagnostics heading");
         let entry_row = lines
             .iter()
@@ -2027,7 +2027,7 @@ mod tests {
             .position(|line| line.contains("unknown key `colour`"))
             .expect("first diagnostic detail");
         let heading_col = lines[heading_row]
-            .find("diagnostics")
+            .find("Diagnostics")
             .expect("diagnostics heading column");
         assert_eq!(entry_row, heading_row + 2);
         assert!(
@@ -2041,13 +2041,13 @@ mod tests {
                 > heading_col,
             "rendered modal:\n{text}"
         );
-        assert!(text.contains("reload r"), "rendered modal:\n{text}");
+        assert!(text.contains("Reload r"), "rendered modal:\n{text}");
         assert!(
-            text.contains("scroll wheel / ↑↓"),
+            text.contains("Scroll Wheel / ↑↓"),
             "rendered modal:\n{text}"
         );
-        assert!(text.contains("jump pgup / pgdn"), "rendered modal:\n{text}");
-        assert!(text.contains("close"));
+        assert!(text.contains("Jump PgUp / PgDn"), "rendered modal:\n{text}");
+        assert!(text.contains("Esc Close"));
     }
 
     #[test]
@@ -2060,11 +2060,11 @@ mod tests {
         assert_eq!(
             app.state.global_menu_labels(),
             vec![
-                "changelog",
-                "settings",
-                "keybinds",
-                "reload config",
-                "detach"
+                "Changelog",
+                "Settings",
+                "Keybinds",
+                "Reload Config",
+                "Detach"
             ]
         );
         assert!(!app.state.should_quit);
@@ -2080,11 +2080,11 @@ mod tests {
         assert_eq!(
             app.state.global_menu_labels(),
             vec![
-                "changelog",
-                "settings",
-                "keybinds",
-                "reload config",
-                "detach"
+                "Changelog",
+                "Settings",
+                "Keybinds",
+                "Reload Config",
+                "Detach"
             ]
         );
 
@@ -2109,11 +2109,11 @@ mod tests {
         assert_eq!(
             app.state.global_menu_labels(),
             vec![
-                "changelog",
-                "settings",
-                "keybinds",
-                "reload config",
-                "detach"
+                "Changelog",
+                "Settings",
+                "Keybinds",
+                "Reload Config",
+                "Detach"
             ]
         );
     }
@@ -2302,7 +2302,7 @@ mod tests {
             .find(|row| {
                 app.state
                     .agent_header_target_at(*row)
-                    .is_some_and(|target| target.section == "triage")
+                    .is_some_and(|target| target.section == "Triage")
             })
             .expect("triage header should be visible");
         app.handle_mouse(mouse(
@@ -2311,7 +2311,7 @@ mod tests {
             triage_row,
         ));
 
-        assert!(app.state.agent_section_collapsed("triage"));
+        assert!(app.state.agent_section_collapsed("Triage"));
         assert!(crate::ui::agent_panel_entry_at_row(
             &app.state,
             crate::ui::agent_panel_body_rect(
@@ -2329,7 +2329,7 @@ mod tests {
             triage_row,
         ));
 
-        assert!(!app.state.agent_section_collapsed("triage"));
+        assert!(!app.state.agent_section_collapsed("Triage"));
     }
 
     #[test]
@@ -2353,7 +2353,7 @@ mod tests {
             .find(|row| {
                 app.state
                     .agent_header_target_at(*row)
-                    .is_some_and(|target| target.section == "triage")
+                    .is_some_and(|target| target.section == "Triage")
             })
             .expect("embedded triage header should be visible");
         app.handle_mouse(mouse(
@@ -2362,7 +2362,7 @@ mod tests {
             triage_row,
         ));
 
-        assert!(app.state.agent_section_collapsed("triage"));
+        assert!(app.state.agent_section_collapsed("Triage"));
         assert_eq!(app.state.agent_detail_target_at(triage_row + 1), None);
     }
 
@@ -2398,7 +2398,7 @@ mod tests {
 
         assert_eq!(
             app.state.agent_menu_labels(),
-            vec!["filter", "✓ all", "  space", "  group"]
+            vec!["Filter", "✓ All", "  Space", "  Group"]
         );
     }
 
@@ -2408,11 +2408,11 @@ mod tests {
 
         assert_eq!(
             app.state.agent_menu_labels(),
-            vec!["filter", "✓ all", "  space", "  group"]
+            vec!["Filter", "✓ All", "  Space", "  Group"]
         );
         assert_eq!(
             app.state.agent_menu_rect().width,
-            "  space".len() as u16 + 4
+            "  Space".len() as u16 + 4
         );
     }
 

@@ -429,11 +429,11 @@ pub(crate) fn decide_activate(
     }
 
     if same_protocol {
-        // A different app build is not an exact compatibility match. Keep a
-        // busy incumbent isolated until its runtimes drain; an idle incumbent
-        // can cooperatively release the binding for replacement.
+        // The protocol is the compatibility contract. Reuse a busy incumbent
+        // and defer its build update until all owned runtimes drain. An idle
+        // incumbent can cooperatively release the binding immediately.
         if busy {
-            return LifecycleDecision::BlockedBusy;
+            return LifecycleDecision::UseExistingDeferred;
         }
         return LifecycleDecision::ShuttingDownIdle;
     }
@@ -838,6 +838,30 @@ mod tests {
     }
 
     #[test]
+    fn busy_protocol_compatible_incumbent_is_reused_until_runtimes_drain() {
+        let digest = sample_digest();
+        let request =
+            ActivateRequest::new(digest, sample_artifact_digest(), PROTOCOL_VERSION, "1.2.3")
+                .unwrap();
+        let incumbent = lifecycle_decision_input(
+            true,
+            digest,
+            [0x5a; 32],
+            PROTOCOL_VERSION,
+            "1.2.2",
+            "worker-a",
+            2,
+            true,
+            false,
+        );
+
+        assert_eq!(
+            decide_activate(&request, &incumbent),
+            LifecycleDecision::UseExistingDeferred
+        );
+    }
+
+    #[test]
     fn decide_activate_covers_primary_seams() {
         let digest = sample_digest();
         let artifact_digest = sample_artifact_digest();
@@ -874,7 +898,7 @@ mod tests {
         };
         assert_eq!(
             decide_activate(&request, &busy_other_artifact),
-            LifecycleDecision::BlockedBusy
+            LifecycleDecision::UseExistingDeferred
         );
 
         let deferred = LifecycleDecisionInput {
@@ -915,7 +939,7 @@ mod tests {
         );
         assert_eq!(
             decide_activate(&request, &busy_different_build),
-            LifecycleDecision::BlockedBusy
+            LifecycleDecision::UseExistingDeferred
         );
 
         let busy_incompatible_protocol = lifecycle_decision_input(

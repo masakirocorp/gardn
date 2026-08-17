@@ -120,7 +120,9 @@ pub(crate) use self::{
     },
     settings::{
         settings_close_button_rect, settings_editor_back_button_rect, settings_section_list_rect,
-        settings_stack_areas, settings_tab_chevron_at, settings_tab_hit_areas,
+        settings_sidebar_areas, settings_sidebar_entries, settings_sidebar_hit_areas,
+        settings_stack_areas, settings_subsection_anchor, settings_tab_chevron_at,
+        settings_tab_hit_areas, SettingsSidebarEntry,
     },
     sidebar::{
         agent_panel_body_rect, agent_panel_entries, agent_panel_entries_for_view,
@@ -197,8 +199,8 @@ fn count_label(count: usize, singular: &str, plural: &str) -> String {
     format!("{count} {}", if count == 1 { singular } else { plural })
 }
 
-const WATCHING_CHIP_BADGE: &str = " WATCHING ";
-const FREE_CHIP_BADGE: &str = " FREE ";
+const WATCHING_CHIP_BADGE: &str = " Watching ";
+const FREE_CHIP_BADGE: &str = " Free ";
 
 /// Copy for the per-client tab-control chip that trails the context bar.
 /// The chip is client-local chrome: it only exists for the watching states
@@ -220,12 +222,12 @@ pub(crate) fn tab_control_chip(tab_control: ClientTabControl) -> Option<TabContr
     match tab_control {
         ClientTabControl::WatchingControlled { .. } => Some(TabControlChip {
             badge: WATCHING_CHIP_BADGE,
-            suffix: " another client controls · take over",
+            suffix: " Another Client Controls · Take Over",
             free: false,
         }),
         ClientTabControl::WatchingFree { .. } => Some(TabControlChip {
             badge: FREE_CHIP_BADGE,
-            suffix: " take control",
+            suffix: " Take Control",
             free: true,
         }),
         ClientTabControl::Controlling { .. } | ClientTabControl::Unavailable => None,
@@ -282,16 +284,16 @@ fn compute_context_bar(
         [
             format!(
                 "{} · {} · {}",
-                count_label(group_count, "group", "groups"),
-                count_label(workspace_count, "space", "spaces"),
-                count_label(tab_count, "tab", "tabs")
+                count_label(group_count, "Group", "Groups"),
+                count_label(workspace_count, "Space", "Spaces"),
+                count_label(tab_count, "Tab", "Tabs")
             ),
             format!(
                 "{} · {}",
-                count_label(group_count, "group", "groups"),
-                count_label(workspace_count, "space", "spaces")
+                count_label(group_count, "Group", "Groups"),
+                count_label(workspace_count, "Space", "Spaces")
             ),
-            count_label(group_count, "group", "groups"),
+            count_label(group_count, "Group", "Groups"),
             String::new(),
         ]
     } else {
@@ -334,7 +336,7 @@ fn compute_context_bar(
                         .or_else(|| {
                             workspace
                                 .pane_display_number(pane_id)
-                                .map(|number| format!("pane {number}"))
+                                .map(|number| format!("Pane {number}"))
                         });
                     if let Some(label) = label {
                         labels.push((ContextBarTarget::Pane, label));
@@ -499,7 +501,7 @@ fn compute_mobile_breadcrumb(
                         .or_else(|| {
                             workspace
                                 .pane_display_number(pane_id)
-                                .map(|number| format!("pane {number}"))
+                                .map(|number| format!("Pane {number}"))
                         })
                     {
                         labels.push((ContextBarTarget::Pane, label));
@@ -1978,7 +1980,7 @@ mod tests {
             .collect::<Vec<_>>()
             .join("\n");
 
-        assert!(screen.contains("new workspace"), "{screen}");
+        assert!(screen.contains("New Workspace"), "{screen}");
         assert!(screen.contains("project"), "{screen}");
     }
 
@@ -2231,12 +2233,12 @@ mod tests {
             .map(|x| terminal.backend().buffer()[(x, 19)].symbol())
             .collect::<String>();
 
-        assert!(line.contains("1 group · 1 space · 1 tab"), "{line:?}");
+        assert!(line.contains("1 Group · 1 Space · 1 Tab"), "{line:?}");
         assert!(line.contains("studio / website / release"), "{line:?}");
         let path_start = line
             .find("studio / website / release")
             .expect("active path");
-        let counts_start = line.find("1 group · 1 space · 1 tab").expect("counts");
+        let counts_start = line.find("1 Group · 1 Space · 1 Tab").expect("counts");
         assert!(path_start < counts_start, "{line:?}");
     }
 
@@ -2300,7 +2302,7 @@ mod tests {
                 .segments
                 .last()
                 .map(|segment| segment.label.as_str()),
-            Some("pane 2")
+            Some("Pane 2")
         );
     }
 
@@ -2420,8 +2422,8 @@ mod tests {
         let bar = &watcher.computed.context_bar;
         let chip = bar.segments.last().expect("watching chip segment");
         assert_eq!(chip.target, crate::app::state::ContextBarTarget::TabControl);
-        assert!(chip.label.contains("WATCHING"), "{chip:?}");
-        assert!(chip.label.contains("another client controls"), "{chip:?}");
+        assert!(chip.label.contains("Watching"), "{chip:?}");
+        assert!(chip.label.contains("Another Client Controls"), "{chip:?}");
         assert!(chip.rect.width > 0, "{chip:?}");
         assert!(
             chip.rect.x + chip.rect.width <= bar.rect.x + bar.rect.width,
@@ -2446,10 +2448,10 @@ mod tests {
             .collect::<Vec<_>>()
             .join(" ");
         assert!(
-            !controller_labels.contains("WATCHING"),
+            !controller_labels.contains("Watching"),
             "{controller_labels:?}"
         );
-        assert!(!controller_labels.contains("FREE"), "{controller_labels:?}");
+        assert!(!controller_labels.contains("Free"), "{controller_labels:?}");
 
         // The rendered frame shows the badge in the mode-badge idiom.
         let backend = TestBackend::new(100, 20);
@@ -2460,9 +2462,9 @@ mod tests {
             })
             .expect("render");
         let line = buffer_row_text(terminal.backend().buffer(), Rect::new(0, 0, 100, 20), 19);
-        assert!(line.contains("WATCHING"), "{line:?}");
-        assert!(line.contains("another client controls"), "{line:?}");
-        let badge_x = line.find("WATCHING").expect("badge text") as u16;
+        assert!(line.contains("Watching"), "{line:?}");
+        assert!(line.contains("Another Client Controls"), "{line:?}");
+        let badge_x = line.find("Watching").expect("badge text") as u16;
         assert_eq!(
             terminal.backend().buffer()[(badge_x, 19)].style().bg,
             Some(app.palette.overlay0),
@@ -2495,8 +2497,8 @@ mod tests {
         let bar = &watcher.computed.context_bar;
         let chip = bar.segments.last().expect("free chip segment");
         assert_eq!(chip.target, crate::app::state::ContextBarTarget::TabControl);
-        assert!(chip.label.contains("FREE"), "{chip:?}");
-        assert!(chip.label.contains("take control"), "{chip:?}");
+        assert!(chip.label.contains("Free"), "{chip:?}");
+        assert!(chip.label.contains("Take Control"), "{chip:?}");
 
         let backend = TestBackend::new(100, 20);
         let mut terminal = Terminal::new(backend).expect("test terminal");
@@ -2506,9 +2508,9 @@ mod tests {
             })
             .expect("render");
         let line = buffer_row_text(terminal.backend().buffer(), Rect::new(0, 0, 100, 20), 19);
-        assert!(line.contains("FREE"), "{line:?}");
-        assert!(line.contains("take control"), "{line:?}");
-        let badge_x = line.find("FREE").expect("badge text") as u16;
+        assert!(line.contains("Free"), "{line:?}");
+        assert!(line.contains("Take Control"), "{line:?}");
+        let badge_x = line.find("Free").expect("badge text") as u16;
         assert_eq!(
             terminal.backend().buffer()[(badge_x, 19)].style().bg,
             Some(app.palette.teal),
@@ -2659,8 +2661,8 @@ mod tests {
         let bar = &watcher.computed.context_bar;
         let chip = bar.segments.last().expect("chip at 40 cols");
         assert_eq!(chip.target, crate::app::state::ContextBarTarget::TabControl);
-        assert!(chip.label.contains("WATCHING"), "{chip:?}");
-        assert!(chip.label.contains("another"), "{chip:?}");
+        assert!(chip.label.contains("Watching"), "{chip:?}");
+        assert!(chip.label.contains("Another"), "{chip:?}");
 
         // The hint suffix truncates first; the bare badge remains.
         compute_view_for_client_without_resizing_panes(
@@ -2672,7 +2674,7 @@ mod tests {
         let bar = &watcher.computed.context_bar;
         let chip = bar.segments.last().expect("chip at 32 cols");
         assert_eq!(chip.target, crate::app::state::ContextBarTarget::TabControl);
-        assert_eq!(chip.label, " WATCHING ", "{chip:?}");
+        assert_eq!(chip.label, " Watching ", "{chip:?}");
 
         // Even at extreme widths the chip is never dropped; only truncated.
         compute_view_for_client_without_resizing_panes(
@@ -2887,7 +2889,7 @@ mod tests {
                 .expect(needle)
         };
         let workspace_row = row_containing("one");
-        let agents_row = row_containing("agents");
+        let agents_row = row_containing("Agents");
 
         assert_eq!(app.view.right_sidebar_rect, Rect::default());
         assert!(sidebar.x > 0);
@@ -3447,8 +3449,8 @@ mod tests {
     fn prefix_mode_renders_prefix_indicator() {
         let mut app = crate::app::state::AppState::test_new();
         app.mode = Mode::Prefix;
-        app.view.terminal_area = ratatui::layout::Rect::new(0, 0, 60, 4);
-        let mut terminal = ratatui::Terminal::new(ratatui::backend::TestBackend::new(60, 4))
+        app.view.terminal_area = ratatui::layout::Rect::new(0, 0, 80, 4);
+        let mut terminal = ratatui::Terminal::new(ratatui::backend::TestBackend::new(80, 4))
             .expect("test terminal");
 
         terminal
@@ -3463,22 +3465,22 @@ mod tests {
             .map(|cell| cell.symbol())
             .collect::<String>();
         assert!(rendered.contains("PREFIX"));
-        assert!(rendered.contains("esc"));
-        assert!(rendered.contains("space"));
-        assert!(rendered.contains("cmds"));
+        assert!(rendered.contains("Esc"));
+        assert!(rendered.contains("Space"));
+        assert!(rendered.contains("Commands"));
         assert!(rendered.contains("w"));
-        assert!(rendered.contains("spaces"));
+        assert!(rendered.contains("Spaces"));
         assert!(rendered.contains("?"));
-        assert!(rendered.contains("keys"));
-        assert!(!rendered.contains("detach"));
+        assert!(rendered.contains("Keys"), "{rendered}");
+        assert!(!rendered.contains("Detach"));
     }
 
     #[test]
     fn prefix_mode_renders_indexed_navigation_hints_when_wide_enough() {
         let mut app = crate::app::state::AppState::test_new();
         app.mode = Mode::Prefix;
-        app.view.terminal_area = ratatui::layout::Rect::new(0, 0, 120, 4);
-        let mut terminal = ratatui::Terminal::new(ratatui::backend::TestBackend::new(120, 4))
+        app.view.terminal_area = ratatui::layout::Rect::new(0, 0, 160, 4);
+        let mut terminal = ratatui::Terminal::new(ratatui::backend::TestBackend::new(160, 4))
             .expect("test terminal");
 
         terminal
@@ -3493,11 +3495,11 @@ mod tests {
             .map(|cell| cell.symbol())
             .collect::<String>();
         assert!(rendered.contains("1..0"));
-        assert!(rendered.contains("tabs"));
-        assert!(rendered.contains("shift+1..0"));
-        assert!(rendered.contains("spaces"));
-        assert!(rendered.contains("alt+1..0"));
-        assert!(rendered.contains("groups"));
+        assert!(rendered.contains("Tabs"));
+        assert!(rendered.contains("shift+1..0"), "{rendered}");
+        assert!(rendered.contains("Spaces"), "{rendered}");
+        assert!(rendered.contains("alt+1..0"), "{rendered}");
+        assert!(rendered.contains("Groups"));
     }
 
     #[test]
@@ -3507,80 +3509,80 @@ mod tests {
 
         let global = groups
             .iter()
-            .find(|(name, _)| *name == "global")
+            .find(|(name, _)| *name == "Global")
             .expect("global group")
             .1
             .clone();
         let workspace_tab = groups
             .iter()
-            .find(|(name, _)| *name == "workspaces / tabs")
+            .find(|(name, _)| *name == "Workspaces / Tabs")
             .expect("workspace tab group")
             .1
             .clone();
         let group_keys = groups
             .iter()
-            .find(|(name, _)| *name == "groups")
+            .find(|(name, _)| *name == "Groups")
             .expect("groups group")
             .1
             .clone();
         let agents = groups
             .iter()
-            .find(|(name, _)| *name == "agents")
+            .find(|(name, _)| *name == "Agents")
             .expect("agents group")
             .1
             .clone();
         let panes = groups
             .iter()
-            .find(|(name, _)| *name == "panes")
+            .find(|(name, _)| *name == "Panes")
             .expect("panes group")
             .1
             .clone();
 
         assert!(global
             .iter()
-            .any(|(key, label)| key == "prefix+space" && label.as_ref() == "command palette"));
+            .any(|(key, label)| key == "prefix+space" && label.as_ref() == "Command Palette"));
         assert!(agents
             .iter()
-            .any(|(key, label)| key == "unset" && label.as_ref() == "open agent menu"));
+            .any(|(key, label)| key == "Unset" && label.as_ref() == "Open Agent Menu"));
         assert!(panes
             .iter()
-            .any(|(key, label)| key == "unset" && label.as_ref() == "toggle right sidebar"));
+            .any(|(key, label)| key == "Unset" && label.as_ref() == "Toggle Right Sidebar"));
         assert!(workspace_tab
             .iter()
-            .any(|(key, label)| key == "unset" && label.as_ref() == "previous workspace"));
+            .any(|(key, label)| key == "Unset" && label.as_ref() == "Previous Workspace"));
         assert!(workspace_tab
             .iter()
-            .any(|(key, label)| key == "unset" && label.as_ref() == "next workspace"));
+            .any(|(key, label)| key == "Unset" && label.as_ref() == "Next Workspace"));
         assert!(workspace_tab
             .iter()
-            .any(|(key, label)| key == "unset" && label.as_ref() == "previous agent"));
+            .any(|(key, label)| key == "Unset" && label.as_ref() == "Previous Agent"));
         assert!(workspace_tab
             .iter()
-            .any(|(key, label)| key == "unset" && label.as_ref() == "next agent"));
+            .any(|(key, label)| key == "Unset" && label.as_ref() == "Next Agent"));
         assert!(workspace_tab
             .iter()
-            .any(|(key, label)| key == "unset" && label.as_ref() == "focus agent 1-9"));
+            .any(|(key, label)| key == "Unset" && label.as_ref() == "Focus Agent 1-9"));
         assert!(workspace_tab.iter().any(|(key, label)| {
-            key == "prefix+shift+1..0" && label.as_ref() == "switch space 1-10"
+            key == "prefix+shift+1..0" && label.as_ref() == "Switch Space 1-10"
         }));
         assert!(workspace_tab
             .iter()
-            .any(|(key, label)| key == "prefix+1..0" && label.as_ref() == "switch tab 1-10"));
+            .any(|(key, label)| key == "prefix+1..0" && label.as_ref() == "Switch Tab 1-10"));
         assert!(group_keys.iter().any(|(key, label)| {
-            key == "prefix+alt+1..0" && label.as_ref() == "switch group 1-10"
+            key == "prefix+alt+1..0" && label.as_ref() == "Switch Group 1-10"
         }));
         assert!(panes
             .iter()
-            .any(|(key, label)| key == "prefix+h" && label.as_ref() == "focus pane left"));
+            .any(|(key, label)| key == "prefix+h" && label.as_ref() == "Focus Pane Left"));
         assert!(panes
             .iter()
-            .any(|(key, label)| key == "prefix+j" && label.as_ref() == "focus pane down"));
+            .any(|(key, label)| key == "prefix+j" && label.as_ref() == "Focus Pane Down"));
         assert!(panes
             .iter()
-            .any(|(key, label)| key == "prefix+k" && label.as_ref() == "focus pane up"));
+            .any(|(key, label)| key == "prefix+k" && label.as_ref() == "Focus Pane Up"));
         assert!(panes
             .iter()
-            .any(|(key, label)| key == "prefix+l" && label.as_ref() == "focus pane right"));
+            .any(|(key, label)| key == "prefix+l" && label.as_ref() == "Focus Pane Right"));
     }
 
     #[test]
@@ -3596,7 +3598,7 @@ mod tests {
                     .iter()
                     .map(|span| span.content.as_ref())
                     .collect::<String>()
-                    .contains("command palette")
+                    .contains("Command Palette")
             })
             .expect("command palette row");
         let command_text = command_line
@@ -3605,7 +3607,7 @@ mod tests {
             .map(|span| span.content.as_ref())
             .collect::<String>();
         assert_eq!(*command_width, option_width);
-        assert!(command_text.starts_with("  command palette"));
+        assert!(command_text.starts_with("  Command Palette"));
         assert!(command_text.ends_with("prefix+space"));
         assert_eq!(command_line.spans[0].style.fg, Some(app.palette.text));
         let command_shortcut = command_line.spans.last().expect("command shortcut");
@@ -3622,11 +3624,11 @@ mod tests {
                     .iter()
                     .map(|span| span.content.as_ref())
                     .collect::<String>()
-                    .contains("open agent menu")
+                    .contains("Open Agent Menu")
             })
             .expect("unset action row");
         let unset_shortcut = unset_line.spans.last().expect("unset shortcut");
-        assert_eq!(unset_shortcut.content.as_ref(), "unset");
+        assert_eq!(unset_shortcut.content.as_ref(), "Unset");
         assert_eq!(unset_shortcut.style.fg, Some(app.palette.overlay0));
         assert!(!unset_shortcut
             .style
@@ -3662,11 +3664,11 @@ mod tests {
 
         let (_, prefix_text) = rows
             .iter()
-            .find(|(_, text)| text.contains("prefix mode"))
+            .find(|(_, text)| text.contains("Prefix Mode"))
             .expect("prefix mode row");
         let (command_row, command_text) = rows
             .iter()
-            .find(|(_, text)| text.contains("command palette"))
+            .find(|(_, text)| text.contains("Command Palette"))
             .expect("command palette row");
         let prefix_shortcut = crate::config::format_key_combo((app.prefix_code, app.prefix_mods));
         let command_shortcut = "prefix+space";
@@ -3678,12 +3680,12 @@ mod tests {
             + command_shortcut.len();
 
         assert!(
-            prefix_text.find("prefix mode").expect("prefix action")
+            prefix_text.find("Prefix Mode").expect("prefix action")
                 < prefix_text.find(&prefix_shortcut).expect("prefix shortcut")
         );
         assert!(
             command_text
-                .find("command palette")
+                .find("Command Palette")
                 .expect("command action")
                 < command_text
                     .find(command_shortcut)
@@ -3692,7 +3694,7 @@ mod tests {
         assert_eq!(prefix_end, command_end);
 
         let action_col = command_text
-            .find("command palette")
+            .find("Command Palette")
             .expect("command action") as u16;
         let shortcut_col = command_text
             .find(command_shortcut)
@@ -3734,7 +3736,7 @@ mod tests {
         let groups = keybind_help_groups(&app);
         let custom = groups
             .iter()
-            .find(|(name, _)| *name == "custom")
+            .find(|(name, _)| *name == "Custom")
             .expect("custom group")
             .1
             .clone();
@@ -3743,7 +3745,7 @@ mod tests {
             .any(|(key, label)| key == "prefix+alt+g" && label.as_ref() == "open lazygit"));
         assert!(custom
             .iter()
-            .any(|(key, label)| key == "prefix+alt+h" && label.as_ref() == "custom command"));
+            .any(|(key, label)| key == "prefix+alt+h" && label.as_ref() == "Custom Command"));
 
         let rendered_help = keybind_help_lines(&app, 70)
             .into_iter()
@@ -3752,6 +3754,6 @@ mod tests {
             .collect::<Vec<_>>()
             .join("");
         assert!(rendered_help.contains("open lazygit"));
-        assert!(rendered_help.contains("custom command"));
+        assert!(rendered_help.contains("Custom Command"));
     }
 }

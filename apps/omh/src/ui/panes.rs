@@ -696,7 +696,7 @@ pub(super) fn render_popup_pane_for_view(
         .terminals
         .get(&popup.terminal_id)
         .and_then(|terminal| terminal.manual_label.as_deref())
-        .unwrap_or("popup");
+        .unwrap_or("Popup");
     let title = if outer.width > 4 {
         let max = outer.width.saturating_sub(4) as usize;
         let label: String = title.chars().take(max).collect();
@@ -707,7 +707,7 @@ pub(super) fn render_popup_pane_for_view(
     let block = Block::default()
         .borders(Borders::ALL)
         .border_style(Style::default().fg(app.palette.accent))
-        .title(title.unwrap_or_else(|| Line::from("popup")))
+        .title(title.unwrap_or_else(|| Line::from("Popup")))
         .style(Style::default().bg(app.palette.panel_bg));
     frame.render_widget(Clear, outer);
     frame.render_widget(block, outer);
@@ -1334,43 +1334,43 @@ fn render_empty_with_context(
         .is_some_and(|ws| ws.tabs.is_empty());
     let (title, detail, context, action_label) = if active_workspace_has_no_tabs {
         (
-            "  no tabs in this space",
-            "  the space is still here.",
-            "  create a tab to keep working in this context.",
+            "  No Tabs in This Space",
+            "  The space is still here.",
+            "  Create a tab to keep working in this context.",
             app.keybinds
                 .new_tab
                 .label()
-                .unwrap_or_else(|| "unset".to_string()),
+                .unwrap_or_else(|| "Unset".to_string()),
         )
     } else if app.workspaces.is_empty() {
         (
-            "  no spaces yet",
-            "  a space is one project context.",
-            "  its root pane sets the default repo or folder name.",
+            "  No Spaces Yet",
+            "  A space is one project context.",
+            "  Its root pane sets the default repo or folder name.",
             app.keybinds
                 .new_workspace
                 .label()
-                .unwrap_or_else(|| "unset".to_string()),
+                .unwrap_or_else(|| "Unset".to_string()),
         )
     } else if group_filter_enabled {
         (
-            "  no spaces in this group",
-            "  switch groups or create one here.",
-            "  hidden spaces stay in the group menu.",
+            "  No Spaces in This Group",
+            "  Switch groups or create one here.",
+            "  Hidden spaces stay in the group menu.",
             app.keybinds
                 .new_workspace
                 .label()
-                .unwrap_or_else(|| "unset".to_string()),
+                .unwrap_or_else(|| "Unset".to_string()),
         )
     } else {
         (
-            "  no active space",
-            "  select a space from the sidebar.",
-            "  create one if you want a fresh context.",
+            "  No Active Space",
+            "  Select a space from the sidebar.",
+            "  Create one if you want a fresh context.",
             app.keybinds
                 .new_workspace
                 .label()
-                .unwrap_or_else(|| "unset".to_string()),
+                .unwrap_or_else(|| "Unset".to_string()),
         )
     };
     let accent = if !group_filter_enabled {
@@ -1391,7 +1391,7 @@ fn render_empty_with_context(
         Line::from(Span::styled(context, Style::default().fg(p.overlay1))),
         Line::from(""),
         Line::from(vec![
-            Span::styled("  press ", Style::default().fg(p.overlay0)),
+            Span::styled("  Press ", Style::default().fg(p.overlay0)),
             Span::styled(
                 action_label,
                 Style::default().fg(accent).add_modifier(Modifier::BOLD),
@@ -1607,9 +1607,9 @@ mod tests {
             .expect("render empty pane");
 
         let text = buffer_text(terminal.backend().buffer(), 72, 14);
-        assert!(text.contains("no tabs in this space"));
-        assert!(text.contains("the space is still here"));
-        assert!(text.contains("create a tab to keep working"));
+        assert!(text.contains("No Tabs in This Space"));
+        assert!(text.contains("The space is still here"));
+        assert!(text.contains("Create a tab to keep working"));
     }
 
     #[test]
@@ -1634,9 +1634,9 @@ mod tests {
 
         let buffer = terminal.backend().buffer();
         let text = buffer_text(buffer, 72, 14);
-        assert!(text.contains("no spaces in this group"));
-        assert!(text.contains("switch groups or create one here"));
-        assert!(text.contains("hidden spaces stay in the group menu"));
+        assert!(text.contains("No Spaces in This Group"));
+        assert!(text.contains("Switch groups or create one here"));
+        assert!(text.contains("Hidden spaces stay in the group menu"));
         let (x, y) = first_cell_with_text(buffer, 72, 14, "prefix+shift+n")
             .expect("new workspace action key");
         assert_eq!(buffer[(x, y)].style().fg, Some(expected_accent));

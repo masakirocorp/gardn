@@ -35,10 +35,10 @@ fn configured_project_command_at(
     command: &str,
 ) -> crate::commands::ProjectCommand {
     let role = match kind {
-        ProjectCommandKind::Git => "git",
-        ProjectCommandKind::Diff => "diff",
-        ProjectCommandKind::Ide => "ide",
-        ProjectCommandKind::Github => "github",
+        ProjectCommandKind::Git => "Git",
+        ProjectCommandKind::Diff => "Diff",
+        ProjectCommandKind::Ide => "IDE",
+        ProjectCommandKind::Github => "GitHub",
     };
     let name = location
         .path
@@ -153,9 +153,9 @@ fn missing_integration_agent_title(agent: Agent) -> String {
 
 fn toast_event_text(kind: ToastKind) -> &'static str {
     match kind {
-        ToastKind::NeedsAttention => "needs attention",
-        ToastKind::Finished => "finished",
-        ToastKind::UpdateInstalled => "updated",
+        ToastKind::NeedsAttention => "Needs Attention",
+        ToastKind::Finished => "Finished",
+        ToastKind::UpdateInstalled => "Updated",
     }
 }
 
@@ -495,8 +495,8 @@ impl AppState {
             );
             let topology = format!(
                 "{} · {}",
-                count_label(workspace_indices.len(), "space", "spaces"),
-                count_label(pane_count, "pane", "panes")
+                count_label(workspace_indices.len(), "Space", "Spaces"),
+                count_label(pane_count, "Pane", "Panes")
             );
             let meta = if activity.is_empty() {
                 topology
@@ -850,7 +850,7 @@ impl AppState {
                 .and_then(|labels| labels.get(state_label_text(state, pane.seen)).cloned());
             let status = custom_status
                 .or(status_label)
-                .or_else(|| agent_label.map(|_| state_label_text(state, pane.seen).to_string()));
+                .or_else(|| agent_label.map(|_| state_label_display_text(state, pane.seen).into()));
             let meta = match (agent_label, status.as_deref()) {
                 (Some(agent_label), Some(status)) if label.eq_ignore_ascii_case(agent_label) => {
                     status.to_string()
@@ -860,7 +860,7 @@ impl AppState {
                     String::new()
                 }
                 (Some(agent_label), None) => agent_label.to_string(),
-                (None, _) => "shell".to_string(),
+                (None, _) => "Shell".to_string(),
             };
             let is_current = focus.active_workspace == Some(ws_idx)
                 && focus.active_tab == Some(tab_idx)
@@ -1265,6 +1265,16 @@ fn state_label_text(state: AgentState, seen: bool) -> &'static str {
     }
 }
 
+fn state_label_display_text(state: AgentState, seen: bool) -> &'static str {
+    match (state, seen) {
+        (AgentState::Blocked, _) => "Blocked",
+        (AgentState::Working, _) => "Working",
+        (AgentState::Idle, false) => "Done",
+        (AgentState::Idle, true) => "Idle",
+        (AgentState::Unknown, _) => "Unknown",
+    }
+}
+
 fn tab_aggregate_state(
     tab: &crate::workspace::Tab,
     terminals: &std::collections::HashMap<
@@ -1350,13 +1360,13 @@ fn activity_summary_for_panes<'a>(
 
     let mut parts = Vec::new();
     if blocked > 0 {
-        parts.push(format!("{blocked} blocked"));
+        parts.push(format!("{blocked} Blocked"));
     }
     if working > 0 {
-        parts.push(format!("{working} working"));
+        parts.push(format!("{working} Working"));
     }
     if done > 0 {
-        parts.push(format!("{done} done"));
+        parts.push(format!("{done} Done"));
     }
     parts.join(" · ")
 }
@@ -1449,11 +1459,11 @@ impl AppState {
             .iter()
             .find(|command| command.id == command_id)
             .cloned()
-            .ok_or_else(|| format!("command {command_id} not found"))?;
+            .ok_or_else(|| format!("Command {command_id} not found"))?;
 
         let (ws_idx, _, _) = self
             .command_target_for_location(terminal_runtimes, &command.location)
-            .ok_or_else(|| format!("no pane for {}", command.root().display()))?;
+            .ok_or_else(|| format!("No pane for {}", command.root().display()))?;
 
         self.run_project_command_entry(terminal_runtimes, command, ws_idx, None)
     }
@@ -1468,7 +1478,7 @@ impl AppState {
         } else {
             self.active
         };
-        let ws_idx = fallback_ws_idx.ok_or_else(|| "no project for current space".to_string())?;
+        let ws_idx = fallback_ws_idx.ok_or_else(|| "No project for current space".to_string())?;
         self.open_project_command_for_workspace(terminal_runtimes, ws_idx, kind)
     }
 
@@ -1513,7 +1523,7 @@ impl AppState {
     ) -> Result<(), String> {
         if !self.project_command_configured(kind) {
             return Err(format!(
-                "configure the {} command in Settings > Commands",
+                "Configure the {} command in Settings > Commands",
                 self.project_command_role(kind)
             ));
         }
@@ -1521,14 +1531,14 @@ impl AppState {
             let root = self
                 .workspaces
                 .get(ws_idx)
-                .ok_or_else(|| "workspace not found".to_string())?
+                .ok_or_else(|| "Workspace not found".to_string())?
                 .effective_default_cwd_from(&self.terminals, terminal_runtimes);
             return self.open_project_command_tab(terminal_runtimes, root, ws_idx, kind);
         }
 
         let roots = self.observed_git_repos_for_workspace(terminal_runtimes, ws_idx);
         let root = match roots.as_slice() {
-            [] => return Err("no git repo for current space".to_string()),
+            [] => return Err("No Git Repo for Current Space".to_string()),
             [root] => root.clone(),
             _ => {
                 self.git_repo_picker.ws_idx = ws_idx;
@@ -1747,7 +1757,7 @@ impl AppState {
             .get(self.git_repo_picker.list.selected)
             .cloned()
         else {
-            return Err("no git repo selected".to_string());
+            return Err("No Git repo selected".to_string());
         };
         let ws_idx = self.git_repo_picker.ws_idx;
         let kind = self.git_repo_picker.command_kind;
@@ -1787,7 +1797,7 @@ impl AppState {
     ) -> Result<(), String> {
         if !command.location.is_local() {
             return Err(format!(
-                "project command {} targets execution host {}; AppState cannot route host runtime work",
+                "Project command {} targets execution host {}; AppState cannot route host runtime work",
                 command.id, command.location.execution_host_id
             ));
         }
@@ -1795,7 +1805,7 @@ impl AppState {
         let workspace = self
             .workspaces
             .get_mut(ws_idx)
-            .ok_or_else(|| "command workspace disappeared".to_string())?;
+            .ok_or_else(|| "Command workspace disappeared".to_string())?;
         let (tab_idx, terminal, runtime) = workspace
             .create_command_tab(
                 rows.max(4),
@@ -1844,7 +1854,7 @@ impl AppState {
     ) -> Result<(), String> {
         if !command.location.is_local() {
             return Err(format!(
-                "restarting project commands on execution host {} is unsupported; refusing local fallback",
+                "Restarting project commands on execution host {} is unsupported; refusing local fallback",
                 command.location.execution_host_id
             ));
         }
@@ -1858,7 +1868,7 @@ impl AppState {
                 .workspaces
                 .get(ws_idx)
                 .and_then(|workspace| workspace.tabs.get(tab_idx))
-                .ok_or_else(|| "command tab disappeared".to_string())?;
+                .ok_or_else(|| "Command tab disappeared".to_string())?;
             (
                 tab.events.clone(),
                 tab.render_notify.clone(),
@@ -1879,7 +1889,7 @@ impl AppState {
                     ),
                 )
             })
-            .ok_or_else(|| "command pane identity disappeared".to_string())?;
+            .ok_or_else(|| "Command pane identity disappeared".to_string())?;
         let runtime = crate::terminal::TerminalRuntime::spawn_shell_command(
             pane_id,
             rows.max(4),
@@ -2334,10 +2344,10 @@ impl AppState {
 
     pub fn delete_group(&mut self, group_idx: usize) -> Result<(), &'static str> {
         if self.groups.len() <= 1 {
-            return Err("cannot delete the last group");
+            return Err("Cannot delete the last group");
         }
         let Some(group) = self.groups.get(group_idx) else {
-            return Err("group not found");
+            return Err("Group not found");
         };
         let deleted_group_id = group.id.clone();
         let active_id = self.active.map(|idx| self.workspaces[idx].id.clone());
@@ -3231,7 +3241,7 @@ impl crate::app::App {
         let hosts = self
             .execution_hosts
             .as_ref()
-            .ok_or_else(|| "execution host manager is unavailable".to_string())?;
+            .ok_or_else(|| "Execution host manager is unavailable".to_string())?;
         if let Err(error) = hosts.ensure_host_capability(
             &command.location.execution_host_id,
             crate::execution_host::protocol::WorkerCapability::Command,
@@ -3250,7 +3260,7 @@ impl crate::app::App {
             .command_target_for_location(&self.terminal_runtimes, &command.location)
             .ok_or_else(|| {
                 format!(
-                    "no pane for project {} on execution host {}",
+                    "No pane for project {} on execution host {}",
                     command.location.path, command.location.execution_host_id
                 )
             })?;
@@ -3272,10 +3282,10 @@ impl crate::app::App {
         {
             self.complete_remote_creation_failed(
                 terminal_id.clone(),
-                "pending project command creation disappeared".to_string(),
+                "Pending project command creation disappeared".to_string(),
             );
             let _ = self.clear_command_runs_for_terminal(&terminal_id);
-            return Err("pending project command creation disappeared".to_string());
+            return Err("Pending project command creation disappeared".to_string());
         }
         self.state.command_runs.insert(
             command.id.clone(),
@@ -4000,8 +4010,8 @@ impl AppState {
                 ) {
                     self.toast = Some(ToastNotification {
                         kind: ToastKind::UpdateInstalled,
-                        title: format!("v{version} available"),
-                        context: format!("detach, then run `{install_command}`"),
+                        title: format!("v{version} Available"),
+                        context: format!("Detach, then run `{install_command}`"),
                         position: None,
                         target: None,
                     });
@@ -4030,7 +4040,7 @@ impl AppState {
                         .join(", ");
                     self.toast = Some(ToastNotification {
                         kind: ToastKind::UpdateInstalled,
-                        title: "Agent detection rules updated".to_string(),
+                        title: "Agent Detection Rules Updated".to_string(),
                         context: agent_list,
                         position: None,
                         target: None,
@@ -5149,7 +5159,7 @@ mod tests {
             row.target,
             NavigatorTarget::Pane { pane_id, .. } if pane_id == agent
         ) && row.label.eq_ignore_ascii_case("claude")
-            && row.meta.contains("working")));
+            && row.meta.contains("Working")));
     }
 
     #[test]
@@ -5581,7 +5591,7 @@ mod tests {
         assert_eq!(state.workspaces[0].tabs.len(), 2);
         assert_eq!(
             state.workspaces[0].active_tab().unwrap().display_name(),
-            format!("diff · {}", root.file_name().unwrap().to_string_lossy())
+            format!("Diff · {}", root.file_name().unwrap().to_string_lossy())
         );
     }
 
@@ -5603,7 +5613,7 @@ mod tests {
             )
             .expect_err("empty workspace has no runtime handles for command tab");
 
-        assert_eq!(err, "no git repo for current space");
+        assert_eq!(err, "No Git Repo for Current Space");
         assert!(state.workspaces[0].tabs.is_empty());
     }
 
@@ -5729,7 +5739,7 @@ mod tests {
         let diff = state
             .command_catalog
             .iter()
-            .find(|command| command.name.starts_with("diff"))
+            .find(|command| command.name.starts_with("Diff"))
             .expect("curated diff command");
 
         assert_eq!(diff.command, expected.command);
@@ -6211,8 +6221,8 @@ mod tests {
         assert_eq!(state.update_available.as_deref(), Some("0.5.0"));
         assert!(state.latest_release_notes_available);
         let toast = state.toast.as_ref().expect("update toast");
-        assert_eq!(toast.title, "v0.5.0 available");
-        assert_eq!(toast.context, "detach, then run `omh update`");
+        assert_eq!(toast.title, "v0.5.0 Available");
+        assert_eq!(toast.context, "Detach, then run `omh update`");
     }
 
     fn mark_agent(state: &mut AppState, ws_idx: usize, tab_idx: usize, pane_id: PaneId) {
@@ -6436,7 +6446,7 @@ mod tests {
             .iter()
             .map(|group| group.name.as_str())
             .collect();
-        assert_eq!(names, vec!["group 1", "ops", "work"]);
+        assert_eq!(names, vec!["Group 1", "ops", "work"]);
         assert_eq!(state.groups[state.active_group].id, active_group_id);
         assert_eq!(state.active_workspace_accent_color(), active_accent);
     }
@@ -6965,7 +6975,7 @@ mod tests {
 
         let toast = state.toast.as_ref().unwrap();
         assert_eq!(toast.kind, ToastKind::NeedsAttention);
-        assert_eq!(toast.title, "pi needs attention");
+        assert_eq!(toast.title, "pi Needs Attention");
         assert_eq!(toast.context, "background · 2");
     }
 
@@ -6996,7 +7006,7 @@ mod tests {
 
         assert_eq!(deliveries.len(), 1);
         let toast = state.toast.as_ref().expect("delayed toast");
-        assert_eq!(toast.title, "pi needs attention");
+        assert_eq!(toast.title, "pi Needs Attention");
         assert_eq!(toast.context, "background · 2");
         assert!(state.pending_agent_notifications.is_empty());
     }
@@ -7022,7 +7032,7 @@ mod tests {
 
         let toast = state.toast.as_ref().unwrap();
         assert_eq!(toast.kind, ToastKind::NeedsAttention);
-        assert_eq!(toast.title, "hermes needs attention");
+        assert_eq!(toast.title, "hermes Needs Attention");
         assert_eq!(toast.context, "background · 2");
     }
 
@@ -7075,7 +7085,7 @@ mod tests {
         assert_eq!(terminal.state, AgentState::Blocked);
         let toast = state.toast.as_ref().unwrap();
         assert_eq!(toast.kind, ToastKind::NeedsAttention);
-        assert_eq!(toast.title, "codex needs attention");
+        assert_eq!(toast.title, "codex Needs Attention");
     }
 
     #[test]
@@ -7237,7 +7247,7 @@ mod tests {
 
         let toast = state.toast.as_ref().unwrap();
         assert_eq!(toast.kind, ToastKind::Finished);
-        assert_eq!(toast.title, "droid finished");
+        assert_eq!(toast.title, "droid Finished");
         assert_eq!(toast.context, "background · 2");
         let target = toast.target.as_ref().expect("toast target");
         assert_eq!(&target.workspace_id, &state.workspaces[1].id);
@@ -7267,7 +7277,7 @@ mod tests {
 
         let toast = state.toast.as_ref().unwrap();
         assert_eq!(toast.kind, ToastKind::NeedsAttention);
-        assert_eq!(toast.title, "pi needs attention");
+        assert_eq!(toast.title, "pi Needs Attention");
         assert_eq!(toast.context, "background · 2 · logs");
     }
 
@@ -7294,7 +7304,7 @@ mod tests {
 
         let toast = state.toast.as_ref().unwrap();
         assert_eq!(toast.kind, ToastKind::NeedsAttention);
-        assert_eq!(toast.title, "pi needs attention");
+        assert_eq!(toast.title, "pi Needs Attention");
         assert_eq!(toast.context, "active · 1 · logs");
     }
 
@@ -7365,8 +7375,8 @@ mod tests {
         assert!(state.update_dismissed);
         let toast = state.toast.as_ref().expect("update toast");
         assert_eq!(toast.kind, ToastKind::UpdateInstalled);
-        assert_eq!(toast.title, "v0.5.0 available");
-        assert_eq!(toast.context, "detach, then run `omh update`");
+        assert_eq!(toast.title, "v0.5.0 Available");
+        assert_eq!(toast.context, "Detach, then run `omh update`");
     }
 
     #[test]
@@ -7381,7 +7391,7 @@ mod tests {
 
         assert_eq!(state.update_install_command, "custom upgrade omh");
         let toast = state.toast.as_ref().expect("update toast");
-        assert_eq!(toast.context, "detach, then run `custom upgrade omh`");
+        assert_eq!(toast.context, "Detach, then run `custom upgrade omh`");
     }
 
     #[test]
@@ -7409,7 +7419,7 @@ mod tests {
         );
         let toast = state.toast.as_ref().expect("manifest update toast");
         assert_eq!(toast.kind, ToastKind::UpdateInstalled);
-        assert_eq!(toast.title, "Agent detection rules updated");
+        assert_eq!(toast.title, "Agent Detection Rules Updated");
         assert_eq!(toast.context, "codex 2026.06.10.1");
     }
 

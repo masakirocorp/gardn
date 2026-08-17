@@ -519,7 +519,7 @@ fn client_sees_headless_startup_configuration_issue_notice() {
         match read_server_message(&mut stream) {
             Ok((1, payload)) => {
                 let frame = decode_frame_payload(&payload).expect("decode frame");
-                if frame_contains_text(&frame, "configuration issue") {
+                if frame_contains_text(&frame, "Configuration Issue") {
                     found_notice = true;
                     break;
                 }

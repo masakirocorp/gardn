@@ -74,9 +74,9 @@ impl AgentPanelScopeConfig {
 
     pub(crate) fn label(self) -> &'static str {
         match self {
-            Self::All => "all",
-            Self::Group => "current group",
-            Self::Current => "current space",
+            Self::All => "All",
+            Self::Group => "Current Group",
+            Self::Current => "Current Space",
         }
     }
 
@@ -129,9 +129,9 @@ impl PaneBorderAgentInfoConfig {
 
     pub(crate) fn label(self) -> &'static str {
         match self {
-            Self::Hidden => "hidden",
-            Self::Name => "name",
-            Self::NameAndStatus => "name and status",
+            Self::Hidden => "Hidden",
+            Self::Name => "Name",
+            Self::NameAndStatus => "Name and Status",
         }
     }
 
@@ -156,10 +156,10 @@ impl SidebarArrangementConfig {
 
     pub(crate) fn label(self) -> &'static str {
         match self {
-            Self::Auto => "auto",
-            Self::Separate => "split",
-            Self::CombinedLeft => "left",
-            Self::CombinedRight => "right",
+            Self::Auto => "Auto",
+            Self::Separate => "Split",
+            Self::CombinedLeft => "Left",
+            Self::CombinedRight => "Right",
         }
     }
 
@@ -190,8 +190,8 @@ impl ContextBarVisibilityConfig {
 
     pub(crate) const fn label(self) -> &'static str {
         match self {
-            Self::Always => "always",
-            Self::Never => "never",
+            Self::Always => "Always",
+            Self::Never => "Never",
         }
     }
 }

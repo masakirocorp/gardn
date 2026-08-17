@@ -1073,7 +1073,7 @@ impl App {
                 {
                     self.state.toast = Some(crate::app::state::ToastNotification {
                         kind: crate::app::state::ToastKind::NeedsAttention,
-                        title: "git diff command failed".to_string(),
+                        title: "Git Diff Command Failed".to_string(),
                         context: err,
                         position: None,
                         target: None,

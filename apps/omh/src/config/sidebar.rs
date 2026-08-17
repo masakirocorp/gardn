@@ -25,8 +25,8 @@ impl SidebarInitialStateConfig {
 
     pub(crate) fn label(self) -> &'static str {
         match self {
-            Self::Expanded => "expanded",
-            Self::Collapsed => "collapsed",
+            Self::Expanded => "Expanded",
+            Self::Collapsed => "Collapsed",
         }
     }
 }

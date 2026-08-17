@@ -213,7 +213,7 @@ Shared ports can list multiple owner panes when more than one pane/process-tree 
 
 Settings are edited in an in-app modal.
 
-Tabs include:
+The left sidebar includes:
 
 - Appearance
 - Notifications
@@ -224,9 +224,9 @@ Tabs include:
 - Integrations
 - Advanced
 
-The modal supports keyboard navigation, mouse navigation, scrollbars, immediate settings updates, a top-right `esc close` affordance, and a responsive tab bar. The Integrations tab can select Local or a configured SSH connection before it checks, installs, updates, or uninstalls an integration. Appearance owns theme, sidebar, and pane-label settings. Notifications owns sounds and toasts. Behavior owns prompts and terminal defaults. Commands owns the Git, Diff, IDE, and GitHub project launchers. Agents uses a browse-and-edit workflow for launch profiles, with a separate danger zone for deletion.
+The general settings modal uses an expandable sidebar. Each category exposes subsection links that jump to the matching content group. The right panel keeps the category heading and description. A horizontal rule separates this introduction from the controls, and blank rows separate logical setting groups and independent fields. Press `tab` to move keyboard focus between the sidebar and the settings controls. Group Settings keeps its compact tabs, and Space Settings keeps its single-panel layout. All settings modals support mouse navigation, scrollbars, immediate updates, and a top-right `Esc Close` action. Visible control, menu, navigation, status, and modal labels use title casing. Integrations can select Local or a configured SSH connection before it checks, installs, updates, or uninstalls an integration. Appearance owns theme, sidebar, and pane-label settings. Notifications owns sounds and toasts. Behavior owns prompts and terminal defaults. Commands owns the Git, Diff, IDE, and GitHub project launchers. Agents uses a browse-and-edit workflow for launch profiles, with a separate danger zone for deletion.
 
-The Connections tab manages SSH execution hosts and their workers. A saved connection opens to its status and runtime controls. Editing persistent details is a separate action. The new-connection form starts with the SSH target and uses it as the display name when the optional name is empty. Connecting installs or updates the versioned execution worker automatically. A compatible worker with live runtimes stays active until it is unused. Removing a connection first inventories every session and managed worker binding, shows each affected Group, Workspace, pane, pending termination, and owned binding, and requires confirmation. Affected Workspace defaults move to the displayed local home directory. Oh My Herdr then fences new work, drains or closes remote panes, rewrites dormant session placement, removes only bindings owned by the connection, and deletes the connection profile only after all sessions are clear. A durable journal keeps a partial removal fenced and resumable after restart. If full cleanup is unavailable, the failure screen states that remote processes or files might remain and offers three choices: remove the saved connection, try again, or cancel.
+The Connections section manages SSH execution hosts and their workers. A saved connection opens to its status and runtime controls. Editing persistent details is a separate action. The new-connection form starts with the SSH target and uses it as the display name when the optional name is empty. Connecting installs or updates the versioned execution worker automatically. A compatible worker with live runtimes stays active until it is unused. Removing a connection first inventories every session and managed worker binding, shows each affected Group, Workspace, pane, pending termination, and owned binding, and requires confirmation. Affected Workspace defaults move to the displayed local home directory. Oh My Herdr then fences new work, drains or closes remote panes, rewrites dormant session placement, removes only bindings owned by the connection, and deletes the connection profile only after all sessions are clear. A durable journal keeps a partial removal fenced and resumable after restart. If full cleanup is unavailable, the failure screen states that remote processes or files might remain and offers **Remove Saved Connection**, **Try Again**, and **Cancel**.
 
 After a coordinator restart, restored remote panes reconnect their saved SSH connection and re-adopt the live worker runtime automatically.
 
@@ -385,7 +385,7 @@ Oh My Herdr treats `config.toml` as a stable hand-editable configuration surface
 
 Runtime reload is section-scoped for live sections: valid sections apply, invalid sections keep the previous live settings and emit diagnostics through the app/server reload path.
 - **Offline validation** — `omh config check` validates `config.toml`, prints diagnostics, and exits without starting or attaching to a session.
-- **Configuration status** — startup and reload diagnostics raise one transient toast, then remain available from the bottom-left `config issue` status and its diagnostics modal until a successful reload clears them.
+- **Configuration status** — startup and reload diagnostics raise one transient toast, then remain available from the bottom-left `Config Issue` status and its diagnostics modal until a successful reload clears them.
 
 
 Configurable areas include:

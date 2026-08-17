@@ -339,9 +339,14 @@ impl App {
             workspace_id: self.public_workspace_id(ws_idx),
             pane_id,
         });
+        let agent_name = crate::agent_profiles::AgentKind::ALL
+            .iter()
+            .find(|kind| kind.as_str() == plan.agent)
+            .map(|kind| kind.display_name())
+            .unwrap_or(&plan.agent);
         self.state.toast = Some(ToastNotification {
             kind: ToastKind::NeedsAttention,
-            title: format!("couldn't restore {} session", plan.agent),
+            title: format!("Couldn't Restore {agent_name} Session"),
             context: restore_failure_context(reason, command),
             position: None,
             target,
@@ -868,7 +873,7 @@ mod tests {
 
         let toast = app.state.toast.as_ref().expect("restore failure toast");
         assert_eq!(toast.kind, ToastKind::NeedsAttention);
-        assert_eq!(toast.title, "couldn't restore codex session");
+        assert_eq!(toast.title, "Couldn't Restore Codex Session");
         assert_eq!(toast.context, "restore command missing; resume manually");
         assert_eq!(
             toast.target,

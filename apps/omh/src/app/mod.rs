@@ -102,8 +102,8 @@ pub(crate) fn client_group_menu_labels(state: &AppState, view: &ClientViewState)
         "✓"
     };
     let mut labels = vec![
-        "filter".to_string(),
-        format!("{all_marker} all {}", state.workspaces.len()),
+        "Filter".to_string(),
+        format!("{all_marker} All {}", state.workspaces.len()),
     ];
     labels.extend(state.groups.iter().enumerate().map(|(idx, group)| {
         let marker = if view.group_filter_enabled && idx == view.active_group {
@@ -120,9 +120,9 @@ pub(crate) fn client_group_menu_labels(state: &AppState, view: &ClientViewState)
     }));
     labels.extend([
         "---".to_string(),
-        "new".to_string(),
-        "  space".to_string(),
-        "  group".to_string(),
+        "New".to_string(),
+        "  Space".to_string(),
+        "  Group".to_string(),
     ]);
     labels
 }
@@ -182,10 +182,10 @@ pub(crate) fn client_agent_menu_labels(view: &ClientViewState) -> Vec<String> {
         " "
     };
     vec![
-        "filter".to_string(),
-        format!("{all_marker} all"),
-        format!("{space_marker} space"),
-        format!("{group_marker} group"),
+        "Filter".to_string(),
+        format!("{all_marker} All"),
+        format!("{space_marker} Space"),
+        format!("{group_marker} Group"),
     ]
 }
 
@@ -623,7 +623,7 @@ fn groups_from_snapshot(snap: &crate::persist::SessionSnapshot) -> Vec<state::Gr
         }
         groups.push(state::Group {
             id: workspace.group_id.clone(),
-            name: format!("group {}", groups.len() + 1),
+            name: format!("Group {}", groups.len() + 1),
             icon: state::DEFAULT_GROUP_ICON.to_string(),
             accent: None,
             default_location: None,
@@ -663,7 +663,7 @@ impl App {
         let config_diagnostic = config_issue.as_ref().map(|issue| issue.details.clone());
         let startup_config_toast = config_issue.as_ref().map(|issue| state::ToastNotification {
             kind: state::ToastKind::NeedsAttention,
-            title: "configuration issue".to_string(),
+            title: "Configuration Issue".to_string(),
             context: issue.summary().to_string(),
             position: None,
             target: None,
@@ -1088,6 +1088,11 @@ impl App {
                     .is_none(),
             settings: state::SettingsState {
                 section: state::SettingsSection::Theme,
+                sidebar_expanded: Some(state::SettingsSection::Theme),
+                sidebar_selection: state::SettingsSidebarSelection::section(
+                    state::SettingsSection::Theme,
+                ),
+                sidebar_focused: false,
                 list: state::ModalListState::hidden(0),
                 focused_input: None,
                 scroll: 0,
@@ -1234,7 +1239,7 @@ impl App {
             Err(error) => {
                 state.toast.get_or_insert_with(|| state::ToastNotification {
                     kind: state::ToastKind::NeedsAttention,
-                    title: "execution hosts unavailable".to_string(),
+                    title: "Execution hosts unavailable".to_string(),
                     context: error,
                     position: None,
                     target: None,
@@ -1293,7 +1298,7 @@ impl App {
                     Err(error) => {
                         state.toast.get_or_insert_with(|| state::ToastNotification {
                             kind: state::ToastKind::NeedsAttention,
-                            title: "remote terminal restore failed".to_string(),
+                            title: "Remote terminal restore failed".to_string(),
                             context: error,
                             position: None,
                             target: None,
@@ -1311,7 +1316,7 @@ impl App {
                 ) {
                     state.toast.get_or_insert_with(|| state::ToastNotification {
                         kind: state::ToastKind::NeedsAttention,
-                        title: "remote terminal restore failed".to_string(),
+                        title: "Remote Terminal Restore Failed".to_string(),
                         context: error,
                         position: None,
                         target: None,
@@ -1459,7 +1464,7 @@ impl App {
                     .toast
                     .get_or_insert_with(|| state::ToastNotification {
                         kind: state::ToastKind::NeedsAttention,
-                        title: "execution hosts unavailable".to_string(),
+                        title: "Execution Hosts Unavailable".to_string(),
                         context: error.to_string(),
                         position: None,
                         target: None,
@@ -1635,7 +1640,7 @@ impl App {
                 tracing::warn!(profile = %profile_id, err = %err, "failed to launch agent profile");
                 self.state.toast = Some(crate::app::state::ToastNotification {
                     kind: crate::app::state::ToastKind::NeedsAttention,
-                    title: "agent launch failed".to_string(),
+                    title: "Agent Launch Failed".to_string(),
                     context: err.to_string(),
                     position: None,
                     target: None,
@@ -1691,7 +1696,7 @@ impl App {
             }
             self.state.toast = Some(state::ToastNotification {
                 kind: state::ToastKind::NeedsAttention,
-                title: "execution hosts unavailable".to_string(),
+                title: "Execution Hosts Unavailable".to_string(),
                 context: "coordinator installation identity is unavailable".to_string(),
                 position: None,
                 target: None,
@@ -2024,9 +2029,9 @@ impl App {
                         self.state.toast = Some(state::ToastNotification {
                             kind: state::ToastKind::NeedsAttention,
                             title: if cleared_command_run {
-                                "project command failed".to_string()
+                                "Project Command Failed".to_string()
                             } else {
-                                "remote terminal failed".to_string()
+                                "Remote Terminal Failed".to_string()
                             },
                             context: message,
                             position: None,
@@ -2036,7 +2041,7 @@ impl App {
                     } else if !was_pending_create {
                         self.state.toast = Some(state::ToastNotification {
                             kind: state::ToastKind::NeedsAttention,
-                            title: "remote terminal failed".to_string(),
+                            title: "Remote terminal failed".to_string(),
                             context: message,
                             position: None,
                             target: None,
@@ -2046,7 +2051,7 @@ impl App {
                     changed = true;
                 }
                 crate::execution_host::ExecutionHostEvent::Diagnostic { host_id, message } => {
-                    tracing::warn!(host = %host_id.as_str(), %message, "execution host diagnostic");
+                    let _ = host_id;
                     self.state.toast = Some(state::ToastNotification {
                         kind: state::ToastKind::NeedsAttention,
                         title: "SSH host connection failed".to_string(),
@@ -2067,7 +2072,7 @@ impl App {
                     };
                     self.state.toast = Some(state::ToastNotification {
                         kind,
-                        title: "SSH connection test".to_string(),
+                        title: "SSH Connection Test".to_string(),
                         context,
                         position: None,
                         target: None,
@@ -2150,7 +2155,7 @@ impl App {
                 if let Err(err) = result {
                     self.state.toast = Some(crate::app::state::ToastNotification {
                         kind: crate::app::state::ToastKind::NeedsAttention,
-                        title: format!("{} command failed", self.state.project_command_role(kind)),
+                        title: format!("{} Command Failed", self.state.project_command_role(kind)),
                         context: err,
                         position: None,
                         target: None,
@@ -2372,7 +2377,7 @@ impl App {
     }
 
     pub(crate) fn install_integration(&mut self, target: crate::api::schema::IntegrationTarget) {
-        let label = crate::integration::integration_target_label(target);
+        let label = crate::agent_profiles::AgentKind::from(target).display_name();
         self.state.integration_install_messages.clear();
         match crate::integration::install_target_for_agent_profiles(
             target,
@@ -2380,7 +2385,7 @@ impl App {
         ) {
             Ok(messages) => {
                 self.state.integration_install_messages.push(format!(
-                    "restart running {label} panes to use the updated hook"
+                    "Restart running {label} panes to use the updated hook"
                 ));
                 self.state
                     .integration_install_messages
@@ -2397,7 +2402,7 @@ impl App {
     }
 
     pub(crate) fn uninstall_integration(&mut self, target: crate::api::schema::IntegrationTarget) {
-        let label = crate::integration::integration_target_label(target);
+        let label = crate::agent_profiles::AgentKind::from(target).display_name();
         self.state.integration_install_messages.clear();
         match crate::integration::uninstall_target_for_agent_profiles(
             target,
@@ -2440,7 +2445,7 @@ impl App {
                 if notify_success {
                     self.state.toast = Some(state::ToastNotification {
                         kind: state::ToastKind::NeedsAttention,
-                        title: "configuration issue".to_string(),
+                        title: "Configuration Issue".to_string(),
                         context: issue.summary().to_string(),
                         position: None,
                         target: None,
@@ -2677,8 +2682,8 @@ impl App {
             if notify_success {
                 self.state.toast = Some(crate::app::state::ToastNotification {
                     kind: crate::app::state::ToastKind::UpdateInstalled,
-                    title: "reloaded config".to_string(),
-                    context: "using config.toml".to_string(),
+                    title: "Reloaded Config".to_string(),
+                    context: "Using config.toml".to_string(),
                     position: None,
                     target: None,
                 });
@@ -2688,7 +2693,7 @@ impl App {
             if notify_success {
                 self.state.toast = Some(crate::app::state::ToastNotification {
                     kind: crate::app::state::ToastKind::NeedsAttention,
-                    title: "configuration issue".to_string(),
+                    title: "Configuration Issue".to_string(),
                     context: issue.summary().to_string(),
                     position: None,
                     target: None,
@@ -3047,7 +3052,7 @@ impl App {
                 .ok_or_else(|| "execution hosts unavailable".to_string())
                 .and_then(|hosts| hosts.worker_installer_for(owner, &profile_id))
         } else {
-            Err("connection changed after removal preview; review the new impact".to_string())
+            Err("Connection changed after removal preview; review the new impact".to_string())
         };
         let journal =
             crate::execution_host::connection_retirement::begin_connection_retirement_journal(
@@ -3079,7 +3084,7 @@ impl App {
                 let current_bindings = installer.inventory_owned_bindings()?;
                 if current_plan != preview.plan || current_bindings != preview.bindings {
                     return Err(
-                        "connection removal impact changed; review the refreshed impact before confirming"
+                        "Connection removal impact changed; review the refreshed impact before confirming"
                             .to_string(),
                     );
                 }
@@ -3135,7 +3140,7 @@ impl App {
             .map_err(|error| error.to_string())
         } else {
             Err(
-                "connection changed after local-only forget review; review the new impact"
+                "Connection changed after local-only forget review; review the new impact"
                     .to_string(),
             )
         };
@@ -3158,7 +3163,7 @@ impl App {
                         .map_err(|error| error.to_string())?;
                     if current_plan != approved_plan {
                         return Err(
-                            "local-only forget impact changed; review the refreshed impact before confirming"
+                            "Local-only forget impact changed; review the refreshed impact before confirming"
                                 .to_string(),
                         );
                     }
@@ -3407,6 +3412,7 @@ impl App {
                 }
                 self.retire_connection_for(owner, profile_id, preview);
             }
+
             input::SettingsAction::ConfirmLocalConnectionForget { profile_id, plan } => {
                 if let Some(editor) = client_view.settings.connection_editor.as_mut() {
                     if editor.profile_id() == Some(profile_id.as_str()) {
@@ -5755,7 +5761,7 @@ impl App {
                 if let Err(error) = self.run_project_command_on_resolved_host(&command_id) {
                     self.state.toast = Some(crate::app::state::ToastNotification {
                         kind: crate::app::state::ToastKind::NeedsAttention,
-                        title: "project command failed".to_string(),
+                        title: "Project Command Failed".to_string(),
                         context: error,
                         position: None,
                         target: None,
@@ -6315,7 +6321,7 @@ impl App {
                 {
                     self.state.toast = Some(crate::app::state::ToastNotification {
                         kind: crate::app::state::ToastKind::NeedsAttention,
-                        title: "git diff command failed".to_string(),
+                        title: "Git Diff Command Failed".to_string(),
                         context: err,
                         position: None,
                         target: None,
@@ -12470,7 +12476,7 @@ mod tests {
         assert!(app.state.config_diagnostic.is_none());
         assert_eq!(
             app.state.toast.as_ref().map(|toast| toast.title.as_str()),
-            Some("reloaded config")
+            Some("Reloaded Config")
         );
     }
 
@@ -12601,16 +12607,16 @@ mod tests {
         crate::app::input::open_settings_at(&mut app.state, state::SettingsSection::Integrations);
         app.install_integration(crate::api::schema::IntegrationTarget::Codex);
 
-        let restart_guidance = "restart running codex panes to use the updated hook";
+        let restart_guidance = "Restart running Codex panes to use the updated hook";
         let text = rendered_app_text(&app, 120, 32);
         assert!(
-            !text.contains("installed codex"),
+            !text.contains("Installed Codex"),
             "successful installs should not render the old log line:\n{text}"
         );
         assert_eq!(text.matches(restart_guidance).count(), 1, "{text}");
-        assert!(text.contains("move ↑↓"), "{text}");
-        assert!(text.contains("action space/↵"), "{text}");
-        assert!(text.contains("section ←→/tab"), "{text}");
+        assert!(text.contains("Move ↑↓"), "{text}");
+        assert!(text.contains("Action Space/↵"), "{text}");
+        assert!(text.contains("Sidebar Tab"), "{text}");
         let hint_y = text
             .lines()
             .position(|line| line.contains(restart_guidance))
@@ -12623,14 +12629,14 @@ mod tests {
             .lines()
             .nth(hint_y - 1)
             .expect("blank row above restart hint");
-        let spacer_visible = spacer_line.trim().trim_matches('│').trim();
+        let spacer_visible = spacer_line.chars().all(|ch| ch == ' ' || ch == '│');
         assert!(
-            spacer_visible.is_empty(),
+            spacer_visible,
             "restart hint should be visually separated from the integration list by a blank row, got {spacer_line:?}"
         );
         let footer_y = text
             .lines()
-            .position(|line| line.contains("move ↑↓"))
+            .position(|line| line.contains("Move ↑↓"))
             .expect("footer controls row");
         assert!(
             hint_y < footer_y,
@@ -12778,7 +12784,7 @@ mod tests {
             .as_ref()
             .expect("launch failure should be user-facing");
         assert_eq!(toast.kind, state::ToastKind::NeedsAttention);
-        assert_eq!(toast.title, "agent launch failed");
+        assert_eq!(toast.title, "Agent Launch Failed");
         assert!(toast.context.contains("codex mk"), "{}", toast.context);
         assert!(
             toast.context.contains("omh integration install codex"),
@@ -12860,7 +12866,7 @@ mod tests {
         assert_eq!(groups.len(), 2);
         assert_eq!(groups[0].id, crate::workspace::DEFAULT_GROUP_ID);
         assert_eq!(groups[1].id, "orphan-group");
-        assert_eq!(groups[1].name, "group 2");
+        assert_eq!(groups[1].name, "Group 2");
     }
 
     #[cfg(unix)]
@@ -13414,8 +13420,8 @@ mod tests {
         assert!(app.state.config_diagnostic.is_none());
         let toast = app.state.toast.as_ref().unwrap();
         assert_eq!(toast.kind, crate::app::state::ToastKind::UpdateInstalled);
-        assert_eq!(toast.title, "reloaded config");
-        assert_eq!(toast.context, "using config.toml");
+        assert_eq!(toast.title, "Reloaded Config");
+        assert_eq!(toast.context, "Using config.toml");
 
         let _ = std::fs::remove_dir_all(path.parent().unwrap());
     }
@@ -13941,7 +13947,7 @@ mod tests {
                 .toast
                 .as_ref()
                 .map(|toast| (&toast.kind, toast.title.as_str())),
-            Some((&state::ToastKind::NeedsAttention, "configuration issue"))
+            Some((&state::ToastKind::NeedsAttention, "Configuration Issue"))
         );
 
         let _ = std::fs::remove_dir_all(path.parent().unwrap());
@@ -16908,7 +16914,7 @@ command = "printf literal > '{}'"
         compute_client_view(&app, &mut client, area);
         assert_eq!(client.computed.layout, state::ViewLayout::Mobile);
         assert!(
-            rendered_client_view_text(&app, &client, area.width, area.height).contains("group 1"),
+            rendered_client_view_text(&app, &client, area.width, area.height).contains("Group 1"),
             "test fixture should render the mobile group breadcrumb"
         );
         let group = client
@@ -17897,7 +17903,7 @@ command = "printf literal > '{}'"
             .iter()
             .map(|group| group.name.as_str())
             .collect();
-        assert_eq!(group_names, vec!["group 1", "ops", "work"]);
+        assert_eq!(group_names, vec!["Group 1", "ops", "work"]);
         assert_eq!(
             app.state.workspaces[client.selected_workspace].id,
             selected_id
@@ -19793,7 +19799,7 @@ command = "printf literal > '{}'"
         assert_eq!(app.state.mode, Mode::Terminal);
         assert_eq!(app.state.keybind_help.scroll, 0);
 
-        let close = rendered_client_view_text_point(&app, &client, "esc close", 120, 30);
+        let close = rendered_client_view_text_point(&app, &client, "Esc Close", 120, 30);
 
         app.route_client_events_for_view(
             &mut client,
@@ -19823,7 +19829,7 @@ command = "printf literal > '{}'"
         let mut client = ClientViewState::from_default_client_state(&app.state);
         client.mode = Mode::KeybindHelp;
         compute_client_view(&app, &mut client, ratatui::layout::Rect::new(0, 0, 30, 30));
-        let close = rendered_client_view_text_point(&app, &client, "esc close", 30, 30);
+        let close = rendered_client_view_text_point(&app, &client, "Esc Close", 30, 30);
 
         app.route_client_events_for_view(
             &mut client,
@@ -20249,7 +20255,7 @@ command = "printf literal > '{}'"
             true,
         );
         compute_client_view(&app, &mut client, ratatui::layout::Rect::new(0, 0, 120, 30));
-        let close = rendered_client_view_text_point(&app, &client, "esc close", 120, 30);
+        let close = rendered_client_view_text_point(&app, &client, "Esc Close", 120, 30);
 
         app.route_client_events_for_view(
             &mut client,
@@ -20285,7 +20291,7 @@ command = "printf literal > '{}'"
             client.mode = mode;
             client.rename_group_target = (mode == Mode::RenameGroup).then_some(0);
             compute_client_view(&app, &mut client, ratatui::layout::Rect::new(0, 0, 120, 30));
-            let close = rendered_client_view_text_point(&app, &client, "esc close", 120, 30);
+            let close = rendered_client_view_text_point(&app, &client, "Esc Close", 120, 30);
 
             app.route_client_events_for_view(
                 &mut client,
@@ -20314,7 +20320,7 @@ command = "printf literal > '{}'"
         let mut client = ClientViewState::from_default_client_state(&app.state);
         input::open_command_palette_for_view(&mut client);
         compute_client_view(&app, &mut client, ratatui::layout::Rect::new(0, 0, 120, 30));
-        let close = rendered_client_view_text_point(&app, &client, "esc close", 120, 30);
+        let close = rendered_client_view_text_point(&app, &client, "Esc Close", 120, 30);
 
         app.route_client_events_for_view(
             &mut client,
@@ -20605,7 +20611,7 @@ command = "printf literal > '{}'"
             .iter()
             .find_map(|row| match row {
                 crate::settings_rows::SettingsListRow::Value { index, title, .. }
-                    if title.as_ref() == "sidebar arrangement" =>
+                    if title.as_ref() == "Sidebar Arrangement" =>
                 {
                     Some(*index)
                 }
@@ -20626,7 +20632,7 @@ command = "printf literal > '{}'"
         compute_client_view(&app, &mut client_view, area);
         let list_area = crate::ui::settings_section_list_rect(app.state.settings_content_rect());
         let (arrangement_x, arrangement_y) =
-            rendered_text_point_at_or_after_row(&app, "sidebar arrangement", list_area.y, 150, 40);
+            rendered_text_point_at_or_after_row(&app, "Sidebar Arrangement", list_area.y, 150, 40);
         let initial_sidebar_x = client_view.computed.sidebar_rect.x;
 
         app.route_client_events_for_view(
@@ -20950,11 +20956,11 @@ command = "printf literal > '{}'"
             .nth(area.height.saturating_sub(1) as usize)
             .expect("sidebar footer row should be rendered");
         assert!(
-            selector_row.contains("all"),
+            selector_row.contains("All"),
             "all-groups selector should be visible at its clickable top-right position: {selector_row:?}"
         );
         assert!(
-            !footer_row.contains("all"),
+            !footer_row.contains("All"),
             "all-groups selector should not be rendered in the sidebar footer: {footer_row:?}"
         );
 
@@ -21374,7 +21380,7 @@ command = "printf literal > '{}'"
                     body,
                     *row,
                 )
-                .is_some_and(|target| target.section == "triage")
+                .is_some_and(|target| target.section == "Triage")
             })
             .expect("triage agent status header should be visible");
         assert_eq!(
@@ -21404,14 +21410,14 @@ command = "printf literal > '{}'"
             first_client
                 .collapsed_agent_sections
                 .iter()
-                .any(|section| section == "triage"),
+                .any(|section| section == "Triage"),
             "invoking client should collapse the clicked triage section"
         );
         assert!(
             !second_client
                 .collapsed_agent_sections
                 .iter()
-                .any(|section| section == "triage"),
+                .any(|section| section == "Triage"),
             "other client view agent section expansion should not change"
         );
         assert!(
@@ -21482,7 +21488,7 @@ command = "printf literal > '{}'"
                     detail_area,
                     *row,
                 )
-                .is_some_and(|target| target.section == "triage")
+                .is_some_and(|target| target.section == "Triage")
             })
             .expect("compact triage status header");
 
@@ -21499,11 +21505,11 @@ command = "printf literal > '{}'"
         assert!(first_client
             .collapsed_agent_sections
             .iter()
-            .any(|section| section == "triage"));
+            .any(|section| section == "Triage"));
         assert!(!second_client
             .collapsed_agent_sections
             .iter()
-            .any(|section| section == "triage"));
+            .any(|section| section == "Triage"));
         assert!(!app.state.agent_section_collapsed("triage"));
     }
 
@@ -22306,7 +22312,7 @@ command = "printf literal > '{}'"
                 .lines()
                 .nth(11)
                 .unwrap_or_default()
-                .contains("close"),
+                .contains("Close"),
             "keyboard selection keeps the final menu action visible"
         );
         assert_eq!(
@@ -23574,7 +23580,7 @@ command = "printf literal > '{}'"
                 .iter()
                 .map(|group| group.name.as_str())
                 .collect::<Vec<_>>(),
-            vec!["group 1"]
+            vec!["Group 1"]
         );
         assert_eq!(app.state.workspaces.len(), 1);
         assert_eq!(app.state.workspaces[0].display_name(), "keep");

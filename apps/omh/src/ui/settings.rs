@@ -15,7 +15,7 @@ use super::widgets::{
 };
 use crate::{
     app::{
-        state::{Palette, SettingsSection},
+        state::{Palette, SettingsSection, SettingsState},
         AppState,
     },
     settings_rows::{
@@ -33,13 +33,190 @@ const GROUP_SETTINGS_SECTIONS: &[SettingsSection] = &[
 ];
 const WORKSPACE_SETTINGS_SECTIONS: &[SettingsSection] = &[SettingsSection::WorkspaceGeneral];
 
+const SETTINGS_SIDEBAR_WIDTH: u16 = 21;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct SettingsSidebarEntry {
+    pub(crate) section: SettingsSection,
+    pub(crate) subsection: Option<usize>,
+    pub(crate) label: &'static str,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct SettingsSidebarAreas {
+    pub(crate) navigation: Rect,
+    pub(crate) divider: Rect,
+    pub(crate) content: Rect,
+}
+
+#[derive(Clone, Copy)]
+struct SettingsSubsection {
+    label: &'static str,
+    anchor: Option<&'static str>,
+}
+
+const APPEARANCE_SUBSECTIONS: &[SettingsSubsection] = &[
+    SettingsSubsection {
+        label: "Colors",
+        anchor: Some("Colors"),
+    },
+    SettingsSubsection {
+        label: "Themes",
+        anchor: Some("Appearance"),
+    },
+    SettingsSubsection {
+        label: "Sidebar",
+        anchor: Some("Sidebar"),
+    },
+    SettingsSubsection {
+        label: "Panes",
+        anchor: Some("Panes"),
+    },
+];
+const NOTIFICATION_SUBSECTIONS: &[SettingsSubsection] = &[
+    SettingsSubsection {
+        label: "Sound alerts",
+        anchor: Some("Sound Alerts"),
+    },
+    SettingsSubsection {
+        label: "Popups",
+        anchor: Some("Notification Popups"),
+    },
+];
+const BEHAVIOR_SUBSECTIONS: &[SettingsSubsection] = &[
+    SettingsSubsection {
+        label: "General",
+        anchor: Some("General"),
+    },
+    SettingsSubsection {
+        label: "Terminal",
+        anchor: Some("Terminal"),
+    },
+];
+const COMMAND_SUBSECTIONS: &[SettingsSubsection] = &[SettingsSubsection {
+    label: "Project commands",
+    anchor: Some("Project Commands"),
+}];
+const AGENT_SUBSECTIONS: &[SettingsSubsection] = &[SettingsSubsection {
+    label: "Profiles",
+    anchor: Some("Saved Profiles"),
+}];
+const INTEGRATION_SUBSECTIONS: &[SettingsSubsection] = &[SettingsSubsection {
+    label: "Agent tools",
+    anchor: None,
+}];
+const CONNECTION_SUBSECTIONS: &[SettingsSubsection] = &[SettingsSubsection {
+    label: "SSH profiles",
+    anchor: Some("Saved Profiles"),
+}];
+const ADVANCED_SUBSECTIONS: &[SettingsSubsection] = &[SettingsSubsection {
+    label: "Input",
+    anchor: Some("Input"),
+}];
+
+fn settings_sidebar_section_label(section: SettingsSection) -> &'static str {
+    match section {
+        SettingsSection::Theme => "Appearance",
+        SettingsSection::Sound => "Notifications",
+        SettingsSection::PaneLabels => "Behavior",
+        SettingsSection::Commands => "Commands",
+        SettingsSection::Agents => "Agents",
+        SettingsSection::Integrations => "Integrations",
+        SettingsSection::Connections => "Connections",
+        SettingsSection::Experiments => "Advanced",
+        SettingsSection::Layout
+        | SettingsSection::Toast
+        | SettingsSection::GroupProfiles
+        | SettingsSection::GroupGeneral
+        | SettingsSection::WorkspaceGeneral => section.label(),
+    }
+}
+
+fn settings_subsections(section: SettingsSection) -> &'static [SettingsSubsection] {
+    match section {
+        SettingsSection::Theme => APPEARANCE_SUBSECTIONS,
+        SettingsSection::Sound => NOTIFICATION_SUBSECTIONS,
+        SettingsSection::PaneLabels => BEHAVIOR_SUBSECTIONS,
+        SettingsSection::Commands => COMMAND_SUBSECTIONS,
+        SettingsSection::Agents => AGENT_SUBSECTIONS,
+        SettingsSection::Integrations => INTEGRATION_SUBSECTIONS,
+        SettingsSection::Connections => CONNECTION_SUBSECTIONS,
+        SettingsSection::Experiments => ADVANCED_SUBSECTIONS,
+        SettingsSection::Layout
+        | SettingsSection::Toast
+        | SettingsSection::GroupProfiles
+        | SettingsSection::GroupGeneral
+        | SettingsSection::WorkspaceGeneral => &[],
+    }
+}
+
+pub(crate) fn settings_subsection_anchor(
+    section: SettingsSection,
+    subsection: usize,
+) -> Option<&'static str> {
+    settings_subsections(section)
+        .get(subsection)
+        .and_then(|subsection| subsection.anchor)
+}
+
+pub(crate) fn settings_sidebar_entries(settings: &SettingsState) -> Vec<SettingsSidebarEntry> {
+    let mut entries = Vec::with_capacity(SettingsSection::ALL.len() + 4);
+    for &section in SettingsSection::ALL {
+        entries.push(SettingsSidebarEntry {
+            section,
+            subsection: None,
+            label: settings_sidebar_section_label(section),
+        });
+        if settings.sidebar_expanded == Some(section) {
+            entries.extend(settings_subsections(section).iter().enumerate().map(
+                |(subsection, item)| SettingsSidebarEntry {
+                    section,
+                    subsection: Some(subsection),
+                    label: item.label,
+                },
+            ));
+        }
+    }
+    entries
+}
+
+pub(crate) fn settings_sidebar_areas(area: Rect) -> SettingsSidebarAreas {
+    let [navigation, divider, _, content] = Layout::horizontal([
+        Constraint::Length(SETTINGS_SIDEBAR_WIDTH.min(area.width.saturating_sub(3))),
+        Constraint::Length(1),
+        Constraint::Length(1),
+        Constraint::Min(0),
+    ])
+    .areas::<4>(area);
+    SettingsSidebarAreas {
+        navigation,
+        divider,
+        content,
+    }
+}
+
+pub(crate) fn settings_sidebar_hit_areas(
+    settings: &SettingsState,
+    area: Rect,
+) -> Vec<(SettingsSidebarEntry, Rect)> {
+    settings_sidebar_entries(settings)
+        .into_iter()
+        .enumerate()
+        .filter_map(|(index, entry)| {
+            let y = area.y.saturating_add(2).saturating_add(index as u16);
+            (y < area.y.saturating_add(area.height))
+                .then_some((entry, Rect::new(area.x, y, area.width, 1)))
+        })
+        .collect()
+}
+
 fn settings_title(app: &AppState) -> &'static str {
     if app.settings.group_settings_target.is_some() {
-        "group settings"
+        "Group Settings"
     } else if app.settings.workspace_settings_target.is_some() {
-        "space settings"
+        "Space Settings"
     } else {
-        "settings"
+        "Settings"
     }
 }
 
@@ -55,7 +232,7 @@ fn settings_sections(app: &AppState) -> &'static [SettingsSection] {
 
 fn settings_section_label(app: &AppState, section: SettingsSection) -> &'static str {
     if app.settings.group_settings_target.is_some() && section == SettingsSection::Theme {
-        "appearance"
+        "Appearance"
     } else {
         section.label()
     }
@@ -151,7 +328,7 @@ fn settings_tab_text_for(
     section: SettingsSection,
 ) -> &'static str {
     if settings.group_settings_target.is_some() && section == SettingsSection::Theme {
-        "appearance"
+        "Appearance"
     } else {
         section.label()
     }
@@ -271,39 +448,92 @@ fn render_settings_tabs_for_view(
     frame.render_widget(Paragraph::new(Line::from(spans)), row);
 }
 
+fn render_settings_sidebar(settings: &SettingsState, frame: &mut Frame, area: Rect, p: &Palette) {
+    if area.is_empty() {
+        return;
+    }
+    frame.render_widget(
+        Paragraph::new("SETTINGS")
+            .style(Style::default().fg(p.overlay0).add_modifier(Modifier::BOLD)),
+        Rect::new(area.x, area.y, area.width, 1),
+    );
+
+    for (entry, row) in settings_sidebar_hit_areas(settings, area) {
+        let selected = settings.sidebar_selection.section == entry.section
+            && settings.sidebar_selection.subsection == entry.subsection;
+        let active = if let Some(subsection) = entry.subsection {
+            settings.section == entry.section
+                && (settings.sidebar_selection.subsection == Some(subsection)
+                    || (settings.sidebar_selection.subsection.is_none() && subsection == 0))
+        } else {
+            settings.section == entry.section
+        };
+        let mut style = if active {
+            Style::default().fg(p.accent).add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(p.overlay1)
+        };
+        if selected && settings.sidebar_focused {
+            style = style.bg(p.surface1);
+        }
+
+        let text = if entry.subsection.is_some() {
+            let marker = if active { "*" } else { " " };
+            format!("  {marker} {}", entry.label)
+        } else {
+            let chevron = if settings.sidebar_expanded == Some(entry.section) {
+                "▾"
+            } else {
+                "▸"
+            };
+            format!("{chevron} {}", entry.label)
+        };
+        frame.render_widget(Paragraph::new(text).style(style), row);
+    }
+}
+
+fn render_settings_sidebar_divider(frame: &mut Frame, area: Rect, p: &Palette) {
+    for y in area.y..area.y.saturating_add(area.height) {
+        frame.render_widget(
+            Paragraph::new("│").style(Style::default().fg(p.surface1)),
+            Rect::new(area.x, y, area.width, 1),
+        );
+    }
+}
+
 fn settings_section_title(app: &AppState, section: SettingsSection) -> &'static str {
     if section == SettingsSection::Agents && settings_agents_editor_open(app) {
         if app.settings.pending_agent_profile_id.is_some() {
-            "edit agent profile"
+            "Edit Agent Profile"
         } else {
-            "new agent profile"
+            "New Agent Profile"
         }
     } else if section == SettingsSection::Connections
         && crate::settings_rows::connection_editor_open(&app.settings)
     {
         let editor = app.settings.connection_editor.as_ref();
         if editor.is_some_and(|editor| editor.is_detail()) {
-            "connection details"
+            "Connection Details"
         } else if editor.is_some_and(|editor| editor.is_editing()) {
-            "edit connection"
+            "Edit Connection"
         } else {
-            "add connection"
+            "Add Connection"
         }
     } else {
         match section {
-            SettingsSection::Theme => "appearance",
-            SettingsSection::Layout => "layout",
-            SettingsSection::Sound => "notifications",
-            SettingsSection::Toast => "toasts",
-            SettingsSection::PaneLabels => "behavior",
-            SettingsSection::Commands => "commands",
-            SettingsSection::Experiments => "advanced",
-            SettingsSection::Agents => "agents",
-            SettingsSection::Integrations => "agent integrations",
-            SettingsSection::Connections => "connections",
-            SettingsSection::GroupGeneral => "general",
-            SettingsSection::GroupProfiles => "agents",
-            SettingsSection::WorkspaceGeneral => "general",
+            SettingsSection::Theme => "Appearance",
+            SettingsSection::Layout => "Layout",
+            SettingsSection::Sound => "Notifications",
+            SettingsSection::Toast => "Toasts",
+            SettingsSection::PaneLabels => "Behavior",
+            SettingsSection::Commands => "Commands",
+            SettingsSection::Experiments => "Advanced",
+            SettingsSection::Agents => "Agents",
+            SettingsSection::Integrations => "Agent Integrations",
+            SettingsSection::Connections => "Connections",
+            SettingsSection::GroupGeneral => "General",
+            SettingsSection::GroupProfiles => "Agents",
+            SettingsSection::WorkspaceGeneral => "General",
         }
     }
 }
@@ -311,22 +541,22 @@ fn settings_section_title(app: &AppState, section: SettingsSection) -> &'static 
 fn settings_section_description(app: &AppState, section: SettingsSection) -> &'static str {
     match section {
         SettingsSection::Theme if app.settings.group_settings_target.is_some() => {
-            "choose a theme accent for this group, or inherit the global accent"
+            "Choose a theme accent for this group, or inherit the global accent"
         }
-        SettingsSection::Theme => "configure theme, sidebar layout, and pane appearance",
-        SettingsSection::Layout => "set sidebar width bounds",
-        SettingsSection::Sound => "choose sound and toast notification behavior",
-        SettingsSection::Toast => "choose where command and agent notifications are delivered",
+        SettingsSection::Theme => "Configure theme, sidebar layout, and pane appearance",
+        SettingsSection::Layout => "Set sidebar width bounds",
+        SettingsSection::Sound => "Choose sound and toast notification behavior",
+        SettingsSection::Toast => "Choose where command and agent notifications are delivered",
         SettingsSection::PaneLabels => {
-            "control workspace prompts and terminal interaction defaults"
+            "Control workspace prompts and terminal interaction defaults"
         }
-        SettingsSection::Commands => "edit launch commands; clear one to disable and hide it",
-        SettingsSection::Experiments => "configure advanced or platform-specific behavior",
+        SettingsSection::Commands => "Edit launch commands; clear one to disable and hide it",
+        SettingsSection::Experiments => "Configure advanced or platform-specific behavior",
         SettingsSection::Agents if settings_agents_editor_open(app) => {
-            "configure the label, agent type, and launch command"
+            "Configure the label, agent type, and launch command"
         }
-        SettingsSection::Agents => "create and manage agent launch profiles",
-        SettingsSection::Integrations => "install hooks so agents report state directly",
+        SettingsSection::Agents => "Create and manage agent launch profiles",
+        SettingsSection::Integrations => "Install hooks so agents report state directly",
         SettingsSection::Connections
             if app
                 .settings
@@ -334,19 +564,21 @@ fn settings_section_description(app: &AppState, section: SettingsSection) -> &'s
                 .as_ref()
                 .is_some_and(|editor| editor.is_detail()) =>
         {
-            "connect, test, or open a workspace on this ssh host"
+            "Connect, test, or open a workspace on this SSH host"
         }
         SettingsSection::Connections
             if crate::settings_rows::connection_editor_open(&app.settings) =>
         {
-            "credentials and host keys stay with openssh; omh never stores them"
+            "Credentials and host keys stay with OpenSSH; Oh My Herdr never stores them"
         }
-        SettingsSection::Connections => "add ssh hosts and manage their connections",
-        SettingsSection::GroupGeneral => "rename this group or delete it",
+        SettingsSection::Connections => "Add SSH hosts and manage their connections",
+        SettingsSection::GroupGeneral => "Rename this group or delete it",
         SettingsSection::GroupProfiles => {
-            "choose favorite and default agent profiles for this group"
+            "Choose favorite and default agent profiles for this group"
         }
-        SettingsSection::WorkspaceGeneral => "set this space's display name and default directory",
+        SettingsSection::WorkspaceGeneral => {
+            "Set this space's display name, execution host, and directory"
+        }
     }
 }
 
@@ -357,7 +589,7 @@ pub(crate) fn settings_editor_back_button_rect(app: &AppState, area: Rect) -> Op
         _ => false,
     };
     editor_open.then(|| {
-        let width = action_button_width(None, "← back");
+        let width = action_button_width(None, "← Back");
         Rect::new(area.x + area.width.saturating_sub(width), area.y, width, 1)
     })
 }
@@ -379,7 +611,7 @@ fn render_settings_section_intro(
     section: SettingsSection,
     p: &crate::app::state::Palette,
 ) -> Rect {
-    let [desc_area, _, list_area] = Layout::vertical([
+    let [desc_area, divider_area, list_area] = Layout::vertical([
         Constraint::Length(2),
         Constraint::Length(1),
         Constraint::Min(2),
@@ -397,7 +629,7 @@ fn render_settings_section_intro(
         Style::default().fg(p.accent),
     );
     if let Some(back) = settings_editor_back_button_rect(app, title_area) {
-        render_action_button(frame, back, None, "← back", secondary_action_style(p));
+        render_action_button(frame, back, None, "← Back", secondary_action_style(p));
     }
     render_modal_description(
         frame,
@@ -405,70 +637,74 @@ fn render_settings_section_intro(
         settings_section_description(app, section),
         Style::default().fg(p.overlay0),
     );
+    render_modal_divider(frame, divider_area, p);
     list_area
 }
 
 const SETTINGS_INTEGRATIONS_HINTS: &[(&str, &str)] =
-    &[("move", "↑↓"), ("action", "space/↵"), ("section", "←→/tab")];
+    &[("Move", "↑↓"), ("Action", "Space/↵"), ("Section", "←→/Tab")];
 const SETTINGS_AGENTS_EDITOR_HINTS: &[(&str, &str)] =
-    &[("move", "↑↓"), ("action", "space/↵"), ("section", "←→/tab")];
+    &[("Move", "↑↓"), ("Action", "Space/↵"), ("Section", "←→/Tab")];
 const SETTINGS_AGENTS_HINTS: &[(&str, &str)] = &[
-    ("move", "↑↓"),
-    ("new/edit", "space/↵"),
-    ("delete", "ctrl+d"),
-    ("section", "←→/tab"),
+    ("Move", "↑↓"),
+    ("New/Edit", "Space/↵"),
+    ("Delete", "Ctrl+D"),
+    ("Section", "←→/Tab"),
 ];
 const SETTINGS_CONNECTIONS_HINTS: &[(&str, &str)] = &[
-    ("move", "↑↓"),
-    ("new/edit", "space/↵"),
-    ("delete", "ctrl+d"),
-    ("section", "←→/tab"),
+    ("Move", "↑↓"),
+    ("New/Edit", "Space/↵"),
+    ("Delete", "Ctrl+D"),
+    ("Section", "←→/Tab"),
 ];
 const SETTINGS_CONNECTIONS_EDITOR_HINTS: &[(&str, &str)] =
-    &[("move", "↑↓"), ("action", "space/↵"), ("section", "←→/tab")];
+    &[("Move", "↑↓"), ("Action", "Space/↵"), ("Section", "←→/Tab")];
 const SETTINGS_GROUP_PROFILES_HINTS: &[(&str, &str)] = &[
-    ("move", "↑↓"),
-    ("favorite", "ctrl+f"),
-    ("default", "ctrl+d"),
-    ("section", "←→/tab"),
+    ("Move", "↑↓"),
+    ("Favorite", "Ctrl+F"),
+    ("Default", "Ctrl+D"),
+    ("Section", "←→/tab"),
 ];
 const SETTINGS_GROUP_HINTS: &[(&str, &str)] =
-    &[("move", "↑↓"), ("action", "space/↵"), ("section", "←→/tab")];
+    &[("Move", "↑↓"), ("Action", "Space/↵"), ("Section", "←→/Tab")];
 const SETTINGS_DEFAULT_HINTS: &[(&str, &str)] =
-    &[("move", "↑↓"), ("action", "space/↵"), ("section", "←→/tab")];
+    &[("Move", "↑↓"), ("Action", "Space/↵"), ("Section", "←→/Tab")];
+const SETTINGS_SIDEBAR_HINTS: &[(&str, &str)] =
+    &[("Move", "↑↓"), ("Action", "Space/↵"), ("Sidebar", "Tab")];
+const SETTINGS_SIDEBAR_AGENTS_HINTS: &[(&str, &str)] = &[
+    ("Move", "↑↓"),
+    ("New/Edit", "Space/↵"),
+    ("Delete", "Ctrl+D"),
+    ("Sidebar", "Tab"),
+];
+const SETTINGS_SIDEBAR_CONNECTIONS_HINTS: &[(&str, &str)] = SETTINGS_SIDEBAR_AGENTS_HINTS;
 
 fn settings_footer_hints(
     app: &AppState,
-    group_settings: bool,
+    _group_settings: bool,
 ) -> &'static [(&'static str, &'static str)] {
-    if app.settings.section == SettingsSection::Integrations {
-        SETTINGS_INTEGRATIONS_HINTS
-    } else if app.settings.section == SettingsSection::Agents {
-        if settings_agents_editor_open(app) {
-            SETTINGS_AGENTS_EDITOR_HINTS
-        } else {
-            SETTINGS_AGENTS_HINTS
-        }
-    } else if app.settings.section == SettingsSection::Connections {
-        if crate::settings_rows::connection_editor_open(&app.settings) {
-            SETTINGS_CONNECTIONS_EDITOR_HINTS
-        } else {
-            SETTINGS_CONNECTIONS_HINTS
-        }
-    } else if app.settings.section == SettingsSection::GroupProfiles {
-        SETTINGS_GROUP_PROFILES_HINTS
-    } else if group_settings {
-        SETTINGS_GROUP_HINTS
+    settings_footer_hints_for(&app.settings)
+}
+
+fn general_settings_sidebar_visible(settings: &SettingsState) -> bool {
+    settings.group_settings_target.is_none() && settings.workspace_settings_target.is_none()
+}
+
+fn settings_stack_areas_for(
+    settings: &SettingsState,
+    inner: Rect,
+) -> super::widgets::ModalStackAreas {
+    let footer_rows = modal_hint_line_count(inner.width, settings_footer_hints_for(settings), 2);
+    let header_rows = if general_settings_sidebar_visible(settings) {
+        1
     } else {
-        SETTINGS_DEFAULT_HINTS
-    }
+        4
+    };
+    modal_stack_areas(inner, header_rows, footer_rows, 0, 1)
 }
 
 pub(crate) fn settings_stack_areas(app: &AppState, inner: Rect) -> super::widgets::ModalStackAreas {
-    let group_settings = app.settings.group_settings_target.is_some();
-    let footer_rows =
-        modal_hint_line_count(inner.width, settings_footer_hints(app, group_settings), 2);
-    modal_stack_areas(inner, 4, footer_rows, 0, 1)
+    settings_stack_areas_for(&app.settings, inner)
 }
 
 pub(super) fn render_settings_overlay_for_view(
@@ -495,11 +731,11 @@ fn render_settings_overlay_with(
         app.palette.clone()
     };
     let title = if settings.group_settings_target.is_some() {
-        "group settings"
+        "Group Settings"
     } else if settings.workspace_settings_target.is_some() {
-        "space settings"
+        "Space Settings"
     } else {
-        "settings"
+        "Settings"
     };
     super::dim_background(frame, area);
     let Some(frame_areas) = render_modal_frame(
@@ -510,7 +746,11 @@ fn render_settings_overlay_with(
             title,
             width: 92,
             height: 26,
-            header_rows: 4,
+            header_rows: if general_settings_sidebar_visible(settings) {
+                1
+            } else {
+                4
+            },
             footer_hints: settings_footer_hints_for(settings),
             footer_max_rows: 2,
             gap: 1,
@@ -524,23 +764,24 @@ fn render_settings_overlay_with(
     if inner.height < 4 || inner.width < 10 {
         return;
     }
-    let stack = modal_stack_areas(
-        inner,
-        4,
-        modal_hint_line_count(inner.width, settings_footer_hints_for(settings), 2),
-        0,
-        1,
-    );
-    let header_rows = Layout::vertical([
-        Constraint::Length(1),
-        Constraint::Length(1),
-        Constraint::Length(1),
-        Constraint::Length(1),
-    ])
-    .areas::<4>(stack.header);
-    render_settings_tabs_for_view(client_view, frame, header_rows[2], &palette);
-    render_modal_divider(frame, header_rows[3], &palette);
-    render_settings_content_for_view(app, client_view, frame, stack.content, &palette);
+    let stack = settings_stack_areas_for(settings, inner);
+    if general_settings_sidebar_visible(settings) {
+        let sidebar = settings_sidebar_areas(stack.content);
+        render_settings_sidebar(settings, frame, sidebar.navigation, &palette);
+        render_settings_sidebar_divider(frame, sidebar.divider, &palette);
+        render_settings_content_for_view(app, client_view, frame, sidebar.content, &palette);
+    } else {
+        let header_rows = Layout::vertical([
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Length(1),
+        ])
+        .areas::<4>(stack.header);
+        render_settings_tabs_for_view(client_view, frame, header_rows[2], &palette);
+        render_modal_divider(frame, header_rows[3], &palette);
+        render_settings_content_for_view(app, client_view, frame, stack.content, &palette);
+    }
 }
 
 fn settings_agents_editor_open_for(settings: &crate::app::state::SettingsState) -> bool {
@@ -552,6 +793,19 @@ fn settings_agents_editor_open_for(settings: &crate::app::state::SettingsState) 
 fn settings_footer_hints_for(
     settings: &crate::app::state::SettingsState,
 ) -> &'static [(&'static str, &'static str)] {
+    if general_settings_sidebar_visible(settings) {
+        return if settings.section == SettingsSection::Agents
+            && !settings_agents_editor_open_for(settings)
+        {
+            SETTINGS_SIDEBAR_AGENTS_HINTS
+        } else if settings.section == SettingsSection::Connections
+            && !crate::settings_rows::connection_editor_open(settings)
+        {
+            SETTINGS_SIDEBAR_CONNECTIONS_HINTS
+        } else {
+            SETTINGS_SIDEBAR_HINTS
+        };
+    }
     if settings.section == SettingsSection::Integrations {
         SETTINGS_INTEGRATIONS_HINTS
     } else if settings.section == SettingsSection::Agents {
@@ -581,20 +835,20 @@ fn settings_section_title_for(
 ) -> &'static str {
     if section == SettingsSection::Agents && settings_agents_editor_open_for(settings) {
         if settings.pending_agent_profile_id.is_some() {
-            "edit agent profile"
+            "Edit Agent Profile"
         } else {
-            "new agent profile"
+            "New Agent Profile"
         }
     } else if section == SettingsSection::Connections
         && crate::settings_rows::connection_editor_open(settings)
     {
         let editor = settings.connection_editor.as_ref();
         if editor.is_some_and(|editor| editor.is_detail()) {
-            "connection details"
+            "Connection Details"
         } else if editor.is_some_and(|editor| editor.is_editing()) {
-            "edit connection"
+            "Edit Connection"
         } else {
-            "add connection"
+            "Add Connection"
         }
     } else {
         settings_section_title_for_non_editor(section)
@@ -603,19 +857,19 @@ fn settings_section_title_for(
 
 fn settings_section_title_for_non_editor(section: SettingsSection) -> &'static str {
     match section {
-        SettingsSection::Theme => "appearance",
-        SettingsSection::Layout => "layout",
-        SettingsSection::Sound => "notifications",
-        SettingsSection::Toast => "toasts",
-        SettingsSection::PaneLabels => "behavior",
-        SettingsSection::Commands => "commands",
-        SettingsSection::Experiments => "advanced",
-        SettingsSection::Agents => "agents",
-        SettingsSection::Integrations => "agent integrations",
-        SettingsSection::Connections => "connections",
-        SettingsSection::GroupGeneral => "general",
-        SettingsSection::GroupProfiles => "agents",
-        SettingsSection::WorkspaceGeneral => "general",
+        SettingsSection::Theme => "Appearance",
+        SettingsSection::Layout => "Layout",
+        SettingsSection::Sound => "Notifications",
+        SettingsSection::Toast => "Toasts",
+        SettingsSection::PaneLabels => "Behavior",
+        SettingsSection::Commands => "Commands",
+        SettingsSection::Experiments => "Advanced",
+        SettingsSection::Agents => "Agents",
+        SettingsSection::Integrations => "Agent Integrations",
+        SettingsSection::Connections => "Connections",
+        SettingsSection::GroupGeneral => "General",
+        SettingsSection::GroupProfiles => "Agents",
+        SettingsSection::WorkspaceGeneral => "General",
     }
 }
 
@@ -625,39 +879,41 @@ fn settings_section_description_for(
 ) -> &'static str {
     match section {
         SettingsSection::Theme if settings.group_settings_target.is_some() => {
-            "choose a theme accent for this group, or inherit the global accent"
+            "Choose a theme accent for this group, or inherit the global accent"
         }
-        SettingsSection::Theme => "configure theme, sidebar layout, and pane appearance",
-        SettingsSection::Layout => "set sidebar width bounds",
-        SettingsSection::Sound => "choose sound and toast notification behavior",
-        SettingsSection::Toast => "choose where command and agent notifications are delivered",
+        SettingsSection::Theme => "Configure theme, sidebar layout, and pane appearance",
+        SettingsSection::Layout => "Set sidebar width bounds",
+        SettingsSection::Sound => "Choose sound and toast notification behavior",
+        SettingsSection::Toast => "Choose where command and agent notifications are delivered",
         SettingsSection::PaneLabels => {
-            "control workspace prompts and terminal interaction defaults"
+            "Control workspace prompts and terminal interaction defaults"
         }
-        SettingsSection::Commands => "edit launch commands; clear one to disable and hide it",
-        SettingsSection::Experiments => "configure advanced or platform-specific behavior",
+        SettingsSection::Commands => "Edit launch commands; clear one to disable and hide it",
+        SettingsSection::Experiments => "Configure advanced or platform-specific behavior",
         SettingsSection::Agents if settings_agents_editor_open_for(settings) => {
-            "configure the label, agent type, and launch command"
+            "Configure the label, agent type, and launch command"
         }
-        SettingsSection::Agents => "create and manage agent launch profiles",
-        SettingsSection::Integrations => "install hooks so agents report state directly",
+        SettingsSection::Agents => "Create and manage agent launch profiles",
+        SettingsSection::Integrations => "Install hooks so agents report state directly",
         SettingsSection::Connections
             if settings
                 .connection_editor
                 .as_ref()
                 .is_some_and(|editor| editor.is_detail()) =>
         {
-            "connect, test, or open a workspace on this ssh host"
+            "Connect, test, or open a workspace on this SSH host"
         }
         SettingsSection::Connections if crate::settings_rows::connection_editor_open(settings) => {
-            "credentials and host keys stay with openssh; omh never stores them"
+            "Credentials and host keys stay with OpenSSH; Oh My Herdr never stores them"
         }
-        SettingsSection::Connections => "add ssh hosts and manage their connections",
-        SettingsSection::GroupGeneral => "rename this group or delete it",
+        SettingsSection::Connections => "Add SSH hosts and manage their connections",
+        SettingsSection::GroupGeneral => "Rename this group or delete it",
         SettingsSection::GroupProfiles => {
-            "choose favorite and default agent profiles for this group"
+            "Choose favorite and default agent profiles for this group"
         }
-        SettingsSection::WorkspaceGeneral => "set this space's display name and default directory",
+        SettingsSection::WorkspaceGeneral => {
+            "Set this space's display name, execution host, and directory"
+        }
     }
 }
 
@@ -668,7 +924,7 @@ fn render_settings_section_intro_for_view(
     p: &crate::app::state::Palette,
 ) -> Rect {
     let settings = &client_view.settings;
-    let [desc_area, _, list_area] = Layout::vertical([
+    let [desc_area, divider_area, list_area] = Layout::vertical([
         Constraint::Length(2),
         Constraint::Length(1),
         Constraint::Min(2),
@@ -700,7 +956,7 @@ fn render_settings_section_intro_for_view(
         Style::default().fg(p.accent),
     );
     if let Some(back) = back {
-        render_action_button(frame, back, None, "← back", secondary_action_style(p));
+        render_action_button(frame, back, None, "← Back", secondary_action_style(p));
     }
     render_modal_description(
         frame,
@@ -708,6 +964,7 @@ fn render_settings_section_intro_for_view(
         settings_section_description_for(settings, settings.section),
         Style::default().fg(p.overlay0),
     );
+    render_modal_divider(frame, divider_area, p);
     list_area
 }
 
@@ -736,7 +993,7 @@ fn render_settings_content_for_view(
     if app.integration_recommendations.is_empty() && app.ssh_connection_profiles.is_empty() {
         frame.render_widget(
             Paragraph::new(settings_description_line(
-                "no integration targets available",
+                "No integration targets available",
                 list_area.width as usize,
                 Style::default().fg(p.overlay1),
                 false,
@@ -787,7 +1044,7 @@ fn integration_hint_for_selection(
     let has_host_selector = !app.ssh_connection_profiles.is_empty();
     let selected = settings.list.selected;
     if has_host_selector && selected == 0 {
-        return "press enter to change the integration host".to_string();
+        return "Press enter to change the integration host".to_string();
     }
     let entry_index = selected.saturating_sub(usize::from(has_host_selector));
 
@@ -815,10 +1072,10 @@ fn integration_hint_for_selection(
                 )
             }
             Some(crate::integration::host::HostIntegrationObservation::Failed(_)) => {
-                "integration status check failed on the selected host".to_string()
+                "Integration status check failed on the selected host".to_string()
             }
             Some(crate::integration::host::HostIntegrationObservation::Pending) | None => {
-                "waiting for integration status from the selected host".to_string()
+                "Waiting for integration status from the selected host".to_string()
             }
         };
     }
@@ -854,28 +1111,28 @@ fn integration_hint_for_status(
     if let Some((state, available, missing_profile_hooks)) = selected {
         match state {
             crate::integration::IntegrationStatusKind::Current if missing_profile_hooks > 0 => {
-                "press enter to repair profile hooks".to_string()
+                "Press enter to repair profile hooks".to_string()
             }
             crate::integration::IntegrationStatusKind::Current => {
-                "press enter to uninstall selected integration (affects configured profiles)"
+                "Press enter to uninstall selected integration (affects configured profiles)"
                     .to_string()
             }
             crate::integration::IntegrationStatusKind::Outdated => {
-                "press enter to update selected integration".to_string()
+                "Press enter to update selected integration".to_string()
             }
             crate::integration::IntegrationStatusKind::NotInstalled if available => {
-                "press enter to install selected integration".to_string()
+                "Press enter to install selected integration".to_string()
             }
             crate::integration::IntegrationStatusKind::NotInstalled => {
-                "selected integration is unavailable".to_string()
+                "Selected integration is unavailable".to_string()
             }
         }
     } else if needs_install {
-        "press enter to add available or outdated integrations".to_string()
+        "Press enter to add available or outdated integrations".to_string()
     } else if found_any {
-        "all detected integrations are installed".to_string()
+        "All detected integrations are installed".to_string()
     } else {
-        "no supported agent CLIs found on PATH".to_string()
+        "No supported agent CLIs found on PATH".to_string()
     }
 }
 
@@ -953,7 +1210,7 @@ fn render_settings_rows_for_view(
                 };
                 rows.push(ListItem::new(settings_title_value_line(
                     title,
-                    if *enabled { "on" } else { "off" },
+                    if *enabled { "On" } else { "Off" },
                     list_width,
                     style,
                     value_style,
@@ -1148,7 +1405,11 @@ pub(super) fn render_settings_overlay(app: &AppState, frame: &mut Frame, area: R
             title: settings_title(app),
             width: 92,
             height: 26,
-            header_rows: 4,
+            header_rows: if general_settings_sidebar_visible(&app.settings) {
+                1
+            } else {
+                4
+            },
             footer_hints: settings_footer_hints(app, group_settings),
             footer_max_rows: 2,
             gap: 1,
@@ -1164,17 +1425,23 @@ pub(super) fn render_settings_overlay(app: &AppState, frame: &mut Frame, area: R
     }
 
     let stack = settings_stack_areas(app, inner);
-    let header_rows = Layout::vertical([
-        Constraint::Length(1),
-        Constraint::Length(1),
-        Constraint::Length(1),
-        Constraint::Length(1),
-    ])
-    .areas::<4>(stack.header);
-    render_settings_tabs(app, frame, header_rows[2], p);
-    render_modal_divider(frame, header_rows[3], p);
-
-    let content_area = stack.content;
+    let content_area = if general_settings_sidebar_visible(&app.settings) {
+        let sidebar = settings_sidebar_areas(stack.content);
+        render_settings_sidebar(&app.settings, frame, sidebar.navigation, p);
+        render_settings_sidebar_divider(frame, sidebar.divider, p);
+        sidebar.content
+    } else {
+        let header_rows = Layout::vertical([
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Length(1),
+        ])
+        .areas::<4>(stack.header);
+        render_settings_tabs(app, frame, header_rows[2], p);
+        render_modal_divider(frame, header_rows[3], p);
+        stack.content
+    };
 
     match app.settings.section {
         SettingsSection::Theme
@@ -1232,7 +1499,7 @@ fn render_settings_integrations(
     if app.integration_recommendations.is_empty() && app.ssh_connection_profiles.is_empty() {
         frame.render_widget(
             Paragraph::new(settings_description_line(
-                "no integration targets available",
+                "No integration targets available",
                 list_area.width as usize,
                 Style::default().fg(p.overlay1),
                 false,
@@ -1276,21 +1543,21 @@ fn render_settings_integration_feedback(
     let (label, accent, text_style, text) =
         if let Some(warning) = first.strip_prefix(crate::integration::INSTALL_WARNING_PREFIX) {
             (
-                " warning ",
+                " Warning ",
                 p.yellow,
                 Style::default().fg(p.text),
                 warning.trim_start().to_string(),
             )
         } else if first.contains(": ") {
             (
-                " error ",
+                " Error ",
                 p.red,
                 Style::default().fg(p.text),
                 first.to_string(),
             )
         } else {
             (
-                " hint ",
+                " Hint ",
                 p.green,
                 Style::default().fg(p.subtext0),
                 first.to_string(),
@@ -1310,7 +1577,7 @@ fn render_settings_integration_feedback(
     ];
     if messages.len() > 1 {
         spans.push(Span::styled(
-            format!(" · {} more", messages.len() - 1),
+            format!(" · {} More", messages.len() - 1),
             Style::default().fg(p.overlay1),
         ));
     }
@@ -1547,7 +1814,7 @@ fn render_settings_rows(
                 if selected {
                     selected_row = Some(rows.len());
                 }
-                let value = if *enabled { "on" } else { "off" };
+                let value = if *enabled { "On" } else { "Off" };
                 let label_style = if selected {
                     selected_style
                 } else {
@@ -1850,11 +2117,11 @@ mod tests {
             .expect("render group settings overlay");
 
         let text = buffer_text(terminal.backend().buffer(), 80, 24);
-        assert!(text.contains("group settings"));
-        assert!(text.contains("appearance"));
-        assert!(text.contains("general"));
-        assert!(text.contains("accent"));
-        assert!(!text.contains("sound"));
+        assert!(text.contains("Group Settings"));
+        assert!(text.contains("Appearance"));
+        assert!(text.contains("General"));
+        assert!(text.contains("Accent"));
+        assert!(!text.contains("Sound"));
     }
 
     #[test]
@@ -1877,11 +2144,11 @@ mod tests {
         let buffer = terminal.backend().buffer();
         let text = buffer_text(buffer, area.width, area.height);
         let (header_y, header_x) =
-            find_text_cell(&text, "project commands").expect("project commands header");
-        let (git_y, git_x) = find_text_cell(&text, "git ·").expect("git command field");
-        let (diff_y, diff_x) = find_text_cell(&text, "diff ·").expect("diff command field");
-        let (ide_y, ide_x) = find_text_cell(&text, "ide ·").expect("ide command field");
-        let (github_y, github_x) = find_text_cell(&text, "github ·").expect("github command field");
+            find_text_cell(&text, "Project Commands").expect("project commands header");
+        let (git_y, git_x) = find_text_cell(&text, "Git ·").expect("git command field");
+        let (diff_y, diff_x) = find_text_cell(&text, "Diff ·").expect("diff command field");
+        let (ide_y, ide_x) = find_text_cell(&text, "IDE ·").expect("ide command field");
+        let (github_y, github_x) = find_text_cell(&text, "GitHub ·").expect("github command field");
 
         assert!(git_y < diff_y && diff_y < ide_y && ide_y < github_y);
         assert_eq!(git_x, header_x + 1);
@@ -1907,7 +2174,7 @@ mod tests {
         assert!(text.contains("hunk diff --watch"));
         assert!(text.contains("fresh ."));
         assert!(text.contains("ghui"));
-        assert!(!text.contains("suggested commands"));
+        assert!(!text.contains("Suggested Commands"));
     }
 
     #[test]
@@ -1944,8 +2211,8 @@ mod tests {
             .expect("render Commands settings overlay");
 
         let text = buffer_text(terminal.backend().buffer(), area.width, area.height);
-        assert!(text.contains("diff · review UI · selected repository root · disabled"));
-        assert!(text.contains("clear one to disable and hide it"));
+        assert!(text.contains("Diff · Review UI · Selected Repository Root · Disabled"));
+        assert!(text.contains("Edit launch commands; clear one to disable and hide it"));
     }
 
     #[test]
@@ -1962,11 +2229,13 @@ mod tests {
             .expect("render group settings overlay");
 
         let text = buffer_text(terminal.backend().buffer(), 80, 24);
-        assert!(text.contains("name"));
+        assert!(text.contains("Name"));
         assert!(text.contains("Work"));
-        assert!(text.contains("default directory for new spaces"));
-        assert!(text.contains("danger zone"));
-        assert!(text.contains("× delete group"));
+        assert!(text.contains("Default Location for New Spaces"));
+        assert!(text.contains("‹ Local ›"));
+        assert!(text.contains("Directory"));
+        assert!(text.contains("Danger Zone"));
+        assert!(text.contains("× Delete Group"));
         assert!(!text.contains("●"));
         assert!(!text.contains("○"));
         assert!(!text.contains("Work█"));
@@ -1998,7 +2267,7 @@ mod tests {
 
         let buffer = terminal.backend().buffer();
         let text = buffer_text(buffer, 80, 24);
-        let (label_y, label_x) = find_text_cell(&text, "name").expect("name label");
+        let (label_y, label_x) = find_text_cell(&text, "Name").expect("name label");
         let (input_y, input_x) = find_text_cell(&text, "Work█").expect("focused name input");
         assert_ne!(
             buffer[(label_x, label_y)].style().bg,
@@ -2025,12 +2294,12 @@ mod tests {
 
         let buffer = terminal.backend().buffer();
         let text = buffer_text(buffer, 80, 24);
-        let (y, x) = find_text_cell(&text, "× delete group").expect("delete action row");
+        let (y, x) = find_text_cell(&text, "× Delete Group").expect("delete action row");
         assert_eq!(buffer[(x, y)].style().fg, Some(app.palette.red));
         assert_eq!(buffer[(x + 2, y)].style().fg, Some(app.palette.red));
         assert_ne!(buffer[(x, y)].style().bg, Some(app.palette.red));
 
-        app.settings.list.selected = 2;
+        app.settings.list.selected = 3;
         app.settings.list.show();
         terminal
             .draw(|frame| render_settings_overlay(&app, frame, Rect::new(0, 0, 80, 24)))
@@ -2038,7 +2307,7 @@ mod tests {
 
         let buffer = terminal.backend().buffer();
         let text = buffer_text(buffer, 80, 24);
-        let (y, x) = find_text_cell(&text, "× delete group").expect("delete action row");
+        let (y, x) = find_text_cell(&text, "× Delete Group").expect("delete action row");
         assert_eq!(buffer[(x, y)].style().bg, Some(app.palette.red));
         assert_eq!(buffer[(x + 2, y)].style().bg, Some(app.palette.red));
         assert_eq!(
@@ -2050,7 +2319,7 @@ mod tests {
     #[test]
     fn workspace_settings_overlay_uses_workspace_group_accent() {
         let mut app = AppState::test_new();
-        app.workspaces = vec![crate::workspace::Workspace::test_new("space")];
+        app.workspaces = vec![crate::workspace::Workspace::test_new("Space")];
         let group_idx = app.create_group("Work".to_string());
         app.move_workspace_to_group(0, group_idx);
         app.set_group_accent(group_idx, Some(TerminalAccent::Red));
@@ -2090,7 +2359,7 @@ mod tests {
     #[test]
     fn workspace_general_settings_separates_fields_with_blank_line() {
         let mut app = AppState::test_new();
-        app.workspaces = vec![crate::workspace::Workspace::test_new("space")];
+        app.workspaces = vec![crate::workspace::Workspace::test_new("Space")];
         app.settings.workspace_settings_target = Some(0);
         app.settings.section = SettingsSection::WorkspaceGeneral;
 
@@ -2102,9 +2371,34 @@ mod tests {
             SettingsListRow::TextInput { index: 0, .. }
         ));
         assert!(matches!(rows[1], SettingsListRow::Spacer));
+        assert!(matches!(rows[2], SettingsListRow::Status { index: 1, .. }));
+        assert!(matches!(rows[3], SettingsListRow::Spacer));
         assert!(matches!(
-            rows[2],
-            SettingsListRow::TextInput { index: 1, .. }
+            rows[4],
+            SettingsListRow::TextInput { index: 2, .. }
+        ));
+    }
+
+    #[test]
+    fn group_general_settings_separates_location_controls_with_blank_lines() {
+        let mut app = AppState::test_new();
+        let group_idx = app.create_group("Work".to_string());
+        app.settings.group_settings_target = Some(group_idx);
+        app.settings.section = SettingsSection::GroupGeneral;
+
+        let rows =
+            rows_for_section(&app, SettingsSection::GroupGeneral).expect("group general rows");
+
+        assert!(matches!(
+            rows[0],
+            SettingsListRow::TextInput { index: 0, .. }
+        ));
+        assert!(matches!(rows[1], SettingsListRow::Spacer));
+        assert!(matches!(rows[2], SettingsListRow::Status { index: 1, .. }));
+        assert!(matches!(rows[3], SettingsListRow::Spacer));
+        assert!(matches!(
+            rows[4],
+            SettingsListRow::TextInput { index: 2, .. }
         ));
     }
 
@@ -2123,12 +2417,12 @@ mod tests {
             .expect("render theme settings");
 
         let text = buffer_text(terminal.backend().buffer(), 100, 50);
-        assert!(text.contains("catppuccin latte"));
-        assert!(text.contains("solarized"));
-        assert!(!text.contains("dracula"));
-        assert!(!text.contains("nord"));
-        assert!(!text.contains("vesper"));
-        assert_no_option_line(&text, "terminal");
+        assert!(text.contains("Catppuccin Latte"));
+        assert!(text.contains("Solarized"));
+        assert!(!text.contains("Dracula"));
+        assert!(!text.contains("Nord"));
+        assert!(!text.contains("Vesper"));
+        assert_no_option_line(&text, "Terminal");
     }
 
     #[test]
@@ -2146,10 +2440,10 @@ mod tests {
             .expect("render theme settings");
 
         let text = buffer_text(terminal.backend().buffer(), 100, 50);
-        assert!(text.contains("catppuccin"));
-        assert!(text.contains("dracula"));
-        assert!(!text.contains("catppuccin latte"));
-        assert_no_option_line(&text, "terminal");
+        assert!(text.contains("Catppuccin Mocha"));
+        assert!(text.contains("Dracula"));
+        assert!(!text.contains("Catppuccin Latte"));
+        assert_no_option_line(&text, "Terminal");
     }
 
     #[test]
@@ -2158,8 +2452,8 @@ mod tests {
         app.global_theme_mode = ThemeMode::System;
         app.settings.section = SettingsSection::Theme;
         app.settings.pending_theme_mode = Some(ThemeMode::System);
-        app.settings.pending_light_theme_name = Some("system".to_string());
-        app.settings.pending_dark_theme_name = Some("system".to_string());
+        app.settings.pending_light_theme_name = Some("System".to_string());
+        app.settings.pending_dark_theme_name = Some("System".to_string());
 
         let backend = TestBackend::new(100, 50);
         let mut terminal = Terminal::new(backend).expect("test backend");
@@ -2168,14 +2462,14 @@ mod tests {
             .expect("render theme settings");
 
         let text = buffer_text(terminal.backend().buffer(), 100, 50);
-        assert!(text.contains("✓ terminal"));
-        assert!(text.contains("palettes"));
-        assert!(text.contains("accent"));
-        assert!(text.contains("✓ blue"));
-        assert!(text.contains("magenta"));
-        assert!(text.contains("colors"));
-        assert!(!text.contains("light appearance"));
-        assert!(!text.contains("dark appearance"));
+        assert!(text.contains("✓ Terminal"));
+        assert!(text.contains("Palettes"));
+        assert!(text.contains("Accent"));
+        assert!(text.contains("✓ Blue"));
+        assert!(text.contains("Magenta"));
+        assert!(text.contains("Colors"));
+        assert!(!text.contains("Light Appearance"));
+        assert!(!text.contains("Dark Appearance"));
     }
 
     #[test]
@@ -2194,15 +2488,15 @@ mod tests {
             .expect("render theme settings");
 
         let text = buffer_text(terminal.backend().buffer(), 100, 50);
-        assert!(text.contains("terminal"));
-        assert!(text.contains("✓ palettes"));
-        assert!(text.contains("appearance"));
-        assert!(text.contains("✓ automatic"));
-        assert!(!text.contains("system terminal"));
+        assert!(text.contains("Terminal"));
+        assert!(text.contains("✓ Palettes"));
+        assert!(text.contains("Appearance"));
+        assert!(text.contains("✓ Automatic"));
+        assert!(!text.contains("System Terminal"));
         assert!(!text.contains(" mode"));
-        assert!(text.contains("light appearance"));
-        assert!(text.contains("solarized"));
-        assert_no_option_line(&text, "terminal");
+        assert!(text.contains("Light Appearance"));
+        assert!(text.contains("Solarized"));
+        assert_no_option_line(&text, "Terminal");
 
         app.settings.list.selected = theme_names_for_appearance(ThemeAppearance::Light).len();
         app.settings.list.show();
@@ -2212,8 +2506,8 @@ mod tests {
             .expect("render theme settings");
 
         let text = buffer_text(terminal.backend().buffer(), 100, 50);
-        assert!(text.contains("dark appearance"));
-        assert!(text.contains("rose pine"));
+        assert!(text.contains("Dark Appearance"));
+        assert!(text.contains("Rosé Pine"));
     }
 
     #[test]
@@ -2235,8 +2529,8 @@ mod tests {
             .expect("render theme settings");
 
         let text = buffer_text(terminal.backend().buffer(), 100, 50);
-        assert!(text.contains("dark appearance"));
-        assert!(text.contains("rose pine"));
+        assert!(text.contains("Dark Appearance"));
+        assert!(text.contains("Rosé Pine"));
     }
 
     #[test]
@@ -2257,10 +2551,10 @@ mod tests {
             .expect("render theme settings");
 
         let text = buffer_text(terminal.backend().buffer(), 100, 50);
-        assert!(!text.contains("✓ automatic"));
-        assert!(text.contains("✓ light"));
-        assert!(!text.contains("✓ catppuccin latte"));
-        assert!(text.contains("✓ solarized"));
+        assert!(!text.contains("✓ Automatic"));
+        assert!(text.contains("✓ Light"));
+        assert!(!text.contains("✓ Catppuccin Latte"));
+        assert!(text.contains("✓ Solarized"));
     }
 
     #[test]
@@ -2282,7 +2576,7 @@ mod tests {
         let buffer = terminal.backend().buffer();
         let text = buffer_text(buffer, area.width, area.height);
         let (selected_y, selected_x) =
-            find_text_cell(&text, "✓ light").expect("selected light row");
+            find_text_cell(&text, "✓ Light").expect("selected light row");
         let selected_row_end = area.x + area.width.saturating_sub(1);
         assert_eq!(
             buffer[(selected_x, selected_y)].style().bg,
@@ -2315,14 +2609,14 @@ mod tests {
         let text = buffer_text(terminal.backend().buffer(), area.width, area.height);
         let dark_heading_y = text
             .lines()
-            .position(|line| line.contains("dark accent"))
+            .position(|line| line.contains("Dark Accent"))
             .expect("dark accent heading") as u16;
         let dark_blue_y = text
             .lines()
             .enumerate()
             .skip(dark_heading_y as usize + 1)
-            .find_map(|(y, line)| line.contains("blue").then_some(y as u16))
-            .expect("dark blue option");
+            .find_map(|(y, line)| line.contains("Blue").then_some(y as u16))
+            .expect("dark Blue option");
         let selected_row_end = area.x + area.width.saturating_sub(2);
 
         assert_ne!(
@@ -2357,10 +2651,10 @@ mod tests {
 
         let buffer = terminal.backend().buffer();
         let text = buffer_text(buffer, area.width, area.height);
-        let (y, x) = find_text_cell(&text, "✓ light").expect("selected light row");
+        let (y, x) = find_text_cell(&text, "✓ Light").expect("selected light row");
         assert_eq!(buffer[(x, y)].symbol(), "✓");
         assert_eq!(buffer[(x.saturating_add(1), y)].symbol(), " ");
-        assert_eq!(buffer[(x.saturating_add(2), y)].symbol(), "l");
+        assert_eq!(buffer[(x.saturating_add(2), y)].symbol(), "L");
     }
 
     #[test]
@@ -2376,9 +2670,9 @@ mod tests {
             .expect("render settings overlay");
 
         let text = buffer_text(terminal.backend().buffer(), area.width, area.height);
-        assert!(text.contains("agents"));
-        assert!(text.contains("new agent profile"));
-        assert!(text.contains("saved profiles"));
+        assert!(text.contains("Agents"));
+        assert!(text.contains("New Agent Profile"));
+        assert!(text.contains("Saved Profiles"));
         assert!(!text.contains("show shift+←→"));
     }
 
@@ -2435,9 +2729,9 @@ mod tests {
             text.contains("Remove the saved connection anyway?"),
             "{text}"
         );
-        assert!(text.contains("remove saved connection"), "{text}");
-        assert!(text.contains("try again"), "{text}");
-        assert!(text.contains("cancel"), "{text}");
+        assert!(text.contains("Remove Saved Connection"), "{text}");
+        assert!(text.contains("Try Again"), "{text}");
+        assert!(text.contains("Cancel"), "{text}");
         assert!(!text.contains("remote host unavailable"), "{text}");
         assert!(!text.contains("inventory"), "{text}");
         assert!(!text.contains("local-only forget"), "{text}");
@@ -2491,11 +2785,11 @@ mod tests {
         let second_frame = buffer_text(terminal.backend().buffer(), area.width, area.height);
 
         assert!(
-            first_frame.contains("⠋ checking removal impact..."),
+            first_frame.contains("⠋ Checking Removal Impact..."),
             "{first_frame}"
         );
         assert!(
-            second_frame.contains("⠙ checking removal impact..."),
+            second_frame.contains("⠙ Checking Removal Impact..."),
             "{second_frame}"
         );
     }
@@ -2516,9 +2810,9 @@ mod tests {
             .expect("render group profile settings");
 
         let text = buffer_text(terminal.backend().buffer(), area.width, area.height);
-        assert!(text.contains("group settings"));
-        assert!(text.contains("favorites"));
-        assert!(text.contains("available"));
+        assert!(text.contains("Group Settings"));
+        assert!(text.contains("Favorites"));
+        assert!(text.contains("Available"));
         assert!(!text.contains("show shift+←→"));
     }
     #[test]
@@ -2545,12 +2839,12 @@ mod tests {
             .expect("render settings overlay");
 
         let text = buffer_text(terminal.backend().buffer(), area.width, area.height);
-        assert!(text.contains("← back"));
-        assert!(text.contains("new agent profile"));
-        assert!(text.contains("label shown in menus"));
-        assert!(text.contains("agent type"));
-        assert!(text.contains("choose an installed integration"));
-        assert!(text.contains("shell command to run"));
+        assert!(text.contains("← Back"));
+        assert!(text.contains("New Agent Profile"));
+        assert!(text.contains("Label shown in menus"));
+        assert!(text.contains("Agent Type"));
+        assert!(text.contains("Choose an installed integration"));
+        assert!(text.contains("Shell command to run"));
         assert!(!text.contains("1. name"));
         assert!(!text.contains("4. actions"));
         app.settings.scroll = 2;
@@ -2558,8 +2852,8 @@ mod tests {
             .draw(|frame| render_settings_overlay(&app, frame, area))
             .expect("render scrolled settings overlay");
         let text = buffer_text(terminal.backend().buffer(), area.width, area.height);
-        assert!(text.contains("create profile"));
-        assert!(text.contains("cancel"));
+        assert!(text.contains("Create Profile"));
+        assert!(text.contains("Cancel"));
     }
 
     #[test]
@@ -2600,8 +2894,8 @@ mod tests {
         let buffer = terminal.backend().buffer();
         let text = buffer_text(buffer, area.width, area.height);
         let (selected_y, selected_x) =
-            find_text_cell(&text, "✓ codex").expect("selected codex kind");
-        let (_, claude_x) = find_text_cell(&text, "  claude").expect("unselected claude kind");
+            find_text_cell(&text, "✓ Codex").expect("selected Codex kind");
+        let (_, claude_x) = find_text_cell(&text, "  Claude").expect("unselected Claude kind");
         assert_eq!(selected_x, claude_x);
         assert_eq!(buffer[(selected_x, selected_y)].symbol(), "✓");
         assert_eq!(
@@ -2627,21 +2921,21 @@ mod tests {
         let lines: Vec<&str> = text.lines().collect();
         let header_row = lines
             .iter()
-            .position(|line| line.contains("notification popups"))
+            .position(|line| line.contains("Notification Popups"))
             .expect("notification header row");
         let delivery_row = lines
             .iter()
-            .position(|line| line.contains("toast delivery") && line.contains("off"))
+            .position(|line| line.contains("Toast Delivery") && line.contains("Off"))
             .expect("toast delivery row");
         let description_row = lines
             .iter()
-            .position(|line| line.contains("where notification popups should appear"))
+            .position(|line| line.contains("Where notification popups should appear"))
             .expect("toast delivery description row");
 
         assert_eq!(delivery_row, header_row + 1);
         assert_eq!(description_row, delivery_row + 1);
-        assert!(!text.contains("inside Oh My Herdr"));
-        assert!(!text.contains("via terminal"));
+        assert!(!text.contains("Inside Oh My Herdr"));
+        assert!(!text.contains("Via Terminal"));
     }
 
     #[test]
@@ -2657,8 +2951,8 @@ mod tests {
             .expect("render settings overlay");
 
         let text = buffer_text(terminal.backend().buffer(), area.width, area.height);
-        assert_eq!(text.matches("esc close").count(), 1);
-        assert!(!text.contains("esc cancel"));
+        assert_eq!(text.matches("Esc Close").count(), 1);
+        assert!(!text.contains("Esc Cancel"));
     }
 
     #[test]
@@ -2723,17 +3017,17 @@ mod tests {
         let tab_text = (row.x..row.x + row.width)
             .map(|x| terminal.backend().buffer()[(x, row.y)].symbol())
             .collect::<String>();
-        assert!(tab_text.contains("commands"));
-        assert!(tab_text.contains("agents"));
-        assert!(!tab_text.contains("behavior"));
-        assert!(!tab_text.contains("notifications"));
-        assert!(!tab_text.contains("toasts"));
-        assert!(!tab_text.contains("advanced"));
-        assert!(!tab_text.contains("integrations"));
+        assert!(tab_text.contains("Commands"));
+        assert!(tab_text.contains("Agents"));
+        assert!(!tab_text.contains("Behavior"));
+        assert!(!tab_text.contains("Notifications"));
+        assert!(!tab_text.contains("Toasts"));
+        assert!(!tab_text.contains("Advanced"));
+        assert!(!tab_text.contains("Integrations"));
     }
 
     #[test]
-    fn settings_tabs_fit_modal_width() {
+    fn settings_sidebar_lists_categories_and_active_subsections() {
         let mut app = AppState::test_new();
         app.settings.section = SettingsSection::Theme;
 
@@ -2745,17 +3039,16 @@ mod tests {
             .expect("render settings overlay");
 
         let text = buffer_text(terminal.backend().buffer(), area.width, area.height);
-        let tab_line = text
-            .lines()
-            .find(|line| line.contains("appearance") && line.contains("notifications"))
-            .expect("tab line");
-        // Eight top-level tabs overflow the 92-col modal; first page ends at connections.
-        assert!(tab_line.contains("connections"));
-        assert!(!tab_line.contains("advanced"));
+        assert!(text.contains("▾ Appearance"), "{text}");
+        assert!(text.contains("* Colors"), "{text}");
+        assert!(text.contains("Themes"), "{text}");
+        assert!(text.contains("Sidebar"), "{text}");
+        assert!(text.contains("Panes"), "{text}");
+        assert!(text.contains("▸ Notifications"), "{text}");
+        assert!(text.contains("▸ Advanced"), "{text}");
     }
-
     #[test]
-    fn settings_header_keeps_blank_row_between_title_and_tabs() {
+    fn settings_sidebar_separates_content_header_from_options() {
         let mut app = AppState::test_new();
         app.settings.section = SettingsSection::Theme;
 
@@ -2767,17 +3060,21 @@ mod tests {
             .expect("render settings overlay");
 
         let text = buffer_text(terminal.backend().buffer(), area.width, area.height);
-        let lines: Vec<&str> = text.lines().collect();
-        let title_row = lines
-            .iter()
-            .position(|line| line.contains("settings") && line.contains("esc close"))
-            .expect("settings title row");
-        let tab_row = lines
-            .iter()
-            .position(|line| line.contains("appearance") && line.contains("notifications"))
-            .expect("settings tab row");
-
-        assert_eq!(tab_row, title_row + 2);
+        let (_, navigation_x) = find_text_cell(&text, "SETTINGS").expect("sidebar heading");
+        let (description_y, description_x) = find_text_cell(
+            &text,
+            "Configure theme, sidebar layout, and pane appearance",
+        )
+        .expect("settings description");
+        assert!(text.contains("Appearance"), "{text}");
+        assert!(
+            description_x > navigation_x + SETTINGS_SIDEBAR_WIDTH,
+            "{text}"
+        );
+        assert_eq!(
+            terminal.backend().buffer()[(description_x, description_y + 1)].symbol(),
+            "─"
+        );
     }
 
     #[test]
@@ -2785,43 +3082,43 @@ mod tests {
         let expected = [
             (
                 SettingsSection::Theme,
-                "appearance",
-                "configure theme, sidebar layout, and pane appearance",
+                "Appearance",
+                "Configure theme, sidebar layout, and pane appearance",
             ),
             (
                 SettingsSection::Sound,
-                "notifications",
-                "choose sound and toast notification behavior",
+                "Notifications",
+                "Choose sound and toast notification behavior",
             ),
             (
                 SettingsSection::PaneLabels,
-                "behavior",
-                "control workspace prompts and terminal interaction defaults",
+                "Behavior",
+                "Control workspace prompts and terminal interaction defaults",
             ),
             (
                 SettingsSection::Commands,
-                "commands",
-                "edit launch commands; clear one to disable and hide it",
+                "Commands",
+                "Edit launch commands; clear one to disable and hide it",
             ),
             (
                 SettingsSection::Agents,
-                "agents",
-                "create and manage agent launch profiles",
+                "Agents",
+                "Create and manage agent launch profiles",
             ),
             (
                 SettingsSection::Integrations,
-                "agent integrations",
-                "install hooks so agents report state directly",
+                "Agent Integrations",
+                "Install hooks so agents report state directly",
             ),
             (
                 SettingsSection::Connections,
-                "connections",
-                "add ssh hosts and manage their connections",
+                "Connections",
+                "Add SSH hosts and manage their connections",
             ),
             (
                 SettingsSection::Experiments,
-                "advanced",
-                "configure advanced or platform-specific behavior",
+                "Advanced",
+                "Configure advanced or platform-specific behavior",
             ),
         ];
 
@@ -2847,6 +3144,45 @@ mod tests {
                 text.contains(description),
                 "missing description for {section:?}"
             );
+            let (description_y, description_x) =
+                find_text_cell(&text, description).expect("settings description");
+            assert_eq!(
+                terminal.backend().buffer()[(description_x, description_y + 1)].symbol(),
+                "─",
+                "missing header divider for {section:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn scoped_settings_screens_separate_headers_from_options() {
+        let area = Rect::new(0, 0, 100, 30);
+        let mut app = AppState::test_new();
+        let group_idx = app.create_group("Work".to_string());
+        app.settings.group_settings_target = Some(group_idx);
+        app.settings.section = SettingsSection::GroupGeneral;
+
+        for description in [
+            "Rename this group or delete it",
+            "Set this space's display name, execution host, and directory",
+        ] {
+            let backend = TestBackend::new(area.width, area.height);
+            let mut terminal = Terminal::new(backend).expect("test backend");
+            terminal
+                .draw(|frame| render_settings_overlay(&app, frame, area))
+                .expect("render scoped settings overlay");
+            let text = buffer_text(terminal.backend().buffer(), area.width, area.height);
+            let (description_y, description_x) =
+                find_text_cell(&text, description).expect("scoped settings description");
+            assert_eq!(
+                terminal.backend().buffer()[(description_x, description_y + 1)].symbol(),
+                "─"
+            );
+
+            app.settings.group_settings_target = None;
+            app.workspaces = vec![crate::workspace::Workspace::test_new("Space")];
+            app.settings.workspace_settings_target = Some(0);
+            app.settings.section = SettingsSection::WorkspaceGeneral;
         }
     }
 
@@ -2866,14 +3202,14 @@ mod tests {
             .expect("render settings overlay");
 
         let text = buffer_text(terminal.backend().buffer(), area.width, area.height);
-        assert!(text.contains("sidebar"));
-        assert!(text.contains("sidebar arrangement"));
-        assert!(text.contains("auto"));
-        assert!(text.contains("default sidebar width"));
+        assert!(text.contains("Sidebar"));
+        assert!(text.contains("Sidebar Arrangement"));
+        assert!(text.contains("Auto"));
+        assert!(text.contains("Default Sidebar Width"));
         assert!(text.contains("26 cols"));
-        assert!(text.contains("minimum sidebar width"));
+        assert!(text.contains("Minimum Sidebar Width"));
         assert!(text.contains("18 cols"));
-        assert!(text.contains("maximum sidebar width"));
+        assert!(text.contains("Maximum Sidebar Width"));
         assert!(text.contains("36 cols"));
     }
 
@@ -2890,12 +3226,12 @@ mod tests {
             .expect("render settings overlay");
 
         let text = buffer_text(terminal.backend().buffer(), area.width, area.height);
-        assert!(text.contains("general"));
-        assert!(text.contains("terminal"));
-        assert!(text.contains("show counters"));
-        assert!(text.contains("new terminal cwd"));
-        assert!(text.contains("mouse wheel speed"));
-        assert!(!text.contains("pane border agent info"));
+        assert!(text.contains("General"));
+        assert!(text.contains("Terminal"));
+        assert!(text.contains("Show Counters"));
+        assert!(text.contains("New Terminal CWD"));
+        assert!(text.contains("Mouse Wheel Speed"));
+        assert!(!text.contains("Pane Border Agent Info"));
     }
     #[test]
     fn sectioned_settings_selected_text_uses_selected_foreground() {
@@ -2916,7 +3252,7 @@ mod tests {
             .lines()
             .enumerate()
             .find_map(|(y, line)| {
-                line.find("default sidebar width")
+                line.find("Default Sidebar Width")
                     .map(|x| (y as u16, x as u16))
             })
             .expect("selected layout row");
@@ -2945,7 +3281,7 @@ mod tests {
 
         let text = buffer_text(terminal.backend().buffer(), area.width, area.height);
         let (row, col) =
-            find_text_cell(&text, "default sidebar width").expect("layout setting row");
+            find_text_cell(&text, "Default Sidebar Width").expect("layout setting row");
 
         assert_ne!(
             terminal.backend().buffer()[(col, row)].style().fg,
@@ -2973,7 +3309,7 @@ mod tests {
 
         let text = buffer_text(terminal.backend().buffer(), area.width, area.height);
         let (selected_y, selected_x) =
-            find_text_cell(&text, "default sidebar width").expect("selected layout row");
+            find_text_cell(&text, "Default Sidebar Width").expect("selected layout row");
 
         assert_eq!(
             terminal.backend().buffer()[(selected_x, selected_y)]
@@ -3001,12 +3337,12 @@ mod tests {
 
         let text = buffer_text(terminal.backend().buffer(), area.width, area.height);
         let (selected_y, selected_x) =
-            find_text_cell(&text, "switch to ascii input source in prefix (macOS)")
+            find_text_cell(&text, "Switch to ASCII Input Source in Prefix (macOS)")
                 .expect("selected experiment row");
 
         assert_eq!(
             terminal.backend().buffer()[(selected_x, selected_y)].symbol(),
-            "s"
+            "S"
         );
         assert_eq!(
             terminal.backend().buffer()[(selected_x, selected_y)]
@@ -3028,7 +3364,7 @@ mod tests {
             path: std::path::PathBuf::from("/tmp/omh-test-codex"),
             state: crate::integration::IntegrationStatusKind::Current,
         }];
-        let restart_guidance = "restart running codex panes to use the updated hook";
+        let restart_guidance = "Restart running Codex panes to use the updated hook";
         app.integration_install_messages =
             vec![restart_guidance.to_string(), "installed codex".to_string()];
 
@@ -3046,9 +3382,9 @@ mod tests {
             "post-install feedback should not render the old install log:\n{text}"
         );
         assert_eq!(text.matches(restart_guidance).count(), 1, "{text}");
-        assert!(text.contains("move ↑↓"), "{text}");
-        assert!(text.contains("action space/↵"), "{text}");
-        assert!(text.contains("section ←→/tab"), "{text}");
+        assert!(text.contains("Move ↑↓"), "{text}");
+        assert!(text.contains("Action Space/↵"), "{text}");
+        assert!(text.contains("Sidebar Tab"), "{text}");
 
         let (hint_y, _) = find_text_cell(&text, restart_guidance).expect("restart hint");
         let hint_line = text.lines().nth(hint_y as usize).expect("restart hint row");
@@ -3056,22 +3392,26 @@ mod tests {
             hint_line.contains(restart_guidance) && !hint_line.contains("installed codex"),
             "restart guidance should be a single hint row, got {hint_line:?}"
         );
-        let (label_y, label_x) = find_text_cell(&text, " hint ").expect("hint label");
+        let (label_y, label_x) = find_text_cell(&text, " Hint ").expect("hint label");
         assert_eq!(label_y, hint_y);
         assert!(
             hint_y > 0,
             "restart hint should have a blank spacer row above it:\n{text}"
         );
-        let spacer_line = text
-            .lines()
-            .nth(hint_y as usize - 1)
-            .expect("blank row above restart hint");
-        let spacer_visible = spacer_line.trim().trim_matches('│').trim();
-        assert!(
-            spacer_visible.is_empty(),
-            "restart hint should be visually separated from the integration list by a blank row, got {spacer_line:?}"
+        let popup = crate::ui::widgets::centered_popup_rect(area, 92, 26).expect("popup");
+        let inner = Rect::new(
+            popup.x + 1,
+            popup.y + 1,
+            popup.width.saturating_sub(2),
+            popup.height.saturating_sub(2),
         );
-        let footer_y = find_text_cell(&text, "move ↑↓").expect("footer controls").0;
+        let content = settings_sidebar_areas(settings_stack_areas(&app, inner).content).content;
+        assert!(
+            (content.x..content.x + content.width)
+                .all(|x| { buffer[(x, hint_y - 1)].symbol().trim().is_empty() }),
+            "restart hint should be visually separated from the integration list"
+        );
+        let footer_y = find_text_cell(&text, "Move ↑↓").expect("footer controls").0;
         assert!(
             hint_y < footer_y,
             "restart hint should remain above footer controls:\n{text}"
@@ -3128,27 +3468,32 @@ mod tests {
             .expect("render settings overlay");
 
         let text = buffer_text(terminal.backend().buffer(), area.width, area.height);
-        let unavailable_hint = "selected integration is unavailable";
+        let unavailable_hint = "Selected integration is unavailable";
         assert_eq!(text.matches(unavailable_hint).count(), 1, "{text}");
-        assert!(text.contains("move ↑↓"), "{text}");
-        assert!(text.contains("action space/↵"), "{text}");
-        assert!(text.contains("section ←→/tab"), "{text}");
+        assert!(text.contains("Move ↑↓"), "{text}");
+        assert!(text.contains("Action Space/↵"), "{text}");
+        assert!(text.contains("Sidebar Tab"), "{text}");
 
         let (hint_y, _) = find_text_cell(&text, unavailable_hint).expect("unavailable hint");
         assert!(
             hint_y > 0,
             "unavailable hint should have a blank spacer row above it:\n{text}"
         );
-        let spacer_line = text
-            .lines()
-            .nth(hint_y as usize - 1)
-            .expect("blank row above unavailable hint");
-        let spacer_visible = spacer_line.trim().trim_matches('│').trim();
-        assert!(
-            spacer_visible.is_empty(),
-            "unavailable hint should be visually separated from the integration list by a blank row, got {spacer_line:?}"
+        let buffer = terminal.backend().buffer();
+        let popup = crate::ui::widgets::centered_popup_rect(area, 92, 26).expect("popup");
+        let inner = Rect::new(
+            popup.x + 1,
+            popup.y + 1,
+            popup.width.saturating_sub(2),
+            popup.height.saturating_sub(2),
         );
-        let footer_y = find_text_cell(&text, "move ↑↓").expect("footer controls").0;
+        let content = settings_sidebar_areas(settings_stack_areas(&app, inner).content).content;
+        assert!(
+            (content.x..content.x + content.width)
+                .all(|x| { buffer[(x, hint_y - 1)].symbol().trim().is_empty() }),
+            "unavailable hint should be visually separated from the integration list"
+        );
+        let footer_y = find_text_cell(&text, "Move ↑↓").expect("footer controls").0;
         assert!(
             hint_y < footer_y,
             "unavailable hint should remain above footer controls:\n{text}"
@@ -3176,8 +3521,8 @@ mod tests {
             .expect("render settings overlay");
 
         let text = buffer_text(terminal.backend().buffer(), area.width, area.height);
-        assert!(text.contains("integrations"));
-        assert!(!text.contains("● integrations"));
+        assert!(text.contains("Integrations"));
+        assert!(!text.contains("● Integrations"));
     }
 
     #[test]
@@ -3211,17 +3556,17 @@ mod tests {
             .expect("render settings overlay");
 
         let text = buffer_text(terminal.backend().buffer(), area.width, area.height);
-        assert!(text.contains("Integration host"), "{text}");
+        assert!(text.contains("Integration Host"), "{text}");
         assert!(text.contains("Build box"), "{text}");
         assert!(
             text.contains("Checking integrations on Build box"),
             "{text}"
         );
         assert!(
-            text.contains("press enter to change the integration host"),
+            text.contains("Press enter to change the integration host"),
             "{text}"
         );
-        assert!(!text.contains("uninstall selected integration"), "{text}");
+        assert!(!text.contains("Uninstall selected integration"), "{text}");
     }
     #[test]
     fn integrations_selected_row_highlight_extends_to_row_end() {
@@ -3252,7 +3597,7 @@ mod tests {
             popup.width.saturating_sub(2),
             popup.height.saturating_sub(2),
         );
-        let content = modal_stack_areas(inner, 4, 1, 0, 1).content;
+        let content = settings_sidebar_areas(settings_stack_areas(&app, inner).content).content;
         let body = settings_section_list_rect(content);
         let [list_area, _] =
             Layout::vertical([Constraint::Min(0), Constraint::Length(2)]).areas::<2>(body);
@@ -3290,7 +3635,7 @@ mod tests {
 
         let buffer = terminal.backend().buffer();
         let text = buffer_text(buffer, area.width, area.height);
-        let (status_y, status_x) = find_text_cell(&text, "installed").expect("installed status");
+        let (status_y, status_x) = find_text_cell(&text, "Installed").expect("installed status");
         assert_eq!(
             buffer[(status_x, status_y)].style().bg,
             Some(app.palette.accent),
@@ -3321,7 +3666,7 @@ mod tests {
 
         let buffer = terminal.backend().buffer();
         let text = buffer_text(buffer, area.width, area.height);
-        let selected_label = format!("✓ {}", TerminalAccent::Magenta.as_str());
+        let selected_label = format!("✓ {}", TerminalAccent::Magenta.display_name());
         let (choice_y, choice_x) =
             find_text_cell(&text, &selected_label).expect("selected magenta choice");
         assert_eq!(
@@ -3351,14 +3696,14 @@ mod tests {
         assert!(!text.contains("history"));
         assert!(!text.contains("resume agent sessions"));
         assert!(!text.contains("pane screen history"));
-        assert!(text.contains("input"));
-        assert!(text.contains("switch to ascii input source in prefix (macOS)"));
+        assert!(text.contains("Input"));
+        assert!(text.contains("Switch to ASCII Input Source in Prefix (macOS)"));
     }
     fn assert_no_option_line(text: &str, option: &str) {
         let mut in_appearance_section = false;
         for line in text.lines() {
             let line = line.trim();
-            if line == "light appearance" || line == "dark appearance" {
+            if line == "Light Appearance" || line == "Dark Appearance" {
                 in_appearance_section = true;
                 continue;
             }

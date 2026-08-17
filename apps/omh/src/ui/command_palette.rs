@@ -28,13 +28,13 @@ use super::{
 };
 
 const COMMAND_PALETTE_KEY_HINT_RIGHT_PADDING: usize = 1;
-const COMMAND_PALETTE_HINTS: &[(&str, &str)] = &[("scroll", "wheel ↑↓"), ("jump", "pgup / pgdn")];
+const COMMAND_PALETTE_HINTS: &[(&str, &str)] = &[("Scroll", "Wheel ↑↓"), ("Jump", "PgUp / PgDn")];
 
 fn command_palette_frame_spec(area: Rect) -> ModalFrameSpec<'static> {
     let popup_width = 76.min(area.width.saturating_sub(4));
     let inner_width = popup_width.saturating_sub(2);
     ModalFrameSpec {
-        title: "command palette",
+        title: "Command Palette",
         width: 76,
         height: 19 + modal_hint_line_count(inner_width, COMMAND_PALETTE_HINTS, 2),
         header_rows: 1,
@@ -86,7 +86,7 @@ pub(crate) fn command_palette_button_rects(inner: Rect) -> (Rect, Rect) {
         actions,
         &[ActionButtonSpec {
             hint: Some("↵"),
-            label: "run",
+            label: "Run",
         }],
         2,
         0,
@@ -143,7 +143,7 @@ fn render_command_palette_overlay_from(
         frame_areas.actions.unwrap_or_default(),
         &[ActionButtonSpec {
             hint: Some("↵"),
-            label: "run",
+            label: "Run",
         }],
         2,
         0,
@@ -152,7 +152,7 @@ fn render_command_palette_overlay_from(
         frame,
         run_rect,
         Some("↵"),
-        "run",
+        "Run",
         primary_action_style(&app.palette),
     );
 
@@ -164,7 +164,7 @@ fn render_command_palette_overlay_from(
 
     if commands.is_empty() {
         frame.render_widget(
-            Paragraph::new(" no commands").style(Style::default().fg(app.palette.overlay1)),
+            Paragraph::new(" No Commands").style(Style::default().fg(app.palette.overlay1)),
             rows[2],
         );
         return;
@@ -187,7 +187,7 @@ fn render_command_palette_overlay_from(
         .map(|row| match row {
             CommandPaletteRow::Spacer => Line::raw(""),
             CommandPaletteRow::Header(group) => Line::from(Span::styled(
-                format!(" {}", group),
+                format!(" {}", command_palette_group_label(group)),
                 modal_section_heading_style(&app.palette),
             )),
             CommandPaletteRow::Command(idx, command) => {
@@ -255,6 +255,22 @@ fn render_command_palette_overlay_from(
     }
 }
 
+fn command_palette_group_label(group: &str) -> &str {
+    match group {
+        "spaces" => "Spaces",
+        "tabs" => "Tabs",
+        "panes" => "Panes",
+        "groups" => "Groups",
+        "git" => "Git",
+        "agents" => "Agents",
+        "layout" => "Layout",
+        "app" => "App",
+        "custom" => "Custom",
+        "project" => "Project",
+        _ => group,
+    }
+}
+
 enum CommandPaletteRow<'a> {
     Spacer,
     Header(&'static str),
@@ -314,9 +330,9 @@ fn command_palette_group_command_line<'a>(
             key_style,
         );
     };
-    let prefix = "  switch to group: ";
+    let prefix = "  Switch to Group: ";
     let group_label = format!("{} {}", group.icon, group.name);
-    if title != format!("switch to group: {group_label}") {
+    if title != format!("Switch to Group: {group_label}") {
         return command_palette_command_line(
             title,
             key_label,
@@ -397,10 +413,10 @@ mod tests {
             .expect("render command palette");
 
         let text = buffer_text(terminal.backend().buffer(), 100, 24);
-        assert_eq!(text.matches("esc close").count(), 1);
-        assert!(text.contains("↵ run"));
-        assert!(text.contains("scroll wheel ↑↓"));
-        assert!(text.contains("jump pgup / pgdn"));
+        assert_eq!(text.matches("Esc Close").count(), 1);
+        assert!(text.contains("↵ Run"));
+        assert!(text.contains("Scroll Wheel ↑↓"));
+        assert!(text.contains("Jump PgUp / PgDn"));
 
         let popup = crate::ui::centered_popup_rect(Rect::new(0, 0, 100, 24), 76, 18)
             .expect("command palette popup");
@@ -427,8 +443,8 @@ mod tests {
             .expect("render narrow command palette");
 
         let text = buffer_text(terminal.backend().buffer(), 32, 12);
-        assert!(text.contains("close"));
-        assert!(text.contains("run"));
+        assert!(text.contains("Close"));
+        assert!(text.contains("Run"));
     }
 
     #[test]

@@ -1185,17 +1185,17 @@ mod tests {
         let watcher_text = buffer_text(&watcher_buffer);
         let controller_text = buffer_text(&controller_buffer);
 
-        assert!(watcher_text.contains("WATCHING"), "{watcher_text}");
+        assert!(watcher_text.contains("Watching"), "{watcher_text}");
         assert!(
-            watcher_text.contains("another client controls"),
+            watcher_text.contains("Another Client Controls"),
             "{watcher_text}"
         );
         assert!(
-            !controller_text.contains("WATCHING") && !controller_text.contains("FREE"),
+            !controller_text.contains("Watching") && !controller_text.contains("Free"),
             "controller frame must not carry watcher chrome:\n{controller_text}"
         );
         assert!(
-            !controller_text.contains("another client controls"),
+            !controller_text.contains("Another Client Controls"),
             "controller frame must not carry watcher copy:\n{controller_text}"
         );
     }

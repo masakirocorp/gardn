@@ -1527,11 +1527,11 @@ mod tests {
         let labels = state.global_menu_labels();
         let integrations_idx = labels
             .iter()
-            .position(|label| *label == "integrations")
+            .position(|label| *label == "Integrations")
             .expect("outdated integration should surface a distinct global menu entry");
-        assert_ne!(labels[integrations_idx], "settings");
-        assert!(!state.global_menu_item_has_badge("settings"));
-        assert!(state.global_menu_item_has_badge("integrations"));
+        assert_ne!(labels[integrations_idx], "Settings");
+        assert!(!state.global_menu_item_has_badge("Settings"));
+        assert!(state.global_menu_item_has_badge("Integrations"));
 
         open_global_menu(&mut state);
         state.global_menu.selected = integrations_idx;

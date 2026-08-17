@@ -149,9 +149,9 @@ fn sidebar_section_divider_rect_with_separator(
 
 pub(crate) fn agent_panel_toggle_label(scope: AgentPanelScope) -> &'static str {
     match scope {
-        AgentPanelScope::CurrentWorkspace => "space",
-        AgentPanelScope::CurrentGroup => "group",
-        AgentPanelScope::AllWorkspaces => "all",
+        AgentPanelScope::CurrentWorkspace => "Space",
+        AgentPanelScope::CurrentGroup => "Group",
+        AgentPanelScope::AllWorkspaces => "All",
     }
 }
 
@@ -307,7 +307,7 @@ fn agent_panel_pane_disambiguator(app: &AppState, entry: &AgentPanelEntry) -> Op
         .or_else(|| {
             workspace
                 .pane_display_number(entry.pane_id)
-                .map(|number| format!("pane {number}"))
+                .map(|number| format!("Pane {number}"))
         })
 }
 
@@ -466,7 +466,7 @@ fn agent_panel_sections_from_entries(
     }
     if !triage.is_empty() {
         sections.push(AgentPanelSection {
-            label: "triage",
+            label: "Triage",
             entries: triage,
         });
     }
@@ -481,7 +481,7 @@ fn agent_panel_sections_from_entries(
     }
     if !working.is_empty() {
         sections.push(AgentPanelSection {
-            label: "working",
+            label: "Working",
             entries: working,
         });
     }
@@ -497,7 +497,7 @@ fn agent_panel_sections_from_entries(
     }
     if !idle.is_empty() {
         sections.push(AgentPanelSection {
-            label: "idle",
+            label: "Idle",
             entries: idle,
         });
     }
@@ -506,11 +506,11 @@ fn agent_panel_sections_from_entries(
 }
 pub(super) fn agent_panel_status_key(state: AgentState, seen: bool) -> &'static str {
     match (state, seen) {
-        (AgentState::Idle, false) => "done",
-        (AgentState::Idle, true) => "idle",
-        (AgentState::Working, _) => "working",
-        (AgentState::Blocked, _) => "blocked",
-        (AgentState::Unknown, _) => "unknown",
+        (AgentState::Idle, false) => "Done",
+        (AgentState::Idle, true) => "Idle",
+        (AgentState::Working, _) => "Working",
+        (AgentState::Blocked, _) => "Blocked",
+        (AgentState::Unknown, _) => "Unknown",
     }
 }
 
@@ -567,7 +567,7 @@ fn format_agent_activity_age(
     let last_activity_unix_secs = last_activity_unix_secs?;
     let seconds = now_unix_secs.saturating_sub(last_activity_unix_secs);
     if seconds < 60 {
-        return Some("now".to_string());
+        return Some("Now".to_string());
     }
 
     let minutes = seconds / 60;
@@ -600,7 +600,7 @@ pub(crate) fn compact_agent_entry_text(entry: &AgentPanelEntry) -> (String, Stri
 }
 
 fn agent_panel_section_shows_entry_status(section_label: &str) -> bool {
-    section_label == "triage"
+    section_label == "Triage"
 }
 
 fn agent_panel_section_collapsed(app: &AppState, section_label: &str) -> bool {
@@ -1883,13 +1883,13 @@ fn collapsed_group_label(app: &AppState) -> String {
     if app.group_filter_enabled {
         app.active_group_icon().to_string()
     } else {
-        "all".to_string()
+        "All".to_string()
     }
 }
 
 fn collapsed_agent_scope_label(app: &AppState) -> String {
     match app.agent_panel_scope {
-        AgentPanelScope::AllWorkspaces => "all".to_string(),
+        AgentPanelScope::AllWorkspaces => "All".to_string(),
         AgentPanelScope::CurrentGroup => "f:g".to_string(),
         AgentPanelScope::CurrentWorkspace => "f:s".to_string(),
     }
@@ -1916,9 +1916,9 @@ fn collapsed_agent_panel_body_rect(area: Rect) -> Rect {
 
 fn collapsed_agent_section_state(section: &AgentPanelSection) -> (AgentState, bool) {
     match section.label {
-        "triage" => (AgentState::Blocked, true),
-        "working" => (AgentState::Working, true),
-        "idle" => (AgentState::Idle, true),
+        "Triage" => (AgentState::Blocked, true),
+        "Working" => (AgentState::Working, true),
+        "Idle" => (AgentState::Idle, true),
         _ => (AgentState::Unknown, false),
     }
 }
@@ -2069,7 +2069,7 @@ fn render_collapsed_agent_panel_for_view(
     let toggle_rect = collapsed_agent_panel_toggle_rect(area);
     if toggle_rect != Rect::default() {
         let label = match view.agent_panel_scope {
-            AgentPanelScope::AllWorkspaces => "all",
+            AgentPanelScope::AllWorkspaces => "All",
             AgentPanelScope::CurrentGroup => "f:g",
             AgentPanelScope::CurrentWorkspace => "f:s",
         };
@@ -2473,7 +2473,7 @@ pub(super) fn render_sidebar_collapsed_for_view(
                 .map(|group| group.icon.clone())
                 .unwrap_or_else(|| "·".to_string())
         } else {
-            "all".to_string()
+            "All".to_string()
         };
         let color = if view.group_filter_enabled {
             app.group_accent_color(view.active_group)
@@ -3181,9 +3181,9 @@ fn render_workspace_list_from(
         frame.render_widget(
             Paragraph::new(Span::styled(
                 if app.group_filter_enabled {
-                    "spaces"
+                    "Spaces"
                 } else {
-                    "groups"
+                    "Groups"
                 },
                 Style::default().fg(p.overlay1).add_modifier(Modifier::BOLD),
             )),
@@ -3232,9 +3232,9 @@ fn render_workspace_list_from(
         && body.width > 10
     {
         let title = if app.workspaces.is_empty() {
-            " no spaces"
+            " No Spaces"
         } else {
-            " empty group"
+            " Empty Group"
         };
         frame.render_widget(
             Paragraph::new(Line::from(Span::styled(
@@ -3312,7 +3312,7 @@ fn render_workspace_list_from(
         frame.render_widget(
             Paragraph::new(Span::styled(
                 format!(
-                    "{}no spaces",
+                    "{}No Spaces",
                     " ".repeat(SIDEBAR_WORKSPACE_NAME_COL as usize)
                 ),
                 Style::default().fg(p.overlay0).add_modifier(Modifier::DIM),
@@ -3429,9 +3429,9 @@ fn render_workspace_list_from_for_view(
         frame.render_widget(
             Paragraph::new(Span::styled(
                 if client_view.group_filter_enabled {
-                    "spaces"
+                    "Spaces"
                 } else {
-                    "groups"
+                    "Groups"
                 },
                 Style::default().fg(p.overlay1).add_modifier(Modifier::BOLD),
             )),
@@ -3480,9 +3480,9 @@ fn render_workspace_list_from_for_view(
         && body.width > 10
     {
         let title = if app.workspaces.is_empty() {
-            " no spaces"
+            " No Spaces"
         } else {
-            " empty group"
+            " Empty Group"
         };
         frame.render_widget(
             Paragraph::new(Line::from(Span::styled(
@@ -3685,12 +3685,12 @@ pub(crate) fn group_selector_rect_for_view(app: &AppState, client_view: &ClientV
 fn group_selector_label_for_view(app: &AppState, client_view: &ClientViewState) -> String {
     if client_view.group_filter_enabled {
         let Some(group) = app.groups.get(client_view.active_group) else {
-            return "all".to_string();
+            return "All".to_string();
         };
         return format!("{} {}", group.icon, group.name);
     }
 
-    "all".to_string()
+    "All".to_string()
 }
 
 fn workspace_summary_spans(
@@ -3705,7 +3705,7 @@ fn workspace_summary_spans(
     if summary.conflicted + summary.added + summary.modified + summary.deleted == 0 {
         if summary.repo_count > 1 {
             return vec![summary_span(
-                &format!("{} repos", summary.repo_count),
+                &format!("{} Repos", summary.repo_count),
                 p.overlay0,
                 max_width,
             )];
@@ -3715,7 +3715,7 @@ fn workspace_summary_spans(
 
     let mut pieces = Vec::new();
     if summary.repo_count > 1 {
-        pieces.push((format!("{} repos ·", summary.repo_count), p.overlay0));
+        pieces.push((format!("{} Repos ·", summary.repo_count), p.overlay0));
     }
     if summary.conflicted > 0 {
         pieces.push((format!("!{}", summary.conflicted), p.red));
@@ -4144,7 +4144,7 @@ fn render_agent_detail_from(
     let header_y = area.y;
     frame.render_widget(
         Paragraph::new(Span::styled(
-            "agents",
+            "Agents",
             Style::default().fg(p.overlay1).add_modifier(Modifier::BOLD),
         )),
         Rect::new(area.x, header_y, area.width, 1),
@@ -4183,7 +4183,7 @@ fn render_agent_detail_from(
     if sections.is_empty() && body.height > 0 {
         frame.render_widget(
             Paragraph::new(Span::styled(
-                " no agents",
+                " No Agents",
                 Style::default().fg(p.overlay0).add_modifier(Modifier::DIM),
             )),
             Rect::new(body.x, body.y, body.width, 1),
@@ -4263,7 +4263,7 @@ fn render_agent_detail_from_for_view(
     let header_y = area.y;
     frame.render_widget(
         Paragraph::new(Span::styled(
-            "agents",
+            "Agents",
             Style::default().fg(p.overlay1).add_modifier(Modifier::BOLD),
         )),
         Rect::new(area.x, header_y, area.width, 1),
@@ -4315,7 +4315,7 @@ fn render_agent_detail_from_for_view(
     if sections.is_empty() && body.height > 0 {
         frame.render_widget(
             Paragraph::new(Span::styled(
-                " no agents",
+                " No Agents",
                 Style::default().fg(p.overlay0).add_modifier(Modifier::DIM),
             )),
             Rect::new(body.x, body.y, body.width, 1),
@@ -4546,15 +4546,15 @@ mod tests {
     fn agent_panel_toggle_labels_match_control_center_scope() {
         assert_eq!(
             agent_panel_toggle_label(AgentPanelScope::CurrentWorkspace),
-            "space"
+            "Space"
         );
         assert_eq!(
             agent_panel_toggle_label(AgentPanelScope::CurrentGroup),
-            "group"
+            "Group"
         );
         assert_eq!(
             agent_panel_toggle_label(AgentPanelScope::AllWorkspaces),
-            "all"
+            "All"
         );
     }
 
@@ -4577,7 +4577,7 @@ mod tests {
         assert!(text
             .lines()
             .next()
-            .is_some_and(|line| line.starts_with("groups")));
+            .is_some_and(|line| line.starts_with("Groups")));
 
         client.group_filter_enabled = true;
         terminal
@@ -4589,7 +4589,7 @@ mod tests {
         assert!(text
             .lines()
             .next()
-            .is_some_and(|line| line.starts_with("spaces")));
+            .is_some_and(|line| line.starts_with("Spaces")));
     }
 
     #[test]
@@ -4608,9 +4608,9 @@ mod tests {
 
         let text = buffer_text(terminal.backend().buffer(), 28, 12);
         let rows = text.lines().collect::<Vec<_>>();
-        assert!(text.contains("empty group"));
-        assert!(rows[2].contains("empty group"));
-        assert!(!text.contains("new space adds one here"));
+        assert!(text.contains("Empty Group"));
+        assert!(rows[2].contains("Empty Group"));
+        assert!(!text.contains("New Space Adds One Here"));
     }
 
     #[test]
@@ -4628,9 +4628,9 @@ mod tests {
             .expect("render workspace list");
 
         let text = buffer_text(terminal.backend().buffer(), 28, 12);
-        assert!(!text.contains("new space"));
-        assert!(!text.contains(" new"));
-        assert!(!text.contains("menu"));
+        assert!(!text.contains("New Space"));
+        assert!(!text.contains(" New"));
+        assert!(!text.contains("Menu"));
     }
 
     #[test]
@@ -4662,7 +4662,7 @@ mod tests {
             .expect("render workspace list");
 
         let text = buffer_text(terminal.backend().buffer(), 32, 14);
-        assert!(text.contains("▾ ☀ group 1"));
+        assert!(text.contains("▾ ☀ Group 1"));
         assert!(text.contains("▾ ■ work"));
         assert!(text.contains("home"));
         assert!(text.contains("api"));
@@ -4684,7 +4684,7 @@ mod tests {
             .rect;
         assert_eq!(
             buffer[(group_header.x + SIDEBAR_GROUP_NAME_COL, group_header.y)].symbol(),
-            "g"
+            "G"
         );
         assert_eq!(
             buffer[(group_header.x + group_header.width - 2, group_header.y)].symbol(),
@@ -4838,7 +4838,7 @@ mod tests {
             .map(str::to_string)
             .collect::<Vec<_>>();
 
-        assert_eq!(rows[0], "all│");
+        assert_eq!(rows[0], "All│");
         assert_eq!(rows[1], "───│");
         assert_eq!(buffer[(0, 2)].symbol(), "▾");
         assert_eq!(
@@ -4905,14 +4905,14 @@ mod tests {
         let buffer = terminal.backend().buffer();
         let text = buffer_text(buffer, 60, 20);
         assert!(text.contains("Core"));
-        assert!(text.contains("desktop-client · working"));
+        assert!(text.contains("desktop-client · Working"));
         let (group_x, group_y) = first_cell_with_symbol(buffer, 60, 20, "C").expect("group name");
         assert_eq!(
             buffer[(group_x, group_y)].style().fg,
             Some(app.group_accent_color(0))
         );
         let (status_x, status_y) =
-            first_cell_with_symbol(buffer, 60, 20, "w").expect("working status");
+            first_cell_with_symbol(buffer, 60, 20, "W").expect("Working status");
         assert_eq!(
             buffer[(status_x, status_y)].style().fg,
             Some(state_label_color(AgentState::Working, true, &app.palette))
@@ -5061,7 +5061,7 @@ mod tests {
     fn collapsed_left_agent_area_renders_scope_and_clickable_status_rows() {
         let mut app = crate::app::state::AppState::test_new();
 
-        let mut triage = Workspace::test_new("done");
+        let mut triage = Workspace::test_new("Done");
         let triage_pane = triage.tabs[0].root_pane;
         let triage_state = triage.tabs[0].panes.get_mut(&triage_pane).unwrap();
         triage_state.detected_agent = Some(Agent::Pi);
@@ -5074,7 +5074,7 @@ mod tests {
         working_state.detected_agent = Some(Agent::Codex);
         working_state.state = AgentState::Working;
 
-        let mut idle = Workspace::test_new("idle");
+        let mut idle = Workspace::test_new("Idle");
         let idle_pane = idle.tabs[0].root_pane;
         let idle_state = idle.tabs[0].panes.get_mut(&idle_pane).unwrap();
         idle_state.detected_agent = Some(Agent::Claude);
@@ -5085,7 +5085,7 @@ mod tests {
         app.active = Some(0);
         app.selected = 0;
         app.agent_panel_scope = AgentPanelScope::AllWorkspaces;
-        app.collapsed_agent_sections.push("working".to_string());
+        app.collapsed_agent_sections.push("Working".to_string());
 
         let area = Rect::new(0, 0, 8, 24);
         let (_, _, detail_area) = collapsed_sidebar_sections(area, true);
@@ -5108,7 +5108,7 @@ mod tests {
         let idle_agent_row = idle_header_row + 1;
 
         assert!(
-            agent_header.contains("all"),
+            agent_header.contains("All"),
             "collapsed agent header should expose the scope affordance; rendered row: {agent_header:?}"
         );
         assert!(
@@ -5127,7 +5127,7 @@ mod tests {
         assert_eq!(
             collapsed_agent_panel_header_target_at_row(&app, detail_area, working_header_row)
                 .map(|target| target.section),
-            Some("working".to_string())
+            Some("Working".to_string())
         );
         assert!(
             collapsed_agent_panel_entry_at_row(&app, detail_area, working_header_row + 1).is_none(),
@@ -5158,7 +5158,7 @@ mod tests {
         let (_, _, detail_area) = collapsed_sidebar_sections(area, true);
 
         for (scope, expected) in [
-            (AgentPanelScope::AllWorkspaces, "all"),
+            (AgentPanelScope::AllWorkspaces, "All"),
             (AgentPanelScope::CurrentGroup, "f:g"),
             (AgentPanelScope::CurrentWorkspace, "f:s"),
         ] {
@@ -5201,7 +5201,7 @@ mod tests {
             default_agent_profile_id: None,
         });
 
-        let mut triage = Workspace::test_new("triage");
+        let mut triage = Workspace::test_new("Triage");
         triage.group_id = default_group_id;
         let triage_pane = triage.tabs[0].root_pane;
         let triage_state = triage.tabs[0].panes.get_mut(&triage_pane).unwrap();
@@ -5209,7 +5209,7 @@ mod tests {
         triage_state.state = AgentState::Idle;
         triage_state.seen = false;
 
-        let mut working = Workspace::test_new("working");
+        let mut working = Workspace::test_new("Working");
         working.group_id = app.groups[1].id.clone();
         let working_pane = working.tabs[0].root_pane;
         let working_state = working.tabs[0].panes.get_mut(&working_pane).unwrap();
@@ -5315,7 +5315,7 @@ mod tests {
 
         let text = buffer_text(terminal.backend().buffer(), 32, 14);
         assert!(text.contains("▾ ■ work"));
-        assert!(text.contains("no spaces"));
+        assert!(text.contains("No Spaces"));
     }
 
     #[test]
@@ -5324,7 +5324,7 @@ mod tests {
 
         assert_eq!(
             format_agent_activity_age(Some(now - 59), now),
-            Some("now".to_string())
+            Some("Now".to_string())
         );
         assert_eq!(
             format_agent_activity_age(Some(now - 60), now),
@@ -5435,8 +5435,8 @@ mod tests {
         let entries = agent_panel_entries(&app);
 
         assert_eq!(entries.len(), 2);
-        assert_eq!(entries[0].primary_label, "personal / pane 1");
-        assert_eq!(entries[1].primary_label, "personal / pane 2");
+        assert_eq!(entries[0].primary_label, "personal / Pane 1");
+        assert_eq!(entries[1].primary_label, "personal / Pane 2");
     }
 
     #[test]
@@ -5491,7 +5491,7 @@ mod tests {
         );
         let root = std::env::temp_dir().join(unique);
         let stale_cwd = root.join("issue-264-nix-support");
-        let live_cwd = root.join("omh");
+        let live_cwd = root.join("Oh My Herdr");
         std::fs::create_dir_all(stale_cwd.join(".git")).unwrap();
         std::fs::create_dir_all(live_cwd.join(".git")).unwrap();
 
@@ -5544,7 +5544,7 @@ mod tests {
         }
         let _ = std::fs::remove_dir_all(root);
 
-        assert_eq!(primary_label, "omh");
+        assert_eq!(primary_label, "Oh My Herdr");
     }
 
     #[test]
@@ -5656,14 +5656,14 @@ mod tests {
         let mut app = crate::app::state::AppState::test_new();
         let work_group = app.create_group("Work".to_string());
 
-        let mut first = Workspace::test_new("done");
+        let mut first = Workspace::test_new("Done");
         let first_pane = first.tabs[0].root_pane;
         let first_pane_state = first.tabs[0].panes.get_mut(&first_pane).unwrap();
         first_pane_state.detected_agent = Some(Agent::Pi);
         first_pane_state.state = AgentState::Idle;
         first_pane_state.seen = false;
 
-        let mut second = Workspace::test_new("blocked");
+        let mut second = Workspace::test_new("Blocked");
         second.group_id = app.groups[work_group].id.clone();
         let second_pane = second.tabs[0].root_pane;
         let second_pane_state = second.tabs[0].panes.get_mut(&second_pane).unwrap();
@@ -5671,7 +5671,7 @@ mod tests {
         second_pane_state.state = AgentState::Blocked;
         second_pane_state.seen = true;
 
-        let mut third = Workspace::test_new("working");
+        let mut third = Workspace::test_new("Working");
         let third_pane = third.tabs[0].root_pane;
         let third_pane_state = third.tabs[0].panes.get_mut(&third_pane).unwrap();
         third_pane_state.detected_agent = Some(Agent::Codex);
@@ -5685,7 +5685,7 @@ mod tests {
         let entries = agent_panel_triage_entries(&app);
 
         assert_eq!(entries.len(), 1);
-        assert_eq!(entries[0].primary_label, "done");
+        assert_eq!(entries[0].primary_label, "Done");
         assert_eq!(entries[0].group_context_idx, None);
     }
 
@@ -5693,20 +5693,20 @@ mod tests {
     fn agent_panel_sections_order_actionable_before_working_and_idle() {
         let mut app = crate::app::state::AppState::test_new();
 
-        let mut triage = Workspace::test_new("done");
+        let mut triage = Workspace::test_new("Done");
         let triage_pane = triage.tabs[0].root_pane;
         let triage_state = triage.tabs[0].panes.get_mut(&triage_pane).unwrap();
         triage_state.detected_agent = Some(Agent::Pi);
         triage_state.state = AgentState::Idle;
         triage_state.seen = false;
 
-        let mut working = Workspace::test_new("working");
+        let mut working = Workspace::test_new("Working");
         let working_pane = working.tabs[0].root_pane;
         let working_state = working.tabs[0].panes.get_mut(&working_pane).unwrap();
         working_state.detected_agent = Some(Agent::Claude);
         working_state.state = AgentState::Working;
 
-        let mut idle = Workspace::test_new("idle");
+        let mut idle = Workspace::test_new("Idle");
         let idle_pane = idle.tabs[0].root_pane;
         let idle_state = idle.tabs[0].panes.get_mut(&idle_pane).unwrap();
         idle_state.detected_agent = Some(Agent::Codex);
@@ -5721,12 +5721,12 @@ mod tests {
         let sections = agent_panel_sections(&app);
 
         assert_eq!(sections.len(), 3);
-        assert_eq!(sections[0].label, "triage");
-        assert_eq!(sections[0].entries[0].primary_label, "done");
-        assert_eq!(sections[1].label, "working");
-        assert_eq!(sections[1].entries[0].primary_label, "working");
-        assert_eq!(sections[2].label, "idle");
-        assert_eq!(sections[2].entries[0].primary_label, "idle");
+        assert_eq!(sections[0].label, "Triage");
+        assert_eq!(sections[0].entries[0].primary_label, "Done");
+        assert_eq!(sections[1].label, "Working");
+        assert_eq!(sections[1].entries[0].primary_label, "Working");
+        assert_eq!(sections[2].label, "Idle");
+        assert_eq!(sections[2].entries[0].primary_label, "Idle");
     }
 
     #[test]
@@ -5734,7 +5734,7 @@ mod tests {
         let mut app = crate::app::state::AppState::test_new();
         let old = Workspace::test_new("old");
         let old_pane = old.tabs[0].root_pane;
-        let new = Workspace::test_new("new");
+        let new = Workspace::test_new("New");
         let new_pane = new.tabs[0].root_pane;
         app.workspaces = vec![old, new];
         app.ensure_test_terminals();
@@ -5767,10 +5767,10 @@ mod tests {
         let sections = agent_panel_sections(&app);
         let idle = sections
             .iter()
-            .find(|section| section.label == "idle")
+            .find(|section| section.label == "Idle")
             .expect("idle section");
 
-        assert_eq!(idle.entries[0].primary_label, "new");
+        assert_eq!(idle.entries[0].primary_label, "New");
         assert_eq!(idle.entries[1].primary_label, "old");
     }
 
@@ -5822,7 +5822,7 @@ mod tests {
         let sections = agent_panel_sections(&app);
         let working = sections
             .iter()
-            .find(|section| section.label == "working")
+            .find(|section| section.label == "Working")
             .expect("working section");
 
         assert_eq!(working.entries[0].primary_label, "second");
@@ -5834,7 +5834,7 @@ mod tests {
         let mut app = crate::app::state::AppState::test_new();
         let old = Workspace::test_new("old");
         let old_pane = old.tabs[0].root_pane;
-        let new = Workspace::test_new("new");
+        let new = Workspace::test_new("New");
         let new_pane = new.tabs[0].root_pane;
         app.workspaces = vec![old, new];
         app.ensure_test_terminals();
@@ -5874,10 +5874,10 @@ mod tests {
         let sections = agent_panel_sections(&app);
         let idle = sections
             .iter()
-            .find(|section| section.label == "idle")
+            .find(|section| section.label == "Idle")
             .expect("idle section");
 
-        assert_eq!(idle.entries[0].primary_label, "new");
+        assert_eq!(idle.entries[0].primary_label, "New");
         assert_eq!(idle.entries[1].primary_label, "old");
         assert_eq!(idle.entries[1].agent_label.as_deref(), Some("renamed"));
     }
@@ -5942,7 +5942,7 @@ mod tests {
             .expect("render sidebar");
 
         let text = buffer_text(terminal.backend().buffer(), 34, 12);
-        assert!(text.contains("working"));
+        assert!(text.contains("Working"));
         assert!(!text.contains("codex"));
         assert!(!text.contains("working · codex"));
     }
@@ -6005,11 +6005,11 @@ mod tests {
             .expect("render sidebar");
 
         let text = buffer_text(terminal.backend().buffer(), 34, 12);
-        assert!(text.contains("triage"));
-        assert!(!text.contains("triage · all spaces"));
-        assert!(text.contains("done"));
-        assert!(!text.contains("claude · done"));
-        assert!(!text.contains("done · claude"));
+        assert!(text.contains("Triage"));
+        assert!(!text.contains("Triage · All Spaces"));
+        assert!(text.contains("Done"));
+        assert!(!text.contains("Claude · Done"));
+        assert!(!text.contains("Done · Claude"));
         let (_, agent_area) =
             expanded_sidebar_sections(Rect::new(0, 0, 34, 12), app.sidebar_section_split);
         let body = agent_panel_body_rect(agent_area, false, true);
@@ -6020,7 +6020,7 @@ mod tests {
             .contains(Modifier::BOLD));
         assert_eq!(
             buffer[(body.x + RIGHT_SUBSECTION_LABEL_COL, body.y)].symbol(),
-            "t"
+            "T"
         );
         assert_eq!(buffer[(body.x + body.width - 2, body.y)].symbol(), "1");
         assert_eq!(
@@ -6037,7 +6037,7 @@ mod tests {
             .contains(Modifier::BOLD));
         assert_eq!(
             buffer[(body.x + RIGHT_ENTRY_PRIMARY_COL, body.y + 2)].symbol(),
-            "d"
+            "D"
         );
     }
 
@@ -6086,13 +6086,13 @@ mod tests {
     #[test]
     fn agent_section_headers_use_status_colors() {
         let mut triage = AgentPanelSection {
-            label: "triage",
+            label: "Triage",
             entries: vec![AgentPanelEntry {
                 ws_idx: 0,
                 tab_idx: 0,
                 pane_id: crate::layout::PaneId::from_raw(1),
                 group_context_idx: None,
-                primary_label: "blocked".into(),
+                primary_label: "Blocked".into(),
                 pane_label: None,
                 primary_tab_label: None,
                 agent_label: Some("opencode".into()),
@@ -6117,7 +6117,7 @@ mod tests {
         assert_eq!(
             agent_panel_section_header_style(
                 &AgentPanelSection {
-                    label: "working",
+                    label: "Working",
                     entries: Vec::new(),
                 },
                 &p,
@@ -6128,7 +6128,7 @@ mod tests {
         assert_eq!(
             agent_panel_section_header_style(
                 &AgentPanelSection {
-                    label: "idle",
+                    label: "Idle",
                     entries: Vec::new(),
                 },
                 &p,
@@ -6203,13 +6203,13 @@ mod tests {
         let toggle_rect = agent_panel_toggle_rect(agent_area, app.agent_panel_scope, true);
 
         assert_eq!(toggle_rect.y, agent_area.y);
-        assert!(header.contains("agents"));
-        assert!(header.contains("all"));
-        assert!(!divider.contains("agents"));
-        assert!(!divider.contains("all"));
+        assert!(header.contains("Agents"));
+        assert!(header.contains("All"));
+        assert!(!divider.contains("Agents"));
+        assert!(!divider.contains("All"));
         assert!(!header.contains("▾ agents"));
         assert!(!header.contains("▸ agents"));
-        assert_eq!(buffer[(agent_area.x, agent_area.y)].symbol(), "a");
+        assert_eq!(buffer[(agent_area.x, agent_area.y)].symbol(), "A");
         for x in agent_area.x..agent_area.x + agent_area.width {
             assert_eq!(buffer[(x, agent_area.y + 1)].symbol(), "─");
         }
@@ -6220,7 +6220,7 @@ mod tests {
         let mut app = crate::app::state::AppState::test_new();
         app.group_filter_enabled = false;
 
-        let mut triage = Workspace::test_new("done");
+        let mut triage = Workspace::test_new("Done");
         let triage_pane = triage.tabs[0].root_pane;
         let triage_pane_state = triage.tabs[0].panes.get_mut(&triage_pane).unwrap();
         triage_pane_state.detected_agent = Some(Agent::Claude);
@@ -6237,7 +6237,7 @@ mod tests {
         app.active = None;
         app.selected = 0;
         app.agent_panel_scope = AgentPanelScope::AllWorkspaces;
-        app.collapsed_agent_sections.push("working".to_string());
+        app.collapsed_agent_sections.push("Working".to_string());
 
         let area = Rect::new(0, 0, 36, 22);
         let (workspace_area, agent_area) =
@@ -6295,7 +6295,7 @@ mod tests {
         );
         assert_eq!(
             buffer[(body.x + RIGHT_SUBSECTION_LABEL_COL, expanded_agent_header_y)].symbol(),
-            "t"
+            "T"
         );
         assert_eq!(
             buffer[(
@@ -6303,7 +6303,7 @@ mod tests {
                 collapsed_agent_header_y
             )]
                 .symbol(),
-            "w"
+            "W"
         );
     }
 
@@ -6322,7 +6322,7 @@ mod tests {
             .expect("render right sidebar");
 
         let text = buffer_text(terminal.backend().buffer(), 32, 18);
-        assert!(text.contains("agents"));
+        assert!(text.contains("Agents"));
         assert!(!text.contains("commands"));
         assert!(!text.contains("ports"));
     }
@@ -6330,7 +6330,7 @@ mod tests {
     #[test]
     fn collapsed_right_sidebar_renders_agent_status_groups_and_expand_toggle() {
         let mut app = crate::app::state::AppState::test_new();
-        let mut triage = Workspace::test_new("done");
+        let mut triage = Workspace::test_new("Done");
         let triage_pane = triage.tabs[0].root_pane;
         let triage_pane_state = triage.tabs[0].panes.get_mut(&triage_pane).unwrap();
         triage_pane_state.detected_agent = Some(Agent::Claude);
@@ -6369,7 +6369,7 @@ mod tests {
         let working_header_row = triage_agent_row + 1;
         let working_agent_row = working_header_row + 1;
 
-        assert_eq!(rows[0], "│all");
+        assert_eq!(rows[0], "│All");
         assert_eq!(rows[1], "│───");
         assert_eq!(buffer[(content.x, triage_header_row)].symbol(), "▾");
         assert_eq!(buffer[(content.x + 2, triage_agent_row)].symbol(), "1");

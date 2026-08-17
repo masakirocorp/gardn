@@ -309,10 +309,14 @@ fn theme_rows(app: &AppState, settings: &SettingsState) -> Vec<SettingsListRow> 
     if settings.group_settings_target.is_some() {
         let active = theme_settings_choices_group_accent(app, settings);
         let mut rows = Vec::new();
-        rows.push(SettingsListRow::Header("accent"));
-        rows.push(choice(0, "inherit", active.is_none()));
+        rows.push(SettingsListRow::Header("Accent"));
+        rows.push(choice(0, "Inherit", active.is_none()));
         for (offset, accent) in TerminalAccent::ALL.iter().copied().enumerate() {
-            rows.push(choice(offset + 1, accent.as_str(), active == Some(accent)));
+            rows.push(choice(
+                offset + 1,
+                accent.display_name(),
+                active == Some(accent),
+            ));
         }
         return rows;
     }
@@ -332,26 +336,26 @@ fn theme_rows(app: &AppState, settings: &SettingsState) -> Vec<SettingsListRow> 
     let show_terminal_accent = system_source;
 
     let mut rows = Vec::new();
-    rows.push(SettingsListRow::Header("colors"));
-    rows.push(choice(0, "terminal", system_source));
-    rows.push(choice(1, "palettes", !system_source));
+    rows.push(SettingsListRow::Header("Colors"));
+    rows.push(choice(0, "Terminal", system_source));
+    rows.push(choice(1, "Palettes", !system_source));
 
     if show_terminal_accent {
         rows.push(SettingsListRow::Spacer);
-        rows.push(SettingsListRow::Header("light accent"));
+        rows.push(SettingsListRow::Header("Light Accent"));
         let pending_light_accent = settings
             .pending_terminal_light_accent
             .unwrap_or(app.global_terminal_light_accent);
         for (offset, accent) in TerminalAccent::ALL.iter().copied().enumerate() {
             rows.push(choice(
                 2 + offset,
-                accent.as_str(),
+                accent.display_name(),
                 pending_light_accent == accent,
             ));
         }
 
         rows.push(SettingsListRow::Spacer);
-        rows.push(SettingsListRow::Header("dark accent"));
+        rows.push(SettingsListRow::Header("Dark Accent"));
         let pending_dark_accent = settings
             .pending_terminal_dark_accent
             .unwrap_or(app.global_terminal_dark_accent);
@@ -359,7 +363,7 @@ fn theme_rows(app: &AppState, settings: &SettingsState) -> Vec<SettingsListRow> 
         for (offset, accent) in TerminalAccent::ALL.iter().copied().enumerate() {
             rows.push(choice(
                 dark_base + offset,
-                accent.as_str(),
+                accent.display_name(),
                 pending_dark_accent == accent,
             ));
         }
@@ -367,7 +371,7 @@ fn theme_rows(app: &AppState, settings: &SettingsState) -> Vec<SettingsListRow> 
 
     if !system_source {
         rows.push(SettingsListRow::Spacer);
-        rows.push(SettingsListRow::Header("appearance"));
+        rows.push(SettingsListRow::Header("Appearance"));
         for (offset, candidate) in ThemeMode::ALL.iter().copied().enumerate() {
             rows.push(choice(
                 2 + offset,
@@ -380,7 +384,7 @@ fn theme_rows(app: &AppState, settings: &SettingsState) -> Vec<SettingsListRow> 
         match mode {
             ThemeMode::System => {
                 rows.push(SettingsListRow::Spacer);
-                rows.push(SettingsListRow::Header("light appearance"));
+                rows.push(SettingsListRow::Header("Light Appearance"));
                 let mut option_idx = theme_base;
                 for name in theme_names_for_appearance(ThemeAppearance::Light)
                     .iter()
@@ -395,7 +399,7 @@ fn theme_rows(app: &AppState, settings: &SettingsState) -> Vec<SettingsListRow> 
                 }
 
                 rows.push(SettingsListRow::Spacer);
-                rows.push(SettingsListRow::Header("dark appearance"));
+                rows.push(SettingsListRow::Header("Dark Appearance"));
                 for name in theme_names_for_appearance(ThemeAppearance::Dark)
                     .iter()
                     .copied()
@@ -410,7 +414,7 @@ fn theme_rows(app: &AppState, settings: &SettingsState) -> Vec<SettingsListRow> 
             }
             ThemeMode::Light => {
                 rows.push(SettingsListRow::Spacer);
-                rows.push(SettingsListRow::Header("light appearance"));
+                rows.push(SettingsListRow::Header("Light Appearance"));
                 for (offset, name) in theme_names_for_appearance(ThemeAppearance::Light)
                     .iter()
                     .copied()
@@ -425,7 +429,7 @@ fn theme_rows(app: &AppState, settings: &SettingsState) -> Vec<SettingsListRow> 
             }
             ThemeMode::Dark => {
                 rows.push(SettingsListRow::Spacer);
-                rows.push(SettingsListRow::Header("dark appearance"));
+                rows.push(SettingsListRow::Header("Dark Appearance"));
                 for (offset, name) in theme_names_for_appearance(ThemeAppearance::Dark)
                     .iter()
                     .copied()
@@ -471,7 +475,7 @@ fn group_general_rows(app: &AppState, settings: &SettingsState) -> Vec<SettingsL
                 .and_then(|group_idx| app.groups.get(group_idx))
                 .map(|group| group.name.clone())
         })
-        .unwrap_or_else(|| "group".to_string());
+        .unwrap_or_else(|| "Group".to_string());
     let default_location = settings
         .group_settings_target
         .and_then(|group_idx| app.groups.get(group_idx))
@@ -490,25 +494,28 @@ fn group_general_rows(app: &AppState, settings: &SettingsState) -> Vec<SettingsL
     vec![
         SettingsListRow::TextInput {
             index: 0,
-            title: "name".into(),
+            title: "Name".into(),
             value: group_name.into(),
         },
         SettingsListRow::Spacer,
-        SettingsListRow::TextInput {
+        SettingsListRow::Status {
             index: 1,
-            title: "default directory for new spaces".into(),
-            value: if default_directory.is_empty() {
-                format!("Runs on {host_label}").into()
-            } else {
-                format!("Runs on {host_label} · {default_directory}").into()
-            },
+            label: "Default Location for New Spaces".into(),
+            status: format!("‹ {host_label} ›").into(),
+            tone: SettingsMarkerTone::Accent,
         },
         SettingsListRow::Spacer,
-        SettingsListRow::Header("danger zone"),
-        SettingsListRow::Action {
+        SettingsListRow::TextInput {
             index: 2,
+            title: "Directory".into(),
+            value: default_directory.into(),
+        },
+        SettingsListRow::Spacer,
+        SettingsListRow::Header("Danger Zone"),
+        SettingsListRow::Action {
+            index: 3,
             icon: "×".into(),
-            label: "delete group".into(),
+            label: "Delete Group".into(),
             tone: SettingsMarkerTone::Danger,
         },
     ]
@@ -522,7 +529,7 @@ fn workspace_general_rows(app: &AppState, settings: &SettingsState) -> Vec<Setti
         .pending_workspace_name
         .clone()
         .or_else(|| workspace.map(|workspace| workspace.display_name()))
-        .unwrap_or_else(|| "space".to_string());
+        .unwrap_or_else(|| "Space".to_string());
     let default_cwd = settings
         .pending_workspace_default_cwd
         .clone()
@@ -546,13 +553,20 @@ fn workspace_general_rows(app: &AppState, settings: &SettingsState) -> Vec<Setti
     vec![
         SettingsListRow::TextInput {
             index: 0,
-            title: "name".into(),
+            title: "Name".into(),
             value: name.into(),
         },
         SettingsListRow::Spacer,
-        SettingsListRow::TextInput {
+        SettingsListRow::Status {
             index: 1,
-            title: format!("Runs on: {host_label} · Directory").into(),
+            label: "Location for This Space".into(),
+            status: format!("‹ {host_label} ›").into(),
+            tone: SettingsMarkerTone::Accent,
+        },
+        SettingsListRow::Spacer,
+        SettingsListRow::TextInput {
+            index: 2,
+            title: "Directory".into(),
             value: default_cwd.into(),
         },
     ]
@@ -570,13 +584,13 @@ fn agent_profile_detail(profile: &crate::agent_profiles::AgentProfile) -> String
     }
 
     if profile.kind.is_supported() {
-        if profile.command == profile.name {
-            profile.kind.as_str().to_string()
+        if profile.command == profile.kind.system_command() {
+            profile.kind.display_name().to_string()
         } else {
-            format!("{} · {}", profile.kind.as_str(), profile.command)
+            format!("{} · {}", profile.kind.display_name(), profile.command)
         }
     } else {
-        "custom · launch-only".to_string()
+        "Custom · Launch-Only".to_string()
     }
 }
 
@@ -589,13 +603,13 @@ fn agent_profile_badge(
     if let Some(badge) = integration_badge {
         Some(badge.to_string().into())
     } else if !profile.available() {
-        Some("unavailable".into())
+        Some("Unavailable".into())
     } else if is_default {
-        Some("default".into())
+        Some("Default".into())
     } else if is_favorite {
-        Some("favorite".into())
+        Some("Favorite".into())
     } else if !profile.kind.is_supported() {
-        Some("launch-only".into())
+        Some("Launch-Only".into())
     } else {
         None
     }
@@ -623,22 +637,22 @@ fn agent_profile_rows(app: &AppState, settings: &SettingsState) -> Vec<SettingsL
     }
     let editing = settings.pending_agent_profile_id.is_some();
 
-    rows.push(SettingsListRow::Caption("label shown in menus".into()));
+    rows.push(SettingsListRow::Caption("Label shown in menus".into()));
     rows.push(SettingsListRow::TextInput {
         index: 0,
-        title: "name".into(),
+        title: "Name".into(),
         value: name.into(),
     });
     rows.push(SettingsListRow::Spacer);
-    rows.push(SettingsListRow::Header("agent type"));
+    rows.push(SettingsListRow::Header("Agent Type"));
     rows.push(SettingsListRow::Caption(
-        "choose an installed integration, or a custom command for launch-only use".into(),
+        "Choose an installed integration, or a custom command for launch-only use".into(),
     ));
     let kind_choices = app.agent_profile_kind_choices().collect::<Vec<_>>();
     for (offset, agent_kind) in kind_choices.iter().copied().enumerate() {
         rows.push(SettingsListRow::Choice {
             index: 1 + offset,
-            label: agent_kind.as_str().into(),
+            label: agent_kind.display_name().into(),
             checked: agent_kind == kind,
         });
     }
@@ -649,11 +663,11 @@ fn agent_profile_rows(app: &AppState, settings: &SettingsState) -> Vec<SettingsL
         ));
     }
     rows.push(SettingsListRow::Spacer);
-    rows.push(SettingsListRow::Caption("shell command to run".into()));
+    rows.push(SettingsListRow::Caption("Shell command to run".into()));
     let command_index = 1 + kind_choices.len();
     rows.push(SettingsListRow::TextInput {
         index: command_index,
-        title: "command".into(),
+        title: "Command".into(),
         value: command.into(),
     });
     rows.push(SettingsListRow::Spacer);
@@ -662,9 +676,9 @@ fn agent_profile_rows(app: &AppState, settings: &SettingsState) -> Vec<SettingsL
         index: save_index,
         icon: "".into(),
         label: if editing {
-            "save profile".into()
+            "Save Profile".into()
         } else {
-            "create profile".into()
+            "Create Profile".into()
         },
         tone: SettingsMarkerTone::Accent,
     });
@@ -672,22 +686,22 @@ fn agent_profile_rows(app: &AppState, settings: &SettingsState) -> Vec<SettingsL
         index: save_index + 1,
         icon: "×".into(),
         label: if editing {
-            "discard changes".into()
+            "Discard Changes".into()
         } else {
-            "cancel".into()
+            "Cancel".into()
         },
         tone: SettingsMarkerTone::Disabled,
     });
     if editing {
         rows.push(SettingsListRow::Spacer);
-        rows.push(SettingsListRow::Header("danger zone"));
+        rows.push(SettingsListRow::Header("Danger Zone"));
         rows.push(SettingsListRow::Caption(
-            "remove this profile from agent launch menus".into(),
+            "Remove this profile from agent launch menus".into(),
         ));
         rows.push(SettingsListRow::Action {
             index: save_index + 2,
             icon: "×".into(),
-            label: "delete profile".into(),
+            label: "Delete Profile".into(),
             tone: SettingsMarkerTone::Danger,
         });
     }
@@ -699,11 +713,11 @@ fn agent_profile_browse_rows(app: &AppState) -> Vec<SettingsListRow> {
         SettingsListRow::Action {
             index: 0,
             icon: "".into(),
-            label: "new agent profile".into(),
+            label: "New Agent Profile".into(),
             tone: SettingsMarkerTone::Accent,
         },
         SettingsListRow::Spacer,
-        SettingsListRow::Header("saved profiles"),
+        SettingsListRow::Header("Saved Profiles"),
     ];
     let custom_profiles = app
         .agent_profiles
@@ -722,7 +736,7 @@ fn agent_profile_browse_rows(app: &AppState) -> Vec<SettingsListRow> {
     }
     if !has_custom_profiles {
         rows.push(SettingsListRow::Caption(
-            "none yet — create one to add a launch command".into(),
+            "None yet — create one to add a launch command".into(),
         ));
     }
     rows
@@ -778,9 +792,9 @@ fn group_profile_rows(app: &AppState, settings: &SettingsState) -> Vec<SettingsL
         .collect();
     let mut rows = Vec::new();
     let mut index = 0;
-    rows.push(SettingsListRow::Header("favorites"));
+    rows.push(SettingsListRow::Header("Favorites"));
     if favorite.is_empty() {
-        rows.push(SettingsListRow::Caption("no favorites".into()));
+        rows.push(SettingsListRow::Caption("No Favorites".into()));
     } else {
         for profile in favorite {
             let is_default = default_profile_id == Some(profile.id.as_str());
@@ -795,7 +809,7 @@ fn group_profile_rows(app: &AppState, settings: &SettingsState) -> Vec<SettingsL
         }
     }
     rows.push(SettingsListRow::Spacer);
-    rows.push(SettingsListRow::Header("available"));
+    rows.push(SettingsListRow::Header("Available"));
     for profile in available {
         let is_default = default_profile_id == Some(profile.id.as_str());
         rows.push(agent_profile_row(
@@ -825,11 +839,11 @@ fn appearance_rows(app: &AppState, settings: &SettingsState) -> Vec<SettingsList
     rows.extend(layout_rows_with_base(app, settings, layout_base));
     rows.push(SettingsListRow::Spacer);
     rows.extend(setting_group(
-        "panes",
+        "Panes",
         [value_option(
             layout_base + 7,
-            "pane border agent info",
-            "agent metadata shown in split pane borders",
+            "Pane Border Agent Info",
+            "Agent metadata shown in split pane borders",
             settings
                 .pending_pane_border_agent_info
                 .unwrap_or_else(|| app.pane_border_agent_info())
@@ -870,48 +884,48 @@ fn layout_rows_with_base(
         .pending_sidebar_initial_agent_scope
         .unwrap_or(app.sidebar_config.initial_agent_scope);
     setting_group(
-        "sidebar",
+        "Sidebar",
         [
             value_option(
                 base,
-                "default sidebar width",
-                "preferred desktop sidebar width",
+                "Default Sidebar Width",
+                "Preferred desktop sidebar width",
                 format!("{width} cols"),
             ),
             value_option(
                 base + 1,
-                "minimum sidebar width",
-                "smallest allowed desktop sidebar width",
+                "Minimum Sidebar Width",
+                "Smallest allowed desktop sidebar width",
                 format!("{min} cols"),
             ),
             value_option(
                 base + 2,
-                "maximum sidebar width",
-                "largest allowed desktop sidebar width",
+                "Maximum Sidebar Width",
+                "Largest allowed desktop sidebar width",
                 format!("{max} cols"),
             ),
             value_option(
                 base + 3,
-                "sidebar arrangement",
-                "where spaces and agents live on desktop",
+                "Sidebar Arrangement",
+                "Where spaces and agents live on desktop",
                 arrangement.label(),
             ),
             value_option(
                 base + 4,
-                "context bar",
-                "always visible or hidden",
+                "Context Bar",
+                "Always visible or hidden",
                 context_bar_visibility.label(),
             ),
             value_option(
                 base + 5,
-                "initial sidebar state",
-                "expanded or collapsed when a new client connects",
+                "Initial Sidebar State",
+                "Expanded or collapsed when a new client connects",
                 initial_state.label(),
             ),
             value_option(
                 base + 6,
-                "initial agent scope",
-                "agents shown when a new client connects",
+                "Initial Agent Scope",
+                "Agents shown when a new client connects",
                 initial_agent_scope.label(),
             ),
         ],
@@ -933,45 +947,46 @@ fn behavior_rows(app: &AppState, settings: &SettingsState) -> Vec<SettingsListRo
     );
 
     let mut rows = setting_group(
-        "general",
+        "General",
         [
             option(
                 0,
-                "confirm before closing workspaces",
-                "ask before closing a workspace",
+                "Confirm Before Closing Workspaces",
+                "Ask before closing a workspace",
                 settings
                     .pending_confirm_close
                     .unwrap_or_else(|| app.confirm_close_enabled()),
             ),
             option(
                 1,
-                "name new tabs",
-                "ask for a tab name before creating a new tab",
+                "Name New Tabs",
+                "Ask for a tab name before creating a new tab",
                 settings
                     .pending_prompt_new_tab_name
                     .unwrap_or_else(|| app.prompt_new_tab_name_enabled()),
             ),
             option(
                 2,
-                "show counters",
-                "show right-aligned topology and section counts",
+                "Show Counters",
+                "Show right-aligned topology and section counts",
                 settings.pending_show_counters.unwrap_or(app.show_counters),
             ),
         ],
     );
+    rows.push(SettingsListRow::Spacer);
     rows.extend(setting_group(
-        "terminal",
+        "Terminal",
         [
             value_option(
                 3,
-                "new terminal cwd",
-                "directory used by newly created terminal tabs",
+                "New Terminal CWD",
+                "Directory used by newly created terminal tabs",
                 cwd_label,
             ),
             value_option(
                 4,
-                "mouse wheel speed",
-                "terminal scroll amount per wheel notch",
+                "Mouse Wheel Speed",
+                "Terminal scroll amount per wheel notch",
                 scroll_label,
             ),
         ],
@@ -983,7 +998,7 @@ fn command_rows(app: &AppState, settings: &SettingsState) -> Vec<SettingsListRow
     let values = [
         (
             0,
-            "git · terminal Git UI · selected repository root",
+            "Git · Terminal Git UI · Selected Repository Root",
             settings
                 .pending_git_command
                 .clone()
@@ -991,7 +1006,7 @@ fn command_rows(app: &AppState, settings: &SettingsState) -> Vec<SettingsListRow
         ),
         (
             1,
-            "diff · review UI · selected repository root",
+            "Diff · Review UI · Selected Repository Root",
             settings
                 .pending_diff_command
                 .clone()
@@ -999,7 +1014,7 @@ fn command_rows(app: &AppState, settings: &SettingsState) -> Vec<SettingsListRow
         ),
         (
             2,
-            "ide · project editor · selected project root",
+            "IDE · Project Editor · Selected Project Root",
             settings
                 .pending_ide_command
                 .clone()
@@ -1007,17 +1022,20 @@ fn command_rows(app: &AppState, settings: &SettingsState) -> Vec<SettingsListRow
         ),
         (
             3,
-            "github · pull requests and issues · selected space root",
+            "GitHub · Pull Requests and Issues · Selected Space Root",
             settings
                 .pending_github_command
                 .clone()
                 .unwrap_or_else(|| app.github_command.clone()),
         ),
     ];
-    let mut rows = vec![SettingsListRow::Header("project commands")];
+    let mut rows = vec![SettingsListRow::Header("Project Commands")];
     for (index, title, value) in values {
+        if index > 0 {
+            rows.push(SettingsListRow::Spacer);
+        }
         let title = if value.trim().is_empty() {
-            format!("{title} · disabled")
+            format!("{title} · Disabled")
         } else {
             title.to_string()
         };
@@ -1032,11 +1050,11 @@ fn command_rows(app: &AppState, settings: &SettingsState) -> Vec<SettingsListRow
 
 fn experiment_rows(app: &AppState, settings: &SettingsState) -> Vec<SettingsListRow> {
     setting_group(
-        "input",
+        "Input",
         [option(
             0,
-            "switch to ascii input source in prefix (macOS)",
-            "temporarily use an ASCII-capable layout for prefix commands",
+            "Switch to ASCII Input Source in Prefix (macOS)",
+            "Temporarily use an ASCII-capable layout for prefix commands",
             settings
                 .pending_switch_ascii_input_source_in_prefix
                 .unwrap_or_else(|| app.switch_ascii_input_source_in_prefix_enabled()),
@@ -1052,21 +1070,21 @@ fn notification_rows(app: &AppState, settings: &SettingsState) -> Vec<SettingsLi
         .pending_toast_delivery
         .unwrap_or_else(|| app.toast_delivery());
     let mut rows = setting_group(
-        "sound alerts",
+        "Sound Alerts",
         [option(
             0,
-            "sound alerts",
-            "play sound when a background agent needs attention",
+            "Sound Alerts",
+            "Play sound when a background agent needs attention",
             sound_enabled,
         )],
     );
     rows.push(SettingsListRow::Spacer);
     rows.extend(setting_group(
-        "notification popups",
+        "Notification Popups",
         [value_option(
             1,
-            "toast delivery",
-            "where command and agent notifications should appear",
+            "Toast Delivery",
+            "Where command and agent notifications should appear",
             toast_delivery_label(toast_delivery),
         )],
     ));
@@ -1190,15 +1208,15 @@ fn connection_browse_rows(app: &AppState) -> Vec<SettingsListRow> {
         SettingsListRow::Action {
             index: 0,
             icon: "".into(),
-            label: "add ssh connection".into(),
+            label: "Add SSH Connection".into(),
             tone: SettingsMarkerTone::Accent,
         },
         SettingsListRow::Spacer,
-        SettingsListRow::Header("saved profiles"),
+        SettingsListRow::Header("Saved Profiles"),
     ];
     if app.ssh_connection_profiles.is_empty() {
         rows.push(SettingsListRow::Caption(
-            "none yet — add one to connect to ssh hosts".into(),
+            "None yet — add one to connect to SSH hosts".into(),
         ));
     }
     for (index, profile) in (1..).zip(&app.ssh_connection_profiles) {
@@ -1211,7 +1229,7 @@ fn connection_browse_rows(app: &AppState) -> Vec<SettingsListRow> {
             index,
             name: profile.name().to_string().into(),
             detail: detail.into(),
-            badge: Some(status.label().to_lowercase().into()),
+            badge: Some(status.label().into()),
             tone: connection_status_tone(&status),
         });
     }
@@ -1240,7 +1258,7 @@ fn connection_form_rows(editor: &crate::app::state::ConnectionEditorState) -> Ve
         ),
         SettingsListRow::TextInput {
             index: ConnectionRowId::Field(ConnectionField::Target).selection_index(),
-            title: "ssh target".into(),
+            title: "SSH Target".into(),
             value: target.clone().into(),
         },
         SettingsListRow::Spacer,
@@ -1249,7 +1267,7 @@ fn connection_form_rows(editor: &crate::app::state::ConnectionEditorState) -> Ve
         ),
         SettingsListRow::TextInput {
             index: ConnectionRowId::Field(ConnectionField::Name).selection_index(),
-            title: "name (optional)".into(),
+            title: "Name (Optional)".into(),
             value: name.into(),
         },
         SettingsListRow::Spacer,
@@ -1258,21 +1276,21 @@ fn connection_form_rows(editor: &crate::app::state::ConnectionEditorState) -> Ve
         ),
         SettingsListRow::TextInput {
             index: ConnectionRowId::Field(ConnectionField::Directory).selection_index(),
-            title: "starting directory (optional)".into(),
+            title: "Starting Directory (Optional)".into(),
             value: directory.into(),
         },
         SettingsListRow::Spacer,
     ];
     if target.trim().is_empty() {
-        rows.push(SettingsListRow::Caption("ssh target is required".into()));
+        rows.push(SettingsListRow::Caption("SSH Target Is Required".into()));
     }
     rows.push(SettingsListRow::Action {
         index: ConnectionRowId::Action(ConnectionAction::Save).selection_index(),
         icon: "".into(),
         label: if editing {
-            "save changes".into()
+            "Save Changes".into()
         } else {
-            "add connection".into()
+            "Add Connection".into()
         },
         tone: SettingsMarkerTone::Accent,
     });
@@ -1280,9 +1298,9 @@ fn connection_form_rows(editor: &crate::app::state::ConnectionEditorState) -> Ve
         index: ConnectionRowId::Action(ConnectionAction::Discard).selection_index(),
         icon: "×".into(),
         label: if editing {
-            "discard changes".into()
+            "Discard Changes".into()
         } else {
-            "cancel".into()
+            "Cancel".into()
         },
         tone: SettingsMarkerTone::Disabled,
     });
@@ -1303,7 +1321,7 @@ fn connection_detail_rows(
         )];
     };
     let status = app.ssh_connection_status(profile);
-    let mut status_text = status.label().to_lowercase();
+    let mut status_text = status.label().to_string();
     if let crate::execution_host::ConnectionStatus::Reconnecting { error } = &status {
         status_text = format!("{status_text} · {error}");
     }
@@ -1313,17 +1331,17 @@ fn connection_detail_rows(
     use crate::execution_host::ConnectionStatus;
     let (toggle_label, toggle_tone) = match &status {
         ConnectionStatus::Disconnected | ConnectionStatus::AuthenticationRequired => {
-            ("connect", SettingsMarkerTone::Good)
+            ("Connect", SettingsMarkerTone::Good)
         }
         ConnectionStatus::Connecting
         | ConnectionStatus::Connected
-        | ConnectionStatus::Reconnecting { .. } => ("disconnect", SettingsMarkerTone::Danger),
-        ConnectionStatus::Disconnecting => ("disconnect", SettingsMarkerTone::Disabled),
+        | ConnectionStatus::Reconnecting { .. } => ("Disconnect", SettingsMarkerTone::Danger),
+        ConnectionStatus::Disconnecting => ("Disconnect", SettingsMarkerTone::Disabled),
     };
     rows.push(SettingsListRow::Action {
         index: ConnectionRowId::Action(ConnectionAction::LaunchWorkspace).selection_index(),
         icon: "".into(),
-        label: "open workspace".into(),
+        label: "Open Workspace".into(),
         tone: if matches!(status, ConnectionStatus::Connected) {
             SettingsMarkerTone::Good
         } else {
@@ -1339,11 +1357,11 @@ fn connection_detail_rows(
     rows.push(SettingsListRow::Action {
         index: ConnectionRowId::Action(ConnectionAction::Test).selection_index(),
         icon: "".into(),
-        label: "test connection".into(),
+        label: "Test Connection".into(),
         tone: SettingsMarkerTone::Accent,
     });
     rows.push(SettingsListRow::Spacer);
-    rows.push(SettingsListRow::Header("details"));
+    rows.push(SettingsListRow::Header("Details"));
     rows.push(SettingsListRow::Caption(
         format!("SSH target  {}", profile.target()).into(),
     ));
@@ -1352,20 +1370,20 @@ fn connection_detail_rows(
             "Starting directory  {}",
             profile
                 .suggested_directory()
-                .map_or("(not set)".to_string(), ToString::to_string)
+                .map_or("(Not Set)".to_string(), ToString::to_string)
         )
         .into(),
     ));
     rows.push(SettingsListRow::Action {
         index: ConnectionRowId::Action(ConnectionAction::EditDetails).selection_index(),
         icon: "".into(),
-        label: "edit details".into(),
+        label: "Edit Details".into(),
         tone: SettingsMarkerTone::Accent,
     });
     let tombstones = app.remote_termination_tombstones_for_profile(profile.id());
     if !tombstones.is_empty() {
         rows.push(SettingsListRow::Spacer);
-        rows.push(SettingsListRow::Header("pending cleanup"));
+        rows.push(SettingsListRow::Header("Pending Cleanup"));
         rows.push(SettingsListRow::Caption(
             "The remote host has not acknowledged terminal shutdown.".into(),
         ));
@@ -1390,16 +1408,16 @@ fn connection_detail_rows(
                     .selection_index(),
                 icon: "×".into(),
                 label: if confirming {
-                    "confirm forget without terminating".into()
+                    "Confirm Forget Without Terminating".into()
                 } else {
-                    "forget without terminating".into()
+                    "Forget Without Terminating".into()
                 },
                 tone: SettingsMarkerTone::Danger,
             });
         }
     }
     rows.push(SettingsListRow::Spacer);
-    rows.push(SettingsListRow::Header("danger zone"));
+    rows.push(SettingsListRow::Header("Danger Zone"));
     if matches!(
         editor.connection_retirement,
         Some(crate::app::state::ConnectionRetirementState::Failed)
@@ -1408,19 +1426,19 @@ fn connection_detail_rows(
         rows.push(SettingsListRow::Action {
             index: ConnectionRowId::Action(ConnectionAction::ForgetConnection).selection_index(),
             icon: "×".into(),
-            label: "remove saved connection".into(),
+            label: "Remove Saved Connection".into(),
             tone: SettingsMarkerTone::Danger,
         });
         rows.push(SettingsListRow::Action {
             index: ConnectionRowId::Action(ConnectionAction::Delete).selection_index(),
             icon: "↻".into(),
-            label: "try again".into(),
+            label: "Try Again".into(),
             tone: SettingsMarkerTone::Accent,
         });
         rows.push(SettingsListRow::Action {
             index: ConnectionRowId::Action(ConnectionAction::Discard).selection_index(),
             icon: "".into(),
-            label: "cancel".into(),
+            label: "Cancel".into(),
             tone: SettingsMarkerTone::Accent,
         });
         return rows;
@@ -1434,19 +1452,19 @@ fn connection_detail_rows(
         "×"
     };
     let (delete_label, delete_tone) = match editor.connection_retirement.as_ref() {
-        None => ("remove connection", SettingsMarkerTone::Danger),
+        None => ("Remove Connection", SettingsMarkerTone::Danger),
         Some(crate::app::state::ConnectionRetirementState::InventoryPending) => {
-            ("checking removal impact...", SettingsMarkerTone::Disabled)
+            ("Checking Removal Impact...", SettingsMarkerTone::Disabled)
         }
         Some(crate::app::state::ConnectionRetirementState::Review(_)) => (
-            "confirm stop managed work and remove connection",
+            "Confirm Stop Managed Work and Remove Connection",
             SettingsMarkerTone::Danger,
         ),
         Some(crate::app::state::ConnectionRetirementState::Running(_)) => {
-            ("removing connection...", SettingsMarkerTone::Disabled)
+            ("Removing Connection...", SettingsMarkerTone::Disabled)
         }
         Some(crate::app::state::ConnectionRetirementState::LocalForgetRunning) => {
-            ("removing saved connection...", SettingsMarkerTone::Disabled)
+            ("Removing Saved Connection...", SettingsMarkerTone::Disabled)
         }
         Some(crate::app::state::ConnectionRetirementState::Failed) => unreachable!(),
     };
@@ -1457,6 +1475,7 @@ fn connection_detail_rows(
         tone: delete_tone,
     });
     rows.extend(connection_retirement_preview_rows(editor));
+
     rows
 }
 
@@ -1509,12 +1528,12 @@ fn connection_retirement_preview_rows(
     for binding in &preview.bindings.bindings {
         rows.push(SettingsListRow::Caption(
             format!(
-                "managed worker pid {}: {}",
+                "Managed worker PID {}: {}",
                 binding.ownership.pid,
                 if binding.lock_live {
-                    "running"
+                    "Running"
                 } else {
-                    "stopped"
+                    "Stopped"
                 },
             )
             .into(),
@@ -1534,7 +1553,7 @@ fn connection_retirement_plan_rows(
     for session in &plan.sessions {
         rows.push(SettingsListRow::Caption(
             format!(
-                "session {}: {} pane(s), {} pending termination(s)",
+                "Session {}: {} pane(s), {} pending termination(s)",
                 session.session_name,
                 session.remote_panes.len(),
                 session.pending_terminations.len(),
@@ -1543,7 +1562,7 @@ fn connection_retirement_plan_rows(
         ));
         for group in &session.group_defaults {
             rows.push(SettingsListRow::Caption(
-                format!("group default cleared: {}", group.group_name).into(),
+                format!("Group default cleared: {}", group.group_name).into(),
             ));
         }
         for workspace in &session.workspace_defaults {
@@ -1553,7 +1572,7 @@ fn connection_retirement_plan_rows(
             );
             rows.push(SettingsListRow::Caption(
                 format!(
-                    "workspace {name}: default becomes Local at {}",
+                    "Workspace {name}: default becomes Local at {}",
                     workspace.replacement.path.as_path().display(),
                 )
                 .into(),
@@ -1572,7 +1591,7 @@ fn integration_rows(app: &AppState, settings: &SettingsState) -> Vec<SettingsLis
         vec![
             SettingsListRow::Value {
                 index: 0,
-                title: "Integration host".into(),
+                title: "Integration Host".into(),
                 description: "Choose Local or a configured SSH connection.".into(),
                 value: host_label.to_string().into(),
                 editable: true,
@@ -1610,7 +1629,9 @@ fn integration_rows(app: &AppState, settings: &SettingsState) -> Vec<SettingsLis
                     };
                     SettingsListRow::Status {
                         index: offset + first_integration_index,
-                        label: item.label.into(),
+                        label: crate::agent_profiles::AgentKind::from(item.target)
+                            .display_name()
+                            .into(),
                         status: status.into(),
                         tone,
                     }
@@ -1624,7 +1645,9 @@ fn integration_rows(app: &AppState, settings: &SettingsState) -> Vec<SettingsLis
             rows.extend(snapshot.entries.iter().enumerate().map(|(offset, entry)| {
                 SettingsListRow::Status {
                     index: offset + first_integration_index,
-                    label: crate::integration::integration_target_label(entry.target).into(),
+                    label: crate::agent_profiles::AgentKind::from(entry.target)
+                        .display_name()
+                        .into(),
                     status: entry.status_label().into(),
                     tone: if entry.state == crate::integration::IntegrationStatusKind::Current
                         && entry.missing_profile_hooks > 0
@@ -1666,18 +1689,18 @@ fn integration_status_tone(
 
 fn missing_profile_hook_label(count: usize) -> String {
     if count == 1 {
-        "installed · 1 profile hook missing".to_string()
+        "Installed · 1 Profile Hook Missing".to_string()
     } else {
-        format!("installed · {count} profile hooks missing")
+        format!("Installed · {count} Profile Hooks Missing")
     }
 }
 
 fn toast_delivery_label(delivery: ToastDelivery) -> &'static str {
     match delivery {
-        ToastDelivery::Off => "off",
-        ToastDelivery::Omh => "inside Oh My Herdr",
-        ToastDelivery::Terminal => "via terminal",
-        ToastDelivery::System => "via system",
+        ToastDelivery::Off => "Off",
+        ToastDelivery::Omh => "Inside Oh My Herdr",
+        ToastDelivery::Terminal => "Via Terminal",
+        ToastDelivery::System => "Via System",
     }
 }
 
@@ -1686,11 +1709,11 @@ fn toast_rows(app: &AppState, settings: &SettingsState) -> Vec<SettingsListRow> 
         .pending_toast_delivery
         .unwrap_or_else(|| app.toast_delivery());
     setting_group(
-        "notification popups",
+        "Notification Popups",
         [value_option(
             0,
-            "toast delivery",
-            "where notification popups should appear",
+            "Toast Delivery",
+            "Where notification popups should appear",
             toast_delivery_label(current),
         )],
     )
@@ -1758,60 +1781,68 @@ fn choice(index: usize, label: impl Into<Cow<'static, str>>, checked: bool) -> S
 
 fn theme_display_name(name: &'static str) -> &'static str {
     match name {
-        "catppuccin-latte" => "catppuccin latte",
-        "catppuccin" => "catppuccin mocha",
-        "catppuccin-frappe" => "catppuccin frappe",
-        "catppuccin-macchiato" => "catppuccin macchiato",
-        "tokyo-night-day" => "tokyo night day",
-        "gruvbox-light" => "gruvbox",
-        "one-light" => "one",
-        "solarized-light" => "solarized",
-        "kanagawa-lotus" => "kanagawa lotus",
-        "rose-pine-dawn" => "rose pine dawn",
-        "tokyo-night" => "tokyo night",
-        "one-dark" => "one dark",
-        "rose-pine" => "rose pine",
-        "monokai-pro" => "monokai pro",
-        "monokai-pro-light" => "monokai pro light",
-        "monokai-pro-light-sun" => "monokai pro sun",
-        "monokai-pro-spectrum" => "monokai pro spectrum",
-        "monokai-pro-ristretto" => "monokai pro ristretto",
-        "monokai-pro-octagon" => "monokai pro octagon",
-        "monokai-pro-machine" => "monokai pro machine",
-        "monokai-classic" => "monokai classic",
-        "ethereal" => "ethereal",
-        "everforest" => "everforest",
-        "flexoki-light" => "flexoki light",
-        "hackerman" => "hackerman",
-        "last-horizon" => "last horizon",
-        "lumon" => "lumon",
-        "matte-black" => "matte black",
-        "miasma" => "miasma",
-        "osaka-jade" => "osaka jade",
-        "retro-82" => "retro 82",
-        "solitude" => "solitude",
-        "vantablack" => "vantablack",
-        "white" => "white",
-        "flexoki-dark" => "flexoki dark",
-        "omarchy" => "omarchy",
+        "catppuccin-latte" => "Catppuccin Latte",
+        "catppuccin" => "Catppuccin Mocha",
+        "catppuccin-frappe" => "Catppuccin Frappé",
+        "catppuccin-macchiato" => "Catppuccin Macchiato",
+        "tokyo-night-day" => "Tokyo Night Day",
+        "gruvbox-light" => "Gruvbox",
+        "one-light" => "One",
+        "solarized-light" => "Solarized",
+        "kanagawa-lotus" => "Kanagawa Lotus",
+        "rose-pine-dawn" => "Rosé Pine Dawn",
+        "tokyo-night" => "Tokyo Night",
+        "dracula" => "Dracula",
+        "ethereal" => "Ethereal",
+        "everforest" => "Everforest",
+        "flexoki" => "Flexoki",
+        "gruvbox" => "Gruvbox",
+        "kanagawa" => "Kanagawa",
+        "nord" => "Nord",
+        "one-dark" => "One Dark",
+        "rose-pine" => "Rosé Pine",
+        "monokai-pro" => "Monokai Pro",
+        "monokai-pro-light" => "Monokai Pro Light",
+        "monokai-pro-light-sun" => "Monokai Pro Sun",
+        "monokai-pro-spectrum" => "Monokai Pro Spectrum",
+        "monokai-pro-ristretto" => "Monokai Pro Ristretto",
+        "monokai-pro-octagon" => "Monokai Pro Octagon",
+        "monokai-pro-machine" => "Monokai Pro Machine",
+        "monokai-classic" => "Monokai Classic",
+        "flexoki-light" => "Flexoki Light",
+        "hackerman" => "Hackerman",
+        "last-horizon" => "Last Horizon",
+        "lumon" => "Lumon",
+        "matte-black" => "Matte Black",
+        "miasma" => "Miasma",
+        "osaka-jade" => "Osaka Jade",
+        "retro-82" => "Retro 82",
+        "solitude" => "Solitude",
+        "vantablack" => "Vantablack",
+        "white" => "White",
+        "flexoki-dark" => "Flexoki Dark",
+        "omarchy" => "Omarchy",
+        "solarized" => "Solarized",
+        "terminal" => "Terminal",
+        "vesper" => "Vesper",
         other => other,
     }
 }
 
 fn theme_mode_display_name(mode: ThemeMode) -> &'static str {
     match mode {
-        ThemeMode::System => "automatic",
-        ThemeMode::Light => "light",
-        ThemeMode::Dark => "dark",
+        ThemeMode::System => "Automatic",
+        ThemeMode::Light => "Light",
+        ThemeMode::Dark => "Dark",
     }
 }
 
 fn new_terminal_cwd_label(policy: &NewTerminalCwdConfig) -> String {
     match policy {
-        NewTerminalCwdConfig::Follow => "follow focused pane".to_string(),
-        NewTerminalCwdConfig::Home => "home directory".to_string(),
-        NewTerminalCwdConfig::Current => "Oh My Herdr process directory".to_string(),
-        NewTerminalCwdConfig::Path(path) => format!("custom path: {path}"),
+        NewTerminalCwdConfig::Follow => "Follow Focused Pane".to_string(),
+        NewTerminalCwdConfig::Home => "Home Directory".to_string(),
+        NewTerminalCwdConfig::Current => "Oh My Herdr Process Directory".to_string(),
+        NewTerminalCwdConfig::Path(path) => format!("Custom Path: {path}"),
     }
 }
 
@@ -1822,7 +1853,7 @@ mod tests {
     #[test]
     fn section_headers_and_spacers_are_not_selectable() {
         let rows = [
-            SettingsListRow::Header("section"),
+            SettingsListRow::Header("Section"),
             SettingsListRow::Spacer,
             SettingsListRow::Caption("caption".into()),
             SettingsListRow::Toggle {
@@ -1980,7 +2011,7 @@ mod tests {
                         .as_ref()
                         .expect("profile row should expose missing hook badge")
                         .as_ref(),
-                    "hook missing"
+                    "Hook Missing"
                 );
             }
             _ => unreachable!("matched profile row"),
@@ -2047,14 +2078,14 @@ mod tests {
             .find(|row| {
                 matches!(
                     row,
-                    SettingsListRow::Status { label, .. } if label.as_ref() == "codex"
+                    SettingsListRow::Status { label, .. } if label.as_ref() == "Codex"
                 )
             })
             .expect("codex integration row");
 
         match codex_row {
             SettingsListRow::Status { status, tone, .. } => {
-                assert_eq!(status.as_ref(), "installed · 1 profile hook missing");
+                assert_eq!(status.as_ref(), "Installed · 1 Profile Hook Missing");
                 assert_eq!(*tone, SettingsMarkerTone::Warning);
             }
             _ => unreachable!("matched status row"),
@@ -2086,7 +2117,7 @@ mod tests {
         assert!(matches!(
             &local_rows[0],
             SettingsListRow::Value { title, value, .. }
-                if title.as_ref() == "Integration host" && value.as_ref() == "Local"
+                if title.as_ref() == "Integration Host" && value.as_ref() == "Local"
         ));
 
         app.settings.integration_host_profile_id = Some("workbox".to_string());
@@ -2116,7 +2147,7 @@ mod tests {
                 status,
                 tone: SettingsMarkerTone::Warning,
                 ..
-            } if label.as_ref() == "codex" && status.as_ref() == "update available"
+            } if label.as_ref() == "Codex" && status.as_ref() == "Update Available"
         )));
     }
 
@@ -2133,7 +2164,7 @@ mod tests {
             .iter()
             .find_map(|row| match row {
                 SettingsListRow::Value { title, value, .. }
-                    if title.as_ref() == "default sidebar width" =>
+                    if title.as_ref() == "Default Sidebar Width" =>
                 {
                     Some(value.as_ref())
                 }
@@ -2153,7 +2184,7 @@ mod tests {
             .position(|row| {
                 matches!(
                     row,
-                    SettingsListRow::Value { title, .. } if title.as_ref() == "initial agent scope"
+                    SettingsListRow::Value { title, .. } if title.as_ref() == "Initial Agent Scope"
                 )
             })
             .expect("initial agent scope row");
@@ -2163,7 +2194,42 @@ mod tests {
         ));
         assert!(matches!(
             rows[initial_agent_scope + 2],
-            SettingsListRow::Header("panes")
+            SettingsListRow::Header("Panes")
         ));
+    }
+
+    #[test]
+    fn every_settings_section_separates_group_headers() {
+        let app = AppState::test_new();
+
+        for section in SettingsSection::ALL {
+            let rows = rows_for_section(&app, *section).expect("settings rows");
+            for (index, row) in rows.iter().enumerate() {
+                if index > 0 && matches!(row, SettingsListRow::Header(_)) {
+                    assert!(
+                        matches!(rows[index - 1], SettingsListRow::Spacer),
+                        "{section:?} header at row {index} has no blank line before it"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn command_rows_separate_each_command_field() {
+        let app = AppState::test_new();
+        let rows = command_rows(&app, &app.settings);
+        let fields = rows
+            .iter()
+            .enumerate()
+            .filter_map(|(index, row)| {
+                matches!(row, SettingsListRow::TextInput { .. }).then_some(index)
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(fields.len(), 4);
+        for index in fields.into_iter().skip(1) {
+            assert!(matches!(rows[index - 1], SettingsListRow::Spacer));
+        }
     }
 }

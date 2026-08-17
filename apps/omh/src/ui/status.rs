@@ -188,9 +188,9 @@ pub(super) fn agent_icon(
 
 pub(super) fn agent_section_style(label: &str, p: &Palette) -> Style {
     let color = match label {
-        "triage" => p.peach,
-        "working" => state_label_color(AgentState::Working, true, p),
-        "idle" => state_label_color(AgentState::Idle, true, p),
+        "Triage" => p.peach,
+        "Working" => state_label_color(AgentState::Working, true, p),
+        "Idle" => state_label_color(AgentState::Idle, true, p),
         _ => p.overlay0,
     };
     Style::default().fg(color).add_modifier(Modifier::BOLD)
@@ -198,20 +198,20 @@ pub(super) fn agent_section_style(label: &str, p: &Palette) -> Style {
 
 pub(super) fn agent_section_icon(label: &str, tick: u32, p: &Palette) -> (&'static str, Style) {
     match label {
-        "triage" => ("!", agent_section_style(label, p)),
-        "working" => agent_icon(AgentState::Working, true, tick, p),
-        "idle" => agent_icon(AgentState::Idle, true, tick, p),
+        "Triage" => ("!", agent_section_style(label, p)),
+        "Working" => agent_icon(AgentState::Working, true, tick, p),
+        "Idle" => agent_icon(AgentState::Idle, true, tick, p),
         _ => ("?", Style::default().fg(p.overlay0)),
     }
 }
 
 pub(super) fn state_label(state: AgentState, seen: bool) -> &'static str {
     match (state, seen) {
-        (AgentState::Blocked, _) => "blocked",
-        (AgentState::Working, _) => "working",
-        (AgentState::Idle, false) => "done",
-        (AgentState::Idle, true) => "idle",
-        (AgentState::Unknown, _) => "idle",
+        (AgentState::Blocked, _) => "Blocked",
+        (AgentState::Working, _) => "Working",
+        (AgentState::Idle, false) => "Done",
+        (AgentState::Idle, true) => "Idle",
+        (AgentState::Unknown, _) => "Idle",
     }
 }
 

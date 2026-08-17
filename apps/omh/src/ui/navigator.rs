@@ -24,10 +24,10 @@ const NAVIGATOR_WIDTH: u16 = 92;
 const NAVIGATOR_HEIGHT: u16 = 30;
 const NAVIGATOR_HEADER_ROWS: u16 = 4;
 const NAVIGATOR_HINTS: &[(&str, &str)] = &[
-    ("expand", "space · all e/c"),
-    ("open", "enter / click"),
-    ("search", "/"),
-    ("move", "↑↓"),
+    ("Expand", "Space · All E/C"),
+    ("Open", "Enter / Click"),
+    ("Search", "/"),
+    ("Move", "↑↓"),
 ];
 
 #[derive(Debug, Clone, Copy)]
@@ -43,7 +43,7 @@ pub(crate) struct NavigatorLayout {
 
 fn navigator_frame_spec() -> ModalFrameSpec<'static> {
     ModalFrameSpec {
-        title: "workspace navigator",
+        title: "Workspace Navigator",
         width: NAVIGATOR_WIDTH,
         height: NAVIGATOR_HEIGHT,
         header_rows: NAVIGATOR_HEADER_ROWS,
@@ -172,7 +172,7 @@ fn render_search_for_navigator(
         .flat_map(|workspace| workspace.tabs.iter())
         .map(|tab| tab.panes.len())
         .sum::<usize>();
-    let count = count_label(count, "pane", "panes");
+    let count = count_label(count, "Pane", "Panes");
     let mut spans = vec![Span::styled(" / ", focus_style)];
     let query = navigator.query.trim();
     match navigator.state_filter {
@@ -181,7 +181,7 @@ fn render_search_for_navigator(
             crate::detect::AgentState::Blocked,
             true,
             app.spinner_tick,
-            "blocked",
+            "Blocked",
             app,
         ),
         Some(NavigatorStateFilter::Working) => push_state_chip(
@@ -189,7 +189,7 @@ fn render_search_for_navigator(
             crate::detect::AgentState::Working,
             true,
             app.spinner_tick,
-            "working",
+            "Working",
             app,
         ),
         Some(NavigatorStateFilter::Idle) => push_state_chip(
@@ -197,7 +197,7 @@ fn render_search_for_navigator(
             crate::detect::AgentState::Idle,
             true,
             app.spinner_tick,
-            "idle",
+            "Idle",
             app,
         ),
         Some(NavigatorStateFilter::Done) => push_state_chip(
@@ -205,11 +205,11 @@ fn render_search_for_navigator(
             crate::detect::AgentState::Idle,
             false,
             app.spinner_tick,
-            "done",
+            "Done",
             app,
         ),
         None if query.is_empty() => spans.push(Span::styled(
-            "search groups, spaces, tabs, panes",
+            "Search groups, spaces, tabs, panes",
             Style::default().fg(p.overlay0),
         )),
         None => spans.push(Span::styled(query.to_string(), Style::default().fg(p.text))),
@@ -502,7 +502,7 @@ fn workspace_detail(app: &AppState, ws_idx: usize, activity: &str) -> String {
     let terminal_runtimes = crate::terminal::TerminalRuntimeRegistry::new();
     let label = ws.display_name_from(&app.terminals, &terminal_runtimes);
     let pane_count = ws.tabs.iter().map(|tab| tab.panes.len()).sum::<usize>();
-    let mut parts = vec![label, count_label(pane_count, "pane", "panes")];
+    let mut parts = vec![label, count_label(pane_count, "Pane", "Panes")];
     if !activity.is_empty() {
         parts.push(activity.to_string());
     }
@@ -519,7 +519,7 @@ fn tab_detail(app: &AppState, ws_idx: usize, tab_idx: usize, meta: &str) -> Stri
     let terminal_runtimes = crate::terminal::TerminalRuntimeRegistry::new();
     let mut parts = vec![
         ws.display_name_from(&app.terminals, &terminal_runtimes),
-        format!("tab: {}", tab.display_name()),
+        format!("Tab: {}", tab.display_name()),
     ];
     if !meta.is_empty() {
         parts.push(meta.to_string());
@@ -542,7 +542,7 @@ fn pane_detail(
     let terminal_runtimes = crate::terminal::TerminalRuntimeRegistry::new();
     let mut parts = vec![ws.display_name_from(&app.terminals, &terminal_runtimes)];
     if ws.tabs.len() > 1 {
-        parts.push(format!("tab: {}", tab.display_name()));
+        parts.push(format!("Tab: {}", tab.display_name()));
     }
     let pane_label = tab
         .terminal_id(pane_id)
@@ -550,7 +550,7 @@ fn pane_detail(
         .and_then(|terminal| terminal.manual_label.clone())
         .or_else(|| {
             ws.pane_display_number(pane_id)
-                .map(|number| format!("pane {number}"))
+                .map(|number| format!("Pane {number}"))
         });
     if let Some(pane_label) = pane_label {
         parts.push(pane_label);
@@ -582,7 +582,7 @@ fn pane_detail(
                     .unwrap_or_else(|| display_state(state, seen).to_string());
                 parts.push(status);
             } else {
-                parts.push("shell".to_string());
+                parts.push("Shell".to_string());
             }
             if let Some(status) = terminal.effective_custom_status() {
                 parts.push(status.to_string());
@@ -609,11 +609,11 @@ fn row_state(
 
 fn display_state(state: crate::detect::AgentState, seen: bool) -> &'static str {
     match (state, seen) {
-        (crate::detect::AgentState::Blocked, _) => "blocked",
-        (crate::detect::AgentState::Working, _) => "working",
-        (crate::detect::AgentState::Idle, false) => "done",
-        (crate::detect::AgentState::Idle, true) => "idle",
-        (crate::detect::AgentState::Unknown, _) => "unknown",
+        (crate::detect::AgentState::Blocked, _) => "Blocked",
+        (crate::detect::AgentState::Working, _) => "Working",
+        (crate::detect::AgentState::Idle, false) => "Done",
+        (crate::detect::AgentState::Idle, true) => "Idle",
+        (crate::detect::AgentState::Unknown, _) => "Unknown",
     }
 }
 
@@ -657,17 +657,17 @@ mod tests {
 
         let text = buffer_text(terminal.backend().buffer(), 120, 30);
         assert!(
-            text.contains("client-selected-workspace · 1 pane"),
+            text.contains("client-selected-workspace · 1 Pane"),
             "client navigator detail: {text:?}"
         );
-        assert!(!text.contains("app-selected-workspace · 1 pane"));
+        assert!(!text.contains("app-selected-workspace · 1 Pane"));
         assert!(
-            text.contains("workspace navigator"),
+            text.contains("Workspace Navigator"),
             "modal title: {text:?}"
         );
-        assert!(text.contains("esc close"), "modal close action: {text:?}");
+        assert!(text.contains("Esc Close"), "modal close action: {text:?}");
         assert!(
-            text.contains("expand space · all e/c"),
+            text.contains("Expand Space · All E/C"),
             "modal footer hints: {text:?}"
         );
     }
@@ -712,7 +712,7 @@ mod tests {
         let detail = (layout.detail.x..layout.detail.x + layout.detail.width)
             .map(|x| terminal.backend().buffer()[(x, layout.detail.y)].symbol())
             .collect::<String>();
-        assert!(detail.contains("personal · pane 2"), "{detail:?}");
+        assert!(detail.contains("personal · Pane 2"), "{detail:?}");
     }
 
     #[test]

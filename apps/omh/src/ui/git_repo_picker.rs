@@ -19,7 +19,7 @@ use super::{
     },
 };
 
-const GIT_REPO_PICKER_HINTS: &[(&str, &str)] = &[("move", "↑↓"), ("open", "space/↵")];
+const GIT_REPO_PICKER_HINTS: &[(&str, &str)] = &[("Move", "↑↓"), ("Open", "Space/↵")];
 const POPUP_WIDTH: u16 = 64;
 const POPUP_HEIGHT: u16 = 20;
 const HEADER_ROWS: u16 = 3;
@@ -28,7 +28,7 @@ fn repo_name(path: &std::path::Path) -> String {
     path.file_name()
         .and_then(|name| name.to_str())
         .filter(|name| !name.is_empty())
-        .unwrap_or("repo")
+        .unwrap_or("Repo")
         .to_string()
 }
 
@@ -55,7 +55,7 @@ fn repo_status_spans(
         } else {
             Style::default().fg(palette.overlay0)
         };
-        return vec![Span::styled("clean", style)];
+        return vec![Span::styled("Clean", style)];
     }
 
     let selected_style = || {
@@ -243,7 +243,7 @@ fn render_git_repo_picker_overlay_with(
         area,
         &palette,
         ModalFrameSpec {
-            title: "git diff",
+            title: "Git Diff",
             width: POPUP_WIDTH,
             height: POPUP_HEIGHT,
             header_rows: HEADER_ROWS,
@@ -271,7 +271,7 @@ fn render_git_repo_picker_overlay_with(
     let content_rows = layout.content_rows;
     frame.render_widget(
         Paragraph::new(Span::styled(
-            " repositories",
+            " Repositories",
             modal_section_heading_style(&palette),
         )),
         content_rows[0],
@@ -280,16 +280,16 @@ fn render_git_repo_picker_overlay_with(
         .workspaces
         .get(picker.ws_idx)
         .map(|workspace| workspace.display_name())
-        .unwrap_or_else(|| "workspace".to_string());
+        .unwrap_or_else(|| "Workspace".to_string());
     render_modal_description(
         frame,
         content_rows[1],
-        &format!("choose which repository to diff for {workspace}"),
+        &format!("Choose which repository to diff for {workspace}"),
         Style::default().fg(palette.overlay0),
     );
     frame.render_widget(
         Paragraph::new(Span::styled(
-            " available",
+            " Available",
             modal_section_heading_style(&palette),
         )),
         content_rows[3],

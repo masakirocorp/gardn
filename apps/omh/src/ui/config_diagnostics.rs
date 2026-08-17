@@ -18,9 +18,9 @@ const MODAL_WIDTH: u16 = 92;
 const MODAL_HEIGHT: u16 = 26;
 const HEADER_ROWS: u16 = 4;
 const FOOTER_HINTS: &[(&str, &str)] = &[
-    ("reload", "r"),
-    ("scroll", "wheel / ↑↓"),
-    ("jump", "pgup / pgdn"),
+    ("Reload", "r"),
+    ("Scroll", "Wheel / ↑↓"),
+    ("Jump", "PgUp / PgDn"),
 ];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -30,7 +30,7 @@ pub(crate) enum ConfigDiagnosticsAction {
 
 fn config_diagnostics_frame_spec() -> ModalFrameSpec<'static> {
     ModalFrameSpec {
-        title: "configuration issue",
+        title: "Configuration Issue",
         width: MODAL_WIDTH,
         height: MODAL_HEIGHT,
         header_rows: HEADER_ROWS,
@@ -210,7 +210,7 @@ fn render_config_diagnostics_overlay_from(
     render_modal_divider(frame, divider, &app.palette);
     frame.render_widget(
         Paragraph::new(Line::from(vec![
-            Span::styled(" diagnostics", modal_section_heading_style(&app.palette)),
+            Span::styled(" Diagnostics", modal_section_heading_style(&app.palette)),
             Span::styled(" · ", Style::default().fg(app.palette.overlay0)),
             Span::styled(
                 issue.entries.len().to_string(),

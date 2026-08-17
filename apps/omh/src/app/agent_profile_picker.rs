@@ -41,7 +41,7 @@ pub(crate) const AGENT_PROFILE_PICKER_TABS: [Option<AgentKind>; 10] = [
 ];
 
 pub(crate) fn agent_profile_picker_tab_label(tab: Option<AgentKind>) -> &'static str {
-    tab.map_or("all", AgentKind::as_str)
+    tab.map_or("All", AgentKind::display_name)
 }
 
 pub(crate) fn workspace_agent_profile_ids(

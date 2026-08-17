@@ -128,7 +128,7 @@ fn mobile_navigation_rows(
             }
         }
         if rows.is_empty() {
-            rows.push(MobileNavigationRow::Empty("no agents"));
+            rows.push(MobileNavigationRow::Empty("No Agents"));
         }
         return rows;
     }
@@ -142,7 +142,7 @@ fn mobile_navigation_rows(
 
     match level {
         MobileSwitcherLevel::Groups => {
-            rows.push(MobileNavigationRow::Subheader("groups"));
+            rows.push(MobileNavigationRow::Subheader("Groups"));
             rows.extend(hierarchy.into_iter().filter_map(|row| match row.target {
                 NavigatorTarget::Group { group_idx } => Some(MobileNavigationRow::Hierarchy {
                     row,
@@ -152,12 +152,12 @@ fn mobile_navigation_rows(
             }));
             append_mobile_footer(
                 &mut rows,
-                "new",
-                [("group", MobileSwitcherTarget::NewGroup)],
+                "New",
+                [("Group", MobileSwitcherTarget::NewGroup)],
             );
         }
         MobileSwitcherLevel::Workspaces { group_idx } => {
-            rows.push(MobileNavigationRow::Subheader("spaces"));
+            rows.push(MobileNavigationRow::Subheader("Spaces"));
             rows.extend(hierarchy.into_iter().filter_map(|row| {
                 match row.target {
                     NavigatorTarget::Workspace { ws_idx }
@@ -176,16 +176,16 @@ fn mobile_navigation_rows(
                 }
             }));
             if rows.len() == 1 {
-                rows.push(MobileNavigationRow::Empty("no spaces"));
+                rows.push(MobileNavigationRow::Empty("No Spaces"));
             }
             append_mobile_footer(
                 &mut rows,
-                "new",
-                [("space", MobileSwitcherTarget::NewSpace { group_idx })],
+                "New",
+                [("Space", MobileSwitcherTarget::NewSpace { group_idx })],
             );
         }
         MobileSwitcherLevel::Tabs { ws_idx } => {
-            rows.push(MobileNavigationRow::Subheader("tabs"));
+            rows.push(MobileNavigationRow::Subheader("Tabs"));
             rows.extend(hierarchy.into_iter().filter_map(|row| match row.target {
                 NavigatorTarget::Tab {
                     ws_idx: row_ws_idx,
@@ -197,12 +197,12 @@ fn mobile_navigation_rows(
                 _ => None,
             }));
             if rows.is_empty() {
-                rows.push(MobileNavigationRow::Empty("no tabs"));
+                rows.push(MobileNavigationRow::Empty("No Tabs"));
             }
             append_mobile_footer(
                 &mut rows,
-                "new",
-                [("tab", MobileSwitcherTarget::NewTab { ws_idx })],
+                "New",
+                [("Tab", MobileSwitcherTarget::NewTab { ws_idx })],
             );
             let active_tab_idx = view
                 .and_then(|view| view.active_tab_index_for_workspace(app, ws_idx))
@@ -223,7 +223,7 @@ fn mobile_navigation_rows(
             }
         }
         MobileSwitcherLevel::Panes { ws_idx, tab_idx } => {
-            rows.push(MobileNavigationRow::Subheader("panes"));
+            rows.push(MobileNavigationRow::Subheader("Panes"));
             rows.extend(hierarchy.into_iter().filter_map(|row| match row.target {
                 NavigatorTarget::Pane {
                     ws_idx: row_ws_idx,
@@ -242,7 +242,7 @@ fn mobile_navigation_rows(
                 _ => None,
             }));
             if rows.is_empty() {
-                rows.push(MobileNavigationRow::Empty("no panes"));
+                rows.push(MobileNavigationRow::Empty("No Panes"));
             }
             append_mobile_split_actions(&mut rows, app, view, ws_idx, tab_idx);
         }
@@ -296,16 +296,16 @@ fn append_mobile_split_actions(
     }
 
     rows.push(MobileNavigationRow::Divider);
-    rows.push(MobileNavigationRow::Subheader("split"));
+    rows.push(MobileNavigationRow::Subheader("Split"));
     if split_area.width >= 2 {
         rows.push(MobileNavigationRow::Action {
-            label: "right",
+            label: "Right",
             target: MobileSwitcherTarget::SplitRight,
         });
     }
     if split_area.height >= 2 {
         rows.push(MobileNavigationRow::Action {
-            label: "down",
+            label: "Down",
             target: MobileSwitcherTarget::SplitDown,
         });
     }
@@ -769,7 +769,7 @@ fn render_mobile_agent_strip(
         summary_area,
         0,
         0,
-        (count("triage"), count("working"), count("idle")),
+        (count("Triage"), count("Working"), count("Idle")),
         expanded,
         false,
     );
@@ -1101,7 +1101,7 @@ fn render_mobile_agent_summary(
                 .bg(bg),
         ),
         Span::styled(
-            "agents",
+            "Agents",
             Style::default()
                 .fg(if selected { selected_fg } else { p.text })
                 .bg(bg)
@@ -1110,7 +1110,7 @@ fn render_mobile_agent_summary(
     ];
     if counts == (0, 0, 0) {
         spans.push(Span::styled(
-            " no agents",
+            " No Agents",
             Style::default()
                 .fg(if selected { selected_fg } else { p.overlay0 })
                 .bg(bg)
@@ -1122,9 +1122,9 @@ fn render_mobile_agent_summary(
         ));
     } else {
         for (label, count) in [
-            ("triage", counts.0),
-            ("working", counts.1),
-            ("idle", counts.2),
+            ("Triage", counts.0),
+            ("Working", counts.1),
+            ("Idle", counts.2),
         ] {
             if count == 0 {
                 continue;
@@ -1527,15 +1527,15 @@ fn mobile_toast_title(toast: &ToastNotification) -> String {
     match toast.kind {
         ToastKind::NeedsAttention => toast
             .title
-            .strip_suffix(" needs attention")
-            .map(|agent| format!("{agent} waiting"))
+            .strip_suffix(" Needs Attention")
+            .map(|agent| format!("{agent} Waiting"))
             .unwrap_or_else(|| toast.title.clone()),
         ToastKind::Finished => toast
             .title
-            .strip_suffix(" finished")
-            .map(|agent| format!("{agent} done"))
+            .strip_suffix(" Finished")
+            .map(|agent| format!("{agent} Done"))
             .unwrap_or_else(|| toast.title.clone()),
-        ToastKind::UpdateInstalled => "update ready".to_string(),
+        ToastKind::UpdateInstalled => "Update Ready".to_string(),
     }
 }
 
@@ -1561,7 +1561,7 @@ mod tests {
         app.groups[group_idx].icon = "■".to_string();
         app.groups[group_idx].accent = Some(crate::config::TerminalAccent::Red);
 
-        let default_space = crate::workspace::Workspace::test_new("default");
+        let default_space = crate::workspace::Workspace::test_new("Default");
         let mut active_space = crate::workspace::Workspace::test_new("observability");
         active_space.group_id = app.groups[group_idx].id.clone();
         active_space.custom_name = Some("Observability".to_string());
@@ -1666,7 +1666,7 @@ mod tests {
             matches!(
                 row,
                 MobileNavigationRow::Hierarchy { row, .. }
-                    if row.label.eq_ignore_ascii_case("claude") && row.meta.contains("working")
+                    if row.label.eq_ignore_ascii_case("claude") && row.meta.contains("Working")
             )
         }));
         assert!(!pane_rows
@@ -1770,17 +1770,17 @@ mod tests {
 
         assert!(text.contains("Obser"), "header: {text:?}");
         assert!(text.contains("dashb"), "header: {text:?}");
-        assert!(!text.contains("no agents"), "header: {text:?}");
-        assert!(text.contains("agents"), "header: {text:?}");
-        assert!(text.contains("1 working"), "header: {text:?}");
-        assert!(!text.contains("triage"), "header: {text:?}");
-        assert!(!text.contains("idle"), "header: {text:?}");
+        assert!(!text.contains("No Agents"), "header: {text:?}");
+        assert!(text.contains("Agents"), "header: {text:?}");
+        assert!(text.contains("1 Working"), "header: {text:?}");
+        assert!(!text.contains("Triage"), "header: {text:?}");
+        assert!(!text.contains("Idle"), "header: {text:?}");
         let working_x = (0..44)
-            .find(|x| buffer[(*x, 0)].symbol() == "w")
+            .find(|x| buffer[(*x, 0)].symbol() == "W")
             .expect("working label");
         assert_eq!(
             buffer[(working_x, 0)].style().fg,
-            agent_section_style("working", &app.palette).fg
+            agent_section_style("Working", &app.palette).fg
         );
         assert!(buffer[(working_x, 0)]
             .style()
@@ -1809,7 +1809,7 @@ mod tests {
         let first_row = (0..44).map(|x| buffer[(x, 0)].symbol()).collect::<String>();
         let second_row = (0..44).map(|x| buffer[(x, 1)].symbol()).collect::<String>();
         assert!(
-            first_row.contains("agents no agents"),
+            first_row.contains("Agents No Agents"),
             "agents: {first_row:?}"
         );
         assert!(
@@ -1842,7 +1842,7 @@ mod tests {
 
         let buffer = terminal.backend().buffer();
         let text = buffer_text(buffer);
-        for (label, count) in [("triage", 2), ("working", 1), ("idle", 3)] {
+        for (label, count) in [("Triage", 2), ("Working", 1), ("Idle", 3)] {
             assert!(
                 text.contains(&format!("{count} {label}")),
                 "summary: {text:?}"
@@ -1858,8 +1858,8 @@ mod tests {
             assert_eq!(style.fg, agent_section_style(label, &app.palette).fg);
             assert!(style.add_modifier.contains(Modifier::BOLD));
         }
-        assert!(text.contains("! 2 triage"), "summary: {text:?}");
-        assert!(text.contains("✓ 3 idle"), "summary: {text:?}");
+        assert!(text.contains("! 2 Triage"), "summary: {text:?}");
+        assert!(text.contains("✓ 3 Idle"), "summary: {text:?}");
     }
 
     #[test]
@@ -1870,13 +1870,13 @@ mod tests {
             ratatui::Terminal::new(ratatui::backend::TestBackend::new(20, 1)).unwrap();
 
         terminal
-            .draw(|frame| render_mobile_agent_section(&app, frame, area, area, 0, 0, "working", 3))
+            .draw(|frame| render_mobile_agent_section(&app, frame, area, area, 0, 0, "Working", 3))
             .unwrap();
         assert_eq!(terminal.backend().buffer()[(18, 0)].symbol(), " ");
 
         app.show_counters = true;
         terminal
-            .draw(|frame| render_mobile_agent_section(&app, frame, area, area, 0, 0, "working", 3))
+            .draw(|frame| render_mobile_agent_section(&app, frame, area, area, 0, 0, "Working", 3))
             .unwrap();
         assert_eq!(terminal.backend().buffer()[(18, 0)].symbol(), "3");
     }
@@ -1936,7 +1936,7 @@ mod tests {
             "┐"
         );
         let subheader = (areas.viewport.x + 2, areas.viewport.y);
-        assert_eq!(buffer[subheader].symbol(), "g");
+        assert_eq!(buffer[subheader].symbol(), "G");
         assert_eq!(buffer[subheader].style().fg, Some(app.palette.overlay0));
         assert!(buffer[subheader]
             .style()
@@ -1958,7 +1958,7 @@ mod tests {
         let active_row = (content.x..content.x + content.width)
             .map(|x| buffer[(x, active_icon.1)].symbol())
             .collect::<String>();
-        assert!(!active_row.contains("spaces"), "group row: {active_row:?}");
+        assert!(!active_row.contains("Spaces"), "group row: {active_row:?}");
         assert!(
             active_row.trim_end().ends_with('2'),
             "group row: {active_row:?}"
@@ -1996,7 +1996,7 @@ mod tests {
             collapsed.contains("Infrastructure"),
             "groups: {collapsed:?}"
         );
-        assert!(!collapsed.contains("agents"), "groups: {collapsed:?}");
+        assert!(!collapsed.contains("Agents"), "groups: {collapsed:?}");
 
         let other_pane = app.workspaces[0].tabs[0].root_pane;
         let other_terminal = app.workspaces[0].tabs[0].panes[&other_pane]
@@ -2038,7 +2038,7 @@ mod tests {
                         pane_id,
                     },
             }] => {
-                assert_eq!(*label, "working");
+                assert_eq!(*label, "Working");
                 assert_eq!(*count, 1);
                 assert_eq!(*pane_id, focused_pane);
                 (agent_label.clone(), meta.clone())
@@ -2055,11 +2055,11 @@ mod tests {
         let buffer = terminal.backend().buffer();
         let expanded = buffer_text(buffer);
         assert_eq!(
-            expanded.matches("agents").count(),
+            expanded.matches("Agents").count(),
             1,
             "agents: {expanded:?}"
         );
-        assert!(!expanded.contains("all agents"), "agents: {expanded:?}");
+        assert!(!expanded.contains("All Agents"), "agents: {expanded:?}");
 
         let areas = mobile_switcher_areas(&app);
         assert_eq!(areas.agent_toggle, Rect::new(0, 0, 44, 1));
@@ -2069,12 +2069,12 @@ mod tests {
         );
         assert_eq!(
             buffer[(areas.agent_toggle.x + 3, areas.agent_toggle.y)].symbol(),
-            "a"
+            "A"
         );
         let scope_label = (areas.agent_scope.x..areas.agent_scope.x + areas.agent_scope.width)
             .map(|x| buffer[(x, areas.agent_scope.y)].symbol())
             .collect::<String>();
-        assert_eq!(scope_label.trim(), "space");
+        assert_eq!(scope_label.trim(), "Space");
         let separator_y = areas.panel.y + 1;
         assert!(
             (areas.panel.x..areas.panel.x + areas.panel.width)
@@ -2100,17 +2100,17 @@ mod tests {
         let section_y = areas.viewport.y;
         let agent_y = section_y + 1;
         let (section_icon, section_icon_style) =
-            agent_section_icon("working", app.spinner_tick, &app.palette);
+            agent_section_icon("Working", app.spinner_tick, &app.palette);
         assert_eq!(buffer[(content.x, section_y)].symbol(), "▾");
         assert_eq!(buffer[(content.x + 2, section_y)].symbol(), section_icon);
         assert_eq!(
             buffer[(content.x + 2, section_y)].style().fg,
             section_icon_style.fg
         );
-        assert_eq!(buffer[(content.x + 4, section_y)].symbol(), "w");
+        assert_eq!(buffer[(content.x + 4, section_y)].symbol(), "W");
         assert_eq!(
             buffer[(content.x + 4, section_y)].style().fg,
-            agent_section_style("working", &app.palette).fg
+            agent_section_style("Working", &app.palette).fg
         );
 
         assert_eq!(buffer[(content.x + 2, agent_y)].symbol(), " ");
@@ -2259,9 +2259,9 @@ mod tests {
             .unwrap();
 
         let text = buffer_text(terminal.backend().buffer());
-        assert!(text.contains("no spaces"), "workspace menu: {text:?}");
-        assert!(text.contains("new"), "workspace menu: {text:?}");
-        assert!(text.contains("space"), "workspace menu: {text:?}");
+        assert!(text.contains("No Spaces"), "workspace menu: {text:?}");
+        assert!(text.contains("New"), "workspace menu: {text:?}");
+        assert!(text.contains("Space"), "workspace menu: {text:?}");
     }
 
     #[test]
@@ -2294,12 +2294,12 @@ mod tests {
             .expect("logs tab");
         let new_heading = lines
             .iter()
-            .position(|line| line.contains("  new"))
-            .expect("new section");
+            .position(|line| line.contains("  New"))
+            .expect("New section");
         let new_tab = lines
             .iter()
-            .position(|line| line.contains("  tab") && !line.contains("tabs"))
-            .expect("tab action");
+            .position(|line| line.contains("  Tab") && !line.contains("Tabs"))
+            .expect("Tab action");
 
         assert!(dashboards < logs);
         assert!(logs + 1 < new_heading, "new must be outside the tab list");
@@ -2325,7 +2325,7 @@ mod tests {
         );
         let root = std::env::temp_dir().join(unique);
         let stale_cwd = root.join("issue-264-nix-support");
-        let live_cwd = root.join("omh");
+        let live_cwd = root.join("Oh My Herdr");
         std::fs::create_dir_all(stale_cwd.join(".git")).unwrap();
         std::fs::create_dir_all(live_cwd.join(".git")).unwrap();
 
@@ -2401,7 +2401,7 @@ mod tests {
         }
         let _ = std::fs::remove_dir_all(root);
 
-        assert!(row.contains("omh"), "header row: {row:?}");
+        assert!(row.contains("Oh My Herdr"), "header row: {row:?}");
         assert!(
             !row.contains("issue-264-nix-support"),
             "header row: {row:?}"
@@ -2438,7 +2438,7 @@ mod tests {
         let bar = &watcher.computed.context_bar;
         let chip = bar.segments.last().expect("watching chip segment");
         assert_eq!(chip.target, crate::app::state::ContextBarTarget::TabControl);
-        assert_eq!(chip.label, " WATCHING ");
+        assert_eq!(chip.label, " Watching ");
         assert_eq!(
             chip.rect.x + chip.rect.width + 1,
             bar.rect.x + bar.rect.width,
@@ -2475,7 +2475,7 @@ mod tests {
         let header_line = (0..44)
             .map(|x| terminal.backend().buffer()[(x, bar.rect.y)].symbol())
             .collect::<String>();
-        assert!(header_line.contains("WATCHING"), "{header_line:?}");
+        assert!(header_line.contains("Watching"), "{header_line:?}");
     }
 
     #[test]
@@ -2500,7 +2500,7 @@ mod tests {
         let bar = &watcher.computed.context_bar;
         let chip = bar.segments.last().expect("free chip segment");
         assert_eq!(chip.target, crate::app::state::ContextBarTarget::TabControl);
-        assert_eq!(chip.label, " FREE ");
+        assert_eq!(chip.label, " Free ");
 
         let backend = ratatui::backend::TestBackend::new(44, 20);
         let mut terminal = ratatui::Terminal::new(backend).unwrap();
@@ -2518,7 +2518,7 @@ mod tests {
         let header_line = (0..44)
             .map(|x| terminal.backend().buffer()[(x, bar.rect.y)].symbol())
             .collect::<String>();
-        assert!(header_line.contains("FREE"), "{header_line:?}");
+        assert!(header_line.contains("Free"), "{header_line:?}");
 
         // Tiny rectangles never break: the chip drops below badge width and
         // every surviving segment stays inside the header row.

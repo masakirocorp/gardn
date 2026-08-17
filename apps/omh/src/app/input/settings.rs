@@ -5,7 +5,7 @@ use crate::{
     app::{
         state::{
             normalize_theme_name, theme_names_for_appearance, AppState, DragState, DragTarget,
-            SettingsSection, SettingsState, THEME_NAMES,
+            SettingsSection, SettingsSidebarSelection, SettingsState, THEME_NAMES,
         },
         view_state::ClientViewState,
         App, Mode,
@@ -19,7 +19,7 @@ use crate::{
         connection_editor_open as settings_connection_editor_open, next_option_index, option_count,
         option_hit_for_visual_row, option_index_for_visual_row, previous_option_index,
         rows_for_section, selected_visual_row, visual_row_count, ConnectionField, ConnectionRowId,
-        SettingsRowHit,
+        SettingsListRow, SettingsRowHit,
     },
     terminal_theme::ThemeAppearance,
 };
@@ -283,7 +283,7 @@ impl App {
                     Err(error) => {
                         self.state.toast = Some(crate::app::state::ToastNotification {
                             kind: crate::app::state::ToastKind::NeedsAttention,
-                            title: "Could not open workspace".to_string(),
+                            title: "Could Not Open Workspace".to_string(),
                             context: error,
                             position: None,
                             target: None,
@@ -317,7 +317,7 @@ impl App {
                     Err(err) => {
                         self.state.toast = Some(crate::app::state::ToastNotification {
                             kind: crate::app::state::ToastKind::NeedsAttention,
-                            title: "remote termination not forgotten".to_string(),
+                            title: "Remote Termination Not Forgotten".to_string(),
                             context: err.to_string(),
                             position: None,
                             target: None,
@@ -336,7 +336,7 @@ impl App {
         if let Err(err) = self.commit_ssh_connection_profile(profile) {
             self.state.toast = Some(crate::app::state::ToastNotification {
                 kind: crate::app::state::ToastKind::NeedsAttention,
-                title: "connection profile not saved".to_string(),
+                title: "Connection Profile Not Saved".to_string(),
                 context: err.to_string(),
                 position: None,
                 target: None,
@@ -812,7 +812,7 @@ fn set_pending_group_default_directory(state: &mut AppState, default_directory: 
 fn pending_group_field(state: &AppState, selected: usize) -> Option<String> {
     match selected {
         0 => Some(pending_group_name(state)),
-        1 => Some(pending_group_default_directory(state)),
+        2 => Some(pending_group_default_directory(state)),
         _ => None,
     }
 }
@@ -820,7 +820,7 @@ fn pending_group_field(state: &AppState, selected: usize) -> Option<String> {
 fn set_pending_group_field(state: &mut AppState, selected: usize, value: String) {
     match selected {
         0 => set_pending_group_name(state, value),
-        1 => set_pending_group_default_directory(state, value),
+        2 => set_pending_group_default_directory(state, value),
         _ => {}
     }
 }
@@ -843,7 +843,7 @@ fn edit_pending_group_field(state: &mut AppState, key: KeyEvent) -> bool {
         return false;
     };
     state.settings.list.select(selected);
-    if !matches!(selected, 0 | 1) {
+    if !matches!(selected, 0 | 2) {
         return false;
     }
 
@@ -923,7 +923,7 @@ fn pending_workspace_default_cwd(state: &AppState) -> String {
 fn set_pending_workspace_field(state: &mut AppState, selected: usize, value: String) {
     match selected {
         0 => state.settings.pending_workspace_name = Some(value),
-        1 => state.settings.pending_workspace_default_cwd = Some(value),
+        2 => state.settings.pending_workspace_default_cwd = Some(value),
         _ => {}
     }
 }
@@ -931,7 +931,7 @@ fn set_pending_workspace_field(state: &mut AppState, selected: usize, value: Str
 fn pending_workspace_field(state: &AppState, selected: usize) -> Option<String> {
     match selected {
         0 => Some(pending_workspace_name(state)),
-        1 => Some(pending_workspace_default_cwd(state)),
+        2 => Some(pending_workspace_default_cwd(state)),
         _ => None,
     }
 }
@@ -954,7 +954,7 @@ fn edit_pending_workspace_field(state: &mut AppState, key: KeyEvent) -> bool {
         return false;
     };
     state.settings.list.select(selected);
-    if selected > 1 {
+    if !matches!(selected, 0 | 2) {
         return false;
     }
     match key.code {
@@ -2183,7 +2183,7 @@ fn selected_group_general_action(state: &mut AppState) -> Option<SettingsAction>
             let name = pending_group_name(state).trim().to_string();
             (!name.is_empty()).then_some(SettingsAction::SaveGroupName { group_idx, name })
         }
-        1 => {
+        1 | 2 => {
             let default_directory = pending_group_default_directory(state).trim().to_string();
             let default_location = (!default_directory.is_empty())
                 .then(|| {
@@ -2202,7 +2202,7 @@ fn selected_group_general_action(state: &mut AppState) -> Option<SettingsAction>
                 default_location,
             })
         }
-        2 => {
+        3 => {
             close_settings(state);
             Some(SettingsAction::DeleteGroup(group_idx))
         }
@@ -2220,7 +2220,7 @@ fn selected_workspace_general_action(state: &mut AppState) -> Option<SettingsAct
             let name = pending_workspace_name(state).trim().to_string();
             (!name.is_empty()).then_some(SettingsAction::SaveWorkspaceName { ws_idx, name })
         }
-        1 => {
+        1 | 2 => {
             let cwd = pending_workspace_default_cwd(state).trim().to_string();
             let path = crate::execution_host::HostPath::new(cwd).ok()?;
             Some(SettingsAction::SaveWorkspaceDefaultLocation {
@@ -2480,6 +2480,150 @@ fn switch_settings_section(state: &mut AppState, section: SettingsSection, selec
     clear_settings_selection(state);
 }
 
+fn general_settings_section_selection(state: &AppState, section: SettingsSection) -> usize {
+    match section {
+        SettingsSection::Theme => target_theme_index(state),
+        SettingsSection::Layout
+        | SettingsSection::Sound
+        | SettingsSection::Toast
+        | SettingsSection::PaneLabels
+        | SettingsSection::Commands
+        | SettingsSection::Experiments
+        | SettingsSection::Agents
+        | SettingsSection::Integrations
+        | SettingsSection::Connections
+        | SettingsSection::GroupProfiles
+        | SettingsSection::GroupGeneral
+        | SettingsSection::WorkspaceGeneral => 0,
+    }
+}
+
+fn select_general_settings_section(state: &mut AppState, section: SettingsSection) {
+    let selected = general_settings_section_selection(state, section);
+    switch_settings_section(state, section, selected);
+    if section == SettingsSection::Theme {
+        ensure_settings_selection_visible(state);
+    }
+}
+
+fn settings_row_option_index(row: &SettingsListRow) -> Option<usize> {
+    match row {
+        SettingsListRow::Toggle { index, .. }
+        | SettingsListRow::Value { index, .. }
+        | SettingsListRow::TextInput { index, .. }
+        | SettingsListRow::Choice { index, .. }
+        | SettingsListRow::Action { index, .. }
+        | SettingsListRow::Status { index, .. }
+        | SettingsListRow::Profile { index, .. } => Some(*index),
+        SettingsListRow::Header(_) | SettingsListRow::Caption(_) | SettingsListRow::Spacer => None,
+    }
+}
+
+fn select_general_settings_subsection(
+    state: &mut AppState,
+    section: SettingsSection,
+    subsection: usize,
+) {
+    select_general_settings_section(state, section);
+    let anchor = crate::ui::settings_subsection_anchor(section, subsection);
+    let Some(rows) = rows_for_section(state, section) else {
+        return;
+    };
+    let header_index = anchor
+        .and_then(|anchor| {
+            rows.iter()
+                .position(|row| matches!(row, SettingsListRow::Header(label) if *label == anchor))
+        })
+        .unwrap_or(0);
+    state.settings.scroll = visual_row_count(&rows[..header_index]);
+    if let Some(selected) = rows[header_index..]
+        .iter()
+        .find_map(settings_row_option_index)
+    {
+        state.settings.list.select(selected);
+        focus_selected_settings_input(state);
+    }
+}
+
+fn activate_settings_sidebar_entry(state: &mut AppState, entry: crate::ui::SettingsSidebarEntry) {
+    state.settings.sidebar_selection = SettingsSidebarSelection {
+        section: entry.section,
+        subsection: entry.subsection,
+    };
+    if let Some(subsection) = entry.subsection {
+        state.settings.sidebar_expanded = Some(entry.section);
+        select_general_settings_subsection(state, entry.section, subsection);
+        return;
+    }
+
+    let collapse = state.settings.sidebar_expanded == Some(entry.section)
+        && state.settings.section == entry.section;
+    state.settings.sidebar_expanded = (!collapse).then_some(entry.section);
+    select_general_settings_section(state, entry.section);
+}
+
+fn move_settings_sidebar_selection(state: &mut AppState, forward: bool) {
+    let entries = crate::ui::settings_sidebar_entries(&state.settings);
+    let selected = entries
+        .iter()
+        .position(|entry| {
+            entry.section == state.settings.sidebar_selection.section
+                && entry.subsection == state.settings.sidebar_selection.subsection
+        })
+        .unwrap_or(0);
+    let next = if forward {
+        (selected + 1).min(entries.len().saturating_sub(1))
+    } else {
+        selected.saturating_sub(1)
+    };
+    if let Some(entry) = entries.get(next) {
+        state.settings.sidebar_selection = SettingsSidebarSelection {
+            section: entry.section,
+            subsection: entry.subsection,
+        };
+    }
+}
+
+fn update_settings_sidebar_state(state: &mut AppState, key: KeyEvent) -> Option<SettingsAction> {
+    match key.code {
+        KeyCode::Up | KeyCode::Char('k') => move_settings_sidebar_selection(state, false),
+        KeyCode::Down | KeyCode::Char('j') => move_settings_sidebar_selection(state, true),
+        KeyCode::Left | KeyCode::Char('h') => {
+            if state.settings.sidebar_selection.subsection.is_some() {
+                state.settings.sidebar_selection.subsection = None;
+            } else if state.settings.sidebar_expanded
+                == Some(state.settings.sidebar_selection.section)
+            {
+                state.settings.sidebar_expanded = None;
+            }
+        }
+        KeyCode::Right | KeyCode::Char('l') => {
+            let section = state.settings.sidebar_selection.section;
+            state.settings.sidebar_expanded = Some(section);
+            let entries = crate::ui::settings_sidebar_entries(&state.settings);
+            state.settings.sidebar_selection.subsection = entries
+                .iter()
+                .find(|entry| entry.section == section && entry.subsection.is_some())
+                .and_then(|entry| entry.subsection);
+            select_general_settings_section(state, section);
+        }
+        KeyCode::Enter | KeyCode::Char(' ') => {
+            let selection = state.settings.sidebar_selection;
+            activate_settings_sidebar_entry(
+                state,
+                crate::ui::SettingsSidebarEntry {
+                    section: selection.section,
+                    subsection: selection.subsection,
+                    label: "",
+                },
+            );
+        }
+        KeyCode::Esc => return handle_settings_modal_action(state, &key),
+        _ => {}
+    }
+    None
+}
+
 fn select_pending_setting(state: &mut AppState) -> Option<SettingsAction> {
     if !settings_selection_active(state) {
         return None;
@@ -2541,7 +2685,8 @@ fn selected_experiment_action(state: &mut AppState) -> Option<SettingsAction> {
 fn settings_row_accepts_text_input(state: &AppState, selected: usize) -> bool {
     match state.settings.section {
         SettingsSection::Commands => selected <= 3,
-        SettingsSection::GroupGeneral | SettingsSection::WorkspaceGeneral => selected <= 1,
+        SettingsSection::GroupGeneral => matches!(selected, 0 | 2),
+        SettingsSection::WorkspaceGeneral => matches!(selected, 0 | 2),
         SettingsSection::Agents if agent_profile_editor_open(state) => {
             selected == AGENT_PROFILE_NAME_INDEX || selected == agent_profile_command_index(state)
         }
@@ -2647,6 +2792,22 @@ pub(super) fn update_settings_state(state: &mut AppState, key: KeyEvent) -> Opti
     {
         state.settings.section = SettingsSection::WorkspaceGeneral;
     }
+    let general_settings = state.settings.group_settings_target.is_none()
+        && state.settings.workspace_settings_target.is_none();
+    if general_settings && matches!(key.code, KeyCode::Tab | KeyCode::BackTab) {
+        state.settings.sidebar_focused = !state.settings.sidebar_focused;
+        if state.settings.sidebar_focused {
+            clear_settings_selection(state);
+        } else {
+            state.settings.list.restore();
+            focus_selected_settings_input(state);
+        }
+        return None;
+    }
+    if general_settings && state.settings.sidebar_focused {
+        return update_settings_sidebar_state(state, key);
+    }
+
     let section_before_key = state.settings.section;
     if state.settings.section == SettingsSection::Agents
         && agent_profile_editor_open(state)
@@ -3037,12 +3198,16 @@ pub(super) fn update_settings_state(state: &mut AppState, key: KeyEvent) -> Opti
                     settings_section_choice_len(state, SettingsSection::GroupGeneral),
                 );
             }
+            KeyCode::Enter if state.settings.list.selected == 1 => {
+                cycle_default_host(state, false);
+                return selected_group_general_action(state);
+            }
             KeyCode::Enter => return selected_group_general_action(state),
             KeyCode::Char(' ') if state.settings.list.selected == 1 => {
                 cycle_default_host(state, false);
                 return selected_group_general_action(state);
             }
-            KeyCode::Char(' ') if state.settings.list.selected == 2 => {
+            KeyCode::Char(' ') if state.settings.list.selected == 3 => {
                 return selected_group_general_action(state);
             }
             KeyCode::BackTab | KeyCode::Left | KeyCode::Char('h') => {
@@ -3056,35 +3221,7 @@ pub(super) fn update_settings_state(state: &mut AppState, key: KeyEvent) -> Opti
             }
             _ => {
                 if state.settings.focused_input.is_some() && edit_pending_group_field(state, key) {
-                    let group_idx = state.settings.group_settings_target?;
-                    return match state.settings.list.selected {
-                        0 => {
-                            let name = pending_group_name(state).trim().to_string();
-                            (!name.is_empty())
-                                .then_some(SettingsAction::SaveGroupName { group_idx, name })
-                        }
-                        1 => {
-                            let default_directory =
-                                pending_group_default_directory(state).trim().to_string();
-                            let default_location = (!default_directory.is_empty())
-                                .then(|| {
-                                    crate::execution_host::HostPath::new(default_directory)
-                                        .ok()
-                                        .map(|path| {
-                                            crate::execution_host::ResourceLocation::new(
-                                                pending_group_default_host(state),
-                                                path,
-                                            )
-                                        })
-                                })
-                                .flatten();
-                            Some(SettingsAction::SaveGroupDefaultLocation {
-                                group_idx,
-                                default_location,
-                            })
-                        }
-                        _ => None,
-                    };
+                    return selected_group_general_action(state);
                 }
                 if let Some(action) = handle_settings_modal_action(state, &key) {
                     return Some(action);
@@ -3157,6 +3294,10 @@ pub(super) fn update_settings_state(state: &mut AppState, key: KeyEvent) -> Opti
                     state,
                     settings_section_choice_len(state, SettingsSection::WorkspaceGeneral),
                 );
+            }
+            KeyCode::Enter if state.settings.list.selected == 1 => {
+                cycle_default_host(state, true);
+                return selected_workspace_general_action(state);
             }
             KeyCode::Enter => return selected_workspace_general_action(state),
             KeyCode::Char(' ') if state.settings.list.selected == 1 => {
@@ -3282,6 +3423,9 @@ pub(crate) fn prepare_general_settings_state(
     settings.group_settings_target = None;
     settings.workspace_settings_target = None;
     settings.section = section;
+    settings.sidebar_expanded = Some(section);
+    settings.sidebar_selection = SettingsSidebarSelection::section(section);
+    settings.sidebar_focused = false;
     settings.list.selected = match section {
         SettingsSection::Theme => {
             if state.global_theme_mode == ThemeMode::System
@@ -3341,6 +3485,9 @@ fn reset_settings_for_scoped_editor(state: &AppState, settings: &mut SettingsSta
     settings.pending_sidebar_initial_agent_scope = None;
     settings.pending_pane_border_agent_info = None;
     settings.pending_switch_ascii_input_source_in_prefix = None;
+    settings.sidebar_expanded = None;
+    settings.sidebar_selection = SettingsSidebarSelection::section(settings.section);
+    settings.sidebar_focused = false;
 }
 
 pub(crate) fn prepare_group_settings_state(
@@ -3463,6 +3610,10 @@ pub(crate) fn open_group_settings(state: &mut AppState, group_idx: usize) {
     state.settings.group_settings_target = Some(group_idx);
     state.settings.workspace_settings_target = None;
     state.settings.section = SettingsSection::GroupGeneral;
+    state.settings.sidebar_expanded = None;
+    state.settings.sidebar_selection =
+        SettingsSidebarSelection::section(SettingsSection::GroupGeneral);
+    state.settings.sidebar_focused = false;
     state.settings.list.selected = 0;
     state.settings.scroll = 0;
     clear_settings_selection(state);
@@ -3519,6 +3670,10 @@ pub(crate) fn open_workspace_settings(state: &mut AppState, ws_idx: usize) {
     state.settings.group_settings_target = None;
     state.settings.workspace_settings_target = Some(ws_idx);
     state.settings.section = SettingsSection::WorkspaceGeneral;
+    state.settings.sidebar_expanded = None;
+    state.settings.sidebar_selection =
+        SettingsSidebarSelection::section(SettingsSection::WorkspaceGeneral);
+    state.settings.sidebar_focused = false;
     state.settings.list.selected = 0;
     state.settings.scroll = 0;
     clear_settings_selection(state);
@@ -3528,6 +3683,27 @@ pub(crate) fn open_workspace_settings(state: &mut AppState, ws_idx: usize) {
 impl AppState {
     fn settings_popup_rect(&self) -> Rect {
         crate::ui::centered_popup_rect(self.settings_overlay_rect(), 92, 26).unwrap_or_default()
+    }
+
+    fn settings_sidebar_entry_at(
+        &self,
+        col: u16,
+        row: u16,
+    ) -> Option<crate::ui::SettingsSidebarEntry> {
+        if self.settings.group_settings_target.is_some()
+            || self.settings.workspace_settings_target.is_some()
+        {
+            return None;
+        }
+        let inner = self.settings_inner_rect();
+        let content = crate::ui::settings_stack_areas(self, inner).content;
+        let navigation = crate::ui::settings_sidebar_areas(content).navigation;
+        crate::ui::settings_sidebar_hit_areas(&self.settings, navigation)
+            .into_iter()
+            .find_map(|(entry, rect)| {
+                (col >= rect.x && col < rect.x.saturating_add(rect.width) && row == rect.y)
+                    .then_some(entry)
+            })
     }
 
     fn settings_overlay_rect(&self) -> Rect {
@@ -3545,6 +3721,11 @@ impl AppState {
     }
 
     fn settings_tab_at(&self, col: u16, row: u16) -> Option<SettingsSection> {
+        if self.settings.group_settings_target.is_none()
+            && self.settings.workspace_settings_target.is_none()
+        {
+            return None;
+        }
         let inner = self.settings_inner_rect();
         let header_rows = Layout::vertical([
             Constraint::Length(1),
@@ -3578,7 +3759,14 @@ impl AppState {
 
     pub(crate) fn settings_content_rect(&self) -> Rect {
         let inner = self.settings_inner_rect();
-        crate::ui::settings_stack_areas(self, inner).content
+        let content = crate::ui::settings_stack_areas(self, inner).content;
+        if self.settings.group_settings_target.is_none()
+            && self.settings.workspace_settings_target.is_none()
+        {
+            crate::ui::settings_sidebar_areas(content).content
+        } else {
+            content
+        }
     }
 
     fn settings_list_hit_at(&self, col: u16, row: u16) -> Option<SettingsRowHit> {
@@ -3678,6 +3866,12 @@ impl AppState {
                     return None;
                 }
 
+                if let Some(entry) = self.settings_sidebar_entry_at(mouse.column, mouse.row) {
+                    self.settings.sidebar_focused = true;
+                    activate_settings_sidebar_entry(self, entry);
+                    return None;
+                }
+
                 if let Some(section) = self.settings_tab_at(mouse.column, mouse.row) {
                     self.settings.section = section;
                     self.settings.focused_input = None;
@@ -3709,6 +3903,7 @@ impl AppState {
                     return None;
                 }
 
+                self.settings.sidebar_focused = false;
                 if self.settings_editor_back_at(mouse.column, mouse.row) {
                     match self.settings.section {
                         SettingsSection::Agents => close_agent_profile_editor(self),
@@ -3735,15 +3930,22 @@ impl AppState {
                         SettingsSection::Agents => selected_agent_profile_action(self),
                         SettingsSection::Connections => selected_connection_profile_action(self),
                         SettingsSection::Integrations => selected_integration_action(self),
-                        SettingsSection::GroupGeneral => {
-                            if idx == 2 {
+                        SettingsSection::GroupGeneral => match idx {
+                            1 => {
+                                cycle_default_host(self, false);
                                 selected_group_general_action(self)
-                            } else {
-                                None
                             }
-                        }
+                            3 => selected_group_general_action(self),
+                            _ => None,
+                        },
                         SettingsSection::GroupProfiles => None,
-                        SettingsSection::WorkspaceGeneral => None,
+                        SettingsSection::WorkspaceGeneral => match idx {
+                            1 => {
+                                cycle_default_host(self, true);
+                                selected_workspace_general_action(self)
+                            }
+                            _ => None,
+                        },
                     };
                 }
 
@@ -3911,10 +4113,8 @@ mod tests {
             &mut state,
             KeyEvent::new(KeyCode::Tab, KeyModifiers::empty()),
         );
-        assert_eq!(
-            state.settings.section,
-            crate::app::state::SettingsSection::Sound
-        );
+        assert!(state.settings.sidebar_focused);
+        assert_eq!(state.settings.section, SettingsSection::Theme);
 
         update_settings_state(
             &mut state,
@@ -4038,7 +4238,7 @@ mod tests {
             })
             .expect("checked accent");
         assert_eq!(state.settings.list.selected, 3);
-        assert_eq!(checked, TerminalAccent::Blue.as_str());
+        assert_eq!(checked, TerminalAccent::Blue.display_name());
     }
 
     #[test]
@@ -4094,21 +4294,21 @@ mod tests {
             matches!(
                 row,
                 crate::settings_rows::SettingsListRow::Choice { label, .. }
-                    if label.as_ref() == "codex"
+                    if label.as_ref() == "Codex"
             )
         }));
         assert!(rows.iter().any(|row| {
             matches!(
                 row,
                 crate::settings_rows::SettingsListRow::Choice { label, .. }
-                    if label.as_ref() == "custom"
+                    if label.as_ref() == "Custom"
             )
         }));
         assert!(!rows.iter().any(|row| {
             matches!(
                 row,
                 crate::settings_rows::SettingsListRow::Choice { label, .. }
-                    if label.as_ref() == "omp"
+                    if label.as_ref() == "Omp"
             )
         }));
     }
@@ -4120,7 +4320,7 @@ mod tests {
         open_settings_at(&mut app.state, SettingsSection::Agents);
         open_blank_agent_profile_editor(&mut app.state);
 
-        let (back_x, back_y) = rendered_text_point(&app, "← back", 100, 40);
+        let (back_x, back_y) = rendered_text_point(&app, "← Back", 100, 40);
         let action = app.state.handle_settings_mouse(mouse(
             MouseEventKind::Down(crossterm::event::MouseButton::Left),
             back_x,
@@ -4320,14 +4520,14 @@ mod tests {
             matches!(
                 row,
                 crate::settings_rows::SettingsListRow::Action { label, .. }
-                    if label.as_ref() == "new agent profile"
+                    if label.as_ref() == "New Agent Profile"
             )
         }));
         assert!(!rows.iter().any(|row| {
             matches!(
                 row,
                 crate::settings_rows::SettingsListRow::Profile { name, .. }
-                    if name.as_ref() == "omp" || name.as_ref() == "codex"
+                    if name.as_ref() == "Omp" || name.as_ref() == "Codex"
             )
         }));
     }
@@ -4433,14 +4633,14 @@ mod tests {
             matches!(
                 row,
                 crate::settings_rows::SettingsListRow::Profile { name, detail, .. }
-                    if name.as_ref() == "kilocode" && detail.as_ref().contains("launch-only")
+                    if name.as_ref() == "kilocode" && detail.as_ref().contains("Launch-Only")
             )
         }));
         assert!(!rows.iter().any(|row| {
             matches!(
                 row,
                 crate::settings_rows::SettingsListRow::Profile { name, .. }
-                    if name.as_ref() == "omp"
+                    if name.as_ref() == "Omp"
             )
         }));
     }
@@ -4702,7 +4902,7 @@ mod tests {
 
         open_group_settings(&mut state, group_idx);
         state.settings.section = SettingsSection::GroupGeneral;
-        state.settings.list.selected = 2;
+        state.settings.list.selected = 3;
         state.settings.list.show();
         state.settings.focused_input = None;
         let delete_action = update_settings_state(
@@ -4724,9 +4924,9 @@ mod tests {
         );
         open_group_settings(&mut state, group_idx);
         state.settings.section = SettingsSection::GroupGeneral;
-        state.settings.list.selected = 1;
+        state.settings.list.selected = 2;
         state.settings.list.show();
-        state.settings.focused_input = Some(1);
+        state.settings.focused_input = Some(2);
 
         let action = update_settings_state(
             &mut state,
@@ -4745,12 +4945,50 @@ mod tests {
     }
 
     #[test]
+    fn group_general_settings_cycles_the_execution_host() {
+        let (_lock, _xdg) = isolated_ssh_catalog("group-host-cycle");
+        let mut app = app_for_mouse_test();
+        let profile = seed_connection_profile(
+            &mut app,
+            "robotbox",
+            "Robotbox",
+            "robotbox",
+            Some("/home/charlie/projects"),
+        );
+        let group_idx = app.state.create_group("Side".to_string());
+        app.state.set_group_default_location(
+            group_idx,
+            Some(crate::execution_host::ResourceLocation::local("/tmp/work").unwrap()),
+        );
+        open_group_settings(&mut app.state, group_idx);
+        app.state.settings.section = SettingsSection::GroupGeneral;
+        app.state.settings.list.selected = 1;
+        app.state.settings.list.show();
+
+        let action = update_settings_state(
+            &mut app.state,
+            KeyEvent::new(KeyCode::Char(' '), KeyModifiers::empty()),
+        );
+
+        assert_eq!(
+            action,
+            Some(SettingsAction::SaveGroupDefaultLocation {
+                group_idx,
+                default_location: Some(crate::execution_host::ResourceLocation::new(
+                    profile.execution_host_id(),
+                    crate::execution_host::HostPath::new("/tmp/work").unwrap(),
+                )),
+            })
+        );
+    }
+
+    #[test]
     fn group_general_keyboard_navigation_focuses_editable_rows() {
         let mut state = state_with_workspaces(&["test"]);
         let group_idx = state.create_group("Side".to_string());
         open_group_settings(&mut state, group_idx);
         state.settings.section = SettingsSection::GroupGeneral;
-        state.settings.list = crate::app::state::ModalListState::hidden(2);
+        state.settings.list = crate::app::state::ModalListState::hidden(3);
 
         update_settings_state(
             &mut state,
@@ -4779,18 +5017,18 @@ mod tests {
         app.state.view.terminal_area = Rect::new(26, 0, 100, 30);
         open_group_settings(&mut app.state, group_idx);
         app.state.settings.section = SettingsSection::GroupGeneral;
-        app.state.settings.list.selected = 2;
+        app.state.settings.list.selected = 3;
         app.state.settings.list.hide();
 
         let list_area = settings_section_list_rect(&app.state, SettingsSection::GroupGeneral);
-        for input_row in [1, 4] {
+        for input_row in [1, 6] {
             let hover_action = app.state.handle_settings_mouse(mouse(
                 MouseEventKind::Moved,
                 list_area.x + 2,
                 list_area.y + input_row,
             ));
             assert_eq!(hover_action, None);
-            assert_eq!(app.state.settings.list.selected, 2);
+            assert_eq!(app.state.settings.list.selected, 3);
             assert!(!app.state.settings.list.is_active());
         }
 
@@ -4868,8 +5106,8 @@ mod tests {
             })
         );
 
-        state.settings.list.selected = 1;
-        state.settings.focused_input = Some(1);
+        state.settings.list.selected = 2;
+        state.settings.focused_input = Some(2);
         let cwd_action = update_settings_state(
             &mut state,
             KeyEvent::new(KeyCode::Char('2'), KeyModifiers::empty()),
@@ -4879,6 +5117,42 @@ mod tests {
             Some(SettingsAction::SaveWorkspaceDefaultLocation {
                 ws_idx: 0,
                 location: crate::execution_host::ResourceLocation::local("/tmp/omh-old2").unwrap(),
+            })
+        );
+    }
+
+    #[test]
+    fn workspace_general_settings_cycles_the_execution_host_override() {
+        let (_lock, _xdg) = isolated_ssh_catalog("workspace-host-cycle");
+        let mut app = app_for_mouse_test();
+        let profile = seed_connection_profile(
+            &mut app,
+            "robotbox",
+            "Robotbox",
+            "robotbox",
+            Some("/home/charlie/projects"),
+        );
+        app.state.workspaces = vec![crate::workspace::Workspace::test_new("space")];
+        app.state.workspaces[0].record_default_location(
+            crate::execution_host::ResourceLocation::local("/tmp/work").unwrap(),
+        );
+        open_workspace_settings(&mut app.state, 0);
+        app.state.settings.list.selected = 1;
+        app.state.settings.list.show();
+
+        let action = update_settings_state(
+            &mut app.state,
+            KeyEvent::new(KeyCode::Char(' '), KeyModifiers::empty()),
+        );
+
+        assert_eq!(
+            action,
+            Some(SettingsAction::SaveWorkspaceDefaultLocation {
+                ws_idx: 0,
+                location: crate::execution_host::ResourceLocation::new(
+                    profile.execution_host_id(),
+                    crate::execution_host::HostPath::new("/tmp/work").unwrap(),
+                ),
             })
         );
     }
@@ -5498,69 +5772,77 @@ mod tests {
     }
 
     #[test]
-    fn settings_tab_cycle_includes_commands_and_places_experiments_last() {
+    fn settings_tab_moves_focus_between_content_and_sidebar() {
+        let mut state = state_with_workspaces(&["test"]);
+        open_settings_at(&mut state, SettingsSection::PaneLabels);
+
+        update_settings_state(
+            &mut state,
+            KeyEvent::new(KeyCode::Tab, KeyModifiers::empty()),
+        );
+        assert!(state.settings.sidebar_focused);
+        assert_eq!(state.settings.section, SettingsSection::PaneLabels);
+
+        update_settings_state(
+            &mut state,
+            KeyEvent::new(KeyCode::Down, KeyModifiers::empty()),
+        );
+        assert_eq!(state.settings.sidebar_selection.subsection, Some(0));
+        update_settings_state(
+            &mut state,
+            KeyEvent::new(KeyCode::Down, KeyModifiers::empty()),
+        );
+        assert_eq!(state.settings.sidebar_selection.subsection, Some(1));
+        update_settings_state(
+            &mut state,
+            KeyEvent::new(KeyCode::Down, KeyModifiers::empty()),
+        );
+        assert_eq!(
+            state.settings.sidebar_selection,
+            SettingsSidebarSelection::section(SettingsSection::Commands)
+        );
+        update_settings_state(
+            &mut state,
+            KeyEvent::new(KeyCode::Enter, KeyModifiers::empty()),
+        );
+        assert_eq!(state.settings.section, SettingsSection::Commands);
+        assert_eq!(
+            state.settings.sidebar_expanded,
+            Some(SettingsSection::Commands)
+        );
+
+        update_settings_state(
+            &mut state,
+            KeyEvent::new(KeyCode::Tab, KeyModifiers::empty()),
+        );
+        assert!(!state.settings.sidebar_focused);
+    }
+
+    #[test]
+    fn settings_sidebar_subsection_jumps_to_anchored_content() {
         let mut state = state_with_workspaces(&["test"]);
         open_settings_at(&mut state, SettingsSection::PaneLabels);
         update_settings_state(
             &mut state,
             KeyEvent::new(KeyCode::Tab, KeyModifiers::empty()),
         );
-        assert_eq!(state.settings.section, SettingsSection::Commands);
         update_settings_state(
             &mut state,
-            KeyEvent::new(KeyCode::Tab, KeyModifiers::empty()),
+            KeyEvent::new(KeyCode::Right, KeyModifiers::empty()),
         );
-        assert_eq!(state.settings.section, SettingsSection::Agents);
         update_settings_state(
             &mut state,
-            KeyEvent::new(KeyCode::Tab, KeyModifiers::empty()),
+            KeyEvent::new(KeyCode::Down, KeyModifiers::empty()),
         );
-        assert_eq!(state.settings.section, SettingsSection::Integrations);
         update_settings_state(
             &mut state,
-            KeyEvent::new(KeyCode::Tab, KeyModifiers::empty()),
+            KeyEvent::new(KeyCode::Enter, KeyModifiers::empty()),
         );
-        assert_eq!(state.settings.section, SettingsSection::Connections);
-        update_settings_state(
-            &mut state,
-            KeyEvent::new(KeyCode::Tab, KeyModifiers::empty()),
-        );
-        assert_eq!(state.settings.section, SettingsSection::Experiments);
-        update_settings_state(
-            &mut state,
-            KeyEvent::new(KeyCode::Tab, KeyModifiers::empty()),
-        );
-        assert_eq!(state.settings.section, SettingsSection::Theme);
-        update_settings_state(
-            &mut state,
-            KeyEvent::new(KeyCode::BackTab, KeyModifiers::empty()),
-        );
-        assert_eq!(state.settings.section, SettingsSection::Experiments);
-        update_settings_state(
-            &mut state,
-            KeyEvent::new(KeyCode::BackTab, KeyModifiers::empty()),
-        );
-        assert_eq!(state.settings.section, SettingsSection::Connections);
-        update_settings_state(
-            &mut state,
-            KeyEvent::new(KeyCode::BackTab, KeyModifiers::empty()),
-        );
-        assert_eq!(state.settings.section, SettingsSection::Integrations);
-        update_settings_state(
-            &mut state,
-            KeyEvent::new(KeyCode::BackTab, KeyModifiers::empty()),
-        );
-        assert_eq!(state.settings.section, SettingsSection::Agents);
-        update_settings_state(
-            &mut state,
-            KeyEvent::new(KeyCode::BackTab, KeyModifiers::empty()),
-        );
-        assert_eq!(state.settings.section, SettingsSection::Commands);
-        update_settings_state(
-            &mut state,
-            KeyEvent::new(KeyCode::BackTab, KeyModifiers::empty()),
-        );
+
         assert_eq!(state.settings.section, SettingsSection::PaneLabels);
+        assert_eq!(state.settings.sidebar_selection.subsection, Some(1));
+        assert!(state.settings.scroll > 0);
+        assert_eq!(state.settings.list.selected, 3);
     }
 
     #[test]
@@ -6205,7 +6487,7 @@ mod tests {
     }
 
     #[test]
-    fn settings_tab_hit_area_includes_integration_update_badge() {
+    fn settings_sidebar_hit_area_is_stable_with_integration_update_badge() {
         let mut app = app_for_mouse_test();
         app.state.view.terminal_area = Rect::new(0, 0, 100, 30);
         app.state.integration_recommendations = vec![integration_recommendation(
@@ -6215,77 +6497,53 @@ mod tests {
         open_settings(&mut app.state);
 
         let inner = app.state.settings_inner_rect();
-        let header_rows = Layout::vertical([
-            Constraint::Length(1),
-            Constraint::Length(1),
-            Constraint::Length(1),
-            Constraint::Length(1),
-        ])
-        .areas::<4>(crate::ui::settings_stack_areas(&app.state, inner).header);
-        let tab_row = header_rows[2];
-        let (_, integrations_rect) = crate::ui::settings_tab_hit_areas(&app.state, tab_row)
-            .into_iter()
-            .find(|(section, _)| *section == SettingsSection::Integrations)
-            .expect("integrations tab should be visible");
+        let content = crate::ui::settings_stack_areas(&app.state, inner).content;
+        let navigation = crate::ui::settings_sidebar_areas(content).navigation;
+        let (_, integrations_rect) =
+            crate::ui::settings_sidebar_hit_areas(&app.state.settings, navigation)
+                .into_iter()
+                .find(|(entry, _)| {
+                    entry.section == SettingsSection::Integrations && entry.subsection.is_none()
+                })
+                .expect("integrations sidebar entry");
 
         app.handle_mouse(mouse(
             MouseEventKind::Down(crossterm::event::MouseButton::Left),
             integrations_rect.x + 1,
-            tab_row.y,
+            integrations_rect.y,
         ));
 
         assert_eq!(app.state.settings.section, SettingsSection::Integrations);
     }
 
     #[test]
-    fn settings_tabs_are_clickable_at_mobile_width_boundary() {
+    fn settings_sidebar_is_clickable_at_mobile_width_boundary() {
         let mut app = app_for_mouse_test();
         crate::ui::compute_view(&mut app.state, Rect::new(0, 0, 119, 24));
         open_settings_at(&mut app.state, SettingsSection::Theme);
 
-        let backend = ratatui::backend::TestBackend::new(119, 24);
-        let mut terminal = ratatui::Terminal::new(backend).expect("test backend");
-        terminal
-            .draw(|frame| crate::ui::render(&app.state, frame))
-            .expect("render settings");
-
-        let buffer = terminal.backend().buffer();
-        let (notifications_x, tab_y) = (0..24)
-            .find_map(|y| {
-                (0..113).find_map(|x| {
-                    [
-                        "n", "o", "t", "i", "f", "i", "c", "a", "t", "i", "o", "n", "s",
-                    ]
-                    .iter()
-                    .enumerate()
-                    .all(|(idx, ch)| buffer[(x + idx as u16, y)].symbol() == *ch)
-                    .then_some((x, y))
-                })
-            })
-            .expect("notifications text");
         let inner = app.state.settings_inner_rect();
-        let header_rows = Layout::vertical([
-            Constraint::Length(1),
-            Constraint::Length(1),
-            Constraint::Length(1),
-            Constraint::Length(1),
-        ])
-        .areas::<4>(crate::ui::settings_stack_areas(&app.state, inner).header);
-        let expected_tab_row = header_rows[2];
-        let hit_areas = crate::ui::settings_tab_hit_areas(&app.state, expected_tab_row);
-        assert_eq!(
-            app.state.settings_tab_at(notifications_x, tab_y),
-            Some(SettingsSection::Sound),
-            "notifications text at {notifications_x},{tab_y}; inner={inner:?}; tab_row={expected_tab_row:?}; hit_areas={hit_areas:?}"
-        );
+        let content = crate::ui::settings_stack_areas(&app.state, inner).content;
+        let navigation = crate::ui::settings_sidebar_areas(content).navigation;
+        let (_, notifications_rect) =
+            crate::ui::settings_sidebar_hit_areas(&app.state.settings, navigation)
+                .into_iter()
+                .find(|(entry, _)| {
+                    entry.section == SettingsSection::Sound && entry.subsection.is_none()
+                })
+                .expect("notifications sidebar entry");
 
         app.handle_mouse(mouse(
             MouseEventKind::Down(crossterm::event::MouseButton::Left),
-            notifications_x,
-            tab_y,
+            notifications_rect.x + 1,
+            notifications_rect.y,
         ));
 
         assert_eq!(app.state.settings.section, SettingsSection::Sound);
+        assert_eq!(
+            app.state.settings.sidebar_expanded,
+            Some(SettingsSection::Sound)
+        );
     }
 
     #[test]
@@ -6304,7 +6562,7 @@ mod tests {
             .enumerate()
             .find_map(|(row, setting)| match setting {
                 crate::settings_rows::SettingsListRow::Value { title, .. }
-                    if title.as_ref() == "default sidebar width" =>
+                    if title.as_ref() == "Default Sidebar Width" =>
                 {
                     Some(row)
                 }
@@ -6315,7 +6573,7 @@ mod tests {
         app.state.settings.scroll = width_row.saturating_sub(3);
         let (width_x, width_y) = rendered_text_point_at_or_after_row(
             &app,
-            "default sidebar width",
+            "Default Sidebar Width",
             list_area.y,
             150,
             40,
@@ -6349,7 +6607,7 @@ mod tests {
         for row in &rows {
             match row {
                 crate::settings_rows::SettingsListRow::Value { index, title, .. }
-                    if title.as_ref() == "sidebar arrangement" =>
+                    if title.as_ref() == "Sidebar Arrangement" =>
                 {
                     arrangement_index = Some(*index);
                     arrangement_row = Some(visual_row);
@@ -6373,7 +6631,7 @@ mod tests {
         app.state.settings.scroll = arrangement_row.saturating_sub(3);
 
         let (arrangement_x, arrangement_y) =
-            rendered_text_point_at_or_after_row(&app, "sidebar arrangement", list_area.y, 150, 40);
+            rendered_text_point_at_or_after_row(&app, "Sidebar Arrangement", list_area.y, 150, 40);
         let initial_pane_border_agent_info = app.state.settings.pending_pane_border_agent_info;
         let action = app.state.handle_settings_mouse(mouse(
             MouseEventKind::Down(crossterm::event::MouseButton::Left),
@@ -6426,9 +6684,9 @@ mod tests {
         crate::ui::compute_view(&mut app.state, Rect::new(0, 0, WIDTH, HEIGHT));
         open_settings_at(&mut app.state, SettingsSection::Sound);
 
-        let (_, heading_y) = rendered_text_point(&app, "sound alerts", WIDTH, HEIGHT);
+        let (_, heading_y) = rendered_text_point(&app, "Sound Alerts", WIDTH, HEIGHT);
         let (sound_x, sound_y) =
-            rendered_text_point_at_or_after_row(&app, "sound alerts", heading_y + 1, WIDTH, HEIGHT);
+            rendered_text_point_at_or_after_row(&app, "Sound Alerts", heading_y + 1, WIDTH, HEIGHT);
         let action = app.state.handle_settings_mouse(mouse(
             MouseEventKind::Down(MouseButton::Left),
             sound_x,
@@ -6454,26 +6712,28 @@ mod tests {
     }
 
     #[test]
-    fn settings_mouse_clicks_visible_tab_and_one_line_option_rows() {
+    fn settings_mouse_clicks_sidebar_and_one_line_option_rows() {
         let mut app = app_for_mouse_test();
         crate::ui::compute_view(&mut app.state, Rect::new(0, 0, 150, 40));
         open_settings_at(&mut app.state, SettingsSection::Theme);
 
-        let (notifications_x, tab_y) = rendered_text_point(&app, "notifications", 150, 40);
+        let (notifications_x, navigation_y) = rendered_text_point(&app, "Notifications", 150, 40);
         app.handle_mouse(mouse(
             MouseEventKind::Down(crossterm::event::MouseButton::Left),
             notifications_x,
-            tab_y,
+            navigation_y,
         ));
         assert_eq!(app.state.settings.section, SettingsSection::Sound);
 
-        let (_, behavior_y) = rendered_text_point(&app, "behavior", 150, 40);
-        assert_eq!(behavior_y, tab_y);
+        let (_, behavior_y) = rendered_text_point(&app, "Behavior", 150, 40);
+        assert_ne!(behavior_y, navigation_y);
 
         let list_area = settings_section_list_rect(&app.state, SettingsSection::Sound);
-        let (off_x, off_y) = rendered_text_point_at_or_after_row(&app, "on", list_area.y, 150, 40);
+        let rows = rows_for_section(&app.state, SettingsSection::Sound).expect("sound rows");
+        let sound_row = selected_visual_row(&rows, 0).expect("sound alert row") as u16;
+        let (off_x, off_y) = (list_area.x + 2, list_area.y + sound_row);
         let action = app.state.handle_settings_mouse(mouse(
-            MouseEventKind::Down(crossterm::event::MouseButton::Left),
+            MouseEventKind::Down(MouseButton::Left),
             off_x,
             off_y,
         ));
@@ -6483,43 +6743,52 @@ mod tests {
                 "clicking the visible one-line off row should disable sound"
             ),
             other => panic!(
-                "expected sound save action, got {other:?}; point={off_x},{off_y}; list_area={list_area:?}; content={:?}; screen={:?}",
-                app.state.settings_content_rect(),
-                app.state.screen_rect()
+                "expected sound save action, got {other:?}; point={off_x},{off_y}; list_area={list_area:?}"
             ),
         }
     }
     #[test]
-    fn settings_tab_chevrons_switch_to_hidden_adjacent_tabs() {
+    fn settings_sidebar_keyboard_expands_and_collapses_sections() {
         let mut state = state_with_workspaces(&["test"]);
-        state.view.terminal_area = Rect::new(0, 0, 60, 30);
         open_settings_at(&mut state, SettingsSection::Theme);
+        update_settings_state(
+            &mut state,
+            KeyEvent::new(KeyCode::Tab, KeyModifiers::empty()),
+        );
 
-        let inner = state.settings_inner_rect();
-        let header_rows = Layout::vertical([
-            Constraint::Length(1),
-            Constraint::Length(1),
-            Constraint::Length(1),
-            Constraint::Length(1),
-        ])
-        .areas::<4>(crate::ui::modal_stack_areas(inner, 4, 1, 0, 1).header);
-        let tab_row = header_rows[2];
-        let visible_tabs = crate::ui::settings_tab_hit_areas(&state, tab_row);
-        let right_chevron_x = visible_tabs
-            .last()
-            .map(|(_, rect)| rect.x + rect.width + 1)
-            .expect("visible tab");
+        update_settings_state(
+            &mut state,
+            KeyEvent::new(KeyCode::Right, KeyModifiers::empty()),
+        );
+        assert_eq!(state.settings.sidebar_selection.subsection, Some(0));
+        update_settings_state(
+            &mut state,
+            KeyEvent::new(KeyCode::Left, KeyModifiers::empty()),
+        );
+        assert_eq!(state.settings.sidebar_selection.subsection, None);
+        update_settings_state(
+            &mut state,
+            KeyEvent::new(KeyCode::Left, KeyModifiers::empty()),
+        );
+        assert_eq!(state.settings.sidebar_expanded, None);
 
-        let hidden_right = state
-            .settings_tab_at(right_chevron_x, tab_row.y)
-            .expect("right chevron target");
-        assert_eq!(hidden_right, SettingsSection::Agents);
-
-        state.settings.section = SettingsSection::Experiments;
-        let hidden_left = state
-            .settings_tab_at(tab_row.x, tab_row.y)
-            .expect("left chevron target");
-        assert_eq!(hidden_left, SettingsSection::Commands);
+        update_settings_state(
+            &mut state,
+            KeyEvent::new(KeyCode::Down, KeyModifiers::empty()),
+        );
+        assert_eq!(
+            state.settings.sidebar_selection,
+            SettingsSidebarSelection::section(SettingsSection::Sound)
+        );
+        update_settings_state(
+            &mut state,
+            KeyEvent::new(KeyCode::Enter, KeyModifiers::empty()),
+        );
+        assert_eq!(state.settings.section, SettingsSection::Sound);
+        assert_eq!(
+            state.settings.sidebar_expanded,
+            Some(SettingsSection::Sound)
+        );
     }
 
     // ------------------------------------------------------------------
@@ -6968,9 +7237,9 @@ mod tests {
         });
         assert!(actions
             .clone()
-            .any(|label| label == "remove saved connection"));
-        assert!(actions.clone().any(|label| label == "try again"));
-        assert!(actions.any(|label| label == "cancel"));
+            .any(|label| label == "Remove Saved Connection"));
+        assert!(actions.clone().any(|label| label == "Try Again"));
+        assert!(actions.any(|label| label == "Cancel"));
     }
 
     #[test]
@@ -7214,72 +7483,51 @@ mod tests {
     }
 
     #[test]
-    fn connections_tab_cycles_between_integrations_and_experiments() {
+    fn settings_sidebar_orders_connections_before_advanced() {
         let mut state = state_with_workspaces(&["test"]);
-        open_settings_at(&mut state, SettingsSection::Integrations);
-        connection_key(&mut state, KeyCode::Tab);
-        assert_eq!(state.settings.section, SettingsSection::Connections);
-        connection_key(&mut state, KeyCode::Tab);
-        assert_eq!(state.settings.section, SettingsSection::Experiments);
-        connection_key(&mut state, KeyCode::BackTab);
-        assert_eq!(state.settings.section, SettingsSection::Connections);
-        connection_key(&mut state, KeyCode::BackTab);
-        assert_eq!(state.settings.section, SettingsSection::Integrations);
-        assert_eq!(
-            SettingsSection::ALL,
-            &[
-                SettingsSection::Theme,
-                SettingsSection::Sound,
-                SettingsSection::PaneLabels,
-                SettingsSection::Commands,
-                SettingsSection::Agents,
-                SettingsSection::Integrations,
-                SettingsSection::Connections,
-                SettingsSection::Experiments,
-            ]
+        open_settings_at(&mut state, SettingsSection::Connections);
+        let entries = crate::ui::settings_sidebar_entries(&state.settings);
+        let sections = entries
+            .iter()
+            .filter(|entry| entry.subsection.is_none())
+            .map(|entry| entry.section)
+            .collect::<Vec<_>>();
+
+        assert_eq!(sections, SettingsSection::ALL);
+        assert!(
+            sections
+                .iter()
+                .position(|section| *section == SettingsSection::Connections)
+                < sections
+                    .iter()
+                    .position(|section| *section == SettingsSection::Experiments)
         );
     }
 
     #[test]
-    fn connections_tab_is_clickable() {
-        let (_lock, _xdg) = isolated_ssh_catalog("tab-click");
+    fn connections_sidebar_entry_is_clickable() {
         let mut app = app_for_mouse_test();
         app.state.view.terminal_area = Rect::new(0, 0, 100, 30);
         open_settings_at(&mut app.state, SettingsSection::Connections);
 
-        let inner = app.state.settings_inner_rect();
-        let header_rows = Layout::vertical([
-            Constraint::Length(1),
-            Constraint::Length(1),
-            Constraint::Length(1),
-            Constraint::Length(1),
-        ])
-        .areas::<4>(crate::ui::modal_stack_areas(inner, 4, 1, 0, 1).header);
-        let tab_row = header_rows[2];
-        let visible_tabs = crate::ui::settings_tab_hit_areas(&app.state, tab_row);
-        let integrations_tab = visible_tabs
-            .iter()
-            .find(|(section, _)| *section == SettingsSection::Integrations)
-            .map(|(_, rect)| *rect)
-            .expect("integrations tab visible");
-        app.state.handle_settings_mouse(mouse(
-            MouseEventKind::Down(MouseButton::Left),
-            integrations_tab.x + 1,
-            tab_row.y,
-        ));
-        assert_eq!(app.state.settings.section, SettingsSection::Integrations);
+        let click_section = |app: &mut App, section| {
+            let inner = app.state.settings_inner_rect();
+            let content = crate::ui::settings_stack_areas(&app.state, inner).content;
+            let navigation = crate::ui::settings_sidebar_areas(content).navigation;
+            let (_, rect) = crate::ui::settings_sidebar_hit_areas(&app.state.settings, navigation)
+                .into_iter()
+                .find(|(entry, _)| entry.section == section && entry.subsection.is_none())
+                .expect("sidebar entry");
+            app.state.handle_settings_mouse(mouse(
+                MouseEventKind::Down(MouseButton::Left),
+                rect.x + 1,
+                rect.y,
+            ));
+        };
 
-        let visible_tabs = crate::ui::settings_tab_hit_areas(&app.state, tab_row);
-        let connections_tab = visible_tabs
-            .iter()
-            .find(|(section, _)| *section == SettingsSection::Connections)
-            .map(|(_, rect)| *rect)
-            .expect("connections tab visible");
-        app.state.handle_settings_mouse(mouse(
-            MouseEventKind::Down(MouseButton::Left),
-            connections_tab.x + 1,
-            tab_row.y,
-        ));
+        click_section(&mut app, SettingsSection::Integrations);
+        assert_eq!(app.state.settings.section, SettingsSection::Integrations);
+        click_section(&mut app, SettingsSection::Connections);
         assert_eq!(app.state.settings.section, SettingsSection::Connections);
     }
 
@@ -7370,13 +7618,13 @@ mod tests {
         );
         open_settings_at(&mut app.state, SettingsSection::Connections);
 
-        rendered_text_point(&app, "connections", 100, 30);
-        rendered_text_point(&app, "saved profiles", 100, 30);
-        rendered_text_point(&app, "add ssh connection", 100, 30);
+        rendered_text_point(&app, "Connections", 100, 30);
+        rendered_text_point(&app, "Saved Profiles", 100, 30);
+        rendered_text_point(&app, "Add SSH Connection", 100, 30);
         rendered_text_point(&app, "build box", 100, 30);
         rendered_text_point(&app, "builder@example.com", 100, 30);
         rendered_text_point(&app, "~/src", 100, 30);
-        rendered_text_point(&app, "connected", 100, 30);
+        rendered_text_point(&app, "Connected", 100, 30);
     }
 
     #[test]
@@ -7399,16 +7647,16 @@ mod tests {
         connection_key(&mut app.state, KeyCode::Down);
         connection_key(&mut app.state, KeyCode::Enter);
 
-        rendered_text_point(&app, "connection details", 100, 30);
-        let (_, open_workspace_row) = rendered_text_point(&app, "open workspace", 100, 30);
-        let (_, disconnect_row) = rendered_text_point(&app, "disconnect", 100, 30);
-        let (_, test_row) = rendered_text_point(&app, "test connection", 100, 30);
+        rendered_text_point(&app, "Connection Details", 100, 30);
+        let (_, open_workspace_row) = rendered_text_point(&app, "Open Workspace", 100, 30);
+        let (_, disconnect_row) = rendered_text_point(&app, "Disconnect", 100, 30);
+        let (_, test_row) = rendered_text_point(&app, "Test Connection", 100, 30);
         assert!(
             open_workspace_row < disconnect_row && disconnect_row < test_row,
             "the primary workspace action should appear before maintenance controls"
         );
         rendered_text_point(&app, "SSH target  builder@example.com", 100, 30);
-        rendered_text_point(&app, "edit details", 100, 30);
+        rendered_text_point(&app, "Edit Details", 100, 30);
         let backend = ratatui::backend::TestBackend::new(100, 30);
         let mut terminal = ratatui::Terminal::new(backend).expect("test backend");
         terminal
@@ -7428,8 +7676,8 @@ mod tests {
 
         app.state.settings.scroll =
             settings_section_max_scroll(&app.state, SettingsSection::Connections);
-        rendered_text_point(&app, "danger zone", 100, 30);
-        rendered_text_point(&app, "remove connection", 100, 30);
+        rendered_text_point(&app, "Danger Zone", 100, 30);
+        rendered_text_point(&app, "Remove Connection", 100, 30);
     }
 
     #[test]
@@ -7440,19 +7688,19 @@ mod tests {
         connection_key(&mut app.state, KeyCode::Down);
         connection_key(&mut app.state, KeyCode::Char(' '));
 
-        rendered_text_point(&app, "add connection", 100, 30);
-        rendered_text_point(&app, "ssh target", 100, 30);
-        rendered_text_point(&app, "name (optional)", 100, 30);
-        rendered_text_point(&app, "starting directory (optional)", 100, 30);
-        rendered_text_point(&app, "credentials and host keys stay with openssh", 100, 30);
+        rendered_text_point(&app, "Add Connection", 100, 30);
+        rendered_text_point(&app, "SSH Target", 100, 30);
+        rendered_text_point(&app, "Name (Optional)", 100, 30);
+        rendered_text_point(&app, "Starting Directory (Optional)", 100, 30);
+        rendered_text_point(&app, "Credentials and host keys stay with OpenSSH", 100, 30);
 
         // Move to the action rows so they scroll into view.
         for _ in 0..CONNECTION_DISCARD_INDEX {
             connection_key(&mut app.state, KeyCode::Down);
         }
-        rendered_text_point(&app, "ssh target is required", 100, 30);
-        rendered_text_point(&app, "add connection", 100, 30);
-        rendered_text_point(&app, "cancel", 100, 30);
+        rendered_text_point(&app, "SSH Target Is Required", 100, 30);
+        rendered_text_point(&app, "Add Connection", 100, 30);
+        rendered_text_point(&app, "Cancel", 100, 30);
     }
 
     fn integration_recommendation_for(

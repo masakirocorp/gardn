@@ -668,7 +668,7 @@ impl App {
             Err(err) => {
                 self.state.toast = Some(crate::app::state::ToastNotification {
                     kind: crate::app::state::ToastKind::NeedsAttention,
-                    title: "custom command failed".to_string(),
+                    title: "Custom Command Failed".to_string(),
                     context: err.to_string(),
                     position: None,
                     target: None,
@@ -759,7 +759,7 @@ impl App {
             Err(err) => {
                 self.state.toast = Some(crate::app::state::ToastNotification {
                     kind: crate::app::state::ToastKind::NeedsAttention,
-                    title: "edit scrollback failed".to_string(),
+                    title: "Edit Scrollback Failed".to_string(),
                     context: err.to_string(),
                     position: None,
                     target: None,
@@ -819,8 +819,8 @@ impl App {
         if let Some(public_pane_id) = self.public_pane_id(ws_idx, pane_id) {
             self.state.toast = Some(crate::app::state::ToastNotification {
                 kind: crate::app::state::ToastKind::Finished,
-                title: "opened scrollback".to_string(),
-                context: format!("focused pane {public_pane_id}"),
+                title: "Opened Scrollback".to_string(),
+                context: format!("Focused pane {public_pane_id}"),
                 position: None,
                 target: None,
             });

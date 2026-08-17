@@ -20,7 +20,7 @@ use crate::app::{
 pub(crate) const RELEASE_NOTES_MODAL_SIZE: (u16, u16) = (80, 24);
 pub(crate) const PRODUCT_ANNOUNCEMENT_MODAL_SIZE: (u16, u16) = (88, 24);
 const PRODUCT_ANNOUNCEMENT_HINTS: &[(&str, &str)] =
-    &[("scroll", "wheel ↑↓"), ("close", "esc / enter")];
+    &[("Scroll", "Wheel ↑↓"), ("Close", "Esc / Enter")];
 
 pub(super) fn render_release_notes_overlay(app: &AppState, frame: &mut Frame, area: Rect) {
     render_release_notes_overlay_with(app, app.release_notes.as_ref(), frame, area);
@@ -72,9 +72,9 @@ fn render_release_notes_overlay_with(
         true,
     );
     let subtitle = if notes.preview {
-        "update ready"
+        "Update Ready"
     } else {
-        "changelog"
+        "Changelog"
     };
     render_modal_subtitle(frame, header_rows[1], subtitle, &app.palette);
 
@@ -170,9 +170,9 @@ fn render_product_announcement_overlay_with(
     let header_rows = Layout::vertical([Constraint::Length(1), Constraint::Length(1)])
         .areas::<2>(frame_areas.header);
     let subtitle = if announcement.preview {
-        "product announcement preview"
+        "Product Announcement Preview"
     } else {
-        "product announcement"
+        "Product Announcement"
     };
     render_modal_subtitle(
         frame,
@@ -333,7 +333,7 @@ pub(crate) fn release_notes_lines<'a>(body: &'a str, p: &Palette) -> Vec<(usize,
                 Line::from(vec![
                     Span::raw(" "),
                     Span::styled(
-                        text.to_lowercase(),
+                        text,
                         Style::default().fg(p.accent).add_modifier(Modifier::BOLD),
                     ),
                 ]),
@@ -386,7 +386,7 @@ fn release_notes_preview_line_entries<'a>(
                     "●",
                     Style::default().fg(p.accent).add_modifier(Modifier::BOLD),
                 ),
-                Span::styled(" update ready", title_style),
+                Span::styled(" Update Ready", title_style),
             ]),
         ),
         (instruction_width + 1, Line::from(instruction_spans)),
@@ -483,10 +483,10 @@ mod tests {
             .collect::<Vec<_>>();
 
         assert_eq!(lines.len(), 2);
-        assert_eq!(line_text(&lines[0]), " ● update ready");
+        assert_eq!(line_text(&lines[0]), " ● Update Ready");
         assert_eq!(
             line_text(&lines[1]),
-            " detach, run omh update, then follow its restart guidance"
+            " Detach, run omh update, then follow its restart guidance"
         );
         assert_eq!(lines[0].spans[1].style.fg, Some(palette.accent));
         assert_eq!(lines[0].spans[2].style.fg, Some(palette.text));
@@ -507,13 +507,13 @@ mod tests {
 
         let lines = release_notes_display_lines(&notes, "omh update", &palette);
 
-        assert_eq!(line_text(&lines[0].1), " ● update ready");
+        assert_eq!(line_text(&lines[0].1), " ● Update Ready");
         assert_eq!(
             line_text(&lines[1].1),
-            " detach, run omh update, then follow its restart guidance"
+            " Detach, run omh update, then follow its restart guidance"
         );
         assert_eq!(line_text(&lines[2].1), "");
-        assert_eq!(line_text(&lines[3].1), " added");
+        assert_eq!(line_text(&lines[3].1), " Added");
         assert_eq!(line_text(&lines[4].1), " • One");
     }
 
@@ -526,7 +526,7 @@ mod tests {
         );
 
         assert_eq!(lines.len(), 4);
-        assert_eq!(line_text(&lines[0].1), " fixed");
+        assert_eq!(line_text(&lines[0].1), " Fixed");
         assert_eq!(line_text(&lines[1].1), "▏ pnpm check");
         assert_eq!(line_text(&lines[2].1), "▏ - not a bullet");
         assert_eq!(line_text(&lines[3].1), " • after");

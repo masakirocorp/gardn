@@ -156,7 +156,7 @@ impl App {
             {
                 self.state.toast = Some(crate::app::state::ToastNotification {
                     kind: crate::app::state::ToastKind::NeedsAttention,
-                    title: format!("{} command failed", self.state.project_command_role(kind)),
+                    title: format!("{} Command Failed", self.state.project_command_role(kind)),
                     context: err,
                     position: None,
                     target: None,
@@ -853,7 +853,7 @@ pub(crate) fn execute_command_palette_action(app: &mut App, action: CommandPalet
             if let Err(error) = app.run_project_command_on_resolved_host(&command_id) {
                 app.state.toast = Some(crate::app::state::ToastNotification {
                     kind: crate::app::state::ToastKind::NeedsAttention,
-                    title: "project command failed".to_string(),
+                    title: "Project Command Failed".to_string(),
                     context: error,
                     position: None,
                     target: None,
@@ -967,7 +967,7 @@ mod tests {
         let (new_tab_x, new_tab_y) = (0..24)
             .find_map(|y| {
                 (0..112).find_map(|x| {
-                    ["n", "e", "w", " ", "t", "a", "b"]
+                    ["N", "e", "w", " ", "T", "a", "b"]
                         .iter()
                         .enumerate()
                         .all(|(idx, ch)| buffer[(x + idx as u16, y)].symbol() == *ch)
@@ -998,10 +998,11 @@ mod tests {
 
         assert!(commands
             .iter()
-            .any(|command| command.title == "toggle right sidebar"));
-        assert!(commands
-            .iter()
-            .all(|command| command.title.contains("right") || command.group.contains("right")));
+            .any(|command| command.title == "Toggle Right Sidebar"));
+        assert!(commands.iter().all(|command| {
+            command.title.to_ascii_lowercase().contains("right")
+                || command.group.to_ascii_lowercase().contains("right")
+        }));
     }
 
     #[test]
@@ -1192,7 +1193,7 @@ mod tests {
         let commands = command_palette_visible_commands(&app.state);
 
         assert!(commands.iter().any(|command| {
-            command.title == "new space"
+            command.title == "New Space"
                 && command.key_label.as_deref()
                     == app.state.keybinds.new_workspace.label().as_deref()
         }));
@@ -1206,12 +1207,12 @@ mod tests {
         let commands = command_palette_visible_commands(&app.state);
 
         assert!(commands.iter().any(|command| {
-            command.title == "switch to tab: logs"
+            command.title == "Switch to Tab: logs"
                 && command.action == CommandPaletteAction::SwitchTab(1)
                 && command.key_label.as_deref() == Some("prefix+2")
         }));
         assert!(commands.iter().any(|command| {
-            command.title == "switch to space: test"
+            command.title == "Switch to Space: test"
                 && command.action == CommandPaletteAction::SwitchWorkspace(0)
                 && command.key_label.as_deref() == Some("prefix+shift+1")
         }));
@@ -1227,18 +1228,18 @@ mod tests {
 
         let commands = command_palette_visible_commands(&app.state);
         assert!(commands.iter().any(|command| {
-            command.title == "edit scrollback"
+            command.title == "Edit Scrollback"
                 && command.group == "panes"
                 && command.key_label.as_deref()
                     == app.state.keybinds.edit_scrollback.label().as_deref()
         }));
         assert!(commands.iter().any(|command| {
-            command.title == "cycle pane next"
+            command.title == "Cycle Pane Next"
                 && command.key_label.as_deref()
                     == app.state.keybinds.cycle_pane_next.label().as_deref()
         }));
         assert!(commands.iter().any(|command| {
-            command.title == "cycle pane previous"
+            command.title == "Cycle Pane Previous"
                 && command.key_label.as_deref()
                     == app.state.keybinds.cycle_pane_previous.label().as_deref()
         }));
@@ -1251,10 +1252,10 @@ mod tests {
         let commands = command_palette_visible_commands(&app.state);
 
         for (title, action) in [
-            ("open git", CommandPaletteAction::OpenGit),
-            ("open diff", CommandPaletteAction::OpenDiff),
-            ("open ide", CommandPaletteAction::OpenIde),
-            ("open github", CommandPaletteAction::OpenGithub),
+            ("Open Git", CommandPaletteAction::OpenGit),
+            ("Open Diff", CommandPaletteAction::OpenDiff),
+            ("Open IDE", CommandPaletteAction::OpenIde),
+            ("Open GitHub", CommandPaletteAction::OpenGithub),
         ] {
             assert!(commands.iter().any(|command| {
                 command.title == title && command.group == "project" && command.action == action

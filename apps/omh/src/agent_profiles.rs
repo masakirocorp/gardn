@@ -74,6 +74,24 @@ impl AgentKind {
             Self::Custom => "custom",
         }
     }
+    pub fn display_name(self) -> &'static str {
+        match self {
+            Self::Pi => "Pi",
+            Self::Omp => "OMP",
+            Self::Claude => "Claude",
+            Self::Codex => "Codex",
+            Self::Copilot => "Copilot",
+            Self::Devin => "Devin",
+            Self::Kimi => "Kimi",
+            Self::Droid => "Droid",
+            Self::Opencode => "OpenCode",
+            Self::Hermes => "Hermes",
+            Self::Qodercli => "Qoder CLI",
+            Self::Cursor => "Cursor",
+            Self::Grok => "Grok",
+            Self::Custom => "Custom",
+        }
+    }
 
     pub fn system_command(self) -> &'static str {
         match self {
@@ -218,7 +236,7 @@ impl AgentProfileCatalog {
             let command = kind.system_command().to_string();
             profiles.push(AgentProfile {
                 id: kind.system_id(),
-                name: kind.as_str().to_string(),
+                name: kind.display_name().to_string(),
                 kind,
                 argv: vec![command.clone()],
                 command,

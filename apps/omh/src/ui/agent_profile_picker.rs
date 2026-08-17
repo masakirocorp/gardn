@@ -29,10 +29,10 @@ use super::{
 
 const AGENT_PROFILE_PICKER_KEY_HINT_RIGHT_PADDING: usize = 1;
 const AGENT_PROFILE_PICKER_HINTS: &[(&str, &str)] = &[
-    ("quick start", "alt+1..9"),
-    ("favorite", "ctrl+f"),
-    ("default", "ctrl+d"),
-    ("filter", "shift+←→"),
+    ("Quick Start", "Alt+1..9"),
+    ("Favorite", "Ctrl+F"),
+    ("Default", "Ctrl+D"),
+    ("Filter", "Shift+←→"),
 ];
 
 fn agent_profile_picker_hint_rows(inner_width: u16) -> u16 {
@@ -43,7 +43,7 @@ fn agent_profile_picker_frame_spec(area: Rect) -> ModalFrameSpec<'static> {
     let popup_width = 60.min(area.width.saturating_sub(4));
     let inner_width = popup_width.saturating_sub(2);
     ModalFrameSpec {
-        title: "new agent",
+        title: "New Agent",
         width: 60,
         height: 23 + agent_profile_picker_hint_rows(inner_width),
         header_rows: 1,
@@ -63,7 +63,7 @@ pub(crate) fn agent_profile_picker_button_rects(inner: Rect) -> (Rect, Rect) {
         actions,
         &[ActionButtonSpec {
             hint: Some("↵"),
-            label: "start",
+            label: "Start",
         }],
         2,
         0,
@@ -205,13 +205,13 @@ fn render_agent_profile_picker_overlay_from(
     render_modal_subtitle(
         frame,
         rows[3],
-        "choose an agent profile for this group",
+        "Choose an agent profile for this group",
         &palette,
     );
 
     frame.render_widget(
         Paragraph::new(Span::styled(
-            " search",
+            " Search",
             modal_section_heading_style(&palette),
         )),
         rows[5],
@@ -222,7 +222,7 @@ fn render_agent_profile_picker_overlay_from(
         frame_areas.actions.unwrap_or_default(),
         &[ActionButtonSpec {
             hint: Some("↵"),
-            label: "start",
+            label: "Start",
         }],
         2,
         0,
@@ -232,13 +232,13 @@ fn render_agent_profile_picker_overlay_from(
         frame,
         start_rect,
         Some("↵"),
-        "start",
+        "Start",
         primary_action_style(&palette),
     );
 
     if entries.is_empty() {
         frame.render_widget(
-            Paragraph::new(" no agent profiles").style(Style::default().fg(palette.overlay1)),
+            Paragraph::new(" No Agent Profiles").style(Style::default().fg(palette.overlay1)),
             rows[8],
         );
         return;
@@ -331,7 +331,7 @@ fn render_agent_profile_picker_filters_for_picker(
 ) {
     let label_width = 7;
     frame.render_widget(
-        Paragraph::new(Span::styled("filter ", Style::default().fg(p.overlay0))),
+        Paragraph::new(Span::styled("Filter ", Style::default().fg(p.overlay0))),
         row,
     );
     let chip_row = Rect::new(
@@ -419,12 +419,12 @@ fn render_agent_profile_picker_group_line_for_picker(
                 )
             })
         })
-        .unwrap_or(("•", "current", palette.accent));
+        .unwrap_or(("•", "Current", palette.accent));
 
     frame.render_widget(
         Paragraph::new(Line::from(vec![
             Span::styled(
-                " group: ",
+                " Group: ",
                 Style::default()
                     .fg(palette.overlay1)
                     .add_modifier(Modifier::BOLD),
@@ -464,7 +464,7 @@ fn agent_profile_picker_rows_for_picker<'a>(
             rows.push(AgentProfilePickerRow::Header(entry.section));
             last_section = Some(entry.section);
         }
-        let shortcut = if entry.section == "favorites" && favorite_shortcut <= 9 {
+        let shortcut = if entry.section == "Favorites" && favorite_shortcut <= 9 {
             let shortcut = Some(favorite_shortcut);
             favorite_shortcut += 1;
             shortcut
@@ -497,13 +497,13 @@ fn agent_profile_picker_entry_line<'a>(
     if let Some(badge) = integration_badge {
         metadata.push(Span::styled(badge.to_string(), metadata_style));
     } else if is_default {
-        metadata.push(Span::styled("default", metadata_style));
+        metadata.push(Span::styled("Default", metadata_style));
     }
     if let Some(shortcut) = shortcut {
         if !metadata.is_empty() {
             metadata.push(Span::styled("  ", row_style));
         }
-        metadata.push(Span::styled(format!("alt+{shortcut}"), shortcut_style));
+        metadata.push(Span::styled(format!("Alt+{shortcut}"), shortcut_style));
     }
     modal_option_line(title, metadata, width, title_style, row_style)
 }
@@ -555,28 +555,27 @@ mod tests {
 
         let buffer = terminal.backend().buffer();
         let text = buffer_text(buffer, 100, 24);
-        assert!(text.contains("new agent"));
-        assert!(text.contains("all"));
-        assert!(text.contains("pi"));
-        assert!(text.contains("omp"));
-        assert!(text.contains("group:"));
+        assert!(text.contains("New Agent"));
+        assert!(text.contains("All"));
+        assert!(text.contains("Pi"));
+        assert!(text.contains("Group:"));
         assert!(text.contains("Work"));
-        assert!(text.contains("choose an agent profile for this group"));
-        assert!(text.contains("quick start alt+1..9"));
-        assert!(text.contains("favorite ctrl+f"));
-        assert!(text.contains("filter shift+←→"));
-        assert!(text.contains("search"));
+        assert!(text.contains("Choose an agent profile for this group"));
+        assert!(text.contains("Quick Start Alt+1..9"));
+        assert!(text.contains("Favorite Ctrl+F"));
+        assert!(text.contains("Filter Shift+←→"));
+        assert!(text.contains("Search"));
         assert!(text.contains("shell builtin"));
-        assert!(text.contains("alt+1"));
-        assert!(text.contains("↵ start"));
+        assert!(text.contains("Alt+1"));
+        assert!(text.contains("↵ Start"));
         let (group_icon_y, group_icon_x) = find_text_cell(&text, "■").expect("group icon");
         assert_eq!(
             buffer[(group_icon_x, group_icon_y)].style().fg,
             Some(app.group_accent_color(0))
         );
-        assert!(!text.contains("command palette"));
-        assert!(!text.contains("type to filter commands"));
-        assert!(!text.contains("↵ run"));
+        assert!(!text.contains("Command Palette"));
+        assert!(!text.contains("Type to Filter Commands"));
+        assert!(!text.contains("↵ Run"));
     }
 
     #[test]
@@ -599,7 +598,7 @@ mod tests {
             .collect::<String>();
 
         assert_eq!(super::super::text::display_width(&rendered), 28);
-        assert!(rendered.ends_with("omp  alt+1"));
+        assert!(rendered.ends_with("omp  Alt+1"));
         assert!(rendered.contains('…'));
     }
 

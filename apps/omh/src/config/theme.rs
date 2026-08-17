@@ -112,6 +112,16 @@ impl TerminalAccent {
             Self::Red => "red",
         }
     }
+    pub fn display_name(self) -> &'static str {
+        match self {
+            Self::Blue => "Blue",
+            Self::Magenta => "Magenta",
+            Self::Cyan => "Cyan",
+            Self::Green => "Green",
+            Self::Yellow => "Yellow",
+            Self::Red => "Red",
+        }
+    }
 
     pub fn ansi_index(self) -> usize {
         match self {

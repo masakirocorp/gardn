@@ -847,7 +847,7 @@ fn cross_area_agent_process_survives_detach_and_reattach() {
     client_handshake(&mut client_b, 12, 80, 24);
     let saw_working_on_client =
         wait_for_frame_matching(&mut client_b, Duration::from_secs(5), |frame| {
-            frame_contains_text(frame, "working")
+            frame_contains_text(frame, "Working")
         })
         .expect("frame decoding should succeed");
     assert!(
@@ -864,7 +864,7 @@ fn cross_area_agent_process_survives_detach_and_reattach() {
 
     let saw_idle_on_client =
         wait_for_frame_matching(&mut client_b, Duration::from_secs(5), |frame| {
-            frame_contains_text(frame, "idle")
+            frame_contains_text(frame, "Idle")
         })
         .expect("frame decoding should succeed");
     assert!(

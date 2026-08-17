@@ -87,7 +87,7 @@ impl Group {
     pub fn default_group() -> Self {
         Self {
             id: crate::workspace::DEFAULT_GROUP_ID.to_string(),
-            name: "group 1".to_string(),
+            name: "Group 1".to_string(),
             icon: DEFAULT_GROUP_ICON.to_string(),
             accent: None,
             default_location: None,
@@ -1727,7 +1727,7 @@ pub enum AgentPanelScope {
 // Settings UI state
 // ---------------------------------------------------------------------------
 
-/// Which section of the settings panel is focused.
+/// Which settings section is active.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SettingsSection {
     Theme,
@@ -1761,19 +1761,34 @@ impl SettingsSection {
 
     pub fn label(self) -> &'static str {
         match self {
-            Self::Theme => "appearance",
-            Self::Agents => "agents",
-            Self::Layout => "layout",
-            Self::Sound => "notifications",
-            Self::Toast => "toasts",
-            Self::PaneLabels => "behavior",
-            Self::Commands => "commands",
-            Self::Experiments => "advanced",
-            Self::Integrations => "integrations",
-            Self::Connections => "connections",
-            Self::GroupGeneral => "general",
-            Self::GroupProfiles => "agents",
-            Self::WorkspaceGeneral => "general",
+            Self::Theme => "Appearance",
+            Self::Agents => "Agents",
+            Self::Layout => "Layout",
+            Self::Sound => "Notifications",
+            Self::Toast => "Toasts",
+            Self::PaneLabels => "Behavior",
+            Self::Commands => "Commands",
+            Self::Experiments => "Advanced",
+            Self::Integrations => "Integrations",
+            Self::Connections => "Connections",
+            Self::GroupGeneral => "General",
+            Self::GroupProfiles => "Agents",
+            Self::WorkspaceGeneral => "General",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct SettingsSidebarSelection {
+    pub(crate) section: SettingsSection,
+    pub(crate) subsection: Option<usize>,
+}
+
+impl SettingsSidebarSelection {
+    pub(crate) const fn section(section: SettingsSection) -> Self {
+        Self {
+            section,
+            subsection: None,
         }
     }
 }
@@ -2112,8 +2127,14 @@ impl Default for ModalListState {
 
 #[derive(Clone)]
 pub struct SettingsState {
-    /// Which section tab is active.
+    /// Which settings section is active.
     pub section: SettingsSection,
+    /// Expanded section in the general settings sidebar.
+    pub(crate) sidebar_expanded: Option<SettingsSection>,
+    /// Keyboard selection in the general settings sidebar.
+    pub(crate) sidebar_selection: SettingsSidebarSelection,
+    /// Whether keyboard input targets the general settings sidebar.
+    pub(crate) sidebar_focused: bool,
     /// Selected item index within the current section.
     pub list: ModalListState,
     /// Text input row that retains focus independently from pointer hover.
@@ -2472,6 +2493,34 @@ impl ContextMenuState {
 
     pub fn item_is_section_header(item: &str) -> bool {
         matches!(item, "new" | "manage" | "danger")
+    }
+
+    pub fn item_display_label(item: &str) -> &str {
+        match item {
+            "new" => "New",
+            "space" => "Space",
+            "group" => "Group",
+            "tab" => "Tab",
+            "agent" => "Agent",
+            "git" => "Git",
+            "diff" => "Diff",
+            "ide" => "IDE",
+            "github" => "GitHub",
+            "manage" => "Manage",
+            "rename" => "Rename",
+            "settings" => "Settings",
+            "danger" => "Danger",
+            "close" => "Close",
+            "delete" => "Delete",
+            "close other tabs" => "Close Other Tabs",
+            "rename pane" => "Rename Pane",
+            "clear pane name" => "Clear Pane Name",
+            "split vertical" => "Split Vertical",
+            "split horizontal" => "Split Horizontal",
+            "zoom" => "Zoom",
+            "close pane" => "Close Pane",
+            _ => item,
+        }
     }
 
     pub fn visible_item_range(&self, row_count: usize) -> std::ops::Range<usize> {
@@ -3693,10 +3742,10 @@ impl AppState {
 
     pub(crate) fn project_command_role(&self, kind: ProjectCommandKind) -> &'static str {
         match kind {
-            ProjectCommandKind::Git => "git",
-            ProjectCommandKind::Diff => "diff",
-            ProjectCommandKind::Ide => "ide",
-            ProjectCommandKind::Github => "github",
+            ProjectCommandKind::Git => "Git",
+            ProjectCommandKind::Diff => "Diff",
+            ProjectCommandKind::Ide => "IDE",
+            ProjectCommandKind::Github => "GitHub",
         }
     }
 
@@ -3783,10 +3832,10 @@ impl AppState {
     }
 
     pub(crate) fn global_menu_item_has_badge(&self, item: &str) -> bool {
-        (item == "configuration issue" && self.config_issue.is_some())
-            || (item == "changelog"
+        (item == "Configuration issue" && self.config_issue.is_some())
+            || (item == "Changelog"
                 && (self.update_available.is_some() || self.latest_release_notes_available))
-            || (item == "integrations" && self.integration_updates_available())
+            || (item == "Integrations" && self.integration_updates_available())
     }
 
     pub(crate) fn focused_pane_requests_mouse_capture_from_view(
@@ -4149,6 +4198,9 @@ impl AppState {
             global_theme_use_legacy_ui_accent: false,
             settings: SettingsState {
                 section: SettingsSection::Theme,
+                sidebar_expanded: Some(SettingsSection::Theme),
+                sidebar_selection: SettingsSidebarSelection::section(SettingsSection::Theme),
+                sidebar_focused: false,
                 list: ModalListState::hidden(0),
                 focused_input: None,
                 scroll: 0,
