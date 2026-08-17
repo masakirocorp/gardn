@@ -53,13 +53,17 @@ class _Handler(http.server.BaseHTTPRequestHandler):
     responses = {}
     auth_header = None
     last_auth = None
+    requests = {}
 
     def log_message(self, format, *args):  # noqa: A003 - stdlib signature
         return
 
     def do_GET(self):  # noqa: N802 - stdlib signature
+        _Handler.requests[self.path] = _Handler.requests.get(self.path, 0) + 1
         _Handler.last_auth = self.headers.get("Authorization")
         body = self.responses.get(self.path)
+        if isinstance(body, list):
+            body = body.pop(0)
         if body is None:
             self.send_response(404)
             self.end_headers()
@@ -93,6 +97,7 @@ class _ReleasingTCPServer(socketserver.TCPServer):
 def start_github_fixture(responses):
     _Handler.responses = responses
     _Handler.last_auth = None
+    _Handler.requests = {}
     server = _ReleasingTCPServer(("127.0.0.1", 0), _Handler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
@@ -206,6 +211,19 @@ class AgentCohortResolveTests(unittest.TestCase):
         self.assertEqual(cohort["source"]["revision"], "deadbeef")
         self.assertEqual(cohort["source"]["run_id"], "123")
         self.assertEqual(cohort["source"]["run_attempt"], "1")
+
+    def test_retries_transient_github_release_failure(self):
+        responses = self.default_github_responses()
+        path = "/repos/MoonshotAI/kimi-code/releases/latest"
+        responses[path] = [
+            (500, {"message": "temporary failure"}),
+            GITHUB_RELEASES["MoonshotAI/kimi-code"],
+        ]
+
+        result = self.run_resolver(github_responses=responses)
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(_Handler.requests[path], 2)
 
     def test_requires_github_token(self):
         result = self.run_resolver(

@@ -199,24 +199,36 @@ async function githubLatestRelease(repo) {
   const fetchImpl = loadFetch();
   const url = `${githubApiBase()}/repos/${repo}/releases/latest`;
   let response;
-  try {
-    response = await fetchImpl(url, {
-      headers: {
-        Accept: "application/vnd.github+json",
-        Authorization: `Bearer ${token}`,
-        "User-Agent": "omh-agent-tests-resolve-versions",
-        "X-GitHub-Api-Version": "2022-11-28",
-      },
-    });
-  } catch (error) {
-    fail(`GitHub release lookup ${repo}: ${error.message || error}`);
-  }
 
-  if (!response || typeof response.status !== "number") {
-    fail(`GitHub release lookup ${repo}: invalid response object`);
-  }
-  if (!response.ok) {
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    try {
+      response = await fetchImpl(url, {
+        headers: {
+          Accept: "application/vnd.github+json",
+          Authorization: `Bearer ${token}`,
+          "User-Agent": "omh-agent-tests-resolve-versions",
+          "X-GitHub-Api-Version": "2022-11-28",
+        },
+      });
+    } catch (error) {
+      if (attempt < 3) {
+        await new Promise((resolve) => setTimeout(resolve, attempt * 1000));
+        continue;
+      }
+      fail(`GitHub release lookup ${repo}: ${error.message || error}`);
+    }
+
+    if (!response || typeof response.status !== "number") {
+      fail(`GitHub release lookup ${repo}: invalid response object`);
+    }
+    if (response.ok) break;
+
     const body = typeof response.text === "function" ? await response.text() : "";
+    const retryable = response.status === 429 || response.status >= 500;
+    if (retryable && attempt < 3) {
+      await new Promise((resolve) => setTimeout(resolve, attempt * 1000));
+      continue;
+    }
     fail(
       `GitHub release lookup ${repo}: HTTP ${response.status}${
         body ? `: ${body.slice(0, 400)}` : ""
