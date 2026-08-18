@@ -42,8 +42,10 @@ fn pane_border_title(label: &str, pane_width: u16) -> Option<String> {
     Some(format!(" {} ", truncate_label(label, max_label_width)))
 }
 
-fn stable_terminal_inner_rect(pane_inner: Rect) -> Rect {
-    if pane_inner.width <= 4 {
+// Full view computation reaches this helper for active and background panes.
+// Keep terminal queries narrow, allocation-free, and short under the core lock.
+fn terminal_inner_rect(rt: &TerminalRuntime, pane_inner: Rect) -> Rect {
+    if pane_inner.width <= 4 || rt.alternate_screen_active() {
         return pane_inner;
     }
 
@@ -406,7 +408,7 @@ fn runtime_for_tab_pane<'a>(
 }
 
 fn stable_scrollbar_gutter(rt: &TerminalRuntime, pane_inner: Rect) -> (Rect, Option<Rect>) {
-    let inner_rect = stable_terminal_inner_rect(pane_inner);
+    let inner_rect = terminal_inner_rect(rt, pane_inner);
     if inner_rect == pane_inner {
         return (inner_rect, None);
     }
@@ -432,7 +434,7 @@ fn pane_theme_background(p: &Palette) -> Option<Color> {
 }
 
 /// Compute pane layout info and optionally resize pane runtimes to match.
-pub(super) fn compute_pane_infos(
+pub(crate) fn compute_pane_infos(
     app: &AppState,
     terminal_runtimes: &TerminalRuntimeRegistry,
     area: Rect,
@@ -539,9 +541,9 @@ fn layout_for_client_view(
         })
         .collect::<Vec<_>>();
     for pane_id in hidden {
-        layout.focus_pane(pane_id);
-        let _ = layout.close_focused();
+        let _ = layout.close_pane(pane_id);
     }
+
     layout
 }
 
@@ -1823,6 +1825,66 @@ mod tests {
         assert_eq!(info.rect, area);
         assert_eq!(info.scrollbar_rect, Some(Rect::new(49, 3, 1, 8)));
         assert_eq!(info.inner_rect, Rect::new(10, 3, 39, 8));
+    }
+
+    #[tokio::test]
+    async fn alternate_screen_reclaims_scrollbar_gutter_and_restores_it_on_exit() {
+        let mut app = AppState::test_new();
+        let mut workspace = Workspace::test_new("test");
+        let root_pane = workspace.tabs[0].root_pane;
+        workspace.tabs[0].runtimes.insert(
+            root_pane,
+            TerminalRuntime::test_with_scrollback_bytes(
+                40,
+                8,
+                1024,
+                b"one\ntwo\nthree\nfour\nfive\nsix\nseven\neight\nnine\nten\n",
+            ),
+        );
+        app.workspaces = vec![workspace];
+        app.active = Some(0);
+
+        let area = Rect::new(10, 3, 40, 8);
+        let terminal_runtimes = TerminalRuntimeRegistry::new();
+        let primary = compute_pane_infos(
+            &app,
+            &terminal_runtimes,
+            area,
+            false,
+            crate::kitty_graphics::HostCellSize::default(),
+        );
+        assert_eq!(primary[0].scrollbar_rect, Some(Rect::new(49, 3, 1, 8)));
+        assert_eq!(primary[0].inner_rect, Rect::new(10, 3, 39, 8));
+
+        app.workspaces[0].tabs[0]
+            .runtimes
+            .get(&root_pane)
+            .expect("runtime")
+            .test_process_pty_bytes(root_pane, b"\x1b[?1049h");
+        let alternate = compute_pane_infos(
+            &app,
+            &terminal_runtimes,
+            area,
+            false,
+            crate::kitty_graphics::HostCellSize::default(),
+        );
+        assert_eq!(alternate[0].scrollbar_rect, None);
+        assert_eq!(alternate[0].inner_rect, area);
+
+        app.workspaces[0].tabs[0]
+            .runtimes
+            .get(&root_pane)
+            .expect("runtime")
+            .test_process_pty_bytes(root_pane, b"\x1b[?1049l");
+        let restored = compute_pane_infos(
+            &app,
+            &terminal_runtimes,
+            area,
+            false,
+            crate::kitty_graphics::HostCellSize::default(),
+        );
+        assert_eq!(restored[0].scrollbar_rect, Some(Rect::new(49, 3, 1, 8)));
+        assert_eq!(restored[0].inner_rect, Rect::new(10, 3, 39, 8));
     }
 
     #[tokio::test]

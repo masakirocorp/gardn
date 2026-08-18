@@ -1,12 +1,16 @@
+use std::time::Duration;
+
 use bytes::Bytes;
 
 use crate::api::schema::{
     AgentPromptParams, AgentRenameParams, AgentSendKeysParams, AgentStartParams, AgentTarget,
-    PaneReadResult, ReadFormat, ReadSource, ResponseResult,
+    PaneReadResult, ResponseResult,
 };
 use crate::app::App;
 
 use super::responses::{encode_error, encode_error_body, encode_success};
+
+const AGENT_PROMPT_SUBMIT_DELAY: Duration = Duration::from_millis(300);
 
 impl App {
     pub(super) fn handle_agent_list(&mut self, id: String) -> String {
@@ -126,12 +130,20 @@ impl App {
         else {
             return agent_not_found(id, &params.target);
         };
-        let Some(expected_agent) = self
-            .state
-            .terminals
-            .get(&terminal_id)
-            .and_then(|terminal| terminal.effective_known_agent())
-        else {
+        let Some(terminal) = self.state.terminals.get(&terminal_id) else {
+            return agent_not_found(id, &params.target);
+        };
+        if terminal.state == crate::detect::AgentState::Blocked {
+            return encode_error(
+                id,
+                "agent_blocked",
+                format!(
+                    "agent {} is blocked and requires interactive input",
+                    params.target
+                ),
+            );
+        }
+        let Some(expected_agent) = terminal.effective_known_agent() else {
             return agent_not_ready(id, &params.target);
         };
         let Some(runtime) = self.lookup_runtime_sender(resolved.ws_idx, resolved.pane_id) else {
@@ -140,10 +152,22 @@ impl App {
         if !super::super::agents::runtime_hosts_agent(runtime, expected_agent) {
             return agent_not_ready(id, &params.target);
         }
-        let bytes = super::super::api_helpers::encode_api_submission(runtime, &params.text);
-        if let Err(err) = runtime.try_send_bytes(Bytes::from(bytes)) {
+        if expected_agent == crate::detect::Agent::GithubCopilot {
+            // Copilot ignores synthetic Enter after focus loss until it receives focus gained.
+            let focus = match crate::ghostty::encode_focus(crate::ghostty::FocusEvent::Gained) {
+                Ok(focus) => focus,
+                Err(err) => return encode_error(id, "agent_prompt_failed", err.to_string()),
+            };
+            if let Err(err) = runtime.try_send_bytes(Bytes::from(focus)) {
+                return encode_error(id, "agent_prompt_failed", err.to_string());
+            }
+        }
+        let (text, enter) =
+            super::super::api_helpers::encode_api_submission_parts(runtime, &params.text);
+        if let Err(err) = runtime.try_send_bytes(Bytes::from(text)) {
             return encode_error(id, "agent_prompt_failed", err.to_string());
         }
+        runtime.send_bytes_after(Bytes::from(enter), AGENT_PROMPT_SUBMIT_DELAY);
         let Some(agent) = self.agent_info(resolved.ws_idx, resolved.pane_id) else {
             return agent_not_found(id, &params.target);
         };
@@ -163,21 +187,12 @@ impl App {
         else {
             return agent_not_found(id, &params.target);
         };
-        let requested_lines = params.lines.unwrap_or(80).min(1000) as usize;
-        let text = match params.format {
-            ReadFormat::Text => match params.source {
-                ReadSource::Visible => pane.visible_text(),
-                ReadSource::Recent => pane.recent_text(requested_lines),
-                ReadSource::RecentUnwrapped => pane.recent_unwrapped_text(requested_lines),
-                ReadSource::Detection => pane.detection_text(),
-            },
-            ReadFormat::Ansi => match params.source {
-                ReadSource::Visible => pane.visible_ansi(),
-                ReadSource::Recent => pane.recent_ansi(requested_lines),
-                ReadSource::RecentUnwrapped => pane.recent_unwrapped_ansi(requested_lines),
-                ReadSource::Detection => pane.detection_text(),
-            },
-        };
+        let snapshot = crate::app::api_helpers::read_terminal_snapshot(
+            pane,
+            params.source,
+            params.format,
+            params.lines,
+        );
 
         encode_success(
             id,
@@ -192,9 +207,9 @@ impl App {
                         .unwrap(),
                     source: params.source,
                     format: params.format,
-                    text,
+                    text: snapshot.text,
                     revision: 0,
-                    truncated: false,
+                    truncated: snapshot.truncated,
                 },
             },
         )

@@ -7,9 +7,9 @@ mod subscriptions;
 mod wait;
 
 pub use event_hub::EventHub;
-pub use server::{
-    default_server_capabilities, start_server, start_server_with_capabilities, ServerHandle,
-};
+pub(crate) use server::start_server_with_stop_control;
+pub use server::{start_server, ServerHandle};
+
 pub use status::{read_runtime_status_at, RuntimeStatus};
 
 use std::path::PathBuf;
@@ -55,6 +55,13 @@ pub(crate) fn request_changes_ui(request: &Request) -> bool {
             | Method::PaneReleaseAgent(_)
             | Method::ConnectionRetireStart(_)
             | Method::PaneClose(_)
+            | Method::PaneGraphicsSet(_)
+            | Method::PaneGraphicsClear(_)
+            | Method::PaneGraphicsStream(_)
+            | Method::PaneGraphicsStreamSet(_)
+            | Method::PaneGraphicsStreamOpen(_)
+            | Method::PaneGraphicsStreamClose(_)
+            | Method::PaneGraphicsStreamDirect(_)
             | Method::PluginActionInvoke(_)
             | Method::PluginPaneOpen(_)
             | Method::PluginPaneFocus(_)
@@ -66,6 +73,7 @@ pub struct ApiRequestMessage {
     pub request: Request,
     pub respond_to: std::sync::mpsc::Sender<String>,
     pub response_written: Option<std::sync::mpsc::Receiver<()>>,
+    pub stream_active: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
 }
 
 /// How the app loop should finish an API request.

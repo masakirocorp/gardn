@@ -53,10 +53,10 @@ pub fn parse_raw_input_bytes_with_ranges(data: &[u8]) -> Vec<RawInputEventWithRa
     if !buffer.is_empty() {
         if buffer.as_slice() == [ESC] {
             events.push(RawInputEventWithRange {
-                event: RawInputEvent::Key(TerminalKey::new(
-                    crossterm::event::KeyCode::Esc,
-                    KeyModifiers::empty(),
-                )),
+                event: RawInputEvent::Key(
+                    TerminalKey::new(crossterm::event::KeyCode::Esc, KeyModifiers::empty())
+                        .with_vt_bytes(vec![ESC]),
+                ),
                 start: offset,
                 len: 1,
             });
@@ -66,9 +66,15 @@ pub fn parse_raw_input_bytes_with_ranges(data: &[u8]) -> Vec<RawInputEventWithRa
         ) {
             return events;
         } else if let Ok(text) = std::str::from_utf8(&buffer) {
-            if let Some(key) = parse_terminal_key_sequence(text) {
+            if text.chars().count() > 1 {
                 events.push(RawInputEventWithRange {
-                    event: RawInputEvent::Key(key),
+                    event: RawInputEvent::TextCommit(TextCommit::new(text)),
+                    start: offset,
+                    len: buffer.len(),
+                });
+            } else if let Some(key) = parse_terminal_key_sequence(text) {
+                events.push(RawInputEventWithRange {
+                    event: RawInputEvent::Key(key.with_text_commit().with_vt_bytes(buffer.clone())),
                     start: offset,
                     len: buffer.len(),
                 });
@@ -94,7 +100,7 @@ pub fn parse_raw_input_bytes_sync(data: &[u8]) -> Vec<RawInputEvent> {
 use std::os::fd::AsRawFd;
 use tokio::sync::mpsc;
 
-use crate::input::{parse_terminal_key_sequence, TerminalKey};
+use crate::input::{parse_terminal_key_sequence, TerminalKey, TextCommit};
 use crate::terminal_theme::{parse_default_color_response, DefaultColorKind, RgbColor};
 
 const ESC: u8 = 0x1b;
@@ -120,6 +126,7 @@ pub(crate) fn is_complete_text_bracketed_paste(data: &[u8]) -> bool {
 #[derive(Debug)]
 pub enum RawInputEvent {
     Key(TerminalKey),
+    TextCommit(TextCommit),
     Paste(String),
     Mouse(MouseEvent),
     OuterFocusGained,
@@ -135,6 +142,12 @@ pub enum RawInputEvent {
     HostCursorColor {
         color: RgbColor,
     },
+    #[cfg_attr(not(any(unix, test)), allow(dead_code))]
+    HostCellSizeReport {
+        width_px: u32,
+        height_px: u32,
+    },
+
     Unsupported,
 }
 
@@ -163,8 +176,8 @@ impl RawInputFramer {
         self.byte_framer.host_color_query_sent();
     }
 
-    pub(crate) fn has_pending_incomplete_sgr_mouse_sequence(&self) -> bool {
-        self.byte_framer.has_pending_incomplete_sgr_mouse_sequence()
+    pub(crate) fn has_pending_incomplete_mouse_sequence(&self) -> bool {
+        self.byte_framer.has_pending_incomplete_mouse_sequence()
     }
     #[cfg(any(windows, test))]
     pub(crate) fn has_pending_bracketed_paste(&self) -> bool {
@@ -180,10 +193,10 @@ impl RawInputFramer {
             .into_iter()
             .filter_map(|chunk| {
                 if chunk.as_slice() == [ESC] {
-                    return Some(RawInputEvent::Key(TerminalKey::new(
-                        crossterm::event::KeyCode::Esc,
-                        KeyModifiers::empty(),
-                    )));
+                    return Some(RawInputEvent::Key(
+                        TerminalKey::new(crossterm::event::KeyCode::Esc, KeyModifiers::empty())
+                            .with_vt_bytes(vec![ESC]),
+                    ));
                 }
 
                 extract_one_event(&chunk).map(|(event, _consumed)| {
@@ -202,11 +215,14 @@ pub(crate) struct RawInputByteFramer {
     discarded_tail_bytes: usize,
     lone_escape_recently_flushed: bool,
     host_color_replies_awaited: u8,
-    held_pending_color_esc: bool,
+    host_cell_size_replies_awaited: u16,
+    held_pending_host_reply_esc: bool,
     split_coalesced_escape: bool,
 }
 
 const HOST_COLOR_QUERY_REPLIES: u8 = 2;
+#[cfg(any(unix, test))]
+const HOST_CELL_SIZE_QUERY_REPLIES: u16 = 1;
 
 impl RawInputByteFramer {
     pub(crate) fn for_host_input() -> Self {
@@ -233,16 +249,28 @@ impl RawInputByteFramer {
         self.buffer.as_slice() == [ESC]
     }
 
-    pub(crate) fn has_pending_incomplete_sgr_mouse_sequence(&self) -> bool {
+    pub(crate) fn has_pending_incomplete_mouse_sequence(&self) -> bool {
         starts_with_incomplete_sgr_mouse_sequence(&self.buffer)
+            || starts_with_incomplete_default_mouse_sequence(&self.buffer)
     }
 
     /// Hold a lone trailing ESC for one idle flush so an OSC 10/11 reply split
     /// at its ESC introducer stitches back together instead of leaking (#549).
     pub(crate) fn host_color_query_sent(&mut self) {
         self.host_color_replies_awaited = HOST_COLOR_QUERY_REPLIES;
-        self.held_pending_color_esc = false;
+        self.held_pending_host_reply_esc = false;
     }
+
+    #[cfg(any(unix, test))]
+    pub(crate) fn host_cell_size_query_sent(&mut self) {
+        self.host_cell_size_replies_awaited = HOST_CELL_SIZE_QUERY_REPLIES;
+        self.held_pending_host_reply_esc = false;
+    }
+
+    fn awaiting_host_reply(&self) -> bool {
+        self.host_color_replies_awaited > 0 || self.host_cell_size_replies_awaited > 0
+    }
+
     #[cfg(any(windows, test))]
     pub(crate) fn has_pending_bracketed_paste(&self) -> bool {
         self.buffer.starts_with(BRACKETED_PASTE_START)
@@ -253,6 +281,9 @@ impl RawInputByteFramer {
         let mut chunks = self.drain_available_chunks();
 
         if let Some(family) = self.discard_until {
+            if family == ControlStringFamily::HostReplyCsi {
+                return chunks;
+            }
             if family == ControlStringFamily::OrphanedSgrMouseTail {
                 self.buffer.clear();
                 self.discard_until = None;
@@ -292,10 +323,12 @@ impl RawInputByteFramer {
             return chunks;
         }
 
-        if starts_with_incomplete_sgr_mouse_sequence(&self.buffer) {
+        if starts_with_incomplete_sgr_mouse_sequence(&self.buffer)
+            || starts_with_incomplete_default_mouse_sequence(&self.buffer)
+        {
             tracing::debug!(
                 bytes = ?self.buffer,
-                "discarding incomplete SGR mouse sequence after input timeout"
+                "discarding incomplete mouse sequence after input timeout"
             );
             self.discarded_tail_bytes = self.buffer.len();
             self.discard_until = (self.discarded_tail_bytes <= MAX_DISCARDED_CONTROL_TAIL_BYTES)
@@ -322,6 +355,31 @@ impl RawInputByteFramer {
             return chunks;
         }
 
+        if self.host_cell_size_replies_awaited > 0 && self.buffer.as_slice() == b"\x1b[" {
+            if !self.held_pending_host_reply_esc {
+                self.held_pending_host_reply_esc = true;
+                tracing::trace!("holding incomplete cell size reply one flush");
+                return chunks;
+            }
+            self.host_cell_size_replies_awaited = 0;
+            self.held_pending_host_reply_esc = false;
+        }
+
+        if self.host_cell_size_replies_awaited > 0
+            && starts_with_incomplete_host_cell_size_report(&self.buffer)
+        {
+            tracing::debug!(
+                len = self.buffer.len(),
+                "discarding incomplete host cell size report after input timeout"
+            );
+            self.host_cell_size_replies_awaited = 0;
+            self.held_pending_host_reply_esc = false;
+            self.discard_until = Some(ControlStringFamily::HostReplyCsi);
+            self.discarded_tail_bytes = 0;
+            self.buffer.clear();
+            return chunks;
+        }
+
         if let Some(ControlString::Incomplete { family }) = control_string(&self.buffer) {
             tracing::debug!(
                 len = self.buffer.len(),
@@ -336,14 +394,14 @@ impl RawInputByteFramer {
         }
 
         if self.buffer.as_slice() == [ESC] {
-            if self.host_color_replies_awaited > 0 && !self.held_pending_color_esc {
-                self.held_pending_color_esc = true;
-                tracing::trace!("holding lone escape one flush while awaiting host color reply");
+            if self.awaiting_host_reply() && !self.held_pending_host_reply_esc {
+                self.held_pending_host_reply_esc = true;
+                tracing::trace!("holding lone escape one flush while awaiting host reply");
                 return chunks;
             }
-            // No continuation arrived; give up the window so Escape is not delayed again.
             self.host_color_replies_awaited = 0;
-            self.held_pending_color_esc = false;
+            self.host_cell_size_replies_awaited = 0;
+            self.held_pending_host_reply_esc = false;
             self.lone_escape_recently_flushed = true;
             tracing::warn!(
                 bytes = ?self.buffer,
@@ -393,6 +451,15 @@ impl RawInputByteFramer {
             }
 
             if let Some(family) = self.discard_until {
+                if family == ControlStringFamily::HostReplyCsi {
+                    if discard_host_reply_csi_tail(&mut self.buffer, &mut self.discarded_tail_bytes)
+                    {
+                        self.discard_until = None;
+                        self.discarded_tail_bytes = 0;
+                        continue;
+                    }
+                    break;
+                }
                 if family == ControlStringFamily::OrphanedSgrMouseTail {
                     if discard_orphaned_sgr_mouse_tail(
                         &mut self.buffer,
@@ -436,8 +503,12 @@ impl RawInputByteFramer {
             };
             if matches!(event, RawInputEvent::HostDefaultColor { .. }) {
                 self.host_color_replies_awaited = self.host_color_replies_awaited.saturating_sub(1);
+            } else if matches!(event, RawInputEvent::HostCellSizeReport { .. }) {
+                self.host_cell_size_replies_awaited =
+                    self.host_cell_size_replies_awaited.saturating_sub(1);
             }
-            self.held_pending_color_esc = false;
+            self.held_pending_host_reply_esc = false;
+
             chunks.push(self.buffer[..consumed].to_vec());
             self.buffer.drain(..consumed);
         }
@@ -472,6 +543,7 @@ fn plausible_control_string_tail(family: ControlStringFamily, buffer: &[u8]) -> 
                 )
         }),
         ControlStringFamily::StTerminated => buffer.last() == Some(&ESC),
+        ControlStringFamily::HostReplyCsi => false,
         ControlStringFamily::OrphanedSgrMouseTail => buffer
             .iter()
             .all(|byte| byte.is_ascii_digit() || matches!(*byte, b';' | b'M' | b'm')),
@@ -489,7 +561,7 @@ pub(crate) fn events_require_host_surface_redraw(
 }
 
 fn input_flush_timeout_ms(framer: &RawInputFramer) -> i32 {
-    if framer.has_pending_incomplete_sgr_mouse_sequence() {
+    if framer.has_pending_incomplete_mouse_sequence() {
         MOUSE_ACTIVE_ESCAPE_SEQUENCE_FLUSH_TIMEOUT_MS
     } else {
         RAW_INPUT_IDLE_FLUSH_TIMEOUT_MS
@@ -557,10 +629,10 @@ pub(crate) fn drain_complete_input_bytes(buffer: &mut Vec<u8>) -> Vec<Vec<u8>> {
 fn flush_incomplete_buffer(buffer: &mut Vec<u8>, tx: &mpsc::Sender<RawInputEvent>) {
     if let Some(bytes) = flush_incomplete_input_bytes(buffer) {
         if bytes.as_slice() == [ESC] {
-            let _ = tx.blocking_send(RawInputEvent::Key(TerminalKey::new(
-                crossterm::event::KeyCode::Esc,
-                KeyModifiers::empty(),
-            )));
+            let _ = tx.blocking_send(RawInputEvent::Key(
+                TerminalKey::new(crossterm::event::KeyCode::Esc, KeyModifiers::empty())
+                    .with_vt_bytes(vec![ESC]),
+            ));
             return;
         }
 
@@ -641,6 +713,12 @@ fn extract_one_event(buffer: &[u8]) -> Option<(RawInputEvent, usize)> {
 
     if buffer[0] == ESC {
         let seq_len = complete_escape_sequence_len(buffer)?;
+        if buffer[..seq_len].starts_with(b"[M") {
+            let event = parse_default_mouse(&buffer[..seq_len])
+                .map(RawInputEvent::Mouse)
+                .unwrap_or(RawInputEvent::Unsupported);
+            return Some((event, seq_len));
+        }
         let seq = std::str::from_utf8(&buffer[..seq_len]).ok()?;
 
         if let Some((kind, color)) = parse_default_color_response(seq) {
@@ -654,6 +732,15 @@ fn extract_one_event(buffer: &[u8]) -> Option<(RawInputEvent, usize)> {
         if let Some(color) = crate::terminal_theme::parse_cursor_color_response(seq) {
             return Some((RawInputEvent::HostCursorColor { color }, seq_len));
         }
+        if let Some((width_px, height_px)) = parse_host_cell_size_report(&buffer[..seq_len]) {
+            return Some((
+                RawInputEvent::HostCellSizeReport {
+                    width_px,
+                    height_px,
+                },
+                seq_len,
+            ));
+        }
 
         match seq {
             "\x1b[I" => return Some((RawInputEvent::OuterFocusGained, seq_len)),
@@ -666,6 +753,11 @@ fn extract_one_event(buffer: &[u8]) -> Option<(RawInputEvent, usize)> {
         }
 
         if let Some(key) = parse_terminal_key_sequence(seq) {
+            let key = if key.windows_record().is_some() {
+                key
+            } else {
+                key.with_vt_bytes(buffer[..seq_len].to_vec())
+            };
             return Some((RawInputEvent::Key(key), seq_len));
         }
 
@@ -675,7 +767,9 @@ fn extract_one_event(buffer: &[u8]) -> Option<(RawInputEvent, usize)> {
 
     let consumed = first_complete_utf8_char_len(buffer)?;
     let text = std::str::from_utf8(&buffer[..consumed]).ok()?;
-    let key = parse_terminal_key_sequence(text)?;
+    let key = parse_terminal_key_sequence(text)?
+        .with_text_commit()
+        .with_vt_bytes(buffer[..consumed].to_vec());
     Some((RawInputEvent::Key(key), consumed))
 }
 
@@ -683,6 +777,7 @@ fn extract_one_event(buffer: &[u8]) -> Option<(RawInputEvent, usize)> {
 enum ControlStringFamily {
     Osc,
     StTerminated,
+    HostReplyCsi,
     OrphanedSgrMouseTail,
 }
 
@@ -707,6 +802,43 @@ fn starts_with_incomplete_host_color_response(buffer: &[u8]) -> bool {
         || buffer.starts_with(b"\x1b]10;")
         || buffer.starts_with(b"\x1b]11;")
         || buffer.starts_with(b"\x1b]12;"))
+}
+
+/// Parses an XTWINOPS cell size report (`CSI 6 ; height ; width t`) into
+/// `(width_px, height_px)`; note the reply orders height first.
+fn parse_host_cell_size_report(buffer: &[u8]) -> Option<(u32, u32)> {
+    let body = buffer.strip_prefix(b"\x1b[")?.strip_suffix(b"t")?;
+    let text = std::str::from_utf8(body).ok()?;
+    let mut params = text.split(';');
+    if params.next()? != "6" {
+        return None;
+    }
+    let height_px = params.next()?.parse::<u32>().ok()?;
+    let width_px = params.next()?.parse::<u32>().ok()?;
+    if params.next().is_some() || width_px == 0 || height_px == 0 {
+        return None;
+    }
+    Some((width_px, height_px))
+}
+
+fn starts_with_incomplete_host_cell_size_report(buffer: &[u8]) -> bool {
+    let Some(body) = buffer.strip_prefix(b"\x1b[") else {
+        return false;
+    };
+    if body.is_empty() || body.last() == Some(&b't') {
+        return false;
+    }
+
+    let mut params = body.split(|byte| *byte == b';');
+    if params.next() != Some(b"6".as_slice()) {
+        return false;
+    }
+    let height = params.next();
+    let width = params.next();
+    params.next().is_none()
+        && height.is_none_or(|value| value.iter().all(u8::is_ascii_digit))
+        && width.is_none_or(|value| value.iter().all(u8::is_ascii_digit))
+        && !(height.is_some_and(<[u8]>::is_empty) && width.is_some())
 }
 
 fn control_string(buffer: &[u8]) -> Option<ControlString> {
@@ -759,6 +891,13 @@ fn complete_escape_sequence_len(buffer: &[u8]) -> Option<usize> {
         return None;
     }
 
+    if buffer.len() >= 7
+        && buffer.starts_with(b"\x1b\x1b[M")
+        && parse_default_mouse(&buffer[1..7]).is_some()
+    {
+        return Some(1);
+    }
+
     if buffer.starts_with(b"\x1b\x1b") {
         return complete_escape_sequence_len(&buffer[1..]).map(|len| len + 1);
     }
@@ -766,6 +905,9 @@ fn complete_escape_sequence_len(buffer: &[u8]) -> Option<usize> {
     if buffer.starts_with(b"\x1b[") {
         if buffer.starts_with(b"\x1b[<") {
             return find_csi_final(buffer, b"Mm");
+        }
+        if buffer.starts_with(b"\x1b[M") {
+            return (buffer.len() >= 6).then_some(6);
         }
         return find_csi_final(
             buffer,
@@ -799,6 +941,10 @@ fn starts_with_incomplete_sgr_mouse_sequence(buffer: &[u8]) -> bool {
         && buffer[3..]
             .iter()
             .all(|byte| byte.is_ascii_digit() || *byte == b';')
+}
+
+fn starts_with_incomplete_default_mouse_sequence(buffer: &[u8]) -> bool {
+    buffer.starts_with(b"\x1b[M") && buffer.len() < 6
 }
 
 fn starts_with_incomplete_orphaned_sgr_mouse_tail(buffer: &[u8]) -> bool {
@@ -845,6 +991,29 @@ fn discard_or_buffer_orphaned_sgr_mouse_tail(
             .then_some(ControlStringFamily::OrphanedSgrMouseTail);
         buffer.clear();
     }
+}
+
+fn discard_host_reply_csi_tail(buffer: &mut Vec<u8>, discarded_tail_bytes: &mut usize) -> bool {
+    let remaining = MAX_DISCARDED_CONTROL_TAIL_BYTES.saturating_sub(*discarded_tail_bytes);
+    let inspected = buffer.len().min(remaining);
+
+    for index in 0..inspected {
+        match buffer[index] {
+            0x20..=0x3f => {}
+            0x40..=0x7e => {
+                buffer.drain(..=index);
+                return true;
+            }
+            _ => {
+                buffer.drain(..index);
+                return true;
+            }
+        }
+    }
+
+    buffer.drain(..inspected);
+    *discarded_tail_bytes = discarded_tail_bytes.saturating_add(inspected);
+    *discarded_tail_bytes >= MAX_DISCARDED_CONTROL_TAIL_BYTES
 }
 
 fn discard_orphaned_sgr_mouse_tail(buffer: &mut Vec<u8>, discarded_tail_bytes: &mut usize) -> bool {
@@ -901,6 +1070,7 @@ fn control_string_terminator_for_family(
     match family {
         ControlStringFamily::Osc => osc_string_terminator(buffer),
         ControlStringFamily::StTerminated => st_string_terminator(buffer),
+        ControlStringFamily::HostReplyCsi => None,
         ControlStringFamily::OrphanedSgrMouseTail => buffer
             .iter()
             .position(|byte| matches!(*byte, b'M' | b'm'))
@@ -921,6 +1091,23 @@ fn find_subsequence(haystack: &[u8], needle: &[u8]) -> Option<usize> {
     haystack
         .windows(needle.len())
         .position(|window| window == needle)
+}
+
+fn parse_default_mouse(sequence: &[u8]) -> Option<MouseEvent> {
+    let &[ESC, b'[', b'M', encoded_cb, encoded_column, encoded_row] = sequence else {
+        return None;
+    };
+    let cb = encoded_cb.checked_sub(32)?;
+    let column = u16::from(encoded_column).checked_sub(33)?;
+    let row = u16::from(encoded_row).checked_sub(33)?;
+    let (kind, modifiers) = parse_mouse_cb(cb)?;
+
+    Some(MouseEvent {
+        kind,
+        column,
+        row,
+        modifiers,
+    })
 }
 
 fn parse_sgr_mouse(sequence: &str) -> Option<MouseEvent> {
@@ -966,7 +1153,9 @@ fn parse_mouse_cb(cb: u8) -> Option<(MouseEventKind, KeyModifiers)> {
         (1, true) => MouseEventKind::Drag(MouseButton::Middle),
         (2, true) => MouseEventKind::Drag(MouseButton::Right),
         (3, false) => MouseEventKind::Up(MouseButton::Left),
-        (3, true) | (4, true) | (5, true) => MouseEventKind::Moved,
+        // Crossterm cannot represent extended-button drags. Preserve their
+        // position as motion so a stuck host button cannot suppress hover.
+        (3, true) | (4, true) | (5, true) | (8, true) | (9, true) => MouseEventKind::Moved,
         (4, false) => MouseEventKind::ScrollUp,
         (5, false) => MouseEventKind::ScrollDown,
         (6, false) => MouseEventKind::ScrollLeft,
@@ -1080,6 +1269,28 @@ mod tests {
     }
 
     #[test]
+    fn printable_utf8_press_owns_text_commit_and_source_bytes() {
+        let (RawInputEvent::Key(key), consumed) = extract_one_event(b"j").unwrap() else {
+            panic!("expected key");
+        };
+        assert_eq!(consumed, 1);
+        assert_eq!(key.generated_text.as_deref(), Some("j"));
+        assert_eq!(key.vt_bytes(), Some(b"j".as_slice()));
+    }
+
+    #[test]
+    fn kitty_escape_owns_source_bytes_without_text_commit() {
+        let (RawInputEvent::Key(key), consumed) = extract_one_event(b"\x1b[106;1:3u").unwrap()
+        else {
+            panic!("expected key");
+        };
+        assert_eq!(consumed, 10);
+        assert_eq!(key.kind, KeyEventKind::Release);
+        assert_eq!(key.generated_text, None);
+        assert_eq!(key.vt_bytes(), Some(b"\x1b[106;1:3u".as_slice()));
+    }
+
+    #[test]
     fn parses_bracketed_paste() {
         let (RawInputEvent::Paste(text), consumed) =
             extract_one_event(b"\x1b[200~hello\x1b[201~rest").unwrap()
@@ -1114,6 +1325,40 @@ mod tests {
         assert_eq!(mouse.column, 19);
         assert_eq!(mouse.row, 9);
         assert_eq!(mouse.modifiers, KeyModifiers::empty());
+    }
+
+    #[test]
+    fn parses_default_mouse_encoding() {
+        let events = parse_raw_input_bytes_sync(b"[MCN1");
+        let [RawInputEvent::Mouse(mouse)] = events.as_slice() else {
+            panic!("expected one mouse event");
+        };
+        assert_eq!(mouse.kind, MouseEventKind::Moved);
+        assert_eq!((mouse.column, mouse.row), (45, 16));
+        assert_eq!(mouse.modifiers, KeyModifiers::empty());
+    }
+
+    #[test]
+    fn rejected_default_mouse_frame_preserves_trailing_input() {
+        let events = parse_raw_input_bytes_with_ranges(b"[M\x82AAx");
+
+        assert_eq!(events.len(), 2);
+        assert!(matches!(events[0].event, RawInputEvent::Unsupported));
+        assert_eq!((events[0].start, events[0].len), (0, 6));
+        assert!(matches!(events[1].event, RawInputEvent::Key(_)));
+        assert_eq!((events[1].start, events[1].len), (6, 1));
+    }
+
+    #[test]
+    fn parses_extended_button_drag_as_mouse_motion() {
+        for input in [b"[<160;20;10M".as_slice(), b"[<161;20;10M".as_slice()] {
+            let events = parse_raw_input_bytes_sync(input);
+            let [RawInputEvent::Mouse(mouse)] = events.as_slice() else {
+                panic!("expected one mouse event");
+            };
+            assert_eq!(mouse.kind, MouseEventKind::Moved);
+            assert_eq!((mouse.column, mouse.row), (19, 9));
+        }
     }
 
     #[test]
@@ -1153,6 +1398,91 @@ mod tests {
                 b: 0xee
             }
         );
+    }
+
+    #[test]
+    fn parses_host_cell_size_report() {
+        let events = parse_raw_input_bytes_sync(b"\x1b[6;21;10t");
+
+        assert_eq!(events.len(), 1);
+        assert!(matches!(
+            events[0],
+            RawInputEvent::HostCellSizeReport {
+                width_px: 10,
+                height_px: 21,
+            }
+        ));
+    }
+
+    #[test]
+    fn host_cell_size_report_parser_is_exact() {
+        for bytes in [
+            b"\x1b[6;0;10t".as_slice(),
+            b"\x1b[6;21;0t".as_slice(),
+            b"\x1b[6;21t".as_slice(),
+            b"\x1b[6;21;10;3t".as_slice(),
+            b"\x1b[4;1610;777t".as_slice(),
+            b"\x1b[8;37;161t".as_slice(),
+            b"\x1b[6;21;1-t".as_slice(),
+        ] {
+            assert!(
+                parse_host_cell_size_report(bytes).is_none(),
+                "bytes: {bytes:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn holds_lone_escape_and_stitches_split_host_cell_size_reply() {
+        let mut framer = RawInputByteFramer::default();
+        framer.host_cell_size_query_sent();
+
+        assert!(framer.push(b"\x1b").is_empty());
+        assert!(framer.flush_timeout().is_empty());
+
+        let chunks = framer.push(b"[6;21;10t");
+        assert_eq!(chunks, vec![b"\x1b[6;21;10t".to_vec()]);
+        let (event, _) = extract_one_event(&chunks[0]).unwrap();
+        assert!(matches!(
+            event,
+            RawInputEvent::HostCellSizeReport {
+                width_px: 10,
+                height_px: 21,
+            }
+        ));
+    }
+
+    #[test]
+    fn timed_out_host_cell_size_reply_fragments_do_not_leak() {
+        for (prefix, tail) in [
+            (b"\x1b[6".as_slice(), b";21;10t".as_slice()),
+            (b"\x1b[6;".as_slice(), b"21;10t".as_slice()),
+            (b"\x1b[6;21;".as_slice(), b"10t".as_slice()),
+        ] {
+            let mut framer = RawInputByteFramer::default();
+            framer.host_cell_size_query_sent();
+
+            assert!(framer.push(prefix).is_empty(), "prefix: {prefix:?}");
+            assert!(framer.flush_timeout().is_empty(), "prefix: {prefix:?}");
+            assert!(framer.push(tail).is_empty(), "tail: {tail:?}");
+            assert_eq!(framer.push(b"a"), vec![b"a".to_vec()]);
+        }
+    }
+
+    #[test]
+    fn split_host_cell_size_reply_after_csi_intro_gets_one_more_flush() {
+        let mut framer = RawInputByteFramer::default();
+        framer.host_cell_size_query_sent();
+
+        assert!(framer.push(b"\x1b[").is_empty());
+        assert!(framer.flush_timeout().is_empty());
+        assert_eq!(framer.push(b"6;21;10t"), vec![b"\x1b[6;21;10t".to_vec()]);
+
+        let mut alt_bracket = RawInputByteFramer::default();
+        alt_bracket.host_cell_size_query_sent();
+        assert!(alt_bracket.push(b"\x1b[").is_empty());
+        assert!(alt_bracket.flush_timeout().is_empty());
+        assert_eq!(alt_bracket.flush_timeout(), vec![b"\x1b[".to_vec()]);
     }
 
     #[test]
@@ -1610,6 +1940,28 @@ mod tests {
             KeyCode::Char('x'),
             KeyModifiers::empty(),
         );
+    }
+
+    #[test]
+    fn lone_escape_then_default_mouse_report_emits_both_events() {
+        let mut framer = RawInputFramer::default();
+
+        assert!(framer.push(b"").is_empty());
+        let events = framer.push(b"[MCN1");
+
+        assert_eq!(events.len(), 2);
+        let mut events = events.into_iter();
+        assert_raw_key(events.next().unwrap(), KeyCode::Esc, KeyModifiers::empty());
+        assert!(matches!(
+            events.next().unwrap(),
+            RawInputEvent::Mouse(MouseEvent {
+                kind: MouseEventKind::Moved,
+                column: 45,
+                row: 16,
+                ..
+            })
+        ));
+        assert!(framer.flush_timeout().is_empty());
     }
 
     #[test]

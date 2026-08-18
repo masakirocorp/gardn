@@ -1085,7 +1085,8 @@ fn validate_region_name(spec: &str) -> Result<(), String> {
         _ if region_count(trimmed, "bottom_lines").is_some()
             || region_count(trimmed, "bottom_non_empty_lines").is_some()
             || region_count(trimmed, "bottom_non_empty_lines_after_last_prompt_marker")
-                .is_some() =>
+                .is_some()
+            || region_count(trimmed, "top_non_empty_lines").is_some() =>
         {
             Ok(())
         }
@@ -1286,6 +1287,9 @@ fn region<'a>(input: DetectionInput<'a>, spec: &str) -> &'a str {
             {
                 return bottom_non_empty_lines(after_last_input_prompt_marker(content), count);
             }
+            if let Some(count) = region_count(trimmed, "top_non_empty_lines") {
+                return top_non_empty_lines(content, count);
+            }
             ""
         }
     }
@@ -1318,6 +1322,26 @@ fn bottom_non_empty_lines(content: &str, count: usize) -> &str {
         return "";
     };
     slice_from_line_index(content, &lines, start_index)
+}
+
+fn top_non_empty_lines(content: &str, count: usize) -> &str {
+    let lines: Vec<&str> = content.lines().collect();
+    let Some(end_index) = lines
+        .iter()
+        .enumerate()
+        .filter(|(_, line)| !line.trim().is_empty())
+        .take(count)
+        .last()
+        .map(|(index, _)| index)
+    else {
+        return "";
+    };
+    let next = end_index + 1;
+    if next >= lines.len() {
+        return content;
+    }
+    let end = line_start_offset(content, &lines, next);
+    &content[..end.min(content.len())]
 }
 
 fn after_last_prompt_marker(content: &str) -> &str {

@@ -463,6 +463,9 @@ pub(super) struct AgentOscStateTracker {
     body: Vec<u8>,
     latest_title: Option<String>,
     latest_progress: Option<String>,
+    /// Set when an OSC 0/2 changes the retained title; consumed by the event
+    /// loop to re-sync the outer window title without polling every pane.
+    title_dirty: bool,
 }
 
 impl AgentOscStateTracker {
@@ -515,11 +518,14 @@ impl AgentOscStateTracker {
         if let Some((command, payload)) = parse_agent_osc_body(&self.body) {
             match command {
                 b"0" | b"2" => {
-                    if payload.is_empty() {
-                        self.latest_title = None;
+                    let next = if payload.is_empty() {
+                        None
                     } else {
-                        self.latest_title =
-                            Some(sanitize_agent_osc_string(payload, AGENT_OSC_MAX_CHARS));
+                        Some(sanitize_agent_osc_string(payload, AGENT_OSC_MAX_CHARS))
+                    };
+                    if self.latest_title != next {
+                        self.latest_title = next;
+                        self.title_dirty = true;
                     }
                 }
                 b"9" => {
@@ -540,7 +546,12 @@ impl AgentOscStateTracker {
         self.latest_progress.as_deref().unwrap_or("")
     }
 
+    pub(super) fn take_title_dirty(&mut self) -> bool {
+        std::mem::take(&mut self.title_dirty)
+    }
+
     pub(super) fn clear_retained(&mut self) {
+        self.title_dirty |= self.latest_title.is_some();
         self.latest_title = None;
         self.latest_progress = None;
     }
@@ -707,10 +718,13 @@ fn parse_osc52_clipboard_write(body: &[u8]) -> Option<Vec<u8>> {
     let sep = rest.iter().position(|b| *b == b';')?;
     let selector = &rest[..sep];
     let data = &rest[sep + 1..];
-    if !(selector.is_empty() || selector == b"c") || data == b"?" {
+    if !(selector.is_empty() || selector == b"c") || data == b"?" || data.is_empty() {
         return None;
     }
-    base64::engine::general_purpose::STANDARD.decode(data).ok()
+    let decoded = base64::engine::general_purpose::STANDARD
+        .decode(data)
+        .ok()?;
+    (!decoded.is_empty()).then_some(decoded)
 }
 
 fn foreground_job_is_shell(job: &crate::platform::ForegroundJob, shell_pid: u32) -> bool {
@@ -1149,11 +1163,11 @@ mod tests {
     }
 
     #[test]
-    fn osc52_forwarder_accepts_clear_clipboard() {
+    fn osc52_forwarder_ignores_empty_clipboard_writes() {
         let mut fw = Osc52Forwarder::default();
         fw.observe(b"\x1b]52;c;\x07");
-        let pending = fw.drain_pending();
-        assert_eq!(pending, vec![Vec::<u8>::new()]);
+        fw.observe(b"\x1b]52;c;\x1b\\");
+        assert!(fw.drain_pending().is_empty());
     }
 
     #[test]

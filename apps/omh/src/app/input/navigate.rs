@@ -6,7 +6,7 @@ use std::{
 };
 
 use bytes::Bytes;
-use crossterm::event::{KeyCode, KeyEvent};
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::layout::Direction;
 
 use crate::{
@@ -22,21 +22,21 @@ use crate::{
 #[cfg(test)]
 pub(crate) fn terminal_direct_navigation_action(
     state: &AppState,
-    key: TerminalKey,
+    key: &TerminalKey,
 ) -> Option<NavigateAction> {
     action_for_key(state, key, BindingDispatch::Direct)
 }
 
 pub(crate) fn terminal_direct_non_indexed_navigation_action(
     state: &AppState,
-    key: TerminalKey,
+    key: &TerminalKey,
 ) -> Option<NavigateAction> {
     non_indexed_action_for_key(state, key, BindingDispatch::Direct)
 }
 
 pub(crate) fn terminal_direct_indexed_navigation_action(
     state: &AppState,
-    key: TerminalKey,
+    key: &TerminalKey,
 ) -> Option<NavigateAction> {
     indexed_navigation_action(state, key, BindingDispatch::Direct)
 }
@@ -59,8 +59,11 @@ impl App {
     pub(crate) fn handle_prefix_key(&mut self, raw_key: TerminalKey) {
         let key = raw_key.as_key_event();
         self.state.update_dismissed = true;
+        if matches!(key.code, KeyCode::Modifier(_)) {
+            return;
+        }
 
-        if self.state.is_prefix_key(raw_key) {
+        if self.state.is_prefix_key(&raw_key) {
             if !self.pass_through_key_to_focused_pane(raw_key) {
                 leave_command_mode(&mut self.state);
             }
@@ -73,19 +76,19 @@ impl App {
         }
 
         if let Some(action) =
-            non_indexed_action_for_key(&self.state, raw_key, BindingDispatch::Prefix)
+            non_indexed_action_for_key(&self.state, &raw_key, BindingDispatch::Prefix)
         {
             self.execute_prefix_key_action(action);
             return;
         }
 
-        if let Some(binding) = command_for_key(&self.state, raw_key, BindingDispatch::Prefix) {
+        if let Some(binding) = command_for_key(&self.state, &raw_key, BindingDispatch::Prefix) {
             self.launch_custom_command(binding, ActionContext::Prefix);
             return;
         }
 
         if let Some(action) =
-            indexed_navigation_action(&self.state, raw_key, BindingDispatch::Prefix)
+            indexed_navigation_action(&self.state, &raw_key, BindingDispatch::Prefix)
         {
             self.execute_prefix_key_action(action);
             return;
@@ -103,17 +106,17 @@ impl App {
             return;
         }
 
-        if key.code == KeyCode::Esc || self.state.is_prefix_key(raw_key) {
+        if key.code == KeyCode::Esc || self.state.is_prefix_key(&raw_key) {
             leave_navigate_mode(&mut self.state);
             return;
         }
 
-        if let Some(action) = navigate_reserved_action_for_key(&self.state, raw_key) {
+        if let Some(action) = navigate_reserved_action_for_key(&self.state, &raw_key) {
             self.execute_tui_navigate_action(action, ActionContext::Navigate);
             return;
         }
 
-        if let Some(action) = navigate_mode_non_indexed_action_for_key(&self.state, raw_key) {
+        if let Some(action) = navigate_mode_non_indexed_action_for_key(&self.state, &raw_key) {
             if action == NavigateAction::EditScrollback {
                 self.launch_focused_scrollback_editor();
             } else {
@@ -123,12 +126,12 @@ impl App {
             return;
         }
 
-        if let Some(binding) = command_for_key(&self.state, raw_key, BindingDispatch::Prefix) {
+        if let Some(binding) = command_for_key(&self.state, &raw_key, BindingDispatch::Prefix) {
             self.launch_custom_command(binding, ActionContext::Navigate);
             return;
         }
 
-        if let Some(action) = navigate_mode_indexed_action_for_key(&self.state, raw_key) {
+        if let Some(action) = navigate_mode_indexed_action_for_key(&self.state, &raw_key) {
             self.execute_tui_navigate_action(action, ActionContext::Navigate);
             self.selection_autoscroll_deadline = None;
         }
@@ -431,13 +434,7 @@ impl App {
                     NavigateAction::FocusPaneRight => crate::api::schema::PaneDirection::Right,
                     _ => unreachable!(),
                 };
-                self.runtime_pane_focus_direction(
-                    "tui.pane.focus_direction",
-                    crate::api::schema::PaneFocusDirectionParams {
-                        pane_id: None,
-                        direction,
-                    },
-                );
+                self.focus_pane_direction_in_context(direction, context);
             }
             NavigateAction::SplitVertical | NavigateAction::SplitHorizontal => {
                 let direction = if matches!(action, NavigateAction::SplitVertical) {
@@ -547,6 +544,25 @@ impl App {
                     context,
                 );
             }
+        }
+    }
+
+    fn focus_pane_direction_in_context(
+        &mut self,
+        direction: crate::api::schema::PaneDirection,
+        context: ActionContext,
+    ) {
+        let preserve_navigate_mode =
+            context == ActionContext::Navigate && self.state.mode == Mode::Navigate;
+        self.runtime_pane_focus_direction(
+            "tui.pane.focus_direction",
+            crate::api::schema::PaneFocusDirectionParams {
+                pane_id: None,
+                direction,
+            },
+        );
+        if preserve_navigate_mode {
+            self.state.mode = Mode::Navigate;
         }
     }
     fn pass_through_key_to_focused_pane(&mut self, key: TerminalKey) -> bool {
@@ -786,7 +802,8 @@ impl App {
             .state
             .runtime_for_pane_in_workspace(&self.terminal_runtimes, ws_idx, pane_id)
             .ok_or_else(|| std::io::Error::other("focused pane has no scrollback runtime"))?
-            .recent_text(usize::MAX);
+            .recent_unwrapped_text_snapshot(usize::MAX)
+            .text;
 
         let path = write_scrollback_temp_file(&scrollback)?;
 
@@ -1046,7 +1063,7 @@ pub(crate) enum BindingDispatch {
 
 pub(crate) fn command_for_key(
     state: &AppState,
-    key: TerminalKey,
+    key: &TerminalKey,
     dispatch: BindingDispatch,
 ) -> Option<crate::config::CustomCommandKeybind> {
     state
@@ -1060,45 +1077,76 @@ pub(crate) fn command_for_key(
         .cloned()
 }
 
-fn navigate_reserved_action_for_key(state: &AppState, key: TerminalKey) -> Option<NavigateAction> {
+fn unmodified_digit_for_key(key: &TerminalKey) -> Option<char> {
+    ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0']
+        .into_iter()
+        .find(|digit| {
+            crate::config::terminal_key_matches_combo(
+                key,
+                (KeyCode::Char(*digit), KeyModifiers::empty()),
+            )
+        })
+}
+
+fn reserved_digit_workspace_index(state: &AppState, key: &TerminalKey) -> Option<usize> {
+    let digit = unmodified_digit_for_key(key)?;
+    let idx = if digit == '0' {
+        9
+    } else {
+        (digit as usize) - ('1' as usize)
+    };
+    state.sidebar_visible_workspace_indices().get(idx).copied()
+}
+
+fn navigate_reserved_action_for_key(state: &AppState, key: &TerminalKey) -> Option<NavigateAction> {
+    if let Some(ws_idx) = reserved_digit_workspace_index(state, key) {
+        return Some(NavigateAction::SwitchWorkspace(ws_idx));
+    }
+
     let (code, modifiers) = crate::config::normalize_key_combo((key.code, key.modifiers));
     if !modifiers.is_empty() {
         return None;
     }
     match code {
-        KeyCode::Tab => Some(NavigateAction::CyclePaneNext),
-        KeyCode::BackTab => Some(NavigateAction::CyclePanePrevious),
-        KeyCode::Left => Some(NavigateAction::FocusPaneLeft),
-        KeyCode::Right => Some(NavigateAction::FocusPaneRight),
+        KeyCode::Tab if modifiers.is_empty() => Some(NavigateAction::CyclePaneNext),
+        KeyCode::BackTab if modifiers.is_empty() => Some(NavigateAction::CyclePanePrevious),
+        KeyCode::Left if modifiers.is_empty() => Some(NavigateAction::FocusPaneLeft),
+        KeyCode::Right if modifiers.is_empty() => Some(NavigateAction::FocusPaneRight),
         KeyCode::Up if state.keybinds.navigate.pane_up.matches_direct_key(key) => {
             Some(NavigateAction::FocusPaneUp)
         }
         KeyCode::Down if state.keybinds.navigate.pane_down.matches_direct_key(key) => {
             Some(NavigateAction::FocusPaneDown)
         }
+        _ if state.keybinds.navigate.pane_left.matches_direct_key(key) => {
+            Some(NavigateAction::FocusPaneLeft)
+        }
+        _ if state.keybinds.navigate.pane_down.matches_direct_key(key) => {
+            Some(NavigateAction::FocusPaneDown)
+        }
+        _ if state.keybinds.navigate.pane_up.matches_direct_key(key) => {
+            Some(NavigateAction::FocusPaneUp)
+        }
+        _ if state.keybinds.navigate.pane_right.matches_direct_key(key) => {
+            Some(NavigateAction::FocusPaneRight)
+        }
         _ => None,
     }
 }
 
-pub(super) fn handle_navigate_reserved_key(state: &mut AppState, key: TerminalKey) -> bool {
+pub(super) fn handle_navigate_reserved_key(state: &mut AppState, key: &TerminalKey) -> bool {
+    if let Some(ws_idx) = reserved_digit_workspace_index(state, key) {
+        state.switch_workspace(ws_idx);
+        leave_navigate_mode(state);
+        return true;
+    }
+
     let (code, modifiers) = crate::config::normalize_key_combo((key.code, key.modifiers));
     if modifiers.is_empty() {
         match code {
             KeyCode::Enter => {
                 if state.workspace_in_active_group(state.selected) {
                     state.switch_workspace(state.selected);
-                    leave_navigate_mode(state);
-                }
-                return true;
-            }
-            KeyCode::Char(c @ ('1'..='9' | '0')) => {
-                let idx = if c == '0' {
-                    9
-                } else {
-                    (c as usize) - ('1' as usize)
-                };
-                if let Some(ws_idx) = state.sidebar_visible_workspace_indices().get(idx).copied() {
-                    state.switch_workspace(ws_idx);
                     leave_navigate_mode(state);
                 }
                 return true;
@@ -1177,16 +1225,16 @@ pub(crate) fn handle_navigate_key(state: &mut AppState, key: KeyEvent) {
     state.update_dismissed = true;
     let terminal_key = TerminalKey::from(key);
 
-    if state.is_prefix_key(terminal_key) || key.code == KeyCode::Esc {
+    if state.is_prefix_key(&terminal_key) || key.code == KeyCode::Esc {
         leave_navigate_mode(state);
         return;
     }
 
-    if handle_navigate_reserved_key(state, terminal_key) {
+    if handle_navigate_reserved_key(state, &terminal_key) {
         return;
     }
 
-    if let Some(action) = navigate_mode_action_for_key(state, terminal_key) {
+    if let Some(action) = navigate_mode_action_for_key(state, &terminal_key) {
         execute_navigate_action_in_context(
             state,
             &mut terminal_runtimes,
@@ -1253,44 +1301,52 @@ pub(crate) enum NavigateAction {
 
 pub(crate) fn indexed_navigation_action(
     state: &AppState,
-    key: TerminalKey,
+    key: &TerminalKey,
     dispatch: BindingDispatch,
 ) -> Option<NavigateAction> {
     let kb = &state.keybinds;
-    let trigger_matches = |binding: &crate::config::IndexedKeybind| match dispatch {
-        BindingDispatch::Direct => binding.trigger.is_direct(),
-        BindingDispatch::Prefix => binding.trigger.is_prefix(),
-    };
+    let actual_modifiers = crate::config::normalize_key_combo((key.code, key.modifiers)).1;
 
-    for binding in &kb.switch_tab {
-        if trigger_matches(binding) {
-            if let Some(idx) = binding.matched_index(key) {
-                return Some(NavigateAction::SwitchTab(idx));
+    for exact_modifiers in [true, false] {
+        let trigger_matches = |binding: &crate::config::IndexedKeybind| {
+            let dispatch_matches = match dispatch {
+                BindingDispatch::Direct => binding.trigger.is_direct(),
+                BindingDispatch::Prefix => binding.trigger.is_prefix(),
+            };
+            let expected_modifiers = crate::config::normalize_key_combo(binding.trigger.combo()).1;
+            dispatch_matches && (actual_modifiers == expected_modifiers) == exact_modifiers
+        };
+
+        for binding in &kb.switch_tab {
+            if trigger_matches(binding) {
+                if let Some(idx) = binding.matched_index(key) {
+                    return Some(NavigateAction::SwitchTab(idx));
+                }
             }
         }
-    }
-    for binding in &kb.switch_workspace {
-        if trigger_matches(binding) {
-            if let Some(idx) = binding.matched_index(key) {
-                return state
-                    .sidebar_visible_workspace_indices()
-                    .get(idx)
-                    .copied()
-                    .map(NavigateAction::SwitchWorkspace);
+        for binding in &kb.switch_workspace {
+            if trigger_matches(binding) {
+                if let Some(idx) = binding.matched_index(key) {
+                    if let Some(ws_idx) =
+                        state.sidebar_visible_workspace_indices().get(idx).copied()
+                    {
+                        return Some(NavigateAction::SwitchWorkspace(ws_idx));
+                    }
+                }
             }
         }
-    }
-    for binding in &kb.switch_group {
-        if trigger_matches(binding) {
-            if let Some(idx) = binding.matched_index(key) {
-                return Some(NavigateAction::SwitchGroup(idx));
+        for binding in &kb.switch_group {
+            if trigger_matches(binding) {
+                if let Some(idx) = binding.matched_index(key) {
+                    return Some(NavigateAction::SwitchGroup(idx));
+                }
             }
         }
-    }
-    for binding in &kb.focus_agent {
-        if trigger_matches(binding) {
-            if let Some(idx) = binding.matched_index(key) {
-                return Some(NavigateAction::FocusAgent(idx));
+        for binding in &kb.focus_agent {
+            if trigger_matches(binding) {
+                if let Some(idx) = binding.matched_index(key) {
+                    return Some(NavigateAction::FocusAgent(idx));
+                }
             }
         }
     }
@@ -1300,7 +1356,7 @@ pub(crate) fn indexed_navigation_action(
 
 fn action_matches(
     bindings: &crate::config::ActionKeybinds,
-    key: TerminalKey,
+    key: &TerminalKey,
     dispatch: BindingDispatch,
 ) -> bool {
     match dispatch {
@@ -1312,7 +1368,7 @@ fn action_matches(
 #[cfg(test)]
 pub(crate) fn action_for_key(
     state: &AppState,
-    key: TerminalKey,
+    key: &TerminalKey,
     dispatch: BindingDispatch,
 ) -> Option<NavigateAction> {
     non_indexed_action_for_key(state, key, dispatch)
@@ -1321,7 +1377,7 @@ pub(crate) fn action_for_key(
 
 pub(crate) fn non_indexed_action_for_key(
     state: &AppState,
-    key: TerminalKey,
+    key: &TerminalKey,
     dispatch: BindingDispatch,
 ) -> Option<NavigateAction> {
     let kb = &state.keybinds;
@@ -1385,14 +1441,14 @@ pub(crate) fn non_indexed_action_for_key(
     None
 }
 
-fn navigate_mode_action_for_key(state: &AppState, key: TerminalKey) -> Option<NavigateAction> {
+fn navigate_mode_action_for_key(state: &AppState, key: &TerminalKey) -> Option<NavigateAction> {
     navigate_mode_non_indexed_action_for_key(state, key)
         .or_else(|| navigate_mode_indexed_action_for_key(state, key))
 }
 
 fn navigate_mode_non_indexed_action_for_key(
     state: &AppState,
-    key: TerminalKey,
+    key: &TerminalKey,
 ) -> Option<NavigateAction> {
     let action = non_indexed_action_for_key(state, key, BindingDispatch::Prefix)?;
     if matches!(
@@ -1409,7 +1465,7 @@ fn navigate_mode_non_indexed_action_for_key(
 
 fn navigate_mode_indexed_action_for_key(
     state: &AppState,
-    key: TerminalKey,
+    key: &TerminalKey,
 ) -> Option<NavigateAction> {
     indexed_navigation_action(state, key, BindingDispatch::Prefix)
 }
@@ -1715,7 +1771,7 @@ fn unique_scrollback_path(attempt: u32) -> std::path::PathBuf {
 mod tests {
     use std::time::Duration;
 
-    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, ModifierKeyCode};
     use ratatui::layout::Direction;
 
     use super::super::{state_with_workspaces, unique_temp_path, wait_for_file};
@@ -1724,9 +1780,24 @@ mod tests {
         app::{state::Group, App},
         config::Config,
         input::TerminalKey,
+        raw_input::{parse_raw_input_bytes_sync, RawInputEvent},
         terminal::TerminalState,
         workspace::Workspace,
     };
+    fn app_with_test_workspaces(names: &[&str]) -> App {
+        let (_api_tx, api_rx) = tokio::sync::mpsc::unbounded_channel();
+        let mut app = App::new(
+            &Config::default(),
+            true,
+            None,
+            api_rx,
+            crate::api::EventHub::default(),
+        );
+        app.state.workspaces = names.iter().copied().map(Workspace::test_new).collect();
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app
+    }
 
     #[test]
     fn custom_rename_key_enters_rename_mode() {
@@ -2151,7 +2222,7 @@ navigate_pane_right = "ctrl+l"
 
         let action = non_indexed_action_for_key(
             &state,
-            TerminalKey::new(KeyCode::Char('z'), KeyModifiers::SHIFT),
+            &TerminalKey::new(KeyCode::Char('z'), KeyModifiers::SHIFT),
             BindingDispatch::Prefix,
         );
         assert_eq!(action, Some(NavigateAction::ZenMode));
@@ -2172,7 +2243,7 @@ navigate_pane_right = "ctrl+l"
         assert_eq!(
             non_indexed_action_for_key(
                 &state,
-                TerminalKey::new(KeyCode::Char('t'), KeyModifiers::empty()),
+                &TerminalKey::new(KeyCode::Char('t'), KeyModifiers::empty()),
                 BindingDispatch::Prefix,
             ),
             Some(NavigateAction::TakeTabControl)
@@ -2186,7 +2257,7 @@ navigate_pane_right = "ctrl+l"
 
         let action = terminal_direct_navigation_action(
             &state,
-            TerminalKey::new(KeyCode::Char('a'), KeyModifiers::ALT),
+            &TerminalKey::new(KeyCode::Char('a'), KeyModifiers::ALT),
         );
 
         assert_eq!(action, Some(NavigateAction::NextAgent));
@@ -2198,7 +2269,7 @@ navigate_pane_right = "ctrl+l"
 
         let action = non_indexed_action_for_key(
             &state,
-            TerminalKey::new(KeyCode::Char('g'), KeyModifiers::empty()),
+            &TerminalKey::new(KeyCode::Char('g'), KeyModifiers::empty()),
             BindingDispatch::Prefix,
         );
 
@@ -2213,7 +2284,7 @@ navigate_pane_right = "ctrl+l"
 
         let action = non_indexed_action_for_key(
             &state,
-            TerminalKey::new(
+            &TerminalKey::new(
                 KeyCode::Char('g'),
                 KeyModifiers::CONTROL | KeyModifiers::ALT,
             ),
@@ -2230,7 +2301,7 @@ navigate_pane_right = "ctrl+l"
 
         let action = terminal_direct_navigation_action(
             &state,
-            TerminalKey::new(KeyCode::Left, KeyModifiers::ALT),
+            &TerminalKey::new(KeyCode::Left, KeyModifiers::ALT),
         );
 
         assert_eq!(action, Some(NavigateAction::FocusPaneLeft));
@@ -2283,7 +2354,7 @@ navigate_pane_right = "ctrl+l"
 
         for (key, expected) in cases {
             assert_eq!(
-                action_for_key(&state, TerminalKey::from(key), BindingDispatch::Prefix),
+                action_for_key(&state, &TerminalKey::from(key), BindingDispatch::Prefix),
                 Some(expected)
             );
         }
@@ -2298,7 +2369,7 @@ navigate_pane_right = "ctrl+l"
         assert_eq!(
             action_for_key(
                 &state,
-                TerminalKey::new(KeyCode::Char('a'), KeyModifiers::ALT),
+                &TerminalKey::new(KeyCode::Char('a'), KeyModifiers::ALT),
                 BindingDispatch::Prefix,
             ),
             Some(NavigateAction::OpenAgentMenu)
@@ -2306,7 +2377,7 @@ navigate_pane_right = "ctrl+l"
         assert_eq!(
             action_for_key(
                 &state,
-                TerminalKey::new(KeyCode::Char('b'), KeyModifiers::ALT),
+                &TerminalKey::new(KeyCode::Char('b'), KeyModifiers::ALT),
                 BindingDispatch::Prefix,
             ),
             Some(NavigateAction::ToggleRightSidebar)
@@ -2339,21 +2410,21 @@ navigate_pane_right = "ctrl+l"
         assert_eq!(
             terminal_direct_navigation_action(
                 &state,
-                TerminalKey::new(KeyCode::Char('['), KeyModifiers::CONTROL),
+                &TerminalKey::new(KeyCode::Char('['), KeyModifiers::CONTROL),
             ),
             Some(NavigateAction::PreviousGroup)
         );
         assert_eq!(
             terminal_direct_navigation_action(
                 &state,
-                TerminalKey::new(KeyCode::Char(']'), KeyModifiers::CONTROL),
+                &TerminalKey::new(KeyCode::Char(']'), KeyModifiers::CONTROL),
             ),
             Some(NavigateAction::NextGroup)
         );
         assert_eq!(
             terminal_direct_navigation_action(
                 &state,
-                TerminalKey::new(KeyCode::Char('g'), KeyModifiers::CONTROL),
+                &TerminalKey::new(KeyCode::Char('g'), KeyModifiers::CONTROL),
             ),
             None
         );
@@ -2367,7 +2438,7 @@ navigate_pane_right = "ctrl+l"
 
         let action = terminal_direct_navigation_action(
             &state,
-            TerminalKey::new(KeyCode::Char('3'), KeyModifiers::CONTROL),
+            &TerminalKey::new(KeyCode::Char('3'), KeyModifiers::CONTROL),
         );
 
         assert_eq!(action, Some(NavigateAction::SwitchTab(2)));
@@ -2381,7 +2452,7 @@ navigate_pane_right = "ctrl+l"
 
         let action = terminal_direct_navigation_action(
             &state,
-            TerminalKey::new(KeyCode::Char('0'), KeyModifiers::CONTROL),
+            &TerminalKey::new(KeyCode::Char('0'), KeyModifiers::CONTROL),
         );
 
         assert_eq!(action, Some(NavigateAction::SwitchGroup(9)));
@@ -2408,7 +2479,7 @@ navigate_pane_right = "ctrl+l"
 
         let action = terminal_direct_navigation_action(
             &state,
-            TerminalKey::new(KeyCode::Char('2'), KeyModifiers::CONTROL),
+            &TerminalKey::new(KeyCode::Char('2'), KeyModifiers::CONTROL),
         );
 
         assert_eq!(action, Some(NavigateAction::SwitchWorkspace(2)));
@@ -2428,11 +2499,159 @@ switch_workspace = "prefix+shift+1..9"
 
         let action = action_for_key(
             &state,
-            TerminalKey::new(KeyCode::Char('!'), KeyModifiers::empty()),
+            &TerminalKey::new(KeyCode::Char('!'), KeyModifiers::empty()),
             BindingDispatch::Prefix,
         );
 
         assert_eq!(action, Some(NavigateAction::Help));
+    }
+    #[test]
+    fn prefix_shift_indexed_workspace_shortcut_maps_legacy_us_symbol_key() {
+        let mut state = state_with_workspaces(&["one", "two"]);
+        let config: Config =
+            toml::from_str("[keys]\nswitch_workspace = \"prefix+shift+1..9\"\n").unwrap();
+        state.keybinds.switch_workspace = config.keybinds().switch_workspace;
+
+        let action = action_for_key(
+            &state,
+            &TerminalKey::new(KeyCode::Char('@'), KeyModifiers::empty()),
+            BindingDispatch::Prefix,
+        );
+
+        assert_eq!(action, Some(NavigateAction::SwitchWorkspace(1)));
+    }
+
+    #[test]
+    fn prefix_shift_indexed_workspace_shortcut_maps_non_us_number_rows() {
+        let mut state = state_with_workspaces(&["one", "two"]);
+        let config: Config =
+            toml::from_str("[keys]\nswitch_workspace = \"prefix+shift+1..9\"\n").unwrap();
+        state.keybinds.switch_workspace = config.keybinds().switch_workspace;
+
+        for key in [
+            TerminalKey::new(KeyCode::Char('2'), KeyModifiers::SHIFT)
+                .with_shifted_codepoint('"' as u32),
+            TerminalKey::new(KeyCode::Char('é'), KeyModifiers::SHIFT)
+                .with_shifted_codepoint('2' as u32),
+        ] {
+            assert_eq!(
+                action_for_key(&state, &key, BindingDispatch::Prefix),
+                Some(NavigateAction::SwitchWorkspace(1))
+            );
+        }
+    }
+
+    #[test]
+    fn prefix_unshifted_indexed_shortcut_maps_shifted_french_number_row() {
+        let mut state = state_with_workspaces(&["one"]);
+        let config: Config = toml::from_str("[keys]\nswitch_tab = \"prefix+1..9\"\n").unwrap();
+        state.keybinds.switch_tab = config.keybinds().switch_tab;
+
+        let action = action_for_key(
+            &state,
+            &TerminalKey::new(KeyCode::Char('é'), KeyModifiers::SHIFT)
+                .with_shifted_codepoint('2' as u32),
+            BindingDispatch::Prefix,
+        );
+
+        assert_eq!(action, Some(NavigateAction::SwitchTab(1)));
+    }
+
+    #[tokio::test]
+    async fn prefix_shift_indexed_workspace_shortcut_survives_modifier_press() {
+        let mut app = app_with_test_workspaces(&["one", "two"]);
+        let config: Config =
+            toml::from_str("[keys]\nswitch_workspace = \"prefix+shift+1..9\"\n").unwrap();
+        app.state.keybinds.switch_workspace = config.keybinds().switch_workspace;
+        app.state.mode = Mode::Prefix;
+
+        app.handle_prefix_key(TerminalKey::new(
+            KeyCode::Modifier(ModifierKeyCode::LeftShift),
+            KeyModifiers::SHIFT,
+        ));
+
+        assert_eq!(app.state.mode, Mode::Prefix);
+
+        let action = action_for_key(
+            &app.state,
+            &TerminalKey::new(KeyCode::Char('2'), KeyModifiers::SHIFT)
+                .with_shifted_codepoint('"' as u32),
+            BindingDispatch::Prefix,
+        );
+        assert_eq!(action, Some(NavigateAction::SwitchWorkspace(1)));
+    }
+
+    #[test]
+    fn app_navigate_mode_maps_french_number_row_to_workspace() {
+        let mut state = state_with_workspaces(&["one", "two"]);
+        state.mode = Mode::Navigate;
+
+        assert!(handle_navigate_reserved_key(
+            &mut state,
+            &TerminalKey::new(KeyCode::Char('é'), KeyModifiers::SHIFT)
+                .with_shifted_codepoint('2' as u32),
+        ));
+
+        assert_eq!(state.active, Some(1));
+        assert_eq!(state.mode, Mode::Terminal);
+    }
+
+    #[test]
+    fn shifted_backslash_layout_prefers_horizontal_split_binding() {
+        let config: Config = toml::from_str(
+            r#"
+[keys]
+split_vertical = "prefix+|"
+split_horizontal = 'prefix+\'
+"#,
+        )
+        .unwrap();
+        let mut state = state_with_workspaces(&["test"]);
+        state.keybinds = config.keybinds();
+        let key = crate::input::parse_terminal_key_sequence("\x1b[124:92;2:1u").unwrap();
+        assert_eq!(key.code, KeyCode::Char('|'));
+        assert_eq!(key.modifiers, KeyModifiers::SHIFT);
+        assert_eq!(key.shifted_codepoint, Some('\\' as u32));
+        assert!(state
+            .keybinds
+            .split_horizontal
+            .matches_prefix_key(&key.clone()));
+        assert!(!state
+            .keybinds
+            .split_vertical
+            .matches_prefix_key(&key.clone()));
+
+        assert_eq!(
+            action_for_key(&state, &key, BindingDispatch::Prefix),
+            Some(NavigateAction::SplitHorizontal)
+        );
+        assert_eq!(
+            action_for_key(
+                &state,
+                &TerminalKey::new(KeyCode::Char('|'), KeyModifiers::empty()),
+                BindingDispatch::Prefix,
+            ),
+            Some(NavigateAction::SplitVertical)
+        );
+    }
+
+    #[tokio::test]
+    async fn kitty_shifted_alternate_without_modifier_prefers_reload_over_resize() {
+        let mut app = app_with_test_workspaces(&["test"]);
+        app.state.mode = Mode::Prefix;
+
+        let mut events = parse_raw_input_bytes_sync(b"\x1b[114:82;1u");
+        assert_eq!(events.len(), 1);
+        let RawInputEvent::Key(key) = events.remove(0) else {
+            panic!("expected key event");
+        };
+        assert_eq!(
+            action_for_key(&app.state, &key.clone(), BindingDispatch::Prefix),
+            Some(NavigateAction::ReloadConfig)
+        );
+        app.handle_prefix_key(key);
+
+        assert_eq!(app.state.mode, Mode::Terminal);
     }
 
     #[test]
@@ -2452,9 +2671,9 @@ command = "echo literal"
         state.keybinds = config.keybinds();
 
         let key = TerminalKey::new(KeyCode::Char('!'), KeyModifiers::empty());
-        assert!(command_for_key(&state, key, BindingDispatch::Prefix).is_some());
+        assert!(command_for_key(&state, &key, BindingDispatch::Prefix).is_some());
         assert_eq!(
-            indexed_navigation_action(&state, key, BindingDispatch::Prefix),
+            indexed_navigation_action(&state, &key, BindingDispatch::Prefix),
             Some(NavigateAction::SwitchWorkspace(0))
         );
     }
@@ -2513,6 +2732,36 @@ command = "echo literal"
 
         assert_eq!(app.state.workspaces[0].focused_pane_id(), Some(root));
         assert_eq!(app.state.mode, Mode::Terminal);
+    }
+
+    #[tokio::test]
+    async fn navigate_focus_pane_keeps_navigate_mode_active() {
+        let (_api_tx, api_rx) = tokio::sync::mpsc::unbounded_channel();
+        let mut app = App::new(
+            &Config::default(),
+            true,
+            None,
+            api_rx,
+            crate::api::EventHub::default(),
+        );
+        app.state.workspaces = vec![Workspace::test_new("test")];
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        let root = app.state.workspaces[0].tabs[0].root_pane;
+        let below = app.state.workspaces[0].test_split(Direction::Vertical);
+        app.state.workspaces[0].layout.focus_pane(below);
+        app.state.view.pane_infos = app.state.workspaces[0]
+            .active_tab()
+            .unwrap()
+            .layout
+            .panes(ratatui::layout::Rect::new(0, 0, 80, 24));
+        app.state.mode = Mode::Navigate;
+
+        app.handle_key(TerminalKey::new(KeyCode::Char('k'), KeyModifiers::empty()))
+            .await;
+
+        assert_eq!(app.state.workspaces[0].focused_pane_id(), Some(root));
+        assert_eq!(app.state.mode, Mode::Navigate);
     }
 
     #[tokio::test]
@@ -2771,7 +3020,7 @@ command = "echo literal"
     }
 
     #[tokio::test]
-    async fn edit_scrollback_key_opens_focused_runtime_scrollback_in_editor_pane() {
+    async fn edit_scrollback_key_preserves_logical_lines_in_editor_pane() {
         let (_api_tx, api_rx) = tokio::sync::mpsc::unbounded_channel();
         let mut app = App::new(
             &Config::default(),
@@ -2785,10 +3034,10 @@ command = "echo literal"
         workspace.tabs[0].runtimes.insert(
             root_pane,
             crate::terminal::TerminalRuntime::test_with_scrollback_bytes(
-                20,
+                5,
                 5,
                 4096,
-                b"alpha\nbeta\n",
+                b"ABCDEFGHIJ\r\nKLMNO",
             ),
         );
         app.state.workspaces = vec![workspace];
@@ -2813,8 +3062,7 @@ command = "echo literal"
             .await;
 
         let content = wait_for_file(&output_path);
-        assert!(content.contains("alpha"));
-        assert!(content.contains("beta"));
+        assert_eq!(content, "ABCDEFGHIJ\nKLMNO");
         assert_eq!(app.state.mode, Mode::Terminal);
         assert!(
             app.state.terminals.values().any(|terminal| terminal

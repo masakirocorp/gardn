@@ -748,6 +748,21 @@ fn all_pids() -> Vec<u32> {
         .collect()
 }
 
+/// The machine's node name, as shown by tmux's `#h`.
+pub(crate) fn hostname_platform() -> Option<String> {
+    let mut buffer = [0_u8; 256];
+    let result =
+        unsafe { libc::gethostname(buffer.as_mut_ptr().cast::<libc::c_char>(), buffer.len()) };
+    if result != 0 {
+        return None;
+    }
+    let end = buffer
+        .iter()
+        .position(|&byte| byte == 0)
+        .unwrap_or(buffer.len());
+    let name = String::from_utf8_lossy(&buffer[..end]).into_owned();
+    (!name.is_empty()).then_some(name)
+}
 #[cfg(test)]
 mod tests {
     use super::super::parse_agent_env_hint;

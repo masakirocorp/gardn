@@ -105,6 +105,21 @@ impl FocusEvent {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ColorScheme {
+    Light,
+    Dark,
+}
+
+impl ColorScheme {
+    fn as_raw(self) -> ffi::GhosttyColorScheme {
+        match self {
+            Self::Light => ffi::GhosttyColorScheme_GHOSTTY_COLOR_SCHEME_LIGHT,
+            Self::Dark => ffi::GhosttyColorScheme_GHOSTTY_COLOR_SCHEME_DARK,
+        }
+    }
+}
+
 pub const MOD_SHIFT: u16 = ffi::GHOSTTY_MODS_SHIFT as u16;
 pub const MOD_CTRL: u16 = ffi::GHOSTTY_MODS_CTRL as u16;
 pub const MOD_ALT: u16 = ffi::GHOSTTY_MODS_ALT as u16;
@@ -146,6 +161,7 @@ pub const MODE_MOUSE_SGR_PIXELS: u16 = 1016;
 pub const MODE_MOUSE_ALTERNATE_SCROLL: u16 = 1007;
 pub const MODE_BRACKETED_PASTE: u16 = 2004;
 pub const MODE_SYNCHRONIZED_OUTPUT: u16 = 2026;
+pub const MODE_COLOR_SCHEME_REPORT: u16 = 2031;
 
 const TERMINAL_DATA_COLOR_FOREGROUND: ffi::GhosttyTerminalData =
     ffi::GhosttyTerminalData_GHOSTTY_TERMINAL_DATA_COLOR_FOREGROUND;
@@ -426,8 +442,11 @@ impl CellWide {
 
 type WritePtyCallback = dyn FnMut(&[u8]) + Send;
 
-struct WritePtyCallbackState {
-    callback: Box<WritePtyCallback>,
+struct TerminalCallbackState {
+    write_pty: Option<Box<WritePtyCallback>>,
+    size_report: ffi::GhosttySizeReportSize,
+    color_scheme: Option<ColorScheme>,
+    bell_count: u16,
 }
 
 unsafe extern "C" fn write_pty_trampoline(
@@ -439,9 +458,58 @@ unsafe extern "C" fn write_pty_trampoline(
     if userdata.is_null() {
         return;
     }
-    let state = unsafe { &mut *(userdata.cast::<WritePtyCallbackState>()) };
+    let state = unsafe { &mut *(userdata.cast::<TerminalCallbackState>()) };
+    let Some(callback) = state.write_pty.as_mut() else {
+        return;
+    };
     let bytes = unsafe { slice::from_raw_parts(data, len) };
-    (state.callback)(bytes);
+    callback(bytes);
+}
+
+unsafe extern "C" fn size_trampoline(
+    _terminal: ffi::GhosttyTerminal,
+    userdata: *mut c_void,
+    out_size: *mut ffi::GhosttySizeReportSize,
+) -> bool {
+    if userdata.is_null() || out_size.is_null() {
+        return false;
+    }
+    let state = unsafe { &*userdata.cast::<TerminalCallbackState>() };
+    let size = state.size_report;
+    if size.rows == 0 || size.columns == 0 || size.cell_width == 0 || size.cell_height == 0 {
+        return false;
+    }
+    unsafe {
+        out_size.write(size);
+    }
+    true
+}
+
+unsafe extern "C" fn color_scheme_trampoline(
+    _terminal: ffi::GhosttyTerminal,
+    userdata: *mut c_void,
+    out_scheme: *mut ffi::GhosttyColorScheme,
+) -> bool {
+    if userdata.is_null() || out_scheme.is_null() {
+        return false;
+    }
+    let state = unsafe { &*userdata.cast::<TerminalCallbackState>() };
+    let Some(color_scheme) = state.color_scheme else {
+        return false;
+    };
+    unsafe {
+        out_scheme.write(color_scheme.as_raw());
+    }
+    true
+}
+
+unsafe extern "C" fn bell_trampoline(_terminal: ffi::GhosttyTerminal, userdata: *mut c_void) {
+    if userdata.is_null() {
+        return;
+    }
+    // SAFETY: userdata is the TerminalCallbackState installed with this terminal.
+    let state = unsafe { &mut *(userdata.cast::<TerminalCallbackState>()) };
+    state.bell_count = state.bell_count.saturating_add(1);
 }
 
 fn install_png_decoder_once() {
@@ -559,7 +627,10 @@ pub fn encode_focus(event: FocusEvent) -> Result<Vec<u8>, Error> {
 
 pub struct Terminal {
     raw: ffi::GhosttyTerminal,
-    write_pty_callback: Option<Box<WritePtyCallbackState>>,
+    max_scrollback: usize,
+    #[cfg(windows)]
+    tracked_row: ffi::GhosttyTrackedGridRef,
+    callback_state: Box<TerminalCallbackState>,
     kitty_fingerprints: Mutex<HashMap<u32, KittyImageFingerprintEntry>>,
 }
 
@@ -575,13 +646,51 @@ impl Terminal {
         unsafe {
             ffi::ghostty_terminal_new(ptr::null(), &mut raw, options).into_result()?;
         }
-        let terminal = Self {
+        let mut terminal = Self {
             raw,
-            write_pty_callback: None,
+            max_scrollback,
+            #[cfg(windows)]
+            tracked_row: ptr::null_mut(),
+            callback_state: Box::new(TerminalCallbackState {
+                write_pty: None,
+                size_report: ffi::GhosttySizeReportSize {
+                    rows,
+                    columns: cols,
+                    ..Default::default()
+                },
+                color_scheme: None,
+                bell_count: 0,
+            }),
             kitty_fingerprints: Mutex::new(HashMap::new()),
         };
+        let userdata =
+            (&mut *terminal.callback_state as *mut TerminalCallbackState).cast::<c_void>();
         let glyph_protocol = false;
         unsafe {
+            ffi::ghostty_terminal_set(
+                terminal.raw,
+                ffi::GhosttyTerminalOption_GHOSTTY_TERMINAL_OPT_USERDATA,
+                userdata.cast(),
+            )
+            .into_result()?;
+            ffi::ghostty_terminal_set(
+                terminal.raw,
+                ffi::GhosttyTerminalOption_GHOSTTY_TERMINAL_OPT_SIZE,
+                (size_trampoline as *const ()).cast(),
+            )
+            .into_result()?;
+            ffi::ghostty_terminal_set(
+                terminal.raw,
+                ffi::GhosttyTerminalOption_GHOSTTY_TERMINAL_OPT_COLOR_SCHEME,
+                (color_scheme_trampoline as *const ()).cast(),
+            )
+            .into_result()?;
+            ffi::ghostty_terminal_set(
+                terminal.raw,
+                ffi::GhosttyTerminalOption_GHOSTTY_TERMINAL_OPT_BELL,
+                (bell_trampoline as *const ()).cast(),
+            )
+            .into_result()?;
             ffi::ghostty_terminal_set(
                 terminal.raw,
                 ffi::GhosttyTerminalOption_GHOSTTY_TERMINAL_OPT_GLYPH_PROTOCOL,
@@ -632,6 +741,20 @@ impl Terminal {
             .into_result()
         }
     }
+    pub fn default_palette(&self) -> Result<[RgbColor; 256], Error> {
+        let mut out = [ffi::GhosttyColorRgb::default(); 256];
+        // SAFETY: self.raw is a live terminal handle, and out is exactly the
+        // 256-entry array this data kind writes.
+        unsafe {
+            ffi::ghostty_terminal_get(
+                self.raw,
+                ffi::GhosttyTerminalData_GHOSTTY_TERMINAL_DATA_COLOR_PALETTE_DEFAULT,
+                out.as_mut_ptr().cast(),
+            )
+            .into_result()?;
+        }
+        Ok(out.map(Into::into))
+    }
 
     pub fn resize(
         &mut self,
@@ -640,11 +763,25 @@ impl Terminal {
         cell_width_px: u32,
         cell_height_px: u32,
     ) -> Result<(), Error> {
+        let size_report = ffi::GhosttySizeReportSize {
+            rows,
+            columns: cols,
+            cell_width: cell_width_px,
+            cell_height: cell_height_px,
+        };
         // SAFETY: self.raw is valid and sizes are plain values.
         unsafe {
-            ffi::ghostty_terminal_resize(self.raw, cols, rows, cell_width_px, cell_height_px)
-                .into_result()
+            ffi::ghostty_terminal_resize(
+                self.raw,
+                cols,
+                rows,
+                cell_width_px.max(1),
+                cell_height_px.max(1),
+            )
+            .into_result()?;
         }
+        self.callback_state.size_report = size_report;
+        Ok(())
     }
 
     pub fn enable_kitty_graphics(&mut self, allow_host_file_media: bool) -> Result<(), Error> {
@@ -696,10 +833,8 @@ impl Terminal {
     where
         F: FnMut(&[u8]) + Send + 'static,
     {
-        let mut state = Box::new(WritePtyCallbackState {
-            callback: Box::new(callback),
-        });
-        let userdata = (&mut *state as *mut WritePtyCallbackState).cast::<c_void>();
+        self.callback_state.write_pty = Some(Box::new(callback));
+        let userdata = (&mut *self.callback_state as *mut TerminalCallbackState).cast::<c_void>();
         unsafe {
             ffi::ghostty_terminal_set(
                 self.raw,
@@ -714,8 +849,14 @@ impl Terminal {
             )
             .into_result()?;
         }
-        self.write_pty_callback = Some(state);
         Ok(())
+    }
+
+    pub fn set_color_scheme(&mut self, color_scheme: Option<ColorScheme>) -> Option<ColorScheme> {
+        mem::replace(&mut self.callback_state.color_scheme, color_scheme)
+    }
+    pub fn take_bell_count(&mut self) -> u16 {
+        mem::take(&mut self.callback_state.bell_count)
     }
 
     pub fn mode_get(&self, mode: u16) -> Result<bool, Error> {
@@ -793,6 +934,26 @@ impl Terminal {
             offset: out.offset as usize,
             len: out.len as usize,
         })
+    }
+
+    pub fn max_scrollback(&self) -> usize {
+        self.max_scrollback
+    }
+
+    #[cfg(windows)]
+    pub(crate) fn track_row(&mut self, y: u32) -> Option<usize> {
+        let mut point = ffi::GhosttyPointCoordinate::default();
+        let tag = ffi::GhosttyPointTag_GHOSTTY_POINT_TAG_SCREEN;
+        let result =
+            unsafe { ffi::ghostty_tracked_grid_ref_point(self.tracked_row, tag, &mut point) };
+        let terminal = self.raw;
+        let target = ghostty_viewport_point(0, y);
+        unsafe {
+            ffi::ghostty_tracked_grid_ref_free(self.tracked_row);
+            self.tracked_row = ptr::null_mut();
+            let _ = ffi::ghostty_terminal_grid_ref_track(terminal, target, &mut self.tracked_row);
+        }
+        (result == ffi::GhosttyResult_GHOSTTY_SUCCESS).then_some(point.y as usize)
     }
     pub(crate) fn screen_text_rows(&self) -> Result<Vec<ScreenTextRow>, Error> {
         self.screen_text_rows_range(0, usize::MAX)
@@ -1584,6 +1745,8 @@ impl Drop for Terminal {
     fn drop(&mut self) {
         // SAFETY: freeing a null or live handle is allowed by the C API.
         unsafe {
+            #[cfg(windows)]
+            ffi::ghostty_tracked_grid_ref_free(self.tracked_row);
             ffi::ghostty_terminal_free(self.raw);
         }
     }

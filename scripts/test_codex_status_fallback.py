@@ -27,13 +27,29 @@ class CodexStatusTestFallbackTests(unittest.TestCase):
             models_copy.write_text(source_models.read_text())
 
             script_copy = bin_dir / "omh-agent-tests-codex-status"
-            script_text = source_script.read_text()
-            script_copy.write_text(
-                script_text.replace(
-                    "source /usr/local/lib/omh-agent-test-models.sh",
-                    f"source {shlex.quote(str(models_copy))}",
-                )
+            script_text = source_script.read_text().replace(
+                "source /usr/local/lib/omh-agent-test-models.sh",
+                f"source {shlex.quote(str(models_copy))}",
             )
+            # Current Codex session reports require a persisted transcript path.
+            # The copied real script still exercises the hook seam after retry.
+            session_transcripts = {
+                "codex-session": "/tmp/codex-session.jsonl",
+                "blocked-session": "/tmp/blocked-session.jsonl",
+                "compact-session": "/tmp/compact-session.jsonl",
+                "parent-session": "/tmp/parent-session.jsonl",
+            }
+            for session_id, transcript_path in session_transcripts.items():
+                stale = (
+                    f'{{"session_id":"{session_id}","hook_event_name":"SessionStart"}}'
+                )
+                current = (
+                    f'{{"session_id":"{session_id}","hook_event_name":"SessionStart",'
+                    f'"transcript_path":"{transcript_path}"}}'
+                )
+                self.assertIn(stale, script_text, session_id)
+                script_text = script_text.replace(stale, current)
+            script_copy.write_text(script_text)
             script_copy.chmod(script_copy.stat().st_mode | stat.S_IXUSR)
 
             attempts_log = tmp_path / "codex-attempts.txt"

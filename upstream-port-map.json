@@ -3830,6 +3830,1350 @@
       "subject": "fix: preserve physical escape on windows",
       "status": "ported",
       "reason": "Ported upstream scan-code-aware Windows VTI Escape handling: physical Escape is forwarded immediately while scan-code-zero Escape remains eligible for VT mouse/control reassembly, with focused translator coverage."
+    },
+    {
+      "upstream": "e7fc85bfdb51f89488430adbfe5bbced3be79c2f",
+      "subject": "fix: preserve kitty printable key releases",
+      "status": "ported",
+      "reason": "Ported by invariant in the selective upstream v0.8 integration, with focused regression coverage."
+    },
+    {
+      "upstream": "d9012394744522ad7f2b6bb57d89b1f12eb98ff8",
+      "subject": "chore: approve contributor badlogic",
+      "status": "skipped",
+      "reason": "Upstream-only APPROVED_CONTRIBUTORS edit; not OMH runtime behavior."
+    },
+    {
+      "upstream": "58ad2c6438cf25cdf7e95528c7114d3bf12626d2",
+      "subject": "chore: approve contributor carlesso",
+      "status": "skipped",
+      "reason": "Upstream-only APPROVED_CONTRIBUTORS edit; not OMH runtime behavior."
+    },
+    {
+      "upstream": "503613c8ecbea752a234daf30cb0ad5a8bf93e4e",
+      "subject": "fix: inherit host palette in pane queries (#1759)",
+      "status": "superseded",
+      "reason": "OMH already inherits host OSC 4 palette into pane queries and preserves child overrides until OSC 104 reset."
+    },
+    {
+      "upstream": "36de78dd4fa4e2c203ee955f18caf82a6bca7e80",
+      "subject": "fix: preserve kitty graphics during host repaints",
+      "status": "ported",
+      "reason": "Ported by invariant in the selective upstream v0.8 integration, with focused regression coverage."
+    },
+    {
+      "upstream": "58e812b238844fa05233eadc537081a1f0d06f36",
+      "subject": "fix: consume handled url click gestures",
+      "status": "ported",
+      "reason": "Ported by invariant in the selective upstream v0.8 integration, with focused regression coverage."
+    },
+    {
+      "upstream": "a45ce225fe8bc6e0291e6064ee1285d945579277",
+      "subject": "fix: prefer branded homepage search image",
+      "status": "skipped",
+      "reason": "herdr.dev website/CSS/schema.org branding."
+    },
+    {
+      "upstream": "1bcc55e47d94a10b154a180e01ee8c068b953337",
+      "subject": "chore: approve contributor joonhwan",
+      "status": "skipped",
+      "reason": "Upstream-only APPROVED_CONTRIBUTORS edit; not OMH runtime behavior."
+    },
+    {
+      "upstream": "169a4fd90c20a00aec77d684ecec98b9f0f996cc",
+      "subject": "fix: answer XTWINOPS size queries in panes",
+      "status": "ported",
+      "reason": "Ported by invariant in the selective upstream v0.8 integration, with focused regression coverage."
+    },
+    {
+      "upstream": "e608a75159fc5cca70485d83ffb8ee681c9da385",
+      "subject": "fix: make known-agent exit process-owned",
+      "status": "ported",
+      "reason": "Ported by invariant in the selective upstream v0.8 integration, with focused regression coverage."
+    },
+    {
+      "upstream": "c0fb777ed7c7950c6a2f397113c1842c2e679306",
+      "subject": "fix: report truncated pane reads",
+      "status": "ported",
+      "reason": "Ported by invariant in the selective upstream v0.8 integration, with focused regression coverage."
+    },
+    {
+      "upstream": "83c7bde7a68e1054e75beba47d610580e34e43cb",
+      "subject": "chore: approve contributor adamkrellenstein",
+      "status": "skipped",
+      "reason": "Upstream-only APPROVED_CONTRIBUTORS edit; not OMH runtime behavior."
+    },
+    {
+      "upstream": "b56baee9d60a002b5d8c0fe74d5032afad27ef30",
+      "subject": "chore: approve contributor corrius",
+      "status": "skipped",
+      "reason": "Upstream-only APPROVED_CONTRIBUTORS edit; not OMH runtime behavior."
+    },
+    {
+      "upstream": "e9b22084e03880f43d1f1daaf5d9f45c717b77c4",
+      "subject": "feat: add grok cli integration for native session restore (#1807)",
+      "status": "ported",
+      "reason": "Ported by invariant in the selective upstream v0.8 integration, with focused regression coverage."
+    },
+    {
+      "upstream": "38d2b0780c50e4773d6948660873386261cde71d",
+      "subject": "feat: filter keybind help (#1832)",
+      "status": "skipped",
+      "reason": "Product decision on 2026-08-17: defer this optional feature; the selective v0.8 port is limited to correctness, compatibility, reliability, and already-approved UI behavior."
+    },
+    {
+      "upstream": "5f1957c27bd23f73b339265d3acd32f4a21878a3",
+      "subject": "fix: harden hermes lifecycle detection",
+      "status": "ported",
+      "reason": "Ported by invariant in the selective upstream v0.8 integration, with focused regression coverage."
+    },
+    {
+      "upstream": "8afd52ae57f9237f4f46138ad224dfc621d7ba59",
+      "subject": "fix: bundle modern ConPTY on Windows (#1828)",
+      "status": "superseded",
+      "reason": "Do not port."
+    },
+    {
+      "upstream": "fc0ce8f32f6b665af4c5580dcc8da65a8fe85f6f",
+      "subject": "chore: approve merged contributor ogulcancelik",
+      "status": "skipped",
+      "reason": "Skip."
+    },
+    {
+      "upstream": "0065a0ef344237c4e52bf391646e7495258ee180",
+      "subject": "fix: run pi worktree ext on background",
+      "status": "skipped",
+      "reason": "Skip."
+    },
+    {
+      "upstream": "b33e5f973fc89381aa4ac72b3a31fa087ec66e23",
+      "subject": "fix: copy retained mouse selections with keyboard shortcuts",
+      "status": "ported",
+      "reason": "Ported by invariant in the selective upstream v0.8 integration, with focused regression coverage."
+    },
+    {
+      "upstream": "d4e0dd3d903c50d2edb8c3cec71952a83989b310",
+      "subject": "perf: eliminate repeated workspace git discovery (#1842)",
+      "status": "ported",
+      "reason": "Ported by invariant in the selective upstream v0.8 integration, with focused regression coverage."
+    },
+    {
+      "upstream": "6cfaa079a921e8ba7d01e0fdf14f88a13845cb9a",
+      "subject": "feat: switch IME to ASCII in prefix mode on Windows (Korean IME) (#1823)",
+      "status": "ported",
+      "reason": "Ported by invariant in the selective upstream v0.8 integration, with focused regression coverage."
+    },
+    {
+      "upstream": "b9ebd238f80ccbcd2079d79f0e22287489db4272",
+      "subject": "docs: define maintainer and agent contribution workflows",
+      "status": "skipped",
+      "reason": "Skip."
+    },
+    {
+      "upstream": "f67803f4caf6714a6b89d796d04d4ca998ca9a3f",
+      "subject": "chore: consolidate project skills",
+      "status": "skipped",
+      "reason": "Skip."
+    },
+    {
+      "upstream": "c7b3d8abcc3449853dd699f41b8ebbdaabfc3530",
+      "subject": "fix(nix): add rust-analyzer to development shell",
+      "status": "skipped",
+      "reason": "Skip."
+    },
+    {
+      "upstream": "da40b1aa347d07e60057182f81e5bcd1d12e9fb1",
+      "subject": "ci: gate pull request review by scope",
+      "status": "skipped",
+      "reason": "Skip."
+    },
+    {
+      "upstream": "b01fc37e66aac45c7fa9eccc826d793d68608a0a",
+      "subject": "perf: avoid full pane renders for spinner animation (#1868)",
+      "status": "ported",
+      "reason": "Ported by invariant in the selective upstream v0.8 integration, with focused regression coverage."
+    },
+    {
+      "upstream": "547aba8e0ab310623f1986d3026658f708d432bd",
+      "subject": "fix: avoid renders for passive mouse motion (#1872)",
+      "status": "ported",
+      "reason": "Ported by invariant in the selective upstream v0.8 integration, with focused regression coverage."
+    },
+    {
+      "upstream": "8843bbb0c4dc4e6b52ca5d0a6592ce80be56a19c",
+      "subject": "fix: improve sidebar worktree hierarchy and reordering (#1873)",
+      "status": "skipped",
+      "reason": "Do not port."
+    },
+    {
+      "upstream": "e536bd8bd99de975cb2d15bb384e6e35f88ef88e",
+      "subject": "fix: support non-us shifted keybindings (#1876)",
+      "status": "ported",
+      "reason": "Ported by invariant in the selective upstream v0.8 integration, with focused regression coverage."
+    },
+    {
+      "upstream": "165dca453d12a93b91b490cd58362e7dbd36c46d",
+      "subject": "fix: preserve focus when closing a non-focused workspace (#1877)",
+      "status": "ported",
+      "reason": "Ported by invariant in the selective upstream v0.8 integration, with focused regression coverage."
+    },
+    {
+      "upstream": "51744cef01c59ed149b77697ea1b2aa32f47488e",
+      "subject": "chore: approve merged contributor yianL",
+      "status": "skipped",
+      "reason": "Upstream-only contributor allowlist."
+    },
+    {
+      "upstream": "cb2e17a4a56be1434a42532d37c99fe8d7b60407",
+      "subject": "feat: print bundled agent skill and hint next cli steps",
+      "status": "ported",
+      "reason": "Ported by invariant in the selective upstream v0.8 integration, with focused regression coverage."
+    },
+    {
+      "upstream": "19cd372f2544f56af9be1f24a67cb229e82bb63d",
+      "subject": "fix: preserve prefix mode for modifier events",
+      "status": "ported",
+      "reason": "Ported by invariant in the selective upstream v0.8 integration, with focused regression coverage."
+    },
+    {
+      "upstream": "61f6400675b065bf8f801816ed78c1f3206bcc06",
+      "subject": "fix: repaint after transient terminal resizes",
+      "status": "ported",
+      "reason": "Ported by invariant in the selective upstream v0.8 integration, with focused regression coverage."
+    },
+    {
+      "upstream": "d231fc066336baab62a2373693d4a3a258415352",
+      "subject": "fix(nix): include SKILL.md in the package fileset (#1890)",
+      "status": "ported",
+      "reason": "Ported by invariant in the selective upstream v0.8 integration, with focused regression coverage."
+    },
+    {
+      "upstream": "65713cefcc6e0bc4e4f543b791ea20047438068b",
+      "subject": "chore: approve merged contributor olafkfreund",
+      "status": "skipped",
+      "reason": "Same upstream contributor-allowlist process as yianL."
+    },
+    {
+      "upstream": "e1a32e5865c3695bc73dd016db90b3fd671e92e8",
+      "subject": "ci: harden pull request workflow execution",
+      "status": "superseded",
+      "reason": "Do not copy."
+    },
+    {
+      "upstream": "2debcec74c983c5a3821678daf6b4c4ef00fc51e",
+      "subject": "fix: restrict unapproved pull requests to bug fixes",
+      "status": "skipped",
+      "reason": "Upstream PR-intake policy (pr-gate.yml, CONTRIBUTING.md, AGENTS.md, issue template)."
+    },
+    {
+      "upstream": "471041690af928d9a4d4cda8e4963cc7dcb3d6a8",
+      "subject": "fix: ignore empty clipboard writes",
+      "status": "ported",
+      "reason": "Ported by invariant in the selective upstream v0.8 integration, with focused regression coverage."
+    },
+    {
+      "upstream": "bb29eedb7209a0d5e91052458ce76bc7e4259d18",
+      "subject": "fix: delay agent prompt submission",
+      "status": "ported",
+      "reason": "Ported by invariant in the selective upstream v0.8 integration, with focused regression coverage."
+    },
+    {
+      "upstream": "04205ac070f1b5673b7afec930a561900a3bb31e",
+      "subject": "fix: preserve shift-enter in windows panes (#1909)",
+      "status": "ported",
+      "reason": "Ported by invariant in the selective upstream v0.8 integration, with focused regression coverage."
+    },
+    {
+      "upstream": "7e96b1b7e8d3dcc1c12ae538598e5a955ac58c87",
+      "subject": "chore: approve merged contributor Pimpmuckl",
+      "status": "skipped",
+      "reason": "Skip."
+    },
+    {
+      "upstream": "a79b3d558026d0703f848882d652bb5db65df26e",
+      "subject": "fix: close workspace when api closes its last tab (#1899)",
+      "status": "superseded",
+      "reason": "Do not port the cascade."
+    },
+    {
+      "upstream": "dc2506ea8cb58fc8cde7ceb357cad03b1aba0da1",
+      "subject": "chore: approve merged contributor season179",
+      "status": "skipped",
+      "reason": "Skip."
+    },
+    {
+      "upstream": "6d1bedee3ee164ed0151f8adab1313be5915d652",
+      "subject": "fix: make native windows checks reliable (#1925)",
+      "status": "superseded",
+      "reason": "Skip extracting windows_check.ps1 / Windows just recipes."
+    },
+    {
+      "upstream": "a979916568b0225123711b1aa401d67102e3cf95",
+      "subject": "fix: keep focus on the current workspace when another self-closes (#1912)",
+      "status": "ported",
+      "reason": "Ported by invariant in the selective upstream v0.8 integration, with focused regression coverage."
+    },
+    {
+      "upstream": "7383f120c669bad7e55118d920a6dbb76112dfe0",
+      "subject": "docs: update sponsor acknowledgements",
+      "status": "skipped",
+      "reason": "Skip."
+    },
+    {
+      "upstream": "b499e611b6a983ce6077da555ad55c1fd58b1387",
+      "subject": "fix: resolve relative plugin commands from plugin root",
+      "status": "ported",
+      "reason": "Ported by invariant in the selective upstream v0.8 integration, with focused regression coverage."
+    },
+    {
+      "upstream": "1491b7dd9c992ef0ad2b763f3e450befaf25c47f",
+      "subject": "fix: ignore nested codex session reports (#1927)",
+      "status": "ported",
+      "reason": "Ported by invariant in the selective upstream v0.8 integration, with focused regression coverage."
+    },
+    {
+      "upstream": "81f355fadac7d0d45b077dfc28f9f679add6bbb6",
+      "subject": "perf: replace agent spinners with static status marks",
+      "status": "ported",
+      "reason": "Ported by invariant in the selective upstream v0.8 integration, with focused regression coverage."
+    },
+    {
+      "upstream": "e16d7d8c07a20f5ee0b4111808680bbcfd7df9ac",
+      "subject": "fix: preserve linked worktree workspace labels",
+      "status": "superseded",
+      "reason": "Do not port the GitSpaceMetadata.label o repo_name split."
+    },
+    {
+      "upstream": "e27a4ea427c9ed6248c0ee80570e94ed7b1928bd",
+      "subject": "perf: skip rendering hidden pty updates",
+      "status": "ported",
+      "reason": "Ported by invariant in the selective upstream v0.8 integration, with focused regression coverage."
+    },
+    {
+      "upstream": "a0a6e13f1118ad3db52d4c851eefbcca7756e5e8",
+      "subject": "fix: count ptmx master fds under devpts layouts (#1984)",
+      "status": "ported",
+      "reason": "Ported by invariant in the selective upstream v0.8 integration, with focused regression coverage."
+    },
+    {
+      "upstream": "6a0ba226154c97ffd71015b2c10bafdd7f0c9460",
+      "subject": "chore: approve merged contributor bioform",
+      "status": "skipped",
+      "reason": "Skip."
+    },
+    {
+      "upstream": "93547611124c7ff165075eb7c41ea85833394911",
+      "subject": "fix: select windows python command in commit hook (#1994)",
+      "status": "skipped",
+      "reason": "Skip."
+    },
+    {
+      "upstream": "bbe78f518b83f91e328accd9eb178d1610ab5080",
+      "subject": "fix: restore python3 commit hook",
+      "status": "skipped",
+      "reason": "Skip."
+    },
+    {
+      "upstream": "b7317c97ef605c45be826cc9efa0436dc0cd3838",
+      "subject": "docs: add simplified chinese readme (#1990)",
+      "status": "skipped",
+      "reason": "Skip."
+    },
+    {
+      "upstream": "807033b8fc40bbf413332b2cae9de8fecf592c1b",
+      "subject": "chore: approve merged contributor patrick-xin",
+      "status": "skipped",
+      "reason": "Skip."
+    },
+    {
+      "upstream": "a4b18b6e2130629a03a03fc1534226299aa83214",
+      "subject": "fix: preserve navigate mode after pane focus (#1993)",
+      "status": "ported",
+      "reason": "Ported by invariant in the selective upstream v0.8 integration, with focused regression coverage."
+    },
+    {
+      "upstream": "a5920bee86f47023b74133dad7464b07af77ce69",
+      "subject": "chore: approve merged contributor we11adam",
+      "status": "skipped",
+      "reason": "Skip."
+    },
+    {
+      "upstream": "73d92004f50d3f5fafe64e0f9b7fddbcf4d99965",
+      "subject": "ci: remove approved contributor bypass",
+      "status": "skipped",
+      "reason": "Skip."
+    },
+    {
+      "upstream": "5b0be42e043e25e34ceeecf72e72bdb043164997",
+      "subject": "fix(windows): restore system notifications and sound playback (#2019)",
+      "status": "ported",
+      "reason": "Ported by invariant in the selective upstream v0.8 integration, with focused regression coverage."
+    },
+    {
+      "upstream": "14df4d219dd36ba5f553ddcffc9fc1a4cb7c141a",
+      "subject": "test(windows): remove flaky sound timing assertion",
+      "status": "ported",
+      "reason": "Ported by invariant in the selective upstream v0.8 integration, with focused regression coverage."
+    },
+    {
+      "upstream": "8ed742da268376d33ee6045674c7b975ee3181f8",
+      "subject": "fix: preserve windows path variables during install",
+      "status": "skipped",
+      "reason": "Skip."
+    },
+    {
+      "upstream": "44b3adb125524ea9a55739eee3776f922f2115ad",
+      "subject": "fix(windows): preserve parent agent ownership",
+      "status": "ported",
+      "reason": "Ported by invariant in the selective upstream v0.8 integration, with focused regression coverage."
+    },
+    {
+      "upstream": "514e4465ee33d4d81682d06ee2934483982a54ed",
+      "subject": "docs: update preview manifest",
+      "status": "skipped",
+      "reason": "Skip."
+    },
+    {
+      "upstream": "f6060cf682f69ef8302c25e8924c0b27aef7ae16",
+      "subject": "fix: scope agent skill installation",
+      "status": "skipped",
+      "reason": "Skip."
+    },
+    {
+      "upstream": "2313fb8ac3746faf3e971ef955a5499d8618d2ee",
+      "subject": "ci: allow repository organization migration",
+      "status": "skipped",
+      "reason": "Skip."
+    },
+    {
+      "upstream": "3563f5c56ee9bb2c9b15f2d2a124c4fe85e6d2b3",
+      "subject": "chore: update repository links after organization transfer",
+      "status": "skipped",
+      "reason": "Skip."
+    },
+    {
+      "upstream": "4cd1481a08f6ae2fe3823388bc4c78e14a86ba67",
+      "subject": "Update rose pine surface_dim colour to \"Overlay\" (#2002)",
+      "status": "ported",
+      "reason": "Ported by invariant in the selective upstream v0.8 integration, with focused regression coverage."
+    },
+    {
+      "upstream": "b44b5b10132b4332f6ac8e8ffc64553d1e176237",
+      "subject": "chore: finish repository organization migration",
+      "status": "skipped",
+      "reason": "Skip."
+    },
+    {
+      "upstream": "cfa112e741eef8565261a0d404d92ad425829f3b",
+      "subject": "fix: preserve kitty associated text (#2051)",
+      "status": "ported",
+      "reason": "Ported by invariant in the selective upstream v0.8 integration, with focused regression coverage."
+    },
+    {
+      "upstream": "38b7b540e1d1e5cdcd8fcc31bc8bcf1cde44b603",
+      "subject": "fix: add opt-in child-group process detection (#2052)",
+      "status": "superseded",
+      "reason": "Do not port HERDR_PROCESS_DETECTION=child-groups."
+    },
+    {
+      "upstream": "53199270f6658324248a56f027ab29a6c44bfd8d",
+      "subject": "fix: launch argument-free agents on windows (#2075)",
+      "status": "superseded",
+      "reason": "Do not port the PowerShell empty-arg wrapper."
+    },
+    {
+      "upstream": "9135ffe10bc07ff102e650a9f12588809cfbf900",
+      "subject": "ci: consolidate ai review trigger label",
+      "status": "skipped",
+      "reason": "Skip."
+    },
+    {
+      "upstream": "ac47b9e67912c82dac17388e5541d969a7372c23",
+      "subject": "fix: resume agents after headless restore (#2088)",
+      "status": "superseded",
+      "reason": "Already present."
+    },
+    {
+      "upstream": "a07871a55ee77eea15e4e7d1b6cccce720c6f066",
+      "subject": "fix(omp): support Windows session paths (#2092)",
+      "status": "ported",
+      "reason": "Ported by invariant in the selective upstream v0.8 integration, with focused regression coverage."
+    },
+    {
+      "upstream": "0732039eaf74f2f2a235535b2f3602d3926b12ec",
+      "subject": "fix: preserve windows sessions after ssh logout (#2098)",
+      "status": "ported",
+      "reason": "Ported by invariant in the selective upstream v0.8 integration, with focused regression coverage."
+    },
+    {
+      "upstream": "b4112743cff42452b5d18558bf2d55bbbfff8c69",
+      "subject": "fix(client): restore terminal on sighup and sigterm",
+      "status": "ported",
+      "reason": "Ported by invariant in the selective upstream v0.8 integration, with focused regression coverage."
+    },
+    {
+      "upstream": "7db744ab4758df30f3e811ff9930646ec5f5970d",
+      "subject": "fix(sidebar): keep worktree groups packed",
+      "status": "superseded",
+      "reason": "Do not port."
+    },
+    {
+      "upstream": "bc1c052d1524749b3f24d91e83f120ca8b7f37c4",
+      "subject": "fix: read alternate-screen agent history",
+      "status": "ported",
+      "reason": "Ported by invariant in the selective upstream v0.8 integration, with focused regression coverage."
+    },
+    {
+      "upstream": "b1d14fe984c92ab4a81438ba07c7d94b464d0d3a",
+      "subject": "chore: update agentmd for protocol changes",
+      "status": "skipped",
+      "reason": "Skip."
+    },
+    {
+      "upstream": "02fe7d7659e37d9f05eed80af382d1dcdccb6876",
+      "subject": "feat: support bottom tab bar placement (#2118)",
+      "status": "skipped",
+      "reason": "Product decision on 2026-08-17: defer this optional feature; the selective v0.8 port is limited to correctness, compatibility, reliability, and already-approved UI behavior."
+    },
+    {
+      "upstream": "8d190eddda2c74afa3dc043f8ec8020ffd7b5a94",
+      "subject": "chore: remove experiments from settings tui",
+      "status": "superseded",
+      "reason": "Do not port."
+    },
+    {
+      "upstream": "b76adc155d979705a353fd6dc87c702f9dfc6c22",
+      "subject": "fix(input): preserve native key lifecycle across routing (#2142)",
+      "status": "ported",
+      "reason": "Ported by invariant in the selective upstream v0.8 integration, with focused regression coverage."
+    },
+    {
+      "upstream": "26a7bc860e4af516ef687d90b9f9dd2830f88d2a",
+      "subject": "fix(windows): preserve semantic escape key taps",
+      "status": "ported",
+      "reason": "Ported by invariant in the selective upstream v0.8 integration, with focused regression coverage."
+    },
+    {
+      "upstream": "f99647b2c2d7fbfd11269330a25ea4f9be59bafa",
+      "subject": "fix: report a clear cli error when no herdr server is running (#1963)",
+      "status": "ported",
+      "reason": "Ported by invariant in the selective upstream v0.8 integration, with focused regression coverage."
+    },
+    {
+      "upstream": "f459a0df315e0963aec5e4dcf2fc394a252ea320",
+      "subject": "fix: expand copy-mode word-end window past a final wide glyph (#2145)",
+      "status": "ported",
+      "reason": "Ported by invariant in the selective upstream v0.8 integration, with focused regression coverage."
+    },
+    {
+      "upstream": "f6031f7fb062c89a47fd9fffbe641358f2bd0701",
+      "subject": "feat(ui): make pane scrollbars optional (#2166)",
+      "status": "skipped",
+      "reason": "Product decision on 2026-08-17: defer this optional feature; the selective v0.8 port is limited to correctness, compatibility, reliability, and already-approved UI behavior."
+    },
+    {
+      "upstream": "219e0be351436b5bf1ccf5b7c13dbf6c2cdb0986",
+      "subject": "fix(ci): skip pr gate in forks",
+      "status": "skipped",
+      "reason": "Skip."
+    },
+    {
+      "upstream": "679584fdd49f9dee5ad95755af65eedc7d0f455c",
+      "subject": "feat: add antigravity-cli integration (#2087)",
+      "status": "skipped",
+      "reason": "Product decision on 2026-08-17: defer this optional feature; the selective v0.8 port is limited to correctness, compatibility, reliability, and already-approved UI behavior."
+    },
+    {
+      "upstream": "d950fdfe7d3f178aec9543d3b6b2e69be998becf",
+      "subject": "fix(input): decode 0x1f as Ctrl+_ not Ctrl+- per ASCII standard (#2165)",
+      "status": "ported",
+      "reason": "Ported by invariant in the selective upstream v0.8 integration, with focused regression coverage."
+    },
+    {
+      "upstream": "885c9a6b5b48bf1fa89b12783b01ca21ec50d79d",
+      "subject": "fix(socket_paths): remove dead if-branch in derive_client_socket_from_api_socket (#2157)",
+      "status": "superseded",
+      "reason": "No port."
+    },
+    {
+      "upstream": "df2cb2c3a585bdb22bb670f6da8147c7c1ffe982",
+      "subject": "fix(windows): detect agents across git bash exec boundaries (#2170)",
+      "status": "ported",
+      "reason": "Ported by invariant in the selective upstream v0.8 integration, with focused regression coverage."
+    },
+    {
+      "upstream": "bd287b0158a4c11ff3844c2cf596b8bcb304a8ad",
+      "subject": "fix: route vscode remote copies through osc52 (#2173)",
+      "status": "ported",
+      "reason": "Ported by invariant in the selective upstream v0.8 integration, with focused regression coverage."
+    },
+    {
+      "upstream": "6fb0d803573353f031927a429828ab3b56c6c400",
+      "subject": "fix(detect): recognize opencode2 as opencode",
+      "status": "ported",
+      "reason": "Ported by invariant in the selective upstream v0.8 integration, with focused regression coverage."
+    },
+    {
+      "upstream": "9a4ce5e13c1d4622ca63c2947d0eaa018ec35715",
+      "subject": "fix: stop advertising worktree json flag (#2174)",
+      "status": "skipped",
+      "reason": "Skip."
+    },
+    {
+      "upstream": "d742e51530a78b77e1debe23a72ea7178810f3fd",
+      "subject": "fix: preserve claude settings formatting (#2089)",
+      "status": "ported",
+      "reason": "Ported by invariant in the selective upstream v0.8 integration, with focused regression coverage."
+    },
+    {
+      "upstream": "890113943999bd0332f535864b982190907449c4",
+      "subject": "fix(client): query host cell size when the ioctl reports no pixels (#2160)",
+      "status": "ported",
+      "reason": "Ported by invariant in the selective upstream v0.8 integration, with focused regression coverage."
+    },
+    {
+      "upstream": "0f14e279a783f456f3506086a0945cc8fb15a66c",
+      "subject": "fix(cli): report non-UTF-8 arguments instead of panicking (#2207)",
+      "status": "ported",
+      "reason": "Ported by invariant in the selective upstream v0.8 integration, with focused regression coverage."
+    },
+    {
+      "upstream": "0a800b8f2e9894433c6ef9d106d10766ac408218",
+      "subject": "fix: avoid blocking on foreground cwd checks (#2213)",
+      "status": "ported",
+      "reason": "Ported by invariant in the selective upstream v0.8 integration, with focused regression coverage."
+    },
+    {
+      "upstream": "0e434881b3f8da1db58dba8d103ddc234ad17238",
+      "subject": "fix(docs): publish only released documentation",
+      "status": "skipped",
+      "reason": "Skip."
+    },
+    {
+      "upstream": "6b6abf2d5645b368735188c93442fc08c94365d5",
+      "subject": "fix(docs): support older git in snapshot checks",
+      "status": "skipped",
+      "reason": "Skip."
+    },
+    {
+      "upstream": "cbc31d34a1fb3da64415737de57ad10fe6af5ba5",
+      "subject": "fix(input): preserve hover during extended-button drags",
+      "status": "ported",
+      "reason": "Ported by invariant in the selective upstream v0.8 integration, with focused regression coverage."
+    },
+    {
+      "upstream": "10eb0bc744165ae91dfce9fd731fe170410b34ec",
+      "subject": "fix: propagate host color scheme to pane apps (#2214)",
+      "status": "ported",
+      "reason": "Ported by invariant in the selective upstream v0.8 integration, with focused regression coverage."
+    },
+    {
+      "upstream": "5eab32da81b403c2a277222ab97417a8bf90c35f",
+      "subject": "fix(pi): restrict state reporting to tui sessions (#2159)",
+      "status": "ported",
+      "reason": "Ported by invariant in the selective upstream v0.8 integration, with focused regression coverage."
+    },
+    {
+      "upstream": "eacea2daf0b72973173b728936b27478374f2cd2",
+      "subject": "fix: page keys scroll pane scrollback at zsh and REPL prompts (#2191)",
+      "status": "ported",
+      "reason": "Ported by invariant in the selective upstream v0.8 integration, with focused regression coverage."
+    },
+    {
+      "upstream": "22bb476d646ccadec71f584b90c2a135fec92929",
+      "subject": "feat(website): rebuild marketing pages on new brand chassis",
+      "status": "skipped",
+      "reason": "Skip."
+    },
+    {
+      "upstream": "977a4f16e8e7099143ab38058166998d7ab21f8f",
+      "subject": "docs: finalize 0.8.0 release documentation",
+      "status": "skipped",
+      "reason": "Skip."
+    },
+    {
+      "upstream": "346411fa21afd297f5ed3b3fa56f9e3fbf7654b7",
+      "subject": "release: v0.8.0",
+      "status": "skipped",
+      "reason": "Skip."
+    },
+    {
+      "upstream": "3642e67c7b9c1d8608d72f288e80b410c602e55c",
+      "subject": "docs: update website manifest for v0.8.0",
+      "status": "skipped",
+      "reason": "Skip."
+    },
+    {
+      "upstream": "35be08cd953e057927c66dc2ad255df459810446",
+      "subject": "docs: refine cpu optimization blog post",
+      "status": "skipped",
+      "reason": "Skip."
+    },
+    {
+      "upstream": "d78e3d3b51266a1ff80ae6858b894e782aac3e9f",
+      "subject": "fix(ui): keep collapsed workspace status visible (#2239)",
+      "status": "ported",
+      "reason": "Ported by invariant in the selective upstream v0.8 integration, with focused regression coverage."
+    },
+    {
+      "upstream": "e7c96206f716e5772971af2861c04168af2bb396",
+      "subject": "docs: publish preview documentation",
+      "status": "skipped",
+      "reason": "Skip."
+    },
+    {
+      "upstream": "b12da23918ff94099e7fcedd7db79f3d2fa8fa6f",
+      "subject": "feat(plugins): index marketplace manifests",
+      "status": "skipped",
+      "reason": "Skip."
+    },
+    {
+      "upstream": "cffc6c4b50178d404fbb939346dab7a33e5ed8d4",
+      "subject": "fix(docs): allow corrections to published versions",
+      "status": "skipped",
+      "reason": "Skip."
+    },
+    {
+      "upstream": "adb50cba9b15583db019bb655119915869e8c44e",
+      "subject": "fix(input): preserve shift-tab in pane automation (#2259)",
+      "status": "ported",
+      "reason": "Ported by invariant in the selective upstream v0.8 integration, with focused regression coverage."
+    },
+    {
+      "upstream": "e6fa5289f2de03bc7babf2ec07efef6b45ed398f",
+      "subject": "fix(ui): preserve sidebar scroll across clients (#2280)",
+      "status": "superseded",
+      "reason": "Superseded."
+    },
+    {
+      "upstream": "4cf7cff3a0f9a4b593f6cb189f0c1cc4378726f0",
+      "subject": "fix(website): copy heading links to clipboard",
+      "status": "skipped",
+      "reason": "Skip."
+    },
+    {
+      "upstream": "4473e391962c68d59bd980fa98a44f3397d9931d",
+      "subject": "fix: detect claude confirmation prompts",
+      "status": "ported",
+      "reason": "Ported by invariant in the selective upstream v0.8 integration, with focused regression coverage."
+    },
+    {
+      "upstream": "cc9fa47540d8525f24fe46a10f759ca40090a6e0",
+      "subject": "feat(ui): add distinct status indicators (#2282)",
+      "status": "ported",
+      "reason": "Ported by invariant in the selective upstream v0.8 integration, with focused regression coverage."
+    },
+    {
+      "upstream": "1997b88b3fa45f838d44e69dcebde8acf33899fc",
+      "subject": "fix(input): keep pending url clicks across host focus loss (#2291)",
+      "status": "ported",
+      "reason": "Ported by invariant in the selective upstream v0.8 integration, with focused regression coverage."
+    },
+    {
+      "upstream": "d8838082dc06b0d85ef164650b979e57a87f7721",
+      "subject": "fix(cli): resolve pane query --current from caller (#2298)",
+      "status": "ported",
+      "reason": "Ported by invariant in the selective upstream v0.8 integration, with focused regression coverage."
+    },
+    {
+      "upstream": "ee8429fb79ed0c53d2f23fa1b75b415e7f0cd377",
+      "subject": "fix(input): parse default mouse reports (#2312)",
+      "status": "ported",
+      "reason": "Ported by invariant in the selective upstream v0.8 integration, with focused regression coverage."
+    },
+    {
+      "upstream": "93e0086f383f000ada02be382230507d5bdf4d7e",
+      "subject": "fix(ui): search single-tab names in navigator (#2320)",
+      "status": "ported",
+      "reason": "Ported by invariant in the selective upstream v0.8 integration, with focused regression coverage."
+    },
+    {
+      "upstream": "09cdd88d0aca35617eb05468c2421b0467656e4f",
+      "subject": "fix(layout): return focus to the pane a split was opened from (#2266)",
+      "status": "ported",
+      "reason": "Ported by invariant in the selective upstream v0.8 integration, with focused regression coverage."
+    },
+    {
+      "upstream": "be1891ec5265e901b897846a6113c46cf330a7dc",
+      "subject": "fix(terminal): render halfwidth katakana voiced marks (#2257)",
+      "status": "ported",
+      "reason": "Ported by invariant in the selective upstream v0.8 integration, with focused regression coverage."
+    },
+    {
+      "upstream": "d4f2540cfa9229a5ce24191ddc2c1c9a2138250d",
+      "subject": "fix(ci): make issue gate structural",
+      "status": "skipped",
+      "reason": "Skip."
+    },
+    {
+      "upstream": "d57cefb879e685b4876a84fa20cbfd0702ce4140",
+      "subject": "fix(input): preserve modifyOtherKeys key releases (#2303)",
+      "status": "ported",
+      "reason": "Ported by invariant in the selective upstream v0.8 integration, with focused regression coverage."
+    },
+    {
+      "upstream": "1f1e434268ad6e8102fdac6d5996e3f190138a28",
+      "subject": "fix(config): accept retired agent panel scope (#2295)",
+      "status": "superseded",
+      "reason": "Do not port the retired ui.agent_panel_scope serde sink."
+    },
+    {
+      "upstream": "add6c14f1ee244502bd1a9599f2cd08320f935b7",
+      "subject": "feat(theme): add optional sidebar background",
+      "status": "skipped",
+      "reason": "Product decision on 2026-08-17: defer this optional feature; the selective v0.8 port is limited to correctness, compatibility, reliability, and already-approved UI behavior."
+    },
+    {
+      "upstream": "15442a27d058a398e791b4880af1d9048b17fe26",
+      "subject": "docs: refresh readme and sponsors",
+      "status": "skipped",
+      "reason": "Skip."
+    },
+    {
+      "upstream": "9b6b1e460a21af220cc428af856b1a2ba0dd66a2",
+      "subject": "chore: remove project-local worktree extension",
+      "status": "skipped",
+      "reason": "Skip."
+    },
+    {
+      "upstream": "eb93ec8ce62b05de776f751f4d2f52ff60f93f16",
+      "subject": "fix(website): update author X profile",
+      "status": "skipped",
+      "reason": "Skip."
+    },
+    {
+      "upstream": "2863b715132fe29e53089e06f105943d1df0b3b4",
+      "subject": "feat(windows): support remote attach to unix hosts (#2329)",
+      "status": "ported",
+      "reason": "Ported by invariant in the selective upstream v0.8 integration, with focused regression coverage."
+    },
+    {
+      "upstream": "2d011c39b4f4cc5edd482ed8493c663463d18701",
+      "subject": "fix(sidebar): highlight active agent in collapsed sidebar (#2382)",
+      "status": "superseded",
+      "reason": "Already present."
+    },
+    {
+      "upstream": "1fd3100d83fe91c4ba6145e216c5b4352e14df4d",
+      "subject": "ci: restore approved contributor gate",
+      "status": "skipped",
+      "reason": "Skip."
+    },
+    {
+      "upstream": "3e85f0e6a3fa21d2e83886a81cf36748d501dbf6",
+      "subject": "chore: update canonical repository references",
+      "status": "skipped",
+      "reason": "Skip."
+    },
+    {
+      "upstream": "8b7cd9f067d93a19fb9baa0dcc61aead01be67c9",
+      "subject": "fix(ci): repair contributor gate handling",
+      "status": "skipped",
+      "reason": "Skip."
+    },
+    {
+      "upstream": "ea047db8e47defc80aee2d1972cdccc3b61ad4e1",
+      "subject": "fix: avoid ctrl-tab escape sequences in legacy panes",
+      "status": "ported",
+      "reason": "Ported by invariant in the selective upstream v0.8 integration, with focused regression coverage."
+    },
+    {
+      "upstream": "f83980db5c91e0b8e155ed7fff4e1dbb89c17bcc",
+      "subject": "fix: render OSC 4 palette overrides instead of forwarding the index (#2162)",
+      "status": "ported",
+      "reason": "Ported by invariant in the selective upstream v0.8 integration, with focused regression coverage."
+    },
+    {
+      "upstream": "78a356b17b325d8cd53e2ddde69d18524d7cd4f9",
+      "subject": "fix: keep plugin marketplace counts current",
+      "status": "skipped",
+      "reason": "Product-owned website plus plugin marketplace, which Oh My Herdr already treats as out of scope."
+    },
+    {
+      "upstream": "ecddecec6221174dc0557b0cbea9a6322f7e77e3",
+      "subject": "fix(cli): accept --flag=value and reordered options in pane read/wait-output (#2183)",
+      "status": "ported",
+      "reason": "Ported by invariant in the selective upstream v0.8 integration, with focused regression coverage."
+    },
+    {
+      "upstream": "bb4edc7f4e87130358d1795701c4f3f709aa7f21",
+      "subject": "docs: document custom agent integrations",
+      "status": "skipped",
+      "reason": "Product-owned docs/website only (Herdr custom-integration guide)."
+    },
+    {
+      "upstream": "fc824b99aba9389ffda75f19b3a4aee0ff6ca8b5",
+      "subject": "fix(detect): recognize versioned Python agent wrappers (#2188)",
+      "status": "ported",
+      "reason": "Ported by invariant in the selective upstream v0.8 integration, with focused regression coverage."
+    },
+    {
+      "upstream": "e9222d1882effd62ddae9c4d81bc2d9390da7cac",
+      "subject": "fix(terminal): restore keyboard reporting on detach (#2395)",
+      "status": "superseded",
+      "reason": "Do not port SET-to-Pop+Push."
+    },
+    {
+      "upstream": "fd0e4ff43aed7751c4cf5a4247e6581dbcfaa3b8",
+      "subject": "feat(copy-mode): add big-word motions (#2270)",
+      "status": "ported",
+      "reason": "Ported by invariant in the selective upstream v0.8 integration, with focused regression coverage."
+    },
+    {
+      "upstream": "5dd20c0a9d4453896926db8a09b28fe25beaffd6",
+      "subject": "fix: add positive idle detection for kiro-cli prompt (#2301)",
+      "status": "ported",
+      "reason": "Ported by invariant in the selective upstream v0.8 integration, with focused regression coverage."
+    },
+    {
+      "upstream": "fae0b2365782c59a068fa32ee441afa64626de52",
+      "subject": "fix(detect): ignore Cursor Run Everything status (#2220)",
+      "status": "ported",
+      "reason": "Ported by invariant in the selective upstream v0.8 integration, with focused regression coverage."
+    },
+    {
+      "upstream": "3825c0c30099dbe4cf19627b0525ce09f6580995",
+      "subject": "fix(theme): refresh host appearance on focus (#2417)",
+      "status": "superseded",
+      "reason": "Do not port CSI ?996n or the appearance-reply hold window."
+    },
+    {
+      "upstream": "d16af2660a99c6d238f0c7844339e6179515dc3a",
+      "subject": "feat(marketplace): track star history for trending and new plugin surfaces",
+      "status": "skipped",
+      "reason": "Plugin marketplace worker/R2 star history is not in Oh My Herdr product scope."
+    },
+    {
+      "upstream": "f7d791eba53d1e72b2318d2d5d038fc0dc8c15dc",
+      "subject": "chore: update website",
+      "status": "skipped",
+      "reason": "Upstream marketing/YC blog and OG assets."
+    },
+    {
+      "upstream": "69a07fdf061a35276295189d52d591893c429806",
+      "subject": "fix: publish stable release checksums",
+      "status": "skipped",
+      "reason": "Herdr website/latest.json v0.8.0 sha256 map."
+    },
+    {
+      "upstream": "322ab6a5a98db5c230b7c90881b8b4baf4cee624",
+      "subject": "fix: verify stable release checksums",
+      "status": "ported",
+      "reason": "Ported by invariant in the selective upstream v0.8 integration, with focused regression coverage."
+    },
+    {
+      "upstream": "79a953e91e54cee5060111debf3327d6b6822f93",
+      "subject": "feat(website): rebuild compare page in new design with runtime positioning",
+      "status": "skipped",
+      "reason": "Product-owned website."
+    },
+    {
+      "upstream": "374d3eddc55ac0d8b21df2b6bf7f056634fb86f9",
+      "subject": "fix(remote): restore blocking bridge streams (#2485)",
+      "status": "ported",
+      "reason": "Ported by invariant in the selective upstream v0.8 integration, with focused regression coverage."
+    },
+    {
+      "upstream": "b0723b7906998dbe5314aaf05d18c047fd288dd0",
+      "subject": "fix(input): preserve shift in kitty alternate reports (#2479)",
+      "status": "ported",
+      "reason": "Ported by invariant in the selective upstream v0.8 integration, with focused regression coverage."
+    },
+    {
+      "upstream": "00f04ac65cedf882f9785c0aa20831523c554dd0",
+      "subject": "fix: avoid redundant Windows recent-history snapshots (#2474)",
+      "status": "ported",
+      "reason": "Ported by invariant in the selective upstream v0.8 integration, with focused regression coverage."
+    },
+    {
+      "upstream": "bdb5222eec9109f4a337ab79d12c3f3ee3cd7a4b",
+      "subject": "fix(config): report unknown theme names (#2488)",
+      "status": "ported",
+      "reason": "Ported by invariant in the selective upstream v0.8 integration, with focused regression coverage."
+    },
+    {
+      "upstream": "7d77e927eba265ea864485bf99411abcf62d977d",
+      "subject": "fix(windows): share Git Bash agent candidate scans (#2494)",
+      "status": "ported",
+      "reason": "Ported by invariant in the selective upstream v0.8 integration, with focused regression coverage."
+    },
+    {
+      "upstream": "50ddc06f00ec69ede35fd5488a260dec2b74e98a",
+      "subject": "feat: support all agent integrations on windows (#2496)",
+      "status": "ported",
+      "reason": "Ported by invariant in the selective upstream v0.8 integration, with focused regression coverage."
+    },
+    {
+      "upstream": "6f311498aeeb27c0973781961ef94e8d0016ed17",
+      "subject": "fix: forward pane terminal bells (#2498)",
+      "status": "ported",
+      "reason": "Ported by invariant in the selective upstream v0.8 integration, with focused regression coverage."
+    },
+    {
+      "upstream": "1d6d1fdc6ba8a4fd0385a2071f157504871201a2",
+      "subject": "chore: approve dhh as contributor",
+      "status": "skipped",
+      "reason": "Upstream-only contributor allowlist."
+    },
+    {
+      "upstream": "10974c822d607f03e20e9741ec027910f0c1f93a",
+      "subject": "feat(input): add per-pane right-click routing (#2504)",
+      "status": "ported",
+      "reason": "Ported by invariant in the selective upstream v0.8 integration, with focused regression coverage."
+    },
+    {
+      "upstream": "3a76fea2d858a7a5ef58615f1cc9aabaa30b80ee",
+      "subject": "fix: make windows installer swaps atomic (#2530)",
+      "status": "skipped",
+      "reason": "Product-owned website/release installer."
+    },
+    {
+      "upstream": "36a8d36a7258e08b40c01bf521b1f4006525f143",
+      "subject": "feat: make outer pane borders configurable (#2535)",
+      "status": "skipped",
+      "reason": "Product decision on 2026-08-17: defer this optional feature; the selective v0.8 port is limited to correctness, compatibility, reliability, and already-approved UI behavior."
+    },
+    {
+      "upstream": "1777e9bba32b953ed1ad203b4a16d01105539000",
+      "subject": "feat(graphics): add direct pane frame streaming (#2523)",
+      "status": "ported",
+      "reason": "Ported by invariant in the selective upstream v0.8 integration, with focused regression coverage."
+    },
+    {
+      "upstream": "97f8140f37976e1552f4eee151590412f33075cc",
+      "subject": "fix(ui): reclaim scrollbar gutter in alternate screen (#2538)",
+      "status": "ported",
+      "reason": "Ported by invariant in the selective upstream v0.8 integration, with focused regression coverage."
+    },
+    {
+      "upstream": "2baebb50b0a2c639fb7fc1a4488994c78d4a0b89",
+      "subject": "fix(website): improve plugins page readability on dark ground",
+      "status": "skipped",
+      "reason": "Skip."
+    },
+    {
+      "upstream": "d277d2f83b749a38c90eb96ef7cd329cc2171cd7",
+      "subject": "fix(input): preserve alt-prefixed control keys (#2543)",
+      "status": "ported",
+      "reason": "Ported by invariant in the selective upstream v0.8 integration, with focused regression coverage."
+    },
+    {
+      "upstream": "e7c38ab37f967d16e2eacdb0bbde2d933a332057",
+      "subject": "perf(ui): avoid full pane mode reads for scrollbars (#2554)",
+      "status": "ported",
+      "reason": "Ported by invariant in the selective upstream v0.8 integration, with focused regression coverage."
+    },
+    {
+      "upstream": "ca1af383a82733608a0563fce2252058b478498c",
+      "subject": "fix(client): avoid abort on terminal hangup (#2427)",
+      "status": "ported",
+      "reason": "Ported by invariant in the selective upstream v0.8 integration, with focused regression coverage."
+    },
+    {
+      "upstream": "4e31084495120674a0cf403a27d3d91c5efb34fe",
+      "subject": "feat: add direct pane resize keybindings (#2558)",
+      "status": "skipped",
+      "reason": "Product decision on 2026-08-17: defer this optional feature; the selective v0.8 port is limited to correctness, compatibility, reliability, and already-approved UI behavior."
+    },
+    {
+      "upstream": "e2aa86a9e8b6445488ef11b2c0a8b4c22a6f79ce",
+      "subject": "test: guard pane-scaled render performance",
+      "status": "ported",
+      "reason": "Ported by invariant in the selective upstream v0.8 integration, with focused regression coverage."
+    },
+    {
+      "upstream": "e48d83067a5a9b05dfd0a82761068866ab2d294d",
+      "subject": "feat: add configurable tab bar status (#2586)",
+      "status": "skipped",
+      "reason": "Product decision on 2026-08-17: defer this optional feature; the selective v0.8 port is limited to correctness, compatibility, reliability, and already-approved UI behavior."
+    },
+    {
+      "upstream": "f5067ed829ae5743499916b941b2310c50681f29",
+      "subject": "feat: add move tab keybind actions (#2561)",
+      "status": "skipped",
+      "reason": "Product decision on 2026-08-17: defer this optional feature; the selective v0.8 port is limited to correctness, compatibility, reliability, and already-approved UI behavior."
+    },
+    {
+      "upstream": "6c6ddcd49384d6ea9f0ee2e63bf7b2643dfd5bcf",
+      "subject": "fix: center tab labels for symmetric highlight padding (#2570)",
+      "status": "ported",
+      "reason": "Ported by invariant in the selective upstream v0.8 integration, with focused regression coverage."
+    },
+    {
+      "upstream": "2e8cc9060d723a5ac32a2325e695fd8750ff60fe",
+      "subject": "fix(ui): anchor the host cursor to modal name inputs (#2569)",
+      "status": "ported",
+      "reason": "Ported by invariant in the selective upstream v0.8 integration, with focused regression coverage."
+    },
+    {
+      "upstream": "ccccda54c21f6ef1649a44bb098d7c498724404d",
+      "subject": "fix: track opencode tui session selection (#2455)",
+      "status": "ported",
+      "reason": "Ported by invariant in the selective upstream v0.8 integration, with focused regression coverage."
+    },
+    {
+      "upstream": "bbd7c2094a44fcbcc4a3a3aedef236c4d697d793",
+      "subject": "test(windows): serialize media player environment access (#2619)",
+      "status": "skipped",
+      "reason": "Skip."
+    },
+    {
+      "upstream": "7e4ab7b034078b5ac22b514fb7008f0b288687a6",
+      "subject": "fix(server): prioritize shutdown requests (#2624)",
+      "status": "ported",
+      "reason": "Ported by invariant in the selective upstream v0.8 integration, with focused regression coverage."
+    },
+    {
+      "upstream": "1ac44afcc091ef70890ebcb5ff409ae6dc0eef53",
+      "subject": "fix(windows): strip elevated terminal title decoration (#2632)",
+      "status": "ported",
+      "reason": "Ported by invariant in the selective upstream v0.8 integration, with focused regression coverage."
+    },
+    {
+      "upstream": "66835dba71ceefeaed3f608f1cc34748284e5023",
+      "subject": "ci: remove automatic issue gate",
+      "status": "skipped",
+      "reason": "Skip."
+    },
+    {
+      "upstream": "4a8a8f9087cc2576ad643858d7483de46268f449",
+      "subject": "fix(input): ignore modified j/k/up/down in session navigator (#2377)",
+      "status": "ported",
+      "reason": "Ported by invariant in the selective upstream v0.8 integration, with focused regression coverage."
+    },
+    {
+      "upstream": "42789c8e1d86a3d5ea529b1b047172bfd6979a21",
+      "subject": "refactor(website): clean up homepage",
+      "status": "skipped",
+      "reason": "Skip."
+    },
+    {
+      "upstream": "350f001320ec4a119f09c38157973126962a6121",
+      "subject": "feat: keep the outer terminal window title in sync with the session (#2627)",
+      "status": "ported",
+      "reason": "Ported by invariant in the selective upstream v0.8 integration, with focused regression coverage."
+    },
+    {
+      "upstream": "7ae4b056a0ca478e584fa282c45b528134cc80c9",
+      "subject": "fix: wait for agent prompt readiness (#2537)",
+      "status": "ported",
+      "reason": "Ported by invariant in the selective upstream v0.8 integration, with focused regression coverage."
+    },
+    {
+      "upstream": "ddffb6e1d79efb517a92034ed18b75c388a36e55",
+      "subject": "chore: refresh english documentation",
+      "status": "skipped",
+      "reason": "Skip."
+    },
+    {
+      "upstream": "b8387818f0224bd7aa2c135970de63ea8e83215b",
+      "subject": "fix: derive repo name for embedded bare layouts (#2660)",
+      "status": "superseded",
+      "reason": "Superseded."
+    },
+    {
+      "upstream": "6b0e6165afcc1aff6bea0c620ca2a812b8a35e13",
+      "subject": "fix: make just build cross-platform (#2647)",
+      "status": "skipped",
+      "reason": "Skip."
+    },
+    {
+      "upstream": "06ca0baa12f4203c5bbad9ecadf53f9a475a52b2",
+      "subject": "fix(windows): reduce idle agent detection CPU (#2651)",
+      "status": "ported",
+      "reason": "Ported by invariant in the selective upstream v0.8 integration, with focused regression coverage."
+    },
+    {
+      "upstream": "3607453087fdc870b7c6aff5cf64b202f630c513",
+      "subject": "fix(render): compact large terminal redraws (#2675)",
+      "status": "ported",
+      "reason": "Ported by invariant in the selective upstream v0.8 integration, with focused regression coverage."
+    },
+    {
+      "upstream": "d004089dee8a51d2083fef1bf58ef66b2b166448",
+      "subject": "fix: disambiguate shifted punctuation keybinds (#2676)",
+      "status": "ported",
+      "reason": "Ported by invariant in the selective upstream v0.8 integration, with focused regression coverage."
+    },
+    {
+      "upstream": "9ba32c25f37b15385295dfac0f539fcb434120f9",
+      "subject": "fix: detect claude 2.1.228 half-circle busy spinner",
+      "status": "ported",
+      "reason": "Ported by invariant in the selective upstream v0.8 integration, with focused regression coverage."
+    },
+    {
+      "upstream": "3f752a72fdd073d875cf941e3049f9860e30d841",
+      "subject": "fix: synchronously terminate cancelled status commands",
+      "status": "superseded",
+      "reason": "Superseded."
+    },
+    {
+      "upstream": "5600197f00e871764465d4e3d9ba5e6aa6fd9547",
+      "subject": "perf: avoid repeated Git config reads (#2688)",
+      "status": "ported",
+      "reason": "Ported by invariant in the selective upstream v0.8 integration, with focused regression coverage."
+    },
+    {
+      "upstream": "c82a5b069c3d0bc16da13347d63538c9b95bd444",
+      "subject": "chore: update contributor list",
+      "status": "skipped",
+      "reason": "Upstream-only APPROVED_CONTRIBUTORS workflow."
+    },
+    {
+      "upstream": "d46d9a22751ec21a6c39d1acf6b3f31a2b2eecd8",
+      "subject": "fix: preserve workspace labels for root repositories (#2727)",
+      "status": "superseded",
+      "reason": "Do not port."
+    },
+    {
+      "upstream": "1079fff412ca978548e42af79b3f1b7ad7912686",
+      "subject": "fix: use the running binary in agent hooks (#2722)",
+      "status": "superseded",
+      "reason": "Do not port the herdr CLI/HERDR_BIN_PATH hook rewrite."
+    },
+    {
+      "upstream": "49e333ae87a57952fc82ba479a55c35b975ff3cc",
+      "subject": "fix: strip claude title spinner frames (#2709)",
+      "status": "ported",
+      "reason": "Ported by invariant in the selective upstream v0.8 integration, with focused regression coverage."
+    },
+    {
+      "upstream": "8b635c918066dd184bacc29b4c06c40a3efea3f5",
+      "subject": "fix(agent): focus Copilot before prompting (#2734)",
+      "status": "ported",
+      "reason": "Ported by invariant in the selective upstream v0.8 integration, with focused regression coverage."
+    },
+    {
+      "upstream": "a4d52ab60282b2ad021cb90978a7ed4d3898704b",
+      "subject": "feat: add qwen code detection and restore (#2743)",
+      "status": "skipped",
+      "reason": "Product decision on 2026-08-17: defer this optional feature; the selective v0.8 port is limited to correctness, compatibility, reliability, and already-approved UI behavior."
+    },
+    {
+      "upstream": "952729ee03e0939d7a9d893f87f24179cf0eb7cb",
+      "subject": "fix: preserve logical lines in scrollback editor (#2735)",
+      "status": "ported",
+      "reason": "Ported by invariant in the selective upstream v0.8 integration, with focused regression coverage."
+    },
+    {
+      "upstream": "b7dca4bb2a2cf488407ae051b40782f03fcabc62",
+      "subject": "fix(graphics): support high-dpi direct file frames (#2680)",
+      "status": "skipped",
+      "reason": "No local pane.graphics / file_frame / PANE_GRAPHICS_* surface to extend."
+    },
+    {
+      "upstream": "f76d7df549e95e1699651f59916e9a38f0f58985",
+      "subject": "fix: keep tab and sidebar clicks when the terminal reports a stray drag (#2736)",
+      "status": "ported",
+      "reason": "Ported by invariant in the selective upstream v0.8 integration, with focused regression coverage."
+    },
+    {
+      "upstream": "37644cabe0d0f8c96f3ae7cc2a985f54d631adff",
+      "subject": "fix: wait for new pane shell readiness (#2774)",
+      "status": "superseded",
+      "reason": "Do not port the agent_pane_busy retry loop."
+    },
+    {
+      "upstream": "2075de5db083f1d1f4a9c67f6b36a8eeb250754e",
+      "subject": "fix: detect all claude half-circle spinner frames (#2762)",
+      "status": "ported",
+      "reason": "Ported by invariant in the selective upstream v0.8 integration, with focused regression coverage."
+    },
+    {
+      "upstream": "9351b058f34973016a5d5973297d0567513e67a4",
+      "subject": "fix: reject prompts to blocked agents (#2790)",
+      "status": "ported",
+      "reason": "Ported by invariant in the selective upstream v0.8 integration, with focused regression coverage."
+    },
+    {
+      "upstream": "1bfabbab3fc9a79bf3b93f5dc3962fb8e7afea50",
+      "subject": "feat(docs): publish agent-readable documentation",
+      "status": "skipped",
+      "reason": "Product-owned docs/website/workflow."
+    },
+    {
+      "upstream": "b710176fd23f4dfa3b3c2fa9b0c326b11dd5fd17",
+      "subject": "fix(docs): apply llms patch during website builds",
+      "status": "skipped",
+      "reason": "Skip."
+    },
+    {
+      "upstream": "1ac5e9805784e14a5322a0e60e435348149721ee",
+      "subject": "fix(docs): publish channel-aware documentation indexes",
+      "status": "skipped",
+      "reason": "Skip."
+    },
+    {
+      "upstream": "1af1a5b86f642ae7b053037bc472913cfbc1e206",
+      "subject": "feat(cli): guide agents to Herdr resources",
+      "status": "skipped",
+      "reason": "Skip."
+    },
+    {
+      "upstream": "d2c317adc4b5fd73a7054d74f92d633a31069391",
+      "subject": "fix: keep active sidebar rows visible (#2794)",
+      "status": "skipped",
+      "reason": "Product decision on 2026-08-17: defer this optional feature; the selective v0.8 port is limited to correctness, compatibility, reliability, and already-approved UI behavior."
+    },
+    {
+      "upstream": "d76657f2c7fc18dcce3b9af43842c8afaba1646b",
+      "subject": "fix: speed up alternate-screen history reads (#2426)",
+      "status": "ported",
+      "reason": "Ported by invariant in the selective upstream v0.8 integration, with focused regression coverage."
+    },
+    {
+      "upstream": "cb727d055545b5b2fc366f778e4c57874d0aa8c1",
+      "subject": "fix: use verified local packages for windows updates (#2816)",
+      "status": "skipped",
+      "reason": "Skip."
+    },
+    {
+      "upstream": "9e6c2b4e0957498b7da884ed2789fe28b9cde9cf",
+      "subject": "fix: detect qwen localized active states (#2818)",
+      "status": "skipped",
+      "reason": "Skip."
+    },
+    {
+      "upstream": "b660cad80450147610091e0e5758faa6276e5983",
+      "subject": "fix(client): handle remote terminal hangup (#2827)",
+      "status": "ported",
+      "reason": "Ported by invariant in the selective upstream v0.8 integration, with focused regression coverage."
+    },
+    {
+      "upstream": "15539d3dec40bcc40e6f4bb0eaa4f073ad26b74f",
+      "subject": "feat: make headless terminal size configurable (#2829)",
+      "status": "ported",
+      "reason": "Ported by invariant in the selective upstream v0.8 integration, with focused regression coverage."
+    },
+    {
+      "upstream": "9166e07b31f920540802fe46cbe3c0d52eece2bd",
+      "subject": "fix(theme): keep default active rows subtle and add navigate cursor color (#2838)",
+      "status": "skipped",
+      "reason": "Product decision on 2026-08-17: defer this optional feature; the selective v0.8 port is limited to correctness, compatibility, reliability, and already-approved UI behavior."
+    },
+    {
+      "upstream": "2b4b3849ca7760d6fcff10cd560553bb8081a8e2",
+      "subject": "fix(theme): skip host palette queries under wsl (#2852)",
+      "status": "superseded",
+      "reason": "Superseded."
+    },
+    {
+      "upstream": "51b7064ef0a02642393bab1d2eea0f4dbd8414d2",
+      "subject": "fix: keep agent skill aligned with stable releases",
+      "status": "skipped",
+      "reason": "Skip."
+    },
+    {
+      "upstream": "1147e60bc0a43c727563bee457394af0ca0a5e8b",
+      "subject": "docs: sync localized configuration updates",
+      "status": "skipped",
+      "reason": "Skip."
+    },
+    {
+      "upstream": "d2cbcd415cb598891f093d05b0052213047aa6bc",
+      "subject": "docs: publish preview documentation",
+      "status": "skipped",
+      "reason": "Skip."
     }
   ]
 }

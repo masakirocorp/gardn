@@ -37,11 +37,16 @@ pub fn stdin_reader_loop(
     event_tx: mpsc::Sender<ClientLoopEvent>,
     should_quit: &Arc<AtomicBool>,
     host_color_query_sent: bool,
+    host_cell_size_query_sent: bool,
     host_mouse_capture_active: Arc<AtomicBool>,
 ) {
     #[cfg(windows)]
     {
-        let _ = (host_color_query_sent, host_mouse_capture_active);
+        let _ = (
+            host_color_query_sent,
+            host_cell_size_query_sent,
+            host_mouse_capture_active,
+        );
         return windows_stdin_reader_loop(event_tx, should_quit, host_color_query_sent);
     }
 
@@ -50,9 +55,11 @@ pub fn stdin_reader_loop(
         event_tx,
         should_quit,
         host_color_query_sent,
+        host_cell_size_query_sent,
         host_mouse_capture_active,
     );
 }
+
 #[cfg(windows)]
 fn windows_stdin_reader_loop(
     event_tx: mpsc::Sender<ClientLoopEvent>,
@@ -192,11 +199,28 @@ fn windows_client_input_event_from_raw(
     event: crate::raw_input::RawInputEvent,
 ) -> Option<crate::protocol::ClientInputEvent> {
     match event {
-        crate::raw_input::RawInputEvent::Key(key) => Some(crate::protocol::ClientInputEvent::Key {
-            code: crate::protocol::ClientKeyCode::from_crossterm(key.code)?,
-            modifiers: key.modifiers.bits(),
-            kind: crate::protocol::ClientKeyKind::from_crossterm(key.kind),
-        }),
+        crate::raw_input::RawInputEvent::Key(key) => {
+            let source = if let Some(record) = key.windows_record().copied() {
+                crate::protocol::ClientKeySource::WindowsConsole { record }
+            } else if let Some(bytes) = key.vt_bytes() {
+                crate::protocol::ClientKeySource::Vt {
+                    bytes: bytes.to_vec(),
+                }
+            } else {
+                crate::protocol::ClientKeySource::Synthesized
+            };
+            Some(crate::protocol::ClientInputEvent::Key {
+                code: crate::protocol::ClientKeyCode::from_crossterm(key.code)?,
+                modifiers: key.modifiers.bits(),
+                kind: crate::protocol::ClientKeyKind::from_crossterm(key.kind),
+                repeat_count: key.repeat_count,
+                generated_text: key.generated_text,
+                source,
+            })
+        }
+        crate::raw_input::RawInputEvent::TextCommit(commit) => Some(
+            crate::protocol::ClientInputEvent::TextCommit(commit.into_string()),
+        ),
         crate::raw_input::RawInputEvent::Mouse(mouse) => {
             Some(crate::protocol::ClientInputEvent::Mouse {
                 kind: crate::protocol::ClientMouseKind::from_crossterm(mouse.kind)?,
@@ -217,6 +241,7 @@ fn windows_client_input_event_from_raw(
         crate::raw_input::RawInputEvent::HostDefaultColor { .. }
         | crate::raw_input::RawInputEvent::HostPaletteColor { .. }
         | crate::raw_input::RawInputEvent::HostCursorColor { .. }
+        | crate::raw_input::RawInputEvent::HostCellSizeReport { .. }
         | crate::raw_input::RawInputEvent::Unsupported => None,
     }
 }
@@ -226,6 +251,7 @@ fn unix_stdin_reader_loop(
     event_tx: mpsc::Sender<ClientLoopEvent>,
     should_quit: &Arc<AtomicBool>,
     host_color_query_sent: bool,
+    host_cell_size_query_sent: bool,
     host_mouse_capture_active: Arc<AtomicBool>,
 ) {
     let stdin = io::stdin();
@@ -234,6 +260,9 @@ fn unix_stdin_reader_loop(
     let mut framer = crate::raw_input::RawInputByteFramer::for_host_input();
     if host_color_query_sent {
         framer.host_color_query_sent();
+    }
+    if host_cell_size_query_sent {
+        framer.host_cell_size_query_sent();
     }
 
     while !should_quit.load(Ordering::Acquire) {
@@ -298,7 +327,7 @@ fn idle_flush_timeout_ms(
     host_mouse_capture_active: bool,
 ) -> i32 {
     if host_mouse_capture_active
-        && (framer.has_pending_lone_escape() || framer.has_pending_incomplete_sgr_mouse_sequence())
+        && (framer.has_pending_lone_escape() || framer.has_pending_incomplete_mouse_sequence())
     {
         crate::raw_input::MOUSE_ACTIVE_ESCAPE_SEQUENCE_FLUSH_TIMEOUT_MS
     } else {
@@ -356,6 +385,69 @@ mod tests {
     // Here we test the event type construction.
 
     use super::*;
+    #[test]
+    fn windows_client_wire_event_preserves_vt_key_lifecycle() {
+        let key = crate::input::TerminalKey::new(
+            crossterm::event::KeyCode::Char('a'),
+            crossterm::event::KeyModifiers::SHIFT,
+        )
+        .with_kind(crossterm::event::KeyEventKind::Repeat)
+        .with_repeat_count(3)
+        .with_generated_text(Some("A".to_owned()))
+        .with_vt_bytes(b"\x1b[97;2:2u".to_vec());
+
+        assert_eq!(
+            windows_client_input_event_from_raw(crate::raw_input::RawInputEvent::Key(key)),
+            Some(crate::protocol::ClientInputEvent::Key {
+                code: crate::protocol::ClientKeyCode::Char('a'),
+                modifiers: crossterm::event::KeyModifiers::SHIFT.bits(),
+                kind: crate::protocol::ClientKeyKind::Repeat,
+                repeat_count: 3,
+                generated_text: Some("A".to_owned()),
+                source: crate::protocol::ClientKeySource::Vt {
+                    bytes: b"\x1b[97;2:2u".to_vec(),
+                },
+            })
+        );
+    }
+
+    #[test]
+    fn windows_client_wire_event_preserves_console_record_and_text_commit() {
+        let record = crate::input::WindowsKeyRecord {
+            key_down: false,
+            repeat_count: 1,
+            virtual_key_code: 27,
+            virtual_scan_code: 1,
+            unicode: 27,
+            control_key_state: 0,
+        };
+        let key = crate::input::TerminalKey::new(
+            crossterm::event::KeyCode::Esc,
+            crossterm::event::KeyModifiers::empty(),
+        )
+        .with_kind(crossterm::event::KeyEventKind::Release)
+        .with_windows_record(record);
+
+        assert_eq!(
+            windows_client_input_event_from_raw(crate::raw_input::RawInputEvent::Key(key)),
+            Some(crate::protocol::ClientInputEvent::Key {
+                code: crate::protocol::ClientKeyCode::Esc,
+                modifiers: 0,
+                kind: crate::protocol::ClientKeyKind::Release,
+                repeat_count: 1,
+                generated_text: None,
+                source: crate::protocol::ClientKeySource::WindowsConsole { record },
+            })
+        );
+        assert_eq!(
+            windows_client_input_event_from_raw(crate::raw_input::RawInputEvent::TextCommit(
+                crate::input::TextCommit::new("你🙂"),
+            )),
+            Some(crate::protocol::ClientInputEvent::TextCommit(
+                "你🙂".to_owned(),
+            ))
+        );
+    }
 
     #[cfg(unix)]
     #[test]
@@ -379,18 +471,20 @@ mod tests {
     fn mouse_active_escape_sequences_get_longer_reassembly_window() {
         let mut escape = crate::raw_input::RawInputByteFramer::default();
         assert!(escape.push(b"\x1b").is_empty());
-        let mut mouse = crate::raw_input::RawInputByteFramer::default();
-        assert!(mouse.push(b"\x1b[<3").is_empty());
+        let mut sgr_mouse = crate::raw_input::RawInputByteFramer::default();
+        assert!(sgr_mouse.push(b"\x1b[<3").is_empty());
+        let mut default_mouse = crate::raw_input::RawInputByteFramer::default();
+        assert!(default_mouse.push(b"\x1b[M").is_empty());
         let mut unrelated = crate::raw_input::RawInputByteFramer::default();
         assert!(unrelated.push(b"\x1b[49:33;2:").is_empty());
 
-        for framer in [&escape, &mouse, &unrelated] {
+        for framer in [&escape, &sgr_mouse, &default_mouse, &unrelated] {
             assert_eq!(
                 idle_flush_timeout_ms(framer, false),
                 crate::raw_input::RAW_INPUT_IDLE_FLUSH_TIMEOUT_MS
             );
         }
-        for framer in [&escape, &mouse] {
+        for framer in [&escape, &sgr_mouse, &default_mouse] {
             assert_eq!(
                 idle_flush_timeout_ms(framer, true),
                 crate::raw_input::MOUSE_ACTIVE_ESCAPE_SEQUENCE_FLUSH_TIMEOUT_MS

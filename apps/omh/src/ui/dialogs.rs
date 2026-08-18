@@ -52,6 +52,24 @@ pub(crate) fn rename_modal_size(app: &AppState) -> (u16, u16) {
     rename_modal_size_for_view(app.mode, app.creating_new_group)
 }
 
+pub(crate) fn rename_name_input_rect(app: &AppState, inner: Rect) -> Rect {
+    rename_name_input_rect_for_view(app.mode, app.creating_new_group, inner)
+}
+
+pub(crate) fn rename_name_input_rect_for_view(
+    mode: Mode,
+    creating_new_group: bool,
+    inner: Rect,
+) -> Rect {
+    if matches!(mode, Mode::RenameGroup) {
+        return group_name_input_rect_for_view(creating_new_group, inner);
+    }
+    if inner.width == 0 || inner.height < 3 {
+        return Rect::default();
+    }
+    Rect::new(inner.x, inner.y + 2, inner.width, 1)
+}
+
 fn group_field_rect_for_view(
     creating_new_group: bool,
     inner: Rect,
@@ -389,7 +407,11 @@ fn render_rename_overlay_with_view_state(
     } else {
         render_modal_text_input(
             frame,
-            Rect::new(rows[2].x, rows[2].y, rows[2].width, 1),
+            rename_name_input_rect_for_view(
+                client_view.mode,
+                client_view.creating_new_group,
+                inner,
+            ),
             &client_view.name_input,
             &palette,
         );
@@ -597,7 +619,7 @@ pub(super) fn render_rename_overlay(app: &AppState, frame: &mut Frame, area: Rec
             }
         }
     } else {
-        let input_rect = Rect::new(rows[2].x, rows[2].y, rows[2].width, 1);
+        let input_rect = rename_name_input_rect(app, inner);
         render_modal_text_input(frame, input_rect, &app.name_input, &palette);
         if let Some(location) = app.pending_workspace_create_location.as_ref() {
             let host = if location.is_local() {
@@ -1188,6 +1210,52 @@ mod tests {
             group_default_directory_input_rect(&app, inner),
             Rect::new(inner.x + 1, inner.y + 16, inner.width.saturating_sub(1), 1)
         );
+    }
+
+    #[test]
+    fn rename_overlay_caret_reaches_the_frame_the_server_sends() {
+        let mut app = AppState::test_new();
+        app.mode = Mode::RenameWorkspace;
+        app.name_input = "Work".to_string();
+
+        let area = Rect::new(0, 0, 90, 28);
+        let (_buffer, cursor) = crate::server::render_stream::render_virtual(&mut app, area, false);
+        let cursor = cursor.expect("rename overlay should anchor the host cursor");
+        let (popup_w, popup_h) = rename_modal_size(&app);
+        let popup = centered_popup_rect(area, popup_w, popup_h).expect("rename popup fits");
+        let inner = Rect::new(
+            popup.x + 1,
+            popup.y + 1,
+            popup.width.saturating_sub(2),
+            popup.height.saturating_sub(2),
+        );
+        let name_rect = rename_name_input_rect(&app, inner);
+        assert_eq!(cursor.y, name_rect.y);
+        assert_eq!(cursor.x, name_rect.x + 1 + 4);
+        assert!(cursor.visible);
+    }
+
+    #[test]
+    fn rename_overlay_caret_tracks_cjk_display_width() {
+        let mut app = AppState::test_new();
+        app.mode = Mode::RenameWorkspace;
+        app.name_input = "\u{4f5c}\u{696d}".to_string();
+
+        let area = Rect::new(0, 0, 90, 28);
+        let (_buffer, cursor) = crate::server::render_stream::render_virtual(&mut app, area, false);
+        let cursor = cursor.expect("rename overlay should anchor the host cursor");
+        let (popup_w, popup_h) = rename_modal_size(&app);
+        let popup = centered_popup_rect(area, popup_w, popup_h).expect("rename popup fits");
+        let inner = Rect::new(
+            popup.x + 1,
+            popup.y + 1,
+            popup.width.saturating_sub(2),
+            popup.height.saturating_sub(2),
+        );
+        let name_rect = rename_name_input_rect(&app, inner);
+        assert_eq!(cursor.y, name_rect.y);
+        // Two wide glyphs occupy four columns, so the caret lands four cells in.
+        assert_eq!(cursor.x, name_rect.x + 1 + 4);
     }
 
     fn buffer_text(buffer: &Buffer, width: u16, height: u16) -> String {

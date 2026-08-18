@@ -72,6 +72,10 @@ const APPEARANCE_SUBSECTIONS: &[SettingsSubsection] = &[
         label: "Panes",
         anchor: Some("Panes"),
     },
+    SettingsSubsection {
+        label: "Agent Status",
+        anchor: Some("Agent Status"),
+    },
 ];
 const NOTIFICATION_SUBSECTIONS: &[SettingsSubsection] = &[
     SettingsSubsection {
@@ -3336,9 +3340,11 @@ mod tests {
             .expect("render settings overlay");
 
         let text = buffer_text(terminal.backend().buffer(), area.width, area.height);
-        let (selected_y, selected_x) =
-            find_text_cell(&text, "Switch to ASCII Input Source in Prefix (macOS)")
-                .expect("selected experiment row");
+        let (selected_y, selected_x) = find_text_cell(
+            &text,
+            "Switch to ASCII Input Source in Prefix (macOS/Windows)",
+        )
+        .expect("selected experiment row");
 
         assert_eq!(
             terminal.backend().buffer()[(selected_x, selected_y)].symbol(),
@@ -3697,7 +3703,7 @@ mod tests {
         assert!(!text.contains("resume agent sessions"));
         assert!(!text.contains("pane screen history"));
         assert!(text.contains("Input"));
-        assert!(text.contains("Switch to ASCII Input Source in Prefix (macOS)"));
+        assert!(text.contains("Switch to ASCII Input Source in Prefix (macOS/Windows)"));
     }
     fn assert_no_option_line(text: &str, option: &str) {
         let mut in_appearance_section = false;

@@ -11,7 +11,7 @@ use crate::api::schema::{
     PaneReportMetadataParams, PaneResizeParams, PaneResizeReason, PaneResizeResult,
     PaneSendInputParams, PaneSendKeysParams, PaneSendTextParams, PaneSplitParams, PaneSwapParams,
     PaneSwapReason, PaneSwapResult, PaneTarget, PaneZoomMode, PaneZoomParams, PaneZoomReason,
-    PaneZoomResult, ReadFormat, ReadSource, ResponseResult, SplitDirection,
+    PaneZoomResult, ResponseResult, SplitDirection,
 };
 use crate::app::{view_state::ClientViewState, App, Mode};
 use crate::layout::{find_in_direction, NavDirection, Node, PaneId, TileLayout};
@@ -1469,21 +1469,12 @@ impl App {
         else {
             return pane_not_found(id, &params.pane_id);
         };
-        let requested_lines = params.lines.unwrap_or(80).min(1000) as usize;
-        let text = match params.format {
-            ReadFormat::Text => match params.source {
-                ReadSource::Visible => pane.visible_text(),
-                ReadSource::Recent => pane.recent_text(requested_lines),
-                ReadSource::RecentUnwrapped => pane.recent_unwrapped_text(requested_lines),
-                ReadSource::Detection => pane.detection_text(),
-            },
-            ReadFormat::Ansi => match params.source {
-                ReadSource::Visible => pane.visible_ansi(),
-                ReadSource::Recent => pane.recent_ansi(requested_lines),
-                ReadSource::RecentUnwrapped => pane.recent_unwrapped_ansi(requested_lines),
-                ReadSource::Detection => pane.detection_text(),
-            },
-        };
+        let snapshot = crate::app::api_helpers::read_terminal_snapshot(
+            pane,
+            params.source,
+            params.format,
+            params.lines,
+        );
 
         encode_success(
             id,
@@ -1494,9 +1485,9 @@ impl App {
                     tab_id: self.public_tab_id(ws_idx, tab_idx).unwrap(),
                     source: params.source,
                     format: params.format,
-                    text,
+                    text: snapshot.text,
                     revision: 0,
-                    truncated: false,
+                    truncated: snapshot.truncated,
                 },
             },
         )
@@ -2030,10 +2021,6 @@ impl App {
                 let Some((target_ws_idx, target_tab_idx)) = self.parse_tab_id(&tab_id) else {
                     return encode_error(id, "pane_move_failed", "target tab disappeared");
                 };
-                let previous_target_focus = self.state.workspaces[target_ws_idx].tabs
-                    [target_tab_idx]
-                    .layout
-                    .focused();
                 let moved_pane_id = match self.state.workspaces[target_ws_idx]
                     .insert_moved_pane_into_tab(
                         target_tab_idx,
@@ -2041,6 +2028,7 @@ impl App {
                         moved,
                         split_direction_to_layout(split),
                         ratio,
+                        focus,
                     ) {
                     Ok(pane_id) => pane_id,
                     Err(_) => {
@@ -2051,11 +2039,6 @@ impl App {
                         )
                     }
                 };
-                if !focus {
-                    self.state.workspaces[target_ws_idx].tabs[target_tab_idx]
-                        .layout
-                        .focus_pane(previous_target_focus);
-                }
                 (target_ws_idx, target_tab_idx, moved_pane_id)
             }
             ResolvedPaneMoveDestination::NewTab {
@@ -2857,6 +2840,75 @@ mod tests {
         let pane_id = app.state.workspaces[0].tabs[0].root_pane;
         let public_pane_id = app.public_pane_id(0, pane_id).unwrap();
         (app, public_pane_id)
+    }
+
+    fn app_with_scrollback_runtime() -> (App, String) {
+        let (mut app, public_pane_id) = app_with_test_workspace();
+        let pane_id = app.state.workspaces[0].tabs[0].root_pane;
+        let mut scrollback = String::new();
+        for line in 0..20 {
+            scrollback.push_str(&format!("line {line}\r\n"));
+        }
+        let runtime = crate::terminal::TerminalRuntime::test_with_scrollback_bytes(
+            40,
+            5,
+            10_000,
+            scrollback.as_bytes(),
+        );
+        app.state.workspaces[0].insert_test_runtime(pane_id, runtime);
+        (app, public_pane_id)
+    }
+
+    fn app_with_send_key_runtime(
+        capacity: usize,
+    ) -> (App, String, tokio::sync::mpsc::Receiver<Bytes>) {
+        let (mut app, public_pane_id) = app_with_test_workspace();
+        let pane_id = app.state.workspaces[0].tabs[0].root_pane;
+        let (runtime, rx) =
+            crate::terminal::TerminalRuntime::test_with_channel_capacity(80, 24, capacity);
+        app.state.workspaces[0].insert_test_runtime(pane_id, runtime);
+        (app, public_pane_id, rx)
+    }
+
+    #[tokio::test]
+    async fn api_pane_send_keys_encodes_shift_tab_as_backtab() {
+        let (mut app, pane_id, mut rx) = app_with_send_key_runtime(1);
+
+        let response = app.handle_api_request(crate::api::schema::Request {
+            id: "req".into(),
+            method: crate::api::schema::Method::PaneSendKeys(PaneSendKeysParams {
+                pane_id,
+                keys: vec!["shift+tab".into()],
+            }),
+        });
+
+        let success: SuccessResponse = serde_json::from_str(&response).unwrap();
+        assert_eq!(success.result, ResponseResult::Ok {});
+        assert_eq!(rx.try_recv().unwrap(), bytes::Bytes::from_static(b"\x1b[Z"));
+        assert!(rx.try_recv().is_err());
+    }
+
+    #[tokio::test]
+    async fn api_pane_read_reports_when_older_rows_are_omitted() {
+        let (mut app, public_pane_id) = app_with_scrollback_runtime();
+
+        let response = app.handle_pane_read(
+            "req".into(),
+            PaneReadParams {
+                pane_id: public_pane_id,
+                source: crate::api::schema::ReadSource::Recent,
+                lines: Some(2),
+                format: crate::api::schema::ReadFormat::Text,
+                strip_ansi: true,
+                intent: crate::api::schema::ReadIntent::Interactive,
+            },
+        );
+        let success: SuccessResponse = serde_json::from_str(&response).unwrap();
+        let ResponseResult::PaneRead { read } = success.result else {
+            panic!("expected pane read response");
+        };
+        assert!(read.text.contains("line 19"));
+        assert!(read.truncated);
     }
 
     #[test]

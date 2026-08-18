@@ -6,7 +6,7 @@ use ratatui::{
     Frame,
 };
 
-use super::status::{agent_section_icon, agent_section_style, state_dot, toast_kind_color};
+use super::status::{agent_section_icon, agent_section_style, state_icon, toast_kind_color};
 use super::text::{display_width_u16, truncate_end};
 use super::widgets::{fill_rect, panel_contrast_fg, render_panel_shell};
 use crate::app::state::{
@@ -1129,7 +1129,7 @@ fn render_mobile_agent_summary(
             if count == 0 {
                 continue;
             }
-            let (icon, icon_style) = agent_section_icon(label, app.spinner_tick, p);
+            let (icon, icon_style) = agent_section_icon(label, p);
             spans.push(Span::styled(" ", Style::default().bg(bg)));
             let selected_style = Style::default()
                 .fg(selected_fg)
@@ -1179,7 +1179,7 @@ fn render_mobile_agent_section(
         Rect::new(content.x, y, content.width.min(1), 1),
     );
     if content.width > 2 {
-        let (icon, icon_style) = agent_section_icon(label, app.spinner_tick, p);
+        let (icon, icon_style) = agent_section_icon(label, p);
         frame.render_widget(
             Paragraph::new(Span::styled(icon, icon_style.bg(p.panel_bg))),
             Rect::new(content.x + 2, y, 1, 1),
@@ -1318,7 +1318,13 @@ fn render_mobile_hierarchy_row(
     let (marker, marker_style) = match row.target {
         _ if selected => (" ".to_string(), Style::default().fg(selected_fg).bg(bg)),
         NavigatorTarget::Pane { .. } => {
-            let (dot, style) = state_dot(row.status, row.seen, p);
+            let (dot, style) = state_icon(
+                row.status,
+                row.seen,
+                app.spinner_tick,
+                app.status_indicators,
+                p,
+            );
             (dot.to_string(), style.bg(bg))
         }
         NavigatorTarget::Group { .. } => (" ".to_string(), Style::default().bg(bg)),
@@ -2099,8 +2105,7 @@ mod tests {
         let content = inset_for_left_scrollbar(areas.viewport);
         let section_y = areas.viewport.y;
         let agent_y = section_y + 1;
-        let (section_icon, section_icon_style) =
-            agent_section_icon("Working", app.spinner_tick, &app.palette);
+        let (section_icon, section_icon_style) = agent_section_icon("Working", &app.palette);
         assert_eq!(buffer[(content.x, section_y)].symbol(), "▾");
         assert_eq!(buffer[(content.x + 2, section_y)].symbol(), section_icon);
         assert_eq!(
@@ -2356,7 +2361,7 @@ mod tests {
             &crate::pane::PaneLaunchEnv::default(),
             events,
             std::sync::Arc::new(tokio::sync::Notify::new()),
-            std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            std::sync::Arc::new(crate::render_signal::RenderSignal::new()),
         )
         .unwrap();
 

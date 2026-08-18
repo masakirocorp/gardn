@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::ops::{Deref, DerefMut};
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -32,8 +32,8 @@ use self::git::{git_work_summary, git_work_summary_for_root as load_git_work_sum
 pub(crate) use self::tab::MovedPane;
 pub use self::{
     git::{
-        derive_label_from_cwd, derive_label_from_location, git_branch, git_status_cache_key,
-        GitStatusCacheEntry,
+        derive_label_from_cwd, derive_label_from_location, fallback_label_from_cwd, git_branch,
+        git_status_cache_key, GitStatusCacheEntry,
     },
     tab::{NewPane, Tab},
 };
@@ -45,6 +45,8 @@ pub struct WorkspaceGitStatus {
     pub workspace_id: String,
     pub resolved_identity_cwd: PathBuf,
     pub cwd_fingerprint: Vec<PathBuf>,
+    pub status_cache_key: PathBuf,
+    pub auto_label: String,
     pub branch: Option<String>,
     pub ahead_behind: Option<(usize, usize)>,
     pub work_summary: Option<GitWorkSummary>,
@@ -65,18 +67,34 @@ pub struct WorkspaceGitStatusSnapshot {
     pub ahead_behind: Option<(usize, usize)>,
 }
 
+pub(crate) fn discover_workspace_git_identity(
+    cwd: &std::path::Path,
+    is_local: bool,
+) -> (String, PathBuf) {
+    if !is_local {
+        return (fallback_label_from_cwd(cwd), cwd.to_path_buf());
+    }
+    let auto_label = derive_label_from_cwd(cwd);
+    let status_cache_key = git_status_cache_key(cwd).unwrap_or_else(|| cwd.to_path_buf());
+    (auto_label, status_cache_key)
+}
+
 impl WorkspaceGitStatusSnapshot {
     pub fn into_workspace_status(
         self,
         workspace_id: String,
         resolved_identity_cwd: PathBuf,
         cwd_fingerprint: Vec<PathBuf>,
+        status_cache_key: PathBuf,
+        auto_label: String,
     ) -> WorkspaceGitStatus {
         let work_summary = git_work_summary(&cwd_fingerprint);
         WorkspaceGitStatus {
             workspace_id,
             resolved_identity_cwd,
             cwd_fingerprint,
+            status_cache_key,
+            auto_label,
             branch: self.branch,
             ahead_behind: self.ahead_behind,
             work_summary,
@@ -144,6 +162,12 @@ pub struct Workspace {
     pub identity_cwd: PathBuf,
     /// Durable host-qualified default for future terminals in this workspace.
     pub default_location: crate::execution_host::ResourceLocation,
+    /// CWD from which the cached automatic label and Git metadata were derived.
+    pub(crate) cached_identity_cwd: PathBuf,
+    /// Automatic workspace label cached outside the render path.
+    pub(crate) cached_auto_label: String,
+    /// Cache key for periodic Git status associated with `cached_identity_cwd`.
+    pub(crate) cached_git_status_key: PathBuf,
     /// Cached current git branch for the workspace repo.
     pub(crate) cached_git_branch: Option<String>,
     /// Cached ahead/behind counts for the workspace repo's current branch upstream.
@@ -168,6 +192,9 @@ impl Clone for Workspace {
             group_id: self.group_id.clone(),
             identity_cwd: self.identity_cwd.clone(),
             default_location: self.default_location.clone(),
+            cached_identity_cwd: self.cached_identity_cwd.clone(),
+            cached_auto_label: self.cached_auto_label.clone(),
+            cached_git_status_key: self.cached_git_status_key.clone(),
             cached_git_branch: self.cached_git_branch.clone(),
             cached_git_ahead_behind: self.cached_git_ahead_behind,
             cached_git_work_summary: self.cached_git_work_summary,
@@ -218,18 +245,23 @@ impl Workspace {
         moved: MovedPane,
         events: mpsc::Sender<AppEvent>,
         render_notify: Arc<Notify>,
-        render_dirty: Arc<AtomicBool>,
+        render_dirty: Arc<crate::render_signal::RenderSignal>,
     ) -> Self {
         let root_pane = moved.pane_id;
         let tab = Tab::from_existing_pane(1, tab_label, moved, events, render_notify, render_dirty);
         let mut public_pane_numbers = HashMap::new();
         public_pane_numbers.insert(root_pane, 1);
+        let (cached_auto_label, cached_git_status_key) =
+            discover_workspace_git_identity(&identity_cwd, default_location.is_local());
         Self {
             id: generate_workspace_id(),
             custom_name,
             group_id: DEFAULT_GROUP_ID.to_string(),
             identity_cwd: identity_cwd.clone(),
             default_location,
+            cached_identity_cwd: identity_cwd,
+            cached_auto_label,
+            cached_git_status_key,
             cached_git_branch: None,
             cached_git_ahead_behind: None,
             cached_git_work_summary: None,
@@ -250,12 +282,17 @@ impl Workspace {
         let initial_cwd = default_location.path.as_path().to_path_buf();
         let mut public_pane_numbers = HashMap::new();
         public_pane_numbers.insert(tab.root_pane, 1);
+        let (cached_auto_label, cached_git_status_key) =
+            discover_workspace_git_identity(&initial_cwd, default_location.is_local());
         Self {
             id: generate_workspace_id(),
             custom_name: None,
             group_id: DEFAULT_GROUP_ID.to_string(),
-            identity_cwd: initial_cwd,
+            identity_cwd: initial_cwd.clone(),
             default_location,
+            cached_identity_cwd: initial_cwd,
+            cached_auto_label,
+            cached_git_status_key,
             cached_git_branch: None,
             cached_git_ahead_behind: None,
             cached_git_work_summary: None,
@@ -294,7 +331,7 @@ impl Workspace {
         shell_config: crate::pane::PaneShellConfig<'_>,
         events: mpsc::Sender<AppEvent>,
         render_notify: Arc<Notify>,
-        render_dirty: Arc<AtomicBool>,
+        render_dirty: Arc<crate::render_signal::RenderSignal>,
     ) -> std::io::Result<(Self, TerminalState, TerminalRuntime)> {
         Self::new_with_extra_env(
             initial_cwd,
@@ -320,7 +357,7 @@ impl Workspace {
         shell_config: crate::pane::PaneShellConfig<'_>,
         events: mpsc::Sender<AppEvent>,
         render_notify: Arc<Notify>,
-        render_dirty: Arc<AtomicBool>,
+        render_dirty: Arc<crate::render_signal::RenderSignal>,
         extra_env: Vec<(String, String)>,
     ) -> std::io::Result<(Self, TerminalState, TerminalRuntime)> {
         Self::new_with_tab(
@@ -350,7 +387,7 @@ impl Workspace {
         host_terminal_theme: crate::terminal_theme::TerminalTheme,
         events: mpsc::Sender<AppEvent>,
         render_notify: Arc<Notify>,
-        render_dirty: Arc<AtomicBool>,
+        render_dirty: Arc<crate::render_signal::RenderSignal>,
     ) -> std::io::Result<(Self, TerminalState, TerminalRuntime)> {
         Self::new_argv_command_with_extra_env(
             initial_cwd,
@@ -376,7 +413,7 @@ impl Workspace {
         host_terminal_theme: crate::terminal_theme::TerminalTheme,
         events: mpsc::Sender<AppEvent>,
         render_notify: Arc<Notify>,
-        render_dirty: Arc<AtomicBool>,
+        render_dirty: Arc<crate::render_signal::RenderSignal>,
         extra_env: Vec<(String, String)>,
     ) -> std::io::Result<(Self, TerminalState, TerminalRuntime)> {
         Self::new_with_tab(
@@ -404,7 +441,7 @@ impl Workspace {
         shell_config: crate::pane::PaneShellConfig<'_>,
         events: mpsc::Sender<AppEvent>,
         render_notify: Arc<Notify>,
-        render_dirty: Arc<AtomicBool>,
+        render_dirty: Arc<crate::render_signal::RenderSignal>,
         argv: Option<&[String]>,
         extra_env: Vec<(String, String)>,
     ) -> std::io::Result<(Self, TerminalState, TerminalRuntime)> {
@@ -445,6 +482,8 @@ impl Workspace {
         };
         let mut public_pane_numbers = HashMap::new();
         public_pane_numbers.insert(tab.root_pane, 1);
+        let (cached_auto_label, cached_git_status_key) =
+            discover_workspace_git_identity(&initial_cwd, terminal.location.is_local());
         Ok((
             Self {
                 id,
@@ -452,6 +491,9 @@ impl Workspace {
                 group_id: DEFAULT_GROUP_ID.to_string(),
                 identity_cwd: initial_cwd.clone(),
                 default_location: terminal.location.clone(),
+                cached_identity_cwd: initial_cwd.clone(),
+                cached_auto_label,
+                cached_git_status_key,
                 cached_git_branch: git_branch(&initial_cwd),
                 cached_git_ahead_behind: None,
                 cached_git_work_summary: None,
@@ -515,7 +557,7 @@ impl Workspace {
         shell_config: crate::pane::PaneShellConfig<'_>,
         events: mpsc::Sender<AppEvent>,
         render_notify: Arc<Notify>,
-        render_dirty: Arc<AtomicBool>,
+        render_dirty: Arc<crate::render_signal::RenderSignal>,
     ) -> std::io::Result<(usize, TerminalState, TerminalRuntime)> {
         self.create_tab_with_handles_and_env(
             rows,
@@ -543,7 +585,7 @@ impl Workspace {
         extra_env: Vec<(String, String)>,
         events: mpsc::Sender<AppEvent>,
         render_notify: Arc<Notify>,
-        render_dirty: Arc<AtomicBool>,
+        render_dirty: Arc<crate::render_signal::RenderSignal>,
     ) -> std::io::Result<(usize, TerminalState, TerminalRuntime)> {
         self.create_tab_with_runtime(
             rows,
@@ -663,7 +705,7 @@ impl Workspace {
         extra_env: Vec<(String, String)>,
         fallback_events: Option<mpsc::Sender<AppEvent>>,
         fallback_render_notify: Option<Arc<Notify>>,
-        fallback_render_dirty: Option<Arc<AtomicBool>>,
+        fallback_render_dirty: Option<Arc<crate::render_signal::RenderSignal>>,
     ) -> std::io::Result<(usize, TerminalState, TerminalRuntime)> {
         let number = self.next_public_tab_number;
         let Some((events, render_notify, render_dirty)) = self
@@ -827,27 +869,24 @@ impl Workspace {
         shell_config: crate::pane::PaneShellConfig<'_>,
         extra_env: Vec<(String, String)>,
     ) -> std::io::Result<crate::workspace::tab::NewPane> {
-        let pane_number = self.next_public_pane_number;
-        let tab_number = self
+        let pane_id = self
             .active_tab()
-            .map(|tab| tab.number)
+            .map(|tab| tab.layout.focused())
             .expect("workspace must always have at least one tab");
-        let launch_env = self.launch_env_for_new_pane(tab_number, pane_number, extra_env);
-        let new_pane = self
-            .active_tab_mut()
-            .expect("workspace must always have at least one tab")
-            .split_focused(
-                direction,
-                rows,
-                cols,
-                cwd,
-                scrollback_limit_bytes,
-                host_terminal_theme,
-                shell_config,
-                &launch_env,
-            )?;
-        self.register_new_pane(new_pane.pane_id);
-        Ok(new_pane)
+        self.split_pane(
+            pane_id,
+            direction,
+            rows,
+            cols,
+            cwd,
+            scrollback_limit_bytes,
+            host_terminal_theme,
+            shell_config,
+            extra_env,
+            true,
+        )
+        .expect("active tab pane is in the workspace")
+        .map(|(_tab_idx, new_pane)| new_pane)
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -863,12 +902,12 @@ impl Workspace {
     ) -> Option<(usize, crate::workspace::tab::NewPane)> {
         let tab_idx = self.find_tab_index_for_pane(target_pane_id)?;
         let tab = &mut self.tabs[tab_idx];
-        let previous_focus = tab.layout.focused();
         if !tab.layout.insert_pane_near(
             target_pane_id,
             new_pane_id,
             direction,
             ratio.unwrap_or(0.5),
+            focus_new_pane,
         ) {
             return None;
         }
@@ -877,9 +916,6 @@ impl Workspace {
             PaneState::new_with_env_pane_id(terminal.id.clone(), new_pane_id),
         );
         tab.zoomed = false;
-        if !focus_new_pane {
-            tab.layout.focus_pane(previous_focus);
-        }
         self.register_new_pane(new_pane_id);
         Some((
             tab_idx,
@@ -1063,35 +1099,25 @@ impl Workspace {
         let tab_number = self.tabs[tab_idx].number;
         let launch_env = self.launch_env_for_new_pane(tab_number, pane_number, extra_env);
         let tab = &mut self.tabs[tab_idx];
-        let previous_focus = tab.layout.focused();
-        tab.layout.focus_pane(pane_id);
         let new_pane_result = match command {
-            Some(PaneSplitCommand::Argv(argv)) => match ratio {
-                Some(ratio) => tab.split_focused_argv_command_with_ratio(
-                    direction,
-                    ratio,
-                    rows,
-                    cols,
-                    cwd,
-                    argv,
-                    &launch_env,
-                    scrollback_limit_bytes,
-                    host_terminal_theme,
-                ),
-                None => tab.split_focused_argv_command(
-                    direction,
-                    rows,
-                    cols,
-                    cwd,
-                    argv,
-                    &launch_env,
-                    scrollback_limit_bytes,
-                    host_terminal_theme,
-                ),
-            },
+            Some(PaneSplitCommand::Argv(argv)) => tab.split_pane_argv(
+                pane_id,
+                focus_new_pane,
+                direction,
+                ratio,
+                rows,
+                cols,
+                cwd,
+                argv,
+                &launch_env,
+                scrollback_limit_bytes,
+                host_terminal_theme,
+            ),
             Some(PaneSplitCommand::Custom(command)) => {
                 debug_assert!(ratio.is_none(), "custom command splits do not use ratios");
-                tab.split_focused_custom_command(
+                tab.split_pane_custom(
+                    pane_id,
+                    focus_new_pane,
                     direction,
                     rows,
                     cols,
@@ -1102,40 +1128,24 @@ impl Workspace {
                     host_terminal_theme,
                 )
             }
-            None => match ratio {
-                Some(ratio) => tab.split_focused_with_ratio(
-                    direction,
-                    ratio,
-                    rows,
-                    cols,
-                    cwd,
-                    scrollback_limit_bytes,
-                    host_terminal_theme,
-                    shell_config,
-                    &launch_env,
-                ),
-                None => tab.split_focused(
-                    direction,
-                    rows,
-                    cols,
-                    cwd,
-                    scrollback_limit_bytes,
-                    host_terminal_theme,
-                    shell_config,
-                    &launch_env,
-                ),
-            },
+            None => tab.split_pane_shell(
+                pane_id,
+                focus_new_pane,
+                direction,
+                ratio,
+                rows,
+                cols,
+                cwd,
+                scrollback_limit_bytes,
+                host_terminal_theme,
+                shell_config,
+                &launch_env,
+            ),
         };
         let new_pane = match new_pane_result {
             Ok(new_pane) => new_pane,
-            Err(err) => {
-                tab.layout.focus_pane(previous_focus);
-                return Some(Err(err));
-            }
+            Err(err) => return Some(Err(err)),
         };
-        if !focus_new_pane {
-            tab.layout.focus_pane(previous_focus);
-        }
         self.register_new_pane(new_pane.pane_id);
         Some(Ok((tab_idx, new_pane)))
     }
@@ -1177,11 +1187,12 @@ impl Workspace {
         moved: MovedPane,
         direction: Direction,
         ratio: f32,
+        focus: bool,
     ) -> Result<PaneId, MovedPane> {
         let Some(tab) = self.tabs.get_mut(tab_idx) else {
             return Err(moved);
         };
-        let pane_id = tab.insert_moved_pane_near(target_pane_id, moved, direction, ratio)?;
+        let pane_id = tab.insert_moved_pane_near(target_pane_id, moved, direction, ratio, focus)?;
         self.register_moved_pane(pane_id);
         Ok(pane_id)
     }
@@ -1192,7 +1203,7 @@ impl Workspace {
         label: Option<String>,
         events: mpsc::Sender<AppEvent>,
         render_notify: Arc<Notify>,
-        render_dirty: Arc<AtomicBool>,
+        render_dirty: Arc<crate::render_signal::RenderSignal>,
     ) -> usize {
         let pane_id = moved.pane_id;
         let number = self.next_public_tab_number;
@@ -1361,11 +1372,7 @@ impl Workspace {
             return name.clone();
         }
 
-        let mut location = self.default_location.clone();
-        if let Ok(path) = crate::execution_host::HostPath::new(self.identity_cwd.clone()) {
-            location.path = path;
-        }
-        derive_label_from_location(&location)
+        self.automatic_display_name_for_cwd(&self.identity_cwd)
     }
 
     pub fn display_name_from(
@@ -1378,8 +1385,22 @@ impl Workspace {
         }
 
         self.resolved_identity_location_from(terminals, terminal_runtimes)
-            .map(|location| derive_label_from_location(&location))
+            .map(|location| {
+                if location.is_local() {
+                    self.automatic_display_name_for_cwd(location.path.as_path())
+                } else {
+                    derive_label_from_location(&location)
+                }
+            })
             .unwrap_or_else(|| "workspace".into())
+    }
+
+    fn automatic_display_name_for_cwd(&self, cwd: &std::path::Path) -> String {
+        if cwd == self.cached_identity_cwd {
+            self.cached_auto_label.clone()
+        } else {
+            fallback_label_from_cwd(cwd)
+        }
     }
 
     #[cfg(test)]
@@ -1503,6 +1524,12 @@ impl Workspace {
         self.tabs.iter().find_map(|tab| tab.panes.get(&pane_id))
     }
 
+    pub fn pane_state_mut(&mut self, pane_id: PaneId) -> Option<&mut PaneState> {
+        self.tabs
+            .iter_mut()
+            .find_map(|tab| tab.panes.get_mut(&pane_id))
+    }
+
     pub fn terminal_id(&self, pane_id: PaneId) -> Option<&TerminalId> {
         self.tabs.iter().find_map(|tab| tab.terminal_id(pane_id))
     }
@@ -1575,7 +1602,7 @@ impl Workspace {
     pub(crate) fn test_new(name: &str) -> Self {
         let (events, _) = mpsc::channel(64);
         let render_notify = Arc::new(Notify::new());
-        let render_dirty = Arc::new(AtomicBool::new(false));
+        let render_dirty = Arc::new(crate::render_signal::RenderSignal::new());
         let identity_cwd = std::env::current_dir().unwrap_or_else(|_| "/".into());
         let (layout, root_id) = TileLayout::new();
         let terminal_id = TerminalId::alloc();
@@ -1598,6 +1625,8 @@ impl Workspace {
         };
         let mut public_pane_numbers = HashMap::new();
         public_pane_numbers.insert(tab.root_pane, 1);
+        let (cached_auto_label, cached_git_status_key) =
+            discover_workspace_git_identity(&identity_cwd, true);
         Self {
             id: generate_workspace_id(),
             custom_name: Some(name.to_string()),
@@ -1605,6 +1634,9 @@ impl Workspace {
             identity_cwd: identity_cwd.clone(),
             default_location: crate::execution_host::ResourceLocation::local(identity_cwd.clone())
                 .expect("test workspace cwd is non-empty"),
+            cached_identity_cwd: identity_cwd.clone(),
+            cached_auto_label,
+            cached_git_status_key,
             cached_git_branch: git_branch(&identity_cwd),
             cached_git_ahead_behind: None,
             cached_git_work_summary: None,
@@ -1635,7 +1667,7 @@ impl Workspace {
     pub(crate) fn test_add_tab(&mut self, name: Option<&str>) -> usize {
         let (events, _) = mpsc::channel(64);
         let render_notify = Arc::new(Notify::new());
-        let render_dirty = Arc::new(AtomicBool::new(false));
+        let render_dirty = Arc::new(crate::render_signal::RenderSignal::new());
         let (layout, root_id) = TileLayout::new();
         let mut panes = HashMap::new();
         panes.insert(
@@ -1692,6 +1724,59 @@ mod tests {
             ws.resolved_identity_cwd_from(&terminals, &terminal_runtimes),
             Some(PathBuf::from("/omh-test/pion"))
         );
+    }
+
+    #[test]
+    fn display_name_reads_cached_identity_without_rechecking_filesystem() {
+        let stamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("clock should be after unix epoch")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "omh-workspace-label-cache-{}-{stamp}",
+            std::process::id()
+        ));
+        let cwd = root.join("deep/nested");
+        std::fs::create_dir_all(&cwd).expect("create nested cwd");
+
+        let mut ws = Workspace::test_new("ignored");
+        ws.custom_name = None;
+        ws.identity_cwd = cwd.clone();
+        ws.tabs.clear();
+        ws.cached_identity_cwd = cwd;
+        ws.cached_auto_label = "cached-repo".into();
+
+        std::fs::remove_dir_all(root).expect("remove cwd after cache admission");
+
+        assert_eq!(ws.display_name(), "cached-repo");
+    }
+
+    #[test]
+    fn new_workspace_retains_discovered_git_identity_cache() {
+        let stamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("clock should be after unix epoch")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "omh-workspace-git-identity-{}-{stamp}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(root.join(".git")).expect("create git directory");
+        std::fs::write(root.join(".git/HEAD"), "ref: refs/heads/main\n").expect("write git head");
+
+        let (cached_auto_label, cached_git_status_key) =
+            discover_workspace_git_identity(&root, true);
+
+        assert_eq!(
+            cached_auto_label,
+            root.file_name().and_then(|name| name.to_str()).unwrap()
+        );
+        assert_eq!(
+            cached_git_status_key,
+            std::fs::canonicalize(&root).unwrap_or_else(|_| root.clone())
+        );
+
+        std::fs::remove_dir_all(root).expect("remove test repo");
     }
 
     #[test]
@@ -1897,6 +1982,24 @@ mod tests {
     }
 
     #[test]
+    fn close_focused_returns_to_the_pane_that_opened_a_split() {
+        let mut ws = Workspace::test_new("test");
+        let first = ws.tabs[0].root_pane;
+        let second = ws.test_split(Direction::Horizontal);
+        let third = ws.test_split(Direction::Vertical);
+
+        ws.tabs[0].layout.focus_pane(first);
+        let opened = ws.test_split(Direction::Horizontal);
+        assert_eq!(ws.tabs[0].layout.focused(), opened);
+
+        assert!(!ws.close_focused());
+
+        assert_eq!(ws.tabs[0].layout.focused(), first);
+        assert!(ws.tabs[0].layout.pane_ids().contains(&second));
+        assert!(ws.tabs[0].layout.pane_ids().contains(&third));
+    }
+
+    #[test]
     fn pane_display_numbers_are_dense_and_tab_local() {
         let mut ws = Workspace::test_new("test");
         let first_tab_root = ws.tabs[0].root_pane;
@@ -1970,7 +2073,7 @@ mod tests {
 
         let (events, _) = mpsc::channel(64);
         let render_notify = Arc::new(Notify::new());
-        let render_dirty = Arc::new(AtomicBool::new(false));
+        let render_dirty = Arc::new(crate::render_signal::RenderSignal::new());
         let cwd = std::env::current_dir().unwrap_or_else(|_| "/".into());
 
         let (tab_idx, _terminal, _runtime) = ws

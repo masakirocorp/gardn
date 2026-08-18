@@ -850,6 +850,19 @@ fn appearance_rows(app: &AppState, settings: &SettingsState) -> Vec<SettingsList
                 .label(),
         )],
     ));
+    rows.push(SettingsListRow::Spacer);
+    rows.extend(setting_group(
+        "Agent Status",
+        [value_option(
+            layout_base + 8,
+            "Status Indicators",
+            "How agent status is shown in lists",
+            settings
+                .pending_status_indicators
+                .unwrap_or_else(|| app.status_indicators())
+                .label(),
+        )],
+    ));
     rows
 }
 
@@ -1053,7 +1066,7 @@ fn experiment_rows(app: &AppState, settings: &SettingsState) -> Vec<SettingsList
         "Input",
         [option(
             0,
-            "Switch to ASCII Input Source in Prefix (macOS)",
+            "Switch to ASCII Input Source in Prefix (macOS/Windows)",
             "Temporarily use an ASCII-capable layout for prefix commands",
             settings
                 .pending_switch_ascii_input_source_in_prefix

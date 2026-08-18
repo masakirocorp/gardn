@@ -30,34 +30,42 @@ The `agent.*`, `pane.*`, and `layout.*` Local API methods cover pane targeting, 
 
 ### Pane methods
 
-| Method                                                     | Params                          | Result               |
-| ---------------------------------------------------------- | ------------------------------- | -------------------- |
-| [`pane.list`](#panelist)                                   | `PaneListParams`                | `PaneList`           |
-| [`pane.get`](#paneget)                                     | `PaneTarget`                    | `PaneInfo`           |
-| [`pane.current`](#panecurrent)                             | `PaneCurrentParams`             | `PaneCurrent`        |
-| [`pane.split`](#panesplit)                                 | `PaneSplitParams`               | `PaneInfo`           |
-| [`pane.close`](#paneclose)                                 | `PaneTarget`                    | `Ok`                 |
-| [`pane.focus`](#panefocus)                                 | `PaneTarget`                    | `PaneInfo`           |
-| [`pane.send_text`](#panesend_text)                         | `PaneSendTextParams`            | `Ok`                 |
-| [`pane.send_input`](#panesend_input)                       | `PaneSendInputParams`           | `Ok`                 |
-| [`pane.send_keys`](#panesend_keys)                         | `PaneSendKeysParams`            | `Ok`                 |
-| [`pane.read`](#paneread)                                   | `PaneReadParams`                | `PaneRead`           |
-| [`pane.wait_for_output`](#panewait_for_output)             | `PaneWaitForOutputParams`       | `OutputMatched`      |
-| [`pane.swap`](#paneswap)                                   | `PaneSwapParams`                | `PaneSwap`           |
-| [`pane.zoom`](#panezoom)                                   | `PaneZoomParams`                | `PaneZoom`           |
-| [`pane.layout`](#panelayout)                               | `PaneLayoutParams`              | `PaneLayout`         |
-| [`pane.process_info`](#paneprocess_info)                   | `PaneProcessInfoParams`         | `PaneProcessInfo`    |
-| [`pane.move`](#panemove)                                   | `PaneMoveParams`                | `PaneMove`           |
-| [`pane.neighbor`](#paneneighbor)                           | `PaneNeighborParams`            | `PaneNeighbor`       |
-| [`pane.edges`](#paneedges)                                 | `PaneEdgesParams`               | `PaneEdges`          |
-| [`pane.focus_direction`](#panefocus_direction)             | `PaneFocusDirectionParams`      | `PaneFocusDirection` |
-| [`pane.resize`](#paneresize)                               | `PaneResizeParams`              | `PaneResize`         |
-| [`pane.rename`](#panerename)                               | `PaneRenameParams`              | `PaneInfo`           |
-| [`pane.report_agent`](#panereport_agent)                   | `PaneReportAgentParams`         | `Ok`                 |
-| [`pane.report_agent_session`](#panereport_agent_session)   | `PaneReportAgentSessionParams`  | `Ok`                 |
-| [`pane.clear_agent_authority`](#paneclear_agent_authority) | `PaneClearAgentAuthorityParams` | `Ok`                 |
-| [`pane.release_agent`](#panerelease_agent)                 | `PaneReleaseAgentParams`        | `Ok`                 |
-| [`pane.report_metadata`](#panereport_metadata)             | `PaneReportMetadataParams`      | `Ok`                 |
+| Method                                                     | Params                          | Result                 |
+| ---------------------------------------------------------- | ------------------------------- | ---------------------- |
+| [`pane.list`](#panelist)                                   | `PaneListParams`                | `PaneList`             |
+| [`pane.get`](#paneget)                                     | `PaneTarget`                    | `PaneInfo`             |
+| [`pane.current`](#panecurrent)                             | `PaneCurrentParams`             | `PaneCurrent`          |
+| [`pane.split`](#panesplit)                                 | `PaneSplitParams`               | `PaneInfo`             |
+| [`pane.close`](#paneclose)                                 | `PaneTarget`                    | `Ok`                   |
+| [`pane.focus`](#panefocus)                                 | `PaneTarget`                    | `PaneInfo`             |
+| [`pane.send_text`](#panesend_text)                         | `PaneSendTextParams`            | `Ok`                   |
+| [`pane.send_input`](#panesend_input)                       | `PaneSendInputParams`           | `Ok`                   |
+| [`pane.send_keys`](#panesend_keys)                         | `PaneSendKeysParams`            | `Ok`                   |
+| [`pane.read`](#paneread)                                   | `PaneReadParams`                | `PaneRead`             |
+| [`pane.wait_for_output`](#panewait_for_output)             | `PaneWaitForOutputParams`       | `OutputMatched`        |
+| [`pane.swap`](#paneswap)                                   | `PaneSwapParams`                | `PaneSwap`             |
+| [`pane.zoom`](#panezoom)                                   | `PaneZoomParams`                | `PaneZoom`             |
+| [`pane.layout`](#panelayout)                               | `PaneLayoutParams`              | `PaneLayout`           |
+| [`pane.process_info`](#paneprocess_info)                   | `PaneProcessInfoParams`         | `PaneProcessInfo`      |
+| [`pane.move`](#panemove)                                   | `PaneMoveParams`                | `PaneMove`             |
+| [`pane.neighbor`](#paneneighbor)                           | `PaneNeighborParams`            | `PaneNeighbor`         |
+| [`pane.edges`](#paneedges)                                 | `PaneEdgesParams`               | `PaneEdges`            |
+| [`pane.focus_direction`](#panefocus_direction)             | `PaneFocusDirectionParams`      | `PaneFocusDirection`   |
+| [`pane.resize`](#paneresize)                               | `PaneResizeParams`              | `PaneResize`           |
+| [`pane.rename`](#panerename)                               | `PaneRenameParams`              | `PaneInfo`             |
+| [`pane.report_agent`](#panereport_agent)                   | `PaneReportAgentParams`         | `Ok`                   |
+| [`pane.report_agent_session`](#panereport_agent_session)   | `PaneReportAgentSessionParams`  | `Ok`                   |
+| [`pane.clear_agent_authority`](#paneclear_agent_authority) | `PaneClearAgentAuthorityParams` | `Ok`                   |
+| [`pane.release_agent`](#panerelease_agent)                 | `PaneReleaseAgentParams`        | `Ok`                   |
+| [`pane.report_metadata`](#panereport_metadata)             | `PaneReportMetadataParams`      | `Ok`                   |
+| [`pane.graphics.set`](#panegraphicsset)                    | `PaneGraphicsSetParams`         | `Ok`                   |
+| [`pane.graphics.clear`](#panegraphicsclear)                | `PaneGraphicsClearParams`       | `Ok`                   |
+| [`pane.graphics.info`](#panegraphicsinfo)                  | `PaneTarget`                    | `PaneGraphicsInfo`     |
+| [`pane.graphics.stream`](#panegraphicsstream)              | `PaneGraphicsStreamParams`      | streaming              |
+| [`pane.graphics.stream.set`](#panegraphicsstream)          | `PaneGraphicsSetParams`         | `Ok`                   |
+| [`pane.graphics.stream.open`](#panegraphicsstream)         | `PaneGraphicsStreamParams`      | `Ok`                   |
+| [`pane.graphics.stream.close`](#panegraphicsstream)        | `PaneGraphicsStreamParams`      | `Ok`                   |
+| [`pane.graphics.stream.direct`](#panegraphicsstreamdirect) | `PaneGraphicsDirectParams`      | `PaneGraphicsFrameAck` |
 
 ### Layout methods
 
@@ -123,6 +131,17 @@ A response with `error` means the request was rejected before any state change. 
 | `invalid_regex`                               | `pane.wait_for_output`.                                                 | A `regex` match pattern failed to compile.                                                                                                         |
 | `timeout`                                     | `pane.wait_for_output`, `agent.wait`, `agent.prompt` with `wait`.       | The requested output or state transition did not occur before the deadline.                                                                        |
 | `invalid_env`                                 | `agent.start`, `pane.split`.                                            | An `env` key was empty, contained `=`, or contained a NUL byte; or a value contained a NUL byte.                                                   |
+| `feature_disabled`                            | `pane.graphics.*` methods.                                              | Kitty graphics is not enabled (`experimental.kitty_graphics`).                                                                                     |
+| `invalid_layer_id`                            | `pane.graphics.set`, `pane.graphics.clear`, `pane.graphics.stream.*`.   | `layer_id` is empty, longer than 64 characters, or contains characters other than alphanumeric, `.`, `_`, `:`, `-`.                                |
+| `invalid_image`                               | `pane.graphics.set`, `pane.graphics.stream.direct`.                     | Zero dimensions, mismatched data length, invalid base64, empty data, or unsupported format for direct frames.                                      |
+| `image_too_large`                             | `pane.graphics.set`, `pane.graphics.stream.set`.                        | Inline image data exceeds the byte limit.                                                                                                          |
+| `layer_limit`                                 | `pane.graphics.set`, `pane.graphics.stream.open`.                       | The per-pane or total layer cap is reached, or host image ids are exhausted.                                                                       |
+| `graphics_budget_exceeded`                    | `pane.graphics.set`, `pane.graphics.stream.direct`.                     | The inline memory budget for pane graphics is reached.                                                                                             |
+| `stream_conflict`                             | `pane.graphics.set`, `pane.graphics.clear`, `pane.graphics.stream.*`.   | The target layer already has an active stream owned by another owner, or a non-stream method touched a streamed layer.                             |
+| `stream_closed`                               | `pane.graphics.stream.set`, `pane.graphics.stream.direct`.              | The stream owner does not match, the stream is not active, or the layer has no stream.                                                             |
+| `invalid_stream`                              | `pane.graphics.stream`, `pane.graphics.stream.open`.                    | `pane.graphics.stream` was sent as a normal request, or `stream.open` was called with an empty `owner`.                                            |
+| `invalid_frame_file`                          | `pane.graphics.stream.direct`.                                          | The referenced file frame could not be leased or read.                                                                                             |
+| `cell_size_unavailable`                       | `pane.graphics.info`.                                                   | The host cell size is unknown, so pixel geometry cannot be reported.                                                                               |
 | `invalid_request`                             | All.                                                                    | The request envelope or parameter shape failed to deserialize. `id` may be empty.                                                                  |
 
 Method-specific codes are not a closed enum. Consumers must retain unknown codes.
@@ -262,7 +281,7 @@ Read output from the terminal behind an agent target. Identical to [pane.read](#
 
 - `target` is an agent target, not a `pane_id`. See [Agent targets](#agent-targets).
 - The result `pane_id` falls back to the original `target` string when a public pane id cannot be resolved.
-- `revision` is always `0` and `truncated` is always `false` in the current implementation. These fields exist for forward compatibility; do not treat them as a content revision.
+- `revision` is always `0`; do not treat it as a content revision. `truncated` is `true` when older requested snapshot rows were omitted to fit the `lines` limit, and `false` when the returned text contains every requested row. See [pane.read](#paneread) for the source-specific truncation rules.
 
 | Property     | Type              | Required | Default                 |
 | ------------ | ----------------- | -------- | ----------------------- |
@@ -455,7 +474,7 @@ Line handling: `lines.unwrap_or(80).min(1000)` for both `agent.read` and `pane.r
 
 `strip_ansi` is declared on the request but the current `pane.read` and `agent.read` handlers do not strip ANSI separately from the format selection. The `text` format returns pre-stripped text per source; the `ansi` format preserves escape sequences regardless of `strip_ansi`. Treat `strip_ansi: true` plus `format: "ansi"` as producing ANSI output; rely on `format` to choose stripped versus raw content.
 
-Result: `PaneRead { read: PaneReadResult }` with `pane_id` echoed, `workspace_id`, `tab_id`, `source`, `format`, `text`, `revision`, and `truncated`. The current `pane.read` handler always returns `revision: 0` and `truncated: false`; do not depend on them for change detection.
+Result: `PaneRead { read: PaneReadResult }` with `pane_id` echoed, `workspace_id`, `tab_id`, `source`, `format`, `text`, `revision`, and `truncated`. `revision` is always `0`; do not depend on it for change detection. `truncated` is `true` when older requested snapshot rows were omitted to fit the `lines` limit, and `false` when the returned text contains every requested row. For `"visible"` and `"detection"` sources, truncation is determined by the requested `lines` count against the total available lines. For `"recent"` and `"recent_unwrapped"` sources, truncation is `true` when the terminal's total row count exceeds the requested line count. An alternate-screen wait read reports `truncated` as `true` when the retained history did not reach the top of the scrollback or exceeded the requested row count.
 
 Errors: `pane_not_found`.
 
@@ -463,7 +482,7 @@ Errors: `pane_not_found`.
 {
   "id": "ex:read",
   "method": "pane.read",
-  "params": { "pane_id": "w1943cd2b11a1:p2", "source": "recent", "lines": 40, "format": "text" }
+  "params": { "pane_id": "w1943cd2b11a1:p2", "source": "recent", "lines": 2, "format": "text" }
 }
 ```
 
@@ -478,9 +497,9 @@ Errors: `pane_not_found`.
       "tab_id": "w1943cd2b11a1:t1",
       "source": "recent",
       "format": "text",
-      "text": "$ ls\nsrc docs\n",
+      "text": "$ cargo test\nTests: 0 failed in 3.4s\n",
       "revision": 0,
-      "truncated": false
+      "truncated": true
     }
   }
 }
@@ -911,6 +930,113 @@ When a neighbor exists in `direction`, the server focuses that pane, switches th
 Result: `PaneFocusDirection { focus: PaneFocusDirectionResult }` with `changed`, optional `reason`, `source_pane_id`, optional `focused_pane_id`, and the current `layout`.
 
 Errors: `pane_not_found`, `pane_layout_unavailable`.
+
+### Pane graphics
+
+Six methods place, clear, inspect, and stream images on pane surfaces using the Kitty graphics protocol. All require `experimental.kitty_graphics` to be enabled; a disabled feature returns `feature_disabled`. Layers are addressed by `layer_id`, which defaults to `"primary"` and must contain 1 to 64 characters from `A-Z`, `a-z`, `0-9`, `.`, `_`, `:`, `-`. Each pane holds at most 16 layers; the server holds at most 64 layers total. Inline image data across all layers is capped at 64 MiB.
+
+#### pane.graphics.set
+
+Place an inline image on a pane layer. The image data is sent in the request body.
+
+| Property       | Type                          | Required | Default     | Behavior                                                                                                   |
+| -------------- | ----------------------------- | -------- | ----------- | ---------------------------------------------------------------------------------------------------------- |
+| `pane_id`      | `string`                      | yes      | —           | —                                                                                                          |
+| `layer_id`     | `string \| null`              | no       | `"primary"` | Validated per the layer-id rules above.                                                                    |
+| `z_index`      | `integer`                     | no       | `0`         | Stack order within the pane.                                                                               |
+| `format`       | `PaneGraphicsFormat`          | yes      | —           | One of `"png"`, `"rgb"`, `"rgba"`, `"bgra"`. `bgra` is canonicalized to `rgba` on the server.              |
+| `image_width`  | `integer`                     | yes      | —           | Pixel width. Must be greater than zero.                                                                    |
+| `image_height` | `integer`                     | yes      | —           | Pixel height. Must be greater than zero.                                                                   |
+| `data_base64`  | `string`                      | no       | `""`        | Base64-encoded image data. Decoded when `data` is absent. Invalid base64 returns `invalid_image`.          |
+| `placement`    | `PaneGraphicsPlacementParams` | no       | zeros       | Optional viewport placement: `viewport_col`, `viewport_row` origin and `grid_cols`, `grid_rows` cell area. |
+
+`data` is an internal binary channel used by the stream variants; direct API callers supply `data_base64`. Exactly one of the two must carry the image. For `"rgb"`, `"rgba"`, and `"bgra"` formats, the decoded byte length must equal `width * height * bytes_per_pixel` or `invalid_image` is returned. `"png"` has no length contract. Inline data is capped at 512 KiB (`PANE_GRAPHICS_SET_MAX_BYTES`); larger payloads return `image_too_large`.
+
+If the target layer has an active stream owned by another caller, the server returns `stream_conflict`. A stale stream (owner gone) is reclaimed before the check.
+
+Result: `Ok {}`.
+
+Errors: `feature_disabled`, `pane_not_found`, `invalid_layer_id`, `invalid_image`, `image_too_large`, `layer_limit`, `graphics_budget_exceeded`, `stream_conflict`.
+
+#### pane.graphics.clear
+
+Remove one layer from a pane. With `layer_id` omitted, clears the `"primary"` layer.
+
+| Property   | Type             | Required | Default     |
+| ---------- | ---------------- | -------- | ----------- |
+| `pane_id`  | `string`         | yes      | —           |
+| `layer_id` | `string \| null` | no       | `"primary"` |
+
+If the target layer has an active stream, the server returns `stream_conflict`. A stale stream is reclaimed first. Removing a nonexistent layer is a no-op and still returns `Ok {}`.
+
+Result: `Ok {}`.
+
+Errors: `feature_disabled`, `pane_not_found`, `invalid_layer_id`, `stream_conflict`.
+
+#### pane.graphics.info
+
+Report the graphics capabilities and visibility state for a pane.
+
+| Property  | Type     | Required |
+| --------- | -------- | -------- |
+| `pane_id` | `string` | yes      |
+
+`pane_visible` is `true` only when the pane is on the active workspace, in the active tab, and either not hidden by zoom or is the zoomed pane itself. The result also reports the host cell size in pixels. When the host cell size is unknown, the server returns `cell_size_unavailable`.
+
+When direct file-frame delivery is available, the result includes `file_frame_directory` (the temp directory the server leases frames from), `file_frame_formats` (`["rgba", "bgra"]`), `file_frame_max_bytes` (16 MiB), `file_frame_damage: true`, and `file_frame_transport: "direct-kitty"`. When direct delivery is unavailable, `file_frame_directory` is `null`, `file_frame_formats` is empty, and `file_frame_max_bytes` is `null`.
+
+`max_layers_per_pane` is always 16. `pixel_mouse` reports whether pixel-precise mouse input is available.
+
+Result: `PaneGraphicsInfo` with `cell_width_px`, `cell_height_px`, `pane_visible`, `file_frame_directory`, `file_frame_formats`, `file_frame_max_bytes`, `file_frame_damage`, `max_layers_per_pane`, `pixel_mouse`, `file_frame_transport`.
+
+Errors: `feature_disabled`, `pane_not_found`, `cell_size_unavailable`.
+
+#### pane.graphics.stream
+
+Open a long-lived graphics stream that delivers incremental frames to the server. This method is not dispatched as a normal request: the API server opens the stream internally and rejects any client-sent `pane.graphics.stream` request with `invalid_stream` (`pane.graphics.stream must be opened by the API server`). Clients interact with the stream through `stream.open`, `stream.set`, `stream.direct`, and `stream.close`.
+
+| Property   | Type             | Required | Default     |
+| ---------- | ---------------- | -------- | ----------- |
+| `pane_id`  | `string`         | yes      | —           |
+| `layer_id` | `string \| null` | no       | `"primary"` |
+| `z_index`  | `integer`        | no       | `0`         |
+
+The `owner` field is set by the server to identify the stream initiator. Stream lifecycle:
+
+1. `stream.open` claims a layer for a named `owner`. If the layer already has an active stream, the server returns `stream_conflict`. A stale stream (owner gone, not active) is removed first. The server reserves a host image id and marks the slot as stream-owned with an active liveness flag. Result: `Ok {}`.
+2. `stream.set` updates the streamed layer with inline image data, using the same `PaneGraphicsSetParams` shape as `pane.graphics.set`. The caller's `owner` must match the active stream owner or the server returns `stream_closed` (owner mismatch produces `stream_conflict`). The inline data limit for streamed frames is 16 MiB (`PANE_GRAPHICS_STREAM_MAX_BYTES`). Result: `Ok {}`.
+3. `stream.direct` submits a file-backed frame: the image data is leased from a file on disk identified by `path`, avoiding an inline copy. Result: `PaneGraphicsFrameAck { sequence, revision }` echoing the caller-supplied `sequence` and `revision`.
+4. `stream.close` releases the layer. Only the owning `owner` may close the stream; a mismatched owner is a silent no-op that still returns `Ok {}`. The server removes the slot and marks the graphics state changed.
+
+When a stream is active, `pane.graphics.set` and `pane.graphics.clear` on the same layer return `stream_conflict`. The liveness flag is cleared when the stream owner disconnects, at which point the slot becomes stale and the next `set`, `clear`, or `stream.open` reclaims it.
+
+Errors for `stream.open`: `feature_disabled`, `pane_not_found`, `invalid_layer_id`, `invalid_stream` (empty `owner`), `stream_conflict`, `layer_limit`.
+Errors for `stream.set`: `feature_disabled`, `pane_not_found`, `invalid_layer_id`, `invalid_image`, `image_too_large`, `layer_limit`, `graphics_budget_exceeded`, `stream_closed`, `stream_conflict`.
+Errors for `stream.close`: `pane_not_found`, `invalid_layer_id`.
+
+#### pane.graphics.stream.direct
+
+Submit a file-backed frame to an active stream. The image data is read from a file on disk rather than sent inline, allowing large frames to bypass the inline memory budget.
+
+| Property       | Type                          | Required | Default     | Behavior                                                                                                                            |
+| -------------- | ----------------------------- | -------- | ----------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| `pane_id`      | `string`                      | yes      | —           | —                                                                                                                                   |
+| `layer_id`     | `string \| null`              | no       | `"primary"` | Validated per the layer-id rules.                                                                                                   |
+| `z_index`      | `integer`                     | no       | `0`         | Stack order.                                                                                                                        |
+| `owner`        | `string`                      | yes      | —           | Must match the active stream owner.                                                                                                 |
+| `format`       | `PaneGraphicsFormat`          | yes      | —           | Only `"rgba"` and `"bgra"` are accepted for direct frames; other formats return `invalid_image`. `bgra` is canonicalized to `rgba`. |
+| `image_width`  | `integer`                     | yes      | —           | Pixel width. Must be greater than zero.                                                                                             |
+| `image_height` | `integer`                     | yes      | —           | Pixel height. Must be greater than zero.                                                                                            |
+| `path`         | `string`                      | yes      | —           | Filesystem path to the frame file. The server leases the file and validates its length against the expected byte count.             |
+| `sequence`     | `integer`                     | yes      | —           | Caller-supplied frame sequence, echoed in the ack.                                                                                  |
+| `revision`     | `integer`                     | yes      | —           | Caller-supplied revision, echoed in the ack.                                                                                        |
+| `placement`    | `PaneGraphicsPlacementParams` | no       | zeros       | Optional viewport placement.                                                                                                        |
+
+The expected byte count is `width * height * 4` for RGBA/BGRA. A mismatched file length returns `invalid_frame_file`. When the primary layer and direct delivery are available, the frame is held as a direct lease; otherwise the file is copied into inline memory, subject to the inline budget (`graphics_budget_exceeded` on overflow).
+
+Result: `PaneGraphicsFrameAck { sequence, revision }`.
+
+Errors: `feature_disabled`, `pane_not_found`, `invalid_layer_id`, `stream_closed`, `invalid_image`, `invalid_frame_file`, `graphics_budget_exceeded`.
 
 ## Portable layouts
 

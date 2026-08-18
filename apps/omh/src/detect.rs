@@ -147,8 +147,12 @@ pub fn parse_agent_label(agent: &str) -> Option<Agent> {
 /// Returns `None` for plain shells or unrecognized programs.
 pub fn identify_agent(process_name: &str) -> Option<Agent> {
     let name = process_name.to_lowercase();
+    let name = name
+        .strip_suffix(".exe")
+        .or_else(|| name.strip_suffix(".cmd"))
+        .unwrap_or(&name);
     // Match against known binary names
-    match name.as_str() {
+    match name {
         "pi" => Some(Agent::Pi),
         "omp" | "oh-my-pi" => Some(Agent::OhMyPi),
         "claude" | "claude-code" => Some(Agent::Claude),
@@ -157,7 +161,7 @@ pub fn identify_agent(process_name: &str) -> Option<Agent> {
         "cursor" | "cursor-agent" => Some(Agent::Cursor),
         "agy" | "antigravity" | "antigravity-cli" => Some(Agent::Antigravity),
         "cline" => Some(Agent::Cline),
-        "opencode" | "open-code" => Some(Agent::OpenCode),
+        "opencode" | "opencode2" | "open-code" => Some(Agent::OpenCode),
         "copilot" | "github-copilot" | "ghcs" => Some(Agent::GithubCopilot),
         "devin" | "devin-cli" => Some(Agent::Devin),
         "kimi" | "kimi-code" | "kimi code" => Some(Agent::Kimi),
@@ -256,12 +260,15 @@ pub(crate) fn full_lifecycle_hook_authority(source: &str, agent_label: &str) -> 
             | ("omh:cursor", "cursor")
             | ("omh:droid", "droid")
             | ("omh:grok", "grok")
-            | ("omh:hermes", "hermes")
             | ("omh:opencode", "opencode")
             | ("omh:kilo", "kilo")
             | ("omh:kimi", "kimi")
             | ("omh:qodercli", "qodercli")
     )
+}
+
+pub(crate) fn session_identity_only_integration(source: &str, agent_label: &str) -> bool {
+    (source, agent_label) == ("omh:hermes", "hermes")
 }
 
 // ---------------------------------------------------------------------------
@@ -312,11 +319,11 @@ fn normalized_process_name(process: &crate::platform::ForegroundProcess) -> Stri
 
 fn wrapped_agent_name_from_runtime_argv(runtime: &str, argv: Option<&[String]>) -> Option<String> {
     let argv = argv?;
-    let runtime = path_basename(runtime).to_lowercase();
+    let runtime_name = path_basename(runtime).to_lowercase();
 
-    match runtime.as_str() {
+    match runtime_name.as_str() {
         "node" | "bun" => script_arg_agent_name(argv, &["-e", "--eval", "-p", "--print"], &[]),
-        "python" | "python3" => script_arg_agent_name(argv, &["-c"], &["-m"]),
+        name if is_python_runtime(name) => script_arg_agent_name(argv, &["-c"], &["-m"]),
         "sh" | "bash" | "zsh" | "fish" => script_arg_agent_name(argv, &["-c"], &[]),
         "tmux" => None,
         _ => None,
@@ -329,12 +336,12 @@ fn wrapped_agent_name_from_runtime_cmdline(runtime: &str, cmdline: Option<&str>)
     if argv.is_empty() {
         return None;
     }
-    let runtime = path_basename(runtime).to_lowercase();
-    match runtime.as_str() {
+    let runtime_name = path_basename(runtime).to_lowercase();
+    match runtime_name.as_str() {
         "node" | "bun" => {
             script_arg_agent_name_tokens(&argv, &["-e", "--eval", "-p", "--print"], &[])
         }
-        "python" | "python3" => script_arg_agent_name_tokens(&argv, &["-c"], &["-m"]),
+        name if is_python_runtime(name) => script_arg_agent_name_tokens(&argv, &["-c"], &["-m"]),
         "sh" | "bash" | "zsh" | "fish" => script_arg_agent_name_tokens(&argv, &["-c"], &[]),
         "tmux" => None,
         _ => None,
@@ -503,7 +510,10 @@ fn agent_name_from_basename(basename: &str) -> Option<String> {
 
 fn path_basename(path: &str) -> &str {
     let basename = path.rsplit(['/', '\\']).next().unwrap_or(path);
-    basename.strip_suffix(".exe").unwrap_or(basename)
+    basename
+        .strip_suffix(".exe")
+        .or_else(|| basename.strip_suffix(".cmd"))
+        .unwrap_or(basename)
 }
 
 fn process_priority(process: &crate::platform::ForegroundProcess, normalized_name: &str) -> u8 {
@@ -520,10 +530,21 @@ fn process_priority(process: &crate::platform::ForegroundProcess, normalized_nam
 fn is_generic_runtime_or_shell(name: &str) -> bool {
     let basename = path_basename(name);
     let basename = basename.strip_suffix(".exe").unwrap_or(basename);
-    matches!(
-        basename,
-        "sh" | "bash" | "zsh" | "fish" | "tmux" | "node" | "bun" | "python" | "python3"
-    )
+    is_python_runtime(basename)
+        || matches!(
+            basename,
+            "sh" | "bash" | "zsh" | "fish" | "tmux" | "node" | "bun"
+        )
+}
+
+fn is_python_runtime(name: &str) -> bool {
+    name == "python"
+        || name.strip_prefix("python").is_some_and(|version| {
+            !version.is_empty()
+                && version
+                    .split('.')
+                    .all(|part| !part.is_empty() && part.chars().all(|ch| ch.is_ascii_digit()))
+        })
 }
 
 // ---------------------------------------------------------------------------
@@ -634,10 +655,15 @@ mod tests {
         assert_eq!(identify_agent("gemini"), Some(Agent::Gemini));
         assert_eq!(identify_agent("cursor"), Some(Agent::Cursor));
         assert_eq!(identify_agent("cursor-agent"), Some(Agent::Cursor));
+        assert_eq!(identify_agent("cursor-agent.cmd"), Some(Agent::Cursor));
+        assert_eq!(identify_agent("cursor-agent.exe"), Some(Agent::Cursor));
         assert_eq!(identify_agent("agy"), Some(Agent::Antigravity));
         assert_eq!(identify_agent("antigravity-cli"), Some(Agent::Antigravity));
         assert_eq!(identify_agent("cline"), Some(Agent::Cline));
         assert_eq!(identify_agent("opencode"), Some(Agent::OpenCode));
+        assert_eq!(identify_agent("opencode.exe"), Some(Agent::OpenCode));
+        assert_eq!(identify_agent("opencode2"), Some(Agent::OpenCode));
+        assert_eq!(identify_agent("opencode2.exe"), Some(Agent::OpenCode));
         assert_eq!(identify_agent("kimi"), Some(Agent::Kimi));
         assert_eq!(identify_agent("Kimi Code"), Some(Agent::Kimi));
         assert_eq!(identify_agent("kiro"), Some(Agent::Kiro));
@@ -688,6 +714,12 @@ mod tests {
         assert_eq!(agent_label(Agent::Hermes), "hermes");
         assert_eq!(agent_label(Agent::Kilo), "kilo");
         assert_eq!(agent_label(Agent::Maki), "maki");
+    }
+
+    #[test]
+    fn hermes_session_integration_leaves_state_to_screen_detection() {
+        assert!(!full_lifecycle_hook_authority("omh:hermes", "hermes"));
+        assert!(session_identity_only_integration("omh:hermes", "hermes"));
     }
 
     #[test]
@@ -968,6 +1000,45 @@ mod tests {
         assert_eq!(
             identify_agent_in_job(&job),
             Some((Agent::Codex, "codex".to_string()))
+        );
+    }
+
+    #[test]
+    fn identify_agent_in_job_detects_opencode2_as_opencode() {
+        let job = crate::platform::ForegroundJob {
+            process_group_id: 123,
+            processes: vec![foreground_process(
+                123,
+                "opencode2",
+                &["opencode2", "--standalone"],
+            )],
+        };
+
+        assert_eq!(
+            identify_agent_in_job(&job),
+            Some((Agent::OpenCode, "opencode2".to_string()))
+        );
+    }
+
+    #[test]
+    fn identify_agent_in_job_detects_python_version_wrapped_hermes() {
+        let job = crate::platform::ForegroundJob {
+            process_group_id: 123,
+            processes: vec![foreground_process(
+                123,
+                "python3.12",
+                &[
+                    "/nix/store/example/bin/python3.12",
+                    "/nix/store/example/bin/hermes",
+                    "--resume",
+                    "session-id",
+                ],
+            )],
+        };
+
+        assert_eq!(
+            identify_agent_in_job(&job),
+            Some((Agent::Hermes, "hermes".to_string()))
         );
     }
 

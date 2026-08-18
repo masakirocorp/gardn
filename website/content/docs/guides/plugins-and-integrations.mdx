@@ -29,7 +29,7 @@ The built-in integration writes hooks, extensions, or agent configuration entrie
    omh integration install codex
    ```
 
-   Replace `codex` with one supported target. Install checks agent availability and, for targets with a minimum agent version, reports an error or warning when that check cannot succeed. Some targets are unsupported on Windows; use the command's error and the status output for the current platform rather than assuming that every target is portable.
+   Replace `codex` with one supported target. Install checks agent availability and, for targets with a minimum agent version, reports an error or warning when that check cannot succeed. All targets are supported on both Windows and non-Windows platforms. `kimi` is the only target with an agent-version probe: an old version fails, while an unavailable or unparsable version adds a warning and continues.
 
 3. Restart the affected agent pane after installing or updating an integration. Existing agent processes do not automatically reload their hook or extension configuration.
 

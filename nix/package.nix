@@ -70,6 +70,7 @@ rustPlatform.buildRustPackage {
         ../apps/omh/Cargo.toml
         ../apps/omh/CHANGELOG.md
         ../crates/omh-local-api
+        ../SKILL.md
       ]
     );
   };

@@ -706,6 +706,7 @@ mod tests {
                         launch_argv: None,
                         launch_env: Vec::new(),
                         seen: true,
+                        right_click_passthrough: false,
                         terminal_semantics: None,
                     },
                 )]),

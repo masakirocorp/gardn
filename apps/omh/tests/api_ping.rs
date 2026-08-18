@@ -2297,7 +2297,6 @@ fn pane_info_and_subscriptions_expose_done_agent_status() {
         ),
     );
     assert_eq!(send_enter["result"]["type"], "ok");
-
     let status_event = reader.read_json_line(Duration::from_secs(12));
     assert_eq!(status_event["event"], "pane.agent_status_changed");
     assert_eq!(status_event["data"]["pane_id"], background_pane_id);

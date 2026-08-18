@@ -388,7 +388,7 @@ struct PreparedRemoteOmh {
 #[derive(Clone)]
 struct ManagedSshOptions {
     config_path: PathBuf,
-    control_path: PathBuf,
+    control_path: Option<PathBuf>,
 }
 
 struct ManagedSshConfig {
@@ -619,9 +619,14 @@ impl RemoteSsh {
 
 impl Drop for RemoteSsh {
     fn drop(&mut self) {
-        if self.managed_config.is_none() {
+        let Some(_options) = self
+            .managed_config
+            .as_ref()
+            .map(|config| &config.options)
+            .filter(|options| options.control_path.is_some())
+        else {
             return;
-        }
+        };
 
         let _ = self
             .base_command()
@@ -642,15 +647,16 @@ fn apply_managed_ssh_options(command: &mut Command, options: Option<&ManagedSshO
         return;
     };
 
-    command
-        .arg("-F")
-        .arg(&options.config_path)
-        .arg("-S")
-        .arg(&options.control_path)
-        .arg("-o")
-        .arg("ControlMaster=auto")
-        .arg("-o")
-        .arg("ControlPersist=60");
+    command.arg("-F").arg(&options.config_path);
+    if let Some(control_path) = &options.control_path {
+        command
+            .arg("-S")
+            .arg(control_path)
+            .arg("-o")
+            .arg("ControlMaster=auto")
+            .arg("-o")
+            .arg("ControlPersist=60");
+    }
 }
 
 impl InstallSource {
@@ -1560,14 +1566,15 @@ fn download_release_asset(platform: &RemotePlatform) -> io::Result<InstallSource
 }
 
 fn private_download_dir(asset_key: &str) -> io::Result<PathBuf> {
-    let base = std::env::temp_dir();
+    let base = crate::platform::remote_private_temp_base();
+    fs::create_dir_all(&base)?;
     for attempt in 0..100 {
         let dir = base.join(format!(
             "omh-remote-{}-{}-{attempt}",
             std::process::id(),
             asset_key
         ));
-        match fs::create_dir(&dir) {
+        match crate::platform::create_remote_private_dir(&dir) {
             Ok(()) => return Ok(dir),
             Err(err) if err.kind() == io::ErrorKind::AlreadyExists => continue,
             Err(err) => return Err(err),
@@ -1765,8 +1772,9 @@ fn reattach_command(
     keybindings: RemoteKeybindings,
     live_handoff: bool,
 ) -> String {
-    let program = if program.is_empty() { "omh" } else { program };
-    let mut command = format!("{} --remote {}", shell_quote(program), shell_quote(target));
+    let program = crate::platform::remote_reattach_program(program);
+    let target = crate::platform::remote_reattach_argument(target);
+    let mut command = format!("{program} --remote {target}");
     if keybindings != RemoteKeybindings::Local {
         command.push_str(" --remote-keybindings ");
         command.push_str(keybindings.as_str());
@@ -1774,7 +1782,10 @@ fn reattach_command(
     if live_handoff {
         command.push_str(" --handoff");
     }
-    append_remote_session_flag(&mut command, session_name);
+    if session_name != crate::session::DEFAULT_SESSION_NAME {
+        command.push_str(" --session ");
+        command.push_str(&crate::platform::remote_reattach_argument(session_name));
+    }
     command
 }
 
@@ -1830,10 +1841,15 @@ impl SshStdioBridge {
             while !thread_stop.load(Ordering::Acquire) {
                 match listener.accept() {
                     Ok((stream, _addr)) => {
-                        if let Err(err) = stream.set_nonblocking(false) {
-                            eprintln!("omh: remote bridge failed to prepare client socket: {err}");
-                            continue;
-                        }
+                        let stream = match prepare_remote_bridge_stream(stream) {
+                            Ok(stream) => stream,
+                            Err(err) => {
+                                eprintln!(
+                                    "omh: remote bridge failed to prepare client socket: {err}"
+                                );
+                                continue;
+                            }
+                        };
                         if let Err(err) = bridge_connection(
                             stream,
                             &target,
@@ -1863,6 +1879,11 @@ impl SshStdioBridge {
     }
 }
 
+fn prepare_remote_bridge_stream(stream: UnixStream) -> io::Result<UnixStream> {
+    stream.set_nonblocking(false)?;
+    Ok(stream)
+}
+
 impl Drop for SshStdioBridge {
     fn drop(&mut self) {
         self.should_stop.store(true, Ordering::Release);
@@ -1873,75 +1894,43 @@ impl Drop for SshStdioBridge {
     }
 }
 
-fn private_ssh_config_dir() -> io::Result<PathBuf> {
-    use std::os::unix::fs::DirBuilderExt;
-
-    let mut bases = vec![std::env::temp_dir()];
-    let short_tmp = PathBuf::from("/tmp");
-    if bases.first() != Some(&short_tmp) {
-        bases.push(short_tmp);
-    }
-
-    let mut last_error = None;
-    for base in bases {
-        for attempt in 0..100 {
-            let dir = base.join(format!("omh-ssh-{}-{attempt}", std::process::id()));
-            if !fits_unix_socket_path(&dir.join(SSH_CONTROL_SOCKET_NAME)) {
-                continue;
-            }
-            match fs::DirBuilder::new().mode(0o700).create(&dir) {
-                Ok(()) => return Ok(dir),
-                Err(err) if err.kind() == io::ErrorKind::AlreadyExists => continue,
-                Err(err) => {
-                    last_error = Some(err);
-                    break;
-                }
-            }
-        }
-    }
-
-    Err(last_error.unwrap_or_else(|| {
-        io::Error::new(
-            io::ErrorKind::AlreadyExists,
-            "failed to create private Oh My Herdr ssh config directory",
-        )
-    }))
-}
-
 fn ssh_config_quote(path: &str) -> String {
     format!("\"{path}\"")
 }
 
 fn write_managed_ssh_config() -> io::Result<ManagedSshConfig> {
-    use std::os::unix::fs::OpenOptionsExt;
-
-    let dir = private_ssh_config_dir()?;
+    let paths = crate::platform::remote_ssh_config_paths();
+    let dir = crate::platform::create_remote_ssh_config_dir(SSH_CONTROL_SOCKET_NAME)?;
     let path = dir.join("config");
-    let control_path = dir.join(SSH_CONTROL_SOCKET_NAME);
+    let control_path = paths
+        .multiplexing
+        .then(|| dir.join(SSH_CONTROL_SOCKET_NAME));
 
     let mut contents = String::new();
-    if let Some(home) = std::env::var_os("HOME") {
-        let user_config = PathBuf::from(home).join(".ssh").join("config");
-        if user_config.is_file() {
-            contents.push_str(&format!(
-                "Include {}\n",
-                ssh_config_quote(&user_config.to_string_lossy())
-            ));
-        }
+    if let Some(user_config) = paths.user_config.filter(|path| path.is_file()) {
+        contents.push_str(&format!(
+            "Include {}\n",
+            ssh_config_quote(&user_config.to_string_lossy())
+        ));
     }
-    if Path::new("/etc/ssh/ssh_config").is_file() {
-        contents.push_str("Include /etc/ssh/ssh_config\n");
+    if let Some(system_config) = paths.system_config.filter(|path| path.is_file()) {
+        contents.push_str(&format!(
+            "Include {}\n",
+            ssh_config_quote(&system_config.to_string_lossy())
+        ));
     }
     contents.push_str("Host *\n");
     contents.push_str("  ServerAliveInterval 15\n");
     contents.push_str("  ServerAliveCountMax 4\n");
 
-    let mut file = fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .mode(BRIDGE_SOCKET_PERMISSION_MODE)
-        .open(&path)?;
-    file.write_all(contents.as_bytes())?;
+    let write_result = (|| {
+        let mut file = crate::platform::create_remote_ssh_config_file(&path)?;
+        file.write_all(contents.as_bytes())
+    })();
+    if let Err(err) = write_result {
+        let _ = fs::remove_dir_all(&dir);
+        return Err(err);
+    }
     Ok(ManagedSshConfig {
         options: ManagedSshOptions {
             config_path: path,
@@ -2057,37 +2046,11 @@ fn local_forward_socket_path(target: &str, session_name: &str) -> PathBuf {
     let pid = std::process::id();
     let target_clean = sanitize_path_component(target);
     let session_clean = sanitize_path_component(session_name);
-
-    let tmpdir = std::env::temp_dir();
-    let readable = tmpdir.join(format!(
-        "omh-remote-{pid}-{target_clean}-{session_clean}.sock"
-    ));
-    if fits_unix_socket_path(&readable) {
-        return readable;
-    }
-
-    // macOS' per-user TMPDIR (~49 chars under /var/folders/...) can push the
-    // readable name past sun_path's 104-byte ceiling. Fall back to a hashed
-    // short name in TMPDIR, then to /tmp as a last resort when TMPDIR itself
-    // is longer than the budget. The hash covers the full unsanitized
-    // target/session so uniqueness does not depend on the prefix truncation;
-    // the prefix is kept only for debuggability.
+    let readable_name = format!("omh-remote-{pid}-{target_clean}-{session_clean}.sock");
     let target_prefix: String = target_clean.chars().take(8).collect();
     let hash = short_socket_hash(target, session_name);
     let short_name = format!("omh-r-{pid}-{target_prefix}-{hash}.sock");
-    let short_in_tmp = tmpdir.join(&short_name);
-    if fits_unix_socket_path(&short_in_tmp) {
-        return short_in_tmp;
-    }
-    PathBuf::from("/tmp").join(short_name)
-}
-
-fn fits_unix_socket_path(path: &Path) -> bool {
-    use std::os::unix::ffi::OsStrExt;
-    // sun_path is byte-limited: 104 bytes on macOS, 108 on Linux. Reserve
-    // 1 byte for the trailing NUL and use the smaller cap for portability.
-    const MAX: usize = 103;
-    path.as_os_str().as_bytes().len() <= MAX
+    crate::platform::remote_bridge_endpoint_path(&readable_name, &short_name)
 }
 
 fn short_socket_hash(target: &str, session: &str) -> String {
@@ -2829,6 +2792,40 @@ mod tests {
     }
 
     #[test]
+    fn accepted_bridge_stream_is_reset_to_blocking() {
+        use std::os::fd::AsRawFd as _;
+
+        fn is_nonblocking(stream: &UnixStream) -> bool {
+            let fd = stream.as_raw_fd();
+            // SAFETY: F_GETFL only reads flags from the live descriptor owned by `stream`.
+            let flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
+            assert!(flags >= 0, "fcntl(F_GETFL): {}", io::Error::last_os_error());
+            flags & libc::O_NONBLOCK != 0
+        }
+
+        let socket = std::env::temp_dir().join(format!(
+            "omh-bridge-blocking-test-{}.sock",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_file(&socket);
+        let listener = UnixListener::bind(&socket).expect("bind listener");
+        let client = UnixStream::connect(&socket).expect("connect client");
+        let (server, _addr) = listener.accept().expect("accept client");
+
+        server
+            .set_nonblocking(true)
+            .expect("force the macOS accepted-stream state");
+        assert!(is_nonblocking(&server));
+        let server = prepare_remote_bridge_stream(server).expect("prepare bridge stream");
+        assert!(!is_nonblocking(&server));
+
+        drop(server);
+        drop(client);
+        drop(listener);
+        let _ = std::fs::remove_file(socket);
+    }
+
+    #[test]
     fn managed_ssh_config_includes_user_config_then_fallback() {
         use std::os::unix::fs::PermissionsExt;
 
@@ -2844,7 +2841,11 @@ mod tests {
 
         let managed_config = write_managed_ssh_config().expect("write managed config");
         let path = managed_config.options.config_path.clone();
-        let control_path = managed_config.options.control_path.clone();
+        let control_path = managed_config
+            .options
+            .control_path
+            .clone()
+            .expect("unix multiplexing should create a control socket");
         let contents = std::fs::read_to_string(&path).expect("read managed config");
 
         let include = format!(
@@ -2879,7 +2880,11 @@ mod tests {
     fn remote_ssh_command_uses_managed_config_when_present() {
         let managed_config = write_managed_ssh_config().expect("write managed config");
         let config_path = managed_config.options.config_path.clone();
-        let control_path = managed_config.options.control_path.clone();
+        let control_path = managed_config
+            .options
+            .control_path
+            .clone()
+            .expect("unix multiplexing should create a control socket");
         let ssh = RemoteSsh {
             target: "example".to_string(),
             managed_config: Some(managed_config),
@@ -3960,6 +3965,10 @@ exit 99
     fn socket_path_byte_len(path: &Path) -> usize {
         use std::os::unix::ffi::OsStrExt;
         path.as_os_str().as_bytes().len()
+    }
+
+    fn fits_unix_socket_path(path: &Path) -> bool {
+        socket_path_byte_len(path) <= 103
     }
 
     #[test]

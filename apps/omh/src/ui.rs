@@ -18,7 +18,7 @@ mod mobile;
 mod modal_tabs;
 mod navigator;
 mod onboarding;
-mod panes;
+pub(crate) mod panes;
 mod release_notes;
 mod scrollbar;
 mod settings;

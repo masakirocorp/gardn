@@ -290,6 +290,7 @@ pub(crate) enum ServerEvent {
         render_encoding: RenderEncoding,
         keybindings: Option<Box<crate::config::LiveKeybindConfig>>,
         direct_attach_requested: bool,
+        direct_graphics: bool,
         writer: ClientWriter,
     },
     /// A client sent an input message.
@@ -393,8 +394,13 @@ pub(crate) fn handle_client_handshake(
     server_event_tx: &mpsc::Sender<ServerEvent>,
     should_quit: &Arc<AtomicBool>,
 ) -> io::Result<()> {
+    if should_quit.load(Ordering::Acquire) {
+        return Ok(());
+    }
+
     // Reset to blocking mode — the accept loop sets nonblocking but
     // the handshake thread needs blocking I/O for read_message/write_message.
+
     stream.set_nonblocking(false)?;
 
     // Set a read timeout for the handshake.
@@ -425,6 +431,7 @@ pub(crate) fn handle_client_handshake(
         render_encoding,
         keybindings,
         direct_attach_requested,
+        direct_graphics,
     ) = match hello {
         ClientMessage::Hello {
             version,
@@ -474,6 +481,7 @@ pub(crate) fn handle_client_handshake(
                 requested_encoding,
                 keybindings,
                 launch_mode == ClientLaunchMode::TerminalAttach,
+                launch_mode == ClientLaunchMode::AppDirectGraphics,
             )
         }
         _ => {
@@ -488,6 +496,10 @@ pub(crate) fn handle_client_handshake(
             return Ok(());
         }
     };
+
+    if should_quit.load(Ordering::Acquire) {
+        return Ok(());
+    }
 
     // Send Welcome.
     let welcome = ServerMessage::Welcome {
@@ -516,8 +528,12 @@ pub(crate) fn handle_client_handshake(
         client_writer_loop(write_stream, client_id, writer_queue, writer_event_tx);
     });
 
-    // Notify the main loop about the new client.
-    let _ = server_event_tx.blocking_send(ServerEvent::ClientConnected {
+    if should_quit.load(Ordering::Acquire) {
+        send_shutdown_to_unregistered_client(&writer);
+        return Ok(());
+    }
+
+    let connected = ServerEvent::ClientConnected {
         client_id,
         cols: client_cols,
         rows: client_rows,
@@ -526,11 +542,31 @@ pub(crate) fn handle_client_handshake(
         render_encoding,
         keybindings,
         direct_attach_requested,
+        direct_graphics,
         writer,
-    });
+    };
+    if let Err(err) = server_event_tx.blocking_send(connected) {
+        if let ServerEvent::ClientConnected { writer, .. } = err.0 {
+            send_shutdown_to_unregistered_client(&writer);
+        }
+    }
 
     // Enter read loop — read client messages and forward to main loop.
     client_read_loop(stream, client_id, server_event_tx, should_quit)
+}
+
+fn send_shutdown_to_unregistered_client(writer: &ClientWriter) {
+    let mut framed = Vec::new();
+    if protocol::write_message(
+        &mut framed,
+        &ServerMessage::ServerShutdown {
+            reason: Some("server is shutting down".to_owned()),
+        },
+    )
+    .is_ok()
+    {
+        let _ = writer.control.send(framed);
+    }
 }
 
 /// The client writer loop — blocks until a control or render message arrives.
@@ -715,6 +751,12 @@ fn client_read_loop(
             },
             ClientMessage::Hello { .. } => {
                 // Duplicate Hello — ignore.
+                continue;
+            }
+            ClientMessage::GraphicsTransmissionResult { .. }
+            | ClientMessage::GraphicsTransmissionStarted { .. }
+            | ClientMessage::InputPixels { .. } => {
+                debug!(client_id, "ignored unarmed direct-graphics client message");
                 continue;
             }
         };
@@ -1108,6 +1150,72 @@ new_tab = "ctrl+notakey"
                 ..
             } => {
                 assert!(direct_attach_requested);
+                drop(writer);
+            }
+            other => panic!("expected ClientConnected, got {other:?}"),
+        }
+
+        drop(client_stream);
+        should_quit.store(true, Ordering::Release);
+        handle
+            .join()
+            .expect("handshake thread join")
+            .expect("handshake thread result");
+    }
+
+    #[test]
+    fn handshake_marks_direct_graphics_launch_mode() {
+        let (mut client_stream, server_stream, _path) =
+            local_stream_pair("direct-graphics-handshake");
+        let (server_event_tx, mut server_event_rx) = mpsc::channel(4);
+        let should_quit = Arc::new(AtomicBool::new(false));
+        let handshake_quit = should_quit.clone();
+        let handle = std::thread::spawn(move || {
+            handle_client_handshake(server_stream, 42, &server_event_tx, &handshake_quit)
+        });
+
+        protocol::write_message(
+            &mut client_stream,
+            &ClientMessage::Hello {
+                version: PROTOCOL_VERSION,
+                cols: 100,
+                rows: 30,
+                cell_width_px: 8,
+                cell_height_px: 16,
+                requested_encoding: RenderEncoding::SemanticFrame,
+                keybindings: ClientKeybindings::Server,
+                launch_mode: ClientLaunchMode::AppDirectGraphics,
+            },
+        )
+        .expect("write hello");
+
+        let welcome: ServerMessage =
+            protocol::read_message(&mut client_stream, MAX_FRAME_SIZE).expect("read welcome");
+        match welcome {
+            ServerMessage::Welcome {
+                version,
+                encoding,
+                error,
+            } => {
+                assert_eq!(version, PROTOCOL_VERSION);
+                assert_eq!(encoding, RenderEncoding::SemanticFrame);
+                assert_eq!(error, None);
+            }
+            other => panic!("expected Welcome, got {other:?}"),
+        }
+
+        match server_event_rx
+            .blocking_recv()
+            .expect("client connected event")
+        {
+            ServerEvent::ClientConnected {
+                direct_attach_requested,
+                direct_graphics,
+                writer,
+                ..
+            } => {
+                assert!(!direct_attach_requested);
+                assert!(direct_graphics);
                 drop(writer);
             }
             other => panic!("expected ClientConnected, got {other:?}"),

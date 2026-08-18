@@ -12,6 +12,7 @@ use std::time::Instant;
 
 use tokio::sync::{mpsc, Notify};
 
+use crate::detect::AgentState;
 use crate::events::AppEvent;
 use crate::execution_host::lifecycle::{lifecycle_decision_input, worker_instance_id_string};
 use crate::execution_host::protocol::{
@@ -81,6 +82,17 @@ impl RuntimeEventBridge {
         std::thread::spawn(move || {
             while let Some(event) = app_rx.blocking_recv() {
                 let mapped = match event {
+                    AppEvent::AgentProcessDetected { agent, .. } => {
+                        Some(WorkerEvent::StateChanged {
+                            local_id,
+                            agent: Some(agent),
+                            state: AgentState::Unknown,
+                            visible_blocker: false,
+                            visible_idle: false,
+                            visible_working: false,
+                            process_exited: false,
+                        })
+                    }
                     AppEvent::StateChanged {
                         agent,
                         state,
@@ -146,7 +158,7 @@ pub(super) struct WorkerState {
     events: mpsc::Sender<WorkerEvent>,
     event_rx: mpsc::Receiver<WorkerEvent>,
     render_notify: Arc<Notify>,
-    render_dirty: Arc<AtomicBool>,
+    render_dirty: Arc<crate::render_signal::RenderSignal>,
 }
 
 #[cfg(unix)]
@@ -177,7 +189,7 @@ impl WorkerState {
             events,
             event_rx,
             render_notify: Arc::new(Notify::new()),
-            render_dirty: Arc::new(AtomicBool::new(false)),
+            render_dirty: Arc::new(crate::render_signal::RenderSignal::new()),
         })
     }
 

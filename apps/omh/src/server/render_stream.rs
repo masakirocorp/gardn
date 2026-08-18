@@ -19,7 +19,11 @@ pub(crate) enum ClientRenderState {
     /// Semantic clients compare full frame data and skip identical frames.
     Semantic { last_frame: Option<FrameData> },
     /// Terminal-ANSI clients keep a terminal diff encoder and sequence number.
-    TerminalAnsi { blit_encoder: BlitEncoder, seq: u64 },
+    TerminalAnsi {
+        blit_encoder: BlitEncoder,
+        seq: u64,
+        repaint_pending: bool,
+    },
 }
 
 impl ClientRenderState {
@@ -29,6 +33,7 @@ impl ClientRenderState {
             RenderEncoding::TerminalAnsi => Self::TerminalAnsi {
                 blit_encoder: BlitEncoder::new(),
                 seq: 0,
+                repaint_pending: false,
             },
         }
     }
@@ -36,7 +41,23 @@ impl ClientRenderState {
     pub(crate) fn reset_baseline(&mut self) {
         match self {
             Self::Semantic { last_frame } => *last_frame = None,
-            Self::TerminalAnsi { blit_encoder, .. } => *blit_encoder = BlitEncoder::new(),
+            Self::TerminalAnsi {
+                blit_encoder,
+                repaint_pending,
+                ..
+            } => {
+                *blit_encoder = BlitEncoder::new();
+                *repaint_pending = false;
+            }
+        }
+    }
+
+    pub(crate) fn request_repaint(&mut self) {
+        match self {
+            Self::Semantic { last_frame } => *last_frame = None,
+            Self::TerminalAnsi {
+                repaint_pending, ..
+            } => *repaint_pending = true,
         }
     }
 
@@ -56,11 +77,15 @@ impl ClientRenderState {
                     message: ServerMessage::Frame(frame),
                 })
             }
-            Self::TerminalAnsi { blit_encoder, seq } => {
-                if blit_encoder.is_current(&frame) {
+            Self::TerminalAnsi {
+                blit_encoder,
+                seq,
+                repaint_pending,
+            } => {
+                if !*repaint_pending && blit_encoder.is_current(&frame) {
                     return None;
                 }
-                let mut encoded = blit_encoder.encode(&frame, false);
+                let mut encoded = blit_encoder.encode(&frame, *repaint_pending);
                 insert_graphics_before_sync_end(&mut encoded.bytes, &frame.graphics);
                 Some(PreparedRender::TerminalAnsi {
                     message: ServerMessage::Terminal(TerminalFrame {
@@ -86,7 +111,11 @@ impl ClientRenderState {
                 },
             ) => *last_frame = Some(frame),
             (
-                Self::TerminalAnsi { blit_encoder, seq },
+                Self::TerminalAnsi {
+                    blit_encoder,
+                    seq,
+                    repaint_pending,
+                },
                 PreparedRender::TerminalAnsi {
                     frame,
                     encoded: Some(encoded),
@@ -95,6 +124,7 @@ impl ClientRenderState {
             ) => {
                 blit_encoder.commit(frame, encoded);
                 *seq += 1;
+                *repaint_pending = false;
             }
             _ => {}
         }
@@ -109,28 +139,16 @@ impl ClientRenderState {
     }
 }
 
-const SYNC_OUTPUT_END: &[u8] = b"\x1b[?2026l";
-
 fn insert_graphics_before_sync_end(encoded: &mut Vec<u8>, graphics: &[u8]) {
     if graphics.is_empty() {
         return;
     }
 
-    if let Some(sync_end) = rfind_subslice(encoded, SYNC_OUTPUT_END) {
+    if let Some(sync_end) = crate::protocol::render_ansi::final_sync_output_end(encoded) {
         encoded.splice(sync_end..sync_end, graphics.iter().copied());
     } else {
         encoded.extend_from_slice(graphics);
     }
-}
-
-fn rfind_subslice(haystack: &[u8], needle: &[u8]) -> Option<usize> {
-    if needle.is_empty() || needle.len() > haystack.len() {
-        return None;
-    }
-
-    haystack
-        .windows(needle.len())
-        .rposition(|window| window == needle)
 }
 
 /// A prepared client render message plus any baseline state needed after send.
@@ -294,7 +312,7 @@ pub(crate) fn render_virtual_with_runtime_registry(
         focused_terminal_cursor(app_state, terminal_runtimes)
             .or_else(|| terminal.backend().rendered_cursor())
     } else {
-        None
+        terminal.backend().rendered_cursor()
     };
     (buffer, cursor)
 }
@@ -400,7 +418,7 @@ pub(crate) fn render_virtual_for_client_view(
         focused_terminal_cursor_for_view(app_state, client_view, terminal_runtimes)
             .or_else(|| terminal.backend().rendered_cursor())
     } else {
-        None
+        terminal.backend().rendered_cursor()
     };
 
     let hyperlinks = visible_hyperlinks_for_view(app_state, client_view, terminal_runtimes);
@@ -1198,5 +1216,44 @@ mod tests {
             !controller_text.contains("Another Client Controls"),
             "controller frame must not carry watcher copy:\n{controller_text}"
         );
+    }
+
+    #[tokio::test]
+    async fn compute_pane_infos_avoids_aggregate_input_state_reads() {
+        let mut state = AppState::test_new();
+        let mut workspace = Workspace::test_new("scale");
+        let root = workspace.tabs[0].root_pane;
+        workspace.tabs[0].runtimes.insert(
+            root,
+            crate::terminal::TerminalRuntime::test_with_scrollback_bytes(
+                40,
+                8,
+                1024,
+                b"one\ntwo\nthree\nfour\nfive\nsix\nseven\neight\nnine\nten\n",
+            ),
+        );
+        state.workspaces = vec![workspace];
+        state.active = Some(0);
+        let _ = crate::pane::take_aggregate_input_state_reads();
+        let terminal_runtimes = TerminalRuntimeRegistry::new();
+        let infos = crate::ui::panes::compute_pane_infos(
+            &state,
+            &terminal_runtimes,
+            Rect::new(0, 0, 80, 24),
+            false,
+            crate::kitty_graphics::HostCellSize::default(),
+        );
+        assert!(!infos.is_empty());
+        assert_eq!(crate::pane::take_aggregate_input_state_reads(), 0);
+    }
+}
+
+#[cfg(test)]
+mod render_scale_benchmark {
+    #[ignore = "manual scaling profile; not a CI gate"]
+    #[test]
+    fn render_scale_profile() {
+        let _ = crate::pane::take_aggregate_input_state_reads();
+        assert_eq!(crate::pane::take_aggregate_input_state_reads(), 0);
     }
 }

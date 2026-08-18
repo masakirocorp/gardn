@@ -40,7 +40,8 @@ REGION_RE = re.compile(
     r"before_current_prompt_marker|current_prompt_block_marker|after_current_prompt_block_marker|"
     r"prompt_box_body|above_prompt_box|last_non_empty_above_prompt_box|after_last_horizontal_rule|"
     r"osc_title|osc_progress|bottom_lines\([1-9][0-9]*\)|bottom_non_empty_lines\([1-9][0-9]*\)|"
-    r"bottom_non_empty_lines_after_last_prompt_marker\([1-9][0-9]*\))$"
+    r"bottom_non_empty_lines_after_last_prompt_marker\([1-9][0-9]*\)|"
+    r"top_non_empty_lines\([1-9][0-9]*\))$"
 )
 VERSION_RE = re.compile(r"^[0-9]+(?:\.[0-9]+)*$")
 MAX_RULES_PER_MANIFEST = 128

@@ -74,7 +74,7 @@ Redact access tokens, selected text, paths, command arguments, and plugin contex
 
 ## 4. Fix SSH and remote-session failures
 
-Remote attach is Unix-only in the current implementation. A Windows `--remote` attempt is rejected as unsupported. On Unix-like systems, test the SSH target independently first:
+Remote attach supports Unix local clients (Linux and macOS) and Windows local clients; Windows is not a supported remote host. Test the SSH target independently first:
 
 ```bash
 ssh TARGET

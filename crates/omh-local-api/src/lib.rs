@@ -193,6 +193,27 @@ pub enum Method {
     PaneSendInput(PaneSendInputParams),
     #[serde(rename = "pane.read")]
     PaneRead(PaneReadParams),
+    #[serde(rename = "pane.graphics.set")]
+    PaneGraphicsSet(PaneGraphicsSetParams),
+    #[serde(rename = "pane.graphics.clear")]
+    PaneGraphicsClear(PaneGraphicsClearParams),
+    #[serde(rename = "pane.graphics.info")]
+    PaneGraphicsInfo(PaneTarget),
+    #[serde(rename = "pane.graphics.stream")]
+    #[schemars(skip)]
+    PaneGraphicsStream(PaneGraphicsStreamParams),
+    #[serde(skip)]
+    #[schemars(skip)]
+    PaneGraphicsStreamSet(PaneGraphicsSetParams),
+    #[serde(skip)]
+    #[schemars(skip)]
+    PaneGraphicsStreamOpen(PaneGraphicsStreamParams),
+    #[serde(skip)]
+    #[schemars(skip)]
+    PaneGraphicsStreamClose(PaneGraphicsStreamParams),
+    #[serde(skip)]
+    #[schemars(skip)]
+    PaneGraphicsStreamDirect(PaneGraphicsDirectParams),
     #[serde(rename = "pane.report_agent")]
     PaneReportAgent(PaneReportAgentParams),
     #[serde(rename = "pane.report_agent_session")]
@@ -895,6 +916,9 @@ pub struct PaneReadParams {
     pub format: ReadFormat,
     #[serde(default = "default_true")]
     pub strip_ansi: bool,
+    #[serde(skip)]
+    #[schemars(skip)]
+    pub intent: ReadIntent,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
@@ -995,6 +1019,13 @@ pub enum ReadSource {
     Recent,
     RecentUnwrapped,
     Detection,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ReadIntent {
+    #[default]
+    Interactive,
+    Passive,
 }
 
 #[derive(
@@ -1775,6 +1806,26 @@ pub enum ResponseResult {
     PaneRead {
         read: PaneReadResult,
     },
+    PaneGraphicsInfo {
+        cell_width_px: u32,
+        cell_height_px: u32,
+        pane_visible: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        file_frame_directory: Option<String>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        file_frame_formats: Vec<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        file_frame_max_bytes: Option<usize>,
+        file_frame_damage: bool,
+        max_layers_per_pane: usize,
+        pixel_mouse: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        file_frame_transport: Option<String>,
+    },
+    PaneGraphicsFrameAck {
+        sequence: u64,
+        revision: u64,
+    },
     AgentExplain {
         explain: serde_json::Value,
     },
@@ -2022,6 +2073,91 @@ pub struct PaneProcessInfoProcess {
     pub cmdline: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cwd: Option<String>,
+}
+
+pub const PANE_GRAPHICS_SET_MAX_BYTES: usize = 512 * 1024;
+pub const PANE_GRAPHICS_STREAM_MAX_BYTES: usize = 16 * 1024 * 1024;
+pub const PANE_GRAPHICS_MAX_LAYERS_PER_PANE: usize = 16;
+pub const PANE_GRAPHICS_MAX_LAYERS_TOTAL: usize = 64;
+pub const PANE_GRAPHICS_MAX_INLINE_BYTES_TOTAL: usize = 64 * 1024 * 1024;
+pub const PANE_GRAPHICS_PRIMARY_LAYER_ID: &str = "primary";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum PaneGraphicsFormat {
+    Png,
+    Rgb,
+    Rgba,
+    Bgra,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct PaneGraphicsSetParams {
+    pub pane_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub layer_id: Option<String>,
+    #[serde(default)]
+    pub z_index: i32,
+    #[serde(skip)]
+    #[schemars(skip)]
+    pub owner: String,
+    pub format: PaneGraphicsFormat,
+    pub image_width: u32,
+    pub image_height: u32,
+    #[serde(skip)]
+    pub data: Option<Vec<u8>>,
+    #[serde(default)]
+    pub data_base64: String,
+    #[serde(default)]
+    pub placement: PaneGraphicsPlacementParams,
+}
+
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema, Default,
+)]
+pub struct PaneGraphicsPlacementParams {
+    #[serde(default)]
+    pub viewport_col: i32,
+    #[serde(default)]
+    pub viewport_row: i32,
+    #[serde(default)]
+    pub grid_cols: u32,
+    #[serde(default)]
+    pub grid_rows: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct PaneGraphicsClearParams {
+    pub pane_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub layer_id: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PaneGraphicsDirectParams {
+    pub pane_id: String,
+    pub layer_id: Option<String>,
+    pub z_index: i32,
+    pub owner: String,
+    pub image_width: u32,
+    pub image_height: u32,
+    pub format: PaneGraphicsFormat,
+    pub path: String,
+    pub sequence: u64,
+    pub revision: u64,
+    pub placement: PaneGraphicsPlacementParams,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct PaneGraphicsStreamParams {
+    pub pane_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub layer_id: Option<String>,
+    #[serde(default)]
+    pub z_index: i32,
+    #[serde(skip)]
+    #[schemars(skip)]
+    pub owner: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
@@ -2517,12 +2653,19 @@ mod tests {
                 lines: Some(80),
                 format: ReadFormat::Text,
                 strip_ansi: true,
+                intent: ReadIntent::Interactive,
             }),
         };
 
         let json = serde_json::to_string(&request).unwrap();
+        let serialized: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert!(serialized["params"].get("intent").is_none());
         let restored: Request = serde_json::from_str(&json).unwrap();
         assert_eq!(restored, request);
+        let Method::PaneRead(params) = restored.method else {
+            panic!("expected pane read");
+        };
+        assert_eq!(params.intent, ReadIntent::Interactive);
     }
 
     #[test]

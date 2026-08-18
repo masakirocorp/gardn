@@ -1282,10 +1282,9 @@ fn run_plugin_build_command(
             },
         }));
     };
-    let mut child = crate::noninteractive_process::command(program);
+    let args = command.iter().skip(1).cloned().collect::<Vec<_>>();
+    let mut child = crate::plugin_command::command_for_argv_in_dir(program, &args, cwd);
     child
-        .args(command.iter().skip(1))
-        .current_dir(cwd)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
@@ -1573,14 +1572,15 @@ fn current_unix_ms() -> u64 {
 }
 
 fn is_connection_error(err: &std::io::Error) -> bool {
-    matches!(
-        err.kind(),
-        std::io::ErrorKind::NotFound
-            | std::io::ErrorKind::ConnectionRefused
-            | std::io::ErrorKind::ConnectionAborted
-            | std::io::ErrorKind::ConnectionReset
-            | std::io::ErrorKind::BrokenPipe
-    )
+    super::server_not_running_was_reported(err)
+        || matches!(
+            err.kind(),
+            std::io::ErrorKind::NotFound
+                | std::io::ErrorKind::ConnectionRefused
+                | std::io::ErrorKind::ConnectionAborted
+                | std::io::ErrorKind::ConnectionReset
+                | std::io::ErrorKind::BrokenPipe
+        )
 }
 
 fn print_plugin_response(method: Method) -> std::io::Result<i32> {

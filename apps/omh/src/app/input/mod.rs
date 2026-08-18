@@ -84,8 +84,10 @@ fn remote_execution_urls_never_become_rendering_client_local_targets() {
 }
 
 pub(super) mod agent_profile_picker;
+mod clipboard;
 mod command_palette;
 mod copy_mode;
+mod lease;
 mod modal;
 mod mouse;
 mod navigate;
@@ -124,6 +126,10 @@ pub(crate) use self::{
 
 #[cfg(test)]
 pub(crate) use self::command_palette::open_command_palette_for_view;
+pub(crate) use self::lease::{
+    ConsumedInputLease, InputLeaseKey, InputLeaseTable, InputSourceId, RepeatPlan,
+    TerminalInputContext, LOCAL_INPUT_SOURCE,
+};
 use self::modal::{modal_action_from_key, ONBOARDING_WELCOME_ACTIONS, RELEASE_NOTES_ACTIONS};
 pub(crate) use self::terminal::TerminalKeyTarget;
 use super::state::{AppState, DragState, DragTarget, Mode};
@@ -190,6 +196,58 @@ impl App {
             Mode::Terminal => unreachable!(),
         }
         None
+    }
+
+    pub(crate) fn handle_text_commit_headless(&mut self, text: &str) {
+        if text.is_empty() {
+            return;
+        }
+        if self.default_client_view.popup_pane.is_some() {
+            let _ = self.send_popup_text_for_view(&self.default_client_view, text);
+            return;
+        }
+        if self.state.mode != Mode::Terminal {
+            self.paste_into_active_text_input(text);
+            return;
+        }
+
+        self.state.clear_selection();
+        self.selection_autoscroll_deadline = None;
+        self.state.update_dismissed = true;
+        if let Some(ws_idx) = self.state.active {
+            if let Some(runtime) = self
+                .state
+                .focused_runtime_in_workspace(&self.terminal_runtimes, ws_idx)
+            {
+                let _ = runtime.try_send_bytes(bytes::Bytes::copy_from_slice(text.as_bytes()));
+            }
+        }
+    }
+
+    pub(super) async fn handle_text_commit(&mut self, text: String) {
+        if text.is_empty() {
+            return;
+        }
+        if self.default_client_view.popup_pane.is_some() {
+            let _ = self.send_popup_text_for_view(&self.default_client_view, &text);
+            return;
+        }
+        if self.state.mode != Mode::Terminal {
+            self.paste_into_active_text_input(&text);
+            return;
+        }
+
+        self.state.clear_selection();
+        self.selection_autoscroll_deadline = None;
+        self.state.update_dismissed = true;
+        if let Some(ws_idx) = self.state.active {
+            if let Some(runtime) = self
+                .state
+                .focused_runtime_in_workspace(&self.terminal_runtimes, ws_idx)
+            {
+                let _ = runtime.send_bytes(bytes::Bytes::from(text)).await;
+            }
+        }
     }
 
     pub(super) async fn handle_paste(&mut self, text: String) {
@@ -314,6 +372,19 @@ impl App {
     }
 
     pub(super) fn handle_mouse(&mut self, mouse: MouseEvent) {
+        match mouse.kind {
+            MouseEventKind::Down(MouseButton::Left) => {
+                self.pending_url_click = false;
+            }
+            MouseEventKind::Drag(MouseButton::Left) if self.pending_url_click => {
+                return;
+            }
+            MouseEventKind::Up(MouseButton::Left) if self.pending_url_click => {
+                self.pending_url_click = false;
+                return;
+            }
+            _ => {}
+        }
         if self.default_client_view.popup_pane.is_some() {
             let mut view = self.default_client_view.clone_reconciled(&self.state);
             self.handle_mouse_for_view(&mut view, mouse);
@@ -669,6 +740,7 @@ impl App {
                         sidebar_initial_state,
                         sidebar_initial_agent_scope,
                         pane_border_agent_info,
+                        status_indicators,
                     } => {
                         self.save_theme(
                             &light,
@@ -702,6 +774,7 @@ impl App {
                         );
                         self.save_toast_delivery(toast_delivery);
                         self.save_pane_border_agent_info(pane_border_agent_info);
+                        self.save_status_indicators(status_indicators);
                         crate::ui::compute_view_with_runtime_registry(
                             &mut self.state,
                             &self.terminal_runtimes,
@@ -808,16 +881,7 @@ impl App {
                 crate::integration::host::HostIntegrationOperation::Inspect,
             );
         }
-
-        if let Some(content) = self.state.request_clipboard_write.take() {
-            if self
-                .event_tx
-                .try_send(crate::events::AppEvent::ClipboardWrite { content })
-                .is_err()
-            {
-                tracing::warn!("failed to queue clipboard write event");
-            }
-        }
+        self.dispatch_pending_clipboard_write();
 
         // Sync autoscroll deadline with state (mouse handler may have
         // set or cleared selection_autoscroll during handle_mouse).
@@ -954,6 +1018,7 @@ impl App {
         };
 
         self.last_pane_click = None;
+        self.pending_url_click = true;
         match self.invoke_plugin_link_handler_for_url(&url, info.id) {
             Ok(true) => return true,
             Ok(false) => {}
@@ -998,14 +1063,12 @@ impl App {
         };
 
         // Require the second click to land near the first click in the same pane
-        // and within the double-click window so adjacent interactions do not copy.
+        // and within the double-click window so adjacent interactions do not select a word.
         if !self.take_pane_double_click(click) {
             return false;
         }
 
-        // Preserve a short highlight after copying so the user gets visible
-        // confirmation without leaving a persistent selection behind.
-        self.copy_double_clicked_word(click)
+        self.select_double_clicked_word(click)
     }
 
     fn pane_click_candidate(&mut self, mouse: MouseEvent) -> Option<PaneClickState> {
@@ -1048,19 +1111,20 @@ impl App {
         self.last_pane_click = None;
         true
     }
-
-    fn copy_double_clicked_word(&mut self, click: PaneClickState) -> bool {
-        let copied = self.state.copy_word_at_pane_cell(
+    fn select_double_clicked_word(&mut self, click: PaneClickState) -> bool {
+        let selected = self.state.select_word_at_pane_cell(
             &self.terminal_runtimes,
             click.pane_id,
             click.viewport_row,
             click.col,
         );
-        if copied {
-            self.selection_highlight_clear_deadline =
-                Some(std::time::Instant::now() + super::PANE_COPY_HIGHLIGHT_DURATION);
+        if selected {
+            self.selection_highlight_clear_deadline = self
+                .state
+                .copy_on_select
+                .then(|| std::time::Instant::now() + super::PANE_COPY_HIGHLIGHT_DURATION);
         }
-        copied
+        selected
     }
 
     pub(crate) fn handle_git_repo_picker_key(&mut self, key: KeyEvent) {

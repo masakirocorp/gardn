@@ -2,7 +2,7 @@
 // managed by Oh My Herdr; reinstalling or updating the integration overwrites this file.
 // add custom hooks/plugins beside this file instead of editing it.
 // OMH_INTEGRATION_ID=opencode
-// OMH_INTEGRATION_VERSION=7
+// OMH_INTEGRATION_VERSION=8
 
 import net from "node:net";
 
@@ -416,6 +416,8 @@ async function handleEvent(event) {
       break;
     case "session.created":
     case "session.updated":
+      // Creation is server-global, so an attached client may own it. The
+      // TUI plugin separately reports the root selected in this pane.
       if (primarySession) {
         await reportSession(sessionID);
       }

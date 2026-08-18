@@ -96,6 +96,7 @@ test.serial("Pi maps the Windows socket marker path to a named pipe endpoint", a
     { reason: "startup" },
     {
       hasUI: true,
+      mode: "tui",
       isIdle: () => true,
       sessionManager: {
         getSessionFile: () => undefined,
@@ -129,6 +130,17 @@ test.serial("OMP maps the Windows socket marker path to a named pipe endpoint", 
   );
 
   expect(connectedEndpoint()).toBe(`\\\\.\\pipe\\${markerPath}`);
+});
+
+test("OMP accepts POSIX and Windows session paths", async () => {
+  const { isAbsoluteSessionPath } = await freshImport("./omp/omh-agent-state.ts");
+
+  expect(isAbsoluteSessionPath("/tmp/omp-session.jsonl")).toBe(true);
+  expect(isAbsoluteSessionPath("C:\\Users\\User\\.omp\\agent\\sessions\\omp-session.jsonl")).toBe(
+    true,
+  );
+  expect(isAbsoluteSessionPath("C:/Users/User/.omp/agent/sessions/omp-session.jsonl")).toBe(true);
+  expect(isAbsoluteSessionPath("relative/omp-session.jsonl")).toBe(false);
 });
 
 test.serial("OpenCode maps the Windows socket marker path to a named pipe endpoint", async () => {
@@ -273,6 +285,7 @@ test.serial("Pi and OMP reloads preserve working status", async () => {
         { reason: "reload" },
         {
           hasUI: true,
+          mode: "tui",
           isIdle: () => false,
           sessionManager: {
             getSessionFile: () => undefined,
@@ -313,7 +326,7 @@ test.serial("Pi and OMP ignore non-UI runtimes and release on shutdown", async (
       }
       expect(recording.requests).toHaveLength(0);
 
-      await sessionStart?.({}, { hasUI: true, isIdle: () => false });
+      await sessionStart?.({}, { hasUI: true, mode: "tui", isIdle: () => false });
       await shutdown?.({ type: "session_shutdown" });
       expect(recording.requests.some((request) => request.method === "pane.release_agent")).toBe(true);
     } finally {
@@ -336,6 +349,7 @@ test.serial("Pi reports idle only after the agent settles", async () => {
     let idle = true;
     const context = {
       hasUI: true,
+      mode: "tui",
       isIdle: () => idle,
       sessionManager: {
         getSessionFile: () => undefined,
@@ -369,6 +383,40 @@ test.serial("Pi reports idle only after the agent settles", async () => {
   }
 });
 
+test.serial("Pi ignores RPC sessions even when UI APIs are available", async () => {
+  let recording: RecordingSocket | undefined;
+  try {
+    recording = await recordingSocket((_request, _connection, socket) => socket.end("{}\n"));
+    process.env.OMH_ENV = "1";
+    process.env.OMH_SOCKET_PATH = recording.path;
+    process.env.OMH_PANE_ID = "test:pi-rpc";
+    const harness = createPiHarness();
+    const { default: install } = await freshImport("./pi/omh-agent-state.ts");
+    install(harness.pi);
+
+    const context = {
+      hasUI: true,
+      mode: "rpc",
+      isIdle: () => true,
+    };
+    const sessionStart = harness.handlers.get("session_start");
+    const agentStart = harness.handlers.get("agent_start");
+    const settled = harness.handlers.get("agent_settled");
+    expect(sessionStart).toBeDefined();
+    expect(agentStart).toBeDefined();
+    expect(settled).toBeDefined();
+
+    await sessionStart?.({ reason: "startup" }, context);
+    await agentStart?.({}, context);
+    await settled?.({}, context);
+    await Bun.sleep(25);
+
+    expect(recording.requests).toEqual([]);
+  } finally {
+    if (recording) await closeRecordingSocket(recording);
+  }
+});
+
 test.serial("Pi settlement preserves blocked-state precedence", async () => {
   let recording: RecordingSocket | undefined;
   try {
@@ -381,7 +429,7 @@ test.serial("Pi settlement preserves blocked-state precedence", async () => {
     install(harness.pi);
 
     let idle = true;
-    const context = { hasUI: true, isIdle: () => idle };
+    const context = { hasUI: true, mode: "tui", isIdle: () => idle };
     const sessionStart = harness.handlers.get("session_start");
     const agentStart = harness.handlers.get("agent_start");
     const settled = harness.handlers.get("agent_settled");
@@ -466,13 +514,14 @@ test.serial("Pi retries an unanswered socket report", async () => {
     expect(sessionStart).toBeDefined();
     await sessionStart?.({}, {
       hasUI: true,
+      mode: "tui",
       isIdle: () => false,
       sessionManager: {
         getSessionFile: () => undefined,
         getSessionId: () => undefined,
       },
     });
-    const deadline = Date.now() + 2_500;
+    const deadline = Date.now() + 3_500;
     while (Date.now() < deadline && recording.getConnections() < 2) await Bun.sleep(5);
     expect(recording.getConnections()).toBeGreaterThanOrEqual(2);
     expect(recording.requests.length).toBeGreaterThanOrEqual(2);

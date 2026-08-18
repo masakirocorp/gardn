@@ -144,6 +144,37 @@ impl PaneBorderAgentInfoConfig {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum StatusIndicatorStyle {
+    #[default]
+    Dots,
+    Symbols,
+}
+
+impl StatusIndicatorStyle {
+    pub(crate) fn next(self) -> Self {
+        match self {
+            Self::Dots => Self::Symbols,
+            Self::Symbols => Self::Dots,
+        }
+    }
+
+    pub(crate) fn label(self) -> &'static str {
+        match self {
+            Self::Dots => "Dots",
+            Self::Symbols => "Symbols",
+        }
+    }
+
+    pub(crate) fn config_value(self) -> &'static str {
+        match self {
+            Self::Dots => "dots",
+            Self::Symbols => "symbols",
+        }
+    }
+}
+
 impl SidebarArrangementConfig {
     pub(crate) fn next(self) -> Self {
         match self {
@@ -406,6 +437,7 @@ pub struct Config {
     pub theme: ThemeConfig,
     pub terminal: TerminalConfig,
     pub session: SessionConfig,
+    pub server: ServerConfig,
     pub keys: KeysConfig,
     pub ui: UiConfig,
     pub advanced: AdvancedConfig,
@@ -960,6 +992,24 @@ pub struct IndexedKeysConfig {
 
 #[derive(Debug, Deserialize)]
 #[serde(default)]
+pub struct ServerConfig {
+    /// Virtual terminal width used when no client is attached. Default: 120.
+    pub headless_cols: u16,
+    /// Virtual terminal height used when no client is attached. Default: 40.
+    pub headless_rows: u16,
+}
+
+impl Default for ServerConfig {
+    fn default() -> Self {
+        Self {
+            headless_cols: crate::config::DEFAULT_HEADLESS_COLS,
+            headless_rows: crate::config::DEFAULT_HEADLESS_ROWS,
+        }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(default)]
 pub struct UiConfig {
     pub sidebar_width: u16,
     /// Minimum sidebar width (columns) when expanded. Default: 18.
@@ -978,7 +1028,7 @@ pub struct UiConfig {
     pub sidebar: SidebarConfig,
     /// Capture mouse input for Oh My Herdr's mouse UI. Default: true.
     pub mouse_capture: bool,
-    /// Automatically copy text selected by mouse drag. Default: true.
+    /// Automatically copy text selected by mouse drag or double-click. When disabled, Ctrl+C or a host-forwarded Cmd+C copies and clears the retained selection. Default: true.
     pub copy_on_select: bool,
     /// Modifier that lets right-click gestures pass through to pane apps. Empty disables it.
     pub right_click_passthrough_modifier: RightClickPassthroughModifierConfig,
@@ -994,6 +1044,11 @@ pub struct UiConfig {
     pub prompt_new_workspace_name: bool,
     /// Agent metadata shown in split pane borders when no title or manual name is set.
     pub pane_border_agent_info: PaneBorderAgentInfoConfig,
+    /// How agent status is rendered: colored dots or distinct symbols. Default: "dots".
+    pub status_indicators: StatusIndicatorStyle,
+    /// Format for the outer terminal window title. Empty leaves the title alone.
+    /// Default: "{hostname}: {workspace}".
+    pub window_title: String,
     /// Draw borders around split panes. Default: true.
     pub pane_borders: bool,
     /// Keep split panes visually separated instead of sharing divider borders. Default: true.
@@ -1096,11 +1151,15 @@ pub struct ExperimentalConfig {
     /// Cursor shape rendered for the IME anchor when
     /// `reveal_hidden_cursor_for_cjk_ime` is enabled. Default: "steady_block".
     pub cjk_ime_cursor_shape: ImeCursorShape,
-    /// While prefix mode is active, temporarily switch the macOS host input
-    /// source to an ASCII-capable keyboard layout so prefix commands are read
-    /// as ASCII even when a CJK IME is active, then restore the previous input
-    /// source when prefix mode exits. macOS only; a no-op elsewhere and a
-    /// best-effort no-op if the switch fails. Default: false.
+    /// While prefix mode is active, temporarily switch the host input source
+    /// to an ASCII-capable mode so prefix commands are read as ASCII even when
+    /// an IME is active, then restore the previous input source when prefix
+    /// mode exits. On macOS this selects the ASCII-capable keyboard layout; on
+    /// Windows it switches the IME to English (ASCII) input. Windows support is
+    /// currently limited to the Korean IME; with an IME for any other language,
+    /// the input source is left unchanged. macOS and Windows only; a no-op
+    /// elsewhere and a best-effort no-op if the switch fails.
+    /// Default: false.
     pub switch_ascii_input_source_in_prefix: bool,
 }
 
@@ -1208,6 +1267,8 @@ impl Default for UiConfig {
             prompt_new_tab_name: true,
             prompt_new_workspace_name: false,
             pane_border_agent_info: PaneBorderAgentInfoConfig::default(),
+            status_indicators: StatusIndicatorStyle::default(),
+            window_title: super::window_title::default_window_title(),
             pane_borders: true,
             pane_gaps: true,
             hide_tab_bar_when_single_tab: false,
@@ -1500,6 +1561,42 @@ prompt_new_workspace_name = true
 "#;
         let config: Config = toml::from_str(toml).unwrap();
         assert!(config.ui.prompt_new_workspace_name);
+    }
+
+    #[test]
+    fn status_indicators_default_dots_and_parse() {
+        let default_config = Config::default();
+        assert_eq!(
+            default_config.ui.status_indicators,
+            StatusIndicatorStyle::Dots
+        );
+
+        let toml = r#"
+[ui]
+status_indicators = "symbols"
+"#;
+        let config: Config = toml::from_str(toml).unwrap();
+        assert_eq!(config.ui.status_indicators, StatusIndicatorStyle::Symbols);
+    }
+
+    #[test]
+    fn window_title_defaults_and_parses() {
+        let default_config = Config::default();
+        assert_eq!(default_config.ui.window_title, "{hostname}: {workspace}");
+
+        let toml = r#"
+[ui]
+window_title = "{workspace}/{tab}"
+"#;
+        let config: Config = toml::from_str(toml).unwrap();
+        assert_eq!(config.ui.window_title, "{workspace}/{tab}");
+
+        let toml = r#"
+[ui]
+window_title = ""
+"#;
+        let config: Config = toml::from_str(toml).unwrap();
+        assert_eq!(config.ui.window_title, "");
     }
 
     #[test]
@@ -1899,6 +1996,45 @@ manage_ssh_config = false
     fn onboarding_false_skips_setup() {
         let config: Config = toml::from_str("onboarding = false").unwrap();
         assert!(!config.should_show_onboarding());
+    }
+
+    #[test]
+    fn server_headless_size_defaults_and_parses() {
+        let default_config = Config::default();
+        assert_eq!(
+            default_config.server.headless_cols,
+            crate::config::DEFAULT_HEADLESS_COLS
+        );
+        assert_eq!(
+            default_config.server.headless_rows,
+            crate::config::DEFAULT_HEADLESS_ROWS
+        );
+
+        let config: Config = toml::from_str(
+            r#"[server]
+headless_cols = 160
+headless_rows = 50
+"#,
+        )
+        .unwrap();
+        assert_eq!(config.server.headless_cols, 160);
+        assert_eq!(config.server.headless_rows, 50);
+
+        let invalid: Config = toml::from_str(
+            r#"[server]
+headless_cols = 0
+headless_rows = 50
+"#,
+        )
+        .unwrap();
+        assert!(invalid.invalid_headless_size_diagnostic().is_some());
+        assert_eq!(
+            invalid.headless_size(),
+            (
+                crate::config::DEFAULT_HEADLESS_COLS,
+                crate::config::DEFAULT_HEADLESS_ROWS
+            )
+        );
     }
 
     #[test]

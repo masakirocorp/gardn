@@ -8,7 +8,7 @@ use ratatui::{
 
 use super::{
     scrollbar::{render_scrollbar, should_show_scrollbar},
-    status::{agent_icon, state_label_color},
+    status::{state_icon, state_label_color},
     text::{display_width, middle_elide, truncate_end},
     widgets::{
         modal_close_button_rect, modal_frame_areas, modal_hint_line_count, modal_stack_areas,
@@ -180,7 +180,6 @@ fn render_search_for_navigator(
             &mut spans,
             crate::detect::AgentState::Blocked,
             true,
-            app.spinner_tick,
             "Blocked",
             app,
         ),
@@ -188,7 +187,6 @@ fn render_search_for_navigator(
             &mut spans,
             crate::detect::AgentState::Working,
             true,
-            app.spinner_tick,
             "Working",
             app,
         ),
@@ -196,7 +194,6 @@ fn render_search_for_navigator(
             &mut spans,
             crate::detect::AgentState::Idle,
             true,
-            app.spinner_tick,
             "Idle",
             app,
         ),
@@ -204,7 +201,6 @@ fn render_search_for_navigator(
             &mut spans,
             crate::detect::AgentState::Idle,
             false,
-            app.spinner_tick,
             "Done",
             app,
         ),
@@ -280,11 +276,16 @@ fn push_state_chip(
     spans: &mut Vec<Span<'static>>,
     state: crate::detect::AgentState,
     seen: bool,
-    tick: u32,
     label: &'static str,
     app: &AppState,
 ) {
-    let (icon, icon_style) = agent_icon(state, seen, tick, &app.palette);
+    let (icon, icon_style) = state_icon(
+        state,
+        seen,
+        app.spinner_tick,
+        app.status_indicators,
+        &app.palette,
+    );
     spans.push(Span::styled(icon, icon_style.add_modifier(Modifier::BOLD)));
     spans.push(Span::raw(" "));
     spans.push(Span::styled(
@@ -341,7 +342,13 @@ fn render_row(
     };
     let is_branch = row.is_group || row.is_workspace;
     let status = (!is_branch && row.status != crate::detect::AgentState::Unknown).then(|| {
-        let (icon, style) = agent_icon(row.status, row.seen, app.spinner_tick, p);
+        let (icon, style) = state_icon(
+            row.status,
+            row.seen,
+            app.spinner_tick,
+            app.status_indicators,
+            p,
+        );
         let style = if selected || context_only {
             if selected {
                 base_style.add_modifier(Modifier::BOLD)
@@ -354,7 +361,11 @@ fn render_row(
         (icon, style)
     });
 
-    let prefix = tree_prefix(rows, idx);
+    let prefix = if filter_active && row.is_group {
+        "  ".to_string()
+    } else {
+        tree_prefix(rows, idx)
+    };
     let prefix_style = if selected {
         base_style
     } else if context_only {
@@ -932,6 +943,37 @@ mod tests {
         assert_eq!(
             navigator_popup_rect(Rect::new(0, 0, 80, 14)),
             Rect::new(2, 1, 76, 12)
+        );
+    }
+
+    #[test]
+    fn navigator_search_renders_singleton_custom_tab_names() {
+        let mut app = AppState::test_new();
+        let mut workspace = Workspace::test_new("single");
+        workspace.tabs[0].custom_name = Some("Baz".into());
+        app.workspaces = vec![workspace];
+        app.active = Some(0);
+        app.selected = 0;
+        let area = Rect::new(0, 0, 120, 30);
+        crate::ui::compute_view(&mut app, area);
+        app.open_navigator();
+        app.navigator.query = "baz".into();
+        app.select_first_navigator_match();
+
+        let view = ClientViewState::from_default_client_state(&app);
+
+        let terminal_runtimes = crate::terminal::TerminalRuntimeRegistry::new();
+        let backend = TestBackend::new(area.width, area.height);
+        let mut terminal = Terminal::new(backend).expect("test backend");
+        terminal
+            .draw(|frame| render_navigator_overlay_for_view(&app, &view, &terminal_runtimes, frame))
+            .expect("render navigator");
+
+        let text = buffer_text(terminal.backend().buffer(), area.width, area.height);
+        assert!(text.contains("Baz"), "custom tab name: {text:?}");
+        assert!(
+            !text.contains("▸") && !text.contains("▾"),
+            "singleton custom tab should stay a leaf: {text:?}"
         );
     }
 

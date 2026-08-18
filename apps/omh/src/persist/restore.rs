@@ -1,6 +1,5 @@
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
-use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
 use ratatui::layout::Direction;
@@ -45,7 +44,7 @@ struct RestoreRuntimeContext<'a> {
     resume_agents_on_restore: bool,
     events: mpsc::Sender<AppEvent>,
     render_notify: Arc<Notify>,
-    render_dirty: Arc<AtomicBool>,
+    render_dirty: Arc<crate::render_signal::RenderSignal>,
 }
 
 type RestoredSession = (
@@ -78,7 +77,7 @@ pub fn restore(
     resume_agents_on_restore: bool,
     events: mpsc::Sender<AppEvent>,
     render_notify: Arc<Notify>,
-    render_dirty: Arc<AtomicBool>,
+    render_dirty: Arc<crate::render_signal::RenderSignal>,
 ) -> RestoredSession {
     let mut imported_panes = HashMap::new();
     restore_with_imports(
@@ -105,7 +104,7 @@ pub fn restore_handoff(
     imports: &mut HashMap<u32, ImportedPaneRuntime>,
     events: mpsc::Sender<AppEvent>,
     render_notify: Arc<Notify>,
-    render_dirty: Arc<AtomicBool>,
+    render_dirty: Arc<crate::render_signal::RenderSignal>,
 ) -> std::io::Result<RestoredSession> {
     restore_with_imports_strict(
         snapshot,
@@ -220,7 +219,7 @@ fn restore_with_imports_strict(
     imported_panes: &mut HashMap<u32, ImportedPaneRuntime>,
     events: mpsc::Sender<AppEvent>,
     render_notify: Arc<Notify>,
-    render_dirty: Arc<AtomicBool>,
+    render_dirty: Arc<crate::render_signal::RenderSignal>,
 ) -> std::io::Result<RestoredSession> {
     let (restored, failed_imports) = restore_with_imports_and_failures(
         snapshot,
@@ -260,7 +259,7 @@ fn restore_with_imports(
     imported_panes: &mut HashMap<u32, ImportedPaneRuntime>,
     events: mpsc::Sender<AppEvent>,
     render_notify: Arc<Notify>,
-    render_dirty: Arc<AtomicBool>,
+    render_dirty: Arc<crate::render_signal::RenderSignal>,
 ) -> RestoredSession {
     restore_with_imports_and_failures(
         snapshot,
@@ -289,7 +288,7 @@ fn restore_with_imports_and_failures(
     imported_panes: &mut HashMap<u32, ImportedPaneRuntime>,
     events: mpsc::Sender<AppEvent>,
     render_notify: Arc<Notify>,
-    render_dirty: Arc<AtomicBool>,
+    render_dirty: Arc<crate::render_signal::RenderSignal>,
 ) -> RestoreFailures<RestoredSession> {
     let mut workspaces = Vec::new();
     let mut terminals = HashMap::new();
@@ -408,6 +407,11 @@ fn restore_workspace(
     }
 
     if tabs.is_empty() {
+        let (cached_auto_label, cached_git_status_key) =
+            crate::workspace::discover_workspace_git_identity(
+                &snap.identity_cwd,
+                snap.default_location.is_local(),
+            );
         return (
             Some((
                 Workspace {
@@ -416,6 +420,9 @@ fn restore_workspace(
                     group_id: snap.group_id.clone(),
                     identity_cwd: snap.identity_cwd.clone(),
                     default_location: snap.default_location.clone(),
+                    cached_identity_cwd: snap.identity_cwd.clone(),
+                    cached_auto_label,
+                    cached_git_status_key,
                     cached_git_branch: None,
                     cached_git_ahead_behind: None,
                     cached_git_work_summary: None,
@@ -434,6 +441,11 @@ fn restore_workspace(
         );
     }
 
+    let (cached_auto_label, cached_git_status_key) =
+        crate::workspace::discover_workspace_git_identity(
+            &snap.identity_cwd,
+            snap.default_location.is_local(),
+        );
     (
         Some(Workspace {
             id: workspace_id,
@@ -441,6 +453,9 @@ fn restore_workspace(
             group_id: snap.group_id.clone(),
             identity_cwd: snap.identity_cwd.clone(),
             default_location: snap.default_location.clone(),
+            cached_identity_cwd: snap.identity_cwd.clone(),
+            cached_auto_label,
+            cached_git_status_key,
             cached_git_branch: None,
             cached_git_ahead_behind: None,
             cached_git_work_summary: None,
@@ -517,6 +532,7 @@ fn restore_tab(
         let saved_launch_env = saved_pane.map(|p| p.launch_env.clone()).unwrap_or_default();
         let saved_agent_session = saved_pane.and_then(|p| p.agent_session.as_ref());
         let saved_seen = saved_pane.is_none_or(|p| p.seen);
+        let saved_right_click_passthrough = saved_pane.is_some_and(|p| p.right_click_passthrough);
         let saved_env_pane_id = saved_pane.and_then(|p| p.env_pane_id).or(old_id.copied());
         let saved_terminal_semantics = saved_pane.and_then(|p| p.terminal_semantics.clone());
         let saved_history =
@@ -579,6 +595,7 @@ fn restore_tab(
             let mut pane = PaneState::new_with_env_pane_id(terminal_id, *id);
             pane.env_pane_id_raw = saved_env_pane_id;
             pane.seen = saved_seen;
+            pane.right_click_passthrough = saved_right_click_passthrough;
             panes.insert(*id, pane);
             terminals.push(terminal);
             continue;
@@ -631,6 +648,7 @@ fn restore_tab(
             let mut pane = PaneState::new_with_env_pane_id(terminal_id.clone(), *id);
             pane.env_pane_id_raw = saved_env_pane_id;
             pane.seen = saved_seen;
+            pane.right_click_passthrough = saved_right_click_passthrough;
             panes.insert(*id, pane);
             terminals.push(terminal);
             continue;
@@ -1119,6 +1137,7 @@ mod tests {
                             launch_argv: None,
                             launch_env: Vec::new(),
                             seen: true,
+                            right_click_passthrough: false,
                             terminal_semantics: None,
                         },
                     )]),
@@ -1239,6 +1258,7 @@ mod tests {
                             launch_argv: Some(vec!["codex".into()]),
                             launch_env: Vec::new(),
                             seen: true,
+                            right_click_passthrough: false,
                             terminal_semantics: None,
                         },
                     )]),
@@ -1272,7 +1292,7 @@ mod tests {
             true,
             event_tx,
             Arc::new(Notify::new()),
-            Arc::new(AtomicBool::new(false)),
+            Arc::new(crate::render_signal::RenderSignal::new()),
         );
 
         let terminal = terminals
@@ -1299,6 +1319,7 @@ mod tests {
                     launch_argv: None,
                     launch_env: Vec::new(),
                     seen: true,
+                    right_click_passthrough: false,
                     terminal_semantics: None,
                 },
             )
@@ -1369,7 +1390,7 @@ mod tests {
             false,
             events,
             Arc::new(Notify::new()),
-            Arc::new(AtomicBool::new(false)),
+            Arc::new(crate::render_signal::RenderSignal::new()),
         );
 
         for (_, runtime) in runtimes {
@@ -1698,6 +1719,7 @@ mod tests {
                             launch_argv: Some(vec![launch_command.clone()]),
                             launch_env: vec![("CODEX_HOME".into(), "/profiles/codex".into())],
                             seen: true,
+                            right_click_passthrough: false,
                             terminal_semantics: None,
                         },
                     )]),
@@ -1731,7 +1753,7 @@ mod tests {
             true,
             event_tx,
             Arc::new(Notify::new()),
-            Arc::new(AtomicBool::new(false)),
+            Arc::new(crate::render_signal::RenderSignal::new()),
         );
         let terminal = terminals
             .values()
@@ -2018,7 +2040,7 @@ mod tests {
             false,
             events,
             Arc::new(Notify::new()),
-            Arc::new(AtomicBool::new(false)),
+            Arc::new(crate::render_signal::RenderSignal::new()),
         );
 
         assert_eq!(workspaces.len(), 1);
@@ -2079,6 +2101,7 @@ mod tests {
                             launch_argv: None,
                             launch_env: Vec::new(),
                             seen: true,
+                            right_click_passthrough: false,
                             terminal_semantics: None,
                         },
                     )]),
@@ -2112,7 +2135,7 @@ mod tests {
             false,
             events,
             Arc::new(Notify::new()),
-            Arc::new(AtomicBool::new(false)),
+            Arc::new(crate::render_signal::RenderSignal::new()),
         );
 
         let terminal = terminals
@@ -2187,6 +2210,7 @@ mod tests {
                             launch_argv: None,
                             launch_env: Vec::new(),
                             seen: true,
+                            right_click_passthrough: false,
                             terminal_semantics: None,
                         },
                     )]),
@@ -2220,7 +2244,7 @@ mod tests {
             true,
             events,
             Arc::new(Notify::new()),
-            Arc::new(AtomicBool::new(false)),
+            Arc::new(crate::render_signal::RenderSignal::new()),
         );
 
         assert!(
@@ -2243,7 +2267,7 @@ mod tests {
         let (snapshot, history) = snapshot_with_saved_pane_history();
         let (events, _events_rx) = mpsc::channel(8);
         let render_notify = Arc::new(Notify::new());
-        let render_dirty = Arc::new(AtomicBool::new(false));
+        let render_dirty = Arc::new(crate::render_signal::RenderSignal::new());
 
         let (_workspaces, _terminals, runtimes) = restore(
             &snapshot,
@@ -2282,7 +2306,7 @@ mod tests {
         let (snapshot, _history) = snapshot_with_saved_pane_history();
         let (events, _events_rx) = mpsc::channel(8);
         let render_notify = Arc::new(Notify::new());
-        let render_dirty = Arc::new(AtomicBool::new(false));
+        let render_dirty = Arc::new(crate::render_signal::RenderSignal::new());
 
         let (_workspaces, _terminals, runtimes) = restore(
             &snapshot,
@@ -2418,7 +2442,7 @@ mod tests {
             resume_agents_on_restore,
             events,
             Arc::new(Notify::new()),
-            Arc::new(AtomicBool::new(false)),
+            Arc::new(crate::render_signal::RenderSignal::new()),
         );
         (terminals, runtimes)
     }
@@ -2441,6 +2465,7 @@ mod tests {
                 launch_argv: None,
                 launch_env: Vec::new(),
                 seen: true,
+                right_click_passthrough: false,
                 terminal_semantics: None,
             },
         );
@@ -2540,7 +2565,7 @@ mod tests {
             false,
             event_tx,
             Arc::new(Notify::new()),
-            Arc::new(AtomicBool::new(false)),
+            Arc::new(crate::render_signal::RenderSignal::new()),
         );
 
         assert_eq!(workspaces.len(), 1);

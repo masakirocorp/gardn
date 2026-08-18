@@ -63,14 +63,14 @@ impl PendingRemoteCreation {
 
 enum PendingRemoteCreationPlan {
     Workspace {
-        workspace: Workspace,
-        terminal: crate::terminal::TerminalState,
+        workspace: Box<Workspace>,
+        terminal: Box<crate::terminal::TerminalState>,
         focus: bool,
     },
     Tab {
         workspace_id: String,
-        tab: crate::workspace::Tab,
-        terminal: crate::terminal::TerminalState,
+        tab: Box<crate::workspace::Tab>,
+        terminal: Box<crate::terminal::TerminalState>,
         focus: bool,
     },
     Split {
@@ -80,7 +80,7 @@ enum PendingRemoteCreationPlan {
         tab_number: usize,
         direction: ratatui::layout::Direction,
         ratio: Option<f32>,
-        terminal: crate::terminal::TerminalState,
+        terminal: Box<crate::terminal::TerminalState>,
         focus: bool,
     },
 }
@@ -629,8 +629,8 @@ impl App {
             PendingRemoteCreation {
                 runtime,
                 plan: PendingRemoteCreationPlan::Workspace {
-                    workspace,
-                    terminal,
+                    workspace: Box::new(workspace),
+                    terminal: Box::new(terminal),
                     focus,
                 },
             },
@@ -698,8 +698,8 @@ impl App {
                 runtime,
                 plan: PendingRemoteCreationPlan::Tab {
                     workspace_id,
-                    tab,
-                    terminal,
+                    tab: Box::new(tab),
+                    terminal: Box::new(terminal),
                     focus,
                 },
             },
@@ -762,7 +762,7 @@ impl App {
                     new_pane_id,
                     direction,
                     ratio,
-                    terminal,
+                    terminal: Box::new(terminal),
                     focus,
                 },
             },
@@ -858,8 +858,8 @@ impl App {
                 let root_pane = workspace.tabs[0].root_pane;
                 let workspace_id = workspace.id.clone();
                 self.terminal_runtimes.insert(terminal_id.clone(), runtime);
-                self.state.terminals.insert(terminal_id, terminal);
-                self.state.workspaces.push(workspace);
+                self.state.terminals.insert(terminal_id, *terminal);
+                self.state.workspaces.push(*workspace);
                 let ws_idx = self.state.workspaces.len() - 1;
                 self.state.remove_alias_shadowed_by_new_pane(root_pane);
                 crate::logging::workspace_created(&workspace_id, root_pane.raw());
@@ -890,9 +890,9 @@ impl App {
                 terminal.remote_runtime_identity = Some(identity);
                 let terminal_id = terminal.id.clone();
                 let root_pane = tab.root_pane;
-                let tab_idx = self.state.workspaces[ws_idx].add_remote_tab(tab);
+                let tab_idx = self.state.workspaces[ws_idx].add_remote_tab(*tab);
                 self.terminal_runtimes.insert(terminal_id.clone(), runtime);
-                self.state.terminals.insert(terminal_id, terminal);
+                self.state.terminals.insert(terminal_id, *terminal);
                 self.state.remove_alias_shadowed_by_new_pane(root_pane);
                 if focus {
                     self.state.workspaces[ws_idx].switch_tab(tab_idx);
@@ -931,7 +931,7 @@ impl App {
                     direction,
                     ratio,
                     focus,
-                    terminal,
+                    *terminal,
                     runtime,
                 ) else {
                     // Source pane deleted before ACK commit. Outer ready handler terminates
@@ -1122,7 +1122,7 @@ impl App {
                 .foreground_cwd_for_pane(pane_id, &self.terminal_runtimes)
                 .map(|cwd| cwd.display().to_string()),
             label: terminal.manual_label.clone(),
-            agent: terminal.effective_agent_label().map(str::to_string),
+            agent: terminal.lifecycle_agent_label().map(str::to_string),
             title: presentation.title,
             display_agent: presentation.display_agent,
             agent_status: pane_agent_status(terminal.state, pane.seen),
@@ -1165,7 +1165,7 @@ impl App {
                 .foreground_cwd_for_pane(pane_id, &self.terminal_runtimes)
                 .map(|cwd| cwd.display().to_string()),
             label: terminal.manual_label.clone(),
-            agent: terminal.effective_agent_label().map(str::to_string),
+            agent: terminal.lifecycle_agent_label().map(str::to_string),
             title: presentation.title,
             display_agent: presentation.display_agent,
             agent_status: pane_agent_status(terminal.state, pane.seen),

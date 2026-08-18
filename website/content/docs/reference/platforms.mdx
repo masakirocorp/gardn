@@ -14,9 +14,9 @@ Oh My Herdr has platform-specific process, clipboard, editor, cursor, and URL be
 | macOS    | Native macOS client and server. Uses the native host cursor by default and macOS helpers listed below.                                                 | Supported as a Unix local client and as a remote host on `x86_64` and `aarch64`.                                         |
 | Linux    | Native Linux client and server. Uses the native host cursor by default outside WSL and Linux clipboard/session helpers.                                | Supported as a Unix local client and as a remote host on `x86_64` and `aarch64`.                                         |
 | WSL      | Uses the Linux platform implementation inside WSL. WSL detection enables the drawn host cursor in automatic cursor mode.                               | Follow the Linux path from the WSL client; the remote host still needs a supported Linux or macOS binary and SSH access. |
-| Windows  | Native Windows client and server. Uses the drawn host cursor in automatic cursor mode, ConPTY process handling, and Windows editor/clipboard behavior. | Not a supported local client for the remote bridge and not a supported remote host for the Unix remote path.             |
+| Windows  | Native Windows client and server. Uses the drawn host cursor in automatic cursor mode, ConPTY process handling, and Windows editor/clipboard behavior. | Supported as a local thin client for the remote bridge. Not a supported remote host for the Unix remote path.            |
 
-Remote attach is limited to Unix local clients and Linux/macOS remotes on `x86_64` or `aarch64`. A binary must match the remote operating system and architecture; a local build is not automatically portable across those combinations.
+Remote attach supports Unix local clients (Linux and macOS) and Windows local clients. Supported remote hosts are Linux and macOS on `x86_64` or `aarch64`; Windows is not a supported remote host. A binary must match the remote operating system and architecture; a local build is not automatically portable across those combinations.
 
 ## Host helpers
 
@@ -40,11 +40,12 @@ Install and configure the helper for the active session type if clipboard or URL
 ### Windows
 
 - Text clipboard writes use the native Windows clipboard API.
-- Clipboard text reads and clipboard image reads are not provided by the Windows platform implementation.
+- Clipboard text reads are not provided by the Windows platform implementation.
+- Clipboard image reads use the native Windows clipboard API. Registered PNG clipboard data is read directly; DIB and DIBV5 bitmap data is converted to PNG. Oh My Herdr validates the image signature and dimensions before using it.
 - Scrollback editors use `$VISUAL`, then `$EDITOR`, with `notepad.exe` as the fallback.
 - Custom command strings run through `cmd.exe /d /c`.
 
-As a result, mouse or keyboard copy can write text on Windows, while workflows that need Oh My Herdr to read clipboard text or images are unavailable in the Windows implementation. Remote image paste also needs a local image-reading helper, so do not assume it is available from a Windows local client.
+As a result, mouse or keyboard copy can write text on Windows, and remote image paste can read a clipboard image from a Windows local client. Clipboard text reads remain unavailable in the Windows implementation, so workflows that need Oh My Herdr to read clipboard text are unavailable on Windows.
 
 ## Cursor and terminal boundaries
 

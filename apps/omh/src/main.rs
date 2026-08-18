@@ -49,8 +49,11 @@ mod logging;
 mod metadata_tokens;
 mod noninteractive_process;
 mod pane;
+mod pane_graphics_files;
 mod persist;
 mod platform;
+mod plugin_command;
+
 mod plugin_paths;
 mod popup_size;
 mod ports;
@@ -59,6 +62,8 @@ mod protocol;
 mod pty;
 mod raw_input;
 mod release_notes;
+mod render_signal;
+
 mod remote;
 mod selection;
 mod server;
@@ -66,6 +71,7 @@ mod session;
 mod settings_rows;
 mod sound;
 mod terminal;
+mod terminal_effects;
 mod terminal_modes;
 mod terminal_notify;
 mod terminal_theme;
@@ -305,6 +311,17 @@ github = "ghui"
 # agent metadata shown in split pane borders when no title or manual name is set.
 # pane_border_agent_info = "hidden" # "hidden", "name", or "name_and_status"
 
+# how agent status is rendered in lists: uniform colored dots or distinct symbols.
+# status_indicators = "dots" # "dots" or "symbols"
+
+# title oh my herdr writes to the terminal it runs in, which is what window
+# managers show in title, tab, and group bars. tokens are {hostname},
+# {workspace}, {tab}, {pane}, and {terminal_title}; {{ and }} are literal braces.
+# the title renders on the server, so {hostname} names the host the panes run
+# on even when attaching from a remote client.
+# set to "" to leave the outer terminal title alone.
+# window_title = "{hostname}: {workspace}"
+
 # draw borders around split panes.
 # pane_borders = true
 
@@ -366,6 +383,12 @@ initial_agent_scope = "all"
 # an Oh My Herdr server restart. Requires official integrations that report session refs.
 # resume_agents_on_restore = true
 
+
+[server]
+# Virtual terminal size used when no client is attached. Default: 120x40.
+# headless_cols = 120
+# headless_rows = 40
+
 [remote]
 # Whether Oh My Herdr manages the ssh config used for the `omh --remote` bridge.
 # When true (default), Oh My Herdr runs the bridge ssh through a generated config that
@@ -383,10 +406,12 @@ initial_agent_scope = "all"
 # kitty_graphics = false
 # Save recent pane screen history across full server restarts.
 # pane_history = true
-# While prefix mode is active, temporarily switch the macOS host input
-# source to an ASCII-capable keyboard layout so prefix commands register
-# even when a CJK IME is active, then restore the previous input source
-# when prefix mode exits. macOS only; best-effort. Default: false.
+# While prefix mode is active, temporarily switch the host input source to
+# an ASCII-capable mode so prefix commands register even when an IME is
+# active, then restore the previous input source when prefix mode exits. On
+# macOS this selects the ASCII-capable keyboard layout; on Windows it toggles
+# a Korean IME between Hangul and English (other IME languages are left
+# unchanged). macOS and Windows only; best-effort. Default: false.
 # switch_ascii_input_source_in_prefix = false
 # Expose the focused pane's cursor to the outer terminal so macOS input
 # methods keep tracking the candidate window when TUIs paint their own
@@ -408,6 +433,9 @@ initial_agent_scope = "all"
 # Matches Ghostty's default scrollback-limit behavior.
 # scrollback_limit_bytes = 10000000
 "##;
+
+// Bundled at build time so the printed skill always matches this binary's release.
+const SKILL: &str = include_str!("../../../SKILL.md");
 
 fn should_block_nested(config: &config::Config) -> bool {
     should_block_nested_for_env(config, std::env::var(OMH_ENV_VAR).ok().as_deref())
@@ -438,8 +466,29 @@ fn exit_if_nested_disabled(config: &config::Config) {
     }
 }
 
+fn args_as_utf8<I>(args: I) -> Result<Vec<String>, String>
+where
+    I: IntoIterator<Item = std::ffi::OsString>,
+{
+    args.into_iter()
+        .enumerate()
+        .map(|(index, arg)| {
+            arg.into_string()
+                .map_err(|_| format!("argument {index} is not valid UTF-8"))
+        })
+        .collect()
+}
+
 fn main() -> io::Result<()> {
-    let raw_args: Vec<String> = std::env::args().collect();
+    let raw_args: Vec<String> = match args_as_utf8(std::env::args_os()) {
+        Ok(args) => args,
+        Err(err) => {
+            eprintln!("error: {err}");
+            eprintln!("run 'omh --help' for usage");
+            std::process::exit(2);
+        }
+    };
+
     if std::env::var_os(execution_host::auth::ASKPASS_ROLE_ENV).is_some() {
         return execution_host::auth::run_ssh_askpass(&raw_args[1..]);
     }
@@ -465,7 +514,7 @@ fn main() -> io::Result<()> {
         && !args.iter().any(|a| {
             matches!(
                 a.as_str(),
-                "--help" | "-h" | "--version" | "-V" | "--default-config"
+                "--help" | "-h" | "--version" | "-V" | "--default-config" | "--skill"
             )
         })
     {
@@ -477,8 +526,19 @@ fn main() -> io::Result<()> {
     match cli::maybe_run(&args) {
         Ok(cli::CommandOutcome::Handled(code)) => std::process::exit(code),
         Ok(cli::CommandOutcome::NotCli) => {}
-        Err(error) if cli::protocol_mismatch_was_reported(&error) => std::process::exit(1),
-        Err(error) => return Err(error),
+        Err(error) => {
+            if cli::protocol_mismatch_was_reported(&error) {
+                std::process::exit(1);
+            }
+            if let Some(response) = cli::server_not_running_reported_response(&error) {
+                eprintln!(
+                    "{}",
+                    serde_json::to_string(response).map_err(io::Error::other)?
+                );
+                std::process::exit(1);
+            }
+            return Err(error);
+        }
     }
 
     // subcommands and flags (no tui, no logging needed)
@@ -611,6 +671,7 @@ fn main() -> io::Result<()> {
         println!("                      keybindings for --remote app attach (default: local)");
         println!("  --handoff           opt into live handoff for update or remote attach");
         println!("  --default-config    print default configuration and exit");
+        println!("  --skill             print the agent skill file and exit");
         println!("  --version, -V       print version and exit");
         println!("  --help, -h          show this help");
         println!();
@@ -618,6 +679,7 @@ fn main() -> io::Result<()> {
         println!("logs:   {}", logging::help_log_paths_summary());
         println!("env:    OMH_CONFIG_PATH overrides config file path");
         println!("home:   https://github.com/masakirocorp/oh-my-herdr");
+        println!("skill:  omh --skill prints agent instructions for driving omh from a pane");
         return Ok(());
     }
 
@@ -631,6 +693,11 @@ fn main() -> io::Result<()> {
         return Ok(());
     }
 
+    if args.iter().any(|a| a == "--skill") {
+        print!("{SKILL}");
+        return Ok(());
+    }
+
     // Reject unknown flags
     let known_flags = [
         "--no-session",
@@ -640,6 +707,7 @@ fn main() -> io::Result<()> {
         "--version",
         "-V",
         "--default-config",
+        "--skill",
         "--help",
         "-h",
     ];
@@ -704,11 +772,7 @@ fn main() -> io::Result<()> {
 
     let (api_tx, api_rx) = tokio::sync::mpsc::unbounded_channel();
     let event_hub = api::EventHub::default();
-    let _api_server = match api::start_server_with_capabilities(
-        api_tx,
-        event_hub.clone(),
-        api::default_server_capabilities(),
-    ) {
+    let _api_server = match api::start_server(api_tx, event_hub.clone()) {
         Ok(server) => server,
         Err(err) if err.kind() == io::ErrorKind::AddrInUse => {
             eprintln!("error: Oh My Herdr is already running");
@@ -863,5 +927,39 @@ mod tests {
         assert!(NESTED_OMH_MESSAGES
             .iter()
             .all(|message| !message.starts_with("omh:")));
+    }
+
+    #[cfg(unix)]
+    fn invalid_utf8_arg() -> std::ffi::OsString {
+        use std::os::unix::ffi::OsStringExt;
+        std::ffi::OsString::from_vec(vec![0xff])
+    }
+
+    #[cfg(windows)]
+    fn invalid_utf8_arg() -> std::ffi::OsString {
+        use std::os::windows::ffi::OsStringExt;
+        std::ffi::OsString::from_wide(&[0xd800])
+    }
+
+    #[test]
+    fn args_as_utf8_passes_through_valid_arguments() {
+        let args = ["omh", "pane", "get", "pane-1"].map(std::ffi::OsString::from);
+        assert_eq!(
+            args_as_utf8(args).unwrap(),
+            ["omh", "pane", "get", "pane-1"]
+        );
+    }
+
+    #[test]
+    fn args_as_utf8_reports_the_offending_argument_instead_of_panicking() {
+        let args = vec![
+            std::ffi::OsString::from("omh"),
+            std::ffi::OsString::from("pane"),
+            invalid_utf8_arg(),
+        ];
+        assert_eq!(
+            args_as_utf8(args).unwrap_err(),
+            "argument 2 is not valid UTF-8"
+        );
     }
 }

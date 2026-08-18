@@ -11,7 +11,7 @@ use ratatui::{
 
 use super::scrollbar::{render_scrollbar, should_show_scrollbar};
 use super::status::{
-    agent_icon, agent_section_icon, agent_section_style, state_dot, state_label, state_label_color,
+    agent_section_icon, agent_section_style, state_icon, state_label, state_label_color,
 };
 use super::text::display_width;
 use super::widgets::fill_rect;
@@ -696,8 +696,13 @@ fn agent_token_line(
         }
         let (text, style) = match token {
             ResolvedToken::StateIcon => {
-                let (icon, style) =
-                    agent_icon(detail.state, detail.seen, app.spinner_tick, &app.palette);
+                let (icon, style) = state_icon(
+                    detail.state,
+                    detail.seen,
+                    app.spinner_tick,
+                    app.status_indicators,
+                    &app.palette,
+                );
                 (icon.to_string(), style)
             }
             ResolvedToken::StateText(value) => (
@@ -724,12 +729,8 @@ fn agent_panel_section_header_style(section: &AgentPanelSection, p: &Palette) ->
     agent_section_style(section.label, p)
 }
 
-fn agent_panel_section_icon(
-    section: &AgentPanelSection,
-    spinner_tick: u32,
-    p: &Palette,
-) -> (&'static str, Style) {
-    agent_section_icon(section.label, spinner_tick, p)
+fn agent_panel_section_icon(section: &AgentPanelSection, p: &Palette) -> (&'static str, Style) {
+    agent_section_icon(section.label, p)
 }
 
 fn right_entry_detail_prefix(_p: &Palette) -> Vec<Span<'static>> {
@@ -828,6 +829,8 @@ fn workspace_token_line(
     tokens: &[ResolvedToken],
     state: AgentState,
     seen: bool,
+    tick: u32,
+    indicator_style: crate::config::StatusIndicatorStyle,
     p: &Palette,
     name_style: Style,
 ) -> Line<'static> {
@@ -841,7 +844,7 @@ fn workspace_token_line(
         }
         let (text, style) = match token {
             ResolvedToken::StateIcon => {
-                let (icon, style) = state_dot(state, seen, p);
+                let (icon, style) = state_icon(state, seen, tick, indicator_style, p);
                 (icon.to_string(), style)
             }
             ResolvedToken::StateText(value) => (
@@ -891,7 +894,18 @@ fn render_workspace_token_rows(
             " ".repeat(prefix_width as usize),
             Style::default(),
         )];
-        spans.extend(workspace_token_line(row, state, seen, &app.palette, name_style).spans);
+        spans.extend(
+            workspace_token_line(
+                row,
+                state,
+                seen,
+                app.spinner_tick,
+                app.status_indicators,
+                &app.palette,
+                name_style,
+            )
+            .spans,
+        );
         frame.render_widget(
             Paragraph::new(Line::from(spans)),
             Rect::new(area.x, row_y.saturating_add(index as u16), area.width, 1),
@@ -1933,7 +1947,7 @@ fn render_collapsed_agent_section_header(
     p: &Palette,
 ) {
     let (state, seen) = collapsed_agent_section_state(section);
-    let (icon, icon_style) = agent_icon(state, seen, app.spinner_tick, p);
+    let (icon, icon_style) = state_icon(state, seen, app.spinner_tick, app.status_indicators, p);
     frame.render_widget(
         Paragraph::new(Line::from(vec![
             Span::styled(
@@ -2363,7 +2377,13 @@ pub(super) fn render_sidebar_collapsed(app: &AppState, frame: &mut Frame, area: 
                     continue;
                 };
                 let (agg_state, agg_seen) = ws.aggregate_state(&app.terminals);
-                let (icon, icon_style) = state_dot(agg_state, agg_seen, p);
+                let (icon, icon_style) = state_icon(
+                    agg_state,
+                    agg_seen,
+                    app.spinner_tick,
+                    app.status_indicators,
+                    p,
+                );
                 let is_selected = ws_idx == app.selected && is_navigating;
                 let is_active = Some(ws_idx) == app.active;
                 let row_style = if is_selected {
@@ -2390,8 +2410,7 @@ pub(super) fn render_sidebar_collapsed(app: &AppState, frame: &mut Frame, area: 
 
                 frame.render_widget(
                     Paragraph::new(Line::from(vec![
-                        Span::styled(format!("{ordinal}"), num_style),
-                        Span::styled(" ", row_style),
+                        Span::styled(format!("{ordinal:<2}"), num_style),
                         Span::styled(icon, icon_style),
                     ])),
                     Rect::new(workspace_rows.x, y, workspace_rows.width, 1),
@@ -2541,7 +2560,8 @@ pub(super) fn render_sidebar_collapsed_for_view(
                         continue;
                     };
                     let (state, seen) = workspace.aggregate_state(&app.terminals);
-                    let (icon, icon_style) = state_dot(state, seen, p);
+                    let (icon, icon_style) =
+                        state_icon(state, seen, app.spinner_tick, app.status_indicators, p);
                     let selected = navigating && ws_idx == view.selected_workspace;
                     let active = Some(ws_idx) == view.active_workspace;
                     let bg = if selected { p.surface0 } else { p.surface_dim };
@@ -2564,8 +2584,7 @@ pub(super) fn render_sidebar_collapsed_for_view(
                     }
                     frame.render_widget(
                         Paragraph::new(Line::from(vec![
-                            Span::styled(format!("{ordinal}"), num_style),
-                            Span::styled(" ", row_style),
+                            Span::styled(format!("{ordinal:<2}"), num_style),
                             Span::styled(icon, icon_style),
                         ])),
                         Rect::new(rows.x, y, rows.width, 1),
@@ -3926,8 +3945,7 @@ fn render_agent_section_header(
         Paragraph::new(Span::styled(marker, dim)),
         Rect::new(body.x + RIGHT_SUBSECTION_MARKER_COL, row_y, 1, 1),
     );
-    let (section_icon, section_icon_style) =
-        agent_panel_section_icon(section, app.spinner_tick, &app.palette);
+    let (section_icon, section_icon_style) = agent_panel_section_icon(section, &app.palette);
     frame.render_widget(
         Paragraph::new(Span::styled(section_icon, section_icon_style)),
         Rect::new(
@@ -4484,6 +4502,7 @@ fn render_right_sidebar_toggle(
 
 #[cfg(test)]
 mod tests {
+    use super::super::status::agent_icon;
     use super::*;
     use crate::{app::state::Group, detect::Agent, workspace::Workspace};
     use ratatui::{backend::TestBackend, buffer::Buffer, Terminal};
@@ -4875,6 +4894,42 @@ mod tests {
     }
 
     #[test]
+    fn collapsed_sidebar_keeps_workspace_status_visible_for_two_digit_positions() {
+        let mut app = crate::app::state::AppState::test_new();
+        app.workspaces = (1..=10)
+            .map(|idx| Workspace::test_new(&format!("workspace-{idx}")))
+            .collect();
+        app.ensure_test_terminals();
+
+        for ws_idx in 0..app.workspaces.len() {
+            let pane = app.workspaces[ws_idx].tabs[0].root_pane;
+            let terminal_id = app.workspaces[ws_idx].tabs[0].panes[&pane]
+                .attached_terminal_id
+                .clone();
+            app.terminals.get_mut(&terminal_id).unwrap().detected_agent = Some(Agent::Claude);
+        }
+
+        let area = Rect::new(0, 0, 4, 25);
+        let (ws_area, _, _) = collapsed_sidebar_sections(area, true);
+        let rows_y = ws_area.y + COLLAPSED_SECTION_HEADER_ROWS;
+        let mut terminal = Terminal::new(TestBackend::new(area.width, area.height))
+            .expect("test terminal should initialize");
+
+        terminal
+            .draw(|frame| render_sidebar_collapsed(&app, frame, area))
+            .expect("collapsed sidebar should render");
+
+        let tenth_row = rows_y + 9;
+        let buffer = terminal.backend().buffer();
+        assert_eq!(buffer[(ws_area.x, rows_y)].symbol(), "1");
+        assert_eq!(buffer[(ws_area.x + 1, rows_y)].symbol(), " ");
+        assert_eq!(buffer[(ws_area.x + 2, rows_y)].symbol(), "·");
+        assert_eq!(buffer[(ws_area.x, tenth_row)].symbol(), "1");
+        assert_eq!(buffer[(ws_area.x + 1, tenth_row)].symbol(), "0");
+        assert_eq!(buffer[(ws_area.x + 2, tenth_row)].symbol(), "·");
+    }
+
+    #[test]
     fn collapsed_workspace_hover_shows_group_name_and_colored_status() {
         let mut app = crate::app::state::AppState::test_new();
         app.groups[0].name = "Core".to_string();
@@ -5120,7 +5175,7 @@ mod tests {
         assert_eq!(buffer[(detail_area.x, working_header_row)].symbol(), "▸");
         assert_eq!(
             buffer[(detail_area.x + 2, working_header_row)].symbol(),
-            agent_icon(AgentState::Working, true, app.spinner_tick, &app.palette).0
+            agent_icon(AgentState::Working, true, &app.palette).0
         );
         assert_eq!(buffer[(detail_area.x, idle_header_row)].symbol(), "▾");
         assert_eq!(buffer[(detail_area.x + 2, idle_agent_row)].symbol(), "3");
@@ -5240,15 +5295,11 @@ mod tests {
         );
         assert_eq!(
             buffer[(detail_area.x + 2, detail_area.y + 2)].style().fg,
-            agent_icon(AgentState::Blocked, true, app.spinner_tick, &app.palette)
-                .1
-                .fg
+            agent_icon(AgentState::Blocked, true, &app.palette).1.fg
         );
         assert_eq!(
             buffer[(detail_area.x + 2, detail_area.y + 4)].style().fg,
-            agent_icon(AgentState::Working, true, app.spinner_tick, &app.palette)
-                .1
-                .fg
+            agent_icon(AgentState::Working, true, &app.palette).1.fg
         );
     }
 
@@ -5525,7 +5576,7 @@ mod tests {
             &crate::pane::PaneLaunchEnv::default(),
             events,
             std::sync::Arc::new(tokio::sync::Notify::new()),
-            std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            std::sync::Arc::new(crate::render_signal::RenderSignal::new()),
         )
         .unwrap();
 
@@ -6380,7 +6431,7 @@ mod tests {
         assert_eq!(buffer[(content.x, working_header_row)].symbol(), "▾");
         assert_eq!(
             buffer[(content.x + 2, working_header_row)].symbol(),
-            agent_icon(AgentState::Working, true, app.spinner_tick, &app.palette).0
+            agent_icon(AgentState::Working, true, &app.palette).0
         );
         assert_eq!(buffer[(content.x + 2, working_agent_row)].symbol(), "2");
         assert_eq!(buffer[(toggle.x, toggle.y)].symbol(), "«");

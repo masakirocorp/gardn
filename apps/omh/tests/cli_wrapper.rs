@@ -551,6 +551,14 @@ fn run_codex_hook(action: &str, hook_input: &str) -> Option<serde_json::Value> {
     )
 }
 
+fn run_grok_hook(action: &str, hook_input: &str) -> Option<serde_json::Value> {
+    run_shell_hook(
+        "src/integration/assets/grok/omh-agent-state.sh",
+        &[action],
+        hook_input,
+    )
+}
+
 fn run_copilot_hook(hook_input: &str) -> Option<serde_json::Value> {
     run_shell_hook(
         "src/integration/assets/copilot/omh-agent-state.sh",
@@ -618,6 +626,7 @@ fn run_shell_hook_with_env(
         .env("OMH_ENV", "1")
         .env("OMH_SOCKET_PATH", &socket_path)
         .env("OMH_PANE_ID", "p_test")
+        .env_remove("CODEX_THREAD_ID")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
@@ -690,15 +699,41 @@ fn claude_hook_reports_session_identity_and_lifecycle_state() {
 }
 
 #[test]
-fn codex_hook_reports_session_identity_and_lifecycle_state() {
+fn codex_hook_reports_persisted_root_session_and_ignores_ephemeral_or_nested_sessions() {
     let session = run_codex_hook(
         "session",
-        r#"{"hook_event_name":"SessionStart","session_id":"codex-session"}"#,
+        r#"{"hook_event_name":"SessionStart","session_id":"codex-session","transcript_path":"/tmp/codex-session.jsonl"}"#,
     )
     .expect("codex hook should report session identity");
     assert_eq!(session["method"], "pane.report_agent_session");
     assert_eq!(session["params"]["agent_session_id"], "codex-session");
     assert_eq!(session["params"]["agent"], "codex");
+
+    let matching_request = run_shell_hook_with_env(
+        "src/integration/assets/codex/omh-agent-state.sh",
+        &["session"],
+        r#"{"hook_event_name":"SessionStart","session_id":"codex-session","transcript_path":"/tmp/codex-session.jsonl"}"#,
+        &[("CODEX_THREAD_ID", "codex-session")],
+    )
+    .expect("matching inherited session should still report");
+    assert_eq!(
+        matching_request["params"]["agent_session_id"],
+        "codex-session"
+    );
+
+    assert!(run_codex_hook(
+        "session",
+        r#"{"hook_event_name":"SessionStart","session_id":"side-session","transcript_path":null}"#,
+    )
+    .is_none());
+
+    assert!(run_shell_hook_with_env(
+        "src/integration/assets/codex/omh-agent-state.sh",
+        &["session"],
+        r#"{"hook_event_name":"SessionStart","session_id":"nested-session","transcript_path":"/tmp/nested-session.jsonl"}"#,
+        &[("CODEX_THREAD_ID", "parent-session")],
+    )
+    .is_none());
 
     let working = run_codex_hook(
         "working",
@@ -733,6 +768,28 @@ fn codex_hook_reports_session_identity_and_lifecycle_state() {
         .is_none(),
         "SubagentStop must not idle the parent pane"
     );
+}
+
+#[test]
+fn grok_hook_prefers_injected_session_id_and_reports_session_identity() {
+    let session = run_grok_hook(
+        "session",
+        r#"{"hookEventName":"SessionStart","sessionId":"payload-session"}"#,
+    )
+    .expect("grok hook should report payload session identity");
+    assert_eq!(session["method"], "pane.report_agent_session");
+    assert_eq!(session["params"]["source"], "omh:grok");
+    assert_eq!(session["params"]["agent"], "grok");
+    assert_eq!(session["params"]["agent_session_id"], "payload-session");
+
+    let injected = run_shell_hook_with_env(
+        "src/integration/assets/grok/omh-agent-state.sh",
+        &["session"],
+        r#"{"hookEventName":"SessionStart","sessionId":"payload-session"}"#,
+        &[("GROK_SESSION_ID", "injected-session")],
+    )
+    .expect("injected GROK_SESSION_ID should win");
+    assert_eq!(injected["params"]["agent_session_id"], "injected-session");
 }
 
 #[test]
@@ -1369,7 +1426,7 @@ fn integration_commands_run_locally_when_server_is_missing() {
     );
     let omp_content = fs::read_to_string(&expected_omp_extension).unwrap();
     assert!(omp_content.contains("OMH_INTEGRATION_ID=omp"));
-    assert!(omp_content.contains("OMH_INTEGRATION_VERSION=7"));
+    assert!(omp_content.contains("OMH_INTEGRATION_VERSION=8"));
     assert!(omp_content.contains("agent: \"omp\""));
 
     let integration_status = Command::new(env!("CARGO_BIN_EXE_omh"))
@@ -1382,9 +1439,9 @@ fn integration_commands_run_locally_when_server_is_missing() {
         .unwrap();
     assert_eq!(integration_status.status.code(), Some(0));
     let status_stdout = String::from_utf8_lossy(&integration_status.stdout);
-    assert!(status_stdout.contains("pi: current (v6)"));
+    assert!(status_stdout.contains("pi: current (v7)"));
     assert!(status_stdout.contains("claude: not installed"));
-    assert!(status_stdout.contains("omp: current (v7)"));
+    assert!(status_stdout.contains("omp: current (v8)"));
 
     let integration_uninstall = Command::new(env!("CARGO_BIN_EXE_omh"))
         .args(["integration", "uninstall", "pi"])
