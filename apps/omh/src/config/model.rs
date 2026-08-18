@@ -1068,9 +1068,6 @@ pub struct UiConfig {
     pub show_counters: bool,
     /// How to render the collapsed sidebar. Default: "compact".
     pub sidebar_collapsed_mode: SidebarCollapsedModeConfig,
-    /// Accent color for highlights, borders, and navigation UI.
-    /// Accepts hex (#89b4fa), named colors (cyan, blue), or RGB (rgb(137,180,250)).
-    pub accent: String,
     /// Optional visual toast notifications for background workspace events.
     pub toast: ToastConfig,
     /// Play sounds when agents change state in background workspaces.
@@ -1284,7 +1281,6 @@ impl Default for UiConfig {
             hide_tab_bar_when_single_tab: false,
             show_counters: false,
             sidebar_collapsed_mode: SidebarCollapsedModeConfig::default(),
-            accent: "cyan".into(),
             toast: ToastConfig::default(),
             sound: SoundConfig::default(),
         }

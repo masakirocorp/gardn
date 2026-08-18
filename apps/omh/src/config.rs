@@ -31,7 +31,7 @@ pub use self::{
         SpaceSidebarToken, SpacesSidebarConfig,
     },
     sound::SoundConfig,
-    theme::{parse_color, CustomThemeColors, TerminalAccent, ThemeConfig, ThemeMode},
+    theme::{TerminalAccent, ThemeConfig, ThemeMode},
     window_title::{WindowTitlePart, WindowTitleTemplate, WindowTitleToken},
 };
 

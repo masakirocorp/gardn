@@ -866,8 +866,9 @@ delivery = "omh"
             r##"
 plugin = []
 
-[theme.custom]
-accentt = "#ffffff"
+[theme]
+name = "nord"
+custom_not_a_field = true
 
 [advanced]
 scrollback_lines = 42
@@ -901,7 +902,7 @@ claude = [["terminal_title"]]
             loaded.diagnostics,
             vec![
                 "unknown config key plugin; ignoring key",
-                "unknown config key theme.custom.accentt; ignoring key",
+                "unknown config key theme.custom_not_a_field; ignoring key",
                 "unknown config key keys.command.0.descrption; ignoring key",
                 "unknown config key keys.new_tabb; ignoring key",
                 "unknown config key ui.\"foo.?.bar\"; ignoring key",
@@ -924,6 +925,40 @@ claude = [["terminal_title"]]
             .bindings
             .iter()
             .any(|binding| binding.label == "prefix+z"));
+    }
+
+    #[test]
+    fn load_live_config_ignores_legacy_color_keys_and_applies_supported_siblings() {
+        let loaded = load_live_config_from_str(
+            r##"
+[theme]
+name = "nord"
+mode = "light"
+terminal_accent = "magenta"
+custom = { accent = "#ff00aa", red = "#ff0000" }
+
+[ui]
+accent = "#89b4fa"
+mouse_capture = false
+"##,
+        )
+        .unwrap();
+
+        assert_eq!(
+            loaded.diagnostics,
+            vec![
+                "unknown config key theme.custom; ignoring key",
+                "unknown config key ui.accent; ignoring key",
+            ]
+        );
+        assert!(loaded.invalid_sections.is_empty());
+        assert_eq!(loaded.config.theme.name.as_deref(), Some("nord"));
+        assert_eq!(loaded.config.theme.mode, super::super::ThemeMode::Light);
+        assert_eq!(
+            loaded.config.theme.terminal_accent,
+            super::super::TerminalAccent::Magenta
+        );
+        assert!(!loaded.config.ui.mouse_capture);
     }
 
     #[test]

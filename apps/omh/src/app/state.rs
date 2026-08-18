@@ -1,6 +1,6 @@
 use crate::config::{
-    CustomThemeColors, Keybinds, NewTerminalCwdConfig, PaneBorderAgentInfoConfig, SoundConfig,
-    StatusIndicatorStyle, TerminalAccent, ThemeConfig, ThemeMode, ToastConfig, ToastDelivery,
+    Keybinds, NewTerminalCwdConfig, PaneBorderAgentInfoConfig, SoundConfig, StatusIndicatorStyle,
+    TerminalAccent, ThemeConfig, ThemeMode, ToastConfig, ToastDelivery,
 };
 use crate::detect::AgentState;
 use crossterm::event::{KeyCode, KeyModifiers};
@@ -1356,60 +1356,6 @@ impl Palette {
         host_theme: TerminalTheme,
     ) -> Option<Self> {
         Self::from_theme_with_terminal_accent(name, appearance, host_theme, TerminalAccent::Blue)
-    }
-
-    /// Apply custom color overrides on top of this palette.
-    pub fn with_overrides(mut self, custom: &crate::config::CustomThemeColors) -> Self {
-        use crate::config::parse_color;
-        if let Some(c) = &custom.accent {
-            self.accent = parse_color(c);
-        }
-        if let Some(c) = &custom.panel_bg {
-            self.panel_bg = parse_color(c);
-        }
-        if let Some(c) = &custom.surface0 {
-            self.surface0 = parse_color(c);
-        }
-        if let Some(c) = &custom.surface1 {
-            self.surface1 = parse_color(c);
-        }
-        if let Some(c) = &custom.surface_dim {
-            self.surface_dim = parse_color(c);
-        }
-        if let Some(c) = &custom.overlay0 {
-            self.overlay0 = parse_color(c);
-        }
-        if let Some(c) = &custom.overlay1 {
-            self.overlay1 = parse_color(c);
-        }
-        if let Some(c) = &custom.text {
-            self.text = parse_color(c);
-        }
-        if let Some(c) = &custom.subtext0 {
-            self.subtext0 = parse_color(c);
-        }
-        if let Some(c) = &custom.mauve {
-            self.mauve = parse_color(c);
-        }
-        if let Some(c) = &custom.green {
-            self.green = parse_color(c);
-        }
-        if let Some(c) = &custom.yellow {
-            self.yellow = parse_color(c);
-        }
-        if let Some(c) = &custom.red {
-            self.red = parse_color(c);
-        }
-        if let Some(c) = &custom.blue {
-            self.blue = parse_color(c);
-        }
-        if let Some(c) = &custom.teal {
-            self.teal = parse_color(c);
-        }
-        if let Some(c) = &custom.peach {
-            self.peach = parse_color(c);
-        }
-        self
     }
 }
 
@@ -3370,8 +3316,6 @@ pub struct AppState {
     pub shell_mode: crate::config::ShellModeConfig,
     pub new_terminal_cwd: NewTerminalCwdConfig,
     pub pane_scrollback_limit_bytes: usize,
-    #[allow(dead_code)] // kept for backward compat; palette.accent is the source of truth
-    pub accent: Color,
     pub sound: SoundConfig,
     pub local_sound_playback: bool,
     pub toast_config: ToastConfig,
@@ -3396,10 +3340,6 @@ pub struct AppState {
     pub global_terminal_light_accent: TerminalAccent,
     /// ANSI color used for the app accent when terminal colors resolve dark.
     pub global_terminal_dark_accent: TerminalAccent,
-    /// Custom color overrides from config, applied only to the global fallback theme.
-    pub global_theme_custom: Option<CustomThemeColors>,
-    /// Whether legacy `ui.accent` should override the global theme accent.
-    pub global_theme_use_legacy_ui_accent: bool,
     /// Settings panel state.
     pub settings: SettingsState,
     /// Cached integration recommendations for onboarding/settings UI.
@@ -3550,20 +3490,7 @@ impl AppState {
     }
 
     pub fn configured_global_palette(&self, theme_name: &str, mode: ThemeMode) -> Option<Palette> {
-        let mut palette = self.palette_for_theme_mode(theme_name, mode)?;
-        if let Some(custom) = &self.global_theme_custom {
-            palette = palette.with_overrides(custom);
-        }
-        if self.global_theme_use_legacy_ui_accent
-            && self
-                .global_theme_custom
-                .as_ref()
-                .and_then(|custom| custom.accent.as_ref())
-                .is_none()
-        {
-            palette.accent = self.accent;
-        }
-        Some(palette)
+        self.palette_for_theme_mode(theme_name, mode)
     }
 
     pub fn refresh_global_palette(&mut self) {
@@ -4235,7 +4162,6 @@ impl AppState {
             shell_mode: crate::config::ShellModeConfig::Auto,
             new_terminal_cwd: NewTerminalCwdConfig::Follow,
             pane_scrollback_limit_bytes: crate::config::DEFAULT_SCROLLBACK_LIMIT_BYTES,
-            accent: Color::Cyan,
             sound: SoundConfig {
                 enabled: false,
                 ..SoundConfig::default()
@@ -4259,8 +4185,6 @@ impl AppState {
             global_dark_theme_name: DEFAULT_DARK_THEME_NAME.to_string(),
             global_terminal_light_accent: TerminalAccent::Blue,
             global_terminal_dark_accent: TerminalAccent::Blue,
-            global_theme_custom: None,
-            global_theme_use_legacy_ui_accent: false,
             settings: SettingsState {
                 section: SettingsSection::Theme,
                 sidebar_expanded: Some(SettingsSection::Theme),

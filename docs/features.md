@@ -370,9 +370,8 @@ Oh My Herdr supports terminal-derived colors and built-in palettes.
 - **Light and dark palette selection** — choose separate palettes when system mode is enabled.
 - **Live system sync** — in system mode, Oh My Herdr follows foreground host-terminal light/dark color changes while it is running and refreshes pane terminal defaults.
 - **Nested terminal palette** — pane applications that query ANSI colors receive the active host palette. Application-defined palette colors keep precedence until the application resets them.
-- **Custom token overrides** — override individual theme colors.
 - **Group settings** — rename or delete groups, assign per-group theme accent colors, choose favorite/default agent profiles, or inherit the global accent from the group settings modal.
-- **Accent color** — configure highlight, border, and navigation accent color; when following terminal colors, choose separate terminal ANSI accents for light and dark appearances.
+- **Accent color** — choose highlight, border, and navigation accent from the built-in theme palette or, when following terminal colors, from the six terminal ANSI accents (with separate light and dark choices).
 
 ### Sound and toasts
 

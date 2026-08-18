@@ -509,17 +509,9 @@ fn parse_cjk_ime_agents(names: &[String]) -> Vec<crate::detect::Agent> {
     out
 }
 
-/// Resolve the palette from config: base theme + optional custom overrides.
+/// Resolve the palette from the built-in theme and terminal accent policy.
 fn resolve_palette(
     config: &crate::config::Config,
-    host_theme: crate::terminal_theme::TerminalTheme,
-) -> state::Palette {
-    resolve_palette_with_legacy_accent(config, true, host_theme)
-}
-
-fn resolve_palette_with_legacy_accent(
-    config: &crate::config::Config,
-    use_legacy_ui_accent: bool,
     host_theme: crate::terminal_theme::TerminalTheme,
 ) -> state::Palette {
     let appearance = config.theme.mode.resolve(host_theme);
@@ -528,7 +520,7 @@ fn resolve_palette_with_legacy_accent(
         crate::terminal_theme::ThemeAppearance::Light => &light_theme_name,
         crate::terminal_theme::ThemeAppearance::Dark => &dark_theme_name,
     };
-    let mut palette = state::Palette::from_theme_with_terminal_accent(
+    state::Palette::from_theme_with_terminal_accent(
         base_name,
         appearance,
         host_theme,
@@ -548,27 +540,7 @@ fn resolve_palette_with_legacy_accent(
         );
         let fallback = state::default_theme_name_for_appearance(appearance);
         state::Palette::from_theme(fallback, appearance).unwrap_or_else(state::Palette::catppuccin)
-    });
-
-    // Apply custom overrides if present
-    if let Some(custom) = &config.theme.custom {
-        palette = palette.with_overrides(custom);
-    }
-
-    // Legacy: if ui.accent is set and no theme.custom.accent, use it for compat
-    if use_legacy_ui_accent
-        && config.ui.accent != "cyan"
-        && config
-            .theme
-            .custom
-            .as_ref()
-            .and_then(|c| c.accent.as_ref())
-            .is_none()
-    {
-        palette.accent = crate::config::parse_color(&config.ui.accent);
-    }
-
-    palette
+    })
 }
 
 fn groups_from_snapshot(snap: &crate::persist::SessionSnapshot) -> Vec<state::Group> {
@@ -1039,7 +1011,6 @@ impl App {
             shell_mode: config.terminal.shell_mode,
             new_terminal_cwd: config.terminal.new_cwd.clone(),
             pane_scrollback_limit_bytes: config.advanced.scrollback_limit_bytes,
-            accent: crate::config::parse_color(&config.ui.accent),
             sound: config.ui.sound.clone(),
             local_sound_playback: true,
             toast_config: config.ui.toast.clone(),
@@ -1055,14 +1026,6 @@ impl App {
             global_dark_theme_name,
             global_terminal_light_accent: config.theme.resolved_terminal_light_accent(),
             global_terminal_dark_accent: config.theme.resolved_terminal_dark_accent(),
-            global_theme_custom: config.theme.custom.clone(),
-            global_theme_use_legacy_ui_accent: config.ui.accent != "cyan"
-                && config
-                    .theme
-                    .custom
-                    .as_ref()
-                    .and_then(|custom| custom.accent.as_ref())
-                    .is_none(),
             settings: state::SettingsState {
                 section: state::SettingsSection::Theme,
                 sidebar_expanded: Some(state::SettingsSection::Theme),
@@ -2583,7 +2546,6 @@ impl App {
                 self.state.sidebar_collapsed_mode = config.ui.sidebar_collapsed_mode;
                 self.state.sidebar_arrangement = config.ui.sidebar_arrangement;
                 self.state.sidebar_config = config.ui.sidebar.clone();
-                self.state.accent = crate::config::parse_color(&config.ui.accent);
                 if !self.state.local_sound_playback && self.state.sound != config.ui.sound {
                     self.state.request_client_config_reload = true;
                 }
@@ -2679,20 +2641,7 @@ impl App {
                 .to_string();
             self.state.global_terminal_light_accent = config.theme.resolved_terminal_light_accent();
             self.state.global_terminal_dark_accent = config.theme.resolved_terminal_dark_accent();
-            self.state.global_theme_custom = config.theme.custom.clone();
-            self.state.global_theme_use_legacy_ui_accent = !invalid_section("ui")
-                && config.ui.accent != "cyan"
-                && config
-                    .theme
-                    .custom
-                    .as_ref()
-                    .and_then(|custom| custom.accent.as_ref())
-                    .is_none();
-            self.state.global_palette = resolve_palette_with_legacy_accent(
-                config,
-                !invalid_section("ui"),
-                self.state.host_terminal_theme,
-            );
+            self.state.global_palette = resolve_palette(config, self.state.host_terminal_theme);
             self.state.apply_effective_theme();
             self.query_host_terminal_theme();
         }

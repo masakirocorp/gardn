@@ -111,13 +111,6 @@ const DEFAULT_CONFIG: &str = r##"# Oh My Herdr configuration
 # terminal_light_accent = "blue"
 # terminal_dark_accent = "blue"
 
-# override individual color tokens on top of the base theme.
-# accepts: hex (#rrggbb), named colors, rgb(r,g,b), or panel_bg = "reset"
-# [theme.custom]
-# panel_bg = "reset"
-# accent = "#f5c2e7"
-# red = "#ff6188"
-# green = "#a6e3a1"
 
 [terminal]
 # Executable used for new interactive panes.
@@ -343,9 +336,6 @@ github = "ghui"
 # sidebar_collapsed_mode = "compact"
 
 
-# accent color for highlights, borders, and navigation ui.
-# accepts: hex (#89b4fa), named colors (cyan, blue, magenta), or rgb(r,g,b)
-# accent = "cyan"
 [ui.sidebar]
 # Initial view for each newly connected client. Runtime changes remain client-local.
 # "expanded" or "collapsed"

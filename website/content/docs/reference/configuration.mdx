@@ -63,7 +63,7 @@ Configuration reload is available through `omh server reload-config` and the con
 | Section or key                                               | Startup                     | Live reload                    | Scope of a live change                                                                                      |
 | ------------------------------------------------------------ | --------------------------- | ------------------------------ | ----------------------------------------------------------------------------------------------------------- |
 | `onboarding`                                                 | Applied                     | No standalone live application | Controls whether the onboarding surface is shown at startup.                                                |
-| `theme`                                                      | Applied                     | Yes                            | Global theme names, mode, terminal accents, and custom colors.                                              |
+| `theme`                                                      | Applied                     | Yes                            | Global theme names, mode, and terminal accents.                                                             |
 | `terminal`                                                   | Applied                     | Yes                            | Defaults used by newly created panes, tabs, and workspaces; existing shells are not rewritten.              |
 | `session.resume_agents_on_restore`                           | Applied                     | Copied into runtime state      | Controls agent restoration when session data is restored; it does not rewrite already running panes.        |
 | `keys`                                                       | Applied                     | Yes                            | Prefix and action bindings for the running app/server.                                                      |
@@ -97,32 +97,8 @@ Reload is section-oriented rather than an all-or-nothing schema validation pass.
 | `terminal_accent`       | `blue`, `magenta`, `cyan`, `green`, `yellow`, or `red` | `blue`   | ANSI accent used when no appearance-specific terminal accent is set.                                             |
 | `terminal_light_accent` | terminal accent or `null`                              | `null`   | ANSI accent for light appearance; falls back to `terminal_accent`.                                               |
 | `terminal_dark_accent`  | terminal accent or `null`                              | `null`   | ANSI accent for dark appearance; falls back to `terminal_accent`.                                                |
-| `[theme.custom]`        | table                                                  | `null`   | Optional token overrides applied on top of the selected built-in theme.                                          |
 
 The built-in `name`, `light`, and `dark` values are theme names such as `catppuccin`, `catppuccin-latte`, `dracula`, `nord`, `gruvbox`, `tokyo-night`, and the other names included in [`omh --default-config`](/docs/reference/cli#global-session-and-remote-options). A name is resolved separately for light and dark appearance.
-
-#### `[theme.custom]` keys
-
-Each custom color is a string. Accepted color forms are `#rrggbb`, `#rgb`, a named color, `rgb(r,g,b)`, and reset aliases where supported.
-
-| Key           | Default |
-| ------------- | ------- |
-| `accent`      | `null`  |
-| `panel_bg`    | `null`  |
-| `surface0`    | `null`  |
-| `surface1`    | `null`  |
-| `surface_dim` | `null`  |
-| `overlay0`    | `null`  |
-| `overlay1`    | `null`  |
-| `text`        | `null`  |
-| `subtext0`    | `null`  |
-| `mauve`       | `null`  |
-| `green`       | `null`  |
-| `yellow`      | `null`  |
-| `red`         | `null`  |
-| `blue`        | `null`  |
-| `teal`        | `null`  |
-| `peach`       | `null`  |
 
 ### `[terminal]`
 
@@ -247,7 +223,6 @@ Each `[[keys.command]]` entry contains:
 | `hide_tab_bar_when_single_tab`     | boolean                                                  | `false`                | Hide the tab row when the active workspace has one tab.                                                                                                                                    |
 | `sidebar_collapsed_mode`           | `compact` or `hidden`                                    | `compact`              | Render a narrow rail or zero-width area when collapsed.                                                                                                                                    |
 | `context_bar`                      | `always` or `never`                                      | `always`               | Default desktop bottom context bar visibility; a client's temporary toggle overrides it.                                                                                                   |
-| `accent`                           | color string                                             | `cyan`                 | Accent for highlights, borders, and navigation UI. Supports hex, named colors, and `rgb(r,g,b)`.                                                                                           |
 | `[ui.toast]`                       | table                                                    | see below              | Background notification popup configuration.                                                                                                                                               |
 | `[ui.sound]`                       | table                                                    | see below              | Background agent-state sound configuration.                                                                                                                                                |
 | `[ui.sidebar]`                     | table                                                    | see below              | Sidebar initial view and row layout configuration.                                                                                                                                         |
