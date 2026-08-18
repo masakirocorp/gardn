@@ -103,13 +103,14 @@ pub(crate) use self::{
         selected_command_palette_action_for_view,
     },
     modal::{
-        confirm_close_accept, confirm_close_cancel, confirm_delete_group_accept,
-        confirm_delete_group_cancel, global_menu_actions, handle_agent_menu_key,
-        handle_config_diagnostics_key, handle_confirm_close_key, handle_confirm_delete_group_key,
-        handle_context_menu_key, handle_global_menu_key, handle_group_menu_key,
-        handle_keybind_help_key, handle_navigator_key, handle_rename_key, handle_resize_key,
-        insert_navigator_search_text, modal_action_from_buttons,
-        open_new_workspace_dialog_at_location, request_detach, GlobalMenuAction, ModalAction,
+        apply_keybind_help_key, confirm_close_accept, confirm_close_cancel,
+        confirm_delete_group_accept, confirm_delete_group_cancel, global_menu_actions,
+        handle_agent_menu_key, handle_config_diagnostics_key, handle_confirm_close_key,
+        handle_confirm_delete_group_key, handle_context_menu_key, handle_global_menu_key,
+        handle_group_menu_key, handle_keybind_help_key, handle_navigator_key, handle_rename_key,
+        handle_resize_key, insert_keybind_help_query_text, insert_navigator_search_text,
+        modal_action_from_buttons, open_new_workspace_dialog_at_location, request_detach,
+        GlobalMenuAction, KeybindHelpKeyResult, ModalAction,
     },
     navigate::{
         command_for_key, indexed_navigation_action, non_indexed_action_for_key,
@@ -183,7 +184,7 @@ impl App {
             Mode::GlobalMenu => handle_global_menu_key(&mut self.state, key_event),
             Mode::GroupMenu => handle_group_menu_key(&mut self.state, key_event),
             Mode::AgentMenu => handle_agent_menu_key(&mut self.state, key_event),
-            Mode::KeybindHelp => handle_keybind_help_key(&mut self.state, key_event),
+            Mode::KeybindHelp => handle_keybind_help_key(&mut self.state, key),
             Mode::ConfigDiagnostics => handle_config_diagnostics_key(&mut self.state, key_event),
             Mode::Navigator => handle_navigator_key(&mut self.state, key_event),
             Mode::CommandPalette if key_event.code == KeyCode::Enter => {
@@ -306,6 +307,13 @@ impl App {
                 prompt
                     .query
                     .extend(text.chars().filter(|ch| !ch.is_control()));
+                true
+            }
+            Mode::KeybindHelp => {
+                if !self.state.keybind_help.search_focused {
+                    return false;
+                }
+                insert_keybind_help_query_text(&mut self.state.keybind_help, text);
                 true
             }
             _ => false,
@@ -1191,6 +1199,7 @@ pub(crate) fn modal_paste_target_active(state: &AppState) -> bool {
     match state.mode {
         Mode::RenameWorkspace | Mode::RenameGroup | Mode::RenameTab | Mode::RenamePane => true,
         Mode::Navigator => state.navigator.search_focused,
+        Mode::KeybindHelp => state.keybind_help.search_focused,
         _ => false,
     }
 }
@@ -1396,6 +1405,21 @@ mod tests {
         assert!(!app.state.name_input_replace_on_type);
     }
 
+    #[tokio::test]
+    async fn paste_routes_to_keybind_help_query_only_when_searching() {
+        let mut app = test_app();
+        app.state.mode = Mode::KeybindHelp;
+        app.handle_paste("ignored".into()).await;
+        assert!(app.state.keybind_help.query.is_empty());
+
+        app.state.keybind_help.search_focused = true;
+        app.state.keybind_help.scroll = 3;
+        app.handle_paste("work\nspace".into()).await;
+
+        assert_eq!(app.state.keybind_help.query, "workspace");
+        assert_eq!(app.state.keybind_help.scroll, 0);
+    }
+
     #[test]
     fn modal_paste_shortcut_matches_platform_primary_v() {
         #[cfg(target_os = "macos")]
@@ -1428,6 +1452,12 @@ mod tests {
         state.navigator.search_focused = false;
         assert!(!modal_paste_target_active(&state));
         state.navigator.search_focused = true;
+        assert!(modal_paste_target_active(&state));
+
+        state.mode = Mode::KeybindHelp;
+        state.keybind_help.search_focused = false;
+        assert!(!modal_paste_target_active(&state));
+        state.keybind_help.search_focused = true;
         assert!(modal_paste_target_active(&state));
 
         state.mode = Mode::ConfirmClose;

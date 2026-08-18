@@ -3066,9 +3066,11 @@ pub struct ProductAnnouncementState {
     pub preview: bool,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct KeybindHelpState {
     pub scroll: u16,
+    pub query: String,
+    pub search_focused: bool,
 }
 
 #[derive(Clone)]
@@ -3336,6 +3338,7 @@ pub struct AppState {
     pub prompt_new_tab_name: bool,
     pub prompt_new_workspace_name: bool,
     pub pane_borders: bool,
+    pub pane_scrollbars: bool,
     pub pane_gaps: bool,
     pub hide_tab_bar_when_single_tab: bool,
     pub show_counters: bool,
@@ -4094,7 +4097,7 @@ impl AppState {
             name_input_replace_on_type: false,
             release_notes: None,
             product_announcement: None,
-            keybind_help: KeybindHelpState { scroll: 0 },
+            keybind_help: KeybindHelpState::default(),
             config_diagnostics_scroll: 0,
             command_palette: CommandPaletteState {
                 query: String::new(),
@@ -4207,6 +4210,7 @@ impl AppState {
             prompt_new_tab_name: true,
             prompt_new_workspace_name: false,
             pane_borders: true,
+            pane_scrollbars: true,
             pane_gaps: true,
             hide_tab_bar_when_single_tab: false,
             show_counters: false,

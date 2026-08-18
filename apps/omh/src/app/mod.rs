@@ -910,7 +910,7 @@ impl App {
                     preview: announcement.preview,
                 }
             }),
-            keybind_help: state::KeybindHelpState { scroll: 0 },
+            keybind_help: state::KeybindHelpState::default(),
             config_diagnostics_scroll: 0,
             command_palette: state::CommandPaletteState {
                 query: String::new(),
@@ -1020,6 +1020,7 @@ impl App {
             pane_border_agent_info: config.ui.pane_border_agent_info,
             status_indicators: config.ui.status_indicators,
             pane_borders: config.ui.pane_borders,
+            pane_scrollbars: config.ui.pane_scrollbars,
             pane_gaps: config.ui.pane_gaps,
             hide_tab_bar_when_single_tab: config.ui.hide_tab_bar_when_single_tab,
             show_counters: config.ui.show_counters,
@@ -2575,6 +2576,7 @@ impl App {
                 ));
                 self.configure_window_title(&config.ui.window_title);
                 self.state.pane_borders = config.ui.pane_borders;
+                self.state.pane_scrollbars = config.ui.pane_scrollbars;
                 self.state.pane_gaps = config.ui.pane_gaps;
                 self.state.hide_tab_bar_when_single_tab = config.ui.hide_tab_bar_when_single_tab;
                 self.state.show_counters = config.ui.show_counters;
@@ -3697,7 +3699,12 @@ impl App {
                 crate::raw_input::RawInputEvent::HostCellSizeReport { .. } => {}
                 crate::raw_input::RawInputEvent::Unsupported => {}
                 crate::raw_input::RawInputEvent::TextCommit(commit) => {
-                    self.handle_text_commit_headless(commit.as_str());
+                    if client_view.mode != Mode::Terminal {
+                        let _ =
+                            Self::paste_into_client_view_text_input(client_view, commit.as_str());
+                    } else {
+                        self.handle_text_commit_headless(commit.as_str());
+                    }
                 }
                 crate::raw_input::RawInputEvent::Paste(text) => {
                     self.paste_for_view(client_view, &text);
@@ -3926,7 +3933,7 @@ impl App {
                 self.handle_client_view_rename_key(client_view, key);
             }
             Mode::KeybindHelp => {
-                self.handle_client_view_keybind_help_key(client_view, key);
+                self.handle_client_view_keybind_help_key(client_view, raw_key);
             }
             Mode::ConfigDiagnostics => {
                 self.handle_client_view_config_diagnostics_key(client_view, key);
@@ -4225,17 +4232,26 @@ impl App {
     fn handle_client_view_keybind_help_key(
         &mut self,
         client_view: &mut ClientViewState,
-        key: crossterm::event::KeyEvent,
+        key: crate::input::TerminalKey,
     ) {
-        match key.code {
-            crossterm::event::KeyCode::Esc => Self::leave_client_view_command_mode(client_view),
-            crossterm::event::KeyCode::Up | crossterm::event::KeyCode::Char('k') => {
-                client_view.keybind_help.scroll = client_view.keybind_help.scroll.saturating_sub(1);
-            }
-            crossterm::event::KeyCode::Down | crossterm::event::KeyCode::Char('j') => {
-                client_view.keybind_help.scroll = client_view.keybind_help.scroll.saturating_add(1);
-            }
-            _ => {}
+        let max_scroll = crate::ui::keybind_help_layout(
+            client_view.screen_rect(),
+            client_view.keybind_help.search_focused,
+        )
+        .map(|layout| {
+            crate::ui::keybind_help_scroll_metrics(
+                &self.state,
+                layout.body,
+                client_view.keybind_help.scroll,
+                &client_view.keybind_help.query,
+            )
+            .max_offset_from_bottom as u16
+        })
+        .unwrap_or(0);
+        if input::apply_keybind_help_key(&mut client_view.keybind_help, max_scroll, key)
+            == input::KeybindHelpKeyResult::Leave
+        {
+            Self::leave_client_view_command_mode(client_view);
         }
     }
     fn handle_client_view_config_diagnostics_key(
@@ -5149,7 +5165,7 @@ impl App {
     }
 
     fn open_client_view_keybind_help(client_view: &mut ClientViewState) {
-        client_view.keybind_help.scroll = 0;
+        client_view.keybind_help = state::KeybindHelpState::default();
         client_view.mode = Mode::KeybindHelp;
     }
     fn open_client_view_config_diagnostics(client_view: &mut ClientViewState) {
@@ -7657,6 +7673,13 @@ impl App {
                 }
                 client_view.navigator.state_filter = None;
                 client_view.navigator.query.push_str(text);
+                true
+            }
+            Mode::KeybindHelp => {
+                if !client_view.keybind_help.search_focused {
+                    return false;
+                }
+                input::insert_keybind_help_query_text(&mut client_view.keybind_help, text);
                 true
             }
             _ => false,
@@ -12202,7 +12225,7 @@ impl App {
                 );
             }
             Mode::KeybindHelp => {
-                input::handle_keybind_help_key(&mut self.state, key_event);
+                input::handle_keybind_help_key(&mut self.state, key);
             }
             Mode::ConfigDiagnostics => {
                 input::handle_config_diagnostics_key(&mut self.state, key_event);
@@ -20358,9 +20381,12 @@ command = "printf literal > '{}'"
         client.mode = Mode::KeybindHelp;
         compute_client_view(&app, &mut client, ratatui::layout::Rect::new(0, 0, 120, 30));
         assert_eq!(client.keybind_help.scroll, 0);
-        let popup = crate::ui::keybind_help_layout(client.screen_rect())
-            .expect("keybind help layout")
-            .popup;
+        let popup = crate::ui::keybind_help_layout(
+            client.screen_rect(),
+            client.keybind_help.search_focused,
+        )
+        .expect("keybind help layout")
+        .popup;
         let scroll_col = popup.x + popup.width / 2;
         let scroll_row = popup.y + popup.height / 2;
 
@@ -20421,6 +20447,74 @@ command = "printf literal > '{}'"
             true,
         );
 
+        assert_eq!(client.mode, Mode::Terminal);
+    }
+
+    #[test]
+    fn route_client_events_for_view_keybind_help_filter_stays_client_local() {
+        let mut app = test_app();
+        app.state.workspaces = vec![Workspace::test_new("test")];
+        app.state.ensure_test_terminals();
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::Terminal;
+
+        let mut client = ClientViewState::from_default_client_state(&app.state);
+        client.mode = Mode::KeybindHelp;
+        compute_client_view(&app, &mut client, ratatui::layout::Rect::new(0, 0, 120, 30));
+
+        app.route_client_events_for_view(
+            &mut client,
+            vec![raw_key(
+                KeyCode::Char('/'),
+                KeyModifiers::empty(),
+                KeyEventKind::Press,
+            )],
+            true,
+        );
+        app.route_client_events_for_view(
+            &mut client,
+            vec![crate::raw_input::RawInputEvent::TextCommit(
+                crate::input::TextCommit::new("zzzz-no-such-bind"),
+            )],
+            true,
+        );
+
+        assert!(client.keybind_help.search_focused);
+        assert_eq!(client.keybind_help.query, "zzzz-no-such-bind");
+        assert!(app.state.keybind_help.query.is_empty());
+        assert_eq!(app.state.mode, Mode::Terminal);
+
+        let lines = crate::ui::keybind_help_lines(&app.state, 70, &client.keybind_help.query);
+        let rendered = lines
+            .into_iter()
+            .flat_map(|(_, line)| line.spans)
+            .map(|span| span.content.into_owned())
+            .collect::<String>();
+        assert!(rendered.contains("no matching keybinds"));
+
+        app.route_client_events_for_view(
+            &mut client,
+            vec![raw_key(
+                KeyCode::Esc,
+                KeyModifiers::empty(),
+                KeyEventKind::Press,
+            )],
+            true,
+        );
+        assert_eq!(client.mode, Mode::KeybindHelp);
+        assert!(!client.keybind_help.search_focused);
+        assert!(client.keybind_help.query.is_empty());
+
+        app.route_client_events_for_view(
+            &mut client,
+            vec![raw_key(
+                KeyCode::Esc,
+                KeyModifiers::empty(),
+                KeyEventKind::Press,
+            )],
+            true,
+        );
         assert_eq!(client.mode, Mode::Terminal);
     }
 

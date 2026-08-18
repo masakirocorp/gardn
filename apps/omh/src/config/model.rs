@@ -1058,6 +1058,8 @@ pub struct UiConfig {
     pub window_title: String,
     /// Draw borders around split panes. Default: true.
     pub pane_borders: bool,
+    /// Draw interactive scrollbars beside terminal panes. Default: true.
+    pub pane_scrollbars: bool,
     /// Keep split panes visually separated instead of sharing divider borders. Default: true.
     pub pane_gaps: bool,
     /// Hide the tab row when the active workspace has exactly one tab. Default: false.
@@ -1277,6 +1279,7 @@ impl Default for UiConfig {
             status_indicators: StatusIndicatorStyle::default(),
             window_title: super::window_title::default_window_title(),
             pane_borders: true,
+            pane_scrollbars: true,
             pane_gaps: true,
             hide_tab_bar_when_single_tab: false,
             show_counters: false,
@@ -1516,6 +1519,7 @@ initial_agent_scope = "group"
             PaneBorderAgentInfoConfig::Hidden
         );
         assert!(default_config.ui.pane_borders);
+        assert!(default_config.ui.pane_scrollbars);
         assert!(default_config.ui.pane_gaps);
         assert!(!default_config.ui.hide_tab_bar_when_single_tab);
         assert!(!default_config.ui.show_counters);
@@ -1524,6 +1528,7 @@ initial_agent_scope = "group"
 [ui]
 pane_border_agent_info = "name_and_status"
 pane_borders = false
+pane_scrollbars = false
 pane_gaps = true
 hide_tab_bar_when_single_tab = true
 show_counters = true
@@ -1535,6 +1540,7 @@ sidebar_collapsed_mode = "hidden"
             PaneBorderAgentInfoConfig::NameAndStatus
         );
         assert!(!config.ui.pane_borders);
+        assert!(!config.ui.pane_scrollbars);
         assert!(config.ui.pane_gaps);
         assert!(config.ui.hide_tab_bar_when_single_tab);
         assert!(config.ui.show_counters);

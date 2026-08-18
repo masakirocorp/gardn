@@ -325,6 +325,11 @@ github = "ghui"
 # draw borders around split panes.
 # pane_borders = true
 
+# draw interactive scrollbars beside terminal panes.
+# set false to reclaim the scrollbar column.
+# pane_scrollbars = true
+
+
 # keep split panes visually separated instead of sharing divider borders.
 # pane_gaps = true
 

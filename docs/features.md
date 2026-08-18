@@ -171,7 +171,7 @@ Mouse capture is enabled by default.
 - Click workspaces, groups, tabs, panes, agents, commands, ports, and modal controls.
 - Drag pane borders to resize.
 - Drag workspace rows to reorder.
-- Scroll lists, panes, modals, and scrollbars.
+- Scroll lists, panes, modals, and scrollbars. Set `ui.pane_scrollbars = false` to hide pane scrollbars and reclaim the gutter column.
 - Right-click where context menus are available.
 - Configure `ui.right_click_passthrough_modifier` to send modified right-click hold/drag gestures to mouse-reporting pane apps while normal right-click keeps Oh My Herdr menus.
 - Select pane text for copy workflows.
@@ -232,7 +232,7 @@ After a coordinator restart, restored remote panes reconnect their saved SSH con
 
 ### Help and confirmations
 
-Oh My Herdr includes a scrollable keybinding help modal generated from current bindings, including custom command bindings. Destructive actions such as workspace close and group delete use confirmation dialogs that show the affected target.
+Oh My Herdr includes a scrollable keybinding help modal generated from current bindings, including custom command bindings. Press `/` to filter by shortcut, action, or group. Esc leaves the filter first, then closes the modal. Destructive actions such as workspace close and group delete use confirmation dialogs that show the affected target.
 
 ### Global menu
 

@@ -11,8 +11,7 @@ use ratatui::{
 use super::scrollbar::render_scrollbar;
 use super::widgets::{
     modal_close_button_rect, modal_frame_areas, modal_scroll_area, modal_scroll_hint_line_count,
-    modal_scroll_metrics, render_modal_frame, render_modal_subtitle, ModalFrameAreas,
-    ModalFrameSpec, MODAL_SCROLL_HINTS,
+    modal_scroll_metrics, render_modal_frame, ModalFrameAreas, ModalFrameSpec,
 };
 use crate::app::{view_state::ClientViewState, AppState};
 
@@ -198,9 +197,33 @@ pub(super) fn keybind_help_groups(app: &AppState) -> Vec<HelpGroup> {
     groups
 }
 
+fn filter_keybind_help_groups(groups: Vec<HelpGroup>, query: &str) -> Vec<HelpGroup> {
+    if query.is_empty() {
+        return groups;
+    }
+
+    let query = query.to_lowercase();
+    groups
+        .into_iter()
+        .filter_map(|(group, entries)| {
+            if group.to_lowercase().contains(&query) {
+                return Some((group, entries));
+            }
+            let entries = entries
+                .into_iter()
+                .filter(|(key, label)| {
+                    key.to_lowercase().contains(&query) || label.to_lowercase().contains(&query)
+                })
+                .collect::<Vec<_>>();
+            (!entries.is_empty()).then_some((group, entries))
+        })
+        .collect()
+}
+
 pub(crate) fn keybind_help_lines(
     app: &AppState,
     option_width: usize,
+    query: &str,
 ) -> Vec<(usize, Line<'static>)> {
     let heading_style = Style::default()
         .fg(app.palette.accent)
@@ -211,8 +234,19 @@ pub(crate) fn keybind_help_lines(
     let unset_style = Style::default().fg(app.palette.overlay0);
     let label_style = Style::default().fg(app.palette.text);
 
-    let groups = keybind_help_groups(app);
+    let groups = filter_keybind_help_groups(keybind_help_groups(app), query);
     let mut lines = Vec::new();
+
+    if groups.is_empty() {
+        let message = " no matching keybinds";
+        return vec![(
+            message.chars().count(),
+            Line::from(Span::styled(
+                message,
+                Style::default().fg(app.palette.overlay1),
+            )),
+        )];
+    }
 
     for (group_index, (group, entries)) in groups.into_iter().enumerate() {
         if group_index > 0 {
@@ -263,13 +297,17 @@ pub(crate) struct KeybindHelpLayout {
     pub body: Rect,
 }
 
-fn keybind_help_frame_spec(area: Rect) -> ModalFrameSpec<'static> {
+fn keybind_help_frame_spec(area: Rect, search_focused: bool) -> ModalFrameSpec<'static> {
     ModalFrameSpec {
         title: "Keybinds",
         width: 76,
         height: keybind_help_height(area),
         header_rows: 2,
-        footer_hints: MODAL_SCROLL_HINTS,
+        footer_hints: if search_focused {
+            KEYBIND_HELP_SEARCH_HINTS
+        } else {
+            KEYBIND_HELP_HINTS
+        },
         footer_max_rows: 2,
         gap: 1,
         actions_rows: 0,
@@ -289,8 +327,8 @@ fn keybind_help_layout_from_frame(frame: ModalFrameAreas) -> Option<KeybindHelpL
     })
 }
 
-pub(crate) fn keybind_help_layout(area: Rect) -> Option<KeybindHelpLayout> {
-    let frame = modal_frame_areas(area, keybind_help_frame_spec(area))?;
+pub(crate) fn keybind_help_layout(area: Rect, search_focused: bool) -> Option<KeybindHelpLayout> {
+    let frame = modal_frame_areas(area, keybind_help_frame_spec(area, search_focused))?;
     keybind_help_layout_from_frame(frame)
 }
 
@@ -298,11 +336,12 @@ pub(crate) fn keybind_help_scroll_metrics(
     app: &AppState,
     body: Rect,
     scroll: u16,
+    query: &str,
 ) -> crate::pane::ScrollMetrics {
     let viewport_rows = body.height.max(1) as usize;
     let rows_for_width = |wrap_width: usize| {
         let option_width = wrap_width.saturating_sub(1).max(1);
-        keybind_help_lines(app, option_width)
+        keybind_help_lines(app, option_width, query)
             .iter()
             .map(|(width, _)| width.max(&1).div_ceil(wrap_width.max(1)))
             .sum::<usize>()
@@ -325,7 +364,7 @@ pub(crate) fn keybind_help_scrollbar_rect(
 }
 
 pub(super) fn render_keybind_help_overlay(app: &AppState, frame: &mut Frame) {
-    render_keybind_help_overlay_from(app, frame, frame.area(), app.keybind_help.scroll);
+    render_keybind_help_overlay_from(app, frame, frame.area(), &app.keybind_help);
 }
 
 pub(super) fn render_keybind_help_overlay_for_view(
@@ -333,13 +372,18 @@ pub(super) fn render_keybind_help_overlay_for_view(
     view: &ClientViewState,
     frame: &mut Frame,
 ) {
-    render_keybind_help_overlay_from(app, frame, view.screen_rect(), view.keybind_help.scroll);
+    render_keybind_help_overlay_from(app, frame, view.screen_rect(), &view.keybind_help);
 }
 
-fn render_keybind_help_overlay_from(app: &AppState, frame: &mut Frame, area: Rect, scroll: u16) {
+fn render_keybind_help_overlay_from(
+    app: &AppState,
+    frame: &mut Frame,
+    area: Rect,
+    help: &crate::app::state::KeybindHelpState,
+) {
     super::dim_background(frame, area);
 
-    let spec = keybind_help_frame_spec(area);
+    let spec = keybind_help_frame_spec(area, help.search_focused);
     let Some(frame_areas) = render_modal_frame(frame, area, &app.palette, spec) else {
         return;
     };
@@ -348,21 +392,37 @@ fn render_keybind_help_overlay_from(app: &AppState, frame: &mut Frame, area: Rec
     };
     let header_rows = Layout::vertical([Constraint::Length(1), Constraint::Length(1)])
         .areas::<2>(frame_areas.header);
-    render_modal_subtitle(
-        frame,
-        header_rows[1],
-        "Available commands and configured shortcuts",
-        &app.palette,
-    );
+    let search_line = if help.search_focused {
+        Line::from(vec![
+            Span::styled(
+                " / ",
+                Style::default()
+                    .fg(app.palette.accent)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(
+                help.query.as_str(),
+                Style::default()
+                    .fg(app.palette.text)
+                    .add_modifier(Modifier::BOLD),
+            ),
+        ])
+    } else {
+        Line::from(Span::styled(
+            " press / to filter by command or shortcut",
+            Style::default().fg(app.palette.overlay0),
+        ))
+    };
+    frame.render_widget(Paragraph::new(search_line), header_rows[1]);
 
-    let metrics = keybind_help_scroll_metrics(app, layout.body, scroll);
+    let metrics = keybind_help_scroll_metrics(app, layout.body, help.scroll, &help.query);
     let scroll_area = modal_scroll_area(layout.body, metrics);
     let option_width = scroll_area.body.width.saturating_sub(1).max(1) as usize;
-    let lines = keybind_help_lines(app, option_width);
+    let lines = keybind_help_lines(app, option_width, &help.query);
 
     let body = Paragraph::new(lines.into_iter().map(|(_, line)| line).collect::<Vec<_>>())
         .wrap(Wrap { trim: false })
-        .scroll((scroll, 0));
+        .scroll((help.scroll, 0));
     frame.render_widget(body, scroll_area.body);
     if let Some(track) = scroll_area.track {
         render_scrollbar(
@@ -373,5 +433,87 @@ fn render_keybind_help_overlay_from(app: &AppState, frame: &mut Frame, area: Rec
             app.palette.overlay0,
             "▐",
         );
+    }
+}
+
+const KEYBIND_HELP_HINTS: &[(&str, &str)] = &[
+    ("Search", "/"),
+    ("Scroll", "j/k/↑↓/PgUp/PgDn"),
+    ("Close", "Esc/Enter"),
+];
+
+const KEYBIND_HELP_SEARCH_HINTS: &[(&str, &str)] = &[
+    ("Filter", "type/backspace"),
+    ("Clear", "Ctrl+U"),
+    ("Scroll", "↑↓/PgUp/PgDn"),
+    ("Back", "Esc"),
+];
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn groups() -> Vec<HelpGroup> {
+        vec![
+            (
+                "workspaces / tabs",
+                vec![
+                    help_entry("w", "workspace navigation"),
+                    help_entry("c", "new tab"),
+                ],
+            ),
+            (
+                "panes",
+                vec![
+                    help_entry("v", "split vertical"),
+                    help_entry("x", "close pane"),
+                ],
+            ),
+        ]
+    }
+
+    #[test]
+    fn keybind_help_filter_matches_labels_case_insensitively() {
+        let filtered = filter_keybind_help_groups(groups(), "NaViGaTiOn");
+
+        assert_eq!(filtered.len(), 1);
+        assert_eq!(filtered[0].0, "workspaces / tabs");
+        assert_eq!(filtered[0].1.len(), 1);
+        assert_eq!(filtered[0].1[0].1, "workspace navigation");
+    }
+
+    #[test]
+    fn keybind_help_filter_matches_shortcuts_and_group_headings() {
+        let filtered = filter_keybind_help_groups(groups(), "x");
+
+        assert_eq!(filtered.len(), 1);
+        assert_eq!(filtered[0].0, "panes");
+        assert_eq!(filtered[0].1.len(), 1);
+        assert_eq!(filtered[0].1[0].1, "close pane");
+
+        let by_group = filter_keybind_help_groups(groups(), "panes");
+        assert_eq!(by_group.len(), 1);
+        assert_eq!(by_group[0].1.len(), 2);
+    }
+
+    #[test]
+    fn keybind_help_empty_filter_renders_clear_message() {
+        let app = AppState::test_new();
+        let lines = keybind_help_lines(&app, 40, "zzzz-no-such-bind");
+        let rendered = lines
+            .into_iter()
+            .flat_map(|(_, line)| line.spans)
+            .map(|span| span.content.into_owned())
+            .collect::<String>();
+        assert!(rendered.contains("no matching keybinds"));
+    }
+    #[test]
+    fn keybind_help_layout_uses_focused_search_footer_height() {
+        let area = Rect::new(0, 0, 120, 30);
+        let unfocused = keybind_help_layout(area, false).expect("unfocused layout");
+        let focused = keybind_help_layout(area, true).expect("focused layout");
+
+        assert_eq!(unfocused.popup, focused.popup);
+        assert_eq!(unfocused.body.height, focused.body.height + 1);
     }
 }

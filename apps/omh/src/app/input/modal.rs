@@ -128,7 +128,7 @@ pub(super) fn open_agent_menu(state: &mut AppState) {
 }
 
 pub(super) fn open_keybind_help(state: &mut AppState) {
-    state.keybind_help.scroll = 0;
+    reset_keybind_help(&mut state.keybind_help);
     state.mode = Mode::KeybindHelp;
 }
 
@@ -481,16 +481,129 @@ pub(crate) fn insert_navigator_search_text(state: &mut AppState, text: &str) {
     state.select_first_navigator_match();
 }
 
-pub(crate) fn handle_keybind_help_key(state: &mut AppState, key: KeyEvent) {
+pub(crate) fn insert_keybind_help_query_text(
+    help: &mut crate::app::state::KeybindHelpState,
+    text: &str,
+) {
+    if !help.search_focused {
+        return;
+    }
+    help.query
+        .extend(text.chars().filter(|ch| !ch.is_control()));
+    help.scroll = 0;
+}
+
+pub(super) fn keybind_help_back(help: &mut crate::app::state::KeybindHelpState) -> bool {
+    if help.search_focused {
+        help.query.clear();
+        help.search_focused = false;
+        help.scroll = 0;
+        return false;
+    }
+    true
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum KeybindHelpKeyResult {
+    Handled,
+    Leave,
+}
+
+pub(crate) fn apply_keybind_help_key(
+    help: &mut crate::app::state::KeybindHelpState,
+    max_scroll: u16,
+    key: TerminalKey,
+) -> KeybindHelpKeyResult {
+    if help.search_focused {
+        match key.code {
+            KeyCode::Up => scroll_keybind_help(help, max_scroll, -1),
+            KeyCode::Down => scroll_keybind_help(help, max_scroll, 1),
+            KeyCode::PageUp => {
+                scroll_keybind_help(help, max_scroll, -super::MODAL_PAGE_SCROLL_ROWS)
+            }
+            KeyCode::PageDown => {
+                scroll_keybind_help(help, max_scroll, super::MODAL_PAGE_SCROLL_ROWS)
+            }
+            KeyCode::Home => help.scroll = 0,
+            KeyCode::End => help.scroll = max_scroll,
+            KeyCode::Backspace => {
+                help.query.pop();
+                help.scroll = 0;
+            }
+            KeyCode::Char('u') if key.modifiers == KeyModifiers::CONTROL => {
+                help.query.clear();
+                help.scroll = 0;
+            }
+            KeyCode::Esc => {
+                let _ = keybind_help_back(help);
+            }
+            KeyCode::Enter => return KeybindHelpKeyResult::Leave,
+            _ => {
+                if let Some(character) = keybind_help_text_char(&key) {
+                    insert_keybind_help_query_text(help, &character.to_string());
+                }
+            }
+        }
+        return KeybindHelpKeyResult::Handled;
+    }
+
     match key.code {
-        KeyCode::Up | KeyCode::Char('k') => state.scroll_keybind_help(-1),
-        KeyCode::Down | KeyCode::Char('j') => state.scroll_keybind_help(1),
-        KeyCode::PageUp => state.scroll_keybind_help(-super::MODAL_PAGE_SCROLL_ROWS),
-        KeyCode::PageDown => state.scroll_keybind_help(super::MODAL_PAGE_SCROLL_ROWS),
-        KeyCode::Home => state.keybind_help.scroll = 0,
-        KeyCode::End => state.keybind_help.scroll = state.keybind_help_max_scroll(),
-        KeyCode::Esc | KeyCode::Enter | KeyCode::Char('?') => leave_modal(state),
+        KeyCode::Up | KeyCode::Char('k') => scroll_keybind_help(help, max_scroll, -1),
+        KeyCode::Down | KeyCode::Char('j') => scroll_keybind_help(help, max_scroll, 1),
+        KeyCode::PageUp => scroll_keybind_help(help, max_scroll, -super::MODAL_PAGE_SCROLL_ROWS),
+        KeyCode::PageDown => scroll_keybind_help(help, max_scroll, super::MODAL_PAGE_SCROLL_ROWS),
+        KeyCode::Home => help.scroll = 0,
+        KeyCode::End => help.scroll = max_scroll,
+        _ if keybind_help_text_char(&key) == Some('/') => {
+            help.search_focused = true;
+            help.scroll = 0;
+        }
+        KeyCode::Esc => {
+            if keybind_help_back(help) {
+                return KeybindHelpKeyResult::Leave;
+            }
+        }
+        KeyCode::Enter => return KeybindHelpKeyResult::Leave,
+        _ if keybind_help_text_char(&key) == Some('?') => return KeybindHelpKeyResult::Leave,
         _ => {}
+    }
+    KeybindHelpKeyResult::Handled
+}
+
+fn scroll_keybind_help(
+    help: &mut crate::app::state::KeybindHelpState,
+    max_scroll: u16,
+    delta: i16,
+) {
+    let current = help.scroll as i16;
+    help.scroll = current.saturating_add(delta).clamp(0, max_scroll as i16) as u16;
+}
+
+fn reset_keybind_help(help: &mut crate::app::state::KeybindHelpState) {
+    help.scroll = 0;
+    help.query.clear();
+    help.search_focused = false;
+}
+
+fn keybind_help_text_char(key: &TerminalKey) -> Option<char> {
+    if !key.modifiers.difference(KeyModifiers::SHIFT).is_empty() {
+        return None;
+    }
+    if let Some(character) = key.shifted_codepoint.and_then(char::from_u32) {
+        return Some(character);
+    }
+    let KeyCode::Char(character) = key.code else {
+        return None;
+    };
+    Some(character)
+}
+
+pub(crate) fn handle_keybind_help_key(state: &mut AppState, key: TerminalKey) {
+    let max_scroll = state.keybind_help_max_scroll();
+    if apply_keybind_help_key(&mut state.keybind_help, max_scroll, key)
+        == KeybindHelpKeyResult::Leave
+    {
+        leave_modal(state);
     }
 }
 
@@ -2448,5 +2561,142 @@ mod tests {
             rows[state.navigator.list.selected].target,
             crate::app::state::NavigatorTarget::Pane { pane_id, .. } if pane_id == target
         ));
+    }
+
+    #[test]
+    fn keybind_help_slash_focuses_filter_and_preserves_vim_scroll() {
+        let mut state = state_with_workspaces(&["test"]);
+        state.keybind_help.query = "stale".into();
+        state.keybind_help.search_focused = true;
+
+        open_keybind_help(&mut state);
+        assert_eq!(
+            apply_keybind_help_key(
+                &mut state.keybind_help,
+                2,
+                TerminalKey::new(KeyCode::Char('j'), KeyModifiers::empty()),
+            ),
+            KeybindHelpKeyResult::Handled
+        );
+        assert_eq!(state.keybind_help.scroll, 1);
+        assert_eq!(
+            apply_keybind_help_key(
+                &mut state.keybind_help,
+                2,
+                TerminalKey::new(KeyCode::Char('k'), KeyModifiers::empty()),
+            ),
+            KeybindHelpKeyResult::Handled
+        );
+        assert_eq!(state.keybind_help.scroll, 0);
+
+        handle_keybind_help_key(
+            &mut state,
+            TerminalKey::new(KeyCode::Char('w'), KeyModifiers::empty()),
+        );
+        assert!(state.keybind_help.query.is_empty());
+
+        handle_keybind_help_key(
+            &mut state,
+            TerminalKey::new(KeyCode::Char('/'), KeyModifiers::empty()),
+        );
+        for character in "work".chars() {
+            state.keybind_help.scroll = 2;
+            handle_keybind_help_key(
+                &mut state,
+                TerminalKey::new(KeyCode::Char(character), KeyModifiers::empty()),
+            );
+        }
+
+        assert!(state.keybind_help.search_focused);
+        assert_eq!(state.keybind_help.query, "work");
+        assert_eq!(state.keybind_help.scroll, 0);
+    }
+
+    #[test]
+    fn keybind_help_query_supports_backspace_clear_and_sanitized_paste() {
+        let mut state = state_with_workspaces(&["test"]);
+        open_keybind_help(&mut state);
+        handle_keybind_help_key(
+            &mut state,
+            TerminalKey::new(KeyCode::Char('/'), KeyModifiers::empty()),
+        );
+
+        insert_keybind_help_query_text(&mut state.keybind_help, "work\nspace");
+        assert_eq!(state.keybind_help.query, "workspace");
+
+        handle_keybind_help_key(
+            &mut state,
+            TerminalKey::new(KeyCode::Backspace, KeyModifiers::empty()),
+        );
+        assert_eq!(state.keybind_help.query, "workspac");
+
+        handle_keybind_help_key(
+            &mut state,
+            TerminalKey::new(KeyCode::Char('u'), KeyModifiers::CONTROL),
+        );
+        assert!(state.keybind_help.query.is_empty());
+    }
+
+    #[test]
+    fn keybind_help_escape_leaves_search_before_closing() {
+        let mut state = state_with_workspaces(&["test"]);
+        open_keybind_help(&mut state);
+        state.keybind_help.search_focused = true;
+        state.keybind_help.query = "work".into();
+
+        handle_keybind_help_key(
+            &mut state,
+            TerminalKey::new(KeyCode::Esc, KeyModifiers::empty()),
+        );
+        assert_eq!(state.mode, Mode::KeybindHelp);
+        assert!(!state.keybind_help.search_focused);
+        assert!(state.keybind_help.query.is_empty());
+
+        handle_keybind_help_key(
+            &mut state,
+            TerminalKey::new(KeyCode::Esc, KeyModifiers::empty()),
+        );
+        assert_eq!(state.mode, Mode::Terminal);
+    }
+
+    #[test]
+    fn enhanced_shifted_slash_focuses_keybind_help_filter() {
+        let mut state = state_with_workspaces(&["test"]);
+        open_keybind_help(&mut state);
+
+        handle_keybind_help_key(
+            &mut state,
+            TerminalKey::new(KeyCode::Char('7'), KeyModifiers::SHIFT)
+                .with_shifted_codepoint('/' as u32),
+        );
+
+        assert!(state.keybind_help.search_focused);
+    }
+
+    #[test]
+    fn enhanced_shifted_question_mark_closes_keybind_help_when_not_searching() {
+        let mut state = state_with_workspaces(&["test"]);
+        open_keybind_help(&mut state);
+
+        handle_keybind_help_key(
+            &mut state,
+            TerminalKey::new(KeyCode::Char('/'), KeyModifiers::SHIFT)
+                .with_shifted_codepoint('?' as u32),
+        );
+
+        assert_eq!(state.mode, Mode::Terminal);
+
+        open_keybind_help(&mut state);
+        handle_keybind_help_key(
+            &mut state,
+            TerminalKey::new(KeyCode::Char('/'), KeyModifiers::empty()),
+        );
+        handle_keybind_help_key(
+            &mut state,
+            TerminalKey::new(KeyCode::Char('/'), KeyModifiers::SHIFT)
+                .with_shifted_codepoint('?' as u32),
+        );
+
+        assert_eq!(state.keybind_help.query, "?");
     }
 }

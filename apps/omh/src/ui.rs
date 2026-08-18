@@ -49,6 +49,8 @@ use self::dialogs::{
 use self::git_repo_picker::{
     render_git_repo_picker_overlay, render_git_repo_picker_overlay_for_view,
 };
+#[cfg(test)]
+pub(crate) use self::keybind_help::keybind_help_lines;
 use self::keybind_help::{render_keybind_help_overlay, render_keybind_help_overlay_for_view};
 use self::menus::{
     render_agent_menu, render_agent_menu_for_view, render_context_menu,
@@ -3322,6 +3324,33 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn compute_view_reclaims_terminal_column_when_pane_scrollbars_disabled() {
+        let mut app = crate::app::state::AppState::test_new();
+        let mut ws = Workspace::test_new("test");
+        let pane_id = ws.tabs[0].root_pane;
+        ws.insert_test_runtime(
+            pane_id,
+            crate::terminal::TerminalRuntime::test_with_scrollback_bytes(
+                12,
+                4,
+                4096,
+                b"000000000000\r\n111111111111\r\n222222222222\r\n333333333333\r\n444444444444\r\n",
+            ),
+        );
+
+        app.workspaces = vec![ws];
+        app.active = Some(0);
+        app.selected = 0;
+        app.pane_scrollbars = false;
+
+        compute_view(&mut app, Rect::new(0, 0, 40, 12));
+
+        let info = app.view.pane_infos.first().expect("pane info");
+        assert_eq!(info.inner_rect.width, app.view.terminal_area.width);
+        assert_eq!(info.scrollbar_rect, None);
+    }
+
     #[test]
     fn scrollbar_stays_hidden_without_scrollback() {
         let metrics = crate::pane::ScrollMetrics {
@@ -3589,7 +3618,7 @@ mod tests {
     fn keybind_help_lines_follow_modal_option_hierarchy() {
         let app = crate::app::state::AppState::test_new();
         let option_width = 70;
-        let lines = keybind_help_lines(&app, option_width);
+        let lines = keybind_help_lines(&app, option_width, "");
 
         let (command_width, command_line) = lines
             .iter()
@@ -3747,7 +3776,7 @@ mod tests {
             .iter()
             .any(|(key, label)| key == "prefix+alt+h" && label.as_ref() == "Custom Command"));
 
-        let rendered_help = keybind_help_lines(&app, 70)
+        let rendered_help = keybind_help_lines(&app, 70, "")
             .into_iter()
             .flat_map(|(_, line)| line.spans)
             .map(|span| span.content.into_owned())

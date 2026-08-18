@@ -10,7 +10,7 @@ use crate::app::{
 };
 
 use super::{
-    modal::{leave_modal, modal_action_from_buttons, ModalAction},
+    modal::{keybind_help_back, leave_modal, modal_action_from_buttons, ModalAction},
     ScrollbarClickTarget, MODAL_WHEEL_SCROLL_ROWS,
 };
 
@@ -201,7 +201,9 @@ impl App {
                         .state
                         .keybind_help_close_button_at(mouse.column, mouse.row) =>
                 {
-                    leave_modal(&mut self.state);
+                    if keybind_help_back(&mut self.state.keybind_help) {
+                        leave_modal(&mut self.state);
+                    }
                 }
                 MouseEventKind::Down(MouseButton::Left) => {
                     if let Some(target) = self
@@ -425,7 +427,9 @@ fn handle_keybind_help_mouse_for_state(state: &mut AppState, mouse: MouseEvent) 
         MouseEventKind::Down(MouseButton::Left)
             if state.keybind_help_close_button_at(mouse.column, mouse.row) =>
         {
-            leave_modal(state);
+            if keybind_help_back(&mut state.keybind_help) {
+                leave_modal(state);
+            }
         }
         MouseEventKind::Down(MouseButton::Left) => {
             if let Some(target) = state.keybind_help_scrollbar_target_at(mouse.column, mouse.row) {
@@ -805,22 +809,24 @@ impl AppState {
     }
 
     pub(super) fn keybind_help_popup_rect(&self) -> Rect {
-        crate::ui::keybind_help_layout(self.screen_rect())
+        crate::ui::keybind_help_layout(self.screen_rect(), self.keybind_help.search_focused)
             .map(|layout| layout.popup)
             .unwrap_or_default()
     }
 
     fn keybind_help_close_button_at(&self, col: u16, row: u16) -> bool {
-        crate::ui::keybind_help_layout(self.screen_rect()).is_some_and(|layout| {
-            col >= layout.close.x
-                && col < layout.close.x + layout.close.width
-                && row >= layout.close.y
-                && row < layout.close.y + layout.close.height
-        })
+        crate::ui::keybind_help_layout(self.screen_rect(), self.keybind_help.search_focused)
+            .is_some_and(|layout| {
+                col >= layout.close.x
+                    && col < layout.close.x + layout.close.width
+                    && row >= layout.close.y
+                    && row < layout.close.y + layout.close.height
+            })
     }
 
     fn keybind_help_body_rect(&self) -> Option<Rect> {
-        crate::ui::keybind_help_layout(self.screen_rect()).map(|layout| layout.body)
+        crate::ui::keybind_help_layout(self.screen_rect(), self.keybind_help.search_focused)
+            .map(|layout| layout.body)
     }
 
     fn keybind_help_scroll_metrics(&self) -> Option<crate::pane::ScrollMetrics> {
@@ -829,6 +835,7 @@ impl AppState {
             self,
             body,
             self.keybind_help.scroll,
+            &self.keybind_help.query,
         ))
     }
 
@@ -909,9 +916,12 @@ mod tests {
         let mut app = app_for_mouse_test();
         app.state.mode = Mode::KeybindHelp;
 
-        let close = crate::ui::keybind_help_layout(app.state.screen_rect())
-            .expect("keybind help layout")
-            .close;
+        let close = crate::ui::keybind_help_layout(
+            app.state.screen_rect(),
+            app.state.keybind_help.search_focused,
+        )
+        .expect("keybind help layout")
+        .close;
         app.handle_mouse(mouse(
             MouseEventKind::Down(MouseButton::Left),
             close.x,
@@ -922,14 +932,41 @@ mod tests {
     }
 
     #[test]
+    fn clicking_keybind_help_close_while_searching_leaves_help_open() {
+        let mut app = app_for_mouse_test();
+        app.state.mode = Mode::KeybindHelp;
+        app.state.keybind_help.search_focused = true;
+        app.state.keybind_help.query = "work".into();
+
+        let close = crate::ui::keybind_help_layout(
+            app.state.screen_rect(),
+            app.state.keybind_help.search_focused,
+        )
+        .expect("keybind help layout")
+        .close;
+        app.handle_mouse(mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            close.x,
+            close.y,
+        ));
+
+        assert_eq!(app.state.mode, Mode::KeybindHelp);
+        assert!(!app.state.keybind_help.search_focused);
+        assert!(app.state.keybind_help.query.is_empty());
+    }
+
+    #[test]
     fn keybind_help_close_uses_full_screen_geometry_with_right_sidebar() {
         let mut app = app_for_mouse_test();
         add_right_sidebar(&mut app);
         app.state.mode = Mode::KeybindHelp;
 
-        let close = crate::ui::keybind_help_layout(app.state.screen_rect())
-            .expect("keybind help layout")
-            .close;
+        let close = crate::ui::keybind_help_layout(
+            app.state.screen_rect(),
+            app.state.keybind_help.search_focused,
+        )
+        .expect("keybind help layout")
+        .close;
         app.handle_mouse(mouse(
             MouseEventKind::Down(MouseButton::Left),
             close.x,
