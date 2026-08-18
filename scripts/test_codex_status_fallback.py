@@ -31,24 +31,6 @@ class CodexStatusTestFallbackTests(unittest.TestCase):
                 "source /usr/local/lib/omh-agent-test-models.sh",
                 f"source {shlex.quote(str(models_copy))}",
             )
-            # Current Codex session reports require a persisted transcript path.
-            # The copied real script still exercises the hook seam after retry.
-            session_transcripts = {
-                "codex-session": "/tmp/codex-session.jsonl",
-                "blocked-session": "/tmp/blocked-session.jsonl",
-                "compact-session": "/tmp/compact-session.jsonl",
-                "parent-session": "/tmp/parent-session.jsonl",
-            }
-            for session_id, transcript_path in session_transcripts.items():
-                stale = (
-                    f'{{"session_id":"{session_id}","hook_event_name":"SessionStart"}}'
-                )
-                current = (
-                    f'{{"session_id":"{session_id}","hook_event_name":"SessionStart",'
-                    f'"transcript_path":"{transcript_path}"}}'
-                )
-                self.assertIn(stale, script_text, session_id)
-                script_text = script_text.replace(stale, current)
             script_copy.write_text(script_text)
             script_copy.chmod(script_copy.stat().st_mode | stat.S_IXUSR)
 
