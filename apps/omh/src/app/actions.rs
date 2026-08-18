@@ -4274,7 +4274,9 @@ impl AppState {
                 seq,
                 ..
             } => {
-                if crate::agent_resume::releases_process_owned_agent(&source, &agent_label) {
+                if !crate::agent_resume::is_official_agent_source(&source, &agent_label)
+                    || crate::agent_resume::releases_process_owned_agent(&source, &agent_label)
+                {
                     self.update_terminal_state(pane_id, |terminal| {
                         terminal.release_agent_with_mutation(
                             &source,
