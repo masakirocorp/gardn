@@ -253,7 +253,7 @@ impl App {
                 content,
                 "ui",
                 "context_bar",
-                &format!("{:?}", visibility.label()),
+                &format!("{:?}", visibility.config_value()),
             )
         }) {
             self.apply_config_from_disk(false);
@@ -274,7 +274,7 @@ impl App {
                 content,
                 "ui.sidebar",
                 "initial_state",
-                &format!("{:?}", initial_state.label()),
+                &format!("{:?}", initial_state.config_value()),
             );
             crate::config::upsert_section_value(
                 &content,
@@ -359,7 +359,7 @@ impl App {
                 content,
                 "ui",
                 "status_indicators",
-                style.config_value(),
+                &format!("{:?}", style.config_value()),
             )
         }) {
             self.apply_config_from_disk(false);
@@ -664,6 +664,47 @@ mod tests {
         assert!(!app
             .state
             .project_command_configured(crate::app::state::ProjectCommandKind::Diff));
+        let _ = std::fs::remove_file(path);
+    }
+    #[test]
+    fn save_enum_settings_persist_valid_toml() {
+        let _lock = match crate::config::test_config_env_lock().lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        let path = std::env::temp_dir().join(format!(
+            "omh-enum-settings-{}-{}.toml",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let _config_path =
+            crate::config::TestEnvVar::set(crate::config::CONFIG_PATH_ENV_VAR, &path);
+        let mut app = test_app();
+
+        app.save_status_indicators(crate::config::StatusIndicatorStyle::Symbols);
+        app.save_context_bar_visibility(crate::config::ContextBarVisibilityConfig::Never);
+        app.save_sidebar_initial_view(
+            crate::config::SidebarInitialStateConfig::Collapsed,
+            crate::config::AgentPanelScopeConfig::Group,
+        );
+
+        let content = std::fs::read_to_string(&path).unwrap();
+        let config: crate::config::Config = toml::from_str(&content).unwrap();
+        assert_eq!(
+            config.ui.status_indicators,
+            crate::config::StatusIndicatorStyle::Symbols
+        );
+        assert_eq!(
+            config.ui.context_bar,
+            crate::config::ContextBarVisibilityConfig::Never
+        );
+        assert_eq!(
+            config.ui.sidebar.initial_state,
+            crate::config::SidebarInitialStateConfig::Collapsed
+        );
         let _ = std::fs::remove_file(path);
     }
 }

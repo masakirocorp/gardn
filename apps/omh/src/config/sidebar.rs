@@ -29,6 +29,13 @@ impl SidebarInitialStateConfig {
             Self::Collapsed => "Collapsed",
         }
     }
+
+    pub(crate) fn config_value(self) -> &'static str {
+        match self {
+            Self::Expanded => "expanded",
+            Self::Collapsed => "collapsed",
+        }
+    }
 }
 
 fn deserialize_sidebar_rows<'de, D, T>(deserializer: D) -> Result<Vec<Vec<T>>, D::Error>

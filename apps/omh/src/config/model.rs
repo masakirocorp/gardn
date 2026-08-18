@@ -225,6 +225,13 @@ impl ContextBarVisibilityConfig {
             Self::Never => "Never",
         }
     }
+
+    pub(crate) const fn config_value(self) -> &'static str {
+        match self {
+            Self::Always => "always",
+            Self::Never => "never",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
