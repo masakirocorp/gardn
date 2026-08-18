@@ -166,19 +166,19 @@ send_hook() {
 
 run_codex_cli
 
-send_hook pane-codex-allowed session '{"session_id":"codex-session","hook_event_name":"SessionStart"}'
+send_hook pane-codex-allowed session '{"session_id":"codex-session","transcript_path":"/tmp/codex-session.jsonl","hook_event_name":"SessionStart"}'
 send_hook pane-codex-allowed working '{"session_id":"codex-session","hook_event_name":"UserPromptSubmit"}'
 send_hook pane-codex-allowed idle '{"session_id":"codex-session","hook_event_name":"Stop"}'
 send_hook pane-codex-allowed release '{"session_id":"codex-session","hook_event_name":"SessionEnd"}'
 
-send_hook pane-codex-blocked session '{"session_id":"blocked-session","hook_event_name":"SessionStart"}'
+send_hook pane-codex-blocked session '{"session_id":"blocked-session","transcript_path":"/tmp/blocked-session.jsonl","hook_event_name":"SessionStart"}'
 send_hook pane-codex-blocked working '{"session_id":"blocked-session","hook_event_name":"UserPromptSubmit"}'
 send_hook pane-codex-blocked blocked '{"session_id":"blocked-session","hook_event_name":"PermissionRequest"}'
 
-send_hook pane-codex-compact session '{"session_id":"compact-session","hook_event_name":"SessionStart"}'
+send_hook pane-codex-compact session '{"session_id":"compact-session","transcript_path":"/tmp/compact-session.jsonl","hook_event_name":"SessionStart"}'
 send_hook pane-codex-compact working '{"session_id":"compact-session","hook_event_name":"PreCompact"}'
 
-send_hook pane-codex-subagent session '{"session_id":"parent-session","hook_event_name":"SessionStart"}'
+send_hook pane-codex-subagent session '{"session_id":"parent-session","transcript_path":"/tmp/parent-session.jsonl","hook_event_name":"SessionStart"}'
 send_hook pane-codex-subagent working '{"session_id":"parent-session","hook_event_name":"UserPromptSubmit"}'
 send_hook pane-codex-subagent working '{"session_id":"parent-session","hook_event_name":"SubagentStart","agent_id":"child-1"}'
 send_hook pane-codex-subagent idle '{"hook_event_name":"SubagentStop","agent_id":"child-1"}'
