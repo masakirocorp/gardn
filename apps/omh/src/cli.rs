@@ -2273,7 +2273,7 @@ pub(super) fn server_not_running_error(err: &std::io::Error) -> bool {
     matches!(
         err.kind(),
         std::io::ErrorKind::NotFound | std::io::ErrorKind::ConnectionRefused
-    )
+    ) || server_not_running::was_reported(err)
 }
 
 fn map_server_not_running_or_io(

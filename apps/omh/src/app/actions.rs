@@ -4273,22 +4273,12 @@ impl AppState {
                 session_ref,
                 seq,
                 ..
-            } => {
-                if crate::agent_resume::is_official_agent_source(&source, &agent_label) {
-                    Vec::new()
-                } else {
-                    self.update_terminal_state(pane_id, |terminal| {
-                        terminal.release_agent_with_mutation(
-                            &source,
-                            &agent_label,
-                            session_ref,
-                            seq,
-                        )
-                    })
-                    .into_iter()
-                    .collect()
-                }
-            }
+            } => self
+                .update_terminal_state(pane_id, |terminal| {
+                    terminal.release_agent_with_mutation(&source, &agent_label, session_ref, seq)
+                })
+                .into_iter()
+                .collect(),
             // Intercepted in App::handle_internal_event before reaching this
             // dispatch; never touches AppState.
             AppEvent::ClipboardWrite { .. }

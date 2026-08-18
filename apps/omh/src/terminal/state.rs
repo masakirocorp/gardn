@@ -1122,9 +1122,10 @@ impl TerminalState {
             .as_ref()
             .is_some_and(|session| session.source != source || session.agent != agent_label);
         let process_owns_agent =
-            crate::detect::parse_agent_label(agent_label).is_some_and(|agent| {
-                self.detected_agent == Some(agent) && self.recent_agent_process_exit.is_none()
-            });
+            !crate::agent_resume::is_official_agent_source(source, agent_label)
+                && crate::detect::parse_agent_label(agent_label).is_some_and(|agent| {
+                    self.detected_agent == Some(agent) && self.recent_agent_process_exit.is_none()
+                });
 
         let now = Instant::now();
         let previous_agent_label = self.effective_agent_label().map(str::to_string);
@@ -2679,7 +2680,7 @@ mod tests {
     }
 
     #[test]
-    fn official_release_preserves_process_owned_agent_identity() {
+    fn official_release_clears_process_owned_agent_identity() {
         let mut terminal = test_terminal();
         terminal.set_detected_state(Some(Agent::Pi), AgentState::Idle);
         terminal.set_hook_authority(
@@ -2694,11 +2695,11 @@ mod tests {
             .release_agent_with_mutation("omh:pi", "pi", None, None)
             .expect("official release should be accepted");
 
-        assert!(!mutation.agent_released);
+        assert!(mutation.agent_released);
         assert!(terminal.hook_authority.is_none());
-        assert_eq!(terminal.detected_agent, Some(Agent::Pi));
-        assert_eq!(terminal.effective_agent_label(), Some("pi"));
-        assert_eq!(terminal.state, AgentState::Idle);
+        assert_eq!(terminal.detected_agent, None);
+        assert_eq!(terminal.effective_agent_label(), None);
+        assert_eq!(terminal.state, AgentState::Unknown);
     }
 
     #[test]
