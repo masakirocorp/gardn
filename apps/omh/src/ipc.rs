@@ -309,6 +309,7 @@ mod tests {
 
     #[test]
     fn private_named_pipe_accepts_same_user() {
+        use interprocess::local_socket::traits::Listener as _;
         use std::io::Write as _;
 
         let path = temp_socket_marker_path("private-pipe");
