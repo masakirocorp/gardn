@@ -525,7 +525,7 @@ fn accept_fake_cli_operation(listener: &UnixListener) -> (UnixStream, String) {
                 "result": {
                     "type": "pong",
                     "version": "different-build-same-protocol",
-                    "protocol": 13,
+                    "protocol": 12,
                     "capabilities": { "live_handoff": true }
                 }
             })
@@ -1441,7 +1441,7 @@ fn integration_commands_run_locally_when_server_is_missing() {
     let status_stdout = String::from_utf8_lossy(&integration_status.stdout);
     assert!(status_stdout.contains("pi: current (v7)"));
     assert!(status_stdout.contains("claude: not installed"));
-    assert!(status_stdout.contains("omp: current (v7)"));
+    assert!(status_stdout.contains("omp: current (v8)"));
 
     let integration_uninstall = Command::new(env!("CARGO_BIN_EXE_omh"))
         .args(["integration", "uninstall", "pi"])
@@ -1556,7 +1556,7 @@ fn status_commands_report_client_and_server_versions() {
         "stdout: {full_stdout}"
     );
     assert!(
-        full_stdout.contains("  protocol: 13"),
+        full_stdout.contains("  protocol: 12"),
         "stdout: {full_stdout}"
     );
     assert!(full_stdout.contains("server:\n"), "stdout: {full_stdout}");
@@ -1589,7 +1589,7 @@ fn status_commands_report_client_and_server_versions() {
         "stdout: {server_stdout}"
     );
     assert!(
-        server_stdout.contains("protocol: 13"),
+        server_stdout.contains("protocol: 12"),
         "stdout: {server_stdout}"
     );
 
@@ -1601,7 +1601,7 @@ fn status_commands_report_client_and_server_versions() {
         "stdout: {client_stdout}"
     );
     assert!(
-        client_stdout.contains("protocol: 13"),
+        client_stdout.contains("protocol: 12"),
         "stdout: {client_stdout}"
     );
     assert!(
@@ -1611,7 +1611,7 @@ fn status_commands_report_client_and_server_versions() {
 
     let full_json = run_cli_json(&socket_path, &["status", "--json"]);
     assert_eq!(full_json["client"]["version"], env!("CARGO_PKG_VERSION"));
-    assert_eq!(full_json["client"]["protocol"], 13);
+    assert_eq!(full_json["client"]["protocol"], 12);
     assert_eq!(full_json["server"]["status"], "running");
     assert_eq!(full_json["server"]["running"], true);
     assert_eq!(full_json["server"]["compatible"], true);

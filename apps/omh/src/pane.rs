@@ -548,6 +548,7 @@ fn spawn_basic_detection_task(
             }
 
             let now = std::time::Instant::now();
+            let suppressed_agent = active_pending_release(&pending_release_for_task, now);
             if full_lifecycle_authority_active.load(Ordering::Acquire) {
                 continue;
             }
@@ -556,9 +557,16 @@ fn spawn_basic_detection_task(
             let mut agent = agent_presence.current_agent();
 
             if pid > 0 {
-                let new_agent = crate::detect::foreground_job(pid).and_then(|job| {
+                let mut new_agent = crate::detect::foreground_job(pid).and_then(|job| {
                     crate::detect::identify_agent_in_job(&job).map(|(agent, _)| agent)
                 });
+                if let Some(suppressed_agent) = suppressed_agent {
+                    if new_agent == Some(suppressed_agent) {
+                        new_agent = None;
+                    } else if let Ok(mut pending_release) = pending_release_for_task.lock() {
+                        *pending_release = None;
+                    }
+                }
                 let previous_agent = agent_presence.current_agent();
                 if agent_presence.observe_process_probe(new_agent) {
                     agent = agent_presence.current_agent();
@@ -638,8 +646,6 @@ fn spawn_basic_detection_task(
                 )
                 .await;
             }
-
-            let _ = active_pending_release(&pending_release_for_task, now);
         }
     });
 
