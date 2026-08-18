@@ -1,6 +1,7 @@
 use crate::config::{
-    Keybinds, NewTerminalCwdConfig, PaneBorderAgentInfoConfig, SoundConfig, StatusIndicatorStyle,
-    TerminalAccent, ThemeConfig, ThemeMode, ToastConfig, ToastDelivery,
+    Keybinds, NewTerminalCwdConfig, PaneBorderAgentInfoConfig, RightClickPassthroughModifierConfig,
+    SoundConfig, StatusIndicatorStyle, TerminalAccent, ThemeConfig, ThemeMode, ToastConfig,
+    ToastDelivery,
 };
 use crate::detect::AgentState;
 use crossterm::event::{KeyCode, KeyModifiers};
@@ -2127,6 +2128,20 @@ pub struct SettingsState {
     pub pending_prompt_new_tab_name: Option<bool>,
     /// Pending counter visibility setting while settings is open.
     pub pending_show_counters: Option<bool>,
+    /// Pending pane border visibility while settings is open.
+    pub pending_pane_borders: Option<bool>,
+    /// Pending pane scrollbar visibility while settings is open.
+    pub pending_pane_scrollbars: Option<bool>,
+    /// Pending pane gap visibility while settings is open.
+    pub pending_pane_gaps: Option<bool>,
+    /// Pending single-tab bar hiding while settings is open.
+    pub pending_hide_tab_bar_when_single_tab: Option<bool>,
+    /// Pending copy-on-select while settings is open.
+    pub pending_copy_on_select: Option<bool>,
+    /// Pending new-workspace naming prompt while settings is open.
+    pub pending_prompt_new_workspace_name: Option<bool>,
+    /// Pending right-click passthrough modifier while settings is open.
+    pub pending_right_click_passthrough_modifier: Option<RightClickPassthroughModifierConfig>,
     /// Pending new-terminal cwd policy while settings is open.
     pub pending_new_terminal_cwd: Option<NewTerminalCwdConfig>,
     /// Pending mouse wheel scroll amount while settings is open.
@@ -4206,6 +4221,13 @@ impl AppState {
                 pending_confirm_close: None,
                 pending_prompt_new_tab_name: None,
                 pending_show_counters: None,
+                pending_pane_borders: None,
+                pending_pane_scrollbars: None,
+                pending_pane_gaps: None,
+                pending_hide_tab_bar_when_single_tab: None,
+                pending_copy_on_select: None,
+                pending_prompt_new_workspace_name: None,
+                pending_right_click_passthrough_modifier: None,
                 pending_new_terminal_cwd: None,
                 pending_context_bar_visibility: None,
                 pending_mouse_scroll_lines: None,

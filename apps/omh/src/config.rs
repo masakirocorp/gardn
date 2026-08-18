@@ -22,9 +22,10 @@ pub use self::{
     model::{
         validated_sidebar_bounds, AgentPanelScopeConfig, CommandsConfig, Config,
         ConfigReloadReport, ConfigReloadStatus, ContextBarVisibilityConfig, HostCursorModeConfig,
-        NewTerminalCwdConfig, PaneBorderAgentInfoConfig, ShellModeConfig, SidebarArrangementConfig,
-        SidebarCollapsedModeConfig, StatusIndicatorStyle, ToastClipboardPosition, ToastConfig,
-        ToastDelivery, ToastOmhPosition, MAX_TOAST_DELAY_SECONDS,
+        NewTerminalCwdConfig, PaneBorderAgentInfoConfig, RightClickPassthroughModifierConfig,
+        ShellModeConfig, SidebarArrangementConfig, SidebarCollapsedModeConfig,
+        StatusIndicatorStyle, ToastClipboardPosition, ToastConfig, ToastDelivery, ToastOmhPosition,
+        MAX_TOAST_DELAY_SECONDS,
     },
     sidebar::{
         AgentSidebarToken, AgentsSidebarConfig, SidebarConfig, SidebarInitialStateConfig,

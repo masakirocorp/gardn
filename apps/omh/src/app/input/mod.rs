@@ -728,6 +728,13 @@ impl App {
                         confirm_close,
                         prompt_new_tab_name,
                         show_counters,
+                        pane_borders,
+                        pane_scrollbars,
+                        pane_gaps,
+                        hide_tab_bar_when_single_tab,
+                        copy_on_select,
+                        prompt_new_workspace_name,
+                        right_click_passthrough_modifier,
                         new_terminal_cwd,
                         mouse_scroll_lines,
                         git_command,
@@ -755,6 +762,17 @@ impl App {
                         self.save_confirm_close(confirm_close);
                         self.save_prompt_new_tab_name(prompt_new_tab_name);
                         self.save_show_counters(show_counters);
+                        self.save_pane_appearance(
+                            pane_borders,
+                            pane_scrollbars,
+                            pane_gaps,
+                            hide_tab_bar_when_single_tab,
+                        );
+                        self.save_behavior_selection(
+                            copy_on_select,
+                            prompt_new_workspace_name,
+                            right_click_passthrough_modifier,
+                        );
                         self.save_new_terminal_cwd(&new_terminal_cwd);
                         self.save_mouse_scroll_lines(mouse_scroll_lines);
                         self.save_commands(

@@ -1167,7 +1167,7 @@ pub fn format_key_combo(binding: KeyCombo) -> String {
     parts.join("+")
 }
 
-fn super_modifier_label() -> &'static str {
+pub(super) fn super_modifier_label() -> &'static str {
     if cfg!(target_os = "macos") {
         "cmd"
     } else {

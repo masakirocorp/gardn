@@ -332,6 +332,77 @@ impl App {
         }
     }
 
+    pub(super) fn save_pane_appearance(
+        &mut self,
+        pane_borders: bool,
+        pane_scrollbars: bool,
+        pane_gaps: bool,
+        hide_tab_bar_when_single_tab: bool,
+    ) {
+        self.state.pane_borders = pane_borders;
+        self.state.pane_scrollbars = pane_scrollbars;
+        self.state.pane_gaps = pane_gaps;
+        self.state.hide_tab_bar_when_single_tab = hide_tab_bar_when_single_tab;
+        self.state.settings.pending_pane_borders = Some(pane_borders);
+        self.state.settings.pending_pane_scrollbars = Some(pane_scrollbars);
+        self.state.settings.pending_pane_gaps = Some(pane_gaps);
+        self.state.settings.pending_hide_tab_bar_when_single_tab =
+            Some(hide_tab_bar_when_single_tab);
+        if self.update_config_file("pane appearance", |content| {
+            let content =
+                crate::config::upsert_section_bool(content, "ui", "pane_borders", pane_borders);
+            let content = crate::config::upsert_section_bool(
+                &content,
+                "ui",
+                "pane_scrollbars",
+                pane_scrollbars,
+            );
+            let content =
+                crate::config::upsert_section_bool(&content, "ui", "pane_gaps", pane_gaps);
+            crate::config::upsert_section_bool(
+                &content,
+                "ui",
+                "hide_tab_bar_when_single_tab",
+                hide_tab_bar_when_single_tab,
+            )
+        }) {
+            self.apply_config_from_disk(false);
+        }
+    }
+
+    pub(super) fn save_behavior_selection(
+        &mut self,
+        copy_on_select: bool,
+        prompt_new_workspace_name: bool,
+        right_click_passthrough_modifier: crate::config::RightClickPassthroughModifierConfig,
+    ) {
+        self.state.copy_on_select = copy_on_select;
+        self.state.prompt_new_workspace_name = prompt_new_workspace_name;
+        self.state.right_click_passthrough_modifiers = right_click_passthrough_modifier.modifiers();
+        self.state.settings.pending_copy_on_select = Some(copy_on_select);
+        self.state.settings.pending_prompt_new_workspace_name = Some(prompt_new_workspace_name);
+        self.state.settings.pending_right_click_passthrough_modifier =
+            Some(right_click_passthrough_modifier);
+        if self.update_config_file("selection behavior", |content| {
+            let content =
+                crate::config::upsert_section_bool(content, "ui", "copy_on_select", copy_on_select);
+            let content = crate::config::upsert_section_bool(
+                &content,
+                "ui",
+                "prompt_new_workspace_name",
+                prompt_new_workspace_name,
+            );
+            crate::config::upsert_section_value(
+                &content,
+                "ui",
+                "right_click_passthrough_modifier",
+                &format!("{:?}", right_click_passthrough_modifier.config_value()),
+            )
+        }) {
+            self.apply_config_from_disk(false);
+        }
+    }
+
     pub(super) fn save_pane_border_agent_info(
         &mut self,
         level: crate::config::PaneBorderAgentInfoConfig,
@@ -704,6 +775,55 @@ mod tests {
         assert_eq!(
             config.ui.sidebar.initial_state,
             crate::config::SidebarInitialStateConfig::Collapsed
+        );
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn save_pane_appearance_and_behavior_selection_persist_valid_toml() {
+        let _lock = match crate::config::test_config_env_lock().lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        let path = std::env::temp_dir().join(format!(
+            "omh-pane-behavior-{}-{}.toml",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let _config_path =
+            crate::config::TestEnvVar::set(crate::config::CONFIG_PATH_ENV_VAR, &path);
+        let mut app = test_app();
+        let modifier = crate::config::RightClickPassthroughModifierConfig::from_modifiers(Some(
+            crossterm::event::KeyModifiers::SUPER | crossterm::event::KeyModifiers::ALT,
+        ));
+
+        app.save_pane_appearance(false, false, true, true);
+        app.save_behavior_selection(false, true, modifier);
+
+        let content = std::fs::read_to_string(&path).unwrap();
+        let config: crate::config::Config = toml::from_str(&content).unwrap();
+        assert!(!config.ui.pane_borders);
+        assert!(!config.ui.pane_scrollbars);
+        assert!(config.ui.pane_gaps);
+        assert!(config.ui.hide_tab_bar_when_single_tab);
+        assert!(!config.ui.copy_on_select);
+        assert!(config.ui.prompt_new_workspace_name);
+        assert_eq!(
+            config.ui.right_click_passthrough_modifiers(),
+            Some(crossterm::event::KeyModifiers::SUPER | crossterm::event::KeyModifiers::ALT)
+        );
+        assert!(!app.state.pane_borders);
+        assert!(!app.state.pane_scrollbars);
+        assert!(app.state.pane_gaps);
+        assert!(app.state.hide_tab_bar_when_single_tab);
+        assert!(!app.state.copy_on_select);
+        assert!(app.state.prompt_new_workspace_name);
+        assert_eq!(
+            app.state.right_click_passthrough_modifiers,
+            Some(crossterm::event::KeyModifiers::SUPER | crossterm::event::KeyModifiers::ALT)
         );
         let _ = std::fs::remove_file(path);
     }

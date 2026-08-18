@@ -840,21 +840,51 @@ fn appearance_rows(app: &AppState, settings: &SettingsState) -> Vec<SettingsList
     rows.push(SettingsListRow::Spacer);
     rows.extend(setting_group(
         "Panes",
-        [value_option(
-            layout_base + 7,
-            "Pane Border Agent Info",
-            "Agent metadata shown in split pane borders",
-            settings
-                .pending_pane_border_agent_info
-                .unwrap_or_else(|| app.pane_border_agent_info())
-                .label(),
-        )],
+        [
+            option(
+                layout_base + 7,
+                "Pane Borders",
+                "Draw borders around split panes",
+                settings.pending_pane_borders.unwrap_or(app.pane_borders),
+            ),
+            option(
+                layout_base + 8,
+                "Pane Scrollbars",
+                "Draw scrollbars beside terminal panes",
+                settings
+                    .pending_pane_scrollbars
+                    .unwrap_or(app.pane_scrollbars),
+            ),
+            option(
+                layout_base + 9,
+                "Pane Gaps",
+                "Keep split panes visually separated",
+                settings.pending_pane_gaps.unwrap_or(app.pane_gaps),
+            ),
+            option(
+                layout_base + 10,
+                "Hide Single-Tab Bar",
+                "Hide the tab bar when a workspace has one tab",
+                settings
+                    .pending_hide_tab_bar_when_single_tab
+                    .unwrap_or(app.hide_tab_bar_when_single_tab),
+            ),
+            value_option(
+                layout_base + 11,
+                "Pane Border Agent Info",
+                "Agent metadata shown in split pane borders",
+                settings
+                    .pending_pane_border_agent_info
+                    .unwrap_or_else(|| app.pane_border_agent_info())
+                    .label(),
+            ),
+        ],
     ));
     rows.push(SettingsListRow::Spacer);
     rows.extend(setting_group(
         "Agent Status",
         [value_option(
-            layout_base + 8,
+            layout_base + 12,
             "Status Indicators",
             "How agent status is shown in lists",
             settings
@@ -980,6 +1010,14 @@ fn behavior_rows(app: &AppState, settings: &SettingsState) -> Vec<SettingsListRo
             ),
             option(
                 2,
+                "Name New Workspaces",
+                "Ask for a workspace name before creating a new workspace",
+                settings
+                    .pending_prompt_new_workspace_name
+                    .unwrap_or(app.prompt_new_workspace_name),
+            ),
+            option(
+                3,
                 "Show Counters",
                 "Show right-aligned topology and section counts",
                 settings.pending_show_counters.unwrap_or(app.show_counters),
@@ -988,16 +1026,43 @@ fn behavior_rows(app: &AppState, settings: &SettingsState) -> Vec<SettingsListRo
     );
     rows.push(SettingsListRow::Spacer);
     rows.extend(setting_group(
+        "Selection",
+        [
+            option(
+                4,
+                "Copy on Select",
+                "Copy drag selections when the mouse is released",
+                settings
+                    .pending_copy_on_select
+                    .unwrap_or(app.copy_on_select),
+            ),
+            value_option(
+                5,
+                "Right-click Passthrough",
+                "Modifier that forwards right-clicks into pane apps",
+                settings
+                    .pending_right_click_passthrough_modifier
+                    .unwrap_or_else(|| {
+                        crate::config::RightClickPassthroughModifierConfig::from_modifiers(
+                            app.right_click_passthrough_modifiers,
+                        )
+                    })
+                    .label(),
+            ),
+        ],
+    ));
+    rows.push(SettingsListRow::Spacer);
+    rows.extend(setting_group(
         "Terminal",
         [
             value_option(
-                3,
+                6,
                 "New Terminal CWD",
                 "Directory used by newly created terminal tabs",
                 cwd_label,
             ),
             value_option(
-                4,
+                7,
                 "Mouse Wheel Speed",
                 "Terminal scroll amount per wheel notch",
                 scroll_label,
@@ -2244,5 +2309,39 @@ mod tests {
         for index in fields.into_iter().skip(1) {
             assert!(matches!(rows[index - 1], SettingsListRow::Spacer));
         }
+    }
+
+    #[test]
+    fn appearance_and_behavior_rows_expose_approved_settings() {
+        let app = AppState::test_new();
+        let appearance = rows_for_section(&app, SettingsSection::Theme).expect("appearance rows");
+        for title in [
+            "Pane Borders",
+            "Pane Scrollbars",
+            "Pane Gaps",
+            "Hide Single-Tab Bar",
+        ] {
+            assert!(
+                appearance.iter().any(|row| matches!(
+                    row,
+                    SettingsListRow::Toggle { title: row_title, .. } if row_title.as_ref() == title
+                )),
+                "missing {title}"
+            );
+        }
+
+        let behavior = rows_for_section(&app, SettingsSection::PaneLabels).expect("behavior rows");
+        assert!(behavior.iter().any(|row| matches!(
+            row,
+            SettingsListRow::Toggle { title, .. } if title.as_ref() == "Name New Workspaces"
+        )));
+        assert!(behavior.iter().any(|row| matches!(
+            row,
+            SettingsListRow::Toggle { title, .. } if title.as_ref() == "Copy on Select"
+        )));
+        assert!(behavior.iter().any(|row| matches!(
+            row,
+            SettingsListRow::Value { title, .. } if title.as_ref() == "Right-click Passthrough"
+        )));
     }
 }

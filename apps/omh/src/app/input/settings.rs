@@ -12,8 +12,8 @@ use crate::{
     },
     config::{
         AgentPanelScopeConfig, ContextBarVisibilityConfig, NewTerminalCwdConfig,
-        PaneBorderAgentInfoConfig, SidebarArrangementConfig, SidebarInitialStateConfig,
-        StatusIndicatorStyle, TerminalAccent, ThemeMode, ToastDelivery,
+        PaneBorderAgentInfoConfig, RightClickPassthroughModifierConfig, SidebarArrangementConfig,
+        SidebarInitialStateConfig, StatusIndicatorStyle, TerminalAccent, ThemeMode, ToastDelivery,
     },
     settings_rows::{
         connection_editor_open as settings_connection_editor_open, next_option_index, option_count,
@@ -47,6 +47,13 @@ pub(crate) enum SettingsAction {
         confirm_close: bool,
         prompt_new_tab_name: bool,
         show_counters: bool,
+        pane_borders: bool,
+        pane_scrollbars: bool,
+        pane_gaps: bool,
+        hide_tab_bar_when_single_tab: bool,
+        copy_on_select: bool,
+        prompt_new_workspace_name: bool,
+        right_click_passthrough_modifier: RightClickPassthroughModifierConfig,
         new_terminal_cwd: NewTerminalCwdConfig,
         mouse_scroll_lines: usize,
         git_command: String,
@@ -148,6 +155,13 @@ impl App {
                 confirm_close,
                 prompt_new_tab_name,
                 show_counters,
+                pane_borders,
+                pane_scrollbars,
+                pane_gaps,
+                hide_tab_bar_when_single_tab,
+                copy_on_select,
+                prompt_new_workspace_name,
+                right_click_passthrough_modifier,
                 new_terminal_cwd,
                 mouse_scroll_lines,
                 git_command,
@@ -175,6 +189,17 @@ impl App {
                 self.save_confirm_close(confirm_close);
                 self.save_prompt_new_tab_name(prompt_new_tab_name);
                 self.save_show_counters(show_counters);
+                self.save_pane_appearance(
+                    pane_borders,
+                    pane_scrollbars,
+                    pane_gaps,
+                    hide_tab_bar_when_single_tab,
+                );
+                self.save_behavior_selection(
+                    copy_on_select,
+                    prompt_new_workspace_name,
+                    right_click_passthrough_modifier,
+                );
                 self.save_new_terminal_cwd(&new_terminal_cwd);
                 self.save_mouse_scroll_lines(mouse_scroll_lines);
                 self.save_commands(&git_command, &diff_command, &ide_command, &github_command);
@@ -1842,6 +1867,58 @@ fn pending_show_counters(state: &AppState) -> bool {
         .unwrap_or(state.show_counters)
 }
 
+fn pending_pane_borders(state: &AppState) -> bool {
+    state
+        .settings
+        .pending_pane_borders
+        .unwrap_or(state.pane_borders)
+}
+
+fn pending_pane_scrollbars(state: &AppState) -> bool {
+    state
+        .settings
+        .pending_pane_scrollbars
+        .unwrap_or(state.pane_scrollbars)
+}
+
+fn pending_pane_gaps(state: &AppState) -> bool {
+    state.settings.pending_pane_gaps.unwrap_or(state.pane_gaps)
+}
+
+fn pending_hide_tab_bar_when_single_tab(state: &AppState) -> bool {
+    state
+        .settings
+        .pending_hide_tab_bar_when_single_tab
+        .unwrap_or(state.hide_tab_bar_when_single_tab)
+}
+
+fn pending_copy_on_select(state: &AppState) -> bool {
+    state
+        .settings
+        .pending_copy_on_select
+        .unwrap_or(state.copy_on_select)
+}
+
+fn pending_prompt_new_workspace_name(state: &AppState) -> bool {
+    state
+        .settings
+        .pending_prompt_new_workspace_name
+        .unwrap_or(state.prompt_new_workspace_name)
+}
+
+fn pending_right_click_passthrough_modifier(
+    state: &AppState,
+) -> RightClickPassthroughModifierConfig {
+    state
+        .settings
+        .pending_right_click_passthrough_modifier
+        .unwrap_or_else(|| {
+            RightClickPassthroughModifierConfig::from_modifiers(
+                state.right_click_passthrough_modifiers,
+            )
+        })
+}
+
 fn pending_new_terminal_cwd(state: &AppState) -> NewTerminalCwdConfig {
     state
         .settings
@@ -2298,6 +2375,13 @@ fn clear_settings_pending(state: &mut AppState) {
     state.settings.pending_confirm_close = None;
     state.settings.pending_prompt_new_tab_name = None;
     state.settings.pending_show_counters = None;
+    state.settings.pending_pane_borders = None;
+    state.settings.pending_pane_scrollbars = None;
+    state.settings.pending_pane_gaps = None;
+    state.settings.pending_hide_tab_bar_when_single_tab = None;
+    state.settings.pending_copy_on_select = None;
+    state.settings.pending_prompt_new_workspace_name = None;
+    state.settings.pending_right_click_passthrough_modifier = None;
     state.settings.pending_new_terminal_cwd = None;
     state.settings.pending_mouse_scroll_lines = None;
     state.settings.pending_git_command = None;
@@ -2339,6 +2423,13 @@ fn current_settings_action(state: &AppState) -> SettingsAction {
         confirm_close: pending_confirm_close(state),
         prompt_new_tab_name: pending_prompt_new_tab_name(state),
         show_counters: pending_show_counters(state),
+        pane_borders: pending_pane_borders(state),
+        pane_scrollbars: pending_pane_scrollbars(state),
+        pane_gaps: pending_pane_gaps(state),
+        hide_tab_bar_when_single_tab: pending_hide_tab_bar_when_single_tab(state),
+        copy_on_select: pending_copy_on_select(state),
+        prompt_new_workspace_name: pending_prompt_new_workspace_name(state),
+        right_click_passthrough_modifier: pending_right_click_passthrough_modifier(state),
         new_terminal_cwd: pending_new_terminal_cwd(state),
         mouse_scroll_lines: pending_mouse_scroll_lines(state),
         git_command: pending_command(state, 0),
@@ -2455,11 +2546,18 @@ fn select_pending_appearance_setting(state: &mut AppState) -> Option<SettingsAct
     let appearance_selected = selected - theme_count;
     match appearance_selected {
         0..=6 => select_pending_layout_setting_at(state, appearance_selected),
-        7 => {
+        7 => state.settings.pending_pane_borders = Some(!pending_pane_borders(state)),
+        8 => state.settings.pending_pane_scrollbars = Some(!pending_pane_scrollbars(state)),
+        9 => state.settings.pending_pane_gaps = Some(!pending_pane_gaps(state)),
+        10 => {
+            state.settings.pending_hide_tab_bar_when_single_tab =
+                Some(!pending_hide_tab_bar_when_single_tab(state))
+        }
+        11 => {
             state.settings.pending_pane_border_agent_info =
                 Some(pending_pane_border_agent_info(state).next());
         }
-        8 => {
+        12 => {
             state.settings.pending_status_indicators =
                 Some(pending_status_indicators(state).next());
         }
@@ -2663,12 +2761,21 @@ fn select_pending_setting(state: &mut AppState) -> Option<SettingsAction> {
                     state.settings.pending_prompt_new_tab_name =
                         Some(!pending_prompt_new_tab_name(state))
                 }
-                2 => state.settings.pending_show_counters = Some(!pending_show_counters(state)),
-                3 => {
+                2 => {
+                    state.settings.pending_prompt_new_workspace_name =
+                        Some(!pending_prompt_new_workspace_name(state))
+                }
+                3 => state.settings.pending_show_counters = Some(!pending_show_counters(state)),
+                4 => state.settings.pending_copy_on_select = Some(!pending_copy_on_select(state)),
+                5 => {
+                    state.settings.pending_right_click_passthrough_modifier =
+                        Some(pending_right_click_passthrough_modifier(state).next());
+                }
+                6 => {
                     let next = next_terminal_cwd_policy(pending_new_terminal_cwd(state));
                     state.settings.pending_new_terminal_cwd = Some(next);
                 }
-                4 => {
+                7 => {
                     let next = next_mouse_scroll_lines(pending_mouse_scroll_lines(state));
                     state.settings.pending_mouse_scroll_lines = Some(next);
                 }
@@ -3415,6 +3522,16 @@ pub(crate) fn prepare_general_settings_state(
     settings.pending_confirm_close = Some(state.confirm_close_enabled());
     settings.pending_prompt_new_tab_name = Some(state.prompt_new_tab_name_enabled());
     settings.pending_show_counters = Some(state.show_counters);
+    settings.pending_pane_borders = Some(state.pane_borders);
+    settings.pending_pane_scrollbars = Some(state.pane_scrollbars);
+    settings.pending_pane_gaps = Some(state.pane_gaps);
+    settings.pending_hide_tab_bar_when_single_tab = Some(state.hide_tab_bar_when_single_tab);
+    settings.pending_copy_on_select = Some(state.copy_on_select);
+    settings.pending_prompt_new_workspace_name = Some(state.prompt_new_workspace_name);
+    settings.pending_right_click_passthrough_modifier =
+        Some(RightClickPassthroughModifierConfig::from_modifiers(
+            state.right_click_passthrough_modifiers,
+        ));
     settings.pending_new_terminal_cwd = Some(state.new_terminal_cwd.clone());
     settings.pending_mouse_scroll_lines = Some(state.mouse_scroll_lines);
     settings.pending_git_command = Some(state.git_command.clone());
@@ -3487,6 +3604,13 @@ fn reset_settings_for_scoped_editor(state: &AppState, settings: &mut SettingsSta
     settings.pending_confirm_close = None;
     settings.pending_prompt_new_tab_name = None;
     settings.pending_show_counters = None;
+    settings.pending_pane_borders = None;
+    settings.pending_pane_scrollbars = None;
+    settings.pending_pane_gaps = None;
+    settings.pending_hide_tab_bar_when_single_tab = None;
+    settings.pending_copy_on_select = None;
+    settings.pending_prompt_new_workspace_name = None;
+    settings.pending_right_click_passthrough_modifier = None;
     settings.pending_new_terminal_cwd = None;
     settings.pending_mouse_scroll_lines = None;
     settings.pending_git_command = None;
@@ -3610,6 +3734,13 @@ pub(crate) fn open_group_settings(state: &mut AppState, group_idx: usize) {
     state.settings.pending_confirm_close = None;
     state.settings.pending_prompt_new_tab_name = None;
     state.settings.pending_show_counters = None;
+    state.settings.pending_pane_borders = None;
+    state.settings.pending_pane_scrollbars = None;
+    state.settings.pending_pane_gaps = None;
+    state.settings.pending_hide_tab_bar_when_single_tab = None;
+    state.settings.pending_copy_on_select = None;
+    state.settings.pending_prompt_new_workspace_name = None;
+    state.settings.pending_right_click_passthrough_modifier = None;
     state.settings.pending_new_terminal_cwd = None;
     state.settings.pending_mouse_scroll_lines = None;
     state.settings.pending_git_command = None;
@@ -3671,6 +3802,13 @@ pub(crate) fn open_workspace_settings(state: &mut AppState, ws_idx: usize) {
     state.settings.pending_confirm_close = None;
     state.settings.pending_prompt_new_tab_name = None;
     state.settings.pending_show_counters = None;
+    state.settings.pending_pane_borders = None;
+    state.settings.pending_pane_scrollbars = None;
+    state.settings.pending_pane_gaps = None;
+    state.settings.pending_hide_tab_bar_when_single_tab = None;
+    state.settings.pending_copy_on_select = None;
+    state.settings.pending_prompt_new_workspace_name = None;
+    state.settings.pending_right_click_passthrough_modifier = None;
     state.settings.pending_new_terminal_cwd = None;
     state.settings.pending_mouse_scroll_lines = None;
     state.settings.pending_git_command = None;
@@ -5228,6 +5366,13 @@ mod tests {
                 confirm_close: true,
                 prompt_new_tab_name: true,
                 show_counters: false,
+                pane_borders: true,
+                pane_scrollbars: true,
+                pane_gaps: true,
+                hide_tab_bar_when_single_tab: false,
+                copy_on_select: true,
+                prompt_new_workspace_name: false,
+                right_click_passthrough_modifier: RightClickPassthroughModifierConfig::default(),
                 new_terminal_cwd: NewTerminalCwdConfig::Follow,
                 mouse_scroll_lines: crate::config::DEFAULT_MOUSE_SCROLL_LINES,
                 git_command: "lazygit".to_string(),
@@ -5253,7 +5398,7 @@ mod tests {
         let mut state = state_with_workspaces(&["test"]);
         open_settings(&mut state);
         state.settings.section = SettingsSection::PaneLabels;
-        state.settings.list.selected = 2;
+        state.settings.list.selected = 3;
         state.settings.list.show();
 
         let action = update_settings_state(
@@ -5562,7 +5707,7 @@ mod tests {
     fn appearance_settings_cycle_pane_border_agent_info_levels() {
         let mut state = state_with_workspaces(&["test"]);
         open_settings_at(&mut state, SettingsSection::Theme);
-        state.settings.list.select(theme_choice_len(&state) + 7);
+        state.settings.list.select(theme_choice_len(&state) + 11);
 
         for expected in [
             PaneBorderAgentInfoConfig::Name,
@@ -5591,7 +5736,7 @@ mod tests {
     fn appearance_settings_cycle_status_indicator_styles() {
         let mut state = state_with_workspaces(&["test"]);
         open_settings_at(&mut state, SettingsSection::Theme);
-        state.settings.list.select(theme_choice_len(&state) + 8);
+        state.settings.list.select(theme_choice_len(&state) + 12);
 
         for expected in [StatusIndicatorStyle::Symbols, StatusIndicatorStyle::Dots] {
             let action = update_settings_state(
@@ -5607,6 +5752,39 @@ mod tests {
                 }) if status_indicators == expected
             ));
         }
+    }
+
+    #[test]
+    fn appearance_settings_toggle_pane_controls_without_changing_neighbors() {
+        let mut state = state_with_workspaces(&["test"]);
+        state.pane_borders = true;
+        state.pane_scrollbars = true;
+        state.pane_gaps = true;
+        state.hide_tab_bar_when_single_tab = false;
+        open_settings_at(&mut state, SettingsSection::Theme);
+        let theme_count = theme_choice_len(&state);
+        state.settings.list.select(theme_count + 7);
+        let action = update_settings_state(
+            &mut state,
+            KeyEvent::new(KeyCode::Char(' '), KeyModifiers::empty()),
+        );
+        assert_eq!(state.settings.pending_pane_borders, Some(false));
+        assert_eq!(state.settings.pending_pane_scrollbars, Some(true));
+        assert_eq!(state.settings.pending_pane_gaps, Some(true));
+        assert_eq!(
+            state.settings.pending_hide_tab_bar_when_single_tab,
+            Some(false)
+        );
+        assert!(matches!(
+            action,
+            Some(SettingsAction::SaveSettings {
+                pane_borders: false,
+                pane_scrollbars: true,
+                pane_gaps: true,
+                hide_tab_bar_when_single_tab: false,
+                ..
+            })
+        ));
     }
 
     #[test]
@@ -5650,7 +5828,41 @@ mod tests {
             &mut state,
             KeyEvent::new(KeyCode::Char(' '), KeyModifiers::empty()),
         );
+        assert_eq!(state.settings.pending_prompt_new_workspace_name, Some(true));
+
+        update_settings_state(
+            &mut state,
+            KeyEvent::new(KeyCode::Down, KeyModifiers::empty()),
+        );
+        update_settings_state(
+            &mut state,
+            KeyEvent::new(KeyCode::Char(' '), KeyModifiers::empty()),
+        );
         assert_eq!(state.settings.pending_show_counters, Some(true));
+
+        update_settings_state(
+            &mut state,
+            KeyEvent::new(KeyCode::Down, KeyModifiers::empty()),
+        );
+        update_settings_state(
+            &mut state,
+            KeyEvent::new(KeyCode::Char(' '), KeyModifiers::empty()),
+        );
+        assert_eq!(state.settings.pending_copy_on_select, Some(false));
+
+        update_settings_state(
+            &mut state,
+            KeyEvent::new(KeyCode::Down, KeyModifiers::empty()),
+        );
+        update_settings_state(
+            &mut state,
+            KeyEvent::new(KeyCode::Char(' '), KeyModifiers::empty()),
+        );
+        assert_eq!(
+            state.settings.pending_right_click_passthrough_modifier,
+            Some(RightClickPassthroughModifierConfig::default().next())
+        );
+
         update_settings_state(
             &mut state,
             KeyEvent::new(KeyCode::Down, KeyModifiers::empty()),
@@ -5680,7 +5892,9 @@ mod tests {
             SettingsAction::SaveSettings {
                 confirm_close: false,
                 prompt_new_tab_name: false,
+                prompt_new_workspace_name: true,
                 show_counters: true,
+                copy_on_select: false,
                 new_terminal_cwd: NewTerminalCwdConfig::Home,
                 mouse_scroll_lines: 5,
                 pane_border_agent_info: PaneBorderAgentInfoConfig::Hidden,
@@ -5840,6 +6054,11 @@ mod tests {
             &mut state,
             KeyEvent::new(KeyCode::Down, KeyModifiers::empty()),
         );
+        assert_eq!(state.settings.sidebar_selection.subsection, Some(2));
+        update_settings_state(
+            &mut state,
+            KeyEvent::new(KeyCode::Down, KeyModifiers::empty()),
+        );
         assert_eq!(
             state.settings.sidebar_selection,
             SettingsSidebarSelection::section(SettingsSection::Commands)
@@ -5885,7 +6104,7 @@ mod tests {
         assert_eq!(state.settings.section, SettingsSection::PaneLabels);
         assert_eq!(state.settings.sidebar_selection.subsection, Some(1));
         assert!(state.settings.scroll > 0);
-        assert_eq!(state.settings.list.selected, 3);
+        assert_eq!(state.settings.list.selected, 4);
     }
 
     #[test]
@@ -6422,7 +6641,10 @@ mod tests {
             list_area.x + 2,
             list_area.y + row_for(2),
         ));
-        assert_eq!(app.state.settings.pending_show_counters, Some(true));
+        assert_eq!(
+            app.state.settings.pending_prompt_new_workspace_name,
+            Some(true)
+        );
         assert_eq!(app.state.settings.list.selected, 2);
 
         app.state.handle_settings_mouse(mouse(
@@ -6430,20 +6652,30 @@ mod tests {
             list_area.x + 2,
             list_area.y + row_for(3),
         ));
+        assert_eq!(app.state.settings.pending_show_counters, Some(true));
+        assert_eq!(app.state.settings.list.selected, 3);
+
+        let cwd_scroll = row_for(6).saturating_sub(list_area.height.saturating_sub(1));
+        app.state.settings.scroll = cwd_scroll as usize;
+        app.state.handle_settings_mouse(mouse(
+            MouseEventKind::Down(crossterm::event::MouseButton::Left),
+            list_area.x + 2,
+            list_area.y + row_for(6) - cwd_scroll,
+        ));
         assert_eq!(
             app.state.settings.pending_new_terminal_cwd,
             Some(NewTerminalCwdConfig::Home)
         );
-        assert_eq!(app.state.settings.list.selected, 3);
-        let scroll = row_for(4).saturating_sub(list_area.height.saturating_sub(1));
+        assert_eq!(app.state.settings.list.selected, 6);
+        let scroll = row_for(7).saturating_sub(list_area.height.saturating_sub(1));
         app.state.settings.scroll = scroll as usize;
         app.state.handle_settings_mouse(mouse(
             MouseEventKind::Down(crossterm::event::MouseButton::Left),
             list_area.x + 2,
-            list_area.y + row_for(4) - scroll,
+            list_area.y + row_for(7) - scroll,
         ));
         assert_eq!(app.state.settings.pending_mouse_scroll_lines, Some(5));
-        assert_eq!(app.state.settings.list.selected, 4);
+        assert_eq!(app.state.settings.list.selected, 7);
     }
 
     #[test]

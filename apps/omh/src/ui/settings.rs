@@ -93,6 +93,10 @@ const BEHAVIOR_SUBSECTIONS: &[SettingsSubsection] = &[
         anchor: Some("General"),
     },
     SettingsSubsection {
+        label: "Selection",
+        anchor: Some("Selection"),
+    },
+    SettingsSubsection {
         label: "Terminal",
         anchor: Some("Terminal"),
     },
@@ -3051,6 +3055,21 @@ mod tests {
         assert!(text.contains("▸ Notifications"), "{text}");
         assert!(text.contains("▸ Advanced"), "{text}");
     }
+
+    #[test]
+    fn behavior_sidebar_lists_selection_subsection() {
+        let mut app = AppState::test_new();
+        app.settings.sidebar_expanded = Some(SettingsSection::PaneLabels);
+        app.settings.section = SettingsSection::PaneLabels;
+
+        let labels = settings_sidebar_entries(&app.settings)
+            .into_iter()
+            .filter(|entry| entry.section == SettingsSection::PaneLabels)
+            .map(|entry| entry.label)
+            .collect::<Vec<_>>();
+
+        assert_eq!(labels, ["Behavior", "General", "Selection", "Terminal"]);
+    }
     #[test]
     fn settings_sidebar_separates_content_header_from_options() {
         let mut app = AppState::test_new();
@@ -3231,11 +3250,39 @@ mod tests {
 
         let text = buffer_text(terminal.backend().buffer(), area.width, area.height);
         assert!(text.contains("General"));
-        assert!(text.contains("Terminal"));
+        assert!(text.contains("Name New Workspaces"));
         assert!(text.contains("Show Counters"));
+        assert!(!text.contains("Pane Border Agent Info"));
+
+        let rows =
+            rows_for_section(&app, SettingsSection::PaneLabels).expect("behavior settings rows");
+        let selection_header = rows
+            .iter()
+            .position(|row| matches!(row, SettingsListRow::Header("Selection")))
+            .expect("selection settings header");
+        app.settings.scroll = visual_row_count(&rows[..selection_header]);
+        terminal
+            .draw(|frame| render_settings_overlay(&app, frame, area))
+            .expect("render selection settings overlay");
+
+        let text = buffer_text(terminal.backend().buffer(), area.width, area.height);
+        assert!(text.contains("Selection"));
+        assert!(text.contains("Copy on Select"));
+        assert!(text.contains("Right-click Passthrough"));
+
+        let terminal_header = rows
+            .iter()
+            .position(|row| matches!(row, SettingsListRow::Header("Terminal")))
+            .expect("terminal settings header");
+        app.settings.scroll = visual_row_count(&rows[..terminal_header]);
+        terminal
+            .draw(|frame| render_settings_overlay(&app, frame, area))
+            .expect("render scrolled settings overlay");
+
+        let text = buffer_text(terminal.backend().buffer(), area.width, area.height);
+        assert!(text.contains("Terminal"));
         assert!(text.contains("New Terminal CWD"));
         assert!(text.contains("Mouse Wheel Speed"));
-        assert!(!text.contains("Pane Border Agent Info"));
     }
     #[test]
     fn sectioned_settings_selected_text_uses_selected_foreground() {

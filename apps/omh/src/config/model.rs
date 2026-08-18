@@ -238,8 +238,91 @@ impl ContextBarVisibilityConfig {
 pub struct RightClickPassthroughModifierConfig(Option<KeyModifiers>);
 
 impl RightClickPassthroughModifierConfig {
+    const ACCEPTED: [KeyModifiers; 5] = [
+        KeyModifiers::CONTROL,
+        KeyModifiers::ALT,
+        KeyModifiers::SUPER,
+        KeyModifiers::META,
+        KeyModifiers::HYPER,
+    ];
+
     pub fn modifiers(self) -> Option<KeyModifiers> {
         self.0
+    }
+
+    pub(crate) fn from_modifiers(modifiers: Option<KeyModifiers>) -> Self {
+        Self(modifiers.and_then(Self::sanitize))
+    }
+
+    pub(crate) fn label(self) -> String {
+        match self.0 {
+            None => "Off".to_string(),
+            Some(modifiers) => format_passthrough_modifiers(modifiers, " + "),
+        }
+    }
+
+    pub(crate) fn config_value(self) -> String {
+        match self.0 {
+            None => "off".to_string(),
+            Some(modifiers) => format_passthrough_modifiers(modifiers, "+").to_ascii_lowercase(),
+        }
+    }
+
+    pub(crate) fn next(self) -> Self {
+        let values = Self::accepted_values();
+        let current = values.iter().position(|value| *value == self).unwrap_or(0);
+        values[(current + 1) % values.len()]
+    }
+
+    fn accepted_values() -> Vec<Self> {
+        let mut values = vec![Self(None)];
+        for mask in 1u8..(1 << Self::ACCEPTED.len()) {
+            let mut modifiers = KeyModifiers::empty();
+            for (index, flag) in Self::ACCEPTED.iter().enumerate() {
+                if mask & (1 << index) != 0 {
+                    modifiers |= *flag;
+                }
+            }
+            values.push(Self(Some(modifiers)));
+        }
+        values
+    }
+
+    fn sanitize(modifiers: KeyModifiers) -> Option<KeyModifiers> {
+        let mut cleaned = KeyModifiers::empty();
+        for flag in Self::ACCEPTED {
+            if modifiers.contains(flag) {
+                cleaned |= flag;
+            }
+        }
+        (!cleaned.is_empty()).then_some(cleaned)
+    }
+}
+
+fn format_passthrough_modifiers(modifiers: KeyModifiers, sep: &str) -> String {
+    let mut parts = Vec::new();
+    if modifiers.contains(KeyModifiers::CONTROL) {
+        parts.push("Ctrl");
+    }
+    if modifiers.contains(KeyModifiers::ALT) {
+        parts.push("Alt");
+    }
+    if modifiers.contains(KeyModifiers::SUPER) {
+        parts.push(match super::keybinds::super_modifier_label() {
+            "cmd" => "Cmd",
+            _ => "Super",
+        });
+    }
+    if modifiers.contains(KeyModifiers::META) {
+        parts.push("Meta");
+    }
+    if modifiers.contains(KeyModifiers::HYPER) {
+        parts.push("Hyper");
+    }
+    if parts.is_empty() {
+        "Off".to_string()
+    } else {
+        parts.join(sep)
     }
 }
 
@@ -1828,6 +1911,43 @@ right_click_passthrough_modifier = "{value}"
                 "value {value:?} failed with the wrong error: {err}"
             );
         }
+    }
+
+    #[test]
+    fn right_click_passthrough_modifier_preserves_and_cycles_accepted_combinations() {
+        let combined = RightClickPassthroughModifierConfig::from_modifiers(Some(
+            KeyModifiers::SUPER | KeyModifiers::ALT,
+        ));
+        assert_eq!(
+            combined.modifiers(),
+            Some(KeyModifiers::SUPER | KeyModifiers::ALT)
+        );
+        let super_label = crate::config::keybinds::super_modifier_label();
+        let display_super_label = if super_label == "cmd" { "Cmd" } else { "Super" };
+        assert_eq!(combined.label(), format!("Alt + {display_super_label}"));
+        assert_eq!(combined.config_value(), format!("alt+{super_label}"));
+        let parsed: Config = toml::from_str(&format!(
+            "[ui]\nright_click_passthrough_modifier = {:?}\n",
+            combined.config_value()
+        ))
+        .unwrap();
+        assert_eq!(
+            parsed.ui.right_click_passthrough_modifiers(),
+            combined.modifiers()
+        );
+
+        let mut seen = std::collections::BTreeSet::new();
+        let mut current = RightClickPassthroughModifierConfig::default();
+        for _ in 0..32 {
+            seen.insert(current.config_value());
+            current = current.next();
+        }
+        assert_eq!(seen.len(), 32);
+        assert!(seen.contains("off"));
+        assert!(seen.contains("ctrl"));
+        assert!(seen.contains(&format!("alt+{super_label}")));
+        assert!(seen.contains(&format!("ctrl+alt+{super_label}+meta+hyper")));
+        assert_eq!(current, RightClickPassthroughModifierConfig::default());
     }
 
     #[test]
