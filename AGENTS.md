@@ -168,7 +168,7 @@ The release workflow must publish these five assets:
 - `omh-macos-aarch64`
 - `omh-windows-x86_64.exe`
 
-Use `just install-dev` during development. It updates only `~/.local/bin/omh-dev` and Linux workers under `~/.local/share/omh-dev`. Never copy an untagged or development-channel build to `~/.local/bin/omh`. Install production `omh` only from an official tagged release asset or tagged release build. Stop a running instance through the matching binary and API namespace (`omh-dev` for development, `omh` for production). If graceful stop fails, inspect socket and process ownership; do not use generic `pkill` or `killall`. Run `cargo clean` after installing local binaries to avoid accumulating large debug build artifacts.
+When updating local binaries, build release and debug binaries, copy them to `~/.local/bin/omh` and `~/.local/bin/omh-dev`, codesign both on macOS, and stop the `omh-dev` server so the next launch uses the new binary. Run `cargo clean` after installing local binaries to avoid accumulating large debug build artifacts.
 
 When changing the server/client wire protocol, compare `apps/omh/src/protocol/wire.rs::PROTOCOL_VERSION` against the latest Oh My Herdr release tag. Bump it only if the current source protocol is not already greater than the latest released protocol. Multiple unreleased wire changes in the same release cycle must share the same single protocol bump; Oh My Herdr supports tagged releases, not arbitrary `master` client/server compatibility. When a bump is required, update all hardcoded protocol expectations and manual protocol fixtures in tests. Keep protocol test expectations intentionally explicit so compatibility changes are reviewed instead of silently following the constant.
 

@@ -6,9 +6,9 @@
 build-libghostty-vt:
     scripts/build_vendored_libghostty_vt.sh
 
-# Compatibility alias for the development-only local install
+# Build, install, sign, and bundle matching local development binaries
 install-local:
-    scripts/install_local_binaries.sh --dev-only
+    scripts/install_local_binaries.sh
 
 # Build and atomically install omh-dev with matching Linux workers
 install-dev:
