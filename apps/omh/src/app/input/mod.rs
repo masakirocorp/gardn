@@ -309,13 +309,7 @@ impl App {
                     .extend(text.chars().filter(|ch| !ch.is_control()));
                 true
             }
-            Mode::KeybindHelp => {
-                if !self.state.keybind_help.search_focused {
-                    return false;
-                }
-                insert_keybind_help_query_text(&mut self.state.keybind_help, text);
-                true
-            }
+            Mode::KeybindHelp => insert_keybind_help_query_text(&mut self.state.keybind_help, text),
             _ => false,
         }
     }
@@ -1418,6 +1412,17 @@ mod tests {
 
         assert_eq!(app.state.keybind_help.query, "workspace");
         assert_eq!(app.state.keybind_help.scroll, 0);
+    }
+
+    #[tokio::test]
+    async fn text_commit_slash_focuses_keybind_help_search() {
+        let mut app = test_app();
+        app.state.mode = Mode::KeybindHelp;
+
+        app.handle_text_commit("/".into()).await;
+
+        assert!(app.state.keybind_help.search_focused);
+        assert!(app.state.keybind_help.query.is_empty());
     }
 
     #[test]

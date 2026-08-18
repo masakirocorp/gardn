@@ -4317,6 +4317,10 @@ impl App {
             crossterm::event::KeyCode::Down | crossterm::event::KeyCode::Char('j') => {
                 client_view.global_menu.move_next(actions.len())
             }
+            crossterm::event::KeyCode::Char('/') => {
+                Self::open_client_view_keybind_help(client_view);
+                client_view.keybind_help.search_focused = true;
+            }
             _ => {}
         }
     }
@@ -7676,11 +7680,7 @@ impl App {
                 true
             }
             Mode::KeybindHelp => {
-                if !client_view.keybind_help.search_focused {
-                    return false;
-                }
-                input::insert_keybind_help_query_text(&mut client_view.keybind_help, text);
-                true
+                input::insert_keybind_help_query_text(&mut client_view.keybind_help, text)
             }
             _ => false,
         }
@@ -20243,6 +20243,33 @@ command = "printf literal > '{}'"
     }
 
     #[test]
+    fn route_client_slash_from_global_menu_opens_focused_keybind_search() {
+        let mut app = test_app();
+        app.state.workspaces = vec![Workspace::test_new("test")];
+        app.state.ensure_test_terminals();
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::Terminal;
+
+        let mut client = ClientViewState::from_default_client_state(&app.state);
+        client.mode = Mode::GlobalMenu;
+
+        app.route_client_events_for_view(
+            &mut client,
+            vec![raw_key(
+                KeyCode::Char('/'),
+                KeyModifiers::empty(),
+                KeyEventKind::Press,
+            )],
+            true,
+        );
+
+        assert_eq!(client.mode, Mode::KeybindHelp);
+        assert!(client.keybind_help.search_focused);
+        assert_eq!(app.state.mode, Mode::Terminal);
+    }
+
+    #[test]
     fn route_client_events_for_view_configuration_issue_stays_client_local() {
         let mut app = test_app();
         app.state.workspaces = vec![Workspace::test_new("test")];
@@ -20465,17 +20492,8 @@ command = "printf literal > '{}'"
 
         app.route_client_events_for_view(
             &mut client,
-            vec![raw_key(
-                KeyCode::Char('/'),
-                KeyModifiers::empty(),
-                KeyEventKind::Press,
-            )],
-            true,
-        );
-        app.route_client_events_for_view(
-            &mut client,
             vec![crate::raw_input::RawInputEvent::TextCommit(
-                crate::input::TextCommit::new("zzzz-no-such-bind"),
+                crate::input::TextCommit::new("/zzzz-no-such-bind"),
             )],
             true,
         );

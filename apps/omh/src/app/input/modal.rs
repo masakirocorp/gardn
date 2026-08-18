@@ -179,6 +179,10 @@ pub(crate) fn handle_global_menu_key(state: &mut AppState, key: KeyEvent) {
         KeyCode::Esc => leave_modal(state),
         KeyCode::Up | KeyCode::Char('k') => state.global_menu.move_prev(),
         KeyCode::Down | KeyCode::Char('j') => state.global_menu.move_next(actions.len()),
+        KeyCode::Char('/') => {
+            open_keybind_help(state);
+            state.keybind_help.search_focused = true;
+        }
         KeyCode::Enter => {
             if let Some(action) = actions.get(state.global_menu.selected).copied() {
                 apply_global_menu_action(state, action);
@@ -484,13 +488,19 @@ pub(crate) fn insert_navigator_search_text(state: &mut AppState, text: &str) {
 pub(crate) fn insert_keybind_help_query_text(
     help: &mut crate::app::state::KeybindHelpState,
     text: &str,
-) {
-    if !help.search_focused {
-        return;
-    }
+) -> bool {
+    let text = if help.search_focused {
+        text
+    } else if let Some(query) = text.strip_prefix('/') {
+        help.search_focused = true;
+        query
+    } else {
+        return false;
+    };
     help.query
         .extend(text.chars().filter(|ch| !ch.is_control()));
     help.scroll = 0;
+    true
 }
 
 pub(super) fn keybind_help_back(help: &mut crate::app::state::KeybindHelpState) -> bool {
@@ -540,7 +550,7 @@ pub(crate) fn apply_keybind_help_key(
             KeyCode::Enter => return KeybindHelpKeyResult::Leave,
             _ => {
                 if let Some(character) = keybind_help_text_char(&key) {
-                    insert_keybind_help_query_text(help, &character.to_string());
+                    let _ = insert_keybind_help_query_text(help, &character.to_string());
                 }
             }
         }
@@ -588,6 +598,13 @@ fn reset_keybind_help(help: &mut crate::app::state::KeybindHelpState) {
 fn keybind_help_text_char(key: &TerminalKey) -> Option<char> {
     if !key.modifiers.difference(KeyModifiers::SHIFT).is_empty() {
         return None;
+    }
+    if let Some(character) = key.generated_text.as_deref().and_then(|text| {
+        let mut characters = text.chars();
+        let character = characters.next()?;
+        (characters.next().is_none() && !character.is_control()).then_some(character)
+    }) {
+        return Some(character);
     }
     if let Some(character) = key.shifted_codepoint.and_then(char::from_u32) {
         return Some(character);
@@ -1682,6 +1699,20 @@ mod tests {
     }
 
     #[test]
+    fn slash_from_global_menu_opens_focused_keybind_search() {
+        let mut state = state_with_workspaces(&["test"]);
+        open_global_menu(&mut state);
+
+        handle_global_menu_key(
+            &mut state,
+            KeyEvent::new(KeyCode::Char('/'), KeyModifiers::empty()),
+        );
+
+        assert_eq!(state.mode, Mode::KeybindHelp);
+        assert!(state.keybind_help.search_focused);
+    }
+
+    #[test]
     fn custom_resize_key_exits_resize_mode() {
         let mut state = state_with_workspaces(&["test"]);
         state.mode = Mode::Resize;
@@ -2621,7 +2652,7 @@ mod tests {
             TerminalKey::new(KeyCode::Char('/'), KeyModifiers::empty()),
         );
 
-        insert_keybind_help_query_text(&mut state.keybind_help, "work\nspace");
+        let _ = insert_keybind_help_query_text(&mut state.keybind_help, "work\nspace");
         assert_eq!(state.keybind_help.query, "workspace");
 
         handle_keybind_help_key(
@@ -2668,6 +2699,20 @@ mod tests {
             &mut state,
             TerminalKey::new(KeyCode::Char('7'), KeyModifiers::SHIFT)
                 .with_shifted_codepoint('/' as u32),
+        );
+
+        assert!(state.keybind_help.search_focused);
+    }
+
+    #[test]
+    fn associated_slash_text_focuses_keybind_help_filter() {
+        let mut state = state_with_workspaces(&["test"]);
+        open_keybind_help(&mut state);
+
+        handle_keybind_help_key(
+            &mut state,
+            TerminalKey::new(KeyCode::Char('x'), KeyModifiers::empty())
+                .with_generated_text(Some("/".into())),
         );
 
         assert!(state.keybind_help.search_focused);
