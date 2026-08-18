@@ -1122,7 +1122,7 @@ impl TerminalState {
             .as_ref()
             .is_some_and(|session| session.source != source || session.agent != agent_label);
         let process_owns_agent =
-            !crate::agent_resume::is_official_agent_source(source, agent_label)
+            !crate::agent_resume::releases_process_owned_agent(source, agent_label)
                 && crate::detect::parse_agent_label(agent_label).is_some_and(|agent| {
                     self.detected_agent == Some(agent) && self.recent_agent_process_exit.is_none()
                 });
