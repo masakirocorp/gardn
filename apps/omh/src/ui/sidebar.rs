@@ -1115,7 +1115,8 @@ pub(crate) fn agent_panel_body_rect(
     }
 
     let body_y = area.y.saturating_add(AGENT_PANEL_HEADER_ROWS);
-    let body_height = area.height.saturating_sub(AGENT_PANEL_HEADER_ROWS);
+    let footer_y = area.y + area.height.saturating_sub(1);
+    let body_height = footer_y.saturating_sub(body_y);
     let body_width = area.width.saturating_sub(u16::from(has_scrollbar));
     Rect::new(area.x, body_y, body_width, body_height)
 }
@@ -6031,6 +6032,49 @@ mod tests {
         assert!(text.contains("codex"));
         assert!(text.contains("claude"));
         assert!(!text.contains("working · codex"));
+    }
+
+    #[test]
+    fn dense_agent_rows_do_not_render_behind_configuration_issue_footer() {
+        let mut app = crate::app::state::AppState::test_new();
+        app.config_issue = Some(crate::app::state::ConfigIssue::from_details(
+            "config.toml: unknown key `colour`".to_string(),
+        ));
+        app.agent_panel_scope = AgentPanelScope::AllWorkspaces;
+        app.workspaces = (0..12)
+            .map(|_| {
+                let mut workspace = Workspace::test_new("agent-with-a-long-name");
+                let pane = workspace.tabs[0].root_pane;
+                let state = workspace.tabs[0].panes.get_mut(&pane).unwrap();
+                state.detected_agent = Some(Agent::Codex);
+                state.state = AgentState::Working;
+                workspace
+            })
+            .collect();
+        app.active = Some(0);
+        app.selected = 0;
+
+        let area = Rect::new(0, 0, 34, 12);
+        app.view.sidebar_rect = area;
+        let backend = TestBackend::new(area.width, area.height);
+        let mut terminal = Terminal::new(backend).expect("test backend");
+        let terminal_runtimes = TerminalRuntimeRegistry::new();
+        terminal
+            .draw(|frame| render_sidebar(&app, &terminal_runtimes, frame, area))
+            .expect("render dense sidebar");
+
+        let launcher = app.global_launcher_rect();
+        let buffer = terminal.backend().buffer();
+        for x in launcher.x..launcher.x + launcher.width {
+            let cell = &buffer[(x, launcher.y)];
+            assert_eq!(cell.style().fg, Some(app.palette.yellow));
+            assert_eq!(cell.style().bg, Some(app.palette.panel_bg));
+            assert_eq!(cell.style().add_modifier, Modifier::BOLD);
+        }
+        let toggle = expanded_sidebar_toggle_rect(area);
+        for x in launcher.x + launcher.width..toggle.x {
+            assert_eq!(buffer[(x, launcher.y)].symbol(), " ");
+        }
     }
 
     #[test]
