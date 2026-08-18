@@ -91,7 +91,7 @@ pub fn session_ref_from_report(
 }
 pub fn normalize_session_start_source(value: Option<String>) -> Option<String> {
     match value.as_deref().map(str::trim) {
-        Some(source @ ("startup" | "resume" | "clear" | "compact" | "new" | "fork")) => {
+        Some(source @ ("startup" | "resume" | "clear" | "compact" | "new" | "fork" | "select")) => {
             Some(source.to_string())
         }
         _ => None,
@@ -117,6 +117,7 @@ pub fn launch_env_from_report(
         ("omh:pi", "pi") | ("omh:omp", "omp") => &["PI_CONFIG_DIR", "PI_CODING_AGENT_DIR"][..],
         ("omh:hermes", "hermes") => &["HERMES_HOME"][..],
         ("omh:opencode", "opencode") => &["OPENCODE_CONFIG", "XDG_DATA_HOME"][..],
+        ("omh:grok", "grok") => &["GROK_HOME"][..],
         _ => &[],
     };
 
@@ -200,9 +201,17 @@ pub fn plan(source: &str, agent: &str, session_ref: &AgentSessionRef) -> Option<
                 session_ref.value.clone(),
             ]
         }
+        ("omh:grok", "grok", AgentSessionRefKind::Id) => {
+            vec!["grok".into(), "--resume".into(), session_ref.value.clone()]
+        }
         ("omh:cursor", "cursor", AgentSessionRefKind::Id) => {
             vec![
-                "cursor-agent".into(),
+                if cfg!(windows) {
+                    "cursor-agent.cmd"
+                } else {
+                    "cursor-agent"
+                }
+                .into(),
                 "--resume".into(),
                 session_ref.value.clone(),
             ]
@@ -409,7 +418,7 @@ fn dedupe_key_with_env(base: &str, env: &[(String, String)]) -> String {
     key
 }
 
-fn is_official_agent_source(source: &str, agent: &str) -> bool {
+pub(crate) fn is_official_agent_source(source: &str, agent: &str) -> bool {
     matches!(
         (source, agent),
         ("omh:claude", "claude")
@@ -423,6 +432,7 @@ fn is_official_agent_source(source: &str, agent: &str) -> bool {
             | ("omh:hermes", "hermes")
             | ("omh:opencode", "opencode")
             | ("omh:cursor", "cursor")
+            | ("omh:grok", "grok")
     )
 }
 
@@ -434,7 +444,19 @@ fn valid_session_path(value: &str) -> bool {
     !value.is_empty()
         && value.len() <= MAX_SESSION_PATH_LEN
         && !value.chars().any(char::is_control)
-        && Path::new(value).is_absolute()
+        && is_absolute_session_path(value)
+}
+
+fn is_absolute_session_path(value: &str) -> bool {
+    Path::new(value).is_absolute() || is_windows_absolute_session_path(value)
+}
+
+fn is_windows_absolute_session_path(value: &str) -> bool {
+    let mut chars = value.chars();
+    match (chars.next(), chars.next(), chars.next()) {
+        (Some(drive), Some(':'), Some('\\' | '/')) if drive.is_ascii_alphabetic() => true,
+        _ => value.starts_with("\\\\"),
+    }
 }
 
 fn valid_launch_command(value: &str) -> bool {
@@ -465,7 +487,9 @@ mod tests {
     use super::*;
     #[test]
     fn normalize_session_start_source_accepts_known_lifecycle_values() {
-        for source in ["startup", "resume", "clear", "compact", "new", "fork"] {
+        for source in [
+            "startup", "resume", "clear", "compact", "new", "fork", "select",
+        ] {
             assert_eq!(
                 normalize_session_start_source(Some(format!(" {source} "))),
                 Some(source.to_string())
@@ -579,13 +603,31 @@ mod tests {
         );
         assert_eq!(
             plan(
+                "omh:grok",
+                "grok",
+                &AgentSessionRef::id("grok-session").unwrap()
+            )
+            .unwrap()
+            .argv,
+            vec!["grok", "--resume", "grok-session"]
+        );
+        assert_eq!(
+            plan(
                 "omh:cursor",
                 "cursor",
                 &AgentSessionRef::id("cursor-session").unwrap()
             )
             .unwrap()
             .argv,
-            vec!["cursor-agent", "--resume", "cursor-session"]
+            vec![
+                if cfg!(windows) {
+                    "cursor-agent.cmd"
+                } else {
+                    "cursor-agent"
+                },
+                "--resume",
+                "cursor-session",
+            ]
         );
     }
 
@@ -680,6 +722,12 @@ mod tests {
                 "hermes",
                 "hermes-session",
                 vec!["--resume", "hermes-session"],
+            ),
+            (
+                "omh:grok",
+                "grok",
+                "grok-session",
+                vec!["--resume", "grok-session"],
             ),
             (
                 "omh:opencode",
@@ -929,6 +977,14 @@ mod tests {
                 "/profiles/devin".to_string()
             )]
         );
+        let env = BTreeMap::from([
+            ("GROK_HOME".to_string(), "/profiles/grok".to_string()),
+            ("PATH".to_string(), "/bin".to_string()),
+        ]);
+        assert_eq!(
+            launch_env_from_report("omh:grok", "grok", env),
+            vec![("GROK_HOME".to_string(), "/profiles/grok".to_string())]
+        );
     }
 
     #[test]
@@ -945,6 +1001,27 @@ mod tests {
             &AgentSessionRef::path("/tmp/claude-session").unwrap()
         )
         .is_none());
+    }
+
+    #[test]
+    fn planner_accepts_windows_omp_session_paths() {
+        let windows_path = r"C:\Users\User\.omp\agent\sessions\omp-session.jsonl";
+        let session_ref = AgentSessionRef::path(windows_path).unwrap();
+        assert_eq!(
+            plan("omh:omp", "omp", &session_ref).unwrap().argv,
+            vec!["omp", "--resume", windows_path]
+        );
+        assert_eq!(
+            session_ref_from_snapshot("omh:omp", "omp", AgentSessionRefKind::Path, windows_path)
+                .unwrap()
+                .session_ref,
+            session_ref
+        );
+        assert!(
+            AgentSessionRef::path("C:/Users/User/.omp/agent/sessions/omp-session.jsonl").is_some()
+        );
+        assert!(AgentSessionRef::path(r"\\server\share\omp-session.jsonl").is_some());
+        assert!(AgentSessionRef::path("relative/omp-session.jsonl").is_none());
     }
 
     #[test]
@@ -1015,6 +1092,19 @@ mod tests {
             &AgentSessionRef::path("/tmp/copilot-session").unwrap()
         )
         .is_none());
+        assert!(plan(
+            "omh:grok",
+            "grok",
+            &AgentSessionRef::path("/tmp/grok-session").unwrap()
+        )
+        .is_none());
+        assert!(session_ref_from_snapshot(
+            "omh:grok",
+            "grok",
+            AgentSessionRefKind::Id,
+            "grok-session"
+        )
+        .is_some());
         assert!(plan(
             "omh:devin",
             "devin",

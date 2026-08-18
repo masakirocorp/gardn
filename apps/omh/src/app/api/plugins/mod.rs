@@ -237,6 +237,29 @@ impl App {
         )
         .map_err(|(_, message)| message)?;
         let mut context = match (target, client_selection) {
+            (_, Some(Some(selection))) if selection.is_visible() => {
+                if let Some(ws_idx) = self.state.workspaces.iter().position(|workspace| {
+                    workspace
+                        .find_tab_index_for_pane(selection.pane_id)
+                        .is_some()
+                }) {
+                    self.plugin_context_for_pane_with_selection(
+                        ws_idx,
+                        selection.pane_id,
+                        Some(selection),
+                        "keybinding",
+                    )
+                } else if let Some((ws_idx, pane_id)) = target {
+                    self.plugin_context_for_pane_with_selection(
+                        ws_idx,
+                        pane_id,
+                        Some(selection),
+                        "keybinding",
+                    )
+                } else {
+                    self.current_plugin_context("keybinding")
+                }
+            }
             (Some((ws_idx, pane_id)), Some(selection)) => self
                 .plugin_context_for_pane_with_selection(ws_idx, pane_id, selection, "keybinding"),
             (Some((ws_idx, pane_id)), None) => {

@@ -366,8 +366,13 @@ fn server_ptmx_fd_count(pid: u32) -> usize {
     entries
         .filter_map(Result::ok)
         .filter_map(|entry| fs::read_link(entry.path()).ok())
-        .filter(|target| target == Path::new("/dev/ptmx"))
+        .filter(|target| is_ptmx_master_fd(target))
         .count()
+}
+
+fn is_ptmx_master_fd(target: &Path) -> bool {
+    // ptmx master node: /dev/ptmx or /dev/pts/ptmx (devpts); slaves /dev/pts/<N> excluded.
+    target == Path::new("/dev/ptmx") || target == Path::new("/dev/pts/ptmx")
 }
 
 #[cfg(target_os = "macos")]
@@ -384,6 +389,15 @@ fn server_ptmx_fd_count(pid: u32) -> usize {
         .count()
 }
 
+#[test]
+fn linux_ptmx_master_paths_count_devpts_and_legacy_nodes() {
+    assert!(is_ptmx_master_fd(Path::new("/dev/ptmx")));
+    assert!(is_ptmx_master_fd(Path::new("/dev/pts/ptmx")));
+    assert!(!is_ptmx_master_fd(Path::new("/dev/pts/0")));
+    assert!(!is_ptmx_master_fd(Path::new("/dev/pts/1")));
+    assert!(!is_ptmx_master_fd(Path::new("/dev/pts/ptmx0")));
+}
+
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 fn wait_for_server_ptmx_fd_count(pid: u32, expected: usize, timeout: Duration) {
     let deadline = Instant::now() + timeout;
@@ -395,7 +409,7 @@ fn wait_for_server_ptmx_fd_count(pid: u32, expected: usize, timeout: Duration) {
         }
         thread::sleep(Duration::from_millis(25));
     }
-    panic!("server pid {pid} had {last_count} /dev/ptmx fds; expected {expected}");
+    panic!("server pid {pid} had {last_count} ptmx master fds; expected {expected}");
 }
 
 #[cfg(target_os = "linux")]

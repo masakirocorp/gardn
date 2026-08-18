@@ -15,6 +15,12 @@ pub(crate) enum LocalStreamRead {
     Closed,
 }
 
+pub(crate) enum LocalStreamReadCount {
+    Data(usize),
+    Pending,
+    Closed,
+}
+
 pub(crate) fn set_local_stream_polling(stream: &mut LocalStream, enabled: bool) -> io::Result<()> {
     #[cfg(unix)]
     {
@@ -31,25 +37,39 @@ pub(crate) fn poll_local_stream_read(
     stream: &mut LocalStream,
     buf: &mut [u8],
 ) -> io::Result<LocalStreamRead> {
+    match poll_local_stream_read_count(stream, buf)? {
+        LocalStreamReadCount::Data(0) => Ok(LocalStreamRead::Closed),
+        LocalStreamReadCount::Data(_) => Ok(LocalStreamRead::Data),
+        LocalStreamReadCount::Pending => Ok(LocalStreamRead::Pending),
+        LocalStreamReadCount::Closed => Ok(LocalStreamRead::Closed),
+    }
+}
+
+pub(crate) fn poll_local_stream_read_count(
+    stream: &mut LocalStream,
+    buf: &mut [u8],
+) -> io::Result<LocalStreamReadCount> {
     #[cfg(unix)]
     {
         match stream.read(buf) {
-            Ok(0) => Ok(LocalStreamRead::Closed),
-            Ok(_) => Ok(LocalStreamRead::Data),
-            Err(err) if err.kind() == io::ErrorKind::WouldBlock => Ok(LocalStreamRead::Pending),
+            Ok(0) => Ok(LocalStreamReadCount::Closed),
+            Ok(read) => Ok(LocalStreamReadCount::Data(read)),
+            Err(err) if err.kind() == io::ErrorKind::WouldBlock => {
+                Ok(LocalStreamReadCount::Pending)
+            }
             Err(err) => Err(err),
         }
     }
     #[cfg(windows)]
     {
         match windows_named_pipe_available(stream)? {
-            None => Ok(LocalStreamRead::Closed),
-            Some(0) => Ok(LocalStreamRead::Pending),
+            None => Ok(LocalStreamReadCount::Closed),
+            Some(0) => Ok(LocalStreamReadCount::Pending),
             Some(_) => match stream.read(buf) {
-                Ok(0) => Ok(LocalStreamRead::Closed),
-                Ok(_) => Ok(LocalStreamRead::Data),
+                Ok(0) => Ok(LocalStreamReadCount::Closed),
+                Ok(read) => Ok(LocalStreamReadCount::Data(read)),
                 Err(err) if matches!(err.raw_os_error(), Some(6 | 109 | 232 | 233)) => {
-                    Ok(LocalStreamRead::Closed)
+                    Ok(LocalStreamReadCount::Closed)
                 }
                 Err(err) => Err(err),
             },
@@ -111,6 +131,37 @@ pub(crate) fn bind_local_listener(path: &Path) -> io::Result<LocalListener> {
         fs::write(path, windows_socket_marker())?;
         Ok(listener)
     }
+}
+
+#[cfg(unix)]
+pub(crate) fn shutdown_local_stream_write(stream: &LocalStream) -> io::Result<()> {
+    match stream {
+        LocalStream::UdSocket(stream) => stream.inner().shutdown(std::net::Shutdown::Write),
+    }
+}
+
+/// Binds a listener for private terminal traffic. Windows must set the
+/// named-pipe DACL at creation; Unix callers bind publicly, then restrict
+/// the socket file with [`restrict_socket_permissions`].
+#[cfg(windows)]
+pub(crate) fn bind_private_local_listener(path: &Path) -> io::Result<LocalListener> {
+    use interprocess::local_socket::{prelude::*, GenericNamespaced, ListenerOptions};
+    use interprocess::os::windows::local_socket::ListenerOptionsExt as _;
+    use interprocess::os::windows::security_descriptor::SecurityDescriptor;
+    use widestring::U16CString;
+
+    let sddl = U16CString::from_str("D:P(A;;GA;;;SY)(A;;GA;;;OW)")
+        .map_err(|err| io::Error::new(io::ErrorKind::InvalidInput, err))?;
+    let security_descriptor = SecurityDescriptor::deserialize(&sddl)?;
+    let name = path.to_string_lossy().to_string();
+    let name = name.to_ns_name::<GenericNamespaced>()?;
+    let listener = ListenerOptions::new()
+        .name(name)
+        .reclaim_name(false)
+        .security_descriptor(security_descriptor)
+        .create_sync()?;
+    fs::write(path, windows_socket_marker())?;
+    Ok(listener)
 }
 
 pub(crate) fn prepare_socket_path(
@@ -254,6 +305,30 @@ mod tests {
         assert!(path.exists(), "replacement marker must survive");
 
         let _ = fs::remove_file(&path);
+    }
+
+    #[test]
+    fn private_named_pipe_accepts_same_user() {
+        use std::io::Write as _;
+
+        let path = temp_socket_marker_path("private-pipe");
+        let _ = fs::remove_file(&path);
+        let listener = bind_private_local_listener(&path).unwrap();
+        let mut client = connect_local_stream(&path).unwrap();
+        let mut server = listener.accept().unwrap();
+        client.write_all(b"remote").unwrap();
+
+        let mut buffer = [0_u8; 16];
+        assert!(matches!(
+            poll_local_stream_read_count(&mut server, &mut buffer).unwrap(),
+            LocalStreamReadCount::Data(6)
+        ));
+        assert_eq!(&buffer[..6], b"remote");
+
+        drop(client);
+        drop(server);
+        drop(listener);
+        let _ = fs::remove_file(path);
     }
 
     fn temp_socket_marker_path(name: &str) -> PathBuf {

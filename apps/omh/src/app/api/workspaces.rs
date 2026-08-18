@@ -523,8 +523,8 @@ fn workspace_not_found(id: String, workspace_id: &str) -> String {
 }
 
 struct AmbientWorkspaceFocus {
-    active: Option<usize>,
-    selected: usize,
+    active_id: Option<String>,
+    selected_id: Option<String>,
     active_group: usize,
     mode: Mode,
 }
@@ -532,30 +532,40 @@ struct AmbientWorkspaceFocus {
 impl AmbientWorkspaceFocus {
     fn capture(app: &App) -> Self {
         Self {
-            active: app.state.active,
-            selected: app.state.selected,
+            active_id: app
+                .state
+                .active
+                .and_then(|idx| app.state.workspaces.get(idx))
+                .map(|workspace| workspace.id.clone()),
+            selected_id: app
+                .state
+                .workspaces
+                .get(app.state.selected)
+                .map(|workspace| workspace.id.clone()),
             active_group: app.state.active_group,
             mode: app.state.mode,
         }
     }
 
     fn restore_if_valid(self, app: &mut App) {
-        if self
-            .active
-            .is_some_and(|idx| idx >= app.state.workspaces.len())
-        {
-            return;
-        }
-        if self.selected >= app.state.workspaces.len() && !app.state.workspaces.is_empty() {
-            return;
-        }
         if self.active_group >= app.state.groups.len() && !app.state.groups.is_empty() {
             return;
         }
-        app.state.active = self.active;
-        app.state.selected = self
-            .selected
-            .min(app.state.workspaces.len().saturating_sub(1));
+        if let Some(id) = self.active_id {
+            if let Some(idx) = app.state.workspaces.iter().position(|ws| ws.id == id) {
+                app.state.active = Some(idx);
+            }
+        }
+        if let Some(id) = self.selected_id {
+            if let Some(idx) = app.state.workspaces.iter().position(|ws| ws.id == id) {
+                app.state.selected = idx;
+            }
+        } else if !app.state.workspaces.is_empty() {
+            app.state.selected = app
+                .state
+                .selected
+                .min(app.state.workspaces.len().saturating_sub(1));
+        }
         app.state.active_group = self
             .active_group
             .min(app.state.groups.len().saturating_sub(1));
@@ -564,6 +574,7 @@ impl AmbientWorkspaceFocus {
 }
 
 fn focus_workspace_in_view(state: &crate::app::AppState, view: &mut ClientViewState, index: usize) {
+    view.reconcile(state);
     if let Some(workspace) = state.workspaces.get(index) {
         view.active_workspace = Some(index);
         view.selected_workspace = index;
@@ -659,6 +670,60 @@ mod tests {
                     && workspace.workspace_id == workspace_id
             )
         }));
+    }
+
+    #[test]
+    fn api_workspace_close_of_earlier_workspace_keeps_focused_identity() {
+        let (_api_tx, api_rx) = tokio::sync::mpsc::unbounded_channel();
+        let mut app = App::new(
+            &Config::default(),
+            true,
+            None,
+            api_rx,
+            crate::api::EventHub::default(),
+        );
+        app.state.workspaces = vec![
+            Workspace::test_new("a"),
+            Workspace::test_new("b"),
+            Workspace::test_new("c"),
+        ];
+        app.state.ensure_test_terminals();
+        app.state.active = Some(1);
+        app.state.selected = 1;
+        app.state.mode = Mode::Navigate;
+        let focused_id = app.state.workspaces[1].id.clone();
+        let closing_id = app.state.workspaces[0].id.clone();
+
+        let mut view = ClientViewState::from_default_client_state(&app.state);
+        view.active_workspace = Some(1);
+        view.selected_workspace = 1;
+        view.mode = Mode::Navigate;
+        view.reconcile(&app.state);
+
+        let response = app.handle_workspace_close_for_view(
+            &mut view,
+            "req".into(),
+            WorkspaceTarget {
+                workspace_id: closing_id,
+            },
+        );
+
+        let success: SuccessResponse = serde_json::from_str(&response).unwrap();
+        assert_eq!(success.id, "req");
+        assert_eq!(app.state.workspaces.len(), 2);
+        assert_eq!(
+            app.state.workspaces[app.state.active.unwrap()].id,
+            focused_id
+        );
+        assert_eq!(app.state.workspaces[app.state.selected].id, focused_id);
+        assert_eq!(app.state.mode, Mode::Navigate);
+        assert_eq!(view.active_workspace, Some(0));
+        assert_eq!(view.selected_workspace, 0);
+        assert_eq!(
+            app.state.workspaces[view.active_workspace.unwrap()].id,
+            focused_id
+        );
+        assert_eq!(view.mode, Mode::Navigate);
     }
 
     #[tokio::test]

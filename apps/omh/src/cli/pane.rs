@@ -138,7 +138,7 @@ fn parse_pane_current_args(
 }
 
 fn pane_layout(args: &[String]) -> std::io::Result<i32> {
-    let pane_id = match parse_optional_current_pane_args(args) {
+    let pane_id = match parse_optional_current_pane_args_from_env(args) {
         Ok(pane_id) => pane_id,
         Err(message) => {
             eprintln!("{message}");
@@ -153,7 +153,7 @@ fn pane_layout(args: &[String]) -> std::io::Result<i32> {
 }
 
 fn pane_process_info(args: &[String]) -> std::io::Result<i32> {
-    let pane_id = match parse_optional_current_pane_args(args) {
+    let pane_id = match parse_optional_current_pane_args_from_env(args) {
         Ok(pane_id) => pane_id,
         Err(message) => {
             eprintln!("{message}");
@@ -168,7 +168,7 @@ fn pane_process_info(args: &[String]) -> std::io::Result<i32> {
 }
 
 fn pane_edges(args: &[String]) -> std::io::Result<i32> {
-    let pane_id = match parse_optional_current_pane_args(args) {
+    let pane_id = match parse_optional_current_pane_args_from_env(args) {
         Ok(pane_id) => pane_id,
         Err(message) => {
             eprintln!("{message}");
@@ -227,7 +227,17 @@ fn pane_resize(args: &[String]) -> std::io::Result<i32> {
     })?)
 }
 
-fn parse_optional_current_pane_args(args: &[String]) -> Result<Option<String>, String> {
+fn parse_optional_current_pane_args_from_env(args: &[String]) -> Result<Option<String>, String> {
+    let env_pane_id = std::env::var("OMH_PANE_ID")
+        .ok()
+        .filter(|value| !value.trim().is_empty());
+    parse_optional_current_pane_args(args, env_pane_id.as_deref())
+}
+
+fn parse_optional_current_pane_args(
+    args: &[String],
+    env_pane_id: Option<&str>,
+) -> Result<Option<String>, String> {
     let mut pane_id = None;
     let mut index = 0;
     while index < args.len() {
@@ -240,7 +250,7 @@ fn parse_optional_current_pane_args(args: &[String]) -> Result<Option<String>, S
                 index += 2;
             }
             "--current" => {
-                pane_id = None;
+                pane_id = env_pane_id.map(super::normalize_pane_id);
                 index += 1;
             }
             other => return Err(format!("unknown option: {other}")),
@@ -451,69 +461,17 @@ fn pane_rename(args: &[String]) -> std::io::Result<i32> {
 }
 
 fn pane_read(args: &[String]) -> std::io::Result<i32> {
-    let Some(raw_pane_id) = args.first() else {
-        eprintln!("usage: omh pane read <pane_id> [--source visible|recent|recent-unwrapped] [--lines N] [--format text|ansi] [--ansi]");
-        return Ok(2);
-    };
-
-    let pane_id = super::normalize_pane_id(raw_pane_id);
-    let mut source = ReadSource::Recent;
-    let mut lines = None;
-    let mut format = ReadFormat::Text;
-    let mut strip_ansi = true;
-
-    let mut index = 1;
-    while index < args.len() {
-        match args[index].as_str() {
-            "--source" => {
-                let Some(value) = args.get(index + 1) else {
-                    eprintln!("missing value for --source");
-                    return Ok(2);
-                };
-                source = super::parse_read_source(value)?;
-                index += 2;
-            }
-            "--lines" => {
-                let Some(value) = args.get(index + 1) else {
-                    eprintln!("missing value for --lines");
-                    return Ok(2);
-                };
-                lines = Some(super::parse_u32_flag("--lines", value)?);
-                index += 2;
-            }
-            "--format" => {
-                let Some(value) = args.get(index + 1) else {
-                    eprintln!("missing value for --format");
-                    return Ok(2);
-                };
-                format = super::parse_read_format(value)?;
-                index += 2;
-            }
-            "--ansi" => {
-                format = ReadFormat::Ansi;
-                index += 1;
-            }
-            "--raw" => {
-                format = ReadFormat::Ansi;
-                strip_ansi = false;
-                index += 1;
-            }
-            other => {
-                eprintln!("unknown option: {other}");
-                return Ok(2);
-            }
+    let params = match parse_pane_read_args(args) {
+        Ok(params) => params,
+        Err(message) => {
+            eprintln!("{message}");
+            return Ok(2);
         }
-    }
+    };
 
     let response = super::send_request(&Request {
         id: "cli:pane:read".into(),
-        method: Method::PaneRead(PaneReadParams {
-            pane_id,
-            source,
-            lines,
-            format,
-            strip_ansi,
-        }),
+        method: Method::PaneRead(params),
     })?;
 
     if let Some(error) = response.get("error") {
@@ -525,6 +483,77 @@ fn pane_read(args: &[String]) -> std::io::Result<i32> {
         print!("{text}");
     }
     Ok(0)
+}
+
+fn parse_pane_read_args(args: &[String]) -> Result<PaneReadParams, String> {
+    const USAGE: &str = "usage: omh pane read <pane_id> [--source visible|recent|recent-unwrapped|detection] [--lines N] [--format text|ansi] [--ansi] [--raw]";
+
+    let args = super::expand_equals_args(args, &["--source", "--lines", "--format"]);
+    let mut pane_id = None;
+    let mut source = ReadSource::Recent;
+    let mut lines = None;
+    let mut format = ReadFormat::Text;
+    let mut strip_ansi = true;
+
+    let mut index = 0;
+    while index < args.len() {
+        match args[index].as_str() {
+            "--source" => {
+                let Some(value) = args.get(index + 1) else {
+                    return Err("missing value for --source".into());
+                };
+                source = super::parse_read_source(value).map_err(|err| err.to_string())?;
+                index += 2;
+            }
+            "--lines" => {
+                let Some(value) = args.get(index + 1) else {
+                    return Err("missing value for --lines".into());
+                };
+                lines =
+                    Some(super::parse_u32_flag("--lines", value).map_err(|err| err.to_string())?);
+                index += 2;
+            }
+            "--format" => {
+                let Some(value) = args.get(index + 1) else {
+                    return Err("missing value for --format".into());
+                };
+                format = super::parse_read_format(value).map_err(|err| err.to_string())?;
+                index += 2;
+            }
+            "--ansi" => {
+                format = ReadFormat::Ansi;
+                index += 1;
+            }
+            "--raw" => {
+                format = ReadFormat::Ansi;
+                strip_ansi = false;
+                index += 1;
+            }
+            option if option.starts_with('-') => {
+                return Err(format!("unknown option: {option}"));
+            }
+            positional => {
+                if pane_id.is_some() {
+                    return Err(format!("unexpected argument: {positional}"));
+                }
+                pane_id = Some(super::normalize_pane_id(positional));
+                index += 1;
+            }
+        }
+    }
+
+    let Some(pane_id) = pane_id else {
+        return Err(USAGE.into());
+    };
+
+    Ok(PaneReadParams {
+        pane_id,
+        source,
+        lines,
+        format,
+        strip_ansi,
+        intent: crate::api::schema::ReadIntent::Interactive,
+    })
 }
 
 fn pane_split(args: &[String]) -> std::io::Result<i32> {
@@ -935,6 +964,14 @@ fn pane_close(args: &[String]) -> std::io::Result<i32> {
 }
 
 fn pane_send_text(args: &[String]) -> std::io::Result<i32> {
+    if matches!(
+        args.first().map(String::as_str),
+        Some("help" | "--help" | "-h")
+    ) {
+        eprintln!("usage: omh pane send-text <pane_id> <text>");
+        eprintln!("next: omh pane run <PANE_ID> <COMMAND> sends text and Enter in one call");
+        return Ok(0);
+    }
     if args.len() < 2 {
         eprintln!("usage: omh pane send-text <pane_id> <text>");
         return Ok(2);
@@ -1704,8 +1741,32 @@ mod tests {
     }
 
     #[test]
+    fn parse_optional_current_pane_args_accepts_current_target() {
+        let pane_id =
+            parse_optional_current_pane_args(&args(&["--current"]), Some("issue-1")).unwrap();
+
+        assert_eq!(pane_id, Some("issue-1".into()));
+    }
+
+    #[test]
+    fn parse_optional_current_pane_args_current_without_env_keeps_focused_fallback() {
+        let pane_id = parse_optional_current_pane_args(&args(&["--current"]), None).unwrap();
+
+        assert_eq!(pane_id, None);
+    }
+
+    #[test]
+    fn parse_optional_current_pane_args_omitted_target_keeps_focused_fallback() {
+        let pane_id = parse_optional_current_pane_args(&args(&[]), Some("issue-1")).unwrap();
+
+        assert_eq!(pane_id, None);
+    }
+
+    #[test]
     fn parse_optional_current_pane_args_accepts_explicit_pane() {
-        let pane_id = parse_optional_current_pane_args(&args(&["--pane", "issue-2"])).unwrap();
+        let pane_id =
+            parse_optional_current_pane_args(&args(&["--pane", "issue-2"]), Some("issue-1"))
+                .unwrap();
 
         assert_eq!(pane_id, Some("issue-2".into()));
     }
@@ -1733,5 +1794,39 @@ mod tests {
         assert_eq!(params.pane_id, Some("issue-2".into()));
         assert_eq!(params.direction, PaneDirection::Left);
         assert_eq!(params.amount, Some(0.125));
+    }
+
+    #[test]
+    fn parse_pane_read_args_defaults_with_bare_pane_id() {
+        let params = parse_pane_read_args(&args(&["issue-1"])).unwrap();
+
+        assert_eq!(params.pane_id, "issue-1");
+        assert_eq!(params.source, ReadSource::Recent);
+        assert_eq!(params.lines, None);
+        assert_eq!(params.format, ReadFormat::Text);
+        assert!(params.strip_ansi);
+    }
+
+    #[test]
+    fn parse_pane_read_args_accepts_equals_and_reordered_options() {
+        let params = parse_pane_read_args(&args(&[
+            "--lines=2",
+            "issue-1",
+            "--source=recent-unwrapped",
+            "--format=ansi",
+        ]))
+        .unwrap();
+
+        assert_eq!(params.pane_id, "issue-1");
+        assert_eq!(params.source, ReadSource::RecentUnwrapped);
+        assert_eq!(params.lines, Some(2));
+        assert_eq!(params.format, ReadFormat::Ansi);
+    }
+
+    #[test]
+    fn parse_pane_read_args_rejects_invalid_option_value() {
+        let err = parse_pane_read_args(&args(&["issue-1", "--lines=nope"])).unwrap_err();
+
+        assert!(err.contains("invalid value for --lines"));
     }
 }

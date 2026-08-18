@@ -60,7 +60,12 @@ class RemainingStatusTestFallbackTests(unittest.TestCase):
                     import sys
 
                     pane, agent, source, session_id, event, state = sys.argv[1:7]
-                    method = "pane.release_agent" if event == "release" else "pane.report_agent"
+                    if event == "release":
+                        method = "pane.release_agent"
+                    elif event == "session":
+                        method = "pane.report_agent_session"
+                    else:
+                        method = "pane.report_agent"
                     params = {
                         "pane_id": pane,
                         "agent": agent,
@@ -70,6 +75,8 @@ class RemainingStatusTestFallbackTests(unittest.TestCase):
                     }
                     if event == "report":
                         params["state"] = state
+                    elif event == "session":
+                        params["session_start_source"] = state
                     request = {"id": f"test:{pane}:{event}:{state}", "method": method, "params": params}
                     client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
                     client.settimeout(1)
@@ -207,9 +214,7 @@ class RemainingStatusTestFallbackTests(unittest.TestCase):
                       echo "unexpected hermes model: $model" >&2
                       exit 65
                     fi
-                    omh-test-report pane-hermes-real hermes omh:hermes hermes-real report idle
-                    omh-test-report pane-hermes-real hermes omh:hermes hermes-real report working
-                    omh-test-report pane-hermes-real hermes omh:hermes hermes-real report idle
+                    omh-test-report pane-hermes-real hermes omh:hermes hermes-real session resume
                     echo "OMH_HERMES_STATUS_OK"
                     """
                 )

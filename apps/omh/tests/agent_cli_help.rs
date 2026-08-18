@@ -81,7 +81,7 @@ fn agent_subcommand_help_uses_target_first_forms() {
         ),
         (
             ["start", "--help"].as_slice(),
-            "usage: omh agent start <name> [--cwd PATH] [--host EXECUTION_HOST_ID] [--workspace ID] [--tab ID] [--split right|down] [--focus|--no-focus] -- <argv...>",
+            "usage: omh agent start <name> [--cwd PATH] [--host EXECUTION_HOST_ID] [--workspace ID] [--tab ID] [--split right|down] [--focus|--no-focus] -- <argv...>\n\nThe pane must be at its interactive shell prompt. Success means the expected agent was detected in the same terminal and is ready for input.\n\nnext: omh agent prompt <TARGET> <TEXT> --wait",
         ),
     ];
 

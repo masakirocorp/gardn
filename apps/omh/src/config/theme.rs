@@ -1,6 +1,94 @@
 use serde::{Deserialize, Serialize};
 use tracing::warn;
 
+const DEFAULT_DARK_THEME_NAME: &str = "catppuccin";
+const DEFAULT_LIGHT_THEME_NAME: &str = "catppuccin-latte";
+
+const VALID_THEME_NAMES: &[&str] = &[
+    "system",
+    "terminal",
+    "catppuccin",
+    "catppuccin-latte",
+    "catppuccin-frappe",
+    "catppuccin-macchiato",
+    "dracula",
+    "ethereal",
+    "everforest",
+    "flexoki",
+    "flexoki-light",
+    "gruvbox",
+    "gruvbox-light",
+    "hackerman",
+    "kanagawa",
+    "kanagawa-lotus",
+    "last-horizon",
+    "lumon",
+    "matte-black",
+    "miasma",
+    "monokai-classic",
+    "monokai-pro",
+    "monokai-pro-light",
+    "monokai-pro-light-sun",
+    "monokai-pro-machine",
+    "monokai-pro-octagon",
+    "monokai-pro-ristretto",
+    "monokai-pro-spectrum",
+    "nord",
+    "one-dark",
+    "one-light",
+    "osaka-jade",
+    "retro-82",
+    "rose-pine",
+    "rose-pine-dawn",
+    "solarized",
+    "solarized-light",
+    "solitude",
+    "tokyo-night",
+    "tokyo-night-day",
+    "vantablack",
+    "vesper",
+    "white",
+];
+
+fn normalize_theme_name(name: &str) -> String {
+    name.to_lowercase().replace([' ', '_'], "-")
+}
+
+fn known_theme_name(name: &str) -> bool {
+    match normalize_theme_name(name).as_str() {
+        "system" | "terminal" => true,
+        "catppuccin" | "catppuccin-mocha" | "mocha" => true,
+        "catppuccin-latte" | "latte" | "light" => true,
+        "catppuccin-frappe" | "frappe" => true,
+        "catppuccin-macchiato" | "macchiato" => true,
+        "tokyo-night" | "tokyonight" => true,
+        "tokyo-night-day" | "tokyo-day" | "tokyonight-day" => true,
+        "dracula" | "nord" => true,
+        "gruvbox" | "gruvbox-dark" => true,
+        "gruvbox-light" => true,
+        "one-dark" | "onedark" => true,
+        "one-light" | "onelight" => true,
+        "solarized" | "solarized-dark" => true,
+        "solarized-light" => true,
+        "kanagawa" => true,
+        "kanagawa-lotus" | "lotus" => true,
+        "rose-pine" | "rosepine" => true,
+        "rose-pine-dawn" | "rosepine-dawn" | "dawn" => true,
+        "vesper" | "ethereal" | "everforest" | "flexoki" | "flexoki-light" => true,
+        "hackerman" | "last-horizon" | "lumon" | "matte-black" | "miasma" => true,
+        "monokai-pro" | "monokai" => true,
+        "monokai-pro-light" | "monokai-light" => true,
+        "monokai-pro-light-sun" | "monokai-pro-sun" | "monokai-sun" | "sun" => true,
+        "monokai-pro-spectrum" | "monokai-spectrum" | "spectrum" => true,
+        "monokai-pro-ristretto" | "monokai-ristretto" | "ristretto" => true,
+        "monokai-pro-octagon" | "monokai-octagon" | "octagon" => true,
+        "monokai-pro-machine" | "monokai-machine" | "machine" => true,
+        "monokai-classic" | "classic" => true,
+        "osaka-jade" | "retro-82" | "solitude" | "vantablack" | "white" => true,
+        _ => VALID_THEME_NAMES.contains(&normalize_theme_name(name).as_str()),
+    }
+}
+
 /// Theme configuration: pick built-ins or override individual tokens.
 ///
 /// ```toml
@@ -44,6 +132,29 @@ impl ThemeConfig {
 
     pub fn resolved_terminal_dark_accent(&self) -> TerminalAccent {
         self.terminal_dark_accent.unwrap_or(self.terminal_accent)
+    }
+
+    pub(crate) fn diagnostics(&self) -> Vec<String> {
+        let valid = VALID_THEME_NAMES.join(", ");
+        [
+            ("theme.name", self.name.as_deref(), DEFAULT_DARK_THEME_NAME),
+            ("theme.dark", self.dark.as_deref(), DEFAULT_DARK_THEME_NAME),
+            (
+                "theme.light",
+                self.light.as_deref(),
+                DEFAULT_LIGHT_THEME_NAME,
+            ),
+        ]
+        .into_iter()
+        .filter_map(|(field, value, fallback)| {
+            let value = value?;
+            (!known_theme_name(value)).then(|| {
+                format!(
+                    "unknown theme name {field} = {value:?}; using {fallback:?}; valid themes: {valid}"
+                )
+            })
+        })
+        .collect()
     }
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, Default)]
@@ -354,5 +465,33 @@ red = "rgb(255, 85, 85)"
         assert_eq!(config.theme.terminal_accent, TerminalAccent::Blue);
         assert_eq!(config.theme.terminal_light_accent, None);
         assert_eq!(config.theme.terminal_dark_accent, None);
+    }
+
+    #[test]
+    fn unknown_theme_names_are_diagnosed() {
+        let config: Config = toml::from_str(
+            r#"
+[theme]
+name = "catppucin"
+dark = "tokio-night"
+light = "lattee"
+"#,
+        )
+        .unwrap();
+
+        let diagnostics = config.theme.diagnostics();
+        assert_eq!(diagnostics.len(), 3);
+        assert!(diagnostics[0].contains("theme.name = \"catppucin\""));
+        assert!(diagnostics[0].contains("using \"catppuccin\""));
+        assert!(diagnostics[1].contains("theme.dark = \"tokio-night\""));
+        assert!(diagnostics[2].contains("theme.light = \"lattee\""));
+        assert!(diagnostics[2].contains("using \"catppuccin-latte\""));
+    }
+
+    #[test]
+    fn theme_name_aliases_are_valid() {
+        for name in ["catppuccin-mocha", "tokyonight", "gruvbox-dark", "dawn"] {
+            assert!(known_theme_name(name), "alias: {name}");
+        }
     }
 }

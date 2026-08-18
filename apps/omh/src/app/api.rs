@@ -1,4 +1,3 @@
-use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
 
 const WINDOWS_POWERSHELL_AGENT_EXIT_RESPAWN_GRACE: Duration = Duration::from_secs(2);
@@ -10,6 +9,7 @@ mod env;
 mod integrations;
 pub(crate) mod invocation;
 mod layouts;
+mod pane_graphics;
 mod panes;
 pub(crate) mod plugins;
 pub(crate) mod responses;
@@ -32,6 +32,22 @@ enum RuntimeExitAction {
 
 impl App {
     pub(crate) fn handle_internal_event(&mut self, ev: AppEvent) {
+        self.handle_internal_event_with_notification_context(ev, None);
+    }
+
+    pub(crate) fn handle_internal_event_for_active_tab(
+        &mut self,
+        ev: AppEvent,
+        notification_is_active_tab: bool,
+    ) {
+        self.handle_internal_event_with_notification_context(ev, Some(notification_is_active_tab));
+    }
+
+    fn handle_internal_event_with_notification_context(
+        &mut self,
+        ev: AppEvent,
+        notification_is_active_tab: Option<bool>,
+    ) {
         if let AppEvent::ConnectionRetirementPreviewed {
             authentication_owner,
             profile_id,
@@ -88,6 +104,15 @@ impl App {
             #[cfg(test)]
             let _ = content;
             self.show_clipboard_feedback();
+            return;
+        }
+
+        if let AppEvent::TerminalBell { count, .. } = ev {
+            if let Err(err) =
+                crate::terminal_effects::write_terminal_bells(&mut std::io::stdout(), count)
+            {
+                tracing::warn!(err = %err, "failed to emit terminal bell");
+            }
             return;
         }
 
@@ -157,7 +182,7 @@ impl App {
                 .apply_workspace_git_statuses(&self.terminal_runtimes, results)
                 || repo_summaries_changed
             {
-                self.render_dirty.store(true, Ordering::Release);
+                self.render_dirty.request_generic();
                 self.render_notify.notify_one();
             }
             return;
@@ -220,7 +245,7 @@ impl App {
             {
                 self.state.client_overlay_owners.remove(pane_id);
                 self.overlay_panes.remove(pane_id);
-                self.render_dirty.store(true, Ordering::Release);
+                self.render_dirty.request_generic();
                 self.render_notify.notify_one();
                 return;
             }
@@ -304,7 +329,12 @@ impl App {
                 None
             };
         let previous_toast = self.state.toast.clone();
-        let pane_updates = self.state.handle_app_event(ev);
+        let pane_updates = if let Some(is_active_tab) = notification_is_active_tab {
+            self.state
+                .handle_app_event_for_active_tab(ev, is_active_tab)
+        } else {
+            self.state.handle_app_event(ev)
+        };
         if let Some(agents) = manifest_update_agents {
             self.reset_agent_detection_for_agents(&agents);
         }
@@ -364,6 +394,9 @@ impl App {
                 );
             } else {
                 for update in &pane_updates {
+                    if update.suppress_completion {
+                        continue;
+                    }
                     let is_active_tab = self
                         .state
                         .pane_is_in_active_tab(update.ws_idx, update.pane_id);
@@ -1807,6 +1840,48 @@ impl App {
                     self.handle_plugin_pane_close(request.id, params),
                 );
             }
+            Method::PaneGraphicsSet(params) => {
+                return crate::api::ApiRequestDisposition::Respond(
+                    self.handle_pane_graphics_set(request.id, params),
+                );
+            }
+            Method::PaneGraphicsClear(params) => {
+                return crate::api::ApiRequestDisposition::Respond(
+                    self.handle_pane_graphics_clear(request.id, params),
+                );
+            }
+            Method::PaneGraphicsInfo(target) => {
+                return crate::api::ApiRequestDisposition::Respond(
+                    self.handle_pane_graphics_info(request.id, target),
+                );
+            }
+            Method::PaneGraphicsStream(_) => {
+                return crate::api::ApiRequestDisposition::Respond(responses::encode_error(
+                    request.id,
+                    "invalid_stream",
+                    "pane.graphics.stream must be opened by the API server",
+                ));
+            }
+            Method::PaneGraphicsStreamSet(params) => {
+                return crate::api::ApiRequestDisposition::Respond(
+                    self.handle_pane_graphics_stream_set(request.id, params),
+                );
+            }
+            Method::PaneGraphicsStreamOpen(params) => {
+                return crate::api::ApiRequestDisposition::Respond(
+                    self.handle_pane_graphics_stream_open(request.id, params),
+                );
+            }
+            Method::PaneGraphicsStreamClose(params) => {
+                return crate::api::ApiRequestDisposition::Respond(
+                    self.handle_pane_graphics_stream_close(request.id, params),
+                );
+            }
+            Method::PaneGraphicsStreamDirect(params) => {
+                return crate::api::ApiRequestDisposition::Respond(
+                    self.handle_pane_graphics_stream_direct(request.id, params),
+                );
+            }
             _ => {
                 return crate::api::ApiRequestDisposition::Respond(responses::encode_error(
                     request.id,
@@ -2533,7 +2608,7 @@ mod tests {
             &crate::pane::PaneLaunchEnv::default(),
             events,
             std::sync::Arc::new(tokio::sync::Notify::new()),
-            std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            std::sync::Arc::new(crate::render_signal::RenderSignal::new()),
         )
         .unwrap();
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
@@ -2627,7 +2702,7 @@ mod tests {
             &crate::pane::PaneLaunchEnv::default(),
             events,
             std::sync::Arc::new(tokio::sync::Notify::new()),
-            std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            std::sync::Arc::new(crate::render_signal::RenderSignal::new()),
         )
         .unwrap();
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);

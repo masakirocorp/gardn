@@ -3,10 +3,9 @@ use std::time::{Duration, Instant};
 use crossterm::terminal;
 
 use super::{
-    background_update_check_enabled, mode_accepts_repeat_key, physical_key_identity, App, Mode,
-    ANIMATION_INTERVAL, AUTO_UPDATE_CHECK_INTERVAL, COMMAND_SCAN_INTERVAL,
-    GIT_REMOTE_STATUS_REFRESH_INTERVAL, MIN_RENDER_INTERVAL, PORT_SCAN_INTERVAL, PORT_STALE_TTL,
-    RESIZE_POLL_INTERVAL, SELECTION_AUTOSCROLL_INTERVAL,
+    background_update_check_enabled, App, ANIMATION_INTERVAL, AUTO_UPDATE_CHECK_INTERVAL,
+    COMMAND_SCAN_INTERVAL, GIT_REMOTE_STATUS_REFRESH_INTERVAL, MIN_RENDER_INTERVAL,
+    PORT_SCAN_INTERVAL, PORT_STALE_TTL, RESIZE_POLL_INTERVAL, SELECTION_AUTOSCROLL_INTERVAL,
 };
 use crate::events::AppEvent;
 use crate::workspace::{GitStatusCacheEntry, Workspace, WorkspaceGitStatus};
@@ -20,6 +19,7 @@ pub(crate) struct WorkspaceGitRefreshItem {
     pub(crate) cache_key: crate::execution_host::ResourceLocation,
     pub(crate) cwd_fingerprint: Vec<std::path::PathBuf>,
     pub(crate) observed_repo_roots: Vec<std::path::PathBuf>,
+    pub(crate) auto_label: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -27,6 +27,7 @@ pub(crate) struct WorkspaceGitRefreshTarget {
     pub(crate) workspace_id: String,
     pub(crate) resolved_identity_cwd: std::path::PathBuf,
     pub(crate) cwd_fingerprint: Vec<std::path::PathBuf>,
+    pub(crate) auto_label: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -79,19 +80,91 @@ impl App {
         changed
     }
 
+    async fn execute_repeat_plan(
+        &mut self,
+        lease_key: super::input::InputLeaseKey,
+        key: crate::input::TerminalKey,
+        plan: super::input::RepeatPlan,
+    ) -> bool {
+        match plan {
+            super::input::RepeatPlan::Forwarded(target) => {
+                if !self.forward_terminal_key_to_target(target, key).await {
+                    self.input_leases.remove(&lease_key);
+                }
+                true
+            }
+            super::input::RepeatPlan::Reprocess {
+                context,
+                repetitions,
+                tracked,
+            } => {
+                let key = key
+                    .with_kind(crossterm::event::KeyEventKind::Repeat)
+                    .with_repeat_count(1);
+                let mut forwarded_target: Option<super::input::TerminalKeyTarget> = None;
+                for _ in 0..repetitions {
+                    if let Some(target) = &forwarded_target {
+                        if !self
+                            .forward_terminal_key_to_target(target.clone(), key.clone())
+                            .await
+                        {
+                            self.input_leases.remove(&lease_key);
+                            break;
+                        }
+                        continue;
+                    }
+                    let current_context = self.terminal_input_context();
+                    if !self.input_leases.reprocess_allowed(
+                        lease_key,
+                        &context,
+                        current_context.as_ref(),
+                        tracked,
+                    ) {
+                        break;
+                    }
+                    if context.is_terminal() {
+                        if let Some(target) = self.handle_key(key.clone()).await {
+                            if tracked {
+                                self.input_leases.insert_forwarded(
+                                    lease_key,
+                                    target.clone(),
+                                    key.clone(),
+                                );
+                                forwarded_target = Some(target);
+                            }
+                        }
+                    } else {
+                        let _ = self.handle_key(key.clone()).await;
+                    }
+                }
+                true
+            }
+            super::input::RepeatPlan::Ignore => false,
+        }
+    }
+
     pub(super) fn handle_api_request_message(
         &mut self,
         msg: crate::api::ApiRequestMessage,
     ) -> bool {
         let previous_mode = self.state.mode;
+        let stream_open = match &msg.request.method {
+            crate::api::schema::Method::PaneGraphicsStreamOpen(params) => Some(params.clone()),
+            _ => None,
+        };
+        let stream_active = msg.stream_active.clone();
         let crate::api::ApiRequestMessage {
             request,
             respond_to,
             response_written: _,
+            stream_active: _,
         } = msg;
-        let changed = crate::api::request_changes_ui(&request);
+        let mut changed = crate::api::request_changes_ui(&request);
         match self.handle_api_request_disposition(request) {
             crate::api::ApiRequestDisposition::Respond(response) => {
+                if let (Some(params), Some(active)) = (stream_open.as_ref(), stream_active) {
+                    self.attach_pane_graphics_stream_active(params, active, &response);
+                }
                 let _ = respond_to.send(response);
             }
             crate::api::ApiRequestDisposition::Deferred(deferred) => {
@@ -101,6 +174,7 @@ impl App {
                 self.store_pending_remote_api_response(terminal_id, pending);
             }
         }
+        changed |= self.pane_graphics.retain_live_panes(&self.state);
         self.sync_prefix_input_source(previous_mode);
         changed
     }
@@ -132,63 +206,46 @@ impl App {
         let previous_mode = self.state.mode;
         let changed = match event {
             crate::raw_input::RawInputEvent::Key(key) => {
-                let suppress_direct_command_repeat = self.state.mode == Mode::Terminal
-                    && crate::app::input::command_for_key(
-                        &self.state,
-                        key,
-                        crate::app::input::BindingDispatch::Direct,
-                    )
-                    .is_some();
-                let physical_id = physical_key_identity(&key);
+                let lease_key = crate::app::input::InputLeaseKey::new(
+                    crate::app::input::LOCAL_INPUT_SOURCE,
+                    &key,
+                );
+                let key = self.input_leases.normalize_press(&lease_key, key);
                 match key.kind {
                     crossterm::event::KeyEventKind::Press => {
-                        let pressed_mode = self.state.mode;
-                        self.forwarded_terminal_keys.remove(&physical_id);
-                        self.suppressed_repeat_keys.remove(&physical_id);
-                        if let Some(target) = self.handle_key(key).await {
-                            self.forwarded_terminal_keys.insert(physical_id, target);
-                        }
-                        let suppress_repeat = if pressed_mode == Mode::Terminal {
-                            self.state.mode != pressed_mode || suppress_direct_command_repeat
-                        } else {
-                            self.state.mode != pressed_mode
-                                || !mode_accepts_repeat_key(pressed_mode, &key)
-                        };
-                        if suppress_repeat {
-                            self.suppressed_repeat_keys.insert(physical_id);
-                        }
+                        let initial_context = self.terminal_input_context();
+                        let target = self.handle_key(key.clone()).await;
+                        let resulting_context = self.terminal_input_context();
+                        let plan = self.input_leases.complete_press(
+                            lease_key,
+                            &key,
+                            initial_context.as_ref(),
+                            resulting_context.as_ref(),
+                            target,
+                        );
+                        self.execute_repeat_plan(lease_key, key, plan).await;
                         true
                     }
                     crossterm::event::KeyEventKind::Repeat => {
-                        if let Some(target) =
-                            self.forwarded_terminal_keys.get(&physical_id).cloned()
-                        {
-                            self.forward_terminal_key_to_target(target, key).await;
-                            true
-                        } else if self.state.mode == Mode::Terminal
-                            && !self.suppressed_repeat_keys.contains(&physical_id)
-                        {
-                            if let Some(target) = self.handle_key(key).await {
-                                self.forwarded_terminal_keys.insert(physical_id, target);
-                            }
-                            true
-                        } else if !self.suppressed_repeat_keys.contains(&physical_id)
-                            && mode_accepts_repeat_key(self.state.mode, &key)
-                        {
-                            self.handle_key(key).await;
-                            true
-                        } else {
-                            false
-                        }
+                        let current_context = self.terminal_input_context();
+                        let plan = self.input_leases.plan_repeat(
+                            lease_key,
+                            &key,
+                            current_context.as_ref(),
+                        );
+                        self.execute_repeat_plan(lease_key, key, plan).await
                     }
                     crossterm::event::KeyEventKind::Release => {
-                        self.suppressed_repeat_keys.remove(&physical_id);
-                        if let Some(target) = self.forwarded_terminal_keys.remove(&physical_id) {
-                            self.forward_terminal_key_to_target(target, key).await;
+                        if let Some(lease) = self.input_leases.remove_forwarded(&lease_key) {
+                            let _ = self.forward_terminal_key_to_target(lease.target, key).await;
                         }
                         false
                     }
                 }
+            }
+            crate::raw_input::RawInputEvent::TextCommit(commit) => {
+                self.handle_text_commit(commit.into_string()).await;
+                true
             }
             crate::raw_input::RawInputEvent::Paste(text) => {
                 self.handle_paste(text).await;
@@ -201,12 +258,14 @@ impl App {
                     self.state
                         .handle_pane_mouse_only(&self.terminal_runtimes, mouse);
                 }
-                true
+                !matches!(mouse.kind, crossterm::event::MouseEventKind::Moved)
+                    || self.state.mode.mouse_motion_changes_view()
+                    || self.default_client_view.mode.mouse_motion_changes_view()
             }
             crate::raw_input::RawInputEvent::OuterFocusGained => {
                 self.send_outer_focus_event(crate::ghostty::FocusEvent::Gained);
                 if self.state.redraw_on_focus_gained {
-                    self.request_full_redraw();
+                    self.request_repaint();
                 }
                 self.state.outer_terminal_focus = Some(true);
                 self.state.mark_active_tab_seen();
@@ -216,6 +275,7 @@ impl App {
             crate::raw_input::RawInputEvent::OuterFocusLost => {
                 self.send_outer_focus_event(crate::ghostty::FocusEvent::Lost);
                 self.state.outer_terminal_focus = Some(false);
+                self.release_input_source_headless(crate::app::input::LOCAL_INPUT_SOURCE);
                 false
             }
             crate::raw_input::RawInputEvent::HostDefaultColor { kind, color } => {
@@ -227,6 +287,7 @@ impl App {
             crate::raw_input::RawInputEvent::HostCursorColor { color } => {
                 self.update_host_terminal_cursor_color(color)
             }
+            crate::raw_input::RawInputEvent::HostCellSizeReport { .. } => false,
             crate::raw_input::RawInputEvent::Unsupported => false,
         };
         self.sync_prefix_input_source(previous_mode);
@@ -590,47 +651,17 @@ impl App {
     }
 
     fn has_local_animation(&self) -> bool {
-        self.agent_panel_has_animation()
-            || self
-                .state
-                .settings
-                .connection_editor
-                .as_ref()
-                .is_some_and(crate::app::state::ConnectionEditorState::retirement_in_progress)
+        self.state
+            .settings
+            .connection_editor
+            .as_ref()
+            .is_some_and(crate::app::state::ConnectionEditorState::retirement_in_progress)
             || self
                 .default_client_view
                 .settings
                 .connection_editor
                 .as_ref()
                 .is_some_and(crate::app::state::ConnectionEditorState::retirement_in_progress)
-    }
-
-    fn agent_panel_has_animation(&self) -> bool {
-        match self.state.agent_panel_scope {
-            crate::app::state::AgentPanelScope::CurrentWorkspace => self
-                .state
-                .active
-                .and_then(|idx| self.state.workspaces.get(idx))
-                .is_some_and(|ws| ws.has_working_pane(&self.state.terminals)),
-            crate::app::state::AgentPanelScope::CurrentGroup => {
-                let group_id = self
-                    .state
-                    .active
-                    .and_then(|idx| self.state.workspaces.get(idx))
-                    .map(|ws| ws.group_id.as_str())
-                    .unwrap_or_else(|| self.state.active_group_id());
-                self.state
-                    .workspaces
-                    .iter()
-                    .filter(|ws| ws.group_id == group_id)
-                    .any(|ws| ws.has_working_pane(&self.state.terminals))
-            }
-            crate::app::state::AgentPanelScope::AllWorkspaces => self
-                .state
-                .workspaces
-                .iter()
-                .any(|ws| ws.has_working_pane(&self.state.terminals)),
-        }
     }
 
     pub(crate) fn tick_selection_autoscroll(&mut self, now: Instant) {
@@ -840,6 +871,8 @@ impl App {
                 workspace_id: item.workspace_id,
                 resolved_identity_cwd: item.resolved_identity_cwd,
                 cwd_fingerprint: item.cwd_fingerprint,
+                status_cache_key: item.cache_key.path.as_path().to_path_buf(),
+                auto_label: item.auto_label,
                 branch: snapshot.as_ref().and_then(|status| status.branch.clone()),
                 ahead_behind: snapshot.as_ref().and_then(|status| {
                     status
@@ -956,7 +989,11 @@ impl App {
                     crate::execution_host::HostPath::new(cwd.clone()).ok()?,
                 );
                 let cache_path = if execution_host_id.is_local() {
-                    crate::workspace::git_status_cache_key(&cwd).unwrap_or_else(|| cwd.clone())
+                    if ws.cached_identity_cwd == cwd {
+                        ws.cached_git_status_key.clone()
+                    } else {
+                        crate::workspace::git_status_cache_key(&cwd).unwrap_or_else(|| cwd.clone())
+                    }
                 } else {
                     cwd.clone()
                 };
@@ -978,11 +1015,16 @@ impl App {
                 };
                 Some(WorkspaceGitRefreshItem {
                     workspace_id: ws.id.clone(),
-                    resolved_identity_cwd: cwd,
+                    resolved_identity_cwd: cwd.clone(),
                     location,
                     cache_key,
                     cwd_fingerprint,
                     observed_repo_roots,
+                    auto_label: if ws.cached_identity_cwd == cwd {
+                        ws.cached_auto_label.clone()
+                    } else {
+                        crate::workspace::derive_label_from_cwd(&cwd)
+                    },
                 })
             })
             .collect()
@@ -1010,6 +1052,7 @@ pub(crate) fn deduplicate_git_refresh_items(
             workspace_id: item.workspace_id,
             resolved_identity_cwd: item.resolved_identity_cwd.clone(),
             cwd_fingerprint: item.cwd_fingerprint,
+            auto_label: item.auto_label,
         };
         if let Some(&index) = indexes.get(&item.cache_key) {
             jobs[index].targets.push(target);
@@ -1057,6 +1100,8 @@ pub(crate) fn refresh_workspace_git_statuses_with_cache(
                 target.workspace_id,
                 target.resolved_identity_cwd,
                 target.cwd_fingerprint,
+                job.cache_key.path.as_path().to_path_buf(),
+                target.auto_label,
             )
         }));
     }
@@ -1137,6 +1182,7 @@ mod tests {
                         .expect("local repo location"),
                     cwd_fingerprint: vec![nested.clone()],
                     observed_repo_roots: vec![repo.clone()],
+                    auto_label: "one".into(),
                 },
                 WorkspaceGitRefreshItem {
                     workspace_id: "two".into(),
@@ -1147,6 +1193,7 @@ mod tests {
                         .expect("local repo location"),
                     cwd_fingerprint: vec![other.clone()],
                     observed_repo_roots: vec![repo.clone()],
+                    auto_label: "two".into(),
                 },
             ],
             &HashMap::new(),
@@ -1257,6 +1304,7 @@ mod tests {
                 cache_key,
                 cwd_fingerprint: vec![path.clone()],
                 observed_repo_roots: Vec::new(),
+                auto_label: format!("workspace-{index}"),
             })
             .collect();
 
@@ -1496,6 +1544,7 @@ mod tests {
             },
             respond_to,
             response_written: None,
+            stream_active: None,
         });
         let _ = changed;
         let response = response_rx
@@ -1550,6 +1599,7 @@ mod tests {
             },
             respond_to,
             response_written: None,
+            stream_active: None,
         });
         let _ = changed;
 
@@ -1745,6 +1795,27 @@ mod tests {
         );
         assert!(response_rx.try_recv().is_err(), "must respond exactly once");
         assert!(!app.pending_remote_api_responses.contains_key(&terminal_id));
+    }
+
+    #[tokio::test]
+    async fn passive_mouse_motion_does_not_request_monolithic_render() {
+        let (mut app, _) = test_app_with_pane();
+        app.state.mode = crate::app::Mode::Terminal;
+        let motion = crate::raw_input::RawInputEvent::Mouse(crossterm::event::MouseEvent {
+            kind: crossterm::event::MouseEventKind::Moved,
+            column: 4,
+            row: 4,
+            modifiers: crossterm::event::KeyModifiers::empty(),
+        });
+        assert!(!app.handle_raw_input_event(motion).await);
+        app.state.mode = crate::app::Mode::Navigator;
+        let motion = crate::raw_input::RawInputEvent::Mouse(crossterm::event::MouseEvent {
+            kind: crossterm::event::MouseEventKind::Moved,
+            column: 5,
+            row: 5,
+            modifiers: crossterm::event::KeyModifiers::empty(),
+        });
+        assert!(app.handle_raw_input_event(motion).await);
     }
 }
 
@@ -1957,7 +2028,7 @@ mod release_forwarding_tests {
         );
         assert!(rx_a.try_recv().is_err());
         assert!(rx_b.try_recv().is_err());
-        assert!(app.forwarded_terminal_keys.is_empty());
+        assert!(app.input_leases.is_empty());
     }
 
     #[tokio::test]
@@ -1975,7 +2046,7 @@ mod release_forwarding_tests {
             rx.try_recv().is_err(),
             "legacy release must encode no bytes"
         );
-        assert!(app.forwarded_terminal_keys.is_empty());
+        assert!(app.input_leases.is_empty());
     }
 
     #[tokio::test]
@@ -2020,5 +2091,37 @@ mod release_forwarding_tests {
             rx.try_recv().is_err(),
             "intercepted press must not acquire a pane release"
         );
+    }
+
+    #[tokio::test]
+    async fn native_repeats_and_releases_follow_the_pressed_pane() {
+        let record = crate::input::WindowsKeyRecord {
+            key_down: true,
+            repeat_count: 1,
+            virtual_key_code: 65,
+            virtual_scan_code: 30,
+            unicode: 97,
+            control_key_state: 0,
+        };
+        let physical = |kind| {
+            TerminalKey::new(KeyCode::Char('a'), KeyModifiers::empty())
+                .with_windows_record(record)
+                .with_kind(kind)
+        };
+        let (mut app, pane_a, pane_b, rx_a, rx_b) = app_with_two_input_channels(true);
+        app.route_client_events(
+            vec![RawInputEvent::Key(physical(KeyEventKind::Press))],
+            false,
+        );
+        app.state.workspaces[0].tabs[0].layout.focus_pane(pane_b);
+        app.route_client_events(
+            vec![
+                RawInputEvent::Key(physical(KeyEventKind::Repeat)),
+                RawInputEvent::Key(physical(KeyEventKind::Release)),
+            ],
+            false,
+        );
+        assert_ne!(pane_a, pane_b);
+        assert_kitty_stream_stays_on_first_pane(rx_a, rx_b);
     }
 }

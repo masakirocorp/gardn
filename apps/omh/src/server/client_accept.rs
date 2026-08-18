@@ -1,7 +1,7 @@
 use crate::ipc::LocalListener;
 use interprocess::local_socket::traits::{Listener as _, Stream as _};
 use std::io;
-use std::sync::{atomic::AtomicBool, Arc};
+use std::sync::{atomic::AtomicBool, atomic::Ordering, Arc};
 
 use tokio::sync::mpsc;
 use tracing::{debug, error, warn};
@@ -16,6 +16,10 @@ pub(crate) fn accept_pending_client_connections(
     server_event_tx: &mpsc::Sender<ServerEvent>,
 ) -> io::Result<()> {
     loop {
+        if should_quit.load(Ordering::Acquire) {
+            break;
+        }
+
         match listener.accept() {
             Ok(stream) => {
                 let client_id = *next_client_id;

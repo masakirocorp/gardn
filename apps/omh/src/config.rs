@@ -6,6 +6,7 @@ mod model;
 mod sidebar;
 mod sound;
 mod theme;
+mod window_title;
 
 pub use self::{
     io::{
@@ -22,8 +23,8 @@ pub use self::{
         validated_sidebar_bounds, AgentPanelScopeConfig, CommandsConfig, Config,
         ConfigReloadReport, ConfigReloadStatus, ContextBarVisibilityConfig, HostCursorModeConfig,
         NewTerminalCwdConfig, PaneBorderAgentInfoConfig, ShellModeConfig, SidebarArrangementConfig,
-        SidebarCollapsedModeConfig, ToastClipboardPosition, ToastConfig, ToastDelivery,
-        ToastOmhPosition, MAX_TOAST_DELAY_SECONDS,
+        SidebarCollapsedModeConfig, StatusIndicatorStyle, ToastClipboardPosition, ToastConfig,
+        ToastDelivery, ToastOmhPosition, MAX_TOAST_DELAY_SECONDS,
     },
     sidebar::{
         AgentSidebarToken, AgentsSidebarConfig, SidebarConfig, SidebarInitialStateConfig,
@@ -31,15 +32,19 @@ pub use self::{
     },
     sound::SoundConfig,
     theme::{parse_color, CustomThemeColors, TerminalAccent, ThemeConfig, ThemeMode},
+    window_title::{WindowTitlePart, WindowTitleTemplate, WindowTitleToken},
 };
 
 pub(crate) use self::io::upsert_top_level_bool;
 pub(crate) use self::keybinds::parse_key_combo;
+pub(crate) use self::window_title::{sanitize_window_title_text, window_title_diagnostics};
 
 pub const CONFIG_PATH_ENV_VAR: &str = "OMH_CONFIG_PATH";
 pub const DEFAULT_SCROLLBACK_LIMIT_BYTES: usize = 10_000_000;
 pub const DEFAULT_MOUSE_SCROLL_LINES: usize = 3;
 pub const DEFAULT_MOBILE_WIDTH_THRESHOLD: u16 = 64;
+pub const DEFAULT_HEADLESS_COLS: u16 = 120;
+pub const DEFAULT_HEADLESS_ROWS: u16 = 40;
 
 pub(crate) fn app_dir_name() -> &'static str {
     io::app_dir_name()
@@ -108,9 +113,29 @@ impl Config {
             .into_iter()
             .chain(keybind_diags)
             .chain(self.remote_image_paste_key().err())
+            .chain(self.theme.diagnostics())
             .chain(self.ui.sound.diagnostics())
+            .chain(window_title_diagnostics(&self.ui.window_title))
             .chain(self.invalid_sidebar_bounds_diagnostic())
+            .chain(self.invalid_headless_size_diagnostic())
             .collect()
+    }
+
+    pub(crate) fn headless_size(&self) -> (u16, u16) {
+        if self.invalid_headless_size_diagnostic().is_some() {
+            (DEFAULT_HEADLESS_COLS, DEFAULT_HEADLESS_ROWS)
+        } else {
+            (self.server.headless_cols, self.server.headless_rows)
+        }
+    }
+
+    pub(crate) fn invalid_headless_size_diagnostic(&self) -> Option<String> {
+        (self.server.headless_cols == 0 || self.server.headless_rows == 0).then(|| {
+            format!(
+                "server.headless_cols and server.headless_rows must be greater than zero (got {}x{})",
+                self.server.headless_cols, self.server.headless_rows
+            )
+        })
     }
 
     pub(crate) fn invalid_sidebar_bounds_diagnostic(&self) -> Option<String> {
@@ -188,6 +213,28 @@ mod tests {
             toml::from_str("[keys]\nremote_image_paste = 'not+a+combo'\n").unwrap();
         let diagnostic = config.remote_image_paste_key().unwrap_err();
         assert!(diagnostic.contains("keys.remote_image_paste"));
+    }
+
+    #[test]
+    fn collect_diagnostics_includes_unknown_theme_and_invalid_headless_size() {
+        let config: Config = toml::from_str(
+            r#"
+[theme]
+name = "not-a-theme"
+[server]
+headless_cols = 0
+headless_rows = 24
+"#,
+        )
+        .unwrap();
+
+        let diagnostics = config.collect_diagnostics();
+        assert!(diagnostics
+            .iter()
+            .any(|diag| diag.contains("unknown theme name theme.name = \"not-a-theme\"")));
+        assert!(diagnostics
+            .iter()
+            .any(|diag| { diag.contains("server.headless_cols") && diag.contains("got 0x24") }));
     }
 
     #[test]

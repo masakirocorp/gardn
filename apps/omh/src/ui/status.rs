@@ -8,7 +8,7 @@ use ratatui::{
 
 use crate::{
     app::state::{CopyFeedback, Palette, ToastKind, ToastNotification},
-    config::{ToastClipboardPosition, ToastOmhPosition},
+    config::{StatusIndicatorStyle, ToastClipboardPosition, ToastOmhPosition},
     detect::AgentState,
 };
 
@@ -171,18 +171,33 @@ pub(super) fn state_dot(state: AgentState, seen: bool, p: &Palette) -> (&'static
     }
 }
 
-pub(super) fn agent_icon(
-    state: AgentState,
-    seen: bool,
-    tick: u32,
-    p: &Palette,
-) -> (&'static str, Style) {
+pub(super) fn agent_icon(state: AgentState, seen: bool, p: &Palette) -> (&'static str, Style) {
+    state_dot(state, seen, p)
+}
+
+/// Distinct symbolic indicators: blocked pin, working spinner, idle/seen marks.
+fn state_symbol(state: AgentState, seen: bool, tick: u32, p: &Palette) -> (&'static str, Style) {
     match (state, seen) {
         (AgentState::Blocked, _) => ("◉", Style::default().fg(p.red)),
         (AgentState::Working, _) => (super::spinner_frame(tick), Style::default().fg(p.yellow)),
         (AgentState::Idle, false) => ("●", Style::default().fg(p.teal)),
         (AgentState::Idle, true) => ("✓", Style::default().fg(p.green)),
         (AgentState::Unknown, _) => ("○", Style::default().fg(p.overlay0)),
+    }
+}
+
+/// Renders an agent state indicator using the configured style: uniform colored
+/// dots, or distinct symbols (with the spinner animation for working agents).
+pub(super) fn state_icon(
+    state: AgentState,
+    seen: bool,
+    tick: u32,
+    style: StatusIndicatorStyle,
+    p: &Palette,
+) -> (&'static str, Style) {
+    match style {
+        StatusIndicatorStyle::Dots => state_dot(state, seen, p),
+        StatusIndicatorStyle::Symbols => state_symbol(state, seen, tick, p),
     }
 }
 
@@ -196,11 +211,11 @@ pub(super) fn agent_section_style(label: &str, p: &Palette) -> Style {
     Style::default().fg(color).add_modifier(Modifier::BOLD)
 }
 
-pub(super) fn agent_section_icon(label: &str, tick: u32, p: &Palette) -> (&'static str, Style) {
+pub(super) fn agent_section_icon(label: &str, p: &Palette) -> (&'static str, Style) {
     match label {
         "Triage" => ("!", agent_section_style(label, p)),
-        "Working" => agent_icon(AgentState::Working, true, tick, p),
-        "Idle" => agent_icon(AgentState::Idle, true, tick, p),
+        "Working" => agent_icon(AgentState::Working, true, p),
+        "Idle" => state_symbol(AgentState::Idle, true, 0, p),
         _ => ("?", Style::default().fg(p.overlay0)),
     }
 }
@@ -236,5 +251,22 @@ mod tests {
         assert_eq!(toast_kind_color(ToastKind::NeedsAttention, &p), p.red);
         assert_eq!(toast_kind_color(ToastKind::Finished, &p), p.teal);
         assert_eq!(toast_kind_color(ToastKind::UpdateInstalled, &p), p.accent);
+    }
+
+    #[test]
+    fn state_dots_use_aligned_static_workspace_marks() {
+        let palette = Palette::catppuccin();
+        for (state, seen, symbol, color) in [
+            (AgentState::Blocked, true, "●", palette.red),
+            (AgentState::Working, true, "●", palette.yellow),
+            (AgentState::Idle, false, "●", palette.teal),
+            (AgentState::Idle, true, "○", palette.green),
+            (AgentState::Unknown, true, "·", palette.overlay0),
+        ] {
+            let (mark, style) = state_dot(state, seen, &palette);
+            assert_eq!(mark, symbol);
+            assert_eq!(style.fg, Some(color));
+            assert_eq!(agent_icon(state, seen, &palette), (mark, style));
+        }
     }
 }

@@ -1,3 +1,4 @@
+pub(crate) mod alt_screen_read;
 pub mod autodetect;
 pub(crate) mod client_accept;
 pub(crate) mod client_transport;

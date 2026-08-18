@@ -81,6 +81,7 @@ class Harness {
 
 function context(sessionFile = `${root}/project/session.jsonl`, sessionId = "session-root") {
   return {
+    mode: "tui",
     hasUI: true,
     isIdle: () => true,
     sessionManager: {

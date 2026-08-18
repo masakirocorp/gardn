@@ -130,6 +130,10 @@ impl ClientConnection {
         self.graphics_surface_reset_pending = true;
     }
 
+    pub(crate) fn request_repaint(&mut self) {
+        self.render_state.request_repaint();
+    }
+
     pub(crate) fn is_full_app_client(&self) -> bool {
         matches!(self.mode, ClientConnectionMode::App) && !self.pending_terminal_attach
     }
@@ -192,6 +196,7 @@ pub(crate) fn events_include_interaction(events: &[crate::raw_input::RawInputEve
         ),
         crate::raw_input::RawInputEvent::Mouse(_)
         | crate::raw_input::RawInputEvent::Paste(_)
+        | crate::raw_input::RawInputEvent::TextCommit(_)
         | crate::raw_input::RawInputEvent::OuterFocusGained => true,
         _ => false,
     })

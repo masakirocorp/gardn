@@ -86,7 +86,10 @@ struct GitHubRelease {
 struct GitHubReleaseAsset {
     name: String,
     browser_download_url: String,
+    #[serde(default)]
+    digest: Option<String>,
 }
+
 // ---------------------------------------------------------------------------
 // Release info
 // ---------------------------------------------------------------------------
@@ -192,21 +195,38 @@ fn release_info_from_github_release(
         return Ok(None);
     }
     let asset_name = release_asset_name(platform_target());
-    let download_url = release
+
+    let asset = release
         .assets
         .iter()
         .find(|asset| asset.name == asset_name)
-        .map(|asset| asset.browser_download_url.clone())
         .ok_or_else(|| format!("no binary asset named {asset_name} in latest GitHub release"))?;
+    let download_url = asset.browser_download_url.clone();
+    let sha256 = github_asset_sha256(asset, &asset_name)?;
     let notes_body = github_release_notes_body(release, &latest);
 
     Ok(Some(ReleaseInfo {
         identity: latest.to_string(),
         version: latest,
         download_url,
-        sha256: None,
+        sha256: Some(sha256),
         notes_body,
     }))
+}
+
+fn github_asset_sha256(asset: &GitHubReleaseAsset, asset_name: &str) -> Result<String, String> {
+    asset
+        .digest
+        .as_deref()
+        .and_then(|digest| digest.strip_prefix("sha256:"))
+        .filter(|digest| {
+            digest.len() == 64
+                && digest
+                    .chars()
+                    .all(|character| character.is_ascii_hexdigit())
+        })
+        .map(|digest| digest.to_ascii_lowercase())
+        .ok_or_else(|| format!("{asset_name} has no valid SHA-256 digest"))
 }
 
 /// Check for the latest release. Returns release info if newer.
@@ -1743,6 +1763,49 @@ mod tests {
     }
 
     #[test]
+    fn stable_update_requires_asset_checksum() {
+        let asset_name = release_asset_name(platform_target());
+        let release = GitHubRelease {
+            tag_name: "v99.99.99".into(),
+            body: Some("### Changed\n- One".into()),
+            assets: vec![GitHubReleaseAsset {
+                name: asset_name.clone(),
+                browser_download_url: "https://example.com/omh".into(),
+                digest: None,
+            }],
+        };
+
+        assert!(release_info_from_github_release(&release)
+            .unwrap_err()
+            .contains("no valid SHA-256 digest"));
+    }
+
+    #[test]
+    fn stable_update_reads_github_asset_digest() {
+        let asset_name = release_asset_name(platform_target());
+        let release = GitHubRelease {
+            tag_name: "v99.99.99".into(),
+            body: Some("### Changed\n- One".into()),
+            assets: vec![GitHubReleaseAsset {
+                name: asset_name.clone(),
+                browser_download_url: "https://example.com/omh".into(),
+                digest: Some(
+                    "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                        .into(),
+                ),
+            }],
+        };
+
+        let info = release_info_from_github_release(&release)
+            .unwrap()
+            .expect("newer release should be selected");
+        assert_eq!(
+            info.sha256.as_deref(),
+            Some("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+        );
+    }
+
+    #[test]
     fn nix_store_path_is_detected() {
         let path = Path::new("/nix/store/abc123-omh-0.6.1/bin/omh");
 
@@ -2344,10 +2407,15 @@ mod tests {
                 GitHubReleaseAsset {
                     name: "omh-plan9-riscv128".to_string(),
                     browser_download_url: "https://example.com/wrong".to_string(),
+                    digest: None,
                 },
                 GitHubReleaseAsset {
                     name: release_asset_name((os, arch)),
                     browser_download_url: "https://example.com/omh".to_string(),
+                    digest: Some(
+                        "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                            .into(),
+                    ),
                 },
             ],
         };

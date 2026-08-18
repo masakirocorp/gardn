@@ -351,6 +351,21 @@ impl App {
         }
     }
 
+    pub(super) fn save_status_indicators(&mut self, style: crate::config::StatusIndicatorStyle) {
+        self.state.status_indicators = style;
+        self.state.settings.pending_status_indicators = Some(style);
+        if self.update_config_file("status indicator style", |content| {
+            crate::config::upsert_section_value(
+                content,
+                "ui",
+                "status_indicators",
+                style.config_value(),
+            )
+        }) {
+            self.apply_config_from_disk(false);
+        }
+    }
+
     pub(super) fn save_switch_ascii_input_source_in_prefix(&mut self, enabled: bool) {
         self.state.switch_ascii_input_source_in_prefix = enabled;
         self.state

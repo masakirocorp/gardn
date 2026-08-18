@@ -865,6 +865,328 @@ fn server_crash_after_attach_causes_lost_connection_error() {
     cleanup_test_base(&base);
 }
 
+/// Any of the mouse-disable modes emitted by `clear_host_mouse_reporting` on
+/// terminal restore. Their presence in the client's PTY output proves the
+/// restore path (`TerminalGuard::restore` → `restore_terminal_state`) ran.
+const MOUSE_TEARDOWN_MARKERS: [&str; 2] = ["\u{1b}[?1003l", "\u{1b}[?1000l"];
+
+fn output_has_mouse_teardown(output: &str) -> bool {
+    MOUSE_TEARDOWN_MARKERS
+        .iter()
+        .all(|marker| output.contains(marker))
+}
+
+/// Shared buffer fed by a background PTY reader thread. Reading on a thread
+/// keeps the blocking `Box<dyn Read>` (which has no timeout) off the test's
+/// main thread, so a client that never exits fails the deadline instead of
+/// hanging the whole test forever.
+type SharedOutput = std::sync::Arc<Mutex<String>>;
+
+fn spawn_pty_drain(mut reader: Box<dyn Read + Send>) -> SharedOutput {
+    let output: SharedOutput = std::sync::Arc::new(Mutex::new(String::new()));
+    let thread_output = output.clone();
+    thread::spawn(move || {
+        let mut buf = [0u8; 4096];
+        loop {
+            match reader.read(&mut buf) {
+                Ok(0) => break,
+                Ok(n) => thread_output
+                    .lock()
+                    .unwrap_or_else(|p| p.into_inner())
+                    .push_str(&String::from_utf8_lossy(&buf[..n])),
+                Err(_) => break,
+            }
+        }
+    });
+    output
+}
+
+fn read_output(output: &SharedOutput) -> String {
+    output.lock().unwrap_or_else(|p| p.into_inner()).clone()
+}
+
+/// Current captured byte length, used as a watermark so a test can search only
+/// the output emitted *after* a trigger. The teardown markers also appear in
+/// normal attach-phase output, so matching the whole buffer is meaningless.
+fn output_len(output: &SharedOutput) -> usize {
+    output.lock().unwrap_or_else(|p| p.into_inner()).len()
+}
+
+/// Spawns a server + real thin client under a PTY and waits until the client
+/// has attached and rendered a frame. Returns the pieces plus a shared buffer
+/// that keeps accumulating PTY output (including teardown) on a background
+/// thread.
+fn attach_thin_client(
+    config_home: &PathBuf,
+    runtime_dir: &PathBuf,
+    api_socket: &PathBuf,
+    client_socket: &PathBuf,
+) -> (SpawnedOmh, SpawnedOmh, SharedOutput) {
+    let spawned_server = spawn_server(config_home, runtime_dir, api_socket, client_socket);
+    wait_for_socket(api_socket, Duration::from_secs(10));
+    wait_for_socket(client_socket, Duration::from_secs(10));
+
+    let thin_client = spawn_client_process(config_home, runtime_dir, api_socket);
+    let reader = thin_client
+        ._master
+        .as_ref()
+        .expect("thin client master")
+        .try_clone_reader()
+        .expect("clone client PTY reader");
+    let output = spawn_pty_drain(reader);
+
+    let deadline = Instant::now() + Duration::from_secs(8);
+    let mut attached = false;
+    while Instant::now() < deadline {
+        let out = read_output(&output);
+        if out.contains('\u{2500}')
+            || out.contains("workspace")
+            || out.contains("pane")
+            || out.contains("terminal")
+        {
+            attached = true;
+            break;
+        }
+        if out.to_lowercase().contains("omh:") {
+            break;
+        }
+        thread::sleep(Duration::from_millis(30));
+    }
+    assert!(
+        attached,
+        "thin client must attach and render a frame; output: {:?}",
+        read_output(&output)
+    );
+
+    (spawned_server, thin_client, output)
+}
+
+/// Polls until the client exits, then returns only the output captured after
+/// the `since` byte watermark. Panics if the client does not exit within the
+/// deadline.
+fn drain_until_client_exits(
+    thin_client: &mut SpawnedOmh,
+    output: &SharedOutput,
+    since: usize,
+) -> String {
+    let deadline = Instant::now() + Duration::from_secs(12);
+    let mut exited = false;
+    while Instant::now() < deadline {
+        if thin_client.child.try_wait().ok().flatten().is_some() {
+            exited = true;
+            break;
+        }
+        thread::sleep(Duration::from_millis(20));
+    }
+    // Give the reader thread a beat to flush trailing teardown bytes.
+    thread::sleep(Duration::from_millis(100));
+    let full = read_output(output);
+    assert!(exited, "thin client should exit; output: {full:?}");
+    full.get(since..).unwrap_or_default().to_string()
+}
+
+/// Attaches a thin client, runs `trigger` to force an exit, and asserts the
+/// client emits the mouse teardown after that point. The teardown markers also
+/// appear in normal attach output, so only bytes emitted after the trigger
+/// (past the watermark) count.
+fn assert_client_restores_terminal(trigger: impl FnOnce(&mut SpawnedOmh, &mut SpawnedOmh)) {
+    let _lock = test_lock();
+    let base = unique_test_dir();
+    let config_home = base.join("config");
+    let runtime_dir = base.join("runtime");
+    let api_socket = runtime_dir.join("omh.sock");
+    let client_socket = runtime_dir.join("omh-client.sock");
+
+    let (mut spawned_server, mut thin_client, pty_output) =
+        attach_thin_client(&config_home, &runtime_dir, &api_socket, &client_socket);
+
+    let since = output_len(&pty_output);
+    trigger(&mut spawned_server, &mut thin_client);
+
+    let output = drain_until_client_exits(&mut thin_client, &pty_output, since);
+    assert!(
+        output_has_mouse_teardown(&output),
+        "client must emit mouse teardown after trigger; output after trigger: {output:?}"
+    );
+
+    // SpawnedOmh::Drop kills and reaps both processes with a bounded wait.
+    drop(spawned_server);
+    cleanup_spawned_omh(thin_client, base);
+}
+
+/// The `--remote` ssh-death path: killing the bridge closes the socket, the
+/// client sees EOF and unwinds normally, so the terminal is restored. This is
+/// the path that does NOT deliver a signal to the client. Guards against a
+/// regression that would leave mouse reporting on after an ssh disconnect.
+#[test]
+fn client_restores_terminal_on_server_eof() {
+    assert_client_restores_terminal(|server, _client| {
+        // Kill the server unexpectedly; the client socket closes and the
+        // client reader hits EOF, mirroring the ssh bridge dying under
+        // `omh --remote`.
+        if let Some(pid) = server.child.process_id() {
+            unsafe {
+                libc::kill(pid as libc::pid_t, libc::SIGKILL);
+            }
+        }
+        server.close_master();
+    });
+}
+
+/// A direct SIGHUP/SIGTERM with a writable terminal follows the graceful quit
+/// path and emits the terminal teardown. Actual terminal-window closure also
+/// makes the PTY unwritable and is covered separately below.
+#[test]
+fn client_restores_terminal_on_sighup() {
+    assert_client_restores_terminal(|_server, client| {
+        let pid = client.child.process_id().expect("thin client pid") as libc::pid_t;
+        unsafe {
+            libc::kill(pid, libc::SIGHUP);
+        }
+    });
+}
+
+fn read_until_client_attaches(client: &SpawnedOmh) -> String {
+    let master = client._master.as_ref().expect("thin client master");
+    let fd = master.as_raw_fd().expect("thin client PTY file descriptor");
+    let flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
+    assert_ne!(flags, -1, "read thin client PTY flags");
+    assert_ne!(
+        unsafe { libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK) },
+        -1,
+        "make thin client PTY nonblocking"
+    );
+
+    let mut reader = master.try_clone_reader().expect("clone client PTY reader");
+    let mut output = String::new();
+    let deadline = Instant::now() + Duration::from_secs(8);
+    while Instant::now() < deadline {
+        let mut buf = [0u8; 4096];
+        match reader.read(&mut buf) {
+            Ok(0) => break,
+            Ok(n) => output.push_str(&String::from_utf8_lossy(&buf[..n])),
+            Err(err) if err.kind() == std::io::ErrorKind::WouldBlock => {
+                thread::sleep(Duration::from_millis(20));
+            }
+            Err(err) => panic!("read thin client PTY: {err}"),
+        }
+        if output.contains('\u{2500}')
+            || output.contains("workspace")
+            || output.contains("pane")
+            || output.contains("terminal")
+        {
+            return output;
+        }
+    }
+    panic!("thin client must attach and render a frame; output: {output:?}");
+}
+
+#[test]
+fn client_exits_cleanly_when_terminal_and_transport_hang_up() {
+    let _lock = test_lock();
+    let base = unique_test_dir();
+    let config_home = base.join("config");
+    let runtime_dir = base.join("runtime");
+    let api_socket = runtime_dir.join("omh.sock");
+    let client_socket = runtime_dir.join("omh-client.sock");
+
+    let mut spawned_server = spawn_server(&config_home, &runtime_dir, &api_socket, &client_socket);
+    wait_for_socket(&api_socket, Duration::from_secs(10));
+    wait_for_socket(&client_socket, Duration::from_secs(10));
+
+    let mut thin_client = spawn_client_process(&config_home, &runtime_dir, &api_socket);
+    read_until_client_attaches(&thin_client);
+
+    // Freeze the client so the dead terminal and transport EOF are both
+    // observable when it resumes, making the `--remote` shutdown race deterministic.
+    let client_pid = thin_client.child.process_id().expect("thin client pid") as libc::pid_t;
+    assert_eq!(
+        unsafe { libc::kill(client_pid, libc::SIGSTOP) },
+        0,
+        "stop thin client"
+    );
+    let server_pid = spawned_server.child.process_id().expect("server pid") as libc::pid_t;
+    assert_eq!(
+        unsafe { libc::kill(server_pid, libc::SIGKILL) },
+        0,
+        "kill server transport"
+    );
+    spawned_server.close_master();
+    thin_client.close_master();
+    assert_eq!(
+        unsafe { libc::kill(client_pid, libc::SIGCONT) },
+        0,
+        "resume thin client"
+    );
+
+    let deadline = Instant::now() + Duration::from_secs(12);
+    let status = loop {
+        if let Some(status) = thin_client.child.try_wait().expect("poll thin client") {
+            break Some(status);
+        }
+        if Instant::now() >= deadline {
+            break None;
+        }
+        thread::sleep(Duration::from_millis(20));
+    };
+
+    drop(spawned_server);
+    cleanup_spawned_omh(thin_client, base);
+
+    let status = status.expect("thin client should exit after terminal and transport hang up");
+    assert!(
+        status.success(),
+        "thin client should exit cleanly after terminal and transport hang up, got {status}"
+    );
+}
+
+#[test]
+fn client_exits_cleanly_when_terminal_hangs_up() {
+    let _lock = test_lock();
+    let base = unique_test_dir();
+    let config_home = base.join("config");
+    let runtime_dir = base.join("runtime");
+    let api_socket = runtime_dir.join("omh.sock");
+    let client_socket = runtime_dir.join("omh-client.sock");
+
+    let spawned_server = spawn_server(&config_home, &runtime_dir, &api_socket, &client_socket);
+    wait_for_socket(&api_socket, Duration::from_secs(10));
+    wait_for_socket(&client_socket, Duration::from_secs(10));
+
+    let mut thin_client = spawn_client_process(&config_home, &runtime_dir, &api_socket);
+    let attached_output = read_until_client_attaches(&thin_client);
+
+    // Closing the final PTY master models the outer terminal disappearing: the
+    // foreground client receives SIGHUP and writes to stdout/stderr fail.
+    thin_client.close_master();
+    let deadline = Instant::now() + Duration::from_secs(12);
+    let status = loop {
+        if let Some(status) = thin_client.child.try_wait().expect("poll thin client") {
+            break Some(status);
+        }
+        if Instant::now() >= deadline {
+            break None;
+        }
+        thread::sleep(Duration::from_millis(20));
+    };
+    let server_response = ping_socket(&api_socket);
+
+    drop(spawned_server);
+    cleanup_spawned_omh(thin_client, base);
+
+    let status = status.unwrap_or_else(|| {
+        panic!("thin client did not exit after PTY hangup; attach output: {attached_output:?}")
+    });
+    assert!(
+        status.success(),
+        "thin client should exit cleanly after PTY hangup, got {status}; attach output: {attached_output:?}"
+    );
+    assert!(
+        server_response.contains("pong"),
+        "server should survive client PTY hangup: {server_response}"
+    );
+}
+
 #[test]
 fn client_receives_frame_after_pane_output() {
     // End-to-end test: server renders, client receives Frame.

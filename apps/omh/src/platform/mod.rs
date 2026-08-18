@@ -39,6 +39,11 @@ pub(crate) const fn preserve_legacy_doubled_escape_input() -> bool {
     cfg!(target_os = "macos")
 }
 
+#[cfg(not(windows))]
+pub fn launch_server_daemon_command(command: &mut std::process::Command) -> std::io::Result<u32> {
+    command.spawn().map(|child| child.id())
+}
+
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 pub fn detach_server_daemon_command(command: &mut std::process::Command) {
     use std::os::unix::process::CommandExt;
@@ -55,6 +60,38 @@ pub fn detach_server_daemon_command(command: &mut std::process::Command) {
 
 #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
 pub fn detach_server_daemon_command(_command: &mut std::process::Command) {}
+
+/// Raised by the SIGWINCH handler, consumed by the host resize watcher.
+#[cfg(unix)]
+static TERMINAL_RESIZE_SIGNALLED: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
+#[cfg(unix)]
+extern "C" fn record_terminal_resize_signal(_signal: libc::c_int) {
+    TERMINAL_RESIZE_SIGNALLED.store(true, std::sync::atomic::Ordering::Release);
+}
+
+pub(crate) fn watch_terminal_resize_signal() {
+    #[cfg(unix)]
+    unsafe {
+        let mut action: libc::sigaction = std::mem::zeroed();
+        action.sa_sigaction = record_terminal_resize_signal as *const () as usize;
+        libc::sigemptyset(&mut action.sa_mask);
+        action.sa_flags = libc::SA_RESTART;
+        libc::sigaction(libc::SIGWINCH, &action, std::ptr::null_mut());
+    }
+}
+
+pub(crate) fn take_terminal_resize_signal() -> bool {
+    #[cfg(unix)]
+    {
+        TERMINAL_RESIZE_SIGNALLED.swap(false, std::sync::atomic::Ordering::AcqRel)
+    }
+    #[cfg(not(unix))]
+    {
+        false
+    }
+}
 
 fn active_tcp_listeners_from_lsof() -> Vec<TcpListenerInfo> {
     let output = match std::process::Command::new("lsof")
@@ -180,6 +217,13 @@ pub struct ClipboardImage {
     pub extension: &'static str,
 }
 
+#[derive(Debug, Clone)]
+pub(crate) struct RemoteSshConfigPaths {
+    pub(crate) user_config: Option<std::path::PathBuf>,
+    pub(crate) system_config: Option<std::path::PathBuf>,
+    pub(crate) multiplexing: bool,
+}
+
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum LimitedRead {
     Empty,
@@ -239,13 +283,27 @@ pub(crate) fn run_execution_worker(_args: &[String]) -> std::io::Result<()> {
 
 #[cfg(target_os = "linux")]
 mod linux;
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+mod unix_common;
 #[cfg(target_os = "linux")]
 pub use linux::*;
+#[cfg(target_os = "linux")]
+pub(crate) use unix_common::{
+    create_remote_private_dir, create_remote_ssh_config_dir, create_remote_ssh_config_file,
+    remote_bridge_endpoint_path, remote_private_temp_base, remote_reattach_argument,
+    remote_reattach_program, remote_ssh_config_paths,
+};
 
 #[cfg(target_os = "macos")]
 mod macos;
 #[cfg(target_os = "macos")]
 pub use macos::*;
+#[cfg(target_os = "macos")]
+pub(crate) use unix_common::{
+    create_remote_private_dir, create_remote_ssh_config_dir, create_remote_ssh_config_file,
+    remote_bridge_endpoint_path, remote_private_temp_base, remote_reattach_argument,
+    remote_reattach_program, remote_ssh_config_paths,
+};
 
 #[cfg(target_os = "windows")]
 mod windows;
@@ -278,6 +336,11 @@ pub(crate) fn parse_agent_env_hint(environ: &[u8]) -> Option<crate::detect::Agen
     })
 }
 
+/// The machine's node name, as shown by tmux's `#h`.
+pub(crate) fn hostname() -> Option<String> {
+    hostname_platform()
+}
+
 /// Whether the platform should draw Oh My Herdr's cursor into frame cells by default.
 pub(crate) fn should_draw_host_cursor_by_default() -> bool {
     should_draw_host_cursor_by_default_platform()
@@ -294,16 +357,24 @@ pub(crate) fn detached_custom_command_process(command: &str) -> std::process::Co
 pub(crate) fn pane_custom_command_pty_builder(command: &str) -> portable_pty::CommandBuilder {
     pane_custom_command_pty_builder_platform(command)
 }
-#[cfg(not(target_os = "macos"))]
+
+pub(crate) fn apply_pane_runtime_marker(command: &mut portable_pty::CommandBuilder) {
+    apply_pane_runtime_marker_platform(command);
+}
+
+#[cfg(not(windows))]
+fn apply_pane_runtime_marker_platform(_command: &mut portable_pty::CommandBuilder) {}
+
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
 #[derive(Debug)]
 pub(crate) struct InputSourceRestore;
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
 pub(crate) fn switch_to_ascii_input_source() -> Option<InputSourceRestore> {
     None
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
 pub(crate) fn pump_input_source_runloop() {}
 
 /// Switches the host keyboard input source while prefix mode is active.
@@ -352,6 +423,40 @@ mod tests {
         assert_eq!(
             read_limited_reader(input, 16).expect("limited read"),
             LimitedRead::Complete(b"image".to_vec())
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn terminal_resize_signal_is_recorded_once_per_delivery() {
+        watch_terminal_resize_signal();
+        assert!(!take_terminal_resize_signal());
+
+        record_terminal_resize_signal(libc::SIGWINCH);
+        assert!(take_terminal_resize_signal());
+        assert!(!take_terminal_resize_signal());
+    }
+
+    #[test]
+    fn remote_reattach_argument_is_platform_quoted() {
+        let quoted = remote_reattach_argument("host'name");
+        if cfg!(windows) {
+            assert_eq!(quoted, "'host''name'");
+        } else {
+            assert_eq!(quoted, "'host'\\''name'");
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn remote_bridge_endpoint_falls_back_when_readable_name_is_too_long() {
+        let readable = format!("omh-remote-{}-{}.sock", std::process::id(), "x".repeat(200));
+        let short = format!("omh-r-{}-short.sock", std::process::id());
+        let path = remote_bridge_endpoint_path(&readable, &short);
+        assert!(
+            path.file_name()
+                .is_some_and(|name| name.to_string_lossy() == short),
+            "overlong readable socket names must fall back to the short form"
         );
     }
 

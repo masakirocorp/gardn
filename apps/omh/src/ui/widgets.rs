@@ -1,7 +1,7 @@
 use std::ops::Range;
 
 use ratatui::{
-    layout::{Alignment, Constraint, Layout, Rect},
+    layout::{Alignment, Constraint, Layout, Position, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Clear, Paragraph, Wrap},
@@ -327,9 +327,13 @@ pub(super) fn render_modal_text_input(frame: &mut Frame, area: Rect, value: &str
     let visible = truncate_start(value, value_width);
     frame.render_widget(Clear, area);
     frame.render_widget(
-        Paragraph::new(format!(" {visible}█")).style(Style::default().fg(p.text).bg(p.surface0)),
+        Paragraph::new(format!(" {visible}")).style(Style::default().fg(p.text).bg(p.surface0)),
         area,
     );
+    if area.width > 1 && area.height > 0 {
+        let caret = display_width_u16(&visible).min(area.width.saturating_sub(2));
+        frame.set_cursor_position(Position::new(area.x + 1 + caret, area.y));
+    }
 }
 
 pub(super) fn render_modal_text_value(frame: &mut Frame, area: Rect, value: &str, p: &Palette) {

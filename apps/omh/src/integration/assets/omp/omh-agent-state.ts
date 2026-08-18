@@ -2,10 +2,11 @@
 // managed by Oh My Herdr; reinstalling or updating the integration overwrites this file.
 // add custom hooks/plugins beside this file instead of editing it.
 // OMH_INTEGRATION_ID=omp
-// OMH_INTEGRATION_VERSION=7
+// OMH_INTEGRATION_VERSION=8
 // @ts-nocheck
 
 import net from "node:net";
+import path from "node:path";
 
 const OMH_ENV = process.env.OMH_ENV;
 const socketPath = process.env.OMH_SOCKET_PATH;
@@ -83,6 +84,13 @@ function nextReportSeq(): number {
   reportSeq = Math.max(reportSeq + 1, Date.now() * 1000);
   return reportSeq;
 }
+export function isAbsoluteSessionPath(file: unknown): file is string {
+  return (
+    typeof file === "string" &&
+    (path.posix.isAbsolute(file) || path.win32.isAbsolute(file))
+  );
+}
+
 
 function parseDurationEnv(name: string, fallback: number): number {
   const raw = process.env[name];
@@ -122,7 +130,7 @@ function updateSessionRef(ctx: unknown): void {
   const file = sessionManagerStringMethod(ctx, "getSessionFile");
   const id = sessionManagerStringMethod(ctx, "getSessionId");
 
-  if (file && file.startsWith("/")) {
+  if (isAbsoluteSessionPath(file)) {
     currentAgentSessionPath = file;
     currentAgentSessionId = undefined;
     return;

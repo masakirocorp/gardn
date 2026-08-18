@@ -22,6 +22,12 @@ pub enum AppEvent {
         /// Present when the process was terminated by a signal.
         exit_signal: Option<i32>,
     },
+    /// Process detection identified an agent before its screen state was confirmed.
+    AgentProcessDetected {
+        pane_id: PaneId,
+        agent: Agent,
+        observed_at: Instant,
+    },
     /// Fallback detector state changed in a pane.
     StateChanged {
         pane_id: PaneId,
@@ -102,6 +108,9 @@ pub enum AppEvent {
     ClipboardWrite { content: Vec<u8> },
     /// A pane emitted a valid OSC 52 clipboard write.
     TerminalClipboardWrite { pane_id: PaneId, content: Vec<u8> },
+    /// A pane child emitted one or more executable BEL characters.
+    /// The host-facing process forwards them to its outer terminal.
+    TerminalBell { pane_id: PaneId, count: u16 },
     /// An execution host finished staging a private temporary file.
     ExecutionFileStaged {
         host_id: crate::execution_host::ExecutionHostId,

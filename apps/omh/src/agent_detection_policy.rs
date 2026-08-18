@@ -35,16 +35,7 @@ fn detection(
 
 #[cfg(test)]
 pub(crate) fn full_lifecycle_hook_authority(source: &str, agent_label: &str) -> bool {
-    matches!(
-        (source, agent_label),
-        ("omh:claude", "claude")
-            | ("omh:codex", "codex")
-            | ("omh:grok", "grok")
-            | ("omh:hermes", "hermes")
-            | ("omh:opencode", "opencode")
-            | ("omh:kilo", "kilo")
-            | ("omh:kimi", "kimi")
-    )
+    crate::detect::full_lifecycle_hook_authority(source, agent_label)
 }
 
 pub(crate) fn apply_detection_policy(input: DetectionPolicyInput) -> DetectionPolicyDecision {
@@ -92,7 +83,7 @@ mod tests {
         assert!(full_lifecycle_hook_authority("omh:claude", "claude"));
         assert!(full_lifecycle_hook_authority("omh:codex", "codex"));
         assert!(full_lifecycle_hook_authority("omh:grok", "grok"));
-        assert!(full_lifecycle_hook_authority("omh:hermes", "hermes"));
+        assert!(!full_lifecycle_hook_authority("omh:hermes", "hermes"));
         assert!(full_lifecycle_hook_authority("omh:opencode", "opencode"));
         assert!(full_lifecycle_hook_authority("omh:kilo", "kilo"));
         assert!(full_lifecycle_hook_authority("omh:kimi", "kimi"));

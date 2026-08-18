@@ -2,7 +2,7 @@
 // managed by Oh My Herdr; reinstalling or updating the integration overwrites this file.
 // add custom hooks/plugins beside this file instead of editing it.
 // OMH_INTEGRATION_ID=pi
-// OMH_INTEGRATION_VERSION=6
+// OMH_INTEGRATION_VERSION=7
 // @ts-nocheck
 
 import net from "node:net";
@@ -269,7 +269,9 @@ export default function (pi) {
   }
 
   function activateRootSession(ctx: unknown, sessionStartSource = "startup"): boolean {
-    if (!ctx || typeof ctx !== "object" || !("hasUI" in ctx) || ctx.hasUI !== true) {
+    // TUI only: RPC/JSON/print modes are headless (no PTY Oh My Herdr can display),
+    // and RPC still reports hasUI=true, so mode is the reliable gate.
+    if (!ctx || typeof ctx !== "object" || !("mode" in ctx) || ctx.mode !== "tui") {
       return false;
     }
     rootSession = true;
@@ -279,7 +281,9 @@ export default function (pi) {
   }
 
   pi.on("session_start", (_event, ctx) => {
-    if (!ctx || typeof ctx !== "object" || !("hasUI" in ctx) || ctx.hasUI !== true) {
+    // TUI only: RPC/JSON/print modes are headless (no PTY Oh My Herdr can display),
+    // and RPC still reports hasUI=true, so mode is the reliable gate.
+    if (!ctx || typeof ctx !== "object" || !("mode" in ctx) || ctx.mode !== "tui") {
       rootSession = false;
       return;
     }

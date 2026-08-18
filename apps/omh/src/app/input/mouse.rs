@@ -814,7 +814,11 @@ impl AppState {
                     return None;
                 }
 
-                if self.drag.is_none() {
+                if self.drag.is_none()
+                    && self.workspace_press.is_none()
+                    && self.group_press.is_none()
+                    && self.tab_press.is_none()
+                {
                     if let Some(info) = self.pane_mouse_target(mouse.column, mouse.row).cloned() {
                         if self.forward_pane_mouse_button(terminal_runtimes, &info, mouse) {
                             self.selection = None;
@@ -862,7 +866,9 @@ impl AppState {
                     if let Some(press) = &self.workspace_press {
                         let delta_col = mouse.column.abs_diff(press.start_col);
                         let delta_row = mouse.row.abs_diff(press.start_row);
-                        if delta_col.max(delta_row) >= WORKSPACE_DRAG_THRESHOLD {
+                        if workspace_drop_target.is_some()
+                            && delta_col.max(delta_row) >= WORKSPACE_DRAG_THRESHOLD
+                        {
                             self.drag = Some(DragState {
                                 target: DragTarget::WorkspaceReorder {
                                     source_ws_idx: press.ws_idx,
@@ -891,7 +897,9 @@ impl AppState {
                     } else if let Some(press) = &self.tab_press {
                         let delta_col = mouse.column.abs_diff(press.start_col);
                         let delta_row = mouse.row.abs_diff(press.start_row);
-                        if delta_col.max(delta_row) >= TAB_DRAG_THRESHOLD {
+                        if tab_drop_index.is_some()
+                            && delta_col.max(delta_row) >= TAB_DRAG_THRESHOLD
+                        {
                             self.drag = Some(DragState {
                                 target: DragTarget::TabReorder {
                                     ws_idx: press.ws_idx,
@@ -1020,7 +1028,7 @@ impl AppState {
 
             MouseEventKind::Up(MouseButton::Left) => {
                 // Mouse-up either finishes a drag selection or releases after a
-                // double-click copy; the latter is already finalized.
+                // double-click word selection; the latter is already finalized.
                 if let Some(selection) = self.selection.as_ref() {
                     let was_click = selection.was_just_click();
                     let was_finalized = selection.is_finalized();
@@ -1033,7 +1041,7 @@ impl AppState {
                     if was_click {
                         self.selection = None;
                     } else if was_finalized {
-                        // Double-click copy already finalized this selection.
+                        // Double-click already finalized this word selection.
                     } else if self.copy_on_select {
                         self.copy_selection(terminal_runtimes);
                     } else if let Some(selection) = self.selection.as_mut() {
@@ -1334,6 +1342,11 @@ impl AppState {
                             ws_idx,
                             pane_id: info.id,
                             has_manual_label,
+                            right_click_passthrough: self
+                                .workspaces
+                                .get(ws_idx)
+                                .and_then(|ws| ws.pane_state(info.id))
+                                .is_some_and(|pane| pane.right_click_passthrough),
                         },
                         x: mouse.column,
                         y: mouse.row,
@@ -1896,7 +1909,9 @@ impl AppState {
         let Some(bytes) = rt.encode_mouse_button(mouse.kind, column, row, mouse.modifiers) else {
             return false;
         };
-        rt.scroll_reset();
+        if !matches!(mouse.kind, MouseEventKind::Moved) {
+            rt.scroll_reset();
+        }
         if let Err(err) = rt.try_send_bytes(Bytes::from(bytes)) {
             warn!(pane = info.id.raw(), err = %err, kind = ?mouse.kind, "failed to forward mouse button event");
         }
@@ -2056,18 +2071,26 @@ impl AppState {
             return false;
         }
 
-        let Some(modifiers) = self.right_click_passthrough_modifiers else {
+        let Some(info) = self.pane_at(mouse.column, mouse.row).cloned() else {
             return false;
         };
-        if mouse.modifiers != modifiers {
+        let configured_modifiers = self
+            .right_click_passthrough_modifiers
+            .filter(|modifiers| mouse.modifiers == *modifiers);
+        let pane_passthrough = mouse.modifiers.is_empty()
+            && self.active.is_some_and(|ws_idx| {
+                self.workspaces
+                    .get(ws_idx)
+                    .and_then(|workspace| workspace.pane_state(info.id))
+                    .is_some_and(|pane| pane.right_click_passthrough)
+            });
+        let Some(modifiers) = configured_modifiers
+            .or_else(|| pane_passthrough.then(crossterm::event::KeyModifiers::empty))
+        else {
             return false;
-        }
+        };
 
         let Some(ws_idx) = self.active else {
-            return false;
-        };
-
-        let Some(info) = self.pane_at(mouse.column, mouse.row).cloned() else {
             return false;
         };
 
@@ -3041,6 +3064,7 @@ mod tests {
                 ws_idx: 0,
                 pane_id,
                 has_manual_label: false,
+                right_click_passthrough: false,
             },
             x: 2,
             y: 2,
@@ -3652,6 +3676,7 @@ mod tests {
             mouse_protocol_encoding: crate::input::MouseProtocolEncoding::Sgr,
             mouse_alternate_scroll: true,
             modify_other_keys: false,
+            color_scheme_reporting: false,
         };
 
         assert_eq!(wheel_routing(input_state), WheelRouting::MouseReport);
@@ -4218,6 +4243,7 @@ mod tests {
             mouse_protocol_encoding: crate::input::MouseProtocolEncoding::Default,
             mouse_alternate_scroll: true,
             modify_other_keys: false,
+            color_scheme_reporting: false,
         };
 
         assert_eq!(wheel_routing(input_state), WheelRouting::AlternateScroll);
@@ -4234,8 +4260,167 @@ mod tests {
             mouse_protocol_encoding: crate::input::MouseProtocolEncoding::Default,
             mouse_alternate_scroll: true,
             modify_other_keys: false,
+            color_scheme_reporting: false,
         };
 
         assert_eq!(wheel_routing(input_state), WheelRouting::HostScroll);
+    }
+
+    #[tokio::test]
+    async fn pane_right_click_passthrough_is_isolated() {
+        let mut app = app_for_mouse_test();
+        let mut ws = Workspace::test_new("test");
+        let passthrough_pane = ws.tabs[0].root_pane;
+        let default_pane = ws.test_split(Direction::Horizontal);
+        ws.pane_state_mut(passthrough_pane)
+            .unwrap()
+            .right_click_passthrough = true;
+        app.state.workspaces = vec![ws];
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::Terminal;
+        crate::ui::compute_view(&mut app.state, Rect::new(0, 0, 106, 20));
+
+        let passthrough_info = app.state.pane_info_by_id(passthrough_pane).unwrap().clone();
+        let default_info = app.state.pane_info_by_id(default_pane).unwrap().clone();
+        let (passthrough_runtime, mut passthrough_input) =
+            crate::terminal::TerminalRuntime::test_with_channel_and_scrollback_bytes(
+                passthrough_info.inner_rect.width,
+                passthrough_info.inner_rect.height,
+                0,
+                b"[?1002h[?1006h",
+                4,
+            );
+        let (default_runtime, mut default_input) =
+            crate::terminal::TerminalRuntime::test_with_channel_and_scrollback_bytes(
+                default_info.inner_rect.width,
+                default_info.inner_rect.height,
+                0,
+                b"[?1002h[?1006h",
+                4,
+            );
+        app.state
+            .insert_test_runtime(passthrough_pane, passthrough_runtime);
+        app.state.insert_test_runtime(default_pane, default_runtime);
+
+        let col = passthrough_info.inner_rect.x + 2;
+        let row = passthrough_info.inner_rect.y + 3;
+        app.handle_mouse(mouse(MouseEventKind::Down(MouseButton::Right), col, row));
+
+        assert_eq!(app.state.mode, Mode::Terminal);
+        assert!(app.state.context_menu.is_none());
+        assert_eq!(
+            passthrough_input.try_recv().unwrap(),
+            Bytes::from_static(b"[<2;3;4M")
+        );
+
+        app.handle_mouse(mouse(
+            MouseEventKind::Down(MouseButton::Right),
+            default_info.inner_rect.x + 2,
+            default_info.inner_rect.y + 3,
+        ));
+
+        assert!(default_input.try_recv().is_err());
+        assert!(matches!(
+            app.state.context_menu.as_ref().map(|menu| &menu.kind),
+            Some(ContextMenuKind::Pane { pane_id, .. }) if *pane_id == default_pane
+        ));
+    }
+
+    #[tokio::test]
+    async fn pane_right_click_passthrough_falls_back_when_mouse_reporting_is_off() {
+        let mut app = app_for_mouse_test();
+        let mut ws = Workspace::test_new("test");
+        let pane_id = ws.tabs[0].root_pane;
+        ws.pane_state_mut(pane_id).unwrap().right_click_passthrough = true;
+        app.state.workspaces = vec![ws];
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::Terminal;
+        crate::ui::compute_view(&mut app.state, Rect::new(0, 0, 106, 20));
+        let info = app.state.pane_info_by_id(pane_id).unwrap().clone();
+        app.state.insert_test_runtime(
+            pane_id,
+            crate::terminal::TerminalRuntime::test_with_screen_bytes(
+                info.inner_rect.width,
+                info.inner_rect.height,
+                b"",
+            ),
+        );
+
+        app.handle_mouse(mouse(
+            MouseEventKind::Down(MouseButton::Right),
+            info.inner_rect.x + 2,
+            info.inner_rect.y + 3,
+        ));
+
+        assert_eq!(app.state.mode, Mode::ContextMenu);
+        assert!(app.state.context_menu.is_some());
+    }
+
+    #[test]
+    fn tab_click_survives_stray_drag_report_off_the_tab_bar() {
+        let mut app = app_for_mouse_test();
+        let mut ws = Workspace::test_new("test");
+        ws.test_add_tab(Some("logs"));
+        app.state.workspaces = vec![ws];
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::Terminal;
+        crate::ui::compute_view(&mut app.state, Rect::new(0, 0, 120, 24));
+        let source = app.state.view.tab_hit_areas[0];
+        let stray_row = app.state.view.terminal_area.y + app.state.view.terminal_area.height - 1;
+        let col = source.x + source.width / 2;
+
+        app.handle_mouse(mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            col,
+            source.y,
+        ));
+        app.handle_mouse(mouse(
+            MouseEventKind::Drag(MouseButton::Left),
+            col,
+            stray_row,
+        ));
+        assert!(app.state.drag.is_none());
+        assert!(app.state.tab_press.is_some());
+        app.handle_mouse(mouse(MouseEventKind::Up(MouseButton::Left), col, stray_row));
+
+        assert_eq!(app.state.workspaces[0].active_tab_index(), 0);
+        assert!(app.state.tab_press.is_none());
+    }
+
+    #[test]
+    fn workspace_click_survives_stray_drag_report_off_the_workspace_list() {
+        let mut app = app_for_mouse_test();
+        app.state.workspaces = vec![Workspace::test_new("a"), Workspace::test_new("b")];
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::Terminal;
+        crate::ui::compute_view(&mut app.state, Rect::new(0, 0, 106, 20));
+        let target = app.state.view.workspace_card_areas[1].rect;
+
+        app.handle_mouse(mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            target.x + 1,
+            target.y,
+        ));
+        let stray_row =
+            app.state.view.terminal_area.y + app.state.view.terminal_area.height.saturating_sub(1);
+        app.handle_mouse(mouse(
+            MouseEventKind::Drag(MouseButton::Left),
+            target.x + 1,
+            stray_row,
+        ));
+        assert!(app.state.drag.is_none());
+        assert!(app.state.workspace_press.is_some());
+        app.handle_mouse(mouse(
+            MouseEventKind::Up(MouseButton::Left),
+            target.x + 1,
+            stray_row,
+        ));
+
+        assert_eq!(app.state.active, Some(1));
+        assert!(app.state.workspace_press.is_none());
     }
 }

@@ -13,7 +13,7 @@ use crate::{
     config::{
         AgentPanelScopeConfig, ContextBarVisibilityConfig, NewTerminalCwdConfig,
         PaneBorderAgentInfoConfig, SidebarArrangementConfig, SidebarInitialStateConfig,
-        TerminalAccent, ThemeMode, ToastDelivery,
+        StatusIndicatorStyle, TerminalAccent, ThemeMode, ToastDelivery,
     },
     settings_rows::{
         connection_editor_open as settings_connection_editor_open, next_option_index, option_count,
@@ -61,6 +61,7 @@ pub(crate) enum SettingsAction {
         sidebar_initial_state: SidebarInitialStateConfig,
         sidebar_initial_agent_scope: AgentPanelScopeConfig,
         pane_border_agent_info: PaneBorderAgentInfoConfig,
+        status_indicators: StatusIndicatorStyle,
     },
     SaveSwitchAsciiInputSourceInPrefix(bool),
     SaveGroupAccent {
@@ -161,6 +162,7 @@ impl App {
                 sidebar_initial_state,
                 sidebar_initial_agent_scope,
                 pane_border_agent_info,
+                status_indicators,
             } => {
                 self.save_theme(
                     &light,
@@ -182,6 +184,7 @@ impl App {
                 self.save_sidebar_initial_view(sidebar_initial_state, sidebar_initial_agent_scope);
                 self.save_toast_delivery(toast_delivery);
                 self.save_pane_border_agent_info(pane_border_agent_info);
+                self.save_status_indicators(status_indicators);
             }
             SettingsAction::SaveWorkspaceName { ws_idx, name } => {
                 self.state.rename_workspace(ws_idx, name);
@@ -1997,6 +2000,13 @@ fn pending_pane_border_agent_info(state: &AppState) -> PaneBorderAgentInfoConfig
         .unwrap_or_else(|| state.pane_border_agent_info())
 }
 
+fn pending_status_indicators(state: &AppState) -> StatusIndicatorStyle {
+    state
+        .settings
+        .pending_status_indicators
+        .unwrap_or_else(|| state.status_indicators())
+}
+
 fn selected_global_theme_name_for_mode(state: &AppState) -> String {
     match pending_theme_mode(state) {
         ThemeMode::Light => pending_light_theme_name(state),
@@ -2302,6 +2312,7 @@ fn clear_settings_pending(state: &mut AppState) {
     state.settings.pending_sidebar_initial_state = None;
     state.settings.pending_sidebar_initial_agent_scope = None;
     state.settings.pending_pane_border_agent_info = None;
+    state.settings.pending_status_indicators = None;
     state.settings.pending_switch_ascii_input_source_in_prefix = None;
     state.settings.pending_group_accent_choice = None;
     state.settings.pending_group_name = None;
@@ -2342,6 +2353,7 @@ fn current_settings_action(state: &AppState) -> SettingsAction {
         sidebar_initial_state: pending_sidebar_initial_state(state),
         sidebar_initial_agent_scope: pending_sidebar_initial_agent_scope(state),
         pane_border_agent_info: pending_pane_border_agent_info(state),
+        status_indicators: pending_status_indicators(state),
     }
 }
 
@@ -2446,6 +2458,10 @@ fn select_pending_appearance_setting(state: &mut AppState) -> Option<SettingsAct
         7 => {
             state.settings.pending_pane_border_agent_info =
                 Some(pending_pane_border_agent_info(state).next());
+        }
+        8 => {
+            state.settings.pending_status_indicators =
+                Some(pending_status_indicators(state).next());
         }
         _ => {}
     }
@@ -3413,6 +3429,7 @@ pub(crate) fn prepare_general_settings_state(
     settings.pending_sidebar_initial_state = Some(state.sidebar_config.initial_state);
     settings.pending_sidebar_initial_agent_scope = Some(state.sidebar_config.initial_agent_scope);
     settings.pending_pane_border_agent_info = Some(state.pane_border_agent_info());
+    settings.pending_status_indicators = Some(state.status_indicators());
     settings.pending_agent_profile_id = None;
     settings.pending_agent_profile_name = None;
     settings.pending_agent_profile_kind = Some(state.default_agent_profile_kind_choice());
@@ -3484,6 +3501,7 @@ fn reset_settings_for_scoped_editor(state: &AppState, settings: &mut SettingsSta
     settings.pending_sidebar_initial_state = None;
     settings.pending_sidebar_initial_agent_scope = None;
     settings.pending_pane_border_agent_info = None;
+    settings.pending_status_indicators = None;
     settings.pending_switch_ascii_input_source_in_prefix = None;
     settings.sidebar_expanded = None;
     settings.sidebar_selection = SettingsSidebarSelection::section(settings.section);
@@ -3606,6 +3624,7 @@ pub(crate) fn open_group_settings(state: &mut AppState, group_idx: usize) {
     state.settings.pending_sidebar_initial_state = None;
     state.settings.pending_sidebar_initial_agent_scope = None;
     state.settings.pending_pane_border_agent_info = None;
+    state.settings.pending_status_indicators = None;
     state.settings.pending_switch_ascii_input_source_in_prefix = None;
     state.settings.group_settings_target = Some(group_idx);
     state.settings.workspace_settings_target = None;
@@ -3666,6 +3685,7 @@ pub(crate) fn open_workspace_settings(state: &mut AppState, ws_idx: usize) {
     state.settings.pending_sidebar_initial_state = None;
     state.settings.pending_sidebar_initial_agent_scope = None;
     state.settings.pending_pane_border_agent_info = None;
+    state.settings.pending_status_indicators = None;
     state.settings.pending_switch_ascii_input_source_in_prefix = None;
     state.settings.group_settings_target = None;
     state.settings.workspace_settings_target = Some(ws_idx);
@@ -5222,6 +5242,7 @@ mod tests {
                 sidebar_initial_state: SidebarInitialStateConfig::Expanded,
                 sidebar_initial_agent_scope: AgentPanelScopeConfig::All,
                 pane_border_agent_info: PaneBorderAgentInfoConfig::Hidden,
+                status_indicators: StatusIndicatorStyle::Dots,
             })
         );
         assert_eq!(state.mode, Mode::Settings);
@@ -5562,6 +5583,28 @@ mod tests {
                     pane_border_agent_info,
                     ..
                 }) if pane_border_agent_info == expected
+            ));
+        }
+    }
+
+    #[test]
+    fn appearance_settings_cycle_status_indicator_styles() {
+        let mut state = state_with_workspaces(&["test"]);
+        open_settings_at(&mut state, SettingsSection::Theme);
+        state.settings.list.select(theme_choice_len(&state) + 8);
+
+        for expected in [StatusIndicatorStyle::Symbols, StatusIndicatorStyle::Dots] {
+            let action = update_settings_state(
+                &mut state,
+                KeyEvent::new(KeyCode::Char(' '), KeyModifiers::empty()),
+            );
+            assert_eq!(state.settings.pending_status_indicators, Some(expected));
+            assert!(matches!(
+                action,
+                Some(SettingsAction::SaveSettings {
+                    status_indicators,
+                    ..
+                }) if status_indicators == expected
             ));
         }
     }

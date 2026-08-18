@@ -287,8 +287,12 @@ pub(crate) fn handle_navigator_key(state: &mut AppState, key: KeyEvent) {
         KeyCode::Char('c') if key.modifiers.is_empty() => {
             state.collapse_all_navigator_branches();
         }
-        KeyCode::Char('j') | KeyCode::Down => state.move_navigator_selection(1),
-        KeyCode::Char('k') | KeyCode::Up => state.move_navigator_selection(-1),
+        KeyCode::Char('j') | KeyCode::Down if key.modifiers.is_empty() => {
+            state.move_navigator_selection(1)
+        }
+        KeyCode::Char('k') | KeyCode::Up if key.modifiers.is_empty() => {
+            state.move_navigator_selection(-1)
+        }
         KeyCode::Char('d') if key.modifiers == KeyModifiers::CONTROL => {
             state.move_navigator_selection((state.navigator_body_rect().height / 2).max(1) as isize)
         }
@@ -1133,8 +1137,8 @@ pub(crate) fn handle_resize_key(state: &mut AppState, raw_key: TerminalKey) {
     let key = raw_key.as_key_event();
     if key.code == KeyCode::Esc
         || key.code == KeyCode::Enter
-        || state.keybinds.resize_mode.matches_prefix_key(raw_key)
-        || state.keybinds.resize_mode.matches_direct_key(raw_key)
+        || state.keybinds.resize_mode.matches_prefix_key(&raw_key)
+        || state.keybinds.resize_mode.matches_direct_key(&raw_key)
     {
         if state.active.is_some() {
             state.mode = Mode::Terminal;
@@ -1385,6 +1389,23 @@ pub(crate) fn apply_context_menu_action(
         (ContextMenuKind::Pane { .. }, Some("zoom")) => {
             state.toggle_zoom();
             state.mode = Mode::Terminal;
+        }
+        (
+            ContextMenuKind::Pane {
+                ws_idx, pane_id, ..
+            },
+            Some(action @ ("send right-clicks to pane" | "use oh my herdr right-click menu")),
+        ) => {
+            if let Some(pane) = state
+                .workspaces
+                .get_mut(ws_idx)
+                .and_then(|workspace| workspace.pane_state_mut(pane_id))
+            {
+                pane.right_click_passthrough = action == "send right-clicks to pane";
+                state.mark_session_dirty();
+            }
+            state.mode = Mode::Terminal;
+            state.context_menu = None;
         }
         (ContextMenuKind::Pane { .. }, Some("close pane")) => {
             if !state.close_pane() {
@@ -2247,6 +2268,37 @@ mod tests {
     }
 
     #[test]
+    fn context_menu_toggles_pane_right_click_passthrough() {
+        let mut state = state_with_workspaces(&["main"]);
+        state.active = Some(0);
+        let pane_id = state.workspaces[0].tabs[0].root_pane;
+        let menu = ContextMenuState {
+            kind: ContextMenuKind::Pane {
+                ws_idx: 0,
+                pane_id,
+                has_manual_label: false,
+                right_click_passthrough: false,
+            },
+            x: 0,
+            y: 0,
+            list: ModalListState::new(0),
+        };
+        let idx = menu
+            .items()
+            .iter()
+            .position(|item| *item == "send right-clicks to pane")
+            .unwrap();
+        let mut terminal_runtimes = crate::terminal::TerminalRuntimeRegistry::new();
+        apply_context_menu_action(&mut state, &mut terminal_runtimes, menu, idx);
+        assert!(
+            state.workspaces[0]
+                .pane_state(pane_id)
+                .unwrap()
+                .right_click_passthrough
+        );
+    }
+
+    #[test]
     fn navigator_bulk_expansion_keys_change_the_visible_hierarchy() {
         let mut state = state_with_workspaces(&["home", "api"]);
         state.workspaces[0].test_split(ratatui::layout::Direction::Horizontal);
@@ -2291,6 +2343,39 @@ mod tests {
             "expanded workspace branches should reveal their panes"
         );
     }
+    #[test]
+    fn navigator_ignores_modified_movement_aliases() {
+        let mut state = state_with_workspaces(&["alpha", "beta"]);
+        state.open_navigator();
+        let row_count = state.navigator_rows().len();
+        assert!(row_count > 2, "test needs room to move in both directions");
+        state.navigator.list.select(1);
+
+        for (code, modifiers) in [
+            (KeyCode::Char('k'), KeyModifiers::CONTROL),
+            (KeyCode::Up, KeyModifiers::CONTROL),
+            (KeyCode::Char('j'), KeyModifiers::ALT),
+            (KeyCode::Down, KeyModifiers::ALT),
+        ] {
+            handle_navigator_key(&mut state, KeyEvent::new(code, modifiers));
+            assert_eq!(
+                state.navigator.list.selected, 1,
+                "modified {code:?} must not move the navigator selection"
+            );
+        }
+
+        handle_navigator_key(
+            &mut state,
+            KeyEvent::new(KeyCode::Char('k'), KeyModifiers::empty()),
+        );
+        assert_eq!(state.navigator.list.selected, 0);
+        handle_navigator_key(
+            &mut state,
+            KeyEvent::new(KeyCode::Char('j'), KeyModifiers::empty()),
+        );
+        assert_eq!(state.navigator.list.selected, 1);
+    }
+
     #[test]
     fn navigator_search_keys_select_first_direct_pane_match() {
         let mut state = state_with_workspaces(&["home", "api"]);

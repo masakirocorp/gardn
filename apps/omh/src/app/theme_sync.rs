@@ -1,5 +1,3 @@
-use std::sync::atomic::Ordering;
-
 use super::App;
 
 fn is_system_theme(name: &str) -> bool {
@@ -129,11 +127,13 @@ impl App {
             return;
         }
 
+        let appearance = self.state.host_terminal_theme.appearance();
         for runtime in self.terminal_runtimes.values() {
             runtime.apply_host_terminal_theme(self.state.host_terminal_theme);
+            runtime.apply_host_terminal_appearance(appearance);
         }
 
-        self.render_dirty.store(true, Ordering::Release);
+        self.render_dirty.request_generic();
         self.render_notify.notify_one();
     }
 }

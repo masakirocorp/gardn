@@ -299,6 +299,11 @@ pub(crate) struct ClientViewState {
     pub(crate) tab_canvas_view: Option<TabCanvasViewport>,
     pub(crate) active_workspace: Option<usize>,
     pub(crate) selected_workspace: usize,
+    active_workspace_id: Option<String>,
+    selected_workspace_id: Option<String>,
+    /// Ordered workspace ids from the last reconcile. Used to distinguish
+    /// an explicit client focus change from a shared workspace-list remap.
+    workspace_ids: Option<Vec<String>>,
     pub(crate) active_group: usize,
     pub(crate) group_filter_enabled: bool,
     pub(crate) agent_panel_scope: crate::app::state::AgentPanelScope,
@@ -343,9 +348,7 @@ pub(crate) struct ClientViewState {
     pub(crate) popup_pane: Option<PaneId>,
     overlay_return_states: HashMap<PaneId, ClientOverlayReturnState>,
     pub(crate) terminal_offsets_from_bottom: HashMap<TerminalId, TerminalViewportOffset>,
-    pub(crate) suppressed_repeat_keys: HashSet<crossterm::event::KeyCode>,
-    pub(crate) forwarded_terminal_keys:
-        HashMap<crossterm::event::KeyCode, crate::app::input::TerminalKeyTarget>,
+    pub(crate) input_leases: crate::app::input::InputLeaseTable,
     pub(crate) settings: SettingsState,
     pub(crate) command_palette: CommandPaletteState,
     pub(crate) navigator: NavigatorState,
@@ -355,6 +358,7 @@ pub(crate) struct ClientViewState {
     pub(crate) selection: Option<crate::selection::Selection>,
     pub(crate) selection_autoscroll: Option<SelectionAutoscroll>,
     pub(crate) last_pane_click: Option<crate::app::PaneClickState>,
+    pub(crate) pending_url_click: bool,
     pub(crate) selection_highlight_clear_deadline: Option<std::time::Instant>,
     pub(crate) copy_mode: Option<crate::app::state::CopyModeState>,
     pub(crate) drag: Option<DragState>,
@@ -401,6 +405,21 @@ impl ClientViewState {
             tab_canvas_origins: HashMap::new(),
             tab_canvas_view: None,
             selected_workspace: state.selected,
+            active_workspace_id: state
+                .active
+                .and_then(|idx| state.workspaces.get(idx))
+                .map(|workspace| workspace.id.clone()),
+            selected_workspace_id: state
+                .workspaces
+                .get(state.selected)
+                .map(|workspace| workspace.id.clone()),
+            workspace_ids: Some(
+                state
+                    .workspaces
+                    .iter()
+                    .map(|workspace| workspace.id.clone())
+                    .collect(),
+            ),
             active_group: state.active_group,
             group_filter_enabled: state.group_filter_enabled,
             agent_panel_scope: state.agent_panel_scope,
@@ -450,6 +469,7 @@ impl ClientViewState {
             selection: state.selection.clone(),
             selection_autoscroll: state.selection_autoscroll.clone(),
             last_pane_click: None,
+            pending_url_click: false,
             selection_highlight_clear_deadline: None,
             copy_mode: state.copy_mode.clone(),
             drag: state.drag.clone(),
@@ -482,8 +502,7 @@ impl ClientViewState {
             product_announcement: state.product_announcement.clone(),
             authentication_prompt: None,
             computed: state.view.clone(),
-            suppressed_repeat_keys: HashSet::new(),
-            forwarded_terminal_keys: HashMap::new(),
+            input_leases: crate::app::input::InputLeaseTable::default(),
         };
         view.reconcile(state);
         view
@@ -519,7 +538,7 @@ impl ClientViewState {
             self.tab_canvas_view = None;
         }
         if lost_control {
-            self.forwarded_terminal_keys.clear();
+            self.input_leases.clear();
         }
     }
 
@@ -593,6 +612,9 @@ impl ClientViewState {
         if state.workspaces.is_empty() {
             self.active_workspace = None;
             self.selected_workspace = 0;
+            self.active_workspace_id = None;
+            self.selected_workspace_id = None;
+            self.workspace_ids = None;
             self.active_tabs.clear();
             self.pending_active_tabs.clear();
             // Keep pending_active_workspace / pending_focused_panes / pending_popup_pane:
@@ -633,6 +655,7 @@ impl ClientViewState {
                 .find_map(|(idx, _)| visible_workspace(idx).then_some(idx))
         };
 
+        let mut applied_pending_workspace = false;
         if let Some(pending_workspace_id) = self.pending_active_workspace.clone() {
             if let Some(ws_idx) = state
                 .workspaces
@@ -650,6 +673,39 @@ impl ClientViewState {
                 }
                 self.mode = Mode::Terminal;
                 self.pending_active_workspace = None;
+                applied_pending_workspace = true;
+            }
+        }
+
+        let workspace_list_unchanged = self.workspace_ids.as_ref().is_some_and(|previous| {
+            previous.len() == state.workspaces.len()
+                && previous
+                    .iter()
+                    .zip(state.workspaces.iter())
+                    .all(|(id, workspace)| id == &workspace.id)
+        });
+        if !workspace_list_unchanged && !applied_pending_workspace {
+            if let Some(id) = self.active_workspace_id.clone() {
+                if let Some(idx) = state
+                    .workspaces
+                    .iter()
+                    .position(|workspace| workspace.id == id)
+                {
+                    if visible_workspace(idx) {
+                        self.active_workspace = Some(idx);
+                    }
+                }
+            }
+            if let Some(id) = self.selected_workspace_id.clone() {
+                if let Some(idx) = state
+                    .workspaces
+                    .iter()
+                    .position(|workspace| workspace.id == id)
+                {
+                    if visible_workspace(idx) {
+                        self.selected_workspace = idx;
+                    }
+                }
             }
         }
 
@@ -677,6 +733,21 @@ impl ClientViewState {
                 .or_else(first_visible_workspace)
                 .unwrap_or(0);
         }
+        self.active_workspace_id = self
+            .active_workspace
+            .and_then(|idx| state.workspaces.get(idx))
+            .map(|workspace| workspace.id.clone());
+        self.selected_workspace_id = state
+            .workspaces
+            .get(self.selected_workspace)
+            .map(|workspace| workspace.id.clone());
+        self.workspace_ids = Some(
+            state
+                .workspaces
+                .iter()
+                .map(|workspace| workspace.id.clone())
+                .collect(),
+        );
 
         let valid_workspace_ids: HashSet<&str> = state
             .workspaces
@@ -979,7 +1050,9 @@ impl ClientViewState {
         self.active_tabs.insert(workspace.id.clone(), tab_idx);
         self.focused_panes
             .insert(ClientTabViewKey::new(&workspace.id, tab.number), pane_id);
-        self.mode = Mode::Terminal;
+        if self.mode != Mode::Navigate {
+            self.mode = Mode::Terminal;
+        }
         self.selection = None;
         self.selection_autoscroll = None;
         self.tab_scroll_follow_active = true;
@@ -1458,6 +1531,36 @@ mod tests {
     }
 
     #[test]
+    fn reconcile_remaps_focus_by_workspace_id_when_an_earlier_workspace_closes() {
+        let mut state = AppState::test_new();
+        state.workspaces = vec![
+            Workspace::test_new("a"),
+            Workspace::test_new("b"),
+            Workspace::test_new("c"),
+        ];
+        state.active = Some(1);
+        state.selected = 1;
+        let focused_id = state.workspaces[1].id.clone();
+
+        let mut view = ClientViewState::from_default_client_state(&state);
+        view.active_workspace = Some(1);
+        view.selected_workspace = 1;
+        view.mode = Mode::Navigate;
+        view.reconcile(&state);
+
+        state.workspaces.remove(0);
+        view.reconcile(&state);
+
+        assert_eq!(view.active_workspace, Some(0));
+        assert_eq!(view.selected_workspace, 0);
+        assert_eq!(
+            state.workspaces[view.active_workspace.unwrap()].id,
+            focused_id
+        );
+        assert_eq!(view.mode, Mode::Navigate);
+    }
+
+    #[test]
     fn reconcile_preserves_pending_future_tab_focus_until_tab_exists() {
         let mut state = AppState::test_new();
         state.workspaces = vec![Workspace::test_new("shell")];
@@ -1677,17 +1780,22 @@ mod tab_control_tests {
         state.workspaces = vec![crate::workspace::Workspace::test_new("control")];
         let mut view = ClientViewState::from_default_client_state(&state);
         let pane_id = state.workspaces[0].tabs[0].layout.focused();
-        view.forwarded_terminal_keys.insert(
+        let key = crate::input::TerminalKey::new(
             crossterm::event::KeyCode::Char('x'),
+            crossterm::event::KeyModifiers::empty(),
+        );
+        view.input_leases.insert_forwarded(
+            crate::app::input::InputLeaseKey::new(view.id(), &key),
             crate::app::input::TerminalKeyTarget {
                 workspace_id: state.workspaces[0].id.clone(),
                 pane_id,
             },
+            key,
         );
 
         view.set_tab_control(ClientTabControl::WatchingControlled { epoch: 1 });
 
-        assert!(view.forwarded_terminal_keys.is_empty());
+        assert!(view.input_leases.is_empty());
     }
 
     #[test]

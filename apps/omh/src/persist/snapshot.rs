@@ -332,6 +332,8 @@ pub struct PaneSnapshot {
     pub launch_env: Vec<(String, String)>,
     #[serde(default = "default_true", skip_serializing_if = "is_true")]
     pub seen: bool,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub right_click_passthrough: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub terminal_semantics: Option<crate::terminal::TerminalSemanticSnapshot>,
 }
@@ -350,6 +352,10 @@ fn default_true() -> bool {
 
 fn is_true(value: &bool) -> bool {
     *value
+}
+
+fn is_false(value: &bool) -> bool {
+    !*value
 }
 
 #[derive(Serialize, Deserialize)]
@@ -872,6 +878,7 @@ fn capture_tab(
                 launch_argv,
                 launch_env,
                 seen,
+                right_click_passthrough: pane.is_some_and(|pane| pane.right_click_passthrough),
                 terminal_semantics,
             },
         );
@@ -1356,6 +1363,7 @@ mod tests {
                 launch_argv: None,
                 launch_env: Vec::new(),
                 seen: true,
+                right_click_passthrough: false,
                 terminal_semantics: None,
             },
         );
@@ -1372,6 +1380,7 @@ mod tests {
                 launch_argv: None,
                 launch_env: Vec::new(),
                 seen: true,
+                right_click_passthrough: false,
                 terminal_semantics: None,
             },
         );

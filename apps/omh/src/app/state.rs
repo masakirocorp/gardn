@@ -1,6 +1,6 @@
 use crate::config::{
     CustomThemeColors, Keybinds, NewTerminalCwdConfig, PaneBorderAgentInfoConfig, SoundConfig,
-    TerminalAccent, ThemeConfig, ThemeMode, ToastConfig, ToastDelivery,
+    StatusIndicatorStyle, TerminalAccent, ThemeConfig, ThemeMode, ToastConfig, ToastDelivery,
 };
 use crate::detect::AgentState;
 use crossterm::event::{KeyCode, KeyModifiers};
@@ -671,7 +671,7 @@ impl Palette {
             panel_bg: Color::Rgb(25, 23, 36),
             surface0: Color::Rgb(31, 29, 46),
             surface1: Color::Rgb(38, 35, 58),
-            surface_dim: Color::Rgb(25, 23, 36),
+            surface_dim: Color::Rgb(38, 35, 58),
             overlay0: Color::Rgb(110, 106, 134),
             overlay1: Color::Rgb(144, 140, 170),
             text: Color::Rgb(224, 222, 244),
@@ -1556,6 +1556,20 @@ impl Mode {
     /// Whether this mode is part of the prefix command/navigation realm.
     /// Text-entry modes deliberately remain outside this allowlist so adding a
     /// new text field cannot silently force the host input source to ASCII.
+    pub(crate) fn mouse_motion_changes_view(self) -> bool {
+        matches!(
+            self,
+            Self::GlobalMenu
+                | Self::ContextMenu
+                | Self::Navigator
+                | Self::CommandPalette
+                | Self::AgentProfilePicker
+                | Self::GitRepoPicker
+                | Self::GroupMenu
+                | Self::AgentMenu
+        )
+    }
+
     pub(crate) fn wants_ascii_input(self) -> bool {
         matches!(
             self,
@@ -2190,6 +2204,8 @@ pub struct SettingsState {
     pub pending_sidebar_initial_agent_scope: Option<crate::config::AgentPanelScopeConfig>,
     /// Pending pane-border agent metadata level while settings is open.
     pub pending_pane_border_agent_info: Option<PaneBorderAgentInfoConfig>,
+    /// Pending status indicator style while settings is open.
+    pub pending_status_indicators: Option<StatusIndicatorStyle>,
     /// Pending macOS prefix input source switching setting while settings is open.
     pub pending_switch_ascii_input_source_in_prefix: Option<bool>,
     /// Checked group accent while group settings is open; hover cursor is separate.
@@ -2341,6 +2357,7 @@ pub enum ContextMenuKind {
         ws_idx: usize,
         pane_id: PaneId,
         has_manual_label: bool,
+        right_click_passthrough: bool,
     },
 }
 
@@ -2459,6 +2476,7 @@ impl ContextMenuState {
             } => NEW_TAB_CONTEXT_MENU_ITEMS[project_commands.menu_index()],
             ContextMenuKind::Pane {
                 has_manual_label: true,
+                right_click_passthrough: false,
                 ..
             } => &[
                 "rename pane",
@@ -2466,16 +2484,44 @@ impl ContextMenuState {
                 "split vertical",
                 "split horizontal",
                 "zoom",
+                "send right-clicks to pane",
+                "close pane",
+            ],
+            ContextMenuKind::Pane {
+                has_manual_label: true,
+                right_click_passthrough: true,
+                ..
+            } => &[
+                "rename pane",
+                "clear pane name",
+                "split vertical",
+                "split horizontal",
+                "zoom",
+                "use oh my herdr right-click menu",
                 "close pane",
             ],
             ContextMenuKind::Pane {
                 has_manual_label: false,
+                right_click_passthrough: false,
                 ..
             } => &[
                 "rename pane",
                 "split vertical",
                 "split horizontal",
                 "zoom",
+                "send right-clicks to pane",
+                "close pane",
+            ],
+            ContextMenuKind::Pane {
+                has_manual_label: false,
+                right_click_passthrough: true,
+                ..
+            } => &[
+                "rename pane",
+                "split vertical",
+                "split horizontal",
+                "zoom",
+                "use oh my herdr right-click menu",
                 "close pane",
             ],
         }
@@ -2518,6 +2564,8 @@ impl ContextMenuState {
             "split vertical" => "Split Vertical",
             "split horizontal" => "Split Horizontal",
             "zoom" => "Zoom",
+            "send right-clicks to pane" => "Send Right-Clicks to Pane",
+            "use oh my herdr right-click menu" => "Use Oh My Herdr Right-Click Menu",
             "close pane" => "Close Pane",
             _ => item,
         }
@@ -3244,6 +3292,8 @@ pub struct AppState {
     // Config
     pub prefix_code: KeyCode,
     pub prefix_mods: KeyModifiers,
+    pub headless_size: (u16, u16),
+
     pub default_sidebar_width: u16,
     pub sidebar_width: u16,
     pub sidebar_min_width: u16,
@@ -3276,7 +3326,7 @@ pub struct AppState {
     /// Capture mouse input for Oh My Herdr's own mouse UI. When false, Oh My Herdr only
     /// captures mouse while the focused pane app requests mouse reporting.
     pub mouse_capture: bool,
-    /// Automatically copy mouse drag selections on completion. Default: true.
+    /// Automatically copy mouse drag selections on completion. When false, retain drag or double-click word selection until Ctrl+C or a host-forwarded Cmd+C. Default: true.
     pub copy_on_select: bool,
     pub right_click_passthrough_modifiers: Option<KeyModifiers>,
     pub right_click_passthrough: Option<RightClickPassthroughGesture>,
@@ -3295,6 +3345,7 @@ pub struct AppState {
     pub ide_command: String,
     pub github_command: String,
     pub pane_border_agent_info: PaneBorderAgentInfoConfig,
+    pub status_indicators: StatusIndicatorStyle,
     pub pane_history_persistence: bool,
     pub resume_agents_on_restore: bool,
     /// Expose the focused pane's cursor anchor to the outer terminal even when
@@ -3306,9 +3357,9 @@ pub struct AppState {
     pub cjk_ime_agents: Vec<crate::detect::Agent>,
     /// DECSCUSR shape parameter (1–6) for the IME anchor cursor.
     pub cjk_ime_cursor_shape: u8,
-    /// While prefix mode is active, switch the macOS host input source to an
-    /// ASCII-capable layout so prefix commands register as ASCII even when a
-    /// CJK IME is active. macOS only; a no-op elsewhere. See
+    /// While prefix mode is active, switch the host input source to an
+    /// ASCII-capable mode so prefix commands register as ASCII even when an
+    /// IME is active. macOS and Windows (Korean IME); a no-op elsewhere. See
     /// `[experimental] switch_ascii_input_source_in_prefix`.
     pub switch_ascii_input_source_in_prefix: bool,
     pub kitty_graphics_enabled: bool,
@@ -3763,6 +3814,10 @@ impl AppState {
         self.pane_border_agent_info
     }
 
+    pub fn status_indicators(&self) -> StatusIndicatorStyle {
+        self.status_indicators
+    }
+
     pub fn switch_ascii_input_source_in_prefix_enabled(&self) -> bool {
         self.switch_ascii_input_source_in_prefix
     }
@@ -3875,7 +3930,7 @@ impl AppState {
             || self.focused_pane_requests_mouse_capture_from_view(terminal_runtimes, view)
     }
 
-    pub fn is_prefix_key(&self, key: crate::input::TerminalKey) -> bool {
+    pub fn is_prefix_key(&self, key: &crate::input::TerminalKey) -> bool {
         crate::config::terminal_key_matches_combo(key, (self.prefix_code, self.prefix_mods))
     }
 
@@ -3883,7 +3938,7 @@ impl AppState {
         if let Some(info) = self.view.pane_infos.first() {
             (info.rect.height, info.rect.width)
         } else {
-            (24, 80)
+            (self.headless_size.1, self.headless_size.0)
         }
     }
 
@@ -3980,7 +4035,7 @@ pub fn key_matches(
     expected_mods: KeyModifiers,
 ) -> bool {
     crate::config::terminal_key_matches_combo(
-        crate::input::TerminalKey::from(*key),
+        &crate::input::TerminalKey::from(*key),
         (expected_code, expected_mods),
     )
 }
@@ -4114,6 +4169,11 @@ impl AppState {
             outer_terminal_focus: None,
             prefix_code: KeyCode::Char('b'),
             prefix_mods: KeyModifiers::CONTROL,
+            headless_size: (
+                crate::config::DEFAULT_HEADLESS_COLS,
+                crate::config::DEFAULT_HEADLESS_ROWS,
+            ),
+
             default_sidebar_width: 26,
             sidebar_width: 26,
             sidebar_min_width: 18,
@@ -4157,6 +4217,7 @@ impl AppState {
             ide_command: "fresh .".to_string(),
             github_command: "ghui".to_string(),
             pane_border_agent_info: PaneBorderAgentInfoConfig::default(),
+            status_indicators: StatusIndicatorStyle::default(),
             mobile_width_threshold: crate::config::DEFAULT_MOBILE_WIDTH_THRESHOLD,
             pane_history_persistence: true,
             resume_agents_on_restore: true,
@@ -4231,6 +4292,7 @@ impl AppState {
                 pending_sidebar_min_width: None,
                 pending_sidebar_max_width: None,
                 pending_pane_border_agent_info: None,
+                pending_status_indicators: None,
                 pending_switch_ascii_input_source_in_prefix: None,
                 pending_group_accent_choice: None,
                 pending_group_name: None,
@@ -4345,6 +4407,13 @@ mod tests {
                 "theme should resolve: {name}"
             );
         }
+    }
+
+    #[test]
+    fn rose_pine_surface_dim_uses_the_overlay_swatch() {
+        // Rosé Pine's "overlay" swatch keeps dimmed surfaces readable against
+        // the base background; the base color here made them invisible.
+        assert_eq!(Palette::rose_pine().surface_dim, Color::Rgb(38, 35, 58));
     }
 
     #[test]

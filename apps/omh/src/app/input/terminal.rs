@@ -49,7 +49,33 @@ impl App {
         runtime.try_send_bytes(input.bytes).is_ok()
     }
 
+    pub(crate) fn host_keyboard_report_all_requested(&self) -> bool {
+        let runtime = if self.default_client_view.popup_pane.is_some() {
+            self.popup_runtime_for_view(&self.default_client_view)
+        } else if self.state.mode == Mode::Terminal {
+            self.state.active.and_then(|ws_idx| {
+                self.state
+                    .focused_runtime_in_workspace(&self.terminal_runtimes, ws_idx)
+            })
+        } else {
+            None
+        };
+
+        runtime.is_some_and(|runtime| {
+            let protocol = runtime.keyboard_protocol();
+            protocol.reports_all_keys()
+                || (protocol.reports_event_types()
+                    && runtime
+                        .input_state()
+                        .is_some_and(|state| state.modify_other_keys))
+        })
+    }
+
     fn prepare_terminal_key_forward(&mut self, key: TerminalKey) -> Option<PreparedPaneInput> {
+        if self.try_copy_retained_selection(&key) {
+            return None;
+        }
+
         self.state.clear_selection();
         self.selection_autoscroll_deadline = None;
         self.state.update_dismissed = true;
@@ -58,7 +84,8 @@ impl App {
 
         let ws_idx = self.state.active?;
 
-        if let Some(action) = super::terminal_direct_non_indexed_navigation_action(&self.state, key)
+        if let Some(action) =
+            super::terminal_direct_non_indexed_navigation_action(&self.state, &key)
         {
             debug!(
                 code = ?key_event.code,
@@ -81,7 +108,7 @@ impl App {
         }
         if let Some(binding) = super::navigate::command_for_key(
             &self.state,
-            key,
+            &key,
             super::navigate::BindingDispatch::Direct,
         ) {
             debug!(
@@ -91,10 +118,12 @@ impl App {
                 command = %binding.label,
                 "intercepted terminal direct custom command before forwarding to pane"
             );
-            self.launch_custom_command(binding, super::navigate::ActionContext::Direct);
+            if key.kind != crossterm::event::KeyEventKind::Repeat {
+                self.launch_custom_command(binding, super::navigate::ActionContext::Direct);
+            }
             return None;
         }
-        if let Some(action) = super::terminal_direct_indexed_navigation_action(&self.state, key) {
+        if let Some(action) = super::terminal_direct_indexed_navigation_action(&self.state, &key) {
             debug!(
                 code = ?key_event.code,
                 modifiers = ?key_event.modifiers,
@@ -111,7 +140,7 @@ impl App {
             return None;
         }
 
-        if self.state.is_prefix_key(key) {
+        if self.state.is_prefix_key(&key) {
             self.state.mode = Mode::Prefix;
             return None;
         }
@@ -197,9 +226,9 @@ impl App {
         }
 
         if bytes.is_empty() {
-            if key.kind != crossterm::event::KeyEventKind::Release
+            if key_event.kind != crossterm::event::KeyEventKind::Release
                 && !matches!(
-                    key.code,
+                    key_event.code,
                     KeyCode::CapsLock
                         | KeyCode::ScrollLock
                         | KeyCode::NumLock
@@ -548,7 +577,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn disabling_copy_on_select_keeps_double_click_copy() {
+    async fn copy_on_select_disabled_retains_double_clicked_word_until_shortcut() {
         let (mut app, info) = app_with_screen_bytes(b"alpha beta");
         app.state.copy_on_select = false;
         let col = info.inner_rect.x + 2;
@@ -556,9 +585,17 @@ mod tests {
 
         double_click(&mut app, col, row);
 
-        assert_eq!(clipboard_write_content(&mut app), b"alpha");
         assert_visible_selection(&app);
-        assert!(app.selection_highlight_clear_deadline.is_some());
+        assert!(app.selection_highlight_clear_deadline.is_none());
+        assert!(app.event_rx.try_recv().is_err());
+
+        app.handle_terminal_key_headless(TerminalKey::new(
+            KeyCode::Char('c'),
+            KeyModifiers::CONTROL,
+        ));
+
+        assert_eq!(clipboard_write_content(&mut app), b"alpha");
+        assert!(app.state.selection.is_none());
     }
 
     #[tokio::test]
@@ -685,6 +722,98 @@ mod tests {
         assert!(app.event_rx.try_recv().is_err());
         assert!(app.state.selection.is_none());
         assert!(app.selection_highlight_clear_deadline.is_none());
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn ctrl_click_url_does_not_forward_release_to_mouse_reporting_pane() {
+        let line = "see https://example.com/issues/1761";
+        let col = line.find("example").expect("url host") as u16;
+        let (mut app, info) = app_with_screen_bytes(b"");
+        let pane_id = app.state.workspaces[0].tabs[0].root_pane;
+        let screen = format!("[?1049h[?1000h[?1006h{line}");
+        let (runtime, mut input_rx) =
+            crate::terminal::TerminalRuntime::test_with_channel_and_scrollback_bytes(
+                info.inner_rect.width,
+                info.inner_rect.height,
+                0,
+                screen.as_bytes(),
+                4,
+            );
+        app.state.insert_test_runtime(pane_id, runtime);
+        let url_x = info.inner_rect.x + col;
+        app.handle_mouse(modified_mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            url_x,
+            info.inner_rect.y,
+            KeyModifiers::CONTROL,
+        ));
+        app.handle_mouse(modified_mouse(
+            MouseEventKind::Up(MouseButton::Left),
+            url_x,
+            info.inner_rect.y,
+            KeyModifiers::empty(),
+        ));
+        assert!(
+            input_rx.try_recv().is_err(),
+            "handled URL click must not leave an unmatched release for the pane"
+        );
+        assert!(!app.pending_url_click);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn outer_focus_loss_does_not_forward_pending_url_click_release_to_pane() {
+        let line = "see https://example.com/issues/1761";
+        let col = line.find("example").expect("url host") as u16;
+        let (mut app, info) = app_with_screen_bytes(b"");
+        let pane_id = app.state.workspaces[0].tabs[0].root_pane;
+        let screen = format!("[?1049h[?1000h[?1006h{line}");
+        let (runtime, mut input_rx) =
+            crate::terminal::TerminalRuntime::test_with_channel_and_scrollback_bytes(
+                info.inner_rect.width,
+                info.inner_rect.height,
+                0,
+                screen.as_bytes(),
+                4,
+            );
+        app.state.insert_test_runtime(pane_id, runtime);
+        let url_x = info.inner_rect.x + col;
+        let mut client =
+            crate::app::view_state::ClientViewState::from_default_client_state(&app.state);
+        client.computed.pane_infos = app.state.view.pane_infos.clone();
+        app.route_client_events_for_view(
+            &mut client,
+            vec![crate::raw_input::RawInputEvent::Mouse(modified_mouse(
+                MouseEventKind::Down(MouseButton::Left),
+                url_x,
+                info.inner_rect.y,
+                KeyModifiers::CONTROL,
+            ))],
+            false,
+        );
+        assert!(client.pending_url_click);
+        app.route_client_events_for_view(
+            &mut client,
+            vec![crate::raw_input::RawInputEvent::OuterFocusLost],
+            false,
+        );
+        assert!(client.pending_url_click);
+        app.route_client_events_for_view(
+            &mut client,
+            vec![crate::raw_input::RawInputEvent::Mouse(modified_mouse(
+                MouseEventKind::Up(MouseButton::Left),
+                url_x,
+                info.inner_rect.y,
+                KeyModifiers::empty(),
+            ))],
+            false,
+        );
+        assert!(
+            input_rx.try_recv().is_err(),
+            "focus loss must not clear a pending URL click, so its release must stay out of the pane"
+        );
+        assert!(!client.pending_url_click);
     }
 
     #[tokio::test]
@@ -1298,5 +1427,46 @@ mod tests {
             .and_then(crate::terminal::TerminalRuntime::scroll_metrics)
             .expect("scroll metrics after PageUp");
         assert_eq!(end_metrics.offset_from_bottom, 0);
+    }
+
+    #[tokio::test]
+    async fn page_up_scrolls_shell_like_decckm_with_bracketed_paste() {
+        let mut app = app_for_mouse_test();
+        let mut ws = Workspace::test_new("test");
+        let pane_id = ws.tabs[0].root_pane;
+        let pane_infos = ws.tabs[0].layout.panes(Rect::new(26, 2, 80, 18));
+        let info = pane_infos[0].clone();
+        let mut bytes = b"\x1b[?1h\x1b[?2004h".to_vec();
+        bytes.extend_from_slice(&numbered_lines_bytes(64));
+        let (runtime, mut input_rx) =
+            crate::terminal::TerminalRuntime::test_with_channel_and_scrollback_bytes(
+                info.inner_rect.width,
+                info.inner_rect.height,
+                16 * 1024,
+                &bytes,
+                4,
+            );
+        ws.tabs[0].runtimes.insert(pane_id, runtime);
+
+        app.state.workspaces = vec![ws];
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::Terminal;
+        app.state.view.pane_infos = pane_infos;
+
+        app.handle_terminal_key_headless(TerminalKey::new(KeyCode::PageUp, KeyModifiers::empty()));
+
+        assert!(
+            input_rx.try_recv().is_err(),
+            "PageUp should not reach the shell"
+        );
+        assert_eq!(
+            app.state
+                .runtime_for_pane_in_workspace(&app.terminal_runtimes, 0, pane_id)
+                .and_then(crate::terminal::TerminalRuntime::scroll_metrics)
+                .expect("scroll metrics after PageUp")
+                .offset_from_bottom,
+            info.inner_rect.height as usize
+        );
     }
 }

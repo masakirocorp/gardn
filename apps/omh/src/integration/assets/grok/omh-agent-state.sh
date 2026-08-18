@@ -86,8 +86,8 @@ if (
 ):
     raise SystemExit(0)
 
-session_id = first_text("sessionId", "session_id")
-agent_session_id = session_id if session_id else None
+session_id = os.environ.get("GROK_SESSION_ID") or first_text("sessionId", "session_id")
+agent_session_id = session_id if isinstance(session_id, str) and session_id else None
 launch_env = {
     key: value
     for key in ("GROK_HOME",)

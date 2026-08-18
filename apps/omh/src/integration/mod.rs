@@ -9,15 +9,17 @@ use serde_json::{json, Map, Value};
 
 use crate::layout::PaneId;
 
+mod claude_settings;
 pub(crate) mod host;
+mod opencode_config;
 
 pub(crate) const OMH_PANE_ID_ENV_VAR: &str = "OMH_PANE_ID";
 const PI_EXTENSION_INSTALL_NAME: &str = "omh-pi-agent-state.ts";
 const PI_EXTENSION_ASSET: &str = include_str!("assets/pi/omh-agent-state.ts");
-const PI_INTEGRATION_VERSION: u32 = 6;
+const PI_INTEGRATION_VERSION: u32 = 7;
 const OMP_EXTENSION_INSTALL_NAME: &str = "omh-omp-agent-state.ts";
 const OMP_EXTENSION_ASSET: &str = include_str!("assets/omp/omh-agent-state.ts");
-const OMP_INTEGRATION_VERSION: u32 = 7;
+const OMP_INTEGRATION_VERSION: u32 = 8;
 const PI_CODING_AGENT_DIR_ENV_VAR: &str = "PI_CODING_AGENT_DIR";
 const OMP_CONFIG_DIR_ENV_VAR: &str = "PI_CONFIG_DIR";
 const CLAUDE_HOOK_INSTALL_NAME: &str = "omh-agent-state.sh";
@@ -45,7 +47,7 @@ const CLAUDE_HOOK_EVENTS: [(&str, &str, Option<&str>); 13] = [
 ];
 const CODEX_HOOK_INSTALL_NAME: &str = "omh-agent-state.sh";
 const CODEX_HOOK_ASSET: &str = include_str!("assets/codex/omh-agent-state.sh");
-const CODEX_INTEGRATION_VERSION: u32 = 2;
+const CODEX_INTEGRATION_VERSION: u32 = 3;
 const CODEX_HOOK_EVENTS: [(&str, &str, Option<&str>); 10] = [
     ("SessionStart", "session", None),
     ("SessionStart", "working", Some("compact")),
@@ -81,8 +83,16 @@ const COPILOT_HOOK_INSTALL_NAME: &str = "omh-agent-state.sh";
 const COPILOT_HOOK_ASSET: &str = include_str!("assets/copilot/omh-agent-state.sh");
 const COPILOT_INTEGRATION_VERSION: u32 = 1;
 const COPILOT_HOME_ENV_VAR: &str = "COPILOT_HOME";
-const DEVIN_HOOK_INSTALL_NAME: &str = "omh-agent-state.sh";
-const DEVIN_HOOK_ASSET: &str = include_str!("assets/devin/omh-agent-state.sh");
+const DEVIN_HOOK_INSTALL_NAME: &str = if cfg!(windows) {
+    "omh-agent-state.ps1"
+} else {
+    "omh-agent-state.sh"
+};
+const DEVIN_HOOK_ASSET: &str = if cfg!(windows) {
+    include_str!("assets/devin/omh-agent-state.ps1")
+} else {
+    include_str!("assets/devin/omh-agent-state.sh")
+};
 const DEVIN_INTEGRATION_VERSION: u32 = 2;
 const DEVIN_CONFIG_DIR_ENV_VAR: &str = "DEVIN_CONFIG_DIR";
 const DEVIN_HOOK_EVENTS: [(&str, &str); 6] = [
@@ -129,26 +139,46 @@ const DROID_REMOVED_LIFECYCLE_HOOK_EVENTS: [(&str, &str); 9] = [
 ];
 const OPENCODE_PLUGIN_INSTALL_NAME: &str = "omh-agent-state.js";
 const OPENCODE_PLUGIN_ASSET: &str = include_str!("assets/opencode/omh-agent-state.js");
-const OPENCODE_INTEGRATION_VERSION: u32 = 7;
+const OPENCODE_TUI_PLUGIN_INSTALL_NAME: &str = "omh-tui-session.js";
+const OPENCODE_TUI_PLUGIN_SPEC: &str = "./omh-tui-session.js";
+const OPENCODE_TUI_PLUGIN_ASSET: &str = include_str!("assets/opencode/omh-tui-session.js");
+const OPENCODE_INTEGRATION_VERSION: u32 = 8;
 const HERMES_PLUGIN_INSTALL_NAME: &str = "omh-agent-state";
 const HERMES_PLUGIN_MANIFEST_INSTALL_NAME: &str = "plugin.yaml";
 const HERMES_PLUGIN_INIT_INSTALL_NAME: &str = "__init__.py";
 const HERMES_PLUGIN_MANIFEST_ASSET: &str = include_str!("assets/hermes/plugin.yaml");
 const HERMES_PLUGIN_INIT_ASSET: &str = include_str!("assets/hermes/__init__.py");
-const HERMES_INTEGRATION_VERSION: u32 = 1;
+const HERMES_INTEGRATION_VERSION: u32 = 2;
 const QODERCLI_HOOK_INSTALL_NAME: &str = "omh-agent-state.sh";
 const QODERCLI_HOOK_ASSET: &str = include_str!("assets/qodercli/omh-agent-state.sh");
 const QODERCLI_INTEGRATION_VERSION: u32 = 1;
 const QODERCLI_CONFIG_DIR_ENV_VAR: &str = "QODER_CONFIG_DIR";
-const CURSOR_HOOK_INSTALL_NAME: &str = "omh-agent-state.sh";
-const CURSOR_HOOK_ASSET: &str = include_str!("assets/cursor/omh-agent-state.sh");
+const CURSOR_HOOK_INSTALL_NAME: &str = if cfg!(windows) {
+    "omh-agent-state.ps1"
+} else {
+    "omh-agent-state.sh"
+};
+const CURSOR_HOOK_ASSET: &str = if cfg!(windows) {
+    include_str!("assets/cursor/omh-agent-state.ps1")
+} else {
+    include_str!("assets/cursor/omh-agent-state.sh")
+};
 const CURSOR_INTEGRATION_VERSION: u32 = 3;
 const CURSOR_CONFIG_DIR_ENV_VAR: &str = "CURSOR_CONFIG_DIR";
-const GROK_HOOK_INSTALL_NAME: &str = "omh-agent-state.sh";
+const GROK_HOOK_INSTALL_NAME: &str = if cfg!(windows) {
+    "omh-agent-state.ps1"
+} else {
+    "omh-agent-state.sh"
+};
 const GROK_HOOK_CONFIG_INSTALL_NAME: &str = "omh.json";
-const GROK_HOOK_ASSET: &str = include_str!("assets/grok/omh-agent-state.sh");
+const GROK_HOOK_ASSET: &str = if cfg!(windows) {
+    include_str!("assets/grok/omh-agent-state.ps1")
+} else {
+    include_str!("assets/grok/omh-agent-state.sh")
+};
 const GROK_INTEGRATION_VERSION: u32 = 1;
 const GROK_HOME_ENV_VAR: &str = "GROK_HOME";
+const HERMES_HOME_ENV_VAR: &str = "HERMES_HOME";
 const INTEGRATION_VERSION_MARKER: &str = "OMH_INTEGRATION_VERSION=";
 const INTEGRATION_ID_MARKER: &str = "OMH_INTEGRATION_ID=";
 
@@ -194,6 +224,8 @@ pub(crate) struct DroidInstallPaths {
 #[derive(Debug)]
 pub(crate) struct OpenCodeInstallPaths {
     pub plugin_path: PathBuf,
+    pub tui_plugin_path: PathBuf,
+    pub tui_config_path: PathBuf,
 }
 
 #[derive(Debug)]
@@ -357,7 +389,11 @@ pub(crate) struct CodexUninstallResult {
 #[derive(Debug)]
 pub(crate) struct OpenCodeUninstallResult {
     pub plugin_path: PathBuf,
+    pub tui_plugin_path: PathBuf,
+    pub tui_config_path: PathBuf,
     pub removed_plugin: bool,
+    pub removed_tui_plugin: bool,
+    pub updated_tui_config: bool,
 }
 
 #[derive(Debug)]
@@ -370,6 +406,9 @@ pub(crate) struct HermesUninstallResult {
 
 pub(crate) fn apply_pane_base_env(cmd: &mut CommandBuilder) {
     cmd.env(crate::api::SOCKET_PATH_ENV_VAR, crate::api::socket_path());
+    if let Ok(executable) = std::env::current_exe() {
+        cmd.env("OMH_BIN_PATH", executable);
+    }
 }
 
 pub(crate) fn apply_pane_env(cmd: &mut CommandBuilder, pane_id: PaneId) {
@@ -810,10 +849,20 @@ fn install_target_inner(target: crate::api::schema::IntegrationTarget) -> io::Re
         }
         crate::api::schema::IntegrationTarget::Opencode => {
             let installed = install_opencode()?;
-            vec![format!(
-                "installed opencode integration plugin to {}",
-                installed.plugin_path.display()
-            )]
+            vec![
+                format!(
+                    "installed opencode integration plugin to {}",
+                    installed.plugin_path.display()
+                ),
+                format!(
+                    "installed opencode TUI session plugin to {}",
+                    installed.tui_plugin_path.display()
+                ),
+                format!(
+                    "enabled opencode TUI session plugin in {}",
+                    installed.tui_config_path.display()
+                ),
+            ]
         }
         crate::api::schema::IntegrationTarget::Hermes => {
             let installed = install_hermes()?;
@@ -1004,17 +1053,40 @@ pub(crate) fn uninstall_target(
         }
         crate::api::schema::IntegrationTarget::Opencode => {
             let result = uninstall_opencode()?;
-            if result.removed_plugin {
-                vec![format!(
+            let mut messages = vec![if result.removed_plugin {
+                format!(
                     "removed opencode integration plugin at {}",
                     result.plugin_path.display()
-                )]
+                )
             } else {
-                vec![format!(
+                format!(
                     "no opencode integration plugin found at {}",
                     result.plugin_path.display()
-                )]
-            }
+                )
+            }];
+            messages.push(if result.removed_tui_plugin {
+                format!(
+                    "removed opencode TUI session plugin at {}",
+                    result.tui_plugin_path.display()
+                )
+            } else {
+                format!(
+                    "no opencode TUI session plugin found at {}",
+                    result.tui_plugin_path.display()
+                )
+            });
+            messages.push(if result.updated_tui_config {
+                format!(
+                    "removed opencode TUI session plugin from {}",
+                    result.tui_config_path.display()
+                )
+            } else {
+                format!(
+                    "no opencode TUI session plugin entry found in {}",
+                    result.tui_config_path.display()
+                )
+            });
+            messages
         }
         crate::api::schema::IntegrationTarget::Copilot => {
             let result = uninstall_copilot()?;
@@ -1237,16 +1309,26 @@ fn integration_target_supported_for_platform(
             | crate::api::schema::IntegrationTarget::Claude
             | crate::api::schema::IntegrationTarget::Codex
             | crate::api::schema::IntegrationTarget::Copilot
+            | crate::api::schema::IntegrationTarget::Devin
             | crate::api::schema::IntegrationTarget::Droid
             | crate::api::schema::IntegrationTarget::Kimi
             | crate::api::schema::IntegrationTarget::Opencode
+            | crate::api::schema::IntegrationTarget::Hermes
             | crate::api::schema::IntegrationTarget::Qodercli
+            | crate::api::schema::IntegrationTarget::Cursor
             | crate::api::schema::IntegrationTarget::Grok
     )
 }
 
 fn integration_target_available(target: crate::api::schema::IntegrationTarget) -> bool {
-    integration_target_supported(target) && command_available(integration_target_command(target))
+    if !integration_target_supported(target) {
+        return false;
+    }
+    if target == crate::api::schema::IntegrationTarget::Hermes && hermes_install_layout_available()
+    {
+        return true;
+    }
+    command_available(integration_target_command(target))
 }
 
 fn command_available(command: &str) -> bool {
@@ -1517,7 +1599,7 @@ fn integration_status_at(
     let installed_content_matches = content
         .as_deref()
         .is_some_and(|content| content == integration_asset_for_target(target));
-    let state = if installed_id_matches
+    let mut state = if installed_id_matches
         && installed_version == Some(expected_version)
         && installed_content_matches
     {
@@ -1525,6 +1607,12 @@ fn integration_status_at(
     } else {
         IntegrationStatusKind::Outdated
     };
+    if target == crate::api::schema::IntegrationTarget::Opencode
+        && state == IntegrationStatusKind::Current
+        && !opencode_tui_integration_is_valid(&path, expected_version)
+    {
+        state = IntegrationStatusKind::Outdated;
+    }
 
     IntegrationStatus {
         target,
@@ -1533,6 +1621,19 @@ fn integration_status_at(
         installed_version,
         expected_version,
     }
+}
+
+fn opencode_tui_integration_is_valid(plugin_path: &Path, expected_version: u32) -> bool {
+    let Some(config_dir) = plugin_path.parent().and_then(Path::parent) else {
+        return false;
+    };
+    let tui_plugin_path = config_dir.join(OPENCODE_TUI_PLUGIN_INSTALL_NAME);
+    let tui_plugin_current = fs::read_to_string(tui_plugin_path)
+        .ok()
+        .and_then(|content| parse_integration_version(&content))
+        .is_some_and(|version| version >= expected_version);
+    tui_plugin_current
+        && opencode_config::tui_plugin_is_configured(config_dir, OPENCODE_TUI_PLUGIN_SPEC)
 }
 
 fn integration_asset_for_target(target: crate::api::schema::IntegrationTarget) -> &'static str {
@@ -1639,62 +1740,18 @@ pub(crate) fn install_claude() -> io::Result<ClaudeInstallPaths> {
     make_executable(&hook_path)?;
 
     let settings_path = dir.join("settings.json");
-    let mut settings = if settings_path.is_file() {
-        serde_json::from_str::<Value>(&fs::read_to_string(&settings_path)?).map_err(|err| {
-            io::Error::other(format!(
-                "failed to parse {}: {err}",
-                settings_path.display()
-            ))
-        })?
+    let existing_settings = if settings_path.is_file() {
+        fs::read_to_string(&settings_path)?
     } else {
-        json!({})
+        "{}".to_string()
     };
-
-    let hooks = ensure_hooks_object(
-        &mut settings,
-        &settings_path,
-        "claude settings",
-        "claude settings hooks",
-    )?;
-    let quoted_hook_path = shell_single_quote(&hook_path.display().to_string());
-    for (event, action) in [
-        ("SessionStart", "idle"),
-        ("UserPromptSubmit", "working"),
-        ("PreToolUse", "working"),
-        ("PermissionRequest", "blocked"),
-        ("Stop", "idle"),
-        ("SessionEnd", "release"),
-        ("PostToolUse", "working"),
-        ("PostToolUseFailure", "working"),
-        ("SubagentStop", "working"),
-    ] {
-        remove_command_hook(hooks, event, &format!("bash {quoted_hook_path} {action}"))?;
+    let mut updated_settings =
+        claude_settings::install(&existing_settings, &settings_path, &hook_path)?;
+    updated_settings =
+        ensure_omh_claude_lifecycle_hooks(&updated_settings, &settings_path, &hook_path)?;
+    if updated_settings != existing_settings {
+        fs::write(&settings_path, updated_settings)?;
     }
-    for (event, action, matcher) in CLAUDE_HOOK_EVENTS {
-        ensure_command_hook(
-            hooks,
-            event,
-            format!("bash {quoted_hook_path} {action}"),
-            10,
-            matcher,
-        )?;
-    }
-    ensure_command_hook(
-        hooks,
-        "Stop",
-        format!("bash {quoted_hook_path} idle"),
-        10,
-        None,
-    )?;
-    ensure_command_hook(
-        hooks,
-        "SessionEnd",
-        format!("bash {quoted_hook_path} release"),
-        10,
-        None,
-    )?;
-
-    fs::write(&settings_path, serde_json::to_string_pretty(&settings)?)?;
 
     Ok(ClaudeInstallPaths {
         hook_path,
@@ -2060,13 +2117,21 @@ pub(crate) fn install_opencode() -> io::Result<OpenCodeInstallPaths> {
         )));
     }
 
+    opencode_config::validate_tui_plugin_config(&dir)?;
     let plugins_dir = dir.join("plugins");
     fs::create_dir_all(&plugins_dir)?;
 
     let plugin_path = plugins_dir.join(OPENCODE_PLUGIN_INSTALL_NAME);
     fs::write(&plugin_path, OPENCODE_PLUGIN_ASSET)?;
+    let tui_plugin_path = dir.join(OPENCODE_TUI_PLUGIN_INSTALL_NAME);
+    fs::write(&tui_plugin_path, OPENCODE_TUI_PLUGIN_ASSET)?;
+    let tui_config_path = opencode_config::add_tui_plugin(&dir, OPENCODE_TUI_PLUGIN_SPEC)?;
 
-    Ok(OpenCodeInstallPaths { plugin_path })
+    Ok(OpenCodeInstallPaths {
+        plugin_path,
+        tui_plugin_path,
+        tui_config_path,
+    })
 }
 
 pub(crate) fn install_hermes() -> io::Result<HermesInstallPaths> {
@@ -2140,44 +2205,12 @@ pub(crate) fn uninstall_claude() -> io::Result<ClaudeUninstallResult> {
     let mut updated_settings = false;
 
     if settings_path.is_file() {
-        let mut settings = serde_json::from_str::<Value>(&fs::read_to_string(&settings_path)?)
-            .map_err(|err| {
-                io::Error::other(format!(
-                    "failed to parse {}: {err}",
-                    settings_path.display()
-                ))
-            })?;
-
-        if let Some(hooks) = hooks_object_if_present(
-            &mut settings,
-            &settings_path,
-            "claude settings",
-            "claude settings hooks",
-        )? {
-            let quoted_hook_path = shell_single_quote(&hook_path.display().to_string());
-            for (event, action) in [
-                ("SessionStart", "idle"),
-                ("Stop", "idle"),
-                ("SessionEnd", "release"),
-                ("SubagentStop", "working"),
-            ] {
-                updated_settings |= remove_command_hook(
-                    hooks,
-                    event,
-                    &format!("bash {quoted_hook_path} {action}"),
-                )?;
-            }
-            for (event, action, _matcher) in CLAUDE_HOOK_EVENTS {
-                updated_settings |= remove_command_hook(
-                    hooks,
-                    event,
-                    &format!("bash {quoted_hook_path} {action}"),
-                )?;
-            }
-        }
-
+        let existing_settings = fs::read_to_string(&settings_path)?;
+        let new_settings =
+            claude_settings::uninstall(&existing_settings, &settings_path, &hook_path)?;
+        updated_settings = new_settings != existing_settings;
         if updated_settings {
-            fs::write(&settings_path, serde_json::to_string_pretty(&settings)?)?;
+            fs::write(&settings_path, new_settings)?;
         }
     }
 
@@ -2388,14 +2421,38 @@ pub(crate) fn uninstall_copilot() -> io::Result<CopilotUninstallResult> {
 }
 
 pub(crate) fn uninstall_opencode() -> io::Result<OpenCodeUninstallResult> {
-    let plugin_path = opencode_dir()?
-        .join("plugins")
-        .join(OPENCODE_PLUGIN_INSTALL_NAME);
-    let removed_plugin = remove_file_if_exists(&plugin_path)?;
+    let dir = opencode_dir()?;
+    let tui_config_path = opencode_config::tui_config_path(&dir);
+    let plugin_path = dir.join("plugins").join(OPENCODE_PLUGIN_INSTALL_NAME);
+    let tui_plugin_path = dir.join(OPENCODE_TUI_PLUGIN_INSTALL_NAME);
+    let mut errors = Vec::new();
+    let updated_tui_config = opencode_config::remove_tui_plugin(&dir, OPENCODE_TUI_PLUGIN_SPEC)
+        .unwrap_or_else(|err| {
+            errors.push(err.to_string());
+            false
+        });
+    let removed_plugin = remove_file_if_exists(&plugin_path).unwrap_or_else(|err| {
+        errors.push(format!("failed to remove {}: {err}", plugin_path.display()));
+        false
+    });
+    let removed_tui_plugin = remove_file_if_exists(&tui_plugin_path).unwrap_or_else(|err| {
+        errors.push(format!(
+            "failed to remove {}: {err}",
+            tui_plugin_path.display()
+        ));
+        false
+    });
+    if !errors.is_empty() {
+        return Err(io::Error::other(errors.join("; ")));
+    }
 
     Ok(OpenCodeUninstallResult {
         plugin_path,
+        tui_plugin_path,
+        tui_config_path,
         removed_plugin,
+        removed_tui_plugin,
+        updated_tui_config,
     })
 }
 
@@ -2556,10 +2613,10 @@ pub(crate) fn install_cursor() -> io::Result<CursorInstallPaths> {
         "cursor hooks file",
         "cursor hooks file hooks",
     )?;
-    let quoted_hook_path = shell_single_quote(&hook_path.display().to_string());
-    let session_command = format!("bash {quoted_hook_path} working");
-    let working_command = format!("bash {quoted_hook_path} working");
-    let release_command = format!("bash {quoted_hook_path} release");
+    let session_command = hook_command(&hook_path, Some("working"));
+    let working_command = hook_command(&hook_path, Some("working"));
+    let idle_command = hook_command(&hook_path, Some("idle"));
+    let release_command = hook_command(&hook_path, Some("release"));
     for event in [
         "sessionStart",
         "beforeSubmitPrompt",
@@ -2568,20 +2625,19 @@ pub(crate) fn install_cursor() -> io::Result<CursorInstallPaths> {
         "stop",
         "sessionEnd",
     ] {
-        remove_simple_command_hook(hooks, event, &format!("bash {quoted_hook_path} session"))?;
+        for command in hook_command_variants(&hook_path, Some("session")) {
+            remove_simple_command_hook(hooks, event, &command)?;
+        }
         remove_simple_command_hook(hooks, event, &session_command)?;
         remove_simple_command_hook(hooks, event, &working_command)?;
+        remove_simple_command_hook(hooks, event, &idle_command)?;
         remove_simple_command_hook(hooks, event, &release_command)?;
     }
     ensure_simple_command_hook(hooks, "sessionStart", session_command)?;
     ensure_simple_command_hook(hooks, "beforeSubmitPrompt", working_command.clone())?;
     ensure_simple_command_hook(hooks, "beforeShellExecution", working_command.clone())?;
     ensure_simple_command_hook(hooks, "beforeMCPExecution", working_command)?;
-    ensure_simple_command_hook(
-        hooks,
-        "stop",
-        "bash ".to_string() + &quoted_hook_path + " idle",
-    )?;
+    ensure_simple_command_hook(hooks, "stop", idle_command)?;
     ensure_simple_command_hook(hooks, "sessionEnd", release_command)?;
     fs::write(&hooks_path, serde_json::to_string_pretty(&hooks_file)?)?;
     Ok(CursorInstallPaths {
@@ -2605,11 +2661,10 @@ pub(crate) fn install_grok() -> io::Result<GrokInstallPaths> {
     fs::write(&hook_path, GROK_HOOK_ASSET)?;
     make_executable(&hook_path)?;
 
-    let quoted_hook_path = shell_single_quote(&hook_path.display().to_string());
     let command = |action: &str| {
         json!({
             "type": "command",
-            "command": format!("bash {quoted_hook_path} {action}"),
+            "command": hook_command(&hook_path, Some(action)),
             "timeout": 10
         })
     };
@@ -2795,17 +2850,19 @@ pub(crate) fn uninstall_cursor() -> io::Result<CursorUninstallResult> {
             "cursor hooks file",
             "cursor hooks file hooks",
         )? {
-            let quoted_hook_path = shell_single_quote(&hook_path.display().to_string());
-            let session_command = format!("bash {quoted_hook_path} session");
-            updated_hooks |= remove_simple_command_hook(hooks, "sessionStart", &session_command)?;
-            updated_hooks |=
-                remove_simple_command_hook(hooks, "beforeSubmitPrompt", &session_command)?;
-            updated_hooks |=
-                remove_simple_command_hook(hooks, "beforeShellExecution", &session_command)?;
-            updated_hooks |=
-                remove_simple_command_hook(hooks, "beforeMCPExecution", &session_command)?;
-            updated_hooks |= remove_simple_command_hook(hooks, "stop", &session_command)?;
-            updated_hooks |= remove_simple_command_hook(hooks, "sessionEnd", &session_command)?;
+            for action in ["session", "working", "idle", "release"] {
+                for command in hook_command_variants(&hook_path, Some(action)) {
+                    updated_hooks |= remove_simple_command_hook(hooks, "sessionStart", &command)?;
+                    updated_hooks |=
+                        remove_simple_command_hook(hooks, "beforeSubmitPrompt", &command)?;
+                    updated_hooks |=
+                        remove_simple_command_hook(hooks, "beforeShellExecution", &command)?;
+                    updated_hooks |=
+                        remove_simple_command_hook(hooks, "beforeMCPExecution", &command)?;
+                    updated_hooks |= remove_simple_command_hook(hooks, "stop", &command)?;
+                    updated_hooks |= remove_simple_command_hook(hooks, "sessionEnd", &command)?;
+                }
+            }
         }
         if updated_hooks {
             fs::write(&hooks_path, serde_json::to_string_pretty(&hooks_file)?)?;
@@ -3510,7 +3567,88 @@ fn is_toml_key(line: &str, key: &str) -> bool {
     trimmed[key.len()..].trim_start().starts_with('=')
 }
 
+fn ensure_omh_claude_lifecycle_hooks(
+    content: &str,
+    settings_path: &Path,
+    hook_path: &Path,
+) -> io::Result<String> {
+    let mut settings: Value = serde_json::from_str(content).map_err(|err| {
+        io::Error::other(format!(
+            "failed to parse {}: {err}",
+            settings_path.display()
+        ))
+    })?;
+    let hooks = ensure_hooks_object(
+        &mut settings,
+        settings_path,
+        "claude settings",
+        "claude settings hooks",
+    )?;
+    for (event, action, matcher) in CLAUDE_HOOK_EVENTS {
+        ensure_command_hook(
+            hooks,
+            event,
+            hook_command(hook_path, Some(action)),
+            10,
+            matcher,
+        )?;
+    }
+    ensure_command_hook(
+        hooks,
+        "Stop",
+        hook_command(hook_path, Some("idle")),
+        10,
+        None,
+    )?;
+    ensure_command_hook(
+        hooks,
+        "SessionEnd",
+        hook_command(hook_path, Some("release")),
+        10,
+        None,
+    )?;
+    let serialized = serde_json::to_string(&settings)?;
+    let original: Value = serde_json::from_str(content).map_err(|err| {
+        io::Error::other(format!(
+            "failed to parse {}: {err}",
+            settings_path.display()
+        ))
+    })?;
+    if original == settings {
+        Ok(content.to_string())
+    } else if content.contains('\n') || content.contains('\r') {
+        Ok(serde_json::to_string_pretty(&settings)?)
+    } else {
+        Ok(serialized)
+    }
+}
+
 fn hook_command(hook_path: &Path, action: Option<&str>) -> String {
+    let path = hook_path.display().to_string();
+    #[cfg(windows)]
+    {
+        let mut command = format!(
+            "powershell -NoProfile -ExecutionPolicy Bypass -File {}",
+            windows_command_quote(&path)
+        );
+        if let Some(action) = action {
+            command.push(' ');
+            command.push_str(action);
+        }
+        command
+    }
+    #[cfg(not(windows))]
+    {
+        let mut command = format!("bash {}", shell_single_quote(&path));
+        if let Some(action) = action {
+            command.push(' ');
+            command.push_str(action);
+        }
+        command
+    }
+}
+
+fn legacy_bash_hook_command(hook_path: &Path, action: Option<&str>) -> String {
     let mut command = format!(
         "bash {}",
         shell_single_quote(&hook_path.display().to_string())
@@ -3520,6 +3658,36 @@ fn hook_command(hook_path: &Path, action: Option<&str>) -> String {
         command.push_str(action);
     }
     command
+}
+
+fn hook_command_variants(hook_path: &Path, action: Option<&str>) -> Vec<String> {
+    let mut commands = vec![hook_command(hook_path, action)];
+    push_unique_command(&mut commands, legacy_bash_hook_command(hook_path, action));
+    #[cfg(windows)]
+    {
+        push_unique_command(
+            &mut commands,
+            legacy_bash_hook_command(&legacy_bash_hook_path(hook_path), action),
+        );
+    }
+    commands
+}
+
+fn push_unique_command(commands: &mut Vec<String>, command: String) {
+    if !commands.iter().any(|existing| existing == &command) {
+        commands.push(command);
+    }
+}
+
+#[cfg(windows)]
+fn windows_command_quote(value: &str) -> String {
+    let escaped = value.replace('"', r#"\""#);
+    format!("{0}{1}{0}", '"', escaped)
+}
+
+#[cfg(windows)]
+fn legacy_bash_hook_path(hook_path: &Path) -> PathBuf {
+    hook_path.with_extension("sh")
 }
 
 fn shell_single_quote(value: &str) -> String {
@@ -3692,7 +3860,42 @@ fn opencode_dir() -> io::Result<PathBuf> {
 }
 
 fn hermes_dir() -> io::Result<PathBuf> {
+    if let Some(value) = std::env::var_os(HERMES_HOME_ENV_VAR).filter(|value| !value.is_empty()) {
+        return expand_tilde_path(PathBuf::from(value));
+    }
+
+    #[cfg(windows)]
+    {
+        let explicit_home = std::env::var_os("HOME").filter(|value| !value.is_empty());
+        let profile = std::env::var_os("USERPROFILE").filter(|value| !value.is_empty());
+        if let Some(home) = explicit_home.filter(|home| profile.as_ref() != Some(home)) {
+            return Ok(PathBuf::from(home).join(".hermes"));
+        }
+        if let Some(local_app_data) =
+            std::env::var_os("LOCALAPPDATA").filter(|value| !value.is_empty())
+        {
+            return Ok(PathBuf::from(local_app_data).join("hermes"));
+        }
+    }
+
     Ok(home_dir()?.join(".hermes"))
+}
+
+fn hermes_install_layout_available() -> bool {
+    let Ok(dir) = hermes_dir() else {
+        return false;
+    };
+    #[cfg(windows)]
+    {
+        return [dir.join("hermes.exe"), dir.join("bin").join("hermes.exe")]
+            .into_iter()
+            .any(|path| path.is_file());
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = dir;
+        false
+    }
 }
 
 fn hermes_plugin_dir() -> io::Result<PathBuf> {
@@ -3712,9 +3915,18 @@ fn grok_dir() -> io::Result<PathBuf> {
 }
 
 fn home_dir() -> io::Result<PathBuf> {
-    std::env::var("HOME")
-        .map(PathBuf::from)
-        .map_err(|_| io::Error::other("HOME is not set; cannot locate home directory"))
+    if let Some(value) = std::env::var_os("HOME").filter(|value| !value.is_empty()) {
+        return Ok(PathBuf::from(value));
+    }
+    #[cfg(windows)]
+    {
+        if let Some(value) = std::env::var_os("USERPROFILE").filter(|value| !value.is_empty()) {
+            return Ok(PathBuf::from(value));
+        }
+    }
+    Err(io::Error::other(
+        "HOME is not set; cannot locate home directory",
+    ))
 }
 
 #[cfg(test)]
@@ -3928,12 +4140,20 @@ mod tests {
             IntegrationTarget::Opencode,
             true
         ));
-        assert!(!integration_target_supported_for_platform(
+        assert!(integration_target_supported_for_platform(
             IntegrationTarget::Hermes,
             true
         ));
-        assert!(!integration_target_supported_for_platform(
+        assert!(integration_target_supported_for_platform(
             IntegrationTarget::Cursor,
+            true
+        ));
+        assert!(integration_target_supported_for_platform(
+            IntegrationTarget::Devin,
+            true
+        ));
+        assert!(integration_target_supported_for_platform(
+            IntegrationTarget::Grok,
             true
         ));
 
@@ -3961,6 +4181,28 @@ mod tests {
             IntegrationTarget::Qodercli,
             true
         ));
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn hermes_layout_makes_target_available() {
+        let _lock = integration_env_lock();
+        let base = unique_base();
+        let local_app_data = base.join("local-app-data");
+        let hermes_bin = local_app_data.join("hermes").join("bin");
+        fs::create_dir_all(&hermes_bin).unwrap();
+        fs::write(hermes_bin.join("hermes.exe"), "").unwrap();
+        let _hermes_home = TestEnvVar::remove(HERMES_HOME_ENV_VAR);
+        let _home = TestEnvVar::remove("HOME");
+        let _local = TestEnvVar::set("LOCALAPPDATA", &local_app_data);
+        let _path = TestEnvVar::set("PATH", "");
+
+        assert!(hermes_install_layout_available());
+        assert!(integration_target_available(
+            crate::api::schema::IntegrationTarget::Hermes
+        ));
+
+        let _ = fs::remove_dir_all(base);
     }
 
     #[test]
@@ -4023,7 +4265,7 @@ mod tests {
 
         assert_eq!(path, ext_dir.join(PI_EXTENSION_INSTALL_NAME));
         assert_eq!(content, PI_EXTENSION_ASSET);
-        assert!(content.contains("OMH_INTEGRATION_VERSION=6"));
+        assert!(content.contains("OMH_INTEGRATION_VERSION=7"));
         assert!(content.contains("Math.max(reportSeq + 1, Date.now() * 1000)"));
 
         let _ = fs::remove_dir_all(base);
@@ -4081,7 +4323,7 @@ mod tests {
         assert_eq!(installed.extension_paths, vec![extension_path]);
         assert_eq!(content, OMP_EXTENSION_ASSET);
         assert!(content.contains("OMH_INTEGRATION_ID=omp"));
-        assert!(content.contains("OMH_INTEGRATION_VERSION=7"));
+        assert!(content.contains("OMH_INTEGRATION_VERSION=8"));
         assert!(content.contains("agent: \"omp\""));
         assert!(!content.contains("agent: \"pi\""));
 
@@ -4486,6 +4728,23 @@ mod tests {
         assert!(err.contains("pi extension directory not found"));
 
         let _ = fs::remove_dir_all(base);
+    }
+
+    #[test]
+    fn install_claude_preserves_settings_formatting_and_crlf() {
+        let settings_path = Path::new("/home/test/.claude/settings.json");
+        let hook_path = Path::new("/home/test/.claude/hooks/omh-agent-state.sh");
+        let input = concat!(
+            "{\r\n",
+            "    \"permissions\" : {\"allow\":[\"Read\"]},\r\n",
+            "    \"alpha\" : 1\r\n",
+            "}\r\n\r\n",
+        );
+        let updated = claude_settings::install(input, settings_path, hook_path).unwrap();
+        assert!(updated.starts_with("{\r\n    \"permissions\" : {\"allow\":[\"Read\"]},"));
+        assert!(updated.contains("\"alpha\" : 1"));
+        assert!(updated.contains("SessionStart"));
+        assert!(!updated.replace("\r\n", "").contains('\n'));
     }
 
     #[test]
@@ -5575,7 +5834,7 @@ mod tests {
     }
 
     #[test]
-    fn install_opencode_writes_plugin_to_plugins_dir() {
+    fn install_opencode_writes_server_and_tui_plugins() {
         let _lock = integration_env_lock();
         let _path_env = clear_integration_path_env();
         let base = unique_base();
@@ -5585,7 +5844,6 @@ mod tests {
         let _home_env = TestEnvVar::set("HOME", &home);
 
         let installed = install_opencode().unwrap();
-        let plugin_content = fs::read_to_string(&installed.plugin_path).unwrap();
 
         assert_eq!(
             installed.plugin_path,
@@ -5593,8 +5851,24 @@ mod tests {
                 .join("plugins")
                 .join(OPENCODE_PLUGIN_INSTALL_NAME)
         );
-        assert_eq!(plugin_content, OPENCODE_PLUGIN_ASSET);
-        assert!(plugin_content.contains("OMH_INTEGRATION_VERSION=7"));
+        assert_eq!(
+            fs::read_to_string(&installed.plugin_path).unwrap(),
+            OPENCODE_PLUGIN_ASSET
+        );
+        assert_eq!(
+            installed.tui_plugin_path,
+            opencode_dir.join(OPENCODE_TUI_PLUGIN_INSTALL_NAME)
+        );
+        assert_eq!(
+            fs::read_to_string(&installed.tui_plugin_path).unwrap(),
+            OPENCODE_TUI_PLUGIN_ASSET
+        );
+        assert_eq!(installed.tui_config_path, opencode_dir.join("tui.jsonc"));
+        let tui_config: Value =
+            serde_json::from_str(&fs::read_to_string(&installed.tui_config_path).unwrap()).unwrap();
+        assert_eq!(tui_config["plugin"], json!([OPENCODE_TUI_PLUGIN_SPEC]));
+        let plugin_content = fs::read_to_string(&installed.plugin_path).unwrap();
+        assert!(plugin_content.contains("OMH_INTEGRATION_VERSION=8"));
         assert!(plugin_content.contains("Math.max(reportSeq + 1, Date.now() * 1000)"));
         assert!(plugin_content.contains("pane.report_agent_session"));
         assert!(plugin_content.contains("pane.report_agent"));
@@ -5604,24 +5878,105 @@ mod tests {
     }
 
     #[test]
-    fn uninstall_opencode_removes_plugin_when_present() {
+    fn opencode_status_requires_the_tui_plugin_and_config_entry() {
         let _lock = integration_env_lock();
         let _path_env = clear_integration_path_env();
         let base = unique_base();
         let home = base.join("home");
-        let opencode_dir = home.join(".config/opencode/plugins");
+        let opencode_dir = home.join(".config/opencode");
         fs::create_dir_all(&opencode_dir).unwrap();
-        fs::write(
-            opencode_dir.join(OPENCODE_PLUGIN_INSTALL_NAME),
-            OPENCODE_PLUGIN_ASSET,
-        )
-        .unwrap();
         let _home_env = TestEnvVar::set("HOME", &home);
+        let installed = install_opencode().unwrap();
+        let status = || {
+            integration_status_at(
+                crate::api::schema::IntegrationTarget::Opencode,
+                installed.plugin_path.clone(),
+                OPENCODE_INTEGRATION_VERSION,
+            )
+            .state
+        };
+
+        assert_eq!(status(), IntegrationStatusKind::Current);
+        fs::remove_file(&installed.tui_plugin_path).unwrap();
+        assert_eq!(status(), IntegrationStatusKind::Outdated);
+        fs::write(&installed.tui_plugin_path, OPENCODE_TUI_PLUGIN_ASSET).unwrap();
+        opencode_config::remove_tui_plugin(&opencode_dir, OPENCODE_TUI_PLUGIN_SPEC).unwrap();
+        assert_eq!(status(), IntegrationStatusKind::Outdated);
+
+        let _ = fs::remove_dir_all(base);
+    }
+
+    #[test]
+    fn uninstall_opencode_removes_plugins_and_managed_tui_config_entry() {
+        let _lock = integration_env_lock();
+        let _path_env = clear_integration_path_env();
+        let base = unique_base();
+        let home = base.join("home");
+        let opencode_dir = home.join(".config/opencode");
+        fs::create_dir_all(&opencode_dir).unwrap();
+        let _home_env = TestEnvVar::set("HOME", &home);
+        let installed = install_opencode().unwrap();
 
         let result = uninstall_opencode().unwrap();
 
         assert!(result.removed_plugin);
+        assert!(result.removed_tui_plugin);
+        assert!(result.updated_tui_config);
         assert!(!result.plugin_path.exists());
+        assert!(!result.tui_plugin_path.exists());
+        assert!(result.tui_config_path.exists());
+        let tui_config: Value =
+            serde_json::from_str(&fs::read_to_string(&result.tui_config_path).unwrap()).unwrap();
+        assert_eq!(tui_config, json!({}));
+        assert_eq!(installed.plugin_path, result.plugin_path);
+
+        let _ = fs::remove_dir_all(base);
+    }
+
+    #[test]
+    fn install_opencode_invalid_tui_config_does_not_write_plugins() {
+        let _lock = integration_env_lock();
+        let _path_env = clear_integration_path_env();
+        let base = unique_base();
+        let home = base.join("home");
+        let opencode_dir = home.join(".config/opencode");
+        fs::create_dir_all(&opencode_dir).unwrap();
+        fs::write(opencode_dir.join("tui.jsonc"), r#"{"plugin":{}}"#).unwrap();
+        let _home_env = TestEnvVar::set("HOME", &home);
+
+        let err = install_opencode().unwrap_err().to_string();
+
+        assert!(err.contains("plugin list"));
+        assert!(!opencode_dir
+            .join("plugins")
+            .join(OPENCODE_PLUGIN_INSTALL_NAME)
+            .exists());
+        assert!(!opencode_dir.join(OPENCODE_TUI_PLUGIN_INSTALL_NAME).exists());
+
+        let _ = fs::remove_dir_all(base);
+    }
+
+    #[test]
+    fn uninstall_opencode_removes_plugins_when_tui_config_is_invalid() {
+        let _lock = integration_env_lock();
+        let _path_env = clear_integration_path_env();
+        let base = unique_base();
+        let home = base.join("home");
+        let opencode_dir = home.join(".config/opencode");
+        let plugins_dir = opencode_dir.join("plugins");
+        fs::create_dir_all(&plugins_dir).unwrap();
+        let plugin_path = plugins_dir.join(OPENCODE_PLUGIN_INSTALL_NAME);
+        let tui_plugin_path = opencode_dir.join(OPENCODE_TUI_PLUGIN_INSTALL_NAME);
+        fs::write(&plugin_path, OPENCODE_PLUGIN_ASSET).unwrap();
+        fs::write(&tui_plugin_path, OPENCODE_TUI_PLUGIN_ASSET).unwrap();
+        fs::write(opencode_dir.join("tui.jsonc"), "{\"plugin\":").unwrap();
+        let _home_env = TestEnvVar::set("HOME", &home);
+
+        let err = uninstall_opencode().unwrap_err().to_string();
+
+        assert!(err.contains("failed to parse OpenCode TUI config"));
+        assert!(!plugin_path.exists());
+        assert!(!tui_plugin_path.exists());
 
         let _ = fs::remove_dir_all(base);
     }
@@ -6068,6 +6423,7 @@ model: auto
         assert!(!PI_EXTENSION_ASSET.contains("pi.on(\"agent_end\""));
         assert!(!PI_EXTENSION_ASSET.contains("OMH_PI_IDLE_DEBOUNCE_MS"));
         assert!(!PI_EXTENSION_ASSET.contains("OMH_PI_RETRY_GRACE_MS"));
+        assert!(PI_EXTENSION_ASSET.contains("ctx.mode !== \"tui\""));
         assert!(OMP_EXTENSION_ASSET.contains("agent_session_path: currentAgentSessionPath"));
         assert!(OMP_EXTENSION_ASSET.contains("agent_session_id: currentAgentSessionId"));
         assert!(OMP_EXTENSION_ASSET.contains("publishState(true)"));
@@ -6107,6 +6463,7 @@ model: auto
         assert!(CLAUDE_HOOK_ASSET.contains("agent_session_id"));
         assert!(CODEX_HOOK_ASSET.contains("OMH_HOOK_INPUT_FILE"));
         assert!(CODEX_HOOK_ASSET.contains("agent_session_id"));
+        assert!(CODEX_HOOK_ASSET.contains("CODEX_THREAD_ID"));
         assert!(COPILOT_HOOK_ASSET.contains("OMH_HOOK_INPUT_FILE"));
         assert!(COPILOT_HOOK_ASSET.contains("agent_session_id"));
         assert!(KIMI_HOOK_ASSET.contains("agent_session_id"));
@@ -6119,8 +6476,13 @@ model: auto
         assert!(OPENCODE_PLUGIN_ASSET.contains("pane.report_agent_session"));
         assert!(OPENCODE_PLUGIN_ASSET.contains("agent_session_id: sessionID"));
         assert!(!OPENCODE_PLUGIN_ASSET.contains("pane.release_agent"));
-        assert!(HERMES_PLUGIN_INIT_ASSET.contains("session_id = _session_id(kwargs)"));
+        assert!(OPENCODE_TUI_PLUGIN_ASSET.contains("session_start_source: \"select\""));
+        assert!(HERMES_PLUGIN_INIT_ASSET.contains("pane.report_agent_session"));
+        assert!(HERMES_PLUGIN_INIT_ASSET.contains("\"session_start_source\": start_source"));
         assert!(HERMES_PLUGIN_INIT_ASSET.contains("agent_session_id"));
+        assert!(!HERMES_PLUGIN_INIT_ASSET.contains("pane.report_agent\""));
+        assert!(!HERMES_PLUGIN_INIT_ASSET.contains("on_session_finalize"));
+        assert!(!HERMES_PLUGIN_INIT_ASSET.contains("pane.release_agent"));
         // Qoder hook reads the event from the stdin JSON payload (per
         // https://docs.qoder.com/zh/cli/hooks). Make sure the bundled script
         // never reaches for a QODER_HOOK_EVENT environment variable.

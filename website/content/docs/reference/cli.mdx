@@ -19,7 +19,7 @@ omh [global-options] <family> <subcommand> [options] [arguments]
 
 `--session <name>` may appear on a launch or command invocation. It is consumed before command dispatch and selects the named persistent session. `--session=name` is equivalent. `OMH_SESSION` supplies the session name when `--session` is absent. The name `default` targets the default session.
 
-Commands that return API objects print one JSON object on standard output. An API error response is printed as JSON on standard error. Commands that read pane text write that text to standard output; commands that send input or perform a mutation normally produce no output on success. Help and usage text is written to standard error by family help handlers. `--help`, `--version`, and `--default-config` write their results to standard output.
+Commands that return API objects print one JSON object on standard output. An API error response is printed as JSON on standard error. Commands that read pane text write that text to standard output; commands that send input or perform a mutation normally produce no output on success. Help and usage text is written to standard error by family help handlers. `--help`, `--version`, `--default-config`, and `--skill` write their results to standard output.
 
 Exit status is:
 
@@ -43,10 +43,11 @@ These options apply to the launch command rather than to a family subcommand:
 | `--remote-keybindings <local\|server>` | `local`                    | With `--remote`, use local client keybindings or the remote server's keybindings.      |
 | `--handoff`                            | off                        | Opt into live handoff for supported update or remote attach operations.                |
 | `--default-config`                     | off                        | Print the built-in TOML configuration and exit.                                        |
+| `--skill`                              | off                        | Print the bundled agent skill file and exit.                                           |
 | `--version`, `-V`                      | off                        | Print the `omh` version and exit.                                                      |
 | `--help`, `-h`                         | off                        | Print launch and family help and exit.                                                 |
 
-`--remote-keybindings` requires `--remote`. On Windows, remote SSH sessions are not supported by the current source implementation; the option parser still accepts only `local` and `server`. Remote launches read `[remote].manage_ssh_config` when the SSH launch starts. See [remote configuration](/docs/reference/configuration#remote).
+`--remote-keybindings` requires `--remote`. Windows is a supported local client for `--remote`; Windows is not a supported remote host. The option parser accepts only `local` and `server`. Remote launches read `[remote].manage_ssh_config` when the SSH launch starts. See [remote configuration](/docs/reference/configuration#remote).
 
 The separator `--` ends `omh` option parsing for child command arguments. In `omh agent start`, everything after `--` is the child argument vector. In `keys.command`, command text is interpreted according to the configured command type; shell expansion is not applied to agent-profile command strings.
 

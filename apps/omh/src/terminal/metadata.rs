@@ -252,6 +252,7 @@ impl TerminalState {
         Some(TerminalStateMutation {
             effective_state_change,
             session_ref_changed: false,
+            agent_released: false,
         })
     }
     pub fn effective_custom_status(&self) -> Option<String> {
@@ -432,6 +433,7 @@ impl TerminalState {
         .map(|effective_state_change| TerminalStateMutation {
             effective_state_change: Some(effective_state_change),
             session_ref_changed: false,
+            agent_released: false,
         })
     }
 

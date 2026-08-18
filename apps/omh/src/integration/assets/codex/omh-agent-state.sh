@@ -3,7 +3,7 @@
 # managed by Oh My Herdr; reinstalling or updating the integration overwrites this file.
 # add custom hooks beside this file instead of editing it.
 # OMH_INTEGRATION_ID=codex
-# OMH_INTEGRATION_VERSION=2
+# OMH_INTEGRATION_VERSION=3
 
 set -eu
 
@@ -72,6 +72,13 @@ if is_subagent and action in ("idle", "release"):
 
 session_id = first_text("session_id", "sessionId")
 agent_session_id = session_id if session_id else None
+if action == "session":
+    transcript_path = hook_input.get("transcript_path")
+    if not isinstance(transcript_path, str) or not transcript_path.strip():
+        raise SystemExit(0)
+    inherited_session_id = os.environ.get("CODEX_THREAD_ID")
+    if inherited_session_id and inherited_session_id != agent_session_id:
+        raise SystemExit(0)
 launch_env = {
     key: value
     for key in ("CODEX_HOME",)

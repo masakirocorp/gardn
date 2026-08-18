@@ -137,13 +137,14 @@ pub(crate) fn is_enabled() -> bool {
 
 pub(crate) fn paint_local_pane_graphics(
     app: &AppState,
+    graphics: &mut crate::app::pane_graphics::Runtime,
     terminal_runtimes: &TerminalRuntimeRegistry,
     cell_size: HostCellSize,
 ) -> io::Result<()> {
     let cache = LOCAL_HOST_GRAPHICS.get_or_init(|| Mutex::new(HostGraphicsCache::default()));
     let mut bytes = Vec::new();
     if let Ok(mut cache) = cache.lock() {
-        bytes = encode_local_pane_graphics(app, terminal_runtimes, cell_size, &mut cache);
+        bytes = encode_local_pane_graphics(app, graphics, terminal_runtimes, cell_size, &mut cache);
     }
     if bytes.is_empty() {
         return Ok(());
@@ -161,6 +162,7 @@ pub(crate) fn paint_local_pane_graphics(
 
 pub(crate) fn encode_local_pane_graphics(
     app: &AppState,
+    graphics: &mut crate::app::pane_graphics::Runtime,
     terminal_runtimes: &TerminalRuntimeRegistry,
     cell_size: HostCellSize,
     cache: &mut HostGraphicsCache,
@@ -190,8 +192,13 @@ pub(crate) fn encode_local_pane_graphics(
 
     let view_key = active_view_key(app);
     let uploaded_images = cache.images.clone();
-    let placements =
-        collect_visible_placements(app, terminal_runtimes, cell_size, &uploaded_images);
+    let placements = collect_visible_placements(
+        app,
+        graphics,
+        terminal_runtimes,
+        cell_size,
+        &uploaded_images,
+    );
     tracing::debug!(
         placements_collected = placements.len(),
         "collect_visible_placements result"
@@ -220,6 +227,7 @@ pub(crate) fn encode_local_pane_graphics(
 pub(crate) fn encode_local_pane_graphics_for_view(
     app: &AppState,
     view: &ClientViewState,
+    graphics: &mut crate::app::pane_graphics::Runtime,
     terminal_runtimes: &TerminalRuntimeRegistry,
     cell_size: HostCellSize,
     cache: &mut HostGraphicsCache,
@@ -244,6 +252,7 @@ pub(crate) fn encode_local_pane_graphics_for_view(
     let placements = collect_visible_placements_for_view(
         app,
         view,
+        graphics,
         terminal_runtimes,
         cell_size,
         &uploaded_images,
@@ -514,6 +523,7 @@ fn project_host_placement(
 fn collect_visible_placements_for_view(
     app: &AppState,
     view: &ClientViewState,
+    graphics: &mut crate::app::pane_graphics::Runtime,
     terminal_runtimes: &TerminalRuntimeRegistry,
     cell_size: HostCellSize,
     uploaded_images: &HashMap<u32, ImageSignature>,
@@ -569,12 +579,21 @@ fn collect_visible_placements_for_view(
             };
             placements.push(placement);
         }
+        append_pane_graphics_placements(
+            graphics,
+            info.id,
+            info.inner_rect,
+            cell_size,
+            uploaded_images,
+            &mut placements,
+        );
     }
     placements
 }
 
 fn collect_visible_placements(
     app: &AppState,
+    graphics: &mut crate::app::pane_graphics::Runtime,
     terminal_runtimes: &TerminalRuntimeRegistry,
     cell_size: HostCellSize,
     uploaded_images: &HashMap<u32, ImageSignature>,
@@ -629,12 +648,145 @@ fn collect_visible_placements(
                 scrollback_offset,
             });
         }
+        append_pane_graphics_placements(
+            graphics,
+            info.id,
+            info.inner_rect,
+            cell_size,
+            uploaded_images,
+            &mut placements,
+        );
     }
     tracing::debug!(
         placements_len = placements.len(),
         "collect_visible_placements: done"
     );
     placements
+}
+
+fn append_pane_graphics_placements(
+    graphics: &mut crate::app::pane_graphics::Runtime,
+    pane_id: PaneId,
+    area: Rect,
+    cell_size: HostCellSize,
+    uploaded_images: &HashMap<u32, ImageSignature>,
+    placements: &mut Vec<HostPlacement>,
+) {
+    if !graphics.active_for_pane(pane_id) {
+        return;
+    }
+    let _ = graphics.revision();
+    let mut keys: Vec<_> = graphics
+        .slots
+        .iter()
+        .filter(|((id, _), slot)| *id == pane_id && slot.layer.is_some())
+        .map(|(key, _)| key.clone())
+        .collect();
+    keys.sort_by(|left, right| {
+        let left_z = graphics.slots[left]
+            .layer
+            .as_ref()
+            .map(|layer| layer.z_index);
+        let right_z = graphics.slots[right]
+            .layer
+            .as_ref()
+            .map(|layer| layer.z_index);
+        left_z.cmp(&right_z)
+    });
+    for key in keys {
+        let Some(slot) = graphics.slots.get_mut(&key) else {
+            continue;
+        };
+        let host_image_id = slot.host_image_id;
+        let Some(layer) = slot.layer.as_mut() else {
+            continue;
+        };
+        let Some(placement) = pane_graphics_host_placement(
+            pane_id,
+            area,
+            cell_size,
+            host_image_id,
+            layer,
+            uploaded_images,
+        ) else {
+            continue;
+        };
+        if let Some(lease) = layer.direct_lease() {
+            let _ = (lease.path(), lease.len());
+            let _ = layer.mark_resident(0);
+        }
+        placements.push(placement);
+    }
+}
+
+fn pane_graphics_host_placement(
+    pane_id: PaneId,
+    area: Rect,
+    cell_size: HostCellSize,
+    host_image_id: u32,
+    layer: &crate::app::pane_graphics::Layer,
+    uploaded_images: &HashMap<u32, ImageSignature>,
+) -> Option<HostPlacement> {
+    let format = pane_graphics_kitty_format(layer.format)?;
+    let format_code = kitty_format_code(format);
+    let signature = ImageSignature {
+        image_width: layer.image_width,
+        image_height: layer.image_height,
+        format_code,
+        data_len: layer.data_len(),
+        data_fingerprint: layer.data_fingerprint,
+    };
+    let data = if uploaded_images.get(&host_image_id).copied() == Some(signature) {
+        Vec::new()
+    } else if let Some(inline) = layer.inline_data() {
+        inline.to_vec()
+    } else if let Some(lease) = layer.direct_lease() {
+        lease.copy_rgba().unwrap_or_default()
+    } else {
+        Vec::new()
+    };
+    Some(HostPlacement {
+        pane_id,
+        area,
+        cell_size,
+        placement: KittyImagePlacement {
+            image_id: host_image_id,
+            placement_id: 1,
+            z: layer.z_index,
+            x_offset: 0,
+            y_offset: 0,
+            image_width: layer.image_width,
+            image_height: layer.image_height,
+            format,
+            data_len: layer.data_len(),
+            data_fingerprint: layer.data_fingerprint,
+            data,
+            render: crate::ghostty::KittyPlacementRenderInfo {
+                pixel_width: layer.image_width,
+                pixel_height: layer.image_height,
+                grid_cols: layer.render.grid_cols,
+                grid_rows: layer.render.grid_rows,
+                viewport_col: layer.render.viewport_col,
+                viewport_row: layer.render.viewport_row,
+                source_x: 0,
+                source_y: 0,
+                source_width: 0,
+                source_height: 0,
+            },
+        },
+        scrollback_offset: 0,
+    })
+}
+
+fn pane_graphics_kitty_format(
+    format: crate::api::schema::PaneGraphicsFormat,
+) -> Option<KittyImageFormat> {
+    match format {
+        crate::api::schema::PaneGraphicsFormat::Png => Some(KittyImageFormat::Png),
+        crate::api::schema::PaneGraphicsFormat::Rgb => Some(KittyImageFormat::Rgb),
+        crate::api::schema::PaneGraphicsFormat::Rgba
+        | crate::api::schema::PaneGraphicsFormat::Bgra => Some(KittyImageFormat::Rgba),
+    }
 }
 
 fn host_image_id(pane_id: PaneId, placement: &KittyImagePlacement) -> u32 {
@@ -664,6 +816,19 @@ fn host_placement_id(pane_id: PaneId, placement: &KittyImagePlacement) -> u32 {
     placement.image_id.hash(&mut hasher);
     placement.placement_id.hash(&mut hasher);
     1 + ((hasher.finish() as u32) % 900_000)
+}
+
+pub(crate) fn encode_kitty_regular_file(
+    out: &mut Vec<u8>,
+    leading: &[u8],
+    control: &str,
+    path: &str,
+) {
+    let payload = base64::engine::general_purpose::STANDARD.encode(path.as_bytes());
+    out.extend_from_slice(b"\x1b7");
+    out.extend_from_slice(leading);
+    let _ = write!(out, "\x1b_G{control},t=f;{payload}\x1b\\");
+    out.extend_from_slice(b"\x1b8");
 }
 
 fn encode_delete_image(out: &mut Vec<u8>, id: u32) {

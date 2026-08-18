@@ -199,6 +199,73 @@ fn claude_manifest_does_not_hold_working_from_stale_spinner_scrollback() {
 }
 
 #[test]
+fn claude_enter_to_confirm_is_blocked() {
+    let result = explain(
+        Agent::Claude,
+        "Apply this change?\nEnter to confirm · Esc to cancel",
+    );
+    assert_eq!(result.state, AgentState::Blocked);
+    assert_eq!(
+        result.matched_rule.as_ref().map(|rule| rule.id.as_str()),
+        Some("live_blocked_form")
+    );
+    assert!(result.visible_blocker);
+}
+
+#[test]
+fn claude_osc_title_half_circle_frames_are_working() {
+    for frame in ['◐', '◓', '◑', '◒'] {
+        let title = format!("{frame} Initial conversation with Claude");
+        let result = explain_with_input(
+            Agent::Claude,
+            DetectionInput {
+                screen: "",
+                osc_title: &title,
+                osc_progress: "",
+            },
+        );
+        assert_eq!(result.state, AgentState::Working, "frame {frame}");
+        assert_eq!(
+            result.matched_rule.as_ref().map(|rule| rule.id.as_str()),
+            Some("osc_title_working"),
+            "frame {frame}"
+        );
+        assert!(!result.visible_working, "frame {frame}");
+    }
+}
+
+#[test]
+fn kiro_prompt_idle_requires_positive_idle_evidence() {
+    let idle = explain(
+        Agent::Kiro,
+        "Ask a question or describe a task\n/copy to clipboard",
+    );
+    assert_eq!(idle.state, AgentState::Idle);
+    assert_eq!(
+        idle.matched_rule.as_ref().map(|rule| rule.id.as_str()),
+        Some("prompt_idle")
+    );
+    assert!(idle.visible_idle);
+
+    let working = explain(
+        Agent::Kiro,
+        "Ask a question or describe a task\n/copy to clipboard\nKiro is working",
+    );
+    assert_eq!(working.state, AgentState::Working);
+    assert_ne!(
+        working.matched_rule.as_ref().map(|rule| rule.id.as_str()),
+        Some("prompt_idle")
+    );
+}
+
+#[test]
+fn cursor_run_everything_status_is_not_blocked() {
+    let result = explain(Agent::Cursor, "Run Everything\nctrl+c to stop");
+    assert_ne!(result.state, AgentState::Blocked);
+    assert!(!result.visible_blocker);
+}
+
+#[test]
 fn osc_only_matches_do_not_claim_visible_screen_evidence() {
     with_manifest_dirs("osc-not-visible", || {
         write_local_codex(&rules_manifest(
@@ -838,4 +905,52 @@ fn amp_osc_and_footer_chrome_tracks_active_turns() {
     );
     assert_eq!(idle.state, AgentState::Idle);
     assert!(!idle.visible_idle);
+}
+
+#[test]
+fn codex_trust_directory_requires_live_top_region() {
+    let screen = "> You are in C:\\Users\\user\\project\n\n\
+        Do you trust the contents of this\n\
+        directory? Working with untrusted\n\
+        contents comes with higher risk of\n\
+        prompt injection. Trusting the\n\
+        directory allows project-local config,\n\
+        hooks, and exec policies to load.\n\n\
+        › 1. Yes, continue\n\
+          2. No, quit\n\n\
+        Press enter to continue\n";
+    let result = explain_with_input(
+        Agent::Codex,
+        DetectionInput {
+            screen,
+            osc_title: "project",
+            osc_progress: "",
+        },
+    );
+
+    assert_eq!(result.state, AgentState::Blocked);
+    assert_eq!(
+        result.matched_rule.as_ref().map(|rule| rule.id.as_str()),
+        Some("trust_directory")
+    );
+    assert!(result.visible_blocker);
+
+    let transcript = "› > You are in C:\\Users\\user\\project\n\n\
+        Do you trust the contents of this\n\
+        directory? Working with untrusted contents comes with higher risk.\n";
+    let result = explain_with_input(
+        Agent::Codex,
+        DetectionInput {
+            screen: transcript,
+            osc_title: "project",
+            osc_progress: "",
+        },
+    );
+
+    assert_eq!(result.state, AgentState::Idle);
+    assert_ne!(
+        result.matched_rule.as_ref().map(|rule| rule.id.as_str()),
+        Some("trust_directory")
+    );
+    assert!(!result.visible_blocker);
 }

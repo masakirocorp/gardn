@@ -109,6 +109,13 @@ pub struct EffectiveStateChange {
 pub struct TerminalStateMutation {
     pub effective_state_change: Option<EffectiveStateChange>,
     pub session_ref_changed: bool,
+    pub agent_released: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct RecentAgentProcessExit {
+    agent: Agent,
+    observed_at: Instant,
 }
 
 /// Pure state for a server-owned terminal.
@@ -141,7 +148,8 @@ pub struct TerminalState {
     pub launch_env: Vec<(String, String)>,
     pub respawn_shell_on_exit: bool,
     pub remote_runtime_identity: Option<crate::execution_host::protocol::RuntimeIdentity>,
-    recent_agent_process_exit_at: Option<Instant>,
+    recent_agent_process_exit: Option<RecentAgentProcessExit>,
+    agent_process_acquisition_pending: bool,
     pub pending_agent_resume_plan: Option<crate::agent_resume::AgentResumePlan>,
     last_meaningful_agent_activity_seq: u64,
     last_meaningful_agent_activity_unix_secs: Option<u64>,
@@ -188,7 +196,8 @@ impl TerminalState {
             launch_argv: None,
             launch_env: Vec::new(),
             remote_runtime_identity: None,
-            recent_agent_process_exit_at: None,
+            recent_agent_process_exit: None,
+            agent_process_acquisition_pending: false,
             respawn_shell_on_exit: false,
             pending_agent_resume_plan: None,
             last_meaningful_agent_activity_seq: 0,
@@ -291,8 +300,8 @@ impl TerminalState {
     }
 
     pub fn agent_process_exited_within(&self, now: Instant, max_age: Duration) -> bool {
-        self.recent_agent_process_exit_at
-            .is_some_and(|exited_at| now.saturating_duration_since(exited_at) <= max_age)
+        self.recent_agent_process_exit
+            .is_some_and(|exit| now.saturating_duration_since(exit.observed_at) <= max_age)
     }
 
     pub fn with_launch_argv(mut self, argv: Vec<String>) -> Self {
@@ -316,6 +325,43 @@ impl TerminalState {
     ) -> Self {
         self.pending_agent_resume_plan = Some(plan);
         self
+    }
+
+    pub fn set_detected_agent_process_at(
+        &mut self,
+        agent: Agent,
+        now: Instant,
+    ) -> TerminalStateMutation {
+        let starts_acquisition = !self.full_lifecycle_hook_authority_active()
+            && self.detected_agent != Some(agent)
+            && !matches!(
+                self.state,
+                AgentState::Working | AgentState::Blocked | AgentState::Idle
+            );
+        let mutation = self.set_detected_state_with_screen_signals_at(
+            Some(agent),
+            self.fallback_state,
+            self.fallback_visible_blocker,
+            self.fallback_visible_idle,
+            self.fallback_visible_working,
+            false,
+            now,
+        );
+        if starts_acquisition {
+            self.agent_process_acquisition_pending = true;
+        }
+        mutation
+    }
+
+    pub(crate) fn finish_agent_process_acquisition(&mut self) -> bool {
+        if !self.agent_process_acquisition_pending {
+            return false;
+        }
+        if self.state == AgentState::Unknown {
+            return false;
+        }
+        self.agent_process_acquisition_pending = false;
+        self.state == AgentState::Idle && self.recent_agent_process_exit.is_none()
     }
 
     #[cfg(test)]
@@ -381,10 +427,27 @@ impl TerminalState {
         let previous_presentation = self.effective_presentation_for_state_at(previous_state, now);
         let previous_detected_agent = self.detected_agent;
         let previous_session = self.current_session_identity_for_persistence();
-        if process_exited && agent.is_some() {
-            self.recent_agent_process_exit_at = Some(now);
+        let newer_custom_authority = process_exited
+            && self.hook_authority.as_ref().is_some_and(|authority| {
+                crate::detect::parse_agent_label(&authority.agent_label) == agent
+                    && !crate::agent_resume::is_official_agent_source(
+                        &authority.source,
+                        &authority.agent_label,
+                    )
+                    && authority.reported_at > now
+            });
+        let agent_released = process_exited
+            && !newer_custom_authority
+            && (previous_agent_label.is_some() || self.agent_name.is_some());
+        if process_exited {
+            if let Some(agent) = agent {
+                self.recent_agent_process_exit = Some(RecentAgentProcessExit {
+                    agent,
+                    observed_at: now,
+                });
+            }
         } else if agent.is_some() {
-            self.recent_agent_process_exit_at = None;
+            self.recent_agent_process_exit = None;
         }
 
         self.detected_agent = agent;
@@ -394,9 +457,9 @@ impl TerminalState {
         self.fallback_visible_working = visible_working && fallback_state == AgentState::Working;
         self.fallback_observed_at = Some(now);
         if process_exited
-            && self.hook_authority_not_newer_than(now)
             && self.hook_authority.as_ref().is_some_and(|authority| {
                 crate::detect::parse_agent_label(&authority.agent_label) == agent
+                    && !newer_custom_authority
             })
         {
             self.hook_authority = None;
@@ -420,8 +483,19 @@ impl TerminalState {
             self.persisted_agent_session_belongs_to_detected_agent(previous_detected_agent);
         if self.persisted_agent_session_conflicts_with_detected_agent(agent)
             || detected_agent_changed_or_disappeared && persisted_agent_was_previously_detected
+            || (process_exited
+                && !newer_custom_authority
+                && self
+                    .persisted_agent_session
+                    .as_ref()
+                    .is_some_and(|session| {
+                        crate::detect::parse_agent_label(&session.agent) == agent
+                    }))
         {
             self.persisted_agent_session = None;
+        }
+        if agent_released {
+            self.clear_agent_name();
         }
         if process_exited || agent != previous_detected_agent {
             self.missing_integration_warning_reported_for = None;
@@ -437,6 +511,7 @@ impl TerminalState {
             ),
             session_ref_changed: previous_session
                 != self.current_session_identity_for_persistence(),
+            agent_released,
         }
     }
 
@@ -516,13 +591,38 @@ impl TerminalState {
         seq: Option<u64>,
         session_start_source: Option<String>,
     ) -> Option<TerminalStateMutation> {
+        let unsequenced_selection = Self::is_unsequenced_opencode_selection(
+            &source,
+            &agent_label,
+            session_start_source.as_deref(),
+            seq,
+        );
         let reset_sequence =
             self.should_reset_hook_sequence_for_new_session(&source, session_ref.as_ref());
-        if !self.hook_sequence_allows(&source, seq, reset_sequence) {
+        if !unsequenced_selection && !self.hook_sequence_allows(&source, seq, reset_sequence) {
             return None;
         }
         let session_ref = session_ref?;
         if self.known_agent_label_conflicts_with_detected_agent(&agent_label) {
+            return None;
+        }
+        if crate::detect::session_identity_only_integration(&source, &agent_label)
+            && Self::session_start_source_allows_session_replacement(
+                &source,
+                &agent_label,
+                session_start_source.as_deref(),
+            )
+            && self.current_session_identity_for_persistence().is_some_and(
+                |(current_source, current_agent, current_kind, current_value)| {
+                    current_source == source
+                        && current_agent == agent_label
+                        && current_kind == crate::agent_resume::AgentSessionRefKind::Id
+                        && session_ref.kind == crate::agent_resume::AgentSessionRefKind::Id
+                        && current_value != session_ref.value
+                },
+            )
+            && !self.process_owns_agent_label(&agent_label)
+        {
             return None;
         }
         if self
@@ -547,6 +647,7 @@ impl TerminalState {
         Some(TerminalStateMutation {
             effective_state_change: None,
             session_ref_changed: previous_session != current_session,
+            agent_released: false,
         })
     }
 
@@ -561,6 +662,9 @@ impl TerminalState {
         seq: Option<u64>,
         now: Instant,
     ) -> Option<TerminalStateMutation> {
+        if crate::detect::session_identity_only_integration(&source, &agent_label) {
+            return None;
+        }
         let reset_sequence =
             self.should_reset_hook_sequence_for_new_session(&source, session_ref.as_ref());
         if !self.hook_sequence_allows(&source, seq, reset_sequence) {
@@ -598,6 +702,7 @@ impl TerminalState {
                 now,
             ),
             session_ref_changed: previous_session != current_session,
+            agent_released: false,
         })
     }
 
@@ -798,7 +903,25 @@ impl TerminalState {
                     "omp",
                     Some("startup" | "new" | "resume" | "fork")
                 )
+                | ("omh:hermes", "hermes", Some("startup" | "new" | "resume"))
+                | ("omh:opencode", "opencode", Some("select"))
         )
+    }
+
+    fn is_unsequenced_opencode_selection(
+        source: &str,
+        agent_label: &str,
+        session_start_source: Option<&str>,
+        seq: Option<u64>,
+    ) -> bool {
+        (source, agent_label, session_start_source, seq)
+            == ("omh:opencode", "opencode", Some("select"), None)
+    }
+
+    fn process_owns_agent_label(&self, agent_label: &str) -> bool {
+        crate::detect::parse_agent_label(agent_label).is_some_and(|agent| {
+            self.detected_agent == Some(agent) && self.recent_agent_process_exit.is_none()
+        })
     }
 
     fn conflicting_current_session_ref(
@@ -956,6 +1079,7 @@ impl TerminalState {
                 now,
             ),
             session_ref_changed: previous_session.is_some(),
+            agent_released: false,
         })
     }
     #[cfg(test)]
@@ -993,6 +1117,14 @@ impl TerminalState {
         if !self.hook_sequence_allows(source, seq, false) {
             return None;
         }
+        let preserve_foreign_persisted_session = self
+            .persisted_agent_session
+            .as_ref()
+            .is_some_and(|session| session.source != source || session.agent != agent_label);
+        let process_owns_agent =
+            crate::detect::parse_agent_label(agent_label).is_some_and(|agent| {
+                self.detected_agent == Some(agent) && self.recent_agent_process_exit.is_none()
+            });
 
         let now = Instant::now();
         let previous_agent_label = self.effective_agent_label().map(str::to_string);
@@ -1001,16 +1133,22 @@ impl TerminalState {
         let previous_presentation = self.effective_presentation_for_state_at(previous_state, now);
         let previous_session = self.current_session_identity_for_persistence();
         self.commit_hook_sequence(source, seq, false);
-        self.detected_agent = None;
-        self.fallback_state = AgentState::Unknown;
-        self.fallback_visible_blocker = false;
-        self.fallback_visible_idle = false;
-        self.fallback_visible_working = false;
-        self.fallback_observed_at = None;
+        if !process_owns_agent {
+            self.detected_agent = None;
+            self.fallback_state = AgentState::Unknown;
+            self.fallback_visible_blocker = false;
+            self.fallback_visible_idle = false;
+            self.fallback_visible_working = false;
+            self.fallback_observed_at = None;
+            self.clear_agent_name();
+        }
         self.hook_authority = None;
         self.stale_hook_idle_since = None;
-        self.persisted_agent_session = None;
+        if !preserve_foreign_persisted_session {
+            self.persisted_agent_session = None;
+        }
         self.missing_integration_warning_reported_for = None;
+        let current_session = self.current_session_identity_for_persistence();
         Some(TerminalStateMutation {
             effective_state_change: self.recompute_effective_state(
                 previous_agent_label,
@@ -1019,7 +1157,8 @@ impl TerminalState {
                 previous_presentation,
                 now,
             ),
-            session_ref_changed: previous_session.is_some(),
+            session_ref_changed: previous_session != current_session,
+            agent_released: !process_owns_agent,
         })
     }
 
@@ -1046,20 +1185,52 @@ impl TerminalState {
     pub fn effective_agent_label(&self) -> Option<&str> {
         self.hook_authority
             .as_ref()
+            .filter(|authority| self.hook_authority_is_effective(authority))
             .map(|authority| authority.agent_label.as_str())
             .or(self.agent_name.as_deref())
-            .or_else(|| self.detected_agent.map(crate::detect::agent_label))
+            .or_else(|| {
+                self.recent_agent_process_exit
+                    .is_none()
+                    .then(|| self.detected_agent.map(crate::detect::agent_label))
+                    .flatten()
+            })
+    }
+
+    pub fn lifecycle_agent_label(&self) -> Option<&str> {
+        self.effective_agent_label().or_else(|| {
+            (self.state != AgentState::Unknown)
+                .then(|| {
+                    self.recent_agent_process_exit
+                        .map(|exit| crate::detect::agent_label(exit.agent))
+                })
+                .flatten()
+        })
     }
 
     pub fn effective_known_agent(&self) -> Option<Agent> {
-        if let Some(authority) = &self.hook_authority {
+        if let Some(authority) = self
+            .hook_authority
+            .as_ref()
+            .filter(|authority| self.hook_authority_is_effective(authority))
+        {
             return crate::detect::parse_agent_label(&authority.agent_label);
         }
-        self.detected_agent.or_else(|| {
-            self.agent_name
-                .as_deref()
-                .and_then(crate::detect::parse_agent_label)
-        })
+        if self.recent_agent_process_exit.is_none() {
+            if let Some(detected) = self.detected_agent {
+                return Some(detected);
+            }
+        }
+        self.agent_name
+            .as_deref()
+            .and_then(crate::detect::parse_agent_label)
+    }
+
+    fn hook_authority_is_effective(&self, authority: &HookAuthority) -> bool {
+        !crate::detect::full_lifecycle_hook_authority(&authority.source, &authority.agent_label)
+            || crate::detect::parse_agent_label(&authority.agent_label).is_none_or(|agent| {
+                self.recent_agent_process_exit.is_none()
+                    && self.detected_agent.is_none_or(|detected| detected == agent)
+            })
     }
 
     pub fn take_missing_integration_warning_agent(&mut self, now: Instant) -> Option<Agent> {
@@ -1134,10 +1305,13 @@ impl TerminalState {
         source == format!("omh:{label}")
             && agent_label.is_none_or(|agent_label| agent_label == label)
     }
-
     pub fn full_lifecycle_hook_authority_active(&self) -> bool {
         self.hook_authority.as_ref().is_some_and(|authority| {
-            crate::detect::full_lifecycle_hook_authority(&authority.source, &authority.agent_label)
+            self.hook_authority_is_effective(authority)
+                && crate::detect::full_lifecycle_hook_authority(
+                    &authority.source,
+                    &authority.agent_label,
+                )
         })
     }
 
@@ -1214,7 +1388,8 @@ impl TerminalState {
     pub fn clear_agent_runtime_identity_after_respawn(&mut self) {
         self.detected_agent = None;
         self.fallback_state = AgentState::Unknown;
-        self.recent_agent_process_exit_at = None;
+        self.recent_agent_process_exit = None;
+        self.agent_process_acquisition_pending = false;
         self.fallback_visible_blocker = false;
         self.fallback_visible_idle = false;
         self.fallback_visible_working = false;
@@ -1285,11 +1460,9 @@ impl TerminalState {
     ) -> Option<EffectiveStateChange> {
         let state = if self.visible_working_overrides_hook() {
             AgentState::Working
-        } else if self
-            .hook_authority
-            .as_ref()
-            .is_some_and(|authority| authority.state == AgentState::Blocked)
-            || self.visible_blocker_overrides_hook()
+        } else if self.hook_authority.as_ref().is_some_and(|authority| {
+            self.hook_authority_is_effective(authority) && authority.state == AgentState::Blocked
+        }) || self.visible_blocker_overrides_hook()
         {
             AgentState::Blocked
         } else if self.visible_idle_stales_hook(now) {
@@ -1297,6 +1470,7 @@ impl TerminalState {
         } else {
             self.hook_authority
                 .as_ref()
+                .filter(|authority| self.hook_authority_is_effective(authority))
                 .map(|authority| authority.state)
                 .unwrap_or(self.fallback_state)
         };
@@ -2348,7 +2522,7 @@ mod tests {
 
         assert!(terminal.hook_authority.is_none());
         assert_eq!(terminal.detected_agent, Some(Agent::Codex));
-        assert_eq!(terminal.effective_agent_label(), Some("codex"));
+        assert_eq!(terminal.effective_agent_label(), None);
         assert_eq!(terminal.state, AgentState::Idle);
     }
 
@@ -2391,7 +2565,7 @@ mod tests {
     }
 
     #[test]
-    fn stale_process_exit_does_not_clear_newer_same_agent_hook_authority() {
+    fn process_exit_clears_newer_same_agent_hook_authority() {
         let mut terminal = test_terminal();
         let observed = Instant::now();
         terminal.set_detected_state_with_screen_signals_at(
@@ -2434,10 +2608,54 @@ mod tests {
             observed,
         );
 
-        let authority = terminal.hook_authority.as_ref().expect("hook authority");
-        assert_eq!(authority.custom_status.as_deref(), Some("new turn"));
+        assert!(terminal.hook_authority.is_none());
+        assert_eq!(terminal.state, AgentState::Idle);
+        assert_eq!(terminal.effective_agent_label(), None);
+    }
+
+    #[test]
+    fn stale_process_exit_preserves_newer_custom_authority() {
+        let mut terminal = test_terminal();
+        let observed = Instant::now();
+        terminal.set_detected_state_with_screen_signals_at(
+            Some(Agent::Pi),
+            AgentState::Idle,
+            false,
+            false,
+            false,
+            false,
+            observed,
+        );
+        terminal.set_hook_authority_with_custom_status_at(
+            "custom:pi".into(),
+            "pi".into(),
+            AgentState::Working,
+            None,
+            None,
+            None,
+            Some(100),
+            observed + Duration::from_secs(1),
+        );
+
+        let mutation = terminal.set_detected_state_with_screen_signals_at(
+            Some(Agent::Pi),
+            AgentState::Idle,
+            false,
+            false,
+            false,
+            true,
+            observed,
+        );
+
+        assert!(!mutation.agent_released);
         assert_eq!(terminal.state, AgentState::Working);
-        assert_eq!(terminal.effective_agent_label(), Some("codex"));
+        assert_eq!(
+            terminal
+                .hook_authority
+                .as_ref()
+                .map(|hook| hook.source.as_str()),
+            Some("custom:pi")
+        );
     }
 
     #[test]
@@ -2461,7 +2679,7 @@ mod tests {
     }
 
     #[test]
-    fn release_agent_clears_identity_immediately() {
+    fn official_release_preserves_process_owned_agent_identity() {
         let mut terminal = test_terminal();
         terminal.set_detected_state(Some(Agent::Pi), AgentState::Idle);
         terminal.set_hook_authority(
@@ -2472,12 +2690,40 @@ mod tests {
             None,
         );
 
-        terminal.release_agent("omh:pi", "pi", None);
+        let mutation = terminal
+            .release_agent_with_mutation("omh:pi", "pi", None, None)
+            .expect("official release should be accepted");
 
+        assert!(!mutation.agent_released);
         assert!(terminal.hook_authority.is_none());
-        assert_eq!(terminal.detected_agent, None);
-        assert_eq!(terminal.fallback_state, AgentState::Unknown);
-        assert_eq!(terminal.state, AgentState::Unknown);
+        assert_eq!(terminal.detected_agent, Some(Agent::Pi));
+        assert_eq!(terminal.effective_agent_label(), Some("pi"));
+        assert_eq!(terminal.state, AgentState::Idle);
+    }
+
+    #[test]
+    fn custom_release_preserves_process_owned_agent_state() {
+        let mut terminal = test_terminal();
+        terminal.set_detected_state(Some(Agent::Pi), AgentState::Idle);
+        terminal
+            .set_hook_authority(
+                "custom:pi".into(),
+                "pi".into(),
+                AgentState::Working,
+                None,
+                Some(10),
+            )
+            .expect("custom state should be accepted");
+
+        let mutation = terminal
+            .release_agent_with_mutation("custom:pi", "pi", None, Some(11))
+            .expect("custom release should be accepted");
+
+        assert!(!mutation.agent_released);
+        assert!(terminal.hook_authority.is_none());
+        assert_eq!(terminal.detected_agent, Some(Agent::Pi));
+        assert_eq!(terminal.effective_agent_label(), Some("pi"));
+        assert_eq!(terminal.state, AgentState::Idle);
     }
 
     #[test]
@@ -2722,6 +2968,135 @@ mod tests {
     }
 
     #[test]
+    fn hermes_session_claim_leaves_state_to_detection() {
+        let mut terminal = test_terminal();
+        terminal.set_detected_state(Some(Agent::Hermes), AgentState::Idle);
+        let session_ref = crate::agent_resume::AgentSessionRef::id("hermes-root").unwrap();
+
+        let session = terminal.set_agent_session_ref_for_session_start(
+            "omh:hermes".into(),
+            "hermes".into(),
+            Some(session_ref.clone()),
+            Some(10),
+            Some("startup".into()),
+        );
+
+        assert!(session.is_some());
+        assert!(terminal.hook_authority.is_none());
+        assert_eq!(
+            terminal
+                .persisted_agent_session
+                .as_ref()
+                .map(|session| session.session_ref.value.as_str()),
+            Some("hermes-root")
+        );
+        assert!(terminal
+            .set_hook_authority_with_session_ref(
+                "omh:hermes".into(),
+                "hermes".into(),
+                AgentState::Working,
+                None,
+                None,
+                Some(session_ref),
+                Some(11),
+            )
+            .is_none());
+        assert_eq!(terminal.state, AgentState::Idle);
+        assert!(terminal.hook_authority.is_none());
+    }
+
+    #[test]
+    fn hermes_session_replacement_requires_process_presence() {
+        let mut terminal = test_terminal();
+        terminal
+            .set_agent_session_ref_for_session_start(
+                "omh:hermes".into(),
+                "hermes".into(),
+                crate::agent_resume::AgentSessionRef::id("hermes-old"),
+                Some(10),
+                Some("startup".into()),
+            )
+            .expect("initial Hermes session");
+
+        assert!(terminal
+            .set_agent_session_ref_for_session_start(
+                "omh:hermes".into(),
+                "hermes".into(),
+                crate::agent_resume::AgentSessionRef::id("hermes-new"),
+                Some(11),
+                Some("new".into()),
+            )
+            .is_none());
+        assert_eq!(
+            terminal
+                .persisted_agent_session
+                .as_ref()
+                .map(|session| session.session_ref.value.as_str()),
+            Some("hermes-old")
+        );
+
+        terminal.set_detected_state(Some(Agent::Hermes), AgentState::Idle);
+        terminal
+            .set_agent_session_ref_for_session_start(
+                "omh:hermes".into(),
+                "hermes".into(),
+                crate::agent_resume::AgentSessionRef::id("hermes-new"),
+                Some(12),
+                Some("new".into()),
+            )
+            .expect("detected Hermes process can rotate sessions");
+        assert_eq!(
+            terminal
+                .persisted_agent_session
+                .as_ref()
+                .map(|session| session.session_ref.value.as_str()),
+            Some("hermes-new")
+        );
+    }
+
+    #[test]
+    fn opencode_tui_selection_replaces_existing_session_ref() {
+        let mut terminal = test_terminal();
+        terminal.set_detected_state(Some(Agent::OpenCode), AgentState::Idle);
+        terminal
+            .set_agent_session_ref_for_session_start(
+                "omh:opencode".into(),
+                "opencode".into(),
+                crate::agent_resume::AgentSessionRef::id("opencode-visible"),
+                None,
+                Some("select".into()),
+            )
+            .expect("local selection should be accepted");
+
+        let rejected = terminal.set_agent_session_ref_for_session_start(
+            "omh:opencode".into(),
+            "opencode".into(),
+            crate::agent_resume::AgentSessionRef::id("opencode-attached-client"),
+            Some(21),
+            Some("new".into()),
+        );
+        assert!(rejected.is_none());
+
+        let selected = terminal
+            .set_agent_session_ref_for_session_start(
+                "omh:opencode".into(),
+                "opencode".into(),
+                crate::agent_resume::AgentSessionRef::id("opencode-reselected"),
+                None,
+                Some("select".into()),
+            )
+            .expect("TUI selection should replace the previous session");
+        assert!(selected.session_ref_changed);
+        assert_eq!(
+            terminal
+                .persisted_agent_session
+                .as_ref()
+                .map(|session| session.session_ref.value.as_str()),
+            Some("opencode-reselected")
+        );
+    }
+
+    #[test]
     fn accepted_hook_report_without_session_ref_clears_previous_ref() {
         let mut terminal = test_terminal();
         terminal.set_hook_authority_with_session_ref(
@@ -2767,8 +3142,8 @@ mod tests {
 
         let mutation = terminal
             .set_hook_authority_with_session_ref(
-                "omh:hermes".into(),
-                "hermes".into(),
+                "omh:pi".into(),
+                "pi".into(),
                 AgentState::Working,
                 None,
                 None,
@@ -2908,14 +3283,14 @@ mod tests {
     #[test]
     fn detected_agent_disappearance_clears_matching_hook_session_ref() {
         let mut terminal = test_terminal();
-        terminal.set_detected_state(Some(Agent::Hermes), AgentState::Idle);
+        terminal.set_detected_state(Some(Agent::OpenCode), AgentState::Idle);
         terminal.set_hook_authority_with_session_ref(
-            "omh:hermes".into(),
-            "hermes".into(),
+            "omh:opencode".into(),
+            "opencode".into(),
             AgentState::Working,
             None,
             None,
-            crate::agent_resume::AgentSessionRef::id("hermes-session"),
+            crate::agent_resume::AgentSessionRef::id("opencode-session"),
             Some(20),
         );
 

@@ -22,6 +22,15 @@ sync-upstream:
 upstream-status:
     python3 scripts/upstream_status.py --check
 
+# Enforce deterministic UI hot-path architecture boundaries
+ui-hot-path-architecture-test:
+    python3 -m unittest scripts.test_ui_hot_path_architecture
+
+# Non-gating full-render scaling profile for background workspaces and active panes
+bench-render-scale:
+    cargo test --release --locked --package omh --bin omh render_scale_profile -- --ignored --nocapture --test-threads=1
+
+
 # Draft a Tegami version commit, tag it, push, and trigger the GitHub Release workflow
 release:
     @if [ -n "$(git status --porcelain)" ]; then \

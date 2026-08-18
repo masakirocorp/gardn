@@ -19,6 +19,8 @@ mod connection;
 mod pane;
 mod plugin;
 mod protocol_guard;
+mod server_not_running;
+
 mod tab;
 mod workspace;
 
@@ -434,13 +436,6 @@ fn read_server_runtime_status() -> std::io::Result<ServerRuntimeStatus> {
         Err(err) if server_not_running_error(&err) => Ok(ServerRuntimeStatus::NotRunning),
         Err(err) => Err(err),
     }
-}
-
-fn server_not_running_error(err: &std::io::Error) -> bool {
-    matches!(
-        err.kind(),
-        std::io::ErrorKind::NotFound | std::io::ErrorKind::ConnectionRefused
-    )
 }
 
 fn option_label(value: Option<&str>) -> &str {
@@ -1250,7 +1245,7 @@ fn group_delete(args: &[String]) -> std::io::Result<i32> {
 fn agent_start(args: &[String]) -> std::io::Result<i32> {
     if let Some(code) = agent_subcommand_help(
         args,
-        "usage: omh agent start <name> [--cwd PATH] [--host EXECUTION_HOST_ID] [--workspace ID] [--tab ID] [--split right|down] [--focus|--no-focus] -- <argv...>",
+        "usage: omh agent start <name> [--cwd PATH] [--host EXECUTION_HOST_ID] [--workspace ID] [--tab ID] [--split right|down] [--focus|--no-focus] -- <argv...>\n\nThe pane must be at its interactive shell prompt. Success means the expected agent was detected in the same terminal and is ready for input.\n\nnext: omh agent prompt <TARGET> <TEXT> --wait",
     ) {
         return Ok(code);
     }
@@ -1902,12 +1897,33 @@ fn parse_integration_target(
     Ok(Some(parsed))
 }
 fn wait_output(args: &[String]) -> std::io::Result<i32> {
-    let Some(raw_pane_id) = args.first() else {
-        eprintln!("usage: omh wait output <pane_id> --match <text> [--source visible|recent|recent-unwrapped] [--lines N] [--timeout MS] [--regex]");
-        return Ok(2);
+    let params = match parse_wait_output_args(args) {
+        Ok(params) => params,
+        Err(message) => {
+            eprintln!("{message}");
+            return Ok(2);
+        }
     };
 
-    let pane_id = normalize_pane_id(raw_pane_id);
+    let response = send_request(&Request {
+        id: "cli:wait:output".into(),
+        method: Method::PaneWaitForOutput(params),
+    })?;
+
+    if response.get("error").is_some() {
+        eprintln!("{}", serde_json::to_string(&response).unwrap());
+        return Ok(1);
+    }
+
+    println!("{}", serde_json::to_string(&response).unwrap());
+    Ok(0)
+}
+
+fn parse_wait_output_args(args: &[String]) -> Result<PaneWaitForOutputParams, String> {
+    const USAGE: &str = "usage: omh wait output <pane_id> --match <text> [--source visible|recent|recent-unwrapped] [--lines N] [--timeout MS] [--regex] [--raw]";
+
+    let args = expand_equals_args(args, &["--match", "--source", "--lines", "--timeout"]);
+    let mut pane_id = None;
     let mut source = ReadSource::Recent;
     let mut lines = None;
     let mut timeout_ms = None;
@@ -1915,39 +1931,36 @@ fn wait_output(args: &[String]) -> std::io::Result<i32> {
     let mut regex = false;
     let mut match_value = None;
 
-    let mut index = 1;
+    let mut index = 0;
     while index < args.len() {
         match args[index].as_str() {
             "--match" => {
                 let Some(value) = args.get(index + 1) else {
-                    eprintln!("missing value for --match");
-                    return Ok(2);
+                    return Err("missing value for --match".into());
                 };
                 match_value = Some(value.clone());
                 index += 2;
             }
             "--source" => {
                 let Some(value) = args.get(index + 1) else {
-                    eprintln!("missing value for --source");
-                    return Ok(2);
+                    return Err("missing value for --source".into());
                 };
-                source = parse_read_source(value)?;
+                source = parse_read_source(value).map_err(|err| err.to_string())?;
                 index += 2;
             }
             "--lines" => {
                 let Some(value) = args.get(index + 1) else {
-                    eprintln!("missing value for --lines");
-                    return Ok(2);
+                    return Err("missing value for --lines".into());
                 };
-                lines = Some(parse_u32_flag("--lines", value)?);
+                lines = Some(parse_u32_flag("--lines", value).map_err(|err| err.to_string())?);
                 index += 2;
             }
             "--timeout" => {
                 let Some(value) = args.get(index + 1) else {
-                    eprintln!("missing value for --timeout");
-                    return Ok(2);
+                    return Err("missing value for --timeout".into());
                 };
-                timeout_ms = Some(parse_u64_flag("--timeout", value)?);
+                timeout_ms =
+                    Some(parse_u64_flag("--timeout", value).map_err(|err| err.to_string())?);
                 index += 2;
             }
             "--regex" => {
@@ -1958,16 +1971,24 @@ fn wait_output(args: &[String]) -> std::io::Result<i32> {
                 strip_ansi = false;
                 index += 1;
             }
-            other => {
-                eprintln!("unknown option: {other}");
-                return Ok(2);
+            option if option.starts_with('-') => {
+                return Err(format!("unknown option: {option}"));
+            }
+            positional => {
+                if pane_id.is_some() {
+                    return Err(format!("unexpected argument: {positional}"));
+                }
+                pane_id = Some(normalize_pane_id(positional));
+                index += 1;
             }
         }
     }
 
+    let Some(pane_id) = pane_id else {
+        return Err(USAGE.into());
+    };
     let Some(match_value) = match_value else {
-        eprintln!("missing required --match");
-        return Ok(2);
+        return Err("missing required --match".into());
     };
 
     let matcher = if regex {
@@ -1976,25 +1997,14 @@ fn wait_output(args: &[String]) -> std::io::Result<i32> {
         OutputMatch::Substring { value: match_value }
     };
 
-    let response = send_request(&Request {
-        id: "cli:wait:output".into(),
-        method: Method::PaneWaitForOutput(PaneWaitForOutputParams {
-            pane_id,
-            source,
-            lines,
-            r#match: matcher,
-            timeout_ms,
-            strip_ansi,
-        }),
-    })?;
-
-    if response.get("error").is_some() {
-        eprintln!("{}", serde_json::to_string(&response).unwrap());
-        return Ok(1);
-    }
-
-    println!("{}", serde_json::to_string(&response).unwrap());
-    Ok(0)
+    Ok(PaneWaitForOutputParams {
+        pane_id,
+        source,
+        lines,
+        r#match: matcher,
+        timeout_ms,
+        strip_ansi,
+    })
 }
 
 fn wait_agent_status(args: &[String]) -> std::io::Result<i32> {
@@ -2205,13 +2215,14 @@ pub(super) fn send_request(request: &Request) -> std::io::Result<serde_json::Val
     ensure_server_protocol_compatible(&client, &request.id)?;
     client
         .request_value(request)
-        .map_err(api_client_error_to_io)
+        .map_err(|err| map_server_not_running_or_io(err, &request.id, &client))
 }
 
 fn send_request_unchecked(request: &Request) -> std::io::Result<serde_json::Value> {
-    ApiClient::local()
+    let client = ApiClient::local();
+    client
         .request_value(request)
-        .map_err(api_client_error_to_io)
+        .map_err(|err| map_server_not_running_or_io(err, &request.id, &client))
 }
 
 fn ensure_server_protocol_compatible(client: &ApiClient, request_id: &str) -> std::io::Result<()> {
@@ -2221,7 +2232,7 @@ fn ensure_server_protocol_compatible(client: &ApiClient, request_id: &str) -> st
     };
     let response = client
         .request_value(&ping)
-        .map_err(api_client_error_to_io)
+        .map_err(|err| map_server_not_running_or_io(err, request_id, client))
         .and_then(|value| {
             crate::api::client::parse_response_value(value).map_err(api_client_error_to_io)
         })?;
@@ -2246,6 +2257,39 @@ fn ensure_server_protocol_compatible(client: &ApiClient, request_id: &str) -> st
 
 pub(crate) fn protocol_mismatch_was_reported(error: &std::io::Error) -> bool {
     protocol_guard::was_reported(error)
+}
+
+pub(crate) fn server_not_running_was_reported(err: &std::io::Error) -> bool {
+    server_not_running::was_reported(err)
+}
+
+pub(crate) fn server_not_running_reported_response(
+    err: &std::io::Error,
+) -> Option<&crate::api::schema::ErrorResponse> {
+    server_not_running::reported_response(err)
+}
+
+pub(super) fn server_not_running_error(err: &std::io::Error) -> bool {
+    matches!(
+        err.kind(),
+        std::io::ErrorKind::NotFound | std::io::ErrorKind::ConnectionRefused
+    )
+}
+
+fn map_server_not_running_or_io(
+    err: ApiClientError,
+    request_id: &str,
+    client: &ApiClient,
+) -> std::io::Error {
+    match err {
+        ApiClientError::Io(io_err) if server_not_running_error(&io_err) => {
+            server_not_running::reported_error(server_not_running::response(
+                request_id,
+                &client.socket_path(),
+            ))
+        }
+        err => api_client_error_to_io(err),
+    }
 }
 
 fn api_timeout_error(err: &std::io::Error) -> bool {
@@ -2370,6 +2414,25 @@ pub(super) fn parse_u64_flag(flag: &str, value: &str) -> std::io::Result<u64> {
     value
         .parse::<u64>()
         .map_err(|_| std::io::Error::other(format!("invalid value for {flag}: {value}")))
+}
+
+/// Expand `--flag=value` tokens into separate `--flag` and `value` tokens so
+/// the hand-rolled subcommand parsers accept the same `--flag=value` form the
+/// clap-generated help and completions imply. Only `value_options` are split:
+/// boolean and unknown options keep their attached value so they still reach
+/// the parser's unknown-option branch.
+pub(super) fn expand_equals_args(args: &[String], value_options: &[&str]) -> Vec<String> {
+    let mut expanded = Vec::with_capacity(args.len());
+    for arg in args {
+        match arg.split_once('=') {
+            Some((flag, value)) if value_options.contains(&flag) => {
+                expanded.push(flag.to_string());
+                expanded.push(value.to_string());
+            }
+            _ => expanded.push(arg.clone()),
+        }
+    }
+    expanded
 }
 
 fn parse_session_json_only(args: &[String], usage: &str) -> Result<bool, i32> {
@@ -2532,8 +2595,8 @@ fn _print_json<T: Serialize>(value: &T) {
 
 #[cfg(test)]
 mod tests {
-    use super::explicit_resource_location;
-    use crate::api::schema::ResourceLocationParams;
+    use super::{explicit_resource_location, parse_wait_output_args};
+    use crate::api::schema::{OutputMatch, ReadSource, ResourceLocationParams};
 
     fn parse_group_create_args(
         args: &[&str],
@@ -2637,5 +2700,93 @@ mod tests {
                 path: "/tmp/group".into(),
             })
         );
+    }
+
+    #[test]
+    fn maps_dead_server_connect_failure_to_friendly_error() {
+        use crate::api::client::{ApiClient, ApiClientError};
+
+        let client = ApiClient::local();
+        let socket = client.socket_path().display().to_string();
+
+        let mapped = super::map_server_not_running_or_io(
+            ApiClientError::Io(std::io::Error::from(std::io::ErrorKind::NotFound)),
+            "cli:workspace:create",
+            &client,
+        );
+
+        let response = super::server_not_running::reported_response(&mapped)
+            .expect("dead-server connect failure should carry a server_not_running response");
+        assert_eq!(response.id, "cli:workspace:create");
+        assert_eq!(response.error.code, "server_not_running");
+        assert!(response.error.message.contains(&socket));
+        assert!(super::server_not_running::was_reported(&mapped));
+    }
+
+    #[test]
+    fn classifier_ignores_unrelated_io_kinds() {
+        use crate::api::client::{ApiClient, ApiClientError};
+
+        let client = ApiClient::local();
+        let mapped = super::map_server_not_running_or_io(
+            ApiClientError::Io(std::io::Error::from(std::io::ErrorKind::TimedOut)),
+            "cli:workspace:create",
+            &client,
+        );
+        assert!(!super::server_not_running::was_reported(&mapped));
+    }
+
+    #[test]
+    fn expand_equals_args_splits_value_options_only() {
+        let args = vec![
+            "--match=a=b".to_string(),
+            "name=value".to_string(),
+            "--raw=value".to_string(),
+            "--bogus=value".to_string(),
+            "--timeout=5000".to_string(),
+        ];
+        assert_eq!(
+            super::expand_equals_args(&args, &["--match", "--timeout"]),
+            vec![
+                "--match",
+                "a=b",
+                "name=value",
+                "--raw=value",
+                "--bogus=value",
+                "--timeout",
+                "5000",
+            ]
+        );
+    }
+
+    #[test]
+    fn parse_wait_output_args_accepts_equals_and_reordered_options() {
+        let params = parse_wait_output_args(&[
+            "--timeout=5000".to_string(),
+            "issue-1".to_string(),
+            "--match=a=b".to_string(),
+            "--source=visible".to_string(),
+        ])
+        .unwrap();
+
+        assert_eq!(params.pane_id, "issue-1");
+        assert_eq!(params.source, ReadSource::Visible);
+        assert_eq!(params.timeout_ms, Some(5000));
+        assert!(matches!(
+            params.r#match,
+            OutputMatch::Substring { value } if value == "a=b"
+        ));
+    }
+
+    #[test]
+    fn parse_wait_output_args_rejects_invalid_option_value() {
+        let err = parse_wait_output_args(&[
+            "issue-1".to_string(),
+            "--match=ready".to_string(),
+            "--timeout=nope".to_string(),
+        ])
+        .unwrap_err();
+
+        assert!(err.contains("invalid value for --timeout"));
     }
 }

@@ -116,6 +116,52 @@ class AgentDetectionManifestCheckTests(unittest.TestCase):
 
             self.assertIn("codex", manifests)
 
+    def test_accepts_top_non_empty_lines_region_used_by_bundled_manifests(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            bundled = Path(tmp) / "bundled"
+            bundled.mkdir()
+            (bundled / "codex.toml").write_text(
+                manifest("codex", "2026.06.10.1").replace(
+                    'contains = ["ready"]',
+                    'region = "top_non_empty_lines(20)"\ncontains = ["trust"]',
+                )
+            )
+
+            manifests = check.load_manifest_dir(bundled, engine_version=1)
+
+            self.assertIn("codex", manifests)
+
+    def test_rejects_malformed_top_non_empty_lines_regions(self):
+        malformed = (
+            "top_non_empty_lines",
+            "top_non_empty_lines()",
+            "top_non_empty_lines(0)",
+            "top_non_empty_lines(01)",
+            "top_non_empty_lines(+20)",
+            "top_non_empty_lines(-1)",
+            "top_non_empty_lines(20 )",
+            "top_non_empty_lines( 20)",
+            "top_non_empty_lines(20,1)",
+            "top_non_empty_lines(abc)",
+            "top_non_empty_lines(20",
+            "top_non_empty_lines(20)extra",
+            "top_non_empty_line(20)",
+            "top_non_empty_lines(20.0)",
+        )
+        for region in malformed:
+            with self.subTest(region=region):
+                with tempfile.TemporaryDirectory() as tmp:
+                    bundled = Path(tmp) / "bundled"
+                    bundled.mkdir()
+                    (bundled / "codex.toml").write_text(
+                        manifest("codex", "2026.06.10.1").replace(
+                            'contains = ["ready"]',
+                            f'region = "{region}"\ncontains = ["trust"]',
+                        )
+                    )
+                    with self.assertRaisesRegex(check.CheckError, "invalid region"):
+                        check.load_manifest_dir(bundled, engine_version=1)
+
     def test_default_repo_paths_point_at_moved_app_tree(self):
         engine_version = check.read_engine_version(None)
         manifests = check.load_manifest_dir(check.DEFAULT_BUNDLED_DIR, engine_version)

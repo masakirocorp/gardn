@@ -510,6 +510,7 @@ send_hermes_hook() {
   local pane_id="$1"
   local fn_name="$2"
   local session_id="$3"
+  local platform="${4:-tui}"
   OMH_ENV=1 \
   OMH_SOCKET_PATH="$socket_path" \
   OMH_PANE_ID="$pane_id" \
@@ -517,13 +518,17 @@ send_hermes_hook() {
   HERMES_PLUGIN_PATH="$repo_dir/apps/omh/src/integration/assets/hermes/__init__.py" \
   HERMES_FN="$fn_name" \
   HERMES_SESSION_ID="$session_id" \
+  HERMES_PLATFORM="$platform" \
   python3 - <<'PY'
 import importlib.util
 import os
 spec = importlib.util.spec_from_file_location("omh_hermes", os.environ["HERMES_PLUGIN_PATH"])
 mod = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(mod)
-getattr(mod, os.environ["HERMES_FN"])(session_id=os.environ["HERMES_SESSION_ID"])
+getattr(mod, os.environ["HERMES_FN"])(
+    session_id=os.environ["HERMES_SESSION_ID"],
+    platform=os.environ["HERMES_PLATFORM"],
+)
 PY
 }
 
@@ -618,12 +623,9 @@ if target_selected kimi; then
 fi
 
 if target_selected hermes; then
-  send_hermes_hook pane-hermes-allowed _working hermes-session
-  send_hermes_hook pane-hermes-allowed _idle hermes-session
-  send_hermes_hook pane-hermes-allowed _finalize hermes-session
-  send_hermes_hook pane-hermes-blocked _working hermes-blocked
-  send_hermes_hook pane-hermes-blocked _blocked hermes-blocked
-  send_hermes_hook pane-hermes-compact _working hermes-compact
+  send_hermes_hook pane-hermes-allowed _session_started hermes-session tui
+  send_hermes_hook pane-hermes-blocked _session_started hermes-blocked tui
+  send_hermes_hook pane-hermes-compact _session_observed hermes-compact cli
 fi
 
 python3 - "$request_log" "$seam_only" "$target" <<'PY'
@@ -674,19 +676,22 @@ def assert_single_identity(pane):
     if len(seen) != 1:
         raise SystemExit(f"{pane}: expected one session id, observed {sorted(seen)}")
 
-def assert_devin_identity_only(pane, expected_session_id):
+def assert_identity_only(pane, expected_session_id, source_name):
     pane_reports = by_pane(reports, pane)
     pane_sessions = by_pane(sessions, pane)
     pane_releases = by_pane(releases, pane)
     if pane_reports:
-        raise SystemExit(f"{pane}: Devin hook must not emit lifecycle state reports; observed {pane_reports}")
+        raise SystemExit(f"{pane}: {source_name} hook must not emit lifecycle state reports; observed {pane_reports}")
     if pane_releases:
-        raise SystemExit(f"{pane}: Devin hook must not release panes; observed {pane_releases}")
+        raise SystemExit(f"{pane}: {source_name} hook must not release panes; observed {pane_releases}")
     if len(pane_sessions) != 1:
-        raise SystemExit(f"{pane}: expected one Devin session identity report, observed {pane_sessions}")
+        raise SystemExit(f"{pane}: expected one {source_name} session identity report, observed {pane_sessions}")
     params = pane_sessions[0].get("params", {})
     if params.get("agent_session_id") != expected_session_id:
         raise SystemExit(f"{pane}: expected session {expected_session_id}, observed {params.get('agent_session_id')}")
+
+def assert_devin_identity_only(pane, expected_session_id):
+    assert_identity_only(pane, expected_session_id, "Devin")
 
 def assert_no_pane_reports(pane):
     items = by_pane(reports, pane) + by_pane(sessions, pane) + by_pane(releases, pane)
@@ -813,12 +818,18 @@ if "kimi" in selected_targets:
 
 if "hermes" in selected_targets:
     if not seam_only:
-        assert_in_order("pane-hermes-real", ["idle", "working", "idle"])
-    assert_in_order("pane-hermes-allowed", ["working", "idle"])
-    if not by_pane(releases, "pane-hermes-allowed"):
-        raise SystemExit("pane-hermes-allowed: missing release")
-    assert_in_order("pane-hermes-blocked", ["working", "blocked"])
-    assert_in_order("pane-hermes-compact", ["working"])
+        pane_sessions = by_pane(sessions, "pane-hermes-real")
+        pane_reports = by_pane(reports, "pane-hermes-real")
+        pane_releases = by_pane(releases, "pane-hermes-real")
+        if pane_reports:
+            raise SystemExit(f"pane-hermes-real: Hermes plugin must not emit lifecycle state reports; observed {pane_reports}")
+        if pane_releases:
+            raise SystemExit(f"pane-hermes-real: Hermes plugin must not release panes; observed {pane_releases}")
+        if not pane_sessions:
+            raise SystemExit("pane-hermes-real: expected Hermes session identity report")
+    assert_identity_only("pane-hermes-allowed", "hermes-session", "Hermes")
+    assert_identity_only("pane-hermes-blocked", "hermes-blocked", "Hermes")
+    assert_identity_only("pane-hermes-compact", "hermes-compact", "Hermes")
 
 scope = "all grouped agents" if target == "all" else target
 mode = "seam" if seam_only else ("hook" if target == "devin" else "real")
