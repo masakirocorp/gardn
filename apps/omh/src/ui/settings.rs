@@ -2182,7 +2182,15 @@ mod tests {
         assert!(text.contains("hunk diff --watch"));
         assert!(text.contains("fresh ."));
         assert!(text.contains("ghui"));
-        assert!(!text.contains("Suggested Commands"));
+        assert!(text.contains("Reset to lazygit"));
+        assert!(text.contains("Reset to hunk diff --watch"));
+        assert!(text.contains("Reset to fresh ."));
+        assert!(text.contains("Reset to ghui"));
+        assert!(text.contains("Reset All Commands"));
+        assert!(text.contains("Restore all four commands to their built-in defaults."));
+        assert!(!text.contains("Selected Repository"));
+        assert!(!text.contains("Selected Project"));
+        assert!(!text.contains("Selected Space"));
     }
 
     #[test]
@@ -2219,7 +2227,7 @@ mod tests {
             .expect("render Commands settings overlay");
 
         let text = buffer_text(terminal.backend().buffer(), area.width, area.height);
-        assert!(text.contains("Diff · Review UI · Selected Repository Root · Disabled"));
+        assert!(text.contains("Diff · Review UI · Disabled"));
         assert!(text.contains("Edit launch commands; clear one to disable and hide it"));
     }
 

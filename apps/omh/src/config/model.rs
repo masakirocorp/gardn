@@ -464,13 +464,20 @@ pub struct CommandsConfig {
     pub github: String,
 }
 
+impl CommandsConfig {
+    pub(crate) const DEFAULT_GIT: &str = "lazygit";
+    pub(crate) const DEFAULT_DIFF: &str = "hunk diff --watch";
+    pub(crate) const DEFAULT_IDE: &str = "fresh .";
+    pub(crate) const DEFAULT_GITHUB: &str = "ghui";
+}
+
 impl Default for CommandsConfig {
     fn default() -> Self {
         Self {
-            git: "lazygit".to_string(),
-            diff: "hunk diff --watch".to_string(),
-            ide: "fresh .".to_string(),
-            github: "ghui".to_string(),
+            git: Self::DEFAULT_GIT.to_string(),
+            diff: Self::DEFAULT_DIFF.to_string(),
+            ide: Self::DEFAULT_IDE.to_string(),
+            github: Self::DEFAULT_GITHUB.to_string(),
         }
     }
 }
