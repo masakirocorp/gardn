@@ -8,7 +8,7 @@ use crate::{
         },
         ClientViewState,
     },
-    config::{NewTerminalCwdConfig, TerminalAccent, ThemeMode, ToastDelivery},
+    config::{CommandsConfig, NewTerminalCwdConfig, TerminalAccent, ThemeMode, ToastDelivery},
     terminal_theme::ThemeAppearance,
 };
 
@@ -1073,57 +1073,145 @@ fn behavior_rows(app: &AppState, settings: &SettingsState) -> Vec<SettingsListRo
 }
 
 fn command_rows(app: &AppState, settings: &SettingsState) -> Vec<SettingsListRow> {
-    let values = [
-        (
-            0,
-            "Git · Terminal Git UI · Selected Repository Root",
-            settings
-                .pending_git_command
-                .clone()
-                .unwrap_or_else(|| app.git_command.clone()),
-        ),
-        (
-            1,
-            "Diff · Review UI · Selected Repository Root",
-            settings
-                .pending_diff_command
-                .clone()
-                .unwrap_or_else(|| app.git_diff_command.clone()),
-        ),
-        (
-            2,
-            "IDE · Project Editor · Selected Project Root",
-            settings
-                .pending_ide_command
-                .clone()
-                .unwrap_or_else(|| app.ide_command.clone()),
-        ),
-        (
-            3,
-            "GitHub · Pull Requests and Issues · Selected Space Root",
-            settings
-                .pending_github_command
-                .clone()
-                .unwrap_or_else(|| app.github_command.clone()),
-        ),
-    ];
     let mut rows = vec![SettingsListRow::Header("Project Commands")];
-    for (index, title, value) in values {
-        if index > 0 {
-            rows.push(SettingsListRow::Spacer);
-        }
+    for field in CommandField::ALL {
+        let value = pending_command_value(app, settings, field);
         let title = if value.trim().is_empty() {
-            format!("{title} · Disabled")
+            format!("{} · Disabled", field.title())
         } else {
-            title.to_string()
+            field.title().to_string()
         };
         rows.push(SettingsListRow::TextInput {
-            index,
+            index: CommandRowId::Field(field).selection_index(),
             title: title.into(),
             value: value.into(),
         });
+        rows.push(SettingsListRow::Action {
+            index: CommandRowId::Action(CommandAction::Reset(field)).selection_index(),
+            icon: "↻".into(),
+            label: field.reset_label().into(),
+            tone: SettingsMarkerTone::Accent,
+        });
     }
+    rows.push(SettingsListRow::Spacer);
+    rows.push(SettingsListRow::Caption(
+        "Restore all four commands to their built-in defaults.".into(),
+    ));
+    rows.push(SettingsListRow::Action {
+        index: CommandRowId::Action(CommandAction::ResetAll).selection_index(),
+        icon: "↻".into(),
+        label: "Reset All Commands".into(),
+        tone: SettingsMarkerTone::Accent,
+    });
     rows
+}
+
+fn pending_command_value(app: &AppState, settings: &SettingsState, field: CommandField) -> String {
+    match field {
+        CommandField::Git => settings
+            .pending_git_command
+            .clone()
+            .unwrap_or_else(|| app.git_command.clone()),
+        CommandField::Diff => settings
+            .pending_diff_command
+            .clone()
+            .unwrap_or_else(|| app.git_diff_command.clone()),
+        CommandField::Ide => settings
+            .pending_ide_command
+            .clone()
+            .unwrap_or_else(|| app.ide_command.clone()),
+        CommandField::Github => settings
+            .pending_github_command
+            .clone()
+            .unwrap_or_else(|| app.github_command.clone()),
+    }
+}
+
+/// Stable row identity for the Commands settings surface.
+///
+/// Input and render share these typed ids so keyboard/mouse dispatch never
+/// depends on magic contiguous integers or row-order accidents.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum CommandField {
+    Git,
+    Diff,
+    Ide,
+    Github,
+}
+
+impl CommandField {
+    pub(crate) const ALL: [Self; 4] = [Self::Git, Self::Diff, Self::Ide, Self::Github];
+
+    const fn title(self) -> &'static str {
+        match self {
+            Self::Git => "Git · Terminal Git UI",
+            Self::Diff => "Diff · Review UI",
+            Self::Ide => "IDE · Project Editor",
+            Self::Github => "GitHub · Pull Requests and Issues",
+        }
+    }
+
+    const fn reset_label(self) -> &'static str {
+        match self {
+            Self::Git => "Reset to lazygit",
+            Self::Diff => "Reset to hunk diff --watch",
+            Self::Ide => "Reset to fresh .",
+            Self::Github => "Reset to ghui",
+        }
+    }
+
+    pub(crate) const fn default_value(self) -> &'static str {
+        match self {
+            Self::Git => CommandsConfig::DEFAULT_GIT,
+            Self::Diff => CommandsConfig::DEFAULT_DIFF,
+            Self::Ide => CommandsConfig::DEFAULT_IDE,
+            Self::Github => CommandsConfig::DEFAULT_GITHUB,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum CommandAction {
+    Reset(CommandField),
+    ResetAll,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum CommandRowId {
+    Field(CommandField),
+    Action(CommandAction),
+}
+
+impl CommandRowId {
+    /// Dense index used by the existing list selection model.
+    pub(crate) const fn selection_index(self) -> usize {
+        match self {
+            Self::Field(CommandField::Git) => 0,
+            Self::Field(CommandField::Diff) => 1,
+            Self::Field(CommandField::Ide) => 2,
+            Self::Field(CommandField::Github) => 3,
+            Self::Action(CommandAction::Reset(CommandField::Git)) => 4,
+            Self::Action(CommandAction::Reset(CommandField::Diff)) => 5,
+            Self::Action(CommandAction::Reset(CommandField::Ide)) => 6,
+            Self::Action(CommandAction::Reset(CommandField::Github)) => 7,
+            Self::Action(CommandAction::ResetAll) => 8,
+        }
+    }
+
+    pub(crate) fn from_selection_index(index: usize) -> Option<Self> {
+        Some(match index {
+            0 => Self::Field(CommandField::Git),
+            1 => Self::Field(CommandField::Diff),
+            2 => Self::Field(CommandField::Ide),
+            3 => Self::Field(CommandField::Github),
+            4 => Self::Action(CommandAction::Reset(CommandField::Git)),
+            5 => Self::Action(CommandAction::Reset(CommandField::Diff)),
+            6 => Self::Action(CommandAction::Reset(CommandField::Ide)),
+            7 => Self::Action(CommandAction::Reset(CommandField::Github)),
+            8 => Self::Action(CommandAction::ResetAll),
+            _ => return None,
+        })
+    }
 }
 
 fn experiment_rows(app: &AppState, settings: &SettingsState) -> Vec<SettingsListRow> {
@@ -2290,24 +2378,6 @@ mod tests {
                     );
                 }
             }
-        }
-    }
-
-    #[test]
-    fn command_rows_separate_each_command_field() {
-        let app = AppState::test_new();
-        let rows = command_rows(&app, &app.settings);
-        let fields = rows
-            .iter()
-            .enumerate()
-            .filter_map(|(index, row)| {
-                matches!(row, SettingsListRow::TextInput { .. }).then_some(index)
-            })
-            .collect::<Vec<_>>();
-
-        assert_eq!(fields.len(), 4);
-        for index in fields.into_iter().skip(1) {
-            assert!(matches!(rows[index - 1], SettingsListRow::Spacer));
         }
     }
 

@@ -11,15 +11,15 @@ use crate::{
         App, Mode,
     },
     config::{
-        AgentPanelScopeConfig, ContextBarVisibilityConfig, NewTerminalCwdConfig,
+        AgentPanelScopeConfig, CommandsConfig, ContextBarVisibilityConfig, NewTerminalCwdConfig,
         PaneBorderAgentInfoConfig, RightClickPassthroughModifierConfig, SidebarArrangementConfig,
         SidebarInitialStateConfig, StatusIndicatorStyle, TerminalAccent, ThemeMode, ToastDelivery,
     },
     settings_rows::{
         connection_editor_open as settings_connection_editor_open, next_option_index, option_count,
         option_hit_for_visual_row, option_index_for_visual_row, previous_option_index,
-        rows_for_section, selected_visual_row, visual_row_count, ConnectionField, ConnectionRowId,
-        SettingsListRow, SettingsRowHit,
+        rows_for_section, selected_visual_row, visual_row_count, CommandAction, CommandField,
+        CommandRowId, ConnectionField, ConnectionRowId, SettingsListRow, SettingsRowHit,
     },
     terminal_theme::ThemeAppearance,
 };
@@ -1934,88 +1934,112 @@ fn pending_mouse_scroll_lines(state: &AppState) -> usize {
         .unwrap_or(state.mouse_scroll_lines)
 }
 
-fn pending_command(state: &AppState, index: usize) -> String {
-    match index {
-        0 => state
+fn pending_command(state: &AppState, field: CommandField) -> String {
+    match field {
+        CommandField::Git => state
             .settings
             .pending_git_command
             .clone()
             .unwrap_or_else(|| state.git_command.clone()),
-        1 => state
+        CommandField::Diff => state
             .settings
             .pending_diff_command
             .clone()
             .unwrap_or_else(|| state.git_diff_command.clone()),
-        2 => state
+        CommandField::Ide => state
             .settings
             .pending_ide_command
             .clone()
             .unwrap_or_else(|| state.ide_command.clone()),
-        3 => state
+        CommandField::Github => state
             .settings
             .pending_github_command
             .clone()
             .unwrap_or_else(|| state.github_command.clone()),
-        _ => String::new(),
     }
 }
 
-fn set_pending_command(state: &mut AppState, index: usize, value: String) {
-    match index {
-        0 => state.settings.pending_git_command = Some(value),
-        1 => state.settings.pending_diff_command = Some(value),
-        2 => state.settings.pending_ide_command = Some(value),
-        3 => state.settings.pending_github_command = Some(value),
-        _ => {}
+fn set_pending_command(state: &mut AppState, field: CommandField, value: String) {
+    match field {
+        CommandField::Git => state.settings.pending_git_command = Some(value),
+        CommandField::Diff => state.settings.pending_diff_command = Some(value),
+        CommandField::Ide => state.settings.pending_ide_command = Some(value),
+        CommandField::Github => state.settings.pending_github_command = Some(value),
     }
 }
 
-fn delete_pending_command_word(state: &mut AppState, index: usize) {
-    let mut value = pending_command(state, index);
+fn reset_pending_command(state: &mut AppState, field: CommandField) {
+    set_pending_command(state, field, field.default_value().to_owned());
+}
+
+fn reset_all_pending_commands(state: &mut AppState) {
+    let defaults = CommandsConfig::default();
+    state.settings.pending_git_command = Some(defaults.git);
+    state.settings.pending_diff_command = Some(defaults.diff);
+    state.settings.pending_ide_command = Some(defaults.ide);
+    state.settings.pending_github_command = Some(defaults.github);
+}
+
+fn command_field_from_index(index: usize) -> Option<CommandField> {
+    match CommandRowId::from_selection_index(index) {
+        Some(CommandRowId::Field(field)) => Some(field),
+        _ => None,
+    }
+}
+
+fn delete_pending_command_word(state: &mut AppState, field: CommandField) {
+    let mut value = pending_command(state, field);
     while value.chars().last().is_some_and(char::is_whitespace) {
         value.pop();
     }
     while value.chars().last().is_some_and(|ch| !ch.is_whitespace()) {
         value.pop();
     }
-    set_pending_command(state, index, value);
+    set_pending_command(state, field, value);
 }
 
 fn edit_pending_command(state: &mut AppState, key: KeyEvent) -> bool {
-    let Some(index @ 0..=3) = state.settings.focused_input else {
+    let Some(field) = state
+        .settings
+        .focused_input
+        .and_then(command_field_from_index)
+    else {
         return false;
     };
-    state.settings.list.select(index);
+    state
+        .settings
+        .list
+        .select(CommandRowId::Field(field).selection_index());
     match key.code {
         KeyCode::Char('u') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-            set_pending_command(state, index, String::new());
+            set_pending_command(state, field, String::new());
             true
         }
         KeyCode::Backspace if key.modifiers.contains(KeyModifiers::SUPER) => {
-            set_pending_command(state, index, String::new());
+            set_pending_command(state, field, String::new());
             true
         }
         KeyCode::Backspace
             if key.modifiers.contains(KeyModifiers::CONTROL)
                 || key.modifiers.contains(KeyModifiers::ALT) =>
         {
-            delete_pending_command_word(state, index);
+            delete_pending_command_word(state, field);
             true
         }
         KeyCode::Char('h' | 'w') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-            delete_pending_command_word(state, index);
+            delete_pending_command_word(state, field);
             true
         }
         KeyCode::Backspace => {
-            let mut value = pending_command(state, index);
+            let mut value = pending_command(state, field);
             value.pop();
-            set_pending_command(state, index, value);
+            set_pending_command(state, field, value);
             true
         }
         KeyCode::Char(c) if key.modifiers.difference(KeyModifiers::SHIFT).is_empty() => {
-            let mut value = pending_command(state, index);
+            let mut value = pending_command(state, field);
             value.push(c);
-            set_pending_command(state, index, value);
+            set_pending_command(state, field, value);
             true
         }
         _ => false,
@@ -2432,10 +2456,10 @@ fn current_settings_action(state: &AppState) -> SettingsAction {
         right_click_passthrough_modifier: pending_right_click_passthrough_modifier(state),
         new_terminal_cwd: pending_new_terminal_cwd(state),
         mouse_scroll_lines: pending_mouse_scroll_lines(state),
-        git_command: pending_command(state, 0),
-        diff_command: pending_command(state, 1),
-        ide_command: pending_command(state, 2),
-        github_command: pending_command(state, 3),
+        git_command: pending_command(state, CommandField::Git),
+        diff_command: pending_command(state, CommandField::Diff),
+        ide_command: pending_command(state, CommandField::Ide),
+        github_command: pending_command(state, CommandField::Github),
         sidebar_width: pending_sidebar_width(state),
         sidebar_min_width: pending_sidebar_min_width(state),
         sidebar_max_width: pending_sidebar_max_width(state),
@@ -2783,7 +2807,7 @@ fn select_pending_setting(state: &mut AppState) -> Option<SettingsAction> {
             }
             Some(current_settings_action(state))
         }
-        SettingsSection::Commands => Some(current_settings_action(state)),
+        SettingsSection::Commands => selected_command_action(state),
         SettingsSection::Experiments => selected_experiment_action(state),
         SettingsSection::Agents => selected_agent_profile_action(state),
         SettingsSection::Integrations => selected_integration_action(state),
@@ -2805,9 +2829,22 @@ fn selected_experiment_action(state: &mut AppState) -> Option<SettingsAction> {
         _ => None,
     }
 }
+fn selected_command_action(state: &mut AppState) -> Option<SettingsAction> {
+    match CommandRowId::from_selection_index(state.settings.list.selected) {
+        Some(CommandRowId::Action(CommandAction::Reset(field))) => {
+            reset_pending_command(state, field);
+        }
+        Some(CommandRowId::Action(CommandAction::ResetAll)) => {
+            reset_all_pending_commands(state);
+        }
+        Some(CommandRowId::Field(_)) | None => {}
+    }
+    Some(current_settings_action(state))
+}
+
 fn settings_row_accepts_text_input(state: &AppState, selected: usize) -> bool {
     match state.settings.section {
-        SettingsSection::Commands => selected <= 3,
+        SettingsSection::Commands => command_field_from_index(selected).is_some(),
         SettingsSection::GroupGeneral => matches!(selected, 0 | 2),
         SettingsSection::WorkspaceGeneral => matches!(selected, 0 | 2),
         SettingsSection::Agents if agent_profile_editor_open(state) => {
@@ -5972,6 +6009,121 @@ mod tests {
         ));
     }
 
+    #[test]
+    fn commands_settings_reset_one_preserves_other_drafts() {
+        let mut state = state_with_workspaces(&["test"]);
+        open_settings_at(&mut state, SettingsSection::Commands);
+        state.settings.pending_git_command = Some("tig".into());
+        state.settings.pending_diff_command = Some(String::new());
+        state.settings.pending_ide_command = Some("hx .".into());
+        state.settings.pending_github_command = Some("custom-ghui".into());
+        state.settings.list.select(
+            CommandRowId::Action(CommandAction::Reset(CommandField::Ide)).selection_index(),
+        );
+
+        let action = update_settings_state(
+            &mut state,
+            KeyEvent::new(KeyCode::Enter, KeyModifiers::empty()),
+        );
+
+        assert_eq!(state.settings.pending_git_command.as_deref(), Some("tig"));
+        assert_eq!(state.settings.pending_diff_command.as_deref(), Some(""));
+        assert_eq!(
+            state.settings.pending_ide_command.as_deref(),
+            Some("fresh .")
+        );
+        assert_eq!(
+            state.settings.pending_github_command.as_deref(),
+            Some("custom-ghui")
+        );
+        assert!(matches!(
+            action,
+            Some(SettingsAction::SaveSettings {
+                git_command,
+                diff_command,
+                ide_command,
+                github_command,
+                ..
+            }) if git_command == "tig"
+                && diff_command.is_empty()
+                && ide_command == "fresh ."
+                && github_command == "custom-ghui"
+        ));
+    }
+
+    #[test]
+    fn commands_settings_reset_all_restores_built_ins() {
+        let mut state = state_with_workspaces(&["test"]);
+        open_settings_at(&mut state, SettingsSection::Commands);
+        state.settings.pending_git_command = Some("tig".into());
+        state.settings.pending_diff_command = Some(String::new());
+        state.settings.pending_ide_command = Some("hx .".into());
+        state.settings.pending_github_command = Some("custom-ghui".into());
+        state
+            .settings
+            .list
+            .select(CommandRowId::Action(CommandAction::ResetAll).selection_index());
+
+        let action = update_settings_state(
+            &mut state,
+            KeyEvent::new(KeyCode::Enter, KeyModifiers::empty()),
+        );
+
+        assert_eq!(
+            state.settings.pending_git_command.as_deref(),
+            Some("lazygit")
+        );
+        assert_eq!(
+            state.settings.pending_diff_command.as_deref(),
+            Some("hunk diff --watch")
+        );
+        assert_eq!(
+            state.settings.pending_ide_command.as_deref(),
+            Some("fresh .")
+        );
+        assert_eq!(
+            state.settings.pending_github_command.as_deref(),
+            Some("ghui")
+        );
+        assert!(matches!(
+            action,
+            Some(SettingsAction::SaveSettings {
+                git_command,
+                diff_command,
+                ide_command,
+                github_command,
+                ..
+            }) if git_command == "lazygit"
+                && diff_command == "hunk diff --watch"
+                && ide_command == "fresh ."
+                && github_command == "ghui"
+        ));
+    }
+
+    #[test]
+    fn commands_settings_mouse_click_resets_command() {
+        let mut app = app_for_mouse_test();
+        app.state.view.terminal_area = Rect::new(26, 0, 100, 30);
+        open_settings_at(&mut app.state, SettingsSection::Commands);
+        app.state.settings.pending_ide_command = Some("hx .".into());
+
+        let list_area = settings_section_list_rect(&app.state, SettingsSection::Commands);
+        let rows = rows_for_section(&app.state, SettingsSection::Commands).unwrap();
+        let reset_ide =
+            CommandRowId::Action(CommandAction::Reset(CommandField::Ide)).selection_index();
+        let reset_row = selected_visual_row(&rows, reset_ide).unwrap() as u16;
+        let action = app.state.handle_settings_mouse(mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            list_area.x + 2,
+            list_area.y + reset_row,
+        ));
+
+        assert!(matches!(
+            action,
+            Some(SettingsAction::SaveSettings { ide_command, .. })
+                if ide_command == "fresh ."
+        ));
+    }
     #[test]
     fn commands_settings_edits_github_command_independently() {
         let mut state = state_with_workspaces(&["test"]);
