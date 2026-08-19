@@ -144,6 +144,57 @@ impl App {
             self.apply_config_from_disk(false);
         }
     }
+    pub(super) fn save_resume_agents_on_restore(&mut self, enabled: bool) {
+        self.state.resume_agents_on_restore = enabled;
+        self.state.settings.pending_resume_agents_on_restore = Some(enabled);
+        if self.update_config_file("agent session restore", |content| {
+            crate::config::upsert_section_bool(
+                content,
+                "session",
+                "resume_agents_on_restore",
+                enabled,
+            )
+        }) {
+            self.apply_config_from_disk(false);
+        }
+    }
+
+    pub(super) fn save_window_title(&mut self, template: &str) {
+        self.state.window_title_template = template.to_string();
+        self.state.settings.pending_window_title = Some(template.to_string());
+        let value = toml::Value::String(template.to_string()).to_string();
+        if self.update_config_file("window title", |content| {
+            crate::config::upsert_section_value(content, "ui", "window_title", &value)
+        }) {
+            self.apply_config_from_disk(false);
+        }
+    }
+
+    pub(super) fn save_headless_size(&mut self, cols: u16, rows: u16) {
+        if cols == 0 || rows == 0 {
+            return;
+        }
+        self.state.headless_size = (cols, rows);
+        self.state.settings.pending_headless_cols = Some(cols.to_string());
+        self.state.settings.pending_headless_rows = Some(rows.to_string());
+        if self.update_config_file("headless terminal size", |content| {
+            let content = crate::config::upsert_section_value(
+                content,
+                "server",
+                "headless_cols",
+                &cols.to_string(),
+            );
+            crate::config::upsert_section_value(
+                &content,
+                "server",
+                "headless_rows",
+                &rows.to_string(),
+            )
+        }) {
+            self.apply_config_from_disk(false);
+        }
+    }
+
     pub(super) fn save_commands(&mut self, git: &str, diff: &str, ide: &str, github: &str) {
         let commands = crate::config::CommandsConfig {
             git: git.trim().to_string(),

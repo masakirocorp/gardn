@@ -17,9 +17,9 @@ use crate::{
     },
     settings_rows::{
         connection_editor_open as settings_connection_editor_open, next_option_index, option_count,
-        option_hit_for_visual_row, option_index_for_visual_row, previous_option_index,
-        rows_for_section, selected_visual_row, visual_row_count, CommandAction, CommandField,
-        CommandRowId, ConnectionField, ConnectionRowId, SettingsListRow, SettingsRowHit,
+        option_hit_for_visual_row, previous_option_index, rows_for_section, selected_visual_row,
+        visual_row_count, CommandAction, CommandField, CommandRowId, ConnectionField,
+        ConnectionRowId, SettingsListRow, SettingsRowHit,
     },
     terminal_theme::ThemeAppearance,
 };
@@ -71,6 +71,12 @@ pub(crate) enum SettingsAction {
         status_indicators: StatusIndicatorStyle,
     },
     SaveSwitchAsciiInputSourceInPrefix(bool),
+    SaveResumeAgentsOnRestore(bool),
+    SaveWindowTitle(String),
+    SaveHeadlessSize {
+        cols: u16,
+        rows: u16,
+    },
     SaveGroupAccent {
         group_idx: usize,
         accent: Option<TerminalAccent>,
@@ -210,6 +216,15 @@ impl App {
                 self.save_toast_delivery(toast_delivery);
                 self.save_pane_border_agent_info(pane_border_agent_info);
                 self.save_status_indicators(status_indicators);
+            }
+            SettingsAction::SaveResumeAgentsOnRestore(enabled) => {
+                self.save_resume_agents_on_restore(enabled);
+            }
+            SettingsAction::SaveWindowTitle(template) => {
+                self.save_window_title(&template);
+            }
+            SettingsAction::SaveHeadlessSize { cols, rows } => {
+                self.save_headless_size(cols, rows);
             }
             SettingsAction::SaveWorkspaceName { ws_idx, name } => {
                 self.state.rename_workspace(ws_idx, name);
@@ -606,10 +621,6 @@ fn theme_visual_len(state: &AppState) -> usize {
 
 fn theme_visual_row_for_selection(state: &AppState, selected: usize) -> usize {
     selected_visual_row(&theme_rows(state), selected).unwrap_or(0)
-}
-
-fn theme_selection_for_visual_row(state: &AppState, row: usize) -> Option<usize> {
-    option_index_for_visual_row(&theme_rows(state), row)
 }
 
 fn settings_section_choice_len(state: &AppState, section: SettingsSection) -> usize {
@@ -1933,6 +1944,99 @@ fn pending_mouse_scroll_lines(state: &AppState) -> usize {
         .pending_mouse_scroll_lines
         .unwrap_or(state.mouse_scroll_lines)
 }
+fn pending_resume_agents_on_restore(state: &AppState) -> bool {
+    state
+        .settings
+        .pending_resume_agents_on_restore
+        .unwrap_or(state.resume_agents_on_restore)
+}
+
+fn pending_window_title(state: &AppState) -> String {
+    state
+        .settings
+        .pending_window_title
+        .clone()
+        .unwrap_or_else(|| state.window_title_template.clone())
+}
+
+fn pending_headless_cols(state: &AppState) -> String {
+    state
+        .settings
+        .pending_headless_cols
+        .clone()
+        .unwrap_or_else(|| state.headless_size.0.to_string())
+}
+
+fn pending_headless_rows(state: &AppState) -> String {
+    state
+        .settings
+        .pending_headless_rows
+        .clone()
+        .unwrap_or_else(|| state.headless_size.1.to_string())
+}
+
+fn headless_size_action(state: &AppState) -> Option<SettingsAction> {
+    let cols = pending_headless_cols(state).parse::<u16>().ok()?;
+    let rows = pending_headless_rows(state).parse::<u16>().ok()?;
+    (cols > 0 && rows > 0).then_some(SettingsAction::SaveHeadlessSize { cols, rows })
+}
+
+fn edit_pending_general_text(
+    state: &mut AppState,
+    key: KeyEvent,
+) -> Option<Option<SettingsAction>> {
+    let focused = state.settings.focused_input?;
+    let window_title_index = theme_choice_len(state) + 13;
+    #[derive(Clone, Copy)]
+    enum Field {
+        WindowTitle,
+        HeadlessCols,
+        HeadlessRows,
+    }
+    let field = match state.settings.section {
+        SettingsSection::Theme if focused == window_title_index => Field::WindowTitle,
+        SettingsSection::Experiments if focused == 1 => Field::HeadlessCols,
+        SettingsSection::Experiments if focused == 2 => Field::HeadlessRows,
+        _ => return None,
+    };
+    let mut value = match field {
+        Field::WindowTitle => pending_window_title(state),
+        Field::HeadlessCols => pending_headless_cols(state),
+        Field::HeadlessRows => pending_headless_rows(state),
+    };
+    match key.code {
+        KeyCode::Char('u') if key.modifiers.contains(KeyModifiers::CONTROL) => value.clear(),
+        KeyCode::Backspace if key.modifiers.contains(KeyModifiers::SUPER) => value.clear(),
+        KeyCode::Backspace => {
+            value.pop();
+        }
+        KeyCode::Char(c)
+            if key.modifiers.difference(KeyModifiers::SHIFT).is_empty()
+                && (matches!(field, Field::WindowTitle) || c.is_ascii_digit()) =>
+        {
+            value.push(c);
+        }
+        _ => return None,
+    }
+    match field {
+        Field::WindowTitle => {
+            state.settings.pending_window_title = Some(value.clone());
+            if crate::config::window_title_diagnostics(&value).is_some() {
+                Some(None)
+            } else {
+                Some(Some(SettingsAction::SaveWindowTitle(value)))
+            }
+        }
+        Field::HeadlessCols => {
+            state.settings.pending_headless_cols = Some(value);
+            Some(headless_size_action(state))
+        }
+        Field::HeadlessRows => {
+            state.settings.pending_headless_rows = Some(value);
+            Some(headless_size_action(state))
+        }
+    }
+}
 
 fn pending_command(state: &AppState, field: CommandField) -> String {
     match field {
@@ -2408,6 +2512,10 @@ fn clear_settings_pending(state: &mut AppState) {
     state.settings.pending_right_click_passthrough_modifier = None;
     state.settings.pending_new_terminal_cwd = None;
     state.settings.pending_mouse_scroll_lines = None;
+    state.settings.pending_resume_agents_on_restore = None;
+    state.settings.pending_window_title = None;
+    state.settings.pending_headless_cols = None;
+    state.settings.pending_headless_rows = None;
     state.settings.pending_git_command = None;
     state.settings.pending_diff_command = None;
     state.settings.pending_ide_command = None;
@@ -2579,12 +2687,12 @@ fn select_pending_appearance_setting(state: &mut AppState) -> Option<SettingsAct
         }
         11 => {
             state.settings.pending_pane_border_agent_info =
-                Some(pending_pane_border_agent_info(state).next());
+                Some(pending_pane_border_agent_info(state).next())
         }
         12 => {
-            state.settings.pending_status_indicators =
-                Some(pending_status_indicators(state).next());
+            state.settings.pending_status_indicators = Some(pending_status_indicators(state).next())
         }
+        13 => {}
         _ => {}
     }
     Some(current_settings_action(state))
@@ -2803,6 +2911,13 @@ fn select_pending_setting(state: &mut AppState) -> Option<SettingsAction> {
                     let next = next_mouse_scroll_lines(pending_mouse_scroll_lines(state));
                     state.settings.pending_mouse_scroll_lines = Some(next);
                 }
+                8 => {
+                    state.settings.pending_resume_agents_on_restore =
+                        Some(!pending_resume_agents_on_restore(state));
+                    return Some(SettingsAction::SaveResumeAgentsOnRestore(
+                        pending_resume_agents_on_restore(state),
+                    ));
+                }
                 _ => {}
             }
             Some(current_settings_action(state))
@@ -2826,6 +2941,7 @@ fn selected_experiment_action(state: &mut AppState) -> Option<SettingsAction> {
         0 => Some(SettingsAction::SaveSwitchAsciiInputSourceInPrefix(
             !state.switch_ascii_input_source_in_prefix_enabled(),
         )),
+        1 | 2 => headless_size_action(state),
         _ => None,
     }
 }
@@ -2844,7 +2960,9 @@ fn selected_command_action(state: &mut AppState) -> Option<SettingsAction> {
 
 fn settings_row_accepts_text_input(state: &AppState, selected: usize) -> bool {
     match state.settings.section {
+        SettingsSection::Theme => selected == theme_choice_len(state) + 13,
         SettingsSection::Commands => command_field_from_index(selected).is_some(),
+        SettingsSection::Experiments => matches!(selected, 1 | 2),
         SettingsSection::GroupGeneral => matches!(selected, 0 | 2),
         SettingsSection::WorkspaceGeneral => matches!(selected, 0 | 2),
         SettingsSection::Agents if agent_profile_editor_open(state) => {
@@ -2983,6 +3101,9 @@ pub(super) fn update_settings_state(state: &mut AppState, key: KeyEvent) -> Opti
         && edit_pending_connection_text(state, key)
     {
         return None;
+    }
+    if let Some(action) = edit_pending_general_text(state, key) {
+        return action;
     }
     state.settings.list.restore();
     match state.settings.section {
@@ -3571,6 +3692,10 @@ pub(crate) fn prepare_general_settings_state(
         ));
     settings.pending_new_terminal_cwd = Some(state.new_terminal_cwd.clone());
     settings.pending_mouse_scroll_lines = Some(state.mouse_scroll_lines);
+    settings.pending_resume_agents_on_restore = Some(state.resume_agents_on_restore);
+    settings.pending_window_title = Some(state.window_title_template.clone());
+    settings.pending_headless_cols = Some(state.headless_size.0.to_string());
+    settings.pending_headless_rows = Some(state.headless_size.1.to_string());
     settings.pending_git_command = Some(state.git_command.clone());
     settings.pending_diff_command = Some(state.git_diff_command.clone());
     settings.pending_ide_command = Some(state.ide_command.clone());
@@ -3650,6 +3775,10 @@ fn reset_settings_for_scoped_editor(state: &AppState, settings: &mut SettingsSta
     settings.pending_right_click_passthrough_modifier = None;
     settings.pending_new_terminal_cwd = None;
     settings.pending_mouse_scroll_lines = None;
+    settings.pending_resume_agents_on_restore = None;
+    settings.pending_window_title = None;
+    settings.pending_headless_cols = None;
+    settings.pending_headless_rows = None;
     settings.pending_git_command = None;
     settings.pending_diff_command = None;
     settings.pending_ide_command = None;
@@ -3780,6 +3909,10 @@ pub(crate) fn open_group_settings(state: &mut AppState, group_idx: usize) {
     state.settings.pending_right_click_passthrough_modifier = None;
     state.settings.pending_new_terminal_cwd = None;
     state.settings.pending_mouse_scroll_lines = None;
+    state.settings.pending_resume_agents_on_restore = None;
+    state.settings.pending_window_title = None;
+    state.settings.pending_headless_cols = None;
+    state.settings.pending_headless_rows = None;
     state.settings.pending_git_command = None;
     state.settings.pending_diff_command = None;
     state.settings.pending_ide_command = None;
@@ -3848,6 +3981,10 @@ pub(crate) fn open_workspace_settings(state: &mut AppState, ws_idx: usize) {
     state.settings.pending_right_click_passthrough_modifier = None;
     state.settings.pending_new_terminal_cwd = None;
     state.settings.pending_mouse_scroll_lines = None;
+    state.settings.pending_resume_agents_on_restore = None;
+    state.settings.pending_window_title = None;
+    state.settings.pending_headless_cols = None;
+    state.settings.pending_headless_rows = None;
     state.settings.pending_git_command = None;
     state.settings.pending_diff_command = None;
     state.settings.pending_ide_command = None;
@@ -3975,10 +4112,7 @@ impl AppState {
             SettingsSection::Theme => {
                 let list = settings_section_list_geometry(self, SettingsSection::Theme);
                 let visual_row = list.hit_visual_row(col, row)?;
-                theme_selection_for_visual_row(self, visual_row).map(|index| SettingsRowHit {
-                    index,
-                    hoverable: true,
-                })
+                option_hit_for_visual_row(&theme_rows(self), visual_row)
             }
             SettingsSection::Layout
             | SettingsSection::Sound
@@ -4111,6 +4245,9 @@ impl AppState {
                     let idx = target.index;
                     self.settings.list.select(idx);
                     self.settings.focused_input = (!target.hoverable).then_some(idx);
+                    if !target.hoverable {
+                        return None;
+                    }
                     if self.settings.section == SettingsSection::Theme {
                         ensure_settings_selection_visible(self);
                     }
@@ -5505,7 +5642,8 @@ mod tests {
 
         assert!(first_dark_accent_row > 0);
         assert_eq!(
-            theme_selection_for_visual_row(&state, first_dark_accent_row - 1),
+            option_hit_for_visual_row(&theme_rows(&state), first_dark_accent_row - 1)
+                .map(|hit| hit.index),
             None
         );
 
@@ -5513,7 +5651,10 @@ mod tests {
         for (selection, choice) in choices.iter().enumerate() {
             if matches!(choice, ThemeSettingsChoice::TerminalDarkAccent(_)) {
                 let row = theme_visual_row_for_selection(&state, selection);
-                assert_eq!(theme_selection_for_visual_row(&state, row), Some(selection));
+                assert_eq!(
+                    option_hit_for_visual_row(&theme_rows(&state), row).map(|hit| hit.index),
+                    Some(selection)
+                );
                 dark_accent_count += 1;
             }
         }
@@ -6179,6 +6320,86 @@ mod tests {
         );
         assert_eq!(state.mode, Mode::Settings);
     }
+    #[test]
+    fn settings_restores_resume_title_and_headless_controls() {
+        let mut state = state_with_workspaces(&["test"]);
+        state.resume_agents_on_restore = false;
+        open_settings_at(&mut state, SettingsSection::PaneLabels);
+        state.settings.list.show();
+        state.settings.list.select(8);
+        assert_eq!(
+            update_settings_state(
+                &mut state,
+                KeyEvent::new(KeyCode::Enter, KeyModifiers::empty()),
+            ),
+            Some(SettingsAction::SaveResumeAgentsOnRestore(true))
+        );
+
+        switch_settings_section(&mut state, SettingsSection::Theme, 0);
+        state
+            .settings
+            .list
+            .select(theme_choice_len(&state).saturating_add(13));
+        focus_selected_settings_input(&mut state);
+        assert_eq!(
+            update_settings_state(
+                &mut state,
+                KeyEvent::new(KeyCode::Char('u'), KeyModifiers::CONTROL),
+            ),
+            Some(SettingsAction::SaveWindowTitle(String::new()))
+        );
+        assert_eq!(
+            update_settings_state(
+                &mut state,
+                KeyEvent::new(KeyCode::Char('{'), KeyModifiers::empty()),
+            ),
+            None
+        );
+        assert_eq!(state.settings.pending_window_title.as_deref(), Some("{"));
+        assert_eq!(
+            update_settings_state(
+                &mut state,
+                KeyEvent::new(KeyCode::Char('u'), KeyModifiers::CONTROL),
+            ),
+            Some(SettingsAction::SaveWindowTitle(String::new()))
+        );
+        assert_eq!(
+            update_settings_state(
+                &mut state,
+                KeyEvent::new(KeyCode::Char('x'), KeyModifiers::empty()),
+            ),
+            Some(SettingsAction::SaveWindowTitle("x".to_string()))
+        );
+
+        switch_settings_section(&mut state, SettingsSection::Experiments, 1);
+        focus_selected_settings_input(&mut state);
+        assert_eq!(
+            update_settings_state(
+                &mut state,
+                KeyEvent::new(KeyCode::Char('u'), KeyModifiers::CONTROL),
+            ),
+            None
+        );
+        assert_eq!(
+            update_settings_state(
+                &mut state,
+                KeyEvent::new(KeyCode::Char('0'), KeyModifiers::empty()),
+            ),
+            None
+        );
+        assert_eq!(state.settings.pending_headless_cols.as_deref(), Some("0"));
+        update_settings_state(
+            &mut state,
+            KeyEvent::new(KeyCode::Backspace, KeyModifiers::empty()),
+        );
+        assert_eq!(
+            update_settings_state(
+                &mut state,
+                KeyEvent::new(KeyCode::Char('8'), KeyModifiers::empty()),
+            ),
+            Some(SettingsAction::SaveHeadlessSize { cols: 8, rows: 40 })
+        );
+    }
 
     #[test]
     fn settings_tab_moves_focus_between_content_and_sidebar() {
@@ -6207,6 +6428,11 @@ mod tests {
             KeyEvent::new(KeyCode::Down, KeyModifiers::empty()),
         );
         assert_eq!(state.settings.sidebar_selection.subsection, Some(2));
+        update_settings_state(
+            &mut state,
+            KeyEvent::new(KeyCode::Down, KeyModifiers::empty()),
+        );
+        assert_eq!(state.settings.sidebar_selection.subsection, Some(3));
         update_settings_state(
             &mut state,
             KeyEvent::new(KeyCode::Down, KeyModifiers::empty()),
@@ -6883,6 +7109,46 @@ mod tests {
             Some(SettingsAction::SaveSwitchAsciiInputSourceInPrefix(true))
         );
         assert_eq!(app.state.settings.list.selected, 0);
+    }
+
+    #[test]
+    fn settings_mouse_focuses_text_inputs_without_saving_stale_drafts() {
+        let mut app = app_for_mouse_test();
+        crate::ui::compute_view(&mut app.state, Rect::new(0, 0, 150, 40));
+        open_settings_at(&mut app.state, SettingsSection::Theme);
+
+        let title_index = theme_choice_len(&app.state) + 13;
+        let title_rows = theme_rows(&app.state);
+        let title_visual_row =
+            selected_visual_row(&title_rows, title_index).expect("window title row");
+        app.state.settings.list.select(title_index);
+        ensure_settings_selection_visible(&mut app.state);
+        let title_list = settings_section_list_geometry(&app.state, SettingsSection::Theme);
+        let title_action = app.state.handle_settings_mouse(mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            title_list.rect.x + 2,
+            title_list.rect.y + (title_visual_row - app.state.settings.scroll) as u16,
+        ));
+
+        assert_eq!(title_action, None);
+        assert_eq!(app.state.settings.focused_input, Some(title_index));
+
+        switch_settings_section(&mut app.state, SettingsSection::Experiments, 1);
+        app.state.settings.pending_headless_cols = Some("80".to_string());
+        app.state.settings.pending_headless_rows = Some("24".to_string());
+        let headless_rows =
+            rows_for_section(&app.state, SettingsSection::Experiments).expect("advanced rows");
+        let cols_visual_row = selected_visual_row(&headless_rows, 1).expect("headless columns row");
+        let headless_list =
+            settings_section_list_geometry(&app.state, SettingsSection::Experiments);
+        let headless_action = app.state.handle_settings_mouse(mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            headless_list.rect.x + 2,
+            headless_list.rect.y + cols_visual_row as u16,
+        ));
+
+        assert_eq!(headless_action, None);
+        assert_eq!(app.state.settings.focused_input, Some(1));
     }
 
     #[test]

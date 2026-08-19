@@ -951,6 +951,7 @@ impl App {
             prefix_code,
             prefix_mods,
             headless_size: config.headless_size(),
+            window_title_template: config.ui.window_title.clone(),
 
             default_sidebar_width: config.ui.sidebar_width,
             sidebar_width,
@@ -1072,6 +1073,10 @@ impl App {
                 pending_pane_border_agent_info: None,
                 pending_status_indicators: None,
                 pending_switch_ascii_input_source_in_prefix: None,
+                pending_resume_agents_on_restore: None,
+                pending_window_title: None,
+                pending_headless_cols: None,
+                pending_headless_rows: None,
                 pending_group_accent_choice: None,
                 pending_group_name: None,
                 pending_group_default_directory: None,
@@ -2544,6 +2549,7 @@ impl App {
                 diagnostics.extend(crate::config::window_title_diagnostics(
                     &config.ui.window_title,
                 ));
+                self.state.window_title_template = config.ui.window_title.clone();
                 self.configure_window_title(&config.ui.window_title);
                 self.state.pane_borders = config.ui.pane_borders;
                 self.state.pane_scrollbars = config.ui.pane_scrollbars;
@@ -2579,14 +2585,20 @@ impl App {
                 config.experimental.switch_ascii_input_source_in_prefix;
             self.persist_pane_history = config.experimental.pane_history;
             self.state.pane_history_persistence = config.experimental.pane_history;
-            self.state.resume_agents_on_restore = config.session.resume_agents_on_restore;
             if !self.persist_pane_history {
                 crate::persist::clear_history();
             }
         }
+        if !invalid_section("session") {
+            self.state.resume_agents_on_restore = config.session.resume_agents_on_restore;
+        }
 
         if !invalid_section("server") {
-            self.state.headless_size = config.headless_size();
+            if let Some(diagnostic) = config.invalid_headless_size_diagnostic() {
+                diagnostics.push(format!("{diagnostic}; kept current [server] settings"));
+            } else {
+                self.state.headless_size = config.headless_size();
+            }
         }
 
         if !invalid_section("advanced") {
@@ -14196,6 +14208,63 @@ mod tests {
 
         let _ = std::fs::remove_dir_all(path.parent().unwrap());
     }
+    #[test]
+    fn restored_settings_controls_persist_and_apply_live_config() {
+        let _guard = config_env_lock().lock().unwrap();
+        let path = temp_config_path("restored-settings-controls");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, "onboarding = false\n").unwrap();
+        let _config_path_env =
+            crate::config::TestEnvVar::set(crate::config::CONFIG_PATH_ENV_VAR, &path);
+
+        let mut app = test_app();
+        app.save_resume_agents_on_restore(false);
+        app.save_window_title("{workspace} @ {hostname}");
+        app.save_headless_size(160, 50);
+
+        assert!(!app.state.resume_agents_on_restore);
+        assert_eq!(app.state.window_title_template, "{workspace} @ {hostname}");
+        assert_eq!(app.state.headless_size, (160, 50));
+        let content = std::fs::read_to_string(&path).unwrap();
+        assert!(content.contains("[session]"));
+        assert!(content.contains("resume_agents_on_restore = false"));
+        assert!(content.contains("window_title = \"{workspace} @ {hostname}\""));
+        assert!(content.contains("[server]"));
+        assert!(content.contains("headless_cols = 160"));
+        assert!(content.contains("headless_rows = 50"));
+
+        app.save_headless_size(0, 40);
+        assert_eq!(app.state.headless_size, (160, 50));
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), content);
+        assert!(app.state.config_diagnostic.is_none());
+
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
+    }
+    #[test]
+    fn reload_config_keeps_headless_size_when_server_dimensions_are_zero() {
+        let _guard = config_env_lock().lock().unwrap();
+        let path = temp_config_path("reload-config-zero-headless-size");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(
+            &path,
+            "onboarding = false\n[server]\nheadless_cols = 0\nheadless_rows = 50\n",
+        )
+        .unwrap();
+        let _config_path_env =
+            crate::config::TestEnvVar::set(crate::config::CONFIG_PATH_ENV_VAR, &path);
+
+        let mut app = test_app();
+        app.state.headless_size = (160, 50);
+        let report = app.reload_config();
+
+        assert_eq!(app.state.headless_size, (160, 50));
+        assert!(report
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.contains("must be greater than zero")));
+
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
+    }
 
     #[test]
     fn reload_config_keeps_current_state_on_invalid_toml() {
@@ -21268,7 +21337,7 @@ command = "printf literal > '{}'"
             .expect("sidebar arrangement option");
         let arrangement_visual_row = (0..crate::settings_rows::visual_row_count(&rows))
             .find(|row| {
-                crate::settings_rows::option_index_for_visual_row(&rows, *row)
+                crate::settings_rows::option_hit_for_visual_row(&rows, *row).map(|hit| hit.index)
                     == Some(arrangement_index)
             })
             .expect("sidebar arrangement visual row");

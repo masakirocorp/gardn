@@ -2146,6 +2146,13 @@ pub struct SettingsState {
     pub pending_new_terminal_cwd: Option<NewTerminalCwdConfig>,
     /// Pending mouse wheel scroll amount while settings is open.
     pub pending_mouse_scroll_lines: Option<usize>,
+    /// Pending agent-session restore setting while settings is open.
+    pub pending_resume_agents_on_restore: Option<bool>,
+    /// Pending outer terminal window-title template while settings is open.
+    pub pending_window_title: Option<String>,
+    /// Pending headless terminal dimensions while settings is open.
+    pub pending_headless_cols: Option<String>,
+    pub pending_headless_rows: Option<String>,
     /// Pending commands while the Commands settings tab is open.
     pub pending_git_command: Option<String>,
     pub pending_diff_command: Option<String>,
@@ -3256,6 +3263,8 @@ pub struct AppState {
     pub prefix_code: KeyCode,
     pub prefix_mods: KeyModifiers,
     pub headless_size: (u16, u16),
+    /// Configured outer terminal window-title template.
+    pub window_title_template: String,
 
     pub default_sidebar_width: u16,
     pub sidebar_width: u16,
@@ -4118,6 +4127,7 @@ impl AppState {
                 crate::config::DEFAULT_HEADLESS_COLS,
                 crate::config::DEFAULT_HEADLESS_ROWS,
             ),
+            window_title_template: crate::config::Config::default().ui.window_title,
 
             default_sidebar_width: 26,
             sidebar_width: 26,
@@ -4244,6 +4254,10 @@ impl AppState {
                 pending_pane_border_agent_info: None,
                 pending_status_indicators: None,
                 pending_switch_ascii_input_source_in_prefix: None,
+                pending_resume_agents_on_restore: None,
+                pending_window_title: None,
+                pending_headless_cols: None,
+                pending_headless_rows: None,
                 pending_group_accent_choice: None,
                 pending_group_name: None,
                 pending_group_default_directory: None,

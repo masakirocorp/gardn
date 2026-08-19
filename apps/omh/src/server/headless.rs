@@ -773,6 +773,7 @@ impl HeadlessServer {
     fn sync_foreground_client_state(&mut self) {
         let Some(client_id) = self.foreground_client_id else {
             self.app.state.outer_terminal_focus = None;
+            self.effective_size = self.app.state.headless_size;
             let server_keybindings = self.server_keybindings.clone();
             apply_keybindings(&mut self.app, &server_keybindings);
             self.sync_visible_server_config_diagnostic(false);
@@ -781,6 +782,7 @@ impl HeadlessServer {
         let Some(client) = self.clients.get(&client_id) else {
             self.foreground_client_id = None;
             self.app.state.outer_terminal_focus = None;
+            self.effective_size = self.app.state.headless_size;
             let server_keybindings = self.server_keybindings.clone();
             apply_keybindings(&mut self.app, &server_keybindings);
             self.sync_visible_server_config_diagnostic(false);
@@ -5521,6 +5523,48 @@ next_tab = ""
         assert!(server.app.state.toast.is_none());
         let content = std::fs::read_to_string(&path).unwrap();
         assert!(content.contains("delivery = \"omh\""));
+
+        let _ = std::fs::remove_file(path);
+    }
+    #[test]
+    fn config_reload_updates_server_owned_headless_size() {
+        let path = std::env::temp_dir().join(format!(
+            "omh-headless-size-{}-{}.toml",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|duration| duration.as_nanos())
+                .unwrap_or(0)
+        ));
+        std::fs::write(
+            &path,
+            "onboarding = false\n[server]\nheadless_cols = 160\nheadless_rows = 50\n",
+        )
+        .unwrap();
+        let _guard = crate::config::test_config_env_lock().lock().unwrap();
+        let _config_path_env =
+            crate::config::TestEnvVar::set(crate::config::CONFIG_PATH_ENV_VAR, &path);
+        let mut server = test_headless_server();
+        let (writer, _control, _render) = test_client_writer();
+        assert!(server.handle_server_event(ServerEvent::ClientConnected {
+            client_id: 1,
+            cols: 80,
+            rows: 24,
+            cell_width_px: 0,
+            cell_height_px: 0,
+            render_encoding: RenderEncoding::SemanticFrame,
+            keybindings: None,
+            direct_attach_requested: false,
+            direct_graphics: false,
+            writer,
+        }));
+
+        server.reload_server_config(false);
+        assert_eq!(server.app.state.headless_size, (160, 50));
+        assert_eq!(server.effective_size, (80, 24));
+
+        assert!(server.handle_server_event(ServerEvent::ClientDisconnected { client_id: 1 }));
+        assert_eq!(server.effective_size, (160, 50));
 
         let _ = std::fs::remove_file(path);
     }

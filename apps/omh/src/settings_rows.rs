@@ -143,10 +143,6 @@ pub(crate) fn option_hit_for_visual_row(
     None
 }
 
-pub(crate) fn option_index_for_visual_row(rows: &[SettingsListRow], row: usize) -> Option<usize> {
-    option_hit_for_visual_row(rows, row).map(|hit| hit.index)
-}
-
 pub(crate) fn rows_for_section(
     app: &AppState,
     section: SettingsSection,
@@ -893,6 +889,19 @@ fn appearance_rows(app: &AppState, settings: &SettingsState) -> Vec<SettingsList
                 .label(),
         )],
     ));
+    rows.push(SettingsListRow::Spacer);
+    rows.extend(setting_group(
+        "Window",
+        [SettingsListRow::TextInput {
+            index: layout_base + 13,
+            title: "Window Title".into(),
+            value: settings
+                .pending_window_title
+                .clone()
+                .unwrap_or_else(|| app.window_title_template.clone())
+                .into(),
+        }],
+    ));
     rows
 }
 
@@ -1069,12 +1078,27 @@ fn behavior_rows(app: &AppState, settings: &SettingsState) -> Vec<SettingsListRo
             ),
         ],
     ));
+    rows.push(SettingsListRow::Spacer);
+    rows.extend(setting_group(
+        "Sessions",
+        [option(
+            8,
+            "Resume Agent Sessions",
+            "Resume supported agents after restoring a session",
+            settings
+                .pending_resume_agents_on_restore
+                .unwrap_or(app.resume_agents_on_restore),
+        )],
+    ));
     rows
 }
 
 fn command_rows(app: &AppState, settings: &SettingsState) -> Vec<SettingsListRow> {
     let mut rows = vec![SettingsListRow::Header("Project Commands")];
-    for field in CommandField::ALL {
+    for (offset, field) in CommandField::ALL.iter().copied().enumerate() {
+        if offset > 0 {
+            rows.push(SettingsListRow::Spacer);
+        }
         let value = pending_command_value(app, settings, field);
         let title = if value.trim().is_empty() {
             format!("{} · Disabled", field.title())
@@ -1215,7 +1239,7 @@ impl CommandRowId {
 }
 
 fn experiment_rows(app: &AppState, settings: &SettingsState) -> Vec<SettingsListRow> {
-    setting_group(
+    let mut rows = setting_group(
         "Input",
         [option(
             0,
@@ -1225,7 +1249,32 @@ fn experiment_rows(app: &AppState, settings: &SettingsState) -> Vec<SettingsList
                 .pending_switch_ascii_input_source_in_prefix
                 .unwrap_or_else(|| app.switch_ascii_input_source_in_prefix_enabled()),
         )],
-    )
+    );
+    rows.push(SettingsListRow::Spacer);
+    rows.extend(setting_group(
+        "Server",
+        [
+            SettingsListRow::TextInput {
+                index: 1,
+                title: "Headless Terminal Columns".into(),
+                value: settings
+                    .pending_headless_cols
+                    .clone()
+                    .unwrap_or_else(|| app.headless_size.0.to_string())
+                    .into(),
+            },
+            SettingsListRow::TextInput {
+                index: 2,
+                title: "Headless Terminal Rows".into(),
+                value: settings
+                    .pending_headless_rows
+                    .clone()
+                    .unwrap_or_else(|| app.headless_size.1.to_string())
+                    .into(),
+            },
+        ],
+    ));
+    rows
 }
 
 fn notification_rows(app: &AppState, settings: &SettingsState) -> Vec<SettingsListRow> {
@@ -2035,13 +2084,14 @@ mod tests {
             },
         ];
 
-        assert_eq!(option_index_for_visual_row(&rows, 0), None);
-        assert_eq!(option_index_for_visual_row(&rows, 1), None);
-        assert_eq!(option_index_for_visual_row(&rows, 2), None);
-        assert_eq!(option_index_for_visual_row(&rows, 3), Some(7));
-        assert_eq!(option_index_for_visual_row(&rows, 4), Some(7));
-        assert_eq!(option_index_for_visual_row(&rows, 5), Some(11));
-        assert_eq!(option_index_for_visual_row(&rows, 6), None);
+        let index_for_row = |row| option_hit_for_visual_row(&rows, row).map(|hit| hit.index);
+        assert_eq!(index_for_row(0), None);
+        assert_eq!(index_for_row(1), None);
+        assert_eq!(index_for_row(2), None);
+        assert_eq!(index_for_row(3), Some(7));
+        assert_eq!(index_for_row(4), Some(7));
+        assert_eq!(index_for_row(5), Some(11));
+        assert_eq!(index_for_row(6), None);
     }
 
     #[test]
@@ -2082,9 +2132,10 @@ mod tests {
         ];
 
         assert_eq!(visual_row_count(&rows), 3);
-        assert_eq!(option_index_for_visual_row(&rows, 1), Some(3));
-        assert_eq!(option_index_for_visual_row(&rows, 2), Some(4));
-        assert_eq!(option_index_for_visual_row(&rows, 3), None);
+        let index_for_row = |row| option_hit_for_visual_row(&rows, row).map(|hit| hit.index);
+        assert_eq!(index_for_row(1), Some(3));
+        assert_eq!(index_for_row(2), Some(4));
+        assert_eq!(index_for_row(3), None);
     }
 
     #[test]

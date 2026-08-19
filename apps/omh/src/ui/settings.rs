@@ -76,6 +76,10 @@ const APPEARANCE_SUBSECTIONS: &[SettingsSubsection] = &[
         label: "Agent Status",
         anchor: Some("Agent Status"),
     },
+    SettingsSubsection {
+        label: "Window",
+        anchor: Some("Window"),
+    },
 ];
 const NOTIFICATION_SUBSECTIONS: &[SettingsSubsection] = &[
     SettingsSubsection {
@@ -100,6 +104,10 @@ const BEHAVIOR_SUBSECTIONS: &[SettingsSubsection] = &[
         label: "Terminal",
         anchor: Some("Terminal"),
     },
+    SettingsSubsection {
+        label: "Sessions",
+        anchor: Some("Sessions"),
+    },
 ];
 const COMMAND_SUBSECTIONS: &[SettingsSubsection] = &[SettingsSubsection {
     label: "Project commands",
@@ -117,10 +125,16 @@ const CONNECTION_SUBSECTIONS: &[SettingsSubsection] = &[SettingsSubsection {
     label: "SSH profiles",
     anchor: Some("Saved Profiles"),
 }];
-const ADVANCED_SUBSECTIONS: &[SettingsSubsection] = &[SettingsSubsection {
-    label: "Input",
-    anchor: Some("Input"),
-}];
+const ADVANCED_SUBSECTIONS: &[SettingsSubsection] = &[
+    SettingsSubsection {
+        label: "Input",
+        anchor: Some("Input"),
+    },
+    SettingsSubsection {
+        label: "Server",
+        anchor: Some("Server"),
+    },
+];
 
 fn settings_sidebar_section_label(section: SettingsSection) -> &'static str {
     match section {
@@ -2142,7 +2156,7 @@ mod tests {
         app.settings.pending_github_command = Some("ghui".to_string());
         app.settings.list.show();
 
-        let area = Rect::new(0, 0, 100, 40);
+        let area = Rect::new(0, 0, 100, 44);
         let backend = TestBackend::new(area.width, area.height);
         let mut terminal = Terminal::new(backend).expect("test backend");
         terminal
@@ -2158,7 +2172,9 @@ mod tests {
         let (ide_y, ide_x) = find_text_cell(&text, "IDE ·").expect("ide command field");
         let (github_y, github_x) = find_text_cell(&text, "GitHub ·").expect("github command field");
 
-        assert!(git_y < diff_y && diff_y < ide_y && ide_y < github_y);
+        assert_eq!(diff_y, git_y + 4);
+        assert_eq!(ide_y, diff_y + 4);
+        assert_eq!(github_y, ide_y + 4);
         assert_eq!(git_x, header_x + 1);
         assert_eq!(diff_x, git_x);
         assert_eq!(ide_x, git_x);
@@ -2186,8 +2202,13 @@ mod tests {
         assert!(text.contains("Reset to hunk diff --watch"));
         assert!(text.contains("Reset to fresh ."));
         assert!(text.contains("Reset to ghui"));
-        assert!(text.contains("Reset All Commands"));
-        assert!(text.contains("Restore all four commands to their built-in defaults."));
+        app.settings.scroll = 4;
+        terminal
+            .draw(|frame| render_settings_overlay(&app, frame, area))
+            .expect("render scrolled Commands settings overlay");
+        let scrolled_text = buffer_text(terminal.backend().buffer(), area.width, area.height);
+        assert!(scrolled_text.contains("Reset All Commands"));
+        assert!(scrolled_text.contains("Restore all four commands to their built-in defaults."));
         assert!(!text.contains("Selected Repository"));
         assert!(!text.contains("Selected Project"));
         assert!(!text.contains("Selected Space"));
@@ -3076,7 +3097,10 @@ mod tests {
             .map(|entry| entry.label)
             .collect::<Vec<_>>();
 
-        assert_eq!(labels, ["Behavior", "General", "Selection", "Terminal"]);
+        assert_eq!(
+            labels,
+            ["Behavior", "General", "Selection", "Terminal", "Sessions"]
+        );
     }
     #[test]
     fn settings_sidebar_separates_content_header_from_options() {
@@ -3291,7 +3315,45 @@ mod tests {
         assert!(text.contains("Terminal"));
         assert!(text.contains("New Terminal CWD"));
         assert!(text.contains("Mouse Wheel Speed"));
+        let sessions_header = rows
+            .iter()
+            .position(|row| matches!(row, SettingsListRow::Header("Sessions")))
+            .expect("sessions settings header");
+        app.settings.scroll = visual_row_count(&rows[..sessions_header]);
+        terminal
+            .draw(|frame| render_settings_overlay(&app, frame, area))
+            .expect("render sessions settings overlay");
+
+        let text = buffer_text(terminal.backend().buffer(), area.width, area.height);
+        assert!(text.contains("Sessions"));
+        assert!(text.contains("Resume Agent Sessions"));
     }
+
+    #[test]
+    fn appearance_settings_render_window_title() {
+        let mut app = AppState::test_new();
+        app.settings.section = SettingsSection::Theme;
+        let rows =
+            rows_for_section(&app, SettingsSection::Theme).expect("appearance settings rows");
+        let window_header = rows
+            .iter()
+            .position(|row| matches!(row, SettingsListRow::Header("Window")))
+            .expect("window settings header");
+        app.settings.scroll = visual_row_count(&rows[..window_header]);
+
+        let area = Rect::new(0, 0, 100, 30);
+        let backend = TestBackend::new(area.width, area.height);
+        let mut terminal = Terminal::new(backend).expect("test backend");
+        terminal
+            .draw(|frame| render_settings_overlay(&app, frame, area))
+            .expect("render window settings overlay");
+
+        let text = buffer_text(terminal.backend().buffer(), area.width, area.height);
+        assert!(text.contains("Window"));
+        assert!(text.contains("Window Title"));
+        assert!(text.contains("{hostname}: {workspace}"));
+    }
+
     #[test]
     fn sectioned_settings_selected_text_uses_selected_foreground() {
         let mut app = AppState::test_new();
@@ -3738,9 +3800,10 @@ mod tests {
     }
 
     #[test]
-    fn experiments_render_input_source_only() {
+    fn advanced_settings_render_input_and_headless_size() {
         let mut app = AppState::test_new();
         app.switch_ascii_input_source_in_prefix = true;
+        app.headless_size = (160, 50);
         app.settings.section = SettingsSection::Experiments;
         app.settings.list.selected = 0;
         app.settings.list.show();
@@ -3753,12 +3816,14 @@ mod tests {
             .expect("render settings overlay");
 
         let text = buffer_text(terminal.backend().buffer(), area.width, area.height);
-        assert!(!text.contains("restore"));
-        assert!(!text.contains("history"));
-        assert!(!text.contains("resume agent sessions"));
         assert!(!text.contains("pane screen history"));
         assert!(text.contains("Input"));
         assert!(text.contains("Switch to ASCII Input Source in Prefix (macOS/Windows)"));
+        assert!(text.contains("Server"));
+        assert!(text.contains("Headless Terminal Columns"));
+        assert!(text.contains("160"));
+        assert!(text.contains("Headless Terminal Rows"));
+        assert!(text.contains("50"));
     }
     fn assert_no_option_line(text: &str, option: &str) {
         let mut in_appearance_section = false;
