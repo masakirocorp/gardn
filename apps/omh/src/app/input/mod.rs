@@ -118,7 +118,8 @@ pub(crate) use self::{
         ActionContext, BindingDispatch, NavigateAction,
     },
     settings::{
-        open_settings_at, prepare_general_settings_state, prepare_group_settings_state,
+        close_agent_profile_editor_for_view, open_settings_at, paste_settings_text_for_view,
+        prepare_general_settings_state, prepare_group_settings_state,
         prepare_workspace_settings_state, update_settings_mouse_for_view,
         update_settings_state_for_view, SettingsAction,
     },
@@ -310,6 +311,15 @@ impl App {
                 true
             }
             Mode::KeybindHelp => insert_keybind_help_query_text(&mut self.state.keybind_help, text),
+            Mode::Settings => {
+                let Some(action) = settings::paste_settings_text(&mut self.state, text) else {
+                    return false;
+                };
+                if let Some(action) = action {
+                    self.apply_settings_action(action);
+                }
+                true
+            }
             _ => false,
         }
     }
@@ -829,7 +839,15 @@ impl App {
                     }
                     action @ (SettingsAction::SaveResumeAgentsOnRestore(_)
                     | SettingsAction::SaveWindowTitle(_)
-                    | SettingsAction::SaveHeadlessSize { .. }) => {
+                    | SettingsAction::SaveHeadlessSize { .. }
+                    | SettingsAction::SaveDefaultShell(_)
+                    | SettingsAction::SaveShellMode(_)
+                    | SettingsAction::SaveVersionCheck(_)
+                    | SettingsAction::SaveManifestCheck(_)
+                    | SettingsAction::SaveToastDelay(_)
+                    | SettingsAction::SaveToastOmhPosition(_)
+                    | SettingsAction::SaveClipboardToastEnabled(_)
+                    | SettingsAction::SaveClipboardToastPosition(_)) => {
                         self.apply_settings_action(action)
                     }
                     action @ (SettingsAction::CycleIntegrationHost
@@ -837,7 +855,9 @@ impl App {
                     | SettingsAction::UninstallIntegration(_)) => {
                         self.apply_settings_action(action)
                     }
-                    SettingsAction::SaveAgentProfile(profile) => self.save_agent_profile(profile),
+                    action @ SettingsAction::SaveAgentProfile(_) => {
+                        self.apply_settings_action(action)
+                    }
                     SettingsAction::DeleteAgentProfile(profile_id) => {
                         self.delete_agent_profile(&profile_id)
                     }

@@ -354,6 +354,109 @@ impl App {
             self.apply_config_from_disk(false);
         }
     }
+
+    pub(super) fn save_default_shell(&mut self, shell: &str) {
+        self.state.settings.pending_default_shell = Some(shell.to_string());
+        let value = toml::Value::String(shell.to_string()).to_string();
+        if self.update_config_file("default shell", |content| {
+            crate::config::upsert_section_value(content, "terminal", "default_shell", &value)
+        }) {
+            self.apply_config_from_disk(false);
+        }
+    }
+
+    pub(super) fn save_shell_mode(&mut self, mode: crate::config::ShellModeConfig) {
+        self.state.settings.pending_shell_mode = Some(mode);
+        let value = match mode {
+            crate::config::ShellModeConfig::Auto => "\"auto\"",
+            crate::config::ShellModeConfig::Login => "\"login\"",
+            crate::config::ShellModeConfig::NonLogin => "\"non_login\"",
+        };
+        if self.update_config_file("shell mode", |content| {
+            crate::config::upsert_section_value(content, "terminal", "shell_mode", value)
+        }) {
+            self.apply_config_from_disk(false);
+        }
+    }
+
+    pub(super) fn save_version_check(&mut self, enabled: bool) {
+        self.state.settings.pending_version_check = Some(enabled);
+        if self.update_config_file("version check", |content| {
+            crate::config::upsert_section_bool(content, "update", "version_check", enabled)
+        }) {
+            self.apply_config_from_disk(false);
+        }
+    }
+
+    pub(super) fn save_manifest_check(&mut self, enabled: bool) {
+        self.state.settings.pending_manifest_check = Some(enabled);
+        if self.update_config_file("manifest check", |content| {
+            crate::config::upsert_section_bool(content, "update", "manifest_check", enabled)
+        }) {
+            self.apply_config_from_disk(false);
+        }
+    }
+
+    pub(super) fn save_toast_delay(&mut self, seconds: u64) {
+        if seconds > crate::config::MAX_TOAST_DELAY_SECONDS {
+            return;
+        }
+        self.state.settings.pending_toast_delay = Some(seconds.to_string());
+        if self.update_config_file("toast delay", |content| {
+            crate::config::upsert_section_value(
+                content,
+                "ui.toast",
+                "delay_seconds",
+                &seconds.to_string(),
+            )
+        }) {
+            self.apply_config_from_disk(false);
+        }
+    }
+
+    pub(super) fn save_toast_omh_position(&mut self, position: crate::config::ToastOmhPosition) {
+        self.state.settings.pending_toast_omh_position = Some(position);
+        let value = match position {
+            crate::config::ToastOmhPosition::TopLeft => "\"top-left\"",
+            crate::config::ToastOmhPosition::TopRight => "\"top-right\"",
+            crate::config::ToastOmhPosition::BottomLeft => "\"bottom-left\"",
+            crate::config::ToastOmhPosition::BottomRight => "\"bottom-right\"",
+        };
+        if self.update_config_file("in-app toast position", |content| {
+            crate::config::upsert_section_value(content, "ui.toast.omh", "position", value)
+        }) {
+            self.apply_config_from_disk(false);
+        }
+    }
+
+    pub(super) fn save_clipboard_toast_enabled(&mut self, enabled: bool) {
+        self.state.settings.pending_clipboard_toast_enabled = Some(enabled);
+        if self.update_config_file("clipboard toast", |content| {
+            crate::config::upsert_section_bool(content, "ui.toast.clipboard", "enabled", enabled)
+        }) {
+            self.apply_config_from_disk(false);
+        }
+    }
+
+    pub(super) fn save_clipboard_toast_position(
+        &mut self,
+        position: crate::config::ToastClipboardPosition,
+    ) {
+        self.state.settings.pending_clipboard_toast_position = Some(position);
+        let value = match position {
+            crate::config::ToastClipboardPosition::TopLeft => "\"top-left\"",
+            crate::config::ToastClipboardPosition::TopCenter => "\"top-center\"",
+            crate::config::ToastClipboardPosition::TopRight => "\"top-right\"",
+            crate::config::ToastClipboardPosition::BottomLeft => "\"bottom-left\"",
+            crate::config::ToastClipboardPosition::BottomCenter => "\"bottom-center\"",
+            crate::config::ToastClipboardPosition::BottomRight => "\"bottom-right\"",
+        };
+        if self.update_config_file("clipboard toast position", |content| {
+            crate::config::upsert_section_value(content, "ui.toast.clipboard", "position", value)
+        }) {
+            self.apply_config_from_disk(false);
+        }
+    }
     pub(super) fn save_confirm_close(&mut self, enabled: bool) {
         self.state.confirm_close = enabled;
         self.state.settings.pending_confirm_close = Some(enabled);
@@ -508,7 +611,7 @@ impl App {
     pub(super) fn save_agent_profile(
         &mut self,
         profile: crate::agent_profiles::UserAgentProfileConfig,
-    ) {
+    ) -> bool {
         let mut config = self.current_agent_profiles_config();
         let profile_id = format!("user:{}", profile.id.trim_start_matches("user:"));
         if let Some(existing) = config.custom.iter_mut().find(|existing| {
@@ -521,7 +624,7 @@ impl App {
         if !config.order.iter().any(|id| id == &profile_id) {
             config.order.push(profile_id);
         }
-        self.save_agent_profiles_config(config);
+        self.save_agent_profiles_config(config)
     }
 
     pub(super) fn delete_agent_profile(&mut self, profile_id: &str) {
@@ -530,6 +633,9 @@ impl App {
             format!("user:{}", profile.id.trim_start_matches("user:")) != profile_id
         });
         config.order.retain(|id| id != profile_id);
+        if !self.save_agent_profiles_config(config) {
+            return;
+        }
         for group in &mut self.state.groups {
             group
                 .favorite_agent_profile_ids
@@ -544,9 +650,9 @@ impl App {
         self.state.settings.pending_agent_profile_kind =
             Some(crate::agent_profiles::AgentKind::Omp);
         self.state.settings.pending_agent_profile_command = None;
+        self.state.settings.pending_agent_profile_enabled = None;
         self.state.settings.list.selected = 0;
         self.state.settings.scroll = 0;
-        self.save_agent_profiles_config(config);
     }
 
     fn current_agent_profiles_config(&self) -> crate::agent_profiles::AgentProfilesConfig {
@@ -575,15 +681,17 @@ impl App {
         crate::agent_profiles::AgentProfilesConfig { order, custom }
     }
 
-    fn save_agent_profiles_config(&mut self, config: crate::agent_profiles::AgentProfilesConfig) {
-        let next_catalog = crate::agent_profiles::AgentProfileCatalog::from_config(&config);
+    fn save_agent_profiles_config(
+        &mut self,
+        config: crate::agent_profiles::AgentProfilesConfig,
+    ) -> bool {
         if self.update_config_file("agent profiles", |content| {
             write_agent_profiles_section(content, &config)
         }) {
             self.apply_config_from_disk(false);
+            true
         } else {
-            self.state.agent_profiles = next_catalog;
-            self.refresh_integration_recommendations();
+            false
         }
     }
 }
@@ -693,6 +801,20 @@ mod tests {
 
     #[test]
     fn delete_agent_profile_closes_editor_and_updates_catalog() {
+        let _lock = match crate::config::test_config_env_lock().lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        let path = std::env::temp_dir().join(format!(
+            "omh-delete-agent-profile-{}-{}.toml",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let _config_path =
+            crate::config::TestEnvVar::set(crate::config::CONFIG_PATH_ENV_VAR, &path);
         let mut app = test_app();
         app.state.agent_profiles = crate::agent_profiles::AgentProfileCatalog::from_config(
             &crate::agent_profiles::AgentProfilesConfig {
@@ -720,6 +842,7 @@ mod tests {
         assert_eq!(app.state.settings.pending_agent_profile_command, None);
         assert_eq!(app.state.settings.list.selected, 0);
         assert!(app.state.session_dirty);
+        let _ = std::fs::remove_file(path);
     }
     #[test]
     fn save_commands_persists_valid_toml_and_runtime_state() {
@@ -787,6 +910,161 @@ mod tests {
             .state
             .project_command_configured(crate::app::state::ProjectCommandKind::Diff));
         let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn save_stable_settings_persist_owned_keys() {
+        let _lock = match crate::config::test_config_env_lock().lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        let path = std::env::temp_dir().join(format!(
+            "omh-stable-settings-{}-{}.toml",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let _config_path =
+            crate::config::TestEnvVar::set(crate::config::CONFIG_PATH_ENV_VAR, &path);
+        std::fs::write(&path, "[ui]\ncopy_on_select = true\n").unwrap();
+        let mut app = test_app();
+
+        app.save_default_shell("/bin/zsh");
+        app.save_shell_mode(crate::config::ShellModeConfig::NonLogin);
+        app.save_version_check(false);
+        app.save_manifest_check(false);
+        app.save_toast_delay(2);
+        app.save_toast_omh_position(crate::config::ToastOmhPosition::TopLeft);
+        app.save_clipboard_toast_enabled(false);
+        app.save_clipboard_toast_position(crate::config::ToastClipboardPosition::TopCenter);
+
+        let content = std::fs::read_to_string(&path).unwrap();
+        let config: crate::config::Config = toml::from_str(&content).unwrap();
+        assert_eq!(config.terminal.default_shell, "/bin/zsh");
+        assert_eq!(
+            config.terminal.shell_mode,
+            crate::config::ShellModeConfig::NonLogin
+        );
+        assert!(!config.update.version_check);
+        assert!(!config.update.manifest_check);
+        assert_eq!(config.ui.toast.delay_seconds, 2);
+        assert_eq!(
+            config.ui.toast.omh.position,
+            crate::config::ToastOmhPosition::TopLeft
+        );
+        assert!(!config.ui.toast.clipboard.enabled);
+        assert_eq!(
+            config.ui.toast.clipboard.position,
+            crate::config::ToastClipboardPosition::TopCenter
+        );
+        assert!(config.ui.copy_on_select);
+        let _ = std::fs::remove_file(path);
+    }
+    #[test]
+    fn failed_stable_setting_writes_preserve_live_state() {
+        let _lock = match crate::config::test_config_env_lock().lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        let path = std::env::temp_dir().join(format!(
+            "omh-unwritable-settings-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&path).unwrap();
+        let _config_path =
+            crate::config::TestEnvVar::set(crate::config::CONFIG_PATH_ENV_VAR, &path);
+        let mut app = test_app();
+        let original_delay = app.state.toast_config.delay_seconds;
+        let original_omh_position = app.state.toast_config.omh.position;
+        let original_clipboard_enabled = app.state.toast_config.clipboard.enabled;
+        let original_clipboard_position = app.state.toast_config.clipboard.position;
+
+        app.save_default_shell("/bin/zsh");
+        app.save_shell_mode(crate::config::ShellModeConfig::NonLogin);
+        app.save_version_check(false);
+        app.save_manifest_check(false);
+        app.save_toast_delay(2);
+        app.save_toast_omh_position(crate::config::ToastOmhPosition::TopLeft);
+        app.save_clipboard_toast_enabled(false);
+        app.save_clipboard_toast_position(crate::config::ToastClipboardPosition::TopCenter);
+
+        assert!(app.state.default_shell.is_empty());
+        assert_eq!(app.state.shell_mode, crate::config::ShellModeConfig::Auto);
+        assert!(app.state.update_version_check);
+        assert!(app.state.update_manifest_check);
+        assert_eq!(app.state.toast_config.delay_seconds, original_delay);
+        assert_eq!(app.state.toast_config.omh.position, original_omh_position);
+        assert_eq!(
+            app.state.toast_config.clipboard.enabled,
+            original_clipboard_enabled
+        );
+        assert_eq!(
+            app.state.toast_config.clipboard.position,
+            original_clipboard_position
+        );
+        assert_eq!(
+            app.state.settings.pending_default_shell.as_deref(),
+            Some("/bin/zsh")
+        );
+        assert_eq!(app.state.settings.pending_version_check, Some(false));
+        assert_eq!(app.state.settings.pending_toast_delay.as_deref(), Some("2"));
+        let _ = std::fs::remove_dir_all(path);
+    }
+
+    #[test]
+    fn failed_agent_profile_write_preserves_catalog() {
+        let _lock = match crate::config::test_config_env_lock().lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        let path = std::env::temp_dir().join(format!(
+            "omh-unwritable-agent-profile-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&path).unwrap();
+        let _config_path =
+            crate::config::TestEnvVar::set(crate::config::CONFIG_PATH_ENV_VAR, &path);
+        let mut app = test_app();
+        app.state.agent_profiles = crate::agent_profiles::AgentProfileCatalog::from_config(
+            &crate::agent_profiles::AgentProfilesConfig {
+                order: vec!["user:quiet".to_string()],
+                custom: vec![crate::agent_profiles::UserAgentProfileConfig {
+                    id: "quiet".to_string(),
+                    name: "quiet".to_string(),
+                    kind: crate::agent_profiles::AgentKind::Custom,
+                    command: "true".to_string(),
+                    env: std::collections::BTreeMap::new(),
+                    enabled: true,
+                }],
+            },
+        );
+
+        assert!(
+            !app.save_agent_profile(crate::agent_profiles::UserAgentProfileConfig {
+                id: "quiet".to_string(),
+                name: "quiet".to_string(),
+                kind: crate::agent_profiles::AgentKind::Custom,
+                command: "true".to_string(),
+                env: std::collections::BTreeMap::new(),
+                enabled: false,
+            })
+        );
+        assert!(app
+            .state
+            .agent_profiles
+            .get("user:quiet")
+            .is_some_and(|profile| profile.enabled));
+        let _ = std::fs::remove_dir_all(path);
     }
     #[test]
     fn save_enum_settings_persist_valid_toml() {

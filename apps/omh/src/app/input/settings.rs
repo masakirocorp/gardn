@@ -12,14 +12,16 @@ use crate::{
     },
     config::{
         AgentPanelScopeConfig, CommandsConfig, ContextBarVisibilityConfig, NewTerminalCwdConfig,
-        PaneBorderAgentInfoConfig, RightClickPassthroughModifierConfig, SidebarArrangementConfig,
-        SidebarInitialStateConfig, StatusIndicatorStyle, TerminalAccent, ThemeMode, ToastDelivery,
+        PaneBorderAgentInfoConfig, RightClickPassthroughModifierConfig, ShellModeConfig,
+        SidebarArrangementConfig, SidebarInitialStateConfig, StatusIndicatorStyle, TerminalAccent,
+        ThemeMode, ToastClipboardPosition, ToastDelivery, ToastOmhPosition,
+        MAX_TOAST_DELAY_SECONDS,
     },
     settings_rows::{
         connection_editor_open as settings_connection_editor_open, next_option_index, option_count,
         option_hit_for_visual_row, previous_option_index, rows_for_section, selected_visual_row,
-        visual_row_count, CommandAction, CommandField, CommandRowId, ConnectionField,
-        ConnectionRowId, SettingsListRow, SettingsRowHit,
+        visual_row_count, AdvancedRowId, BehaviorRowId, CommandAction, CommandField, CommandRowId,
+        ConnectionField, ConnectionRowId, NotificationRowId, SettingsListRow, SettingsRowHit,
     },
     terminal_theme::ThemeAppearance,
 };
@@ -77,6 +79,14 @@ pub(crate) enum SettingsAction {
         cols: u16,
         rows: u16,
     },
+    SaveDefaultShell(String),
+    SaveShellMode(ShellModeConfig),
+    SaveVersionCheck(bool),
+    SaveManifestCheck(bool),
+    SaveToastDelay(u64),
+    SaveToastOmhPosition(ToastOmhPosition),
+    SaveClipboardToastEnabled(bool),
+    SaveClipboardToastPosition(ToastClipboardPosition),
     SaveGroupAccent {
         group_idx: usize,
         accent: Option<TerminalAccent>,
@@ -226,6 +236,30 @@ impl App {
             SettingsAction::SaveHeadlessSize { cols, rows } => {
                 self.save_headless_size(cols, rows);
             }
+            SettingsAction::SaveDefaultShell(shell) => {
+                self.save_default_shell(&shell);
+            }
+            SettingsAction::SaveShellMode(mode) => {
+                self.save_shell_mode(mode);
+            }
+            SettingsAction::SaveVersionCheck(enabled) => {
+                self.save_version_check(enabled);
+            }
+            SettingsAction::SaveManifestCheck(enabled) => {
+                self.save_manifest_check(enabled);
+            }
+            SettingsAction::SaveToastDelay(seconds) => {
+                self.save_toast_delay(seconds);
+            }
+            SettingsAction::SaveToastOmhPosition(position) => {
+                self.save_toast_omh_position(position);
+            }
+            SettingsAction::SaveClipboardToastEnabled(enabled) => {
+                self.save_clipboard_toast_enabled(enabled);
+            }
+            SettingsAction::SaveClipboardToastPosition(position) => {
+                self.save_clipboard_toast_position(position);
+            }
             SettingsAction::SaveWorkspaceName { ws_idx, name } => {
                 self.state.rename_workspace(ws_idx, name);
             }
@@ -259,7 +293,11 @@ impl App {
             SettingsAction::UninstallIntegration(target) => self.apply_integration_operation(
                 crate::integration::host::HostIntegrationOperation::UninstallOwned { target },
             ),
-            SettingsAction::SaveAgentProfile(profile) => self.save_agent_profile(profile),
+            SettingsAction::SaveAgentProfile(profile) => {
+                if self.save_agent_profile(profile) {
+                    close_agent_profile_editor(&mut self.state);
+                }
+            }
             SettingsAction::DeleteAgentProfile(profile_id) => {
                 self.delete_agent_profile(&profile_id)
             }
@@ -975,19 +1013,6 @@ fn pending_workspace_field(state: &AppState, selected: usize) -> Option<String> 
     }
 }
 
-fn delete_pending_workspace_word(state: &mut AppState, selected: usize) {
-    let Some(mut value) = pending_workspace_field(state, selected) else {
-        return;
-    };
-    while value.chars().last().is_some_and(char::is_whitespace) {
-        value.pop();
-    }
-    while value.chars().last().is_some_and(|ch| !ch.is_whitespace()) {
-        value.pop();
-    }
-    set_pending_workspace_field(state, selected, value);
-}
-
 fn edit_pending_workspace_field(state: &mut AppState, key: KeyEvent) -> bool {
     let Some(selected) = state.settings.focused_input else {
         return false;
@@ -1009,14 +1034,6 @@ fn edit_pending_workspace_field(state: &mut AppState, key: KeyEvent) -> bool {
             if key.modifiers.contains(KeyModifiers::CONTROL)
                 || key.modifiers.contains(KeyModifiers::ALT) =>
         {
-            delete_pending_workspace_word(state, selected);
-            true
-        }
-        KeyCode::Char('h' | 'w') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-            delete_pending_workspace_word(state, selected);
-            true
-        }
-        KeyCode::Backspace => {
             let Some(mut value) = pending_workspace_field(state, selected) else {
                 return false;
             };
@@ -1042,16 +1059,20 @@ fn agent_profile_command_index(state: &AppState) -> usize {
     AGENT_PROFILE_KIND_START_INDEX + state.agent_profile_kind_choices().count()
 }
 
-fn agent_profile_save_index(state: &AppState) -> usize {
+fn agent_profile_enabled_index(state: &AppState) -> usize {
     agent_profile_command_index(state) + 1
 }
 
-fn agent_profile_discard_index(state: &AppState) -> usize {
+fn agent_profile_save_index(state: &AppState) -> usize {
     agent_profile_command_index(state) + 2
 }
 
-fn agent_profile_delete_index(state: &AppState) -> usize {
+fn agent_profile_discard_index(state: &AppState) -> usize {
     agent_profile_command_index(state) + 3
+}
+
+fn agent_profile_delete_index(state: &AppState) -> usize {
+    agent_profile_command_index(state) + 4
 }
 
 fn pending_agent_profile_name(state: &AppState) -> String {
@@ -1197,20 +1218,37 @@ fn open_blank_agent_profile_editor(state: &mut AppState) {
         .unwrap_or_else(|| state.default_agent_profile_kind_choice());
     state.settings.pending_agent_profile_kind = Some(kind);
     state.settings.pending_agent_profile_command = Some(String::new());
+    state.settings.pending_agent_profile_enabled = Some(true);
     state.settings.list.select(AGENT_PROFILE_NAME_INDEX);
     state.settings.focused_input = Some(AGENT_PROFILE_NAME_INDEX);
     state.settings.scroll = 0;
 }
 
+fn reset_agent_profile_editor(
+    settings: &mut SettingsState,
+    default_kind: crate::agent_profiles::AgentKind,
+) {
+    settings.pending_agent_profile_id = None;
+    settings.pending_agent_profile_name = None;
+    settings.pending_agent_profile_kind = Some(default_kind);
+    settings.pending_agent_profile_command = None;
+    settings.pending_agent_profile_enabled = None;
+    settings.list.selected = 0;
+    settings.focused_input = None;
+    settings.list.hide();
+    settings.scroll = 0;
+}
+
 fn close_agent_profile_editor(state: &mut AppState) {
-    state.settings.pending_agent_profile_id = None;
-    state.settings.pending_agent_profile_name = None;
-    state.settings.pending_agent_profile_kind = Some(state.default_agent_profile_kind_choice());
-    state.settings.pending_agent_profile_command = None;
-    state.settings.list.selected = 0;
-    state.settings.focused_input = None;
-    clear_settings_selection(state);
-    state.settings.scroll = 0;
+    let default_kind = state.default_agent_profile_kind_choice();
+    reset_agent_profile_editor(&mut state.settings, default_kind);
+}
+
+pub(crate) fn close_agent_profile_editor_for_view(state: &AppState, view: &mut ClientViewState) {
+    reset_agent_profile_editor(
+        &mut view.settings,
+        state.default_agent_profile_kind_choice(),
+    );
 }
 
 fn load_custom_agent_profile_editor(state: &mut AppState, profile_id: &str) -> bool {
@@ -1229,6 +1267,7 @@ fn load_custom_agent_profile_editor(state: &mut AppState, profile_id: &str) -> b
     };
     state.settings.pending_agent_profile_kind = Some(kind);
     state.settings.pending_agent_profile_command = Some(profile.command.clone());
+    state.settings.pending_agent_profile_enabled = Some(profile.enabled);
     state.settings.list.select(AGENT_PROFILE_NAME_INDEX);
     state.settings.focused_input = Some(AGENT_PROFILE_NAME_INDEX);
     true
@@ -1289,11 +1328,7 @@ fn save_pending_agent_profile(state: &mut AppState) -> Option<SettingsAction> {
         .get(&existing_id)
         .map(|profile| profile.env.iter().cloned().collect())
         .unwrap_or_default();
-    state.settings.pending_agent_profile_id = None;
-    state.settings.pending_agent_profile_name = None;
-    state.settings.pending_agent_profile_kind = Some(state.default_agent_profile_kind_choice());
-    state.settings.pending_agent_profile_command = None;
-    state.settings.list.selected = 0;
+    let enabled = state.settings.pending_agent_profile_enabled.unwrap_or(true);
     Some(SettingsAction::SaveAgentProfile(
         crate::agent_profiles::UserAgentProfileConfig {
             id,
@@ -1301,7 +1336,7 @@ fn save_pending_agent_profile(state: &mut AppState) -> Option<SettingsAction> {
             kind,
             command,
             env,
-            enabled: true,
+            enabled,
         },
     ))
 }
@@ -1317,6 +1352,11 @@ fn selected_agent_profile_action(state: &mut AppState) -> Option<SettingsAction>
             return None;
         }
         return match selected {
+            index if index == agent_profile_enabled_index(state) => {
+                let enabled = state.settings.pending_agent_profile_enabled.unwrap_or(true);
+                state.settings.pending_agent_profile_enabled = Some(!enabled);
+                None
+            }
             index if index == agent_profile_discard_index(state) => {
                 close_agent_profile_editor(state);
                 None
@@ -1858,6 +1898,64 @@ fn pending_toast_delivery(state: &AppState) -> ToastDelivery {
         .unwrap_or_else(|| state.toast_delivery())
 }
 
+fn pending_default_shell(state: &AppState) -> String {
+    state
+        .settings
+        .pending_default_shell
+        .clone()
+        .unwrap_or_else(|| state.default_shell.clone())
+}
+
+fn pending_shell_mode(state: &AppState) -> ShellModeConfig {
+    state
+        .settings
+        .pending_shell_mode
+        .unwrap_or(state.shell_mode)
+}
+
+fn pending_version_check(state: &AppState) -> bool {
+    state
+        .settings
+        .pending_version_check
+        .unwrap_or(state.update_version_check)
+}
+
+fn pending_manifest_check(state: &AppState) -> bool {
+    state
+        .settings
+        .pending_manifest_check
+        .unwrap_or(state.update_manifest_check)
+}
+
+fn pending_toast_delay(state: &AppState) -> String {
+    state
+        .settings
+        .pending_toast_delay
+        .clone()
+        .unwrap_or_else(|| state.toast_config.delay_seconds.to_string())
+}
+
+fn pending_toast_omh_position(state: &AppState) -> ToastOmhPosition {
+    state
+        .settings
+        .pending_toast_omh_position
+        .unwrap_or(state.toast_config.omh.position)
+}
+
+fn pending_clipboard_toast_enabled(state: &AppState) -> bool {
+    state
+        .settings
+        .pending_clipboard_toast_enabled
+        .unwrap_or(state.toast_config.clipboard.enabled)
+}
+
+fn pending_clipboard_toast_position(state: &AppState) -> ToastClipboardPosition {
+    state
+        .settings
+        .pending_clipboard_toast_position
+        .unwrap_or(state.toast_config.clipboard.position)
+}
+
 fn pending_confirm_close(state: &AppState) -> bool {
     state
         .settings
@@ -1981,29 +2079,93 @@ fn headless_size_action(state: &AppState) -> Option<SettingsAction> {
     (cols > 0 && rows > 0).then_some(SettingsAction::SaveHeadlessSize { cols, rows })
 }
 
+#[derive(Clone, Copy)]
+enum GeneralTextField {
+    WindowTitle,
+    HeadlessCols,
+    HeadlessRows,
+    DefaultShell,
+    ToastDelay,
+}
+
+fn focused_general_text_field(state: &AppState) -> Option<GeneralTextField> {
+    let focused = state.settings.focused_input?;
+    let window_title_index = theme_choice_len(state) + 13;
+    match state.settings.section {
+        SettingsSection::Theme if focused == window_title_index => {
+            Some(GeneralTextField::WindowTitle)
+        }
+        SettingsSection::Experiments
+            if focused == AdvancedRowId::HeadlessCols.selection_index() =>
+        {
+            Some(GeneralTextField::HeadlessCols)
+        }
+        SettingsSection::Experiments
+            if focused == AdvancedRowId::HeadlessRows.selection_index() =>
+        {
+            Some(GeneralTextField::HeadlessRows)
+        }
+        SettingsSection::PaneLabels if focused == BehaviorRowId::DefaultShell.selection_index() => {
+            Some(GeneralTextField::DefaultShell)
+        }
+        SettingsSection::Sound if focused == NotificationRowId::ToastDelay.selection_index() => {
+            Some(GeneralTextField::ToastDelay)
+        }
+        _ => None,
+    }
+}
+
+fn pending_general_text(state: &AppState, field: GeneralTextField) -> String {
+    match field {
+        GeneralTextField::WindowTitle => pending_window_title(state),
+        GeneralTextField::HeadlessCols => pending_headless_cols(state),
+        GeneralTextField::HeadlessRows => pending_headless_rows(state),
+        GeneralTextField::DefaultShell => pending_default_shell(state),
+        GeneralTextField::ToastDelay => pending_toast_delay(state),
+    }
+}
+
+fn set_pending_general_text(
+    state: &mut AppState,
+    field: GeneralTextField,
+    value: String,
+) -> Option<SettingsAction> {
+    match field {
+        GeneralTextField::WindowTitle => {
+            state.settings.pending_window_title = Some(value.clone());
+            crate::config::window_title_diagnostics(&value)
+                .is_none()
+                .then_some(SettingsAction::SaveWindowTitle(value))
+        }
+        GeneralTextField::HeadlessCols => {
+            state.settings.pending_headless_cols = Some(value);
+            headless_size_action(state)
+        }
+        GeneralTextField::HeadlessRows => {
+            state.settings.pending_headless_rows = Some(value);
+            headless_size_action(state)
+        }
+        GeneralTextField::DefaultShell => {
+            state.settings.pending_default_shell = Some(value.clone());
+            Some(SettingsAction::SaveDefaultShell(value))
+        }
+        GeneralTextField::ToastDelay => {
+            state.settings.pending_toast_delay = Some(value.clone());
+            value
+                .parse::<u64>()
+                .ok()
+                .filter(|seconds| *seconds <= MAX_TOAST_DELAY_SECONDS)
+                .map(SettingsAction::SaveToastDelay)
+        }
+    }
+}
+
 fn edit_pending_general_text(
     state: &mut AppState,
     key: KeyEvent,
 ) -> Option<Option<SettingsAction>> {
-    let focused = state.settings.focused_input?;
-    let window_title_index = theme_choice_len(state) + 13;
-    #[derive(Clone, Copy)]
-    enum Field {
-        WindowTitle,
-        HeadlessCols,
-        HeadlessRows,
-    }
-    let field = match state.settings.section {
-        SettingsSection::Theme if focused == window_title_index => Field::WindowTitle,
-        SettingsSection::Experiments if focused == 1 => Field::HeadlessCols,
-        SettingsSection::Experiments if focused == 2 => Field::HeadlessRows,
-        _ => return None,
-    };
-    let mut value = match field {
-        Field::WindowTitle => pending_window_title(state),
-        Field::HeadlessCols => pending_headless_cols(state),
-        Field::HeadlessRows => pending_headless_rows(state),
-    };
+    let field = focused_general_text_field(state)?;
+    let mut value = pending_general_text(state, field);
     match key.code {
         KeyCode::Char('u') if key.modifiers.contains(KeyModifiers::CONTROL) => value.clear(),
         KeyCode::Backspace if key.modifiers.contains(KeyModifiers::SUPER) => value.clear(),
@@ -2012,30 +2174,39 @@ fn edit_pending_general_text(
         }
         KeyCode::Char(c)
             if key.modifiers.difference(KeyModifiers::SHIFT).is_empty()
-                && (matches!(field, Field::WindowTitle) || c.is_ascii_digit()) =>
+                && (matches!(
+                    field,
+                    GeneralTextField::WindowTitle | GeneralTextField::DefaultShell
+                ) || c.is_ascii_digit()) =>
         {
             value.push(c);
         }
         _ => return None,
     }
-    match field {
-        Field::WindowTitle => {
-            state.settings.pending_window_title = Some(value.clone());
-            if crate::config::window_title_diagnostics(&value).is_some() {
-                Some(None)
-            } else {
-                Some(Some(SettingsAction::SaveWindowTitle(value)))
-            }
+    Some(set_pending_general_text(state, field, value))
+}
+
+pub(crate) fn paste_settings_text(
+    state: &mut AppState,
+    text: &str,
+) -> Option<Option<SettingsAction>> {
+    let field = focused_general_text_field(state)?;
+    let mut value = pending_general_text(state, field);
+    let original_len = value.len();
+    value.extend(text.chars().filter(|ch| {
+        if matches!(
+            field,
+            GeneralTextField::WindowTitle | GeneralTextField::DefaultShell
+        ) {
+            !ch.is_control()
+        } else {
+            ch.is_ascii_digit()
         }
-        Field::HeadlessCols => {
-            state.settings.pending_headless_cols = Some(value);
-            Some(headless_size_action(state))
-        }
-        Field::HeadlessRows => {
-            state.settings.pending_headless_rows = Some(value);
-            Some(headless_size_action(state))
-        }
+    }));
+    if value.len() == original_len {
+        return Some(None);
     }
+    Some(set_pending_general_text(state, field, value))
 }
 
 fn pending_command(state: &AppState, field: CommandField) -> String {
@@ -2500,6 +2671,14 @@ fn clear_settings_pending(state: &mut AppState) {
     state.settings.pending_terminal_dark_accent = None;
     state.settings.pending_sound_enabled = None;
     state.settings.pending_toast_delivery = None;
+    state.settings.pending_default_shell = None;
+    state.settings.pending_shell_mode = None;
+    state.settings.pending_version_check = None;
+    state.settings.pending_manifest_check = None;
+    state.settings.pending_toast_delay = None;
+    state.settings.pending_toast_omh_position = None;
+    state.settings.pending_clipboard_toast_enabled = None;
+    state.settings.pending_clipboard_toast_position = None;
     state.settings.pending_confirm_close = None;
     state.settings.pending_prompt_new_tab_name = None;
     state.settings.pending_show_counters = None;
@@ -2539,6 +2718,7 @@ fn clear_settings_pending(state: &mut AppState) {
     state.settings.pending_agent_profile_name = None;
     state.settings.pending_agent_profile_kind = None;
     state.settings.pending_agent_profile_command = None;
+    state.settings.pending_agent_profile_enabled = None;
     state.settings.connection_editor = None;
     state.settings.group_settings_target = None;
     state.settings.workspace_settings_target = None;
@@ -2598,6 +2778,34 @@ fn next_terminal_cwd_policy(policy: NewTerminalCwdConfig) -> NewTerminalCwdConfi
         NewTerminalCwdConfig::Current | NewTerminalCwdConfig::Path(_) => {
             NewTerminalCwdConfig::Follow
         }
+    }
+}
+
+fn next_shell_mode(mode: ShellModeConfig) -> ShellModeConfig {
+    match mode {
+        ShellModeConfig::Auto => ShellModeConfig::Login,
+        ShellModeConfig::Login => ShellModeConfig::NonLogin,
+        ShellModeConfig::NonLogin => ShellModeConfig::Auto,
+    }
+}
+
+fn next_toast_omh_position(position: ToastOmhPosition) -> ToastOmhPosition {
+    match position {
+        ToastOmhPosition::TopLeft => ToastOmhPosition::TopRight,
+        ToastOmhPosition::TopRight => ToastOmhPosition::BottomLeft,
+        ToastOmhPosition::BottomLeft => ToastOmhPosition::BottomRight,
+        ToastOmhPosition::BottomRight => ToastOmhPosition::TopLeft,
+    }
+}
+
+fn next_toast_clipboard_position(position: ToastClipboardPosition) -> ToastClipboardPosition {
+    match position {
+        ToastClipboardPosition::TopLeft => ToastClipboardPosition::TopCenter,
+        ToastClipboardPosition::TopCenter => ToastClipboardPosition::TopRight,
+        ToastClipboardPosition::TopRight => ToastClipboardPosition::BottomLeft,
+        ToastClipboardPosition::BottomLeft => ToastClipboardPosition::BottomCenter,
+        ToastClipboardPosition::BottomCenter => ToastClipboardPosition::BottomRight,
+        ToastClipboardPosition::BottomRight => ToastClipboardPosition::TopLeft,
     }
 }
 
@@ -2699,15 +2907,34 @@ fn select_pending_appearance_setting(state: &mut AppState) -> Option<SettingsAct
 }
 
 fn select_pending_notification_setting(state: &mut AppState) -> Option<SettingsAction> {
-    match state.settings.list.selected {
-        0 => state.settings.pending_sound_enabled = Some(!pending_sound_enabled(state)),
-        1 => {
+    match NotificationRowId::from_selection_index(state.settings.list.selected) {
+        Some(NotificationRowId::SoundAlerts) => {
+            state.settings.pending_sound_enabled = Some(!pending_sound_enabled(state));
+            Some(current_settings_action(state))
+        }
+        Some(NotificationRowId::ToastDelivery) => {
             state.settings.pending_toast_delivery =
                 Some(next_toast_delivery(pending_toast_delivery(state)));
+            Some(current_settings_action(state))
         }
-        _ => {}
+        Some(NotificationRowId::ToastDelay) => None,
+        Some(NotificationRowId::ToastOmhPosition) => {
+            let next = next_toast_omh_position(pending_toast_omh_position(state));
+            state.settings.pending_toast_omh_position = Some(next);
+            Some(SettingsAction::SaveToastOmhPosition(next))
+        }
+        Some(NotificationRowId::ClipboardEnabled) => {
+            let next = !pending_clipboard_toast_enabled(state);
+            state.settings.pending_clipboard_toast_enabled = Some(next);
+            Some(SettingsAction::SaveClipboardToastEnabled(next))
+        }
+        Some(NotificationRowId::ClipboardPosition) => {
+            let next = next_toast_clipboard_position(pending_clipboard_toast_position(state));
+            state.settings.pending_clipboard_toast_position = Some(next);
+            Some(SettingsAction::SaveClipboardToastPosition(next))
+        }
+        None => None,
     }
-    Some(current_settings_action(state))
 }
 
 fn settings_selection_active(state: &AppState) -> bool {
@@ -2887,40 +3114,59 @@ fn select_pending_setting(state: &mut AppState) -> Option<SettingsAction> {
             Some(current_settings_action(state))
         }
         SettingsSection::PaneLabels => {
-            match state.settings.list.selected {
-                0 => state.settings.pending_confirm_close = Some(!pending_confirm_close(state)),
-                1 => {
+            match BehaviorRowId::from_selection_index(state.settings.list.selected) {
+                Some(BehaviorRowId::ConfirmClose) => {
+                    state.settings.pending_confirm_close = Some(!pending_confirm_close(state));
+                    Some(current_settings_action(state))
+                }
+                Some(BehaviorRowId::NameNewTabs) => {
                     state.settings.pending_prompt_new_tab_name =
-                        Some(!pending_prompt_new_tab_name(state))
+                        Some(!pending_prompt_new_tab_name(state));
+                    Some(current_settings_action(state))
                 }
-                2 => {
+                Some(BehaviorRowId::NameNewWorkspaces) => {
                     state.settings.pending_prompt_new_workspace_name =
-                        Some(!pending_prompt_new_workspace_name(state))
+                        Some(!pending_prompt_new_workspace_name(state));
+                    Some(current_settings_action(state))
                 }
-                3 => state.settings.pending_show_counters = Some(!pending_show_counters(state)),
-                4 => state.settings.pending_copy_on_select = Some(!pending_copy_on_select(state)),
-                5 => {
+                Some(BehaviorRowId::ShowCounters) => {
+                    state.settings.pending_show_counters = Some(!pending_show_counters(state));
+                    Some(current_settings_action(state))
+                }
+                Some(BehaviorRowId::CopyOnSelect) => {
+                    state.settings.pending_copy_on_select = Some(!pending_copy_on_select(state));
+                    Some(current_settings_action(state))
+                }
+                Some(BehaviorRowId::RightClickPassthrough) => {
                     state.settings.pending_right_click_passthrough_modifier =
                         Some(pending_right_click_passthrough_modifier(state).next());
+                    Some(current_settings_action(state))
                 }
-                6 => {
+                Some(BehaviorRowId::DefaultShell) => None,
+                Some(BehaviorRowId::ShellMode) => {
+                    let next = next_shell_mode(pending_shell_mode(state));
+                    state.settings.pending_shell_mode = Some(next);
+                    Some(SettingsAction::SaveShellMode(next))
+                }
+                Some(BehaviorRowId::NewTerminalCwd) => {
                     let next = next_terminal_cwd_policy(pending_new_terminal_cwd(state));
                     state.settings.pending_new_terminal_cwd = Some(next);
+                    Some(current_settings_action(state))
                 }
-                7 => {
+                Some(BehaviorRowId::MouseWheelSpeed) => {
                     let next = next_mouse_scroll_lines(pending_mouse_scroll_lines(state));
                     state.settings.pending_mouse_scroll_lines = Some(next);
+                    Some(current_settings_action(state))
                 }
-                8 => {
+                Some(BehaviorRowId::ResumeAgents) => {
                     state.settings.pending_resume_agents_on_restore =
                         Some(!pending_resume_agents_on_restore(state));
-                    return Some(SettingsAction::SaveResumeAgentsOnRestore(
+                    Some(SettingsAction::SaveResumeAgentsOnRestore(
                         pending_resume_agents_on_restore(state),
-                    ));
+                    ))
                 }
-                _ => {}
+                None => None,
             }
-            Some(current_settings_action(state))
         }
         SettingsSection::Commands => selected_command_action(state),
         SettingsSection::Experiments => selected_experiment_action(state),
@@ -2937,12 +3183,26 @@ fn selected_experiment_action(state: &mut AppState) -> Option<SettingsAction> {
     if !settings_selection_active(state) {
         return None;
     }
-    match state.settings.list.selected {
-        0 => Some(SettingsAction::SaveSwitchAsciiInputSourceInPrefix(
-            !state.switch_ascii_input_source_in_prefix_enabled(),
-        )),
-        1 | 2 => headless_size_action(state),
-        _ => None,
+    match AdvancedRowId::from_selection_index(state.settings.list.selected) {
+        Some(AdvancedRowId::SwitchAscii) => {
+            Some(SettingsAction::SaveSwitchAsciiInputSourceInPrefix(
+                !state.switch_ascii_input_source_in_prefix_enabled(),
+            ))
+        }
+        Some(AdvancedRowId::HeadlessCols | AdvancedRowId::HeadlessRows) => {
+            headless_size_action(state)
+        }
+        Some(AdvancedRowId::VersionCheck) => {
+            let next = !pending_version_check(state);
+            state.settings.pending_version_check = Some(next);
+            Some(SettingsAction::SaveVersionCheck(next))
+        }
+        Some(AdvancedRowId::ManifestCheck) => {
+            let next = !pending_manifest_check(state);
+            state.settings.pending_manifest_check = Some(next);
+            Some(SettingsAction::SaveManifestCheck(next))
+        }
+        None => None,
     }
 }
 fn selected_command_action(state: &mut AppState) -> Option<SettingsAction> {
@@ -2962,7 +3222,16 @@ fn settings_row_accepts_text_input(state: &AppState, selected: usize) -> bool {
     match state.settings.section {
         SettingsSection::Theme => selected == theme_choice_len(state) + 13,
         SettingsSection::Commands => command_field_from_index(selected).is_some(),
-        SettingsSection::Experiments => matches!(selected, 1 | 2),
+        SettingsSection::Experiments => matches!(
+            AdvancedRowId::from_selection_index(selected),
+            Some(AdvancedRowId::HeadlessCols | AdvancedRowId::HeadlessRows)
+        ),
+        SettingsSection::PaneLabels => {
+            BehaviorRowId::from_selection_index(selected) == Some(BehaviorRowId::DefaultShell)
+        }
+        SettingsSection::Sound => {
+            NotificationRowId::from_selection_index(selected) == Some(NotificationRowId::ToastDelay)
+        }
         SettingsSection::GroupGeneral => matches!(selected, 0 | 2),
         SettingsSection::WorkspaceGeneral => matches!(selected, 0 | 2),
         SettingsSection::Agents if agent_profile_editor_open(state) => {
@@ -3191,14 +3460,16 @@ pub(super) fn update_settings_state(state: &mut AppState, key: KeyEvent) -> Opti
                     state,
                     settings_section_choice_len(state, SettingsSection::Sound),
                 );
+                ensure_settings_selection_visible(state);
             }
             KeyCode::Down | KeyCode::Char('j') => {
                 select_next_setting(
                     state,
                     settings_section_choice_len(state, SettingsSection::Sound),
                 );
+                ensure_settings_selection_visible(state);
             }
-            KeyCode::Char(' ') => return select_pending_setting(state),
+            KeyCode::Enter | KeyCode::Char(' ') => return select_pending_setting(state),
             KeyCode::Tab | KeyCode::Right | KeyCode::Char('l') => {
                 switch_settings_section(state, SettingsSection::PaneLabels, 0);
             }
@@ -3419,12 +3690,14 @@ pub(super) fn update_settings_state(state: &mut AppState, key: KeyEvent) -> Opti
                     state,
                     settings_section_choice_len(state, SettingsSection::Experiments),
                 );
+                ensure_settings_selection_visible(state);
             }
             KeyCode::Down | KeyCode::Char('j') => {
                 select_next_setting(
                     state,
                     settings_section_choice_len(state, SettingsSection::Experiments),
                 );
+                ensure_settings_selection_visible(state);
             }
             KeyCode::Enter | KeyCode::Char(' ') => return selected_experiment_action(state),
             KeyCode::BackTab | KeyCode::Left | KeyCode::Char('h') => {
@@ -3629,6 +3902,24 @@ pub(crate) fn update_settings_state_for_view(
     action
 }
 
+pub(crate) fn paste_settings_text_for_view(
+    state: &mut AppState,
+    view: &mut ClientViewState,
+    text: &str,
+) -> Option<Option<SettingsAction>> {
+    let shared_mode = state.mode;
+    let shared_settings = std::mem::replace(&mut state.settings, view.settings.clone());
+    state.mode = view.mode;
+
+    let action = paste_settings_text(state, text);
+
+    view.mode = state.mode;
+    view.settings = state.settings.clone();
+    state.mode = shared_mode;
+    state.settings = shared_settings;
+    action
+}
+
 pub(crate) fn update_settings_mouse_for_view(
     state: &mut AppState,
     view: &mut ClientViewState,
@@ -3677,6 +3968,14 @@ pub(crate) fn prepare_general_settings_state(
     settings.pending_terminal_dark_accent = Some(state.global_terminal_dark_accent);
     settings.pending_sound_enabled = Some(state.sound_enabled());
     settings.pending_toast_delivery = Some(state.toast_delivery());
+    settings.pending_default_shell = Some(state.default_shell.clone());
+    settings.pending_shell_mode = Some(state.shell_mode);
+    settings.pending_version_check = Some(state.update_version_check);
+    settings.pending_manifest_check = Some(state.update_manifest_check);
+    settings.pending_toast_delay = Some(state.toast_config.delay_seconds.to_string());
+    settings.pending_toast_omh_position = Some(state.toast_config.omh.position);
+    settings.pending_clipboard_toast_enabled = Some(state.toast_config.clipboard.enabled);
+    settings.pending_clipboard_toast_position = Some(state.toast_config.clipboard.position);
     settings.pending_confirm_close = Some(state.confirm_close_enabled());
     settings.pending_prompt_new_tab_name = Some(state.prompt_new_tab_name_enabled());
     settings.pending_show_counters = Some(state.show_counters);
@@ -3713,6 +4012,7 @@ pub(crate) fn prepare_general_settings_state(
     settings.pending_agent_profile_name = None;
     settings.pending_agent_profile_kind = Some(state.default_agent_profile_kind_choice());
     settings.pending_agent_profile_command = None;
+    settings.pending_agent_profile_enabled = None;
     settings.connection_editor = None;
     settings.pending_workspace_name = None;
     settings.pending_workspace_default_cwd = None;
@@ -3763,6 +4063,14 @@ fn reset_settings_for_scoped_editor(state: &AppState, settings: &mut SettingsSta
     settings.pending_group_accent_choice = None;
     settings.pending_sound_enabled = None;
     settings.pending_toast_delivery = None;
+    settings.pending_default_shell = None;
+    settings.pending_shell_mode = None;
+    settings.pending_version_check = None;
+    settings.pending_manifest_check = None;
+    settings.pending_toast_delay = None;
+    settings.pending_toast_omh_position = None;
+    settings.pending_clipboard_toast_enabled = None;
+    settings.pending_clipboard_toast_position = None;
     settings.pending_confirm_close = None;
     settings.pending_prompt_new_tab_name = None;
     settings.pending_show_counters = None;
@@ -3897,6 +4205,14 @@ pub(crate) fn open_group_settings(state: &mut AppState, group_idx: usize) {
     state.settings.pending_sound_enabled = None;
     state.settings.pending_workspace_default_execution_host_id = None;
     state.settings.pending_toast_delivery = None;
+    state.settings.pending_default_shell = None;
+    state.settings.pending_shell_mode = None;
+    state.settings.pending_version_check = None;
+    state.settings.pending_manifest_check = None;
+    state.settings.pending_toast_delay = None;
+    state.settings.pending_toast_omh_position = None;
+    state.settings.pending_clipboard_toast_enabled = None;
+    state.settings.pending_clipboard_toast_position = None;
     state.settings.pending_confirm_close = None;
     state.settings.pending_prompt_new_tab_name = None;
     state.settings.pending_show_counters = None;
@@ -3969,6 +4285,14 @@ pub(crate) fn open_workspace_settings(state: &mut AppState, ws_idx: usize) {
     state.settings.pending_workspace_default_execution_host_id = Some(default_execution_host_id);
     state.settings.pending_sound_enabled = None;
     state.settings.pending_toast_delivery = None;
+    state.settings.pending_default_shell = None;
+    state.settings.pending_shell_mode = None;
+    state.settings.pending_version_check = None;
+    state.settings.pending_manifest_check = None;
+    state.settings.pending_toast_delay = None;
+    state.settings.pending_toast_omh_position = None;
+    state.settings.pending_clipboard_toast_enabled = None;
+    state.settings.pending_clipboard_toast_position = None;
     state.settings.pending_confirm_close = None;
     state.settings.pending_prompt_new_tab_name = None;
     state.settings.pending_show_counters = None;
@@ -6041,10 +6365,10 @@ mod tests {
             Some(RightClickPassthroughModifierConfig::default().next())
         );
 
-        update_settings_state(
-            &mut state,
-            KeyEvent::new(KeyCode::Down, KeyModifiers::empty()),
-        );
+        state
+            .settings
+            .list
+            .select(BehaviorRowId::NewTerminalCwd.selection_index());
         update_settings_state(
             &mut state,
             KeyEvent::new(KeyCode::Char(' '), KeyModifiers::empty()),
@@ -6053,10 +6377,10 @@ mod tests {
             state.settings.pending_new_terminal_cwd,
             Some(NewTerminalCwdConfig::Home)
         );
-        update_settings_state(
-            &mut state,
-            KeyEvent::new(KeyCode::Down, KeyModifiers::empty()),
-        );
+        state
+            .settings
+            .list
+            .select(BehaviorRowId::MouseWheelSpeed.selection_index());
         update_settings_state(
             &mut state,
             KeyEvent::new(KeyCode::Char(' '), KeyModifiers::empty()),
@@ -6326,7 +6650,10 @@ mod tests {
         state.resume_agents_on_restore = false;
         open_settings_at(&mut state, SettingsSection::PaneLabels);
         state.settings.list.show();
-        state.settings.list.select(8);
+        state
+            .settings
+            .list
+            .select(BehaviorRowId::ResumeAgents.selection_index());
         assert_eq!(
             update_settings_state(
                 &mut state,
@@ -7033,27 +7360,29 @@ mod tests {
         assert_eq!(app.state.settings.pending_show_counters, Some(true));
         assert_eq!(app.state.settings.list.selected, 3);
 
-        let cwd_scroll = row_for(6).saturating_sub(list_area.height.saturating_sub(1));
+        let cwd_index = BehaviorRowId::NewTerminalCwd.selection_index();
+        let cwd_scroll = row_for(cwd_index).saturating_sub(list_area.height.saturating_sub(1));
         app.state.settings.scroll = cwd_scroll as usize;
         app.state.handle_settings_mouse(mouse(
             MouseEventKind::Down(crossterm::event::MouseButton::Left),
             list_area.x + 2,
-            list_area.y + row_for(6) - cwd_scroll,
+            list_area.y + row_for(cwd_index) - cwd_scroll,
         ));
         assert_eq!(
             app.state.settings.pending_new_terminal_cwd,
             Some(NewTerminalCwdConfig::Home)
         );
-        assert_eq!(app.state.settings.list.selected, 6);
-        let scroll = row_for(7).saturating_sub(list_area.height.saturating_sub(1));
+        assert_eq!(app.state.settings.list.selected, cwd_index);
+        let mouse_index = BehaviorRowId::MouseWheelSpeed.selection_index();
+        let scroll = row_for(mouse_index).saturating_sub(list_area.height.saturating_sub(1));
         app.state.settings.scroll = scroll as usize;
         app.state.handle_settings_mouse(mouse(
             MouseEventKind::Down(crossterm::event::MouseButton::Left),
             list_area.x + 2,
-            list_area.y + row_for(7) - scroll,
+            list_area.y + row_for(mouse_index) - scroll,
         ));
         assert_eq!(app.state.settings.pending_mouse_scroll_lines, Some(5));
-        assert_eq!(app.state.settings.list.selected, 7);
+        assert_eq!(app.state.settings.list.selected, mouse_index);
     }
 
     #[test]
@@ -8420,5 +8749,233 @@ mod tests {
             state,
             available,
         )
+    }
+    #[test]
+    fn settings_behavior_edits_shell_and_invalid_toast_delay() {
+        let mut state = state_with_workspaces(&["test"]);
+        state.default_shell = String::new();
+        state.shell_mode = ShellModeConfig::Auto;
+        open_settings_at(&mut state, SettingsSection::PaneLabels);
+        state
+            .settings
+            .list
+            .select(BehaviorRowId::DefaultShell.selection_index());
+        focus_selected_settings_input(&mut state);
+        assert_eq!(
+            update_settings_state(
+                &mut state,
+                KeyEvent::new(KeyCode::Char('/'), KeyModifiers::empty()),
+            ),
+            Some(SettingsAction::SaveDefaultShell("/".to_string()))
+        );
+        for ch in "bin/zsh".chars() {
+            update_settings_state(
+                &mut state,
+                KeyEvent::new(KeyCode::Char(ch), KeyModifiers::empty()),
+            );
+        }
+        assert_eq!(
+            state.settings.pending_default_shell.as_deref(),
+            Some("/bin/zsh")
+        );
+
+        state
+            .settings
+            .list
+            .select(BehaviorRowId::ShellMode.selection_index());
+        state.settings.focused_input = None;
+        assert_eq!(
+            update_settings_state(
+                &mut state,
+                KeyEvent::new(KeyCode::Char(' '), KeyModifiers::empty()),
+            ),
+            Some(SettingsAction::SaveShellMode(ShellModeConfig::Login))
+        );
+
+        switch_settings_section(&mut state, SettingsSection::Sound, 0);
+        state
+            .settings
+            .list
+            .select(NotificationRowId::ToastDelay.selection_index());
+        focus_selected_settings_input(&mut state);
+        assert_eq!(
+            update_settings_state(
+                &mut state,
+                KeyEvent::new(KeyCode::Char('u'), KeyModifiers::CONTROL),
+            ),
+            None
+        );
+        assert_eq!(state.settings.pending_toast_delay.as_deref(), Some(""));
+        assert_eq!(
+            update_settings_state(
+                &mut state,
+                KeyEvent::new(KeyCode::Char('9'), KeyModifiers::empty()),
+            ),
+            Some(SettingsAction::SaveToastDelay(9))
+        );
+    }
+
+    #[test]
+    fn settings_text_commit_updates_client_owned_shell_and_delay_drafts() {
+        let mut state = state_with_workspaces(&["test"]);
+        open_settings_at(&mut state, SettingsSection::PaneLabels);
+        state
+            .settings
+            .list
+            .select(BehaviorRowId::DefaultShell.selection_index());
+        focus_selected_settings_input(&mut state);
+        let shared_draft = state.settings.pending_default_shell.clone();
+        let mut view = ClientViewState::from_default_client_state(&state);
+
+        assert_eq!(
+            paste_settings_text_for_view(&mut state, &mut view, "/bin/zsh"),
+            Some(Some(SettingsAction::SaveDefaultShell(
+                "/bin/zsh".to_string()
+            )))
+        );
+        assert_eq!(
+            view.settings.pending_default_shell.as_deref(),
+            Some("/bin/zsh")
+        );
+        assert_eq!(state.settings.pending_default_shell, shared_draft);
+
+        view.settings.section = SettingsSection::Sound;
+        view.settings
+            .list
+            .select(NotificationRowId::ToastDelay.selection_index());
+        view.settings.focused_input = Some(NotificationRowId::ToastDelay.selection_index());
+        view.settings.pending_toast_delay = Some(String::new());
+        assert_eq!(
+            paste_settings_text_for_view(&mut state, &mut view, "3601x"),
+            Some(None)
+        );
+        assert_eq!(view.settings.pending_toast_delay.as_deref(), Some("3601"));
+    }
+
+    #[test]
+    fn settings_notifications_cycle_positions_and_copy_confirmation() {
+        let mut state = state_with_workspaces(&["test"]);
+        state.toast_config.clipboard.position = ToastClipboardPosition::BottomRight;
+        open_settings_at(&mut state, SettingsSection::Sound);
+        state.settings.list.show();
+        state
+            .settings
+            .list
+            .select(NotificationRowId::ToastOmhPosition.selection_index());
+        assert_eq!(
+            update_settings_state(
+                &mut state,
+                KeyEvent::new(KeyCode::Char(' '), KeyModifiers::empty()),
+            ),
+            Some(SettingsAction::SaveToastOmhPosition(
+                ToastOmhPosition::TopLeft
+            ))
+        );
+        state
+            .settings
+            .list
+            .select(NotificationRowId::ClipboardEnabled.selection_index());
+        assert_eq!(
+            update_settings_state(
+                &mut state,
+                KeyEvent::new(KeyCode::Enter, KeyModifiers::empty()),
+            ),
+            Some(SettingsAction::SaveClipboardToastEnabled(false))
+        );
+        state
+            .settings
+            .list
+            .select(NotificationRowId::ClipboardPosition.selection_index());
+        assert_eq!(
+            update_settings_state(
+                &mut state,
+                KeyEvent::new(KeyCode::Char(' '), KeyModifiers::empty()),
+            ),
+            Some(SettingsAction::SaveClipboardToastPosition(
+                ToastClipboardPosition::TopLeft
+            ))
+        );
+    }
+
+    #[test]
+    fn settings_advanced_toggles_update_checks() {
+        let mut state = state_with_workspaces(&["test"]);
+        state.update_version_check = true;
+        state.update_manifest_check = true;
+        open_settings_at(&mut state, SettingsSection::Experiments);
+        state.settings.list.show();
+        state
+            .settings
+            .list
+            .select(AdvancedRowId::VersionCheck.selection_index());
+        assert_eq!(
+            update_settings_state(
+                &mut state,
+                KeyEvent::new(KeyCode::Enter, KeyModifiers::empty()),
+            ),
+            Some(SettingsAction::SaveVersionCheck(false))
+        );
+        state
+            .settings
+            .list
+            .select(AdvancedRowId::ManifestCheck.selection_index());
+        assert_eq!(
+            update_settings_state(
+                &mut state,
+                KeyEvent::new(KeyCode::Enter, KeyModifiers::empty()),
+            ),
+            Some(SettingsAction::SaveManifestCheck(false))
+        );
+    }
+
+    #[test]
+    fn saving_disabled_agent_profile_preserves_enabled_false() {
+        let mut state = state_with_workspaces(&["test"]);
+        state.agent_profiles = crate::agent_profiles::AgentProfileCatalog::from_config(
+            &crate::agent_profiles::AgentProfilesConfig {
+                order: vec!["user:quiet".to_string()],
+                custom: vec![crate::agent_profiles::UserAgentProfileConfig {
+                    id: "quiet".to_string(),
+                    name: "quiet".to_string(),
+                    kind: crate::agent_profiles::AgentKind::Custom,
+                    command: "true".to_string(),
+                    env: std::collections::BTreeMap::from([(
+                        "KEEP".to_string(),
+                        "yes".to_string(),
+                    )]),
+                    enabled: false,
+                }],
+            },
+        );
+        open_settings_at(&mut state, SettingsSection::Agents);
+        assert!(load_custom_agent_profile_editor(&mut state, "user:quiet"));
+        assert_eq!(state.settings.pending_agent_profile_enabled, Some(false));
+        state.settings.list.selected = agent_profile_save_index(&state);
+        state.settings.list.show();
+        state.settings.focused_input = None;
+        assert_eq!(
+            update_settings_state(
+                &mut state,
+                KeyEvent::new(KeyCode::Enter, KeyModifiers::empty()),
+            ),
+            Some(SettingsAction::SaveAgentProfile(
+                crate::agent_profiles::UserAgentProfileConfig {
+                    id: "quiet".to_string(),
+                    name: "quiet".to_string(),
+                    kind: crate::agent_profiles::AgentKind::Custom,
+                    command: "true".to_string(),
+                    env: std::collections::BTreeMap::from([(
+                        "KEEP".to_string(),
+                        "yes".to_string(),
+                    )]),
+                    enabled: false,
+                }
+            ))
+        );
+        assert_eq!(state.settings.pending_agent_profile_enabled, Some(false));
+        assert_eq!(
+            state.settings.pending_agent_profile_id.as_deref(),
+            Some("user:quiet")
+        );
     }
 }

@@ -1015,6 +1015,8 @@ impl App {
             sound: config.ui.sound.clone(),
             local_sound_playback: true,
             toast_config: config.ui.toast.clone(),
+            update_version_check: config.update.version_check,
+            update_manifest_check: config.update.manifest_check,
             agent_profiles,
             keybinds: config.keybinds(),
             spinner_tick: 0,
@@ -1047,6 +1049,14 @@ impl App {
                 pending_terminal_dark_accent: None,
                 pending_sound_enabled: None,
                 pending_toast_delivery: None,
+                pending_default_shell: None,
+                pending_shell_mode: None,
+                pending_version_check: None,
+                pending_manifest_check: None,
+                pending_toast_delay: None,
+                pending_toast_omh_position: None,
+                pending_clipboard_toast_enabled: None,
+                pending_clipboard_toast_position: None,
                 pending_confirm_close: None,
                 pending_prompt_new_tab_name: None,
                 pending_show_counters: None,
@@ -1088,6 +1098,7 @@ impl App {
                 pending_agent_profile_name: None,
                 pending_agent_profile_kind: None,
                 pending_agent_profile_command: None,
+                pending_agent_profile_enabled: None,
                 agent_profile_kind_filter: None,
                 integration_host_profile_id: None,
                 connection_editor: None,
@@ -2611,6 +2622,8 @@ impl App {
             let previous_manifest_check_enabled = self.update_manifest_check_enabled;
             self.update_version_check_enabled = config.update.version_check;
             self.update_manifest_check_enabled = config.update.manifest_check;
+            self.state.update_version_check = config.update.version_check;
+            self.state.update_manifest_check = config.update.manifest_check;
 
             if !self.update_version_check_enabled {
                 self.next_auto_update_check = None;
@@ -3530,6 +3543,11 @@ impl App {
     ) {
         let owner = crate::execution_host::auth::AuthenticationOwner::new(client_view.id());
         match action {
+            input::SettingsAction::SaveAgentProfile(profile) => {
+                if self.save_agent_profile(profile) {
+                    input::close_agent_profile_editor_for_view(&self.state, client_view);
+                }
+            }
             input::SettingsAction::PreviewSshConnectionRetirement(profile_id) => {
                 if let Some(editor) = client_view.settings.connection_editor.as_mut() {
                     if editor.profile_id() == Some(profile_id.as_str()) {
@@ -3668,8 +3686,7 @@ impl App {
                 crate::raw_input::RawInputEvent::Unsupported => {}
                 crate::raw_input::RawInputEvent::TextCommit(commit) => {
                     if client_view.mode != Mode::Terminal {
-                        let _ =
-                            Self::paste_into_client_view_text_input(client_view, commit.as_str());
+                        self.paste_for_view(client_view, commit.as_str());
                     } else {
                         self.handle_text_commit_headless(commit.as_str());
                     }
@@ -7587,7 +7604,18 @@ impl App {
         runtime.try_send_bytes(bytes::Bytes::from(bytes)).is_ok()
     }
 
-    fn paste_for_view(&self, client_view: &mut ClientViewState, text: &str) -> bool {
+    fn paste_for_view(&mut self, client_view: &mut ClientViewState, text: &str) -> bool {
+        if client_view.mode == Mode::Settings {
+            let Some(action) =
+                input::paste_settings_text_for_view(&mut self.state, client_view, text)
+            else {
+                return false;
+            };
+            if let Some(action) = action {
+                self.apply_settings_action_for_client(client_view, action);
+            }
+            return true;
+        }
         if client_view.mode != Mode::Terminal {
             return Self::paste_into_client_view_text_input(client_view, text);
         }

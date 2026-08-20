@@ -4,4 +4,6 @@ You can now filter keybinding help by shortcut, action, or section. Settings > A
 
 Settings > Commands now identifies each launcher by purpose instead of exposing its internal working-directory rules. Each command can be reset to its built-in value, and one action resets all four.
 
+Settings now covers the remaining stable config values that belong in the modal. Behavior > Terminal edits the default shell and shell startup mode. Notifications expands popups with background-alert delay and in-app toast position, and adds clipboard copy confirmation. Advanced > Updates toggles version and manifest checks. Custom agent profiles can be disabled without changing their identity.
+
 Arbitrary theme token overrides and `ui.accent` compatibility were removed. Appearance now uses built-in themes plus the six terminal accent choices.

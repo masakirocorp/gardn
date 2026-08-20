@@ -667,7 +667,16 @@ fn agent_profile_rows(app: &AppState, settings: &SettingsState) -> Vec<SettingsL
         value: command.into(),
     });
     rows.push(SettingsListRow::Spacer);
-    let save_index = command_index + 1;
+    let enabled = settings.pending_agent_profile_enabled.unwrap_or(true);
+    let enabled_index = command_index + 1;
+    rows.push(option(
+        enabled_index,
+        "Enabled",
+        "Include this profile in agent launch menus",
+        enabled,
+    ));
+    rows.push(SettingsListRow::Spacer);
+    let save_index = enabled_index + 1;
     rows.push(SettingsListRow::Action {
         index: save_index,
         icon: "".into(),
@@ -1002,7 +1011,7 @@ fn behavior_rows(app: &AppState, settings: &SettingsState) -> Vec<SettingsListRo
         "General",
         [
             option(
-                0,
+                BehaviorRowId::ConfirmClose.selection_index(),
                 "Confirm Before Closing Workspaces",
                 "Ask before closing a workspace",
                 settings
@@ -1010,7 +1019,7 @@ fn behavior_rows(app: &AppState, settings: &SettingsState) -> Vec<SettingsListRo
                     .unwrap_or_else(|| app.confirm_close_enabled()),
             ),
             option(
-                1,
+                BehaviorRowId::NameNewTabs.selection_index(),
                 "Name New Tabs",
                 "Ask for a tab name before creating a new tab",
                 settings
@@ -1018,7 +1027,7 @@ fn behavior_rows(app: &AppState, settings: &SettingsState) -> Vec<SettingsListRo
                     .unwrap_or_else(|| app.prompt_new_tab_name_enabled()),
             ),
             option(
-                2,
+                BehaviorRowId::NameNewWorkspaces.selection_index(),
                 "Name New Workspaces",
                 "Ask for a workspace name before creating a new workspace",
                 settings
@@ -1026,7 +1035,7 @@ fn behavior_rows(app: &AppState, settings: &SettingsState) -> Vec<SettingsListRo
                     .unwrap_or(app.prompt_new_workspace_name),
             ),
             option(
-                3,
+                BehaviorRowId::ShowCounters.selection_index(),
                 "Show Counters",
                 "Show right-aligned topology and section counts",
                 settings.pending_show_counters.unwrap_or(app.show_counters),
@@ -1038,7 +1047,7 @@ fn behavior_rows(app: &AppState, settings: &SettingsState) -> Vec<SettingsListRo
         "Selection",
         [
             option(
-                4,
+                BehaviorRowId::CopyOnSelect.selection_index(),
                 "Copy on Select",
                 "Copy drag selections when the mouse is released",
                 settings
@@ -1046,7 +1055,7 @@ fn behavior_rows(app: &AppState, settings: &SettingsState) -> Vec<SettingsListRo
                     .unwrap_or(app.copy_on_select),
             ),
             value_option(
-                5,
+                BehaviorRowId::RightClickPassthrough.selection_index(),
                 "Right-click Passthrough",
                 "Modifier that forwards right-clicks into pane apps",
                 settings
@@ -1064,14 +1073,29 @@ fn behavior_rows(app: &AppState, settings: &SettingsState) -> Vec<SettingsListRo
     rows.extend(setting_group(
         "Terminal",
         [
+            SettingsListRow::TextInput {
+                index: BehaviorRowId::DefaultShell.selection_index(),
+                title: "Default Shell".into(),
+                value: settings
+                    .pending_default_shell
+                    .clone()
+                    .unwrap_or_else(|| app.default_shell.clone())
+                    .into(),
+            },
             value_option(
-                6,
+                BehaviorRowId::ShellMode.selection_index(),
+                "Shell Startup Mode",
+                "How new interactive panes start their shell",
+                shell_mode_label(settings.pending_shell_mode.unwrap_or(app.shell_mode)),
+            ),
+            value_option(
+                BehaviorRowId::NewTerminalCwd.selection_index(),
                 "New Terminal CWD",
                 "Directory used by newly created terminal tabs",
                 cwd_label,
             ),
             value_option(
-                7,
+                BehaviorRowId::MouseWheelSpeed.selection_index(),
                 "Mouse Wheel Speed",
                 "Terminal scroll amount per wheel notch",
                 scroll_label,
@@ -1082,7 +1106,7 @@ fn behavior_rows(app: &AppState, settings: &SettingsState) -> Vec<SettingsListRo
     rows.extend(setting_group(
         "Sessions",
         [option(
-            8,
+            BehaviorRowId::ResumeAgents.selection_index(),
             "Resume Agent Sessions",
             "Resume supported agents after restoring a session",
             settings
@@ -1238,11 +1262,109 @@ impl CommandRowId {
     }
 }
 
+#[repr(usize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum BehaviorRowId {
+    ConfirmClose,
+    NameNewTabs,
+    NameNewWorkspaces,
+    ShowCounters,
+    CopyOnSelect,
+    RightClickPassthrough,
+    DefaultShell,
+    ShellMode,
+    NewTerminalCwd,
+    MouseWheelSpeed,
+    ResumeAgents,
+}
+
+impl BehaviorRowId {
+    const ALL: [Self; 11] = [
+        Self::ConfirmClose,
+        Self::NameNewTabs,
+        Self::NameNewWorkspaces,
+        Self::ShowCounters,
+        Self::CopyOnSelect,
+        Self::RightClickPassthrough,
+        Self::DefaultShell,
+        Self::ShellMode,
+        Self::NewTerminalCwd,
+        Self::MouseWheelSpeed,
+        Self::ResumeAgents,
+    ];
+
+    pub(crate) const fn selection_index(self) -> usize {
+        self as usize
+    }
+
+    pub(crate) fn from_selection_index(index: usize) -> Option<Self> {
+        Self::ALL.get(index).copied()
+    }
+}
+
+#[repr(usize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum NotificationRowId {
+    SoundAlerts,
+    ToastDelivery,
+    ToastDelay,
+    ToastOmhPosition,
+    ClipboardEnabled,
+    ClipboardPosition,
+}
+
+impl NotificationRowId {
+    const ALL: [Self; 6] = [
+        Self::SoundAlerts,
+        Self::ToastDelivery,
+        Self::ToastDelay,
+        Self::ToastOmhPosition,
+        Self::ClipboardEnabled,
+        Self::ClipboardPosition,
+    ];
+
+    pub(crate) const fn selection_index(self) -> usize {
+        self as usize
+    }
+
+    pub(crate) fn from_selection_index(index: usize) -> Option<Self> {
+        Self::ALL.get(index).copied()
+    }
+}
+
+#[repr(usize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum AdvancedRowId {
+    SwitchAscii,
+    HeadlessCols,
+    HeadlessRows,
+    VersionCheck,
+    ManifestCheck,
+}
+
+impl AdvancedRowId {
+    const ALL: [Self; 5] = [
+        Self::SwitchAscii,
+        Self::HeadlessCols,
+        Self::HeadlessRows,
+        Self::VersionCheck,
+        Self::ManifestCheck,
+    ];
+
+    pub(crate) const fn selection_index(self) -> usize {
+        self as usize
+    }
+
+    pub(crate) fn from_selection_index(index: usize) -> Option<Self> {
+        Self::ALL.get(index).copied()
+    }
+}
+
 fn experiment_rows(app: &AppState, settings: &SettingsState) -> Vec<SettingsListRow> {
     let mut rows = setting_group(
         "Input",
         [option(
-            0,
+            AdvancedRowId::SwitchAscii.selection_index(),
             "Switch to ASCII Input Source in Prefix (macOS/Windows)",
             "Temporarily use an ASCII-capable layout for prefix commands",
             settings
@@ -1255,7 +1377,7 @@ fn experiment_rows(app: &AppState, settings: &SettingsState) -> Vec<SettingsList
         "Server",
         [
             SettingsListRow::TextInput {
-                index: 1,
+                index: AdvancedRowId::HeadlessCols.selection_index(),
                 title: "Headless Terminal Columns".into(),
                 value: settings
                     .pending_headless_cols
@@ -1264,7 +1386,7 @@ fn experiment_rows(app: &AppState, settings: &SettingsState) -> Vec<SettingsList
                     .into(),
             },
             SettingsListRow::TextInput {
-                index: 2,
+                index: AdvancedRowId::HeadlessRows.selection_index(),
                 title: "Headless Terminal Rows".into(),
                 value: settings
                     .pending_headless_rows
@@ -1272,6 +1394,28 @@ fn experiment_rows(app: &AppState, settings: &SettingsState) -> Vec<SettingsList
                     .unwrap_or_else(|| app.headless_size.1.to_string())
                     .into(),
             },
+        ],
+    ));
+    rows.push(SettingsListRow::Spacer);
+    rows.extend(setting_group(
+        "Updates",
+        [
+            option(
+                AdvancedRowId::VersionCheck.selection_index(),
+                "Version Check",
+                "Check GitHub for a newer Oh My Herdr release",
+                settings
+                    .pending_version_check
+                    .unwrap_or(app.update_version_check),
+            ),
+            option(
+                AdvancedRowId::ManifestCheck.selection_index(),
+                "Manifest Check",
+                "Check for remote agent-detection manifest updates",
+                settings
+                    .pending_manifest_check
+                    .unwrap_or(app.update_manifest_check),
+            ),
         ],
     ));
     rows
@@ -1284,10 +1428,23 @@ fn notification_rows(app: &AppState, settings: &SettingsState) -> Vec<SettingsLi
     let toast_delivery = settings
         .pending_toast_delivery
         .unwrap_or_else(|| app.toast_delivery());
+    let toast_delay = settings
+        .pending_toast_delay
+        .clone()
+        .unwrap_or_else(|| app.toast_config.delay_seconds.to_string());
+    let omh_position = settings
+        .pending_toast_omh_position
+        .unwrap_or(app.toast_config.omh.position);
+    let clipboard_enabled = settings
+        .pending_clipboard_toast_enabled
+        .unwrap_or(app.toast_config.clipboard.enabled);
+    let clipboard_position = settings
+        .pending_clipboard_toast_position
+        .unwrap_or(app.toast_config.clipboard.position);
     let mut rows = setting_group(
         "Sound Alerts",
         [option(
-            0,
+            NotificationRowId::SoundAlerts.selection_index(),
             "Sound Alerts",
             "Play sound when a background agent needs attention",
             sound_enabled,
@@ -1296,12 +1453,43 @@ fn notification_rows(app: &AppState, settings: &SettingsState) -> Vec<SettingsLi
     rows.push(SettingsListRow::Spacer);
     rows.extend(setting_group(
         "Notification Popups",
-        [value_option(
-            1,
-            "Toast Delivery",
-            "Where command and agent notifications should appear",
-            toast_delivery_label(toast_delivery),
-        )],
+        [
+            value_option(
+                NotificationRowId::ToastDelivery.selection_index(),
+                "Toast Delivery",
+                "Where command and agent notifications should appear",
+                toast_delivery_label(toast_delivery),
+            ),
+            SettingsListRow::TextInput {
+                index: NotificationRowId::ToastDelay.selection_index(),
+                title: "Background Alert Delay".into(),
+                value: toast_delay.into(),
+            },
+            value_option(
+                NotificationRowId::ToastOmhPosition.selection_index(),
+                "In-App Toast Position",
+                "Corner used for in-app toasts",
+                toast_omh_position_label(omh_position),
+            ),
+        ],
+    ));
+    rows.push(SettingsListRow::Spacer);
+    rows.extend(setting_group(
+        "Clipboard Feedback",
+        [
+            option(
+                NotificationRowId::ClipboardEnabled.selection_index(),
+                "Copy Confirmation",
+                "Show a short confirmation after copying text",
+                clipboard_enabled,
+            ),
+            value_option(
+                NotificationRowId::ClipboardPosition.selection_index(),
+                "Copy Confirmation Position",
+                "Where copy confirmations appear",
+                toast_clipboard_position_label(clipboard_position),
+            ),
+        ],
     ));
     rows
 }
@@ -1842,6 +2030,7 @@ fn integration_rows(app: &AppState, settings: &SettingsState) -> Vec<SettingsLis
                     } else {
                         item.status_label().to_string()
                     };
+
                     SettingsListRow::Status {
                         index: offset + first_integration_index,
                         label: crate::agent_profiles::AgentKind::from(item.target)
@@ -1916,6 +2105,33 @@ fn toast_delivery_label(delivery: ToastDelivery) -> &'static str {
         ToastDelivery::Omh => "Inside Oh My Herdr",
         ToastDelivery::Terminal => "Via Terminal",
         ToastDelivery::System => "Via System",
+    }
+}
+fn shell_mode_label(mode: crate::config::ShellModeConfig) -> &'static str {
+    match mode {
+        crate::config::ShellModeConfig::Auto => "Auto",
+        crate::config::ShellModeConfig::Login => "Login",
+        crate::config::ShellModeConfig::NonLogin => "Non-login",
+    }
+}
+
+fn toast_omh_position_label(position: crate::config::ToastOmhPosition) -> &'static str {
+    match position {
+        crate::config::ToastOmhPosition::TopLeft => "Top Left",
+        crate::config::ToastOmhPosition::TopRight => "Top Right",
+        crate::config::ToastOmhPosition::BottomLeft => "Bottom Left",
+        crate::config::ToastOmhPosition::BottomRight => "Bottom Right",
+    }
+}
+
+fn toast_clipboard_position_label(position: crate::config::ToastClipboardPosition) -> &'static str {
+    match position {
+        crate::config::ToastClipboardPosition::TopLeft => "Top Left",
+        crate::config::ToastClipboardPosition::TopCenter => "Top Center",
+        crate::config::ToastClipboardPosition::TopRight => "Top Right",
+        crate::config::ToastClipboardPosition::BottomLeft => "Bottom Left",
+        crate::config::ToastClipboardPosition::BottomCenter => "Bottom Center",
+        crate::config::ToastClipboardPosition::BottomRight => "Bottom Right",
     }
 }
 
@@ -2464,5 +2680,72 @@ mod tests {
             row,
             SettingsListRow::Value { title, .. } if title.as_ref() == "Right-click Passthrough"
         )));
+        assert!(behavior.iter().any(|row| matches!(
+            row,
+            SettingsListRow::TextInput { title, .. } if title.as_ref() == "Default Shell"
+        )));
+        assert!(behavior.iter().any(|row| matches!(
+            row,
+            SettingsListRow::Value { title, .. } if title.as_ref() == "Shell Startup Mode"
+        )));
+        assert!(behavior
+            .iter()
+            .any(|row| { matches!(row, SettingsListRow::Header("Terminal")) }));
+
+        let notifications =
+            rows_for_section(&app, SettingsSection::Sound).expect("notification rows");
+        assert!(notifications
+            .iter()
+            .any(|row| matches!(row, SettingsListRow::Header("Sound Alerts"))));
+        assert!(notifications
+            .iter()
+            .any(|row| matches!(row, SettingsListRow::Header("Notification Popups"))));
+        assert!(notifications
+            .iter()
+            .any(|row| matches!(row, SettingsListRow::Header("Clipboard Feedback"))));
+        assert!(notifications.iter().any(|row| matches!(
+            row,
+            SettingsListRow::TextInput { title, .. } if title.as_ref() == "Background Alert Delay"
+        )));
+        assert!(notifications.iter().any(|row| matches!(
+            row,
+            SettingsListRow::Value { title, .. } if title.as_ref() == "In-App Toast Position"
+        )));
+        assert!(notifications.iter().any(|row| matches!(
+            row,
+            SettingsListRow::Toggle { title, .. } if title.as_ref() == "Copy Confirmation"
+        )));
+
+        let advanced = rows_for_section(&app, SettingsSection::Experiments).expect("advanced rows");
+        assert!(advanced
+            .iter()
+            .any(|row| matches!(row, SettingsListRow::Header("Updates"))));
+        assert!(advanced.iter().any(|row| matches!(
+            row,
+            SettingsListRow::Toggle { title, .. } if title.as_ref() == "Version Check"
+        )));
+        assert!(advanced.iter().any(|row| matches!(
+            row,
+            SettingsListRow::Toggle { title, .. } if title.as_ref() == "Manifest Check"
+        )));
+    }
+
+    #[test]
+    fn typed_row_ids_are_the_only_selection_mapping() {
+        for index in 0..=10 {
+            let id = BehaviorRowId::from_selection_index(index).expect("behavior id");
+            assert_eq!(id.selection_index(), index);
+        }
+        assert!(BehaviorRowId::from_selection_index(11).is_none());
+        for index in 0..=5 {
+            let id = NotificationRowId::from_selection_index(index).expect("notification id");
+            assert_eq!(id.selection_index(), index);
+        }
+        assert!(NotificationRowId::from_selection_index(6).is_none());
+        for index in 0..=4 {
+            let id = AdvancedRowId::from_selection_index(index).expect("advanced id");
+            assert_eq!(id.selection_index(), index);
+        }
+        assert!(AdvancedRowId::from_selection_index(5).is_none());
     }
 }

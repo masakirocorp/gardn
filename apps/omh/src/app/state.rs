@@ -2122,6 +2122,14 @@ pub struct SettingsState {
     pub pending_sound_enabled: Option<bool>,
     /// Pending toast delivery while settings is open.
     pub pending_toast_delivery: Option<ToastDelivery>,
+    pub pending_default_shell: Option<String>,
+    pub pending_shell_mode: Option<crate::config::ShellModeConfig>,
+    pub pending_version_check: Option<bool>,
+    pub pending_manifest_check: Option<bool>,
+    pub pending_toast_delay: Option<String>,
+    pub pending_toast_omh_position: Option<crate::config::ToastOmhPosition>,
+    pub pending_clipboard_toast_enabled: Option<bool>,
+    pub pending_clipboard_toast_position: Option<crate::config::ToastClipboardPosition>,
     /// Pending workspace close confirmation setting while settings is open.
     pub pending_confirm_close: Option<bool>,
     /// Pending new-tab naming prompt setting while settings is open.
@@ -2198,6 +2206,7 @@ pub struct SettingsState {
     pub pending_agent_profile_kind: Option<crate::agent_profiles::AgentKind>,
     /// Pending custom agent profile command while settings is open.
     pub pending_agent_profile_command: Option<String>,
+    pub pending_agent_profile_enabled: Option<bool>,
     /// Active agent family filter in the global agents settings tab.
     pub agent_profile_kind_filter: Option<crate::agent_profiles::AgentKind>,
     /// SSH profile selected for integration inspection and actions; `None` is Local.
@@ -3343,6 +3352,8 @@ pub struct AppState {
     pub sound: SoundConfig,
     pub local_sound_playback: bool,
     pub toast_config: ToastConfig,
+    pub update_version_check: bool,
+    pub update_manifest_check: bool,
     pub keybinds: Keybinds,
     /// Frame counter for spinner animations (wraps around).
     pub spinner_tick: u32,
@@ -4196,6 +4207,8 @@ impl AppState {
                 delay_seconds: 0,
                 ..ToastConfig::default()
             },
+            update_version_check: true,
+            update_manifest_check: true,
             agent_profiles: crate::agent_profiles::AgentProfileCatalog::from_config(
                 &crate::agent_profiles::AgentProfilesConfig::default(),
             ),
@@ -4228,6 +4241,14 @@ impl AppState {
                 pending_terminal_dark_accent: None,
                 pending_sound_enabled: None,
                 pending_toast_delivery: None,
+                pending_default_shell: None,
+                pending_shell_mode: None,
+                pending_version_check: None,
+                pending_manifest_check: None,
+                pending_toast_delay: None,
+                pending_toast_omh_position: None,
+                pending_clipboard_toast_enabled: None,
+                pending_clipboard_toast_position: None,
                 pending_confirm_close: None,
                 pending_prompt_new_tab_name: None,
                 pending_show_counters: None,
@@ -4269,6 +4290,7 @@ impl AppState {
                 pending_agent_profile_name: None,
                 pending_agent_profile_kind: None,
                 pending_agent_profile_command: None,
+                pending_agent_profile_enabled: None,
                 agent_profile_kind_filter: None,
                 integration_host_profile_id: None,
                 connection_editor: None,

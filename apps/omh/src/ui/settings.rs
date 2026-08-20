@@ -90,6 +90,10 @@ const NOTIFICATION_SUBSECTIONS: &[SettingsSubsection] = &[
         label: "Popups",
         anchor: Some("Notification Popups"),
     },
+    SettingsSubsection {
+        label: "Clipboard",
+        anchor: Some("Clipboard Feedback"),
+    },
 ];
 const BEHAVIOR_SUBSECTIONS: &[SettingsSubsection] = &[
     SettingsSubsection {
@@ -133,6 +137,10 @@ const ADVANCED_SUBSECTIONS: &[SettingsSubsection] = &[
     SettingsSubsection {
         label: "Server",
         anchor: Some("Server"),
+    },
+    SettingsSubsection {
+        label: "Updates",
+        anchor: Some("Updates"),
     },
 ];
 
