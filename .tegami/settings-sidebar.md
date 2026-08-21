@@ -1,8 +1,0 @@
----
-packages:
-  omh: minor
----
-
-# Hierarchical settings navigation
-
-General Settings now uses an expandable left sidebar instead of horizontal tabs. Category subsections jump directly to their content while the right panel keeps the existing heading, description, controls, and scrolling behavior. All settings screens now separate their heading and description from controls with a horizontal rule. Blank rows divide logical option groups and independent command fields. Group Settings keeps its compact tabs, and Space Settings keeps its single-panel layout. Controls, menus, navigation, status text, and modal labels now use consistent title casing throughout the app.
