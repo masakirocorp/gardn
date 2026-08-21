@@ -646,10 +646,8 @@ fn random_scope(token: &[u8; ASKPASS_TOKEN_BYTES]) -> u64 {
         .unwrap_or_default()
         .as_nanos() as u64;
     let mut scope = now ^ u64::from(std::process::id());
-    for chunk in token.chunks_exact(8) {
-        let mut bytes = [0_u8; 8];
-        bytes.copy_from_slice(chunk);
-        scope ^= u64::from_ne_bytes(bytes).rotate_left(13);
+    for chunk in token.as_chunks::<8>().0 {
+        scope ^= u64::from_ne_bytes(*chunk).rotate_left(13);
     }
     scope
 }

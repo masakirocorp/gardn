@@ -2963,7 +2963,7 @@ fn decode_hex_bytes(input: &[u8]) -> Option<Vec<u8>> {
         return None;
     }
     let mut out = Vec::with_capacity(input.len() / 2);
-    for pair in input.chunks_exact(2) {
+    for pair in input.as_chunks::<2>().0 {
         let high = hex_value(pair[0])?;
         let low = hex_value(pair[1])?;
         out.push((high << 4) | low);

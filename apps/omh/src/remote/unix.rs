@@ -2353,7 +2353,9 @@ fn parse_worker_artifact_inventory(bytes: &[u8]) -> io::Result<Vec<WorkerArtifac
         ));
     }
     fields
-        .chunks_exact(2)
+        .as_chunks::<2>()
+        .0
+        .iter()
         .map(|fields| {
             let path = std::str::from_utf8(fields[0])
                 .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?
