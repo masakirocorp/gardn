@@ -1,17 +1,17 @@
 core:changelogs:
-  - content: "---\npackages:\n  omh:\n    type: patch\n---\n\n# Keep release CI compatible with Rust 1.98\n\nRelease checks now pass with the Rust 1.98 lint set used by GitHub Actions.\n"
-    filename: rust-1-98-clippy.md
+  - content: "---\npackages:\n  omh:\n    type: patch\n---\n\n# Preserve official release identity in packaged binaries\n\nGitHub release binaries now keep their release channel, tag, and build cohort when Cargo runs through Turborepo. Official installs use the production namespace instead of the development namespace.\n"
+    filename: release-build-identity.md
     v: 0.0.0
 core:packages:
   - id: npm:@omh/website
     updated: false
-  - id: cargo:omh-local-api
-    updated: false
-  - id: cargo:portable-pty
-    updated: false
   - changelogIds:
-      - rust-1-98-clippy.md
+      - release-build-identity.md
     id: cargo:omh
     updated: true
+  - id: cargo:portable-pty
+    updated: false
+  - id: cargo:omh-local-api
+    updated: false
 npm:packages:
   - id: npm:@omh/website
