@@ -2503,10 +2503,6 @@ impl PaneRuntime {
         self.terminal.input_state()
     }
 
-    pub fn alternate_screen_active(&self) -> bool {
-        self.terminal.alternate_screen_active()
-    }
-
     pub fn cursor_state(&self, area: Rect, show_cursor: bool) -> Option<TerminalCursorState> {
         if !show_cursor {
             return None;

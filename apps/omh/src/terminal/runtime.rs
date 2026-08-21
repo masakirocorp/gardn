@@ -382,11 +382,6 @@ impl TerminalRuntime {
         self.0.input_state()
     }
 
-    /// Reads only whether the alternate screen is active.
-    pub fn alternate_screen_active(&self) -> bool {
-        self.0.alternate_screen_active()
-    }
-
     pub fn cursor_state(
         &self,
         area: Rect,

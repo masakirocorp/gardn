@@ -42,10 +42,8 @@ fn pane_border_title(label: &str, pane_width: u16) -> Option<String> {
     Some(format!(" {} ", truncate_label(label, max_label_width)))
 }
 
-// Full view computation reaches this helper for active and background panes.
-// Keep terminal queries narrow, allocation-free, and short under the core lock.
-fn terminal_inner_rect(rt: &TerminalRuntime, pane_inner: Rect, pane_scrollbars: bool) -> Rect {
-    if !pane_scrollbars || pane_inner.width <= 4 || rt.alternate_screen_active() {
+fn terminal_inner_rect(pane_inner: Rect, pane_scrollbars: bool) -> Rect {
+    if !pane_scrollbars || pane_inner.width <= 4 {
         return pane_inner;
     }
 
@@ -412,7 +410,7 @@ fn stable_scrollbar_gutter(
     pane_inner: Rect,
     pane_scrollbars: bool,
 ) -> (Rect, Option<Rect>) {
-    let inner_rect = terminal_inner_rect(rt, pane_inner, pane_scrollbars);
+    let inner_rect = terminal_inner_rect(pane_inner, pane_scrollbars);
     if inner_rect == pane_inner {
         return (inner_rect, None);
     }

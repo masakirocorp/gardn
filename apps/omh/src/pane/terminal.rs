@@ -254,10 +254,6 @@ impl PaneTerminal {
         self.ghostty.input_state()
     }
 
-    pub fn alternate_screen_active(&self) -> bool {
-        self.ghostty.alternate_screen_active()
-    }
-
     pub fn wheel_routing(&self) -> Option<crate::pane::WheelRouting> {
         self.ghostty.wheel_routing()
     }
@@ -1460,12 +1456,6 @@ impl GhosttyPaneTerminal {
                 .terminal
                 .mode_get(crate::ghostty::MODE_COLOR_SCHEME_REPORT)
                 .ok()?,
-        })
-    }
-
-    pub fn alternate_screen_active(&self) -> bool {
-        self.core.lock().is_ok_and(|core| {
-            core.terminal.active_screen().ok() == Some(crate::ghostty::ActiveScreen::Alternate)
         })
     }
 
