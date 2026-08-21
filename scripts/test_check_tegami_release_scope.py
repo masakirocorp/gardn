@@ -104,5 +104,32 @@ class CheckTegamiReleaseScopeTests(unittest.TestCase):
         self.assertNotIn("app.md", result.stderr)
 
 
+    def test_rejects_changefiles_without_package_frontmatter(self) -> None:
+        repo_root = Path(__file__).resolve().parents[1]
+        script = repo_root / "scripts" / "check-tegami-release-scope.mts"
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            changelog_dir = root / ".tegami"
+            changelog_dir.mkdir()
+            (changelog_dir / "unversioned.md").write_text(
+                "### Missing release metadata\n\nThis change must not be silently ignored.\n",
+                encoding="utf-8",
+            )
+
+            result = subprocess.run(
+                ["node", str(script), "omh"],
+                cwd=root,
+                env={**os.environ, "NO_COLOR": "1"},
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                timeout=20,
+            )
+
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.assertIn("Every release-worthy Tegami changefile must include omh", result.stderr)
+        self.assertIn("- .tegami/unversioned.md", result.stderr)
+
 if __name__ == "__main__":
     unittest.main()

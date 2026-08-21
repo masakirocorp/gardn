@@ -1,3 +1,8 @@
+---
+packages:
+  omh: minor
+---
+
 # ENG-88 UI/mobile/config/tab-label/navigator port
 
 Target SHAs: 4ffd99c2, 4421c0fe, 2ff5dd2f, db1ef28d, 14d8e933, b44ca3b3,

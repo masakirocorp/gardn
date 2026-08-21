@@ -1,3 +1,8 @@
+---
+packages:
+  omh: minor
+---
+
 # Managed SSH worker lifecycle
 
 Oh My Herdr now installs and updates versioned SSH execution workers automatically when a connection starts. Protocol-compatible workers with live runtimes stay active until they are unused. After a coordinator restart, restored remote panes reconnect their saved SSH connection and re-adopt the live worker runtime. Worker bridges use dedicated SSH transports so a stopped coordinator cannot leave orphaned remote bridge processes that block the next reconnect.

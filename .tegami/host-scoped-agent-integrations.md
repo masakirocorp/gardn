@@ -1,3 +1,8 @@
+---
+packages:
+  omh: minor
+---
+
 # Manage agent integrations on SSH hosts
 
 The Integrations settings can now inspect, install, update, and uninstall agent integrations on Local or a configured SSH execution host.

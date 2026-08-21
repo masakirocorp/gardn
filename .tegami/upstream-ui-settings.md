@@ -1,3 +1,8 @@
+---
+packages:
+  omh: minor
+---
+
 # Add terminal UI controls
 
 You can now filter keybinding help by shortcut, action, or section. Settings > Appearance > Panes exposes pane borders, pane scrollbars, pane gaps, and the single-tab bar. Settings > Appearance > Window edits the outer terminal window-title template. Settings > Behavior exposes workspace naming, copy-on-select, agent-session resume, and every accepted right-click passthrough modifier combination. Settings > Advanced > Server configures the headless terminal size. You can also choose dot or symbol agent status indicators and route right-clicks to individual panes. Disabling automatic copy now keeps mouse selections visible until you copy or clear them. Context bar, sidebar, and status indicator choices now save without corrupting `config.toml`.
