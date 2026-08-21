@@ -2237,6 +2237,10 @@ pub(crate) enum DragTarget {
         source_tab_idx: usize,
         insert_idx: Option<usize>,
     },
+    AgentFollowUp {
+        workspace_id: String,
+        pane_number: usize,
+    },
     WorkspaceListScrollbar {
         grab_row_offset: u16,
     },
@@ -2307,6 +2311,27 @@ pub(crate) struct TabPressState {
     pub tab_idx: usize,
     pub start_col: u16,
     pub start_row: u16,
+}
+
+#[derive(Clone)]
+pub(crate) struct AgentPressState {
+    pub workspace_id: String,
+    pub pane_number: usize,
+    pub start_col: u16,
+    pub start_row: u16,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct AgentFollowUpEntry {
+    pub workspace_id: String,
+    pub pane_number: usize,
+    pub added_at_unix_secs: u64,
+}
+
+impl AgentFollowUpEntry {
+    pub(crate) fn matches(&self, workspace_id: &str, pane_number: usize) -> bool {
+        self.workspace_id == workspace_id && self.pane_number == pane_number
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -3252,6 +3277,8 @@ pub struct AppState {
     pub(crate) workspace_press: Option<WorkspacePressState>,
     pub(crate) group_press: Option<GroupPressState>,
     pub(crate) tab_press: Option<TabPressState>,
+    pub(crate) agent_press: Option<AgentPressState>,
+    pub(crate) agent_follow_up: Vec<AgentFollowUpEntry>,
     pub selection: Option<Selection>,
     pub selection_autoscroll: Option<SelectionAutoscroll>,
     pub context_menu: Option<ContextMenuState>,
@@ -3719,6 +3746,177 @@ impl AppState {
         self.session_dirty = true;
     }
 
+    pub(crate) fn current_unix_secs() -> u64 {
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|duration| duration.as_secs())
+            .unwrap_or_default()
+    }
+
+    pub(crate) fn follow_up_identity(
+        &self,
+        ws_idx: usize,
+        pane_id: crate::layout::PaneId,
+    ) -> Option<(String, usize)> {
+        let workspace = self.workspaces.get(ws_idx)?;
+        let pane_number = workspace.public_pane_number(pane_id)?;
+        Some((workspace.id.clone(), pane_number))
+    }
+
+    pub(crate) fn resolve_live_agent_target(
+        &self,
+        workspace_id: &str,
+        pane_number: usize,
+    ) -> Option<(usize, usize, crate::layout::PaneId)> {
+        let ws_idx = self
+            .workspaces
+            .iter()
+            .position(|workspace| workspace.id == workspace_id)?;
+        let workspace = self.workspaces.get(ws_idx)?;
+        let pane_id = workspace
+            .public_pane_numbers
+            .iter()
+            .find_map(|(pane_id, number)| (*number == pane_number).then_some(*pane_id))?;
+        let tab_idx = workspace.find_tab_index_for_pane(pane_id)?;
+        Some((ws_idx, tab_idx, pane_id))
+    }
+
+    pub(crate) fn prune_agent_follow_up(&mut self) {
+        let before = self.agent_follow_up.len();
+        let entries = std::mem::take(&mut self.agent_follow_up);
+        self.agent_follow_up = Self::restored_agent_follow_up(&self.workspaces, entries);
+        if self.agent_follow_up.len() != before {
+            self.mark_session_dirty();
+        }
+    }
+
+    pub(crate) fn restored_agent_follow_up(
+        workspaces: &[Workspace],
+        entries: Vec<AgentFollowUpEntry>,
+    ) -> Vec<AgentFollowUpEntry> {
+        let mut restored = Vec::new();
+        for entry in entries {
+            if restored.iter().any(|existing: &AgentFollowUpEntry| {
+                existing.matches(&entry.workspace_id, entry.pane_number)
+            }) {
+                continue;
+            }
+            if workspaces.iter().any(|workspace| {
+                workspace.id == entry.workspace_id
+                    && workspace
+                        .public_pane_numbers
+                        .values()
+                        .any(|number| *number == entry.pane_number)
+            }) {
+                restored.push(entry);
+            }
+        }
+        restored
+    }
+
+    pub(crate) fn is_agent_follow_up(&self, ws_idx: usize, pane_id: crate::layout::PaneId) -> bool {
+        let Some((workspace_id, pane_number)) = self.follow_up_identity(ws_idx, pane_id) else {
+            return false;
+        };
+        self.agent_follow_up
+            .iter()
+            .any(|entry| entry.matches(&workspace_id, pane_number))
+    }
+
+    pub(crate) fn follow_up_added_at(
+        &self,
+        ws_idx: usize,
+        pane_id: crate::layout::PaneId,
+    ) -> Option<u64> {
+        let (workspace_id, pane_number) = self.follow_up_identity(ws_idx, pane_id)?;
+        self.agent_follow_up
+            .iter()
+            .find(|entry| entry.matches(&workspace_id, pane_number))
+            .map(|entry| entry.added_at_unix_secs)
+    }
+
+    pub(crate) fn migrate_agent_follow_up(
+        &mut self,
+        old_workspace_id: &str,
+        old_pane_number: usize,
+        new_workspace_id: String,
+        new_pane_number: usize,
+    ) -> bool {
+        if old_workspace_id == new_workspace_id && old_pane_number == new_pane_number {
+            return false;
+        }
+        let Some(idx) = self
+            .agent_follow_up
+            .iter()
+            .position(|entry| entry.matches(old_workspace_id, old_pane_number))
+        else {
+            return false;
+        };
+        if self
+            .agent_follow_up
+            .iter()
+            .any(|entry| entry.matches(&new_workspace_id, new_pane_number))
+        {
+            self.agent_follow_up.remove(idx);
+            self.mark_session_dirty();
+            return true;
+        }
+        self.agent_follow_up[idx].workspace_id = new_workspace_id;
+        self.agent_follow_up[idx].pane_number = new_pane_number;
+        self.mark_session_dirty();
+        true
+    }
+
+    pub(crate) fn insert_agent_follow_up(
+        &mut self,
+        ws_idx: usize,
+        pane_id: crate::layout::PaneId,
+    ) -> bool {
+        let Some((workspace_id, pane_number)) = self.follow_up_identity(ws_idx, pane_id) else {
+            return false;
+        };
+        if self
+            .agent_follow_up
+            .iter()
+            .any(|entry| entry.matches(&workspace_id, pane_number))
+        {
+            return false;
+        }
+        self.agent_follow_up.push(AgentFollowUpEntry {
+            workspace_id,
+            pane_number,
+            added_at_unix_secs: Self::current_unix_secs(),
+        });
+        self.mark_session_dirty();
+        true
+    }
+
+    pub(crate) fn clear_agent_follow_up_for_pane(
+        &mut self,
+        workspace_id: &str,
+        pane_id: crate::layout::PaneId,
+    ) -> bool {
+        let Some(workspace) = self
+            .workspaces
+            .iter()
+            .find(|workspace| workspace.id == workspace_id)
+        else {
+            return false;
+        };
+        let Some(pane_number) = workspace.public_pane_number(pane_id) else {
+            return false;
+        };
+        let before = self.agent_follow_up.len();
+        self.agent_follow_up
+            .retain(|entry| !entry.matches(workspace_id, pane_number));
+        if self.agent_follow_up.len() != before {
+            self.mark_session_dirty();
+            true
+        } else {
+            false
+        }
+    }
+
     pub(crate) fn project_command_availability_for_workspace(
         &self,
         terminal_runtimes: &crate::terminal::TerminalRuntimeRegistry,
@@ -4120,6 +4318,8 @@ impl AppState {
             workspace_press: None,
             group_press: None,
             tab_press: None,
+            agent_press: None,
+            agent_follow_up: Vec::new(),
             selection: None,
             selection_autoscroll: None,
             context_menu: None,

@@ -204,6 +204,7 @@ pub(super) fn state_icon(
 pub(super) fn agent_section_style(label: &str, p: &Palette) -> Style {
     let color = match label {
         "Triage" => p.peach,
+        "Follow Up" => p.mauve,
         "Working" => state_label_color(AgentState::Working, true, p),
         "Idle" => state_label_color(AgentState::Idle, true, p),
         _ => p.overlay0,
@@ -214,6 +215,7 @@ pub(super) fn agent_section_style(label: &str, p: &Palette) -> Style {
 pub(super) fn agent_section_icon(label: &str, p: &Palette) -> (&'static str, Style) {
     match label {
         "Triage" => ("!", agent_section_style(label, p)),
+        "Follow Up" => ("*", agent_section_style(label, p)),
         "Working" => agent_icon(AgentState::Working, true, p),
         "Idle" => state_symbol(AgentState::Idle, true, 0, p),
         _ => ("?", Style::default().fg(p.overlay0)),

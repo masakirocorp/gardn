@@ -625,6 +625,7 @@ impl App {
         let mut session_namespace_id = crate::persist::installation::new_session_namespace_id();
         let mut session_namespace_healed = false;
         let mut restored_remote_termination_tombstones = Vec::new();
+        let mut restored_agent_follow_up = Vec::new();
         let (
             groups,
             active_group,
@@ -693,6 +694,10 @@ impl App {
             );
             restored_terminals = terminals;
             restored_terminal_runtimes = terminal_runtimes.into();
+            restored_agent_follow_up = crate::app::state::AppState::restored_agent_follow_up(
+                &ws,
+                snap.agent_follow_up.clone(),
+            );
             if ws.is_empty() {
                 crate::logging::session_restored(0, "empty");
                 (
@@ -935,6 +940,8 @@ impl App {
             workspace_press: None,
             group_press: None,
             tab_press: None,
+            agent_press: None,
+            agent_follow_up: restored_agent_follow_up,
             selection: None,
             selection_autoscroll: None,
             context_menu: None,
@@ -1454,6 +1461,10 @@ impl App {
                 remote_runtime_identity: tombstone.remote_runtime_identity.clone(),
             })
             .collect();
+        app.state.agent_follow_up = state::AppState::restored_agent_follow_up(
+            &app.state.workspaces,
+            snapshot.agent_follow_up.clone(),
+        );
         app.terminal_runtimes = crate::terminal::TerminalRuntimeRegistry::from(runtimes);
         app.state.active = snapshot
             .default_view
@@ -3825,7 +3836,16 @@ impl App {
             return None;
         }
 
-        self.send_terminal_key_for_view(client_view, key)
+        let event = key.as_key_event();
+        let clears_follow_up = event.kind == crossterm::event::KeyEventKind::Press
+            && event.code == crossterm::event::KeyCode::Enter
+            && event.modifiers.is_empty();
+        let target = self.send_terminal_key_for_view(client_view, key)?;
+        if clears_follow_up {
+            self.state
+                .clear_agent_follow_up_for_pane(&target.workspace_id, target.pane_id);
+        }
+        Some(target)
     }
 
     fn handle_non_terminal_key_for_view(
@@ -9607,13 +9627,25 @@ impl App {
                                 },
                             });
                         }
+                    } else if let Some(press) = &client_view.agent_press {
+                        let delta_col = mouse.column.abs_diff(press.start_col);
+                        let delta_row = mouse.row.abs_diff(press.start_row);
+                        if delta_col.max(delta_row) >= input::AGENT_DRAG_THRESHOLD {
+                            client_view.drag = Some(state::DragState {
+                                target: state::DragTarget::AgentFollowUp {
+                                    workspace_id: press.workspace_id.clone(),
+                                    pane_number: press.pane_number,
+                                },
+                            });
+                        }
                     }
                 }
 
                 if client_view.drag.is_none()
                     && (client_view.workspace_press.is_some()
                         || client_view.group_press.is_some()
-                        || client_view.tab_press.is_some())
+                        || client_view.tab_press.is_some()
+                        || client_view.agent_press.is_some())
                 {
                     return true;
                 }
@@ -9767,6 +9799,7 @@ impl App {
                         client_view.reconcile(&self.state);
                         true
                     }
+                    Some(state::DragTarget::AgentFollowUp { .. }) => true,
                     _ => false,
                 }
             }
@@ -9780,6 +9813,7 @@ impl App {
                     client_view.workspace_press = None;
                     client_view.group_press = None;
                     client_view.tab_press = None;
+                    client_view.agent_press = None;
                     client_view.drag = None;
                     client_view.selection_autoscroll = None;
                     if was_click {
@@ -9797,6 +9831,7 @@ impl App {
                 let workspace_press = client_view.workspace_press.take();
                 let group_press = client_view.group_press.take();
                 let tab_press = client_view.tab_press.take();
+                let agent_press = client_view.agent_press.take();
                 match client_view.drag.take() {
                     Some(state::DragState {
                         target:
@@ -9908,6 +9943,32 @@ impl App {
                         client_view.reconcile(&self.state);
                         true
                     }
+                    Some(state::DragState {
+                        target:
+                            state::DragTarget::AgentFollowUp {
+                                workspace_id,
+                                pane_number,
+                            },
+                    }) => {
+                        if !client_view.can_mutate_tab() {
+                            Self::reject_client_view_shared_mutation(client_view);
+                            return true;
+                        }
+                        if self.client_view_agent_follow_up_drop_at(
+                            client_view,
+                            mouse.column,
+                            mouse.row,
+                        ) {
+                            if let Some((ws_idx, _, pane_id)) = self
+                                .state
+                                .resolve_live_agent_target(&workspace_id, pane_number)
+                            {
+                                self.state.insert_agent_follow_up(ws_idx, pane_id);
+                            }
+                        }
+                        client_view.reconcile(&self.state);
+                        true
+                    }
                     Some(_) => true,
                     None => {
                         if let Some(press) = workspace_press {
@@ -9934,6 +9995,20 @@ impl App {
                                     return true;
                                 }
                             }
+                        }
+                        if let Some(press) = agent_press {
+                            if let Some((ws_idx, tab_idx, pane_id)) = self
+                                .state
+                                .resolve_live_agent_target(&press.workspace_id, press.pane_number)
+                            {
+                                client_view.focus_pane_in_workspace(
+                                    &self.state,
+                                    ws_idx,
+                                    tab_idx,
+                                    pane_id,
+                                );
+                            }
+                            return true;
                         }
                         false
                     }
@@ -10539,10 +10614,19 @@ impl App {
                     self.clamp_client_view_agent_panel_scroll(client_view);
                     return true;
                 }
-                if let Some((ws_idx, tab_idx, pane_id)) =
+                if let Some((ws_idx, _, pane_id)) =
                     self.client_view_agent_detail_target_at(client_view, mouse.column, mouse.row)
                 {
-                    client_view.focus_pane_in_workspace(&self.state, ws_idx, tab_idx, pane_id);
+                    if let Some((workspace_id, pane_number)) =
+                        self.state.follow_up_identity(ws_idx, pane_id)
+                    {
+                        client_view.agent_press = Some(state::AgentPressState {
+                            workspace_id,
+                            pane_number,
+                            start_col: mouse.column,
+                            start_row: mouse.row,
+                        });
+                    }
                     return true;
                 }
                 if self.client_view_on_sidebar_divider(client_view, mouse) {
@@ -10981,6 +11065,26 @@ impl App {
             row,
         )
         .map(|detail| (detail.ws_idx, detail.tab_idx, detail.pane_id))
+    }
+
+    fn client_view_agent_follow_up_drop_at(
+        &self,
+        client_view: &ClientViewState,
+        column: u16,
+        row: u16,
+    ) -> bool {
+        if self
+            .client_view_agent_header_target_at(client_view, column, row)
+            .is_some_and(|target| target.section == "Follow Up")
+        {
+            return true;
+        }
+        let Some((ws_idx, _, pane_id)) =
+            self.client_view_agent_detail_target_at(client_view, column, row)
+        else {
+            return false;
+        };
+        self.state.is_agent_follow_up(ws_idx, pane_id)
     }
 
     fn toggle_client_view_agent_section(client_view: &mut ClientViewState, section_key: String) {
@@ -13117,6 +13221,7 @@ mod tests {
             right_sidebar_width: None,
             right_sidebar_collapsed: false,
             ui: crate::persist::SessionUiSnapshot::default(),
+            agent_follow_up: Vec::new(),
             pane_id_aliases: std::collections::HashMap::new(),
         }
     }
@@ -13325,6 +13430,7 @@ mod tests {
             state.sidebar_section_split,
             state.right_sidebar_width,
             state.right_sidebar_collapsed,
+            &state.agent_follow_up,
         );
         snap.ui = crate::persist::SessionUiSnapshot::from_app_state(&state);
         snap.default_view.ui = snap.ui.clone();
@@ -22340,11 +22446,18 @@ command = "printf literal > '{}'"
 
         app.route_client_events_for_view(
             &mut client,
-            vec![raw_mouse(
-                crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left),
-                body.x + 2,
-                agent_detail_row,
-            )],
+            vec![
+                raw_mouse(
+                    crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left),
+                    body.x + 2,
+                    agent_detail_row,
+                ),
+                raw_mouse(
+                    crossterm::event::MouseEventKind::Up(crossterm::event::MouseButton::Left),
+                    body.x + 2,
+                    agent_detail_row,
+                ),
+            ],
             true,
         );
 

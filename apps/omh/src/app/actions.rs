@@ -3074,6 +3074,7 @@ impl AppState {
                 self.terminal_runtime_shutdowns.push(terminal_id);
             }
         }
+        self.prune_agent_follow_up();
     }
 
     pub(crate) fn terminal_has_command_run(
@@ -7806,6 +7807,29 @@ mod tests {
         state.close_pane();
         assert_eq!(state.workspaces[0].panes.len(), 1);
         assert!(!state.plugin_panes.contains_key(&closed));
+    }
+
+    #[test]
+    fn close_pane_prunes_stale_follow_up_and_keeps_live_entries() {
+        let mut state = app_with_workspaces(&["test"]);
+        let kept = state.workspaces[0].tabs[0].root_pane;
+        let closed = state.workspaces[0].test_split(Direction::Horizontal);
+        let kept_number = state.workspaces[0].public_pane_number(kept).unwrap();
+        let closed_number = state.workspaces[0].public_pane_number(closed).unwrap();
+        assert!(state.insert_agent_follow_up(0, kept));
+        assert!(state.insert_agent_follow_up(0, closed));
+        state.session_dirty = false;
+
+        state.close_pane();
+
+        assert_eq!(state.agent_follow_up.len(), 1);
+        assert_eq!(state.agent_follow_up[0].pane_number, kept_number);
+        assert!(state
+            .agent_follow_up
+            .iter()
+            .all(|entry| entry.pane_number != closed_number));
+        assert!(state.is_agent_follow_up(0, kept));
+        assert!(state.session_dirty);
     }
 
     #[test]

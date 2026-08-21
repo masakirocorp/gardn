@@ -1954,6 +1954,9 @@ impl App {
             }
         };
 
+        let source_follow_up_workspace_id = self.state.workspaces[source_ws_idx].id.clone();
+        let source_follow_up_pane_number =
+            self.state.workspaces[source_ws_idx].public_pane_number(source_pane_id);
         let previous_focus = self.state.current_pane_focus_target();
         let taken = match self.state.workspaces[source_ws_idx].take_pane_for_move(source_pane_id) {
             Some(taken) => taken,
@@ -2100,6 +2103,20 @@ impl App {
             self.state.mode = Mode::Terminal;
         }
         self.state.remove_alias_shadowed_by_new_pane(moved_pane_id);
+        if cross_workspace {
+            if let (Some(old_pane_number), Some(new_pane_number)) = (
+                source_follow_up_pane_number,
+                self.state.workspaces[target_ws_idx].public_pane_number(moved_pane_id),
+            ) {
+                let new_workspace_id = self.state.workspaces[target_ws_idx].id.clone();
+                self.state.migrate_agent_follow_up(
+                    &source_follow_up_workspace_id,
+                    old_pane_number,
+                    new_workspace_id,
+                    new_pane_number,
+                );
+            }
+        }
         self.state.mark_session_dirty();
         self.schedule_session_save();
 
@@ -3063,6 +3080,64 @@ mod tests {
         assert_eq!(app.state.workspaces.len(), 1);
         assert_eq!(app.parse_pane_id(&previous_pane_id), Some((0, source)));
     }
+
+    #[test]
+    fn pane_move_across_workspaces_migrates_follow_up_identity() {
+        let mut app = test_app();
+        app.state
+            .workspaces
+            .push(crate::workspace::Workspace::test_new("target"));
+        app.state.ensure_test_terminals();
+        let source = app.state.workspaces[0].tabs[0].root_pane;
+        let old_workspace_id = app.state.workspaces[0].id.clone();
+        let old_pane_number = app.state.workspaces[0].public_pane_number(source).unwrap();
+        let added_at = 1_700_000_000;
+        assert!(app.state.insert_agent_follow_up(0, source));
+        app.state.agent_follow_up[0].added_at_unix_secs = added_at;
+        let target_pane = app.state.workspaces[1].tabs[0].root_pane;
+        let dest_workspace_id = app.state.workspaces[1].id.clone();
+        let previous_pane_id = app.public_pane_id(0, source).unwrap();
+        let target_tab_id = app.public_tab_id(1, 0).unwrap();
+        let target_pane_id = app.public_pane_id(1, target_pane).unwrap();
+
+        let response = app.handle_pane_move(
+            "move".into(),
+            PaneMoveParams {
+                pane_id: previous_pane_id,
+                destination: PaneMoveDestination::Tab {
+                    tab_id: target_tab_id,
+                    target_pane_id: Some(target_pane_id),
+                    split: SplitDirection::Down,
+                    ratio: None,
+                },
+                focus: false,
+            },
+        );
+        let success: SuccessResponse = serde_json::from_str(&response).unwrap();
+        let ResponseResult::PaneMove { move_result } = success.result else {
+            panic!("expected pane move response");
+        };
+        assert!(move_result.changed);
+        assert_eq!(app.state.agent_follow_up.len(), 1);
+        let entry = &app.state.agent_follow_up[0];
+        assert_ne!(
+            (entry.workspace_id.as_str(), entry.pane_number),
+            (old_workspace_id.as_str(), old_pane_number)
+        );
+        assert_eq!(entry.workspace_id, dest_workspace_id);
+        assert_eq!(entry.added_at_unix_secs, added_at);
+        let dest_ws = app
+            .state
+            .workspaces
+            .iter()
+            .find(|workspace| workspace.id == dest_workspace_id)
+            .expect("destination workspace");
+        assert!(dest_ws
+            .public_pane_numbers
+            .values()
+            .any(|number| *number == entry.pane_number));
+    }
+
     #[test]
     fn api_pane_focus_marks_repeated_done_focus_seen() {
         let mut app = test_app();

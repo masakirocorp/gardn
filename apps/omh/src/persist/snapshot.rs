@@ -10,7 +10,7 @@ use crate::terminal::TerminalRuntimeRegistry;
 use crate::workspace::Workspace;
 
 /// Current snapshot format version.
-pub(crate) const SNAPSHOT_VERSION: u32 = 5;
+pub(crate) const SNAPSHOT_VERSION: u32 = 6;
 
 /// Serializable snapshot of the entire Oh My Herdr session.
 // Legacy mirror fields stay on the in-memory struct so old snapshots migrate
@@ -54,6 +54,8 @@ pub struct SessionSnapshot {
     pub right_sidebar_collapsed: bool,
     #[serde(default, skip_serializing)]
     pub ui: SessionUiSnapshot,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub agent_follow_up: Vec<crate::app::state::AgentFollowUpEntry>,
     #[serde(default, skip_serializing_if = "std::collections::HashMap::is_empty")]
     pub pane_id_aliases: std::collections::HashMap<u32, u32>,
 }
@@ -450,6 +452,8 @@ struct RawSessionSnapshot {
     #[serde(default)]
     ui: SessionUiSnapshot,
     #[serde(default)]
+    agent_follow_up: Vec<crate::app::state::AgentFollowUpEntry>,
+    #[serde(default)]
     pane_id_aliases: std::collections::HashMap<u32, u32>,
 }
 
@@ -484,6 +488,7 @@ fn migrate_snapshot(raw: RawSessionSnapshot) -> Result<SessionSnapshot, String> 
         right_sidebar_collapsed: default_view.right_sidebar_collapsed,
         ui: default_view.ui.clone(),
         default_view,
+        agent_follow_up: raw.agent_follow_up,
         pane_id_aliases: raw.pane_id_aliases,
     })
 }
@@ -612,6 +617,7 @@ pub fn capture(
     sidebar_section_split: f32,
     right_sidebar_width: u16,
     right_sidebar_collapsed: bool,
+    agent_follow_up: &[crate::app::state::AgentFollowUpEntry],
 ) -> SessionSnapshot {
     capture_inner(
         groups,
@@ -630,6 +636,7 @@ pub fn capture(
         sidebar_section_split,
         right_sidebar_width,
         right_sidebar_collapsed,
+        agent_follow_up,
         false,
     )
 }
@@ -658,6 +665,7 @@ pub fn capture_handoff(
     sidebar_section_split: f32,
     right_sidebar_width: u16,
     right_sidebar_collapsed: bool,
+    agent_follow_up: &[crate::app::state::AgentFollowUpEntry],
 ) -> SessionSnapshot {
     capture_inner(
         groups,
@@ -676,6 +684,7 @@ pub fn capture_handoff(
         sidebar_section_split,
         right_sidebar_width,
         right_sidebar_collapsed,
+        agent_follow_up,
         true,
     )
 }
@@ -701,6 +710,7 @@ fn capture_inner(
     sidebar_section_split: f32,
     right_sidebar_width: u16,
     right_sidebar_collapsed: bool,
+    agent_follow_up: &[crate::app::state::AgentFollowUpEntry],
     include_terminal_semantics: bool,
 ) -> SessionSnapshot {
     let default_view = SessionDefaultViewSnapshot {
@@ -751,6 +761,10 @@ fn capture_inner(
         sidebar_section_split: default_view.sidebar_section_split,
         right_sidebar_width: default_view.right_sidebar_width,
         right_sidebar_collapsed: default_view.right_sidebar_collapsed,
+        agent_follow_up: crate::app::state::AppState::restored_agent_follow_up(
+            workspaces,
+            agent_follow_up.to_vec(),
+        ),
     }
 }
 
@@ -1053,6 +1067,7 @@ mod tests {
             state.sidebar_section_split,
             state.right_sidebar_width,
             state.right_sidebar_collapsed,
+            &state.agent_follow_up,
         )
     }
 
@@ -1158,6 +1173,7 @@ mod tests {
             state.sidebar_section_split,
             state.right_sidebar_width,
             state.right_sidebar_collapsed,
+            &state.agent_follow_up,
         );
         let durable_pane = &durable.workspaces[0].tabs[0].panes[&root_pane.raw()];
         let handoff_pane = &handoff.workspaces[0].tabs[0].panes[&root_pane.raw()];
@@ -1251,6 +1267,41 @@ mod tests {
     }
 
     #[test]
+    fn follow_up_queue_round_trips_and_drops_stale_targets() {
+        let mut state = AppState::test_new();
+        state.workspaces = vec![crate::workspace::Workspace::test_new("kept")];
+        let pane = state.workspaces[0].tabs[0].root_pane;
+        assert!(state.insert_agent_follow_up(0, pane));
+        state
+            .agent_follow_up
+            .push(crate::app::state::AgentFollowUpEntry {
+                workspace_id: "missing".into(),
+                pane_number: 99,
+                added_at_unix_secs: 1,
+            });
+        let snap = capture_from_state(&state);
+        assert_eq!(snap.version, SNAPSHOT_VERSION);
+        assert_eq!(snap.agent_follow_up.len(), 1);
+        assert_eq!(snap.agent_follow_up[0].pane_number, 1);
+        let json = serde_json::to_string(&snap).unwrap();
+        let parsed = parse_snapshot(&json).expect("parse");
+        assert_eq!(parsed.agent_follow_up, snap.agent_follow_up);
+        let restored = crate::app::state::AppState::restored_agent_follow_up(
+            &state.workspaces,
+            vec![
+                snap.agent_follow_up[0].clone(),
+                crate::app::state::AgentFollowUpEntry {
+                    workspace_id: "gone".into(),
+                    pane_number: 1,
+                    added_at_unix_secs: 3,
+                },
+            ],
+        );
+        assert_eq!(restored.len(), 1);
+        assert_eq!(restored[0].workspace_id, state.workspaces[0].id);
+    }
+
+    #[test]
     fn round_trip_empty_session() {
         let snap = SessionSnapshot {
             version: SNAPSHOT_VERSION,
@@ -1280,6 +1331,7 @@ mod tests {
             right_sidebar_width: Some(28),
             right_sidebar_collapsed: false,
             ui: SessionUiSnapshot::default(),
+            agent_follow_up: Vec::new(),
             pane_id_aliases: HashMap::new(),
         };
         let json = serde_json::to_string(&snap).unwrap();
@@ -1440,6 +1492,7 @@ mod tests {
             right_sidebar_width: Some(28),
             right_sidebar_collapsed: false,
             ui: SessionUiSnapshot::default(),
+            agent_follow_up: Vec::new(),
             pane_id_aliases: HashMap::new(),
         };
 

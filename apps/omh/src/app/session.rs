@@ -66,6 +66,7 @@ impl App {
                 self.state.sidebar_section_split,
                 self.state.right_sidebar_width,
                 default_view.right_sidebar_collapsed,
+                &self.state.agent_follow_up,
             );
             snapshot.default_view.ui = crate::persist::SessionUiSnapshot {
                 workspace_scroll: default_view.workspace_scroll,

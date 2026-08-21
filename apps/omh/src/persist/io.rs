@@ -291,6 +291,7 @@ mod tests {
             right_sidebar_width: Some(28),
             right_sidebar_collapsed: false,
             ui: crate::persist::snapshot::SessionUiSnapshot::default(),
+            agent_follow_up: Vec::new(),
             pane_id_aliases: std::collections::HashMap::new(),
         }
     }

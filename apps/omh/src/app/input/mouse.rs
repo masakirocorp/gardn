@@ -5,9 +5,9 @@ use tracing::warn;
 
 use crate::{
     app::state::{
-        AppState, ContextMenuKind, ContextMenuState, DragState, DragTarget, GroupPressState,
-        ModalListState, Mode, RightClickPassthroughGesture, TabPressState, ViewLayout,
-        WorkspacePressState,
+        AgentPressState, AppState, ContextMenuKind, ContextMenuState, DragState, DragTarget,
+        GroupPressState, ModalListState, Mode, RightClickPassthroughGesture, TabPressState,
+        ViewLayout, WorkspacePressState,
     },
     layout::{PaneInfo, SplitBorder},
     selection::Selection,
@@ -24,7 +24,7 @@ use super::{
         open_new_group_dialog, request_new_tab_from_ui, ModalAction,
     },
     settings::SettingsAction,
-    ScrollbarClickTarget, TAB_DRAG_THRESHOLD, WORKSPACE_DRAG_THRESHOLD,
+    ScrollbarClickTarget, AGENT_DRAG_THRESHOLD, TAB_DRAG_THRESHOLD, WORKSPACE_DRAG_THRESHOLD,
 };
 
 impl AppState {
@@ -617,17 +617,66 @@ impl AppState {
                             super::modal::open_agent_menu(self);
                             return None;
                         }
-                        if let Some((ws_idx, tab_idx, pane_id)) =
+                        if let Some((ws_idx, _, pane_id)) =
                             self.collapsed_agent_detail_target_at(mouse.row)
                         {
-                            self.switch_workspace(ws_idx);
-                            self.switch_tab(tab_idx);
-                            self.focus_pane(pane_id);
-                            self.mode = Mode::Terminal;
+                            if let Some((workspace_id, pane_number)) =
+                                self.follow_up_identity(ws_idx, pane_id)
+                            {
+                                self.agent_press = Some(AgentPressState {
+                                    workspace_id,
+                                    pane_number,
+                                    start_col: mouse.column,
+                                    start_row: mouse.row,
+                                });
+                            }
                         }
                         return None;
                     }
 
+                    if self.on_agent_panel_scope_toggle(mouse.column, mouse.row) {
+                        super::modal::open_agent_menu(self);
+                        return None;
+                    }
+                    if let Some(target) = self.agent_header_target_at(mouse.row) {
+                        self.toggle_agent_section(target.section);
+                        self.agent_panel_scroll = self.agent_panel_scroll.min(
+                            crate::ui::agent_panel_scroll_metrics(
+                                self,
+                                self.agent_panel_rect(),
+                                self.agent_panel_has_leading_separator(),
+                            )
+                            .max_offset_from_bottom,
+                        );
+                        return None;
+                    }
+                    if let Some(target) =
+                        self.agent_panel_scrollbar_target_at(mouse.column, mouse.row)
+                    {
+                        match target {
+                            ScrollbarClickTarget::Thumb { grab_row_offset } => {
+                                self.drag = Some(DragState {
+                                    target: DragTarget::AgentPanelScrollbar { grab_row_offset },
+                                });
+                            }
+                            ScrollbarClickTarget::Track { offset_from_bottom } => {
+                                self.set_agent_panel_offset_from_bottom(offset_from_bottom);
+                            }
+                        }
+                        return None;
+                    }
+                    if let Some((ws_idx, _, pane_id)) = self.agent_detail_target_at(mouse.row) {
+                        if let Some((workspace_id, pane_number)) =
+                            self.follow_up_identity(ws_idx, pane_id)
+                        {
+                            self.agent_press = Some(AgentPressState {
+                                workspace_id,
+                                pane_number,
+                                start_col: mouse.column,
+                                start_row: mouse.row,
+                            });
+                        }
+                    }
                     return None;
                 } else if in_sidebar {
                     if self.on_global_launcher(mouse.column, mouse.row) {
@@ -680,13 +729,19 @@ impl AppState {
                             return None;
                         }
 
-                        if let Some((ws_idx, tab_idx, pane_id)) =
+                        if let Some((ws_idx, _, pane_id)) =
                             self.collapsed_agent_detail_target_at(mouse.row)
                         {
-                            self.switch_workspace(ws_idx);
-                            self.switch_tab(tab_idx);
-                            self.focus_pane(pane_id);
-                            self.mode = Mode::Terminal;
+                            if let Some((workspace_id, pane_number)) =
+                                self.follow_up_identity(ws_idx, pane_id)
+                            {
+                                self.agent_press = Some(AgentPressState {
+                                    workspace_id,
+                                    pane_number,
+                                    start_col: mouse.column,
+                                    start_row: mouse.row,
+                                });
+                            }
                         }
                         return None;
                     }
@@ -764,12 +819,17 @@ impl AppState {
                         return None;
                     }
 
-                    if let Some((ws_idx, tab_idx, pane_id)) = self.agent_detail_target_at(mouse.row)
-                    {
-                        self.switch_workspace(ws_idx);
-                        self.switch_tab(tab_idx);
-                        self.focus_pane(pane_id);
-                        self.mode = Mode::Terminal;
+                    if let Some((ws_idx, _, pane_id)) = self.agent_detail_target_at(mouse.row) {
+                        if let Some((workspace_id, pane_number)) =
+                            self.follow_up_identity(ws_idx, pane_id)
+                        {
+                            self.agent_press = Some(AgentPressState {
+                                workspace_id,
+                                pane_number,
+                                start_col: mouse.column,
+                                start_row: mouse.row,
+                            });
+                        }
                         return None;
                     }
                 } else if let Some(info) = self.pane_at(mouse.column, mouse.row).cloned() {
@@ -818,6 +878,7 @@ impl AppState {
                     && self.workspace_press.is_none()
                     && self.group_press.is_none()
                     && self.tab_press.is_none()
+                    && self.agent_press.is_none()
                 {
                     if let Some(info) = self.pane_mouse_target(mouse.column, mouse.row).cloned() {
                         if self.forward_pane_mouse_button(terminal_runtimes, &info, mouse) {
@@ -908,6 +969,17 @@ impl AppState {
                                 },
                             });
                         }
+                    } else if let Some(press) = &self.agent_press {
+                        let delta_col = mouse.column.abs_diff(press.start_col);
+                        let delta_row = mouse.row.abs_diff(press.start_row);
+                        if delta_col.max(delta_row) >= AGENT_DRAG_THRESHOLD {
+                            self.drag = Some(DragState {
+                                target: DragTarget::AgentFollowUp {
+                                    workspace_id: press.workspace_id.clone(),
+                                    pane_number: press.pane_number,
+                                },
+                            });
+                        }
                     }
                 }
 
@@ -949,7 +1021,8 @@ impl AppState {
                     match &drag.target {
                         DragTarget::WorkspaceReorder { .. }
                         | DragTarget::GroupReorder { .. }
-                        | DragTarget::TabReorder { .. } => {}
+                        | DragTarget::TabReorder { .. }
+                        | DragTarget::AgentFollowUp { .. } => {}
                         DragTarget::WorkspaceListScrollbar { grab_row_offset } => {
                             if let Some(offset_from_bottom) =
                                 self.workspace_list_offset_for_drag_row(mouse.row, *grab_row_offset)
@@ -1036,6 +1109,7 @@ impl AppState {
                     self.workspace_press = None;
                     self.group_press = None;
                     self.tab_press = None;
+                    self.agent_press = None;
                     self.drag = None;
                     self.selection_autoscroll = None;
                     if was_click {
@@ -1058,6 +1132,7 @@ impl AppState {
                             self.workspace_press = None;
                             self.group_press = None;
                             self.tab_press = None;
+                            self.agent_press = None;
                             self.drag = None;
                             return None;
                         }
@@ -1067,6 +1142,7 @@ impl AppState {
                 let workspace_press = self.workspace_press.take();
                 let group_press = self.group_press.take();
                 let tab_press = self.tab_press.take();
+                let agent_press = self.agent_press.take();
                 match self.drag.take() {
                     Some(DragState {
                         target:
@@ -1110,6 +1186,21 @@ impl AppState {
                             self.mode = Mode::Terminal;
                         }
                     }
+                    Some(DragState {
+                        target:
+                            DragTarget::AgentFollowUp {
+                                workspace_id,
+                                pane_number,
+                            },
+                    }) => {
+                        if self.agent_follow_up_drop_at(mouse.column, mouse.row) {
+                            if let Some((ws_idx, _, pane_id)) =
+                                self.resolve_live_agent_target(&workspace_id, pane_number)
+                            {
+                                self.insert_agent_follow_up(ws_idx, pane_id);
+                            }
+                        }
+                    }
                     Some(_) => {}
                     None => {
                         if let Some(press) = workspace_press {
@@ -1130,6 +1221,17 @@ impl AppState {
                                 self.mode = Mode::Terminal;
                                 return None;
                             }
+                        }
+                        if let Some(press) = agent_press {
+                            if let Some((ws_idx, tab_idx, pane_id)) = self
+                                .resolve_live_agent_target(&press.workspace_id, press.pane_number)
+                            {
+                                self.switch_workspace(ws_idx);
+                                self.switch_tab(tab_idx);
+                                self.focus_pane(pane_id);
+                                self.mode = Mode::Terminal;
+                            }
+                            return None;
                         }
                     }
                 }

@@ -22,6 +22,7 @@ enum WheelRouting {
 
 pub(super) const WORKSPACE_DRAG_THRESHOLD: u16 = 1;
 pub(super) const TAB_DRAG_THRESHOLD: u16 = 1;
+pub(super) const AGENT_DRAG_THRESHOLD: u16 = 1;
 pub(super) const MODAL_WHEEL_SCROLL_ROWS: i16 = 3;
 pub(super) const MODAL_PAGE_SCROLL_ROWS: i16 = 8;
 
@@ -1378,6 +1379,7 @@ fn capture_snapshot(state: &AppState) -> crate::persist::SessionSnapshot {
         state.sidebar_section_split,
         state.right_sidebar_width,
         state.right_sidebar_collapsed,
+        &state.agent_follow_up,
     )
 }
 

@@ -1156,6 +1156,7 @@ mod tests {
             right_sidebar_width: None,
             right_sidebar_collapsed: false,
             ui: crate::persist::SessionUiSnapshot::default(),
+            agent_follow_up: Vec::new(),
             pane_id_aliases: HashMap::from([(3, 10)]),
         };
 
@@ -1277,6 +1278,7 @@ mod tests {
             right_sidebar_width: None,
             right_sidebar_collapsed: false,
             ui: crate::persist::SessionUiSnapshot::default(),
+            agent_follow_up: Vec::new(),
             pane_id_aliases: HashMap::new(),
         };
         let (event_tx, _event_rx) = mpsc::channel(1);
@@ -1375,6 +1377,7 @@ mod tests {
             right_sidebar_width: None,
             right_sidebar_collapsed: false,
             ui: crate::persist::SessionUiSnapshot::default(),
+            agent_follow_up: Vec::new(),
             pane_id_aliases: HashMap::new(),
         };
         let (events, _event_rx) = mpsc::channel(4);
@@ -1738,6 +1741,7 @@ mod tests {
             right_sidebar_width: None,
             right_sidebar_collapsed: false,
             ui: crate::persist::SessionUiSnapshot::default(),
+            agent_follow_up: Vec::new(),
             pane_id_aliases: HashMap::new(),
         };
         let (event_tx, _event_rx) = mpsc::channel(1);
@@ -2025,6 +2029,7 @@ mod tests {
             right_sidebar_width: None,
             right_sidebar_collapsed: false,
             ui: super::super::snapshot::SessionUiSnapshot::default(),
+            agent_follow_up: Vec::new(),
             pane_id_aliases: HashMap::new(),
         };
         let (events, _event_rx) = mpsc::channel(4);
@@ -2120,6 +2125,7 @@ mod tests {
             right_sidebar_width: None,
             right_sidebar_collapsed: false,
             ui: super::super::snapshot::SessionUiSnapshot::default(),
+            agent_follow_up: Vec::new(),
             pane_id_aliases: HashMap::new(),
         };
         let (events, _event_rx) = mpsc::channel(4);
@@ -2229,6 +2235,7 @@ mod tests {
             right_sidebar_width: None,
             right_sidebar_collapsed: false,
             ui: super::super::snapshot::SessionUiSnapshot::default(),
+            agent_follow_up: Vec::new(),
             pane_id_aliases: HashMap::new(),
         };
         let (events, _event_rx) = mpsc::channel(4);
@@ -2515,6 +2522,7 @@ mod tests {
             right_sidebar_width: None,
             right_sidebar_collapsed: false,
             ui: super::super::snapshot::SessionUiSnapshot::default(),
+            agent_follow_up: Vec::new(),
             pane_id_aliases: HashMap::new(),
         }
     }

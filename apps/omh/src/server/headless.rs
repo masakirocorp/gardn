@@ -894,6 +894,7 @@ impl HeadlessServer {
             self.app.state.sidebar_section_split,
             self.app.state.right_sidebar_width,
             self.app.state.right_sidebar_collapsed,
+            &self.app.state.agent_follow_up,
         );
         snapshot.ui = crate::persist::SessionUiSnapshot::from_app_state(&self.app.state);
         snapshot.default_view.ui = snapshot.ui.clone();

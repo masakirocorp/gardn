@@ -851,7 +851,7 @@ mod tests {
 
     fn empty_snapshot() -> SessionSnapshot {
         SessionSnapshot {
-            version: 5,
+            version: 6,
             session_namespace_id: "session-test".to_string(),
             remote_termination_tombstones: Vec::new(),
             groups: vec![GroupSnapshot {
@@ -876,6 +876,7 @@ mod tests {
             right_sidebar_width: Some(28),
             right_sidebar_collapsed: false,
             ui: SessionUiSnapshot::default(),
+            agent_follow_up: Vec::new(),
             pane_id_aliases: HashMap::new(),
         }
     }

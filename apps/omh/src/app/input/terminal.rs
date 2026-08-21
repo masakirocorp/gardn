@@ -23,15 +23,27 @@ fn is_modifier_only_key(code: &KeyCode) -> bool {
     matches!(code, KeyCode::Modifier(_))
 }
 
+fn is_plain_enter_press(key: &TerminalKey) -> bool {
+    let event = key.as_key_event();
+    event.kind == crossterm::event::KeyEventKind::Press
+        && event.code == KeyCode::Enter
+        && event.modifiers.is_empty()
+}
+
 impl App {
     pub(crate) fn handle_terminal_key_headless(
         &mut self,
         key: TerminalKey,
     ) -> Option<TerminalKeyTarget> {
+        let clears_follow_up = is_plain_enter_press(&key);
         let input = self.prepare_terminal_key_forward(key)?;
         let target = self.target_for_input(&input)?;
         let runtime = self.lookup_runtime_sender(input.ws_idx, input.pane_id)?;
         runtime.try_send_bytes(input.bytes).ok()?;
+        if clears_follow_up {
+            self.state
+                .clear_agent_follow_up_for_pane(&target.workspace_id, target.pane_id);
+        }
         Some(target)
     }
 
@@ -288,10 +300,15 @@ impl App {
         &mut self,
         key: TerminalKey,
     ) -> Option<TerminalKeyTarget> {
+        let clears_follow_up = is_plain_enter_press(&key);
         let input = self.prepare_terminal_key_forward(key)?;
         let target = self.target_for_input(&input)?;
         let runtime = self.lookup_runtime_sender(input.ws_idx, input.pane_id)?;
         runtime.send_bytes(input.bytes).await.ok()?;
+        if clears_follow_up {
+            self.state
+                .clear_agent_follow_up_for_pane(&target.workspace_id, target.pane_id);
+        }
         Some(target)
     }
 
@@ -1468,5 +1485,64 @@ mod tests {
                 .offset_from_bottom,
             info.inner_rect.height as usize
         );
+    }
+
+    #[test]
+    fn plain_enter_clears_follow_up_only_after_successful_send() {
+        let mut app = app_for_mouse_test();
+        let mut ws = Workspace::test_new("test");
+        let pane_id = ws.tabs[0].root_pane;
+        let pane_infos = ws.tabs[0].layout.panes(Rect::new(0, 0, 80, 24));
+        let info = pane_infos[0].clone();
+        let (runtime, mut rx) = crate::terminal::TerminalRuntime::test_with_channel(
+            info.inner_rect.width,
+            info.inner_rect.height,
+        );
+        ws.tabs[0].runtimes.insert(pane_id, runtime);
+        app.state.workspaces = vec![ws];
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::Terminal;
+        app.state.view.pane_infos = pane_infos;
+        assert!(app.state.insert_agent_follow_up(0, pane_id));
+
+        app.handle_terminal_key_headless(TerminalKey::new(
+            KeyCode::Char('a'),
+            KeyModifiers::empty(),
+        ));
+        assert_eq!(app.state.agent_follow_up.len(), 1);
+
+        app.handle_terminal_key_headless(TerminalKey::new(KeyCode::Enter, KeyModifiers::SHIFT));
+        assert_eq!(app.state.agent_follow_up.len(), 1);
+
+        app.handle_terminal_key_headless(
+            TerminalKey::new(KeyCode::Enter, KeyModifiers::empty()).with_kind(KeyEventKind::Repeat),
+        );
+        assert_eq!(app.state.agent_follow_up.len(), 1);
+
+        let sent = app
+            .handle_terminal_key_headless(TerminalKey::new(KeyCode::Enter, KeyModifiers::empty()));
+        assert!(sent.is_some());
+        assert!(app.state.agent_follow_up.is_empty());
+        let mut forwarded = Vec::new();
+        while let Ok(bytes) = rx.try_recv() {
+            forwarded.extend_from_slice(bytes.as_ref());
+        }
+        assert!(forwarded.contains(&b'\r'));
+    }
+
+    #[test]
+    fn failed_enter_send_does_not_clear_follow_up() {
+        let mut app = app_for_mouse_test();
+        let ws = Workspace::test_new("test");
+        let pane_id = ws.tabs[0].root_pane;
+        app.state.workspaces = vec![ws];
+        app.state.active = Some(0);
+        app.state.mode = Mode::Terminal;
+        assert!(app.state.insert_agent_follow_up(0, pane_id));
+        let sent = app
+            .handle_terminal_key_headless(TerminalKey::new(KeyCode::Enter, KeyModifiers::empty()));
+        assert!(sent.is_none());
+        assert_eq!(app.state.agent_follow_up.len(), 1);
     }
 }

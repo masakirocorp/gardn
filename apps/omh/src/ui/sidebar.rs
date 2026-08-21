@@ -55,6 +55,7 @@ pub(crate) struct AgentPanelEntry {
     pub tokens: std::collections::HashMap<String, String>,
     pub last_meaningful_agent_activity_seq: u64,
     pub last_meaningful_agent_activity_unix_secs: Option<u64>,
+    pub follow_up_added_at_unix_secs: Option<u64>,
 }
 
 pub(crate) struct AgentPanelSection {
@@ -225,6 +226,7 @@ pub(crate) fn agent_panel_sections_for_view(
     view: &ClientViewState,
 ) -> Vec<AgentPanelSection> {
     agent_panel_sections_from_entries(
+        app,
         agent_panel_entries_for_view(app, terminal_runtimes, view),
         view.agent_view_override.is_none(),
     )
@@ -235,6 +237,7 @@ pub(crate) fn agent_panel_sections_all_workspaces(
     terminal_runtimes: &TerminalRuntimeRegistry,
 ) -> Vec<AgentPanelSection> {
     agent_panel_sections_from_entries(
+        app,
         agent_panel_entries_with_context(
             app,
             Some(terminal_runtimes),
@@ -252,6 +255,7 @@ pub(crate) fn agent_panel_sections_all_workspaces_for_view(
     view: &ClientViewState,
 ) -> Vec<AgentPanelSection> {
     agent_panel_sections_from_entries(
+        app,
         agent_panel_entries_with_context(
             app,
             Some(terminal_runtimes),
@@ -295,6 +299,7 @@ fn make_agent_panel_entry(
         tokens: detail.tokens,
         last_meaningful_agent_activity_seq: detail.last_meaningful_agent_activity_seq,
         last_meaningful_agent_activity_unix_secs: detail.last_meaningful_agent_activity_unix_secs,
+        follow_up_added_at_unix_secs: None,
     }
 }
 
@@ -406,8 +411,107 @@ fn agent_panel_entries_with_context(
             })
             .collect(),
     };
+    append_follow_up_fallback_entries(app, scope, active_workspace, active_group, &mut entries);
     disambiguate_agent_panel_labels(app, &mut entries);
     entries
+}
+
+fn agent_panel_scope_includes_workspace(
+    app: &AppState,
+    ws_idx: usize,
+    scope: AgentPanelScope,
+    active_workspace: Option<usize>,
+    active_group: usize,
+) -> bool {
+    match scope {
+        AgentPanelScope::AllWorkspaces => true,
+        AgentPanelScope::CurrentWorkspace => active_workspace == Some(ws_idx),
+        AgentPanelScope::CurrentGroup => {
+            let Some(workspace) = app.workspaces.get(ws_idx) else {
+                return false;
+            };
+            let group_id = active_workspace
+                .and_then(|idx| app.workspaces.get(idx))
+                .map(|ws| ws.group_id.as_str())
+                .or_else(|| app.groups.get(active_group).map(|group| group.id.as_str()))
+                .unwrap_or_else(|| app.active_group_id());
+            workspace.group_id == group_id
+        }
+    }
+}
+
+fn follow_up_fallback_entry(
+    app: &AppState,
+    ws_idx: usize,
+    tab_idx: usize,
+    pane_id: crate::layout::PaneId,
+) -> Option<AgentPanelEntry> {
+    let workspace = app.workspaces.get(ws_idx)?;
+    let pane = workspace.pane_state(pane_id)?;
+    let terminal = app.terminals.get(&pane.attached_terminal_id);
+    let tab_label = workspace
+        .tab_display_name(tab_idx)
+        .unwrap_or_else(|| (tab_idx + 1).to_string());
+    let pane_label = workspace.display_name();
+    let state = terminal
+        .map(|terminal| terminal.state)
+        .unwrap_or(AgentState::Unknown);
+    let group_context_idx = agent_panel_has_multiple_groups(app)
+        .then(|| agent_panel_group_idx(app, ws_idx))
+        .flatten();
+    Some(AgentPanelEntry {
+        ws_idx,
+        tab_idx,
+        pane_id,
+        group_context_idx,
+        primary_label: pane_label.clone(),
+        pane_label: Some(pane_label),
+        primary_tab_label: Some(tab_label),
+        agent_label: None,
+        terminal_title: None,
+        terminal_title_stripped: None,
+        agent: None,
+        state,
+        seen: pane.seen,
+        custom_status: None,
+        state_labels: std::collections::HashMap::new(),
+        tokens: std::collections::HashMap::new(),
+        last_meaningful_agent_activity_seq: terminal
+            .map(crate::terminal::TerminalState::last_meaningful_agent_activity_seq)
+            .unwrap_or_default(),
+        last_meaningful_agent_activity_unix_secs: terminal
+            .and_then(crate::terminal::TerminalState::last_meaningful_agent_activity_unix_secs),
+        follow_up_added_at_unix_secs: None,
+    })
+}
+
+fn append_follow_up_fallback_entries(
+    app: &AppState,
+    scope: AgentPanelScope,
+    active_workspace: Option<usize>,
+    active_group: usize,
+    entries: &mut Vec<AgentPanelEntry>,
+) {
+    for follow_up in &app.agent_follow_up {
+        let Some((ws_idx, tab_idx, pane_id)) =
+            app.resolve_live_agent_target(&follow_up.workspace_id, follow_up.pane_number)
+        else {
+            continue;
+        };
+        if !agent_panel_scope_includes_workspace(app, ws_idx, scope, active_workspace, active_group)
+        {
+            continue;
+        }
+        if entries
+            .iter()
+            .any(|entry| entry.ws_idx == ws_idx && entry.pane_id == pane_id)
+        {
+            continue;
+        }
+        if let Some(entry) = follow_up_fallback_entry(app, ws_idx, tab_idx, pane_id) {
+            entries.push(entry);
+        }
+    }
 }
 
 fn agent_panel_entry_needs_triage(entry: &AgentPanelEntry) -> bool {
@@ -421,8 +525,12 @@ pub(crate) fn agent_panel_triage_entries(app: &AppState) -> Vec<AgentPanelEntry>
         .into_iter()
         .filter(agent_panel_entry_needs_triage)
         .collect();
-    sort_agent_panel_entries_by_recent_activity(&mut entries);
+    sort_agent_panel_entries_by_oldest_activity(&mut entries);
     entries
+}
+
+fn agent_panel_entry_identity(entry: &AgentPanelEntry) -> (usize, usize, u32) {
+    (entry.ws_idx, entry.tab_idx, entry.pane_id.raw())
 }
 
 fn sort_agent_panel_entries_by_recent_activity(entries: &mut [AgentPanelEntry]) {
@@ -435,7 +543,35 @@ fn sort_agent_panel_entries_by_recent_activity(entries: &mut [AgentPanelEntry]) 
                     .last_meaningful_agent_activity_seq
                     .cmp(&left.last_meaningful_agent_activity_seq)
             })
+            .then_with(|| agent_panel_entry_identity(left).cmp(&agent_panel_entry_identity(right)))
     });
+}
+
+fn sort_agent_panel_entries_by_oldest_activity(entries: &mut [AgentPanelEntry]) {
+    entries.sort_by(|left, right| {
+        left.last_meaningful_agent_activity_unix_secs
+            .unwrap_or(0)
+            .cmp(&right.last_meaningful_agent_activity_unix_secs.unwrap_or(0))
+            .then_with(|| {
+                match (
+                    left.last_meaningful_agent_activity_unix_secs,
+                    right.last_meaningful_agent_activity_unix_secs,
+                ) {
+                    (None, Some(_)) => std::cmp::Ordering::Less,
+                    (Some(_), None) => std::cmp::Ordering::Greater,
+                    _ => std::cmp::Ordering::Equal,
+                }
+            })
+            .then_with(|| {
+                left.last_meaningful_agent_activity_seq
+                    .cmp(&right.last_meaningful_agent_activity_seq)
+            })
+            .then_with(|| agent_panel_entry_identity(left).cmp(&agent_panel_entry_identity(right)))
+    });
+}
+
+fn sort_follow_up_entries(entries: &mut [AgentPanelEntry]) {
+    entries.sort_by_key(|entry| entry.follow_up_added_at_unix_secs.unwrap_or(0));
 }
 
 pub(crate) fn agent_panel_sections(app: &AppState) -> Vec<AgentPanelSection> {
@@ -447,23 +583,34 @@ pub(crate) fn agent_panel_sections_from(
     app: &AppState,
     terminal_runtimes: &TerminalRuntimeRegistry,
 ) -> Vec<AgentPanelSection> {
-    agent_panel_sections_from_entries(agent_panel_entries_from(app, terminal_runtimes), true)
+    agent_panel_sections_from_entries(app, agent_panel_entries_from(app, terminal_runtimes), true)
 }
 
 fn agent_panel_sections_from_entries(
+    app: &AppState,
     scoped_entries: Vec<AgentPanelEntry>,
     sort_by_recent_activity: bool,
 ) -> Vec<AgentPanelSection> {
     let mut sections = Vec::new();
+    let mut follow_up = Vec::new();
+    let mut rest = Vec::new();
+    for mut entry in scoped_entries {
+        if app.is_agent_follow_up(entry.ws_idx, entry.pane_id) {
+            entry.follow_up_added_at_unix_secs =
+                app.follow_up_added_at(entry.ws_idx, entry.pane_id);
+            follow_up.push(entry);
+        } else {
+            rest.push(entry);
+        }
+    }
+    sort_follow_up_entries(&mut follow_up);
 
-    let mut triage: Vec<_> = scoped_entries
+    let mut triage: Vec<_> = rest
         .iter()
         .filter(|entry| agent_panel_entry_needs_triage(entry))
         .cloned()
         .collect();
-    if sort_by_recent_activity {
-        sort_agent_panel_entries_by_recent_activity(&mut triage);
-    }
+    sort_agent_panel_entries_by_oldest_activity(&mut triage);
     if !triage.is_empty() {
         sections.push(AgentPanelSection {
             label: "Triage",
@@ -471,7 +618,12 @@ fn agent_panel_sections_from_entries(
         });
     }
 
-    let mut working: Vec<_> = scoped_entries
+    sections.push(AgentPanelSection {
+        label: "Follow Up",
+        entries: follow_up,
+    });
+
+    let mut working: Vec<_> = rest
         .iter()
         .filter(|entry| entry.state == AgentState::Working)
         .cloned()
@@ -486,7 +638,7 @@ fn agent_panel_sections_from_entries(
         });
     }
 
-    let mut idle: Vec<_> = scoped_entries
+    let mut idle: Vec<_> = rest
         .into_iter()
         .filter(|entry| {
             entry.state != AgentState::Working && !agent_panel_entry_needs_triage(entry)
@@ -591,7 +743,9 @@ pub(crate) fn compact_agent_entry_text(entry: &AgentPanelEntry) -> (String, Stri
         metadata.push(custom_status.clone());
     }
     if let Some(age) = format_agent_activity_age(
-        entry.last_meaningful_agent_activity_unix_secs,
+        entry
+            .follow_up_added_at_unix_secs
+            .or(entry.last_meaningful_agent_activity_unix_secs),
         current_unix_secs(),
     ) {
         metadata.push(age);
@@ -600,7 +754,7 @@ pub(crate) fn compact_agent_entry_text(entry: &AgentPanelEntry) -> (String, Stri
 }
 
 fn agent_panel_section_shows_entry_status(section_label: &str) -> bool {
-    section_label == "Triage"
+    section_label == "Triage" || section_label == "Follow Up"
 }
 
 fn agent_panel_section_collapsed(app: &AppState, section_label: &str) -> bool {
@@ -648,6 +802,7 @@ fn agent_panel_entry_has_secondary_detail(
         || show_status
         || detail.custom_status.is_some()
         || detail.last_meaningful_agent_activity_unix_secs.is_some()
+        || detail.follow_up_added_at_unix_secs.is_some()
 }
 
 fn agent_panel_entry_row_height(
@@ -1140,7 +1295,7 @@ fn agent_panel_visible_count(app: &AppState, area: Rect, leading_separator: bool
             remaining_rows = remaining_rows.saturating_sub(1);
             continue;
         }
-        if skip >= section.entries.len() {
+        if !section.entries.is_empty() && skip >= section.entries.len() {
             skip -= section.entries.len();
             continue;
         }
@@ -1209,7 +1364,7 @@ pub(crate) fn agent_panel_scroll_metrics_for_view(
                 remaining_rows = remaining_rows.saturating_sub(1);
                 continue;
             }
-            if skip >= section.entries.len() {
+            if !section.entries.is_empty() && skip >= section.entries.len() {
                 skip -= section.entries.len();
                 continue;
             }
@@ -1929,17 +2084,7 @@ fn collapsed_agent_panel_body_rect(area: Rect) -> Rect {
     )
 }
 
-fn collapsed_agent_section_state(section: &AgentPanelSection) -> (AgentState, bool) {
-    match section.label {
-        "Triage" => (AgentState::Blocked, true),
-        "Working" => (AgentState::Working, true),
-        "Idle" => (AgentState::Idle, true),
-        _ => (AgentState::Unknown, false),
-    }
-}
-
 fn render_collapsed_agent_section_header(
-    app: &AppState,
     frame: &mut Frame,
     section: &AgentPanelSection,
     collapsed: bool,
@@ -1947,8 +2092,7 @@ fn render_collapsed_agent_section_header(
     row_y: u16,
     p: &Palette,
 ) {
-    let (state, seen) = collapsed_agent_section_state(section);
-    let (icon, icon_style) = state_icon(state, seen, app.spinner_tick, app.status_indicators, p);
+    let (icon, icon_style) = agent_panel_section_icon(section, p);
     frame.render_widget(
         Paragraph::new(Line::from(vec![
             Span::styled(
@@ -2045,7 +2189,7 @@ fn render_collapsed_agent_panel(
             return;
         }
         let collapsed = agent_panel_section_collapsed(app, section.label);
-        render_collapsed_agent_section_header(app, frame, &section, collapsed, rows, row_y, p);
+        render_collapsed_agent_section_header(frame, &section, collapsed, rows, row_y, p);
         row_y = row_y.saturating_add(1);
         for entry in &section.entries {
             if !collapsed {
@@ -2119,7 +2263,7 @@ fn render_collapsed_agent_panel_for_view(
             return;
         }
         let collapsed = agent_panel_section_collapsed_for_view(view, section.label);
-        render_collapsed_agent_section_header(app, frame, &section, collapsed, rows, row_y, p);
+        render_collapsed_agent_section_header(frame, &section, collapsed, rows, row_y, p);
         row_y = row_y.saturating_add(1);
         for entry in &section.entries {
             if !collapsed {
@@ -3840,10 +3984,10 @@ fn render_agent_entry(
         }
         extra.push(Span::styled(custom_status.clone(), agent_style));
     }
-    if let Some(age_label) = format_agent_activity_age(
-        detail.last_meaningful_agent_activity_unix_secs,
-        current_unix_secs(),
-    ) {
+    let age_secs = detail
+        .follow_up_added_at_unix_secs
+        .or(detail.last_meaningful_agent_activity_unix_secs);
+    if let Some(age_label) = format_agent_activity_age(age_secs, current_unix_secs()) {
         if !extra.is_empty() {
             extra.push(Span::styled(" · ", agent_style));
         }
@@ -3901,7 +4045,7 @@ pub(crate) fn agent_panel_entry_at_row(
             row_y = row_y.saturating_add(1);
             continue;
         }
-        if skip >= section.entries.len() {
+        if !section.entries.is_empty() && skip >= section.entries.len() {
             skip -= section.entries.len();
             continue;
         }
@@ -4016,7 +4160,7 @@ pub(crate) fn agent_panel_header_target_at_row(
 
     for section in sections {
         let collapsed = agent_panel_section_collapsed(app, section.label);
-        if !collapsed && skip >= section.entries.len() {
+        if !collapsed && !section.entries.is_empty() && skip >= section.entries.len() {
             skip -= section.entries.len();
             continue;
         }
@@ -4068,7 +4212,7 @@ pub(crate) fn agent_panel_entry_at_row_for_view(
             row_y = row_y.saturating_add(1);
             continue;
         }
-        if skip >= section.entries.len() {
+        if !section.entries.is_empty() && skip >= section.entries.len() {
             skip -= section.entries.len();
             continue;
         }
@@ -4114,7 +4258,7 @@ pub(crate) fn agent_panel_header_target_at_row_for_view(
 
     for section in sections {
         let collapsed = agent_panel_section_collapsed_for_view(view, section.label);
-        if !collapsed && skip >= section.entries.len() {
+        if !collapsed && !section.entries.is_empty() && skip >= section.entries.len() {
             skip -= section.entries.len();
             continue;
         }
@@ -4227,7 +4371,7 @@ fn render_agent_detail_from(
             row_y = row_y.saturating_add(1);
             continue;
         }
-        if skip >= section.entries.len() {
+        if !section.entries.is_empty() && skip >= section.entries.len() {
             skip -= section.entries.len();
             continue;
         }
@@ -4359,7 +4503,7 @@ fn render_agent_detail_from_for_view(
             row_y = row_y.saturating_add(1);
             continue;
         }
-        if skip >= section.entries.len() {
+        if !section.entries.is_empty() && skip >= section.entries.len() {
             skip -= section.entries.len();
             continue;
         }
@@ -5159,7 +5303,8 @@ mod tests {
         let agent_header = &rows[detail_area.y as usize];
         let triage_header_row = detail_area.y + 2;
         let triage_agent_row = triage_header_row + 1;
-        let working_header_row = triage_agent_row + 1;
+        let follow_up_header_row = triage_agent_row + 1;
+        let working_header_row = follow_up_header_row + 1;
         let idle_header_row = working_header_row + 1;
         let idle_agent_row = idle_header_row + 1;
 
@@ -5173,6 +5318,12 @@ mod tests {
         );
         assert_eq!(buffer[(detail_area.x, triage_header_row)].symbol(), "▾");
         assert_eq!(buffer[(detail_area.x + 2, triage_agent_row)].symbol(), "1");
+        assert_eq!(buffer[(detail_area.x, follow_up_header_row)].symbol(), "▾");
+        assert_eq!(
+            collapsed_agent_panel_header_target_at_row(&app, detail_area, follow_up_header_row)
+                .map(|target| target.section),
+            Some("Follow Up".to_string())
+        );
         assert_eq!(buffer[(detail_area.x, working_header_row)].symbol(), "▸");
         assert_eq!(
             buffer[(detail_area.x + 2, working_header_row)].symbol(),
@@ -5286,20 +5437,30 @@ mod tests {
             .expect("render sidebar");
         let buffer = terminal.backend().buffer();
 
+        let triage_header_row = detail_area.y + 2;
+        let triage_agent_row = triage_header_row + 1;
+        let follow_up_header_row = triage_agent_row + 1;
+        let working_header_row = follow_up_header_row + 1;
+        let working_agent_row = working_header_row + 1;
         assert_eq!(
-            buffer[(detail_area.x + 2, detail_area.y + 3)].style().fg,
+            collapsed_agent_panel_header_target_at_row(&app, detail_area, follow_up_header_row)
+                .map(|target| target.section),
+            Some("Follow Up".to_string())
+        );
+        assert_eq!(
+            buffer[(detail_area.x + 2, triage_agent_row)].style().fg,
             Some(app.group_accent_color(0))
         );
         assert_eq!(
-            buffer[(detail_area.x + 2, detail_area.y + 5)].style().fg,
+            buffer[(detail_area.x + 2, working_agent_row)].style().fg,
             Some(app.group_accent_color(1))
         );
         assert_eq!(
-            buffer[(detail_area.x + 2, detail_area.y + 2)].style().fg,
-            agent_icon(AgentState::Blocked, true, &app.palette).1.fg
+            buffer[(detail_area.x + 2, triage_header_row)].style().fg,
+            agent_section_icon("Triage", &app.palette).1.fg
         );
         assert_eq!(
-            buffer[(detail_area.x + 2, detail_area.y + 4)].style().fg,
+            buffer[(detail_area.x + 2, working_header_row)].style().fg,
             agent_icon(AgentState::Working, true, &app.palette).1.fg
         );
     }
@@ -5772,13 +5933,15 @@ mod tests {
 
         let sections = agent_panel_sections(&app);
 
-        assert_eq!(sections.len(), 3);
+        assert_eq!(sections.len(), 4);
         assert_eq!(sections[0].label, "Triage");
         assert_eq!(sections[0].entries[0].primary_label, "Done");
-        assert_eq!(sections[1].label, "Working");
-        assert_eq!(sections[1].entries[0].primary_label, "Working");
-        assert_eq!(sections[2].label, "Idle");
-        assert_eq!(sections[2].entries[0].primary_label, "Idle");
+        assert_eq!(sections[1].label, "Follow Up");
+        assert!(sections[1].entries.is_empty());
+        assert_eq!(sections[2].label, "Working");
+        assert_eq!(sections[2].entries[0].primary_label, "Working");
+        assert_eq!(sections[3].label, "Idle");
+        assert_eq!(sections[3].entries[0].primary_label, "Idle");
     }
 
     #[test]
@@ -6169,11 +6332,15 @@ mod tests {
         let body = agent_panel_body_rect(agent_area, false, true);
         let buffer = terminal.backend().buffer();
         assert_eq!(
-            buffer[(body.x + RIGHT_ENTRY_PRIMARY_COL, body.y + 1)].symbol(),
-            "f"
+            buffer[(body.x + RIGHT_SUBSECTION_LABEL_COL, body.y)].symbol(),
+            "F"
         );
         assert_eq!(
             buffer[(body.x + RIGHT_ENTRY_PRIMARY_COL, body.y + 2)].symbol(),
+            "f"
+        );
+        assert_eq!(
+            buffer[(body.x + RIGHT_ENTRY_PRIMARY_COL, body.y + 3)].symbol(),
             "s"
         );
     }
@@ -6200,6 +6367,7 @@ mod tests {
                 state_labels: std::collections::HashMap::new(),
                 last_meaningful_agent_activity_seq: 0,
                 last_meaningful_agent_activity_unix_secs: None,
+                follow_up_added_at_unix_secs: None,
                 tokens: std::collections::HashMap::new(),
             }],
         };
@@ -6365,7 +6533,8 @@ mod tests {
         );
         let workspace_chevron_x = workspace_header.x + SIDEBAR_GROUP_CHEVRON_COL;
         let expanded_agent_header_y = body.y;
-        let collapsed_agent_header_y = body.y + 3;
+        let follow_up_header_y = body.y + 3;
+        let collapsed_agent_header_y = body.y + 4;
 
         assert_eq!(
             buffer[(workspace_chevron_x, workspace_header.y)].symbol(),
@@ -6375,6 +6544,14 @@ mod tests {
         assert_eq!(
             buffer[(workspace_chevron_x, expanded_agent_header_y)].symbol(),
             "▾"
+        );
+        assert_eq!(
+            buffer[(workspace_chevron_x, follow_up_header_y)].symbol(),
+            "▾"
+        );
+        assert_eq!(
+            buffer[(body.x + RIGHT_SUBSECTION_LABEL_COL, follow_up_header_y)].symbol(),
+            "F"
         );
         assert_eq!(
             buffer[(workspace_chevron_x, collapsed_agent_header_y)].symbol(),
@@ -6444,7 +6621,7 @@ mod tests {
         app.agent_panel_scope = AgentPanelScope::AllWorkspaces;
         app.right_sidebar_collapsed = true;
 
-        let area = Rect::new(0, 0, 4, 8);
+        let area = Rect::new(0, 0, 4, 12);
         let content = right_sidebar_content_rect(area);
         let backend = TestBackend::new(area.width, area.height);
         let mut terminal = Terminal::new(backend).expect("test backend");
@@ -6461,7 +6638,8 @@ mod tests {
         let toggle = right_sidebar_toggle_rect(area, true);
         let triage_header_row = content.y + 2;
         let triage_agent_row = triage_header_row + 1;
-        let working_header_row = triage_agent_row + 1;
+        let follow_up_header_row = triage_agent_row + 1;
+        let working_header_row = follow_up_header_row + 1;
         let working_agent_row = working_header_row + 1;
 
         assert_eq!(rows[0], "│All");
@@ -6471,6 +6649,12 @@ mod tests {
         assert_eq!(
             buffer[(content.x + 2, triage_agent_row)].style().bg,
             Some(app.palette.surface_dim)
+        );
+        assert_eq!(buffer[(content.x, follow_up_header_row)].symbol(), "▾");
+        assert_eq!(
+            collapsed_agent_panel_header_target_at_row(&app, content, follow_up_header_row)
+                .map(|target| target.section),
+            Some("Follow Up".to_string())
         );
         assert_eq!(buffer[(content.x, working_header_row)].symbol(), "▾");
         assert_eq!(
@@ -6494,6 +6678,238 @@ mod tests {
         let divider = sidebar_section_divider_rect(Rect::new(0, 0, 20, 5), 0.5);
 
         assert_eq!(divider, Rect::default());
+    }
+
+    #[test]
+    fn follow_up_section_is_always_present_and_header_hit_testable_when_empty() {
+        let mut app = crate::app::state::AppState::test_new();
+        app.workspaces = vec![Workspace::test_new("idle")];
+        let pane = app.workspaces[0].tabs[0].root_pane;
+        app.workspaces[0].tabs[0]
+            .panes
+            .get_mut(&pane)
+            .unwrap()
+            .detected_agent = Some(Agent::Codex);
+        app.workspaces[0].tabs[0]
+            .panes
+            .get_mut(&pane)
+            .unwrap()
+            .state = AgentState::Idle;
+        app.workspaces[0].tabs[0].panes.get_mut(&pane).unwrap().seen = true;
+        app.active = Some(0);
+        app.agent_panel_scope = AgentPanelScope::CurrentWorkspace;
+
+        let sections = agent_panel_sections(&app);
+        assert_eq!(sections[0].label, "Follow Up");
+        assert!(sections[0].entries.is_empty());
+        assert_eq!(sections[1].label, "Idle");
+
+        let area = Rect::new(0, 0, 40, 24);
+        crate::ui::compute_view(&mut app, area);
+        let (_, agent_area) = expanded_sidebar_sections(area, app.sidebar_section_split);
+        let body = agent_panel_body_rect(agent_area, false, true);
+        let header = agent_panel_header_target_at_row(&app, body, body.y);
+        assert_eq!(
+            header.map(|target| target.section),
+            Some("Follow Up".into())
+        );
+        assert!(agent_panel_entry_at_row(&app, body, body.y).is_none());
+    }
+
+    #[test]
+    fn queued_follow_up_keeps_runtime_state_and_oldest_added_order() {
+        let mut app = crate::app::state::AppState::test_new();
+        let mut first = Workspace::test_new("first");
+        let first_pane = first.tabs[0].root_pane;
+        first.tabs[0]
+            .panes
+            .get_mut(&first_pane)
+            .unwrap()
+            .detected_agent = Some(Agent::Codex);
+        first.tabs[0].panes.get_mut(&first_pane).unwrap().state = AgentState::Working;
+        let mut second = Workspace::test_new("second");
+        let second_pane = second.tabs[0].root_pane;
+        second.tabs[0]
+            .panes
+            .get_mut(&second_pane)
+            .unwrap()
+            .detected_agent = Some(Agent::Claude);
+        second.tabs[0].panes.get_mut(&second_pane).unwrap().state = AgentState::Blocked;
+        second.tabs[0].panes.get_mut(&second_pane).unwrap().seen = false;
+        app.workspaces = vec![first, second];
+        app.active = Some(0);
+        app.agent_panel_scope = AgentPanelScope::AllWorkspaces;
+        assert!(app.insert_agent_follow_up(1, second_pane));
+        app.agent_follow_up[0].added_at_unix_secs = 20;
+        assert!(app.insert_agent_follow_up(0, first_pane));
+        app.agent_follow_up[1].added_at_unix_secs = 10;
+
+        let sections = agent_panel_sections(&app);
+        let follow_up = sections
+            .iter()
+            .find(|section| section.label == "Follow Up")
+            .expect("follow up");
+        assert_eq!(follow_up.entries.len(), 2);
+        assert_eq!(follow_up.entries[0].primary_label, "first");
+        assert_eq!(follow_up.entries[0].state, AgentState::Working);
+        assert_eq!(follow_up.entries[1].primary_label, "second");
+        assert_eq!(follow_up.entries[1].state, AgentState::Blocked);
+        assert!(sections.iter().all(|section| section.label != "Working"));
+        assert!(sections.iter().all(|section| section.label != "Triage"));
+    }
+
+    #[test]
+    fn follow_up_equal_added_timestamps_keep_insertion_order() {
+        let mut app = crate::app::state::AppState::test_new();
+        let mut first = Workspace::test_new("first");
+        let first_pane = first.tabs[0].root_pane;
+        first.tabs[0]
+            .panes
+            .get_mut(&first_pane)
+            .unwrap()
+            .detected_agent = Some(Agent::Codex);
+        first.tabs[0].panes.get_mut(&first_pane).unwrap().state = AgentState::Working;
+        let mut second = Workspace::test_new("second");
+        let second_pane = second.tabs[0].root_pane;
+        second.tabs[0]
+            .panes
+            .get_mut(&second_pane)
+            .unwrap()
+            .detected_agent = Some(Agent::Claude);
+        second.tabs[0].panes.get_mut(&second_pane).unwrap().state = AgentState::Working;
+        app.workspaces = vec![first, second];
+        app.active = Some(0);
+        app.agent_panel_scope = AgentPanelScope::AllWorkspaces;
+        assert!(app.insert_agent_follow_up(0, first_pane));
+        assert!(app.insert_agent_follow_up(1, second_pane));
+        app.agent_follow_up[0].added_at_unix_secs = 40;
+        app.agent_follow_up[1].added_at_unix_secs = 40;
+
+        let sections = agent_panel_sections(&app);
+        let follow_up = sections
+            .iter()
+            .find(|section| section.label == "Follow Up")
+            .expect("follow up");
+        let labels: Vec<_> = follow_up
+            .entries
+            .iter()
+            .map(|entry| entry.primary_label.as_str())
+            .collect();
+        assert_eq!(labels, vec!["first", "second"]);
+    }
+
+    #[test]
+    fn triage_orders_oldest_meaningful_activity_first() {
+        let mut app = crate::app::state::AppState::test_new();
+        let mut older = Workspace::test_new("older");
+        let older_pane = older.tabs[0].root_pane;
+        older.tabs[0]
+            .panes
+            .get_mut(&older_pane)
+            .unwrap()
+            .detected_agent = Some(Agent::Codex);
+        older.tabs[0].panes.get_mut(&older_pane).unwrap().state = AgentState::Blocked;
+        let mut newer = Workspace::test_new("newer");
+        let newer_pane = newer.tabs[0].root_pane;
+        newer.tabs[0]
+            .panes
+            .get_mut(&newer_pane)
+            .unwrap()
+            .detected_agent = Some(Agent::Claude);
+        newer.tabs[0].panes.get_mut(&newer_pane).unwrap().state = AgentState::Blocked;
+        let mut never = Workspace::test_new("never");
+        let never_pane = never.tabs[0].root_pane;
+        never.tabs[0]
+            .panes
+            .get_mut(&never_pane)
+            .unwrap()
+            .detected_agent = Some(Agent::Pi);
+        never.tabs[0].panes.get_mut(&never_pane).unwrap().state = AgentState::Blocked;
+        app.workspaces = vec![older, newer, never];
+        app.ensure_test_terminals();
+        app.active = Some(0);
+        app.agent_panel_scope = AgentPanelScope::AllWorkspaces;
+        let terminals: Vec<_> = app
+            .workspaces
+            .iter()
+            .map(|ws| {
+                let pane = ws.tabs[0].root_pane;
+                ws.tabs[0].panes[&pane].attached_terminal_id.clone()
+            })
+            .collect();
+        app.terminals
+            .get_mut(&terminals[0])
+            .unwrap()
+            .mark_meaningful_agent_activity(1, 20);
+        app.terminals
+            .get_mut(&terminals[1])
+            .unwrap()
+            .mark_meaningful_agent_activity(2, 30);
+        let sections = agent_panel_sections(&app);
+        let triage = sections
+            .iter()
+            .find(|section| section.label == "Triage")
+            .expect("triage");
+        let labels: Vec<_> = triage
+            .entries
+            .iter()
+            .map(|entry| entry.primary_label.as_str())
+            .collect();
+        assert_eq!(labels, vec!["never", "older", "newer"]);
+    }
+
+    #[test]
+    fn follow_up_keeps_live_pane_after_agent_release() {
+        let mut app = crate::app::state::AppState::test_new();
+        let workspace = Workspace::test_new("queued");
+        let pane = workspace.tabs[0].root_pane;
+        app.workspaces = vec![workspace];
+        app.ensure_test_terminals();
+        app.active = Some(0);
+        app.agent_panel_scope = AgentPanelScope::CurrentWorkspace;
+        let terminal_id = app.workspaces[0].tabs[0].panes[&pane]
+            .attached_terminal_id
+            .clone();
+        let terminal = app.terminals.get_mut(&terminal_id).unwrap();
+        terminal.set_hook_authority(
+            "omh:pi".into(),
+            "pi".into(),
+            AgentState::Working,
+            None,
+            Some(1),
+        );
+        assert!(app.insert_agent_follow_up(0, pane));
+        assert!(!agent_panel_sections(&app)
+            .iter()
+            .find(|section| section.label == "Follow Up")
+            .expect("follow up")
+            .entries
+            .is_empty());
+
+        app.terminals
+            .get_mut(&terminal_id)
+            .unwrap()
+            .release_agent("omh:pi", "pi", Some(2));
+
+        let follow_up = agent_panel_sections(&app)
+            .into_iter()
+            .find(|section| section.label == "Follow Up")
+            .expect("follow up");
+        assert_eq!(follow_up.entries.len(), 1);
+        assert_eq!(follow_up.entries[0].pane_id, pane);
+        assert!(follow_up.entries[0].agent_label.is_none());
+
+        let area = Rect::new(0, 0, 40, 24);
+        crate::ui::compute_view(&mut app, area);
+        let backend = TestBackend::new(area.width, area.height);
+        let mut terminal = Terminal::new(backend).expect("test backend");
+        let runtimes = TerminalRuntimeRegistry::new();
+        terminal
+            .draw(|frame| render_sidebar(&app, &runtimes, frame, area))
+            .expect("render sidebar");
+        let text = buffer_text(terminal.backend().buffer(), area.width, area.height);
+        assert!(text.contains("Follow Up"), "rendered UI:\n{text}");
+        assert!(text.contains("queued"), "rendered UI:\n{text}");
     }
 
     fn first_cell_with_symbol(

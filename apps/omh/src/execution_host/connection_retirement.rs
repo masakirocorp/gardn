@@ -631,7 +631,7 @@ mod tests {
         SessionUiSnapshot, TabSnapshot, WorkspaceSnapshot,
     };
 
-    const TEST_SNAPSHOT_VERSION: u32 = 5;
+    const TEST_SNAPSHOT_VERSION: u32 = 6;
     use std::collections::HashMap;
     use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -675,6 +675,7 @@ mod tests {
             right_sidebar_width: Some(28),
             right_sidebar_collapsed: false,
             ui: SessionUiSnapshot::default(),
+            agent_follow_up: Vec::new(),
             pane_id_aliases: HashMap::new(),
         }
     }

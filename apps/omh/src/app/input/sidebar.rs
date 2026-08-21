@@ -1002,6 +1002,48 @@ impl AppState {
         crate::ui::agent_panel_entry_at_row(self, body, row)
             .map(|detail| (detail.ws_idx, detail.tab_idx, detail.pane_id))
     }
+
+    fn agent_panel_pointer_area(&self) -> Option<Rect> {
+        if self.view.right_sidebar_rect != Rect::default() && self.right_sidebar_collapsed {
+            return Some(crate::ui::right_sidebar_content_rect(
+                self.view.right_sidebar_rect,
+            ));
+        }
+        if self.sidebar_collapsed && self.view.right_sidebar_rect == Rect::default() {
+            let (_, _, detail_area) = crate::ui::collapsed_sidebar_sections_for_split(
+                self.view.sidebar_rect,
+                true,
+                self.sidebar_section_split,
+            );
+            return Some(detail_area);
+        }
+        let area = self.agent_panel_rect();
+        if area == Rect::default() {
+            None
+        } else {
+            Some(area)
+        }
+    }
+
+    pub(super) fn agent_follow_up_drop_at(&self, column: u16, row: u16) -> bool {
+        let Some(area) = self.agent_panel_pointer_area() else {
+            return false;
+        };
+        if column < area.x
+            || column >= area.x + area.width
+            || row < area.y
+            || row >= area.y + area.height
+        {
+            return false;
+        }
+        if let Some(target) = self.agent_header_target_at(row) {
+            return target.section == "Follow Up";
+        }
+        let Some((ws_idx, _, pane_id)) = self.agent_detail_target_at(row) else {
+            return false;
+        };
+        self.is_agent_follow_up(ws_idx, pane_id)
+    }
 }
 
 #[cfg(test)]
@@ -2161,6 +2203,11 @@ mod tests {
             body.x + 2,
             second_agent_row,
         ));
+        app.handle_mouse(mouse(
+            MouseEventKind::Up(MouseButton::Left),
+            body.x + 2,
+            second_agent_row,
+        ));
 
         assert_eq!(app.state.workspaces[0].active_tab, 1);
         assert_eq!(
@@ -2257,6 +2304,11 @@ mod tests {
         let triage_agent_row = detail_area.y + 3;
         app.handle_mouse(mouse(
             MouseEventKind::Down(MouseButton::Left),
+            detail_area.x + 2,
+            triage_agent_row,
+        ));
+        app.handle_mouse(mouse(
+            MouseEventKind::Up(MouseButton::Left),
             detail_area.x + 2,
             triage_agent_row,
         ));
@@ -2486,10 +2538,19 @@ mod tests {
             app.state.view.sidebar_rect,
             app.state.sidebar_section_split,
         );
+        let body = crate::ui::agent_panel_body_rect(detail_area, false, true);
+        let second_agent_row = (body.y..body.y + body.height)
+            .find(|row| app.state.agent_detail_target_at(*row) == Some((1, 0, second_pane)))
+            .expect("second workspace agent row should be visible");
         app.handle_mouse(mouse(
             MouseEventKind::Down(MouseButton::Left),
             detail_area.x + 2,
-            crate::ui::agent_panel_body_rect(detail_area, false, true).y + 4,
+            second_agent_row,
+        ));
+        app.handle_mouse(mouse(
+            MouseEventKind::Up(MouseButton::Left),
+            detail_area.x + 2,
+            second_agent_row,
         ));
 
         assert_eq!(app.state.active, Some(1));
@@ -2538,6 +2599,11 @@ mod tests {
             .expect("second agent row should be visible");
         app.handle_mouse(mouse(
             MouseEventKind::Down(MouseButton::Left),
+            detail_area.x + 2,
+            second_agent_row,
+        ));
+        app.handle_mouse(mouse(
+            MouseEventKind::Up(MouseButton::Left),
             detail_area.x + 2,
             second_agent_row,
         ));
@@ -2591,10 +2657,18 @@ mod tests {
             leading_separator,
         );
 
+        let triage_agent_row = (body.y..body.y + body.height)
+            .find(|row| app.state.agent_detail_target_at(*row) == Some((1, 0, second_pane)))
+            .expect("triage agent row should be visible");
         app.handle_mouse(mouse(
             MouseEventKind::Down(MouseButton::Left),
             body.x + 2,
-            body.y + 1,
+            triage_agent_row,
+        ));
+        app.handle_mouse(mouse(
+            MouseEventKind::Up(MouseButton::Left),
+            body.x + 2,
+            triage_agent_row,
         ));
 
         assert_eq!(app.state.active, Some(1));
@@ -2717,10 +2791,20 @@ mod tests {
 
         let detail_area = app.state.agent_panel_rect();
         let body = crate::ui::agent_panel_body_rect(detail_area, true, true);
+        let second_agent_row = (body.y..body.y + body.height)
+            .find(|row| {
+                app.state.agent_detail_target_at(*row) == Some((0, second_tab, second_pane))
+            })
+            .expect("scrolled second agent row should be visible");
         app.handle_mouse(mouse(
             MouseEventKind::Down(MouseButton::Left),
             body.x + 1,
-            body.y + 1,
+            second_agent_row,
+        ));
+        app.handle_mouse(mouse(
+            MouseEventKind::Up(MouseButton::Left),
+            body.x + 1,
+            second_agent_row,
         ));
 
         assert_eq!(app.state.workspaces[0].active_tab, second_tab);
@@ -2780,6 +2864,11 @@ mod tests {
             detail_area.x,
             target_row,
         ));
+        app.handle_mouse(mouse(
+            MouseEventKind::Up(MouseButton::Left),
+            detail_area.x,
+            target_row,
+        ));
 
         assert_eq!(app.state.workspaces[0].active_tab, 1);
         assert_eq!(
@@ -2833,6 +2922,11 @@ mod tests {
             .expect("second pane row");
         app.handle_mouse(mouse(
             MouseEventKind::Down(MouseButton::Left),
+            detail_area.x,
+            target_row,
+        ));
+        app.handle_mouse(mouse(
+            MouseEventKind::Up(MouseButton::Left),
             detail_area.x,
             target_row,
         ));
@@ -3597,5 +3691,109 @@ mod tests {
         assert!(app.state.drag.is_none());
         let snapshot = capture_snapshot(&app.state);
         assert_eq!(snapshot.sidebar_width, Some(26));
+    }
+
+    #[test]
+    fn dragging_agent_onto_follow_up_queues_without_losing_click_focus() {
+        let mut app = app_for_mouse_test();
+        let mut ws = Workspace::test_new("agent");
+        let pane = ws.tabs[0].root_pane;
+        ws.tabs[0].panes.get_mut(&pane).unwrap().state = AgentState::Working;
+        ws.tabs[0].panes.get_mut(&pane).unwrap().detected_agent = Some(Agent::Codex);
+        app.state.workspaces = vec![ws];
+        app.state.ensure_test_terminals();
+        app.state.active = Some(0);
+        app.state.mode = Mode::Terminal;
+        crate::ui::compute_view(&mut app.state, Rect::new(0, 0, 120, 30));
+        let detail_area = app.state.agent_panel_rect();
+        let body = crate::ui::agent_panel_body_rect(detail_area, false, true);
+        let agent_row = (body.y..body.y + body.height)
+            .find(|row| app.state.agent_detail_target_at(*row) == Some((0, 0, pane)))
+            .expect("agent row");
+        let follow_up_row = (body.y..body.y + body.height)
+            .find(|row| {
+                app.state
+                    .agent_header_target_at(*row)
+                    .is_some_and(|target| target.section == "Follow Up")
+            })
+            .expect("follow up header");
+
+        app.handle_mouse(mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            body.x + 2,
+            agent_row,
+        ));
+        app.handle_mouse(mouse(
+            MouseEventKind::Up(MouseButton::Left),
+            body.x + 2,
+            agent_row,
+        ));
+        assert!(app.state.agent_follow_up.is_empty());
+        assert_eq!(app.state.workspaces[0].tabs[0].layout.focused(), pane);
+
+        app.handle_mouse(mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            body.x + 2,
+            agent_row,
+        ));
+        app.handle_mouse(mouse(
+            MouseEventKind::Drag(MouseButton::Left),
+            body.x + 2,
+            follow_up_row,
+        ));
+        app.handle_mouse(mouse(
+            MouseEventKind::Up(MouseButton::Left),
+            body.x + 2,
+            follow_up_row,
+        ));
+        assert_eq!(app.state.agent_follow_up.len(), 1);
+        assert!(app.state.is_agent_follow_up(0, pane));
+        app.handle_mouse(mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            body.x + 2,
+            agent_row,
+        ));
+        app.handle_mouse(mouse(
+            MouseEventKind::Drag(MouseButton::Left),
+            body.x + 2,
+            follow_up_row,
+        ));
+        app.handle_mouse(mouse(
+            MouseEventKind::Up(MouseButton::Left),
+            body.x + 2,
+            follow_up_row,
+        ));
+        assert_eq!(app.state.agent_follow_up.len(), 1);
+        let snapshot = capture_snapshot(&app.state);
+        assert_eq!(snapshot.agent_follow_up.len(), 1);
+    }
+
+    #[test]
+    fn follow_up_drop_ignores_pointer_outside_agent_panel() {
+        let mut app = app_for_mouse_test();
+        let mut ws = Workspace::test_new("agent");
+        let pane = ws.tabs[0].root_pane;
+        ws.tabs[0].panes.get_mut(&pane).unwrap().state = AgentState::Working;
+        ws.tabs[0].panes.get_mut(&pane).unwrap().detected_agent = Some(Agent::Codex);
+        app.state.workspaces = vec![ws];
+        app.state.ensure_test_terminals();
+        app.state.active = Some(0);
+        crate::ui::compute_view(&mut app.state, Rect::new(0, 0, 120, 30));
+        let detail_area = app.state.agent_panel_rect();
+        let body = crate::ui::agent_panel_body_rect(detail_area, false, true);
+        let follow_up_row = (body.y..body.y + body.height)
+            .find(|row| {
+                app.state
+                    .agent_header_target_at(*row)
+                    .is_some_and(|target| target.section == "Follow Up")
+            })
+            .expect("follow up header");
+        assert!(app.state.agent_follow_up_drop_at(body.x + 1, follow_up_row));
+        if body.x > 0 {
+            assert!(!app.state.agent_follow_up_drop_at(body.x - 1, follow_up_row));
+        }
+        assert!(!app
+            .state
+            .agent_follow_up_drop_at(body.x + body.width, follow_up_row));
     }
 }
