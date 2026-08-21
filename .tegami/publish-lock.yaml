@@ -1,17 +1,17 @@
 core:changelogs:
-  - content: "---\npackages:\n  omh:\n    type: patch\n---\n\n# Preserve official release identity in packaged binaries\n\nGitHub release binaries now keep their release channel, tag, and build cohort when Cargo runs through Turborepo. Official installs use the production namespace instead of the development namespace.\n"
-    filename: release-build-identity.md
+  - content: "---\npackages:\n  omh:\n    type: patch\n---\n\n### Stabilize OMP conversations after resizing\n\nLoaded OMP conversations no longer enter a resize and repaint loop after the host window changes size.\n"
+    filename: omp-resize-flicker.md
     v: 0.0.0
 core:packages:
   - id: npm:@omh/website
     updated: false
+  - id: cargo:omh-local-api
+    updated: false
   - changelogIds:
-      - release-build-identity.md
+      - omp-resize-flicker.md
     id: cargo:omh
     updated: true
   - id: cargo:portable-pty
-    updated: false
-  - id: cargo:omh-local-api
     updated: false
 npm:packages:
   - id: npm:@omh/website

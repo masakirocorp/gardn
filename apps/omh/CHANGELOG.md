@@ -1,3 +1,9 @@
+## omh@0.9.3
+
+### Stabilize OMP conversations after resizing
+
+Loaded OMP conversations no longer enter a resize and repaint loop after the host window changes size.
+
 ## omh@0.9.2
 
 ### Preserve official release identity in packaged binaries
