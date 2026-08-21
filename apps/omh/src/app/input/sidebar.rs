@@ -2224,6 +2224,143 @@ mod tests {
     }
 
     #[test]
+    fn right_clicking_agent_row_adds_and_removes_follow_up_without_changing_focus() {
+        let mut app = app_for_mouse_test();
+        let home = Workspace::test_new("home");
+        let home_pane = home.tabs[0].root_pane;
+        let mut api = Workspace::test_new("api");
+        let agent_pane = api.tabs[0].root_pane;
+        let agent_state = api.tabs[0]
+            .panes
+            .get_mut(&agent_pane)
+            .expect("agent pane");
+        agent_state.detected_agent = Some(Agent::Claude);
+        agent_state.state = AgentState::Working;
+        app.state.workspaces = vec![home, api];
+        app.state.ensure_test_terminals();
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::Terminal;
+        app.state.agent_panel_scope = AgentPanelScope::AllWorkspaces;
+        app.state.sidebar_arrangement = crate::config::SidebarArrangementConfig::Separate;
+        crate::ui::compute_view(&mut app.state, Rect::new(0, 0, 140, 30));
+
+        let detail_area =
+            crate::ui::right_sidebar_content_rect(app.state.view.right_sidebar_rect);
+        let agent_row = (detail_area.y..detail_area.y + detail_area.height)
+            .find(|row| app.state.agent_detail_target_at(*row) == Some((1, 0, agent_pane)))
+            .expect("agent row");
+        let original_active = app.state.active;
+        let original_selected = app.state.selected;
+        let original_home_tab = app.state.workspaces[0].active_tab_index();
+        let original_home_focus = app.state.workspaces[0].tabs[original_home_tab]
+            .layout
+            .focused();
+
+        app.handle_mouse(mouse(
+            MouseEventKind::Down(MouseButton::Right),
+            detail_area.x + 2,
+            agent_row,
+        ));
+
+        let context = app.state.context_menu.as_ref().expect("agent context menu");
+        assert_eq!(
+            context
+                .items()
+                .iter()
+                .map(|item| crate::app::state::ContextMenuState::item_display_label(item))
+                .collect::<Vec<_>>(),
+            vec!["Add to Follow Up"]
+        );
+        assert_eq!(app.state.active, original_active);
+        assert_eq!(app.state.selected, original_selected);
+        assert_eq!(
+            app.state.workspaces[0].active_tab_index(),
+            original_home_tab
+        );
+        assert_eq!(
+            app.state.workspaces[0].tabs[original_home_tab]
+                .layout
+                .focused(),
+            original_home_focus
+        );
+
+        let menu = app.state.context_menu_rect().expect("context menu rect");
+        app.handle_mouse(mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            menu.x + 2,
+            menu.y + 1,
+        ));
+
+        assert!(app.state.is_agent_follow_up(1, agent_pane));
+        assert!(app.state.context_menu.is_none());
+        assert_eq!(app.state.mode, Mode::Terminal);
+        assert_eq!(app.state.active, original_active);
+        assert_eq!(app.state.selected, original_selected);
+        assert_eq!(
+            app.state.workspaces[0].active_tab_index(),
+            original_home_tab
+        );
+        assert_eq!(
+            app.state.workspaces[0].tabs[original_home_tab]
+                .layout
+                .focused(),
+            original_home_focus
+        );
+        assert_eq!(
+            app.state.workspaces[0].tabs[original_home_tab]
+                .layout
+                .focused(),
+            home_pane
+        );
+
+        crate::ui::compute_view(&mut app.state, Rect::new(0, 0, 140, 30));
+        let detail_area =
+            crate::ui::right_sidebar_content_rect(app.state.view.right_sidebar_rect);
+        let follow_up_row = (detail_area.y..detail_area.y + detail_area.height)
+            .find(|row| app.state.agent_detail_target_at(*row) == Some((1, 0, agent_pane)))
+            .expect("follow-up agent row");
+        app.handle_mouse(mouse(
+            MouseEventKind::Down(MouseButton::Right),
+            detail_area.x + 2,
+            follow_up_row,
+        ));
+
+        let context = app.state.context_menu.as_ref().expect("agent context menu");
+        assert_eq!(
+            context
+                .items()
+                .iter()
+                .map(|item| crate::app::state::ContextMenuState::item_display_label(item))
+                .collect::<Vec<_>>(),
+            vec!["Remove from Follow Up"]
+        );
+
+        let menu = app.state.context_menu_rect().expect("context menu rect");
+        app.handle_mouse(mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            menu.x + 2,
+            menu.y + 1,
+        ));
+
+        assert!(!app.state.is_agent_follow_up(1, agent_pane));
+        assert!(app.state.context_menu.is_none());
+        assert_eq!(app.state.mode, Mode::Terminal);
+        assert_eq!(app.state.active, original_active);
+        assert_eq!(app.state.selected, original_selected);
+        assert_eq!(
+            app.state.workspaces[0].active_tab_index(),
+            original_home_tab
+        );
+        assert_eq!(
+            app.state.workspaces[0].tabs[original_home_tab]
+                .layout
+                .focused(),
+            original_home_focus
+        );
+    }
+
+    #[test]
     fn clicking_agent_panel_toggle_opens_scope_menu() {
         let mut app = app_for_mouse_test();
         app.state.workspaces = vec![Workspace::test_new("test")];

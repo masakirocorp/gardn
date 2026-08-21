@@ -22494,6 +22494,101 @@ command = "printf literal > '{}'"
     }
 
     #[test]
+    fn route_client_events_for_view_agent_follow_up_context_action_requires_tab_control() {
+        let mut app = test_app();
+        let mut workspace = Workspace::test_new("test");
+        let first_tab = 0;
+        let first_pane = workspace.tabs[first_tab].root_pane;
+        let agent_tab = workspace.test_add_tab(Some("agent"));
+        let agent_pane = workspace.tabs[agent_tab].root_pane;
+        let agent_state = workspace.tabs[agent_tab]
+            .panes
+            .get_mut(&agent_pane)
+            .expect("agent pane");
+        agent_state.detected_agent = Some(Agent::Claude);
+        agent_state.state = AgentState::Working;
+        app.state.workspaces = vec![workspace];
+        app.state.ensure_test_terminals();
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::Terminal;
+        app.state.mouse_capture = true;
+        app.state.agent_panel_scope = state::AgentPanelScope::CurrentWorkspace;
+        app.state.sidebar_arrangement = crate::config::SidebarArrangementConfig::Separate;
+
+        let workspace_id = app.state.workspaces[0].id.clone();
+        let mut client = ClientViewState::from_default_client_state(&app.state);
+        client.set_tab_control(ClientTabControl::WatchingControlled { epoch: 7 });
+        compute_client_view(&app, &mut client, ratatui::layout::Rect::new(0, 0, 140, 30));
+        let detail_area =
+            crate::ui::right_sidebar_content_rect(client.computed.right_sidebar_rect);
+        let agent_row = (detail_area.y..detail_area.y + detail_area.height)
+            .find(|row| {
+                app.client_view_agent_detail_target_at(&client, detail_area.x + 2, *row)
+                    == Some((0, agent_tab, agent_pane))
+            })
+            .expect("agent row");
+
+        app.route_client_events_for_view(
+            &mut client,
+            vec![raw_mouse(
+                crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Right),
+                detail_area.x + 2,
+                agent_row,
+            )],
+            true,
+        );
+
+        let context = client.context_menu.as_ref().expect("agent context menu");
+        assert_eq!(
+            context
+                .items()
+                .iter()
+                .map(|item| state::ContextMenuState::item_display_label(item))
+                .collect::<Vec<_>>(),
+            vec!["Add to Follow Up"]
+        );
+        assert_eq!(client.active_workspace, Some(0));
+        assert_eq!(client.selected_workspace, 0);
+        assert_eq!(
+            client.active_tab_for_workspace(&workspace_id),
+            Some(first_tab)
+        );
+        assert_eq!(
+            app.state.workspaces[0].tabs[first_tab].layout.focused(),
+            first_pane
+        );
+
+        let menu = context_menu_rect_for_client_view(&app, &client);
+        app.route_client_events_for_view(
+            &mut client,
+            vec![raw_mouse(
+                crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left),
+                menu.x + 2,
+                menu.y + 1,
+            )],
+            true,
+        );
+
+        assert!(!app.state.is_agent_follow_up(0, agent_pane));
+        assert!(client.context_menu.is_none());
+        assert_eq!(client.mode, Mode::Terminal);
+        assert_eq!(client.active_workspace, Some(0));
+        assert_eq!(client.selected_workspace, 0);
+        assert_eq!(
+            client.active_tab_for_workspace(&workspace_id),
+            Some(first_tab)
+        );
+        assert_eq!(app.state.active, Some(0));
+        assert_eq!(app.state.selected, 0);
+        assert_eq!(app.state.workspaces[0].active_tab_index(), first_tab);
+        assert_eq!(
+            app.state.workspaces[0].tabs[first_tab].layout.focused(),
+            first_pane
+        );
+    }
+
+    #[test]
     fn route_client_events_for_view_sidebar_mouse_parity_right_click_opens_context_menu_locally() {
         let mut app = test_app();
         let work_group = app.state.create_group("work".to_string());
