@@ -56,7 +56,13 @@
       "outputs": []
     },
     "omh#build": {
-      "env": ["LIBGHOSTTY_VT_OPTIMIZE", "LIBGHOSTTY_VT_SIMD"],
+      "env": [
+        "LIBGHOSTTY_VT_OPTIMIZE",
+        "LIBGHOSTTY_VT_SIMD",
+        "OMH_BUILD_CHANNEL",
+        "OMH_BUILD_COHORT",
+        "OMH_RELEASE_TAG"
+      ],
       "cache": false
     },
     "omh#check": {
@@ -151,6 +157,7 @@
         "scripts.test_testing_guidelines",
         "scripts.test_extract_release_notes",
         "scripts.test_check_tegami_release_scope",
+        "scripts.test_release_build_identity",
         "scripts.test_codex_status_fallback",
         "scripts.test_agent_cohort_resolve",
         "scripts.test_agent_image_doctor",
