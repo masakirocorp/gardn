@@ -357,6 +357,10 @@ impl AppState {
             }
         }
 
+        let agent_context_target = matches!(mouse.kind, MouseEventKind::Down(MouseButton::Right))
+            .then(|| self.agent_detail_target_at_point(mouse.column, mouse.row))
+            .flatten();
+
         match mouse.kind {
             MouseEventKind::Down(MouseButton::Left) => {
                 self.selection = None;
@@ -1373,6 +1377,23 @@ impl AppState {
                 if let Some(info) = self.pane_at(mouse.column, mouse.row).cloned() {
                     let _ = self.forward_pane_mouse_motion(terminal_runtimes, &info, mouse);
                 }
+            }
+
+            MouseEventKind::Down(MouseButton::Right) if agent_context_target.is_some() => {
+                let (ws_idx, _, pane_id) =
+                    agent_context_target.expect("agent target checked by match guard");
+                self.context_menu = Some(ContextMenuState {
+                    kind: ContextMenuKind::Agent {
+                        ws_idx,
+                        pane_id,
+                        in_follow_up: self.is_agent_follow_up(ws_idx, pane_id),
+                    },
+                    x: mouse.column,
+                    y: mouse.row,
+                    list: ModalListState::hidden(0),
+                });
+                self.mode = Mode::ContextMenu;
+                return None;
             }
 
             MouseEventKind::Down(MouseButton::Right) if in_sidebar && !self.sidebar_collapsed => {

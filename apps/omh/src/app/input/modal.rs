@@ -1400,6 +1400,25 @@ pub(crate) fn apply_context_menu_action(
             state.switch_group(group_idx);
             open_new_group_dialog(state);
         }
+        (
+            ContextMenuKind::Agent {
+                ws_idx, pane_id, ..
+            },
+            Some(item),
+        ) => {
+            if item == crate::app::state::ADD_TO_FOLLOW_UP_CONTEXT_ITEM {
+                state.insert_agent_follow_up(ws_idx, pane_id);
+            } else if item == crate::app::state::REMOVE_FROM_FOLLOW_UP_CONTEXT_ITEM {
+                if let Some(workspace_id) = state
+                    .workspaces
+                    .get(ws_idx)
+                    .map(|workspace| workspace.id.clone())
+                {
+                    state.clear_agent_follow_up_for_pane(&workspace_id, pane_id);
+                }
+            }
+            leave_modal(state);
+        }
         (ContextMenuKind::Workspace { ws_idx, .. }, Some("agent")) => {
             state.selected = ws_idx;
             state.active = Some(ws_idx);

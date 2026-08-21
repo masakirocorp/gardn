@@ -1003,6 +1003,23 @@ impl AppState {
             .map(|detail| (detail.ws_idx, detail.tab_idx, detail.pane_id))
     }
 
+    pub(super) fn agent_detail_target_at_point(
+        &self,
+        column: u16,
+        row: u16,
+    ) -> Option<(usize, usize, crate::layout::PaneId)> {
+        let area = self.agent_panel_pointer_area()?;
+        if column < area.x
+            || column >= area.x + area.width
+            || row < area.y
+            || row >= area.y + area.height
+            || self.agent_panel_scrollbar_target_at(column, row).is_some()
+        {
+            return None;
+        }
+        self.agent_detail_target_at(row)
+    }
+
     fn agent_panel_pointer_area(&self) -> Option<Rect> {
         if self.view.right_sidebar_rect != Rect::default() && self.right_sidebar_collapsed {
             return Some(crate::ui::right_sidebar_content_rect(
@@ -2230,10 +2247,7 @@ mod tests {
         let home_pane = home.tabs[0].root_pane;
         let mut api = Workspace::test_new("api");
         let agent_pane = api.tabs[0].root_pane;
-        let agent_state = api.tabs[0]
-            .panes
-            .get_mut(&agent_pane)
-            .expect("agent pane");
+        let agent_state = api.tabs[0].panes.get_mut(&agent_pane).expect("agent pane");
         agent_state.detected_agent = Some(Agent::Claude);
         agent_state.state = AgentState::Working;
         app.state.workspaces = vec![home, api];
@@ -2245,8 +2259,7 @@ mod tests {
         app.state.sidebar_arrangement = crate::config::SidebarArrangementConfig::Separate;
         crate::ui::compute_view(&mut app.state, Rect::new(0, 0, 140, 30));
 
-        let detail_area =
-            crate::ui::right_sidebar_content_rect(app.state.view.right_sidebar_rect);
+        let detail_area = crate::ui::right_sidebar_content_rect(app.state.view.right_sidebar_rect);
         let agent_row = (detail_area.y..detail_area.y + detail_area.height)
             .find(|row| app.state.agent_detail_target_at(*row) == Some((1, 0, agent_pane)))
             .expect("agent row");
@@ -2315,8 +2328,7 @@ mod tests {
         );
 
         crate::ui::compute_view(&mut app.state, Rect::new(0, 0, 140, 30));
-        let detail_area =
-            crate::ui::right_sidebar_content_rect(app.state.view.right_sidebar_rect);
+        let detail_area = crate::ui::right_sidebar_content_rect(app.state.view.right_sidebar_rect);
         let follow_up_row = (detail_area.y..detail_area.y + detail_area.height)
             .find(|row| app.state.agent_detail_target_at(*row) == Some((1, 0, agent_pane)))
             .expect("follow-up agent row");

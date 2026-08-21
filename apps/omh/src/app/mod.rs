@@ -6636,6 +6636,28 @@ impl App {
 
         match (menu.kind, item) {
             (
+                state::ContextMenuKind::Agent {
+                    ws_idx, pane_id, ..
+                },
+                Some(item),
+            ) => {
+                if item == state::ADD_TO_FOLLOW_UP_CONTEXT_ITEM {
+                    self.state.insert_agent_follow_up(ws_idx, pane_id);
+                } else if item == state::REMOVE_FROM_FOLLOW_UP_CONTEXT_ITEM {
+                    if let Some(workspace_id) = self
+                        .state
+                        .workspaces
+                        .get(ws_idx)
+                        .map(|workspace| workspace.id.clone())
+                    {
+                        self.state
+                            .clear_agent_follow_up_for_pane(&workspace_id, pane_id);
+                    }
+                }
+                Self::leave_client_view_command_mode(client_view);
+                client_view.reconcile(&self.state);
+            }
+            (
                 state::ContextMenuKind::Sidebar { group_idx }
                 | state::ContextMenuKind::Group { group_idx, .. },
                 Some("space"),
@@ -8142,6 +8164,9 @@ impl App {
             return;
         }
         if self.handle_client_view_drag_mouse(client_view, mouse) {
+            return;
+        }
+        if self.handle_client_view_agent_context_menu_mouse(client_view, mouse) {
             return;
         }
         if self.handle_client_view_sidebar_workspace_mouse(client_view, mouse) {
@@ -11690,6 +11715,43 @@ impl App {
                 client_view.selected_workspace = next;
             }
         }
+    }
+
+    fn handle_client_view_agent_context_menu_mouse(
+        &self,
+        client_view: &mut ClientViewState,
+        mouse: crossterm::event::MouseEvent,
+    ) -> bool {
+        use crossterm::event::{MouseButton, MouseEventKind};
+
+        if client_view.mode != Mode::Terminal
+            || mouse.kind != MouseEventKind::Down(MouseButton::Right)
+        {
+            return false;
+        }
+        if self
+            .client_view_agent_panel_scrollbar_target_at(client_view, mouse.column, mouse.row)
+            .is_some()
+        {
+            return false;
+        }
+        let Some((ws_idx, _, pane_id)) =
+            self.client_view_agent_detail_target_at(client_view, mouse.column, mouse.row)
+        else {
+            return false;
+        };
+        client_view.context_menu = Some(state::ContextMenuState {
+            kind: state::ContextMenuKind::Agent {
+                ws_idx,
+                pane_id,
+                in_follow_up: self.state.is_agent_follow_up(ws_idx, pane_id),
+            },
+            x: mouse.column,
+            y: mouse.row,
+            list: state::ModalListState::hidden(0),
+        });
+        client_view.mode = Mode::ContextMenu;
+        true
     }
 
     fn handle_client_view_sidebar_workspace_mouse(
@@ -22520,8 +22582,7 @@ command = "printf literal > '{}'"
         let mut client = ClientViewState::from_default_client_state(&app.state);
         client.set_tab_control(ClientTabControl::WatchingControlled { epoch: 7 });
         compute_client_view(&app, &mut client, ratatui::layout::Rect::new(0, 0, 140, 30));
-        let detail_area =
-            crate::ui::right_sidebar_content_rect(client.computed.right_sidebar_rect);
+        let detail_area = crate::ui::right_sidebar_content_rect(client.computed.right_sidebar_rect);
         let agent_row = (detail_area.y..detail_area.y + detail_area.height)
             .find(|row| {
                 app.client_view_agent_detail_target_at(&client, detail_area.x + 2, *row)

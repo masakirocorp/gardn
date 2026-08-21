@@ -2351,6 +2351,11 @@ pub enum ContextMenuKind {
         ws_idx: usize,
         tab_idx: usize,
     },
+    Agent {
+        ws_idx: usize,
+        pane_id: PaneId,
+        in_follow_up: bool,
+    },
     NewTabButton {
         ws_idx: usize,
         project_commands: ProjectCommandAvailability,
@@ -2371,6 +2376,12 @@ pub struct ContextMenuState {
     pub y: u16,
     pub list: ModalListState,
 }
+
+pub(crate) const ADD_TO_FOLLOW_UP_CONTEXT_ITEM: &str = "add to follow up";
+pub(crate) const REMOVE_FROM_FOLLOW_UP_CONTEXT_ITEM: &str = "remove from follow up";
+
+const ADD_TO_FOLLOW_UP_CONTEXT_ITEMS: &[&str] = &[ADD_TO_FOLLOW_UP_CONTEXT_ITEM];
+const REMOVE_FROM_FOLLOW_UP_CONTEXT_ITEMS: &[&str] = &[REMOVE_FROM_FOLLOW_UP_CONTEXT_ITEM];
 
 const WORKSPACE_CONTEXT_MENU_ITEMS: [&[&str]; 16] = [
     &[
@@ -2473,6 +2484,13 @@ impl ContextMenuState {
                 project_commands, ..
             } => WORKSPACE_CONTEXT_MENU_ITEMS[project_commands.menu_index()],
             ContextMenuKind::Tab { .. } => &["rename", "close", "close other tabs"],
+            ContextMenuKind::Agent {
+                in_follow_up: false,
+                ..
+            } => ADD_TO_FOLLOW_UP_CONTEXT_ITEMS,
+            ContextMenuKind::Agent {
+                in_follow_up: true, ..
+            } => REMOVE_FROM_FOLLOW_UP_CONTEXT_ITEMS,
             ContextMenuKind::NewTabButton {
                 project_commands, ..
             } => NEW_TAB_CONTEXT_MENU_ITEMS[project_commands.menu_index()],
@@ -2561,6 +2579,8 @@ impl ContextMenuState {
             "close" => "Close",
             "delete" => "Delete",
             "close other tabs" => "Close Other Tabs",
+            ADD_TO_FOLLOW_UP_CONTEXT_ITEM => "Add to Follow Up",
+            REMOVE_FROM_FOLLOW_UP_CONTEXT_ITEM => "Remove from Follow Up",
             "rename pane" => "Rename Pane",
             "clear pane name" => "Clear Pane Name",
             "split vertical" => "Split Vertical",
