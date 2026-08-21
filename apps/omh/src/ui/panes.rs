@@ -1870,7 +1870,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn alternate_screen_reclaims_scrollbar_gutter_and_restores_it_on_exit() {
+    async fn scrollbar_gutter_and_pty_size_remain_stable_across_screen_transitions() {
         let mut app = AppState::test_new();
         let mut workspace = Workspace::test_new("test");
         let root_pane = workspace.tabs[0].root_pane;
@@ -1887,46 +1887,49 @@ mod tests {
         app.active = Some(0);
 
         let area = Rect::new(10, 3, 40, 8);
+        let inner_rect = Rect::new(10, 3, 39, 8);
+        let scrollbar_rect = Rect::new(49, 3, 1, 8);
         let terminal_runtimes = TerminalRuntimeRegistry::new();
         let primary = compute_pane_infos(
             &app,
             &terminal_runtimes,
             area,
-            false,
+            true,
             crate::kitty_graphics::HostCellSize::default(),
         );
-        assert_eq!(primary[0].scrollbar_rect, Some(Rect::new(49, 3, 1, 8)));
-        assert_eq!(primary[0].inner_rect, Rect::new(10, 3, 39, 8));
+        assert_eq!(primary[0].scrollbar_rect, Some(scrollbar_rect));
+        assert_eq!(primary[0].inner_rect, inner_rect);
+        assert_eq!(
+            app.workspaces[0].tabs[0].runtimes[&root_pane].current_size(),
+            (inner_rect.height, inner_rect.width)
+        );
 
-        app.workspaces[0].tabs[0]
-            .runtimes
-            .get(&root_pane)
-            .expect("runtime")
-            .test_process_pty_bytes(root_pane, b"\x1b[?1049h");
-        let alternate = compute_pane_infos(
-            &app,
-            &terminal_runtimes,
-            area,
-            false,
-            crate::kitty_graphics::HostCellSize::default(),
-        );
-        assert_eq!(alternate[0].scrollbar_rect, None);
-        assert_eq!(alternate[0].inner_rect, area);
+        for (screen_transition, expected_scrollbar) in [
+            (b"\x1b[?1049h".as_slice(), None),
+            (b"\x1b[?1049l".as_slice(), Some(scrollbar_rect)),
+            (b"\x1b[?1049h".as_slice(), None),
+            (b"\x1b[?1049l".as_slice(), Some(scrollbar_rect)),
+        ] {
+            app.workspaces[0].tabs[0]
+                .runtimes
+                .get(&root_pane)
+                .expect("runtime")
+                .test_process_pty_bytes(root_pane, screen_transition);
+            let infos = compute_pane_infos(
+                &app,
+                &terminal_runtimes,
+                area,
+                true,
+                crate::kitty_graphics::HostCellSize::default(),
+            );
 
-        app.workspaces[0].tabs[0]
-            .runtimes
-            .get(&root_pane)
-            .expect("runtime")
-            .test_process_pty_bytes(root_pane, b"\x1b[?1049l");
-        let restored = compute_pane_infos(
-            &app,
-            &terminal_runtimes,
-            area,
-            false,
-            crate::kitty_graphics::HostCellSize::default(),
-        );
-        assert_eq!(restored[0].scrollbar_rect, Some(Rect::new(49, 3, 1, 8)));
-        assert_eq!(restored[0].inner_rect, Rect::new(10, 3, 39, 8));
+            assert_eq!(infos[0].scrollbar_rect, expected_scrollbar);
+            assert_eq!(infos[0].inner_rect, inner_rect);
+            assert_eq!(
+                app.workspaces[0].tabs[0].runtimes[&root_pane].current_size(),
+                (inner_rect.height, inner_rect.width)
+            );
+        }
     }
 
     #[tokio::test]
