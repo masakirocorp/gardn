@@ -9,12 +9,12 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
 # Build retired names from fragments so this guard can inspect itself.
-RETIRED_DISPLAY_NAME = "Oh My " + "Herdr"
-RETIRED_SLUG = "oh-my-" + "herdr"
-RETIRED_DOMAIN = "ohmy" + "herdr.com"
+RETIRED_UPSTREAM_NAME = "her" + "dr"
+RETIRED_DISPLAY_NAME = "Oh My " + RETIRED_UPSTREAM_NAME.title()
+RETIRED_SLUG = "oh-my-" + RETIRED_UPSTREAM_NAME
+RETIRED_DOMAIN = "ohmy" + RETIRED_UPSTREAM_NAME + ".com"
 RETIRED_CODENAME = "ha" + "ko"
 RETIRED_CLI = "o" + "mh"
-RETIRED_UPSTREAM_NAME = "her" + "dr"
 
 ALLOWED_PROVENANCE = (
     "https://github.com/ogulcancelik/" + RETIRED_UPSTREAM_NAME,
