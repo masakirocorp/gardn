@@ -1056,6 +1056,19 @@ impl AppState {
         if let Some(target) = self.agent_header_target_at(row) {
             return target.section == "Follow Up";
         }
+        let panel = self.agent_panel_rect();
+        if panel != Rect::default() {
+            let leading_separator = self.agent_panel_has_leading_separator();
+            let metrics = crate::ui::agent_panel_scroll_metrics(self, panel, leading_separator);
+            let body = crate::ui::agent_panel_body_rect(
+                panel,
+                crate::ui::should_show_scrollbar(metrics),
+                leading_separator,
+            );
+            if crate::ui::agent_panel_empty_row_at(self, body, row) {
+                return true;
+            }
+        }
         let Some((ws_idx, _, pane_id)) = self.agent_detail_target_at(row) else {
             return false;
         };

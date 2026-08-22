@@ -70,6 +70,7 @@ enum MobileNavigationRow {
         meta: String,
         target: MobileSwitcherTarget,
     },
+    AgentEmpty(&'static str),
     Empty(&'static str),
     Subheader(&'static str),
     Divider,
@@ -86,7 +87,11 @@ enum MobileNavigationRow {
 impl MobileNavigationRow {
     fn target(&self) -> Option<MobileSwitcherTarget> {
         match self {
-            Self::Empty(_) | Self::AgentSection { .. } | Self::Subheader(_) | Self::Divider => None,
+            Self::Empty(_)
+            | Self::AgentEmpty(_)
+            | Self::AgentSection { .. }
+            | Self::Subheader(_)
+            | Self::Divider => None,
             Self::Action { target, .. }
             | Self::Agent { target, .. }
             | Self::Hierarchy { target, .. } => Some(*target),
@@ -109,13 +114,17 @@ fn mobile_navigation_rows(
         );
         let mut rows = Vec::new();
         for section in agent_sections {
-            if section.entries.is_empty() {
+            let empty_row = super::sidebar::agent_panel_empty_row(&section);
+            if section.entries.is_empty() && empty_row.is_none() {
                 continue;
             }
             rows.push(MobileNavigationRow::AgentSection {
                 group: section.group,
                 count: section.entries.len(),
             });
+            if let Some(label) = empty_row {
+                rows.push(MobileNavigationRow::AgentEmpty(label));
+            }
             for entry in section.entries {
                 let (label, meta) = super::sidebar::compact_agent_entry_text(&entry);
                 rows.push(MobileNavigationRow::Agent {
@@ -388,6 +397,7 @@ fn mobile_navigation_row_width(app: &AppState, row: &MobileNavigationRow) -> u16
         MobileNavigationRow::Empty(label)
         | MobileNavigationRow::Subheader(label)
         | MobileNavigationRow::Action { label, .. } => display_width_u16(label).saturating_add(2),
+        MobileNavigationRow::AgentEmpty(label) => display_width_u16(label).saturating_add(4),
         MobileNavigationRow::Hierarchy { row, .. } => {
             let (label, meta) = mobile_hierarchy_label_and_meta(app, row);
             display_width_u16(&label)
@@ -985,6 +995,20 @@ fn render_mobile_navigation_rows(
                 };
                 frame.render_widget(
                     Paragraph::new(format!("  {label}")).style(
+                        Style::default()
+                            .fg(p.overlay0)
+                            .bg(p.panel_bg)
+                            .add_modifier(Modifier::DIM),
+                    ),
+                    Rect::new(content.x, y, content.width, 1),
+                );
+            }
+            MobileNavigationRow::AgentEmpty(label) => {
+                let Some(y) = visible_y(viewport, scroll, doc_y) else {
+                    continue;
+                };
+                frame.render_widget(
+                    Paragraph::new(format!("    {label}")).style(
                         Style::default()
                             .fg(p.overlay0)
                             .bg(p.panel_bg)
@@ -2070,7 +2094,10 @@ mod tests {
         }));
         app.agent_panel_scope = AgentPanelScope::CurrentWorkspace;
         let (agent_label, agent_meta) = match rows.as_slice() {
-            [MobileNavigationRow::AgentSection { group, count }, MobileNavigationRow::Agent {
+            [MobileNavigationRow::AgentSection {
+                group: AgentStatusGroup::FollowUp,
+                count: 0,
+            }, MobileNavigationRow::AgentEmpty("Drop an agent here"), MobileNavigationRow::AgentSection { group, count }, MobileNavigationRow::Agent {
                 label: agent_label,
                 meta,
                 target:
@@ -2641,15 +2668,17 @@ mod tests {
                 let line = (0..area.width)
                     .map(|x| buffer[(x, y)].symbol())
                     .collect::<String>();
-                line.find("Drop an agent here")
-                    .map(|x| (x as u16, y))
+                line.find("Drop an agent here").map(|x| (x as u16, y))
             })
             .expect("mobile Follow Up empty row");
         let line = (0..area.width)
             .map(|x| buffer[(x, empty_y)].symbol())
             .collect::<String>();
         assert!(line[..empty_x as usize].ends_with("    "), "{line:?}");
-        assert_eq!(buffer[(empty_x, empty_y)].style().fg, Some(app.palette.overlay0));
+        assert_eq!(
+            buffer[(empty_x, empty_y)].style().fg,
+            Some(app.palette.overlay0)
+        );
         assert!(buffer[(empty_x, empty_y)]
             .style()
             .add_modifier

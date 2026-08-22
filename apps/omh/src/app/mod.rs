@@ -11103,6 +11103,31 @@ impl App {
         {
             return true;
         }
+        let panel = self.client_view_agent_panel_rect(client_view);
+        if Self::rect_contains(panel, column, row) {
+            let leading_separator = client_view.computed.right_sidebar_rect == Rect::default();
+            let metrics = crate::ui::agent_panel_scroll_metrics_for_view(
+                &self.state,
+                &self.terminal_runtimes,
+                client_view,
+                panel,
+                leading_separator,
+            );
+            let body = crate::ui::agent_panel_body_rect(
+                panel,
+                crate::ui::should_show_scrollbar(metrics),
+                leading_separator,
+            );
+            if crate::ui::agent_panel_empty_row_at_for_view(
+                &self.state,
+                &self.terminal_runtimes,
+                client_view,
+                body,
+                row,
+            ) {
+                return true;
+            }
+        }
         let Some((ws_idx, _, pane_id)) =
             self.client_view_agent_detail_target_at(client_view, column, row)
         else {
@@ -21637,11 +21662,7 @@ command = "printf literal > '{}'"
         app.state.sidebar_arrangement = crate::config::SidebarArrangementConfig::CombinedLeft;
 
         let mut client = ClientViewState::from_default_client_state(&app.state);
-        compute_client_view(
-            &app,
-            &mut client,
-            ratatui::layout::Rect::new(0, 0, 120, 30),
-        );
+        compute_client_view(&app, &mut client, ratatui::layout::Rect::new(0, 0, 120, 30));
         let panel = app.client_view_agent_panel_rect(&client);
         let follow_up_header = (panel.y..panel.y + panel.height)
             .find(|row| {

@@ -64,6 +64,15 @@ pub(crate) struct AgentPanelSection {
     pub entries: Vec<AgentPanelEntry>,
 }
 
+pub(crate) fn agent_panel_empty_row(section: &AgentPanelSection) -> Option<&'static str> {
+    (section.group == AgentStatusGroup::FollowUp && section.entries.is_empty())
+        .then_some("Drop an agent here")
+}
+
+pub(crate) fn agent_panel_section_item_count(section: &AgentPanelSection) -> usize {
+    section.entries.len() + usize::from(agent_panel_empty_row(section).is_some())
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct AgentPanelHeaderTarget {
     pub section: String,
@@ -1297,8 +1306,9 @@ fn agent_panel_visible_count(app: &AppState, area: Rect, leading_separator: bool
             remaining_rows = remaining_rows.saturating_sub(1);
             continue;
         }
-        if !section.entries.is_empty() && skip >= section.entries.len() {
-            skip -= section.entries.len();
+        let item_count = agent_panel_section_item_count(&section);
+        if item_count > 0 && skip >= item_count {
+            skip -= item_count;
             continue;
         }
         if remaining_rows < 1 {
@@ -1306,6 +1316,13 @@ fn agent_panel_visible_count(app: &AppState, area: Rect, leading_separator: bool
         }
 
         remaining_rows = remaining_rows.saturating_sub(1);
+        if agent_panel_empty_row(&section).is_some() {
+            if remaining_rows < 1 {
+                break;
+            }
+            remaining_rows = remaining_rows.saturating_sub(1);
+            visible += 1;
+        }
         let show_status = agent_panel_section_shows_entry_status(section.group);
         for detail in section.entries.iter().skip(skip) {
             let row_height =
@@ -1330,7 +1347,7 @@ pub(crate) fn agent_panel_scroll_metrics(
     let total_rows = agent_panel_sections(app)
         .iter()
         .filter(|section| !agent_panel_section_collapsed(app, section.group))
-        .map(|section| section.entries.len())
+        .map(agent_panel_section_item_count)
         .sum::<usize>();
     let max_offset_from_bottom = total_rows.saturating_sub(viewport_rows);
     let offset_from_bottom = total_rows
@@ -1366,8 +1383,9 @@ pub(crate) fn agent_panel_scroll_metrics_for_view(
                 remaining_rows = remaining_rows.saturating_sub(1);
                 continue;
             }
-            if !section.entries.is_empty() && skip >= section.entries.len() {
-                skip -= section.entries.len();
+            let item_count = agent_panel_section_item_count(section);
+            if item_count > 0 && skip >= item_count {
+                skip -= item_count;
                 continue;
             }
             if remaining_rows < 1 {
@@ -1375,6 +1393,13 @@ pub(crate) fn agent_panel_scroll_metrics_for_view(
             }
 
             remaining_rows = remaining_rows.saturating_sub(1);
+            if agent_panel_empty_row(section).is_some() {
+                if remaining_rows < 1 {
+                    break;
+                }
+                remaining_rows = remaining_rows.saturating_sub(1);
+                viewport_rows += 1;
+            }
             let show_status = agent_panel_section_shows_entry_status(section.group);
             for detail in section.entries.iter().skip(skip) {
                 let row_height =
@@ -1392,7 +1417,7 @@ pub(crate) fn agent_panel_scroll_metrics_for_view(
     let total_rows = sections
         .iter()
         .filter(|section| !agent_panel_section_collapsed_for_view(view, section.group))
-        .map(|section| section.entries.len())
+        .map(agent_panel_section_item_count)
         .sum::<usize>();
     let max_offset_from_bottom = total_rows.saturating_sub(viewport_rows);
     let offset_from_bottom = total_rows
@@ -4050,6 +4075,23 @@ fn render_agent_entry(
     }
 }
 
+fn render_agent_empty_row(
+    app: &AppState,
+    frame: &mut Frame,
+    label: &'static str,
+    area: Rect,
+    row_y: u16,
+) {
+    frame.render_widget(
+        Paragraph::new(format!("    {label}")).style(
+            Style::default()
+                .fg(app.palette.overlay0)
+                .add_modifier(Modifier::DIM),
+        ),
+        Rect::new(area.x, row_y, area.width, 1),
+    );
+}
+
 pub(crate) fn agent_panel_entry_at_row(
     app: &AppState,
     body: Rect,
@@ -4067,8 +4109,9 @@ pub(crate) fn agent_panel_entry_at_row(
             row_y = row_y.saturating_add(1);
             continue;
         }
-        if !section.entries.is_empty() && skip >= section.entries.len() {
-            skip -= section.entries.len();
+        let item_count = agent_panel_section_item_count(&section);
+        if item_count > 0 && skip >= item_count {
+            skip -= item_count;
             continue;
         }
         if row_y >= body_bottom {
@@ -4076,6 +4119,9 @@ pub(crate) fn agent_panel_entry_at_row(
         }
 
         row_y = row_y.saturating_add(1);
+        if agent_panel_empty_row(&section).is_some() {
+            row_y = row_y.saturating_add(1);
+        }
         let show_status = agent_panel_section_shows_entry_status(section.group);
         for detail in section.entries.iter().skip(skip) {
             let row_height =
@@ -4184,8 +4230,9 @@ pub(crate) fn agent_panel_header_target_at_row(
 
     for section in sections {
         let collapsed = agent_panel_section_collapsed(app, section.group);
-        if !collapsed && !section.entries.is_empty() && skip >= section.entries.len() {
-            skip -= section.entries.len();
+        let item_count = agent_panel_section_item_count(&section);
+        if !collapsed && item_count > 0 && skip >= item_count {
+            skip -= item_count;
             continue;
         }
         if row_y >= body_bottom {
@@ -4201,6 +4248,9 @@ pub(crate) fn agent_panel_header_target_at_row(
 
         if collapsed {
             continue;
+        }
+        if agent_panel_empty_row(&section).is_some() {
+            row_y = row_y.saturating_add(1);
         }
         let show_status = agent_panel_section_shows_entry_status(section.group);
         for detail in section.entries.iter().skip(skip) {
@@ -4236,8 +4286,9 @@ pub(crate) fn agent_panel_entry_at_row_for_view(
             row_y = row_y.saturating_add(1);
             continue;
         }
-        if !section.entries.is_empty() && skip >= section.entries.len() {
-            skip -= section.entries.len();
+        let item_count = agent_panel_section_item_count(&section);
+        if item_count > 0 && skip >= item_count {
+            skip -= item_count;
             continue;
         }
         if row_y >= body_bottom {
@@ -4245,6 +4296,9 @@ pub(crate) fn agent_panel_entry_at_row_for_view(
         }
 
         row_y = row_y.saturating_add(1);
+        if agent_panel_empty_row(&section).is_some() {
+            row_y = row_y.saturating_add(1);
+        }
         let show_status = agent_panel_section_shows_entry_status(section.group);
         for detail in section.entries.iter().skip(skip) {
             let row_height =
@@ -4282,8 +4336,9 @@ pub(crate) fn agent_panel_header_target_at_row_for_view(
 
     for section in sections {
         let collapsed = agent_panel_section_collapsed_for_view(view, section.group);
-        if !collapsed && !section.entries.is_empty() && skip >= section.entries.len() {
-            skip -= section.entries.len();
+        let item_count = agent_panel_section_item_count(&section);
+        if !collapsed && item_count > 0 && skip >= item_count {
+            skip -= item_count;
             continue;
         }
         if row_y >= body_bottom {
@@ -4300,6 +4355,9 @@ pub(crate) fn agent_panel_header_target_at_row_for_view(
         if collapsed {
             continue;
         }
+        if agent_panel_empty_row(&section).is_some() {
+            row_y = row_y.saturating_add(1);
+        }
         let show_status = agent_panel_section_shows_entry_status(section.group);
         for detail in section.entries.iter().skip(skip) {
             row_y = row_y.saturating_add(agent_panel_entry_row_height(
@@ -4313,6 +4371,84 @@ pub(crate) fn agent_panel_header_target_at_row_for_view(
     }
 
     None
+}
+
+fn agent_panel_empty_row_at_in_sections(
+    app: &AppState,
+    sections: &[AgentPanelSection],
+    body: Rect,
+    row: u16,
+    mut skip: usize,
+    section_collapsed: impl Fn(AgentStatusGroup) -> bool,
+) -> bool {
+    if body == Rect::default() || row < body.y || row >= body.y + body.height {
+        return false;
+    }
+
+    let mut row_y = body.y;
+    let body_bottom = body.y + body.height;
+    let show_agent_labels = agent_panel_should_show_agent_labels(sections);
+    for section in sections {
+        if section_collapsed(section.group) {
+            row_y = row_y.saturating_add(1);
+            continue;
+        }
+        let item_count = agent_panel_section_item_count(section);
+        if item_count > 0 && skip >= item_count {
+            skip -= item_count;
+            continue;
+        }
+        if row_y >= body_bottom {
+            break;
+        }
+
+        row_y = row_y.saturating_add(1);
+        if agent_panel_empty_row(section).is_some() {
+            return row_y < body_bottom && row == row_y;
+        }
+        let show_status = agent_panel_section_shows_entry_status(section.group);
+        for detail in section.entries.iter().skip(skip) {
+            row_y = row_y.saturating_add(agent_panel_entry_row_height(
+                app,
+                show_status,
+                show_agent_labels,
+                detail,
+            ));
+        }
+        skip = 0;
+    }
+
+    false
+}
+
+pub(crate) fn agent_panel_empty_row_at(app: &AppState, body: Rect, row: u16) -> bool {
+    let sections = agent_panel_sections(app);
+    agent_panel_empty_row_at_in_sections(
+        app,
+        &sections,
+        body,
+        row,
+        app.agent_panel_scroll,
+        |group| agent_panel_section_collapsed(app, group),
+    )
+}
+
+pub(crate) fn agent_panel_empty_row_at_for_view(
+    app: &AppState,
+    terminal_runtimes: &TerminalRuntimeRegistry,
+    view: &ClientViewState,
+    body: Rect,
+    row: u16,
+) -> bool {
+    let sections = agent_panel_sections_for_view(app, terminal_runtimes, view);
+    agent_panel_empty_row_at_in_sections(
+        app,
+        &sections,
+        body,
+        row,
+        view.agent_panel_scroll,
+        |group| agent_panel_section_collapsed_for_view(view, group),
+    )
 }
 
 fn render_agent_detail_from(
@@ -4395,8 +4531,9 @@ fn render_agent_detail_from(
             row_y = row_y.saturating_add(1);
             continue;
         }
-        if !section.entries.is_empty() && skip >= section.entries.len() {
-            skip -= section.entries.len();
+        let item_count = agent_panel_section_item_count(&section);
+        if item_count > 0 && skip >= item_count {
+            skip -= item_count;
             continue;
         }
         if row_y >= body_bottom {
@@ -4405,6 +4542,12 @@ fn render_agent_detail_from(
 
         render_agent_section_header(app, frame, &section, false, body, row_y);
         row_y = row_y.saturating_add(1);
+        if let Some(label) = agent_panel_empty_row(&section) {
+            if row_y < body_bottom {
+                render_agent_empty_row(app, frame, label, body, row_y);
+            }
+            row_y = row_y.saturating_add(1);
+        }
         let show_status = agent_panel_section_shows_entry_status(section.group);
 
         for detail in section.entries.iter().skip(skip) {
@@ -4527,8 +4670,9 @@ fn render_agent_detail_from_for_view(
             row_y = row_y.saturating_add(1);
             continue;
         }
-        if !section.entries.is_empty() && skip >= section.entries.len() {
-            skip -= section.entries.len();
+        let item_count = agent_panel_section_item_count(&section);
+        if item_count > 0 && skip >= item_count {
+            skip -= item_count;
             continue;
         }
         if row_y >= body_bottom {
@@ -4537,6 +4681,12 @@ fn render_agent_detail_from_for_view(
 
         render_agent_section_header(app, frame, &section, false, body, row_y);
         row_y = row_y.saturating_add(1);
+        if let Some(label) = agent_panel_empty_row(&section) {
+            if row_y < body_bottom {
+                render_agent_empty_row(app, frame, label, body, row_y);
+            }
+            row_y = row_y.saturating_add(1);
+        }
         let show_status = agent_panel_section_shows_entry_status(section.group);
 
         for detail in section.entries.iter().skip(skip) {
@@ -6379,11 +6529,11 @@ mod tests {
             "F"
         );
         assert_eq!(
-            buffer[(body.x + RIGHT_ENTRY_PRIMARY_COL, body.y + 2)].symbol(),
+            buffer[(body.x + RIGHT_ENTRY_PRIMARY_COL, body.y + 3)].symbol(),
             "f"
         );
         assert_eq!(
-            buffer[(body.x + RIGHT_ENTRY_PRIMARY_COL, body.y + 3)].symbol(),
+            buffer[(body.x + RIGHT_ENTRY_PRIMARY_COL, body.y + 4)].symbol(),
             "s"
         );
     }
@@ -6655,7 +6805,7 @@ mod tests {
         let workspace_chevron_x = workspace_header.x + SIDEBAR_GROUP_CHEVRON_COL;
         let expanded_agent_header_y = body.y;
         let follow_up_header_y = body.y + 3;
-        let collapsed_agent_header_y = body.y + 4;
+        let collapsed_agent_header_y = body.y + 5;
 
         assert_eq!(
             buffer[(workspace_chevron_x, workspace_header.y)].symbol(),
@@ -7101,8 +7251,10 @@ mod tests {
         terminal
             .draw(|frame| render_sidebar(&collapsed, &runtimes, frame, area))
             .expect("render collapsed Follow Up");
-        assert!(!buffer_text(terminal.backend().buffer(), area.width, area.height)
-            .contains("Drop an agent here"));
+        assert!(
+            !buffer_text(terminal.backend().buffer(), area.width, area.height)
+                .contains("Drop an agent here")
+        );
 
         let mut queued = crate::app::state::AppState::test_new();
         let mut workspace = Workspace::test_new("queued");
