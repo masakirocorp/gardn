@@ -439,7 +439,7 @@ pub struct TerminalConfig {
 #[serde(default)]
 pub struct SessionConfig {
     /// Resume supported AI-agent panes into their native conversation sessions
-    /// when restoring an Gardn session. Default: true.
+    /// when restoring a Gardn session. Default: true.
     pub resume_agents_on_restore: bool,
 }
 
@@ -2045,7 +2045,10 @@ position = "top-center"
         let config = Config::default();
         assert_eq!(config.ui.toast.delivery, ToastDelivery::Off);
         assert_eq!(config.ui.toast.delay_seconds, 1);
-        assert_eq!(config.ui.toast.gardn.position, ToastGardnPosition::BottomRight);
+        assert_eq!(
+            config.ui.toast.gardn.position,
+            ToastGardnPosition::BottomRight
+        );
         assert!(config.ui.toast.clipboard.enabled);
         assert_eq!(
             config.ui.toast.clipboard.position,

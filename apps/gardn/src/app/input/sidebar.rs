@@ -2752,7 +2752,7 @@ mod tests {
         app.state.group_filter_enabled = true;
         app.state.mode = Mode::Terminal;
         app.state.agent_panel_scope = AgentPanelScope::AllWorkspaces;
-        crate::ui::compute_view(&mut app.state, Rect::new(0, 0, 140, 20));
+        crate::ui::compute_view(&mut app.state, Rect::new(0, 0, 140, 30));
 
         assert_eq!(app.state.visible_workspace_indices(), vec![0]);
         let detail_area = app.state.agent_panel_rect();

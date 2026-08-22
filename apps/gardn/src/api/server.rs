@@ -910,12 +910,12 @@ mod tests {
         LOCK.get_or_init(|| Mutex::new(()))
     }
 
-    fn unique_test_path(name: &str) -> PathBuf {
+    fn unique_test_path(_name: &str) -> PathBuf {
         let nanos = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_nanos();
-        std::env::temp_dir().join(format!("gardn-{name}-{}-{nanos}", std::process::id()))
+        std::env::temp_dir().join(format!("gardn-api-{}-{nanos}", std::process::id()))
     }
 
     fn read_line(stream: &mut LocalStream) -> String {

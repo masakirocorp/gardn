@@ -7029,10 +7029,7 @@ mod tests {
 
         let toast = state.toast.as_ref().expect("missing integration toast");
         assert_eq!(toast.kind, ToastKind::NeedsAttention);
-        assert_eq!(
-            toast.title,
-            "Codex detected without Gardn integration"
-        );
+        assert_eq!(toast.title, "Codex detected without Gardn integration");
         assert!(toast.context.contains("manual · 1"));
         assert!(toast.context.contains("gardn integration install codex"));
         assert_eq!(

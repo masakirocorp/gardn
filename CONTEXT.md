@@ -13,7 +13,7 @@ A reusable launch identity for an agent family, with a stable id, display name, 
 _Avoid_: Agent command, launcher, preset
 
 **Agent Kind**:
-An Gardn-supported agent family that can back an agent profile. Agent kinds come from the same supported targets as agent integrations.
+A Gardn-supported agent family that can back an agent profile. Agent kinds come from the same supported targets as agent integrations.
 _Avoid_: Agent type, command type
 
 **System Agent Profile**:
@@ -197,7 +197,7 @@ A discovered command associated with a project root and launchable from Gardn's 
 _Avoid_: Task when referring to Gardn's managed command catalog
 
 **Command Run**:
-An Gardn-managed terminal tab created for a project command, tracked so the same command can be focused, stopped, or restarted instead of duplicated.
+A Gardn-managed terminal tab created for a project command, tracked so the same command can be focused, stopped, or restarted instead of duplicated.
 _Avoid_: Shell command, one-off terminal
 
 **Port Entry**:
@@ -253,7 +253,7 @@ A user-facing alert derived from an agent state change, such as needs-attention 
 _Avoid_: Toast when delivery channel is not yet chosen
 
 **Notification Target**:
-The workspace and pane an Gardn notification can focus. Notification targets exist for in-app navigation; external terminal or system notifications should not imply they can focus Gardn.
+The workspace and pane a Gardn notification can focus. Notification targets exist for in-app navigation; external terminal or system notifications should not imply they can focus Gardn.
 _Avoid_: Deep link, delivery target
 
 **Fallback Screen Detection**:
@@ -277,7 +277,7 @@ The binary server/client message contract used by Gardn clients to attach to a r
 _Avoid_: API, command protocol
 
 **Render Stream**:
-The wire-protocol flow of visual frame updates from an Gardn server to a thin client. Render streams are per-client and droppable; they are not durable state or Local API events.
+The wire-protocol flow of visual frame updates from a Gardn server to a thin client. Render streams are per-client and droppable; they are not durable state or Local API events.
 _Avoid_: Audit log, control channel
 
 **Render Encoding**:
@@ -293,11 +293,11 @@ The length-prefixed body carried by the wire protocol or a related thin-client t
 _Avoid_: Render stream, terminal bytes
 
 **Product Fork**:
-A fork that has its own product identity, release line, docs, website, update channel, and repository policy. Gardn is a product fork of upstream Gardn, not a mirror.
+A fork that has its own product identity, release line, docs, website, update channel, and repository policy. Gardn is a product fork of `ogulcancelik/herdr`, not a mirror.
 _Avoid_: Downstream mirror, rebrand branch
 
 **Upstream Signal**:
-An upstream Gardn change treated as candidate evidence for an Gardn invariant. Upstream signal must be checked against Gardn context before it becomes Gardn behavior.
+A change from the upstream repository treated as candidate evidence for a Gardn invariant. Upstream signal must be checked against Gardn context before it becomes Gardn behavior.
 _Avoid_: Upstream authority, automatic merge
 
 **Session Namespace**:
@@ -309,7 +309,7 @@ The built-in empty Gardn state: no workspaces, the unrenamed default group selec
 _Avoid_: Empty workspace, reset snapshot
 
 **Session Snapshot**:
-The durable saved shape of an Gardn session: groups, workspaces, tabs, panes, layout, active/selected/sidebar state, host-qualified defaults and Terminal Placements, pane label/seen state, launch argv/env, and resumable agent-session refs. It excludes pane scrollback, live PTY handles, SSH processes, credentials, and handoff-only terminal semantics.
+The durable saved shape of a Gardn session: groups, workspaces, tabs, panes, layout, active/selected/sidebar state, host-qualified defaults and Terminal Placements, pane label/seen state, launch argv/env, and resumable agent-session refs. It excludes pane scrollback, live PTY handles, SSH processes, credentials, and handoff-only terminal semantics.
 _Avoid_: History, handoff snapshot
 
 **Restore Recovery**:
@@ -337,7 +337,7 @@ Agent-facing terminal presentation and arbitration state such as detected agent,
 _Avoid_: Scrollback, runtime, terminal bytes
 
 **Thin Client**:
-An Gardn client process attached to a running Gardn server. A thin client renders server frames and forwards framed input bytes; the server owns normal app input semantics.
+A Gardn client process attached to a running Gardn server. A thin client renders server frames and forwards framed input bytes; the server owns normal app input semantics.
 _Avoid_: Server, app instance
 
 **Foreground Client**:
@@ -365,11 +365,11 @@ The single direct terminal attach connection currently admitted as writable for 
 _Avoid_: Foreground client, observer
 
 **Direct Install**:
-An Gardn binary installed outside a package manager and owned by Gardn's own updater.
+A Gardn binary installed outside a package manager and owned by Gardn's own updater.
 _Avoid_: Standalone when ownership matters
 
 **Managed Install**:
-An Gardn binary installed and owned by a package manager such as Homebrew, mise, or Nix.
+A Gardn binary installed and owned by a package manager such as Homebrew, mise, or Nix.
 _Avoid_: Direct install, self-managed install
 
 **Nix Flake Path**:

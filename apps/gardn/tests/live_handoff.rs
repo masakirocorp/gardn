@@ -47,7 +47,10 @@ fn test_lock() -> MutexGuard<'static, ()> {
 fn unique_test_dir() -> PathBuf {
     static COUNTER: AtomicUsize = AtomicUsize::new(0);
     let n = COUNTER.fetch_add(1, Ordering::Relaxed);
-    PathBuf::from(format!("/tmp/hlh-{}-{n}", std::process::id()))
+    PathBuf::from(format!(
+        "/tmp/gardn-live-handoff-{}-{n}",
+        std::process::id()
+    ))
 }
 
 fn spawn_server(config_home: &Path, runtime_dir: &Path, api_socket: &Path) -> SpawnedGardn {
@@ -62,7 +65,11 @@ fn spawn_server_with_env(
 ) -> SpawnedGardn {
     fs::create_dir_all(config_home.join("gardn")).unwrap();
     fs::create_dir_all(runtime_dir).unwrap();
-    fs::write(config_home.join("gardn/config.toml"), "onboarding = false\n").unwrap();
+    fs::write(
+        config_home.join("gardn/config.toml"),
+        "onboarding = false\n",
+    )
+    .unwrap();
 
     let pair = native_pty_system()
         .openpty(PtySize {

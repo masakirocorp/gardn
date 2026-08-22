@@ -43,8 +43,10 @@ fn with_manifest_dirs<T>(name: &str, f: impl FnOnce() -> T) -> T {
     let _guard = crate::config::test_config_env_lock().lock().unwrap();
     let old_config = std::env::var_os("XDG_CONFIG_HOME");
     let old_state = std::env::var_os("XDG_STATE_HOME");
-    let base =
-        std::env::temp_dir().join(format!("gardn-manifest-loader-{name}-{}", std::process::id()));
+    let base = std::env::temp_dir().join(format!(
+        "gardn-manifest-loader-{name}-{}",
+        std::process::id()
+    ));
     let config_dir = base.join("config");
     let state_dir = base.join("state");
     let _ = std::fs::remove_dir_all(&base);

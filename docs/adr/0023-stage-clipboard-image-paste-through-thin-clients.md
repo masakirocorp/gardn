@@ -16,7 +16,7 @@ This is separate from ADR 0010's byte-framed input boundary and ADR 0021's notif
 
 ## Current rationale
 
-`[INFERENCE]` Gardn stages clipboard images as files because many terminal programs and coding agents can consume local file paths, while raw image bytes pasted into a terminal would corrupt text input and require every shell/app to understand an Gardn-specific binary protocol.
+`[INFERENCE]` Gardn stages clipboard images as files because many terminal programs and coding agents can consume local file paths, while raw image bytes pasted into a terminal would corrupt text input and require every shell/app to understand a Gardn-specific binary protocol.
 
 `[INFERENCE]` The thin-client boundary keeps clipboard authority on the machine where the user pressed paste. That lets remote/headless servers receive useful paste behavior without gaining ambient access to the user's clipboard outside explicit paste gestures.
 

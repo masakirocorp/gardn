@@ -160,7 +160,9 @@ pub(crate) fn run_remote(remote: RemoteLaunch) -> io::Result<()> {
     let session_name = crate::session::active_name()
         .unwrap_or_else(|| crate::session::DEFAULT_SESSION_NAME.to_string());
     let local_socket = local_forward_socket_path(&remote.target, &session_name);
-    let program = std::env::args().next().unwrap_or_else(|| "gardn".to_string());
+    let program = std::env::args()
+        .next()
+        .unwrap_or_else(|| "gardn".to_string());
     let reattach_command = reattach_command(
         &program,
         &remote.target,
@@ -572,7 +574,8 @@ fn prepare_remote_gardn(
     confirm_remote_install(ssh.target(), &remote_gardn, &source_description)?;
     let source = resolve_install_source(&remote_gardn.platform, override_binary)?;
     let checksum = crate::checksum::file_sha256(&source.path)?;
-    let install_result = ssh.install_gardn(&remote_gardn, &source.path, &checksum, &source_description);
+    let install_result =
+        ssh.install_gardn(&remote_gardn, &source.path, &checksum, &source_description);
     source.cleanup();
     install_result?;
 
@@ -610,7 +613,10 @@ fn detect_remote_platform(ssh: &RemoteSsh) -> io::Result<RemotePlatform> {
     })
 }
 
-fn remote_binary_candidates(ssh: &RemoteSsh, remote_gardn: &RemoteGardn) -> io::Result<Vec<RemoteGardn>> {
+fn remote_binary_candidates(
+    ssh: &RemoteSsh,
+    remote_gardn: &RemoteGardn,
+) -> io::Result<Vec<RemoteGardn>> {
     let mut candidates = Vec::new();
 
     if let Some(path_candidate) = remote_binary_on_path_any(ssh, remote_gardn)? {
@@ -686,7 +692,10 @@ fn remote_gardns_from_path_discovery(remote_gardn: &RemoteGardn, stdout: &str) -
         .collect()
 }
 
-fn remote_gardn_from_path_discovery(remote_gardn: &RemoteGardn, stdout: &str) -> Option<RemoteGardn> {
+fn remote_gardn_from_path_discovery(
+    remote_gardn: &RemoteGardn,
+    stdout: &str,
+) -> Option<RemoteGardn> {
     stdout
         .lines()
         .find_map(|path| remote_gardn_from_path(remote_gardn, path))
@@ -697,7 +706,11 @@ fn remote_gardn_from_path(remote_gardn: &RemoteGardn, path: &str) -> Option<Remo
     if !path.starts_with('/') || path.ends_with("/mise/shims/gardn") {
         return None;
     }
-    Some(remote_gardn.clone().with_shell_path(posix_shell_quote(path)))
+    Some(
+        remote_gardn
+            .clone()
+            .with_shell_path(posix_shell_quote(path)),
+    )
 }
 
 fn worker_build_info_command(shell_path: &str) -> String {
@@ -1247,7 +1260,8 @@ fn wait_for_remote_server_shutdown(
 ) -> io::Result<()> {
     let deadline = Instant::now() + REMOTE_SERVER_SHUTDOWN_CONFIRM_TIMEOUT;
     loop {
-        if remote_server_status(ssh, remote_gardn, session_name)? == RemoteServerStatus::NotRunning {
+        if remote_server_status(ssh, remote_gardn, session_name)? == RemoteServerStatus::NotRunning
+        {
             return Ok(());
         }
         if Instant::now() >= deadline {
@@ -2097,7 +2111,11 @@ mod tests {
 
     #[test]
     fn extract_remote_args_rejects_duplicate_values() {
-        let args = vec!["gardn".into(), "--remote=dev".into(), "--remote=prod".into()];
+        let args = vec![
+            "gardn".into(),
+            "--remote=dev".into(),
+            "--remote=prod".into(),
+        ];
         let err = extract_remote_args(&args).unwrap_err();
         assert_eq!(err, "--remote can only be specified once");
     }
@@ -2111,7 +2129,11 @@ mod tests {
 
     #[test]
     fn extract_remote_args_requires_remote_for_keybindings() {
-        let args = vec!["gardn".into(), "--remote-keybindings".into(), "server".into()];
+        let args = vec![
+            "gardn".into(),
+            "--remote-keybindings".into(),
+            "server".into(),
+        ];
         let err = extract_remote_args(&args).unwrap_err();
         assert_eq!(err, "--remote-keybindings requires --remote");
     }

@@ -14,11 +14,11 @@ install-local:
 install-dev:
     scripts/install_local_binaries.sh --dev-only
 
-# Create a merge-commit PR for upstream Gardn changes
+# Create a merge-commit PR from the upstream repository
 sync-upstream:
     python3 scripts/sync_upstream.py
 
-# Report upstream Gardn commits as ported, skipped, superseded, or pending
+# Report upstream commits as ported, skipped, superseded, or pending
 upstream-status:
     python3 scripts/upstream_status.py --check
 

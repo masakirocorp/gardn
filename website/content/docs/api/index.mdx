@@ -13,8 +13,8 @@ The Local API is not HTTP, REST, or OpenAPI. It is separate from the binary prot
 
 | Surface                                              | Use it for                                                                                                                  |
 | ---------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
-| [`gardn` CLI](/docs/reference/cli)                     | Shell scripts, one-shot operations, and human debugging. Prefer this when a command already exposes the operation you need. |
-| [Agent skill](/docs/guides/plugins-and-integrations) | Teaching an AI coding agent how to operate Gardn from inside a pane.                                                  |
+| [`gardn` CLI](/docs/reference/cli)                   | Shell scripts, one-shot operations, and human debugging. Prefer this when a command already exposes the operation you need. |
+| [Agent skill](/docs/guides/plugins-and-integrations) | Teaching an AI coding agent how to operate Gardn from inside a pane.                                                        |
 | [Plugin manifest](/docs/reference/plugin-manifest)   | Installing reusable actions, links, event hooks, pane launchers, and agent lifecycle integrations.                          |
 | Local API                                            | Direct request/response control, complete resource inspection, pane input/output, or long-lived event subscriptions.        |
 
@@ -31,7 +31,7 @@ A client opens the session's Local API socket, writes one JSON request followed 
 The response echoes the caller-selected `id`:
 
 ```json
-{ "id": "example:ping", "result": { "type": "pong", "version": "0.2.19", "protocol": 12 } }
+{ "id": "example:ping", "result": { "type": "pong", "version": "0.2.19", "protocol": 13 } }
 ```
 
 `events.subscribe` is the one exception to the one-response lifecycle. The server returns a subscription acknowledgement, then keeps the connection open and writes matching event lines until either side closes it.

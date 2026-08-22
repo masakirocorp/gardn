@@ -184,7 +184,9 @@ pub(crate) fn run_remote(remote: RemoteLaunch) -> io::Result<()> {
     let session_name = crate::session::active_name()
         .unwrap_or_else(|| crate::session::DEFAULT_SESSION_NAME.to_string());
     let local_socket = local_forward_socket_path(&remote.target, &session_name);
-    let program = std::env::args().next().unwrap_or_else(|| "gardn".to_string());
+    let program = std::env::args()
+        .next()
+        .unwrap_or_else(|| "gardn".to_string());
     let reattach_command = reattach_command(
         &program,
         &remote.target,
@@ -729,7 +731,8 @@ fn prepare_remote_gardn(
     confirm_remote_install(ssh.target(), &remote_gardn, &source_description)?;
     let source = resolve_install_source(&remote_gardn.platform, override_binary)?;
     let checksum = crate::checksum::file_sha256(&source.path)?;
-    let install_result = ssh.install_gardn(&remote_gardn, &source.path, &checksum, &source_description);
+    let install_result =
+        ssh.install_gardn(&remote_gardn, &source.path, &checksum, &source_description);
     source.cleanup();
     install_result?;
 
@@ -774,7 +777,10 @@ fn detect_remote_platform_cancellable(
     })
 }
 
-fn remote_binary_candidates(ssh: &RemoteSsh, remote_gardn: &RemoteGardn) -> io::Result<Vec<RemoteGardn>> {
+fn remote_binary_candidates(
+    ssh: &RemoteSsh,
+    remote_gardn: &RemoteGardn,
+) -> io::Result<Vec<RemoteGardn>> {
     let mut candidates = Vec::new();
 
     if let Some(path_candidate) = remote_binary_on_path_any(ssh, remote_gardn)? {
@@ -867,7 +873,10 @@ fn remote_gardns_from_path_discovery(remote_gardn: &RemoteGardn, stdout: &str) -
         .collect()
 }
 
-fn remote_gardn_from_path_discovery(remote_gardn: &RemoteGardn, stdout: &str) -> Option<RemoteGardn> {
+fn remote_gardn_from_path_discovery(
+    remote_gardn: &RemoteGardn,
+    stdout: &str,
+) -> Option<RemoteGardn> {
     stdout
         .lines()
         .find_map(|path| remote_gardn_from_path(remote_gardn, path))
@@ -1428,7 +1437,8 @@ fn wait_for_remote_server_shutdown(
 ) -> io::Result<()> {
     let deadline = Instant::now() + REMOTE_SERVER_SHUTDOWN_CONFIRM_TIMEOUT;
     loop {
-        if remote_server_status(ssh, remote_gardn, session_name)? == RemoteServerStatus::NotRunning {
+        if remote_server_status(ssh, remote_gardn, session_name)? == RemoteServerStatus::NotRunning
+        {
             return Ok(());
         }
         if Instant::now() >= deadline {
@@ -2600,7 +2610,10 @@ pub(crate) fn spawn_execution_worker_cancellable(
     })
 }
 
-fn execution_worker_remote_gardn(platform: RemotePlatform, checksum: &str) -> io::Result<RemoteGardn> {
+fn execution_worker_remote_gardn(
+    platform: RemotePlatform,
+    checksum: &str,
+) -> io::Result<RemoteGardn> {
     if checksum.len() != 64
         || !checksum
             .chars()
@@ -2638,7 +2651,8 @@ fn remote_worker_binary_matches_cancellable(
     remote_gardn: &RemoteGardn,
     cancel: Option<&ConnectCancel>,
 ) -> io::Result<bool> {
-    let output = ssh.sh_output_cancellable(&execution_worker_probe_command(remote_gardn), cancel)?;
+    let output =
+        ssh.sh_output_cancellable(&execution_worker_probe_command(remote_gardn), cancel)?;
     let Ok(identity) = parse_worker_build_identity(&output) else {
         return Ok(false);
     };
@@ -3105,7 +3119,11 @@ mod tests {
 
     #[test]
     fn extract_remote_args_rejects_duplicate_values() {
-        let args = vec!["gardn".into(), "--remote=dev".into(), "--remote=prod".into()];
+        let args = vec![
+            "gardn".into(),
+            "--remote=dev".into(),
+            "--remote=prod".into(),
+        ];
         let err = extract_remote_args(&args).unwrap_err();
         assert_eq!(err, "--remote can only be specified once");
     }
@@ -3257,8 +3275,8 @@ mod tests {
             os: "linux",
             arch: "x86_64",
         });
-        let remote_gardn =
-            remote_gardn_from_path_discovery(&remote_gardn, "/usr/bin/gardn\n").expect("path binary");
+        let remote_gardn = remote_gardn_from_path_discovery(&remote_gardn, "/usr/bin/gardn\n")
+            .expect("path binary");
         let session = "my session";
 
         assert_eq!(
@@ -3281,8 +3299,8 @@ mod tests {
             os: "linux",
             arch: "x86_64",
         });
-        let remote_gardn =
-            remote_gardn_from_path_discovery(&remote_gardn, "/usr/bin/gardn\n").expect("path binary");
+        let remote_gardn = remote_gardn_from_path_discovery(&remote_gardn, "/usr/bin/gardn\n")
+            .expect("path binary");
 
         assert_eq!(
             remote_bridge_command(&remote_gardn, crate::session::DEFAULT_SESSION_NAME),
@@ -3297,7 +3315,8 @@ mod tests {
             arch: "x86_64",
         });
         let remote_gardn =
-            remote_gardn_from_path_discovery(&remote_gardn, "/opt/gardn bin/gardn\n").expect("path binary");
+            remote_gardn_from_path_discovery(&remote_gardn, "/opt/gardn bin/gardn\n")
+                .expect("path binary");
 
         assert_eq!(
             remote_bridge_command(&remote_gardn, crate::session::DEFAULT_SESSION_NAME),
@@ -3311,8 +3330,9 @@ mod tests {
             os: "macos",
             arch: "aarch64",
         });
-        let remote_gardn = remote_gardn_from_path_discovery(&remote_gardn, "/opt/homebrew/bin/gardn\n")
-            .expect("path binary");
+        let remote_gardn =
+            remote_gardn_from_path_discovery(&remote_gardn, "/opt/homebrew/bin/gardn\n")
+                .expect("path binary");
 
         assert_eq!(
             remote_bridge_command(&remote_gardn, crate::session::DEFAULT_SESSION_NAME),
@@ -3327,8 +3347,9 @@ mod tests {
             os: "linux",
             arch: "x86_64",
         });
-        let remote_gardn = remote_gardn_from_path_discovery(&remote_gardn, "/opt/gardn's/bin/gardn\n")
-            .expect("path binary");
+        let remote_gardn =
+            remote_gardn_from_path_discovery(&remote_gardn, "/opt/gardn's/bin/gardn\n")
+                .expect("path binary");
 
         assert_eq!(
             remote_bridge_command(&remote_gardn, crate::session::DEFAULT_SESSION_NAME),
@@ -3681,7 +3702,9 @@ exit 99
     fn known_mise_candidate_script_checks_both_install_layouts() {
         let script = known_remote_binary_candidate_script();
 
-        assert!(script.contains("emit \"$home/.local/share/mise/installs/gardn/$version/bin/gardn\""));
+        assert!(
+            script.contains("emit \"$home/.local/share/mise/installs/gardn/$version/bin/gardn\"")
+        );
         assert!(script.contains("emit \"$home/.local/share/mise/installs/gardn/$version/gardn\""));
         assert!(script.contains(&format!("version={}", shell_quote(CURRENT_VERSION))));
         assert!(!script.contains("mise/shims/gardn"));
@@ -3858,8 +3881,10 @@ exit 99
     #[test]
     fn worker_install_override_preview_has_verified_checksum() {
         let _environment = crate::integration::integration_env_lock();
-        let path =
-            std::env::temp_dir().join(format!("gardn-worker-install-source-{}", std::process::id()));
+        let path = std::env::temp_dir().join(format!(
+            "gardn-worker-install-source-{}",
+            std::process::id()
+        ));
         std::fs::write(&path, b"worker-source").unwrap();
         let _override = crate::config::TestEnvVar::set(REMOTE_BINARY_ENV_VAR, &path);
         let platform = RemotePlatform {
@@ -3889,8 +3914,10 @@ exit 99
     #[test]
     fn missing_non_local_development_worker_points_to_atomic_install_command() {
         let _environment = crate::integration::integration_env_lock();
-        let worker_root =
-            std::env::temp_dir().join(format!("gardn-missing-worker-sidecar-{}", std::process::id()));
+        let worker_root = std::env::temp_dir().join(format!(
+            "gardn-missing-worker-sidecar-{}",
+            std::process::id()
+        ));
         let _worker_dir = crate::config::TestEnvVar::set(DEV_WORKER_DATA_DIR_ENV_VAR, &worker_root);
         let platform = RemotePlatform {
             os: "linux",
@@ -4084,8 +4111,10 @@ exit 99
             .duration_since(std::time::UNIX_EPOCH)
             .expect("system clock should be after the Unix epoch")
             .as_nanos();
-        let dir =
-            std::env::temp_dir().join(format!("gardn-worker-probe-{}-{unique}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!(
+            "gardn-worker-probe-{}-{unique}",
+            std::process::id()
+        ));
         fs::create_dir_all(&dir).expect("fake ssh directory should be created");
         let fake_ssh = dir.join("ssh");
         let log = dir.join("invocations");
@@ -4500,8 +4529,10 @@ exit 99
             .duration_since(std::time::UNIX_EPOCH)
             .expect("system clock should be after the Unix epoch")
             .as_nanos();
-        let dir =
-            std::env::temp_dir().join(format!("gardn-worker-ensure-{}-{unique}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!(
+            "gardn-worker-ensure-{}-{unique}",
+            std::process::id()
+        ));
         let bin_dir = dir.join("bin");
         let remote_home = dir.join("remote-home");
         fs::create_dir_all(&bin_dir).expect("fake ssh directory should exist");

@@ -29,7 +29,7 @@ After the change is integrated, remove the task worktree and delete the task bra
 
 ## Long-lived fork workflow
 
-This repo is a long-lived Masakiro product fork of `ogulcancelik/herdr`, branded and distributed as Gardn.
+This repository is a long-lived Masakiro product fork of `ogulcancelik/herdr`. It is branded and distributed as Gardn.
 
 - `origin` should point to `masakirocorp/gardn`.
 - `upstream` should point to `ogulcancelik/herdr`.
@@ -116,7 +116,7 @@ Tests are behavior specs, not implementation snapshots. Prefer the public/user-v
 ## Conventions
 
 - Agents choose concise conventional commit messages, lowercase, no emojis. Do not ask for commit-message approval unless the user explicitly requests it.
-- `docs/` and `website/` are Gardn-owned. Do not reintroduce upstream Gardn docs/site content or generated website output unless explicitly requested.
+- `docs/` and `website/` are Gardn-owned. Do not reintroduce upstream docs, site content, or generated website output unless explicitly requested.
 - Put local PRDs, planning notes, and exploratory specs under `.prd/`; that directory is ignored and locally controlled.
 - When work maps to an external tracker ticket, follow the team's tracker-linking convention for commit messages and PR descriptions. Do not assume GitHub issue references are in use.
 - Rust: no `unwrap()` in production code. `tracing` for logging. `#[allow]` only with a comment explaining why.

@@ -54,10 +54,6 @@ fn agent_help_shows_target_before_options() {
     ] {
         assert!(help.contains(usage), "missing target-first usage {usage:?}: {help}");
     }
-    assert!(
-        !help.contains("gardn agent"),
-        "help must use Gardn's gardn name: {help}"
-    );
 }
 
 #[test]
@@ -117,7 +113,7 @@ fn agent_start_parses_target_first_options_and_preserves_native_argv() {
                     "result": {
                         "type": "pong",
                         "version": "0.2.19",
-                        "protocol": 12,
+                        "protocol": 13,
                         "capabilities": {"live_handoff": true}
                     }
                 })

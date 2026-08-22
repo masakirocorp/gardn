@@ -36,7 +36,7 @@ export function Schematic({ title, caption }: { title: string; caption?: ReactNo
       <figure className="gardn-schematic" aria-label="Gardn session interface schematic">
         <div className="gardn-schematic-titlebar">
           <span className="gardn-schematic-dot" aria-hidden="true" />
-          <span className="gardn-schematic-title">gardn — default session</span>
+          <span className="gardn-schematic-title">gardn · default session</span>
         </div>
         <div className="gardn-schematic-body">
           <div className="gardn-schematic-sidebar">

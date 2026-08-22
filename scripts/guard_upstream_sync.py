@@ -70,12 +70,12 @@ FORBIDDEN_RESURRECTIONS = [
 ]
 
 IDENTITY_FORBIDDEN = [
-    "GARDN_",
-    "gardn-dev",
-    'name = "gardn"',
-    "masakirocorp/gardn",
-    "https://gardn.dev",
-    "http://gardn.dev",
+    "HERDR_",
+    "herdr-dev",
+    'name = "herdr"',
+    "masakirocorp/herdr",
+    "https://herdr.dev",
+    "http://herdr.dev",
 ]
 
 ATTRIBUTION_ALLOWED = {

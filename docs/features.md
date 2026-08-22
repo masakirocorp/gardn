@@ -11,7 +11,7 @@ A session is a persistent Gardn runtime with its own sockets, panes, tabs, works
 - **Default session** — `gardn` launches or attaches to the default background session.
 - **Named sessions** — `gardn --session <name>` and `gardn session attach <name>` select separate runtime namespaces.
 - **Detach / reattach** — clients can detach while panes and agents continue running in the server.
-- **Remote attach** — `gardn --remote <target>` attaches to an Gardn server over SSH.
+- **Remote attach** — `gardn --remote <target>` attaches to a Gardn server over SSH.
 - **Remote bootstrap** — remote attach can detect the remote platform, reuse an existing compatible binary, or install a matching Gardn binary before connecting.
 - **Remote server restart flow** — remote attach checks protocol/version compatibility and can prompt to stop or restart an incompatible remote server.
 - **SSH keepalive fallback** — remote attach can add private generated SSH keepalive defaults without overriding your own SSH config.
@@ -285,7 +285,7 @@ Integration path overrides include `PI_CODING_AGENT_DIR`, `PI_CONFIG_DIR`, `CLAU
 
 Gardn plugin v1 lets local extensions add actions, panes, link handlers, and event hooks through the Gardn socket API and CLI.
 
-Plugin manifests use `gardn-plugin.toml` with `min_gardn_version`. Gardn also accepts upstream-compatible `gardn-plugin.toml` and `min_gardn_version` aliases, but Gardn names are preferred for new plugins.
+Plugin manifests use `gardn-plugin.toml` with `min_gardn_version`. Gardn does not accept compatibility aliases for the manifest filename or version field.
 
 Plugins run unsandboxed as the current user. Remote installs show source, build commands, actions, panes, link handlers, and event hooks before install, and require confirmation unless `--yes` is passed.
 
@@ -434,7 +434,7 @@ Direct installs use GitHub Releases for update checks, release metadata, and bin
 
 ## Fork maintenance
 
-Gardn tracks upstream Gardn commits with an explicit port ledger.
+Gardn tracks commits from `ogulcancelik/herdr` with an explicit port ledger.
 
 - **Upstream port ledger** — `upstream-port-map.json` records each upstream commit as ported, superseded, skipped, or pending.
 - **Ledger check** — `just upstream-status` reports upstream status and fails when commits are unclassified or still pending.

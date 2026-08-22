@@ -375,7 +375,7 @@ initial_agent_scope = "all"
 
 [session]
 # Resume supported AI-agent panes into their native conversation sessions after
-# an Gardn server restart. Requires official integrations that report session refs.
+# a Gardn server restart. Requires official integrations that report session refs.
 # resume_agents_on_restore = true
 
 
@@ -394,7 +394,7 @@ initial_agent_scope = "all"
 # manage_ssh_config = true
 
 [experimental]
-# Allow launching Gardn from inside an Gardn-managed pane.
+# Allow launching Gardn from inside a Gardn-managed pane.
 # allow_nested = false
 # Experimental local Kitty graphics rendering for attached clients.
 # Requires a Kitty graphics-compatible outer terminal.
@@ -673,7 +673,7 @@ fn main() -> io::Result<()> {
         println!("config: {}", config::config_path().display());
         println!("logs:   {}", logging::help_log_paths_summary());
         println!("env:    GARDN_CONFIG_PATH overrides config file path");
-        println!("home:   https://github.com/masakirocorp/gardn");
+        println!("home:   https://gardn.dev");
         println!("skill:  gardn --skill prints agent instructions for driving gardn from a pane");
         return Ok(());
     }

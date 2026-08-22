@@ -1543,7 +1543,7 @@ pub(crate) fn apply_context_menu_action(
             ContextMenuKind::Pane {
                 ws_idx, pane_id, ..
             },
-            Some(action @ ("send right-clicks to pane" | "use oh my gardn right-click menu")),
+            Some(action @ ("send right-clicks to pane" | "use gardn right-click menu")),
         ) => {
             if let Some(pane) = state
                 .workspaces

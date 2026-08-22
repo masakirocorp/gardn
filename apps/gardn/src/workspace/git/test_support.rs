@@ -44,7 +44,10 @@ pub(super) fn run_git(cwd: &Path, args: &[&str]) {
         .env("GIT_AUTHOR_EMAIL", "tests@gardn.dev")
         .env("GIT_COMMITTER_NAME", "Gardn Tests")
         .env("GIT_COMMITTER_EMAIL", "tests@gardn.dev")
-        .env("GIT_CONFIG_GLOBAL", cwd.join(".gardn-test-global-gitconfig"))
+        .env(
+            "GIT_CONFIG_GLOBAL",
+            cwd.join(".gardn-test-global-gitconfig"),
+        )
         .env("GIT_CONFIG_NOSYSTEM", "1")
         .output()
         .unwrap();

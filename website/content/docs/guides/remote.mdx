@@ -5,7 +5,7 @@ description: Attach to a remote session or run selected workspaces, tabs, panes,
 
 # Use Gardn over SSH
 
-Use this how-to when the workspaces and panes should run on another Unix host. A plain SSH shell and an Gardn remote client are different paths:
+Use this how-to when the workspaces and panes should run on another Unix host. A plain SSH shell and a Gardn remote client are different paths:
 
 - `ssh workbox` gives you the host's ordinary shell.
 - `gardn --remote workbox` runs a local client whose terminal session is bridged to Gardn on `workbox`.
@@ -81,7 +81,7 @@ gardn agent start reviewer --host ssh:workbox:1 --cwd /srv/project -- codex
 
 ## Install agent integrations on an SSH host
 
-Use the managed connection when an agent running on that Execution Host needs an Gardn integration:
+Use the managed connection when an agent running on that Execution Host needs a Gardn integration:
 
 1. Connect the profile in **Settings > Connections**.
 2. Open **Settings > Integrations**.

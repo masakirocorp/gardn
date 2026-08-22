@@ -131,7 +131,6 @@ for (const [label, candidates] of routes) {
     failures.push(`${label}: non-production origin leaked into public metadata`);
   }
   for (const forbidden of [
-    "Gardn",
     "--handoff-import",
     "remote-client-bridge",
     "ClientMessage",

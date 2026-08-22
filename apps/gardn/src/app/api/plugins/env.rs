@@ -9,9 +9,6 @@ pub(super) fn plugin_path_env(plugin: &InstalledPluginInfo) -> Vec<(String, Stri
     let state_dir = state_dir.display().to_string();
     vec![
         ("GARDN_PLUGIN_ROOT".to_string(), plugin.plugin_root.clone()),
-        ("GARDN_PLUGIN_CONFIG_DIR".to_string(), config_dir.clone()),
-        ("GARDN_PLUGIN_STATE_DIR".to_string(), state_dir.clone()),
-        ("GARDN_PLUGIN_ROOT".to_string(), plugin.plugin_root.clone()),
         ("GARDN_PLUGIN_CONFIG_DIR".to_string(), config_dir),
         ("GARDN_PLUGIN_STATE_DIR".to_string(), state_dir),
     ]

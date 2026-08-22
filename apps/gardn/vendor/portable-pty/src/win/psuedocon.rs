@@ -49,7 +49,7 @@ fn load_conpty() -> ConPtyFuncs {
         "this system does not support conpty.  Windows 10 October 2018 or newer is required",
     );
 
-    // Oh My Herdr uses the Windows system ConPTY implementation. Do not load a
+    // Gardn uses the Windows system ConPTY implementation. Do not load a
     // bare `conpty.dll` from PATH, which could belong to another application.
     kernel
 }

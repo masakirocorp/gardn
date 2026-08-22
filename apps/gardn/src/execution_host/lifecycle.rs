@@ -23,8 +23,8 @@ const LEGACY_DAEMON_LIFECYCLE_VERSION: u16 = 1;
 /// framing rejects the message as oversized rather than mis-decoding it.
 pub(crate) const LIFECYCLE_FRAME_PREFIX: [u8; 4] = [0xff, 0xff, 0xff, 0xff];
 
-/// ASCII magic including trailing NUL: `GARDNEWLC\0`.
-const FRAME_MAGIC: &[u8; 8] = b"GARDNEWLC\0";
+/// ASCII magic including trailing NUL: `GARDNLC\0`.
+const FRAME_MAGIC: &[u8; 8] = b"GARDNLC\0";
 
 const KIND_ACTIVATE_REQUEST: u8 = 1;
 const KIND_ACTIVATE_REPLY: u8 = 2;
@@ -734,8 +734,8 @@ mod tests {
             vec![
                 // prefix u32::MAX
                 0xff, 0xff, 0xff, 0xff, //
-                // magic GARDNEWLC\0
-                b'O', b'M', b'H', b'E', b'W', b'L', b'C', 0x00, //
+                // magic GARDNLC\0
+                b'G', b'A', b'R', b'D', b'N', b'L', b'C', 0x00, //
                 // version 2 u16 LE
                 0x02, 0x00, //
                 // kind request
@@ -766,7 +766,7 @@ mod tests {
         assert_eq!(
             request.encode_legacy_v1().unwrap(),
             vec![
-                0xff, 0xff, 0xff, 0xff, b'O', b'M', b'H', b'E', b'W', b'L', b'C', 0x00, 0x01, 0x00,
+                0xff, 0xff, 0xff, 0xff, b'G', b'A', b'R', b'D', b'N', b'L', b'C', 0x00, 0x01, 0x00,
                 0x01, 0x00, 0x1a, 0x00, 0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99,
                 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff, 0x03, 0x00, 0x00, 0x00, 0x05, b'0', b'.', b'1',
                 b'.', b'0',
@@ -790,7 +790,7 @@ mod tests {
             bytes,
             vec![
                 0xff, 0xff, 0xff, 0xff, //
-                b'O', b'M', b'H', b'E', b'W', b'L', b'C', 0x00, //
+                b'G', b'A', b'R', b'D', b'N', b'L', b'C', 0x00, //
                 0x02, 0x00, // lifecycle version 2
                 0x02, // reply kind
                 0x00, //

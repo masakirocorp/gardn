@@ -17,7 +17,7 @@ use serde::{Deserialize, Serialize};
 /// Bump once per Gardn release cycle when source becomes incompatible with the
 /// latest Gardn release protocol; multiple unreleased incompatible changes share
 /// the same bump.
-pub const PROTOCOL_VERSION: u32 = 12;
+pub const PROTOCOL_VERSION: u32 = 13;
 
 /// Maximum allowed frame payload size (2 MB). Frames larger than this are
 /// rejected to prevent denial-of-service via oversized length prefixes.
@@ -1048,7 +1048,7 @@ mod tests {
         };
         assert_bincode_bytes(
             &msg,
-            &[0x00, 0x0c, 0x50, 0x18, 0x08, 0x10, 0x00, 0x00, 0x00],
+            &[0x00, 0x0d, 0x50, 0x18, 0x08, 0x10, 0x00, 0x00, 0x00],
         );
     }
 
@@ -1147,7 +1147,7 @@ mod tests {
     }
 
     #[test]
-    fn client_input_events_preserve_protocol_12_bytes() {
+    fn client_input_events_preserve_protocol_13_bytes() {
         let msg = ClientMessage::InputEvents {
             events: vec![
                 ClientInputEvent::Key {
@@ -1354,7 +1354,7 @@ mod tests {
             encoding: RenderEncoding::SemanticFrame,
             error: None,
         };
-        assert_bincode_bytes(&msg, &[0x00, 0x0c, 0x00, 0x00]);
+        assert_bincode_bytes(&msg, &[0x00, 0x0d, 0x00, 0x00]);
     }
 
     #[test]
@@ -1367,7 +1367,7 @@ mod tests {
         assert_bincode_bytes(
             &msg,
             &[
-                0x00, 0x0c, 0x00, 0x01, 0x14, b'i', b'n', b'c', b'o', b'm', b'p', b'a', b't', b'i',
+                0x00, 0x0d, 0x00, 0x01, 0x14, b'i', b'n', b'c', b'o', b'm', b'p', b'a', b't', b'i',
                 b'b', b'l', b'e', b' ', b'v', b'e', b'r', b's', b'i', b'o', b'n',
             ],
         );
@@ -1669,7 +1669,7 @@ mod tests {
         write_message(&mut buf, &msg).unwrap();
         assert_eq!(
             buf.as_slice(),
-            &[0x09, 0x00, 0x00, 0x00, 0x00, 0x0c, 0x50, 0x18, 0x08, 0x10, 0x00, 0x00, 0x00]
+            &[0x09, 0x00, 0x00, 0x00, 0x00, 0x0d, 0x50, 0x18, 0x08, 0x10, 0x00, 0x00, 0x00]
         );
         let decoded: ClientMessage = read_message(&mut buf.as_slice(), MAX_FRAME_SIZE).unwrap();
         assert_eq!(msg, decoded);
@@ -1690,7 +1690,7 @@ mod tests {
         let expected = [
             0x09, 0x00, 0x00, 0x00, // payload length
             0x00, // ClientMessage::Hello
-            0x0c, // PROTOCOL_VERSION
+            0x0d, // PROTOCOL_VERSION
             0x50, // cols
             0x18, // rows
             0x08, // cell_width_px
@@ -1719,7 +1719,7 @@ mod tests {
         let expected = [
             0x04, 0x00, 0x00, 0x00, // payload length
             0x00, // ServerMessage::Welcome
-            0x0c, // PROTOCOL_VERSION
+            0x0d, // PROTOCOL_VERSION
             0x00, // RenderEncoding::SemanticFrame
             0x00, // error: None
         ];

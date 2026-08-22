@@ -565,8 +565,10 @@ contains = ["{contains}"]
         let _guard = crate::config::test_config_env_lock().lock().unwrap();
         let old_config = std::env::var_os("XDG_CONFIG_HOME");
         let old_state = std::env::var_os("XDG_STATE_HOME");
-        let dir =
-            std::env::temp_dir().join(format!("gardn-manifest-update-{name}-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!(
+            "gardn-manifest-update-{name}-{}",
+            std::process::id()
+        ));
         let config_dir = dir.join("config");
         let state_dir = dir.join("state");
         let _ = fs::remove_dir_all(&dir);

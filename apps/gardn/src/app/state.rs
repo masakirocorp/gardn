@@ -2517,7 +2517,7 @@ impl ContextMenuState {
                 "split vertical",
                 "split horizontal",
                 "zoom",
-                "use oh my gardn right-click menu",
+                "use gardn right-click menu",
                 "close pane",
             ],
             ContextMenuKind::Pane {
@@ -2541,7 +2541,7 @@ impl ContextMenuState {
                 "split vertical",
                 "split horizontal",
                 "zoom",
-                "use oh my gardn right-click menu",
+                "use gardn right-click menu",
                 "close pane",
             ],
         }
@@ -2587,7 +2587,7 @@ impl ContextMenuState {
             "split horizontal" => "Split Horizontal",
             "zoom" => "Zoom",
             "send right-clicks to pane" => "Send Right-Clicks to Pane",
-            "use oh my gardn right-click menu" => "Use Gardn Right-Click Menu",
+            "use gardn right-click menu" => "Use Gardn Right-Click Menu",
             "close pane" => "Close Pane",
             _ => item,
         }

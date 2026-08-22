@@ -1659,22 +1659,22 @@ mod tests {
 
     #[test]
     fn github_plugin_source_parses_root_repo() {
-        let source = GithubPluginSource::parse("ogulcancelik/gardn-plugin-examples").unwrap();
-        assert_eq!(source.owner, "ogulcancelik");
+        let source = GithubPluginSource::parse("masakirocorp/gardn-plugin-examples").unwrap();
+        assert_eq!(source.owner, "masakirocorp");
         assert_eq!(source.repo, "gardn-plugin-examples");
         assert_eq!(source.subdir, None);
         assert_eq!(
             source.remote_url(),
-            "https://github.com/ogulcancelik/gardn-plugin-examples.git"
+            "https://github.com/masakirocorp/gardn-plugin-examples.git"
         );
     }
 
     #[test]
     fn github_plugin_source_parses_subdir() {
         let source =
-            GithubPluginSource::parse("ogulcancelik/gardn-plugin-examples/workspace-bootstrap")
+            GithubPluginSource::parse("masakirocorp/gardn-plugin-examples/workspace-bootstrap")
                 .unwrap();
-        assert_eq!(source.owner, "ogulcancelik");
+        assert_eq!(source.owner, "masakirocorp");
         assert_eq!(source.repo, "gardn-plugin-examples");
         assert_eq!(source.subdir.as_deref(), Some("workspace-bootstrap"));
     }
@@ -1682,11 +1682,11 @@ mod tests {
     #[test]
     fn github_plugin_source_rejects_non_shorthand_sources() {
         for source in [
-            "https://github.com/ogulcancelik/gardn-plugin-examples",
-            "git@github.com:ogulcancelik/gardn-plugin-examples.git",
-            "ogulcancelik",
-            "ogulcancelik/gardn-plugin-examples/../bad",
-            "ogulcancelik/gardn-plugin-examples//bad",
+            "https://github.com/masakirocorp/gardn-plugin-examples",
+            "git@github.com:masakirocorp/gardn-plugin-examples.git",
+            "masakirocorp",
+            "masakirocorp/gardn-plugin-examples/../bad",
+            "masakirocorp/gardn-plugin-examples//bad",
         ] {
             assert!(
                 GithubPluginSource::parse(source).is_err(),
@@ -1698,18 +1698,18 @@ mod tests {
     #[test]
     fn github_source_lookup_matches_installed_plugin_source() {
         let source =
-            GithubPluginSource::parse("ogulcancelik/gardn-plugin-examples/agent-telegram-notify")
+            GithubPluginSource::parse("masakirocorp/gardn-plugin-examples/agent-telegram-notify")
                 .unwrap();
         let plugins = vec![
             github_plugin(
                 "examples.github-link-preview",
-                "ogulcancelik",
+                "masakirocorp",
                 "gardn-plugin-examples",
                 Some("github-link-preview"),
             ),
             github_plugin(
                 "examples.agent-telegram-notify",
-                "ogulcancelik",
+                "masakirocorp",
                 "gardn-plugin-examples",
                 Some("agent-telegram-notify"),
             ),
@@ -1721,10 +1721,10 @@ mod tests {
 
     #[test]
     fn github_source_lookup_requires_exact_subdir() {
-        let source = GithubPluginSource::parse("ogulcancelik/gardn-plugin-examples").unwrap();
+        let source = GithubPluginSource::parse("masakirocorp/gardn-plugin-examples").unwrap();
         let plugins = vec![github_plugin(
             "examples.agent-telegram-notify",
-            "ogulcancelik",
+            "masakirocorp",
             "gardn-plugin-examples",
             Some("agent-telegram-notify"),
         )];
@@ -1734,10 +1734,10 @@ mod tests {
 
     #[test]
     fn github_source_lookup_ignores_local_plugins() {
-        let source = GithubPluginSource::parse("ogulcancelik/gardn-plugin-examples").unwrap();
+        let source = GithubPluginSource::parse("masakirocorp/gardn-plugin-examples").unwrap();
         let mut plugin = github_plugin(
             "examples.local",
-            "ogulcancelik",
+            "masakirocorp",
             "gardn-plugin-examples",
             None,
         );

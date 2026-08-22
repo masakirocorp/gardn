@@ -92,7 +92,11 @@ fn spawn_server(
     fs::create_dir_all(config_home.join("gardn")).unwrap();
     fs::create_dir_all(runtime_dir).unwrap();
     register_runtime_dir(runtime_dir);
-    fs::write(config_home.join("gardn/config.toml"), "onboarding = false\n").unwrap();
+    fs::write(
+        config_home.join("gardn/config.toml"),
+        "onboarding = false\n",
+    )
+    .unwrap();
 
     let pair = native_pty_system()
         .openpty(PtySize {
@@ -132,7 +136,11 @@ fn spawn_gardn_auto(
     fs::create_dir_all(config_home.join("gardn")).unwrap();
     fs::create_dir_all(runtime_dir).unwrap();
     register_runtime_dir(runtime_dir);
-    fs::write(config_home.join("gardn/config.toml"), "onboarding = false\n").unwrap();
+    fs::write(
+        config_home.join("gardn/config.toml"),
+        "onboarding = false\n",
+    )
+    .unwrap();
 
     let pair = native_pty_system()
         .openpty(PtySize {
@@ -171,7 +179,11 @@ fn spawn_gardn_no_session(
     fs::create_dir_all(config_home.join("gardn")).unwrap();
     fs::create_dir_all(runtime_dir).unwrap();
     register_runtime_dir(runtime_dir);
-    fs::write(config_home.join("gardn/config.toml"), "onboarding = false\n").unwrap();
+    fs::write(
+        config_home.join("gardn/config.toml"),
+        "onboarding = false\n",
+    )
+    .unwrap();
 
     let pair = native_pty_system()
         .openpty(PtySize {

@@ -33,7 +33,7 @@ const STATUS_REQUEST_TIMEOUT: Duration = Duration::from_secs(2);
 // Server detection
 // ---------------------------------------------------------------------------
 
-/// Checks whether an Gardn server is currently listening on the client socket.
+/// Checks whether a Gardn server is currently listening on the client socket.
 ///
 /// This works by attempting to connect to the client socket. If the connection
 /// succeeds, a server is running. If the socket file doesn't exist or the
@@ -45,7 +45,7 @@ pub fn is_server_listening() -> bool {
     is_server_listening_at(&client_socket_path())
 }
 
-/// Checks whether an Gardn server is listening at a specific socket path.
+/// Checks whether a Gardn server is listening at a specific socket path.
 fn is_server_listening_at(socket_path: &Path) -> bool {
     if !socket_path.exists() {
         return false;
@@ -86,7 +86,7 @@ fn read_server_status() -> io::Result<Option<crate::api::RuntimeStatus>> {
 fn validate_running_server_compatibility() -> io::Result<()> {
     let Some(status) = read_server_status()? else {
         return Err(io::Error::other(
-            "an Gardn server is listening, but its status API is unavailable. Try `gardn server stop`; if that fails, stop the old server process manually, then run `gardn` again.",
+            "a Gardn server is listening, but its status API is unavailable. Try `gardn server stop`; if that fails, stop the old server process manually, then run `gardn` again.",
         ));
     };
 
@@ -134,10 +134,7 @@ pub fn spawn_server_daemon() -> io::Result<u32> {
 
     let pid =
         crate::platform::launch_server_daemon_command(&mut command).map_err(|err: io::Error| {
-            io::Error::new(
-                err.kind(),
-                format!("failed to spawn Gardn server: {err}"),
-            )
+            io::Error::new(err.kind(), format!("failed to spawn Gardn server: {err}"))
         })?;
     info!(pid, "server daemon spawned");
 
@@ -248,7 +245,10 @@ mod tests {
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_nanos();
-        std::path::PathBuf::from(format!("/tmp/ha-{name}-{}-{nanos}", std::process::id()))
+        std::path::PathBuf::from(format!(
+            "/tmp/gardn-autodetect-{name}-{}-{nanos}",
+            std::process::id()
+        ))
     }
 
     fn wait_until_not_listening(path: &std::path::Path) {
@@ -274,8 +274,10 @@ mod tests {
         let _guard = env_lock().lock().unwrap();
         let _socket_env =
             crate::config::TestEnvVar::set(crate::api::SOCKET_PATH_ENV_VAR, "/tmp/inherited.sock");
-        let _client_socket_env =
-            crate::config::TestEnvVar::set("GARDN_CLIENT_SOCKET_PATH", "/tmp/inherited-client.sock");
+        let _client_socket_env = crate::config::TestEnvVar::set(
+            "GARDN_CLIENT_SOCKET_PATH",
+            "/tmp/inherited-client.sock",
+        );
         let _session_env = crate::config::TestEnvVar::remove(crate::session::SESSION_ENV_VAR);
         crate::session::clear_explicit_session_for_test();
         let args = vec![

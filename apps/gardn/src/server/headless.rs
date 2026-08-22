@@ -4597,7 +4597,9 @@ fn print_ready_message(api_socket: &Path, client_socket: &Path) {
     eprintln!("client socket: {}", client_socket.display());
     eprintln!(
         "logs: {}",
-        crate::session::data_dir().join("gardn-server.log").display()
+        crate::session::data_dir()
+            .join("gardn-server.log")
+            .display()
     );
     eprintln!("did you mean to open the Gardn TUI? run `gardn`; you do not need `gardn server`.");
 }
@@ -4635,7 +4637,7 @@ mod tests {
         app.local_input_source_switch = false;
 
         let dir = std::env::temp_dir().join(format!(
-            "hh-{}-{}-{}",
+            "gardn-headless-{}-{}-{}",
             std::process::id(),
             TEST_SOCKET_COUNTER.fetch_add(1, Ordering::Relaxed),
             std::time::SystemTime::now()

@@ -13,7 +13,7 @@ import {
 export default function HomePage() {
   return (
     <>
-      <title>Gardn — Terminal workspace management for AI coding agents</title>
+      <title>Gardn | Terminal workspace management for AI coding agents</title>
       <meta
         name="description"
         content="Run AI coding agents, shells, and project context in persistent terminal workspaces that survive disconnects."
@@ -56,10 +56,10 @@ export default function HomePage() {
           }
         >
           <p>
-            Gardn organizes AI coding agents, shells, and project context into persistent
-            terminal spaces. Workspaces, tabs, and panes live inside a session server that survives
-            client disconnects, so you can detach, reattach from another terminal, and pick up where
-            you left off without losing the live processes behind each pane.
+            Gardn organizes AI coding agents, shells, and project context into persistent terminal
+            spaces. Workspaces, tabs, and panes live inside a session server that survives client
+            disconnects, so you can detach, reattach from another terminal, and pick up where you
+            left off without losing the live processes behind each pane.
           </p>
         </Hero>
 
@@ -131,7 +131,8 @@ export default function HomePage() {
                 <>
                   Press <span className="gardn-command">ctrl+b</span>,{" "}
                   <span className="gardn-command">q</span> to detach. The session server keeps your
-                  panes running. Run <span className="gardn-command">gardn</span> again to reconnect.
+                  panes running. Run <span className="gardn-command">gardn</span> again to
+                  reconnect.
                 </>
               ),
               href: "/docs/guides/updates-and-handoff",
@@ -179,8 +180,8 @@ export default function HomePage() {
               copy: (
                 <>
                   Attach to a session over SSH with{" "}
-                  <span className="gardn-command">gardn --remote</span>. The remote host can bootstrap a
-                  matching binary before the client connects.
+                  <span className="gardn-command">gardn --remote</span>. The remote host can
+                  bootstrap a matching binary before the client connects.
                 </>
               ),
               href: "/docs/guides/remote",
@@ -235,7 +236,11 @@ export default function HomePage() {
           ]}
           actions={
             <>
-              <Link className="gardn-action" data-primary="true" href="/docs/getting-started/install">
+              <Link
+                className="gardn-action"
+                data-primary="true"
+                href="/docs/getting-started/install"
+              >
                 Install from source
               </Link>
               <Link className="gardn-action" href="/download">
@@ -248,8 +253,8 @@ export default function HomePage() {
           }
         >
           <p>
-            Gardn is pre-public. Verified release downloads are not yet available, so install
-            from the source checkout or the Nix flake. The local client runs on macOS, Linux, and
+            Gardn is pre-public. Verified release downloads are not yet available, so install from
+            the source checkout or the Nix flake. The local client runs on macOS, Linux, and
             Windows; the remote bridge is limited to Unix local clients and Linux or macOS remote
             hosts.
           </p>
@@ -284,7 +289,7 @@ export default function HomePage() {
         </CTASection>
 
         <Footer>
-          <p>Gardn — a terminal workspace manager for AI coding agents.</p>
+          <p>Gardn is a terminal workspace manager for AI coding agents.</p>
         </Footer>
       </main>
     </>

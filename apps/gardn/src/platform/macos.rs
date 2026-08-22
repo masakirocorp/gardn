@@ -1205,9 +1205,9 @@ mod tests {
     }
 
     #[test]
-    fn procargs2_agent_hint_rejects_non_gardn_and_malformed_values() {
-        let upstream =
-            build_procargs2("/opt/homebrew/bin/nono", &["nono"], &["GARDN_AGENT=claude"]);
+    fn procargs2_agent_hint_rejects_unrelated_and_malformed_values() {
+        let unrelated =
+            build_procargs2("/opt/homebrew/bin/nono", &["nono"], &["OTHER_AGENT=claude"]);
         let unknown = build_procargs2(
             "/opt/homebrew/bin/nono",
             &["nono"],
@@ -1216,7 +1216,7 @@ mod tests {
         let mut truncated = build_procargs2("/opt/homebrew/bin/nono", &["nono"], &[]);
         truncated[..4].copy_from_slice(&2_i32.to_ne_bytes());
 
-        assert_eq!(procargs2_agent_hint(&upstream), None);
+        assert_eq!(procargs2_agent_hint(&unrelated), None);
         assert_eq!(procargs2_agent_hint(&unknown), None);
         assert_eq!(procargs2_agent_hint(&truncated), None);
     }

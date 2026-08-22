@@ -35,17 +35,17 @@ A top-level unknown command or option in the normal launch path is reported as a
 
 These options apply to the launch command rather than to a family subcommand:
 
-| Option                                 | Default                    | Description                                                                            |
-| -------------------------------------- | -------------------------- | -------------------------------------------------------------------------------------- |
-| `--no-session`                         | off                        | Run the monolithic local process without the normal server/client session launcher.    |
-| `--session <name>`                     | `default` or `GARDN_SESSION` | Use or create the named persistent session.                                            |
-| `--remote <ssh-target>`                | unset                      | Attach through SSH to a remote Gardn server. The target is an SSH target string. |
-| `--remote-keybindings <local\|server>` | `local`                    | With `--remote`, use local client keybindings or the remote server's keybindings.      |
-| `--handoff`                            | off                        | Opt into live handoff for supported update or remote attach operations.                |
-| `--default-config`                     | off                        | Print the built-in TOML configuration and exit.                                        |
-| `--skill`                              | off                        | Print the bundled agent skill file and exit.                                           |
-| `--version`, `-V`                      | off                        | Print the `gardn` version and exit.                                                      |
-| `--help`, `-h`                         | off                        | Print launch and family help and exit.                                                 |
+| Option                                 | Default                      | Description                                                                         |
+| -------------------------------------- | ---------------------------- | ----------------------------------------------------------------------------------- |
+| `--no-session`                         | off                          | Run the monolithic local process without the normal server/client session launcher. |
+| `--session <name>`                     | `default` or `GARDN_SESSION` | Use or create the named persistent session.                                         |
+| `--remote <ssh-target>`                | unset                        | Attach through SSH to a remote Gardn server. The target is an SSH target string.    |
+| `--remote-keybindings <local\|server>` | `local`                      | With `--remote`, use local client keybindings or the remote server's keybindings.   |
+| `--handoff`                            | off                          | Opt into live handoff for supported update or remote attach operations.             |
+| `--default-config`                     | off                          | Print the built-in TOML configuration and exit.                                     |
+| `--skill`                              | off                          | Print the bundled agent skill file and exit.                                        |
+| `--version`, `-V`                      | off                          | Print the `gardn` version and exit.                                                 |
+| `--help`, `-h`                         | off                          | Print launch and family help and exit.                                              |
 
 `--remote-keybindings` requires `--remote`. Windows is a supported local client for `--remote`; Windows is not a supported remote host. The option parser accepts only `local` and `server`. Remote launches read `[remote].manage_ssh_config` when the SSH launch starts. See [remote configuration](/docs/reference/configuration#remote).
 
@@ -55,8 +55,8 @@ The separator `--` ends `gardn` option parsing for child command arguments. In `
 
 ### `server`
 
-| Syntax                              | Description                                                                     |
-| ----------------------------------- | ------------------------------------------------------------------------------- |
+| Syntax                                | Description                                                                     |
+| ------------------------------------- | ------------------------------------------------------------------------------- |
 | `gardn server`                        | Run as a headless server.                                                       |
 | `gardn server stop`                   | Stop the running server through the local API socket.                           |
 | `gardn server reload-config`          | Reload the configuration file in the running server and return a reload report. |
@@ -67,8 +67,8 @@ The live handoff and import paths are runtime handoff plumbing rather than publi
 
 ### `api`
 
-| Syntax                         | Description                                                       |
-| ------------------------------ | ----------------------------------------------------------------- |
+| Syntax                           | Description                                                       |
+| -------------------------------- | ----------------------------------------------------------------- |
 | `gardn api schema`               | Print a compact API schema summary.                               |
 | `gardn api schema --json`        | Print the generated API schema as formatted JSON.                 |
 | `gardn api schema --output PATH` | Write the generated API schema to `PATH`.                         |
@@ -76,8 +76,8 @@ The live handoff and import paths are runtime handoff plumbing rather than publi
 
 ### `status`
 
-| Syntax                       | Description                                                                                                                        |
-| ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| Syntax                         | Description                                                                                                                        |
+| ------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------- |
 | `gardn status`                 | Show local client, running server, and restart-needed status in text form. A server that is not running is shown as `not running`. |
 | `gardn status --json`          | Print the combined status as JSON.                                                                                                 |
 | `gardn status server [--json]` | Show running-server status in text or JSON.                                                                                        |
@@ -85,8 +85,8 @@ The live handoff and import paths are runtime handoff plumbing rather than publi
 
 ### `group`
 
-| Syntax                                                            | Description                                                                                           |
-| ----------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| Syntax                                                              | Description                                                                                           |
+| ------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
 | `gardn group list`                                                  | List groups.                                                                                          |
 | `gardn group create <name> [--cwd PATH] [--host EXECUTION_HOST_ID]` | Create a group. Optional `--host` and `--cwd` set the group's default location for future workspaces. |
 | `gardn group focus <group_id>`                                      | Focus a group.                                                                                        |
@@ -100,8 +100,8 @@ For `group create`, `--host` selects the execution host for `--cwd`. It requires
 
 ### `config`
 
-| Syntax                  | Description                                                                                                  |
-| ----------------------- | ------------------------------------------------------------------------------------------------------------ |
+| Syntax                    | Description                                                                                                  |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------ |
 | `gardn config check`      | Read the selected configuration file, print `config: ok` or diagnostics, and return `0` or `1` respectively. |
 | `gardn config reset-keys` | Back up the configuration file and remove custom keybinding sections so built-in v2 keybindings apply.       |
 
@@ -111,8 +111,8 @@ For `group create`, `--host` selects the execution host for `--cwd`. It requires
 
 These commands manage coordinator-owned OpenSSH connection profiles and the remote execution worker.
 
-| Syntax                                                                                | Description                                                                                      |
-| ------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| Syntax                                                                                  | Description                                                                                      |
+| --------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
 | `gardn connection list`                                                                 | List profiles with execution host ids and connection status.                                     |
 | `gardn connection save <profile_id> --name NAME --target SSH_TARGET [--directory PATH]` | Create or replace a profile. `--directory` sets its suggested remote path.                       |
 | `gardn connection delete <profile_id>`                                                  | Delete an unreferenced profile. This command does not run the cross-session retirement workflow. |
@@ -126,8 +126,8 @@ Saving a profile authorizes managed worker installation and updates. `connection
 
 ### `workspace`
 
-| Syntax                                                                                                                 | Description                                                                                                         |
-| ---------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| Syntax                                                                                                                   | Description                                                                                                         |
+| ------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------- |
 | `gardn workspace list`                                                                                                   | List workspaces.                                                                                                    |
 | `gardn workspace create [--cwd PATH] [--host EXECUTION_HOST_ID] [--label TEXT] [--env KEY=VALUE] [--focus] [--no-focus]` | Create a workspace, optionally setting its placement, label, environment, and focus state. `--env` may be repeated. |
 | `gardn workspace get <workspace_id>`                                                                                     | Get one workspace.                                                                                                  |
@@ -141,14 +141,14 @@ Saving a profile authorizes managed worker installation and updates. `connection
 
 ### `notification`
 
-| Syntax                                                                                                                                  | Description                                                                                                 |
-| --------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| Syntax                                                                                                                                    | Description                                                                                                 |
+| ----------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
 | `gardn notification show <title> [--body TEXT] [--position top-left\|top-right\|bottom-left\|bottom-right] [--sound none\|done\|request]` | Request an in-app or configured notification. `--sound` selects no sound, a done sound, or a request sound. |
 
 ### `tab`
 
-| Syntax                                                                                                                                     | Description                             |
-| ------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------- |
+| Syntax                                                                                                                                       | Description                             |
+| -------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------- |
 | `gardn tab list [--workspace WORKSPACE_ID]`                                                                                                  | List tabs, optionally in one workspace. |
 | `gardn tab create [--workspace WORKSPACE_ID] [--cwd PATH] [--host EXECUTION_HOST_ID] [--label TEXT] [--env KEY=VALUE] [--focus\|--no-focus]` | Create a tab. `--env` may be repeated.  |
 | `gardn tab get <tab_id>`                                                                                                                     | Get one tab.                            |
@@ -164,8 +164,8 @@ Saving a profile authorizes managed worker installation and updates. `connection
 
 An agent target may be a terminal ID, a unique agent name, a detected or reported agent label, or a legacy pane ID.
 
-| Syntax                                                                                                                                                | Description                                                                                                                            |
-| ----------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| Syntax                                                                                                                                                  | Description                                                                                                                            |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
 | `gardn agent list`                                                                                                                                      | List detected and reported agents.                                                                                                     |
 | `gardn agent get <target>`                                                                                                                              | Get an agent's state and metadata.                                                                                                     |
 | `gardn agent read <target> [--source visible\|recent\|recent-unwrapped] [--lines N] [--format text\|ansi] [--ansi]`                                     | Read an agent's pane output. `--ansi` preserves ANSI formatting; the default text format strips it.                                    |
@@ -185,8 +185,8 @@ For `agent start`, `--host` selects the execution host for `--cwd`. It requires 
 
 ### `terminal`
 
-| Syntax                                           | Description                                                                                       |
-| ------------------------------------------------ | ------------------------------------------------------------------------------------------------- |
+| Syntax                                             | Description                                                                                       |
+| -------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
 | `gardn terminal attach <terminal_id> [--takeover]` | Attach directly to a terminal by ID; `--takeover` requests takeover of an existing direct attach. |
 | `gardn terminal title set <title>`                 | Set the outer client window title.                                                                |
 | `gardn terminal title clear`                       | Clear the outer client window title.                                                              |
@@ -197,17 +197,17 @@ A direct terminal attach can be detached with the configured detach key (default
 
 For commands accepting `[--pane ID|--current]`, omitting the selector uses the current pane where the command supports a current-pane default.
 
-| Syntax                                                                                                                                                                     | Description                                                               |
-| -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- | ------------------------------------------------------------- |
+| Syntax                                                                                                                                                                       | Description                                                               |
+| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- | --------------------------------------------------------------- |
 | `gardn pane list [--workspace WORKSPACE_ID]`                                                                                                                                 | List panes, optionally in one workspace.                                  |
 | `gardn pane current [--pane ID                                                                                                                                               | --current]`                                                               | Resolve the current pane, using `GARDN_PANE_ID` when available. |
 | `gardn pane get <pane_id>`                                                                                                                                                   | Get one pane.                                                             |
-| `gardn pane layout [--pane ID                                                                                                                                                | --current]`                                                               | Get the pane layout.                                          |
-| `gardn pane process-info [--pane ID                                                                                                                                          | --current]`                                                               | Get process information.                                      |
-| `gardn pane neighbor --direction left\|right\|up\|down [--pane ID                                                                                                            | --current]`                                                               | Resolve a neighboring pane.                                   |
-| `gardn pane edges [--pane ID                                                                                                                                                 | --current]`                                                               | Report pane edge state.                                       |
-| `gardn pane focus --direction left\|right\|up\|down [--pane ID                                                                                                               | --current]`                                                               | Focus a neighboring pane.                                     |
-| `gardn pane resize --direction left\|right\|up\|down [--amount FLOAT] [--pane ID                                                                                             | --current]`                                                               | Resize toward a direction.                                    |
+| `gardn pane layout [--pane ID                                                                                                                                                | --current]`                                                               | Get the pane layout.                                            |
+| `gardn pane process-info [--pane ID                                                                                                                                          | --current]`                                                               | Get process information.                                        |
+| `gardn pane neighbor --direction left\|right\|up\|down [--pane ID                                                                                                            | --current]`                                                               | Resolve a neighboring pane.                                     |
+| `gardn pane edges [--pane ID                                                                                                                                                 | --current]`                                                               | Report pane edge state.                                         |
+| `gardn pane focus --direction left\|right\|up\|down [--pane ID                                                                                                               | --current]`                                                               | Focus a neighboring pane.                                       |
+| `gardn pane resize --direction left\|right\|up\|down [--amount FLOAT] [--pane ID                                                                                             | --current]`                                                               | Resize toward a direction.                                      |
 | `gardn pane zoom [<pane_id>\|--pane ID\|--current] [--toggle\|--on\|--off]`                                                                                                  | Toggle, enable, or disable pane zoom.                                     |
 | `gardn pane read <pane_id> [--source visible\|recent\|recent-unwrapped] [--lines N] [--format text\|ansi] [--ansi\|--raw]`                                                   | Read pane output. `--raw` preserves ANSI bytes; default text strips them. |
 | `gardn pane rename <pane_id> <label>\|--clear`                                                                                                                               | Set or clear a pane label.                                                |
@@ -230,8 +230,8 @@ For `pane split`, `--host` selects the execution host for `--cwd`. It requires `
 
 ### `plugin`
 
-| Syntax                                                                                                                                                                                                                      | Description                                                                                                                 |
-| --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| Syntax                                                                                                                                                                                                                        | Description                                                                                                                 |
+| ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
 | `gardn plugin install <owner>/<repo>[/subdir...] [--ref REF] [--yes]`                                                                                                                                                         | Install a plugin from a GitHub repository or subdirectory. `--ref` selects a ref; `--yes` accepts the install confirmation. |
 | `gardn plugin uninstall <plugin_id\|owner/repo[/subdir...]>`                                                                                                                                                                  | Uninstall a plugin by ID or source.                                                                                         |
 | `gardn plugin link <path> [--disabled]`                                                                                                                                                                                       | Link a local plugin directory, enabled by default; `--disabled` persists it without enabling runtime actions.               |
@@ -256,15 +256,15 @@ Pane placement defaults to the entrypoint's manifest setting. `overlay` is clien
 
 ### `wait`
 
-| Syntax                                                                                                                               | Description                                                                                               |
-| ------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------- |
+| Syntax                                                                                                                                 | Description                                                                                               |
+| -------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
 | `gardn wait output <pane_id> --match <text> [--source visible\|recent\|recent-unwrapped] [--lines N] [--timeout MS] [--regex] [--raw]` | Wait until pane output matches text or a regular expression. `--raw` preserves ANSI data during matching. |
 | `gardn wait agent-status <pane_id> --status idle\|working\|blocked\|done\|unknown [--timeout MS]`                                      | Wait until the pane's agent status matches.                                                               |
 
 ### `integration`
 
-| Syntax                                     | Description                                                       |
-| ------------------------------------------ | ----------------------------------------------------------------- |
+| Syntax                                       | Description                                                       |
+| -------------------------------------------- | ----------------------------------------------------------------- |
 | `gardn integration status [--outdated-only]` | List integration status, or print only an outdated-update notice. |
 | `gardn integration install <target>`         | Install the integration for one target.                           |
 | `gardn integration uninstall <target>`       | Remove the integration for one target.                            |
@@ -277,8 +277,8 @@ Targets are `pi`, `omp`, `claude`, `codex`, `copilot`, `devin`, `kimi`, `droid`,
 
 ### `session`
 
-| Syntax                               | Description                                                  |
-| ------------------------------------ | ------------------------------------------------------------ |
+| Syntax                                 | Description                                                  |
+| -------------------------------------- | ------------------------------------------------------------ |
 | `gardn session list [--json]`          | List named sessions in text or JSON.                         |
 | `gardn session attach <name>`          | Attach to a named session.                                   |
 | `gardn session stop <name> [--json]`   | Stop a named session. `default` selects the default session. |

@@ -414,7 +414,10 @@ impl App {
         }
     }
 
-    pub(super) fn save_toast_gardn_position(&mut self, position: crate::config::ToastGardnPosition) {
+    pub(super) fn save_toast_gardn_position(
+        &mut self,
+        position: crate::config::ToastGardnPosition,
+    ) {
         self.state.settings.pending_toast_gardn_position = Some(position);
         let value = match position {
             crate::config::ToastGardnPosition::TopLeft => "\"top-left\"",
@@ -999,7 +1002,10 @@ mod tests {
         assert!(app.state.update_version_check);
         assert!(app.state.update_manifest_check);
         assert_eq!(app.state.toast_config.delay_seconds, original_delay);
-        assert_eq!(app.state.toast_config.gardn.position, original_gardn_position);
+        assert_eq!(
+            app.state.toast_config.gardn.position,
+            original_gardn_position
+        );
         assert_eq!(
             app.state.toast_config.clipboard.enabled,
             original_clipboard_enabled

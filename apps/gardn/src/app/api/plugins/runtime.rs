@@ -42,9 +42,6 @@ impl App {
             ),
             ("GARDN_ENV".to_string(), "1".to_string()),
             ("GARDN_PLUGIN_ID".to_string(), plugin.plugin_id.clone()),
-            ("GARDN_PLUGIN_CONTEXT_JSON".to_string(), context_json.clone()),
-            ("GARDN_ENV".to_string(), "1".to_string()),
-            ("GARDN_PLUGIN_ID".to_string(), plugin.plugin_id.clone()),
             ("GARDN_PLUGIN_CONTEXT_JSON".to_string(), context_json),
         ]);
         if let Ok(current_exe) = std::env::current_exe() {
@@ -52,44 +49,29 @@ impl App {
                 "GARDN_BIN_PATH".to_string(),
                 current_exe.display().to_string(),
             ));
-            env.push((
-                "GARDN_BIN_PATH".to_string(),
-                current_exe.display().to_string(),
-            ));
         }
         if let Some(action_id) = action_id.as_ref() {
-            env.push(("GARDN_PLUGIN_ACTION_ID".to_string(), action_id.clone()));
             env.push(("GARDN_PLUGIN_ACTION_ID".to_string(), action_id.clone()));
         }
         if let Some(event) = event.as_ref() {
             env.push(("GARDN_PLUGIN_EVENT".to_string(), event.clone()));
-            env.push(("GARDN_PLUGIN_EVENT".to_string(), event.clone()));
         }
         if let Some(event_json) = event_json {
-            env.push(("GARDN_PLUGIN_EVENT_JSON".to_string(), event_json.clone()));
             env.push(("GARDN_PLUGIN_EVENT_JSON".to_string(), event_json));
         }
         if let Some(workspace_id) = context.workspace_id.as_ref() {
             env.push(("GARDN_WORKSPACE_ID".to_string(), workspace_id.clone()));
-            env.push(("GARDN_WORKSPACE_ID".to_string(), workspace_id.clone()));
         }
         if let Some(tab_id) = context.tab_id.as_ref() {
-            env.push(("GARDN_TAB_ID".to_string(), tab_id.clone()));
             env.push(("GARDN_TAB_ID".to_string(), tab_id.clone()));
         }
         if let Some(pane_id) = context.focused_pane_id.as_ref() {
             env.push(("GARDN_PANE_ID".to_string(), pane_id.clone()));
-            env.push(("GARDN_PANE_ID".to_string(), pane_id.clone()));
         }
         if let Some(clicked_url) = context.clicked_url.as_ref() {
             env.push(("GARDN_PLUGIN_CLICKED_URL".to_string(), clicked_url.clone()));
-            env.push(("GARDN_PLUGIN_CLICKED_URL".to_string(), clicked_url.clone()));
         }
         if let Some(link_handler_id) = context.link_handler_id.as_ref() {
-            env.push((
-                "GARDN_PLUGIN_LINK_HANDLER_ID".to_string(),
-                link_handler_id.clone(),
-            ));
             env.push((
                 "GARDN_PLUGIN_LINK_HANDLER_ID".to_string(),
                 link_handler_id.clone(),
@@ -346,7 +328,10 @@ mod tests {
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_nanos();
-        std::env::temp_dir().join(format!("gardn-runtime-{name}-{}-{nanos}", std::process::id()))
+        std::env::temp_dir().join(format!(
+            "gardn-runtime-{name}-{}-{nanos}",
+            std::process::id()
+        ))
     }
 
     fn startup_plugin(

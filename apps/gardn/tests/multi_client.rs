@@ -107,7 +107,11 @@ fn spawn_server(config_home: &Path, runtime_dir: &Path, api_socket_path: &Path) 
     fs::create_dir_all(config_home.join("gardn")).unwrap();
     fs::create_dir_all(runtime_dir).unwrap();
     register_runtime_dir(runtime_dir);
-    fs::write(config_home.join("gardn/config.toml"), "onboarding = false\n").unwrap();
+    fs::write(
+        config_home.join("gardn/config.toml"),
+        "onboarding = false\n",
+    )
+    .unwrap();
 
     let pair = native_pty_system()
         .openpty(PtySize {
@@ -549,7 +553,7 @@ fn client_handshake(
 
 fn connect_raw_client(client_socket: &Path, cols: u16, rows: u16) -> UnixStream {
     let mut stream = connect_unix_socket(client_socket, Duration::from_secs(5));
-    client_handshake(&mut stream, 12, cols, rows).expect("handshake should succeed");
+    client_handshake(&mut stream, 13, cols, rows).expect("handshake should succeed");
     stream
 }
 

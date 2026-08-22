@@ -5,7 +5,7 @@ description: "Control Gardn from inside it. Manage workspaces and tabs, split pa
 
 # Gardn — agent skill
 
-before using this skill, check that `GARDN_ENV=1`. if it is not set to `1`, say you are not running inside an Gardn-managed pane and stop. do not inspect or control the focused Gardn pane from outside Gardn.
+before using this skill, check that `GARDN_ENV=1`. if it is not set to `1`, say you are not running inside a Gardn-managed pane and stop. do not inspect or control the focused Gardn pane from outside Gardn.
 
 you are running inside Gardn, a terminal-native agent multiplexer. Gardn gives you workspaces, tabs, and panes — each pane is a real terminal with its own shell, agent, server, or log stream — and you can control all of it from the cli.
 

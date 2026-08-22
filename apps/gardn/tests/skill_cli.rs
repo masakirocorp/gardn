@@ -55,10 +55,6 @@ fn skill_flag_prints_bundled_agent_skill_and_exits() {
         "printed skill lost Gardn identity: {printed}"
     );
     assert!(
-        !printed.contains("gardn.dev") && !printed.to_lowercase().contains("gardn --skill"),
-        "printed skill must not use Gardn branding: {printed}"
-    );
-    assert!(
         stderr(&output).is_empty(),
         "gardn --skill should write only to stdout: {}",
         stderr(&output)
@@ -82,10 +78,6 @@ fn root_help_documents_skill_flag_and_next_cli_step() {
     assert!(
         help.contains("gardn --skill prints agent instructions for driving gardn from a pane"),
         "root help is missing the skill next-step hint: {help}"
-    );
-    assert!(
-        !help.contains("gardn --skill") && !help.contains("https://gardn.dev"),
-        "root help must not use Gardn branding: {help}"
     );
 }
 
@@ -114,10 +106,6 @@ fn next_step_hints_render_without_replacing_existing_help() {
         agent_start_help.contains("next: gardn agent prompt <TARGET> <TEXT> --wait"),
         "agent start is missing its next-step hint: {agent_start_help}"
     );
-    assert!(
-        !agent_start_help.contains("gardn agent"),
-        "agent start help must use gardn naming: {agent_start_help}"
-    );
 
     let pane_send_text = run_gardn(&["pane", "send-text", "--help"]);
     assert!(
@@ -134,9 +122,5 @@ fn next_step_hints_render_without_replacing_existing_help() {
         pane_send_text_help
             .contains("next: gardn pane run <PANE_ID> <COMMAND> sends text and Enter in one call"),
         "pane send-text is missing its next-step hint: {pane_send_text_help}"
-    );
-    assert!(
-        !pane_send_text_help.contains("gardn pane"),
-        "pane send-text help must use gardn naming: {pane_send_text_help}"
     );
 }

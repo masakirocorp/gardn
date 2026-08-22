@@ -24,8 +24,8 @@ pub use self::{
         ConfigReloadReport, ConfigReloadStatus, ContextBarVisibilityConfig, HostCursorModeConfig,
         NewTerminalCwdConfig, PaneBorderAgentInfoConfig, RightClickPassthroughModifierConfig,
         ShellModeConfig, SidebarArrangementConfig, SidebarCollapsedModeConfig,
-        StatusIndicatorStyle, ToastClipboardPosition, ToastConfig, ToastDelivery, ToastGardnPosition,
-        MAX_TOAST_DELAY_SECONDS,
+        StatusIndicatorStyle, ToastClipboardPosition, ToastConfig, ToastDelivery,
+        ToastGardnPosition, MAX_TOAST_DELAY_SECONDS,
     },
     sidebar::{
         AgentSidebarToken, AgentsSidebarConfig, SidebarConfig, SidebarInitialStateConfig,

@@ -59,7 +59,7 @@ mod tests {
         fs::write(&path, b"gardn").unwrap();
         let result = super::verify_sha256(
             &path,
-            "fb39a659f80adefc4f65d4fb58b52babe7788f41356b9ea4947996eee5baa66f",
+            "547975d3b2890667619b4006dfe980ce578ff3d318ff5b1bc80ae05ba296d700",
         );
         let _ = fs::remove_file(&path);
         assert!(result.is_ok());

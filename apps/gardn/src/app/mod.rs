@@ -6839,7 +6839,7 @@ impl App {
                 state::ContextMenuKind::Pane {
                     ws_idx, pane_id, ..
                 },
-                Some(action @ ("send right-clicks to pane" | "use oh my gardn right-click menu")),
+                Some(action @ ("send right-clicks to pane" | "use gardn right-click menu")),
             ) => {
                 if let Some(pane) = self
                     .state
@@ -16354,8 +16354,10 @@ mod tests {
         app.state.selected = 0;
         app.state.mode = Mode::Terminal;
 
-        let output_path =
-            std::env::temp_dir().join(format!("gardn-client-literal-custom-{}", std::process::id()));
+        let output_path = std::env::temp_dir().join(format!(
+            "gardn-client-literal-custom-{}",
+            std::process::id()
+        ));
         let config: crate::config::Config = toml::from_str(&format!(
             r#"
 [keys]

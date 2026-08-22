@@ -248,9 +248,7 @@ fn config_reset_keys(args: &[String]) -> std::io::Result<i32> {
         path.display()
     );
     println!("Built-in v2 keybindings will apply after Gardn restarts or reloads config.");
-    println!(
-        "If an Gardn server is running, run `gardn server reload-config` to apply this now."
-    );
+    println!("If a Gardn server is running, run `gardn server reload-config` to apply this now.");
     println!(
         "To restore: cp {} {}",
         backup_path.display(),
@@ -1000,7 +998,9 @@ fn server_live_handoff(args: &[String]) -> std::io::Result<i32> {
 
     eprintln!(
         "live handoff complete; server log: {}",
-        crate::session::data_dir().join("gardn-server.log").display()
+        crate::session::data_dir()
+            .join("gardn-server.log")
+            .display()
     );
     Ok(0)
 }
@@ -1155,7 +1155,9 @@ fn group_create(args: &[String]) -> std::io::Result<i32> {
             }
             other if other.starts_with('-') => {
                 eprintln!("unknown option: {other}");
-                eprintln!("usage: gardn group create <name> [--cwd PATH] [--host EXECUTION_HOST_ID]");
+                eprintln!(
+                    "usage: gardn group create <name> [--cwd PATH] [--host EXECUTION_HOST_ID]"
+                );
                 return Ok(2);
             }
             other => {
@@ -1414,7 +1416,8 @@ fn agent_focus(args: &[String]) -> std::io::Result<i32> {
 }
 
 fn agent_attach(args: &[String]) -> std::io::Result<i32> {
-    if let Some(code) = agent_subcommand_help(args, "usage: gardn agent attach <target> [--takeover]")
+    if let Some(code) =
+        agent_subcommand_help(args, "usage: gardn agent attach <target> [--takeover]")
     {
         return Ok(code);
     }
@@ -1667,7 +1670,8 @@ fn agent_prompt(args: &[String]) -> std::io::Result<i32> {
 }
 
 fn agent_send_keys(args: &[String]) -> std::io::Result<i32> {
-    if let Some(code) = agent_subcommand_help(args, "usage: gardn agent send-keys <target> <key>...")
+    if let Some(code) =
+        agent_subcommand_help(args, "usage: gardn agent send-keys <target> <key>...")
     {
         return Ok(code);
     }
@@ -2509,7 +2513,9 @@ fn print_server_help() {
 
 fn print_status_help() {
     eprintln!("gardn status commands:");
-    eprintln!("  gardn status [--json]                 show local client and running server status");
+    eprintln!(
+        "  gardn status [--json]                 show local client and running server status"
+    );
     eprintln!("  gardn status server [--json]          show running server status");
     eprintln!("  gardn status client [--json]          show local client binary status");
 }

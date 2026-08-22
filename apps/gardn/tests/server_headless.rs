@@ -107,7 +107,11 @@ fn spawn_server(
     fs::create_dir_all(config_home.join("gardn")).unwrap();
     fs::create_dir_all(runtime_dir).unwrap();
     register_runtime_dir(runtime_dir);
-    fs::write(config_home.join("gardn/config.toml"), "onboarding = false\n").unwrap();
+    fs::write(
+        config_home.join("gardn/config.toml"),
+        "onboarding = false\n",
+    )
+    .unwrap();
 
     let pair = native_pty_system()
         .openpty(PtySize {
@@ -593,9 +597,9 @@ fn client_handshake_succeeds() {
 
     // Send Hello with the current protocol version, 80 cols, 24 rows.
     let (version, error) =
-        client_handshake(&mut stream, 12, 80, 24).expect("handshake should succeed");
+        client_handshake(&mut stream, 13, 80, 24).expect("handshake should succeed");
 
-    assert_eq!(version, 12, "server should report protocol version 12");
+    assert_eq!(version, 13, "server should report protocol version 13");
     assert!(
         error.is_none(),
         "handshake should not have an error: {:?}",
@@ -624,7 +628,7 @@ fn client_handshake_rejects_incompatible_version() {
     let (version, error) = client_handshake(&mut stream, 0, 80, 24)
         .expect("should read Welcome response even on rejection");
 
-    assert_eq!(version, 12, "server should report its version 12");
+    assert_eq!(version, 13, "server should report its version 13");
     assert!(
         error.is_some(),
         "version 0 should be rejected with an error"
@@ -649,10 +653,10 @@ fn client_handshake_clamps_small_terminal_size() {
     // Send Hello with 0x0 terminal size — should be clamped.
     let mut stream = connect_unix_socket(&client_socket, Duration::from_secs(5));
 
-    let (version, error) = client_handshake(&mut stream, 12, 0, 0)
+    let (version, error) = client_handshake(&mut stream, 13, 0, 0)
         .expect("handshake with 0x0 should succeed (server clamps)");
 
-    assert_eq!(version, 12);
+    assert_eq!(version, 13);
     assert!(
         error.is_none(),
         "0x0 size should be accepted (clamped): {:?}",
@@ -711,9 +715,9 @@ fn no_hello_client_closed_within_five_seconds() {
 
     // Verify the server is still healthy — a proper client can still connect.
     let mut good_stream = connect_unix_socket(&client_socket, Duration::from_secs(5));
-    let (version, error) = client_handshake(&mut good_stream, 12, 80, 24)
+    let (version, error) = client_handshake(&mut good_stream, 13, 80, 24)
         .expect("proper handshake should still work after no-hello client");
-    assert_eq!(version, 12);
+    assert_eq!(version, 13);
     assert!(error.is_none());
 
     // API should still work.

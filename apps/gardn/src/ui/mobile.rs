@@ -2166,7 +2166,7 @@ mod tests {
             Some(app.palette.overlay0)
         );
         let content = inset_for_left_scrollbar(areas.viewport);
-        let section_y = areas.viewport.y;
+        let section_y = areas.viewport.y + 2;
         let agent_y = section_y + 1;
         let (section_icon, section_icon_style) = agent_section_icon(
             AgentStatusGroup::Working,
@@ -2178,7 +2178,8 @@ mod tests {
         assert_eq!(buffer[(content.x + 2, section_y)].symbol(), section_icon);
         assert_eq!(
             buffer[(content.x + 2, section_y)].style().fg,
-            section_icon_style.fg
+            section_icon_style.fg,
+            "expanded agents panel: {expanded:?}"
         );
         assert_eq!(buffer[(content.x + 4, section_y)].symbol(), "W");
         assert_eq!(

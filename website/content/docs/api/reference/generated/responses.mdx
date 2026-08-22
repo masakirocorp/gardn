@@ -279,6 +279,30 @@ description: "Generated successful Local API response result shapes."
 | `read` | `PaneReadResult` | yes |  |
 | `type` | `"pane_read"` | yes |  |
 
+## `pane_graphics_info`
+
+| Property | Type | Required | Description |
+| --- | --- | --- | --- |
+| `cell_height_px` | `integer` | yes |  |
+| `cell_width_px` | `integer` | yes |  |
+| `file_frame_damage` | `boolean` | yes |  |
+| `file_frame_directory` | `string \| null` | no |  |
+| `file_frame_formats` | `string[]` | no |  |
+| `file_frame_max_bytes` | `integer \| null` | no |  |
+| `file_frame_transport` | `string \| null` | no |  |
+| `max_layers_per_pane` | `integer` | yes |  |
+| `pane_visible` | `boolean` | yes |  |
+| `pixel_mouse` | `boolean` | yes |  |
+| `type` | `"pane_graphics_info"` | yes |  |
+
+## `pane_graphics_frame_ack`
+
+| Property | Type | Required | Description |
+| --- | --- | --- | --- |
+| `revision` | `integer` | yes |  |
+| `sequence` | `integer` | yes |  |
+| `type` | `"pane_graphics_frame_ack"` | yes |  |
+
 ## `agent_explain`
 
 | Property | Type | Required | Description |

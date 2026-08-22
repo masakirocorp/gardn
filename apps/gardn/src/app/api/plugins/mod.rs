@@ -934,160 +934,7 @@ action = "bootstrap"
     }
 
     #[test]
-    fn gardn_example_manifests_load_through_compatibility_aliases() {
-        let cases = [
-            (
-                "agent-telegram-notify",
-                r#"
-id = "examples.agent-telegram-notify"
-name = "Agent Telegram Notify"
-version = "0.1.0"
-min_gardn_version = "0.7.0"
-description = "Send a Telegram message when an agent finishes."
-platforms = ["linux", "macos", "windows"]
-
-[[actions]]
-id = "toggle"
-title = "Toggle Telegram notify"
-command = ["node", "toggle.mjs"]
-
-[[actions]]
-id = "enable"
-title = "Enable Telegram notify"
-command = ["node", "toggle.mjs", "on"]
-
-[[actions]]
-id = "disable"
-title = "Disable Telegram notify"
-command = ["node", "toggle.mjs", "off"]
-
-[[events]]
-on = "pane.agent_status_changed"
-command = ["node", "notify.mjs"]
-"#,
-                "examples.agent-telegram-notify",
-                &["disable", "enable", "toggle"][..],
-                &["pane.agent_status_changed"][..],
-                &[][..],
-                &[][..],
-                0,
-            ),
-            (
-                "dev-layout-bootstrap",
-                r#"
-id = "examples.dev-layout-bootstrap"
-name = "Dev Layout Bootstrap"
-version = "0.1.0"
-min_gardn_version = "0.7.0"
-description = "Create a simple three-pane development layout around the current pane."
-platforms = ["linux", "macos"]
-
-[[actions]]
-id = "setup"
-title = "Set up dev layout"
-command = ["lua", "setup.lua"]
-"#,
-                "examples.dev-layout-bootstrap",
-                &["setup"][..],
-                &[][..],
-                &[][..],
-                &[][..],
-                0,
-            ),
-            (
-                "github-link-preview",
-                r#"
-id = "examples.github-link-preview"
-name = "GitHub Link Preview"
-version = "0.1.0"
-min_gardn_version = "0.7.0"
-description = "Open clicked GitHub issue and PR links in a Gardn side pane."
-platforms = ["linux", "macos"]
-
-[[actions]]
-id = "open"
-title = "Open GitHub link preview"
-command = ["bash", "open.sh"]
-
-[[panes]]
-id = "preview"
-title = "GitHub preview"
-placement = "split"
-command = ["bash", "preview.sh"]
-
-[[link_handlers]]
-id = "github-issue-or-pr"
-title = "Preview GitHub issue or PR"
-pattern = "^https://github\\.com/[^/]+/[^/]+/(issues|pull)/[0-9]+/?$"
-action = "open"
-"#,
-                "examples.github-link-preview",
-                &["open"][..],
-                &[][..],
-                &["preview"][..],
-                &["github-issue-or-pr"][..],
-                0,
-            ),
-            (
-                "rust-release-check",
-                r#"
-id = "examples.rust-release-check"
-name = "Rust Release Check"
-version = "0.1.0"
-min_gardn_version = "0.7.0"
-description = "Build a Rust plugin at install time, then run a small Git cleanliness check."
-platforms = ["linux", "macos"]
-
-[[build]]
-command = ["cargo", "build", "--release"]
-
-[[actions]]
-id = "check"
-title = "Run release check"
-command = ["./target/release/rust-release-check"]
-"#,
-                "examples.rust-release-check",
-                &["check"][..],
-                &[][..],
-                &[][..],
-                &[][..],
-                1,
-            ),
-        ];
-
-        for (
-            name,
-            manifest,
-            expected_id,
-            expected_actions,
-            expected_events,
-            expected_panes,
-            expected_link_handlers,
-            expected_builds,
-        ) in cases
-        {
-            let root = unique_temp_path(name);
-            write_manifest_file(&root, "gardn-plugin.toml", manifest);
-
-            let plugin = load_plugin_manifest(&root.display().to_string(), true)
-                .unwrap_or_else(|err| panic!("{name}: failed to load Gardn example: {err:?}"));
-            assert_example_plugin_shape(
-                &plugin,
-                expected_id,
-                expected_actions,
-                expected_events,
-                expected_panes,
-                expected_link_handlers,
-                expected_builds,
-            );
-            assert_eq!(plugin.min_gardn_version, "0.7.0");
-
-            let _ = std::fs::remove_dir_all(root);
-        }
-    }
-
-    #[test]
-    fn gardn_variants_of_gardn_examples_prefer_gardn_manifest_and_context_names() {
+    fn gardn_example_manifests_load() {
         let cases = [
             (
                 "gardn-agent-telegram-notify",
@@ -1145,7 +992,7 @@ id = "examples.github-link-preview"
 name = "GitHub Link Preview"
 version = "0.1.0"
 min_gardn_version = "0.2.0"
-description = "Open clicked GitHub issue and PR links in an Gardn side pane."
+description = "Open clicked GitHub issue and PR links in a Gardn side pane."
 platforms = ["linux", "macos"]
 
 [[actions]]
@@ -1187,22 +1034,9 @@ action = "open"
         {
             let root = unique_temp_path(name);
             write_manifest_file(&root, "gardn-plugin.toml", manifest);
-            write_manifest_file(
-                &root,
-                "gardn-plugin.toml",
-                r#"
-id = "examples.should-not-load"
-name = "Fallback"
-version = "0.1.0"
-min_gardn_version = "0.7.0"
-platforms = ["linux", "macos", "windows"]
-"#,
-            );
 
-            let plugin =
-                load_plugin_manifest(&root.display().to_string(), true).unwrap_or_else(|err| {
-                    panic!("{name}: failed to load Gardn variant: {err:?}")
-                });
+            let plugin = load_plugin_manifest(&root.display().to_string(), true)
+                .unwrap_or_else(|err| panic!("{name}: failed to load Gardn variant: {err:?}"));
             assert_example_plugin_shape(
                 &plugin,
                 expected_id,
@@ -1570,10 +1404,7 @@ command = ["echo", " a", "first "]
     fn plugin_command_output_reader_caps_and_marks_truncation() {
         let output = read_capped_plugin_output("abcdef".as_bytes(), 3);
 
-        assert_eq!(
-            output,
-            "abc\n[Gardn truncated plugin output after 3 bytes]"
-        );
+        assert_eq!(output, "abc\n[Gardn truncated plugin output after 3 bytes]");
     }
 
     #[test]
@@ -1938,7 +1769,10 @@ command = ["sh", "-c", "printf '%s\n%s\n%s\n%s\n%s\n%s\n%s\n' \"$PWD\" \"$GARDN_
                         "spoofed-workspace".to_string(),
                     ),
                     ("GARDN_PANE_ID".to_string(), "spoofed-pane".to_string()),
-                    ("GARDN_BIN_PATH".to_string(), "/tmp/spoofed-gardn".to_string()),
+                    (
+                        "GARDN_BIN_PATH".to_string(),
+                        "/tmp/spoofed-gardn".to_string(),
+                    ),
                 ]),
             }),
         });

@@ -14,7 +14,7 @@ static NEXT_TEST_ID: AtomicUsize = AtomicUsize::new(0);
 
 fn unique_test_dir() -> PathBuf {
     let id = NEXT_TEST_ID.fetch_add(1, Ordering::Relaxed);
-    PathBuf::from(format!("/tmp/oc{}-{id}", std::process::id()))
+    PathBuf::from(format!("/tmp/gardn-plugin-cli-{}-{id}", std::process::id()))
 }
 
 fn app_dir_name() -> &'static str {

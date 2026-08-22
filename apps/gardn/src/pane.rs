@@ -115,11 +115,8 @@ impl PaneLaunchEnv {
         socket_path: &Path,
         runtime_token: String,
     ) -> Self {
-        const RESERVED_IDENTITY_KEYS: [&str; 7] = [
+        const RESERVED_IDENTITY_KEYS: [&str; 4] = [
             crate::api::SOCKET_PATH_ENV_VAR,
-            "GARDN_WORKSPACE_ID",
-            "GARDN_TAB_ID",
-            "GARDN_PANE_ID",
             "GARDN_WORKSPACE_ID",
             "GARDN_TAB_ID",
             "GARDN_PANE_ID",
@@ -182,9 +179,6 @@ fn apply_pane_launch_env(cmd: &mut CommandBuilder, launch_env: &PaneLaunchEnv, p
         }
     }
     if let Some(identity) = &launch_env.identity {
-        cmd.env("GARDN_WORKSPACE_ID", &identity.workspace_id);
-        cmd.env("GARDN_TAB_ID", &identity.tab_id);
-        cmd.env("GARDN_PANE_ID", &identity.pane_id);
         cmd.env("GARDN_WORKSPACE_ID", &identity.workspace_id);
         cmd.env("GARDN_TAB_ID", &identity.tab_id);
         cmd.env("GARDN_PANE_ID", &identity.pane_id);

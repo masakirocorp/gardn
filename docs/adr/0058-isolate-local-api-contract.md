@@ -14,7 +14,7 @@ Compile profiling identified Local API derives as the largest macro-expansion su
 
 ## Consequences
 
-Local API compatibility changes must update `gardn-local-api` and its explicit fixtures. Runtime-owned types must cross the facade through explicit adapters; adding an `gardn` dependency or UI/runtime dependency to `gardn-local-api` would collapse the cache boundary and is not allowed. Local API transport and handlers remain in `gardn`; this decision does not merge the Local API with the binary client wire protocol defined by ADR 0013.
+Local API compatibility changes must update `gardn-local-api` and its explicit fixtures. Runtime-owned types must cross the facade through explicit adapters; adding a `gardn` dependency or UI/runtime dependency to `gardn-local-api` would collapse the cache boundary and is not allowed. Local API transport and handlers remain in `gardn`; this decision does not merge the Local API with the binary client wire protocol defined by ADR 0013.
 
 ## Rejected alternatives
 

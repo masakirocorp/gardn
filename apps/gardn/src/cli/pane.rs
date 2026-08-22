@@ -290,7 +290,8 @@ fn parse_pane_neighbor_args(args: &[String]) -> Result<PaneNeighborParams, Strin
 
     let Some(direction) = direction else {
         return Err(
-            "usage: gardn pane neighbor --direction left|right|up|down [--pane ID|--current]".into(),
+            "usage: gardn pane neighbor --direction left|right|up|down [--pane ID|--current]"
+                .into(),
         );
     };
 

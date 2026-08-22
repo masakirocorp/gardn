@@ -11,26 +11,26 @@ This page specifies the manifest format accepted by Gardn plugin v1. It describe
 
 ## Manifest file and top-level fields
 
-The preferred filename is `gardn-plugin.toml` at the plugin root. When a directory does not contain that file, Gardn accepts `gardn-plugin.toml` as a legacy compatibility alias. The alias is not a second format and is not a recommendation for new plugins.
+The manifest filename is `gardn-plugin.toml` at the plugin root.
 
 The top-level table has these fields:
 
-| Field             | TOML type        | Required | Meaning                                                                                                                                                                      |
-| ----------------- | ---------------- | -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `id`              | string           | yes      | Stable plugin identifier. It is trimmed, must be non-empty, and may contain ASCII letters, digits, `:`, `.`, `_`, and `-`; maximum 120 characters.                           |
-| `name`            | string           | yes      | Human-readable plugin name. It is trimmed and must be non-empty.                                                                                                             |
-| `version`         | string           | yes      | Plugin version label. It is trimmed and must be non-empty; Gardn does not require this field to be a semantic version.                                                 |
-| `min_gardn_version` | string           | yes      | Semantic Gardn version required by the plugin. It must parse as a version and cannot be newer than the running Gardn release.                                    |
-| `description`     | string           | no       | Optional trimmed description. Blank descriptions are discarded.                                                                                                              |
-| `platforms`       | array of strings | no       | Plugin-level platform allowlist: `linux`, `macos`, or `windows`. Omit it when support is not declared; Gardn warns that support is unknown. An empty array is invalid. |
-| `build`           | array of tables  | no       | Build commands run during a remote GitHub install, before the checkout is moved into managed plugin storage.                                                                 |
-| `startup`         | array of tables  | no       | Commands run once when an enabled plugin is loaded during server startup.                                                                                                    |
-| `actions`         | array of tables  | no       | User-invokable commands, optionally scoped by action context and platform.                                                                                                   |
-| `events`          | array of tables  | no       | Lifecycle hook commands.                                                                                                                                                     |
-| `panes`           | array of tables  | no       | Terminal pane entrypoints.                                                                                                                                                   |
-| `link_handlers`   | array of tables  | no       | URL-pattern handlers that dispatch an existing action.                                                                                                                       |
+| Field               | TOML type        | Required | Meaning                                                                                                                                                                |
+| ------------------- | ---------------- | -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `id`                | string           | yes      | Stable plugin identifier. It is trimmed, must be non-empty, and may contain ASCII letters, digits, `:`, `.`, `_`, and `-`; maximum 120 characters.                     |
+| `name`              | string           | yes      | Human-readable plugin name. It is trimmed and must be non-empty.                                                                                                       |
+| `version`           | string           | yes      | Plugin version label. It is trimmed and must be non-empty; Gardn does not require this field to be a semantic version.                                                 |
+| `min_gardn_version` | string           | yes      | Semantic Gardn version required by the plugin. It must parse as a version and cannot be newer than the running Gardn release.                                          |
+| `description`       | string           | no       | Optional trimmed description. Blank descriptions are discarded.                                                                                                        |
+| `platforms`         | array of strings | no       | Plugin-level platform allowlist: `linux`, `macos`, or `windows`. Omit it when support is not declared; Gardn warns that support is unknown. An empty array is invalid. |
+| `build`             | array of tables  | no       | Build commands run during a remote GitHub install, before the checkout is moved into managed plugin storage.                                                           |
+| `startup`           | array of tables  | no       | Commands run once when an enabled plugin is loaded during server startup.                                                                                              |
+| `actions`           | array of tables  | no       | User-invokable commands, optionally scoped by action context and platform.                                                                                             |
+| `events`            | array of tables  | no       | Lifecycle hook commands.                                                                                                                                               |
+| `panes`             | array of tables  | no       | Terminal pane entrypoints.                                                                                                                                             |
+| `link_handlers`     | array of tables  | no       | URL-pattern handlers that dispatch an existing action.                                                                                                                 |
 
-`min_gardn_version` is the preferred compatibility key. The legacy `min_gardn_version` key is accepted only as a compatibility alias when `min_gardn_version` is absent; it is checked against the supported legacy Gardn plugin API compatibility version, currently `0.7.0`. If both keys are present, `min_gardn_version` takes precedence. A missing minimum-version field is invalid.
+`min_gardn_version` is required. It must be a semantic version and cannot be newer than the running Gardn release.
 
 This fixture shows the shape of the fields without asserting that its commands are appropriate for a particular plugin:
 
@@ -138,7 +138,7 @@ A link handler does not contain a command. It dispatches its referenced action w
 
 Valid platform names are lowercase `linux`, `macos`, and `windows`. A non-empty `platforms` list at the plugin level is inherited by a build, startup entry, action, event, pane, or link handler that does not declare its own list. An item's list replaces, rather than extends, the plugin list. An item whose effective list does not contain the current host platform is rejected or skipped as unsupported before launch; builds and startup entries are skipped on that platform, while an action or pane request returns a platform error. The manifest loader cannot infer support when the plugin-level list is omitted, so it emits an unknown-platform warning.
 
-The current compatibility key is `min_gardn_version`. A required version newer than the running release is rejected. Legacy `min_gardn_version` is accepted solely for ecosystem compatibility and does not make the legacy product identity the public manifest format.
+The current compatibility key is `min_gardn_version`. A required version newer than the running release is rejected.
 
 ## Execution environment and protected context
 
@@ -150,9 +150,9 @@ Builds and runtime commands use the plugin root as their working directory unles
 - action/event metadata such as `GARDN_PLUGIN_ACTION_ID`, `GARDN_PLUGIN_EVENT`, and `GARDN_PLUGIN_EVENT_JSON` when applicable;
 - `GARDN_WORKSPACE_ID`, `GARDN_TAB_ID`, `GARDN_PANE_ID`, `GARDN_PLUGIN_CLICKED_URL`, and `GARDN_PLUGIN_LINK_HANDLER_ID` when those context values exist.
 
-`GARDN_PLUGIN_CONFIG_DIR` and `GARDN_PLUGIN_STATE_DIR` are per-plugin directories for configuration and state. Gardn also supplies `GARDN_ENV=1` and `GARDN_ENV=1`. `GARDN_*` names are compatibility aliases for the corresponding `GARDN_*` values.
+`GARDN_PLUGIN_CONFIG_DIR` and `GARDN_PLUGIN_STATE_DIR` are per-plugin directories for configuration and state. Gardn also supplies `GARDN_ENV=1`.
 
-For pane launches, request-supplied environment keys that identify the plugin, root, config/state directories, entrypoint, context, or binary (`GARDN_*` and their `GARDN_*` aliases) are discarded and replaced with protected values. Environment keys must not be empty, contain `=`, or contain NUL bytes; values must not contain NUL bytes. These checks prevent malformed entries, not arbitrary plugin code execution.
+For pane launches, request-supplied `GARDN_*` environment keys that identify the plugin, root, config/state directories, entrypoint, context, or binary are discarded and replaced with protected values. Environment keys must not be empty, contain `=`, or contain NUL bytes; values must not contain NUL bytes. These checks prevent malformed entries, not arbitrary plugin code execution.
 
 ## Installation, scope, and persistence
 

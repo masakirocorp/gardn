@@ -5772,7 +5772,8 @@ mod tests {
             cwd_action,
             Some(SettingsAction::SaveWorkspaceDefaultLocation {
                 ws_idx: 0,
-                location: crate::execution_host::ResourceLocation::local("/tmp/gardn-old2").unwrap(),
+                location: crate::execution_host::ResourceLocation::local("/tmp/gardn-old2")
+                    .unwrap(),
             })
         );
     }

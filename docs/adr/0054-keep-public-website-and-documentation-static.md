@@ -53,6 +53,6 @@ If that boundary becomes real, the application belongs at `app.<product-domain>`
 
 ## Consequences
 
-`website/**` is an Gardn-owned product surface and remains protected from blind upstream replacement under ADR 0008. One visual system, build, search index, deployment, and domain hierarchy serve marketing and docs. Starlight can own documentation navigation and search without constraining custom Astro marketing pages.
+`website/**` is a Gardn-owned product surface and remains protected from blind upstream replacement under ADR 0008. One visual system, build, search index, deployment, and domain hierarchy serve marketing and docs. Starlight can own documentation navigation and search without constraining custom Astro marketing pages.
 
 Site builds and launch review must verify internal links, generated-reference freshness, release download targets, and source-version metadata. Generated content can be deleted and rebuilt without losing authored documentation. Product behavior changes flow from code and release contracts into regenerated reference and then into any affected authored guidance; website prose never becomes a compatibility shim for stale behavior.

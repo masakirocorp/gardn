@@ -144,7 +144,7 @@ Returns the server version, client protocol number, and capability flags. `serve
 
 ```json
 {"id":"ping-1","method":"ping","params":{}}
-{"id":"ping-1","result":{"type":"pong","version":"0.2.19","protocol":12,"capabilities":{"live_handoff":true}}}
+{"id":"ping-1","result":{"type":"pong","version":"0.2.19","protocol":13,"capabilities":{"live_handoff":true}}}
 ```
 
 ## Server control
@@ -176,7 +176,7 @@ Replaces a running **headless Unix** server with another Gardn process while pre
 | ------------------- | ----------------- | ------- | ------------------------------------------------------------------------ |
 | `import_exe`        | `string \| null`  | `null`  | Replacement executable. If omitted, the current executable path is used. |
 | `expected_protocol` | `integer \| null` | `null`  | If present, the replacement must speak this client protocol number.      |
-| `expected_version`  | `string \| null`  | `null`  | If present, the replacement must report this Gardn version.        |
+| `expected_version`  | `string \| null`  | `null`  | If present, the replacement must report this Gardn version.              |
 
 **Success:** `ResponseResult::Ok`, discriminator `"ok"`. The response is written before the old server exits; the connection then closes as part of the handoff.
 
@@ -277,12 +277,12 @@ Shows a notification using the configured `toast.delivery` mode.
 
 **Params:** `NotificationShowParams`.
 
-| Property   | Type                       | Default  | Description                                                                                                                                           |
-| ---------- | -------------------------- | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `title`    | `string`                   | required | Control characters are removed, whitespace is collapsed, the value is trimmed, and the result is capped at 80 characters. An empty result is invalid. |
-| `body`     | `string \| null`           | `null`   | Sanitized like `title`, capped at 240 characters. A value that sanitizes to empty is treated as absent.                                               |
+| Property   | Type                         | Default  | Description                                                                                                                                           |
+| ---------- | ---------------------------- | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `title`    | `string`                     | required | Control characters are removed, whitespace is collapsed, the value is trimmed, and the result is capped at 80 characters. An empty result is invalid. |
+| `body`     | `string \| null`             | `null`   | Sanitized like `title`, capped at 240 characters. A value that sanitizes to empty is treated as absent.                                               |
 | `position` | `ToastGardnPosition \| null` | `null`   | Optional built-in toast position: `top-left`, `top-right`, `bottom-left`, or `bottom-right`. It has no effect for terminal/system delivery.           |
-| `sound`    | `NotificationShowSound`    | `"none"` | `"none"`, `"done"`, or `"request"`. Sound is played/forwarded only when local sound playback and the configured sound set allow it.                   |
+| `sound`    | `NotificationShowSound`      | `"none"` | `"none"`, `"done"`, or `"request"`. Sound is played/forwarded only when local sound playback and the configured sound set allow it.                   |
 
 **Success:** `ResponseResult::NotificationShow`, discriminator `"notification_show"`, with `shown: boolean` and `reason`.
 
@@ -290,7 +290,7 @@ Shows a notification using the configured `toast.delivery` mode.
 | ---------------------- | ------- | ---------------------------------------------------------------------------------------------------- |
 | `shown`                | `true`  | A toast or foreground notification sink accepted the notification.                                   |
 | `disabled`             | `false` | `toast.delivery` is `off`.                                                                           |
-| `busy`                 | `false` | Built-in Gardn delivery already has a toast.                                                   |
+| `busy`                 | `false` | Built-in Gardn delivery already has a toast.                                                         |
 | `rate_limited`         | `false` | Another API notification was shown less than 250 ms ago.                                             |
 | `no_foreground_client` | `false` | Terminal/system delivery has no foreground client, or its notification helper returned false/failed. |
 
@@ -360,13 +360,13 @@ Target installation writes these kinds of assets:
 | Target     | Installed asset reported in `details.messages`                                                 |
 | ---------- | ---------------------------------------------------------------------------------------------- |
 | `pi`       | Pi extension.                                                                                  |
-| `omp`      | One or more Gardn extensions.                                                            |
+| `omp`      | One or more Gardn extensions.                                                                  |
 | `claude`   | Claude hook and settings entry.                                                                |
 | `codex`    | Codex hook plus Codex hooks/config entries, for the default and enabled profile homes.         |
 | `copilot`  | Copilot hook and settings entry.                                                               |
 | `devin`    | Devin hook and settings entry.                                                                 |
 | `kimi`     | Kimi hook and config entry.                                                                    |
-| `droid`    | Droid hook and hooks entry; legacy Gardn Droid entries may also be removed.              |
+| `droid`    | Droid hook and hooks entry.                                                                    |
 | `opencode` | OpenCode plugin and TUI session plugin, with the TUI session plugin enabled in the TUI config. |
 | `hermes`   | Hermes plugin directory and enabled config entry.                                              |
 | `qodercli` | Qoder CLI hook and settings entry.                                                             |
@@ -419,7 +419,7 @@ The API handler calls the single-target uninstall path. In particular, unlike `i
 
 Plugin commands are not sandboxed. A plugin action, event hook, build command when run by another surface, and plugin pane command can execute as the current user. Action commands use the plugin root as their working directory. Pane commands use the plugin root unless `cwd` overrides it. The API only links and exposes manifests; `plugin.link` does not run a manifest build command.
 
-A manifest is loaded from `gardn-plugin.toml`; when a directory has no such file, the legacy `gardn-plugin.toml` filename is tried. Plugin IDs are trimmed, non-empty, at most 120 characters, and contain only ASCII letters, digits, `:`, `.`, `_`, and `-`. Local action, pane, and link-handler IDs are trimmed, non-empty, at most 120 characters, and contain only ASCII letters, digits, `:`, `_`, and `-` (no dot). Platform values are `linux`, `macos`, and `windows`.
+A manifest is loaded from `gardn-plugin.toml`. Plugin IDs are trimmed, non-empty, at most 120 characters, and contain only ASCII letters, digits, `:`, `.`, `_`, and `-`. Local action, pane, and link-handler IDs are trimmed, non-empty, at most 120 characters, and contain only ASCII letters, digits, `:`, `_`, and `-` (no dot). Platform values are `linux`, `macos`, and `windows`.
 
 An installed plugin record contains `plugin_id`, `name`, `version`, `min_gardn_version`, optional `description`, `manifest_path`, `plugin_root`, `enabled`, optional plugin `platforms`, arrays `build`, `actions`, `events`, `panes`, and `link_handlers`, `source`, and `warnings`. A missing source manifest is retained with a warning beginning `manifest unavailable: `; action listing skips it and action/pane execution rejects it.
 
@@ -435,26 +435,26 @@ Loads and registers one plugin manifest. If the ID is already registered, the ne
 | `enabled` | `boolean`                  | `true`   | Whether actions, event hooks, and panes may run.                                                                                                                                                                                                                                                       |
 | `source`  | `PluginSourceInfo \| null` | `null`   | Optional provenance. `kind` is `local` (default) or `github`; optional fields are `owner`, `repo`, `subdir`, `requested_ref`, `resolved_commit`, `managed_path`, and `installed_unix_ms`. GitHub sources require a canonical `managed_path` under the managed plugin directory matching the plugin ID. |
 
-Manifest validation also requires non-empty `name`, `version`, and semantic `min_gardn_version` (or compatible legacy `min_gardn_version`), non-empty command argv, valid platform names, unique action/pane/link-handler IDs, valid link-handler regexes, and link handlers that reference an existing action. Unknown event names are retained as warnings; only known hook event kinds execute.
+Manifest validation also requires non-empty `name`, `version`, and semantic `min_gardn_version`, non-empty command argv, valid platform names, unique action/pane/link-handler IDs, valid link-handler regexes, and link handlers that reference an existing action. Unknown event names are retained as warnings; only known hook event kinds execute.
 
 **Success:** `ResponseResult::PluginLinked`, discriminator `"plugin_linked"`, with `plugin: InstalledPluginInfo`.
 
-| Error                                                                                                                                    | Meaning                                                                      |
-| ---------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
-| `plugin_manifest_not_found`                                                                                                              | The path could not be canonicalized.                                         |
-| `invalid_plugin_manifest_path`                                                                                                           | The canonical manifest has no parent directory.                              |
-| `plugin_manifest_read_failed`                                                                                                            | The manifest could not be read.                                              |
-| `plugin_manifest_parse_failed`                                                                                                           | TOML parsing failed.                                                         |
-| `invalid_plugin_id`, `invalid_plugin_name`, `invalid_plugin_version`, `invalid_plugin_min_gardn_version`                                   | A required identity/version field is invalid.                                |
-| `plugin_requires_newer_gardn`                                                                                                              | The manifest requires a newer Gardn or incompatible legacy plugin API. |
-| `invalid_plugin_platform`                                                                                                                | A platform name is unknown or `platforms` is an empty array.                 |
-| `invalid_plugin_command`                                                                                                                 | A command is empty or contains an empty argv string.                         |
-| `invalid_plugin_action_id`, `invalid_plugin_action_title`, `invalid_plugin_pane_id`, `invalid_plugin_pane_title`, `invalid_plugin_event` | A manifest member has an invalid ID, title, or event name.                   |
-| `duplicate_plugin_action_id`, `duplicate_plugin_pane_id`, `duplicate_plugin_link_handler_id`                                             | A manifest contains duplicate IDs.                                           |
-| `invalid_plugin_link_handler_pattern`, `invalid_plugin_link_handler_action`                                                              | A link-handler pattern or action reference is invalid.                       |
-| `invalid_plugin_source`                                                                                                                  | Supplied provenance is inconsistent or its managed path is invalid.          |
-| `plugin_registry_save_failed`                                                                                                            | `plugins.json` could not be written; the previous record is restored.        |
-| `server_unavailable`                                                                                                                     | Shutdown was already in progress or the request could not be dispatched.     |
+| Error                                                                                                                                    | Meaning                                                                  |
+| ---------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| `plugin_manifest_not_found`                                                                                                              | The path could not be canonicalized.                                     |
+| `invalid_plugin_manifest_path`                                                                                                           | The canonical manifest has no parent directory.                          |
+| `plugin_manifest_read_failed`                                                                                                            | The manifest could not be read.                                          |
+| `plugin_manifest_parse_failed`                                                                                                           | TOML parsing failed.                                                     |
+| `invalid_plugin_id`, `invalid_plugin_name`, `invalid_plugin_version`, `invalid_plugin_min_gardn_version`                                 | A required identity/version field is invalid.                            |
+| `plugin_requires_newer_gardn`                                                                                                            | The manifest requires a newer Gardn release.                             |
+| `invalid_plugin_platform`                                                                                                                | A platform name is unknown or `platforms` is an empty array.             |
+| `invalid_plugin_command`                                                                                                                 | A command is empty or contains an empty argv string.                     |
+| `invalid_plugin_action_id`, `invalid_plugin_action_title`, `invalid_plugin_pane_id`, `invalid_plugin_pane_title`, `invalid_plugin_event` | A manifest member has an invalid ID, title, or event name.               |
+| `duplicate_plugin_action_id`, `duplicate_plugin_pane_id`, `duplicate_plugin_link_handler_id`                                             | A manifest contains duplicate IDs.                                       |
+| `invalid_plugin_link_handler_pattern`, `invalid_plugin_link_handler_action`                                                              | A link-handler pattern or action reference is invalid.                   |
+| `invalid_plugin_source`                                                                                                                  | Supplied provenance is inconsistent or its managed path is invalid.      |
+| `plugin_registry_save_failed`                                                                                                            | `plugins.json` could not be written; the previous record is restored.    |
+| `server_unavailable`                                                                                                                     | Shutdown was already in progress or the request could not be dispatched. |
 
 ```json
 {"id":"link-1","method":"plugin.link","params":{"path":"/home/me/plugins/workspace-tools"}}
@@ -568,7 +568,7 @@ Starts a manifest action asynchronously as the current user, with the plugin roo
 
 With `plugin_id`, the plugin and local action ID are normalized and looked up directly. Without it, the trimmed action string is matched against local and qualified IDs: no match is `plugin_action_not_found`, and multiple matches are `ambiguous_plugin_action`. Caller-supplied non-null context fields take precedence; the request ID supplies `correlation_id` when none is supplied. Context fields are optional: `workspace_id`, `workspace_label`, `workspace_cwd`, `tab_id`, `tab_label`, `focused_pane_id`, `focused_pane_cwd`, `focused_pane_agent`, `focused_pane_status`, `selected_text`, `invocation_source`, `correlation_id`, `clicked_url`, and `link_handler_id`.
 
-Execution requires an available manifest, `enabled: true`, and an effective platform list that includes the host. An action-level `platforms` list overrides the plugin-level list. The command receives both `GARDN_*` and `GARDN_*` plugin environment variables, including the socket path, plugin root/config/state directories, plugin ID, action ID, context JSON, and current workspace/tab/pane IDs when present. At most 32 plugin commands run concurrently. Stdout and stderr are captured after completion and capped at the last 64 KiB each.
+Execution requires an available manifest, `enabled: true`, and an effective platform list that includes the host. An action-level `platforms` list overrides the plugin-level list. The command receives protected `GARDN_*` plugin environment variables, including the socket path, plugin root/config/state directories, plugin ID, action ID, context JSON, and current workspace/tab/pane IDs when present. At most 32 plugin commands run concurrently. Stdout and stderr are captured after completion and capped at the last 64 KiB each.
 
 **Success:** `ResponseResult::PluginActionInvoked`, discriminator `"plugin_action_invoked"`, with `action: PluginActionInfo`, merged `context`, and `log: PluginCommandLogInfo`. The initial log has `status: "running"`, `finished_unix_ms: null`, `exit_code: null`, `stdout: null`, `stderr: null`, and `error: null`.
 
@@ -644,7 +644,7 @@ Placement constraints:
 | `zoomed`  | Same target and direction rules as `split`, then marks the tab zoomed and focuses it.                                                               |
 | `tab`     | Allows `workspace_id` but rejects `target_pane_id` and `direction`; creates a tab in the named workspace or active workspace.                       |
 
-The plugin manifest's pane platform list overrides its plugin platform list. The launch environment removes caller attempts to set protected `GARDN_*`/`GARDN_*` keys (`PLUGIN_ID`, `PLUGIN_ROOT`, `PLUGIN_CONFIG_DIR`, `PLUGIN_STATE_DIR`, `PLUGIN_ENTRYPOINT_ID`, `PLUGIN_CONTEXT_JSON`, and `BIN_PATH`) and replaces them with server values. The environment also includes the pane context JSON and entrypoint ID.
+The plugin manifest's pane platform list overrides its plugin platform list. The launch environment removes caller attempts to set protected `GARDN_*` keys (`PLUGIN_ID`, `PLUGIN_ROOT`, `PLUGIN_CONFIG_DIR`, `PLUGIN_STATE_DIR`, `PLUGIN_ENTRYPOINT_ID`, `PLUGIN_CONTEXT_JSON`, and `BIN_PATH`) and replaces them with server values. The environment also includes the pane context JSON and entrypoint ID.
 
 Only the client view that opened an overlay popup can see, focus, or close it through these methods. A second overlay request from that client replaces its current popup. The popup closes and its runtime and plugin attribution are removed when the owner closes it, disconnects, or the popup process exits. Other attached clients receive `plugin_pane_not_found` for that popup id. These ownership rules do not apply to split, tab, or zoomed plugin panes.
 

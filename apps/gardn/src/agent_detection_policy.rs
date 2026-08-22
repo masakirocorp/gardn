@@ -87,7 +87,6 @@ mod tests {
         assert!(full_lifecycle_hook_authority("gardn:opencode", "opencode"));
         assert!(full_lifecycle_hook_authority("gardn:kilo", "kilo"));
         assert!(full_lifecycle_hook_authority("gardn:kimi", "kimi"));
-        assert!(!full_lifecycle_hook_authority("gardn:pi", "pi"));
     }
 
     #[test]

@@ -90,7 +90,7 @@ mod tests {
     fn truncate_end_uses_display_width() {
         let text = truncate_end("提交 gardn 的反馈", 14);
 
-        assert_eq!(text, "提交 gardn 的反…");
+        assert_eq!(text, "提交 gardn 的…");
         assert!(display_width(&text) <= 14);
     }
 

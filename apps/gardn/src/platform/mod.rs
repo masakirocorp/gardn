@@ -450,7 +450,11 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn remote_bridge_endpoint_falls_back_when_readable_name_is_too_long() {
-        let readable = format!("gardn-remote-{}-{}.sock", std::process::id(), "x".repeat(200));
+        let readable = format!(
+            "gardn-remote-{}-{}.sock",
+            std::process::id(),
+            "x".repeat(200)
+        );
         let short = format!("gardn-r-{}-short.sock", std::process::id());
         let path = remote_bridge_endpoint_path(&readable, &short);
         assert!(

@@ -897,13 +897,15 @@ impl TerminalState {
     ) -> bool {
         matches!(
             (source, agent_label, session_start_source),
-            ("gardn:claude", "claude", Some("clear" | "resume" | "compact"))
-                | (
-                    "gardn:omp",
-                    "omp",
-                    Some("startup" | "new" | "resume" | "fork")
-                )
-                | ("gardn:hermes", "hermes", Some("startup" | "new" | "resume"))
+            (
+                "gardn:claude",
+                "claude",
+                Some("clear" | "resume" | "compact")
+            ) | (
+                "gardn:omp",
+                "omp",
+                Some("startup" | "new" | "resume" | "fork")
+            ) | ("gardn:hermes", "hermes", Some("startup" | "new" | "resume"))
                 | ("gardn:opencode", "opencode", Some("select"))
         )
     }
@@ -3347,8 +3349,13 @@ mod tests {
             Some(20),
         );
 
-        let change =
-            terminal.set_hook_authority("gardn:pi".into(), "pi".into(), AgentState::Idle, None, None);
+        let change = terminal.set_hook_authority(
+            "gardn:pi".into(),
+            "pi".into(),
+            AgentState::Idle,
+            None,
+            None,
+        );
 
         assert!(change.is_none());
         assert_eq!(terminal.state, AgentState::Working);

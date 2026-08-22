@@ -153,7 +153,9 @@ fn app_client_launch_renders_visible_first_frame() {
             if let Some(mut stream) = guard.server_child.as_mut().unwrap().stderr.take() {
                 let _ = stream.read_to_string(&mut stderr);
             }
-            panic!("Gardn server exited before client socket was ready: {status}; stderr: {stderr}");
+            panic!(
+                "Gardn server exited before client socket was ready: {status}; stderr: {stderr}"
+            );
         }
         thread::sleep(Duration::from_millis(25));
     }

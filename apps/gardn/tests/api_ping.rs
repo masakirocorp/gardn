@@ -22,7 +22,7 @@ fn unique_test_dir() -> PathBuf {
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_nanos())
         .unwrap_or(0);
-    PathBuf::from(format!("/tmp/hapi-{}-{nanos}", std::process::id()))
+    PathBuf::from(format!("/tmp/gardn-api-{}-{nanos}", std::process::id()))
 }
 
 struct SpawnedGardn {
@@ -126,7 +126,11 @@ fn spawn_gardn_with_options(
     fs::create_dir_all(config_home.join("gardn")).unwrap();
     fs::create_dir_all(runtime_dir).unwrap();
     register_runtime_dir(runtime_dir);
-    fs::write(config_home.join("gardn/config.toml"), "onboarding = false\n").unwrap();
+    fs::write(
+        config_home.join("gardn/config.toml"),
+        "onboarding = false\n",
+    )
+    .unwrap();
 
     let pair = native_pty_system()
         .openpty(PtySize {
@@ -302,7 +306,7 @@ fn ping_over_socket_returns_version() {
     assert_eq!(value["result"]["version"], env!("CARGO_PKG_VERSION"));
     // Intentionally hardcoded so wire protocol bumps require updating this test.
     // Changing this value means old clients/servers are no longer compatible.
-    assert_eq!(value["result"]["protocol"], 12);
+    assert_eq!(value["result"]["protocol"], 13);
 
     cleanup_spawned_gardn(child, base);
 }
@@ -1652,7 +1656,10 @@ fn pane_report_agent_updates_effective_state() {
     );
     assert_eq!(pane["result"]["pane"]["agent"], "pi");
     assert_eq!(pane["result"]["pane"]["agent_status"], "working");
-    assert_eq!(pane["result"]["pane"]["agent_session"]["source"], "gardn:pi");
+    assert_eq!(
+        pane["result"]["pane"]["agent_session"]["source"],
+        "gardn:pi"
+    );
     assert_eq!(pane["result"]["pane"]["agent_session"]["agent"], "pi");
     assert_eq!(pane["result"]["pane"]["agent_session"]["kind"], "path");
     assert_eq!(

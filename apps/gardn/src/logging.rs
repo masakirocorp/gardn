@@ -19,7 +19,8 @@ pub(crate) fn init_file_logging(file_name: &str) {
         return;
     };
 
-    let filter = EnvFilter::try_from_env("GARDN_LOG").unwrap_or_else(|_| EnvFilter::new("gardn=info"));
+    let filter =
+        EnvFilter::try_from_env("GARDN_LOG").unwrap_or_else(|_| EnvFilter::new("gardn=info"));
 
     let _ = tracing_subscriber::fmt()
         .with_env_filter(filter)
@@ -586,7 +587,10 @@ mod tests {
     #[test]
     fn rotated_log_path_appends_numeric_suffix() {
         let path = PathBuf::from("/tmp/gardn.log");
-        assert_eq!(rotated_log_path(&path, 2), PathBuf::from("/tmp/gardn.log.2"));
+        assert_eq!(
+            rotated_log_path(&path, 2),
+            PathBuf::from("/tmp/gardn.log.2")
+        );
     }
 
     #[test]

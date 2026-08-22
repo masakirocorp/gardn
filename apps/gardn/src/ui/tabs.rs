@@ -827,7 +827,10 @@ mod tests {
         let mut ws = Workspace::test_new("test");
         ws.tabs[0].set_custom_name("提交 gardn 的反馈".into());
 
-        assert_eq!(tab_width(&ws, 0), display_width_u16("提交 gardn 的反馈") + 4);
+        assert_eq!(
+            tab_width(&ws, 0),
+            display_width_u16("提交 gardn 的反馈") + 4
+        );
     }
 
     #[test]
@@ -917,10 +920,10 @@ mod tests {
             .draw(|frame| render_tab_bar(&app, frame, app.view.tab_bar_rect))
             .unwrap();
 
-        // 15 display columns + 4 padding: two columns each side, wide glyphs
+        // 17 display columns + 4 padding: two columns each side, wide glyphs
         // starting right after the left padding.
         let rect = app.view.tab_hit_areas[0];
-        assert_eq!(rect.width, 19);
+        assert_eq!(rect.width, 21);
         let buffer = terminal.backend().buffer();
         assert_eq!(buffer[(rect.x, rect.y)].symbol(), " ");
         assert_eq!(buffer[(rect.x + 1, rect.y)].symbol(), " ");

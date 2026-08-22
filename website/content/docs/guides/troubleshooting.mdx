@@ -111,7 +111,7 @@ Start with the registry and manifest warnings:
 gardn plugin list --json
 ```
 
-A linked plugin must still have a readable manifest at its registered path. A missing, unreadable, malformed, or incompatible manifest is reported as a manifest warning or error. Fix the source and re-link it, or unlink the entry before trying another source. The preferred filename is `gardn-plugin.toml`; `gardn-plugin.toml` is a compatibility alias only.
+A linked plugin must still have a readable `gardn-plugin.toml` manifest at its registered path. A missing, unreadable, malformed, or incompatible manifest is reported as a manifest warning or error. Fix the source and re-link it, or unlink the entry before trying another source.
 
 For a GitHub install, rerun the install from the reviewed ref. The installer previews the resolved commit and every declared build/action/event/pane command before confirmation. Do not use `--yes` to skip review just to get past an error. A build failure reports the plugin, build index, working directory, argv, exit status, and capped stdout/stderr. A build that edits the manifest aborts the install; restore the manifest and retry.
 
@@ -147,10 +147,10 @@ When `Shift+Enter` behaves differently inside an agent pane:
 
 1. Inspect the host terminal configuration for custom `Shift+Enter` entries and remove them temporarily.
 2. Retest in a clean host configuration before changing Gardn bindings.
-3. Run `gardn config check` if an Gardn keybinding was changed, then use the keybinding-help surface to confirm the active binding.
+3. Run `gardn config check` if a Gardn keybinding was changed, then use the keybinding-help surface to confirm the active binding.
 4. If the key works in a direct terminal but not through a remote client, check `--remote-keybindings local|server`; the default is `local`.
 
-Do not diagnose a host-emitted legacy byte as an Gardn key-encoding failure until it reproduces with the host binding removed. Custom direct printable bindings and reserved/duplicate combinations can also be rejected by configuration validation; use the printed diagnostic rather than forcing the binding.
+Do not diagnose a host-emitted legacy byte as a Gardn key-encoding failure until it reproduces with the host binding removed. Custom direct printable bindings and reserved/duplicate combinations can also be rejected by configuration validation; use the printed diagnostic rather than forcing the binding.
 
 ## 9. Share a bounded support report
 

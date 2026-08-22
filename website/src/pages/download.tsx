@@ -4,17 +4,17 @@ import { canonicalUrl } from "../site-url";
 export default function DownloadPage() {
   return (
     <>
-      <title>Install and download — Gardn</title>
+      <title>Install and download | Gardn</title>
       <meta
         name="description"
         content="Install Gardn from source or Nix while public binary artifacts remain behind the release gate."
       />
-      <meta property="og:title" content="Install and download — Gardn" />
+      <meta property="og:title" content="Install and download | Gardn" />
       <meta
         property="og:description"
         content="Source and Nix installation paths, supported platforms, and verified binary release status."
       />
-      <meta name="twitter:title" content="Install and download — Gardn" />
+      <meta name="twitter:title" content="Install and download | Gardn" />
       <meta
         name="twitter:description"
         content="Source and Nix installation paths with verified binary release status."
@@ -91,7 +91,10 @@ cargo install --path apps/gardn`}</code>
           </div>
         </section>
 
-        <section className="gardn-shell gardn-section gardn-gate" aria-labelledby="release-gate-title">
+        <section
+          className="gardn-shell gardn-section gardn-gate"
+          aria-labelledby="release-gate-title"
+        >
           <div>
             <p className="gardn-eyebrow">Release gate</p>
             <h2 id="release-gate-title" className="gardn-section-title">

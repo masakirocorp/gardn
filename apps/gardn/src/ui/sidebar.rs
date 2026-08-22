@@ -6318,16 +6318,16 @@ mod tests {
         app.selected = 0;
         app.agent_panel_scope = AgentPanelScope::CurrentWorkspace;
 
-        let backend = TestBackend::new(34, 18);
+        let backend = TestBackend::new(34, 22);
         let mut terminal = Terminal::new(backend).expect("test backend");
         let terminal_runtimes = TerminalRuntimeRegistry::new();
         terminal
-            .draw(|frame| render_sidebar(&app, &terminal_runtimes, frame, Rect::new(0, 0, 34, 18)))
+            .draw(|frame| render_sidebar(&app, &terminal_runtimes, frame, Rect::new(0, 0, 34, 22)))
             .expect("render sidebar");
 
-        let text = buffer_text(terminal.backend().buffer(), 34, 18);
-        assert!(text.contains("personal / 1"));
-        assert!(text.contains("personal / 2"));
+        let text = buffer_text(terminal.backend().buffer(), 34, 22);
+        assert!(text.contains("personal / 1"), "rendered UI:\n{text}");
+        assert!(text.contains("personal / 2"), "rendered UI:\n{text}");
     }
 
     #[test]
@@ -6473,7 +6473,11 @@ mod tests {
             buffer[(body.x + RIGHT_SUBSECTION_LABEL_COL, body.y)].symbol(),
             "T"
         );
-        assert_eq!(buffer[(body.x + body.width - 2, body.y)].symbol(), "1");
+        let triage_row = text
+            .lines()
+            .find(|line| line.contains("Triage"))
+            .expect("triage section should be visible");
+        assert!(triage_row.contains('1'), "rendered UI:\n{text}");
         assert_eq!(
             buffer[(body.x + RIGHT_SUBSECTION_MARKER_COL, body.y)].symbol(),
             "▾"

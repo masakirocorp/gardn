@@ -11,7 +11,7 @@ use super::ExecutionHostId;
 pub(crate) const ASKPASS_ROLE_ENV: &str = "GARDN_SSH_ASKPASS_ROLE";
 const ASKPASS_SOCKET_ENV: &str = "GARDN_SSH_ASKPASS_SOCKET";
 const ASKPASS_TOKEN_ENV: &str = "GARDN_SSH_ASKPASS_TOKEN";
-const ASKPASS_MAGIC: &[u8; 7] = b"GARDNASK1";
+const ASKPASS_MAGIC: &[u8; 7] = b"GARDN1\0";
 const ASKPASS_TOKEN_BYTES: usize = 32;
 const MAX_PROMPT_BYTES: usize = 8 * 1024;
 const MAX_RESPONSE_BYTES: usize = 64 * 1024;

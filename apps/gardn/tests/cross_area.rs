@@ -101,7 +101,11 @@ fn spawn_server_with_path(
     fs::create_dir_all(config_home.join("gardn")).unwrap();
     fs::create_dir_all(runtime_dir).unwrap();
     register_runtime_dir(runtime_dir);
-    fs::write(config_home.join("gardn/config.toml"), "onboarding = false\n").unwrap();
+    fs::write(
+        config_home.join("gardn/config.toml"),
+        "onboarding = false\n",
+    )
+    .unwrap();
 
     let pair = native_pty_system()
         .openpty(PtySize {
@@ -685,7 +689,7 @@ fn cross_area_detach_and_reattach_preserves_state() {
 
     // Local attach (client A).
     let mut client_a = connect_unix_socket(&client_socket, Duration::from_secs(5));
-    client_handshake(&mut client_a, 12, 100, 30);
+    client_handshake(&mut client_a, 13, 100, 30);
     assert!(wait_for_frame(&mut client_a, Duration::from_secs(2)));
 
     // Use gardn: create a workspace and write output into its pane.
@@ -722,7 +726,7 @@ fn cross_area_detach_and_reattach_preserves_state() {
 
     // Reattach from another terminal/session (client B).
     let mut client_b = connect_unix_socket(&client_socket, Duration::from_secs(5));
-    client_handshake(&mut client_b, 12, 80, 24);
+    client_handshake(&mut client_b, 13, 80, 24);
     assert!(
         wait_for_frame(&mut client_b, Duration::from_secs(5)),
         "reattached client should receive frame"
@@ -788,7 +792,7 @@ fn cross_area_agent_process_survives_detach_and_reattach() {
         .to_string();
 
     let mut client_a = connect_unix_socket(&client_socket, Duration::from_secs(5));
-    client_handshake(&mut client_a, 12, 100, 30);
+    client_handshake(&mut client_a, 13, 100, 30);
     assert!(wait_for_frame(&mut client_a, Duration::from_secs(2)));
 
     // Ensure detected agent surface is populated by running fake `pi`.
@@ -844,7 +848,7 @@ fn cross_area_agent_process_survives_detach_and_reattach() {
 
     // Reattach and ensure client-side state reflects the persisted working status.
     let mut client_b = connect_unix_socket(&client_socket, Duration::from_secs(5));
-    client_handshake(&mut client_b, 12, 80, 24);
+    client_handshake(&mut client_b, 13, 80, 24);
     let saw_working_on_client =
         wait_for_frame_matching(&mut client_b, Duration::from_secs(5), |frame| {
             frame_contains_text(frame, "Working")
@@ -889,7 +893,7 @@ fn cross_area_client_and_api_workspace_views_are_consistent() {
     wait_for_socket(&client_socket, Duration::from_secs(10));
 
     let mut client = connect_unix_socket(&client_socket, Duration::from_secs(5));
-    client_handshake(&mut client, 12, 100, 30);
+    client_handshake(&mut client, 13, 100, 30);
     assert!(wait_for_frame(&mut client, Duration::from_secs(2)));
     drain_server_messages(&mut client, Duration::from_millis(300));
 
@@ -959,9 +963,9 @@ fn cross_area_two_clients_shared_view_and_single_detach_stability() {
 
     // Connect client B first so it owns tab control; client A is the watcher.
     let mut client_b = connect_unix_socket(&client_socket, Duration::from_secs(5));
-    client_handshake(&mut client_b, 12, 110, 30);
+    client_handshake(&mut client_b, 13, 110, 30);
     let mut client_a = connect_unix_socket(&client_socket, Duration::from_secs(5));
-    client_handshake(&mut client_a, 12, 100, 30);
+    client_handshake(&mut client_a, 13, 100, 30);
 
     assert!(wait_for_frame(&mut client_b, Duration::from_secs(2)));
     assert!(wait_for_frame(&mut client_a, Duration::from_secs(2)));
@@ -1123,7 +1127,7 @@ fn cross_area_server_kill_then_restart_and_reconnect() {
     wait_for_socket(&client_socket, Duration::from_secs(10));
 
     let mut reconnect_client = connect_unix_socket(&client_socket, Duration::from_secs(5));
-    client_handshake(&mut reconnect_client, 12, 80, 24);
+    client_handshake(&mut reconnect_client, 13, 80, 24);
     assert!(
         wait_for_frame(&mut reconnect_client, Duration::from_secs(5)),
         "new client should receive frame after restart"

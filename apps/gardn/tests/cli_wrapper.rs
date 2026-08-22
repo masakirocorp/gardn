@@ -22,7 +22,7 @@ fn unique_test_dir() -> PathBuf {
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_nanos())
         .unwrap_or(0);
-    PathBuf::from(format!("/tmp/hcli-{}-{nanos}", std::process::id()))
+    PathBuf::from(format!("/tmp/gardn-cli-{}-{nanos}", std::process::id()))
 }
 
 fn run_git(repo: &Path, args: &[&str]) {
@@ -525,7 +525,7 @@ fn accept_fake_cli_operation(listener: &UnixListener) -> (UnixStream, String) {
                 "result": {
                     "type": "pong",
                     "version": "different-build-same-protocol",
-                    "protocol": 12,
+                    "protocol": 13,
                     "capabilities": { "live_handoff": true }
                 }
             })
@@ -1556,7 +1556,7 @@ fn status_commands_report_client_and_server_versions() {
         "stdout: {full_stdout}"
     );
     assert!(
-        full_stdout.contains("  protocol: 12"),
+        full_stdout.contains("  protocol: 13"),
         "stdout: {full_stdout}"
     );
     assert!(full_stdout.contains("server:\n"), "stdout: {full_stdout}");
@@ -1589,7 +1589,7 @@ fn status_commands_report_client_and_server_versions() {
         "stdout: {server_stdout}"
     );
     assert!(
-        server_stdout.contains("protocol: 12"),
+        server_stdout.contains("protocol: 13"),
         "stdout: {server_stdout}"
     );
 
@@ -1601,7 +1601,7 @@ fn status_commands_report_client_and_server_versions() {
         "stdout: {client_stdout}"
     );
     assert!(
-        client_stdout.contains("protocol: 12"),
+        client_stdout.contains("protocol: 13"),
         "stdout: {client_stdout}"
     );
     assert!(
@@ -1611,7 +1611,7 @@ fn status_commands_report_client_and_server_versions() {
 
     let full_json = run_cli_json(&socket_path, &["status", "--json"]);
     assert_eq!(full_json["client"]["version"], env!("CARGO_PKG_VERSION"));
-    assert_eq!(full_json["client"]["protocol"], 12);
+    assert_eq!(full_json["client"]["protocol"], 13);
     assert_eq!(full_json["server"]["status"], "running");
     assert_eq!(full_json["server"]["running"], true);
     assert_eq!(full_json["server"]["compatible"], true);
@@ -1625,12 +1625,12 @@ fn status_commands_report_client_and_server_versions() {
     let server_json = run_cli_json(&socket_path, &["status", "server", "--json"]);
     assert_eq!(server_json["status"], "running");
     assert_eq!(server_json["version"], env!("CARGO_PKG_VERSION"));
-    assert_eq!(server_json["protocol"], 12);
+    assert_eq!(server_json["protocol"], 13);
     assert_eq!(server_json["compatible"], true);
 
     let client_json = run_cli_json(&socket_path, &["status", "client", "--json"]);
     assert_eq!(client_json["version"], env!("CARGO_PKG_VERSION"));
-    assert_eq!(client_json["protocol"], 12);
+    assert_eq!(client_json["protocol"], 13);
     assert!(client_json["binary"]
         .as_str()
         .is_some_and(|path| !path.is_empty()));
@@ -2767,28 +2767,6 @@ command = ["sh", "-c", "sleep 5"]
 "#,
     )
     .unwrap();
-    fs::write(
-        plugin_dir.join("gardn-plugin.toml"),
-        r#"
-id = "example.should-not-load"
-name = "Legacy Alias"
-version = "0.1.0"
-min_gardn_version = "0.7.0"
-"#,
-    )
-    .unwrap();
-    let alias_dir = base.join("plugins").join("legacy-alias");
-    fs::create_dir_all(&alias_dir).unwrap();
-    fs::write(
-        alias_dir.join("gardn-plugin.toml"),
-        r#"
-id = "example.legacy-alias"
-name = "Legacy Alias"
-version = "0.1.0"
-min_gardn_version = "0.7.0"
-"#,
-    )
-    .unwrap();
 
     let gardn = spawn_gardn(&config_home, &runtime_dir, &socket_path);
     wait_for_socket(&socket_path, Duration::from_secs(5));
@@ -2818,17 +2796,6 @@ min_gardn_version = "0.7.0"
     );
     assert_eq!(linked["result"]["plugin"]["panes"][0]["id"], "board");
 
-    let alias_linked = run_cli_json_in_dir(
-        &socket_path,
-        &["plugin", "link", "plugins/legacy-alias"],
-        &base,
-    );
-    assert_eq!(alias_linked["result"]["type"], "plugin_linked");
-    assert_eq!(
-        alias_linked["result"]["plugin"]["plugin_id"],
-        "example.legacy-alias"
-    );
-
     let listed_human = run_cli(&socket_path, &["plugin", "list"]);
     assert!(listed_human.status.success());
     assert!(String::from_utf8_lossy(&listed_human.stdout).contains("example.layout"));
@@ -2842,8 +2809,6 @@ min_gardn_version = "0.7.0"
         .filter_map(|plugin| plugin["plugin_id"].as_str())
         .collect();
     assert!(plugin_ids.contains(&"example.layout"));
-    assert!(plugin_ids.contains(&"example.legacy-alias"));
-    assert!(!plugin_ids.contains(&"example.should-not-load"));
 
     let invoked = run_cli_json(
         &socket_path,
@@ -2895,10 +2860,6 @@ min_gardn_version = "0.7.0"
     assert_eq!(unlinked["result"]["type"], "plugin_unlinked");
     assert_eq!(unlinked["result"]["removed"], true);
 
-    let unlinked_alias = run_cli_json(&socket_path, &["plugin", "unlink", "example.legacy-alias"]);
-    assert_eq!(unlinked_alias["result"]["type"], "plugin_unlinked");
-    assert_eq!(unlinked_alias["result"]["removed"], true);
-
     let listed = run_cli_json(&socket_path, &["plugin", "list", "--json"]);
     assert!(listed["result"]["plugins"].as_array().unwrap().is_empty());
 
@@ -2945,7 +2906,7 @@ command = ["sh", "-c", "echo bootstrap"]
     fs::write(
         &git_config,
         format!(
-            "[url \"file://{}\"]\n    insteadOf = https://github.com/ogulcancelik/gardn-plugin-examples.git\n",
+            "[url \"file://{}\"]\n    insteadOf = https://github.com/masakirocorp/gardn-plugin-examples.git\n",
             source_repo.display()
         ),
     )
@@ -2959,7 +2920,7 @@ command = ["sh", "-c", "echo bootstrap"]
             "plugins",
             "plugin",
             "install",
-            "ogulcancelik/gardn-plugin-examples/workspace-bootstrap",
+            "masakirocorp/gardn-plugin-examples/workspace-bootstrap",
             "--yes",
         ],
         &[
@@ -2982,7 +2943,7 @@ command = ["sh", "-c", "echo bootstrap"]
     let plugin = &listed["result"]["plugins"][0];
     assert_eq!(plugin["plugin_id"], "example.workspace-bootstrap");
     assert_eq!(plugin["source"]["kind"], "github");
-    assert_eq!(plugin["source"]["owner"], "ogulcancelik");
+    assert_eq!(plugin["source"]["owner"], "masakirocorp");
     assert_eq!(plugin["source"]["repo"], "gardn-plugin-examples");
     assert_eq!(plugin["source"]["subdir"], "workspace-bootstrap");
     assert!(plugin["source"]["resolved_commit"].as_str().is_some());

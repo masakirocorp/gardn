@@ -188,7 +188,9 @@ fn socket_path_app_dir(path: &Path) -> Option<&str> {
 
 fn socket_path_matches_current_app(path: &Path) -> bool {
     match socket_path_app_dir(path) {
-        Some("gardn" | "gardn-dev") => socket_path_app_dir(path) == Some(crate::config::app_dir_name()),
+        Some("gardn" | "gardn-dev") => {
+            socket_path_app_dir(path) == Some(crate::config::app_dir_name())
+        }
         _ => true,
     }
 }
@@ -526,7 +528,7 @@ mod tests {
             .duration_since(std::time::UNIX_EPOCH)
             .map(|duration| duration.as_nanos())
             .unwrap_or(0);
-        let suffix = format!("hs-{name}-{}-{nanos}", std::process::id());
+        let suffix = format!("gardn-session-{name}-{}-{nanos}", std::process::id());
         #[cfg(unix)]
         {
             PathBuf::from("/tmp").join(suffix)

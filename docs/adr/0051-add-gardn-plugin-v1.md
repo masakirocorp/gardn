@@ -10,14 +10,13 @@ Gardn is adding a plugin system. Plugins are local extension code that can add a
 
 This is a public trust boundary. A plugin runs as the user, can execute commands, and can receive Gardn runtime context through environment variables. Gardn must not present plugin discovery or installation as sandboxing or endorsement.
 
-Upstream Gardn added a plugin v1 system. Gardn should port the behavior, but keep Gardn product names and storage semantics.
+`ogulcancelik/herdr` introduced the plugin v1 behavior that Gardn ports. Gardn keeps its own public names and storage semantics.
 
 ## Decision
 
 Gardn will support plugin v1 with these rules:
 
-- The preferred manifest is `gardn-plugin.toml` with `min_gardn_version`.
-- For upstream ecosystem compatibility, Gardn also accepts `gardn-plugin.toml` and `min_gardn_version` as aliases.
+- The manifest is `gardn-plugin.toml` with `min_gardn_version`. Gardn does not accept compatibility aliases for either name.
 - Plugin installs are global to the Gardn app, not per session.
 - Plugin runtime logs and pane attribution are session-local runtime state.
 - Plugins run unsandboxed as the current user.

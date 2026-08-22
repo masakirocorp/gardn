@@ -49,7 +49,7 @@ As a result, mouse or keyboard copy can write text on Windows, and remote image 
 
 ## Cursor and terminal boundaries
 
-`ui.host_cursor = "auto"` follows the platform default. Native Windows builds and WSL draw an Gardn cursor as cell content to avoid outer-terminal cursor flicker; macOS and ordinary Linux use the outer terminal cursor by default. Set `native` or `drawn` explicitly when the default is unsuitable. A drawn cursor is part of the rendered terminal content and can differ from an application's native cursor.
+`ui.host_cursor = "auto"` follows the platform default. Native Windows builds and WSL draw a Gardn cursor as cell content to avoid outer-terminal cursor flicker; macOS and ordinary Linux use the outer terminal cursor by default. Set `native` or `drawn` explicitly when the default is unsuitable. A drawn cursor is part of the rendered terminal content and can differ from an application's native cursor.
 
 Gardn depends on the outer terminal to deliver key and mouse events. tmux, terminal keymaps, ConPTY, IMEs, and terminal mouse reporting can change what reaches the application. See the [keybinding caveats](/docs/reference/keybindings#terminal-caveats) and [copy and terminal guide](/docs/guides/copy-and-terminal) for interaction-specific behavior.
 
@@ -57,7 +57,7 @@ Gardn depends on the outer terminal to deliver key and mouse events. tmux, termi
 
 The following boundaries are explicit configuration choices, not general platform guarantees:
 
-- `experimental.allow_nested` is `false` by default. Launching Gardn from an Gardn-managed pane is blocked unless nesting is explicitly enabled; nested sessions can make process ownership and terminal input ambiguous.
+- `experimental.allow_nested` is `false` by default. Launching Gardn from a Gardn-managed pane is blocked unless nesting is explicitly enabled; nested sessions can make process ownership and terminal input ambiguous.
 - `experimental.kitty_graphics` is `false` by default and requires a Kitty graphics-compatible outer terminal. Enabling it does not add graphics support to an incompatible terminal or to a remote host.
 - `experimental.switch_ascii_input_source_in_prefix` is macOS-only and best-effort. It temporarily switches to an ASCII-capable input source while prefix mode is active, then attempts to restore the previous source.
 - `experimental.reveal_hidden_cursor_for_cjk_ime` and its agent allow-list are intended for CJK input-method cursor tracking. They can make an otherwise hidden pane cursor visible; the setting is opt-in.

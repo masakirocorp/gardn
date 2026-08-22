@@ -153,9 +153,7 @@ fn fetch_url(url: &str, label: &str) -> Result<Vec<u8>, String> {
         .map_err(|e| format!("invalid HTTP status while fetching {label} from {url}: {e}"))?;
     if !(200..300).contains(&status) {
         if url == GITHUB_LATEST_RELEASE_API_URL && status == 404 {
-            return Err(
-                "no published GitHub releases found for masakirocorp/gardn".to_string(),
-            );
+            return Err("no published GitHub releases found for masakirocorp/gardn".to_string());
         }
         return Err(format!("failed to fetch {label} from {url}: HTTP {status}"));
     }
@@ -502,7 +500,7 @@ fn plan_running_server_updates(
 
     if plans.is_empty() && target_client_protocol_server_is_running()? {
         return Err(format!(
-            "an Gardn server is listening, but its status API is unavailable; try `{}`, or stop the old server process manually, then run `gardn update` again",
+            "a Gardn server is listening, but its status API is unavailable; try `{}`, or stop the old server process manually, then run `gardn update` again",
             crate::session::local_stop_command()
         ));
     }
@@ -1362,8 +1360,7 @@ pub(crate) fn update_install_instruction(install_command: &str) -> String {
                 .to_string()
         }
         NIX_UPDATE_COMMAND => {
-            "Detach, update through Nix, then restart this Gardn session when ready"
-                .to_string()
+            "Detach, update through Nix, then restart this Gardn session when ready".to_string()
         }
         command => {
             format!("Detach, run `{command}`, then restart this Gardn session when ready")
@@ -1659,7 +1656,7 @@ mod tests {
             .unwrap()
             .as_nanos();
         std::path::PathBuf::from(format!(
-            "/tmp/hu-{name}-{}-{nanos}.sock",
+            "/tmp/gardn-update-{name}-{}-{nanos}.sock",
             std::process::id()
         ))
     }
@@ -1716,15 +1713,12 @@ mod tests {
         }
     }
 
-    fn set_test_config_home(name: &str) -> (PathBuf, TestEnvVar) {
+    fn set_test_config_home(_name: &str) -> (PathBuf, TestEnvVar) {
         let nanos = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|duration| duration.as_nanos())
             .unwrap_or(0);
-        let dir = PathBuf::from(format!(
-            "/tmp/gardn-update-{name}-{}-{nanos}",
-            std::process::id()
-        ));
+        let dir = PathBuf::from(format!("/tmp/gardn-u-{}-{nanos}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
         let env = TestEnvVar::set("XDG_CONFIG_HOME", &dir);
@@ -2031,7 +2025,8 @@ mod tests {
     fn explicit_session_update_targets_only_that_session() {
         let _guard = env_lock().lock().unwrap();
         let (config_home, _config_home_env) = set_test_config_home("explicit-session");
-        let _socket_env = TestEnvVar::set(crate::api::SOCKET_PATH_ENV_VAR, "/tmp/ignored-gardn.sock");
+        let _socket_env =
+            TestEnvVar::set(crate::api::SOCKET_PATH_ENV_VAR, "/tmp/ignored-gardn.sock");
         let _session_env = TestEnvVar::remove(crate::session::SESSION_ENV_VAR);
         let _explicit_session = crate::session::explicit_session_request_guard(false);
         let args = vec![
@@ -2056,7 +2051,8 @@ mod tests {
     #[test]
     fn socket_override_update_targets_socket_not_env_session() {
         let _guard = env_lock().lock().unwrap();
-        let _socket_env = TestEnvVar::set(crate::api::SOCKET_PATH_ENV_VAR, "/tmp/custom-gardn.sock");
+        let _socket_env =
+            TestEnvVar::set(crate::api::SOCKET_PATH_ENV_VAR, "/tmp/custom-gardn.sock");
         let _session_env = TestEnvVar::set(crate::session::SESSION_ENV_VAR, "work");
         let _explicit_session = crate::session::explicit_session_request_guard(false);
 
@@ -2435,7 +2431,10 @@ mod tests {
             release_asset_name(("windows", "x86_64")),
             "gardn-windows-x86_64.exe"
         );
-        assert_eq!(release_asset_name(("linux", "x86_64")), "gardn-linux-x86_64");
+        assert_eq!(
+            release_asset_name(("linux", "x86_64")),
+            "gardn-linux-x86_64"
+        );
         assert_eq!(
             release_asset_name(("macos", "aarch64")),
             "gardn-macos-aarch64"

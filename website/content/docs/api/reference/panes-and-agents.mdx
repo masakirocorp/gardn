@@ -1117,17 +1117,17 @@ Three methods let integration hooks push agent state into a pane's terminal meta
 Report an agent state transition for a pane.
 
 | Property             | Type                                            | Required | Default |
-| -------------------- | ----------------------------------------------- | -------- | ------- | ---------------------------------------------------------------------------------------------------------------------- |
+| -------------------- | ----------------------------------------------- | -------- | ------- | ------------------------------------------------------------------------------------------------------------------------ |
 | `pane_id`            | `string`                                        | yes      | —       |
 | `source`             | `string`                                        | yes      | —       | Free-form, conventionally `gardn:<agent>` or `<integration>:<agent>`. Used by the resume subsystem to correlate reports. |
-| `agent`              | `string`                                        | yes      | —       | Agent label; trimmed and normalized when known, kept verbatim otherwise. Empty produces `invalid_agent`.               |
-| `state`              | `"idle" \| "working" \| "blocked" \| "unknown"` | yes      | —       | Maps directly to the internal `AgentState`.                                                                            |
-| `message`            | `string \| null`                                | no       | `null`  | Optional human-oriented message attached to the report.                                                                |
-| `custom_status`      | `string \| null`                                | no       | `null`  | Trimmed and filtered to at most 32 non-control characters.                                                             |
-| `seq`                | `integer \| null`                               | no       | `null`  | Monotonic sequence used for ordering concurrent reports.                                                               |
-| `agent_session_id`   | `string \| null`                                | no       | `null`  | Together with `agent_session_path` identifies the session for resume; one of the two is the session reference.         |
-| `agent_session_path` | `string \| null`                                | no       | `null`  | —                                                                                                                      |
-| `launch_env`         | `object`                                        | no       | `{}`    | Environment captured at agent launch, forwarded to the resume subsystem.                                               |
+| `agent`              | `string`                                        | yes      | —       | Agent label; trimmed and normalized when known, kept verbatim otherwise. Empty produces `invalid_agent`.                 |
+| `state`              | `"idle" \| "working" \| "blocked" \| "unknown"` | yes      | —       | Maps directly to the internal `AgentState`.                                                                              |
+| `message`            | `string \| null`                                | no       | `null`  | Optional human-oriented message attached to the report.                                                                  |
+| `custom_status`      | `string \| null`                                | no       | `null`  | Trimmed and filtered to at most 32 non-control characters.                                                               |
+| `seq`                | `integer \| null`                               | no       | `null`  | Monotonic sequence used for ordering concurrent reports.                                                                 |
+| `agent_session_id`   | `string \| null`                                | no       | `null`  | Together with `agent_session_path` identifies the session for resume; one of the two is the session reference.           |
+| `agent_session_path` | `string \| null`                                | no       | `null`  | —                                                                                                                        |
+| `launch_env`         | `object`                                        | no       | `{}`    | Environment captured at agent launch, forwarded to the resume subsystem.                                                 |
 
 Result: `Ok {}`.
 

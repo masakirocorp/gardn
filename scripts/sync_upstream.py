@@ -106,7 +106,7 @@ def write_pr_body(path: Path, branch: str, base_ref: str, upstream_ref: str, com
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Create an Gardn upstream sync branch and PR")
+    parser = argparse.ArgumentParser(description="Create a Gardn upstream sync branch and PR")
     parser.add_argument("--base", default="origin/master")
     parser.add_argument("--upstream", default="upstream/master")
     parser.add_argument("--date", default=dt.datetime.now(dt.UTC).strftime("%Y-%m-%d"))

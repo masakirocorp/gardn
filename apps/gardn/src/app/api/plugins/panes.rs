@@ -426,34 +426,21 @@ impl App {
         env.retain(|(key, _)| !plugin_pane_protected_env_key(key));
         env.extend(super::env::plugin_path_env(plugin));
         env.push(("GARDN_PLUGIN_ID".to_string(), plugin.plugin_id.clone()));
-        env.push(("GARDN_PLUGIN_ID".to_string(), plugin.plugin_id.clone()));
         env.push((
             "GARDN_PLUGIN_ENTRYPOINT_ID".to_string(),
             entrypoint.to_string(),
         ));
-        env.push((
-            "GARDN_PLUGIN_ENTRYPOINT_ID".to_string(),
-            entrypoint.to_string(),
-        ));
-        env.push(("GARDN_PLUGIN_CONTEXT_JSON".to_string(), context_json.clone()));
         env.push(("GARDN_PLUGIN_CONTEXT_JSON".to_string(), context_json));
         if let Some(workspace_id) = context.workspace_id.as_ref() {
-            env.push(("GARDN_WORKSPACE_ID".to_string(), workspace_id.clone()));
             env.push(("GARDN_WORKSPACE_ID".to_string(), workspace_id.clone()));
         }
         if let Some(tab_id) = context.tab_id.as_ref() {
             env.push(("GARDN_TAB_ID".to_string(), tab_id.clone()));
-            env.push(("GARDN_TAB_ID".to_string(), tab_id.clone()));
         }
         if let Some(pane_id) = context.focused_pane_id.as_ref() {
             env.push(("GARDN_PANE_ID".to_string(), pane_id.clone()));
-            env.push(("GARDN_PANE_ID".to_string(), pane_id.clone()));
         }
         if let Ok(current_exe) = std::env::current_exe() {
-            env.push((
-                "GARDN_BIN_PATH".to_string(),
-                current_exe.display().to_string(),
-            ));
             env.push((
                 "GARDN_BIN_PATH".to_string(),
                 current_exe.display().to_string(),
@@ -614,24 +601,14 @@ fn plugin_pane_protected_env_key(key: &str) -> bool {
     matches!(
         key,
         "GARDN_PLUGIN_ID"
-            | "GARDN_PLUGIN_ID"
-            | "GARDN_PLUGIN_ENTRYPOINT_ID"
             | "GARDN_PLUGIN_ENTRYPOINT_ID"
             | "GARDN_PLUGIN_CONTEXT_JSON"
-            | "GARDN_PLUGIN_CONTEXT_JSON"
-            | "GARDN_PLUGIN_ROOT"
             | "GARDN_PLUGIN_ROOT"
             | "GARDN_PLUGIN_CONFIG_DIR"
-            | "GARDN_PLUGIN_CONFIG_DIR"
-            | "GARDN_PLUGIN_STATE_DIR"
             | "GARDN_PLUGIN_STATE_DIR"
             | "GARDN_WORKSPACE_ID"
-            | "GARDN_WORKSPACE_ID"
-            | "GARDN_TAB_ID"
             | "GARDN_TAB_ID"
             | "GARDN_PANE_ID"
-            | "GARDN_PANE_ID"
-            | "GARDN_BIN_PATH"
             | "GARDN_BIN_PATH"
     )
 }

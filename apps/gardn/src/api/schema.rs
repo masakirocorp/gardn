@@ -1,7 +1,7 @@
 //! Local API schema facade.
 //!
 //! Wire DTOs and JSON Schema live in `gardn_local_api`. This module re-exports
-//! that contract and hosts gardn-only adapters (sound, resource locations,
+//! that contract and hosts Gardn-only adapters (sound, resource locations,
 //! toast/config/agent-session mappings, and build/protocol identity injection).
 
 pub use gardn_local_api::*;

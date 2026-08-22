@@ -8,9 +8,9 @@ contains the upstream behavior and the listed verification still passes.
 
 status: active
 
-patch: `apps/omh/vendor/patches/libghostty-vt/0001-default-grapheme-cluster-mode.patch`
+patch: `apps/gardn/vendor/patches/libghostty-vt/0001-default-grapheme-cluster-mode.patch`
 
-upstream Herdr issue: https://github.com/ogulcancelik/herdr/issues/243
+upstream issue: https://github.com/ogulcancelik/herdr/issues/243
 
 upstream discussion: not opened; libghostty-vt currently exposes current mode mutation but no C API for configuring terminal default modes
 
@@ -20,9 +20,9 @@ vendored base: `c5a21edfcbc2d5b46540ad91b7980aca31f5f1f3`
 
 local files:
 
-- `apps/omh/vendor/libghostty-vt/src/terminal/c/terminal.zig`
+- `apps/gardn/vendor/libghostty-vt/src/terminal/c/terminal.zig`
 
-reason: Oh My Herdr renders terminal cells directly and requires DEC private mode
+reason: Gardn renders terminal cells directly and requires DEC private mode
 2027 to store flags, ZWJ emoji, and other multi-codepoint grapheme clusters in
 one cell. This patch makes clustering active for new terminals and keeps it as
 the reset default so RIS (`ESC c`) does not disable it.
@@ -43,7 +43,7 @@ cargo nextest run --locked grapheme_cluster_mode_renders_zwj_family_in_single_wi
 
 status: active
 
-patch: `apps/omh/vendor/patches/libghostty-vt/0002-skip-unused-ghostty-bench-init.patch`
+patch: `apps/gardn/vendor/patches/libghostty-vt/0002-skip-unused-ghostty-bench-init.patch`
 
 upstream discussion: not opened; the upstream build initializes all named
 artifacts before deciding which ones to install
@@ -52,9 +52,9 @@ vendored base: `c5a21edfcbc2d5b46540ad91b7980aca31f5f1f3`
 
 local files:
 
-- `apps/omh/vendor/libghostty-vt/build.zig`
+- `apps/gardn/vendor/libghostty-vt/build.zig`
 
-reason: Oh My Herdr builds only `-Demit-lib-vt`. Unconditional
+reason: Gardn builds only `-Demit-lib-vt`. Unconditional
 `GhosttyBench.init` resolves unused dcimgui, vaxis, and zf packages. These
 packages fetch ImGui and zigimg from GitHub and make CI depend on unrelated
 network downloads.
@@ -67,5 +67,5 @@ verification:
 
 ```sh
 python3 -m unittest scripts.test_vendor_libghostty_vt
-(cd apps/omh/vendor/libghostty-vt && ZIG_GLOBAL_CACHE_DIR=$(mktemp -d) zig build -Demit-lib-vt -Doptimize=ReleaseFast -Dsimd=true)
+(cd apps/gardn/vendor/libghostty-vt && ZIG_GLOBAL_CACHE_DIR=$(mktemp -d) zig build -Demit-lib-vt -Doptimize=ReleaseFast -Dsimd=true)
 ```

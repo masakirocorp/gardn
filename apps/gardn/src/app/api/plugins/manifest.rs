@@ -4,8 +4,6 @@ use crate::api::schema::{
     PluginPlatform, PluginSourceInfo, PluginSourceKind,
 };
 
-const GARDN_PLUGIN_V1_COMPAT_VERSION: &str = "0.7.0";
-
 const PLUGIN_ID_MAX_CHARS: usize = 120;
 const PLUGIN_ACTION_ID_MAX_CHARS: usize = 120;
 
@@ -14,8 +12,6 @@ struct RawPluginManifest {
     id: String,
     name: String,
     version: String,
-    #[serde(default)]
-    min_gardn_version: Option<String>,
     #[serde(default)]
     min_gardn_version: Option<String>,
     #[serde(default)]
@@ -119,12 +115,7 @@ pub(crate) fn load_plugin_manifest(
 ) -> Result<InstalledPluginInfo, (&'static str, String)> {
     let path = std::path::PathBuf::from(path);
     let manifest_path = if path.is_dir() {
-        let gardn_manifest = path.join("gardn-plugin.toml");
-        if gardn_manifest.exists() {
-            gardn_manifest
-        } else {
-            path.join("gardn-plugin.toml")
-        }
+        path.join("gardn-plugin.toml")
     } else {
         path
     };
@@ -152,10 +143,7 @@ pub(crate) fn load_plugin_manifest(
         "invalid_plugin_version",
         "plugin version is required",
     )?;
-    let min_gardn_version = validate_plugin_min_version(
-        raw.min_gardn_version.as_deref(),
-        raw.min_gardn_version.as_deref(),
-    )?;
+    let min_gardn_version = validate_plugin_min_version(raw.min_gardn_version.as_deref())?;
     let description = raw
         .description
         .map(|description| description.trim().to_string())
@@ -234,18 +222,16 @@ pub(crate) fn load_plugin_manifest(
 
 fn validate_plugin_min_version(
     min_gardn_version: Option<&str>,
-    min_gardn_version: Option<&str>,
 ) -> Result<String, (&'static str, String)> {
-    if let Some(value) = min_gardn_version {
-        return validate_min_gardn_version(value);
-    }
-    if let Some(value) = min_gardn_version {
-        return validate_min_gardn_version(value);
-    }
-    Err((
-        "invalid_plugin_min_gardn_version",
-        "plugin min_gardn_version is required".to_string(),
-    ))
+    min_gardn_version.map_or_else(
+        || {
+            Err((
+                "invalid_plugin_min_gardn_version",
+                "plugin min_gardn_version is required".to_string(),
+            ))
+        },
+        validate_min_gardn_version,
+    )
 }
 
 fn validate_min_gardn_version(value: &str) -> Result<String, (&'static str, String)> {
@@ -267,34 +253,7 @@ fn validate_min_gardn_version(value: &str) -> Result<String, (&'static str, Stri
     if required > current {
         return Err((
             "plugin_requires_newer_gardn",
-            format!(
-                "plugin requires Gardn {required} or newer; current Gardn is {current}"
-            ),
-        ));
-    }
-    Ok(required.to_string())
-}
-
-fn validate_min_gardn_version(value: &str) -> Result<String, (&'static str, String)> {
-    let value = non_empty_trimmed(
-        value,
-        "invalid_plugin_min_gardn_version",
-        "plugin min_gardn_version is required",
-    )?;
-    let required = crate::update::Version::parse(&value).ok_or_else(|| {
-        (
-            "invalid_plugin_min_gardn_version",
-            "plugin min_gardn_version must be a semantic version like 0.7.0".to_string(),
-        )
-    })?;
-    let supported = crate::update::Version::parse(GARDN_PLUGIN_V1_COMPAT_VERSION)
-        .expect("Gardn plugin compatibility version is valid");
-    if required > supported {
-        return Err((
-            "plugin_requires_newer_gardn",
-            format!(
-                "plugin requires Gardn plugin API {required} or newer; Gardn supports Gardn plugin API {supported}"
-            ),
+            format!("plugin requires Gardn {required} or newer; current Gardn is {current}"),
         ));
     }
     Ok(required.to_string())

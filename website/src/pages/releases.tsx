@@ -4,17 +4,17 @@ import { canonicalUrl } from "../site-url";
 export default function ReleasesPage() {
   return (
     <>
-      <title>Release status — Gardn</title>
+      <title>Release status | Gardn</title>
       <meta
         name="description"
         content="Public release status and the verification contract for Gardn artifacts and release notes."
       />
-      <meta property="og:title" content="Release status — Gardn" />
+      <meta property="og:title" content="Release status | Gardn" />
       <meta
         property="og:description"
         content="How Gardn will publish verified binaries, compatibility details, and release notes."
       />
-      <meta name="twitter:title" content="Release status — Gardn" />
+      <meta name="twitter:title" content="Release status | Gardn" />
       <meta
         name="twitter:description"
         content="How verified binaries, compatibility details, and release notes will be published."
@@ -87,7 +87,10 @@ export default function ReleasesPage() {
           </div>
         </section>
 
-        <section className="gardn-shell gardn-section gardn-gate" aria-labelledby="release-now-title">
+        <section
+          className="gardn-shell gardn-section gardn-gate"
+          aria-labelledby="release-now-title"
+        >
           <div>
             <p className="gardn-eyebrow">Right now</p>
             <h2 id="release-now-title" className="gardn-section-title">

@@ -128,7 +128,7 @@ mod tests {
     #[test]
     fn prepare_socket_path_removes_stale_socket() {
         let dir = PathBuf::from(format!(
-            "/tmp/hs-{}-{}",
+            "/tmp/gardn-stale-socket-{}-{}",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -160,7 +160,7 @@ mod tests {
     #[test]
     fn prepare_socket_path_rejects_live_socket() {
         let dir = PathBuf::from(format!(
-            "/tmp/hl-{}-{}",
+            "/tmp/gardn-live-socket-{}-{}",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)

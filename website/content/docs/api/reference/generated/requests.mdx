@@ -617,6 +617,38 @@ Parameters: `PaneReadParams`
 | `source` | `ReadSource` | yes |  |
 | `strip_ansi` | `boolean` | no |  |
 
+## `pane.graphics.set`
+
+Parameters: `PaneGraphicsSetParams`
+
+| Property | Type | Required | Description |
+| --- | --- | --- | --- |
+| `data_base64` | `string` | no |  |
+| `format` | `PaneGraphicsFormat` | yes |  |
+| `image_height` | `integer` | yes |  |
+| `image_width` | `integer` | yes |  |
+| `layer_id` | `string \| null` | no |  |
+| `pane_id` | `string` | yes |  |
+| `placement` | `PaneGraphicsPlacementParams` | no |  |
+| `z_index` | `integer` | no |  |
+
+## `pane.graphics.clear`
+
+Parameters: `PaneGraphicsClearParams`
+
+| Property | Type | Required | Description |
+| --- | --- | --- | --- |
+| `layer_id` | `string \| null` | no |  |
+| `pane_id` | `string` | yes |  |
+
+## `pane.graphics.info`
+
+Parameters: `PaneTarget`
+
+| Property | Type | Required | Description |
+| --- | --- | --- | --- |
+| `pane_id` | `string` | yes |  |
+
 ## `pane.report_agent`
 
 Parameters: `PaneReportAgentParams`
@@ -934,6 +966,15 @@ Variants:
 
 - `substring`
 - `regex`
+
+### `PaneGraphicsPlacementParams`
+
+| Property | Type | Required | Description |
+| --- | --- | --- | --- |
+| `grid_cols` | `integer` | no |  |
+| `grid_rows` | `integer` | no |  |
+| `viewport_col` | `integer` | no |  |
+| `viewport_row` | `integer` | no |  |
 
 ### `PaneMoveDestination`
 

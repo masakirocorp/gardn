@@ -3985,7 +3985,7 @@ mod tests {
     fn enforce_agent_version_rejects_old_version() {
         let requirement = AgentVersionRequirement {
             label: "kimi code",
-            binary: "echo",
+            binary: "/bin/echo",
             args: &["0.7.0"],
             min_version: KIMI_MIN_VERSION,
         };
@@ -4002,7 +4002,7 @@ mod tests {
     fn enforce_agent_version_accepts_current_version() {
         let requirement = AgentVersionRequirement {
             label: "kimi code",
-            binary: "echo",
+            binary: "/bin/echo",
             args: &[KIMI_MIN_VERSION],
             min_version: KIMI_MIN_VERSION,
         };
@@ -6312,8 +6312,8 @@ model: auto
         use std::process::{Command, Stdio};
 
         fn run_hook(hook_path: &Path, action: &str, payload: &str) -> Value {
-            let socket_path =
-                std::env::temp_dir().join(format!("gardn-grok-{}-{action}.sock", std::process::id()));
+            let socket_path = std::env::temp_dir()
+                .join(format!("gardn-grok-{}-{action}.sock", std::process::id()));
             let _ = fs::remove_file(&socket_path);
             let listener = UnixListener::bind(&socket_path).unwrap();
             let request = std::thread::spawn(move || {

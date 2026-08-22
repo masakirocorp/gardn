@@ -343,7 +343,10 @@ mod tests {
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_nanos();
-        let path = PathBuf::from("/tmp").join(format!("ohi-d-{}-{nonce}.sock", std::process::id()));
+        let path = PathBuf::from("/tmp").join(format!(
+            "gardn-hook-ingress-drop-{}-{nonce}.sock",
+            std::process::id()
+        ));
         let ingress = WorkerHookIngress::start(path.clone()).unwrap();
         let mut client = UnixStream::connect(&path).unwrap();
         client.write_all(br#"{"id":"stalled""#).unwrap();
@@ -377,7 +380,10 @@ mod tests {
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_nanos();
-        let path = PathBuf::from("/tmp").join(format!("ohi-s-{}-{nonce}.sock", std::process::id()));
+        let path = PathBuf::from("/tmp").join(format!(
+            "gardn-hook-ingress-shutdown-{}-{nonce}.sock",
+            std::process::id()
+        ));
         let ingress = WorkerHookIngress::start(path.clone()).unwrap();
         let identity = RuntimeIdentity::new(
             HostBindingGeneration::new(1),

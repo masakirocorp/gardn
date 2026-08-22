@@ -1091,7 +1091,8 @@ mod tests {
     #[test]
     fn read_clipboard_image_rejects_xclip_text_served_for_image_target() {
         let _guard = env_lock().lock().unwrap();
-        let temp_dir = std::env::temp_dir().join(format!("gardn-fake-xclip-{}", std::process::id()));
+        let temp_dir =
+            std::env::temp_dir().join(format!("gardn-fake-xclip-{}", std::process::id()));
         std::fs::create_dir_all(&temp_dir).expect("temp dir should be created");
         let fake_xclip = temp_dir.join("xclip");
         std::fs::write(&fake_xclip, "#!/bin/sh\nprintf '# Tasks'\n")

@@ -6,7 +6,7 @@
 
 Gardn is a terminal workspace manager for AI coding agents. It combines persistent sessions, workspaces, tabs, panes, mouse-first navigation, and agent-status awareness in one Rust terminal application.
 
-This repository is Masakiro's long-lived product fork of [Gardn](https://github.com/ogulcancelik/herdr). Gardn has its own `gardn` binary, configuration, sockets, integrations, release channel, documentation, and product identity.
+This repository is Masakiro's long-lived product fork of [the upstream `ogulcancelik/herdr` repository](https://github.com/ogulcancelik/herdr). Gardn has its own `gardn` binary, configuration, sockets, integrations, release channel, documentation, and product identity.
 
 ## Documentation
 

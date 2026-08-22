@@ -41,7 +41,7 @@ export default defineConfig({
           <meta property="og:image:height" content="630" />
           <meta
             property="og:image:alt"
-            content="Gardn — terminal workspace management for AI coding agents"
+            content="Gardn social card with the text Keep the terminal work. Lose the terminal sprawl."
           />
           <meta name="twitter:card" content="summary_large_image" />
           <meta name="twitter:title" content="Gardn" />
@@ -52,7 +52,7 @@ export default defineConfig({
           <meta name="twitter:image" content={canonicalUrl("/social-card.png")} />
           <meta
             name="twitter:image:alt"
-            content="Gardn — terminal workspace management for AI coding agents"
+            content="Gardn social card with the text Keep the terminal work. Lose the terminal sprawl."
           />
           <meta name="theme-color" content="oklch(0.175 0.009 145)" />
           <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
