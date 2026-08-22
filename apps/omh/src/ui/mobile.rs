@@ -2617,4 +2617,82 @@ mod tests {
                 .unwrap();
         }
     }
+
+    #[test]
+    fn expanded_mobile_follow_up_renders_muted_indented_non_target_row() {
+        let mut app = AppState::test_new();
+        app.workspaces = vec![crate::workspace::Workspace::test_new("plain")];
+        app.active = Some(0);
+        app.selected = 0;
+        app.mobile_agents_expanded = true;
+        let area = Rect::new(0, 0, 44, 20);
+        super::super::compute_view(&mut app, area);
+        let terminal_runtimes = TerminalRuntimeRegistry::new();
+        let mut terminal =
+            ratatui::Terminal::new(ratatui::backend::TestBackend::new(44, 20)).unwrap();
+
+        terminal
+            .draw(|frame| render_mobile_panel(&app, &terminal_runtimes, frame, area))
+            .unwrap();
+
+        let buffer = terminal.backend().buffer();
+        let (empty_x, empty_y) = (0..area.height)
+            .find_map(|y| {
+                let line = (0..area.width)
+                    .map(|x| buffer[(x, y)].symbol())
+                    .collect::<String>();
+                line.find("Drop an agent here")
+                    .map(|x| (x as u16, y))
+            })
+            .expect("mobile Follow Up empty row");
+        let line = (0..area.width)
+            .map(|x| buffer[(x, empty_y)].symbol())
+            .collect::<String>();
+        assert!(line[..empty_x as usize].ends_with("    "), "{line:?}");
+        assert_eq!(buffer[(empty_x, empty_y)].style().fg, Some(app.palette.overlay0));
+        assert!(buffer[(empty_x, empty_y)]
+            .style()
+            .add_modifier
+            .contains(Modifier::DIM));
+        assert!(mobile_switcher_target_at(&app, empty_x, empty_y).is_none());
+    }
+
+    #[test]
+    fn mobile_follow_up_empty_row_is_absent_when_panel_is_collapsed_or_queued() {
+        let area = Rect::new(0, 0, 44, 20);
+        let terminal_runtimes = TerminalRuntimeRegistry::new();
+
+        let mut collapsed = AppState::test_new();
+        collapsed.workspaces = vec![crate::workspace::Workspace::test_new("plain")];
+        collapsed.active = Some(0);
+        collapsed.selected = 0;
+        super::super::compute_view(&mut collapsed, area);
+        let mut terminal =
+            ratatui::Terminal::new(ratatui::backend::TestBackend::new(44, 20)).unwrap();
+        terminal
+            .draw(|frame| render_mobile_panel(&collapsed, &terminal_runtimes, frame, area))
+            .unwrap();
+        assert!(!buffer_text(terminal.backend().buffer()).contains("Drop an agent here"));
+
+        let mut queued = AppState::test_new();
+        let mut workspace = crate::workspace::Workspace::test_new("queued");
+        let pane = workspace.tabs[0].root_pane;
+        let pane_state = workspace.tabs[0].panes.get_mut(&pane).unwrap();
+        pane_state.detected_agent = Some(crate::detect::Agent::Codex);
+        pane_state.state = crate::detect::AgentState::Working;
+        queued.workspaces = vec![workspace];
+        queued.active = Some(0);
+        queued.selected = 0;
+        queued.mobile_agents_expanded = true;
+        assert!(queued.insert_agent_follow_up(0, pane));
+        super::super::compute_view(&mut queued, area);
+        let mut terminal =
+            ratatui::Terminal::new(ratatui::backend::TestBackend::new(44, 20)).unwrap();
+        terminal
+            .draw(|frame| render_mobile_panel(&queued, &terminal_runtimes, frame, area))
+            .unwrap();
+        let text = buffer_text(terminal.backend().buffer());
+        assert!(text.contains("queued"), "{text:?}");
+        assert!(!text.contains("Drop an agent here"), "{text:?}");
+    }
 }

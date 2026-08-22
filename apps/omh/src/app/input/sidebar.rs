@@ -3945,4 +3945,37 @@ mod tests {
             .state
             .agent_follow_up_drop_at(body.x + body.width, follow_up_row));
     }
+
+    #[test]
+    fn empty_follow_up_row_accepts_drops_across_full_agent_panel_width() {
+        let mut app = app_for_mouse_test();
+        let mut workspace = Workspace::test_new("source");
+        let pane = workspace.tabs[0].root_pane;
+        let pane_state = workspace.tabs[0].panes.get_mut(&pane).unwrap();
+        pane_state.state = AgentState::Working;
+        pane_state.detected_agent = Some(Agent::Codex);
+        app.state.workspaces = vec![workspace];
+        app.state.ensure_test_terminals();
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        crate::ui::compute_view(&mut app.state, Rect::new(0, 0, 120, 30));
+
+        let panel = app.state.agent_panel_rect();
+        let body = crate::ui::agent_panel_body_rect(panel, false, true);
+        let follow_up_header = (body.y..body.y + body.height)
+            .find(|row| {
+                app.state
+                    .agent_header_target_at(*row)
+                    .is_some_and(|target| target.section == "Follow Up")
+            })
+            .expect("follow up header");
+        let empty_row = follow_up_header + 1;
+
+        assert!(app.state.agent_follow_up_drop_at(panel.x, empty_row));
+        assert!(app
+            .state
+            .agent_follow_up_drop_at(panel.x + panel.width - 1, empty_row));
+        assert!(app.state.agent_detail_target_at(empty_row).is_none());
+        assert!(app.state.agent_header_target_at(empty_row).is_none());
+    }
 }

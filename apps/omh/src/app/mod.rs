@@ -21623,6 +21623,55 @@ command = "printf literal > '{}'"
     }
 
     #[test]
+    fn client_view_empty_follow_up_drop_matches_full_panel_width() {
+        let mut app = test_app();
+        let mut workspace = Workspace::test_new("source");
+        let pane = workspace.tabs[0].root_pane;
+        let pane_state = workspace.tabs[0].panes.get_mut(&pane).unwrap();
+        pane_state.detected_agent = Some(Agent::Codex);
+        pane_state.state = AgentState::Working;
+        app.state.workspaces = vec![workspace];
+        app.state.ensure_test_terminals();
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.sidebar_arrangement = crate::config::SidebarArrangementConfig::CombinedLeft;
+
+        let mut client = ClientViewState::from_default_client_state(&app.state);
+        compute_client_view(
+            &app,
+            &mut client,
+            ratatui::layout::Rect::new(0, 0, 120, 30),
+        );
+        let panel = app.client_view_agent_panel_rect(&client);
+        let follow_up_header = (panel.y..panel.y + panel.height)
+            .find(|row| {
+                app.client_view_agent_header_target_at(&client, panel.x, *row)
+                    .is_some_and(|target| target.section == "Follow Up")
+            })
+            .expect("client Follow Up header");
+        let empty_row = follow_up_header + 1;
+
+        assert!(app.client_view_agent_follow_up_drop_at(&client, panel.x, empty_row));
+        assert!(app.client_view_agent_follow_up_drop_at(
+            &client,
+            panel.x + panel.width - 1,
+            empty_row,
+        ));
+        assert!(app
+            .client_view_agent_detail_target_at(&client, panel.x, empty_row)
+            .is_none());
+        assert!(app
+            .client_view_agent_header_target_at(&client, panel.x, empty_row)
+            .is_none());
+
+        client
+            .collapsed_agent_sections
+            .push("Follow Up".to_string());
+        assert!(!app.client_view_agent_follow_up_drop_at(&client, panel.x, empty_row));
+        assert!(app.state.collapsed_agent_sections.is_empty());
+    }
+
+    #[test]
     fn route_client_events_for_view_collapsed_space_row_switches_only_invoking_client() {
         let mut app = test_app();
         app.state.workspaces = vec![Workspace::test_new("first"), Workspace::test_new("second")];

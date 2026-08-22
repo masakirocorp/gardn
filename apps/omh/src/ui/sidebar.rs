@@ -7043,6 +7043,111 @@ mod tests {
         assert!(text.contains("queued"), "rendered UI:\n{text}");
     }
 
+    #[test]
+    fn expanded_empty_follow_up_renders_muted_indented_non_target_row() {
+        let mut app = crate::app::state::AppState::test_new();
+        app.workspaces = vec![Workspace::test_new("plain")];
+        app.active = Some(0);
+        app.selected = 0;
+
+        let area = Rect::new(0, 0, 34, 18);
+        let (_, agent_area) = expanded_sidebar_sections(area, app.sidebar_section_split);
+        let mut terminal =
+            Terminal::new(TestBackend::new(area.width, area.height)).expect("test backend");
+        let runtimes = TerminalRuntimeRegistry::new();
+        terminal
+            .draw(|frame| render_sidebar(&app, &runtimes, frame, area))
+            .expect("render sidebar");
+
+        let body = agent_panel_body_rect(
+            agent_area,
+            agent_panel_scrollbar_rect(&app, agent_area, true).is_some(),
+            true,
+        );
+        let empty_row = body.y + 1;
+        let buffer = terminal.backend().buffer();
+        assert_eq!(
+            (0..4)
+                .map(|offset| buffer[(body.x + offset, empty_row)].symbol())
+                .collect::<String>(),
+            "    "
+        );
+        assert_eq!(buffer[(body.x + 4, empty_row)].symbol(), "D");
+        assert_eq!(
+            buffer[(body.x + 4, empty_row)].style().fg,
+            Some(app.palette.overlay0)
+        );
+        assert!(buffer[(body.x + 4, empty_row)]
+            .style()
+            .add_modifier
+            .contains(Modifier::DIM));
+        assert!(agent_panel_entry_at_row(&app, body, empty_row).is_none());
+        assert!(agent_panel_header_target_at_row(&app, body, empty_row).is_none());
+    }
+
+    #[test]
+    fn follow_up_empty_row_is_absent_when_collapsed_or_queued() {
+        let mut collapsed = crate::app::state::AppState::test_new();
+        collapsed.workspaces = vec![Workspace::test_new("plain")];
+        collapsed.active = Some(0);
+        collapsed.selected = 0;
+        collapsed
+            .collapsed_agent_sections
+            .push("Follow Up".to_string());
+        let area = Rect::new(0, 0, 34, 18);
+        let runtimes = TerminalRuntimeRegistry::new();
+        let mut terminal =
+            Terminal::new(TestBackend::new(area.width, area.height)).expect("test backend");
+        terminal
+            .draw(|frame| render_sidebar(&collapsed, &runtimes, frame, area))
+            .expect("render collapsed Follow Up");
+        assert!(!buffer_text(terminal.backend().buffer(), area.width, area.height)
+            .contains("Drop an agent here"));
+
+        let mut queued = crate::app::state::AppState::test_new();
+        let mut workspace = Workspace::test_new("queued");
+        let pane = workspace.tabs[0].root_pane;
+        let pane_state = workspace.tabs[0].panes.get_mut(&pane).unwrap();
+        pane_state.detected_agent = Some(Agent::Codex);
+        pane_state.state = AgentState::Working;
+        queued.workspaces = vec![workspace];
+        queued.active = Some(0);
+        queued.selected = 0;
+        assert!(queued.insert_agent_follow_up(0, pane));
+        let mut terminal =
+            Terminal::new(TestBackend::new(area.width, area.height)).expect("test backend");
+        terminal
+            .draw(|frame| render_sidebar(&queued, &runtimes, frame, area))
+            .expect("render queued Follow Up");
+        let text = buffer_text(terminal.backend().buffer(), area.width, area.height);
+        assert!(text.contains("queued"), "rendered UI:\n{text}");
+        assert!(!text.contains("Drop an agent here"), "rendered UI:\n{text}");
+    }
+
+    #[test]
+    fn empty_follow_up_counts_as_one_scroll_item_before_lower_sections() {
+        let mut app = crate::app::state::AppState::test_new();
+        let mut workspace = Workspace::test_new("reachable");
+        let pane = workspace.tabs[0].root_pane;
+        let pane_state = workspace.tabs[0].panes.get_mut(&pane).unwrap();
+        pane_state.detected_agent = Some(Agent::Codex);
+        pane_state.state = AgentState::Working;
+        app.workspaces = vec![workspace];
+        app.active = Some(0);
+        app.selected = 0;
+
+        let area = Rect::new(0, 0, 30, 5);
+        let body = agent_panel_body_rect(area, false, false);
+        let metrics = agent_panel_scroll_metrics(&app, area, false);
+        assert_eq!(metrics.viewport_rows, 1);
+        assert_eq!(metrics.max_offset_from_bottom, 1);
+
+        app.agent_panel_scroll = metrics.max_offset_from_bottom;
+        let entry = agent_panel_entry_at_row(&app, body, body.y + 1)
+            .expect("lower section entry should be reachable at maximum scroll");
+        assert_eq!(entry.primary_label, "reachable");
+    }
+
     fn first_cell_with_symbol(
         buffer: &Buffer,
         width: u16,
