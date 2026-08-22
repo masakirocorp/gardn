@@ -778,7 +778,7 @@ mod tests {
     }
 
     #[test]
-    fn parse_agent_env_hint_accepts_gardn_agents_only() {
+    fn parse_agent_env_hint_accepts_gardn_agent_values() {
         assert_eq!(
             parse_agent_env_hint(b"PATH=/bin\0GARDN_AGENT=claude\0TERM=xterm\0"),
             Some(crate::detect::Agent::Claude)
@@ -787,7 +787,10 @@ mod tests {
             parse_agent_env_hint(b"GARDN_AGENT=codex"),
             Some(crate::detect::Agent::Codex)
         );
-        assert_eq!(parse_agent_env_hint(b"GARDN_AGENT=pi\0"), None);
+        assert_eq!(
+            parse_agent_env_hint(b"GARDN_AGENT=pi\0"),
+            Some(crate::detect::Agent::Pi)
+        );
     }
 
     #[test]

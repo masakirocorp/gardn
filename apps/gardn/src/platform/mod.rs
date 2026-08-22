@@ -417,6 +417,15 @@ impl PrefixInputSource for RealPrefixInputSource {
 mod tests {
     use super::*;
 
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    #[test]
+    fn gardn_agent_environment_accepts_all_supported_agents() {
+        assert_eq!(
+            parse_agent_env_hint(b"GARDN_AGENT=pi\0"),
+            Some(crate::detect::Agent::Pi)
+        );
+    }
+
     #[test]
     fn read_limited_reader_returns_complete_data_under_limit() {
         let input = std::io::Cursor::new(b"image".to_vec());
