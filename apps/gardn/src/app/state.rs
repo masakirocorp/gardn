@@ -2240,6 +2240,7 @@ pub(crate) enum DragTarget {
     AgentFollowUp {
         workspace_id: String,
         pane_number: usize,
+        is_drop_target: bool,
     },
     WorkspaceListScrollbar {
         grab_row_offset: u16,

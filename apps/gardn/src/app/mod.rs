@@ -9604,6 +9604,8 @@ impl App {
                 });
                 let tab_drop_index =
                     self.client_view_tab_drop_index_at(client_view, mouse.column, mouse.row);
+                let agent_follow_up_drop_target =
+                    self.client_view_agent_follow_up_drop_at(client_view, mouse.column, mouse.row);
 
                 if client_view.drag.is_none() {
                     if let Some(press) = &client_view.workspace_press {
@@ -9659,6 +9661,7 @@ impl App {
                                 target: state::DragTarget::AgentFollowUp {
                                     workspace_id: press.workspace_id.clone(),
                                     pane_number: press.pane_number,
+                                    is_drop_target: agent_follow_up_drop_target,
                                 },
                             });
                         }
@@ -9823,7 +9826,14 @@ impl App {
                         client_view.reconcile(&self.state);
                         true
                     }
-                    Some(state::DragTarget::AgentFollowUp { .. }) => true,
+                    Some(state::DragTarget::AgentFollowUp { .. }) => {
+                        if let Some(state::DragTarget::AgentFollowUp { is_drop_target, .. }) =
+                            client_view.drag.as_mut().map(|drag| &mut drag.target)
+                        {
+                            *is_drop_target = agent_follow_up_drop_target;
+                        }
+                        true
+                    }
                     _ => false,
                 }
             }
@@ -9972,6 +9982,7 @@ impl App {
                             state::DragTarget::AgentFollowUp {
                                 workspace_id,
                                 pane_number,
+                                ..
                             },
                     }) => {
                         if !client_view.can_mutate_tab() {
