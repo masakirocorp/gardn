@@ -1150,6 +1150,35 @@ mod tests {
     }
 
     #[test]
+    fn working_status_animation_runs_only_in_symbols_mode() {
+        let (mut app, pane_id) = test_app_with_pane();
+        app.state.ensure_test_terminals();
+        let terminal_id = app.state.workspaces[0].tabs[0].panes[&pane_id]
+            .attached_terminal_id
+            .clone();
+        let terminal = app
+            .state
+            .terminals
+            .get_mut(&terminal_id)
+            .expect("pane terminal");
+        terminal.detected_agent = Some(crate::detect::Agent::Codex);
+        terminal.state = crate::detect::AgentState::Working;
+        let now = Instant::now();
+
+        app.state.status_indicators = crate::config::StatusIndicatorStyle::Dots;
+        app.sync_animation_timer(now);
+        assert_eq!(app.next_animation_tick, None);
+
+        app.state.status_indicators = crate::config::StatusIndicatorStyle::Symbols;
+        app.sync_animation_timer(now);
+        assert_eq!(app.next_animation_tick, Some(now + ANIMATION_INTERVAL));
+
+        app.state.status_indicators = crate::config::StatusIndicatorStyle::Dots;
+        app.sync_animation_timer(now);
+        assert_eq!(app.next_animation_tick, None);
+    }
+
+    #[test]
     fn interrupted_custom_command_wait_keeps_child_for_retry() {
         let interrupted = std::io::Error::new(std::io::ErrorKind::Interrupted, "test interrupt");
 

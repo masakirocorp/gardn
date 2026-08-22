@@ -6408,6 +6408,83 @@ mod tests {
         );
     }
 
+    fn rendered_agent_section_indicator(
+        indicator_style: crate::config::StatusIndicatorStyle,
+        spinner_tick: u32,
+        label: &'static str,
+    ) -> (String, Option<ratatui::style::Color>) {
+        let mut app = crate::app::state::AppState::test_new();
+        app.status_indicators = indicator_style;
+        app.spinner_tick = spinner_tick;
+        let section = AgentPanelSection {
+            label,
+            entries: Vec::new(),
+        };
+        let area = Rect::new(0, 0, 12, 1);
+        let mut terminal =
+            Terminal::new(TestBackend::new(area.width, area.height)).expect("test backend");
+        terminal
+            .draw(|frame| render_agent_section_header(&app, frame, &section, false, area, 0))
+            .expect("render agent section header");
+        let cell = &terminal.backend().buffer()[(RIGHT_SUBSECTION_ICON_COL, 0)];
+        (cell.symbol().to_string(), cell.style().fg)
+    }
+
+    #[test]
+    fn agent_group_headers_follow_the_complete_status_indicator_table() {
+        let palette = crate::app::state::Palette::catppuccin();
+        for (indicator_style, expected) in [
+            (
+                crate::config::StatusIndicatorStyle::Dots,
+                [
+                    ("Triage", "●", palette.peach),
+                    ("Follow Up", "●", palette.mauve),
+                    ("Working", "●", palette.yellow),
+                    ("Idle", "○", palette.green),
+                ],
+            ),
+            (
+                crate::config::StatusIndicatorStyle::Symbols,
+                [
+                    ("Triage", "!", palette.peach),
+                    ("Follow Up", "*", palette.mauve),
+                    ("Working", "⠋", palette.yellow),
+                    ("Idle", "✓", palette.green),
+                ],
+            ),
+        ] {
+            for (label, expected_symbol, expected_color) in expected {
+                assert_eq!(
+                    rendered_agent_section_indicator(indicator_style, 0, label),
+                    (expected_symbol.to_string(), Some(expected_color)),
+                    "{indicator_style:?} {label}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn symbols_working_agent_group_uses_exact_braille_frames() {
+        assert_eq!(
+            rendered_agent_section_indicator(
+                crate::config::StatusIndicatorStyle::Symbols,
+                0,
+                "Working"
+            )
+            .0,
+            "⠋"
+        );
+        assert_eq!(
+            rendered_agent_section_indicator(
+                crate::config::StatusIndicatorStyle::Symbols,
+                8,
+                "Working"
+            )
+            .0,
+            "⠙"
+        );
+    }
+
     #[test]
     fn all_workspaces_agent_panel_entries_prefer_agent_names_for_agent_identity() {
         let mut app = crate::app::state::AppState::test_new();

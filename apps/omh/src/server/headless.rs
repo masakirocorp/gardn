@@ -5200,6 +5200,50 @@ mod tests {
     }
 
     #[test]
+    fn headless_working_animation_requires_an_app_client() {
+        let mut server = test_headless_server();
+        let workspace = crate::workspace::Workspace::test_new("working");
+        let pane_id = workspace.tabs[0].root_pane;
+        server.app.state.workspaces = vec![workspace];
+        server.app.state.ensure_test_terminals();
+        let terminal_id = server.app.state.workspaces[0].tabs[0].panes[&pane_id]
+            .attached_terminal_id
+            .clone();
+        let terminal = server
+            .app
+            .state
+            .terminals
+            .get_mut(&terminal_id)
+            .expect("pane terminal");
+        terminal.detected_agent = Some(crate::detect::Agent::Codex);
+        terminal.state = crate::detect::AgentState::Working;
+        server.app.state.status_indicators = crate::config::StatusIndicatorStyle::Symbols;
+        let now = Instant::now();
+
+        server.sync_animation_timer(now);
+        assert_eq!(server.app.next_animation_tick, None);
+
+        let (writer, _control_rx, _render_rx) = test_client_writer();
+        server.clients.insert(
+            1,
+            ClientConnection::new(
+                (80, 24),
+                crate::kitty_graphics::HostCellSize::default(),
+                crate::terminal_theme::TerminalTheme::default(),
+                None,
+                1,
+                RenderEncoding::SemanticFrame,
+                Some(writer),
+            ),
+        );
+        server.sync_animation_timer(now);
+        assert_eq!(
+            server.app.next_animation_tick,
+            Some(now + app::HEADLESS_ANIMATION_INTERVAL)
+        );
+    }
+
+    #[test]
     fn oversized_paste_rejection_notifies_only_the_sending_client() {
         let mut server = test_headless_server();
         let (sender_writer, sender_control_rx, _sender_render_rx) = test_client_writer();
