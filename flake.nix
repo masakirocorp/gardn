@@ -1,5 +1,5 @@
 {
-  description = "Oh My Herdr — terminal workspace manager for AI coding agents";
+  description = "Gardn — terminal workspace manager for AI coding agents";
 
   inputs = {
     # Nixpkgs 26.11 dropped x86_64-darwin; 26.05 supports every release target.
@@ -25,25 +25,25 @@
         system:
         let
           pkgs = pkgsFor system;
-          omh = pkgs.callPackage ./nix/package.nix { };
+          gardn = pkgs.callPackage ./nix/package.nix { };
         in
         {
-          inherit omh;
-          default = omh;
+          inherit gardn;
+          default = gardn;
         }
       );
 
       apps = forAllSystems (system: {
         default = {
           type = "app";
-          program = "${self.packages.${system}.default}/bin/omh";
-          meta.description = "Run Oh My Herdr";
+          program = "${self.packages.${system}.default}/bin/gardn";
+          meta.description = "Run Gardn";
         };
       });
 
       checks = forAllSystems (system: {
-        omh = self.packages.${system}.default;
-        default = self.checks.${system}.omh;
+        gardn = self.packages.${system}.default;
+        default = self.checks.${system}.gardn;
       });
 
       devShells = forAllSystems (
@@ -53,7 +53,7 @@
         in
         {
           default = pkgs.mkShell {
-            name = "omh-dev";
+            name = "gardn-dev";
             packages = with pkgs; [
               cargo
               cargo-nextest
@@ -78,7 +78,7 @@
       formatter = forAllSystems (system: (pkgsFor system).nixfmt);
 
       overlays.default = final: _prev: {
-        omh = final.callPackage ./nix/package.nix { };
+        gardn = final.callPackage ./nix/package.nix { };
       };
     };
 }

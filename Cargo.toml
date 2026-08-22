@@ -1,13 +1,13 @@
 [workspace]
-members = ["apps/omh", "apps/omh/vendor/portable-pty", "crates/omh-local-api"]
-default-members = ["apps/omh"]
+members = ["apps/gardn", "apps/gardn/vendor/portable-pty", "crates/gardn-local-api"]
+default-members = ["apps/gardn"]
 resolver = "2"
 
 [workspace.metadata]
-name = "omh-rust"
+name = "gardn-rust"
 
 [patch.crates-io]
-portable-pty = { path = "apps/omh/vendor/portable-pty" }
+portable-pty = { path = "apps/gardn/vendor/portable-pty" }
 
 # Keep routine builds fast; use `cargo build --profile debugging` for full LLDB symbols.
 [profile.dev]

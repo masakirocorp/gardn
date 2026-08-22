@@ -14,9 +14,9 @@
 }:
 
 let
-  manifest = lib.importTOML ../apps/omh/Cargo.toml;
-  zigDeps = callPackage ../apps/omh/vendor/libghostty-vt/build.zig.zon.nix {
-    name = "omh-libghostty-vt-zig-cache";
+  manifest = lib.importTOML ../apps/gardn/Cargo.toml;
+  zigDeps = callPackage ../apps/gardn/vendor/libghostty-vt/build.zig.zon.nix {
+    name = "gardn-libghostty-vt-zig-cache";
     inherit zstd;
     linkFarm =
       name: entries:
@@ -27,7 +27,7 @@ let
         '') entries}
       '';
   };
-  zigTool = runCommand "omh-zig-tool" { } ''
+  zigTool = runCommand "gardn-zig-tool" { } ''
     mkdir -p $out/bin
     ln -s ${lib.getExe zig_0_15} $out/bin/zig
   '';
@@ -52,7 +52,7 @@ let
   '';
 in
 rustPlatform.buildRustPackage {
-  pname = "omh";
+  pname = "gardn";
   version = manifest.package.version;
 
   src = lib.fileset.toSource {
@@ -61,15 +61,15 @@ rustPlatform.buildRustPackage {
       lib.fileset.unions [
         ../Cargo.lock
         ../Cargo.toml
-        ../apps/omh/assets
-        ../apps/omh/src
-        ../apps/omh/vendor/libghostty-vt
-        ../apps/omh/vendor/libghostty-vt.vendor.json
-        ../apps/omh/vendor/portable-pty
-        ../apps/omh/build.rs
-        ../apps/omh/Cargo.toml
-        ../apps/omh/CHANGELOG.md
-        ../crates/omh-local-api
+        ../apps/gardn/assets
+        ../apps/gardn/src
+        ../apps/gardn/vendor/libghostty-vt
+        ../apps/gardn/vendor/libghostty-vt.vendor.json
+        ../apps/gardn/vendor/portable-pty
+        ../apps/gardn/build.rs
+        ../apps/gardn/Cargo.toml
+        ../apps/gardn/CHANGELOG.md
+        ../crates/gardn-local-api
         ../SKILL.md
       ]
     );
@@ -112,9 +112,9 @@ rustPlatform.buildRustPackage {
 
   meta = {
     description = "Terminal workspace manager for AI coding agents";
-    homepage = "https://github.com/masakirocorp/oh-my-herdr";
+    homepage = "https://github.com/masakirocorp/gardn";
     license = lib.licenses.agpl3Plus;
-    mainProgram = "omh";
+    mainProgram = "gardn";
     platforms = lib.platforms.linux ++ lib.platforms.darwin;
   };
 }

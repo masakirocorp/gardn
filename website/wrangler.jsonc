@@ -1,9 +1,9 @@
 {
   "$schema": "./node_modules/wrangler/config-schema.json",
-  "name": "oh-my-herdr-website",
+  "name": "gardn-website",
   "compatibility_date": "2026-07-17",
   "preview_urls": true,
-  "routes": [{ "pattern": "ohmyherdr.com", "custom_domain": true }],
+  "routes": [{ "pattern": "gardn.dev", "custom_domain": true }],
   "assets": {
     "directory": "./dist/public",
     "html_handling": "drop-trailing-slash",

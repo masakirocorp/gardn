@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-test_model_lib="${OMH_AGENT_TEST_MODELS_LIB:-/usr/local/lib/omh-agent-test-models.sh}"
-seam_only="${OMH_MAKI_STATUS_SEAM_ONLY:-0}"
-repo_dir="${OMH_REPO_DIR:-/repo}"
-manifest="$repo_dir/apps/omh/src/manifests/maki.toml"
+test_model_lib="${GARDN_AGENT_TEST_MODELS_LIB:-/usr/local/lib/gardn-agent-test-models.sh}"
+seam_only="${GARDN_MAKI_STATUS_SEAM_ONLY:-0}"
+repo_dir="${GARDN_REPO_DIR:-/repo}"
+manifest="$repo_dir/apps/gardn/src/manifests/maki.toml"
 
 if [[ "$seam_only" == "1" ]]; then
   python3 - "$manifest" <<'PY'
@@ -92,12 +92,12 @@ if [[ ! -f "$test_model_lib" ]]; then
 fi
 source "$test_model_lib"
 
-primary_model="${OMH_TEST_MODEL:-$OMH_TEST_DEFAULT_MODEL}"
-if [[ -z "${OMH_TEST_ACTIVE_MODEL:-}" ]]; then
-  omh_test_unique_candidates "$primary_model" "${OMH_TEST_FALLBACK_MODELS:-}" \
-    | omh_test_available_candidates \
-    | omh_test_non_openai_candidates \
-    | omh_test_run_with_fallbacks "$0" "$@"
+primary_model="${GARDN_TEST_MODEL:-$GARDN_TEST_DEFAULT_MODEL}"
+if [[ -z "${GARDN_TEST_ACTIVE_MODEL:-}" ]]; then
+  gardn_test_unique_candidates "$primary_model" "${GARDN_TEST_FALLBACK_MODELS:-}" \
+    | gardn_test_available_candidates \
+    | gardn_test_non_openai_candidates \
+    | gardn_test_run_with_fallbacks "$0" "$@"
   exit $?
 fi
 
@@ -105,10 +105,10 @@ if [[ -z "${OPENROUTER_API_KEY:-}" ]]; then
   echo "Maki status test needs OPENROUTER_API_KEY" >&2
   exit 1
 fi
-model="$OMH_TEST_ACTIVE_MODEL"
-model_spec="$(omh_test_provider_model "$model")"
-omh_test_configure_model "$model"
-workdir="${OMH_MAKI_STATUS_TEST_DIR:-$(mktemp -d)}"
+model="$GARDN_TEST_ACTIVE_MODEL"
+model_spec="$(gardn_test_provider_model "$model")"
+gardn_test_configure_model "$model"
+workdir="${GARDN_MAKI_STATUS_TEST_DIR:-$(mktemp -d)}"
 output="$workdir/maki-screen.txt"
 mkdir -p "$workdir"
 
@@ -144,7 +144,7 @@ proc = subprocess.Popen(
     stdin=slave,
     stdout=slave,
     stderr=slave,
-    cwd=os.environ.get("OMH_MAKI_WORKDIR", "/work"),
+    cwd=os.environ.get("GARDN_MAKI_WORKDIR", "/work"),
     env=env,
     start_new_session=True,
 )
@@ -204,7 +204,7 @@ try:
     else:
         read_until(idle.search, 25, "initial idle Maki status bar")
     start = len(raw)
-    send("Use the bash tool to run exactly: printf OMH_MAKI_STATUS_OK. Do not answer until the command has run.\r")
+    send("Use the bash tool to run exactly: printf GARDN_MAKI_STATUS_OK. Do not answer until the command has run.\r")
     read_until(working.search, 90, "working Maki status bar", start)
     start = len(raw)
     read_until(blocked.search, 120, "blocked Maki permission or plan-complete panel", start)
@@ -234,7 +234,7 @@ status=$?
 set -e
 if [[ "$status" -ne 0 ]]; then
   sed -n '1,240p' "$output" >&2 || true
-  if omh_test_retryable_status_or_output "$status" "$output"; then
+  if gardn_test_retryable_status_or_output "$status" "$output"; then
     echo "retryable Maki/OpenRouter provider failure with $model" >&2
     exit 75
   fi

@@ -1,6 +1,6 @@
-README.md merge=keep-omh
-AGENTS.md merge=keep-omh
-SKILL.md merge=keep-omh
-apps/omh/assets/logo.svg merge=keep-omh
-/docs/** merge=keep-omh
-/website/** merge=keep-omh
+README.md merge=keep-gardn
+AGENTS.md merge=keep-gardn
+SKILL.md merge=keep-gardn
+apps/gardn/assets/logo.svg merge=keep-gardn
+/docs/** merge=keep-gardn
+/website/** merge=keep-gardn

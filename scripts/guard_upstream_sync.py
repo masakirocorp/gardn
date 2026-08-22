@@ -10,45 +10,45 @@ from pathlib import Path
 
 
 HARD_REQUIRED = {
-    "apps/omh/Cargo.toml": [
-        'name = "omh"',
-        'repository = "https://github.com/masakirocorp/oh-my-herdr"',
+    "apps/gardn/Cargo.toml": [
+        'name = "gardn"',
+        'repository = "https://github.com/masakirocorp/gardn"',
     ],
     ".github/workflows/release.yml": [
-        "omh-linux-x86_64",
-        "omh-linux-aarch64",
-        "omh-macos-x86_64",
-        "omh-macos-aarch64",
+        "gardn-linux-x86_64",
+        "gardn-linux-aarch64",
+        "gardn-macos-x86_64",
+        "gardn-macos-aarch64",
     ],
 }
 
 OPTIONAL_REQUIRED = {
-    "apps/omh/src/update.rs": [
-        "https://api.github.com/repos/masakirocorp/oh-my-herdr/releases/latest",
-        "masakirocorp/oh-my-herdr",
-        "omh update",
+    "apps/gardn/src/update.rs": [
+        "https://api.github.com/repos/masakirocorp/gardn/releases/latest",
+        "masakirocorp/gardn",
+        "gardn update",
     ],
 }
 
-OMH_OWNED = [
+GARDN_OWNED = [
     "README.md",
     "AGENTS.md",
     "SKILL.md",
-    "apps/omh/assets/logo.svg",
+    "apps/gardn/assets/logo.svg",
     "docs/**",
     "website/**",
 ]
 
 REVIEW_REQUIRED = [
-    "apps/omh/Cargo.toml",
+    "apps/gardn/Cargo.toml",
     "Cargo.lock",
-    "apps/omh/build.rs",
+    "apps/gardn/build.rs",
     "justfile",
     ".github/workflows/**",
-    "apps/omh/src/update.rs",
-    "apps/omh/src/release_notes.rs",
-    "apps/omh/src/ui/release_notes.rs",
-    "apps/omh/vendor/libghostty-vt/**",
+    "apps/gardn/src/update.rs",
+    "apps/gardn/src/release_notes.rs",
+    "apps/gardn/src/ui/release_notes.rs",
+    "apps/gardn/vendor/libghostty-vt/**",
     "scripts/vendor_libghostty_vt.py",
     "scripts/build_vendored_libghostty_vt.sh",
     "scripts/capture_keys.py",
@@ -70,12 +70,12 @@ FORBIDDEN_RESURRECTIONS = [
 ]
 
 IDENTITY_FORBIDDEN = [
-    "HERDR_",
-    "herdr-dev",
-    'name = "herdr"',
-    "masakirocorp/herdr",
-    "https://herdr.dev",
-    "http://herdr.dev",
+    "GARDN_",
+    "gardn-dev",
+    'name = "gardn"',
+    "masakirocorp/gardn",
+    "https://gardn.dev",
+    "http://gardn.dev",
 ]
 
 ATTRIBUTION_ALLOWED = {
@@ -84,7 +84,7 @@ ATTRIBUTION_ALLOWED = {
 }
 
 IGNORED_IDENTITY_PATHS = [
-    "apps/omh/vendor/libghostty-vt/**",
+    "apps/gardn/vendor/libghostty-vt/**",
 ]
 
 
@@ -184,7 +184,7 @@ def build_markdown_report(report: dict[str, object]) -> str:
         "",
         "## port review discipline",
         "- Treat upstream as signal, not authority: port behavior, not trust.",
-        "- For every ported change, identify the invariant, check Oh My Herdr context, add or adjust Oh My Herdr tests, then merge.",
+        "- For every ported change, identify the invariant, check Gardn context, add or adjust Gardn tests, then merge.",
         "",
         "## failures",
     ]
@@ -210,7 +210,7 @@ def build_markdown_report(report: dict[str, object]) -> str:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Validate Oh My Herdr upstream-sync policy")
+    parser = argparse.ArgumentParser(description="Validate Gardn upstream-sync policy")
     parser.add_argument("--base", default="origin/master")
     parser.add_argument("--upstream", default="upstream/master")
     parser.add_argument("--head", default="HEAD")
@@ -236,13 +236,13 @@ def main() -> int:
         if matches(path, FORBIDDEN_RESURRECTIONS):
             failures.append(f"removed upstream process plumbing resurrected: {status} {path}")
 
-        if matches(path, OMH_OWNED):
+        if matches(path, GARDN_OWNED):
             append_unique(
                 review_required,
-                f"Oh My Herdr-owned path changed; preserve/review manually: {status} {path}",
+                f"Gardn-owned path changed; preserve/review manually: {status} {path}",
             )
             if status.startswith("D") and (path.startswith("docs/") or path.startswith("website/")):
-                failures.append(f"Oh My Herdr docs/site path deleted: {path}")
+                failures.append(f"Gardn docs/site path deleted: {path}")
 
         if matches(path, REVIEW_REQUIRED):
             append_unique(review_required, f"review-required path changed: {status} {path}")
@@ -250,20 +250,20 @@ def main() -> int:
     for path, tokens in HARD_REQUIRED.items():
         text = file_text_at(args.head, path)
         if text is None:
-            failures.append(f"required Oh My Herdr identity file missing: {path}")
+            failures.append(f"required Gardn identity file missing: {path}")
             continue
         for token in tokens:
             if token not in text:
-                failures.append(f"missing required Oh My Herdr token in {path}: {token}")
+                failures.append(f"missing required Gardn token in {path}: {token}")
 
     for path, tokens in OPTIONAL_REQUIRED.items():
         text = file_text_at(args.head, path)
         if text is None:
-            append_unique(review_required, f"optional Oh My Herdr identity file missing: {path}")
+            append_unique(review_required, f"optional Gardn identity file missing: {path}")
             continue
         for token in tokens:
             if token not in text:
-                append_unique(review_required, f"review Oh My Herdr updater token in {path}: {token}")
+                append_unique(review_required, f"review Gardn updater token in {path}: {token}")
 
     for path in changed:
         if matches(path, IGNORED_IDENTITY_PATHS):

@@ -1,47 +1,47 @@
 ---
-title: Update Oh My Herdr and hand off a running session
-description: Safely update Oh My Herdr, preserve live panes when supported, and recover when handoff is unavailable.
+title: Update Gardn and hand off a running session
+description: Safely update Gardn, preserve live panes when supported, and recover when handoff is unavailable.
 ---
 
-# Update Oh My Herdr and hand off a running session
+# Update Gardn and hand off a running session
 
 This guide shows how to act on a version notification, choose between a plain update and a live handoff, and recover without guessing which process owns your session.
 
 ## Check a version notification
 
-When background version checks are enabled, Oh My Herdr checks for a newer version and surfaces availability and release notes in the running UI. It does not install an update automatically. The normal notification tells you to detach and run `omh update`.
+When background version checks are enabled, Gardn checks for a newer version and surfaces availability and release notes in the running UI. It does not install an update automatically. The normal notification tells you to detach and run `gardn update`.
 
-The current public [download status](/download) page still reports that verified release downloads are unavailable. If it does not list a verified artifact for the release you need, do not rely on `omh update`; use the [source or Nix installation path](/docs/getting-started/install) instead.
+The current public [download status](/download) page still reports that verified release downloads are unavailable. If it does not list a verified artifact for the release you need, do not rely on `gardn update`; use the [source or Nix installation path](/docs/getting-started/install) instead.
 
 ## Understand ownership before updating
 
-The `omh` process in your terminal is a client view. The session server owns the spaces, tabs, panes, terminals, runtimes, and agent state. Detaching the client does not stop that server or its panes.
+The `gardn` process in your terminal is a client view. The session server owns the spaces, tabs, panes, terminals, runtimes, and agent state. Detaching the client does not stop that server or its panes.
 
-Run update commands outside an attached Oh My Herdr client:
+Run update commands outside an attached Gardn client:
 
 ```text
 Ctrl+B, q
 ```
 
-A named session has its own server and state. The default session uses `omh`; a named session is reattached with `omh session attach <name>`.
+A named session has its own server and state. The default session uses `gardn`; a named session is reattached with `gardn session attach <name>`.
 
 ## Use a plain update
 
 Use a plain update when stopping active pane processes is acceptable:
 
 ```bash
-omh update
+gardn update
 ```
 
-The command checks the latest release, downloads it, and installs it. If running sessions require a server restart, Oh My Herdr asks whether to stop them after installation.
+The command checks the latest release, downloads it, and installs it. If running sessions require a server restart, Gardn asks whether to stop them after installation.
 
-> **Destructive boundary:** Stopping a running server exits its active pane processes, including shells, development servers, and tests. If you answer no, the old session keeps running and the update remains incomplete; stop the session later, then run `omh update` again.
+> **Destructive boundary:** Stopping a running server exits its active pane processes, including shells, development servers, and tests. If you answer no, the old session keeps running and the update remains incomplete; stop the session later, then run `gardn update` again.
 
 After a successful stop, reattach the same target:
 
 ```bash
-omh                       # default session
-omh session attach work   # named session
+gardn                       # default session
+gardn session attach work   # named session
 ```
 
 ## Use live handoff when supported
@@ -49,29 +49,29 @@ omh session attach work   # named session
 On Unix, a compatible running server can transfer live panes to the newly installed server:
 
 ```bash
-omh update --handoff
+gardn update --handoff
 ```
 
-The handoff path installs the new binary and asks each compatible session server to take ownership of its live panes. A successful handoff should keep pane processes running. Reconnect with `omh` for the default session or `omh session attach <name>` for a named session.
+The handoff path installs the new binary and asks each compatible session server to take ownership of its live panes. A successful handoff should keep pane processes running. Reconnect with `gardn` for the default session or `gardn session attach <name>` for a named session.
 
-Handoff is capability-based. If a running server is too old or does not advertise live handoff, Oh My Herdr asks whether to stop that server instead. Declining leaves the old server and its panes running; the new binary is used after that server is stopped and the session is started again.
+Handoff is capability-based. If a running server is too old or does not advertise live handoff, Gardn asks whether to stop that server instead. Declining leaves the old server and its panes running; the new binary is used after that server is stopped and the session is started again.
 
 > **Safety boundary:** `--handoff` is not a promise that every platform or old server can transfer live panes. Read the command's outcome before closing your terminal.
 
 ## Know what a restore can resume
 
-A live handoff preserves the running pane processes. A later full server restart is different: Oh My Herdr restores the saved session structure and starts fresh shells in saved working directories.
+A live handoff preserves the running pane processes. A later full server restart is different: Gardn restores the saved session structure and starts fresh shells in saved working directories.
 
 Native AI-agent conversation restore requires all of the following:
 
 1. Agent restore is enabled (`resume_agents_on_restore` defaults to `true`).
-2. The agent uses an official Oh My Herdr integration.
+2. The agent uses an official Gardn integration.
 3. That integration reports a valid native session reference that the agent can resume.
 
 The current official restore sources are Claude, Codex, Copilot, Devin, Droid, Kimi, Pi, OMP, Hermes, OpenCode, and Cursor. Install the integration for the agent you use, then verify it with:
 
 ```bash
-omh integration status
+gardn integration status
 ```
 
 An unrecognized agent, a missing integration, or a missing session reference can restore the pane as a shell instead of resuming the conversation. Start the agent manually in that pane when needed.
@@ -83,11 +83,11 @@ If handoff reports an error, first try the normal attach command for the affecte
 If reconnecting fails, stop only the old target and attach again:
 
 ```bash
-omh server stop                    # default session
-omh                                    # start or attach again
+gardn server stop                    # default session
+gardn                                    # start or attach again
 
-omh session stop work              # named session
-omh session attach work
+gardn session stop work              # named session
+gardn session attach work
 ```
 
 > **Destructive boundary:** The stop commands above terminate the target's active pane processes. If the old server still contains work you cannot lose, leave it running and resolve the attach problem before stopping it.

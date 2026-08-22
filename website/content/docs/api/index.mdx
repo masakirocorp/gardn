@@ -5,7 +5,7 @@ description: Transport, lifecycle, trust, and compatibility boundaries for local
 
 # Local API
 
-Oh My Herdr exposes a newline-delimited JSON control interface over a local socket. It is intended for same-user automation on the machine running the Oh My Herdr server.
+Gardn exposes a newline-delimited JSON control interface over a local socket. It is intended for same-user automation on the machine running the Gardn server.
 
 The Local API is not HTTP, REST, or OpenAPI. It is separate from the binary protocol used by interactive clients for rendering, input, and direct terminal attachment.
 
@@ -13,8 +13,8 @@ The Local API is not HTTP, REST, or OpenAPI. It is separate from the binary prot
 
 | Surface                                              | Use it for                                                                                                                  |
 | ---------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
-| [`omh` CLI](/docs/reference/cli)                     | Shell scripts, one-shot operations, and human debugging. Prefer this when a command already exposes the operation you need. |
-| [Agent skill](/docs/guides/plugins-and-integrations) | Teaching an AI coding agent how to operate Oh My Herdr from inside a pane.                                                  |
+| [`gardn` CLI](/docs/reference/cli)                     | Shell scripts, one-shot operations, and human debugging. Prefer this when a command already exposes the operation you need. |
+| [Agent skill](/docs/guides/plugins-and-integrations) | Teaching an AI coding agent how to operate Gardn from inside a pane.                                                  |
 | [Plugin manifest](/docs/reference/plugin-manifest)   | Installing reusable actions, links, event hooks, pane launchers, and agent lifecycle integrations.                          |
 | Local API                                            | Direct request/response control, complete resource inspection, pane input/output, or long-lived event subscriptions.        |
 
@@ -40,19 +40,19 @@ Each request is limited to 1 MiB. The server waits up to five seconds for the in
 
 ## Socket selection
 
-Commands resolve the socket for the active Oh My Herdr session by default. `--session <name>` selects a named session before command dispatch. `OMH_SOCKET_PATH` overrides the resolved path when no explicit session is supplied.
+Commands resolve the socket for the active Gardn session by default. `--session <name>` selects a named session before command dispatch. `GARDN_SOCKET_PATH` overrides the resolved path when no explicit session is supplied.
 
-The active socket path is reported by `omh status --json`.
+The active socket path is reported by `gardn status --json`.
 
 ## Trust model
 
-The Local API has no network listener, bearer token, or per-method authorization layer. On Unix, Oh My Herdr creates the socket with mode `0600`. Any process that can connect acts with the user's Oh My Herdr authority and can read terminal content, send input, start local or SSH-hosted processes, manage SSH connection profiles, change workspace state, or stop the server.
+The Local API has no network listener, bearer token, or per-method authorization layer. On Unix, Gardn creates the socket with mode `0600`. Any process that can connect acts with the user's Gardn authority and can read terminal content, send input, start local or SSH-hosted processes, manage SSH connection profiles, change workspace state, or stop the server.
 
 Treat the socket path and access to the local user account as security-sensitive. Do not forward the socket to another machine, expose it through a web server, or give untrusted plugins or subprocesses access unless they should receive the same authority.
 
 ## Compatibility
 
-The generated reference is versioned by the Oh My Herdr product version that produced it. Use the immutable schema URL for the version you target. The `latest` alias is updated only by a successful release deployment.
+The generated reference is versioned by the Gardn product version that produced it. Use the immutable schema URL for the version you target. The `latest` alias is updated only by a successful release deployment.
 
 The `protocol` value reported by `ping` and schema metadata is the interactive client wire protocol version. It tells callers whether a binary can attach to a running server. It does not turn Local API JSON into that binary protocol.
 

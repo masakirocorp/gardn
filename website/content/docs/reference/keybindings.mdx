@@ -1,6 +1,6 @@
 ---
 title: Keybindings reference
-description: Default Oh My Herdr keybindings, modes, configuration syntax, and terminal caveats.
+description: Default Gardn keybindings, modes, configuration syntax, and terminal caveats.
 ---
 
 # Keybindings reference
@@ -43,7 +43,7 @@ Closing a workspace can terminate its pane processes and is confirmed by default
 | Next agent                                      | unset             |
 | Open agent menu                                 | unset             |
 | Focus agent 1–9                                 | unset             |
-| Paste a local clipboard image in `omh --remote` | `ctrl+v`          |
+| Paste a local clipboard image in `gardn --remote` | `ctrl+v`          |
 
 The remote image binding is active only for a remote app attach. Set `keys.remote_image_paste = ""` to disable the raw-key image-paste path. Image paste and remote use are covered in the [remote guide](/docs/guides/remote).
 
@@ -161,14 +161,14 @@ The legacy `[keys.indexed]` table is still parsed, but new configurations should
 To remove customized keybinding sections and restore built-in v2 defaults:
 
 ```sh
-omh config reset-keys
+gardn config reset-keys
 ```
 
-This command creates a timestamped backup, removes `[keys]`, `[keys.indexed]`, and `[[keys.command]]`, and leaves other configuration sections in place. It is a destructive configuration edit: keep the printed backup path if you may need to restore the old bindings. Restart Oh My Herdr or run `omh server reload-config` for a running server to apply the defaults. The command refuses to rewrite an invalid or unsafe TOML file; fix it manually in that case.
+This command creates a timestamped backup, removes `[keys]`, `[keys.indexed]`, and `[[keys.command]]`, and leaves other configuration sections in place. It is a destructive configuration edit: keep the printed backup path if you may need to restore the old bindings. Restart Gardn or run `gardn server reload-config` for a running server to apply the defaults. The command refuses to rewrite an invalid or unsafe TOML file; fix it manually in that case.
 
 ## Terminal caveats
 
-- The outer terminal or tmux may intercept control, Alt/Option, Command/Super, or punctuation-modified keys before Oh My Herdr receives them.
+- The outer terminal or tmux may intercept control, Alt/Option, Command/Super, or punctuation-modified keys before Gardn receives them.
 - The source configuration describes `cmd`/`super` and punctuation-modified bindings as terminal-dependent; direct `ctrl+letter`, function keys, and explicit modified chords are generally the most reliable choices.
 - A direct printable binding is unsafe because it would intercept ordinary text input and is rejected by configuration validation. Prefer a prefix action or an explicit modified chord.
 - Prefix actions require the prefix first. If a key is not a registered prefix action, prefix mode ends; the terminal-dependent result may vary with the outer terminal and tmux.

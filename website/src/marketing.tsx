@@ -15,67 +15,67 @@ export function Hero({
   status?: ReactNode;
 }) {
   return (
-    <section className="omh-shell omh-hero" aria-labelledby="hero-title">
-      <p className="omh-eyebrow">{eyebrow}</p>
-      <h1 id="hero-title" className="omh-title">
+    <section className="gardn-shell gardn-hero" aria-labelledby="hero-title">
+      <p className="gardn-eyebrow">{eyebrow}</p>
+      <h1 id="hero-title" className="gardn-title">
         {title}
       </h1>
-      <div className="omh-copy">{children}</div>
-      {actions && <div className="omh-actions">{actions}</div>}
-      {status && <div className="omh-hero-status">{status}</div>}
+      <div className="gardn-copy">{children}</div>
+      {actions && <div className="gardn-actions">{actions}</div>}
+      {status && <div className="gardn-hero-status">{status}</div>}
     </section>
   );
 }
 
 export function Schematic({ title, caption }: { title: string; caption?: ReactNode }) {
   return (
-    <section className="omh-section" aria-labelledby="schematic-title">
-      <h2 id="schematic-title" className="omh-section-title">
+    <section className="gardn-section" aria-labelledby="schematic-title">
+      <h2 id="schematic-title" className="gardn-section-title">
         {title}
       </h2>
-      <figure className="omh-schematic" aria-label="Oh My Herdr session interface schematic">
-        <div className="omh-schematic-titlebar">
-          <span className="omh-schematic-dot" aria-hidden="true" />
-          <span className="omh-schematic-title">omh — default session</span>
+      <figure className="gardn-schematic" aria-label="Gardn session interface schematic">
+        <div className="gardn-schematic-titlebar">
+          <span className="gardn-schematic-dot" aria-hidden="true" />
+          <span className="gardn-schematic-title">gardn — default session</span>
         </div>
-        <div className="omh-schematic-body">
-          <div className="omh-schematic-sidebar">
-            <div className="omh-schematic-group">Spaces</div>
-            <ul className="omh-schematic-list">
+        <div className="gardn-schematic-body">
+          <div className="gardn-schematic-sidebar">
+            <div className="gardn-schematic-group">Spaces</div>
+            <ul className="gardn-schematic-list">
               <li className="is-active">web</li>
               <li>api</li>
               <li>agents</li>
             </ul>
-            <div className="omh-schematic-group">Agents</div>
-            <ul className="omh-schematic-list">
+            <div className="gardn-schematic-group">Agents</div>
+            <ul className="gardn-schematic-list">
               <li>
-                <span className="omh-status omh-status--working">working</span>
+                <span className="gardn-status gardn-status--working">working</span>
                 <span>codex</span>
               </li>
               <li>
-                <span className="omh-status omh-status--idle">idle</span>
+                <span className="gardn-status gardn-status--idle">idle</span>
                 <span>omp</span>
               </li>
             </ul>
           </div>
-          <div className="omh-schematic-main">
-            <div className="omh-schematic-tabs">
-              <div className="omh-schematic-tab is-active">tab 1</div>
-              <div className="omh-schematic-tab">tab 2</div>
+          <div className="gardn-schematic-main">
+            <div className="gardn-schematic-tabs">
+              <div className="gardn-schematic-tab is-active">tab 1</div>
+              <div className="gardn-schematic-tab">tab 2</div>
             </div>
-            <div className="omh-schematic-panes">
-              <div className="omh-schematic-pane">editor · shell</div>
-              <div className="omh-schematic-pane">agent · codex</div>
+            <div className="gardn-schematic-panes">
+              <div className="gardn-schematic-pane">editor · shell</div>
+              <div className="gardn-schematic-pane">agent · codex</div>
             </div>
-            <div className="omh-schematic-statusbar">
-              <span className="omh-command">ctrl+b</span>
+            <div className="gardn-schematic-statusbar">
+              <span className="gardn-command">ctrl+b</span>
               <span>space</span>
               <span>new agent</span>
             </div>
           </div>
         </div>
       </figure>
-      {caption && <p className="omh-schematic-caption">{caption}</p>}
+      {caption && <p className="gardn-schematic-caption">{caption}</p>}
     </section>
   );
 }
@@ -93,16 +93,16 @@ export function Workflow({
   }>;
 }) {
   return (
-    <section className="omh-section" aria-labelledby="workflow-title">
-      <h2 id="workflow-title" className="omh-section-title">
+    <section className="gardn-section" aria-labelledby="workflow-title">
+      <h2 id="workflow-title" className="gardn-section-title">
         {title}
       </h2>
-      <ol className="omh-workflow">
+      <ol className="gardn-workflow">
         {steps.map((step, index) => (
-          <li key={index} className="omh-workflow-step">
-            <h3 className="omh-workflow-step-title">{step.title}</h3>
-            <p className="omh-workflow-step-copy">{step.copy}</p>
-            <Link className="omh-workflow-step-link" href={step.href}>
+          <li key={index} className="gardn-workflow-step">
+            <h3 className="gardn-workflow-step-title">{step.title}</h3>
+            <p className="gardn-workflow-step-copy">{step.copy}</p>
+            <Link className="gardn-workflow-step-link" href={step.href}>
               {step.label}
             </Link>
           </li>
@@ -124,17 +124,17 @@ export function FeatureGrid({
   }>;
 }) {
   return (
-    <section className="omh-section" aria-labelledby="features-title">
-      <h2 id="features-title" className="omh-section-title">
+    <section className="gardn-section" aria-labelledby="features-title">
+      <h2 id="features-title" className="gardn-section-title">
         {title}
       </h2>
-      <ul className="omh-card-grid">
+      <ul className="gardn-card-grid">
         {features.map((feature, index) => (
-          <li key={index} className="omh-card">
-            <h3 className="omh-card-title">
+          <li key={index} className="gardn-card">
+            <h3 className="gardn-card-title">
               <Link href={feature.href}>{feature.title}</Link>
             </h3>
-            <p className="omh-card-copy">{feature.copy}</p>
+            <p className="gardn-card-copy">{feature.copy}</p>
           </li>
         ))}
       </ul>
@@ -154,13 +154,13 @@ export function PlatformCard({
   rows: Array<{ platform: string; architectures: string; role: string }>;
 }) {
   return (
-    <section className="omh-section" aria-labelledby="platform-title">
-      <h2 id="platform-title" className="omh-section-title">
+    <section className="gardn-section" aria-labelledby="platform-title">
+      <h2 id="platform-title" className="gardn-section-title">
         {title}
       </h2>
-      <div className="omh-platform">
-        <div className="omh-copy">{children}</div>
-        <table className="omh-platform-table">
+      <div className="gardn-platform">
+        <div className="gardn-copy">{children}</div>
+        <table className="gardn-platform-table">
           <thead>
             <tr>
               <th scope="col">Platform</th>
@@ -178,7 +178,7 @@ export function PlatformCard({
             ))}
           </tbody>
         </table>
-        {actions && <div className="omh-actions">{actions}</div>}
+        {actions && <div className="gardn-actions">{actions}</div>}
       </div>
     </section>
   );
@@ -194,16 +194,16 @@ export function CTASection({
   actions?: ReactNode;
 }) {
   return (
-    <section className="omh-section" aria-labelledby="cta-title">
-      <h2 id="cta-title" className="omh-section-title">
+    <section className="gardn-section" aria-labelledby="cta-title">
+      <h2 id="cta-title" className="gardn-section-title">
         {title}
       </h2>
-      <div className="omh-copy">{children}</div>
-      {actions && <div className="omh-actions">{actions}</div>}
+      <div className="gardn-copy">{children}</div>
+      {actions && <div className="gardn-actions">{actions}</div>}
     </section>
   );
 }
 
 export function Footer({ children }: { children: ReactNode }) {
-  return <footer className="omh-footer">{children}</footer>;
+  return <footer className="gardn-footer">{children}</footer>;
 }

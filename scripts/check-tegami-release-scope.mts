@@ -2,7 +2,7 @@ import { readdir } from "node:fs/promises";
 
 import { createPaper } from "./tegami.mts";
 
-const requiredPackage = process.argv[2] ?? "omh";
+const requiredPackage = process.argv[2] ?? "gardn";
 const paper = createPaper();
 const draft = await paper.draft();
 const changelogs = draft.getChangelogs();

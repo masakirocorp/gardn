@@ -8,7 +8,7 @@ param(
 $ErrorActionPreference = "Stop"
 
 $exe = (Resolve-Path $ExePath).Path
-$fakeDir = Join-Path ([System.IO.Path]::GetTempPath()) "omh-fake-conpty-$([guid]::NewGuid().ToString('N'))"
+$fakeDir = Join-Path ([System.IO.Path]::GetTempPath()) "gardn-fake-conpty-$([guid]::NewGuid().ToString('N'))"
 New-Item -ItemType Directory -Force $fakeDir | Out-Null
 
 $fakeSource = Join-Path $fakeDir "fake_conpty.rs"
@@ -53,9 +53,9 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 $oldPath = $env:PATH
-$oldSession = $env:OMH_SESSION
+$oldSession = $env:GARDN_SESSION
 $env:PATH = "$fakeDir;$oldPath"
-$env:OMH_SESSION = $Session
+$env:GARDN_SESSION = $Session
 try {
     & (Join-Path $PSScriptRoot "smoke_windows_ci.ps1") -BinaryPath $exe
     if ($LASTEXITCODE -ne 0) {
@@ -64,9 +64,9 @@ try {
 } finally {
     $env:PATH = $oldPath
     if ($null -eq $oldSession) {
-        Remove-Item Env:OMH_SESSION -ErrorAction SilentlyContinue
+        Remove-Item Env:GARDN_SESSION -ErrorAction SilentlyContinue
     } else {
-        $env:OMH_SESSION = $oldSession
+        $env:GARDN_SESSION = $oldSession
     }
     Remove-Item -Recurse -Force $fakeDir -ErrorAction SilentlyContinue
 }

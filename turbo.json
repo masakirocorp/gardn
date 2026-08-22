@@ -55,18 +55,18 @@
       "dependsOn": ["^test"],
       "outputs": []
     },
-    "omh#build": {
+    "gardn#build": {
       "env": [
         "LIBGHOSTTY_VT_OPTIMIZE",
         "LIBGHOSTTY_VT_SIMD",
-        "OMH_BUILD_CHANNEL",
-        "OMH_BUILD_COHORT",
-        "OMH_RELEASE_TAG"
+        "GARDN_BUILD_CHANNEL",
+        "GARDN_BUILD_COHORT",
+        "GARDN_RELEASE_TAG"
       ],
       "cache": false
     },
-    "omh#check": {
-      "command": ["cargo", "check", "--package=omh", "--all-targets", "--locked"],
+    "gardn#check": {
+      "command": ["cargo", "check", "--package=gardn", "--all-targets", "--locked"],
       "inputs": [
         "$TURBO_DEFAULT$",
         "$TURBO_ROOT$/Cargo.lock",
@@ -74,17 +74,17 @@
       ],
       "outputs": []
     },
-    "omh#format": {
-      "command": ["cargo", "fmt", "--package", "omh"],
+    "gardn#format": {
+      "command": ["cargo", "fmt", "--package", "gardn"],
       "cache": false
     },
-    "omh#format:check": {
-      "command": ["cargo", "fmt", "--package", "omh", "--", "--check"],
+    "gardn#format:check": {
+      "command": ["cargo", "fmt", "--package", "gardn", "--", "--check"],
       "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/Cargo.toml"],
       "outputs": []
     },
-    "omh#lint": {
-      "command": ["cargo", "clippy", "--package=omh", "--all-targets", "--locked", "--no-deps", "--", "-D", "warnings"],
+    "gardn#lint": {
+      "command": ["cargo", "clippy", "--package=gardn", "--all-targets", "--locked", "--no-deps", "--", "-D", "warnings"],
       "inputs": [
         "$TURBO_DEFAULT$",
         "$TURBO_ROOT$/Cargo.lock",
@@ -92,7 +92,7 @@
       ],
       "outputs": []
     },
-    "omh#test": {
+    "gardn#test": {
       "command": ["cargo", "nextest", "run", "--locked"],
       "inputs": [
         "$TURBO_DEFAULT$",
@@ -102,7 +102,7 @@
       ],
       "outputs": []
     },
-    "omh#ci:test": {
+    "gardn#ci:test": {
       "command": ["cargo", "nextest", "run", "-P", "ci", "--locked"],
       "inputs": [
         "$TURBO_DEFAULT$",
@@ -114,20 +114,20 @@
       "env": ["CARGO_INCREMENTAL"],
       "outputs": []
     },
-    "omh-rust#ast:check": {
+    "gardn-rust#ast:check": {
       "command": [
         "node",
         "scripts/run-ast-grep.mjs",
         "scan",
         "--config",
         "sgconfig.yml",
-        "apps/omh/src",
+        "apps/gardn/src",
         "--report-style",
         "short",
         "--error"
       ],
       "inputs": [
-        "apps/omh/src/**",
+        "apps/gardn/src/**",
         "ast-grep/rules/**",
         "package.json",
         "pnpm-lock.yaml",
@@ -136,17 +136,17 @@
       ],
       "outputs": []
     },
-    "omh-rust#api:contract": {
+    "gardn-rust#api:contract": {
       "inputs": [
-        "apps/omh/src/api/**",
-        "apps/omh/src/app/api.rs",
-        "apps/omh/src/app/api/**",
+        "apps/gardn/src/api/**",
+        "apps/gardn/src/app/api.rs",
+        "apps/gardn/src/app/api/**",
         "website/.generated/api/schema.json",
         "website/scripts/generate-api-reference.mjs"
       ],
       "outputs": []
     },
-    "omh-rust#maintenance:test": {
+    "gardn-rust#maintenance:test": {
       "command": [
         "python3",
         "-m",
@@ -175,10 +175,10 @@
         ".github/workflows/live-agent-tests.yml",
         "Cargo.lock",
         "Cargo.toml",
-        "apps/omh/Cargo.toml",
-        "apps/omh/src/**",
-        "apps/omh/tests/**",
-        "apps/omh/vendor/**",
+        "apps/gardn/Cargo.toml",
+        "apps/gardn/src/**",
+        "apps/gardn/tests/**",
+        "apps/gardn/vendor/**",
         "ci/agent-test/**",
         "ci/agent-tests/**",
         "nix/package.nix",
@@ -187,12 +187,12 @@
       ],
       "outputs": []
     },
-    "omh-rust#test:all": {
+    "gardn-rust#test:all": {
       "inputs": ["$TURBO_ROOT$/turbo.json"],
-      "dependsOn": ["omh#test", "omh-rust#maintenance:test"]
+      "dependsOn": ["gardn#test", "gardn-rust#maintenance:test"]
     },
-    "omh-rust#release-scope:check": {
-      "command": ["node", "scripts/check-tegami-release-scope.mts", "omh"],
+    "gardn-rust#release-scope:check": {
+      "command": ["node", "scripts/check-tegami-release-scope.mts", "gardn"],
       "inputs": [
         ".tegami/**",
         "scripts/check-tegami-release-scope.mts",
@@ -200,17 +200,17 @@
       ],
       "outputs": []
     },
-    "omh-rust#lint:all": {
-      "dependsOn": ["@omh/website#lint", "omh#lint", "omh-rust#ast:check"],
+    "gardn-rust#lint:all": {
+      "dependsOn": ["@gardn/website#lint", "gardn#lint", "gardn-rust#ast:check"],
       "inputs": ["$TURBO_ROOT$/turbo.json"]
     },
-    "omh-rust#quality": {
+    "gardn-rust#quality": {
       "inputs": ["$TURBO_ROOT$/turbo.json"],
       "dependsOn": [
-        "omh#ci:test",
-        "omh-rust#ast:check",
-        "omh-rust#maintenance:test",
-        "omh-rust#release-scope:check"
+        "gardn#ci:test",
+        "gardn-rust#ast:check",
+        "gardn-rust#maintenance:test",
+        "gardn-rust#release-scope:check"
       ]
     }
   }

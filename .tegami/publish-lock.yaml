@@ -1,17 +1,17 @@
 core:changelogs:
-  - content: "---\npackages:\n  omh:\n    type: patch\n---\n\n### Stabilize OMP conversations after resizing\n\nLoaded OMP conversations no longer enter a resize and repaint loop after the host window changes size.\n"
+  - content: "---\npackages:\n  gardn:\n    type: patch\n---\n\n### Stabilize OMP conversations after resizing\n\nLoaded OMP conversations no longer enter a resize and repaint loop after the host window changes size.\n"
     filename: omp-resize-flicker.md
     v: 0.0.0
 core:packages:
-  - id: npm:@omh/website
+  - id: npm:@gardn/website
     updated: false
-  - id: cargo:omh-local-api
+  - id: cargo:gardn-local-api
     updated: false
   - changelogIds:
       - omp-resize-flicker.md
-    id: cargo:omh
+    id: cargo:gardn
     updated: true
   - id: cargo:portable-pty
     updated: false
 npm:packages:
-  - id: npm:@omh/website
+  - id: npm:@gardn/website

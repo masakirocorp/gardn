@@ -6,7 +6,7 @@ from pathlib import Path
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-SRC_ROOT = PROJECT_ROOT / "apps" / "omh" / "src"
+SRC_ROOT = PROJECT_ROOT / "apps" / "gardn" / "src"
 HOT_PATH_SOURCES = (
     SRC_ROOT / "ui.rs",
     *sorted((SRC_ROOT / "ui").rglob("*.rs")),

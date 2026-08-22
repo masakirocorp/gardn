@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
-target="${OMH_PI_OMP_STATUS_TARGET:-all}"
+target="${GARDN_PI_OMP_STATUS_TARGET:-all}"
 case "$target" in
   all|pi|omp) ;;
   *)
@@ -8,20 +8,20 @@ case "$target" in
     exit 2
     ;;
 esac
-source /usr/local/lib/omh-agent-test-models.sh
-primary_model="${OMH_TEST_MODEL:-$OMH_TEST_DEFAULT_MODEL}"
-if [[ -z "${OMH_TEST_ACTIVE_MODEL:-}" ]]; then
-  omh_test_unique_candidates "$primary_model" "${OMH_TEST_FALLBACK_MODELS:-}" \
-    | omh_test_available_candidates \
-    | omh_test_run_with_fallbacks "$0" "$@"
+source /usr/local/lib/gardn-agent-test-models.sh
+primary_model="${GARDN_TEST_MODEL:-$GARDN_TEST_DEFAULT_MODEL}"
+if [[ -z "${GARDN_TEST_ACTIVE_MODEL:-}" ]]; then
+  gardn_test_unique_candidates "$primary_model" "${GARDN_TEST_FALLBACK_MODELS:-}" \
+    | gardn_test_available_candidates \
+    | gardn_test_run_with_fallbacks "$0" "$@"
   exit $?
 fi
 
-model="$(omh_test_provider_model "$OMH_TEST_ACTIVE_MODEL")"
-omh_test_configure_model "$OMH_TEST_ACTIVE_MODEL"
-repo_dir="${OMH_REPO_DIR:-/repo}"
-workdir="${OMH_PI_OMP_STATUS_DIR:-$(mktemp -d)}"
-socket_path="$workdir/omh.sock"
+model="$(gardn_test_provider_model "$GARDN_TEST_ACTIVE_MODEL")"
+gardn_test_configure_model "$GARDN_TEST_ACTIVE_MODEL"
+repo_dir="${GARDN_REPO_DIR:-/repo}"
+workdir="${GARDN_PI_OMP_STATUS_DIR:-$(mktemp -d)}"
+socket_path="$workdir/gardn.sock"
 request_log="$workdir/requests.jsonl"
 
 
@@ -78,13 +78,13 @@ run_agent() {
   local dir="$workdir/$agent-$scenario"
   mkdir -p "$dir/config" "$dir/agent" "$dir/project"
   set +e
-  OMH_ENV=1 \
-  OMH_SOCKET_PATH="$socket_path" \
-  OMH_PANE_ID="$pane" \
+  GARDN_ENV=1 \
+  GARDN_SOCKET_PATH="$socket_path" \
+  GARDN_PANE_ID="$pane" \
   PI_CONFIG_DIR="$dir/config" \
   PI_CODING_AGENT_DIR="$dir/agent" \
   python3 - "$agent" "$model" "$tools" "$extension" "$prompt" "$pane" \
-    "$request_log" "$dir/output.txt" "$dir/project" "${OMH_PI_OMP_STATUS_TIMEOUT:-180}" <<'PY'
+    "$request_log" "$dir/output.txt" "$dir/project" "${GARDN_PI_OMP_STATUS_TIMEOUT:-180}" <<'PY'
 import fcntl
 import json
 import os
@@ -224,8 +224,8 @@ PY
   if [[ "$status" -ne 0 ]]; then
     printf '%s\n' "$agent $scenario test failed; output:" >&2
     sed -n '1,200p' "$dir/output.txt" >&2
-    if omh_test_retryable_status_or_output "$status" "$dir/output.txt"; then
-      echo "retryable $agent/OpenRouter provider failure with $OMH_TEST_ACTIVE_MODEL" >&2
+    if gardn_test_retryable_status_or_output "$status" "$dir/output.txt"; then
+      echo "retryable $agent/OpenRouter provider failure with $GARDN_TEST_ACTIVE_MODEL" >&2
       return 75
     fi
     return "$status"
@@ -234,14 +234,14 @@ PY
   if [[ "$scenario" == "subagent" ]]; then
     marker_suffix="SUBAGENT_OK"
   fi
-  local agent_marker="OMH_PI"
+  local agent_marker="GARDN_PI"
   if [[ "$agent" == "omp" ]]; then
-    agent_marker="OMH_OMP"
+    agent_marker="GARDN_OMP"
   fi
   local expected_marker="${agent_marker}_${marker_suffix}"
   if ! grep -Fq "$expected_marker" "$dir/output.txt" \
-    && omh_test_retryable_output "$dir/output.txt"; then
-    echo "retryable $agent/OpenRouter provider failure with $OMH_TEST_ACTIVE_MODEL" >&2
+    && gardn_test_retryable_output "$dir/output.txt"; then
+    echo "retryable $agent/OpenRouter provider failure with $GARDN_TEST_ACTIVE_MODEL" >&2
     return 75
   fi
 }
@@ -250,22 +250,22 @@ run_basic_agent() {
   local agent="$1"
   local extension="$2"
   local pane="$3"
-  run_agent "$agent" "$extension" "$pane" basic none "Reply exactly OMH_${agent^^}_STATUS_OK"
+  run_agent "$agent" "$extension" "$pane" basic none "Reply exactly GARDN_${agent^^}_STATUS_OK"
 }
 
 run_subagent_agent() {
   local agent="$1"
   local extension="$2"
   local pane="$3"
-  run_agent "$agent" "$extension" "$pane" subagent task,yield "Launch one subagent with assignment: reply exactly CHILD_OK. Then reply exactly OMH_${agent^^}_SUBAGENT_OK."
+  run_agent "$agent" "$extension" "$pane" subagent task,yield "Launch one subagent with assignment: reply exactly CHILD_OK. Then reply exactly GARDN_${agent^^}_SUBAGENT_OK."
 }
 
 if [[ "$target" == "all" || "$target" == "omp" ]]; then
-  run_basic_agent omp "$repo_dir/apps/omh/src/integration/assets/omp/omh-agent-state.ts" pane-omp-real
-  run_subagent_agent omp "$repo_dir/apps/omh/src/integration/assets/omp/omh-agent-state.ts" pane-omp-subagent
+  run_basic_agent omp "$repo_dir/apps/gardn/src/integration/assets/omp/gardn-agent-state.ts" pane-omp-real
+  run_subagent_agent omp "$repo_dir/apps/gardn/src/integration/assets/omp/gardn-agent-state.ts" pane-omp-subagent
 fi
 if [[ "$target" == "all" || "$target" == "pi" ]]; then
-  run_basic_agent pi "$repo_dir/apps/omh/src/integration/assets/pi/omh-agent-state.ts" pane-pi-real
+  run_basic_agent pi "$repo_dir/apps/gardn/src/integration/assets/pi/gardn-agent-state.ts" pane-pi-real
 fi
 
 REQUEST_LOG="$request_log" WORKDIR="$workdir" TARGET="$target" python3 - <<'PY'
@@ -281,7 +281,7 @@ if not request_log.exists():
     for output_path in sorted(workdir.glob("*/output.txt")):
         output = output_path.read_text(encoding="utf-8", errors="replace")
         print(f"{output_path.parent.name} output:\n{output}", file=sys.stderr)
-    raise SystemExit("Pi/OMP test emitted no Oh My Herdr status requests")
+    raise SystemExit("Pi/OMP test emitted no Gardn status requests")
 requests = [json.loads(line) for line in request_log.read_text(encoding="utf-8").splitlines() if line.strip()]
 reports = [req for req in requests if req.get("method") == "pane.report_agent"]
 releases = [req for req in requests if req.get("method") == "pane.release_agent"]
@@ -324,7 +324,7 @@ def states_for(pane_id):
 
 def assert_agent(agent, scenario, pane_id, marker_suffix):
     output = (workdir / f"{agent}-{scenario}" / "output.txt").read_text(encoding="utf-8")
-    marker = f"OMH_{agent.upper()}_{marker_suffix}"
+    marker = f"GARDN_{agent.upper()}_{marker_suffix}"
     if marker not in output:
         print(f"{agent} {scenario}: missing output marker {marker}; output was {output!r}", file=sys.stderr)
         raise SystemExit(1)
@@ -339,7 +339,7 @@ def assert_agent(agent, scenario, pane_id, marker_suffix):
     if "idle" not in states or "working" not in states:
         raise SystemExit(f"{agent}: expected idle and working states, observed {states}")
 
-    expected_source = f"omh:{agent}"
+    expected_source = f"gardn:{agent}"
     expected_config = str(workdir / f"{agent}-{scenario}" / "config")
     expected_agent_dir = str(workdir / f"{agent}-{scenario}" / "agent")
     session_paths = set()

@@ -1,29 +1,29 @@
 #!/usr/bin/env bash
 set -euo pipefail
-source /usr/local/lib/omh-agent-test-models.sh
-primary_model="${OMH_TEST_MODEL:-$OMH_TEST_DEFAULT_MODEL}"
-if [[ -z "${OMH_TEST_ACTIVE_MODEL:-}" ]]; then
-  omh_test_unique_candidates "$primary_model" "${OMH_TEST_FALLBACK_MODELS:-}" \
-    | omh_test_available_candidates \
-    | omh_test_run_with_fallbacks "$0" "$@"
+source /usr/local/lib/gardn-agent-test-models.sh
+primary_model="${GARDN_TEST_MODEL:-$GARDN_TEST_DEFAULT_MODEL}"
+if [[ -z "${GARDN_TEST_ACTIVE_MODEL:-}" ]]; then
+  gardn_test_unique_candidates "$primary_model" "${GARDN_TEST_FALLBACK_MODELS:-}" \
+    | gardn_test_available_candidates \
+    | gardn_test_run_with_fallbacks "$0" "$@"
   exit $?
 fi
 
-model="$(omh_test_provider_model "$OMH_TEST_ACTIVE_MODEL")"
-omh_test_configure_model "$OMH_TEST_ACTIVE_MODEL"
-repo_dir="${OMH_REPO_DIR:-/repo}"
-plugin_path="$repo_dir/apps/omh/src/integration/assets/opencode/omh-agent-state.js"
-workdir="${OMH_OPENCODE_STATUS_TEST_DIR:-$(mktemp -d)}"
-socket_path="$workdir/omh.sock"
-request_log="$workdir/omh-requests.jsonl"
+model="$(gardn_test_provider_model "$GARDN_TEST_ACTIVE_MODEL")"
+gardn_test_configure_model "$GARDN_TEST_ACTIVE_MODEL"
+repo_dir="${GARDN_REPO_DIR:-/repo}"
+plugin_path="$repo_dir/apps/gardn/src/integration/assets/opencode/gardn-agent-state.js"
+workdir="${GARDN_OPENCODE_STATUS_TEST_DIR:-$(mktemp -d)}"
+socket_path="$workdir/gardn.sock"
+request_log="$workdir/gardn-requests.jsonl"
 
 
 if [[ ! -f "$plugin_path" ]]; then
-  echo "opencode status test needs omh repo mounted at $repo_dir" >&2
+  echo "opencode status test needs gardn repo mounted at $repo_dir" >&2
   exit 1
 fi
 
-omh-agent-opencode-plugin-status-test "$plugin_path"
+gardn-agent-opencode-plugin-status-test "$plugin_path"
 
 mkdir -p "$workdir"
 
@@ -85,7 +85,7 @@ for _ in $(seq 1 50); do
   sleep 0.1
 done
 if [[ ! -S "$socket_path" ]]; then
-  echo "fake omh socket did not start" >&2
+  echo "fake gardn socket did not start" >&2
   exit 1
 fi
 
@@ -115,10 +115,10 @@ run_opencode() {
 EOF_CONFIG
 
   set +e
-  OMH_ENV=1 \
-  OMH_SOCKET_PATH="$socket_path" \
-  OMH_PANE_ID="$pane_id" \
-  timeout "${OMH_OPENCODE_STATUS_TEST_TIMEOUT:-180}" opencode run \
+  GARDN_ENV=1 \
+  GARDN_SOCKET_PATH="$socket_path" \
+  GARDN_PANE_ID="$pane_id" \
+  timeout "${GARDN_OPENCODE_STATUS_TEST_TIMEOUT:-180}" opencode run \
     --dir "$dir" \
     --model "$model" \
     --format json \
@@ -127,7 +127,7 @@ EOF_CONFIG
   local status=$?
   set -e
   if [[ "$status" -ne 0 ]]; then
-    if omh_test_retryable_status_or_output "$status" "$dir/output.jsonl"; then
+    if gardn_test_retryable_status_or_output "$status" "$dir/output.jsonl"; then
       echo "$pane_id: retryable OpenCode provider/model failure with $model" >&2
       exit 75
     fi
@@ -138,23 +138,23 @@ EOF_CONFIG
 run_opencode \
   pane-opencode-allowed \
   "$workdir/allowed" \
-  omh-opencode-status-working-idle \
+  gardn-opencode-status-working-idle \
   allow \
-  'Run the shell command: printf OMH_OPENCODE_STATUS_WORKING. Then reply with exactly OMH_OPENCODE_STATUS_IDLE.'
+  'Run the shell command: printf GARDN_OPENCODE_STATUS_WORKING. Then reply with exactly GARDN_OPENCODE_STATUS_IDLE.'
 
 run_opencode \
   pane-opencode-blocked \
   "$workdir/blocked" \
-  omh-opencode-status-blocked \
+  gardn-opencode-status-blocked \
   ask \
-  'Run the shell command: printf OMH_OPENCODE_STATUS_BLOCKED. Do not reply until it runs.'
+  'Run the shell command: printf GARDN_OPENCODE_STATUS_BLOCKED. Do not reply until it runs.'
 
 run_opencode \
   pane-opencode-subagent \
   "$workdir/subagent" \
-  omh-opencode-status-subagent \
+  gardn-opencode-status-subagent \
   allow \
-  'Use the task tool to launch one general subagent. The subagent must run shell command: printf OMH_OPENCODE_SUBAGENT_OK.'
+  'Use the task tool to launch one general subagent. The subagent must run shell command: printf GARDN_OPENCODE_SUBAGENT_OK.'
 
 python3 - "$request_log" "$workdir" <<'PY'
 import json
@@ -187,7 +187,7 @@ def assert_common(pane_id):
     for req in pane_reports:
         params = req.get("params", {})
         assert params.get("pane_id") == pane_id, req
-        assert params.get("source") == "omh:opencode", req
+        assert params.get("source") == "gardn:opencode", req
         assert params.get("agent") == "opencode", req
         assert isinstance(params.get("seq"), int), req
     pane_sessions = session_reports_for(pane_id)
@@ -245,14 +245,14 @@ for pane in ("pane-opencode-allowed", "pane-opencode-blocked", "pane-opencode-su
     assert_common(pane)
     assert_single_session_identity(pane)
 
-assert_output_contains("allowed", "OMH_OPENCODE_STATUS_IDLE")
+assert_output_contains("allowed", "GARDN_OPENCODE_STATUS_IDLE")
 assert_contains_in_order("pane-opencode-allowed", ["working"])
 
 assert_contains_in_order("pane-opencode-blocked", ["working", "blocked"])
 if "idle" in states_for("pane-opencode-blocked"):
     assert_eventually_idle("pane-opencode-blocked")
 
-assert_output_contains("subagent", "OMH_OPENCODE_SUBAGENT_OK")
+assert_output_contains("subagent", "GARDN_OPENCODE_SUBAGENT_OK")
 assert_contains_in_order("pane-opencode-subagent", ["working"])
 if "idle" in states_for("pane-opencode-subagent"):
     assert_eventually_idle("pane-opencode-subagent")

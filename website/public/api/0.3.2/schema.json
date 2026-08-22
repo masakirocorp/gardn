@@ -6643,7 +6643,7 @@
             "manifest_path": {
               "type": "string"
             },
-            "min_omh_version": {
+            "min_gardn_version": {
               "type": "string"
             },
             "name": {
@@ -6696,7 +6696,7 @@
             "plugin_id",
             "name",
             "version",
-            "min_omh_version",
+            "min_gardn_version",
             "manifest_path",
             "plugin_root",
             "enabled"

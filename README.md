@@ -1,21 +1,21 @@
-# Oh My Herdr
+# Gardn
 
 <p align="center">
-  <img src="apps/omh/assets/logo.svg" alt="Oh My Herdr" width="100" />
+  <img src="apps/gardn/assets/logo.svg" alt="Gardn" width="100" />
 </p>
 
-Oh My Herdr is a terminal workspace manager for AI coding agents. It combines persistent sessions, workspaces, tabs, panes, mouse-first navigation, and agent-status awareness in one Rust terminal application.
+Gardn is a terminal workspace manager for AI coding agents. It combines persistent sessions, workspaces, tabs, panes, mouse-first navigation, and agent-status awareness in one Rust terminal application.
 
-This repository is Masakiro's long-lived product fork of [Herdr](https://github.com/ogulcancelik/herdr). Oh My Herdr has its own `omh` binary, configuration, sockets, integrations, release channel, documentation, and product identity.
+This repository is Masakiro's long-lived product fork of [Gardn](https://github.com/ogulcancelik/herdr). Gardn has its own `gardn` binary, configuration, sockets, integrations, release channel, documentation, and product identity.
 
 ## Documentation
 
-- [Public documentation](https://ohmyherdr.com/docs)
-- [Installation status](https://ohmyherdr.com/download)
-- [Quick start](https://ohmyherdr.com/docs/getting-started/quick-start)
-- [Configuration reference](https://ohmyherdr.com/docs/reference/configuration)
-- [CLI reference](https://ohmyherdr.com/docs/reference/cli)
-- [Local API](https://ohmyherdr.com/docs/api)
+- [Public documentation](https://gardn.dev/docs)
+- [Installation status](https://gardn.dev/download)
+- [Quick start](https://gardn.dev/docs/getting-started/quick-start)
+- [Configuration reference](https://gardn.dev/docs/reference/configuration)
+- [CLI reference](https://gardn.dev/docs/reference/cli)
+- [Local API](https://gardn.dev/docs/api)
 
 The public manual lives under `website/content/**`. Maintainer documentation and architecture decisions remain under `docs/**`.
 
@@ -25,17 +25,17 @@ Public release artifacts are still being verified. Build the current checkout wi
 
 ```bash
 cargo build --release
-./target/release/omh
+./target/release/gardn
 ```
 
 Or install it from this checkout:
 
 ```bash
-cargo install --path apps/omh
-omh --version
+cargo install --path apps/gardn
+gardn --version
 ```
 
-The crate is not published to crates.io. See the [installation guide](https://ohmyherdr.com/docs/getting-started/install) for supported alternatives and current release status.
+The crate is not published to crates.io. See the [installation guide](https://gardn.dev/docs/getting-started/install) for supported alternatives and current release status.
 
 ## Develop
 
@@ -52,11 +52,11 @@ Run the website development server from the same pnpm workspace:
 
 ```bash
 pnpm install --frozen-lockfile
-pnpm --filter @omh/website dev
+pnpm --filter @gardn/website dev
 ```
 
 AI coding agents must read [`AGENTS.md`](./AGENTS.md) before changing this repository.
 
 ## License
 
-Oh My Herdr is licensed under the [GNU Affero General Public License v3.0](./LICENSE).
+Gardn is licensed under the [GNU Affero General Public License v3.0](./LICENSE).

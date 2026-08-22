@@ -4,7 +4,7 @@ status: accepted
 
 # Keep local API events bounded and replayable
 
-Oh My Herdr treats local API events as process-local recent history, not as durable audit logs or best-effort push-only messages. App code emits `EventEnvelope` values through `App::emit_event`, which appends them to the shared `EventHub`. Each pushed event receives an internal monotonically increasing sequence number, and the hub retains only the most recent 512 events.
+Gardn treats local API events as process-local recent history, not as durable audit logs or best-effort push-only messages. App code emits `EventEnvelope` values through `App::emit_event`, which appends them to the shared `EventHub`. Each pushed event receives an internal monotonically increasing sequence number, and the hub retains only the most recent 512 events.
 
 `events.subscribe` is a streaming request. The API server validates and constructs all requested subscriptions first; if any subscription is invalid, it writes the error response and closes the request. If construction succeeds, the server writes a `SubscriptionStarted` response before entering the poll loop. That ack is the boundary after which clients can treat subsequent newline-delimited values as subscription events.
 
@@ -16,7 +16,7 @@ This is separate from ADR 0013's local API transport decision. ADR 0013 says the
 
 ## Current rationale
 
-`[INFERENCE]` Oh My Herdr keeps event history bounded because events are operational signals for local automation, not a durable source of truth. A fixed in-memory buffer avoids unbounded growth in long-running servers while still smoothing over short subscriber startup races.
+`[INFERENCE]` Gardn keeps event history bounded because events are operational signals for local automation, not a durable source of truth. A fixed in-memory buffer avoids unbounded growth in long-running servers while still smoothing over short subscriber startup races.
 
 `[INFERENCE]` The `SubscriptionStarted` ack gives clients a clean stream boundary: response parsing finishes before event parsing begins. Replaying retained events after that boundary reduces missed workspace/tab/pane events during connection setup without introducing durable offsets or persistence.
 

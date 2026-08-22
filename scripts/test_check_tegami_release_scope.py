@@ -22,8 +22,8 @@ class CheckTegamiReleaseScopeTests(unittest.TestCase):
                     """\
                     ---
                     packages:
-                      omh: patch
-                      omh-docs: patch
+                      gardn: patch
+                      gardn-docs: patch
                     ---
 
                     ### Add release notes menu
@@ -35,7 +35,7 @@ class CheckTegamiReleaseScopeTests(unittest.TestCase):
             )
 
             result = subprocess.run(
-                ["node", str(script), "omh"],
+                ["node", str(script), "gardn"],
                 cwd=root,
                 env={**os.environ, "NO_COLOR": "1"},
                 text=True,
@@ -45,7 +45,7 @@ class CheckTegamiReleaseScopeTests(unittest.TestCase):
             )
 
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(result.stdout.strip(), "tegami release scope ok: all changefiles include omh")
+        self.assertEqual(result.stdout.strip(), "tegami release scope ok: all changefiles include gardn")
         self.assertEqual(result.stderr, "")
 
     def test_rejects_release_worthy_changefiles_missing_required_package(self) -> None:
@@ -61,7 +61,7 @@ class CheckTegamiReleaseScopeTests(unittest.TestCase):
                     """\
                     ---
                     packages:
-                      omh-docs: patch
+                      gardn-docs: patch
                     ---
 
                     ### Clarify setup docs
@@ -76,7 +76,7 @@ class CheckTegamiReleaseScopeTests(unittest.TestCase):
                     """\
                     ---
                     packages:
-                      omh: patch
+                      gardn: patch
                     ---
 
                     ### Keep app releaseable
@@ -88,7 +88,7 @@ class CheckTegamiReleaseScopeTests(unittest.TestCase):
             )
 
             result = subprocess.run(
-                ["node", str(script), "omh"],
+                ["node", str(script), "gardn"],
                 cwd=root,
                 env={**os.environ, "NO_COLOR": "1"},
                 text=True,
@@ -99,7 +99,7 @@ class CheckTegamiReleaseScopeTests(unittest.TestCase):
 
         self.assertEqual(result.returncode, 1, result.stdout)
         self.assertEqual(result.stdout, "")
-        self.assertIn("Every release-worthy Tegami changefile must include omh", result.stderr)
+        self.assertIn("Every release-worthy Tegami changefile must include gardn", result.stderr)
         self.assertIn("- .tegami/docs-only.md", result.stderr)
         self.assertNotIn("app.md", result.stderr)
 
@@ -118,7 +118,7 @@ class CheckTegamiReleaseScopeTests(unittest.TestCase):
             )
 
             result = subprocess.run(
-                ["node", str(script), "omh"],
+                ["node", str(script), "gardn"],
                 cwd=root,
                 env={**os.environ, "NO_COLOR": "1"},
                 text=True,
@@ -128,7 +128,7 @@ class CheckTegamiReleaseScopeTests(unittest.TestCase):
             )
 
         self.assertEqual(result.returncode, 1, result.stdout)
-        self.assertIn("Every release-worthy Tegami changefile must include omh", result.stderr)
+        self.assertIn("Every release-worthy Tegami changefile must include gardn", result.stderr)
         self.assertIn("- .tegami/unversioned.md", result.stderr)
 
 if __name__ == "__main__":

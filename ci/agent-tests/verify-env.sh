@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if [[ "${OPENROUTER_API_KEY:-}" != "sk-omh-agent-test" ]]; then
+if [[ "${OPENROUTER_API_KEY:-}" != "sk-gardn-agent-test" ]]; then
   echo "OPENROUTER_API_KEY was not propagated into the test environment" >&2
   exit 1
 fi
@@ -17,8 +17,8 @@ required_env=(
   CODEX_HOME
   FACTORY_HOME
   KIMI_CODE_HOME
-  OMH_TEST_MODEL
-  OMH_TEST_FALLBACK_MODELS
+  GARDN_TEST_MODEL
+  GARDN_TEST_FALLBACK_MODELS
   OPENCODE_AUTH_CONTENT
 )
 
@@ -35,15 +35,15 @@ test -f "$KIMI_CODE_HOME/config.toml"
 test -f "$HOME/.hermes/config.yaml"
 test -f "$HOME/.qoder/settings.json"
 
-grep -Fq "$OMH_TEST_MODEL" "$CODEX_HOME/config.toml"
+grep -Fq "$GARDN_TEST_MODEL" "$CODEX_HOME/config.toml"
 grep -q 'model_provider = "openrouter"' "$CODEX_HOME/config.toml"
 grep -q 'env_key = "OPENROUTER_API_KEY"' "$CODEX_HOME/config.toml"
 grep -q 'https://openrouter.ai/api/v1' "$CODEX_HOME/config.toml"
-grep -Fq "$OMH_TEST_MODEL" "$FACTORY_HOME/settings.json"
+grep -Fq "$GARDN_TEST_MODEL" "$FACTORY_HOME/settings.json"
 grep -q 'generic-chat-completion-api' "$FACTORY_HOME/settings.json"
 grep -q 'provider: openrouter' "$HOME/.hermes/config.yaml"
-grep -Fq "$OMH_TEST_MODEL" "$HOME/.hermes/config.yaml"
-grep -Fq "$OMH_TEST_MODEL" "$KIMI_CODE_HOME/config.toml"
+grep -Fq "$GARDN_TEST_MODEL" "$HOME/.hermes/config.yaml"
+grep -Fq "$GARDN_TEST_MODEL" "$KIMI_CODE_HOME/config.toml"
 grep -q 'openrouter' <<<"$OPENCODE_AUTH_CONTENT"
 
 if [[ "$(id -un)" != "agenttest" ]]; then

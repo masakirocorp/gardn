@@ -1,0 +1,669 @@
+use std::collections::{HashMap, HashSet};
+use std::path::{Path, PathBuf};
+
+use crate::workspace::{GitWorkSummary, WorkspaceGitStatusSnapshot};
+
+use super::{
+    config::{deps_current, read_config, stamp, upstream_full_ref, ConfigCtx, FileDep},
+    discovery::{
+        canonicalize_best_effort_path, git_branch, git_ref_storage_is_reftable, git_repo_root,
+        git_rev_parse_verify, git_symbolic_head_full, git_worktree_info, read_ref_oid,
+        GitWorktreeInfo,
+    },
+};
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GitStatusCacheEntry {
+    pub fingerprint: Option<GitStatusFingerprint>,
+    pub snapshot: WorkspaceGitStatusSnapshot,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GitStatusFingerprint {
+    pub head: GitHeadIdentity,
+    pub upstream: Option<GitUpstreamIdentity>,
+    repository_context: RepoContext,
+}
+
+type RepoContext = (GitWorktreeInfo, bool, Vec<FileDep>, Option<ConfigCtx>);
+
+fn repo_context(cwd: &Path) -> Option<RepoContext> {
+    let info = git_worktree_info(cwd)?;
+    let reftable = git_ref_storage_is_reftable(&info.git_common_dir);
+    let mut paths = vec![info.repo_root.join(".git"), info.git_dir.join("commondir")];
+    paths.push(info.git_dir.join("HEAD"));
+    paths.push(info.git_common_dir.join("config"));
+    paths.extend((info.git_dir != info.git_common_dir).then(|| info.git_dir.join("config")));
+    let mut deps: Vec<_> = paths.into_iter().map(|path| stamp(path, None)).collect();
+    deps[0].2 &= git_worktree_info(cwd).as_ref() == Some(&info)
+        && git_ref_storage_is_reftable(&info.git_common_dir) == reftable
+        && deps_current(&deps);
+    Some((info, reftable, deps, None))
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum GitHeadIdentity {
+    Branch {
+        full_ref: String,
+        short_name: String,
+        oid: Option<String>,
+    },
+    Detached {
+        oid: String,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GitUpstreamIdentity {
+    pub remote: String,
+    pub merge_ref: String,
+    pub full_ref: String,
+    pub oid: Option<String>,
+}
+
+pub fn git_status_cache_key(cwd: &Path) -> Option<PathBuf> {
+    git_worktree_info(cwd).map(|info| canonicalize_best_effort_path(&info.repo_root))
+}
+
+pub(crate) fn git_work_summary(cwds: &[PathBuf]) -> Option<GitWorkSummary> {
+    let roots = cwds
+        .iter()
+        .filter_map(|cwd| git_repo_root(cwd))
+        .collect::<HashSet<_>>();
+    if roots.is_empty() {
+        return None;
+    }
+
+    let mut summary = GitWorkSummary::default();
+
+    for root in roots {
+        if let Some(root_summary) = git_work_summary_for_root(&root) {
+            summary.repo_count += 1;
+            summary.conflicted += root_summary.conflicted;
+            summary.added += root_summary.added;
+            summary.modified += root_summary.modified;
+            summary.deleted += root_summary.deleted;
+        }
+    }
+
+    (summary.repo_count > 0).then_some(summary)
+}
+
+pub(crate) fn git_work_summary_for_root(root: &Path) -> Option<GitWorkSummary> {
+    let output = crate::noninteractive_process::command("git")
+        .arg("-C")
+        .arg(root)
+        .env("GIT_OPTIONAL_LOCKS", "0")
+        .args(["status", "--porcelain=v1", "-z", "--untracked-files=normal"])
+        .output()
+        .ok()?;
+
+    if !output.status.success() {
+        return None;
+    }
+
+    Some(parse_git_status_porcelain(&output.stdout))
+}
+
+fn parse_git_status_porcelain(stdout: &[u8]) -> GitWorkSummary {
+    let mut paths = HashMap::<Vec<u8>, GitPathState>::new();
+    let mut records = stdout
+        .split(|byte| *byte == 0)
+        .filter(|record| !record.is_empty());
+
+    while let Some(record) = records.next() {
+        if record.len() < 4 {
+            continue;
+        }
+        let x = record[0];
+        let y = record[1];
+        let path = record[3..].to_vec();
+        let state = git_path_state(x, y);
+        paths
+            .entry(path)
+            .and_modify(|existing| *existing = (*existing).max(state))
+            .or_insert(state);
+
+        if x == b'R' || y == b'R' || x == b'C' || y == b'C' {
+            let _ = records.next();
+        }
+    }
+
+    let mut summary = GitWorkSummary::default();
+    for state in paths.into_values() {
+        match state {
+            GitPathState::Conflicted => summary.conflicted += 1,
+            GitPathState::Added => summary.added += 1,
+            GitPathState::Modified => summary.modified += 1,
+            GitPathState::Deleted => summary.deleted += 1,
+        }
+    }
+    summary
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum GitPathState {
+    Modified,
+    Deleted,
+    Added,
+    Conflicted,
+}
+
+fn git_path_state(x: u8, y: u8) -> GitPathState {
+    if matches!(x, b'U' | b'A' | b'D') && matches!(y, b'U' | b'A' | b'D') {
+        return GitPathState::Conflicted;
+    }
+    if x == b'?' || y == b'?' || x == b'A' || y == b'A' || x == b'C' || y == b'C' {
+        return GitPathState::Added;
+    }
+    if x == b'D' || y == b'D' {
+        return GitPathState::Deleted;
+    }
+    GitPathState::Modified
+}
+
+pub fn git_status_snapshot_for_cwd(
+    cwd: &Path,
+    cached: Option<&GitStatusCacheEntry>,
+) -> (WorkspaceGitStatusSnapshot, Option<GitStatusCacheEntry>) {
+    let repository_context = cached
+        .and_then(|entry| entry.fingerprint.as_ref())
+        .map(|fingerprint| fingerprint.repository_context.clone())
+        .filter(|context| deps_current(&context.2))
+        .or_else(|| repo_context(cwd));
+    let Some(repository_context) = repository_context else {
+        return (
+            WorkspaceGitStatusSnapshot {
+                branch: git_branch(cwd),
+                ahead_behind: None,
+            },
+            None,
+        );
+    };
+
+    let Some(fingerprint) = fingerprint(repository_context, true) else {
+        return (
+            WorkspaceGitStatusSnapshot {
+                branch: git_branch(cwd),
+                ahead_behind: None,
+            },
+            None,
+        );
+    };
+    let branch = fingerprint.branch_name().map(str::to_string);
+
+    if let Some(cached) = cached.filter(|entry| entry.fingerprint.as_ref() == Some(&fingerprint)) {
+        let snapshot = WorkspaceGitStatusSnapshot {
+            branch,
+            ahead_behind: cached.snapshot.ahead_behind,
+        };
+        return (
+            snapshot.clone(),
+            Some(GitStatusCacheEntry {
+                fingerprint: Some(fingerprint),
+                snapshot,
+            }),
+        );
+    }
+
+    let ahead_behind = fingerprint
+        .head_oid()
+        .zip(fingerprint.upstream_oid())
+        .and_then(|(head_oid, upstream_oid)| git_ahead_behind_between(cwd, head_oid, upstream_oid));
+    let snapshot = WorkspaceGitStatusSnapshot {
+        branch,
+        ahead_behind,
+    };
+    (
+        snapshot.clone(),
+        Some(GitStatusCacheEntry {
+            fingerprint: Some(fingerprint),
+            snapshot,
+        }),
+    )
+}
+
+#[cfg(test)]
+pub(super) fn git_status_fingerprint(cwd: &Path) -> Option<GitStatusFingerprint> {
+    fingerprint(repo_context(cwd)?, true)
+}
+
+fn fingerprint(mut repo: RepoContext, include_upstream: bool) -> Option<GitStatusFingerprint> {
+    let head = read_head_identity(&repo.0, repo.1)?;
+    let upstream = match &head {
+        GitHeadIdentity::Branch { short_name, .. } if include_upstream => {
+            read_upstream(&mut repo, short_name)
+        }
+        _ => None,
+    };
+
+    Some(GitStatusFingerprint {
+        head,
+        upstream,
+        repository_context: repo,
+    })
+}
+
+impl GitStatusFingerprint {
+    fn branch_name(&self) -> Option<&str> {
+        match &self.head {
+            GitHeadIdentity::Branch { short_name, .. } => Some(short_name.as_str()),
+            GitHeadIdentity::Detached { .. } => None,
+        }
+    }
+
+    fn head_oid(&self) -> Option<&str> {
+        match &self.head {
+            GitHeadIdentity::Branch { oid, .. } => oid.as_deref(),
+            GitHeadIdentity::Detached { oid } => Some(oid.as_str()),
+        }
+    }
+
+    fn upstream_oid(&self) -> Option<&str> {
+        self.upstream
+            .as_ref()
+            .and_then(|upstream| upstream.oid.as_deref())
+    }
+}
+
+fn read_head_identity(info: &GitWorktreeInfo, reftable: bool) -> Option<GitHeadIdentity> {
+    if reftable {
+        return read_head_identity_from_git(info);
+    }
+
+    read_head_identity_from_files(info)
+}
+
+fn read_head_identity_from_git(info: &GitWorktreeInfo) -> Option<GitHeadIdentity> {
+    if let Some(full_ref) = git_symbolic_head_full(&info.repo_root) {
+        let short_name = full_ref.strip_prefix("refs/heads/")?.to_string();
+        let oid = git_rev_parse_verify(&info.repo_root, &full_ref);
+        return Some(GitHeadIdentity::Branch {
+            full_ref,
+            short_name,
+            oid,
+        });
+    }
+
+    git_rev_parse_verify(&info.repo_root, "HEAD").map(|oid| GitHeadIdentity::Detached { oid })
+}
+
+fn read_head_identity_from_files(info: &GitWorktreeInfo) -> Option<GitHeadIdentity> {
+    let head = std::fs::read_to_string(info.git_dir.join("HEAD")).ok()?;
+    let head = head.trim();
+    if let Some(full_ref) = head.strip_prefix("ref: ") {
+        let short_name = full_ref.strip_prefix("refs/heads/")?.to_string();
+        let oid = read_ref_oid(&info.git_common_dir, full_ref);
+        return Some(GitHeadIdentity::Branch {
+            full_ref: full_ref.to_string(),
+            short_name,
+            oid,
+        });
+    }
+
+    (!head.is_empty()).then(|| GitHeadIdentity::Detached {
+        oid: head.to_string(),
+    })
+}
+
+fn read_upstream(repo: &mut RepoContext, branch: &str) -> Option<GitUpstreamIdentity> {
+    if repo
+        .3
+        .as_ref()
+        .is_none_or(|context| context.0 != branch || !deps_current(&context.2))
+    {
+        repo.3 = Some(read_config(&repo.0, branch));
+    }
+    let config = repo.3.as_ref()?.1.clone()?;
+    let full_ref = upstream_full_ref(&config)?;
+    let oid = if repo.1 {
+        git_rev_parse_verify(&repo.0.repo_root, &full_ref)
+    } else {
+        read_ref_oid(&repo.0.git_common_dir, &full_ref)
+    };
+    Some(GitUpstreamIdentity {
+        remote: config.remote,
+        merge_ref: config.merge_ref,
+        full_ref,
+        oid,
+    })
+}
+
+#[cfg(test)]
+pub(crate) fn git_ahead_behind(cwd: &Path) -> Option<(usize, usize)> {
+    super::discovery::git_repo_root(cwd)?;
+
+    let output = std::process::Command::new("git")
+        .arg("-C")
+        .arg(cwd)
+        .args(["rev-list", "--left-right", "--count", "HEAD...@{upstream}"])
+        .output()
+        .ok()?;
+
+    if !output.status.success() {
+        return None;
+    }
+
+    let stdout = String::from_utf8(output.stdout).ok()?;
+    parse_git_ahead_behind_output(&stdout)
+}
+
+fn git_ahead_behind_between(
+    cwd: &Path,
+    head_oid: &str,
+    upstream_oid: &str,
+) -> Option<(usize, usize)> {
+    let range = format!("{head_oid}...{upstream_oid}");
+    let output = crate::noninteractive_process::command("git")
+        .arg("-C")
+        .arg(cwd)
+        .args(["rev-list", "--left-right", "--count", &range])
+        .output()
+        .ok()?;
+
+    if !output.status.success() {
+        return None;
+    }
+
+    let stdout = String::from_utf8(output.stdout).ok()?;
+    parse_git_ahead_behind_output(&stdout)
+}
+
+fn parse_git_ahead_behind_output(stdout: &str) -> Option<(usize, usize)> {
+    let mut parts = stdout.split_whitespace();
+    let ahead = parts.next()?.parse().ok()?;
+    let behind = parts.next()?.parse().ok()?;
+    Some((ahead, behind))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::workspace::git::test_support::{run_git, temp_test_dir, write_fake_tracked_repo};
+
+    #[test]
+    fn git_status_summary_counts_changed_paths_by_kind() {
+        let summary = parse_git_status_porcelain(
+            b"?? new.txt\0 M changed.txt\0D  gone.txt\0UU conflict.txt\0",
+        );
+
+        assert_eq!(summary.added, 1);
+        assert_eq!(summary.modified, 1);
+        assert_eq!(summary.deleted, 1);
+        assert_eq!(summary.conflicted, 1);
+    }
+
+    #[test]
+    fn git_status_summary_counts_renames_as_modified_path() {
+        let summary = parse_git_status_porcelain(b"R  new.txt\0old.txt\0");
+
+        assert_eq!(summary.modified, 1);
+    }
+
+    #[test]
+    fn git_work_summary_returns_none_when_status_fails_for_all_roots() {
+        let root = temp_test_dir("invalid-status-repo");
+        std::fs::create_dir_all(root.join(".git")).unwrap();
+
+        assert_eq!(git_work_summary(std::slice::from_ref(&root)), None);
+
+        std::fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn git_status_cache_key_ignores_invalid_git_marker() {
+        let base = temp_test_dir("invalid-git-root");
+        let cwd = base.join("workspace");
+        std::fs::create_dir_all(base.join(".git")).unwrap();
+        std::fs::create_dir_all(&cwd).unwrap();
+
+        assert_eq!(git_status_cache_key(&cwd), None);
+
+        std::fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
+    fn git_status_reuses_cached_ahead_behind_when_fingerprint_matches() {
+        let root = temp_test_dir("cache-hit");
+        write_fake_tracked_repo(&root);
+        let fingerprint = git_status_fingerprint(&root).unwrap();
+        let cached = GitStatusCacheEntry {
+            fingerprint: Some(fingerprint),
+            snapshot: WorkspaceGitStatusSnapshot {
+                branch: Some("main".into()),
+                ahead_behind: Some((2, 1)),
+            },
+        };
+
+        let (snapshot, update) = git_status_snapshot_for_cwd(&root, Some(&cached));
+
+        assert_eq!(snapshot.branch.as_deref(), Some("main"));
+        assert_eq!(snapshot.ahead_behind, Some((2, 1)));
+        assert_eq!(update.unwrap().snapshot.ahead_behind, Some((2, 1)));
+
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn git_status_does_not_reuse_cache_when_branch_changes_at_same_oid() {
+        let root = temp_test_dir("branch-switch");
+        write_fake_tracked_repo(&root);
+        let fingerprint = git_status_fingerprint(&root).unwrap();
+        let cached = GitStatusCacheEntry {
+            fingerprint: Some(fingerprint),
+            snapshot: WorkspaceGitStatusSnapshot {
+                branch: Some("main".into()),
+                ahead_behind: Some((4, 0)),
+            },
+        };
+        std::fs::write(root.join(".git/HEAD"), "ref: refs/heads/feature\n").unwrap();
+        std::fs::write(
+            root.join(".git/refs/heads/feature"),
+            "1111111111111111111111111111111111111111\n",
+        )
+        .unwrap();
+        std::fs::write(
+            root.join(".git/config"),
+            "[branch \"feature\"]\n\tremote = origin\n\tmerge = refs/heads/main\n",
+        )
+        .unwrap();
+
+        let (snapshot, _) = git_status_snapshot_for_cwd(&root, Some(&cached));
+
+        assert_eq!(snapshot.branch.as_deref(), Some("feature"));
+        assert_eq!(snapshot.ahead_behind, None);
+
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn git_status_clears_ahead_behind_when_upstream_is_unset() {
+        let root = temp_test_dir("upstream-unset");
+        write_fake_tracked_repo(&root);
+        let fingerprint = git_status_fingerprint(&root).unwrap();
+        let cached = GitStatusCacheEntry {
+            fingerprint: Some(fingerprint),
+            snapshot: WorkspaceGitStatusSnapshot {
+                branch: Some("main".into()),
+                ahead_behind: Some((0, 3)),
+            },
+        };
+        std::fs::write(root.join(".git/config"), "").unwrap();
+
+        let (snapshot, _) = git_status_snapshot_for_cwd(&root, Some(&cached));
+
+        assert_eq!(snapshot.branch.as_deref(), Some("main"));
+        assert_eq!(snapshot.ahead_behind, None);
+
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn cached_repo_identity_clears_when_head_disappears() {
+        let root = temp_test_dir("missing-head");
+        write_fake_tracked_repo(&root);
+        let (_, cached) = git_status_snapshot_for_cwd(&root, None);
+        std::fs::remove_file(root.join(".git/HEAD")).unwrap();
+
+        let (snapshot, _) = git_status_snapshot_for_cwd(&root, cached.as_ref());
+
+        assert_eq!(snapshot.branch, None);
+        assert_eq!(snapshot.ahead_behind, None);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn git_status_rebuilds_config_when_missing_include_appears() {
+        let root = temp_test_dir("include-appears");
+        write_fake_tracked_repo(&root);
+        std::fs::write(
+            root.join(".git/config"),
+            "[branch \"main\"]\n\tremote = origin\n\tmerge = refs/heads/main\n[include]\n\tpath = branch.cfg\n",
+        )
+        .unwrap();
+        let (_, cached) = git_status_snapshot_for_cwd(&root, None);
+        std::fs::write(
+            root.join(".git/branch.cfg"),
+            "[branch \"main\"]\n\tremote = fork\n\tmerge = refs/heads/main\n",
+        )
+        .unwrap();
+
+        let (_, updated) = git_status_snapshot_for_cwd(&root, cached.as_ref());
+
+        let upstream = updated.unwrap().fingerprint.unwrap().upstream.unwrap();
+        assert_eq!(upstream.remote, "fork");
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn git_status_fingerprint_reads_reftable_branch_identity() {
+        let root = temp_test_dir("reftable-fingerprint");
+        let root_arg = root.to_string_lossy().to_string();
+        let output = std::process::Command::new("git")
+            .args(["init", "--ref-format=reftable", "-b", "main", &root_arg])
+            .output()
+            .unwrap();
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+            std::fs::remove_dir_all(root).unwrap();
+            panic!("git init --ref-format=reftable failed: {stderr}");
+        }
+        run_git(&root, &["config", "user.email", "gardn@example.invalid"]);
+        run_git(&root, &["config", "user.name", "Gardn Test"]);
+        run_git(&root, &["commit", "--allow-empty", "-m", "initial"]);
+
+        let fingerprint = git_status_fingerprint(&root).unwrap();
+
+        assert_eq!(
+            fingerprint.head,
+            GitHeadIdentity::Branch {
+                full_ref: "refs/heads/main".into(),
+                short_name: "main".into(),
+                oid: git_rev_parse_verify(&root, "HEAD"),
+            }
+        );
+
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn git_status_fingerprint_reads_packed_refs() {
+        let root = temp_test_dir("packed-refs");
+        write_fake_tracked_repo(&root);
+        std::fs::remove_file(root.join(".git/refs/remotes/origin/main")).unwrap();
+        std::fs::write(
+            root.join(".git/packed-refs"),
+            "# pack-refs with: peeled fully-peeled sorted\n2222222222222222222222222222222222222222 refs/remotes/origin/main\n",
+        )
+        .unwrap();
+
+        let fingerprint = git_status_fingerprint(&root).unwrap();
+
+        assert_eq!(
+            fingerprint.upstream.unwrap().oid.as_deref(),
+            Some("2222222222222222222222222222222222222222")
+        );
+
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn git_status_cache_key_is_per_linked_worktree_checkout() {
+        let base = temp_test_dir("linked-worktree-keys");
+        let common_dir = base.join("repo/.git");
+        let worktree_one = base.join("one");
+        let worktree_two = base.join("two");
+        let git_dir_one = common_dir.join("worktrees/one");
+        let git_dir_two = common_dir.join("worktrees/two");
+        std::fs::create_dir_all(&git_dir_one).unwrap();
+        std::fs::create_dir_all(&git_dir_two).unwrap();
+        std::fs::create_dir_all(&worktree_one).unwrap();
+        std::fs::create_dir_all(&worktree_two).unwrap();
+        std::fs::write(
+            worktree_one.join(".git"),
+            format!("gitdir: {}\n", git_dir_one.display()),
+        )
+        .unwrap();
+        std::fs::write(
+            worktree_two.join(".git"),
+            format!("gitdir: {}\n", git_dir_two.display()),
+        )
+        .unwrap();
+        std::fs::write(git_dir_one.join("HEAD"), "ref: refs/heads/one\n").unwrap();
+        std::fs::write(git_dir_two.join("HEAD"), "ref: refs/heads/two\n").unwrap();
+
+        let info_one = git_worktree_info(&worktree_one).expect("worktree one info");
+        let info_two = git_worktree_info(&worktree_two).expect("worktree two info");
+        let key_one = git_status_cache_key(&worktree_one).expect("worktree one cache key");
+        let key_two = git_status_cache_key(&worktree_two).expect("worktree two cache key");
+
+        assert_eq!(
+            info_one.git_dir,
+            canonicalize_best_effort_path(&git_dir_one)
+        );
+        assert_eq!(
+            info_two.git_dir,
+            canonicalize_best_effort_path(&git_dir_two)
+        );
+        assert_eq!(
+            std::fs::read_to_string(info_one.git_dir.join("HEAD")).unwrap(),
+            "ref: refs/heads/one\n"
+        );
+        assert_eq!(
+            std::fs::read_to_string(info_two.git_dir.join("HEAD")).unwrap(),
+            "ref: refs/heads/two\n"
+        );
+        assert_eq!(key_one, canonicalize_best_effort_path(&worktree_one));
+        assert_eq!(key_two, canonicalize_best_effort_path(&worktree_two));
+        assert_ne!(key_one, key_two);
+
+        std::fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
+    fn git_status_recomputes_ahead_behind_when_head_moves() {
+        let base = temp_test_dir("head-moves");
+        let remote = base.join("remote.git");
+        let repo = base.join("repo");
+        std::fs::create_dir_all(&repo).unwrap();
+        let remote_arg = remote.to_string_lossy().to_string();
+        run_git(&base, &["init", "--bare", &remote_arg]);
+        run_git(&repo, &["init"]);
+        run_git(&repo, &["config", "user.email", "gardn@example.invalid"]);
+        run_git(&repo, &["config", "user.name", "Gardn Test"]);
+        run_git(&repo, &["commit", "--allow-empty", "-m", "initial"]);
+        run_git(&repo, &["branch", "-M", "main"]);
+        run_git(&repo, &["remote", "add", "origin", &remote_arg]);
+        run_git(&repo, &["push", "-u", "origin", "main"]);
+
+        let (initial, cache_entry) = git_status_snapshot_for_cwd(&repo, None);
+        assert_eq!(initial.ahead_behind, Some((0, 0)));
+        run_git(&repo, &["commit", "--allow-empty", "-m", "ahead"]);
+
+        let (updated, _) = git_status_snapshot_for_cwd(&repo, cache_entry.as_ref());
+
+        assert_eq!(updated.branch.as_deref(), Some("main"));
+        assert_eq!(updated.ahead_behind, Some((1, 0)));
+
+        std::fs::remove_dir_all(base).unwrap();
+    }
+}

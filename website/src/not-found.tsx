@@ -3,20 +3,20 @@ import { Link } from "fumapress/client";
 export default function NotFoundPage() {
   return (
     <>
-      <title>Page not found — Oh My Herdr</title>
+      <title>Page not found — Gardn</title>
       <meta name="robots" content="noindex" />
-      <main className="omh-page">
-        <section className="omh-shell" aria-labelledby="page-title">
-          <p className="omh-eyebrow">404</p>
-          <h1 id="page-title" className="omh-title">
+      <main className="gardn-page">
+        <section className="gardn-shell" aria-labelledby="page-title">
+          <p className="gardn-eyebrow">404</p>
+          <h1 id="page-title" className="gardn-title">
             That workspace does not exist.
           </h1>
-          <p className="omh-copy">The address may have moved, or the page may not be public yet.</p>
-          <div className="omh-actions">
-            <Link className="omh-action" data-primary="true" href="/">
+          <p className="gardn-copy">The address may have moved, or the page may not be public yet.</p>
+          <div className="gardn-actions">
+            <Link className="gardn-action" data-primary="true" href="/">
               Return home
             </Link>
-            <Link className="omh-action" href="/docs">
+            <Link className="gardn-action" href="/docs">
               Search the documentation
             </Link>
           </div>

@@ -2,8 +2,8 @@
   "extends": ["//"],
   "tasks": {
     "build": {
-      "dependsOn": ["omh-rust#api:contract"],
-      "env": ["OMH_API_BINARY"],
+      "dependsOn": ["gardn-rust#api:contract"],
+      "env": ["GARDN_API_BINARY"],
       "outputs": ["dist/**"]
     },
     "check": {
@@ -18,7 +18,7 @@
       ]
     },
     "api:check": {
-      "env": ["OMH_API_BINARY"],
+      "env": ["GARDN_API_BINARY"],
       "dependsOn": ["build"],
       "outputs": []
     },

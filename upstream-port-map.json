@@ -9,7 +9,7 @@
       "local": [
         "80dba8a55f7f8327f488244594c0b568003d5425"
       ],
-      "reason": "same subject exists in Oh My Herdr history."
+      "reason": "same subject exists in Gardn history."
     },
     {
       "upstream": "db67e9d74ffafc9c63bdf78fcf712419359f634b",
@@ -18,25 +18,25 @@
       "local": [
         "21ea6751a228c6a899c4e6c1daeeab12ac9dfe7f"
       ],
-      "reason": "same subject exists in Oh My Herdr history."
+      "reason": "same subject exists in Gardn history."
     },
     {
       "upstream": "45e88fd0b530f918c2ca6a59177f8cd32c2ff43a",
       "subject": "ci: cap ci job runtime",
       "status": "superseded",
-      "reason": "Oh My Herdr CI/test/build shape is maintained separately or already has an equivalent adaptation."
+      "reason": "Gardn CI/test/build shape is maintained separately or already has an equivalent adaptation."
     },
     {
       "upstream": "c359edee19f7c5bb1a18f2b378d2ae631f9666f7",
       "subject": "test: skip short-lived restore fallback pty test on macos",
       "status": "superseded",
-      "reason": "Oh My Herdr CI/test/build shape is maintained separately or already has an equivalent adaptation."
+      "reason": "Gardn CI/test/build shape is maintained separately or already has an equivalent adaptation."
     },
     {
       "upstream": "a132a7c3b9ade3ad4636e03b1f0930b5fa711766",
       "subject": "test: make restore wrapper test portable",
       "status": "superseded",
-      "reason": "Oh My Herdr CI/test/build shape is maintained separately or already has an equivalent adaptation."
+      "reason": "Gardn CI/test/build shape is maintained separately or already has an equivalent adaptation."
     },
     {
       "upstream": "80a314a9089b28c1bfdc2cdf5196e9a2eb9f11ba",
@@ -45,43 +45,43 @@
       "local": [
         "952e5f23b01a926614615267ec4531381baf5b52"
       ],
-      "reason": "same subject exists in Oh My Herdr history."
+      "reason": "same subject exists in Gardn history."
     },
     {
       "upstream": "c5b3997f3b7d334bd2f35c7aee5216236b58193e",
       "subject": "docs: normalize readme casing",
       "status": "skipped",
-      "reason": "Oh My Herdr-owned docs/site/release/repository-process surface."
+      "reason": "Gardn-owned docs/site/release/repository-process surface."
     },
     {
       "upstream": "26205a2ac5e21053bd94a0925efcfca44c6f549b",
       "subject": "feat: make navigate movement keybinds configurable",
       "status": "superseded",
-      "reason": "reviewed during upstream port; Oh My Herdr already has equivalent product behavior or intentionally different product semantics."
+      "reason": "reviewed during upstream port; Gardn already has equivalent product behavior or intentionally different product semantics."
     },
     {
       "upstream": "5ce738cf5397d0d8a50ed1aa6335297073cc0f0f",
       "subject": "fix: avoid app event queue stalls",
       "status": "superseded",
-      "reason": "reviewed during upstream port; Oh My Herdr already has equivalent product behavior or intentionally different product semantics."
+      "reason": "reviewed during upstream port; Gardn already has equivalent product behavior or intentionally different product semantics."
     },
     {
       "upstream": "43c6ca3a5dbdcefc6c6dc29be9ce81d990baf39e",
       "subject": "feat: persist pane history across restarts (#248)",
       "status": "superseded",
-      "reason": "reviewed during upstream port; Oh My Herdr already has equivalent product behavior or intentionally different product semantics."
+      "reason": "reviewed during upstream port; Gardn already has equivalent product behavior or intentionally different product semantics."
     },
     {
       "upstream": "420925d141c8805e610eb0d62d49d8b9b483d961",
       "subject": "fix: support scrolling direct agent attaches",
       "status": "superseded",
-      "reason": "reviewed during upstream port; Oh My Herdr already has equivalent product behavior or intentionally different product semantics."
+      "reason": "reviewed during upstream port; Gardn already has equivalent product behavior or intentionally different product semantics."
     },
     {
       "upstream": "a1543f3e248f8f5266322014ccd853e478b1dcd6",
       "subject": "fix: avoid pane history replay during agent restore",
       "status": "superseded",
-      "reason": "reviewed during upstream port; Oh My Herdr already has equivalent product behavior or intentionally different product semantics."
+      "reason": "reviewed during upstream port; Gardn already has equivalent product behavior or intentionally different product semantics."
     },
     {
       "upstream": "d4a5e02e8433db156b9dabe2b81ddd1d2aca9ea6",
@@ -90,13 +90,13 @@
       "local": [
         "17bfde325360d2308c39cde169d5ce4ea6167f51"
       ],
-      "reason": "same subject exists in Oh My Herdr history."
+      "reason": "same subject exists in Gardn history."
     },
     {
       "upstream": "eb8e9f1af8e876859b307bbd1ec418f66ee70edf",
       "subject": "test: shorten update test socket paths on macos",
       "status": "superseded",
-      "reason": "Oh My Herdr CI/test/build shape is maintained separately or already has an equivalent adaptation."
+      "reason": "Gardn CI/test/build shape is maintained separately or already has an equivalent adaptation."
     },
     {
       "upstream": "490510c12956048c5658564f69e64393a9f79693",
@@ -105,37 +105,37 @@
       "local": [
         "203a3f1384eabc36948cd7ee4296e1b96c2f540a"
       ],
-      "reason": "same subject exists in Oh My Herdr history."
+      "reason": "same subject exists in Gardn history."
     },
     {
       "upstream": "97f12279f63e3eeaf86e202b5faa61d1e35ce8a9",
-      "subject": "chore: add herdr worktree continuation extension",
+      "subject": "chore: add gardn worktree continuation extension",
       "status": "superseded",
-      "reason": "reviewed during upstream port; Oh My Herdr already has equivalent product behavior or intentionally different product semantics."
+      "reason": "reviewed during upstream port; Gardn already has equivalent product behavior or intentionally different product semantics."
     },
     {
       "upstream": "669a110da6c64de8c43bcfa9721cc485555043ad",
       "subject": "chore: approve contributor chenrui333",
       "status": "skipped",
-      "reason": "Oh My Herdr-owned docs/site/release/repository-process surface."
+      "reason": "Gardn-owned docs/site/release/repository-process surface."
     },
     {
       "upstream": "82902e638b2fb7d991b92c573cc541840c451ec0",
       "subject": "build: skip unused libghostty-vt xcframework (#286)",
       "status": "superseded",
-      "reason": "Oh My Herdr CI/test/build shape is maintained separately or already has an equivalent adaptation."
+      "reason": "Gardn CI/test/build shape is maintained separately or already has an equivalent adaptation."
     },
     {
       "upstream": "b12e2e39e96e2b4194f384cb658d9dd5232c4234",
       "subject": "ci: use kangal bot for contributor approval workflows",
       "status": "skipped",
-      "reason": "Oh My Herdr-owned docs/site/release/repository-process surface."
+      "reason": "Gardn-owned docs/site/release/repository-process surface."
     },
     {
       "upstream": "ac9dac0263ba2336710e8fc350600ff8674ebf99",
       "subject": "docs: add homebrew install notes (#289)",
       "status": "skipped",
-      "reason": "Oh My Herdr-owned docs/site/release/repository-process surface."
+      "reason": "Gardn-owned docs/site/release/repository-process surface."
     },
     {
       "upstream": "58bcd76bfdb76ecbb8cfee868dabe60b43f16cc6",
@@ -144,7 +144,7 @@
       "local": [
         "5de33677650809227ac46bc5bea9f424754dc6f9"
       ],
-      "reason": "same subject exists in Oh My Herdr history."
+      "reason": "same subject exists in Gardn history."
     },
     {
       "upstream": "2ea4878bae8fb2bdd04f07d93aa919be6cfa0142",
@@ -153,49 +153,49 @@
       "local": [
         "4701f9562e7e36d8a7a98eedb1eb89aaf5873bb3"
       ],
-      "reason": "same subject exists in Oh My Herdr history."
+      "reason": "same subject exists in Gardn history."
     },
     {
       "upstream": "986218c4485d808459377875499c7aa56b213ca7",
       "subject": "docs: document homebrew install",
       "status": "skipped",
-      "reason": "Oh My Herdr-owned docs/site/release/repository-process surface."
+      "reason": "Gardn-owned docs/site/release/repository-process surface."
     },
     {
       "upstream": "1e0d95f05e77ff084fad1eceb61bafe66fa2e777",
       "subject": "fix: avoid aplay for linux mp3 sounds",
       "status": "superseded",
-      "reason": "reviewed during upstream port; Oh My Herdr already has equivalent product behavior or intentionally different product semantics."
+      "reason": "reviewed during upstream port; Gardn already has equivalent product behavior or intentionally different product semantics."
     },
     {
       "upstream": "33e71ed2f50e5ca8950029f89f41e0ec135b87c0",
       "subject": "fix: emit matching agent status subscriptions (#295)",
       "status": "superseded",
-      "reason": "reviewed during upstream port; Oh My Herdr already has equivalent product behavior or intentionally different product semantics."
+      "reason": "reviewed during upstream port; Gardn already has equivalent product behavior or intentionally different product semantics."
     },
     {
       "upstream": "6c4a947244b7be05496f9d3bd5ad2d00a69cca03",
       "subject": "Add tmux-style double-click word copy (#296)",
       "status": "superseded",
-      "reason": "reviewed during upstream port; Oh My Herdr already has equivalent product behavior or intentionally different product semantics."
+      "reason": "reviewed during upstream port; Gardn already has equivalent product behavior or intentionally different product semantics."
     },
     {
       "upstream": "843653c0f56390373ba018f5f380011e3af3c14b",
       "subject": "fix: detect codex background terminal waits",
       "status": "superseded",
-      "reason": "reviewed during upstream port; Oh My Herdr already has equivalent product behavior or intentionally different product semantics."
+      "reason": "reviewed during upstream port; Gardn already has equivalent product behavior or intentionally different product semantics."
     },
     {
       "upstream": "62b9795771b22e36b1464c235745990eaa8921e6",
       "subject": "fix: skip bot comments in contributor approval workflow",
       "status": "skipped",
-      "reason": "Oh My Herdr-owned docs/site/release/repository-process surface."
+      "reason": "Gardn-owned docs/site/release/repository-process surface."
     },
     {
       "upstream": "9eec3029e13b791b8a4954e38d5bb7db6e2ff68f",
       "subject": "fix: reduce idle agent checker CPU",
       "status": "superseded",
-      "reason": "reviewed during upstream port; Oh My Herdr already has equivalent product behavior or intentionally different product semantics."
+      "reason": "reviewed during upstream port; Gardn already has equivalent product behavior or intentionally different product semantics."
     },
     {
       "upstream": "57c880f0ebaa5011abc90f4e2fd4f84fc072ce35",
@@ -206,7 +206,7 @@
       "upstream": "1b980eaa9d4cbc050b6b81525e4b6b72ae853be5",
       "subject": "feat: show clipboard copy feedback",
       "status": "superseded",
-      "reason": "reviewed during upstream port; Oh My Herdr already has equivalent product behavior or intentionally different product semantics."
+      "reason": "reviewed during upstream port; Gardn already has equivalent product behavior or intentionally different product semantics."
     },
     {
       "upstream": "3750e0bae21c54da3947d337584f180a21d0bc67",
@@ -222,7 +222,7 @@
       "upstream": "5210b08e7db000d619b365fbcb8ec08104b0fcaa",
       "subject": "chore: approve contributor wayneleelwc",
       "status": "skipped",
-      "reason": "Oh My Herdr-owned docs/site/release/repository-process surface."
+      "reason": "Gardn-owned docs/site/release/repository-process surface."
     },
     {
       "upstream": "31e973502af205666cb4a48e3f9e10328f65cd4e",
@@ -233,25 +233,25 @@
       "upstream": "427c2606d8f62558e3949d2f44173175e96bed49",
       "subject": "fix: deliver agent status subscriptions from event hub",
       "status": "superseded",
-      "reason": "reviewed during upstream port; Oh My Herdr already has equivalent product behavior or intentionally different product semantics."
+      "reason": "reviewed during upstream port; Gardn already has equivalent product behavior or intentionally different product semantics."
     },
     {
       "upstream": "eac2314e6ccb4ba91b7272523e68110035167279",
       "subject": "fix: handle package-manager remote updates",
       "status": "superseded",
-      "reason": "reviewed during upstream port; Oh My Herdr already has equivalent product behavior or intentionally different product semantics."
+      "reason": "reviewed during upstream port; Gardn already has equivalent product behavior or intentionally different product semantics."
     },
     {
       "upstream": "cfffe6599e4f82f89af4f9b36487793226f54dfe",
       "subject": "docs: clarify dual licensing",
       "status": "skipped",
-      "reason": "Oh My Herdr-owned docs/site/release/repository-process surface."
+      "reason": "Gardn-owned docs/site/release/repository-process surface."
     },
     {
       "upstream": "61bec49572358259f7e98e37c2f8cdfda423ed5d",
       "subject": "feat: refactor website homepage",
       "status": "skipped",
-      "reason": "Oh My Herdr-owned docs/site/release/repository-process surface."
+      "reason": "Gardn-owned docs/site/release/repository-process surface."
     },
     {
       "upstream": "7dbe2c796404e68365b9fc46e4750d206de7b0c4",
@@ -262,19 +262,19 @@
       "upstream": "5fbc85a07e4ea643a87680e26842e77518e34d0c",
       "subject": "fix: update website og card",
       "status": "skipped",
-      "reason": "Oh My Herdr-owned docs/site/release/repository-process surface."
+      "reason": "Gardn-owned docs/site/release/repository-process surface."
     },
     {
       "upstream": "9a89e3dc181bdf35101c2066bea114394afb93e2",
       "subject": "fix: update website social links",
       "status": "skipped",
-      "reason": "Oh My Herdr-owned docs/site/release/repository-process surface."
+      "reason": "Gardn-owned docs/site/release/repository-process surface."
     },
     {
       "upstream": "858c36974bad616e9e6c1897882b8c9a97396bec",
       "subject": "feat: configure mobile width threshold (#317)",
       "status": "superseded",
-      "reason": "reviewed during upstream port; Oh My Herdr already has equivalent product behavior or intentionally different product semantics."
+      "reason": "reviewed during upstream port; Gardn already has equivalent product behavior or intentionally different product semantics."
     },
     {
       "upstream": "bfb9e756a01a8ddf4e20d2451c8316ab33454bb4",
@@ -285,13 +285,13 @@
       "upstream": "d205725449a33947cd57fddc1a749e753aa55767",
       "subject": "docs: add qoder support docs",
       "status": "skipped",
-      "reason": "Oh My Herdr-owned docs/site/release/repository-process surface."
+      "reason": "Gardn-owned docs/site/release/repository-process surface."
     },
     {
       "upstream": "b56eeb991eb1246acec7fe8f57e0e3aaa0fd5a82",
       "subject": "fix: release opencode integration on dispose",
       "status": "superseded",
-      "reason": "reviewed during upstream port; Oh My Herdr already has equivalent product behavior or intentionally different product semantics."
+      "reason": "reviewed during upstream port; Gardn already has equivalent product behavior or intentionally different product semantics."
     },
     {
       "upstream": "61ee25e89e86c726d8c95a03a718e036d0c16e22",
@@ -301,25 +301,25 @@
         "bb7b1c00fe6babfc0701480436bdbb4c2443ef2e",
         "50ae83a92d76e19789e49260ac73f99dd918b610"
       ],
-      "reason": "same subject exists in Oh My Herdr history."
+      "reason": "same subject exists in Gardn history."
     },
     {
       "upstream": "8d8eac3f85f52dd1900f3f266ff05ba4e6732518",
       "subject": "release: v0.6.3",
       "status": "skipped",
-      "reason": "Oh My Herdr-owned docs/site/release/repository-process surface."
+      "reason": "Gardn-owned docs/site/release/repository-process surface."
     },
     {
       "upstream": "4ec4d56fcf985e4464bce6b76e3578e9c941ad50",
       "subject": "docs: update website manifest for v0.6.3",
       "status": "skipped",
-      "reason": "Oh My Herdr-owned docs/site/release/repository-process surface."
+      "reason": "Gardn-owned docs/site/release/repository-process surface."
     },
     {
       "upstream": "7ebc72f3f5de24a293db144cd1745cea52c3e717",
       "subject": "feat: add website release notes",
       "status": "skipped",
-      "reason": "Oh My Herdr-owned docs/site/release/repository-process surface."
+      "reason": "Gardn-owned docs/site/release/repository-process surface."
     },
     {
       "upstream": "3325304f89d56990f3134a3d01749e5de498725d",
@@ -333,19 +333,19 @@
       "upstream": "8e7317e223bcfe38281a71fb121b0b65aaab1a43",
       "subject": "fix: raise macos server fd limit",
       "status": "superseded",
-      "reason": "reviewed during upstream port; Oh My Herdr already has equivalent product behavior or intentionally different product semantics."
+      "reason": "reviewed during upstream port; Gardn already has equivalent product behavior or intentionally different product semantics."
     },
     {
       "upstream": "8180d76b30ca4281bdf2b43ff0316406f284413e",
       "subject": "release: v0.6.4",
       "status": "skipped",
-      "reason": "Oh My Herdr-owned docs/site/release/repository-process surface."
+      "reason": "Gardn-owned docs/site/release/repository-process surface."
     },
     {
       "upstream": "1e7095b4a9b143a84b40902b294545d727683699",
       "subject": "docs: update website manifest for v0.6.4",
       "status": "skipped",
-      "reason": "Oh My Herdr-owned docs/site/release/repository-process surface."
+      "reason": "Gardn-owned docs/site/release/repository-process surface."
     },
     {
       "upstream": "5ee6235bced76a961e9013bd56161525b4032c6b",
@@ -359,7 +359,7 @@
       "upstream": "789738cada5afaa20bbd77a0d479fb689c455bfe",
       "subject": "docs: mark live handoff experimental",
       "status": "skipped",
-      "reason": "Oh My Herdr-owned docs/site/release/repository-process surface."
+      "reason": "Gardn-owned docs/site/release/repository-process surface."
     },
     {
       "upstream": "bf9cc201244946496b4d950046bf7edcc4892994",
@@ -368,7 +368,7 @@
       "local": [
         "e113451a152dceca7d28e110b6507723fa23cd49"
       ],
-      "reason": "same subject exists in Oh My Herdr history."
+      "reason": "same subject exists in Gardn history."
     },
     {
       "upstream": "67e48c0cc9aa1c18b743e3be54a69a4edab90680",
@@ -377,7 +377,7 @@
       "local": [
         "476d9d1773245a9dc14f3ec023e3671359a88647"
       ],
-      "reason": "same subject exists in Oh My Herdr history."
+      "reason": "same subject exists in Gardn history."
     },
     {
       "upstream": "37bdff5bbe7f6b50dce2d8920a08bdaafd4fecda",
@@ -386,7 +386,7 @@
       "local": [
         "435b38fc0dfe529498c8e07445d056888c577280"
       ],
-      "reason": "same subject exists in Oh My Herdr history."
+      "reason": "same subject exists in Gardn history."
     },
     {
       "upstream": "986e4a17767a3d4838e340b92cb2db9e6012acc4",
@@ -395,7 +395,7 @@
       "local": [
         "169f20936d49bf1db2e11736d0fe3b6f8e5b1833"
       ],
-      "reason": "same subject exists in Oh My Herdr history."
+      "reason": "same subject exists in Gardn history."
     },
     {
       "upstream": "2d8b4e2db4642dede084801c03516046f205626b",
@@ -404,13 +404,13 @@
       "local": [
         "4e714f694c909c3cf600f2841b00532ad548aa67"
       ],
-      "reason": "same subject exists in Oh My Herdr history."
+      "reason": "same subject exists in Gardn history."
     },
     {
       "upstream": "a90c90aa4aa92142e4684a81dcb7c2cab9aaac6b",
       "subject": "docs: align qodercli naming and surface Qoder CLI brand on homepage (#331)",
       "status": "skipped",
-      "reason": "Oh My Herdr-owned docs/site/release/repository-process surface."
+      "reason": "Gardn-owned docs/site/release/repository-process surface."
     },
     {
       "upstream": "28222b20890a1f6cd36fd477de8e9bc6e5537ff5",
@@ -419,7 +419,7 @@
       "local": [
         "72e41fb493876dcb184bfc01de0be83a237a14e2"
       ],
-      "reason": "same subject exists in Oh My Herdr history."
+      "reason": "same subject exists in Gardn history."
     },
     {
       "upstream": "7626a9adc84d6757042670f9816a583dcd717823",
@@ -428,7 +428,7 @@
       "local": [
         "45094686b4d0af427e84a09214db892a7071bf0f"
       ],
-      "reason": "same subject exists in Oh My Herdr history."
+      "reason": "same subject exists in Gardn history."
     },
     {
       "upstream": "f4f17803c6c5b413ef6b43308cb6e0cfcb68224e",
@@ -437,13 +437,13 @@
       "local": [
         "2f228e752b5ba7dfdc20ded87f40dc4c62f2ba20"
       ],
-      "reason": "same subject exists in Oh My Herdr history."
+      "reason": "same subject exists in Gardn history."
     },
     {
       "upstream": "1bb2676388a3541360ca106354075d67376a6843",
       "subject": "fix: clarify gh star prompt",
       "status": "superseded",
-      "reason": "reviewed during upstream port; Oh My Herdr already has equivalent product behavior or intentionally different product semantics."
+      "reason": "reviewed during upstream port; Gardn already has equivalent product behavior or intentionally different product semantics."
     },
     {
       "upstream": "324e625c60658ab0de46928be300fc1804af48df",
@@ -472,7 +472,7 @@
       "upstream": "8c6a9e1f6594ddbc8f2a327d05985f7eb8722d9b",
       "subject": "fix: cfg linux-only api test helpers",
       "status": "ported",
-      "reason": "equivalent Linux-only API test cfg is already present in Oh My Herdr tests."
+      "reason": "equivalent Linux-only API test cfg is already present in Gardn tests."
     },
     {
       "upstream": "faaddfe18d571ce5f7abb942655c686a9cfdfe99",
@@ -481,25 +481,25 @@
       "local": [
         "43afaab582fd5e1428c51ecdbf6770d8e3917de6"
       ],
-      "reason": "same subject exists in Oh My Herdr history."
+      "reason": "same subject exists in Gardn history."
     },
     {
       "upstream": "20e26271c92be01aa726bc6827d93ad8512483c9",
       "subject": "release: v0.6.5",
       "status": "skipped",
-      "reason": "Oh My Herdr-owned docs/site/release/repository-process surface."
+      "reason": "Gardn-owned docs/site/release/repository-process surface."
     },
     {
       "upstream": "4219aec638cdd81efae6460c6fba28418925c37c",
       "subject": "fix: update nix release hash",
       "status": "superseded",
-      "reason": "reviewed during upstream port; Oh My Herdr already has equivalent product behavior or intentionally different product semantics."
+      "reason": "reviewed during upstream port; Gardn already has equivalent product behavior or intentionally different product semantics."
     },
     {
       "upstream": "6d4c04fa509cd8f1a13907e260ca69179ca301c4",
       "subject": "docs: update website manifest for v0.6.5",
       "status": "skipped",
-      "reason": "Oh My Herdr-owned docs/site/release/repository-process surface."
+      "reason": "Gardn-owned docs/site/release/repository-process surface."
     },
     {
       "upstream": "6b9b092228a6fa0c06451233dec0e90e8a6740b0",
@@ -510,7 +510,7 @@
       "upstream": "817a1562db9156e34f13487344ea147618f9070b",
       "subject": "docs: clarify readme first-use concepts",
       "status": "skipped",
-      "reason": "Oh My Herdr-owned docs/site/release/repository-process surface."
+      "reason": "Gardn-owned docs/site/release/repository-process surface."
     },
     {
       "upstream": "8df1639048529b383358000879b5ee078a90b9f9",
@@ -521,7 +521,7 @@
       "upstream": "d477341e6af816ff4396042b084a0378ef437b4a",
       "subject": "refactor: split agent detection by agent",
       "status": "superseded",
-      "reason": "reviewed during upstream port; Oh My Herdr already has equivalent product behavior or intentionally different product semantics."
+      "reason": "reviewed during upstream port; Gardn already has equivalent product behavior or intentionally different product semantics."
     },
     {
       "upstream": "fc4e1bbf6b0fa2ec37445a5b72356514c7c6be6a",
@@ -540,25 +540,25 @@
       "upstream": "9586ee9c3fe080efbb43e6874911fd974290d7fb",
       "subject": "test: harden ci flake diagnostics (#365)",
       "status": "superseded",
-      "reason": "Oh My Herdr CI/test/build shape is maintained separately or already has an equivalent adaptation."
+      "reason": "Gardn CI/test/build shape is maintained separately or already has an equivalent adaptation."
     },
     {
       "upstream": "4e1fbf410b844749dcddae775806e1cce01ef442",
       "subject": "chore: approve merged contributor ogulcancelik",
       "status": "skipped",
-      "reason": "Oh My Herdr-owned docs/site/release/repository-process surface."
+      "reason": "Gardn-owned docs/site/release/repository-process surface."
     },
     {
       "upstream": "3acd499ffb1119e8032bbcba3f1f46d4ff5f3da9",
       "subject": "fix: keep codex visible approval review working",
       "status": "ported",
-      "reason": "ported in Oh My Herdr agent/API upstream batch."
+      "reason": "ported in Gardn agent/API upstream batch."
     },
     {
       "upstream": "77819797385c5538f624a8881208921342911db0",
       "subject": "fix: clarify update restart guidance",
       "status": "superseded",
-      "reason": "Oh My Herdr already carries product-specific update restart guidance and Oh My Herdr wording; upstream Herdr copy/docs not applied directly."
+      "reason": "Gardn already carries product-specific update restart guidance and Gardn wording; upstream Gardn copy/docs not applied directly."
     },
     {
       "upstream": "b778162a9f57b64ce9a067386b7de27d4cbcbafc",
@@ -604,313 +604,313 @@
       "upstream": "e91b8abfcc5ca2bb61353e840e5f7bfcb0c913d9",
       "subject": "fix: update website sitemap discovery",
       "status": "skipped",
-      "reason": "Oh My Herdr-owned docs/site/release/repository-process surface."
+      "reason": "Gardn-owned docs/site/release/repository-process surface."
     },
     {
       "upstream": "018cbfb84ad9516be3121d2264c61d9a4a3aebc1",
       "subject": "chore: finalize release docs and harden release flow",
       "status": "skipped",
-      "reason": "Oh My Herdr-owned docs/site/release/repository-process surface."
+      "reason": "Gardn-owned docs/site/release/repository-process surface."
     },
     {
       "upstream": "8a667f99d5a025106690c10858b5b71af15a47fc",
       "subject": "fix: use cargo lock for nix packaging",
       "status": "ported",
-      "reason": "ported by switching Oh My Herdr Nix packaging to Cargo.lock; upstream release docs/script churn not needed."
+      "reason": "ported by switching Gardn Nix packaging to Cargo.lock; upstream release docs/script churn not needed."
     },
     {
       "upstream": "0016a8a088c12cd4b6187487fe799ac42e52cc15",
       "subject": "release: v0.6.6",
       "status": "skipped",
-      "reason": "Oh My Herdr-owned docs/site/release/repository-process surface."
+      "reason": "Gardn-owned docs/site/release/repository-process surface."
     },
     {
       "upstream": "b9b81a6ebea3043fcbb90e1df914ae666dba8d83",
       "subject": "docs: update website manifest for v0.6.6",
       "status": "skipped",
-      "reason": "Oh My Herdr-owned docs/site/release/repository-process surface."
+      "reason": "Gardn-owned docs/site/release/repository-process surface."
     },
     {
       "upstream": "9fa32f9212ecacc85dbc2be6c02bb77af2b461dd",
       "subject": "chore: approve contributor reobin",
       "status": "skipped",
-      "reason": "Oh My Herdr-owned docs/site/release/repository-process surface."
+      "reason": "Gardn-owned docs/site/release/repository-process surface."
     },
     {
       "upstream": "8307f2f712293970d80f624594d51e693d711cfb",
       "subject": "chore: approve contributor wardpeet",
       "status": "skipped",
-      "reason": "Oh My Herdr-owned docs/site/release/repository-process surface."
+      "reason": "Gardn-owned docs/site/release/repository-process surface."
     },
     {
       "upstream": "472e2b8453160affd05760b22a483b3c9ee100be",
       "subject": "chore: route feature intake to discussions",
       "status": "skipped",
-      "reason": "Oh My Herdr-owned docs/site/release/repository-process surface."
+      "reason": "Gardn-owned docs/site/release/repository-process surface."
     },
     {
       "upstream": "0a949e0ebccc54a0c0212191a2c788bbad9539ce",
       "subject": "fix: request missing issue environment details",
       "status": "skipped",
-      "reason": "upstream issue-gate workflow is Herdr repository process, not Oh My Herdr runtime/product behavior."
+      "reason": "upstream issue-gate workflow is Gardn repository process, not Gardn runtime/product behavior."
     },
     {
       "upstream": "4db4ffad994bd614763641716013fa7ad41e1eb9",
       "subject": "feat: add expanded sidebar collapse control (#291)",
       "status": "superseded",
-      "reason": "Oh My Herdr already has equivalent expanded sidebar collapse behavior from 010a9e9, adapted to Oh My Herdr's footer/global-menu layout."
+      "reason": "Gardn already has equivalent expanded sidebar collapse behavior from 010a9e9, adapted to Gardn's footer/global-menu layout."
     },
     {
       "upstream": "748c3fbb9a3d56d325b5cb802eb0707f30f2b354",
       "subject": "fix: wake pty actor for queued input",
       "status": "ported",
-      "reason": "ported to Oh My Herdr with fd-based PTY actor wake pipe and Oh My Herdr thread naming."
+      "reason": "ported to Gardn with fd-based PTY actor wake pipe and Gardn thread naming."
     },
     {
       "upstream": "53e4b27165caeeaaf206907d082d3614876b2e4c",
       "subject": "fix: answer osc 4 palette queries",
       "status": "ported",
-      "reason": "ported to Oh My Herdr with active Ghostty palette replies for OSC 4 queries."
+      "reason": "ported to Gardn with active Ghostty palette replies for OSC 4 queries."
     },
     {
       "upstream": "ab649adfded619a0461e36e2eb3929dd5f9e7567",
       "subject": "fix: preserve linewise copy selection (#389)",
       "status": "ported",
-      "reason": "ported to Oh My Herdr with linewise copy-mode selection state and behavioral coverage."
+      "reason": "ported to Gardn with linewise copy-mode selection state and behavioral coverage."
     },
     {
       "upstream": "36a4608603a82dbf32ec8a013dd47047cf02c6a3",
       "subject": "fix: restore agents through pane shells",
       "status": "ported",
-      "reason": "ported to Oh My Herdr with deferred shell-based agent resume and Oh My Herdr session restore defaults."
+      "reason": "ported to Gardn with deferred shell-based agent resume and Gardn session restore defaults."
     },
     {
       "upstream": "295b09ca25edbccac65401ee84fa420dd3888aad",
       "subject": "feat: make claude codex opencode hooks session-only",
       "status": "ported",
-      "reason": "ported to Oh My Herdr with session-only Claude, Codex, and OpenCode hooks; Pi and OMP keep direct tool lifecycle reporting."
+      "reason": "ported to Gardn with session-only Claude, Codex, and OpenCode hooks; Pi and OMP keep direct tool lifecycle reporting."
     },
     {
       "upstream": "2fcf9b678d0f154b2d41aa5fafa25aaa73ec7f17",
       "subject": "feat: add configurable right-click passthrough",
       "status": "ported",
-      "reason": "ported to Oh My Herdr as opt-in ui.right_click_passthrough_modifier while preserving normal right-click Oh My Herdr menus by default."
+      "reason": "ported to Gardn as opt-in ui.right_click_passthrough_modifier while preserving normal right-click Gardn menus by default."
     },
     {
       "upstream": "250ae921628b7bbf68f33ac3f43ac90bdac10f24",
       "subject": "feat: keep remote bridge alive with an ssh config keepalive fallback (#355)",
       "status": "ported",
-      "reason": "ported to Oh My Herdr with opt-out remote.manage_ssh_config and private generated SSH keepalive fallback config."
+      "reason": "ported to Gardn with opt-out remote.manage_ssh_config and private generated SSH keepalive fallback config."
     },
     {
       "upstream": "f7d315d494b6a3d583574012526d15c1ddc82bfe",
       "subject": "feat: add github copilot cli integration (#386)",
       "status": "ported",
-      "reason": "ported to Oh My Herdr with omh:copilot direct state hooks, install/status/uninstall support, and copilot --resume=<id> restore planning."
+      "reason": "ported to Gardn with gardn:copilot direct state hooks, install/status/uninstall support, and copilot --resume=<id> restore planning."
     },
     {
       "upstream": "f5e66b251fa8ec24989bf25861bcf4e38a561470",
       "subject": "feat: switch input source during prefix mode (#434)",
       "status": "ported",
-      "reason": "ported to Oh My Herdr as opt-in experimental.switch_ascii_input_source_in_prefix with platform-isolated macOS input-source switching and settings coverage."
+      "reason": "ported to Gardn as opt-in experimental.switch_ascii_input_source_in_prefix with platform-isolated macOS input-source switching and settings coverage."
     },
     {
       "upstream": "dde759853df9e1aad3cc9e1e3986ceec8368941d",
       "subject": "fix: derive pane selection highlight colors",
       "status": "ported",
-      "reason": "ported to Oh My Herdr with derived pane selection highlight colors while preserving copy-mode cursor styling."
+      "reason": "ported to Gardn with derived pane selection highlight colors while preserving copy-mode cursor styling."
     },
     {
       "upstream": "0774efdfb7565a707f1c35f2d3d66f3f2d9a164f",
       "subject": "chore: approve contributor juliogc",
       "status": "skipped",
-      "reason": "upstream contributor approval metadata is Herdr repository process, not Oh My Herdr runtime or product behavior."
+      "reason": "upstream contributor approval metadata is Gardn repository process, not Gardn runtime or product behavior."
     },
     {
       "upstream": "09169d59c1b5b3ebb6e4b1a584d9dfbe1839147f",
       "subject": "chore: add discussion templates",
       "status": "skipped",
-      "reason": "upstream discussion templates are Herdr repository process, not Oh My Herdr runtime or product behavior."
+      "reason": "upstream discussion templates are Gardn repository process, not Gardn runtime or product behavior."
     },
     {
       "upstream": "3ce4212e5e77d816ae02d71912f0b1b4925d7736",
       "subject": "chore: approve merged contributor turgaybulut",
       "status": "skipped",
-      "reason": "upstream contributor approval metadata is Herdr repository process, not Oh My Herdr runtime or product behavior."
+      "reason": "upstream contributor approval metadata is Gardn repository process, not Gardn runtime or product behavior."
     },
     {
       "upstream": "043968dd97e8a864f4473f1651e9df9ecd6ed99d",
       "subject": "ci: limit nix workflow triggers",
       "status": "skipped",
-      "reason": "Oh My Herdr CI trigger policy is maintained separately."
+      "reason": "Gardn CI trigger policy is maintained separately."
     },
     {
       "upstream": "bd1d2f7cc5fece3fa91eadb55fb7e0a9f3331780",
       "subject": "chore: approve merged contributor SunskyXH",
       "status": "skipped",
-      "reason": "upstream contributor approval metadata is Herdr repository process, not Oh My Herdr runtime or product behavior."
+      "reason": "upstream contributor approval metadata is Gardn repository process, not Gardn runtime or product behavior."
     },
     {
       "upstream": "8ddbda2afa307f6b8b6954eaa3a3e42c2d399391",
       "subject": "chore: approve contributor sf-jin-ku",
       "status": "skipped",
-      "reason": "upstream contributor approval metadata is Herdr repository process, not Oh My Herdr runtime or product behavior."
+      "reason": "upstream contributor approval metadata is Gardn repository process, not Gardn runtime or product behavior."
     },
     {
       "upstream": "5bd21b7ed468b5ff4d1a5b2ed7e211f401eb138a",
       "subject": "chore: update libghostty vendor",
       "status": "superseded",
-      "reason": "Oh My Herdr already carries the relevant Ghostty API and renderer plumbing from the vendor update."
+      "reason": "Gardn already carries the relevant Ghostty API and renderer plumbing from the vendor update."
     },
     {
       "upstream": "99e097c7d3cf76ae2d53bac5e7e2b3fd88b83591",
       "subject": "chore: approve contributor DeevsDeevs",
       "status": "skipped",
-      "reason": "upstream contributor approval metadata is Herdr repository process, not Oh My Herdr runtime or product behavior."
+      "reason": "upstream contributor approval metadata is Gardn repository process, not Gardn runtime or product behavior."
     },
     {
       "upstream": "b144f608d682f3aa518b50deebf1e5b66adfd132",
       "subject": "chore: approve contributor wbxl2000",
       "status": "skipped",
-      "reason": "upstream contributor approval metadata is Herdr repository process, not Oh My Herdr runtime or product behavior."
+      "reason": "upstream contributor approval metadata is Gardn repository process, not Gardn runtime or product behavior."
     },
     {
       "upstream": "1d56cd0e18fc69a85a0889ca6f9a9f3069a4be3a",
       "subject": "feat: detect kilo code cli",
       "status": "ported",
-      "reason": "ported to Oh My Herdr with Kilo agent detection, aliases, sound override plumbing, CJK IME config support, and docs."
+      "reason": "ported to Gardn with Kilo agent detection, aliases, sound override plumbing, CJK IME config support, and docs."
     },
     {
       "upstream": "32abb3776668ee768200019c170956f67fe33a86",
       "subject": "fix: support fish remote bootstrap",
       "status": "ported",
-      "reason": "ported to Oh My Herdr with shell-agnostic remote probes/install scripts and fish-compatible path discovery."
+      "reason": "ported to Gardn with shell-agnostic remote probes/install scripts and fish-compatible path discovery."
     },
     {
       "upstream": "389b61660f11ddd8fdf19b81e720b1a17890f100",
       "subject": "fix: unify update-ready release notes scrolling",
       "status": "ported",
-      "reason": "ported to Oh My Herdr with a single scrollable release-notes preview body and updated scrollbar hit testing."
+      "reason": "ported to Gardn with a single scrollable release-notes preview body and updated scrollbar hit testing."
     },
     {
       "upstream": "cc527d45fe4821cb11c484372a9f25c51c02e078",
       "subject": "perf: retain terminal render updates",
       "status": "superseded",
-      "reason": "Oh My Herdr already retains render updates through the headless render-dirty path."
+      "reason": "Gardn already retains render updates through the headless render-dirty path."
     },
     {
       "upstream": "1257c1e5cbb6487448ab10f2b6d153af7059e65e",
       "subject": "fix: preserve toasts during retained renders",
       "status": "superseded",
-      "reason": "Oh My Herdr already preserves toast context during retained renders."
+      "reason": "Gardn already preserves toast context during retained renders."
     },
     {
       "upstream": "6b61ab6a3a37216549d59a4c929c9d6abc68ac36",
       "subject": "fix: answer xtgettcap queries in panes",
       "status": "ported",
-      "reason": "ported to Oh My Herdr with XTGETTCAP replies for truecolor, OSC52, and underline-color capabilities."
+      "reason": "ported to Gardn with XTGETTCAP replies for truecolor, OSC52, and underline-color capabilities."
     },
     {
       "upstream": "48641e253f1aa3886b470cbebec60103247a7622",
       "subject": "fix: resume restored agents across background panes",
       "status": "superseded",
-      "reason": "Oh My Herdr already restores agent sessions across the workspace pane tree and defers resumes until panes are visible."
+      "reason": "Gardn already restores agent sessions across the workspace pane tree and defers resumes until panes are visible."
     },
     {
       "upstream": "9709ba6938bd720fea6d8dd15346adf9db2b7f4b",
       "subject": "fix: detect kiro subagent approvals",
       "status": "ported",
-      "reason": "ported to Oh My Herdr detection so Kiro subagent tool approval prompts classify as blocked."
+      "reason": "ported to Gardn detection so Kiro subagent tool approval prompts classify as blocked."
     },
     {
       "upstream": "719dff6d3cefbe586403d5a8454b119df4ec3ccd",
       "subject": "fix: detect claude arrow-glyph question prompts",
       "status": "ported",
-      "reason": "ported to Oh My Herdr detection so Claude arrow-glyph question forms classify as visible blockers."
+      "reason": "ported to Gardn detection so Claude arrow-glyph question forms classify as visible blockers."
     },
     {
       "upstream": "a0b124c3822023655206aaaef5a32c37d3ac18a4",
       "subject": "fix: resolve git branch names in reftable repos (#423)",
       "status": "ported",
-      "reason": "ported to Oh My Herdr with git-backed branch and ref identity resolution for reftable repositories."
+      "reason": "ported to Gardn with git-backed branch and ref identity resolution for reftable repositories."
     },
     {
       "upstream": "816cb88cd9df3cba305a50842ebf78db19279dd5",
       "subject": "fix: avoid stale claude background wait detection",
       "status": "skipped",
-      "reason": "Oh My Herdr does not carry the upstream stale background-wait heuristic this fixes."
+      "reason": "Gardn does not carry the upstream stale background-wait heuristic this fixes."
     },
     {
       "upstream": "fc82cbad21791ed58c08905469055eb9357cd350",
       "subject": "docs: clarify integration restore and state roles",
       "status": "skipped",
-      "reason": "upstream docs wording is Herdr-owned documentation churn with no Oh My Herdr runtime effect."
+      "reason": "upstream docs wording is Gardn-owned documentation churn with no Gardn runtime effect."
     },
     {
       "upstream": "aa07e507c01d455a1f221d98b0a6ed3cad7dcfee",
       "subject": "fix: remove update star prompt",
       "status": "superseded",
-      "reason": "Oh My Herdr already has no upstream GitHub star prompt in the update flow."
+      "reason": "Gardn already has no upstream GitHub star prompt in the update flow."
     },
     {
       "upstream": "6f9453a480db8f087e16b8eda008a355bf57cfb6",
       "subject": "fix: clarify update restart prompts",
       "status": "ported",
-      "reason": "ported to Oh My Herdr with clearer install and running-pane restart prompts."
+      "reason": "ported to Gardn with clearer install and running-pane restart prompts."
     },
     {
       "upstream": "5c86f0660f538553850e2c8fb0493372a48cb511",
       "subject": "fix: avoid claude custom status false blocked",
       "status": "ported",
-      "reason": "ported to Oh My Herdr detection so Claude prompt boxes with custom status text do not false-block."
+      "reason": "ported to Gardn detection so Claude prompt boxes with custom status text do not false-block."
     },
     {
       "upstream": "03208d254e948e3926594647f75da44a12920af2",
       "subject": "fix: detect claude running shell status",
       "status": "ported",
-      "reason": "ported to Oh My Herdr detection so shell/local-agent running status remains working."
+      "reason": "ported to Gardn detection so shell/local-agent running status remains working."
     },
     {
       "upstream": "0473d329fdd7566c209edd205f5ddf1dd5e9dc16",
       "subject": "fix: detect pnpm opencode executable",
       "status": "skipped",
-      "reason": "Windows/pnpm executable normalization is outside Oh My Herdr's current platform and process-name matching scope."
+      "reason": "Windows/pnpm executable normalization is outside Gardn's current platform and process-name matching scope."
     },
     {
       "upstream": "bed8f1ebe9417d448837c107d92a8770f60b6d1c",
       "subject": "fix: make darwin nix package find sdk tools (#407)",
       "status": "ported",
-      "reason": "ported to Oh My Herdr Nix packaging with Darwin SDK tool shims and SDKROOT setup."
+      "reason": "ported to Gardn Nix packaging with Darwin SDK tool shims and SDKROOT setup."
     },
     {
       "upstream": "29024330c12f0acd45fb9177908f80bbd54d719b",
       "subject": "fix: return to bottom after copy mode exit (#410)",
       "status": "ported",
-      "reason": "ported to Oh My Herdr so exiting copy mode returns panes to the bottom when copy mode was entered at bottom."
+      "reason": "ported to Gardn so exiting copy mode returns panes to the bottom when copy mode was entered at bottom."
     },
     {
       "upstream": "daf636fef7fd68bcb1e30cfb155883c3b831513c",
       "subject": "fix: preserve child argv flags after separator",
       "status": "ported",
-      "reason": "ported to Oh My Herdr so global session and remote arg parsing stops at -- and preserves child flags."
+      "reason": "ported to Gardn so global session and remote arg parsing stops at -- and preserves child flags."
     },
     {
       "upstream": "b695d7cbc0d29540993642c23b3d5798cbf9f7dc",
       "subject": "fix: forward any-motion pane mouse events",
       "status": "superseded",
-      "reason": "Oh My Herdr already forwards any-motion pane mouse events."
+      "reason": "Gardn already forwards any-motion pane mouse events."
     },
     {
       "upstream": "b751d102f158968aab681cb663d27b4c32197f62",
       "subject": "feat: add preview update channel",
       "status": "skipped",
-      "reason": "Oh My Herdr removed preview-channel support by product decision; stable releases remain the only update channel."
+      "reason": "Gardn removed preview-channel support by product decision; stable releases remain the only update channel."
     },
     {
       "upstream": "be69ef9eeb8f8f59b3b26fc60378a7af7ca97cdc",
       "subject": "fix: preserve preview docs navigation",
       "status": "skipped",
-      "reason": "preview docs navigation is Oh My Herdr-owned website/docs surface."
+      "reason": "preview docs navigation is Gardn-owned website/docs surface."
     },
     {
       "upstream": "c2ad91cc513d35abdce2c5f4f08b87f2f886b7d2",
@@ -940,7 +940,7 @@
       "upstream": "8968a0a4a8e80761ae6c8dab9b912530f619479c",
       "subject": "fix: support legacy shifted letter keybindings",
       "status": "superseded",
-      "reason": "Oh My Herdr already supports shifted letters and punctuation in terminal keybinding matching."
+      "reason": "Gardn already supports shifted letters and punctuation in terminal keybinding matching."
     },
     {
       "upstream": "e584f93f367650a2b752a4e3a889603fb81b08f4",
@@ -952,67 +952,67 @@
       "upstream": "58af4902fc51b6be8fec99a3cec576c98e0c6075",
       "subject": "fix: preserve status in transcript viewers",
       "status": "superseded",
-      "reason": "Oh My Herdr already preserves terminal status metadata through transcript viewers."
+      "reason": "Gardn already preserves terminal status metadata through transcript viewers."
     },
     {
       "upstream": "22c99852298b7c5a91657f278d5b1c213b6fd6cc",
       "subject": "fix: reduce idle process probes",
       "status": "superseded",
-      "reason": "Oh My Herdr already carries reduced agent process probe cadence and confirmation windows."
+      "reason": "Gardn already carries reduced agent process probe cadence and confirmation windows."
     },
     {
       "upstream": "03f68b7275f07c98769bf699d2aa14805b921f8d",
       "subject": "fix: handle mise-managed updates",
       "status": "ported",
-      "reason": "ported to Oh My Herdr with mise-managed install detection and update guidance."
+      "reason": "ported to Gardn with mise-managed install detection and update guidance."
     },
     {
       "upstream": "398f0d6302c3a058a80bd6823c525a77f2adc4c8",
       "subject": "chore: skip ci for contributor approvals",
       "status": "skipped",
-      "reason": "upstream contributor approval CI policy is Herdr repository process."
+      "reason": "upstream contributor approval CI policy is Gardn repository process."
     },
     {
       "upstream": "0da26639e9adf5ae8386140527244b5e87f09841",
       "subject": "test: speed up ghostty scrollback limit test",
       "status": "skipped",
-      "reason": "test-speed-only upstream change has no Oh My Herdr runtime effect."
+      "reason": "test-speed-only upstream change has no Gardn runtime effect."
     },
     {
       "upstream": "949140599c0c1586efdbc55bde8dead6f7573aca",
       "subject": "ci: show slow nextest tests",
       "status": "superseded",
-      "reason": "Oh My Herdr CI already reports slow nextest tests."
+      "reason": "Gardn CI already reports slow nextest tests."
     },
     {
       "upstream": "86b5fe01e26d8592a3d8eb4fcebaeef55186fa93",
       "subject": "ci: serialize live handoff nextest tests",
       "status": "skipped",
-      "reason": "Oh My Herdr live-handoff tests already self-serialize with their test lock."
+      "reason": "Gardn live-handoff tests already self-serialize with their test lock."
     },
     {
       "upstream": "9ddb03ff347e88558637ce490fbdab63d55a9f3e",
       "subject": "fix: shorten handoff ownership ack wait",
       "status": "ported",
-      "reason": "ported to Oh My Herdr with a shorter handoff ownership acknowledgement timeout."
+      "reason": "ported to Gardn with a shorter handoff ownership acknowledgement timeout."
     },
     {
       "upstream": "3503209b0328e86a147db1b9928fa92764ad693e",
       "subject": "ci: skip live handoff tests on macos",
       "status": "skipped",
-      "reason": "macOS live-handoff suppression is CI coverage policy, not a Oh My Herdr runtime fix."
+      "reason": "macOS live-handoff suppression is CI coverage policy, not a Gardn runtime fix."
     },
     {
       "upstream": "01fc5bc7b547464122a0e390d9cdb4ab2e20da68",
       "subject": "fix: tolerate macos socket timeout setup failure",
       "status": "ported",
-      "reason": "ported to Oh My Herdr so stop-request socket read-timeout setup tolerates InvalidInput like write-timeout setup."
+      "reason": "ported to Gardn so stop-request socket read-timeout setup tolerates InvalidInput like write-timeout setup."
     },
     {
       "upstream": "a1ba035707cfb3c83fad541ecd32ccbd7be58815",
       "subject": "docs: clarify repo agent guidance",
       "status": "skipped",
-      "reason": "upstream repo-agent guidance is Herdr documentation/process surface."
+      "reason": "upstream repo-agent guidance is Gardn documentation/process surface."
     },
     {
       "upstream": "554dd78f56ff61cf9914be82ad5585376d43e263",
@@ -1024,19 +1024,19 @@
       "upstream": "5b2fce600f7688059e8ae245da7c6ffc561bb92a",
       "subject": "docs: finalize next release docs",
       "status": "skipped",
-      "reason": "upstream release docs are Oh My Herdr-owned release/documentation surface."
+      "reason": "upstream release docs are Gardn-owned release/documentation surface."
     },
     {
       "upstream": "854fc3c1aff525913c180543bfc8741b81253da0",
       "subject": "release: v0.6.7",
       "status": "skipped",
-      "reason": "upstream release metadata is not part of Oh My Herdr release history."
+      "reason": "upstream release metadata is not part of Gardn release history."
     },
     {
       "upstream": "43a15492866a6967f79e2c0aea7a59fa9ceac28e",
       "subject": "docs: update website manifest for v0.6.7",
       "status": "skipped",
-      "reason": "upstream website manifest is Oh My Herdr-owned website/release surface."
+      "reason": "upstream website manifest is Gardn-owned website/release surface."
     },
     {
       "upstream": "5f849c42bbbff6dd1f5f8e7157a27129f0a9d991",
@@ -1054,133 +1054,133 @@
       "upstream": "3965b6fb80528fd6b48a4582cf3d35e765be132f",
       "subject": "chore: approve contributor charliesbot",
       "status": "skipped",
-      "reason": "upstream contributor approval metadata is Herdr repository process, not Oh My Herdr runtime or product behavior."
+      "reason": "upstream contributor approval metadata is Gardn repository process, not Gardn runtime or product behavior."
     },
     {
       "upstream": "a0afbae2e5fc4ff9191b87563c47b8b6304b1dff",
       "subject": "ci: cache vendored zig build outputs",
       "status": "skipped",
-      "reason": "upstream CI cache experiment was reverted and has no net Oh My Herdr behavior change."
+      "reason": "upstream CI cache experiment was reverted and has no net Gardn behavior change."
     },
     {
       "upstream": "865269b45485408139f41911e413990dc155d933",
       "subject": "ci: revert cache experiment",
       "status": "skipped",
-      "reason": "upstream CI cache experiment revert has no Oh My Herdr behavior change."
+      "reason": "upstream CI cache experiment revert has no Gardn behavior change."
     },
     {
       "upstream": "e05bd5cb2a26e3690d73ca241e1e457d3eb664cb",
       "subject": "ci: validate cache revert",
       "status": "skipped",
-      "reason": "upstream CI cache experiment validation has no Oh My Herdr behavior change."
+      "reason": "upstream CI cache experiment validation has no Gardn behavior change."
     },
     {
       "upstream": "3cbe4ec7936745543e16d1ceb37f6db6c38d65ac",
       "subject": "fix: avoid ghostty utf8 grapheme buffer crash",
       "status": "ported",
-      "reason": "ported to Oh My Herdr with UTF-8 grapheme buffer crash coverage on the existing Ghostty text path."
+      "reason": "ported to Gardn with UTF-8 grapheme buffer crash coverage on the existing Ghostty text path."
     },
     {
       "upstream": "85aee98ddfea3237e34a57f2a7fcddd1750cec50",
       "subject": "fix: match copy mode page scrolling boundaries (#460)",
       "status": "ported",
-      "reason": "ported to Oh My Herdr copy mode so page and half-page motion clamp at scrollback boundaries while moving the cursor within the viewport."
+      "reason": "ported to Gardn copy mode so page and half-page motion clamp at scrollback boundaries while moving the cursor within the viewport."
     },
     {
       "upstream": "f5f753c7286ff4cc30cfe3a9d48c053bfe2881c7",
       "subject": "fix: avoid stale clipboard feedback",
       "status": "ported",
-      "reason": "ported to Oh My Herdr headless clipboard forwarding so copy feedback appears only after the foreground client accepts the clipboard write."
+      "reason": "ported to Gardn headless clipboard forwarding so copy feedback appears only after the foreground client accepts the clipboard write."
     },
     {
       "upstream": "3f7236f81735e338e2ed3ecbf0f1fed26392acba",
       "subject": "fix: drop empty pty mouse writes",
       "status": "ported",
-      "reason": "ported to Oh My Herdr by filtering empty Ghostty mouse encodings and covering the existing PTY actor empty-write guard."
+      "reason": "ported to Gardn by filtering empty Ghostty mouse encodings and covering the existing PTY actor empty-write guard."
     },
     {
       "upstream": "e7ba8da29ab27a6f0875c4b99245ef4dc5a3dbbb",
       "subject": "fix: use cmd-click for macos pane links",
       "status": "ported",
-      "reason": "ported to Oh My Herdr pane URL clicks with Command-click on macOS and Control-click elsewhere."
+      "reason": "ported to Gardn pane URL clicks with Command-click on macOS and Control-click elsewhere."
     },
     {
       "upstream": "22fa503d83e0de7b49cd37393644353e4f5f3faa",
       "subject": "fix: respect prompt_new_tab_name in mouse click handlers (#521)",
       "status": "ported",
-      "reason": "ported to Oh My Herdr mobile and context-menu new-tab mouse paths so disabled prompting requests a tab directly."
+      "reason": "ported to Gardn mobile and context-menu new-tab mouse paths so disabled prompting requests a tab directly."
     },
     {
       "upstream": "77fcde0a2736c3927d1bc589bd9b4d0173a9df46",
       "subject": "fix: support paste in modal inputs",
       "status": "ported",
-      "reason": "ported to Oh My Herdr modal text inputs, including rename and navigator search fields, with platform clipboard text reads for paste shortcuts."
+      "reason": "ported to Gardn modal text inputs, including rename and navigator search fields, with platform clipboard text reads for paste shortcuts."
     },
     {
       "upstream": "5df21bb790d59b51666e99c8a1c2858af3f39d81",
       "subject": "docs: finalize 0.6.8 release notes",
       "status": "skipped",
-      "reason": "upstream release docs are Oh My Herdr-owned release/documentation surface."
+      "reason": "upstream release docs are Gardn-owned release/documentation surface."
     },
     {
       "upstream": "3abda6138e165f4b2b625fea65f971a65072bc66",
       "subject": "release: v0.6.8",
       "status": "skipped",
-      "reason": "upstream release metadata is not part of Oh My Herdr release history."
+      "reason": "upstream release metadata is not part of Gardn release history."
     },
     {
       "upstream": "cb18fe52b55f1a627387c829074e9d24b9cefb28",
       "subject": "docs: update website manifest for v0.6.8",
       "status": "skipped",
-      "reason": "upstream website manifest is Oh My Herdr-owned website/release surface."
+      "reason": "upstream website manifest is Gardn-owned website/release surface."
     },
     {
       "upstream": "648afa1fd5b4c2eb74b4292b4eceeeb6d93016c1",
       "subject": "fix: backport libghostty resize overflow fix",
       "status": "ported",
-      "reason": "ported to Oh My Herdr with the libghostty-vt resize cursor subtraction saturation patch and focused vendored terminal tests."
+      "reason": "ported to Gardn with the libghostty-vt resize cursor subtraction saturation patch and focused vendored terminal tests."
     },
     {
       "upstream": "670656b26f1aeadc3f18e6692a9fdf1b02da799c",
       "subject": "fix: forward resize terminal responses",
       "status": "ported",
-      "reason": "ported to Oh My Herdr so resize-generated terminal responses are drained from libghostty-vt and forwarded through the PTY actor."
+      "reason": "ported to Gardn so resize-generated terminal responses are drained from libghostty-vt and forwarded through the PTY actor."
     },
     {
       "upstream": "658017de68b2ab2bced9c300ae8b6968fae3e998",
       "subject": "fix: keep focus redraw pending until sent",
       "status": "ported",
-      "reason": "ported to Oh My Herdr so focus-triggered semantic full redraws remain pending when the render queue is full."
+      "reason": "ported to Gardn so focus-triggered semantic full redraws remain pending when the render queue is full."
     },
     {
       "upstream": "a7cd7806f2fa0251e2dca41ffec61ceafb6f0e18",
       "subject": "fix: reduce scroll CPU in headless server",
       "status": "ported",
-      "reason": "ported to Oh My Herdr by deriving wheel routing directly from libghostty-vt state and moving frame ownership into prepared renders to avoid cloning full frames on scroll."
+      "reason": "ported to Gardn by deriving wheel routing directly from libghostty-vt state and moving frame ownership into prepared renders to avoid cloning full frames on scroll."
     },
     {
       "upstream": "580db93eccc9f03cdc31841e294b8c18855013f6",
       "subject": "fix: handle application keypad input",
       "status": "ported",
-      "reason": "ported to Oh My Herdr so SS3 application keypad sequences frame and parse as keypad digits/operators/enter."
+      "reason": "ported to Gardn so SS3 application keypad sequences frame and parse as keypad digits/operators/enter."
     },
     {
       "upstream": "350e8c7e4685b12546b145bc5476eb9c3de99751",
       "subject": "fix: validate clipboard image payloads",
       "status": "ported",
-      "reason": "ported to Oh My Herdr so Linux clipboard image reads reject text payloads served for image targets and validate format signatures."
+      "reason": "ported to Gardn so Linux clipboard image reads reject text payloads served for image targets and validate format signatures."
     },
     {
       "upstream": "5d7e56737ef30d9de5802b0684a9428c40131dda",
       "subject": "fix: support worktree actions from bare repos",
       "status": "ported",
-      "reason": "ported to Oh My Herdr git discovery, API worktree actions, and worktree command coverage so standalone bare repos can act as worktree sources without changing normal worktree behavior."
+      "reason": "ported to Gardn git discovery, API worktree actions, and worktree command coverage so standalone bare repos can act as worktree sources without changing normal worktree behavior."
     },
     {
       "upstream": "07222706c78943da814e39abece8b5ba5a10dfc3",
       "subject": "fix: ignore nested agent session id clobbers",
       "status": "ported",
-      "reason": "ported to Oh My Herdr terminal session persistence so same-agent child id refs cannot replace the pane's current session identity."
+      "reason": "ported to Gardn terminal session persistence so same-agent child id refs cannot replace the pane's current session identity."
     },
     {
       "upstream": "27a028aeae0b2ecdd747c90aa34605fd7e810ef1",
@@ -1189,7 +1189,7 @@
       "local": [
         "port-codex-detection"
       ],
-      "reason": "Adapted to Oh My Herdr src/detect.rs with focused Codex detector coverage."
+      "reason": "Adapted to Gardn src/detect.rs with focused Codex detector coverage."
     },
     {
       "upstream": "e8acc76ef6d6c587a2b0c500ce02699344b9fe20",
@@ -1198,7 +1198,7 @@
       "local": [
         "port-codex-detection"
       ],
-      "reason": "Adapted to Oh My Herdr src/detect.rs with focused Codex detector coverage."
+      "reason": "Adapted to Gardn src/detect.rs with focused Codex detector coverage."
     },
     {
       "upstream": "2e9f030681b694d2e60e809724bfd7f6caa50a5a",
@@ -1207,49 +1207,49 @@
       "local": [
         "port-codex-detection"
       ],
-      "reason": "Adapted to Oh My Herdr src/detect.rs with focused Codex detector coverage."
+      "reason": "Adapted to Gardn src/detect.rs with focused Codex detector coverage."
     },
     {
       "upstream": "66b0f6b2d6e1c63c3a7aa0d26cff91cf750232aa",
       "subject": "feat: add kimi code cli integration",
       "status": "ported",
-      "reason": "ported as Oh My Herdr Kimi session-restore integration and install/status/uninstall target without upstream branding or preview plumbing."
+      "reason": "ported as Gardn Kimi session-restore integration and install/status/uninstall target without upstream branding or preview plumbing."
     },
     {
       "upstream": "9b2749776a97bf373e50819dd8a66f290e421551",
       "subject": "feat: add droid integration",
       "status": "ported",
-      "reason": "ported as Oh My Herdr Droid session-restore integration and install/status/uninstall target without upstream branding or preview plumbing."
+      "reason": "ported as Gardn Droid session-restore integration and install/status/uninstall target without upstream branding or preview plumbing."
     },
     {
       "upstream": "5fe527d1be5622e506244ee726209fa72b0c7fd3",
       "subject": "feat: add cursor agent cli integration for session restore",
       "status": "ported",
-      "reason": "ported as Oh My Herdr Cursor session-restore integration and install/status/uninstall target without upstream branding."
+      "reason": "ported as Gardn Cursor session-restore integration and install/status/uninstall target without upstream branding."
     },
     {
       "upstream": "1ce4213d9ebb6149395743baa03e62baeaeeb10c",
       "subject": "fix: preserve hermes flat plugin lists",
       "status": "ported",
-      "reason": "ported into Oh My Herdr Hermes config updater with flat plugin list coverage."
+      "reason": "ported into Gardn Hermes config updater with flat plugin list coverage."
     },
     {
       "upstream": "df7880c54b8b5d337421cb4b1dd8daea27008801",
       "subject": "feat: update agent lifecycle integrations",
       "status": "ported",
-      "reason": "ported the accepted lifecycle-session behavior for Kimi and Droid while keeping Oh My Herdr-owned lifecycle semantics for existing integrations."
+      "reason": "ported the accepted lifecycle-session behavior for Kimi and Droid while keeping Gardn-owned lifecycle semantics for existing integrations."
     },
     {
       "upstream": "7081954d1081842dc089f5a7ef9ae3f1a5643288",
       "subject": "docs: clarify nested tmux agent detection limit",
       "status": "ported",
-      "reason": "ported as Oh My Herdr documentation note on pane-local agent detection."
+      "reason": "ported as Gardn documentation note on pane-local agent detection."
     },
     {
       "upstream": "4001fd2ec8ff05a982da18744b8cbde9df3ab530",
       "subject": "feat: improve toast ergonomics",
       "status": "ported",
-      "reason": "ported as Oh My Herdr toast ergonomics: delayed agent notifications, configurable in-app and clipboard toast placement, clipboard feedback toggle, notification.show API/CLI, and headless forwarding semantics."
+      "reason": "ported as Gardn toast ergonomics: delayed agent notifications, configurable in-app and clipboard toast placement, clipboard feedback toggle, notification.show API/CLI, and headless forwarding semantics."
     },
     {
       "upstream": "ee51c5e5fbaea694e65bb0a4908f75bcaf9707d1",
@@ -1258,7 +1258,7 @@
       "local": [
         "port-agent-detection"
       ],
-      "reason": "ported to Oh My Herdr as pty-first detection policy and pane runtime adaptation; Herdr docs/site and branding changes intentionally omitted."
+      "reason": "ported to Gardn as pty-first detection policy and pane runtime adaptation; Gardn docs/site and branding changes intentionally omitted."
     },
     {
       "upstream": "f18bee9f5c43e56ebdcb7e5fad17f3236de4d08e",
@@ -1267,7 +1267,7 @@
       "local": [
         "port-agent-detection"
       ],
-      "reason": "ported to Oh My Herdr with transition policy tests covering stale screen state and pty activity arbitration."
+      "reason": "ported to Gardn with transition policy tests covering stale screen state and pty activity arbitration."
     },
     {
       "upstream": "615310e15c6a7b273947dafe0b3fe01290757c96",
@@ -1276,7 +1276,7 @@
       "local": [
         "port-agent-detection"
       ],
-      "reason": "ported to Oh My Herdr with pending working confirmation before publishing idle-to-working transitions."
+      "reason": "ported to Gardn with pending working confirmation before publishing idle-to-working transitions."
     },
     {
       "upstream": "d5ccf19a9d0d47cecb216038f917554b236aaa30",
@@ -1285,7 +1285,7 @@
       "local": [
         "port-agent-detection"
       ],
-      "reason": "ported to Oh My Herdr with pty output/input causality tracking and post-taint working lease coverage."
+      "reason": "ported to Gardn with pty output/input causality tracking and post-taint working lease coverage."
     },
     {
       "upstream": "55f5a3b5d4ab90b7df207531d3cd3cd5f0923616",
@@ -1294,7 +1294,7 @@
       "local": [
         "port-agent-detection"
       ],
-      "reason": "ported to Oh My Herdr by moving detection policy into dedicated modules while preserving Oh My Herdr pane/runtime naming."
+      "reason": "ported to Gardn by moving detection policy into dedicated modules while preserving Gardn pane/runtime naming."
     },
     {
       "upstream": "120001b591e64d80a557d81e3b112460b9987fc6",
@@ -1303,7 +1303,7 @@
       "local": [
         "port-agent-detection"
       ],
-      "reason": "ported to Oh My Herdr with screenless pty Working evaluation for non-Claude agents."
+      "reason": "ported to Gardn with screenless pty Working evaluation for non-Claude agents."
     },
     {
       "upstream": "eeacb45b4b6ab4446c5bea1331f743fee5e5b9f8",
@@ -1312,25 +1312,25 @@
       "local": [
         "port-agent-detection"
       ],
-      "reason": "ported to Oh My Herdr by dropping idle screen authority from pty-aware policy so stale idle prompts cannot override active pty signals."
+      "reason": "ported to Gardn by dropping idle screen authority from pty-aware policy so stale idle prompts cannot override active pty signals."
     },
     {
       "upstream": "3c2b46d24aa6c8011a1e198143752f2aa414d585",
       "subject": "feat: add native windows beta support",
       "status": "ported",
-      "reason": "Adapted stable Windows primitives for Oh My Herdr: platform process support, local socket abstraction, Windows release asset naming, worktree path handling, and integration platform gates without Herdr beta/preview branding."
+      "reason": "Adapted stable Windows primitives for Gardn: platform process support, local socket abstraction, Windows release asset naming, worktree path handling, and integration platform gates without Gardn beta/preview branding."
     },
     {
       "upstream": "b5fba2fdd15aa4cab9621c383f72b57644078fd5",
       "subject": "ci: run checks on windows branch",
       "status": "superseded",
-      "reason": "Oh My Herdr does not keep Herdr windows branch CI; stable release workflow now builds the Windows asset directly."
+      "reason": "Gardn does not keep Gardn windows branch CI; stable release workflow now builds the Windows asset directly."
     },
     {
       "upstream": "52e57507e10ee7cb2869156fb1f00e280e614736",
       "subject": "ci: tighten windows branch validation",
       "status": "superseded",
-      "reason": "Herdr branch-validation workflow shape is upstream-specific; Oh My Herdr release/build validation is maintained in its own GitHub Actions workflow."
+      "reason": "Gardn branch-validation workflow shape is upstream-specific; Gardn release/build validation is maintained in its own GitHub Actions workflow."
     },
     {
       "upstream": "f61ed48eff622de4f970adff220603ea50292f07",
@@ -1348,19 +1348,19 @@
       "upstream": "0956ad8c5883014ebf88664099fae41edd3fdc9e",
       "subject": "feat: add windows preview installer",
       "status": "skipped",
-      "reason": "Preview installer/channel plumbing is intentionally not ported; Oh My Herdr stable Windows support uses direct GitHub release assets."
+      "reason": "Preview installer/channel plumbing is intentionally not ported; Gardn stable Windows support uses direct GitHub release assets."
     },
     {
       "upstream": "7c7d8c8619006b25244bcdac0abc560cd43108ab",
       "subject": "fix: gate windows updater checks",
       "status": "ported",
-      "reason": "Updater now accounts for the stable Windows .exe asset name and keeps direct-update command guidance on omh update."
+      "reason": "Updater now accounts for the stable Windows .exe asset name and keeps direct-update command guidance on gardn update."
     },
     {
       "upstream": "c01b947d0bde1663980a15727938ac666ce31f61",
       "subject": "fix: support windows agent hooks and input paths",
       "status": "ported",
-      "reason": "Windows path/home handling and supported CLI-hook integration gating were adapted for Oh My Herdr stable behavior."
+      "reason": "Windows path/home handling and supported CLI-hook integration gating were adapted for Gardn stable behavior."
     },
     {
       "upstream": "3c8f8dcb7774fa07d6e8e2972e3b70cd5ca375ca",
@@ -1372,19 +1372,19 @@
       "upstream": "6f459691056b68c2c99d8341b5f8dd4b811a53c1",
       "subject": "fix(update): keep windows installs on preview",
       "status": "skipped",
-      "reason": "Herdr preview-channel retention is not applicable; Oh My Herdr Windows updates stay on stable direct release assets."
+      "reason": "Gardn preview-channel retention is not applicable; Gardn Windows updates stay on stable direct release assets."
     },
     {
       "upstream": "416827872a6e2c820bd58209d267685d4c07cb7d",
       "subject": "fix(update): tolerate empty windows channel env",
       "status": "skipped",
-      "reason": "Preview channel environment handling is not applicable to Oh My Herdr stable Windows updates."
+      "reason": "Preview channel environment handling is not applicable to Gardn stable Windows updates."
     },
     {
       "upstream": "fb56e64537de5f93786ed121f703da2a4105badc",
       "subject": "fix: improve windows pane behavior",
       "status": "ported",
-      "reason": "Adapted Windows cursor-position preservation and pane cursor rendering behavior in Oh My Herdr without upstream preview-channel plumbing.",
+      "reason": "Adapted Windows cursor-position preservation and pane cursor rendering behavior in Gardn without upstream preview-channel plumbing.",
       "local": [
         "928945a"
       ]
@@ -1393,133 +1393,133 @@
       "upstream": "3e2bdbab7b05c042d47caaf355be1f2f25b624fb",
       "subject": "fix: unblock windows preview updates",
       "status": "skipped",
-      "reason": "Preview update unblocking is not applicable because Oh My Herdr intentionally has no preview channel."
+      "reason": "Preview update unblocking is not applicable because Gardn intentionally has no preview channel."
     },
     {
       "upstream": "698eb51f543af47ba7a974d0d78f1bf0cca2cd53",
       "subject": "fix: migrate legacy windows bin backups",
       "status": "skipped",
-      "reason": "Legacy Herdr Windows installer backup migration is not applicable to Oh My Herdr stable direct installs."
+      "reason": "Legacy Gardn Windows installer backup migration is not applicable to Gardn stable direct installs."
     },
     {
       "upstream": "9c18014c09ca419e517dc3ff5684287cd0f47d43",
       "subject": "docs: update preview manifest",
       "status": "skipped",
-      "reason": "Preview manifest publishing is upstream-channel plumbing; Oh My Herdr intentionally has no preview channel."
+      "reason": "Preview manifest publishing is upstream-channel plumbing; Gardn intentionally has no preview channel."
     },
     {
       "upstream": "6b3f6462810e400fbbfbc21240b677732b0549ec",
       "subject": "fix: use live workspace labels in navigator",
       "status": "ported",
-      "reason": "Oh My Herdr navigator rows already use live workspace display labels from terminal/runtime state."
+      "reason": "Gardn navigator rows already use live workspace display labels from terminal/runtime state."
     },
     {
       "upstream": "b4b69b3539fc02d855c9b626cb205074e1541c78",
       "subject": "fix: open a default workspace when sessions are empty",
       "status": "superseded",
-      "reason": "Oh My Herdr intentionally supports empty groups/spaces instead of forcing a default workspace on empty restore."
+      "reason": "Gardn intentionally supports empty groups/spaces instead of forcing a default workspace on empty restore."
     },
     {
       "upstream": "acfbb7c85a44d28432512772e4070428df60cfd6",
       "subject": "fix: enable grapheme clusters in panes",
       "status": "ported",
-      "reason": "Oh My Herdr terminal rendering already reads Ghostty grapheme clusters for panes and protocol frames."
+      "reason": "Gardn terminal rendering already reads Ghostty grapheme clusters for panes and protocol frames."
     },
     {
       "upstream": "0f92b2f02752fcdff099dae72915cd1cc85f7fc4",
       "subject": "docs: update preview manifest",
       "status": "skipped",
-      "reason": "Preview manifest publishing is upstream-channel plumbing; Oh My Herdr intentionally has no preview channel."
+      "reason": "Preview manifest publishing is upstream-channel plumbing; Gardn intentionally has no preview channel."
     },
     {
       "upstream": "ae3c88ab8c64931740d89623f688f7d3f408da5e",
       "subject": "chore: add issue triage skill",
       "status": "skipped",
-      "reason": "Repository-agent workflow docs are Oh My Herdr-owned and tracked separately from upstream Herdr skills."
+      "reason": "Repository-agent workflow docs are Gardn-owned and tracked separately from upstream Gardn skills."
     },
     {
       "upstream": "556b16b2df7ea2c3e9b8ad13db4ad7370c1ad838",
       "subject": "feat: add pane navigation controls",
       "status": "superseded",
-      "reason": "Oh My Herdr pane control UX/API is product-specific; existing pane split/focus/close surfaces are maintained separately from upstream controls."
+      "reason": "Gardn pane control UX/API is product-specific; existing pane split/focus/close surfaces are maintained separately from upstream controls."
     },
     {
       "upstream": "b7619db085eb4054a071b51159eda65d6b60f3fe",
       "subject": "feat: expose pane zoom api",
       "status": "superseded",
-      "reason": "Oh My Herdr pane zoom/control API shape is maintained separately and was not imported with upstream CLI/socket API semantics."
+      "reason": "Gardn pane zoom/control API shape is maintained separately and was not imported with upstream CLI/socket API semantics."
     },
     {
       "upstream": "048d8a29195d580014b24ee3fc7e89ac6bdfee8a",
       "subject": "fix: debounce droid working detection",
       "status": "superseded",
-      "reason": "Oh My Herdr Droid integration uses session-only lifecycle reporting plus manifest/pty detection rather than upstream transient hook-driven working debounce."
+      "reason": "Gardn Droid integration uses session-only lifecycle reporting plus manifest/pty detection rather than upstream transient hook-driven working debounce."
     },
     {
       "upstream": "0a3c9b97bce321795ee897b370dba10e74df7ac5",
       "subject": "docs: update preview manifest",
       "status": "skipped",
-      "reason": "Preview manifest publishing is upstream-channel plumbing; Oh My Herdr intentionally has no preview channel."
+      "reason": "Preview manifest publishing is upstream-channel plumbing; Gardn intentionally has no preview channel."
     },
     {
       "upstream": "9c101b71d83941ee59d2b68f32f624afd7e2d78e",
       "subject": "ci: mark issues released on preview",
       "status": "skipped",
-      "reason": "Herdr preview release issue automation is not part of Oh My Herdr release workflow."
+      "reason": "Gardn preview release issue automation is not part of Gardn release workflow."
     },
     {
       "upstream": "970c07ea3110f114f6cb348ccbef5a6f763373ce",
       "subject": "docs: document windows preview installs",
       "status": "skipped",
-      "reason": "Windows preview install docs are not applicable; Oh My Herdr uses stable direct release assets."
+      "reason": "Windows preview install docs are not applicable; Gardn uses stable direct release assets."
     },
     {
       "upstream": "bf72154d3ada3c0bf3cc244f171b044bb4d67d75",
       "subject": "docs: update preview manifest",
       "status": "skipped",
-      "reason": "Preview manifest publishing is upstream-channel plumbing; Oh My Herdr intentionally has no preview channel."
+      "reason": "Preview manifest publishing is upstream-channel plumbing; Gardn intentionally has no preview channel."
     },
     {
       "upstream": "0a635a3fc1e971030079945a447c73e2b24489f8",
       "subject": "docs: hide windows beta homepage entry",
       "status": "skipped",
-      "reason": "Oh My Herdr-owned website content does not use upstream Herdr Windows beta homepage entries."
+      "reason": "Gardn-owned website content does not use upstream Gardn Windows beta homepage entries."
     },
     {
       "upstream": "a62ecd71e6fc69c01346d85d54b6264039ab2093",
       "subject": "chore: approve merged contributor udirom",
       "status": "skipped",
-      "reason": "Upstream contributor approval workflow is not part of Oh My Herdr product code."
+      "reason": "Upstream contributor approval workflow is not part of Gardn product code."
     },
     {
       "upstream": "23713874118390d33b8b26cfdc0cdcd7b05720a2",
       "subject": "docs: clarify mise registry fallback",
       "status": "skipped",
-      "reason": "Oh My Herdr-owned install/docs surface is maintained separately from upstream Herdr docs."
+      "reason": "Gardn-owned install/docs surface is maintained separately from upstream Gardn docs."
     },
     {
       "upstream": "052cff9864edffaab62f3e09dd28e5456cb1b767",
       "subject": "docs: update preview manifest",
       "status": "skipped",
-      "reason": "Preview manifest publishing is upstream-channel plumbing; Oh My Herdr intentionally has no preview channel."
+      "reason": "Preview manifest publishing is upstream-channel plumbing; Gardn intentionally has no preview channel."
     },
     {
       "upstream": "0facd819b4747c7634040b561509137c2608b024",
       "subject": "chore: approve merged contributor imrajyavardhan12",
       "status": "skipped",
-      "reason": "Upstream contributor approval workflow is not part of Oh My Herdr product code."
+      "reason": "Upstream contributor approval workflow is not part of Gardn product code."
     },
     {
       "upstream": "38f3b290deed3008b52c11589a1048b227702894",
       "subject": "chore: publish agent detection manifests",
       "status": "skipped",
-      "reason": "Upstream website-hosted manifest publishing was not imported; Oh My Herdr bundles manifests and points future updates at Oh My Herdr-owned endpoints."
+      "reason": "Upstream website-hosted manifest publishing was not imported; Gardn bundles manifests and points future updates at Gardn-owned endpoints."
     },
     {
       "upstream": "8d13492926829c5cf0ea42c8613344cd65ff59fa",
       "subject": "docs: update preview manifest",
       "status": "skipped",
-      "reason": "Preview manifest publishing is upstream-channel plumbing; Oh My Herdr intentionally has no preview channel."
+      "reason": "Preview manifest publishing is upstream-channel plumbing; Gardn intentionally has no preview channel."
     },
     {
       "upstream": "36a1b7f86444871f0c38ff36510a6e3c2eec48c6",
@@ -1528,7 +1528,7 @@
       "local": [
         "858f106"
       ],
-      "reason": "Adapted as bundled Oh My Herdr-owned manifests under src/manifests with Oh My Herdr source identifiers."
+      "reason": "Adapted as bundled Gardn-owned manifests under src/manifests with Gardn source identifiers."
     },
     {
       "upstream": "82468a0e03360219898ebf3735bdf559182009f8",
@@ -1537,7 +1537,7 @@
       "local": [
         "858f106"
       ],
-      "reason": "Ported as Oh My Herdr manifest detection engine with screen and OSC evidence support."
+      "reason": "Ported as Gardn manifest detection engine with screen and OSC evidence support."
     },
     {
       "upstream": "09c0dabfb51d8bc48b450d84958d19b1b647d77a",
@@ -1546,7 +1546,7 @@
       "local": [
         "858f106"
       ],
-      "reason": "Bundled the updated manifest rules into Oh My Herdr source manifests rather than upstream website publishing."
+      "reason": "Bundled the updated manifest rules into Gardn source manifests rather than upstream website publishing."
     },
     {
       "upstream": "42ec7221310a4193f2a3717e2ea557c604dd07ae",
@@ -1555,25 +1555,25 @@
       "local": [
         "59874a6"
       ],
-      "reason": "Adapted Kimi version gating into Oh My Herdr integration install/status UI."
+      "reason": "Adapted Kimi version gating into Gardn integration install/status UI."
     },
     {
       "upstream": "0c853bb47476ba8b1f5f3633de134816b66f4941",
       "subject": "chore: apply cargo fmt",
       "status": "superseded",
-      "reason": "Formatting was applied to Oh My Herdr port commits with cargo fmt rather than porting an upstream-only formatting commit."
+      "reason": "Formatting was applied to Gardn port commits with cargo fmt rather than porting an upstream-only formatting commit."
     },
     {
       "upstream": "95036bbd4ba48a20a4626eabf684ce05530dba13",
       "subject": "docs: clarify scrollback behavior for alternate-screen apps",
       "status": "skipped",
-      "reason": "Oh My Herdr-owned docs are maintained separately from upstream Herdr docs."
+      "reason": "Gardn-owned docs are maintained separately from upstream Gardn docs."
     },
     {
       "upstream": "9e0dd9412f7b2b8b2dbabf5ddcd523b4d868aed2",
       "subject": "chore: symlink CLAUDE.md to AGENTS.md",
       "status": "skipped",
-      "reason": "Oh My Herdr agent instructions are AGENTS.md-only; upstream CLAUDE.md compatibility symlink is not part of this repo policy."
+      "reason": "Gardn agent instructions are AGENTS.md-only; upstream CLAUDE.md compatibility symlink is not part of this repo policy."
     },
     {
       "upstream": "0efd8eaad1620dc4b9e44c45ee16ef0a9807a200",
@@ -1582,7 +1582,7 @@
       "local": [
         "112196f"
       ],
-      "reason": "Ported to Oh My Herdr pty-aware agent detection policy and pane runtime."
+      "reason": "Ported to Gardn pty-aware agent detection policy and pane runtime."
     },
     {
       "upstream": "9ae03dddb94d24d02d0bd1776868a5497433abf1",
@@ -1591,7 +1591,7 @@
       "local": [
         "b779196"
       ],
-      "reason": "Adapted Oh My Herdr worktree tilde tests to use explicit environment providers."
+      "reason": "Adapted Gardn worktree tilde tests to use explicit environment providers."
     },
     {
       "upstream": "7d6eaf5f26d1fa93b9c95c0457d43183f989fab9",
@@ -1600,13 +1600,13 @@
       "local": [
         "b779196"
       ],
-      "reason": "Folded Windows tilde env-provider coverage into the Oh My Herdr worktree tilde test port."
+      "reason": "Folded Windows tilde env-provider coverage into the Gardn worktree tilde test port."
     },
     {
       "upstream": "f9b67570d2e6bbfbda822ead19aed7c65b09ab08",
       "subject": "docs: update preview manifest",
       "status": "skipped",
-      "reason": "Preview manifest publishing is upstream-channel plumbing; Oh My Herdr intentionally has no preview channel."
+      "reason": "Preview manifest publishing is upstream-channel plumbing; Gardn intentionally has no preview channel."
     },
     {
       "upstream": "1fc5e84d461ff7c3cfcc0ed134df0939665fc937",
@@ -1624,37 +1624,37 @@
       "local": [
         "858f106"
       ],
-      "reason": "Ported as Oh My Herdr manifest update plumbing, server list/reload CLI commands, and omh agent explain support without Herdr website identity."
+      "reason": "Ported as Gardn manifest update plumbing, server list/reload CLI commands, and gardn agent explain support without Gardn website identity."
     },
     {
       "upstream": "0b49448e1230f5727614ec36ad56921629f9d348",
       "subject": "docs: finalize release docs and add runtime blog",
       "status": "skipped",
-      "reason": "Upstream release docs/blog are Oh My Herdr-owned documentation surface and not ported."
+      "reason": "Upstream release docs/blog are Gardn-owned documentation surface and not ported."
     },
     {
       "upstream": "a965b055bcc02c5db1f6cacaeb1a631513673674",
       "subject": "release: v0.6.9",
       "status": "skipped",
-      "reason": "Upstream release commits are not part of Oh My Herdr release history."
+      "reason": "Upstream release commits are not part of Gardn release history."
     },
     {
       "upstream": "c242f070e4b0010380f25be6948a16ace94824be",
       "subject": "docs: update website manifest for v0.6.9",
       "status": "skipped",
-      "reason": "Upstream website release manifest is not part of Oh My Herdr release history."
+      "reason": "Upstream website release manifest is not part of Gardn release history."
     },
     {
       "upstream": "78e223b3c77dad0bf5598187458394dfda710789",
       "subject": "docs: link windows beta docs in sidebar",
       "status": "skipped",
-      "reason": "Windows beta docs/sidebar are upstream website content; Oh My Herdr uses stable Windows release assets."
+      "reason": "Windows beta docs/sidebar are upstream website content; Gardn uses stable Windows release assets."
     },
     {
       "upstream": "01e5a1933e1e8cc4baf0a68c6f714117311e22bd",
       "subject": "ci: pin github actions to shas",
       "status": "superseded",
-      "reason": "Oh My Herdr CI workflow policy is maintained separately from upstream Herdr Actions pinning."
+      "reason": "Gardn CI workflow policy is maintained separately from upstream Gardn Actions pinning."
     },
     {
       "upstream": "f5919398444d13f6ad9c42f671668da456b35157",
@@ -1666,37 +1666,37 @@
       "upstream": "4c73a922eaf6ff311e6814fb31b4216d1daa46b5",
       "subject": "chore: approve merged contributor dzevs",
       "status": "skipped",
-      "reason": "Upstream contributor approval workflow is not part of Oh My Herdr product code."
+      "reason": "Upstream contributor approval workflow is not part of Gardn product code."
     },
     {
       "upstream": "5c9936e4cc3bfd91e675d0ea0069e414e58ebb3b",
       "subject": "docs: add v0.6.10 hotfix changelog entry",
       "status": "skipped",
-      "reason": "Upstream release changelog entries are not part of Oh My Herdr release history."
+      "reason": "Upstream release changelog entries are not part of Gardn release history."
     },
     {
       "upstream": "8b99847619235359f4aa87215feac60ac2784499",
       "subject": "release: v0.6.10",
       "status": "skipped",
-      "reason": "Upstream release commits are not part of Oh My Herdr release history."
+      "reason": "Upstream release commits are not part of Gardn release history."
     },
     {
       "upstream": "1a61ea611a88ece179cf9e236b7efc68fa7a801b",
       "subject": "docs: update website manifest for v0.6.10",
       "status": "skipped",
-      "reason": "Upstream website release manifest is not part of Oh My Herdr release history."
+      "reason": "Upstream website release manifest is not part of Gardn release history."
     },
     {
       "upstream": "52bd8c193fdf4fca359ca17f7c439332abf44c52",
       "subject": "docs: refresh website open graph cards",
       "status": "skipped",
-      "reason": "Oh My Herdr-owned website/social card assets are maintained separately from upstream Herdr."
+      "reason": "Gardn-owned website/social card assets are maintained separately from upstream Gardn."
     },
     {
       "upstream": "6d763e58454e86cca953b151af1c3be303507cb4",
       "subject": "docs: bump website open graph card url",
       "status": "skipped",
-      "reason": "Oh My Herdr-owned website/social card assets are maintained separately from upstream Herdr."
+      "reason": "Gardn-owned website/social card assets are maintained separately from upstream Gardn."
     },
     {
       "upstream": "6e7ce87bab6a5d4f277613658d0f19afb114128b",
@@ -1705,7 +1705,7 @@
       "local": [
         "ad89b88"
       ],
-      "reason": "Ported to Oh My Herdr layout resizing with focused resize regression tests."
+      "reason": "Ported to Gardn layout resizing with focused resize regression tests."
     },
     {
       "upstream": "7ba4bfe90e7a17b11979e729d29d82723bb3b0bf",
@@ -1714,7 +1714,7 @@
       "local": [
         "928945a"
       ],
-      "reason": "Ported to Oh My Herdr pane cursor rendering and Windows cursor-position preservation."
+      "reason": "Ported to Gardn pane cursor rendering and Windows cursor-position preservation."
     },
     {
       "upstream": "9c4534276614653e51cfcff1fb4f9040129e8a11",
@@ -1726,37 +1726,37 @@
       "upstream": "088922dfabca152047c8f39f660893b3b19dbe2d",
       "subject": "fix: let user keybinds displace defaults",
       "status": "ported",
-      "reason": "Ported to Oh My Herdr with user/default binding provenance, user-first compilation, preserved user conflict diagnostics, and effective local-profile serialization."
+      "reason": "Ported to Gardn with user/default binding provenance, user-first compilation, preserved user conflict diagnostics, and effective local-profile serialization."
     },
     {
       "upstream": "520d0b8b9c1b9d621274411d5fc26e35df9d60d2",
       "subject": "fix: prevent release key fallback from doubling input",
       "status": "ported",
-      "reason": "Ported to Oh My Herdr's semantic client input boundary and negotiated pane encoder, including stable press-pane ownership and legacy/Kitty release behavior."
+      "reason": "Ported to Gardn's semantic client input boundary and negotiated pane encoder, including stable press-pane ownership and legacy/Kitty release behavior."
     },
     {
       "upstream": "e98c49658caf054f2cfdc0f52831f29d59ed6fba",
       "subject": "fix: preserve shifted punctuation for alt legacy input (#1076)",
       "status": "ported",
-      "reason": "Ported to Oh My Herdr's TerminalKey encoder so Alt+Shift punctuation preserves the semantic shifted character without assuming a keyboard layout."
+      "reason": "Ported to Gardn's TerminalKey encoder so Alt+Shift punctuation preserves the semantic shifted character without assuming a keyboard layout."
     },
     {
       "upstream": "39ba6b7a0242768b7d3684e8163d13a0609fcaa3",
       "subject": "fix: preserve alt-shift letters (#1102)",
       "status": "ported",
-      "reason": "Ported to Oh My Herdr's legacy encoder with explicit Alt stripping that retains Shift for the inner key encoding."
+      "reason": "Ported to Gardn's legacy encoder with explicit Alt stripping that retains Shift for the inner key encoding."
     },
     {
       "upstream": "d190c1f55e05419b299fc68f60ea0aabc1ff7379",
       "subject": "fix: send shifted punctuation as text in kitty mode",
       "status": "ported",
-      "reason": "Ported to Oh My Herdr's Kitty encoder with semantic shifted-codepoint handling, report-all policy, and Ghostty fallback validation."
+      "reason": "Ported to Gardn's Kitty encoder with semantic shifted-codepoint handling, report-all policy, and Ghostty fallback validation."
     },
     {
       "upstream": "b708f85e7d17d8109bef70ea3f595cea0ae40c46",
       "subject": "fix: match shifted indexed number keybinds",
       "status": "ported",
-      "reason": "Ported to Oh My Herdr's keybinding matcher and client routing with exact Shift+1 through Shift+0 aliases that preserve literal and custom-command precedence."
+      "reason": "Ported to Gardn's keybinding matcher and client routing with exact Shift+1 through Shift+0 aliases that preserve literal and custom-command precedence."
     },
     {
       "upstream": "a720367889cf8f54108deb1489cbcd06e0d3dfa7",
@@ -2248,13 +2248,13 @@
       "upstream": "d0e333451bd794a419e96f28db925772950ea156",
       "subject": "feat: add mastracode integration (#788)",
       "status": "skipped",
-      "reason": "Upstream agent integration is product-specific; Oh My Herdr does not ship MastraCode identity/configuration."
+      "reason": "Upstream agent integration is product-specific; Gardn does not ship MastraCode identity/configuration."
     },
     {
       "upstream": "b91b084dbeeee356dbf97ba231f9252f73019d23",
       "subject": "docs: add mastracode integration docs and website agent grid card",
       "status": "skipped",
-      "reason": "Upstream MastraCode docs and website identity are not applicable to Oh My Herdr-owned docs/site."
+      "reason": "Upstream MastraCode docs and website identity are not applicable to Gardn-owned docs/site."
     },
     {
       "upstream": "4eceb75d8a899b35c28383501f4beca06c9f8a3d",
@@ -2266,7 +2266,7 @@
       "upstream": "e713949ca51facf1e40c584b271f812f527bc522",
       "subject": "test: wait for client frame before crash assertion",
       "status": "superseded",
-      "reason": "Oh My Herdr crash/readiness tests already wait for an observable client frame through the current render stream."
+      "reason": "Gardn crash/readiness tests already wait for an observable client frame through the current render stream."
     },
     {
       "upstream": "2bc1724c2dae72184a5d2ec070e30c70dc519f9b",
@@ -2278,7 +2278,7 @@
       "upstream": "96fc43c960cfb4d9c524e005058fb113deba6b8a",
       "subject": "refactor(nix): replace apple-sdk wrappers with xcbuild (#995)",
       "status": "superseded",
-      "reason": "Oh My Herdr maintains its macOS Nix SDK/toolchain inputs separately; the upstream xcbuild wrapper refactor does not apply."
+      "reason": "Gardn maintains its macOS Nix SDK/toolchain inputs separately; the upstream xcbuild wrapper refactor does not apply."
     },
     {
       "upstream": "b04c6496a8c08059b8cc83ab29a51023f16c76cd",
@@ -2326,487 +2326,487 @@
       "upstream": "820246a4d75d33672f216efe2f3e4b8187ab4b3a",
       "subject": "docs: update preview manifest",
       "status": "skipped",
-      "reason": "Oh My Herdr-owned docs, site, and release surfaces are maintained separately."
+      "reason": "Gardn-owned docs, site, and release surfaces are maintained separately."
     },
     {
       "upstream": "f8bb1918241d76df0d249c3e8255c4f55b45b4b4",
       "subject": "docs: update website",
       "status": "skipped",
-      "reason": "Oh My Herdr-owned docs, site, and release surfaces are maintained separately."
+      "reason": "Gardn-owned docs, site, and release surfaces are maintained separately."
     },
     {
       "upstream": "53429206b736aa0fcfb1c5bfc1c0b11dcca3a059",
       "subject": "chore: approve contributor igasmi",
       "status": "skipped",
-      "reason": "Upstream repository, CI, contributor, test, or packaging process is not Oh My Herdr runtime behavior."
+      "reason": "Upstream repository, CI, contributor, test, or packaging process is not Gardn runtime behavior."
     },
     {
       "upstream": "f7a7da03fc27cc6fe4e6a44dabddcd303f939bb9",
       "subject": "fix: stabilize public pane and tab ids",
       "status": "ported",
-      "reason": "Equivalent invariant already exists in Oh My Herdr; reviewed during ENG-91 backlog classification."
+      "reason": "Equivalent invariant already exists in Gardn; reviewed during ENG-91 backlog classification."
     },
     {
       "upstream": "d7217ce5190f0e31f6acbc608a995f519b22c539",
       "subject": "chore: ignore backlog",
       "status": "skipped",
-      "reason": "Upstream repository, CI, contributor, test, or packaging process is not Oh My Herdr runtime behavior."
+      "reason": "Upstream repository, CI, contributor, test, or packaging process is not Gardn runtime behavior."
     },
     {
       "upstream": "78b13acfba23d571ea7585599fd477ee78f0875a",
       "subject": "perf: reduce pty actor idle poll frequency",
       "status": "superseded",
-      "reason": "Current Oh My Herdr has equivalent behavior or Oh My Herdr-specific architecture; the upstream patch does not apply directly."
+      "reason": "Current Gardn has equivalent behavior or Gardn-specific architecture; the upstream patch does not apply directly."
     },
     {
       "upstream": "469cf9cede389036f5799e2f41483413f1d7e60b",
       "subject": "docs: show windows install on homepage",
       "status": "skipped",
-      "reason": "Oh My Herdr-owned docs, site, and release surfaces are maintained separately."
+      "reason": "Gardn-owned docs, site, and release surfaces are maintained separately."
     },
     {
       "upstream": "d35c642ef36ee5ac2afe7c1b18ad5a717bc807d8",
       "subject": "feat: add pane move api and cli",
       "status": "ported",
-      "reason": "Equivalent invariant already exists in Oh My Herdr; reviewed during ENG-91 backlog classification."
+      "reason": "Equivalent invariant already exists in Gardn; reviewed during ENG-91 backlog classification."
     },
     {
       "upstream": "fbd20ad6e488fb3b9efc1612fdffee6e672976c1",
       "subject": "feat: add plugin v1 system",
       "status": "ported",
-      "reason": "Equivalent invariant already exists in Oh My Herdr; reviewed during ENG-91 backlog classification."
+      "reason": "Equivalent invariant already exists in Gardn; reviewed during ENG-91 backlog classification."
     },
     {
       "upstream": "3583a106bb98dcd5e4edb6e0d726a5d6cd57d6ca",
       "subject": "fix: normalize plugin path tests on macos",
       "status": "superseded",
-      "reason": "Current Oh My Herdr has equivalent behavior or Oh My Herdr-specific architecture; the upstream patch does not apply directly."
+      "reason": "Current Gardn has equivalent behavior or Gardn-specific architecture; the upstream patch does not apply directly."
     },
     {
       "upstream": "17544c36ee397233e2f7b3319d86e3b517e3b5d0",
       "subject": "fix: make macos ci socket tests deterministic",
       "status": "superseded",
-      "reason": "Current Oh My Herdr has equivalent behavior or Oh My Herdr-specific architecture; the upstream patch does not apply directly."
+      "reason": "Current Gardn has equivalent behavior or Gardn-specific architecture; the upstream patch does not apply directly."
     },
     {
       "upstream": "226e87306deaba017d36583f51ae34e42b303aad",
       "subject": "fix: preserve tab identity across restored sessions",
       "status": "ported",
-      "reason": "Equivalent invariant already exists in Oh My Herdr; reviewed during ENG-91 backlog classification."
+      "reason": "Equivalent invariant already exists in Gardn; reviewed during ENG-91 backlog classification."
     },
     {
       "upstream": "eb8c8c585229b07b33a3746ab061adc4c728420c",
       "subject": "fix: warn on unknown config sections",
       "status": "ported",
-      "reason": "Equivalent invariant already exists in Oh My Herdr; reviewed during ENG-91 backlog classification."
+      "reason": "Equivalent invariant already exists in Gardn; reviewed during ENG-91 backlog classification."
     },
     {
       "upstream": "e1446fa6b83be801f64772fdfcfa2f697de7b61f",
       "subject": "chore: approve contributor minatoaquaMK2",
       "status": "skipped",
-      "reason": "Upstream repository, CI, contributor, test, or packaging process is not Oh My Herdr runtime behavior."
+      "reason": "Upstream repository, CI, contributor, test, or packaging process is not Gardn runtime behavior."
     },
     {
       "upstream": "ea3a4db72f676ca180a8e0ca61c730c0cf9ed920",
       "subject": "ci: skip duplicate approval replies on edits",
       "status": "skipped",
-      "reason": "Upstream repository, CI, contributor, test, or packaging process is not Oh My Herdr runtime behavior."
+      "reason": "Upstream repository, CI, contributor, test, or packaging process is not Gardn runtime behavior."
     },
     {
       "upstream": "de0f43a061162a223c5946a4b50aa9f9ac7ab8d7",
       "subject": "test: add state invariants for refactor safety",
       "status": "superseded",
-      "reason": "Current Oh My Herdr has equivalent behavior or Oh My Herdr-specific architecture; the upstream patch does not apply directly."
+      "reason": "Current Gardn has equivalent behavior or Gardn-specific architecture; the upstream patch does not apply directly."
     },
     {
       "upstream": "7f702a7ad026f1503d33c442a50fb6aca84b0dc8",
       "subject": "test: harden pane identity regression coverage",
       "status": "superseded",
-      "reason": "Current Oh My Herdr has equivalent behavior or Oh My Herdr-specific architecture; the upstream patch does not apply directly."
+      "reason": "Current Gardn has equivalent behavior or Gardn-specific architecture; the upstream patch does not apply directly."
     },
     {
       "upstream": "c1ca8038451f5350d1fb3cd3c38e363fac3ae66c",
       "subject": "fix: drop plugin pane records when layout apply replaces a tab",
       "status": "ported",
-      "reason": "Equivalent invariant already exists in Oh My Herdr; reviewed during ENG-91 backlog classification."
+      "reason": "Equivalent invariant already exists in Gardn; reviewed during ENG-91 backlog classification."
     },
     {
       "upstream": "54b58bb3452bd493a2881623a01371705ff806f1",
       "subject": "feat: mark zoomed tabs in tab bar",
       "status": "ported",
-      "reason": "Equivalent invariant already exists in Oh My Herdr; reviewed during ENG-91 backlog classification."
+      "reason": "Equivalent invariant already exists in Gardn; reviewed during ENG-91 backlog classification."
     },
     {
       "upstream": "d3be4f8b431587b14975d0e595e4131e3c119bdb",
       "subject": "fix: add best-effort windows plugin support",
       "status": "ported",
-      "reason": "Equivalent invariant already exists in Oh My Herdr; reviewed during ENG-91 backlog classification."
+      "reason": "Equivalent invariant already exists in Gardn; reviewed during ENG-91 backlog classification."
     },
     {
       "upstream": "001a6b2fc4218d232967f285f945b313ce9ca19a",
       "subject": "docs: explain plugin authoring model",
       "status": "skipped",
-      "reason": "Oh My Herdr-owned docs, site, and release surfaces are maintained separately."
+      "reason": "Gardn-owned docs, site, and release surfaces are maintained separately."
     },
     {
       "upstream": "3015ce0f9d120df7583f838d1a47cb469fe5a727",
       "subject": "fix: stabilize plugin config directories",
       "status": "ported",
-      "reason": "Equivalent invariant already exists in Oh My Herdr; reviewed during ENG-91 backlog classification."
+      "reason": "Equivalent invariant already exists in Gardn; reviewed during ENG-91 backlog classification."
     },
     {
       "upstream": "c91348e68b9e438159ffecc3e26bc6f971e0fa2a",
-      "subject": "fix: require plugin min herdr version",
+      "subject": "fix: require plugin min gardn version",
       "status": "ported",
-      "reason": "Equivalent invariant already exists in Oh My Herdr; reviewed during ENG-91 backlog classification."
+      "reason": "Equivalent invariant already exists in Gardn; reviewed during ENG-91 backlog classification."
     },
     {
       "upstream": "3e8f906c6fcc4e9e7be6b3d0c4ee84b804027b5a",
       "subject": "ci: make preview releases manual",
       "status": "skipped",
-      "reason": "Upstream repository, CI, contributor, test, or packaging process is not Oh My Herdr runtime behavior."
+      "reason": "Upstream repository, CI, contributor, test, or packaging process is not Gardn runtime behavior."
     },
     {
       "upstream": "efe7c557690157a4e133cd60dd7e2ec1bf6124f7",
       "subject": "fix: accept alternate f1-f4 key sequences",
       "status": "ported",
-      "reason": "Equivalent invariant already exists in Oh My Herdr; reviewed during ENG-91 backlog classification."
+      "reason": "Equivalent invariant already exists in Gardn; reviewed during ENG-91 backlog classification."
     },
     {
       "upstream": "08bb0768ae224c8db04bbe016b050353ce13eee7",
       "subject": "fix: handle kitty keypad input",
       "status": "ported",
-      "reason": "Equivalent invariant already exists in Oh My Herdr; reviewed during ENG-91 backlog classification."
+      "reason": "Equivalent invariant already exists in Gardn; reviewed during ENG-91 backlog classification."
     },
     {
       "upstream": "07261e09be60ac0c145685fd11f94351cc0e5ba6",
       "subject": "feat: add devin cli detection and restore support (#622)",
       "status": "ported",
-      "reason": "Equivalent invariant already exists in Oh My Herdr; reviewed during ENG-91 backlog classification."
+      "reason": "Equivalent invariant already exists in Gardn; reviewed during ENG-91 backlog classification."
     },
     {
       "upstream": "0099c10881fd05ddecd3b535700d41eb3f42b633",
       "subject": "fix: use ctrl-click for captured pane links on macos",
       "status": "ported",
-      "reason": "Equivalent invariant already exists in Oh My Herdr; reviewed during ENG-91 backlog classification."
+      "reason": "Equivalent invariant already exists in Gardn; reviewed during ENG-91 backlog classification."
     },
     {
       "upstream": "9805e23a1225f74bb955b703c9457fdcff1bc952",
       "subject": "docs: note plugin link handlers use ctrl-click on macos too",
       "status": "skipped",
-      "reason": "Oh My Herdr-owned docs, site, and release surfaces are maintained separately."
+      "reason": "Gardn-owned docs, site, and release surfaces are maintained separately."
     },
     {
       "upstream": "16b69b6faa3f6de4ff8ae404442be95887370918",
       "subject": "fix: support key-combo syntax for API send keys (#613)",
       "status": "ported",
-      "reason": "Equivalent invariant already exists in Oh My Herdr; reviewed during ENG-91 backlog classification."
+      "reason": "Equivalent invariant already exists in Gardn; reviewed during ENG-91 backlog classification."
     },
     {
       "upstream": "99bf8dadeb03afcee6f1d0ff3af9b6f174a422f9",
       "subject": "chore: approve merged contributor dmmulroy",
       "status": "skipped",
-      "reason": "Upstream repository, CI, contributor, test, or packaging process is not Oh My Herdr runtime behavior."
+      "reason": "Upstream repository, CI, contributor, test, or packaging process is not Gardn runtime behavior."
     },
     {
       "upstream": "befe629312d9ddf0fea91d1c70f1e4c69afeaf76",
       "subject": "docs: finalize 0.7.0 release docs",
       "status": "skipped",
-      "reason": "Oh My Herdr-owned docs, site, and release surfaces are maintained separately."
+      "reason": "Gardn-owned docs, site, and release surfaces are maintained separately."
     },
     {
       "upstream": "2ace7f24a9a9fa43ab765becf29c40181af61a08",
       "subject": "docs: sync #613 key-combo docs for 0.7.0 and credit @dmmulroy",
       "status": "skipped",
-      "reason": "Oh My Herdr-owned docs, site, and release surfaces are maintained separately."
+      "reason": "Gardn-owned docs, site, and release surfaces are maintained separately."
     },
     {
       "upstream": "0bf9bb58eb9c9495f660aed1bd9336121b953fdc",
       "subject": "release: v0.7.0",
       "status": "skipped",
-      "reason": "Oh My Herdr-owned docs, site, and release surfaces are maintained separately."
+      "reason": "Gardn-owned docs, site, and release surfaces are maintained separately."
     },
     {
       "upstream": "61ede89b2e724f0cdc7081b9c448c3f64fed85c0",
       "subject": "docs: update website manifest for v0.7.0",
       "status": "skipped",
-      "reason": "Oh My Herdr-owned docs, site, and release surfaces are maintained separately."
+      "reason": "Gardn-owned docs, site, and release surfaces are maintained separately."
     },
     {
       "upstream": "41d1c14e0784cf63dc4cddda21c7e5fd99813b24",
       "subject": "docs: add plugin trust and security guidance",
       "status": "skipped",
-      "reason": "Oh My Herdr-owned docs, site, and release surfaces are maintained separately."
+      "reason": "Gardn-owned docs, site, and release surfaces are maintained separately."
     },
     {
       "upstream": "517ca8163f7c313bdeef565bdcb9b055ce05526c",
       "subject": "ci: fix preview release baseline after stable",
       "status": "skipped",
-      "reason": "Upstream repository, CI, contributor, test, or packaging process is not Oh My Herdr runtime behavior."
+      "reason": "Upstream repository, CI, contributor, test, or packaging process is not Gardn runtime behavior."
     },
     {
       "upstream": "4cf9f8e958119243b1f648f4d7b9baa335bb8ffd",
       "subject": "docs: update preview manifest",
       "status": "skipped",
-      "reason": "Oh My Herdr-owned docs, site, and release surfaces are maintained separately."
+      "reason": "Gardn-owned docs, site, and release surfaces are maintained separately."
     },
     {
       "upstream": "2fe57a57a2b335c6d300a96b442d428b9b2cadf8",
       "subject": "fix: stabilize flaky plugin capture tests and auto-trigger website deploy",
       "status": "superseded",
-      "reason": "Current Oh My Herdr has equivalent behavior or Oh My Herdr-specific architecture; the upstream patch does not apply directly."
+      "reason": "Current Gardn has equivalent behavior or Gardn-specific architecture; the upstream patch does not apply directly."
     },
     {
       "upstream": "6f9ca0ea6648778419ba18c882eefba4615f3f43",
       "subject": "fix: hold lone escape while awaiting host color reply",
       "status": "ported",
-      "reason": "Equivalent invariant already exists in Oh My Herdr; reviewed during ENG-91 backlog classification."
+      "reason": "Equivalent invariant already exists in Gardn; reviewed during ENG-91 backlog classification."
     },
     {
       "upstream": "cc802c8f9c154ca23e6a1db095b8857c1d5f1fe9",
       "subject": "fix: satisfy windows clippy",
       "status": "skipped",
-      "reason": "Upstream repository, CI, contributor, test, or packaging process is not Oh My Herdr runtime behavior."
+      "reason": "Upstream repository, CI, contributor, test, or packaging process is not Gardn runtime behavior."
     },
     {
       "upstream": "ebff34063a55446c7390e12ec84acd2dad04ce43",
       "subject": "fix: restore omp sessions after same-pane restart",
       "status": "ported",
-      "reason": "Equivalent invariant already exists in Oh My Herdr; reviewed during ENG-91 backlog classification."
+      "reason": "Equivalent invariant already exists in Gardn; reviewed during ENG-91 backlog classification."
     },
     {
       "upstream": "d998753efe506a04c80306795efc72bff60bb0ec",
       "subject": "fix: handle cjk branch truncation",
       "status": "ported",
-      "reason": "Equivalent invariant already exists in Oh My Herdr; reviewed during ENG-91 backlog classification."
+      "reason": "Equivalent invariant already exists in Gardn; reviewed during ENG-91 backlog classification."
     },
     {
       "upstream": "54490254f70469cd154ee630bc4bec84da178f0c",
       "subject": "feat: sort agent panel by priority",
       "status": "ported",
-      "reason": "Equivalent invariant already exists in Oh My Herdr; reviewed during ENG-91 backlog classification."
+      "reason": "Equivalent invariant already exists in Gardn; reviewed during ENG-91 backlog classification."
     },
     {
       "upstream": "36b4001f4526b60f1c9b67a4a34596e5ad2bcca1",
       "subject": "feat: sync theme with host appearance",
       "status": "ported",
-      "reason": "Equivalent invariant already exists in Oh My Herdr; reviewed during ENG-91 backlog classification."
+      "reason": "Equivalent invariant already exists in Gardn; reviewed during ENG-91 backlog classification."
     },
     {
       "upstream": "b7a504b35e54e68ca7aceb01d21f066124f7a536",
       "subject": "chore: add windows target lint to local check",
       "status": "skipped",
-      "reason": "Upstream repository, CI, contributor, test, or packaging process is not Oh My Herdr runtime behavior."
+      "reason": "Upstream repository, CI, contributor, test, or packaging process is not Gardn runtime behavior."
     },
     {
       "upstream": "d74ba8ca9e49d9d94a4e59a0ee0bdbd1128af76e",
       "subject": "fix: emit plugin lifecycle events from ui worktree flows",
       "status": "ported",
-      "reason": "Equivalent invariant already exists in Oh My Herdr; reviewed during ENG-91 backlog classification."
+      "reason": "Equivalent invariant already exists in Gardn; reviewed during ENG-91 backlog classification."
     },
     {
       "upstream": "26c5f97a908c1ebe4228302d1b9e8c5423b2ab75",
       "subject": "fix: reanchor lifecycle hook generations",
       "status": "ported",
-      "reason": "Equivalent invariant already exists in Oh My Herdr; reviewed during ENG-91 backlog classification."
+      "reason": "Equivalent invariant already exists in Gardn; reviewed during ENG-91 backlog classification."
     },
     {
       "upstream": "92a10fc044d42b216317696a4e8e6f70d7cc7a7d",
       "subject": "fix: protect root agent restore sessions",
       "status": "ported",
-      "reason": "Equivalent invariant already exists in Oh My Herdr; reviewed during ENG-91 backlog classification."
+      "reason": "Equivalent invariant already exists in Gardn; reviewed during ENG-91 backlog classification."
     },
     {
       "upstream": "734bf3c09d292012b45b93a4813ccdd0cf26d08a",
       "subject": "fix: release pi and omp agents on shutdown",
       "status": "ported",
-      "reason": "Equivalent invariant already exists in Oh My Herdr; reviewed during ENG-91 backlog classification."
+      "reason": "Equivalent invariant already exists in Gardn; reviewed during ENG-91 backlog classification."
     },
     {
       "upstream": "2eeea9a0cd8665bbe0e6c80f08603425498757e5",
       "subject": "feat: add plugin marketplace",
       "status": "skipped",
-      "reason": "Plugin marketplace is not part of Oh My Herdr's current product scope."
+      "reason": "Plugin marketplace is not part of Gardn's current product scope."
     },
     {
       "upstream": "003bef7592d6df68f7cf0806d5796ed64478d68c",
       "subject": "chore: approve contributor cullendotdev",
       "status": "skipped",
-      "reason": "Upstream repository, CI, contributor, test, or packaging process is not Oh My Herdr runtime behavior."
+      "reason": "Upstream repository, CI, contributor, test, or packaging process is not Gardn runtime behavior."
     },
     {
       "upstream": "bf752268660fc2c3cdcdc13920c014af250a5062",
       "subject": "feat: add plugin marketplace blacklist",
       "status": "skipped",
-      "reason": "Plugin marketplace is not part of Oh My Herdr's current product scope."
+      "reason": "Plugin marketplace is not part of Gardn's current product scope."
     },
     {
       "upstream": "3366121ac343afea5af7fe4c36a0bc7077d0198d",
       "subject": "test: skip named pipe timeout on windows",
       "status": "skipped",
-      "reason": "Upstream repository, CI, contributor, test, or packaging process is not Oh My Herdr runtime behavior."
+      "reason": "Upstream repository, CI, contributor, test, or packaging process is not Gardn runtime behavior."
     },
     {
       "upstream": "4846cb1324a6a9e46bc89250cf8a289b91866a9c",
       "subject": "fix: skip wide spacer cells in pane reads",
       "status": "ported",
-      "reason": "Equivalent invariant already exists in Oh My Herdr; reviewed during ENG-91 backlog classification."
+      "reason": "Equivalent invariant already exists in Gardn; reviewed during ENG-91 backlog classification."
     },
     {
       "upstream": "569c33b094ca1161bf2431fd9aa2c48b87dd688e",
       "subject": "fix: use active pane color for border intersections (#742)",
       "status": "ported",
-      "reason": "Equivalent invariant already exists in Oh My Herdr; reviewed during ENG-91 backlog classification."
+      "reason": "Equivalent invariant already exists in Gardn; reviewed during ENG-91 backlog classification."
     },
     {
       "upstream": "24c7377de01c4f49e4c9a95761058252bfb53227",
       "subject": "ci: install bun in preview preflight",
       "status": "skipped",
-      "reason": "Upstream repository, CI, contributor, test, or packaging process is not Oh My Herdr runtime behavior."
+      "reason": "Upstream repository, CI, contributor, test, or packaging process is not Gardn runtime behavior."
     },
     {
       "upstream": "995a429cb85e7b33e662df61e92d798a600fc317",
       "subject": "docs: update preview manifest",
       "status": "skipped",
-      "reason": "Oh My Herdr-owned docs, site, and release surfaces are maintained separately."
+      "reason": "Gardn-owned docs, site, and release surfaces are maintained separately."
     },
     {
       "upstream": "705403fe31d8fd935bfebf92cdbdb511350ddbbf",
       "subject": "feat: add author card to bottom of blog posts",
       "status": "skipped",
-      "reason": "Upstream repository, CI, contributor, test, or packaging process is not Oh My Herdr runtime behavior."
+      "reason": "Upstream repository, CI, contributor, test, or packaging process is not Gardn runtime behavior."
     },
     {
       "upstream": "d7ae163f8888cd9bf13e5a34e4d37f9518f76c01",
       "subject": "fix: make windows installer checksum independent of get-filehash",
       "status": "skipped",
-      "reason": "Upstream repository, CI, contributor, test, or packaging process is not Oh My Herdr runtime behavior."
+      "reason": "Upstream repository, CI, contributor, test, or packaging process is not Gardn runtime behavior."
     },
     {
       "upstream": "5981ba426e8ed8f6785195a03cc0d8a190173e61",
       "subject": "ci: use homebrew zig on macos",
       "status": "skipped",
-      "reason": "Upstream repository, CI, contributor, test, or packaging process is not Oh My Herdr runtime behavior."
+      "reason": "Upstream repository, CI, contributor, test, or packaging process is not Gardn runtime behavior."
     },
     {
       "upstream": "74fa90cecc6f6dfd93dc64893659771001ad2d82",
       "subject": "fix: scope opencode hook to main agent and adopt new sessions",
       "status": "ported",
-      "reason": "Equivalent invariant already exists in Oh My Herdr; reviewed during ENG-91 backlog classification."
+      "reason": "Equivalent invariant already exists in Gardn; reviewed during ENG-91 backlog classification."
     },
     {
       "upstream": "74076a83b157eecf845a1c9d45d8879540237e0a",
       "subject": "docs: add sponsorship information",
       "status": "skipped",
-      "reason": "Oh My Herdr-owned docs, site, and release surfaces are maintained separately."
+      "reason": "Gardn-owned docs, site, and release surfaces are maintained separately."
     },
     {
       "upstream": "bae1f14d3b8989f4ee1eb2053b1146d636c471dd",
       "subject": "docs: finalize release docs",
       "status": "skipped",
-      "reason": "Oh My Herdr-owned docs, site, and release surfaces are maintained separately."
+      "reason": "Gardn-owned docs, site, and release surfaces are maintained separately."
     },
     {
       "upstream": "23b96e48c3941e35defca6b573cf40c382d277c0",
       "subject": "release: v0.7.1",
       "status": "skipped",
-      "reason": "Oh My Herdr-owned docs, site, and release surfaces are maintained separately."
+      "reason": "Gardn-owned docs, site, and release surfaces are maintained separately."
     },
     {
       "upstream": "dbc45f6306bda3eee681d73a14b48ffbb39f3fcc",
       "subject": "ci: use homebrew zig in release workflow",
       "status": "skipped",
-      "reason": "Upstream repository, CI, contributor, test, or packaging process is not Oh My Herdr runtime behavior."
+      "reason": "Upstream repository, CI, contributor, test, or packaging process is not Gardn runtime behavior."
     },
     {
       "upstream": "642c6ab9eac3531c04992d2b10a7a09be6d2e06b",
       "subject": "docs: update website manifest for v0.7.1",
       "status": "skipped",
-      "reason": "Oh My Herdr-owned docs, site, and release surfaces are maintained separately."
+      "reason": "Gardn-owned docs, site, and release surfaces are maintained separately."
     },
     {
       "upstream": "7a1578d9493b2a36cc765bdb96db99cca8bae643",
       "subject": "docs: update preview manifest",
       "status": "skipped",
-      "reason": "Oh My Herdr-owned docs, site, and release surfaces are maintained separately."
+      "reason": "Gardn-owned docs, site, and release surfaces are maintained separately."
     },
     {
       "upstream": "12cce7deeb2d27f7b11daece75881fcfd88ea607",
       "subject": "refactor: split integration module",
       "status": "superseded",
-      "reason": "Current Oh My Herdr has equivalent behavior or Oh My Herdr-specific architecture; the upstream patch does not apply directly."
+      "reason": "Current Gardn has equivalent behavior or Gardn-specific architecture; the upstream patch does not apply directly."
     },
     {
       "upstream": "4b650a12c74a6121bcbc0933d9d31c19b2aeac28",
       "subject": "chore: tighten issue reporting guardrails",
       "status": "skipped",
-      "reason": "Upstream repository, CI, contributor, test, or packaging process is not Oh My Herdr runtime behavior."
+      "reason": "Upstream repository, CI, contributor, test, or packaging process is not Gardn runtime behavior."
     },
     {
       "upstream": "5fffc59cd8aaea1604abb90e749e58fd97acfac0",
       "subject": "fix: remove focused pane title border marker",
       "status": "ported",
-      "reason": "Equivalent invariant already exists in Oh My Herdr; reviewed during ENG-91 backlog classification."
+      "reason": "Equivalent invariant already exists in Gardn; reviewed during ENG-91 backlog classification."
     },
     {
       "upstream": "f36d8043594489508046ff0852989ec08f52188a",
       "subject": "docs: refactor readme and sharpen site positioning",
       "status": "skipped",
-      "reason": "Oh My Herdr-owned docs, site, and release surfaces are maintained separately."
+      "reason": "Gardn-owned docs, site, and release surfaces are maintained separately."
     },
     {
       "upstream": "09bac7f274a2944ca5a5ed83d11845ca6b0ce960",
       "subject": "docs: add skills cli install guidance",
       "status": "skipped",
-      "reason": "Oh My Herdr-owned docs, site, and release surfaces are maintained separately."
+      "reason": "Gardn-owned docs, site, and release surfaces are maintained separately."
     },
     {
       "upstream": "86857c903cde90c30db3feb52da66f5c31845a9a",
       "subject": "ci: accept non-empty issue update channels",
       "status": "skipped",
-      "reason": "Upstream repository, CI, contributor, test, or packaging process is not Oh My Herdr runtime behavior."
+      "reason": "Upstream repository, CI, contributor, test, or packaging process is not Gardn runtime behavior."
     },
     {
       "upstream": "3cd2e7b6b71e25300bc8831ff6721a773103f308",
-      "subject": "fix: discover package-managed remote herdr installs",
+      "subject": "fix: discover package-managed remote gardn installs",
       "status": "ported",
-      "reason": "Equivalent invariant already exists in Oh My Herdr; reviewed during ENG-91 backlog classification."
+      "reason": "Equivalent invariant already exists in Gardn; reviewed during ENG-91 backlog classification."
     },
     {
       "upstream": "be901fead223ef39538b4110e63c98feea51597f",
       "subject": "fix: opencode — report subagent permission prompts as blocked + handle session.status object form (#838)",
       "status": "ported",
-      "reason": "Equivalent invariant already exists in Oh My Herdr; reviewed during ENG-91 backlog classification."
+      "reason": "Equivalent invariant already exists in Gardn; reviewed during ENG-91 backlog classification."
     },
     {
       "upstream": "2548acea155de392aac7ce4f638754e2972da69a",
       "subject": "chore: approve merged contributor soar",
       "status": "skipped",
-      "reason": "Upstream repository, CI, contributor, test, or packaging process is not Oh My Herdr runtime behavior."
+      "reason": "Upstream repository, CI, contributor, test, or packaging process is not Gardn runtime behavior."
     },
     {
       "upstream": "26db26e416318e17a6e7f3f196ec72109fb37998",
       "subject": "fix: keep remote sessions alive across disconnects",
       "status": "ported",
-      "reason": "Equivalent invariant already exists in Oh My Herdr; reviewed during ENG-91 backlog classification."
+      "reason": "Equivalent invariant already exists in Gardn; reviewed during ENG-91 backlog classification."
     },
     {
       "upstream": "659c3f51ece42b7b761084bca0152fe4db56ebf6",
       "subject": "docs: update preview manifest",
       "status": "skipped",
-      "reason": "Oh My Herdr-owned docs, site, and release surfaces are maintained separately."
+      "reason": "Gardn-owned docs, site, and release surfaces are maintained separately."
     },
     {
       "upstream": "6a5b431e39c3a77652dc22e692925027cb69b965",
       "subject": "docs: clarify agent instruction scope",
       "status": "skipped",
-      "reason": "Oh My Herdr-owned docs, site, and release surfaces are maintained separately."
+      "reason": "Gardn-owned docs, site, and release surfaces are maintained separately."
     },
     {
       "upstream": "885dbcd19e5dc1ba3ac2fe96ce714cf6906a458c",
       "subject": "docs: add trendshift badge",
       "status": "skipped",
-      "reason": "Oh My Herdr-owned docs, site, and release surfaces are maintained separately."
+      "reason": "Gardn-owned docs, site, and release surfaces are maintained separately."
     },
     {
       "upstream": "f4d216b63d010987775dc6eaf92afa72f86f2816",
@@ -2818,343 +2818,343 @@
       "upstream": "74a771d12623726983ed2186380f6a216e797a06",
       "subject": "fix: replace stale agent session from foreground reports",
       "status": "ported",
-      "reason": "Equivalent invariant already exists in Oh My Herdr; reviewed during ENG-91 backlog classification."
+      "reason": "Equivalent invariant already exists in Gardn; reviewed during ENG-91 backlog classification."
     },
     {
       "upstream": "32146f19d87448d8e3bb4019be6b8d9ff1cb72ee",
       "subject": "fix: allow windows arm64 installer fallback",
       "status": "skipped",
-      "reason": "Upstream repository, CI, contributor, test, or packaging process is not Oh My Herdr runtime behavior."
+      "reason": "Upstream repository, CI, contributor, test, or packaging process is not Gardn runtime behavior."
     },
     {
       "upstream": "848554517ae6473caf61f738d60def90f77e1dc9",
       "subject": "fix: keep copy feedback above retained pane updates",
       "status": "ported",
-      "reason": "Equivalent invariant already exists in Oh My Herdr; reviewed during ENG-91 backlog classification."
+      "reason": "Equivalent invariant already exists in Gardn; reviewed during ENG-91 backlog classification."
     },
     {
       "upstream": "974a48172d5ad8744d6b54de4538391e80346ab6",
       "subject": "fix: leave context menu after closing tab",
       "status": "ported",
-      "reason": "Equivalent invariant already exists in Oh My Herdr; reviewed during ENG-91 backlog classification."
+      "reason": "Equivalent invariant already exists in Gardn; reviewed during ENG-91 backlog classification."
     },
     {
       "upstream": "e1bbc252e2b40da6e0c6d7b0f8d7babb17cc8814",
       "subject": "feat: paginate plugins page with show more button",
       "status": "skipped",
-      "reason": "Upstream repository, CI, contributor, test, or packaging process is not Oh My Herdr runtime behavior."
+      "reason": "Upstream repository, CI, contributor, test, or packaging process is not Gardn runtime behavior."
     },
     {
       "upstream": "045f506ec8a333cde84718304a7d21bcdb93a1fc",
       "subject": "fix: keep windows wait connections open",
       "status": "ported",
-      "reason": "Equivalent invariant already exists in Oh My Herdr; reviewed during ENG-91 backlog classification."
+      "reason": "Equivalent invariant already exists in Gardn; reviewed during ENG-91 backlog classification."
     },
     {
       "upstream": "96c485653b5186b71fa88aace1128e50657197a5",
       "subject": "chore: approve contributor arunoruto",
       "status": "skipped",
-      "reason": "Upstream repository, CI, contributor, test, or packaging process is not Oh My Herdr runtime behavior."
+      "reason": "Upstream repository, CI, contributor, test, or packaging process is not Gardn runtime behavior."
     },
     {
       "upstream": "c7400a47f5cfa95e8c1a3b49a5b87835513eca68",
       "subject": "chore: approve merged contributor DevSrSouza",
       "status": "skipped",
-      "reason": "Upstream repository, CI, contributor, test, or packaging process is not Oh My Herdr runtime behavior."
+      "reason": "Upstream repository, CI, contributor, test, or packaging process is not Gardn runtime behavior."
     },
     {
       "upstream": "797981c7e907bc6e3050373ba150fb7a8bc651fb",
       "subject": "fix: allow foreground agent session takeover",
       "status": "ported",
-      "reason": "Equivalent invariant already exists in Oh My Herdr; reviewed during ENG-91 backlog classification."
+      "reason": "Equivalent invariant already exists in Gardn; reviewed during ENG-91 backlog classification."
     },
     {
       "upstream": "c97e0986277e95144f79da3fce5b3fd443f3922f",
       "subject": "refactor: route worktree tui actions through runtime wrappers",
       "status": "superseded",
-      "reason": "Current Oh My Herdr has equivalent behavior or Oh My Herdr-specific architecture; the upstream patch does not apply directly."
+      "reason": "Current Gardn has equivalent behavior or Gardn-specific architecture; the upstream patch does not apply directly."
     },
     {
       "upstream": "b78a8a5c565e66e7e5ba9a06d9cb7f3a771fc4b0",
       "subject": "chore: approve contributor ppggff",
       "status": "skipped",
-      "reason": "Upstream repository, CI, contributor, test, or packaging process is not Oh My Herdr runtime behavior."
+      "reason": "Upstream repository, CI, contributor, test, or packaging process is not Gardn runtime behavior."
     },
     {
       "upstream": "89fe8975db69e3c92623d531b50ad791878e28fe",
       "subject": "refactor: route tui runtime mutations through typed adapters",
       "status": "superseded",
-      "reason": "Current Oh My Herdr has equivalent behavior or Oh My Herdr-specific architecture; the upstream patch does not apply directly."
+      "reason": "Current Gardn has equivalent behavior or Gardn-specific architecture; the upstream patch does not apply directly."
     },
     {
       "upstream": "ce6c0dc842c3614789624e5cdc6689b580e62806",
       "subject": "refactor: route cli workspace tab worktree through runtime adapters",
       "status": "superseded",
-      "reason": "Current Oh My Herdr has equivalent behavior or Oh My Herdr-specific architecture; the upstream patch does not apply directly."
+      "reason": "Current Gardn has equivalent behavior or Gardn-specific architecture; the upstream patch does not apply directly."
     },
     {
       "upstream": "1c606d4ff3df7ea7d641e6ad13bc30caf8082eaa",
       "subject": "refactor: route cli pane placement through runtime adapters",
       "status": "superseded",
-      "reason": "Current Oh My Herdr has equivalent behavior or Oh My Herdr-specific architecture; the upstream patch does not apply directly."
+      "reason": "Current Gardn has equivalent behavior or Gardn-specific architecture; the upstream patch does not apply directly."
     },
     {
       "upstream": "04682e57e60ae4276761e95271a7ef1845127180",
       "subject": "refactor: route headless deferred creates through runtime helpers",
       "status": "superseded",
-      "reason": "Current Oh My Herdr has equivalent behavior or Oh My Herdr-specific architecture; the upstream patch does not apply directly."
+      "reason": "Current Gardn has equivalent behavior or Gardn-specific architecture; the upstream patch does not apply directly."
     },
     {
       "upstream": "a4935886afffddf168bec4bbacacf9def6d1776b",
       "subject": "chore: approve contributor TonyxSun",
       "status": "skipped",
-      "reason": "Upstream repository, CI, contributor, test, or packaging process is not Oh My Herdr runtime behavior."
+      "reason": "Upstream repository, CI, contributor, test, or packaging process is not Gardn runtime behavior."
     },
     {
       "upstream": "697290942820f8a0227440a1ca384173f8ccc5e8",
       "subject": "test: wait for windows smoke pane output",
       "status": "skipped",
-      "reason": "Upstream repository, CI, contributor, test, or packaging process is not Oh My Herdr runtime behavior."
+      "reason": "Upstream repository, CI, contributor, test, or packaging process is not Gardn runtime behavior."
     },
     {
       "upstream": "c51068448f393f5a5d024bc41b704297113cf625",
       "subject": "test: keep windows smoke cleanup non-fatal",
       "status": "skipped",
-      "reason": "Upstream repository, CI, contributor, test, or packaging process is not Oh My Herdr runtime behavior."
+      "reason": "Upstream repository, CI, contributor, test, or packaging process is not Gardn runtime behavior."
     },
     {
       "upstream": "cbd9b07fac8a84ef2b55e85929983ff594edb0a4",
       "subject": "ci: accept common environment aliases in issue gate",
       "status": "skipped",
-      "reason": "Upstream repository, CI, contributor, test, or packaging process is not Oh My Herdr runtime behavior."
+      "reason": "Upstream repository, CI, contributor, test, or packaging process is not Gardn runtime behavior."
     },
     {
       "upstream": "82487675908e986ec3d4996151d952f086140c7f",
-      "subject": "feat: add public stats page at herdr.dev/stats",
+      "subject": "feat: add public stats page at gardn.dev/stats",
       "status": "skipped",
-      "reason": "Upstream repository, CI, contributor, test, or packaging process is not Oh My Herdr runtime behavior."
+      "reason": "Upstream repository, CI, contributor, test, or packaging process is not Gardn runtime behavior."
     },
     {
       "upstream": "d36a6ded3bbc623a3fcad3c6e45b7b22ae9b6267",
       "subject": "feat(website): add japanese and simplified chinese docs with i18n, translation issue flow",
       "status": "skipped",
-      "reason": "Oh My Herdr-owned docs, site, and release surfaces are maintained separately."
+      "reason": "Gardn-owned docs, site, and release surfaces are maintained separately."
     },
     {
       "upstream": "4dae557eefd992cbc03d435c6265842611811a67",
       "subject": "ci: use homebrew zig for preview macos builds",
       "status": "skipped",
-      "reason": "Upstream repository, CI, contributor, test, or packaging process is not Oh My Herdr runtime behavior."
+      "reason": "Upstream repository, CI, contributor, test, or packaging process is not Gardn runtime behavior."
     },
     {
       "upstream": "90debb9cef1261bccb36c8fea8be86cb95f03b0e",
       "subject": "docs: update preview manifest",
       "status": "skipped",
-      "reason": "Oh My Herdr-owned docs, site, and release surfaces are maintained separately."
+      "reason": "Gardn-owned docs, site, and release surfaces are maintained separately."
     },
     {
       "upstream": "cdfb75da4433bca1a5c54600628b72b5ac2e6a63",
       "subject": "chore: approve merged contributor akbash-bot",
       "status": "skipped",
-      "reason": "Upstream repository, CI, contributor, test, or packaging process is not Oh My Herdr runtime behavior."
+      "reason": "Upstream repository, CI, contributor, test, or packaging process is not Gardn runtime behavior."
     },
     {
       "upstream": "dd67f8591ecedd38f301c839e451cc40bb234075",
       "subject": "docs: expose stats page in website nav",
       "status": "skipped",
-      "reason": "Oh My Herdr-owned docs, site, and release surfaces are maintained separately."
+      "reason": "Gardn-owned docs, site, and release surfaces are maintained separately."
     },
     {
       "upstream": "faee06764ea78df1fc043ed7dc36fcab8837bf40",
       "subject": "test: synchronize multi-client resize assertion",
       "status": "ported",
-      "reason": "Equivalent invariant already exists in Oh My Herdr; reviewed during ENG-91 backlog classification."
+      "reason": "Equivalent invariant already exists in Gardn; reviewed during ENG-91 backlog classification."
     },
     {
       "upstream": "eb0399512833bb09e780f122921d074110c35bbd",
       "subject": "docs: add community video section",
       "status": "skipped",
-      "reason": "Oh My Herdr-owned docs, site, and release surfaces are maintained separately."
+      "reason": "Gardn-owned docs, site, and release surfaces are maintained separately."
     },
     {
       "upstream": "efceb30f0b447196615e3b2821d12ef82adcb3e2",
       "subject": "docs: update sponsors",
       "status": "skipped",
-      "reason": "Oh My Herdr-owned docs, site, and release surfaces are maintained separately."
+      "reason": "Gardn-owned docs, site, and release surfaces are maintained separately."
     },
     {
       "upstream": "4f22e9a73ba4d9029468e078235c5f5ce629d179",
       "subject": "fix: preserve wrapped pane links (#1099)",
       "status": "ported",
-      "reason": "Equivalent invariant already exists in Oh My Herdr; reviewed during ENG-91 backlog classification."
+      "reason": "Equivalent invariant already exists in Gardn; reviewed during ENG-91 backlog classification."
     },
     {
       "upstream": "5b4450c969a4118298dbe8cf495391eb1e8d47db",
       "subject": "docs: remove star history embed",
       "status": "skipped",
-      "reason": "Oh My Herdr-owned docs, site, and release surfaces are maintained separately."
+      "reason": "Gardn-owned docs, site, and release surfaces are maintained separately."
     },
     {
       "upstream": "670a2bb0647e5acffc22b5465fc43b3e4b76fc40",
       "subject": "chore: approve contributor liby",
       "status": "skipped",
-      "reason": "Upstream repository, CI, contributor, test, or packaging process is not Oh My Herdr runtime behavior."
+      "reason": "Upstream repository, CI, contributor, test, or packaging process is not Gardn runtime behavior."
     },
     {
       "upstream": "fb5a46a03cfa1b047e6012975178b16e9f478776",
       "subject": "docs: finalize release docs",
       "status": "skipped",
-      "reason": "Oh My Herdr-owned docs, site, and release surfaces are maintained separately."
+      "reason": "Gardn-owned docs, site, and release surfaces are maintained separately."
     },
     {
       "upstream": "199c27609c08a253a884eeba8331449b0b1a71a4",
       "subject": "release: v0.7.2",
       "status": "skipped",
-      "reason": "Oh My Herdr-owned docs, site, and release surfaces are maintained separately."
+      "reason": "Gardn-owned docs, site, and release surfaces are maintained separately."
     },
     {
       "upstream": "d0b75de0252ff70a8f43c221b506bf4a0ab3c54d",
       "subject": "docs: update website manifest for v0.7.2",
       "status": "skipped",
-      "reason": "Oh My Herdr-owned docs, site, and release surfaces are maintained separately."
+      "reason": "Gardn-owned docs, site, and release surfaces are maintained separately."
     },
     {
       "upstream": "2b99ced89adbd68ac163d16d33e0837fe8f6c3ed",
       "subject": "fix: keep cursor hide inside sync output",
       "status": "ported",
-      "reason": "Equivalent invariant already exists in Oh My Herdr; reviewed during ENG-91 backlog classification."
+      "reason": "Equivalent invariant already exists in Gardn; reviewed during ENG-91 backlog classification."
     },
     {
       "upstream": "1d49fa7639e7fc15b6ce270a7c0cee9c97ba7986",
       "subject": "ci: clear zig cache before windows checks",
       "status": "skipped",
-      "reason": "Upstream repository, CI, contributor, test, or packaging process is not Oh My Herdr runtime behavior."
+      "reason": "Upstream repository, CI, contributor, test, or packaging process is not Gardn runtime behavior."
     },
     {
       "upstream": "f5354780e4efcc938861b04992e954df915a07c8",
       "subject": "ci: ignore microsoft apt repos in artifact builds",
       "status": "skipped",
-      "reason": "Upstream repository, CI, contributor, test, or packaging process is not Oh My Herdr runtime behavior."
+      "reason": "Upstream repository, CI, contributor, test, or packaging process is not Gardn runtime behavior."
     },
     {
       "upstream": "53d85be782be89e4332b3930a989b572c539ee80",
       "subject": "docs: update preview manifest",
       "status": "skipped",
-      "reason": "Oh My Herdr-owned docs, site, and release surfaces are maintained separately."
+      "reason": "Gardn-owned docs, site, and release surfaces are maintained separately."
     },
     {
       "upstream": "35e9838a44470c418ae51204bab54115d15d87bd",
       "subject": "docs: change sponsorships tiers and add lead sponsor",
       "status": "skipped",
-      "reason": "Oh My Herdr-owned docs, site, and release surfaces are maintained separately."
+      "reason": "Gardn-owned docs, site, and release surfaces are maintained separately."
     },
     {
       "upstream": "d6285aaa59e0f7908c2ece81314aff2b98847e31",
       "subject": "fix: avoid render-time plain url scans",
       "status": "superseded",
-      "reason": "Current Oh My Herdr has equivalent behavior or Oh My Herdr-specific architecture; the upstream patch does not apply directly."
+      "reason": "Current Gardn has equivalent behavior or Gardn-specific architecture; the upstream patch does not apply directly."
     },
     {
       "upstream": "4e3970ca312303bb20ea61641021b939d3ebe3eb",
       "subject": "fix: restore workspace picker keyboard navigation",
       "status": "ported",
-      "reason": "Equivalent invariant already exists in Oh My Herdr; reviewed during ENG-91 backlog classification."
+      "reason": "Equivalent invariant already exists in Gardn; reviewed during ENG-91 backlog classification."
     },
     {
       "upstream": "370c90b2da0ee9de0fccfe6677207c6e8c0b77b1",
       "subject": "docs: stage 0.7.3 release notes",
       "status": "skipped",
-      "reason": "Oh My Herdr-owned docs, site, and release surfaces are maintained separately."
+      "reason": "Gardn-owned docs, site, and release surfaces are maintained separately."
     },
     {
       "upstream": "299dd4163a96381ec2d8e5bde13d7ba6d6432373",
       "subject": "release: v0.7.3",
       "status": "skipped",
-      "reason": "Oh My Herdr-owned docs, site, and release surfaces are maintained separately."
+      "reason": "Gardn-owned docs, site, and release surfaces are maintained separately."
     },
     {
       "upstream": "80616e895cc401d839688013f4c60684e12a4c42",
       "subject": "docs: update website manifest for v0.7.3",
       "status": "skipped",
-      "reason": "Oh My Herdr-owned docs, site, and release surfaces are maintained separately."
+      "reason": "Gardn-owned docs, site, and release surfaces are maintained separately."
     },
     {
       "upstream": "7a2c2300642cf8d56dfd62a5ae42e9a57a6db2c5",
       "subject": "docs: enforce localized release doc parity",
       "status": "skipped",
-      "reason": "Oh My Herdr-owned docs, site, and release surfaces are maintained separately."
+      "reason": "Gardn-owned docs, site, and release surfaces are maintained separately."
     },
     {
       "upstream": "e8174caeb7dd2fc68898644d7cb996c7140f428c",
       "subject": "docs: lean readme, add terminal trove gold sponsor",
       "status": "skipped",
-      "reason": "Oh My Herdr-owned docs, site, and release surfaces are maintained separately."
+      "reason": "Gardn-owned docs, site, and release surfaces are maintained separately."
     },
     {
       "upstream": "77f0339c3cd387c4ca3f4f240ff8b88065d66a22",
       "subject": "docs: link plugin marketplace from readme",
       "status": "skipped",
-      "reason": "Plugin marketplace is not part of Oh My Herdr's current product scope."
+      "reason": "Plugin marketplace is not part of Gardn's current product scope."
     },
     {
       "upstream": "552aa8ca223908a2ee3b1058587d4b5a84828e71",
       "subject": "fix: align collapsed sidebar agent rows (#1182)",
       "status": "ported",
-      "reason": "Equivalent invariant already exists in Oh My Herdr; reviewed during ENG-91 backlog classification."
+      "reason": "Equivalent invariant already exists in Gardn; reviewed during ENG-91 backlog classification."
     },
     {
       "upstream": "b352e7cde06b4c875ea8bc00ef22ddcbbe11339c",
       "subject": "chore: approve merged contributor kovalov",
       "status": "skipped",
-      "reason": "Upstream repository, CI, contributor, test, or packaging process is not Oh My Herdr runtime behavior."
+      "reason": "Upstream repository, CI, contributor, test, or packaging process is not Gardn runtime behavior."
     },
     {
       "upstream": "adbaae68daee7577b2dc93bd12507bfb67a2ca84",
       "subject": "fix: reanchor pi status after session replacement (#1189)",
       "status": "ported",
-      "reason": "Equivalent invariant already exists in Oh My Herdr; reviewed during ENG-91 backlog classification."
+      "reason": "Equivalent invariant already exists in Gardn; reviewed during ENG-91 backlog classification."
     },
     {
       "upstream": "b137c7b5ea551aec2a186fea51a0959461c032d9",
       "subject": "ci: pin rust toolchain to 1.96.1",
       "status": "skipped",
-      "reason": "Upstream repository, CI, contributor, test, or packaging process is not Oh My Herdr runtime behavior."
+      "reason": "Upstream repository, CI, contributor, test, or packaging process is not Gardn runtime behavior."
     },
     {
       "upstream": "0de503ccd9a8fedeeb6cbcc1446ab2bc644fdbb6",
       "subject": "docs: document windows config path",
       "status": "skipped",
-      "reason": "Oh My Herdr-owned docs, site, and release surfaces are maintained separately."
+      "reason": "Gardn-owned docs, site, and release surfaces are maintained separately."
     },
     {
       "upstream": "4f7fcc48d1f760ab6057d0964f009c05b753456a",
       "subject": "fix: follow foreground cwd for new terminals",
       "status": "ported",
-      "reason": "Equivalent invariant already exists in Oh My Herdr; reviewed during ENG-91 backlog classification."
+      "reason": "Equivalent invariant already exists in Gardn; reviewed during ENG-91 backlog classification."
     },
     {
       "upstream": "66be0b655fe922867f1eed100a41d67038b6ffd6",
       "subject": "fix: stop windows installer from rewriting config",
       "status": "ported",
-      "reason": "Equivalent invariant already exists in Oh My Herdr; reviewed during ENG-91 backlog classification."
+      "reason": "Equivalent invariant already exists in Gardn; reviewed during ENG-91 backlog classification."
     },
     {
       "upstream": "3e8f9df14e6dd08a8d80d920b923870a80649f0b",
       "subject": "fix: improve config diagnostic delivery",
       "status": "ported",
-      "reason": "Equivalent invariant already exists in Oh My Herdr; reviewed during ENG-91 backlog classification."
+      "reason": "Equivalent invariant already exists in Gardn; reviewed during ENG-91 backlog classification."
     },
     {
       "upstream": "c76e96878b866bf01639c8a1d8beb9c93a8ab95f",
-      "subject": "docs: refresh herdr agent skill",
+      "subject": "docs: refresh gardn agent skill",
       "status": "skipped",
-      "reason": "Oh My Herdr-owned docs, site, and release surfaces are maintained separately."
+      "reason": "Gardn-owned docs, site, and release surfaces are maintained separately."
     },
     {
       "upstream": "15c046a1bd08d0bb485ccbe20d5ff0c3d7bc8554",
       "subject": "chore: approve contributor tontinton",
       "status": "skipped",
-      "reason": "Upstream repository, CI, contributor, test, or packaging process is not Oh My Herdr runtime behavior."
+      "reason": "Upstream repository, CI, contributor, test, or packaging process is not Gardn runtime behavior."
     },
     {
       "upstream": "3b8aeee166d1594e1f8e41631a51748104d76834",
@@ -3172,55 +3172,55 @@
       "upstream": "e418e4a4f95c27654b21fc4fb3349629e58d3656",
       "subject": "chore: remove unmerged approved contributors",
       "status": "skipped",
-      "reason": "Upstream repository, CI, contributor, test, or packaging process is not Oh My Herdr runtime behavior."
+      "reason": "Upstream repository, CI, contributor, test, or packaging process is not Gardn runtime behavior."
     },
     {
       "upstream": "749e85e0fb5443488c5a96752afa7dd6cb040143",
       "subject": "fix: detach windows server from host terminal",
       "status": "ported",
-      "reason": "Equivalent invariant already exists in Oh My Herdr; reviewed during ENG-91 backlog classification."
+      "reason": "Equivalent invariant already exists in Gardn; reviewed during ENG-91 backlog classification."
     },
     {
       "upstream": "a6905364b69ff997c40d22c25e489d2e49b9c272",
       "subject": "fix: clarify config fallback diagnostics",
       "status": "ported",
-      "reason": "Equivalent invariant already exists in Oh My Herdr; reviewed during ENG-91 backlog classification."
+      "reason": "Equivalent invariant already exists in Gardn; reviewed during ENG-91 backlog classification."
     },
     {
       "upstream": "4ca6cac445a6aa45eb3b8462f66cd595d0c01364",
       "subject": "fix: match homepage mock pane chrome and sidebar to tui rendering",
       "status": "skipped",
-      "reason": "Oh My Herdr-owned docs, site, and release surfaces are maintained separately."
+      "reason": "Gardn-owned docs, site, and release surfaces are maintained separately."
     },
     {
       "upstream": "d64cf40ca3b7c9551da0b63abeb24cb89874db27",
       "subject": "fix: keep windows api connections open",
       "status": "ported",
-      "reason": "Equivalent invariant already exists in Oh My Herdr; reviewed during ENG-91 backlog classification."
+      "reason": "Equivalent invariant already exists in Gardn; reviewed during ENG-91 backlog classification."
     },
     {
       "upstream": "0cd0b1aef0088256bdfe19a6951636185f8684f4",
       "subject": "fix: number collapsed agent rows by list position",
       "status": "ported",
-      "reason": "Equivalent invariant already exists in Oh My Herdr; reviewed during ENG-91 backlog classification."
+      "reason": "Equivalent invariant already exists in Gardn; reviewed during ENG-91 backlog classification."
     },
     {
       "upstream": "3661d99c2e4a4247392fc1a1eed5f37453393f8e",
       "subject": "docs: add troubleshooting guide",
       "status": "skipped",
-      "reason": "Oh My Herdr-owned docs, site, and release surfaces are maintained separately."
+      "reason": "Gardn-owned docs, site, and release surfaces are maintained separately."
     },
     {
       "upstream": "2c444eee351e9269b270e215cfbf4696e7c6179b",
       "subject": "refactor: centralize agent identity lookup",
       "status": "ported",
-      "reason": "Equivalent invariant already exists in Oh My Herdr; reviewed during ENG-91 backlog classification."
+      "reason": "Equivalent invariant already exists in Gardn; reviewed during ENG-91 backlog classification."
     },
     {
       "upstream": "7f3364a468f7dcfd8c9c84e5737fe5699f0e3a93",
       "subject": "docs: add versioned config reference",
       "status": "skipped",
-      "reason": "Oh My Herdr-owned docs, site, and release surfaces are maintained separately."
+      "reason": "Gardn-owned docs, site, and release surfaces are maintained separately."
     },
     {
       "upstream": "5cfe5e5e730246948b0c9428ad876b6938590aad",
@@ -3232,19 +3232,19 @@
       "upstream": "4800ff54f0a85019d589211f42aafe476a7fd45d",
       "subject": "fix: detect reordered codex title spinners",
       "status": "ported",
-      "reason": "Equivalent invariant already exists in Oh My Herdr; reviewed during ENG-91 backlog classification."
+      "reason": "Equivalent invariant already exists in Gardn; reviewed during ENG-91 backlog classification."
     },
     {
       "upstream": "64de9279e39cbdce07b97b4ded1ea439ff7192e8",
       "subject": "fix: allow slow server shutdowns",
       "status": "ported",
-      "reason": "Equivalent invariant already exists in Oh My Herdr; reviewed during ENG-91 backlog classification."
+      "reason": "Equivalent invariant already exists in Gardn; reviewed during ENG-91 backlog classification."
     },
     {
       "upstream": "2cee801ea8c6581bdcdd9ea344c9aa9e53a6d835",
       "subject": "docs: streamline configuration guide",
       "status": "skipped",
-      "reason": "Oh My Herdr-owned docs, site, and release surfaces are maintained separately."
+      "reason": "Gardn-owned docs, site, and release surfaces are maintained separately."
     },
     {
       "upstream": "a47bc3e068457e54011963f4540c4be34972daa2",
@@ -3256,25 +3256,25 @@
       "upstream": "6e85ff07f188186edcec8ac0e8263f899c7f1f26",
       "subject": "docs: explain modified-arrow shell bindings",
       "status": "skipped",
-      "reason": "Oh My Herdr-owned docs, site, and release surfaces are maintained separately."
+      "reason": "Gardn-owned docs, site, and release surfaces are maintained separately."
     },
     {
       "upstream": "75ed6abc6258f09af5d4fc995a5004c1abf14fc2",
       "subject": "fix: reap detached custom command children (#1384)",
       "status": "ported",
-      "reason": "Equivalent invariant already exists in Oh My Herdr; reviewed during ENG-91 backlog classification."
+      "reason": "Equivalent invariant already exists in Gardn; reviewed during ENG-91 backlog classification."
     },
     {
       "upstream": "3a8490f6515dfea13292ae28e34f1174d2f68af1",
       "subject": "fix: show renamed single tabs in agents sidebar",
       "status": "ported",
-      "reason": "Equivalent invariant already exists in Oh My Herdr; reviewed during ENG-91 backlog classification."
+      "reason": "Equivalent invariant already exists in Gardn; reviewed during ENG-91 backlog classification."
     },
     {
       "upstream": "ca7ae086e8d6e80f6efc969d541b390328a6d143",
       "subject": "fix(website): scope docs search by locale and channel",
       "status": "skipped",
-      "reason": "Oh My Herdr-owned website is maintained separately; upstream Herdr website behavior is not portable."
+      "reason": "Gardn-owned website is maintained separately; upstream Gardn website behavior is not portable."
     },
     {
       "upstream": "2e5da968ea3fb7105c56f7674caf822de41ec176",
@@ -3310,19 +3310,19 @@
       "upstream": "b88aa1301e324c80d46cac767f87109f38cf4fe2",
       "subject": "fix: flush live handoff responses before exit",
       "status": "ported",
-      "reason": "Oh My Herdr handoff responses are flushed in server/handoff.rs and client_transport.rs."
+      "reason": "Gardn handoff responses are flushed in server/handoff.rs and client_transport.rs."
     },
     {
       "upstream": "012e819b5b8e17c6f608b730088101a29318d475",
       "subject": "ci: restore fast reliable checks",
       "status": "skipped",
-      "reason": "Upstream CI workflow policy is maintained independently in Oh My Herdr."
+      "reason": "Upstream CI workflow policy is maintained independently in Gardn."
     },
     {
       "upstream": "d482836a87e6fd5f884b595021578c0a39f16cf5",
       "subject": "test: shorten macos api socket fixture path",
       "status": "superseded",
-      "reason": "Oh My Herdr owns independent macOS API socket fixtures and does not need this upstream test-path adjustment."
+      "reason": "Gardn owns independent macOS API socket fixtures and does not need this upstream test-path adjustment."
     },
     {
       "upstream": "30232287361f753d071ecd6bca7b9dda276ec0f9",
@@ -3346,7 +3346,7 @@
       "upstream": "c9676e46ad9298c49bcc66981b2c405936433809",
       "subject": "feat(website): homepage plugin showcase, live star count, faithful claude code mock",
       "status": "skipped",
-      "reason": "The upstream Herdr website is an Oh My Herdr-owned product surface and is not portable."
+      "reason": "The upstream Gardn website is an Gardn-owned product surface and is not portable."
     },
     {
       "upstream": "5d24d0d214d05858e344a9e15a63856dc1328eae",
@@ -3358,55 +3358,55 @@
       "upstream": "88370e1516182ab519d22a12fa82d5780a40fee6",
       "subject": "feat: add isolated pane graphics streaming",
       "status": "ported",
-      "reason": "Oh My Herdr already isolates and forwards pane graphics through its client graphics stream."
+      "reason": "Gardn already isolates and forwards pane graphics through its client graphics stream."
     },
     {
       "upstream": "2c7c8beb079c5fd58a2e53efd2058df050ad9f55",
       "subject": "feat: add floating popup panes",
       "status": "ported",
-      "reason": "Implemented client-local centered popup panes with shared terminal runtimes, lifecycle cleanup, terminal input/mouse routing, and pure render/resize geometry. Focused proof: cargo test --locked -p omh popup_size::tests; cargo test --locked -p omh popup_ (all passing)."
+      "reason": "Implemented client-local centered popup panes with shared terminal runtimes, lifecycle cleanup, terminal input/mouse routing, and pure render/resize geometry. Focused proof: cargo test --locked -p gardn popup_size::tests; cargo test --locked -p gardn popup_ (all passing)."
     },
     {
       "upstream": "2bd334b357d99b4b8853596433fc4a43bbb4658e",
       "subject": "test: shorten pane graphics socket fixture paths",
       "status": "superseded",
-      "reason": "Oh My Herdr owns independent pane-graphics socket fixtures and does not need this upstream test-path adjustment."
+      "reason": "Gardn owns independent pane-graphics socket fixtures and does not need this upstream test-path adjustment."
     },
     {
       "upstream": "a0678a38b9426b011f66e1b88ff7aaa9bf877104",
       "subject": "docs: add popup pane usage examples",
       "status": "skipped",
-      "reason": "Oh My Herdr documentation is maintained separately; popup documentation follows any future local port."
+      "reason": "Gardn documentation is maintained separately; popup documentation follows any future local port."
     },
     {
       "upstream": "17208b0641a702af60d96e15004f72f226bac0de",
       "subject": "docs: finalize next release documentation",
       "status": "skipped",
-      "reason": "Oh My Herdr release documentation is maintained through its own Tegami workflow."
+      "reason": "Gardn release documentation is maintained through its own Tegami workflow."
     },
     {
       "upstream": "50aaa2ec046ee26ff407c20f49de496f522512a8",
       "subject": "release: v0.7.4",
       "status": "skipped",
-      "reason": "Upstream Herdr release bookkeeping is not part of Oh My Herdr release history."
+      "reason": "Upstream Gardn release bookkeeping is not part of Gardn release history."
     },
     {
       "upstream": "0aeb37b6c2628cb13c28deb5749e144f3f759fd2",
       "subject": "docs: update website manifest for v0.7.4",
       "status": "skipped",
-      "reason": "The upstream Herdr website release manifest is an Oh My Herdr-owned surface."
+      "reason": "The upstream Gardn website release manifest is an Gardn-owned surface."
     },
     {
       "upstream": "8877eaa80cdffc89c8526e4ad06db21a445202c6",
       "subject": "docs: update preview manifest",
       "status": "skipped",
-      "reason": "The upstream preview manifest belongs to Herdr release plumbing."
+      "reason": "The upstream preview manifest belongs to Gardn release plumbing."
     },
     {
       "upstream": "7767f3ed6453ae573d7414d31cfe982f99a73782",
       "subject": "test: wait for multi-client resize propagation",
       "status": "superseded",
-      "reason": "Oh My Herdr owns independent multi-client resize tests and timing policy."
+      "reason": "Gardn owns independent multi-client resize tests and timing policy."
     },
     {
       "upstream": "600753b47b75898c311ecfb625bd1887031b3475",
@@ -3418,7 +3418,7 @@
       "upstream": "e9cbcf2f6f8654dd41b10826ef6aecd526f6b0b0",
       "subject": "fix: handle pane graphics stream disconnect race",
       "status": "ported",
-      "reason": "Adapted under ENG-164 to Oh My Herdr's API stream seam: disconnects during timed polling skip racing socket-option resets, with focused EOF and teardown tests passing."
+      "reason": "Adapted under ENG-164 to Gardn's API stream seam: disconnects during timed polling skip racing socket-option resets, with focused EOF and teardown tests passing."
     },
     {
       "upstream": "a22454f27ce096585e19d1787dba43f56d1505cf",
@@ -3430,7 +3430,7 @@
       "upstream": "947328fa79fcefd2fa8087de014168d46a641312",
       "subject": "feat(macos): support agent environment hints",
       "status": "ported",
-      "reason": "platform/macos.rs already reads OMH_AGENT process-environment hints, with behavior coverage."
+      "reason": "platform/macos.rs already reads GARDN_AGENT process-environment hints, with behavior coverage."
     },
     {
       "upstream": "b16465afbbf8e4e959076fceb7e84377f2ecc379",
@@ -3466,7 +3466,7 @@
       "upstream": "76a4e3ccb0958ff54badfa65ba4d224d6b0c29a1",
       "subject": "docs: update preview manifest",
       "status": "skipped",
-      "reason": "The upstream preview manifest belongs to Herdr release plumbing."
+      "reason": "The upstream preview manifest belongs to Gardn release plumbing."
     },
     {
       "upstream": "616d1dd8125ece4a9102b231864cb4fc4b761497",
@@ -3496,7 +3496,7 @@
       "upstream": "4a3302d19a2baa3a33e910e0088c24e780905b90",
       "subject": "chore: update vendored libghostty-vt",
       "status": "ported",
-      "reason": "Oh My Herdr already vendors and builds the corresponding libghostty-vt integration."
+      "reason": "Gardn already vendors and builds the corresponding libghostty-vt integration."
     },
     {
       "upstream": "b42c6e661e5b02952f8990d9a16dce984e41463a",
@@ -3532,13 +3532,13 @@
       "upstream": "813fec141faabe0615b66c4f1738c0af7581309c",
       "subject": "test(windows): support headless console runners",
       "status": "superseded",
-      "reason": "Oh My Herdr owns independent Windows headless smoke infrastructure."
+      "reason": "Gardn owns independent Windows headless smoke infrastructure."
     },
     {
       "upstream": "040956531f673c8fb7720037494ed4e61b123c6c",
       "subject": "docs: update preview manifest",
       "status": "skipped",
-      "reason": "The upstream preview manifest belongs to Herdr release plumbing."
+      "reason": "The upstream preview manifest belongs to Gardn release plumbing."
     },
     {
       "upstream": "e0758c32118f2aa006db3d8fa4b41833fe6e7ead",
@@ -3550,7 +3550,7 @@
       "upstream": "13ce20c4f536892c5b939bd62e5286fac9c2eaee",
       "subject": "fix: update windows conpty smoke for pane-first agents",
       "status": "superseded",
-      "reason": "Oh My Herdr owns independent Windows ConPTY smoke coverage and pane-first test setup."
+      "reason": "Gardn owns independent Windows ConPTY smoke coverage and pane-first test setup."
     },
     {
       "upstream": "e298e4589050349630d0faaec00ef11555b83ae1",
@@ -3595,7 +3595,7 @@
       "local": [
         "101bcb36"
       ],
-      "reason": "Ported Pi, OMP, and OpenCode JavaScript integrations to Windows named-pipe endpoints, enabled their Windows installation targets, and covered Pi extension-directory setup. Kilo is not an Oh My Herdr installable integration and was intentionally not added."
+      "reason": "Ported Pi, OMP, and OpenCode JavaScript integrations to Windows named-pipe endpoints, enabled their Windows installation targets, and covered Pi extension-directory setup. Kilo is not an Gardn installable integration and was intentionally not added."
     },
     {
       "upstream": "b580103b956ef9cdf39798947a46ce4e8b78c322",
@@ -3643,7 +3643,7 @@
       "upstream": "9450b168c727e9e4cbee95e6edf4f11cfe6f2154",
       "subject": "fix: avoid rechecking cached pane cwd (#1616)",
       "status": "superseded",
-      "reason": "ENG-154 confirmed Oh My Herdr has no upstream-style authoritative reported-cwd cache to revalidate; adding a process-cwd cache would invent unsafe invalidation semantics."
+      "reason": "ENG-154 confirmed Gardn has no upstream-style authoritative reported-cwd cache to revalidate; adding a process-cwd cache would invent unsafe invalidation semantics."
     },
     {
       "upstream": "28b628d79d755afbb3ac45f9184a03c204c26784",
@@ -3673,7 +3673,7 @@
       "upstream": "1f2487554b9fd42118f9e99ee06eb558bbb2391f",
       "subject": "docs: explain Windows cursor and IME trade-off",
       "status": "skipped",
-      "reason": "The upstream Windows cursor and IME documentation is maintained separately for Oh My Herdr."
+      "reason": "The upstream Windows cursor and IME documentation is maintained separately for Gardn."
     },
     {
       "upstream": "44f2211608618e56d4bd80ef9c2bac4d9c8be4d2",
@@ -3685,13 +3685,13 @@
       "upstream": "de94cf833072251ff58f60e3478c00f6ceb1dbeb",
       "subject": "fix: discover canonical mise remote installs",
       "status": "ported",
-      "reason": "Ported canonical mise remote discovery for both omh install layouts while preserving user-shell then /bin/sh fallback; fake-SSH boundary tests cover present, absent, malformed, fallback, and diagnostic paths."
+      "reason": "Ported canonical mise remote discovery for both gardn install layouts while preserving user-shell then /bin/sh fallback; fake-SSH boundary tests cover present, absent, malformed, fallback, and diagnostic paths."
     },
     {
       "upstream": "fd29addd719e3451bea0a1cc20d93374d7bea2d9",
       "subject": "fix: bound linux sound player lifetime (#1677)",
       "status": "ported",
-      "reason": "Ported to Oh My Herdr's Linux audio player boundary with bounded polling, concurrent stdout/stderr draining, timeout termination/reaping, and controlled-child coverage for timeout cleanup and completed output."
+      "reason": "Ported to Gardn's Linux audio player boundary with bounded polling, concurrent stdout/stderr draining, timeout termination/reaping, and controlled-child coverage for timeout cleanup and completed output."
     },
     {
       "upstream": "6382bd433a66683d29455409e1dbb16776727bbf",
@@ -3709,43 +3709,43 @@
       "upstream": "7c189003464fce851736096b309078aaff7640c7",
       "subject": "docs: document alternate-screen automation limits",
       "status": "skipped",
-      "reason": "Oh My Herdr owns its automation documentation and alternate-screen guidance."
+      "reason": "Gardn owns its automation documentation and alternate-screen guidance."
     },
     {
       "upstream": "bc064e9d034711ba40e4e42a0129934752f0b802",
       "subject": "docs: finalize release docs and refresh agent skill",
       "status": "skipped",
-      "reason": "Oh My Herdr release docs and agent skill are maintained independently."
+      "reason": "Gardn release docs and agent skill are maintained independently."
     },
     {
       "upstream": "ef4c23f5775bb8cfec05f05d0844226ff959a07a",
       "subject": "release: v0.7.5",
       "status": "skipped",
-      "reason": "Upstream Herdr release bookkeeping is not part of Oh My Herdr release history."
+      "reason": "Upstream Gardn release bookkeeping is not part of Gardn release history."
     },
     {
       "upstream": "c5293af6909eebea7adb08ac17be03329606235c",
       "subject": "docs: update website manifest for v0.7.5",
       "status": "skipped",
-      "reason": "The upstream Herdr website release manifest is an Oh My Herdr-owned surface."
+      "reason": "The upstream Gardn website release manifest is an Gardn-owned surface."
     },
     {
       "upstream": "0f10e1453a7f9fda357352bb65ce17fa26fda447",
       "subject": "fix(website): add agent automation to docs sidebar",
       "status": "skipped",
-      "reason": "The upstream Herdr website navigation is an Oh My Herdr-owned surface."
+      "reason": "The upstream Gardn website navigation is an Gardn-owned surface."
     },
     {
       "upstream": "62d423515cf294e58571c43311bc5801a07b496b",
       "subject": "docs: update preview manifest",
       "status": "skipped",
-      "reason": "The upstream preview manifest belongs to Herdr release plumbing."
+      "reason": "The upstream preview manifest belongs to Gardn release plumbing."
     },
     {
       "upstream": "0f161fac287011b3e216383e2b8482f049fd6a7b",
       "subject": "docs: add alternate-screen output fallback",
       "status": "skipped",
-      "reason": "Oh My Herdr owns its automation documentation and alternate-screen guidance."
+      "reason": "Gardn owns its automation documentation and alternate-screen guidance."
     },
     {
       "upstream": "08640bb3ddc0a9c299e855d6a459d2f82970cf86",
@@ -3763,13 +3763,13 @@
       "upstream": "c234f221f9be698bc0501c60459e1ae8e67df6c3",
       "subject": "feat(docs): publish versioned release documentation",
       "status": "skipped",
-      "reason": "Versioned Herdr release documentation is an Oh My Herdr-owned docs and release surface."
+      "reason": "Versioned Gardn release documentation is an Gardn-owned docs and release surface."
     },
     {
       "upstream": "1d238bc9a365d9dd1297b4e11fe775cd656aebd0",
       "subject": "refactor: replace pane mouse and clipboard internals",
       "status": "ported",
-      "reason": "Oh My Herdr already uses its Ghostty-native pane mouse and clipboard architecture."
+      "reason": "Gardn already uses its Ghostty-native pane mouse and clipboard architecture."
     },
     {
       "upstream": "d3b4d5b0e1a0859969e709b9d47fb2d1d4a1524c",
@@ -3805,7 +3805,7 @@
       "upstream": "9524d0a3bc9912b2094a1bda38c845a10bb4ba7b",
       "subject": "refactor: name darwin nix toolchain inputs",
       "status": "ported",
-      "reason": "Darwin Nix toolchain inputs are already named explicitly in apps/omh/nix/package.nix."
+      "reason": "Darwin Nix toolchain inputs are already named explicitly in apps/gardn/nix/package.nix."
     },
     {
       "upstream": "a02c3a69bb5cea3832ef54e7cbe29425cc392eb3",
@@ -3815,9 +3815,9 @@
     },
     {
       "upstream": "cd5ea1be0e69ed49b6f32f7ed5b333f6c8526874",
-      "subject": "chore: relicense herdr under apache-2.0",
+      "subject": "chore: relicense gardn under apache-2.0",
       "status": "skipped",
-      "reason": "Upstream relicensing is repository policy and does not change Oh My Herdr licensing."
+      "reason": "Upstream relicensing is repository policy and does not change Gardn licensing."
     },
     {
       "upstream": "7e821ba7a362cc634a705ea56e11b070b7b95784",
@@ -3841,19 +3841,19 @@
       "upstream": "d9012394744522ad7f2b6bb57d89b1f12eb98ff8",
       "subject": "chore: approve contributor badlogic",
       "status": "skipped",
-      "reason": "Upstream-only APPROVED_CONTRIBUTORS edit; not OMH runtime behavior."
+      "reason": "Upstream-only APPROVED_CONTRIBUTORS edit; not GARDN runtime behavior."
     },
     {
       "upstream": "58ad2c6438cf25cdf7e95528c7114d3bf12626d2",
       "subject": "chore: approve contributor carlesso",
       "status": "skipped",
-      "reason": "Upstream-only APPROVED_CONTRIBUTORS edit; not OMH runtime behavior."
+      "reason": "Upstream-only APPROVED_CONTRIBUTORS edit; not GARDN runtime behavior."
     },
     {
       "upstream": "503613c8ecbea752a234daf30cb0ad5a8bf93e4e",
       "subject": "fix: inherit host palette in pane queries (#1759)",
       "status": "superseded",
-      "reason": "OMH already inherits host OSC 4 palette into pane queries and preserves child overrides until OSC 104 reset."
+      "reason": "GARDN already inherits host OSC 4 palette into pane queries and preserves child overrides until OSC 104 reset."
     },
     {
       "upstream": "36de78dd4fa4e2c203ee955f18caf82a6bca7e80",
@@ -3871,13 +3871,13 @@
       "upstream": "a45ce225fe8bc6e0291e6064ee1285d945579277",
       "subject": "fix: prefer branded homepage search image",
       "status": "skipped",
-      "reason": "herdr.dev website/CSS/schema.org branding."
+      "reason": "gardn.dev website/CSS/schema.org branding."
     },
     {
       "upstream": "1bcc55e47d94a10b154a180e01ee8c068b953337",
       "subject": "chore: approve contributor joonhwan",
       "status": "skipped",
-      "reason": "Upstream-only APPROVED_CONTRIBUTORS edit; not OMH runtime behavior."
+      "reason": "Upstream-only APPROVED_CONTRIBUTORS edit; not GARDN runtime behavior."
     },
     {
       "upstream": "169a4fd90c20a00aec77d684ecec98b9f0f996cc",
@@ -3901,13 +3901,13 @@
       "upstream": "83c7bde7a68e1054e75beba47d610580e34e43cb",
       "subject": "chore: approve contributor adamkrellenstein",
       "status": "skipped",
-      "reason": "Upstream-only APPROVED_CONTRIBUTORS edit; not OMH runtime behavior."
+      "reason": "Upstream-only APPROVED_CONTRIBUTORS edit; not GARDN runtime behavior."
     },
     {
       "upstream": "b56baee9d60a002b5d8c0fe74d5032afad27ef30",
       "subject": "chore: approve contributor corrius",
       "status": "skipped",
-      "reason": "Upstream-only APPROVED_CONTRIBUTORS edit; not OMH runtime behavior."
+      "reason": "Upstream-only APPROVED_CONTRIBUTORS edit; not GARDN runtime behavior."
     },
     {
       "upstream": "e9b22084e03880f43d1f1daaf5d9f45c717b77c4",
@@ -4273,7 +4273,7 @@
       "upstream": "38b7b540e1d1e5cdcd8fcc31bc8bcf1cde44b603",
       "subject": "fix: add opt-in child-group process detection (#2052)",
       "status": "superseded",
-      "reason": "Do not port HERDR_PROCESS_DETECTION=child-groups."
+      "reason": "Do not port GARDN_PROCESS_DETECTION=child-groups."
     },
     {
       "upstream": "53199270f6658324248a56f027ab29a6c44bfd8d",
@@ -4355,7 +4355,7 @@
     },
     {
       "upstream": "f99647b2c2d7fbfd11269330a25ea4f9be59bafa",
-      "subject": "fix: report a clear cli error when no herdr server is running (#1963)",
+      "subject": "fix: report a clear cli error when no gardn server is running (#1963)",
       "status": "ported",
       "reason": "Ported by invariant in the selective upstream v0.8 integration, with focused regression coverage."
     },
@@ -4687,7 +4687,7 @@
       "upstream": "78a356b17b325d8cd53e2ddde69d18524d7cd4f9",
       "subject": "fix: keep plugin marketplace counts current",
       "status": "skipped",
-      "reason": "Product-owned website plus plugin marketplace, which Oh My Herdr already treats as out of scope."
+      "reason": "Product-owned website plus plugin marketplace, which Gardn already treats as out of scope."
     },
     {
       "upstream": "ecddecec6221174dc0557b0cbea9a6322f7e77e3",
@@ -4699,7 +4699,7 @@
       "upstream": "bb4edc7f4e87130358d1795701c4f3f709aa7f21",
       "subject": "docs: document custom agent integrations",
       "status": "skipped",
-      "reason": "Product-owned docs/website only (Herdr custom-integration guide)."
+      "reason": "Product-owned docs/website only (Gardn custom-integration guide)."
     },
     {
       "upstream": "fc824b99aba9389ffda75f19b3a4aee0ff6ca8b5",
@@ -4741,7 +4741,7 @@
       "upstream": "d16af2660a99c6d238f0c7844339e6179515dc3a",
       "subject": "feat(marketplace): track star history for trending and new plugin surfaces",
       "status": "skipped",
-      "reason": "Plugin marketplace worker/R2 star history is not in Oh My Herdr product scope."
+      "reason": "Plugin marketplace worker/R2 star history is not in Gardn product scope."
     },
     {
       "upstream": "f7d791eba53d1e72b2318d2d5d038fc0dc8c15dc",
@@ -4753,7 +4753,7 @@
       "upstream": "69a07fdf061a35276295189d52d591893c429806",
       "subject": "fix: publish stable release checksums",
       "status": "skipped",
-      "reason": "Herdr website/latest.json v0.8.0 sha256 map."
+      "reason": "Gardn website/latest.json v0.8.0 sha256 map."
     },
     {
       "upstream": "322ab6a5a98db5c230b7c90881b8b4baf4cee624",
@@ -5029,7 +5029,7 @@
       "upstream": "1079fff412ca978548e42af79b3f1b7ad7912686",
       "subject": "fix: use the running binary in agent hooks (#2722)",
       "status": "superseded",
-      "reason": "Do not port the herdr CLI/HERDR_BIN_PATH hook rewrite."
+      "reason": "Do not port the gardn CLI/GARDN_BIN_PATH hook rewrite."
     },
     {
       "upstream": "49e333ae87a57952fc82ba479a55c35b975ff3cc",
@@ -5105,7 +5105,7 @@
     },
     {
       "upstream": "1af1a5b86f642ae7b053037bc472913cfbc1e206",
-      "subject": "feat(cli): guide agents to Herdr resources",
+      "subject": "feat(cli): guide agents to Gardn resources",
       "status": "skipped",
       "reason": "Skip."
     },

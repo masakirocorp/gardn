@@ -5,12 +5,12 @@ from pathlib import Path
 
 ASSET = (
     Path(__file__).parents[1]
-    / "apps/omh/src/integration/assets/hermes/__init__.py"
+    / "apps/gardn/src/integration/assets/hermes/__init__.py"
 )
 
 
 def load_asset():
-    spec = importlib.util.spec_from_file_location("omh_hermes_integration", ASSET)
+    spec = importlib.util.spec_from_file_location("gardn_hermes_integration", ASSET)
     if spec is None or spec.loader is None:
         raise RuntimeError("could not load Hermes integration asset")
     module = importlib.util.module_from_spec(spec)

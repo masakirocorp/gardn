@@ -1,32 +1,32 @@
 ---
-title: Install Oh My Herdr
-description: Install Oh My Herdr from the current source checkout or Nix flake.
+title: Install Gardn
+description: Install Gardn from the current source checkout or Nix flake.
 ---
 
-# Install Oh My Herdr
+# Install Gardn
 
-This guide installs the current pre-public Oh My Herdr source.
+This guide installs the current pre-public Gardn source.
 
-> **Release availability:** Verified `omh-*` release downloads are not publicly available yet. Use one of the source-based paths below and check the [download status](/download) page before relying on a release artifact.
+> **Release availability:** Verified `gardn-*` release downloads are not publicly available yet. Use one of the source-based paths below and check the [download status](/download) page before relying on a release artifact.
 
 ## Build from a source checkout
 
 Install Rust and Cargo, then run these commands from the repository root:
 
 ```bash
-git clone https://github.com/masakirocorp/oh-my-herdr.git
-cd oh-my-herdr
-cargo install --path apps/omh
+git clone https://github.com/masakirocorp/gardn.git
+cd gardn
+cargo install --path apps/gardn
 ```
 
-`cargo install --path apps/omh` must run from the cloned repository root, where the workspace and `apps/omh` package are present. It installs the `omh` executable into Cargo's normal binary directory. The default branch is pre-public and may change; pin a reviewed commit before using this command in automation.
+`cargo install --path apps/gardn` must run from the cloned repository root, where the workspace and `apps/gardn` package are present. It installs the `gardn` executable into Cargo's normal binary directory. The default branch is pre-public and may change; pin a reviewed commit before using this command in automation.
 
 ## Install with Nix
 
-The current repository flake exposes the `omh` package:
+The current repository flake exposes the `gardn` package:
 
 ```bash
-nix profile install "github:masakirocorp/oh-my-herdr#omh"
+nix profile install "github:masakirocorp/gardn#gardn"
 ```
 
 This Nix package is declared for x86_64 and aarch64 Linux and macOS. The Nix path does not provide a Windows installation.
@@ -36,9 +36,9 @@ This Nix package is declared for x86_64 and aarch64 Linux and macOS. The Nix pat
 Verify the executable and version:
 
 ```bash
-omh --version
+gardn --version
 ```
 
-The output starts with `omh` followed by the current source version.
+The output starts with `gardn` followed by the current source version.
 
 Continue with the [quick-start tutorial](/docs/getting-started/quick-start), or return to the [download status](/download) page for release availability.

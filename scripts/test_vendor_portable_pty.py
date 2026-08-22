@@ -8,7 +8,7 @@ from pathlib import Path
 
 class VendorPortablePtyTests(unittest.TestCase):
     def test_vendored_tree_contains_required_upstream_files(self) -> None:
-        root = Path(__file__).resolve().parent.parent / "apps" / "omh" / "vendor" / "portable-pty"
+        root = Path(__file__).resolve().parent.parent / "apps" / "gardn" / "vendor" / "portable-pty"
         required = [
             root / "Cargo.toml",
             root / "LICENSE.md",
@@ -22,19 +22,19 @@ class VendorPortablePtyTests(unittest.TestCase):
     def test_cargo_patch_points_at_vendored_tree(self) -> None:
         project_root = Path(__file__).resolve().parent.parent
         cargo_toml = (project_root / "Cargo.toml").read_text()
-        app_manifest = (project_root / "apps" / "omh" / "Cargo.toml").read_text()
+        app_manifest = (project_root / "apps" / "gardn" / "Cargo.toml").read_text()
 
         self.assertIn('portable-pty = "=0.9.0"', app_manifest)
         self.assertIn("[patch.crates-io]", cargo_toml)
         self.assertIn(
-            'portable-pty = { path = "apps/omh/vendor/portable-pty" }',
+            'portable-pty = { path = "apps/gardn/vendor/portable-pty" }',
             cargo_toml,
         )
 
     def test_nix_source_includes_vendored_tree(self) -> None:
         project_root = Path(__file__).resolve().parent.parent
         package_nix = (project_root / "nix" / "package.nix").read_text()
-        self.assertIn("../apps/omh/vendor/portable-pty", package_nix)
+        self.assertIn("../apps/gardn/vendor/portable-pty", package_nix)
 
     def test_cargo_metadata_resolves_portable_pty_to_vendored_tree(self) -> None:
         project_root = Path(__file__).resolve().parent.parent
@@ -60,14 +60,14 @@ class VendorPortablePtyTests(unittest.TestCase):
 
         manifest_path = Path(packages[0]["manifest_path"]).resolve()
         expected = (
-            project_root / "apps" / "omh" / "vendor" / "portable-pty" / "Cargo.toml"
+            project_root / "apps" / "gardn" / "vendor" / "portable-pty" / "Cargo.toml"
         ).resolve()
         self.assertEqual(manifest_path, expected)
 
     def test_local_vendor_patches_are_listed_in_patch_index(self) -> None:
         project_root = Path(__file__).resolve().parent.parent
-        index = project_root / "apps" / "omh" / "vendor" / "portable-pty.patches.md"
-        patch_dir = project_root / "apps" / "omh" / "vendor" / "patches" / "portable-pty"
+        index = project_root / "apps" / "gardn" / "vendor" / "portable-pty.patches.md"
+        patch_dir = project_root / "apps" / "gardn" / "vendor" / "patches" / "portable-pty"
         patches = sorted(patch_dir.glob("*.patch"))
 
         self.assertTrue(index.exists())
@@ -81,7 +81,7 @@ class VendorPortablePtyTests(unittest.TestCase):
 
     def test_local_vendor_patches_are_applied_to_vendored_tree(self) -> None:
         project_root = Path(__file__).resolve().parent.parent
-        patch_dir = project_root / "apps" / "omh" / "vendor" / "patches" / "portable-pty"
+        patch_dir = project_root / "apps" / "gardn" / "vendor" / "patches" / "portable-pty"
 
         for patch in sorted(patch_dir.glob("*.patch")):
             result = subprocess.run(
@@ -103,7 +103,7 @@ class VendorPortablePtyTests(unittest.TestCase):
         source = (
             project_root
             / "apps"
-            / "omh"
+            / "gardn"
             / "vendor"
             / "portable-pty"
             / "src"

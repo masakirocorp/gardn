@@ -20,9 +20,9 @@ command -v cargo-zigbuild >/dev/null 2>&1 || {
 }
 
 if [[ "$mode" == all ]]; then
-  cargo build --release --package omh --locked
+  cargo build --release --package gardn --locked
 fi
-cargo build --profile debugging --package omh --locked
+cargo build --profile debugging --package gardn --locked
 
 linux_targets=(
   x86_64-unknown-linux-musl
@@ -30,17 +30,17 @@ linux_targets=(
 )
 for target in "${linux_targets[@]}"; do
   rustup target add "$target"
-  cargo zigbuild --release --target "$target" --package omh --locked
+  cargo zigbuild --release --target "$target" --package gardn --locked
 done
 
-debug_binary="$root/target/debugging/omh"
+debug_binary="$root/target/debugging/gardn"
 bin_dir="${HOME}/.local/bin"
 install -d -m 755 "$bin_dir"
 if [[ "$mode" == all ]]; then
-  release_binary="$root/target/release/omh"
-  install -m 755 "$release_binary" "$bin_dir/omh"
+  release_binary="$root/target/release/gardn"
+  install -m 755 "$release_binary" "$bin_dir/gardn"
 fi
-install -m 755 "$debug_binary" "$bin_dir/omh-dev"
+install -m 755 "$debug_binary" "$bin_dir/gardn-dev"
 
 debug_cohort=$(
   "$debug_binary" execution-worker --build-info |
@@ -52,31 +52,31 @@ install_workers() {
   local cohort=$2
   local worker_dir="$data_home/$app_dir/workers/$cohort"
   install -d -m 755 "$worker_dir"
-  install -m 755 "$root/target/x86_64-unknown-linux-musl/release/omh" \
-    "$worker_dir/omh-linux-x86_64"
-  install -m 755 "$root/target/aarch64-unknown-linux-musl/release/omh" \
-    "$worker_dir/omh-linux-aarch64"
+  install -m 755 "$root/target/x86_64-unknown-linux-musl/release/gardn" \
+    "$worker_dir/gardn-linux-x86_64"
+  install -m 755 "$root/target/aarch64-unknown-linux-musl/release/gardn" \
+    "$worker_dir/gardn-linux-aarch64"
 }
-install_workers omh-dev "$debug_cohort"
+install_workers gardn-dev "$debug_cohort"
 if [[ "$mode" == all ]]; then
   release_cohort=$(
     "$release_binary" execution-worker --build-info |
       python3 -c 'import json,sys; print(json.load(sys.stdin)["build_cohort"])'
   )
-  install_workers omh "$release_cohort"
+  install_workers gardn "$release_cohort"
 fi
 
 if [[ "$(uname -s)" == Darwin ]]; then
   if [[ "$mode" == all ]]; then
-    codesign --force --sign - "$bin_dir/omh"
+    codesign --force --sign - "$bin_dir/gardn"
   fi
-  codesign --force --sign - "$bin_dir/omh-dev"
+  codesign --force --sign - "$bin_dir/gardn-dev"
 fi
 
-env -u OMH_SOCKET_PATH -u OMH_CLIENT_SOCKET_PATH "$bin_dir/omh-dev" server stop >/dev/null 2>&1 || true
+env -u GARDN_SOCKET_PATH -u GARDN_CLIENT_SOCKET_PATH "$bin_dir/gardn-dev" server stop >/dev/null 2>&1 || true
 cargo clean
 
-printf 'installed omh-dev with worker cohort %s\n' "$debug_cohort"
+printf 'installed gardn-dev with worker cohort %s\n' "$debug_cohort"
 if [[ "$mode" == all ]]; then
-  printf 'installed omh with worker cohort %s\n' "$release_cohort"
+  printf 'installed gardn with worker cohort %s\n' "$release_cohort"
 fi

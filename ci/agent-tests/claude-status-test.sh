@@ -1,26 +1,26 @@
 #!/usr/bin/env bash
 set -euo pipefail
-source /usr/local/lib/omh-agent-test-models.sh
-primary_model="${OMH_TEST_MODEL:-$OMH_TEST_DEFAULT_MODEL}"
-if [[ -z "${OMH_TEST_ACTIVE_MODEL:-}" ]]; then
-  omh_test_unique_candidates "$primary_model" "${OMH_TEST_FALLBACK_MODELS:-}" \
-    | omh_test_available_candidates \
-    | omh_test_non_anthropic_candidates \
-    | omh_test_run_with_fallbacks "$0" "$@"
+source /usr/local/lib/gardn-agent-test-models.sh
+primary_model="${GARDN_TEST_MODEL:-$GARDN_TEST_DEFAULT_MODEL}"
+if [[ -z "${GARDN_TEST_ACTIVE_MODEL:-}" ]]; then
+  gardn_test_unique_candidates "$primary_model" "${GARDN_TEST_FALLBACK_MODELS:-}" \
+    | gardn_test_available_candidates \
+    | gardn_test_non_anthropic_candidates \
+    | gardn_test_run_with_fallbacks "$0" "$@"
   exit $?
 fi
 
-model="$OMH_TEST_ACTIVE_MODEL"
-omh_test_configure_model "$model"
-repo_dir="${OMH_REPO_DIR:-/repo}"
-hook_path="$repo_dir/apps/omh/src/integration/assets/claude/omh-agent-state.sh"
-workdir="${OMH_CLAUDE_STATUS_TEST_DIR:-$(mktemp -d)}"
-socket_path="$workdir/omh.sock"
-request_log="$workdir/omh-requests.jsonl"
+model="$GARDN_TEST_ACTIVE_MODEL"
+gardn_test_configure_model "$model"
+repo_dir="${GARDN_REPO_DIR:-/repo}"
+hook_path="$repo_dir/apps/gardn/src/integration/assets/claude/gardn-agent-state.sh"
+workdir="${GARDN_CLAUDE_STATUS_TEST_DIR:-$(mktemp -d)}"
+socket_path="$workdir/gardn.sock"
+request_log="$workdir/gardn-requests.jsonl"
 
 
 if [[ ! -f "$hook_path" ]]; then
-  echo "claude status test needs omh repo mounted at $repo_dir" >&2
+  echo "claude status test needs gardn repo mounted at $repo_dir" >&2
   exit 1
 fi
 if [[ -z "${OPENROUTER_API_KEY:-}" ]]; then
@@ -92,7 +92,7 @@ for _ in $(seq 1 50); do
   sleep 0.1
 done
 if [[ ! -S "$socket_path" ]]; then
-  echo "fake omh socket did not start" >&2
+  echo "fake gardn socket did not start" >&2
   exit 1
 fi
 
@@ -142,10 +142,10 @@ run_claude() {
   set +e
   (
     cd "$dir/run"
-    OMH_ENV=1 \
-    OMH_SOCKET_PATH="$socket_path" \
-    OMH_PANE_ID="$pane_id" \
-    timeout "${OMH_CLAUDE_STATUS_TEST_TIMEOUT:-180}" claude -p \
+    GARDN_ENV=1 \
+    GARDN_SOCKET_PATH="$socket_path" \
+    GARDN_PANE_ID="$pane_id" \
+    timeout "${GARDN_CLAUDE_STATUS_TEST_TIMEOUT:-180}" claude -p \
       --settings "$dir/settings.json" \
       --model "$model" \
       --output-format stream-json \
@@ -159,7 +159,7 @@ run_claude() {
   local status=$?
   set -e
   if [[ "$status" -ne 0 ]]; then
-    if omh_test_retryable_status_or_output "$status" "$dir/output.jsonl"; then
+    if gardn_test_retryable_status_or_output "$status" "$dir/output.jsonl"; then
       echo "$pane_id: retryable Claude/OpenRouter provider failure with $model" >&2
       exit 75
     fi
@@ -174,33 +174,33 @@ run_claude() {
 run_claude \
   pane-claude-allowed \
   "$workdir/allowed" \
-  omh-claude-status-working-idle \
+  gardn-claude-status-working-idle \
   "" \
-  'Reply exactly OMH_CLAUDE_STATUS_IDLE.'
+  'Reply exactly GARDN_CLAUDE_STATUS_IDLE.'
 
 run_claude \
   pane-claude-subagent \
   "$workdir/subagent" \
-  omh-claude-status-subagent \
+  gardn-claude-status-subagent \
   "Task" \
-  'Use the Task tool to launch one subagent. The subagent must reply exactly CHILD_OK. After the subagent finishes, reply exactly OMH_CLAUDE_SUBAGENT_DONE.'
+  'Use the Task tool to launch one subagent. The subagent must reply exactly CHILD_OK. After the subagent finishes, reply exactly GARDN_CLAUDE_SUBAGENT_DONE.'
 
 # Permission and compaction are lifecycle hook seams. Claude print mode does not
 # reliably block on interactive approval, so exercise the real installed hook with
 # the same event payload shape the CLI sends.
-OMH_ENV=1 OMH_SOCKET_PATH="$socket_path" OMH_PANE_ID="pane-claude-blocked" bash "$hook_path" session <<'EOF_HOOK'
+GARDN_ENV=1 GARDN_SOCKET_PATH="$socket_path" GARDN_PANE_ID="pane-claude-blocked" bash "$hook_path" session <<'EOF_HOOK'
 {"session_id":"blocked-session","hook_event_name":"SessionStart"}
 EOF_HOOK
-OMH_ENV=1 OMH_SOCKET_PATH="$socket_path" OMH_PANE_ID="pane-claude-blocked" bash "$hook_path" working <<'EOF_HOOK'
+GARDN_ENV=1 GARDN_SOCKET_PATH="$socket_path" GARDN_PANE_ID="pane-claude-blocked" bash "$hook_path" working <<'EOF_HOOK'
 {"session_id":"blocked-session","hook_event_name":"UserPromptSubmit"}
 EOF_HOOK
-OMH_ENV=1 OMH_SOCKET_PATH="$socket_path" OMH_PANE_ID="pane-claude-blocked" bash "$hook_path" blocked <<'EOF_HOOK'
+GARDN_ENV=1 GARDN_SOCKET_PATH="$socket_path" GARDN_PANE_ID="pane-claude-blocked" bash "$hook_path" blocked <<'EOF_HOOK'
 {"session_id":"blocked-session","hook_event_name":"PermissionRequest"}
 EOF_HOOK
-OMH_ENV=1 OMH_SOCKET_PATH="$socket_path" OMH_PANE_ID="pane-claude-compact" bash "$hook_path" session <<'EOF_HOOK'
+GARDN_ENV=1 GARDN_SOCKET_PATH="$socket_path" GARDN_PANE_ID="pane-claude-compact" bash "$hook_path" session <<'EOF_HOOK'
 {"session_id":"compact-session","hook_event_name":"SessionStart"}
 EOF_HOOK
-OMH_ENV=1 OMH_SOCKET_PATH="$socket_path" OMH_PANE_ID="pane-claude-compact" bash "$hook_path" working <<'EOF_HOOK'
+GARDN_ENV=1 GARDN_SOCKET_PATH="$socket_path" GARDN_PANE_ID="pane-claude-compact" bash "$hook_path" working <<'EOF_HOOK'
 {"session_id":"compact-session","hook_event_name":"PreCompact"}
 EOF_HOOK
 
@@ -240,7 +240,7 @@ def assert_common(pane_id):
     for req in pane_reports:
         params = req.get("params", {})
         assert params.get("pane_id") == pane_id, req
-        assert params.get("source") == "omh:claude", req
+        assert params.get("source") == "gardn:claude", req
         assert params.get("agent") == "claude", req
         assert isinstance(params.get("seq"), int), req
     if not sessions_for(pane_id):
@@ -284,13 +284,13 @@ for pane in (
     assert_common(pane)
     assert_single_session_identity(pane)
 
-assert_output_contains("allowed", "OMH_CLAUDE_STATUS_IDLE")
+assert_output_contains("allowed", "GARDN_CLAUDE_STATUS_IDLE")
 assert_contains_in_order("pane-claude-allowed", ["working", "idle"])
 if not releases_for("pane-claude-allowed"):
     raise SystemExit("pane-claude-allowed: missing release")
 
 assert_output_contains("subagent", "CHILD_OK")
-assert_output_contains("subagent", "OMH_CLAUDE_SUBAGENT_DONE")
+assert_output_contains("subagent", "GARDN_CLAUDE_SUBAGENT_DONE")
 assert_contains_in_order("pane-claude-subagent", ["working", "idle"])
 if not releases_for("pane-claude-subagent"):
     raise SystemExit("pane-claude-subagent: missing release")

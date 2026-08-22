@@ -11,7 +11,7 @@ class NixSkillFilesetTest(unittest.TestCase):
         self.assertIn("../SKILL.md", package_nix)
         self.assertTrue(
             (project_root / "SKILL.md").is_file(),
-            "repo-root SKILL.md must exist for omh --skill and the Nix fileset",
+            "repo-root SKILL.md must exist for gardn --skill and the Nix fileset",
         )
 
 

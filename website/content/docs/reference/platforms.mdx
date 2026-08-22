@@ -5,7 +5,7 @@ description: Supported desktop platforms, host helpers, remote limits, and exper
 
 # Platform reference
 
-Oh My Herdr has platform-specific process, clipboard, editor, cursor, and URL behavior. This page records the behavior of the current source rather than promising an unavailable release artifact. For task-oriented remote setup, see [Use Oh My Herdr over SSH](/docs/guides/remote).
+Gardn has platform-specific process, clipboard, editor, cursor, and URL behavior. This page records the behavior of the current source rather than promising an unavailable release artifact. For task-oriented remote setup, see [Use Gardn over SSH](/docs/guides/remote).
 
 ## Desktop support
 
@@ -31,33 +31,33 @@ Remote attach supports Unix local clients (Linux and macOS) and Windows local cl
 
 - Wayland text clipboard uses `wl-copy` and `wl-paste` when `WAYLAND_DISPLAY` is set.
 - X11 text clipboard uses `xclip`, then `xsel`, when `DISPLAY` is set.
-- Wayland image reads use `wl-paste`; X11 image reads use `xclip`. Oh My Herdr validates the image signature before using it.
+- Wayland image reads use `wl-paste`; X11 image reads use `xclip`. Gardn validates the image signature before using it.
 - URLs open with `xdg-open`.
 - Scrollback editors use `$VISUAL`, then `$EDITOR`, with `vi` as the fallback.
 
-Install and configure the helper for the active session type if clipboard or URL actions report that no helper is available. Oh My Herdr does not provide a second clipboard implementation when the platform helper is missing.
+Install and configure the helper for the active session type if clipboard or URL actions report that no helper is available. Gardn does not provide a second clipboard implementation when the platform helper is missing.
 
 ### Windows
 
 - Text clipboard writes use the native Windows clipboard API.
 - Clipboard text reads are not provided by the Windows platform implementation.
-- Clipboard image reads use the native Windows clipboard API. Registered PNG clipboard data is read directly; DIB and DIBV5 bitmap data is converted to PNG. Oh My Herdr validates the image signature and dimensions before using it.
+- Clipboard image reads use the native Windows clipboard API. Registered PNG clipboard data is read directly; DIB and DIBV5 bitmap data is converted to PNG. Gardn validates the image signature and dimensions before using it.
 - Scrollback editors use `$VISUAL`, then `$EDITOR`, with `notepad.exe` as the fallback.
 - Custom command strings run through `cmd.exe /d /c`.
 
-As a result, mouse or keyboard copy can write text on Windows, and remote image paste can read a clipboard image from a Windows local client. Clipboard text reads remain unavailable in the Windows implementation, so workflows that need Oh My Herdr to read clipboard text are unavailable on Windows.
+As a result, mouse or keyboard copy can write text on Windows, and remote image paste can read a clipboard image from a Windows local client. Clipboard text reads remain unavailable in the Windows implementation, so workflows that need Gardn to read clipboard text are unavailable on Windows.
 
 ## Cursor and terminal boundaries
 
-`ui.host_cursor = "auto"` follows the platform default. Native Windows builds and WSL draw an Oh My Herdr cursor as cell content to avoid outer-terminal cursor flicker; macOS and ordinary Linux use the outer terminal cursor by default. Set `native` or `drawn` explicitly when the default is unsuitable. A drawn cursor is part of the rendered terminal content and can differ from an application's native cursor.
+`ui.host_cursor = "auto"` follows the platform default. Native Windows builds and WSL draw an Gardn cursor as cell content to avoid outer-terminal cursor flicker; macOS and ordinary Linux use the outer terminal cursor by default. Set `native` or `drawn` explicitly when the default is unsuitable. A drawn cursor is part of the rendered terminal content and can differ from an application's native cursor.
 
-Oh My Herdr depends on the outer terminal to deliver key and mouse events. tmux, terminal keymaps, ConPTY, IMEs, and terminal mouse reporting can change what reaches the application. See the [keybinding caveats](/docs/reference/keybindings#terminal-caveats) and [copy and terminal guide](/docs/guides/copy-and-terminal) for interaction-specific behavior.
+Gardn depends on the outer terminal to deliver key and mouse events. tmux, terminal keymaps, ConPTY, IMEs, and terminal mouse reporting can change what reaches the application. See the [keybinding caveats](/docs/reference/keybindings#terminal-caveats) and [copy and terminal guide](/docs/guides/copy-and-terminal) for interaction-specific behavior.
 
 ## Experimental features and unsupported nesting
 
 The following boundaries are explicit configuration choices, not general platform guarantees:
 
-- `experimental.allow_nested` is `false` by default. Launching Oh My Herdr from an Oh My Herdr-managed pane is blocked unless nesting is explicitly enabled; nested sessions can make process ownership and terminal input ambiguous.
+- `experimental.allow_nested` is `false` by default. Launching Gardn from an Gardn-managed pane is blocked unless nesting is explicitly enabled; nested sessions can make process ownership and terminal input ambiguous.
 - `experimental.kitty_graphics` is `false` by default and requires a Kitty graphics-compatible outer terminal. Enabling it does not add graphics support to an incompatible terminal or to a remote host.
 - `experimental.switch_ascii_input_source_in_prefix` is macOS-only and best-effort. It temporarily switches to an ASCII-capable input source while prefix mode is active, then attempts to restore the previous source.
 - `experimental.reveal_hidden_cursor_for_cjk_ime` and its agent allow-list are intended for CJK input-method cursor tracking. They can make an otherwise hidden pane cursor visible; the setting is opt-in.

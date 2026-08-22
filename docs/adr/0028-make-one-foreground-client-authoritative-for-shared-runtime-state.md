@@ -4,11 +4,11 @@ status: accepted
 
 # Keep one foreground client authoritative for host context
 
-Oh My Herdr permits multiple thin clients to attach to one server, but at most one full app client is the global foreground client. The foreground client supplies shared host context: outer-terminal focus, the reported non-empty host terminal theme, the app-facing keybinding profile, and notification context. Direct terminal attach connections and pending terminal-attach clients are not full app clients for this arbitration.
+Gardn permits multiple thin clients to attach to one server, but at most one full app client is the global foreground client. The foreground client supplies shared host context: outer-terminal focus, the reported non-empty host terminal theme, the app-facing keybinding profile, and notification context. Direct terminal attach connections and pending terminal-attach clients are not full app clients for this arbitration.
 
 ADR 0056 supersedes the earlier use of foreground ownership for shared pane size and interactive input. Per-tab PTY size, canonical terminal content, and interactive input authority now follow the stable tab's explicit controller. A watcher or a foreground client that is not that tab's controller cannot resize the tab or send its interactive input.
 
-When there is no foreground app client, Oh My Herdr clears outer-terminal focus, applies server-owned keybindings, and shows server config diagnostics instead of client-local keybinding diagnostics. There is no foreground-owned fallback PTY size: each tab follows its Tab Control state under ADR 0056. Foreground synchronization remains part of the interactive wire-client runtime, not the JSON Local API control plane. Notification forwarding may use foreground host context for terminal/system side effects, but tab control remains separate.
+When there is no foreground app client, Gardn clears outer-terminal focus, applies server-owned keybindings, and shows server config diagnostics instead of client-local keybinding diagnostics. There is no foreground-owned fallback PTY size: each tab follows its Tab Control state under ADR 0056. Foreground synchronization remains part of the interactive wire-client runtime, not the JSON Local API control plane. Notification forwarding may use foreground host context for terminal/system side effects, but tab control remains separate.
 
 ## Current rationale
 

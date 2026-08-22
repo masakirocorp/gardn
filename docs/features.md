@@ -1,21 +1,21 @@
-# Oh My Herdr features
+# Gardn features
 
-This is the product feature reference for Oh My Herdr.
+This is the product feature reference for Gardn.
 
 ## Workspace model
 
 ### Sessions
 
-A session is a persistent Oh My Herdr runtime with its own sockets, panes, tabs, workspaces, and saved state.
+A session is a persistent Gardn runtime with its own sockets, panes, tabs, workspaces, and saved state.
 
-- **Default session** — `omh` launches or attaches to the default background session.
-- **Named sessions** — `omh --session <name>` and `omh session attach <name>` select separate runtime namespaces.
+- **Default session** — `gardn` launches or attaches to the default background session.
+- **Named sessions** — `gardn --session <name>` and `gardn session attach <name>` select separate runtime namespaces.
 - **Detach / reattach** — clients can detach while panes and agents continue running in the server.
-- **Remote attach** — `omh --remote <target>` attaches to an Oh My Herdr server over SSH.
-- **Remote bootstrap** — remote attach can detect the remote platform, reuse an existing compatible binary, or install a matching Oh My Herdr binary before connecting.
+- **Remote attach** — `gardn --remote <target>` attaches to an Gardn server over SSH.
+- **Remote bootstrap** — remote attach can detect the remote platform, reuse an existing compatible binary, or install a matching Gardn binary before connecting.
 - **Remote server restart flow** — remote attach checks protocol/version compatibility and can prompt to stop or restart an incompatible remote server.
 - **SSH keepalive fallback** — remote attach can add private generated SSH keepalive defaults without overriding your own SSH config.
-- **Direct terminal attach** — `omh terminal attach <terminal-id>` and `omh agent attach <target>` attach directly to a single server-owned terminal.
+- **Direct terminal attach** — `gardn terminal attach <terminal-id>` and `gardn agent attach <target>` attach directly to a single server-owned terminal.
 - **Attach takeover** — direct attach is exclusive by default; `--takeover` can claim a terminal attachment from another client. This terminal-level takeover is separate from normal app-client Tab Control.
 - **Multiple clients** — more than one client can connect to a server; each client owns its navigation and sidebar view. Interactive terminal control is assigned per stable tab identity: the first client may claim a free tab, switching to another free tab may claim it, and an occupied tab is view-only until explicit takeover with `prefix+t` or the persistent desktop/mobile **Take control** action. The controller owns the tab's canonical PTY size and interactive input authority; watchers keep navigation, scroll, copy, and search local and see the canonical terminal canvas cropped or padded to their viewport. Watcher focus, resize, and input do not change PTY size or content, so different client sizes do not cause layout shifts until takeover. Controller navigation, disconnect, and direct terminal attach release control without auto-promoting a watcher. Local API and system automation bypass interactive tab ownership. Global foreground remains host focus, theme, keybinding, and notification context, not PTY sizing or input authority.
 - **Clipboard bridging** — thin clients forward OSC 52 clipboard writes locally and can bridge local clipboard-image paste into server panes.
@@ -65,7 +65,7 @@ A pane is a terminal runtime inside a tab layout.
 - **Pane close** — close panes with confirmation where configured.
 - **Scrollback** — scroll panes, edit scrollback in `$EDITOR`, and read visible/recent output through the API.
 - **Pane history** — persist recent screen history to `session-history.json` by default.
-- **Terminal identity** — panes advertise Oh My Herdr's terminal layer instead of leaking the outer terminal identity.
+- **Terminal identity** — panes advertise Gardn's terminal layer instead of leaking the outer terminal identity.
 - **Snapshot restore** — saved sessions restore groups, active selections, sidebar sizing and arrangement, tabs, pane layouts, focus, zoom, cwd, labels, and agent session references.
 - **Text selection** — mouse dragging leaves pane text highlighted until the next click or keypress. Keyboard copy mode remains available for explicit selection and copying.
 - **Automatic selection copy** — `ui.copy_on_select` defaults to `true` and copies a drag selection on mouse-up. Set it to `false` to retain the highlight without writing to the clipboard. Double-click always selects and copies the clicked word.
@@ -73,7 +73,7 @@ A pane is a terminal runtime inside a tab layout.
 
 ## Agent awareness
 
-Oh My Herdr detects and tracks coding agents running inside panes.
+Gardn detects and tracks coding agents running inside panes.
 
 ### Agent states
 
@@ -85,7 +85,7 @@ Oh My Herdr detects and tracks coding agents running inside panes.
 
 ### Detection
 
-Oh My Herdr combines foreground-process detection, terminal-screen heuristics, and optional integration reports.
+Gardn combines foreground-process detection, terminal-screen heuristics, and optional integration reports.
 
 Supported built-in detection includes:
 
@@ -110,8 +110,8 @@ Supported built-in detection includes:
 
 
 - **Manifest rules** — bundled per-agent TOML manifests define screen, OSC title, and OSC progress matching rules for every built-in agent family, including OMP. Screen rules can provide strong visible evidence; OSC-only rules are fallback evidence and do not override hook authority as visible UI.
-- **Manifest updates** — Oh My Herdr can cache newer remote manifests, reject downgrades or incompatible engine versions, reload local manifests through `omh server reload-agent-manifests`, and report updated detection rules through the normal toast/update path.
-- **Wrapped-process hints** — Oh My Herdr-managed profiles automatically set `OMH_AGENT=<agent>` from the selected supported agent kind, so host-visible wrappers remain detectable on Linux and macOS. Set the hint explicitly only when launching a wrapper manually inside an arbitrary pane. The hint is process-scoped; avoid exporting it globally. Upstream-branded hint names are not accepted.
+- **Manifest updates** — Gardn can cache newer remote manifests, reject downgrades or incompatible engine versions, reload local manifests through `gardn server reload-agent-manifests`, and report updated detection rules through the normal toast/update path.
+- **Wrapped-process hints** — Gardn-managed profiles automatically set `GARDN_AGENT=<agent>` from the selected supported agent kind, so host-visible wrappers remain detectable on Linux and macOS. Set the hint explicitly only when launching a wrapper manually inside an arbitrary pane. The hint is process-scoped; avoid exporting it globally. Upstream-branded hint names are not accepted.
 
 ### Agent UI
 
@@ -119,23 +119,23 @@ Supported built-in detection includes:
 - **Agent focus** — focus agents from the activity panel, command surfaces, CLI, or socket API.
 - **Agent labels** — manual, detected, and integration-reported labels are surfaced in lists and pane borders.
 - **Agent metadata tokens** — pane metadata token patches are exposed consistently through pane/agent API snapshots and rendered without leaking one client's sidebar view into another.
-- **State notifications** — background state changes can trigger Oh My Herdr toasts, terminal toasts, system toasts, and sounds.
+- **State notifications** — background state changes can trigger Gardn toasts, terminal toasts, system toasts, and sounds.
 - **Integration authority** — installed hooks either report native session identity for restore or report state directly. Claude Code, Codex, Pi, OMP, OpenCode, Copilot, Qoder-style, and Grok Build integrations can report state directly; Kimi, Droid, Cursor, and Hermes use session identity plus screen detection for state.
 - **Pi settled lifecycle** — the Pi integration reports only TUI sessions and keeps an active root agent working through compaction. It reports the root agent idle only after Pi emits `agent_settled` while the root session is actually idle. Stale or non-idle settlement signals do not end active work.
-- **Missing integration warning** — if screen detection sees an integration-capable agent such as Codex but no accepted Oh My Herdr hook, session, or metadata report arrives for that pane, Oh My Herdr shows a pane-targeted toast with the matching `omh integration install <agent>` command.
+- **Missing integration warning** — if screen detection sees an integration-capable agent such as Codex but no accepted Gardn hook, session, or metadata report arrives for that pane, Gardn shows a pane-targeted toast with the matching `gardn integration install <agent>` command.
 - **Host-scoped integration management** — Settings can inspect, install, update, and uninstall agent integrations on Local or a saved SSH Execution Host. Remote operations run through the managed worker in order, and remote hooks report through a restricted authenticated worker endpoint instead of receiving the coordinator's Local API socket.
 
 
 ### Agent profiles
 
-- **System profiles** — Oh My Herdr exposes one read-only system profile for each supported integration target.
-- **Custom profiles** — add or edit profile-specific commands from Settings > Agents. Oh My Herdr persists them to `[agent_profiles]`; known-family wrappers automatically receive the selected kind as `OMH_AGENT`, keep native profile/tooling restore behavior, and cannot override that managed identity through profile environment entries. `custom` unsupported agents are labeled `custom · launch-only`.
+- **System profiles** — Gardn exposes one read-only system profile for each supported integration target.
+- **Custom profiles** — add or edit profile-specific commands from Settings > Agents. Gardn persists them to `[agent_profiles]`; known-family wrappers automatically receive the selected kind as `GARDN_AGENT`, keep native profile/tooling restore behavior, and cannot override that managed identity through profile environment entries. `custom` unsupported agents are labeled `custom · launch-only`.
 - **Group favorites and defaults** — group settings can promote favorite profiles with `ctrl+f` and set a default with `ctrl+d`. Favorites appear before available profiles while both sections keep the global profile order. When a group default is set, `new agent` starts it directly instead of opening the picker.
-- **New agent launch** — choose `new agent` from the command palette, space context menu, tab context menu, or the tab `+` dropdown. Oh My Herdr starts the group default or only available profile immediately, or opens a favorites-first profile picker when multiple profiles are available.
+- **New agent launch** — choose `new agent` from the command palette, space context menu, tab context menu, or the tab `+` dropdown. Gardn starts the group default or only available profile immediately, or opens a favorites-first profile picker when multiple profiles are available.
 
 ### Agent session restore
 
-Oh My Herdr resumes supported agents into native agent sessions during session restore by default. Set `[session].resume_agents_on_restore = false` to disable it.
+Gardn resumes supported agents into native agent sessions during session restore by default. Set `[session].resume_agents_on_restore = false` to disable it.
 
 - Supported restore sources come from installed integrations that report session references.
 - Duplicate session references are deduplicated during a restore pass.
@@ -146,7 +146,7 @@ Oh My Herdr resumes supported agents into native agent sessions during session r
 
 ### Prefix mode
 
-Oh My Herdr uses a prefix key before most built-in shortcuts. The default prefix is `ctrl+b`.
+Gardn uses a prefix key before most built-in shortcuts. The default prefix is `ctrl+b`.
 
 On macOS, `[experimental].switch_ascii_input_source_in_prefix = true` temporarily switches the host input source to an ASCII-capable layout while prefix mode is active, then restores the previous source when prefix mode exits.
 
@@ -174,7 +174,7 @@ Mouse capture is enabled by default.
 - Drag workspace rows to reorder.
 - Scroll lists, panes, modals, and scrollbars. Set `ui.pane_scrollbars = false` to hide pane scrollbars and reclaim the gutter column.
 - Right-click where context menus are available.
-- Configure `ui.right_click_passthrough_modifier` to send modified right-click hold/drag gestures to mouse-reporting pane apps while normal right-click keeps Oh My Herdr menus.
+- Configure `ui.right_click_passthrough_modifier` to send modified right-click hold/drag gestures to mouse-reporting pane apps while normal right-click keeps Gardn menus.
 - Select pane text for copy workflows.
 - **Mobile layout** — narrow terminals keep the terminal nearly full-height under a compact two-row header: an always-visible agent-status row on top opens the agent list directly, and a breadcrumb below shows the active group, space, tab, and split pane. Each breadcrumb segment opens a compact, bordered dropdown anchored beneath it; group, space, and tab dropdowns include contextual creation, while split actions appear in the pane dropdown when the focused pane has room. Current items are marked, selecting a space, tab, or pane closes the dropdown, Right drills into the highlighted row's children, Left returns to the parent breadcrumb level, Up/Down or `j`/`k` moves within a dropdown, Enter activates the selected row, and Escape closes the dropdown without changing focus.
 
@@ -194,16 +194,16 @@ The navigator is a workspace/tab/pane chooser.
 
 ### Command palette and command panel
 
-Oh My Herdr can discover and run project commands. The command palette is also a general action surface for app, workspace, group, tab, pane, layout, agent-scope, settings, reload, notification, and detach/quit actions.
+Gardn can discover and run project commands. The command palette is also a general action surface for app, workspace, group, tab, pane, layout, agent-scope, settings, reload, notification, and detach/quit actions.
 
 - Commands are scoped from the active workspace or selected workspace while navigating.
 - Command rows are grouped by repo and branch context.
 - Command status sections include running, failed, unknown, and stopped commands.
 - Custom keybindings can launch shell helpers or pane commands.
 - **Panel actions** — command rows can run, focus, expand, or stop commands from the right sidebar.
-- **Project commands** — **Settings > Commands** configures four independent project launchers: **Git** for a terminal Git UI, **Diff** for review, **IDE** for editing, and **GitHub** for pull requests and issues. They default to LazyGit (`lazygit`), Hunk watch mode (`hunk diff --watch`), Fresh (`fresh .`), and ghui (`ghui`). Each field is freely editable; leaving one empty hides only that action. All four appear in the command palette and in workspace and `+` menus, ordered as IDE, Git, Diff, then GitHub after the general Tab and Agent actions. Git and Diff require an observed repository; IDE and GitHub remain available for any workspace and use its project directory. GitHub opens ghui at its home view so users can navigate repositories and queues inside ghui. Oh My Herdr opens each command in a managed tab. The four curated defaults inherit Oh My Herdr's effective theme: Terminal preserves host terminal colors, while named themes supply the tool's foreground, background, cursor, and standard ANSI colors through the same palette. The ghui integration uses the Masakiro companion release at `masakirocorp/ghui`, whose launch-scoped theme override does not rewrite saved ghui preferences. Custom project commands keep native terminal color behavior. If a themed curated CLI is missing, its tab shows install guidance and the project's GitHub URL.
+- **Project commands** — **Settings > Commands** configures four independent project launchers: **Git** for a terminal Git UI, **Diff** for review, **IDE** for editing, and **GitHub** for pull requests and issues. They default to LazyGit (`lazygit`), Hunk watch mode (`hunk diff --watch`), Fresh (`fresh .`), and ghui (`ghui`). Each field is freely editable; leaving one empty hides only that action. All four appear in the command palette and in workspace and `+` menus, ordered as IDE, Git, Diff, then GitHub after the general Tab and Agent actions. Git and Diff require an observed repository; IDE and GitHub remain available for any workspace and use its project directory. GitHub opens ghui at its home view so users can navigate repositories and queues inside ghui. Gardn opens each command in a managed tab. The four curated defaults inherit Gardn's effective theme: Terminal preserves host terminal colors, while named themes supply the tool's foreground, background, cursor, and standard ANSI colors through the same palette. The ghui integration uses the Masakiro companion release at `masakirocorp/ghui`, whose launch-scoped theme override does not rewrite saved ghui preferences. Custom project commands keep native terminal color behavior. If a themed curated CLI is missing, its tab shows install guidance and the project's GitHub URL.
 - **Command resets** — Each project command has a reset action. **Reset All Commands** restores all four built-in command values.
-- **Command discovery** — Oh My Herdr discovers VS Code tasks, package scripts, just recipes, Make targets, and defaults for common Cargo, Go, Java, Python, .NET, PHP, and Ruby projects.
+- **Command discovery** — Gardn discovers VS Code tasks, package scripts, just recipes, Make targets, and defaults for common Cargo, Go, Java, Python, .NET, PHP, and Ruby projects.
 - **Managed reruns** — rerunning a managed command focuses an existing run or restarts a stopped/failed run in the same pane instead of spawning duplicates.
 
 ### Activity panels
@@ -230,13 +230,13 @@ The general settings modal uses an expandable sidebar. Each category exposes sub
 
 Appearance > Panes exposes `Pane Borders`, `Pane Scrollbars`, `Pane Gaps`, `Hide Single-Tab Bar`, and `Pane Border Agent Info`. Appearance > Window edits the outer terminal window-title template. Behavior > Terminal exposes `Default Shell` and `Shell Startup Mode` before new-terminal CWD and mouse-wheel speed. Notifications keeps Sound Alerts, expands Notification Popups with background-alert delay and in-app toast position, and adds Clipboard Feedback for copy confirmation. Advanced > Updates toggles background version and manifest checks after Server. Agents can disable a custom profile without changing its id, env, or order. New profiles start enabled.
 
-The Connections section manages SSH execution hosts and their workers. A saved connection opens to its status and runtime controls. Editing persistent details is a separate action. The new-connection form starts with the SSH target and uses it as the display name when the optional name is empty. Connecting installs or updates the versioned execution worker automatically. A compatible worker with live runtimes stays active until it is unused. Removing a connection first inventories every session and managed worker binding, shows each affected Group, Workspace, pane, pending termination, and owned binding, and requires confirmation. Affected Workspace defaults move to the displayed local home directory. Oh My Herdr then fences new work, drains or closes remote panes, rewrites dormant session placement, removes only bindings owned by the connection, and deletes the connection profile only after all sessions are clear. A durable journal keeps a partial removal fenced and resumable after restart. If full cleanup is unavailable, the failure screen states that remote processes or files might remain and offers **Remove Saved Connection**, **Try Again**, and **Cancel**.
+The Connections section manages SSH execution hosts and their workers. A saved connection opens to its status and runtime controls. Editing persistent details is a separate action. The new-connection form starts with the SSH target and uses it as the display name when the optional name is empty. Connecting installs or updates the versioned execution worker automatically. A compatible worker with live runtimes stays active until it is unused. Removing a connection first inventories every session and managed worker binding, shows each affected Group, Workspace, pane, pending termination, and owned binding, and requires confirmation. Affected Workspace defaults move to the displayed local home directory. Gardn then fences new work, drains or closes remote panes, rewrites dormant session placement, removes only bindings owned by the connection, and deletes the connection profile only after all sessions are clear. A durable journal keeps a partial removal fenced and resumable after restart. If full cleanup is unavailable, the failure screen states that remote processes or files might remain and offers **Remove Saved Connection**, **Try Again**, and **Cancel**.
 
 After a coordinator restart, restored remote panes reconnect their saved SSH connection and re-adopt the live worker runtime automatically.
 
 ### Help and confirmations
 
-Oh My Herdr includes a scrollable keybinding help modal generated from current bindings, including custom command bindings. Press `/` to filter by shortcut, action, or group. Esc leaves the filter first, then closes the modal. Destructive actions such as workspace close and group delete use confirmation dialogs that show the affected target.
+Gardn includes a scrollable keybinding help modal generated from current bindings, including custom command bindings. Press `/` to filter by shortcut, action, or group. Esc leaves the filter first, then closes the modal. Destructive actions such as workspace close and group delete use confirmation dialogs that show the affected target.
 
 ### Global menu
 
@@ -244,7 +244,7 @@ The global menu exposes settings, keybinding help, config reload, update/release
 
 ## Integrations
 
-Oh My Herdr ships installable integrations for agents that report semantic state, native session identity, or both over the socket API.
+Gardn ships installable integrations for agents that report semantic state, native session identity, or both over the socket API.
 
 Built-in installable integrations:
 
@@ -273,66 +273,66 @@ Integration management supports:
 
 Integration install side effects are agent-specific: pi and OMP install extensions, Claude, Codex, Grok Build, Kimi, Droid, Cursor, Copilot, and Qoder-style CLIs install/update hooks or settings, OpenCode installs a server plugin plus a TUI session plugin and enables the TUI session plugin, and Hermes installs/enables a plugin.
 
-Claude Code, Codex, Pi, OMP, OpenCode, Copilot, Qoder-style, and Grok Build integrations can report state directly. Hermes reports session identity only; screen detection provides its state. Pi uses its settled lifecycle as the idle boundary, so compaction completion and stale settlement signals do not prematurely end active work. The Grok Build integration reports native session identity plus parent-agent working, blocked, idle, and release transitions while ignoring child-agent completion as a parent completion. Its Oh My Herdr-owned hook also prevents Grok's Claude and Cursor compatibility hooks from claiming Grok panes.
+Claude Code, Codex, Pi, OMP, OpenCode, Copilot, Qoder-style, and Grok Build integrations can report state directly. Hermes reports session identity only; screen detection provides its state. Pi uses its settled lifecycle as the idle boundary, so compaction completion and stale settlement signals do not prematurely end active work. The Grok Build integration reports native session identity plus parent-agent working, blocked, idle, and release transitions while ignoring child-agent completion as a parent completion. Its Gardn-owned hook also prevents Grok's Claude and Cursor compatibility hooks from claiming Grok panes.
 
 Integration management runs on the selected host. SSH integration operations use the managed execution worker. Agent panes on an SSH host send lifecycle reports to a restricted worker-local endpoint. They do not receive the coordinator Local API socket.
 
 Integration path overrides include `PI_CODING_AGENT_DIR`, `PI_CONFIG_DIR`, `CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `COPILOT_HOME`, `DEVIN_CONFIG_DIR`, `GROK_HOME`, `HERMES_HOME`, `KIMI_CODE_HOME`, `QODER_CONFIG_DIR`, and `CURSOR_CONFIG_DIR`. OMP install/status checks scan `.omp` and `.omp-*` extension directories.
-- On Windows, installable integrations include the Pi, OMP, and OpenCode JavaScript integrations, the Hermes plugin, and CLI hook integrations with supported path layouts: Claude, Codex, Copilot, Devin, Grok Build, Kimi, Droid, Cursor, and Qoder-style CLIs. Kilo has no Oh My Herdr installable integration.
+- On Windows, installable integrations include the Pi, OMP, and OpenCode JavaScript integrations, the Hermes plugin, and CLI hook integrations with supported path layouts: Claude, Codex, Copilot, Devin, Grok Build, Kimi, Droid, Cursor, and Qoder-style CLIs. Kilo has no Gardn installable integration.
 
 
 ## Plugins
 
-Oh My Herdr plugin v1 lets local extensions add actions, panes, link handlers, and event hooks through the Oh My Herdr socket API and CLI.
+Gardn plugin v1 lets local extensions add actions, panes, link handlers, and event hooks through the Gardn socket API and CLI.
 
-Plugin manifests use `omh-plugin.toml` with `min_omh_version`. Oh My Herdr also accepts upstream-compatible `herdr-plugin.toml` and `min_herdr_version` aliases, but Oh My Herdr names are preferred for new plugins.
+Plugin manifests use `gardn-plugin.toml` with `min_gardn_version`. Gardn also accepts upstream-compatible `gardn-plugin.toml` and `min_gardn_version` aliases, but Gardn names are preferred for new plugins.
 
 Plugins run unsandboxed as the current user. Remote installs show source, build commands, actions, panes, link handlers, and event hooks before install, and require confirmation unless `--yes` is passed.
 
 Installed and linked plugins live in one user-level registry shared by the default and named sessions. Legacy per-session registries migrate into that global registry, and registry entries survive live server handoff.
-`omh plugin install`, `omh plugin uninstall`, `omh plugin link`, and `omh plugin list` can read or update the registry while no server is running. Runtime operations such as actions, hooks, panes, enable/disable, and `plugin unlink` still require the server.
+`gardn plugin install`, `gardn plugin uninstall`, `gardn plugin link`, and `gardn plugin list` can read or update the registry while no server is running. Runtime operations such as actions, hooks, panes, enable/disable, and `plugin unlink` still require the server.
 Enabled, platform-compatible `[[startup]]` commands run once when the server starts. Refreshing plugin manifests does not replay them.
 Plugin panes support overlay, split, tab, and zoomed placement on the Local execution host. Plugin v1 rejects a pane whose selected Workspace or source pane resolves to an SSH execution host before it creates the pane. Overlay placement is a detached popup runtime owned by the requesting client: only that client can see, focus, or close it, opening another replaces its current popup, and `Esc` closes it. Split, tab, and zoomed placements are normal session panes; their attribution follows pane moves and is removed when tabs, workspaces, layouts, or plugins remove the pane.
-Plugin commands receive `OMH_*` context variables, including plugin root/config/state directories and active workspace/tab/pane ids. Protected Oh My Herdr/plugin variables cannot be overwritten by plugin-provided env overrides.
+Plugin commands receive `GARDN_*` context variables, including plugin root/config/state directories and active workspace/tab/pane ids. Protected Gardn/plugin variables cannot be overwritten by plugin-provided env overrides.
 
 ## External tools
 
-Oh My Herdr is a terminal workspace manager, so some features call user-installed tools instead of bundling every backend.
+Gardn is a terminal workspace manager, so some features call user-installed tools instead of bundling every backend.
 
 | Tool | Used for | Requirement |
 | --- | --- | --- |
 | `git` | Git status, repository discovery, and Git-aware project commands. | Required for Git-aware features. |
 | Configured project commands | Terminal Git UI, diff review, IDE, and GitHub actions from project contexts. Configure `[commands].git`, `[commands].diff`, `[commands].ide`, and `[commands].github`; defaults are LazyGit, Hunk watch mode, Fresh, and ghui. | Each tool is optional; required only when its configured action is used. |
-| Agent CLIs such as `pi`, `omp`, `claude`, `codex`, `grok`, `opencode`, `hermes`, `copilot`, `kimi`, `droid`, `qodercli`, and `cursor-agent` | Launching agent panes and installing/updating matching Oh My Herdr integrations. | Required only for the agent/profile the user launches or integrates. |
+| Agent CLIs such as `pi`, `omp`, `claude`, `codex`, `grok`, `opencode`, `hermes`, `copilot`, `kimi`, `droid`, `qodercli`, and `cursor-agent` | Launching agent panes and installing/updating matching Gardn integrations. | Required only for the agent/profile the user launches or integrates. |
 | `python3` | Installed hook scripts for agent integrations. | Required for hook-based state/session reports; hooks exit quietly when it is missing. |
 | `curl` | Update checks, release downloads, manifest refreshes, and remote bootstrap downloads. | Required for those networked update/bootstrap features. |
 | `ssh` | Remote attach, remote install, and remote client bridge. | Required for remote features. |
 | `lsof` | Local TCP listener discovery for the ports panel. | Optional; missing or failing probes produce no port observations. |
-| macOS `pbcopy`, `pbpaste`, `open`, `/usr/bin/osascript`, optional `terminal-notifier`, and optional `mdfind` | Clipboard, URL opening, and system notifications on macOS. | Platform helpers; Oh My Herdr falls back where possible. |
+| macOS `pbcopy`, `pbpaste`, `open`, `/usr/bin/osascript`, optional `terminal-notifier`, and optional `mdfind` | Clipboard, URL opening, and system notifications on macOS. | Platform helpers; Gardn falls back where possible. |
 | Linux `xdg-open`, `notify-send`, `wl-copy`, `wl-paste`, `xclip`, and `xsel` | URL opening, system notifications, and clipboard/image paste on Linux. | Optional per feature and display server; missing helpers disable the matching bridge/fallback. |
 | macOS `afplay` | Custom sound notification playback. | Required only for custom notification sound playback on macOS. |
 
 ## CLI and socket API
 
-Oh My Herdr exposes the same runtime model through the CLI and local Unix socket API.
+Gardn exposes the same runtime model through the CLI and local Unix socket API.
 
 ### CLI areas
 
-- **`omh status`** — show client/server status and protocol compatibility.
+- **`gardn status`** — show client/server status and protocol compatibility.
 - **Protocol guard** — operational CLI commands verify the server wire-protocol version before dispatch and return a request-correlated JSON error with update/restart guidance on mismatch; status checks and live handoff remain available for diagnosis and recovery.
-- **`omh session`** — list, attach, stop, and delete named sessions.
-- **`omh workspace`** — manage workspaces.
-- **`omh tab`** — manage tabs.
-- **`omh pane`** — manage panes, read output, send input, report agent state, and run commands.
-- **`omh agent`** — list, inspect, focus, read, send encoded keys to, prompt, wait for, attach to, rename, and start agents.
-- **`omh agent explain`** — inspect why an agent pane is classified as idle, working, blocked, unknown, or skipped by manifest detection.
-- **`omh wait`** — wait for output matches or agent status changes.
-- **`omh integration`** — install, uninstall, and inspect agent integrations.
-- **`omh group`** — list, create, focus/switch, rename, and delete workspace groups.
-- **`omh config reset-keys`** — remove custom keybindings while preserving the rest of the config.
-- **`omh update`** — self-update supported binary installs; `--handoff` can preserve live panes while moving running sessions to the updated server.
-- **`omh server`** — run the headless server, stop it, reload config, or trigger a live handoff.
-- **`omh api`** — print or write the generated public API schema and request a live session snapshot.
+- **`gardn session`** — list, attach, stop, and delete named sessions.
+- **`gardn workspace`** — manage workspaces.
+- **`gardn tab`** — manage tabs.
+- **`gardn pane`** — manage panes, read output, send input, report agent state, and run commands.
+- **`gardn agent`** — list, inspect, focus, read, send encoded keys to, prompt, wait for, attach to, rename, and start agents.
+- **`gardn agent explain`** — inspect why an agent pane is classified as idle, working, blocked, unknown, or skipped by manifest detection.
+- **`gardn wait`** — wait for output matches or agent status changes.
+- **`gardn integration`** — install, uninstall, and inspect agent integrations.
+- **`gardn group`** — list, create, focus/switch, rename, and delete workspace groups.
+- **`gardn config reset-keys`** — remove custom keybindings while preserving the rest of the config.
+- **`gardn update`** — self-update supported binary installs; `--handoff` can preserve live panes while moving running sessions to the updated server.
+- **`gardn server`** — run the headless server, stop it, reload config, or trigger a live handoff.
+- **`gardn api`** — print or write the generated public API schema and request a live session snapshot.
 - **Launch flags** — `--no-session`, `--default-config`, `--skill`, and `--remote-keybindings <local|server>` control startup, skill output, and remote behavior.
 - **JSON output** — status and session commands expose machine-readable output where supported.
 - **Read modes** — pane and agent reads support visible, recent, recent-unwrapped, ANSI, raw, and bounded line output.
@@ -343,7 +343,7 @@ Oh My Herdr exposes the same runtime model through the CLI and local Unix socket
 
 The socket API supports typed request/response calls and event subscriptions. It is the local JSON control plane; interactive render streaming and terminal attach use the separate client wire-protocol socket.
 
-The public website combines authored transport, lifecycle, trust, compatibility, workflow, and error guidance with deterministic shape reference generated from a specified `omh` binary. Published schema JSON is immutable at `/api/<product-version>/schema.json`; the `/api/latest/schema.json` alias is reserved for release deployment. Generated Local API material excludes the separate internal client wire and handoff protocols.
+The public website combines authored transport, lifecycle, trust, compatibility, workflow, and error guidance with deterministic shape reference generated from a specified `gardn` binary. Published schema JSON is immutable at `/api/<product-version>/schema.json`; the `/api/latest/schema.json` alias is reserved for release deployment. Generated Local API material excludes the separate internal client wire and handoff protocols.
 
 API-visible domains include:
 
@@ -367,33 +367,33 @@ API-visible domains include:
 
 ### Themes
 
-Oh My Herdr supports terminal-derived colors and built-in palettes.
+Gardn supports terminal-derived colors and built-in palettes.
 
 - **Theme source** — terminal colors or theme palettes.
 - **Appearance mode** — system, light, or dark.
 - **Light and dark palette selection** — choose separate palettes when system mode is enabled.
-- **Live system sync** — in system mode, Oh My Herdr follows foreground host-terminal light/dark color changes while it is running and refreshes pane terminal defaults.
+- **Live system sync** — in system mode, Gardn follows foreground host-terminal light/dark color changes while it is running and refreshes pane terminal defaults.
 - **Nested terminal palette** — pane applications that query ANSI colors receive the active host palette. Application-defined palette colors keep precedence until the application resets them.
 - **Group settings** — rename or delete groups, assign per-group theme accent colors, choose favorite/default agent profiles, or inherit the global accent from the group settings modal.
 - **Accent color** — choose highlight, border, and navigation accent from the built-in theme palette or, when following terminal colors, from the six terminal ANSI accents (with separate light and dark choices).
 
 ### Sound and toasts
 
-- **Toast delivery** — off, Oh My Herdr, terminal, or system.
+- **Toast delivery** — off, Gardn, terminal, or system.
 - **Sound notifications** — request and done sounds for background agent activity.
 - **Per-agent sounds** — agent-specific sound overrides.
 - **Validation** — invalid or missing sound files fall back to defaults and emit diagnostics.
 - **Terminal toast backends** — terminal toasts use supported terminal notification protocols, including tmux passthrough where available.
 - **Custom sound files** — request/done sounds can use MP3 files resolved relative to the config file.
-- **Sound disable switch** — `OMH_DISABLE_SOUND` disables playback.
+- **Sound disable switch** — `GARDN_DISABLE_SOUND` disables playback.
 
 ## Configuration
 
-Configuration file: `~/.config/omh/config.toml`.
-Oh My Herdr treats `config.toml` as a stable hand-editable configuration surface. Settings modal changes rewrite their owned keys or sections, preserve unrelated sections, and reload the file into the running app after successful writes.
+Configuration file: `~/.config/gardn/config.toml`.
+Gardn treats `config.toml` as a stable hand-editable configuration surface. Settings modal changes rewrite their owned keys or sections, preserve unrelated sections, and reload the file into the running app after successful writes.
 
 Runtime reload is section-scoped for live sections: valid sections apply, invalid sections keep the previous live settings and emit diagnostics through the app/server reload path.
-- **Offline validation** — `omh config check` validates `config.toml`, prints diagnostics, and exits without starting or attaching to a session.
+- **Offline validation** — `gardn config check` validates `config.toml`, prints diagnostics, and exits without starting or attaching to a session.
 - **Configuration status** — startup and reload diagnostics raise one transient toast, then remain available from the bottom-left `Config Issue` status and its diagnostics modal until a successful reload clears them.
 
 
@@ -422,10 +422,10 @@ Configurable areas include:
 Direct installs use GitHub Releases for update checks, release metadata, and binary downloads on Linux, macOS, and Windows. mise and Nix-managed installs are routed to their package manager instead of self-update.
 
 - The app can notify when a new release or managed-install update is available.
-- `omh update` downloads and swaps supported direct binary installs.
+- `gardn update` downloads and swaps supported direct binary installs.
 - mise and Nix-managed installs are blocked from self-update and should use their package manager.
 - Live handoff can preserve running pane processes during updates when both the old and new server support the handoff protocol.
-- Windows direct updates use the stable `omh-windows-x86_64.exe` release asset; Oh My Herdr does not use a preview channel.
+- Windows direct updates use the stable `gardn-windows-x86_64.exe` release asset; Gardn does not use a preview channel.
 - In-app release notes can be shown after an update.
 - Post-update checks can report outdated integrations.
 - Product announcements can be shown separately from release notes and tracked as seen per version.
@@ -434,18 +434,18 @@ Direct installs use GitHub Releases for update checks, release metadata, and bin
 
 ## Fork maintenance
 
-Oh My Herdr tracks upstream Herdr commits with an explicit port ledger.
+Gardn tracks upstream Gardn commits with an explicit port ledger.
 
 - **Upstream port ledger** — `upstream-port-map.json` records each upstream commit as ported, superseded, skipped, or pending.
 - **Ledger check** — `just upstream-status` reports upstream status and fails when commits are unclassified or still pending.
 - **Sync guard integration** — upstream-sync reports include the ledger status so product-specific skips and superseded changes stay visible.
-- **Oh My Herdr-owned surfaces** — docs, website, release, and repository-process commits can be skipped with explicit reasons instead of silently reintroducing upstream identity.
+- **Gardn-owned surfaces** — docs, website, release, and repository-process commits can be skipped with explicit reasons instead of silently reintroducing upstream identity.
 
 ## Experimental features
 
 Experimental options currently include:
 
-- nested Oh My Herdr sessions
+- nested Gardn sessions
 - local Kitty graphics rendering for attached clients
 - CJK IME hidden-cursor anchoring
 - agent-scoped CJK IME anchoring

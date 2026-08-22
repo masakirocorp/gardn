@@ -16,12 +16,12 @@ export default defineConfig({
   mode: "static",
   content: docs.toFumadocsSource(),
   site: {
-    name: "Oh My Herdr",
+    name: "Gardn",
     baseUrl: siteOrigin,
     git: {
       user: "masakirocorp",
       branch: "master",
-      repo: "oh-my-herdr",
+      repo: "gardn",
     },
   },
   meta: {
@@ -30,8 +30,8 @@ export default defineConfig({
         <>
           <meta name="description" content="Terminal workspace management for AI coding agents." />
           <meta property="og:type" content="website" />
-          <meta property="og:site_name" content="Oh My Herdr" />
-          <meta property="og:title" content="Oh My Herdr" />
+          <meta property="og:site_name" content="Gardn" />
+          <meta property="og:title" content="Gardn" />
           <meta
             property="og:description"
             content="Terminal workspace management for AI coding agents."
@@ -41,10 +41,10 @@ export default defineConfig({
           <meta property="og:image:height" content="630" />
           <meta
             property="og:image:alt"
-            content="Oh My Herdr — terminal workspace management for AI coding agents"
+            content="Gardn — terminal workspace management for AI coding agents"
           />
           <meta name="twitter:card" content="summary_large_image" />
-          <meta name="twitter:title" content="Oh My Herdr" />
+          <meta name="twitter:title" content="Gardn" />
           <meta
             name="twitter:description"
             content="Terminal workspace management for AI coding agents."
@@ -52,7 +52,7 @@ export default defineConfig({
           <meta name="twitter:image" content={canonicalUrl("/social-card.png")} />
           <meta
             name="twitter:image:alt"
-            content="Oh My Herdr — terminal workspace management for AI coding agents"
+            content="Gardn — terminal workspace management for AI coding agents"
           />
           <meta name="theme-color" content="oklch(0.175 0.009 145)" />
           <link rel="icon" href="/favicon.svg" type="image/svg+xml" />

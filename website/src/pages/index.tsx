@@ -13,17 +13,17 @@ import {
 export default function HomePage() {
   return (
     <>
-      <title>Oh My Herdr — Terminal workspace management for AI coding agents</title>
+      <title>Gardn — Terminal workspace management for AI coding agents</title>
       <meta
         name="description"
         content="Run AI coding agents, shells, and project context in persistent terminal workspaces that survive disconnects."
       />
-      <meta property="og:title" content="Oh My Herdr" />
+      <meta property="og:title" content="Gardn" />
       <meta
         property="og:description"
         content="Terminal workspace management for AI coding agents."
       />
-      <meta name="twitter:title" content="Oh My Herdr" />
+      <meta name="twitter:title" content="Gardn" />
       <meta
         name="twitter:description"
         content="Run AI coding agents, shells, and project context in persistent terminal workspaces."
@@ -31,23 +31,23 @@ export default function HomePage() {
       <link rel="canonical" href={canonicalUrl("/")} />
       <meta property="og:url" content={canonicalUrl("/")} />
 
-      <main className="omh-page">
+      <main className="gardn-page">
         <Hero
           eyebrow="Terminal workspace manager"
           title="Keep the terminal work. Lose the terminal sprawl."
           actions={
             <>
-              <Link className="omh-action" data-primary="true" href="/docs">
+              <Link className="gardn-action" data-primary="true" href="/docs">
                 Read the documentation
               </Link>
-              <Link className="omh-action" href="/docs/getting-started/install">
+              <Link className="gardn-action" href="/docs/getting-started/install">
                 Install from source
               </Link>
             </>
           }
           status={
             <>
-              <span className="omh-status omh-status--live">pre-public</span>
+              <span className="gardn-status gardn-status--live">pre-public</span>
               <span>
                 Verified release downloads are not yet available. Check the{" "}
                 <Link href="/download">download status</Link> page.
@@ -56,7 +56,7 @@ export default function HomePage() {
           }
         >
           <p>
-            Oh My Herdr organizes AI coding agents, shells, and project context into persistent
+            Gardn organizes AI coding agents, shells, and project context into persistent
             terminal spaces. Workspaces, tabs, and panes live inside a session server that survives
             client disconnects, so you can detach, reattach from another terminal, and pick up where
             you left off without losing the live processes behind each pane.
@@ -78,10 +78,10 @@ export default function HomePage() {
           title="From launch to reattach"
           steps={[
             {
-              title: "Launch Oh My Herdr",
+              title: "Launch Gardn",
               copy: (
                 <>
-                  Run <span className="omh-command">omh</span> to start or attach to the default
+                  Run <span className="gardn-command">gardn</span> to start or attach to the default
                   session. First-launch onboarding walks through the basics.
                 </>
               ),
@@ -92,8 +92,8 @@ export default function HomePage() {
               title: "Create a space",
               copy: (
                 <>
-                  Press <span className="omh-command">ctrl+b</span>, then{" "}
-                  <span className="omh-command">shift+n</span> to create a workspace. Spaces keep
+                  Press <span className="gardn-command">ctrl+b</span>, then{" "}
+                  <span className="gardn-command">shift+n</span> to create a workspace. Spaces keep
                   related tabs, panes, and context together.
                 </>
               ),
@@ -104,9 +104,9 @@ export default function HomePage() {
               title: "Start an agent",
               copy: (
                 <>
-                  Open the command palette with <span className="omh-command">ctrl+b</span>,{" "}
-                  <span className="omh-command">space</span>, then choose{" "}
-                  <span className="omh-command">new agent</span> to launch a supported profile.
+                  Open the command palette with <span className="gardn-command">ctrl+b</span>,{" "}
+                  <span className="gardn-command">space</span>, then choose{" "}
+                  <span className="gardn-command">new agent</span> to launch a supported profile.
                 </>
               ),
               href: "/docs/guides/plugins-and-integrations",
@@ -116,10 +116,10 @@ export default function HomePage() {
               title: "Split, tab, and resize",
               copy: (
                 <>
-                  Split panes with <span className="omh-command">ctrl+b</span>,{" "}
-                  <span className="omh-command">v</span>, add tabs with{" "}
-                  <span className="omh-command">ctrl+b</span>,{" "}
-                  <span className="omh-command">c</span>, and drag borders to resize.
+                  Split panes with <span className="gardn-command">ctrl+b</span>,{" "}
+                  <span className="gardn-command">v</span>, add tabs with{" "}
+                  <span className="gardn-command">ctrl+b</span>,{" "}
+                  <span className="gardn-command">c</span>, and drag borders to resize.
                 </>
               ),
               href: "/docs/guides/workspaces-and-navigation",
@@ -129,9 +129,9 @@ export default function HomePage() {
               title: "Detach and reconnect",
               copy: (
                 <>
-                  Press <span className="omh-command">ctrl+b</span>,{" "}
-                  <span className="omh-command">q</span> to detach. The session server keeps your
-                  panes running. Run <span className="omh-command">omh</span> again to reconnect.
+                  Press <span className="gardn-command">ctrl+b</span>,{" "}
+                  <span className="gardn-command">q</span> to detach. The session server keeps your
+                  panes running. Run <span className="gardn-command">gardn</span> again to reconnect.
                 </>
               ),
               href: "/docs/guides/updates-and-handoff",
@@ -179,7 +179,7 @@ export default function HomePage() {
               copy: (
                 <>
                   Attach to a session over SSH with{" "}
-                  <span className="omh-command">omh --remote</span>. The remote host can bootstrap a
+                  <span className="gardn-command">gardn --remote</span>. The remote host can bootstrap a
                   matching binary before the client connects.
                 </>
               ),
@@ -200,7 +200,7 @@ export default function HomePage() {
               copy: (
                 <>
                   On compatible Unix servers,{" "}
-                  <span className="omh-command">omh update --handoff</span> moves live pane PTYs
+                  <span className="gardn-command">gardn update --handoff</span> moves live pane PTYs
                   into a newly installed server without stopping running processes.
                 </>
               ),
@@ -235,20 +235,20 @@ export default function HomePage() {
           ]}
           actions={
             <>
-              <Link className="omh-action" data-primary="true" href="/docs/getting-started/install">
+              <Link className="gardn-action" data-primary="true" href="/docs/getting-started/install">
                 Install from source
               </Link>
-              <Link className="omh-action" href="/download">
+              <Link className="gardn-action" href="/download">
                 Download status
               </Link>
-              <Link className="omh-action" href="/docs/reference/platforms">
+              <Link className="gardn-action" href="/docs/reference/platforms">
                 Platform reference
               </Link>
             </>
           }
         >
           <p>
-            Oh My Herdr is pre-public. Verified release downloads are not yet available, so install
+            Gardn is pre-public. Verified release downloads are not yet available, so install
             from the source checkout or the Nix flake. The local client runs on macOS, Linux, and
             Windows; the remote bridge is limited to Unix local clients and Linux or macOS remote
             hosts.
@@ -259,15 +259,15 @@ export default function HomePage() {
           title="Start with the docs or the source"
           actions={
             <>
-              <Link className="omh-action" data-primary="true" href="/docs">
+              <Link className="gardn-action" data-primary="true" href="/docs">
                 Read the documentation
               </Link>
-              <Link className="omh-action" href="/docs/getting-started/quick-start">
+              <Link className="gardn-action" href="/docs/getting-started/quick-start">
                 Open the quick start
               </Link>
               <a
-                className="omh-action"
-                href="https://github.com/masakirocorp/oh-my-herdr"
+                className="gardn-action"
+                href="https://github.com/masakirocorp/gardn"
                 rel="noopener noreferrer"
                 target="_blank"
               >
@@ -284,7 +284,7 @@ export default function HomePage() {
         </CTASection>
 
         <Footer>
-          <p>Oh My Herdr — a terminal workspace manager for AI coding agents.</p>
+          <p>Gardn — a terminal workspace manager for AI coding agents.</p>
         </Footer>
       </main>
     </>

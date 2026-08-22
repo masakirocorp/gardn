@@ -1,11 +1,11 @@
 ---
 title: Product concepts
-description: The stable vocabulary used across Oh My Herdr sessions.
+description: The stable vocabulary used across Gardn sessions.
 ---
 
 # Product concepts
 
-Oh My Herdr organizes work into a persistent session. A session contains spaces, groups, tabs, panes, terminals, and agents. The terms below describe how those objects fit together.
+Gardn organizes work into a persistent session. A session contains spaces, groups, tabs, panes, terminals, and agents. The terms below describe how those objects fit together.
 
 ## Space and workspace
 
@@ -31,7 +31,7 @@ A **terminal** is the text surface that displays a pane's current screen and scr
 
 ## Agent and profile
 
-An **agent** is a coding assistant running in a pane. Oh My Herdr observes the agent's terminal and presents a state such as working, blocked, done, or idle.
+An **agent** is a coding assistant running in a pane. Gardn observes the agent's terminal and presents a state such as working, blocked, done, or idle.
 
 An **agent profile** is a launchable description for an agent command. Profiles provide the command and any required integration context; the agent profile picker lists profiles available in the current space.
 
@@ -43,12 +43,12 @@ Each **client view** is the local presentation of the shared session. Its select
 
 ## Persistence and restore
 
-Oh My Herdr saves the session structure locally so a later launch can restore spaces, groups, tabs, pane layouts, working directories, and selected UI state. A full restore creates a fresh shell in each saved working directory; it is not a replay of every process that was running before shutdown.
+Gardn saves the session structure locally so a later launch can restore spaces, groups, tabs, pane layouts, working directories, and selected UI state. A full restore creates a fresh shell in each saved working directory; it is not a replay of every process that was running before shutdown.
 
 Agent conversation restore is a separate capability. It is enabled by default, but it requires an official integration to have reported a valid session reference. Without that reference, the pane can return as a shell or require the agent to be started manually. See [Updates and handoff](/docs/guides/updates-and-handoff) for the safe distinction between a live handoff and a full restore.
 
 ## Named sessions
 
-A **named session** is a separate persistent Oh My Herdr session selected by name. Each named session has its own spaces, groups, tabs, panes, running processes, and restore state; named sessions do not replace spaces inside one session.
+A **named session** is a separate persistent Gardn session selected by name. Each named session has its own spaces, groups, tabs, panes, running processes, and restore state; named sessions do not replace spaces inside one session.
 
-The default session is addressed by `omh`. A named session is addressed by `omh session attach <name>`, which lets separate projects or operating contexts remain isolated while using the same Oh My Herdr installation.
+The default session is addressed by `gardn`. A named session is addressed by `gardn session attach <name>`, which lets separate projects or operating contexts remain isolated while using the same Gardn installation.

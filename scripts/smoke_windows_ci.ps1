@@ -5,30 +5,30 @@ param(
 $ErrorActionPreference = "Stop"
 
 $repo = Split-Path -Parent $PSScriptRoot
-$bin = if ($BinaryPath) { $BinaryPath } else { Join-Path $repo "target\debug\omh.exe" }
+$bin = if ($BinaryPath) { $BinaryPath } else { Join-Path $repo "target\debug\gardn.exe" }
 if (!(Test-Path $bin)) {
     throw "missing binary at $bin"
 }
 & $bin --version
-if ($LASTEXITCODE -ne 0) { throw "omh --version failed" }
+if ($LASTEXITCODE -ne 0) { throw "gardn --version failed" }
 
-$root = Join-Path ([System.IO.Path]::GetTempPath()) ("omh-windows-smoke-" + [System.Guid]::NewGuid().ToString("N"))
+$root = Join-Path ([System.IO.Path]::GetTempPath()) ("gardn-windows-smoke-" + [System.Guid]::NewGuid().ToString("N"))
 $config = Join-Path $root "config"
 $runtime = Join-Path $root "runtime"
-$socket = Join-Path $root "omh.sock"
+$socket = Join-Path $root "gardn.sock"
 New-Item -ItemType Directory -Force -Path $config, $runtime | Out-Null
 
 $oldConfig = $env:XDG_CONFIG_HOME
 $oldRuntime = $env:XDG_RUNTIME_DIR
-$oldSocket = $env:OMH_SOCKET_PATH
-$oldClientSocket = $env:OMH_CLIENT_SOCKET_PATH
+$oldSocket = $env:GARDN_SOCKET_PATH
+$oldClientSocket = $env:GARDN_CLIENT_SOCKET_PATH
 $oldShell = $env:SHELL
 $server = $null
 try {
     $env:XDG_CONFIG_HOME = $config
     $env:XDG_RUNTIME_DIR = $runtime
-    $env:OMH_SOCKET_PATH = $socket
-    Remove-Item Env:OMH_CLIENT_SOCKET_PATH -ErrorAction SilentlyContinue
+    $env:GARDN_SOCKET_PATH = $socket
+    Remove-Item Env:GARDN_CLIENT_SOCKET_PATH -ErrorAction SilentlyContinue
     Remove-Item Env:SHELL -ErrorAction SilentlyContinue
 
     $server = Start-Process -FilePath $bin -ArgumentList @("server") -PassThru -NoNewWindow
@@ -59,10 +59,10 @@ try {
     $paneId = $created.result.root_pane.pane_id
     if (!$paneId) { throw "workspace create did not return root pane id" }
 
-    & $bin pane run $paneId "echo omh-windows-smoke"
+    & $bin pane run $paneId "echo gardn-windows-smoke"
     if ($LASTEXITCODE -ne 0) { throw "pane run failed" }
 
-    & $bin wait output $paneId --match omh-windows-smoke --source recent --timeout 10000
+    & $bin wait output $paneId --match gardn-windows-smoke --source recent --timeout 10000
     if ($LASTEXITCODE -ne 0) { throw "wait output failed" }
 
     & $bin server stop
@@ -76,8 +76,8 @@ try {
     }
     if ($null -eq $oldConfig) { Remove-Item Env:XDG_CONFIG_HOME -ErrorAction SilentlyContinue } else { $env:XDG_CONFIG_HOME = $oldConfig }
     if ($null -eq $oldRuntime) { Remove-Item Env:XDG_RUNTIME_DIR -ErrorAction SilentlyContinue } else { $env:XDG_RUNTIME_DIR = $oldRuntime }
-    if ($null -eq $oldSocket) { Remove-Item Env:OMH_SOCKET_PATH -ErrorAction SilentlyContinue } else { $env:OMH_SOCKET_PATH = $oldSocket }
-    if ($null -eq $oldClientSocket) { Remove-Item Env:OMH_CLIENT_SOCKET_PATH -ErrorAction SilentlyContinue } else { $env:OMH_CLIENT_SOCKET_PATH = $oldClientSocket }
+    if ($null -eq $oldSocket) { Remove-Item Env:GARDN_SOCKET_PATH -ErrorAction SilentlyContinue } else { $env:GARDN_SOCKET_PATH = $oldSocket }
+    if ($null -eq $oldClientSocket) { Remove-Item Env:GARDN_CLIENT_SOCKET_PATH -ErrorAction SilentlyContinue } else { $env:GARDN_CLIENT_SOCKET_PATH = $oldClientSocket }
     if ($null -eq $oldShell) { Remove-Item Env:SHELL -ErrorAction SilentlyContinue } else { $env:SHELL = $oldShell }
     Remove-Item -Recurse -Force $root -ErrorAction SilentlyContinue
 }

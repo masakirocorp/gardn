@@ -1,6 +1,6 @@
-# Oh My Herdr
+# Gardn
 
-Oh My Herdr is a terminal workspace manager for AI coding agents. This glossary names product concepts that should stay consistent across UI, config, snapshots, and documentation.
+Gardn is a terminal workspace manager for AI coding agents. This glossary names product concepts that should stay consistent across UI, config, snapshots, and documentation.
 
 ## Language
 
@@ -13,11 +13,11 @@ A reusable launch identity for an agent family, with a stable id, display name, 
 _Avoid_: Agent command, launcher, preset
 
 **Agent Kind**:
-An Oh My Herdr-supported agent family that can back an agent profile. Agent kinds come from the same supported targets as agent integrations.
+An Gardn-supported agent family that can back an agent profile. Agent kinds come from the same supported targets as agent integrations.
 _Avoid_: Agent type, command type
 
 **System Agent Profile**:
-A built-in read-only agent profile supplied by Oh My Herdr for a supported agent family. System agent profiles are virtual defaults and are layered with user agent profiles.
+A built-in read-only agent profile supplied by Gardn for a supported agent family. System agent profiles are virtual defaults and are layered with user agent profiles.
 _Avoid_: Default command, built-in launcher
 
 **User Agent Profile**:
@@ -33,7 +33,7 @@ A per-group promotion of a global agent profile. Favorite profiles appear before
 _Avoid_: Visibility, permission, policy, priority
 
 **Group Default Agent Profile**:
-The launchable group favorite Oh My Herdr starts directly from New Agent for workspaces in that group.
+The launchable group favorite Gardn starts directly from New Agent for workspaces in that group.
 _Avoid_: Hidden default, global default
 
 **New Agent**:
@@ -41,7 +41,7 @@ A launch surface for starting an agent profile as a new tab in a specific worksp
 _Avoid_: Run command, start bot
 
 **Shared Session State**:
-The durable workspace, runtime-adjacent, committed configuration, host-qualified placement, and API-visible state owned by one Oh My Herdr coordinator Session Namespace and converged across attached clients.
+The durable workspace, runtime-adjacent, committed configuration, host-qualified placement, and API-visible state owned by one Gardn coordinator Session Namespace and converged across attached clients.
 _Avoid_: Global app view, client screen state, execution-worker state
 
 **Client View State**:
@@ -61,7 +61,7 @@ The per-connection host terminal facts and render transport state, such as termi
 _Avoid_: Workspace state, session snapshot
 
 **Command Palette**:
-A contextual command surface synthesized from Oh My Herdr's current app state, keybindings, and fixed app actions.
+A contextual command surface synthesized from Gardn's current app state, keybindings, and fixed app actions.
 _Avoid_: Static command registry, shell palette
 
 **Native Agent Resume**:
@@ -77,11 +77,11 @@ Presentation details reported by an integration source for a running terminal, s
 _Avoid_: Pane label, agent state
 
 **Agent State Evidence**:
-Process identity, terminal-tail fallback detection, strong visible screen signals, hook state reports, and seen/unseen UI state Oh My Herdr uses to decide a terminal's user-facing agent state.
+Process identity, terminal-tail fallback detection, strong visible screen signals, hook state reports, and seen/unseen UI state Gardn uses to decide a terminal's user-facing agent state.
 _Avoid_: Agent metadata, fallback detection
 
 **Effective Presentation**:
-The current user-facing title, display agent, custom status, and state-label set after Oh My Herdr combines valid metadata with terminal and integration state.
+The current user-facing title, display agent, custom status, and state-label set after Gardn combines valid metadata with terminal and integration state.
 _Avoid_: Raw metadata, session state
 
 **Maintenance Guardrail**:
@@ -97,7 +97,7 @@ Disposable, versioned website build content recreated from authoritative Rust co
 _Avoid_: Public prose, compatibility contract
 
 **Config File**:
-The user-editable TOML file that defines Oh My Herdr's persistent product settings. It is a public configuration surface, not a dump of runtime state.
+The user-editable TOML file that defines Gardn's persistent product settings. It is a public configuration surface, not a dump of runtime state.
 _Avoid_: Settings cache, state file
 
 **Live Config Reload**:
@@ -105,7 +105,7 @@ The runtime flow that reloads `config.toml` into an already-running app or serve
 _Avoid_: Restart, migration
 
 **Settings Row**:
-A typed row in Oh My Herdr's settings modal that defines how a setting or explanatory element renders, participates in selection, and maps between visual rows and logical options.
+A typed row in Gardn's settings modal that defines how a setting or explanatory element renders, participates in selection, and maps between visual rows and logical options.
 _Avoid_: Config entry, raw list item
 
 **Modal Geometry Primitive**:
@@ -121,11 +121,11 @@ Legacy name for a Workspace's default working directory before host-qualified pl
 _Avoid_: Global default directory, group cwd
 
 **Creation Context**:
-The source Group, Workspace, and Resource Location Oh My Herdr uses when creating a new workspace, tab, split, or agent-profile tab. Interactive creation captures it from the invoking client's view; host and path travel together and must not be recombined across hosts.
+The source Group, Workspace, and Resource Location Gardn uses when creating a new workspace, tab, split, or agent-profile tab. Interactive creation captures it from the invoking client's view; host and path travel together and must not be recombined across hosts.
 _Avoid_: Global default, launch profile
 
 **Observed Repo**:
-A Git repository root Oh My Herdr has learned from a workspace's default directory, from a pane cwd inside that workspace, or from a direct child of such a non-Git cwd. Observed repos are user-created context, not the result of recursive filesystem crawling.
+A Git repository root Gardn has learned from a workspace's default directory, from a pane cwd inside that workspace, or from a direct child of such a non-Git cwd. Observed repos are user-created context, not the result of recursive filesystem crawling.
 _Avoid_: Discovered child repo, scanned repo
 
 **Observed Repo Status**:
@@ -134,7 +134,7 @@ _Avoid_: Picker status, live git status
 
 
 **Workspace Repo Target**:
-The Git repository Oh My Herdr should use for a workspace-scoped Git action. If exactly one observed repo exists, it is the target; if several observed repos exist, the user must choose; if none exist, the action is unavailable.
+The Git repository Gardn should use for a workspace-scoped Git action. If exactly one observed repo exists, it is the target; if several observed repos exist, the user must choose; if none exist, the action is unavailable.
 _Avoid_: Focused pane repo, random child repo
 
 
@@ -144,7 +144,7 @@ _Avoid_: Workspace parent, project
 
 
 **Coordinator Host**:
-The machine running the Oh My Herdr server for a Session Namespace. It owns Shared Session State, routing, SSH Connection Profiles, and system OpenSSH for managed connections.
+The machine running the Gardn server for a Session Namespace. It owns Shared Session State, routing, SSH Connection Profiles, and system OpenSSH for managed connections.
 _Avoid_: Rendering client, execution worker, Local when the client is remote
 
 **Rendering Client Host**:
@@ -152,7 +152,7 @@ The machine running the user's outer terminal or thin client. It owns desktop ef
 _Avoid_: Coordinator Host, Execution Host
 
 **Execution Host**:
-A Local or SSH-reachable operating-system environment where Oh My Herdr creates and observes Terminal Runtimes and performs filesystem, process, Git, agent, and port operations.
+A Local or SSH-reachable operating-system environment where Gardn creates and observes Terminal Runtimes and performs filesystem, process, Git, agent, and port operations.
 _Avoid_: Workspace host, SSH profile, Rendering Client Host
 
 **SSH Connection Profile**:
@@ -193,23 +193,23 @@ A visible slot in a tab that displays and interacts with an attached terminal. A
 _Avoid_: Terminal, process
 
 **Project Command**:
-A discovered command associated with a project root and launchable from Oh My Herdr's command surfaces.
-_Avoid_: Task when referring to Oh My Herdr's managed command catalog
+A discovered command associated with a project root and launchable from Gardn's command surfaces.
+_Avoid_: Task when referring to Gardn's managed command catalog
 
 **Command Run**:
-An Oh My Herdr-managed terminal tab created for a project command, tracked so the same command can be focused, stopped, or restarted instead of duplicated.
+An Gardn-managed terminal tab created for a project command, tracked so the same command can be focused, stopped, or restarted instead of duplicated.
 _Avoid_: Shell command, one-off terminal
 
 **Port Entry**:
-An observed host TCP listener shown in Oh My Herdr's activity surfaces, with active/stale and exposure labels. A port entry is runtime observation, not user-authored config or workspace identity.
+An observed host TCP listener shown in Gardn's activity surfaces, with active/stale and exposure labels. A port entry is runtime observation, not user-authored config or workspace identity.
 _Avoid_: Port config, forwarded port
 
 **Port Owner**:
-A best-effort pane attribution for an observed port entry. A port owner is useful for context and focus, but it does not mean Oh My Herdr owns the socket lifecycle.
+A best-effort pane attribution for an observed port entry. A port owner is useful for context and focus, but it does not mean Gardn owns the socket lifecycle.
 _Avoid_: Socket owner, command owner
 
 **Terminal**:
-A running shell or agent session that Oh My Herdr can display, send input to, and track. A terminal may be shown in a pane and may outlive a particular pane placement.
+A running shell or agent session that Gardn can display, send input to, and track. A terminal may be shown in a pane and may outlive a particular pane placement.
 _Avoid_: Pane, viewport
 
 **Terminal Runtime**:
@@ -217,11 +217,11 @@ The live execution-side runtime for a terminal, including PTY/I/O ownership, pro
 _Avoid_: AppState, pane metadata
 
 **Terminal Core**:
-The embedded terminal-emulation engine Oh My Herdr uses to turn PTY bytes into terminal state, render data, input modes, and terminal responses.
+The embedded terminal-emulation engine Gardn uses to turn PTY bytes into terminal state, render data, input modes, and terminal responses.
 _Avoid_: Pane, terminal runtime
 
 **Inner Terminal Identity**:
-The `TERM`/`COLORTERM` contract Oh My Herdr advertises to processes running inside a pane.
+The `TERM`/`COLORTERM` contract Gardn advertises to processes running inside a pane.
 _Avoid_: Host terminal identity, outer terminal
 
 **Viewport**:
@@ -233,11 +233,11 @@ A narrow mutation of PTY bytes before terminal-core processing for a named compa
 _Avoid_: Terminal emulation, fallback detection
 
 **Host Terminal Theme**:
-The foreground/background colors reported by the foreground client's outer terminal and cached by Oh My Herdr for pane terminal defaults.
+The foreground/background colors reported by the foreground client's outer terminal and cached by Gardn for pane terminal defaults.
 _Avoid_: App theme, child OSC override
 
 **Host Graphics**:
-Image placements displayed by the user's host terminal outside normal text cells. Host graphics must stay synchronized with Oh My Herdr's current workspace/tab view because repainting text does not necessarily clear terminal-managed image placements.
+Image placements displayed by the user's host terminal outside normal text cells. Host graphics must stay synchronized with Gardn's current workspace/tab view because repainting text does not necessarily clear terminal-managed image placements.
 _Avoid_: Terminal core graphics, image upload
 
 **Terminal Tail**:
@@ -245,15 +245,15 @@ The recent bottom portion of a terminal's output. Fallback agent detection reads
 _Avoid_: Viewport, visible text
 
 **Agent State**:
-Oh My Herdr's current understanding of whether an agent is working, blocked, idle, or unknown.
+Gardn's current understanding of whether an agent is working, blocked, idle, or unknown.
 _Avoid_: Status when referring to Linear workflow status
 
 **State Notification**:
-A user-facing alert derived from an agent state change, such as needs-attention or finished. A state notification is about the product event before choosing Oh My Herdr, terminal, system, sound, or no delivery.
+A user-facing alert derived from an agent state change, such as needs-attention or finished. A state notification is about the product event before choosing Gardn, terminal, system, sound, or no delivery.
 _Avoid_: Toast when delivery channel is not yet chosen
 
 **Notification Target**:
-The workspace and pane an Oh My Herdr notification can focus. Notification targets exist for in-app navigation; external terminal or system notifications should not imply they can focus Oh My Herdr.
+The workspace and pane an Gardn notification can focus. Notification targets exist for in-app navigation; external terminal or system notifications should not imply they can focus Gardn.
 _Avoid_: Deep link, delivery target
 
 **Fallback Screen Detection**:
@@ -265,7 +265,7 @@ The operating-system family of one concrete host role, such as macOS or Linux on
 _Avoid_: Runtime, terminal, Local
 
 **Local API**:
-The newline-delimited JSON control surface exposed by a running Oh My Herdr server for status, server control, workspace/pane/agent operations, waits, event subscriptions, integrations, and capability discovery.
+The newline-delimited JSON control surface exposed by a running Gardn server for status, server control, workspace/pane/agent operations, waits, event subscriptions, integrations, and capability discovery.
 _Avoid_: Wire protocol, render stream
 
 **Local API Event**:
@@ -273,11 +273,11 @@ A recent app event emitted on the Local API stream for automation clients, such 
 _Avoid_: Audit log, wire frame
 
 **Wire Protocol**:
-The binary server/client message contract used by Oh My Herdr clients to attach to a running Oh My Herdr server. The wire protocol is separate from the Local API socket, though Local API status/ping reports its protocol version.
+The binary server/client message contract used by Gardn clients to attach to a running Gardn server. The wire protocol is separate from the Local API socket, though Local API status/ping reports its protocol version.
 _Avoid_: API, command protocol
 
 **Render Stream**:
-The wire-protocol flow of visual frame updates from an Oh My Herdr server to a thin client. Render streams are per-client and droppable; they are not durable state or Local API events.
+The wire-protocol flow of visual frame updates from an Gardn server to a thin client. Render streams are per-client and droppable; they are not durable state or Local API events.
 _Avoid_: Audit log, control channel
 
 **Render Encoding**:
@@ -285,7 +285,7 @@ The negotiated representation used for one thin client's render stream, such as 
 _Avoid_: Protocol version, client mode
 
 **Protocol Version**:
-The numeric compatibility marker for the wire protocol. Oh My Herdr currently treats protocol compatibility as an exact match between client and server protocol values.
+The numeric compatibility marker for the wire protocol. Gardn currently treats protocol compatibility as an exact match between client and server protocol values.
 _Avoid_: App version, release version
 
 **Protocol Payload**:
@@ -293,23 +293,23 @@ The length-prefixed body carried by the wire protocol or a related thin-client t
 _Avoid_: Render stream, terminal bytes
 
 **Product Fork**:
-A fork that has its own product identity, release line, docs, website, update channel, and repository policy. Oh My Herdr is a product fork of upstream Herdr, not a mirror.
+A fork that has its own product identity, release line, docs, website, update channel, and repository policy. Gardn is a product fork of upstream Gardn, not a mirror.
 _Avoid_: Downstream mirror, rebrand branch
 
 **Upstream Signal**:
-An upstream Herdr change treated as candidate evidence for an Oh My Herdr invariant. Upstream signal must be checked against Oh My Herdr context before it becomes Oh My Herdr behavior.
+An upstream Gardn change treated as candidate evidence for an Gardn invariant. Upstream signal must be checked against Gardn context before it becomes Gardn behavior.
 _Avoid_: Upstream authority, automatic merge
 
 **Session Namespace**:
-A default or named Oh My Herdr scope for a running server and persistence context.
+A default or named Gardn scope for a running server and persistence context.
 _Avoid_: CLI flag, workspace, app instance
 
 **Factory-Default Session State**:
-The built-in empty Oh My Herdr state: no workspaces, the unrenamed default group selected, and default sidebar/group-filter presentation.
+The built-in empty Gardn state: no workspaces, the unrenamed default group selected, and default sidebar/group-filter presentation.
 _Avoid_: Empty workspace, reset snapshot
 
 **Session Snapshot**:
-The durable saved shape of an Oh My Herdr session: groups, workspaces, tabs, panes, layout, active/selected/sidebar state, host-qualified defaults and Terminal Placements, pane label/seen state, launch argv/env, and resumable agent-session refs. It excludes pane scrollback, live PTY handles, SSH processes, credentials, and handoff-only terminal semantics.
+The durable saved shape of an Gardn session: groups, workspaces, tabs, panes, layout, active/selected/sidebar state, host-qualified defaults and Terminal Placements, pane label/seen state, launch argv/env, and resumable agent-session refs. It excludes pane scrollback, live PTY handles, SSH processes, credentials, and handoff-only terminal semantics.
 _Avoid_: History, handoff snapshot
 
 **Restore Recovery**:
@@ -321,7 +321,7 @@ Optional saved terminal scrollback used to restore pane contents when a fresh ru
 _Avoid_: Session snapshot, terminal semantics
 
 **Live Handoff**:
-A server replacement flow that transfers live terminal runtimes and session state to a new Oh My Herdr server so terminal/session processes can survive the server swap.
+A server replacement flow that transfers live terminal runtimes and session state to a new Gardn server so terminal/session processes can survive the server swap.
 _Avoid_: Restart, cold restore
 
 **Handoff Import**:
@@ -337,7 +337,7 @@ Agent-facing terminal presentation and arbitration state such as detected agent,
 _Avoid_: Scrollback, runtime, terminal bytes
 
 **Thin Client**:
-An Oh My Herdr client process attached to a running Oh My Herdr server. A thin client renders server frames and forwards framed input bytes; the server owns normal app input semantics.
+An Gardn client process attached to a running Gardn server. A thin client renders server frames and forwards framed input bytes; the server owns normal app input semantics.
 _Avoid_: Server, app instance
 
 **Foreground Client**:
@@ -345,7 +345,7 @@ The full app thin client whose host surface supplies global outer-terminal focus
 _Avoid_: Attach owner, tab controller
 
 **Clipboard Image Paste Bridge**:
-The explicit paste flow where the pasting thin client reads a local clipboard image and Oh My Herdr delivers a temporary file path to the terminal instead of raw image bytes.
+The explicit paste flow where the pasting thin client reads a local clipboard image and Gardn delivers a temporary file path to the terminal instead of raw image bytes.
 _Avoid_: Clipboard sync, image upload
 
 **Semantic Input**:
@@ -353,7 +353,7 @@ Decoded key, mouse, paste, outer-focus, and host terminal color/theme reply even
 _Avoid_: Terminal bytes, stdin chunk
 
 **Terminal Key**:
-A decoded keyboard event with key code, modifiers, event kind, and optional shifted character information. A terminal key is the semantic event Oh My Herdr handles after parsing input bytes.
+A decoded keyboard event with key code, modifiers, event kind, and optional shifted character information. A terminal key is the semantic event Gardn handles after parsing input bytes.
 _Avoid_: Escape sequence, keybinding
 
 **Direct Terminal Attach**:
@@ -365,17 +365,17 @@ The single direct terminal attach connection currently admitted as writable for 
 _Avoid_: Foreground client, observer
 
 **Direct Install**:
-An Oh My Herdr binary installed outside a package manager and owned by Oh My Herdr's own updater.
+An Gardn binary installed outside a package manager and owned by Gardn's own updater.
 _Avoid_: Standalone when ownership matters
 
 **Managed Install**:
-An Oh My Herdr binary installed and owned by a package manager such as Homebrew, mise, or Nix.
+An Gardn binary installed and owned by a package manager such as Homebrew, mise, or Nix.
 _Avoid_: Direct install, self-managed install
 
 **Nix Flake Path**:
-The optional Nix-native package, app, check, dev shell, and overlay surface for users who install or develop Oh My Herdr through Nix.
+The optional Nix-native package, app, check, dev shell, and overlay surface for users who install or develop Gardn through Nix.
 _Avoid_: Release channel, direct updater
 
 **Release Asset**:
-A platform-specific Oh My Herdr binary attached to a GitHub Release with the stable name Oh My Herdr's updater expects for that host platform.
+A platform-specific Gardn binary attached to a GitHub Release with the stable name Gardn's updater expects for that host platform.
 _Avoid_: Artifact when referring to the user-downloadable update binary

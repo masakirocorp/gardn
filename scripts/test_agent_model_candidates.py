@@ -14,7 +14,7 @@ class TestModelCandidateTests(unittest.TestCase):
 
     def test_canonical_candidates_are_validated_and_deduplicated(self):
         result = self.run_shell(
-            'omh_test_unique_candidates "$1" "$2"',
+            'gardn_test_unique_candidates "$1" "$2"',
             "openrouter/free",
             "nvidia/example:free,openrouter/free",
         )
@@ -27,7 +27,7 @@ class TestModelCandidateTests(unittest.TestCase):
 
     def test_cli_prefixed_model_is_rejected_at_the_public_input_boundary(self):
         result = self.run_shell(
-            'omh_test_unique_candidates "$1" ""',
+            'gardn_test_unique_candidates "$1" ""',
             "openrouter/openrouter/free",
         )
 
@@ -35,7 +35,7 @@ class TestModelCandidateTests(unittest.TestCase):
         self.assertIn("invalid canonical OpenRouter model id", result.stderr)
 
     def test_provider_adapter_prefixes_the_canonical_model_once(self):
-        result = self.run_shell('omh_test_provider_model "$1"', "openrouter/free")
+        result = self.run_shell('gardn_test_provider_model "$1"', "openrouter/free")
 
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout.strip(), "openrouter/openrouter/free")
@@ -54,7 +54,7 @@ class TestModelCandidateTests(unittest.TestCase):
                 )
             )
             result = self.run_shell(
-                "omh_test_available_candidates",
+                "gardn_test_available_candidates",
                 input_text="removed/model\nopenrouter/free\nnvidia/example:free\n",
                 env={"OPENROUTER_MODELS_URL": catalog.as_uri()},
             )
@@ -73,13 +73,13 @@ class TestModelCandidateTests(unittest.TestCase):
             target = tmp_path / "target.sh"
             target.write_text(
                 "#!/usr/bin/env bash\n"
-                "printf '%s\\n' \"$OMH_TEST_ACTIVE_MODEL\" >> \"$ATTEMPTS\"\n"
+                "printf '%s\\n' \"$GARDN_TEST_ACTIVE_MODEL\" >> \"$ATTEMPTS\"\n"
                 "echo 'provider error: no endpoint available' >&2\n"
                 "exit 1\n"
             )
             target.chmod(target.stat().st_mode | stat.S_IXUSR)
             result = self.run_shell(
-                'printf "%s\\n" first/model second/model | omh_test_run_with_fallbacks "$1"',
+                'printf "%s\\n" first/model second/model | gardn_test_run_with_fallbacks "$1"',
                 str(target),
                 env={"ATTEMPTS": str(attempts)},
             )
@@ -95,13 +95,13 @@ class TestModelCandidateTests(unittest.TestCase):
             target = tmp_path / "target.sh"
             target.write_text(
                 "#!/usr/bin/env bash\n"
-                "printf '%s\\n' \"$OMH_TEST_ACTIVE_MODEL\" >> \"$ATTEMPTS\"\n"
-                "[[ \"$OMH_TEST_ACTIVE_MODEL\" == first/model ]] && exit 75\n"
+                "printf '%s\\n' \"$GARDN_TEST_ACTIVE_MODEL\" >> \"$ATTEMPTS\"\n"
+                "[[ \"$GARDN_TEST_ACTIVE_MODEL\" == first/model ]] && exit 75\n"
                 "exit 0\n"
             )
             target.chmod(target.stat().st_mode | stat.S_IXUSR)
             result = self.run_shell(
-                'printf "%s\\n" first/model second/model | omh_test_run_with_fallbacks "$1"',
+                'printf "%s\\n" first/model second/model | gardn_test_run_with_fallbacks "$1"',
                 str(target),
                 env={"ATTEMPTS": str(attempts)},
             )
@@ -122,7 +122,7 @@ class TestModelCandidateTests(unittest.TestCase):
                 "CODEX_HOME": str(home / "codex"),
             }
             result = self.run_shell(
-                'omh_test_configure_model "$1"; omh_test_configure_model "$2"',
+                'gardn_test_configure_model "$1"; gardn_test_configure_model "$2"',
                 "removed/model",
                 "openrouter/free",
                 env=env,

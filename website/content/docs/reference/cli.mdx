@@ -1,11 +1,11 @@
 ---
 title: CLI reference
-description: Command families, options, output, and exit statuses for the Oh My Herdr command-line interface.
+description: Command families, options, output, and exit statuses for the Gardn command-line interface.
 ---
 
 # CLI reference
 
-This reference describes the public `omh` command families in version 0.2.19. The default launch command starts or attaches to the persistent local session. Commands that operate on an existing server use its local API socket.
+This reference describes the public `gardn` command families in version 0.2.19. The default launch command starts or attaches to the persistent local session. Commands that operate on an existing server use its local API socket.
 
 For product vocabulary, see [Product concepts](/docs/concepts). Configuration keys are documented in the [configuration reference](/docs/reference/configuration). For structured requests, exact result objects, and long-lived events, use the [Local API](/docs/api).
 
@@ -14,10 +14,10 @@ For product vocabulary, see [Product concepts](/docs/concepts). Configuration ke
 The general form is:
 
 ```text
-omh [global-options] <family> <subcommand> [options] [arguments]
+gardn [global-options] <family> <subcommand> [options] [arguments]
 ```
 
-`--session <name>` may appear on a launch or command invocation. It is consumed before command dispatch and selects the named persistent session. `--session=name` is equivalent. `OMH_SESSION` supplies the session name when `--session` is absent. The name `default` targets the default session.
+`--session <name>` may appear on a launch or command invocation. It is consumed before command dispatch and selects the named persistent session. `--session=name` is equivalent. `GARDN_SESSION` supplies the session name when `--session` is absent. The name `default` targets the default session.
 
 Commands that return API objects print one JSON object on standard output. An API error response is printed as JSON on standard error. Commands that read pane text write that text to standard output; commands that send input or perform a mutation normally produce no output on success. Help and usage text is written to standard error by family help handlers. `--help`, `--version`, `--default-config`, and `--skill` write their results to standard output.
 
@@ -38,18 +38,18 @@ These options apply to the launch command rather than to a family subcommand:
 | Option                                 | Default                    | Description                                                                            |
 | -------------------------------------- | -------------------------- | -------------------------------------------------------------------------------------- |
 | `--no-session`                         | off                        | Run the monolithic local process without the normal server/client session launcher.    |
-| `--session <name>`                     | `default` or `OMH_SESSION` | Use or create the named persistent session.                                            |
-| `--remote <ssh-target>`                | unset                      | Attach through SSH to a remote Oh My Herdr server. The target is an SSH target string. |
+| `--session <name>`                     | `default` or `GARDN_SESSION` | Use or create the named persistent session.                                            |
+| `--remote <ssh-target>`                | unset                      | Attach through SSH to a remote Gardn server. The target is an SSH target string. |
 | `--remote-keybindings <local\|server>` | `local`                    | With `--remote`, use local client keybindings or the remote server's keybindings.      |
 | `--handoff`                            | off                        | Opt into live handoff for supported update or remote attach operations.                |
 | `--default-config`                     | off                        | Print the built-in TOML configuration and exit.                                        |
 | `--skill`                              | off                        | Print the bundled agent skill file and exit.                                           |
-| `--version`, `-V`                      | off                        | Print the `omh` version and exit.                                                      |
+| `--version`, `-V`                      | off                        | Print the `gardn` version and exit.                                                      |
 | `--help`, `-h`                         | off                        | Print launch and family help and exit.                                                 |
 
 `--remote-keybindings` requires `--remote`. Windows is a supported local client for `--remote`; Windows is not a supported remote host. The option parser accepts only `local` and `server`. Remote launches read `[remote].manage_ssh_config` when the SSH launch starts. See [remote configuration](/docs/reference/configuration#remote).
 
-The separator `--` ends `omh` option parsing for child command arguments. In `omh agent start`, everything after `--` is the child argument vector. In `keys.command`, command text is interpreted according to the configured command type; shell expansion is not applied to agent-profile command strings.
+The separator `--` ends `gardn` option parsing for child command arguments. In `gardn agent start`, everything after `--` is the child argument vector. In `keys.command`, command text is interpreted according to the configured command type; shell expansion is not applied to agent-profile command strings.
 
 ## Command families
 
@@ -57,11 +57,11 @@ The separator `--` ends `omh` option parsing for child command arguments. In `om
 
 | Syntax                              | Description                                                                     |
 | ----------------------------------- | ------------------------------------------------------------------------------- |
-| `omh server`                        | Run as a headless server.                                                       |
-| `omh server stop`                   | Stop the running server through the local API socket.                           |
-| `omh server reload-config`          | Reload the configuration file in the running server and return a reload report. |
-| `omh server agent-manifests`        | List active agent-detection manifest summaries.                                 |
-| `omh server reload-agent-manifests` | Reload local agent-detection manifests.                                         |
+| `gardn server`                        | Run as a headless server.                                                       |
+| `gardn server stop`                   | Stop the running server through the local API socket.                           |
+| `gardn server reload-config`          | Reload the configuration file in the running server and return a reload report. |
+| `gardn server agent-manifests`        | List active agent-detection manifest summaries.                                 |
+| `gardn server reload-agent-manifests` | Reload local agent-detection manifests.                                         |
 
 The live handoff and import paths are runtime handoff plumbing rather than public command interfaces in this reference.
 
@@ -69,30 +69,30 @@ The live handoff and import paths are runtime handoff plumbing rather than publi
 
 | Syntax                         | Description                                                       |
 | ------------------------------ | ----------------------------------------------------------------- |
-| `omh api schema`               | Print a compact API schema summary.                               |
-| `omh api schema --json`        | Print the generated API schema as formatted JSON.                 |
-| `omh api schema --output PATH` | Write the generated API schema to `PATH`.                         |
-| `omh api snapshot`             | Request a snapshot of the current session and print the response. |
+| `gardn api schema`               | Print a compact API schema summary.                               |
+| `gardn api schema --json`        | Print the generated API schema as formatted JSON.                 |
+| `gardn api schema --output PATH` | Write the generated API schema to `PATH`.                         |
+| `gardn api snapshot`             | Request a snapshot of the current session and print the response. |
 
 ### `status`
 
 | Syntax                       | Description                                                                                                                        |
 | ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| `omh status`                 | Show local client, running server, and restart-needed status in text form. A server that is not running is shown as `not running`. |
-| `omh status --json`          | Print the combined status as JSON.                                                                                                 |
-| `omh status server [--json]` | Show running-server status in text or JSON.                                                                                        |
-| `omh status client [--json]` | Show local client version, protocol, and binary path in text or JSON.                                                              |
+| `gardn status`                 | Show local client, running server, and restart-needed status in text form. A server that is not running is shown as `not running`. |
+| `gardn status --json`          | Print the combined status as JSON.                                                                                                 |
+| `gardn status server [--json]` | Show running-server status in text or JSON.                                                                                        |
+| `gardn status client [--json]` | Show local client version, protocol, and binary path in text or JSON.                                                              |
 
 ### `group`
 
 | Syntax                                                            | Description                                                                                           |
 | ----------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
-| `omh group list`                                                  | List groups.                                                                                          |
-| `omh group create <name> [--cwd PATH] [--host EXECUTION_HOST_ID]` | Create a group. Optional `--host` and `--cwd` set the group's default location for future workspaces. |
-| `omh group focus <group_id>`                                      | Focus a group.                                                                                        |
-| `omh group switch <group_id>`                                     | Alias for `group focus`.                                                                              |
-| `omh group rename <group_id> <name>`                              | Rename a group.                                                                                       |
-| `omh group delete <group_id>`                                     | Delete a group.                                                                                       |
+| `gardn group list`                                                  | List groups.                                                                                          |
+| `gardn group create <name> [--cwd PATH] [--host EXECUTION_HOST_ID]` | Create a group. Optional `--host` and `--cwd` set the group's default location for future workspaces. |
+| `gardn group focus <group_id>`                                      | Focus a group.                                                                                        |
+| `gardn group switch <group_id>`                                     | Alias for `group focus`.                                                                              |
+| `gardn group rename <group_id> <name>`                              | Rename a group.                                                                                       |
+| `gardn group delete <group_id>`                                     | Delete a group.                                                                                       |
 
 For `group create`, `--host` selects the execution host for `--cwd`. It requires `--cwd`. When only `--cwd` is supplied, the default location is Local at that path.
 
@@ -102,8 +102,8 @@ For `group create`, `--host` selects the execution host for `--cwd`. It requires
 
 | Syntax                  | Description                                                                                                  |
 | ----------------------- | ------------------------------------------------------------------------------------------------------------ |
-| `omh config check`      | Read the selected configuration file, print `config: ok` or diagnostics, and return `0` or `1` respectively. |
-| `omh config reset-keys` | Back up the configuration file and remove custom keybinding sections so built-in v2 keybindings apply.       |
+| `gardn config check`      | Read the selected configuration file, print `config: ok` or diagnostics, and return `0` or `1` respectively. |
+| `gardn config reset-keys` | Back up the configuration file and remove custom keybinding sections so built-in v2 keybindings apply.       |
 
 > **Destructive operation:** `config reset-keys` changes `config.toml` and removes custom keybinding configuration after creating its backup. Other configuration sections are retained.
 
@@ -113,27 +113,27 @@ These commands manage coordinator-owned OpenSSH connection profiles and the remo
 
 | Syntax                                                                                | Description                                                                                      |
 | ------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| `omh connection list`                                                                 | List profiles with execution host ids and connection status.                                     |
-| `omh connection save <profile_id> --name NAME --target SSH_TARGET [--directory PATH]` | Create or replace a profile. `--directory` sets its suggested remote path.                       |
-| `omh connection delete <profile_id>`                                                  | Delete an unreferenced profile. This command does not run the cross-session retirement workflow. |
-| `omh connection test <profile_id>`                                                    | Queue a read-only OpenSSH connectivity test.                                                     |
-| `omh connection connect <profile_id>`                                                 | Queue a connection request and install or update the managed worker when required.               |
-| `omh connection disconnect <profile_id>`                                              | Queue a disconnect request.                                                                      |
+| `gardn connection list`                                                                 | List profiles with execution host ids and connection status.                                     |
+| `gardn connection save <profile_id> --name NAME --target SSH_TARGET [--directory PATH]` | Create or replace a profile. `--directory` sets its suggested remote path.                       |
+| `gardn connection delete <profile_id>`                                                  | Delete an unreferenced profile. This command does not run the cross-session retirement workflow. |
+| `gardn connection test <profile_id>`                                                    | Queue a read-only OpenSSH connectivity test.                                                     |
+| `gardn connection connect <profile_id>`                                                 | Queue a connection request and install or update the managed worker when required.               |
+| `gardn connection disconnect <profile_id>`                                              | Queue a disconnect request.                                                                      |
 
 Saving a profile authorizes managed worker installation and updates. `connection connect` installs or selects the exact checksum-addressed worker automatically. A busy incompatible worker remains active until its runtimes drain. Stale unused artifacts are pruned after a lease grace period.
 
-`connection delete` fails while any session or owned worker binding references the profile. Use **Settings > Connections** for the inventory, confirmation, and cross-session removal workflow. Lifecycle commands return when the action is queued; run `omh connection list` to observe the resulting status.
+`connection delete` fails while any session or owned worker binding references the profile. Use **Settings > Connections** for the inventory, confirmation, and cross-session removal workflow. Lifecycle commands return when the action is queued; run `gardn connection list` to observe the resulting status.
 
 ### `workspace`
 
 | Syntax                                                                                                                 | Description                                                                                                         |
 | ---------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
-| `omh workspace list`                                                                                                   | List workspaces.                                                                                                    |
-| `omh workspace create [--cwd PATH] [--host EXECUTION_HOST_ID] [--label TEXT] [--env KEY=VALUE] [--focus] [--no-focus]` | Create a workspace, optionally setting its placement, label, environment, and focus state. `--env` may be repeated. |
-| `omh workspace get <workspace_id>`                                                                                     | Get one workspace.                                                                                                  |
-| `omh workspace focus <workspace_id>`                                                                                   | Focus a workspace.                                                                                                  |
-| `omh workspace rename <workspace_id> <label>`                                                                          | Set a workspace label.                                                                                              |
-| `omh workspace close <workspace_id>`                                                                                   | Close a workspace.                                                                                                  |
+| `gardn workspace list`                                                                                                   | List workspaces.                                                                                                    |
+| `gardn workspace create [--cwd PATH] [--host EXECUTION_HOST_ID] [--label TEXT] [--env KEY=VALUE] [--focus] [--no-focus]` | Create a workspace, optionally setting its placement, label, environment, and focus state. `--env` may be repeated. |
+| `gardn workspace get <workspace_id>`                                                                                     | Get one workspace.                                                                                                  |
+| `gardn workspace focus <workspace_id>`                                                                                   | Focus a workspace.                                                                                                  |
+| `gardn workspace rename <workspace_id> <label>`                                                                          | Set a workspace label.                                                                                              |
+| `gardn workspace close <workspace_id>`                                                                                   | Close a workspace.                                                                                                  |
 
 `--host` selects the execution host for `--cwd`. It requires `--cwd`.
 
@@ -143,18 +143,18 @@ Saving a profile authorizes managed worker installation and updates. `connection
 
 | Syntax                                                                                                                                  | Description                                                                                                 |
 | --------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
-| `omh notification show <title> [--body TEXT] [--position top-left\|top-right\|bottom-left\|bottom-right] [--sound none\|done\|request]` | Request an in-app or configured notification. `--sound` selects no sound, a done sound, or a request sound. |
+| `gardn notification show <title> [--body TEXT] [--position top-left\|top-right\|bottom-left\|bottom-right] [--sound none\|done\|request]` | Request an in-app or configured notification. `--sound` selects no sound, a done sound, or a request sound. |
 
 ### `tab`
 
 | Syntax                                                                                                                                     | Description                             |
 | ------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------- |
-| `omh tab list [--workspace WORKSPACE_ID]`                                                                                                  | List tabs, optionally in one workspace. |
-| `omh tab create [--workspace WORKSPACE_ID] [--cwd PATH] [--host EXECUTION_HOST_ID] [--label TEXT] [--env KEY=VALUE] [--focus\|--no-focus]` | Create a tab. `--env` may be repeated.  |
-| `omh tab get <tab_id>`                                                                                                                     | Get one tab.                            |
-| `omh tab focus <tab_id>`                                                                                                                   | Focus a tab.                            |
-| `omh tab rename <tab_id> <label>`                                                                                                          | Set a tab label.                        |
-| `omh tab close <tab_id>`                                                                                                                   | Close a tab.                            |
+| `gardn tab list [--workspace WORKSPACE_ID]`                                                                                                  | List tabs, optionally in one workspace. |
+| `gardn tab create [--workspace WORKSPACE_ID] [--cwd PATH] [--host EXECUTION_HOST_ID] [--label TEXT] [--env KEY=VALUE] [--focus\|--no-focus]` | Create a tab. `--env` may be repeated.  |
+| `gardn tab get <tab_id>`                                                                                                                     | Get one tab.                            |
+| `gardn tab focus <tab_id>`                                                                                                                   | Focus a tab.                            |
+| `gardn tab rename <tab_id> <label>`                                                                                                          | Set a tab label.                        |
+| `gardn tab close <tab_id>`                                                                                                                   | Close a tab.                            |
 
 `--host` selects the execution host for `--cwd`. It requires `--cwd`.
 
@@ -166,18 +166,18 @@ An agent target may be a terminal ID, a unique agent name, a detected or reporte
 
 | Syntax                                                                                                                                                | Description                                                                                                                            |
 | ----------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
-| `omh agent list`                                                                                                                                      | List detected and reported agents.                                                                                                     |
-| `omh agent get <target>`                                                                                                                              | Get an agent's state and metadata.                                                                                                     |
-| `omh agent read <target> [--source visible\|recent\|recent-unwrapped] [--lines N] [--format text\|ansi] [--ansi]`                                     | Read an agent's pane output. `--ansi` preserves ANSI formatting; the default text format strips it.                                    |
-| `omh agent prompt <target> <text> [--wait-for idle\|working\|blocked\|unknown] [--timeout MS]`                                                        | Submit prompt text and Enter through a ready agent runtime; optionally wait for a status transition.                                   |
-| `omh agent send-keys <target> <key>...`                                                                                                               | Send one or more named key events through a ready agent runtime.                                                                       |
-| `omh agent rename <target> <name>\|--clear`                                                                                                           | Set or clear an agent display name.                                                                                                    |
-| `omh agent focus <target>`                                                                                                                            | Focus the agent's pane.                                                                                                                |
-| `omh agent wait <target> --status idle\|working\|blocked\|unknown [--timeout MS]`                                                                     | Wait for the requested agent state.                                                                                                    |
-| `omh agent attach <target> [--takeover]`                                                                                                              | Attach the client to an agent terminal; `--takeover` requests takeover of an existing direct attach.                                   |
-| `omh agent start <name> [--cwd PATH] [--host EXECUTION_HOST_ID] [--workspace ID] [--tab ID] [--split right\|down] [--focus\|--no-focus] -- <argv...>` | Start a named agent process in a pane. The arguments after `--` form the exact process argument vector; no shell parsing is performed. |
-| `omh agent explain <target> [--json]`                                                                                                                 | Show detection and manifest explanation for an agent target.                                                                           |
-| `omh agent explain --file PATH --agent LABEL [--json]`                                                                                                | Explain how `LABEL` would be detected from a manifest input file.                                                                      |
+| `gardn agent list`                                                                                                                                      | List detected and reported agents.                                                                                                     |
+| `gardn agent get <target>`                                                                                                                              | Get an agent's state and metadata.                                                                                                     |
+| `gardn agent read <target> [--source visible\|recent\|recent-unwrapped] [--lines N] [--format text\|ansi] [--ansi]`                                     | Read an agent's pane output. `--ansi` preserves ANSI formatting; the default text format strips it.                                    |
+| `gardn agent prompt <target> <text> [--wait-for idle\|working\|blocked\|unknown] [--timeout MS]`                                                        | Submit prompt text and Enter through a ready agent runtime; optionally wait for a status transition.                                   |
+| `gardn agent send-keys <target> <key>...`                                                                                                               | Send one or more named key events through a ready agent runtime.                                                                       |
+| `gardn agent rename <target> <name>\|--clear`                                                                                                           | Set or clear an agent display name.                                                                                                    |
+| `gardn agent focus <target>`                                                                                                                            | Focus the agent's pane.                                                                                                                |
+| `gardn agent wait <target> --status idle\|working\|blocked\|unknown [--timeout MS]`                                                                     | Wait for the requested agent state.                                                                                                    |
+| `gardn agent attach <target> [--takeover]`                                                                                                              | Attach the client to an agent terminal; `--takeover` requests takeover of an existing direct attach.                                   |
+| `gardn agent start <name> [--cwd PATH] [--host EXECUTION_HOST_ID] [--workspace ID] [--tab ID] [--split right\|down] [--focus\|--no-focus] -- <argv...>` | Start a named agent process in a pane. The arguments after `--` form the exact process argument vector; no shell parsing is performed. |
+| `gardn agent explain <target> [--json]`                                                                                                                 | Show detection and manifest explanation for an agent target.                                                                           |
+| `gardn agent explain --file PATH --agent LABEL [--json]`                                                                                                | Explain how `LABEL` would be detected from a manifest input file.                                                                      |
 
 For `agent start`, `--host` selects the execution host for `--cwd`. It requires `--cwd`. If neither flag is supplied, a split agent inherits the source pane's location.
 
@@ -187,9 +187,9 @@ For `agent start`, `--host` selects the execution host for `--cwd`. It requires 
 
 | Syntax                                           | Description                                                                                       |
 | ------------------------------------------------ | ------------------------------------------------------------------------------------------------- |
-| `omh terminal attach <terminal_id> [--takeover]` | Attach directly to a terminal by ID; `--takeover` requests takeover of an existing direct attach. |
-| `omh terminal title set <title>`                 | Set the outer client window title.                                                                |
-| `omh terminal title clear`                       | Clear the outer client window title.                                                              |
+| `gardn terminal attach <terminal_id> [--takeover]` | Attach directly to a terminal by ID; `--takeover` requests takeover of an existing direct attach. |
+| `gardn terminal title set <title>`                 | Set the outer client window title.                                                                |
+| `gardn terminal title clear`                       | Clear the outer client window title.                                                              |
 
 A direct terminal attach can be detached with the configured detach key (default `prefix+q`).
 
@@ -199,28 +199,28 @@ For commands accepting `[--pane ID|--current]`, omitting the selector uses the c
 
 | Syntax                                                                                                                                                                     | Description                                                               |
 | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- | ------------------------------------------------------------- |
-| `omh pane list [--workspace WORKSPACE_ID]`                                                                                                                                 | List panes, optionally in one workspace.                                  |
-| `omh pane current [--pane ID                                                                                                                                               | --current]`                                                               | Resolve the current pane, using `OMH_PANE_ID` when available. |
-| `omh pane get <pane_id>`                                                                                                                                                   | Get one pane.                                                             |
-| `omh pane layout [--pane ID                                                                                                                                                | --current]`                                                               | Get the pane layout.                                          |
-| `omh pane process-info [--pane ID                                                                                                                                          | --current]`                                                               | Get process information.                                      |
-| `omh pane neighbor --direction left\|right\|up\|down [--pane ID                                                                                                            | --current]`                                                               | Resolve a neighboring pane.                                   |
-| `omh pane edges [--pane ID                                                                                                                                                 | --current]`                                                               | Report pane edge state.                                       |
-| `omh pane focus --direction left\|right\|up\|down [--pane ID                                                                                                               | --current]`                                                               | Focus a neighboring pane.                                     |
-| `omh pane resize --direction left\|right\|up\|down [--amount FLOAT] [--pane ID                                                                                             | --current]`                                                               | Resize toward a direction.                                    |
-| `omh pane zoom [<pane_id>\|--pane ID\|--current] [--toggle\|--on\|--off]`                                                                                                  | Toggle, enable, or disable pane zoom.                                     |
-| `omh pane read <pane_id> [--source visible\|recent\|recent-unwrapped] [--lines N] [--format text\|ansi] [--ansi\|--raw]`                                                   | Read pane output. `--raw` preserves ANSI bytes; default text strips them. |
-| `omh pane rename <pane_id> <label>\|--clear`                                                                                                                               | Set or clear a pane label.                                                |
-| `omh pane split [<pane_id>\|--pane ID\|--current] --direction right\|down [--ratio FLOAT] [--cwd PATH] [--host EXECUTION_HOST_ID] [--env KEY=VALUE] [--focus\|--no-focus]` | Split a pane and create a terminal in the new pane.                       |
-| `omh pane swap --direction left\|right\|up\|down [--pane ID\|--current]`                                                                                                   | Swap a pane with its directional neighbor.                                |
-| `omh pane swap --source-pane ID --target-pane ID`                                                                                                                          | Swap two explicitly selected panes.                                       |
-| `omh pane move <pane_id> --tab <tab_id> --split right\|down [--target-pane ID] [--ratio FLOAT] [--focus\|--no-focus]`                                                      | Move a pane into an existing tab.                                         |
-| `omh pane move <pane_id> --new-tab [--workspace ID] [--label TEXT] [--focus\|--no-focus]`                                                                                  | Move a pane into a new tab.                                               |
-| `omh pane move <pane_id> --new-workspace [--label TEXT] [--tab-label TEXT] [--focus\|--no-focus]`                                                                          | Move a pane into a new workspace and tab.                                 |
-| `omh pane close <pane_id>`                                                                                                                                                 | Close a pane.                                                             |
-| `omh pane send-text <pane_id> <text>`                                                                                                                                      | Send literal text without an Enter key.                                   |
-| `omh pane send-keys <pane_id> <key> [key ...]`                                                                                                                             | Send one or more named key events.                                        |
-| `omh pane run <pane_id> <command>`                                                                                                                                         | Send command text followed by an Enter key.                               |
+| `gardn pane list [--workspace WORKSPACE_ID]`                                                                                                                                 | List panes, optionally in one workspace.                                  |
+| `gardn pane current [--pane ID                                                                                                                                               | --current]`                                                               | Resolve the current pane, using `GARDN_PANE_ID` when available. |
+| `gardn pane get <pane_id>`                                                                                                                                                   | Get one pane.                                                             |
+| `gardn pane layout [--pane ID                                                                                                                                                | --current]`                                                               | Get the pane layout.                                          |
+| `gardn pane process-info [--pane ID                                                                                                                                          | --current]`                                                               | Get process information.                                      |
+| `gardn pane neighbor --direction left\|right\|up\|down [--pane ID                                                                                                            | --current]`                                                               | Resolve a neighboring pane.                                   |
+| `gardn pane edges [--pane ID                                                                                                                                                 | --current]`                                                               | Report pane edge state.                                       |
+| `gardn pane focus --direction left\|right\|up\|down [--pane ID                                                                                                               | --current]`                                                               | Focus a neighboring pane.                                     |
+| `gardn pane resize --direction left\|right\|up\|down [--amount FLOAT] [--pane ID                                                                                             | --current]`                                                               | Resize toward a direction.                                    |
+| `gardn pane zoom [<pane_id>\|--pane ID\|--current] [--toggle\|--on\|--off]`                                                                                                  | Toggle, enable, or disable pane zoom.                                     |
+| `gardn pane read <pane_id> [--source visible\|recent\|recent-unwrapped] [--lines N] [--format text\|ansi] [--ansi\|--raw]`                                                   | Read pane output. `--raw` preserves ANSI bytes; default text strips them. |
+| `gardn pane rename <pane_id> <label>\|--clear`                                                                                                                               | Set or clear a pane label.                                                |
+| `gardn pane split [<pane_id>\|--pane ID\|--current] --direction right\|down [--ratio FLOAT] [--cwd PATH] [--host EXECUTION_HOST_ID] [--env KEY=VALUE] [--focus\|--no-focus]` | Split a pane and create a terminal in the new pane.                       |
+| `gardn pane swap --direction left\|right\|up\|down [--pane ID\|--current]`                                                                                                   | Swap a pane with its directional neighbor.                                |
+| `gardn pane swap --source-pane ID --target-pane ID`                                                                                                                          | Swap two explicitly selected panes.                                       |
+| `gardn pane move <pane_id> --tab <tab_id> --split right\|down [--target-pane ID] [--ratio FLOAT] [--focus\|--no-focus]`                                                      | Move a pane into an existing tab.                                         |
+| `gardn pane move <pane_id> --new-tab [--workspace ID] [--label TEXT] [--focus\|--no-focus]`                                                                                  | Move a pane into a new tab.                                               |
+| `gardn pane move <pane_id> --new-workspace [--label TEXT] [--tab-label TEXT] [--focus\|--no-focus]`                                                                          | Move a pane into a new workspace and tab.                                 |
+| `gardn pane close <pane_id>`                                                                                                                                                 | Close a pane.                                                             |
+| `gardn pane send-text <pane_id> <text>`                                                                                                                                      | Send literal text without an Enter key.                                   |
+| `gardn pane send-keys <pane_id> <key> [key ...]`                                                                                                                             | Send one or more named key events.                                        |
+| `gardn pane run <pane_id> <command>`                                                                                                                                         | Send command text followed by an Enter key.                               |
 
 For `pane split`, `--host` selects the execution host for `--cwd`. It requires `--cwd`. If neither flag is supplied, the new pane inherits the source pane's location.
 
@@ -232,19 +232,19 @@ For `pane split`, `--host` selects the execution host for `--cwd`. It requires `
 
 | Syntax                                                                                                                                                                                                                      | Description                                                                                                                 |
 | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
-| `omh plugin install <owner>/<repo>[/subdir...] [--ref REF] [--yes]`                                                                                                                                                         | Install a plugin from a GitHub repository or subdirectory. `--ref` selects a ref; `--yes` accepts the install confirmation. |
-| `omh plugin uninstall <plugin_id\|owner/repo[/subdir...]>`                                                                                                                                                                  | Uninstall a plugin by ID or source.                                                                                         |
-| `omh plugin link <path> [--disabled]`                                                                                                                                                                                       | Link a local plugin directory, enabled by default; `--disabled` persists it without enabling runtime actions.               |
-| `omh plugin list [--plugin ID] [--json]`                                                                                                                                                                                    | List installed plugins or one plugin.                                                                                       |
-| `omh plugin unlink <plugin_id>`                                                                                                                                                                                             | Remove a linked plugin registration.                                                                                        |
-| `omh plugin enable <plugin_id>`                                                                                                                                                                                             | Enable a plugin.                                                                                                            |
-| `omh plugin disable <plugin_id>`                                                                                                                                                                                            | Disable a plugin.                                                                                                           |
-| `omh plugin action list [--plugin ID]`                                                                                                                                                                                      | List available plugin actions.                                                                                              |
-| `omh plugin action invoke <action_id> [--plugin ID]`                                                                                                                                                                        | Invoke a plugin action.                                                                                                     |
-| `omh plugin log list [--plugin ID] [--limit N]`                                                                                                                                                                             | List plugin log entries.                                                                                                    |
-| `omh plugin pane open --plugin ID --entrypoint ID [--placement overlay\|split\|tab\|zoomed\|fullscreen] [--workspace ID] [--target-pane ID] [--direction right\|down] [--cwd PATH] [--env KEY=VALUE] [--focus\|--no-focus]` | Open a plugin pane entrypoint. `fullscreen` is an alias for `zoomed`.                                                       |
-| `omh plugin pane focus <pane_id>`                                                                                                                                                                                           | Focus a plugin-created pane.                                                                                                |
-| `omh plugin pane close <pane_id>`                                                                                                                                                                                           | Close a plugin-created pane.                                                                                                |
+| `gardn plugin install <owner>/<repo>[/subdir...] [--ref REF] [--yes]`                                                                                                                                                         | Install a plugin from a GitHub repository or subdirectory. `--ref` selects a ref; `--yes` accepts the install confirmation. |
+| `gardn plugin uninstall <plugin_id\|owner/repo[/subdir...]>`                                                                                                                                                                  | Uninstall a plugin by ID or source.                                                                                         |
+| `gardn plugin link <path> [--disabled]`                                                                                                                                                                                       | Link a local plugin directory, enabled by default; `--disabled` persists it without enabling runtime actions.               |
+| `gardn plugin list [--plugin ID] [--json]`                                                                                                                                                                                    | List installed plugins or one plugin.                                                                                       |
+| `gardn plugin unlink <plugin_id>`                                                                                                                                                                                             | Remove a linked plugin registration.                                                                                        |
+| `gardn plugin enable <plugin_id>`                                                                                                                                                                                             | Enable a plugin.                                                                                                            |
+| `gardn plugin disable <plugin_id>`                                                                                                                                                                                            | Disable a plugin.                                                                                                           |
+| `gardn plugin action list [--plugin ID]`                                                                                                                                                                                      | List available plugin actions.                                                                                              |
+| `gardn plugin action invoke <action_id> [--plugin ID]`                                                                                                                                                                        | Invoke a plugin action.                                                                                                     |
+| `gardn plugin log list [--plugin ID] [--limit N]`                                                                                                                                                                             | List plugin log entries.                                                                                                    |
+| `gardn plugin pane open --plugin ID --entrypoint ID [--placement overlay\|split\|tab\|zoomed\|fullscreen] [--workspace ID] [--target-pane ID] [--direction right\|down] [--cwd PATH] [--env KEY=VALUE] [--focus\|--no-focus]` | Open a plugin pane entrypoint. `fullscreen` is an alias for `zoomed`.                                                       |
+| `gardn plugin pane focus <pane_id>`                                                                                                                                                                                           | Focus a plugin-created pane.                                                                                                |
+| `gardn plugin pane close <pane_id>`                                                                                                                                                                                           | Close a plugin-created pane.                                                                                                |
 
 `plugin install`, `plugin uninstall`, `plugin link`, and `plugin list` use the global user plugin registry directly when no server is running. Actions, panes, enable/disable, and `plugin unlink` require a running server.
 
@@ -258,16 +258,16 @@ Pane placement defaults to the entrypoint's manifest setting. `overlay` is clien
 
 | Syntax                                                                                                                               | Description                                                                                               |
 | ------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------- |
-| `omh wait output <pane_id> --match <text> [--source visible\|recent\|recent-unwrapped] [--lines N] [--timeout MS] [--regex] [--raw]` | Wait until pane output matches text or a regular expression. `--raw` preserves ANSI data during matching. |
-| `omh wait agent-status <pane_id> --status idle\|working\|blocked\|done\|unknown [--timeout MS]`                                      | Wait until the pane's agent status matches.                                                               |
+| `gardn wait output <pane_id> --match <text> [--source visible\|recent\|recent-unwrapped] [--lines N] [--timeout MS] [--regex] [--raw]` | Wait until pane output matches text or a regular expression. `--raw` preserves ANSI data during matching. |
+| `gardn wait agent-status <pane_id> --status idle\|working\|blocked\|done\|unknown [--timeout MS]`                                      | Wait until the pane's agent status matches.                                                               |
 
 ### `integration`
 
 | Syntax                                     | Description                                                       |
 | ------------------------------------------ | ----------------------------------------------------------------- |
-| `omh integration status [--outdated-only]` | List integration status, or print only an outdated-update notice. |
-| `omh integration install <target>`         | Install the integration for one target.                           |
-| `omh integration uninstall <target>`       | Remove the integration for one target.                            |
+| `gardn integration status [--outdated-only]` | List integration status, or print only an outdated-update notice. |
+| `gardn integration install <target>`         | Install the integration for one target.                           |
+| `gardn integration uninstall <target>`       | Remove the integration for one target.                            |
 
 Targets are `pi`, `omp`, `claude`, `codex`, `copilot`, `devin`, `kimi`, `droid`, `opencode`, `hermes`, `qodercli`, `cursor`, and `grok`.
 
@@ -279,12 +279,12 @@ Targets are `pi`, `omp`, `claude`, `codex`, `copilot`, `devin`, `kimi`, `droid`,
 
 | Syntax                               | Description                                                  |
 | ------------------------------------ | ------------------------------------------------------------ |
-| `omh session list [--json]`          | List named sessions in text or JSON.                         |
-| `omh session attach <name>`          | Attach to a named session.                                   |
-| `omh session stop <name> [--json]`   | Stop a named session. `default` selects the default session. |
-| `omh session delete <name> [--json]` | Stop and remove a named session's persisted session data.    |
+| `gardn session list [--json]`          | List named sessions in text or JSON.                         |
+| `gardn session attach <name>`          | Attach to a named session.                                   |
+| `gardn session stop <name> [--json]`   | Stop a named session. `default` selects the default session. |
+| `gardn session delete <name> [--json]` | Stop and remove a named session's persisted session data.    |
 
-> **Destructive operation:** `session stop` stops the session process. `session delete` also removes its persisted session data. The `default` session is stopped with `omh server stop`; `session delete default` is not the default-session stop command.
+> **Destructive operation:** `session stop` stops the session process. `session delete` also removes its persisted session data. The `default` session is stopped with `gardn server stop`; `session delete default` is not the default-session stop command.
 
 ## Input and command execution
 
@@ -300,7 +300,7 @@ Literal input and command execution are distinct operations:
 | `keys.command` with `type = "shell"` | Configured command string                      | Not applicable                | A detached shell command is run.                              |
 | `keys.command` with `type = "pane"`  | Configured command string                      | Not applicable                | A temporary pane runs the command and closes when it exits.   |
 
-No `omh` input command adds shell quoting, pipelines, redirects, globbing, or variable expansion. The receiving shell or application may interpret text after it receives it. `agent start` is different: the tokens after `--` are passed directly as the child process argument vector.
+No `gardn` input command adds shell quoting, pipelines, redirects, globbing, or variable expansion. The receiving shell or application may interpret text after it receives it. `agent start` is different: the tokens after `--` are passed directly as the child process argument vector.
 
 ## Public and omitted interfaces
 

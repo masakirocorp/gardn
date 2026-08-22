@@ -1,6 +1,6 @@
 ---
 packages:
-  omh: patch
+  gardn: patch
 ---
 
 ### Manage Follow Up from agent rows

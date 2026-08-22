@@ -4,7 +4,7 @@ status: accepted
 
 # Split shared session state from client view state
 
-Oh My Herdr supports multiple normal app clients attached to one server as one shared session with independent client views. The shared session owns durable workspace and runtime-adjacent product state; each normal app client owns its own navigation, transient UI state, computed geometry, and render/input surface state. A client can look at a different workspace, tab, pane, modal, sidebar scroll position, command palette query, or terminal scrollback viewport without changing another client's view. A watcher can view a tab controlled by another client without changing that tab's canonical terminal.
+Gardn supports multiple normal app clients attached to one server as one shared session with independent client views. The shared session owns durable workspace and runtime-adjacent product state; each normal app client owns its own navigation, transient UI state, computed geometry, and render/input surface state. A client can look at a different workspace, tab, pane, modal, sidebar scroll position, command palette query, or terminal scrollback viewport without changing another client's view. A watcher can view a tab controlled by another client without changing that tab's canonical terminal.
 
 This refines ADR 0028 and works with ADR 0056. The global foreground client remains authoritative only for host focus, host terminal theme, app-facing keybindings, and notification context. Tab Control assigns one explicit controller per stable tab identity for canonical PTY size and interactive input; direct terminal attach clients remain outside the normal app view model under ADR 0011.
 
@@ -56,7 +56,7 @@ The split should not introduce a wire-protocol bump until a client-visible proto
 
 ## Current rationale
 
-`[INFERENCE]` Users expect multiple attached Oh My Herdr app clients to behave like multiple views into one workspace manager, not a screen share where every navigation action yanks other clients around. Explicit Tab Control preserves that independence while ensuring only a deliberate controller can alter a tab's canonical PTY size or interactive input; terminal/runtime ownership remains server-side.
+`[INFERENCE]` Users expect multiple attached Gardn app clients to behave like multiple views into one workspace manager, not a screen share where every navigation action yanks other clients around. Explicit Tab Control preserves that independence while ensuring only a deliberate controller can alter a tab's canonical PTY size or interactive input; terminal/runtime ownership remains server-side.
 
 ## Consequences
 

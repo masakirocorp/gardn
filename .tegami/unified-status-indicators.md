@@ -1,6 +1,6 @@
 ---
 packages:
-  omh: patch
+  gardn: patch
 ---
 
 ### Unify status indicators

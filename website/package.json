@@ -1,5 +1,5 @@
 {
-  "name": "@omh/website",
+  "name": "@gardn/website",
   "private": true,
   "type": "module",
   "sideEffects": false,

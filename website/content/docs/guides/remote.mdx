@@ -1,14 +1,14 @@
 ---
-title: Use Oh My Herdr over SSH
+title: Use Gardn over SSH
 description: Attach to a remote session or run selected workspaces, tabs, panes, and agents on SSH hosts.
 ---
 
-# Use Oh My Herdr over SSH
+# Use Gardn over SSH
 
-Use this how-to when the workspaces and panes should run on another Unix host. A plain SSH shell and an Oh My Herdr remote client are different paths:
+Use this how-to when the workspaces and panes should run on another Unix host. A plain SSH shell and an Gardn remote client are different paths:
 
 - `ssh workbox` gives you the host's ordinary shell.
-- `omh --remote workbox` runs a local client whose terminal session is bridged to Oh My Herdr on `workbox`.
+- `gardn --remote workbox` runs a local client whose terminal session is bridged to Gardn on `workbox`.
 
 Remote attach supports Unix local clients (Linux and macOS) and Windows local clients. Supported remote hosts are Linux and macOS on `x86_64` or `aarch64`; Windows is not a supported remote host for this path. See [platforms](/docs/reference/platforms) for the support boundary.
 
@@ -39,13 +39,13 @@ The first connection may ask you to verify the host key. Confirm it only when th
 
 ## Run selected resources on SSH hosts
 
-Use mixed-host placement when one Oh My Herdr session must contain both local and remote panes. This is separate from `omh --remote`, which moves the whole session server to the SSH host.
+Use mixed-host placement when one Gardn session must contain both local and remote panes. This is separate from `gardn --remote`, which moves the whole session server to the SSH host.
 
 Save a connection before creating remote resources:
 
-1. Open **Settings > Connections**, or use the CLI, and save a profile with a display name, OpenSSH target, and optional suggested directory. Saving authorizes Oh My Herdr to manage its versioned worker on that host.
+1. Open **Settings > Connections**, or use the CLI, and save a profile with a display name, OpenSSH target, and optional suggested directory. Saving authorizes Gardn to manage its versioned worker on that host.
 2. Select **Test connection** if you want a read-only connectivity check. Resolve authentication or host-key failures before continuing.
-3. Select **Connect**. Oh My Herdr installs or updates the worker automatically. A compatible worker with live runtimes remains active until it is unused, then the current worker activates.
+3. Select **Connect**. Gardn installs or updates the worker automatically. A compatible worker with live runtimes remains active until it is unused, then the current worker activates.
 4. In Group settings, set **Default location** to the connection and a host-native directory, or create the group with that default. This affects only future workspaces.
 5. Create a workspace. Keep the inherited location or select another execution host and directory.
 
@@ -60,28 +60,28 @@ When the local coordinator restarts, each restored remote pane reconnects its sa
 The CLI exposes profile setup and placement:
 
 ```sh
-omh connection save workbox --name "Work box" --target workbox --directory /srv/project
-omh connection test workbox
-omh connection connect workbox
-omh connection list
-omh group create remote-side --host ssh:workbox:1 --cwd /srv/project
-omh workspace create --focus
+gardn connection save workbox --name "Work box" --target workbox --directory /srv/project
+gardn connection test workbox
+gardn connection connect workbox
+gardn connection list
+gardn group create remote-side --host ssh:workbox:1 --cwd /srv/project
+gardn workspace create --focus
 ```
 
 `connection.list` returns the profile's `execution_host_id`, for example `ssh:workbox:1`. Use that id for explicit resource placement:
 
 ```sh
-omh workspace create --host ssh:workbox:1 --cwd /srv/project --focus
-omh tab create --workspace w1943cd2b11a1 --host ssh:workbox:1 --cwd /srv/project
-omh pane split --direction right --host ssh:workbox:1 --cwd /srv/project
-omh agent start reviewer --host ssh:workbox:1 --cwd /srv/project -- codex
+gardn workspace create --host ssh:workbox:1 --cwd /srv/project --focus
+gardn tab create --workspace w1943cd2b11a1 --host ssh:workbox:1 --cwd /srv/project
+gardn pane split --direction right --host ssh:workbox:1 --cwd /srv/project
+gardn agent start reviewer --host ssh:workbox:1 --cwd /srv/project -- codex
 ```
 
 `--host` requires `--cwd`. The corresponding Local API methods accept a `location` object with `execution_host_id` and `path`. Do not send both `cwd` and `location`. `group.create` accepts optional `default_location` with the same shape; invalid placement fails without creating the group.
 
 ## Install agent integrations on an SSH host
 
-Use the managed connection when an agent running on that Execution Host needs an Oh My Herdr integration:
+Use the managed connection when an agent running on that Execution Host needs an Gardn integration:
 
 1. Connect the profile in **Settings > Connections**.
 2. Open **Settings > Integrations**.
@@ -89,18 +89,18 @@ Use the managed connection when an agent running on that Execution Host needs an
 4. Wait for the host status to load, then install or update the target integration.
 5. Restart the affected remote agent pane.
 
-The selected execution worker performs the inspection and mutation on that host. Integration operations for one host run in order. Disconnecting the host fails pending operations instead of applying them to Local. The `omh integration` CLI and Local API integration methods manage only the Coordinator Host.
+The selected execution worker performs the inspection and mutation on that host. Integration operations for one host run in order. Disconnecting the host fails pending operations instead of applying them to Local. The `gardn integration` CLI and Local API integration methods manage only the Coordinator Host.
 
 ## Remove a managed connection
 
 Remove a saved connection from **Settings > Connections**:
 
 1. Open the connection and select **Remove connection**.
-2. Wait while Oh My Herdr inventories every named session and owned worker binding. No resource changes during inventory.
+2. Wait while Gardn inventories every named session and owned worker binding. No resource changes during inventory.
 3. Review the listed Group defaults, Workspace defaults, panes, pending terminations, and worker processes.
-4. Confirm the removal. Oh My Herdr blocks new work on the host, closes remote panes, moves affected Workspace defaults to the displayed Local directory, removes owned worker bindings, and deletes the profile only after every session is clear.
+4. Confirm the removal. Gardn blocks new work on the host, closes remote panes, moves affected Workspace defaults to the displayed Local directory, removes owned worker bindings, and deletes the profile only after every session is clear.
 
-Removal progress is journaled. If the app stops, the next server start resumes the approved removal before it accepts new work for that host. Unrelated remote processes and standalone Oh My Herdr sessions are not removed.
+Removal progress is journaled. If the app stops, the next server start resumes the approved removal before it accepts new work for that host. Unrelated remote processes and standalone Gardn sessions are not removed.
 
 If full cleanup is unavailable, the failure screen warns that remote processes or worker files might remain. Select **Remove saved connection** to delete the local profile and placement state without claiming remote cleanup. Select **Try again** to retry full cleanup, or **Cancel** to leave the connection unchanged.
 
@@ -111,16 +111,16 @@ The Local API exposes per-session retirement primitives for automation. See [`co
 Run the bridge from the local machine:
 
 ```sh
-omh --remote workbox
+gardn --remote workbox
 ```
 
 You can combine it with a named session:
 
 ```sh
-omh --remote workbox --session project
+gardn --remote workbox --session project
 ```
 
-By default, Oh My Herdr manages the SSH configuration used by the bridge. It starts with your `~/.ssh/config` and adds a fallback `Host *` block with `ServerAliveInterval 15` and `ServerAliveCountMax 4`, so explicit keepalive values in your SSH configuration win. To use your SSH configuration unchanged, set:
+By default, Gardn manages the SSH configuration used by the bridge. It starts with your `~/.ssh/config` and adds a fallback `Host *` block with `ServerAliveInterval 15` and `ServerAliveCountMax 4`, so explicit keepalive values in your SSH configuration win. To use your SSH configuration unchanged, set:
 
 ```toml
 [remote]
@@ -131,36 +131,36 @@ This setting changes only bridge SSH setup; it does not grant access to the host
 
 ## Install or build the remote binary
 
-The remote host needs a matching Oh My Herdr version. The bridge can use a matching binary already installed in the remote user's `~/.local/bin/omh`; when an install is needed it asks before writing there. Treat that prompt as a trust boundary and approve it only for a host you control.
+The remote host needs a matching Gardn version. The bridge can use a matching binary already installed in the remote user's `~/.local/bin/gardn`; when an install is needed it asks before writing there. Treat that prompt as a trust boundary and approve it only for a host you control.
 
-Verified public `omh-*` release downloads are not currently available, so do not rely on the automatic release-download path for a new remote host. Build from the source checkout instead:
-
-```sh
-cargo build --release --package omh
-```
-
-The resulting `target/release/omh` must be built for the remote host's operating system and architecture. A Nix source build is also available from the repository root:
+Verified public `gardn-*` release downloads are not currently available, so do not rely on the automatic release-download path for a new remote host. Build from the source checkout instead:
 
 ```sh
-nix build .#omh
+cargo build --release --package gardn
 ```
 
-To have the bridge install a matching source-built binary, set `OMH_REMOTE_BINARY` to that file:
+The resulting `target/release/gardn` must be built for the remote host's operating system and architecture. A Nix source build is also available from the repository root:
 
 ```sh
-OMH_REMOTE_BINARY="$PWD/target/release/omh" omh --remote workbox
+nix build .#gardn
 ```
 
-For a Nix build, use `OMH_REMOTE_BINARY="$PWD/result/bin/omh"` instead. The override file must be a binary built for the remote host.
+To have the bridge install a matching source-built binary, set `GARDN_REMOTE_BINARY` to that file:
 
-Use the resulting `result/bin/omh` (or a matching target build) as the remote binary source when building or installing on the remote host. Do not copy a macOS binary to Linux, or an `x86_64` binary to `aarch64`.
+```sh
+GARDN_REMOTE_BINARY="$PWD/target/release/gardn" gardn --remote workbox
+```
+
+For a Nix build, use `GARDN_REMOTE_BINARY="$PWD/result/bin/gardn"` instead. The override file must be a binary built for the remote host.
+
+Use the resulting `result/bin/gardn` (or a matching target build) as the remote binary source when building or installing on the remote host. Do not copy a macOS binary to Linux, or an `x86_64` binary to `aarch64`.
 
 ## Choose where keybindings run
 
 Remote app attach uses local keybindings by default. To run the app keybindings from the remote configuration instead, use:
 
 ```sh
-omh --remote workbox --remote-keybindings server
+gardn --remote workbox --remote-keybindings server
 ```
 
 `--remote-keybindings` accepts only `local` or `server`. This choice affects app key dispatch; the local terminal still has to deliver the key events to the client.
@@ -172,9 +172,9 @@ When the remote client is active, the default `keys.remote_image_paste = "ctrl+v
 If the remote server version differs, a normal attach may require a remote server restart. Restarting can interrupt the running panes. Use the explicit handoff opt-in when the server and client support live handoff:
 
 ```sh
-omh --remote workbox --handoff
+gardn --remote workbox --handoff
 ```
 
 Read the prompt and status carefully. A successful handoff keeps eligible live processes; unsupported or failed handoff falls back to the safer restart path and reports the failure. Never approve a restart or fallback when preserving the remote processes is required; cancel and resolve the version or capability mismatch first.
 
-For direct access to a detached local server, use `omh session attach <name>`. To attach directly to an agent or terminal on that server, use `omh agent attach <target> [--takeover]` or `omh terminal attach <terminal-id> [--takeover]`. `--takeover` transfers terminal ownership and can disconnect the current client, so use it only when you intentionally want to take control.
+For direct access to a detached local server, use `gardn session attach <name>`. To attach directly to an agent or terminal on that server, use `gardn agent attach <target> [--takeover]` or `gardn terminal attach <terminal-id> [--takeover]`. `--takeover` transfers terminal ownership and can disconnect the current client, so use it only when you intentionally want to take control.

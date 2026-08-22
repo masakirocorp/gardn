@@ -23,12 +23,12 @@ class CodexStatusTestFallbackTests(unittest.TestCase):
             lib_dir.mkdir()
             test_dir.mkdir()
 
-            models_copy = lib_dir / "omh-agent-test-models.sh"
+            models_copy = lib_dir / "gardn-agent-test-models.sh"
             models_copy.write_text(source_models.read_text())
 
-            script_copy = bin_dir / "omh-agent-tests-codex-status"
+            script_copy = bin_dir / "gardn-agent-tests-codex-status"
             script_text = source_script.read_text().replace(
-                "source /usr/local/lib/omh-agent-test-models.sh",
+                "source /usr/local/lib/gardn-agent-test-models.sh",
                 f"source {shlex.quote(str(models_copy))}",
             )
             script_copy.write_text(script_text)
@@ -66,7 +66,7 @@ class CodexStatusTestFallbackTests(unittest.TestCase):
                         ;;
                       anthropic/ok)
                         echo "provider: openrouter"
-                        echo "OMH_CODEX_STATUS_OK"
+                        echo "GARDN_CODEX_STATUS_OK"
                         exit 0
                         ;;
                       *)
@@ -97,12 +97,12 @@ class CodexStatusTestFallbackTests(unittest.TestCase):
                 "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}",
                 "HOME": str(tmp_path / "home"),
                 "OPENROUTER_API_KEY": "sk-test-fake-openrouter-key",
-                "OMH_REPO_DIR": str(repo_root),
-                "OMH_CODEX_STATUS_TEST_DIR": str(test_dir),
-                "OMH_CODEX_STATUS_TEST_TIMEOUT": "5",
-                "OMH_TEST_MODEL": "anthropic/overloaded",
-                "OMH_TEST_FALLBACK_MODELS": "anthropic/ok",
-                "OMH_TEST_SKIP_MODEL_PREFLIGHT": "1",
+                "GARDN_REPO_DIR": str(repo_root),
+                "GARDN_CODEX_STATUS_TEST_DIR": str(test_dir),
+                "GARDN_CODEX_STATUS_TEST_TIMEOUT": "5",
+                "GARDN_TEST_MODEL": "anthropic/overloaded",
+                "GARDN_TEST_FALLBACK_MODELS": "anthropic/ok",
+                "GARDN_TEST_SKIP_MODEL_PREFLIGHT": "1",
             }
 
             result = subprocess.run(

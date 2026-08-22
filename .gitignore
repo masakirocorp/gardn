@@ -2,7 +2,7 @@
 /node_modules
 /.turbo/
 /**/.turbo/
-/apps/omh/vendor/libghostty-vt/zig-pkg/
+/apps/gardn/vendor/libghostty-vt/zig-pkg/
 __pycache__/
 *.pyc
 *.swp

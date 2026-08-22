@@ -46,10 +46,10 @@ jobs:
       - name: Check Turbo task graph
         run: pnpm turbo run quality --dry=json
       - name: Check Tegami release scope
-        run: pnpm turbo run release-scope:check --filter=omh-rust
+        run: pnpm turbo run release-scope:check --filter=gardn-rust
 
       - name: Check static website
-        run: pnpm turbo run check --filter=@omh/website
+        run: pnpm turbo run check --filter=@gardn/website
 
   check:
     name: check (${{ matrix.os }})
@@ -105,31 +105,31 @@ jobs:
           cache-bin: false
 
       - name: Check formatting
-        run: pnpm turbo run format:check --filter=omh
+        run: pnpm turbo run format:check --filter=gardn
 
       - name: Lint
         if: runner.os != 'Windows'
-        run: pnpm turbo run lint --filter=omh
+        run: pnpm turbo run lint --filter=gardn
 
       - name: Run structural Rust guardrails
         if: runner.os != 'Windows'
-        run: pnpm turbo run ast:check --filter=omh-rust
+        run: pnpm turbo run ast:check --filter=gardn-rust
 
       - name: Check Windows build
         if: runner.os == 'Windows'
-        run: pnpm turbo run check --filter=omh
+        run: pnpm turbo run check --filter=gardn
 
       - name: Run Windows smoke
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          pnpm turbo run build --filter=omh
-          .\scripts\smoke_windows_conpty_path.ps1 -ExePath (Join-Path $PWD "target\debug\omh.exe") -Session "ci-windows-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
+          pnpm turbo run build --filter=gardn
+          .\scripts\smoke_windows_conpty_path.ps1 -ExePath (Join-Path $PWD "target\debug\gardn.exe") -Session "ci-windows-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
 
       - name: Run Rust tests
         if: runner.os != 'Windows'
-        run: pnpm turbo run ci:test --filter=omh
+        run: pnpm turbo run ci:test --filter=gardn
 
       - name: Run maintenance tests
         if: runner.os == 'Linux'
-        run: pnpm turbo run maintenance:test --filter=omh-rust
+        run: pnpm turbo run maintenance:test --filter=gardn-rust

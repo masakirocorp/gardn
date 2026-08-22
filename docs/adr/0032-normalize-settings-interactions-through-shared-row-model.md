@@ -4,7 +4,7 @@ status: accepted
 
 # Normalize settings interactions through a shared row model
 
-Oh My Herdr models settings lists as typed `SettingsListRow` values so list-shaped sections share visual-row height, selection mapping, scroll extents, and hit-test mapping. Section-specific actions still live in input handling, and sections that need specialized presentation may keep it. A row can be a header, caption, spacer, toggle option, text input, choice, or status choice. `rows_for_section` builds that row model for global sections such as theme, layout, sound, toasts, behavior, experiments, agents, and integrations; group settings reuse the same model for group appearance/accent, group general, and group profiles.
+Gardn models settings lists as typed `SettingsListRow` values so list-shaped sections share visual-row height, selection mapping, scroll extents, and hit-test mapping. Section-specific actions still live in input handling, and sections that need specialized presentation may keep it. A row can be a header, caption, spacer, toggle option, text input, choice, or status choice. `rows_for_section` builds that row model for global sections such as theme, layout, sound, toasts, behavior, experiments, agents, and integrations; group settings reuse the same model for group appearance/accent, group general, and group profiles.
 
 The row model owns the translation between logical option indexes and visual rows. Headers, captions, and spacers are non-selectable one-row entries. Choices and status choices are selectable one-row entries. Toggle options occupy two selectable visual rows, while text inputs occupy two visual rows but map only the value row to the logical option. `visual_row_count` drives scroll extents, `selected_visual_row` keeps keyboard selection visible, and `option_index_for_visual_row` maps a viewport hit visual row back to the logical setting index. This keeps keyboard navigation, scrolling, and mouse selection aligned even when sections mix explanatory text, multi-line options, text fields, and status rows.
 
@@ -14,7 +14,7 @@ This is separate from ADR 0017 — Treat config.toml as a public contract: the r
 
 ## Current rationale
 
-`[INFERENCE]` Oh My Herdr uses a shared row model because settings sections need richer structure than a flat toggle list, but duplicating visual-row math and hit-testing per section would make mouse-first settings brittle. Centralizing row semantics lets new sections add rows without re-deriving scroll, selected-row, and click mapping rules.
+`[INFERENCE]` Gardn uses a shared row model because settings sections need richer structure than a flat toggle list, but duplicating visual-row math and hit-testing per section would make mouse-first settings brittle. Centralizing row semantics lets new sections add rows without re-deriving scroll, selected-row, and click mapping rules.
 
 ## Consequences
 

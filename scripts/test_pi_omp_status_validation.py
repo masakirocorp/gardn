@@ -88,20 +88,20 @@ class PiOmpStatusTestValidationTests(unittest.TestCase):
             lib_dir.mkdir()
             test_dir.mkdir()
 
-            models_stub = lib_dir / "omh-agent-test-models.sh"
+            models_stub = lib_dir / "gardn-agent-test-models.sh"
             models_stub.write_text(
-                "OMH_TEST_DEFAULT_MODEL=openrouter/free\n"
-                "omh_test_provider_model() { printf 'openrouter/%s\\n' \"$1\"; }\n"
-                "omh_test_configure_model() { :; }\n"
-                "omh_test_retryable_output() { grep -Eq '429|no endpoint' \"$1\"; }\n"
-                "omh_test_retryable_status_or_output() { [[ \"$1\" -ne 0 ]] && omh_test_retryable_output \"$2\"; }\n"
+                "GARDN_TEST_DEFAULT_MODEL=openrouter/free\n"
+                "gardn_test_provider_model() { printf 'openrouter/%s\\n' \"$1\"; }\n"
+                "gardn_test_configure_model() { :; }\n"
+                "gardn_test_retryable_output() { grep -Eq '429|no endpoint' \"$1\"; }\n"
+                "gardn_test_retryable_status_or_output() { [[ \"$1\" -ne 0 ]] && gardn_test_retryable_output \"$2\"; }\n"
             )
 
-            script_copy = bin_dir / "omh-agent-tests-pi-omp-status"
+            script_copy = bin_dir / "gardn-agent-tests-pi-omp-status"
             script_text = source_script.read_text()
             script_copy.write_text(
                 script_text.replace(
-                    "source /usr/local/lib/omh-agent-test-models.sh",
+                    "source /usr/local/lib/gardn-agent-test-models.sh",
                     f"source {shlex.quote(str(models_stub))}",
                 )
                 .replace("${agent^^}_STATUS_OK", "${agent}_STATUS_OK")
@@ -125,7 +125,7 @@ class PiOmpStatusTestValidationTests(unittest.TestCase):
                     rpc.next_id += 1
                     client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
                     try:
-                        client.connect(os.environ["OMH_SOCKET_PATH"])
+                        client.connect(os.environ["GARDN_SOCKET_PATH"])
                         client.sendall((json.dumps(request) + "\\n").encode("utf-8"))
                         response = b""
                         while not response.endswith(b"\\n"):
@@ -154,7 +154,7 @@ class PiOmpStatusTestValidationTests(unittest.TestCase):
 
 
                 agent = Path(sys.argv[0]).name
-                expected_model = os.environ["OMH_EXPECTED_ACTIVE_MODEL"]
+                expected_model = os.environ["GARDN_EXPECTED_ACTIVE_MODEL"]
                 actual_model = argv_value_after("--model")
                 if actual_model != expected_model:
                     print(
@@ -162,7 +162,7 @@ class PiOmpStatusTestValidationTests(unittest.TestCase):
                         file=sys.stderr,
                     )
                     sys.exit(65)
-                if os.environ.get("OMH_TEST_PROVIDER_FAILURE") == "nonzero":
+                if os.environ.get("GARDN_TEST_PROVIDER_FAILURE") == "nonzero":
                     print("OpenRouter provider error: HTTP 429 no endpoint available", file=sys.stderr)
                     sys.exit(1)
                 if agent == "pi" and "--auto-approve" in sys.argv:
@@ -172,17 +172,17 @@ class PiOmpStatusTestValidationTests(unittest.TestCase):
                     print(f"omp missing --auto-approve in {sys.argv!r}", file=sys.stderr)
                     sys.exit(65)
                 tty.setraw(sys.stdin.fileno())
-                pane_id = os.environ["OMH_PANE_ID"]
+                pane_id = os.environ["GARDN_PANE_ID"]
                 scenario = "subagent" if "subagent" in pane_id else "basic"
                 if agent == "pi" and scenario == "subagent":
                     print("pi received unsupported subagent smoke scenario", file=sys.stderr)
                     sys.exit(65)
-                session_root = Path(os.environ["OMH_TEST_SESSION_ROOT"]) / agent / "sessions" / "project"
+                session_root = Path(os.environ["GARDN_TEST_SESSION_ROOT"]) / agent / "sessions" / "project"
                 parent_session = session_root / "parent.jsonl"
                 second_report_session = parent_session
 
                 if scenario == "subagent":
-                    variant = os.environ["OMH_TEST_SUBAGENT_SESSION_VARIANT"]
+                    variant = os.environ["GARDN_TEST_SUBAGENT_SESSION_VARIANT"]
                     if variant == "child":
                         second_report_session = parent_session.with_suffix("") / "Child.jsonl"
                     elif variant == "unrelated":
@@ -197,7 +197,7 @@ class PiOmpStatusTestValidationTests(unittest.TestCase):
                 }
                 base_params = {
                     "pane_id": pane_id,
-                    "source": f"omh:{agent}",
+                    "source": f"gardn:{agent}",
                     "agent": agent,
                 }
                 if agent == "omp":
@@ -242,10 +242,10 @@ class PiOmpStatusTestValidationTests(unittest.TestCase):
                 )
 
                 marker_suffix = "SUBAGENT_OK" if scenario == "subagent" else "STATUS_OK"
-                if os.environ.get("OMH_TEST_PROVIDER_FAILURE") in {"zero_exit", "with_marker"}:
+                if os.environ.get("GARDN_TEST_PROVIDER_FAILURE") in {"zero_exit", "with_marker"}:
                     print("OpenRouter provider error: HTTP 429 no endpoint available", file=sys.stderr)
-                if os.environ.get("OMH_TEST_PROVIDER_FAILURE") != "zero_exit":
-                    print(f"OMH_{agent.upper()}_{marker_suffix}")
+                if os.environ.get("GARDN_TEST_PROVIDER_FAILURE") != "zero_exit":
+                    print(f"GARDN_{agent.upper()}_{marker_suffix}")
                 sys.stdout.flush()
                 expected_exit = b"/exit\\x1b[13u" if agent == "omp" else b"/quit\\x1b[13u"
                 received = b""
@@ -281,15 +281,15 @@ class PiOmpStatusTestValidationTests(unittest.TestCase):
             env = {
                 **os.environ,
                 "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}",
-                "OMH_REPO_DIR": str(repo_root),
-                "OMH_PI_OMP_STATUS_DIR": str(test_dir),
-                "OMH_PI_OMP_STATUS_TIMEOUT": "5",
-                "OMH_PI_OMP_STATUS_TARGET": "pi" if provider_failure else "all",
-                "OMH_TEST_ACTIVE_MODEL": active_model,
-                "OMH_TEST_SESSION_ROOT": str(tmp_path / "run" / "agent"),
-                "OMH_TEST_SUBAGENT_SESSION_VARIANT": variant,
-                "OMH_TEST_PROVIDER_FAILURE": provider_failure or "",
-                "OMH_EXPECTED_ACTIVE_MODEL": f"openrouter/{active_model}",
+                "GARDN_REPO_DIR": str(repo_root),
+                "GARDN_PI_OMP_STATUS_DIR": str(test_dir),
+                "GARDN_PI_OMP_STATUS_TIMEOUT": "5",
+                "GARDN_PI_OMP_STATUS_TARGET": "pi" if provider_failure else "all",
+                "GARDN_TEST_ACTIVE_MODEL": active_model,
+                "GARDN_TEST_SESSION_ROOT": str(tmp_path / "run" / "agent"),
+                "GARDN_TEST_SUBAGENT_SESSION_VARIANT": variant,
+                "GARDN_TEST_PROVIDER_FAILURE": provider_failure or "",
+                "GARDN_EXPECTED_ACTIVE_MODEL": f"openrouter/{active_model}",
             }
 
             return subprocess.run(

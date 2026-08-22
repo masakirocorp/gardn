@@ -42,14 +42,14 @@ class RemainingStatusTestFallbackTests(unittest.TestCase):
             kimi_home.mkdir()
             (factory_home / "settings.json").write_text("{}")
 
-            models_copy = lib_dir / "omh-agent-test-models.sh"
+            models_copy = lib_dir / "gardn-agent-test-models.sh"
             models_copy.write_text(source_models.read_text())
 
-            script_copy = bin_dir / "omh-agent-tests-remaining-status"
+            script_copy = bin_dir / "gardn-agent-tests-remaining-status"
             script_copy.write_text(source_script.read_text())
             script_copy.chmod(script_copy.stat().st_mode | stat.S_IXUSR)
 
-            reporter = bin_dir / "omh-test-report"
+            reporter = bin_dir / "gardn-test-report"
             reporter.write_text(
                 test_script(
                     r"""
@@ -80,7 +80,7 @@ class RemainingStatusTestFallbackTests(unittest.TestCase):
                     request = {"id": f"test:{pane}:{event}:{state}", "method": method, "params": params}
                     client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
                     client.settimeout(1)
-                    client.connect(os.environ["OMH_SOCKET_PATH"])
+                    client.connect(os.environ["GARDN_SOCKET_PATH"])
                     client.sendall((json.dumps(request) + "\n").encode("utf-8"))
                     try:
                         client.recv(4096)
@@ -117,9 +117,9 @@ class RemainingStatusTestFallbackTests(unittest.TestCase):
                         exit 1
                         ;;
                       anthropic/ok)
-                        omh-test-report pane-copilot-real copilot omh:copilot copilot-real report working
-                        omh-test-report pane-copilot-real copilot omh:copilot copilot-real report idle
-                        echo '{{"message":"OMH_COPILOT_STATUS_OK"}}'
+                        gardn-test-report pane-copilot-real copilot gardn:copilot copilot-real report working
+                        gardn-test-report pane-copilot-real copilot gardn:copilot copilot-real report idle
+                        echo '{{"message":"GARDN_COPILOT_STATUS_OK"}}'
                         exit 0
                         ;;
                       *)
@@ -166,9 +166,9 @@ class RemainingStatusTestFallbackTests(unittest.TestCase):
                       echo "unexpected droid model: $model" >&2
                       exit 65
                     fi
-                    omh-test-report pane-droid-real droid omh:droid droid-real report idle
-                    omh-test-report pane-droid-real droid omh:droid droid-real release release
-                    printf '%s\n' '{{"type":"result","result":"OMH_DROID_STATUS_OK"}}'
+                    gardn-test-report pane-droid-real droid gardn:droid droid-real report idle
+                    gardn-test-report pane-droid-real droid gardn:droid droid-real release release
+                    printf '%s\n' '{{"type":"result","result":"GARDN_DROID_STATUS_OK"}}'
                     """
                 )
             )
@@ -181,11 +181,11 @@ class RemainingStatusTestFallbackTests(unittest.TestCase):
                     #!/usr/bin/env bash
                     set -euo pipefail
                     configured_model="$(sed -n 's/^model = "\(.*\)"/\1/p' "$KIMI_CODE_HOME/config.toml")"
-                    printf 'kimi:%s:%s\n' "${{OMH_PANE_ID:-missing-pane}}" "$configured_model" >> {shlex.quote(str(attempts_log))}
-                    omh-test-report pane-kimi-real kimi omh:kimi kimi-real report idle
-                    omh-test-report pane-kimi-real kimi omh:kimi kimi-real report working
-                    omh-test-report pane-kimi-real kimi omh:kimi kimi-real report idle
-                    echo "OMH_KIMI_STATUS_OK"
+                    printf 'kimi:%s:%s\n' "${{GARDN_PANE_ID:-missing-pane}}" "$configured_model" >> {shlex.quote(str(attempts_log))}
+                    gardn-test-report pane-kimi-real kimi gardn:kimi kimi-real report idle
+                    gardn-test-report pane-kimi-real kimi gardn:kimi kimi-real report working
+                    gardn-test-report pane-kimi-real kimi gardn:kimi kimi-real report idle
+                    echo "GARDN_KIMI_STATUS_OK"
                     """
                 )
             )
@@ -214,8 +214,8 @@ class RemainingStatusTestFallbackTests(unittest.TestCase):
                       echo "unexpected hermes model: $model" >&2
                       exit 65
                     fi
-                    omh-test-report pane-hermes-real hermes omh:hermes hermes-real session resume
-                    echo "OMH_HERMES_STATUS_OK"
+                    gardn-test-report pane-hermes-real hermes gardn:hermes hermes-real session resume
+                    echo "GARDN_HERMES_STATUS_OK"
                     """
                 )
             )
@@ -265,13 +265,13 @@ class RemainingStatusTestFallbackTests(unittest.TestCase):
                 "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}",
                 "HOME": str(home_dir),
                 "OPENROUTER_API_KEY": "sk-test-fake-openrouter-key",
-                "OMH_REPO_DIR": str(repo_root),
-                "OMH_AGENT_TEST_MODELS_LIB": str(models_copy),
-                "OMH_REMAINING_STATUS_TEST_DIR": str(test_dir),
-                "OMH_REMAINING_STATUS_TEST_TIMEOUT": "5",
-                "OMH_TEST_MODEL": "anthropic/overloaded",
-                "OMH_TEST_FALLBACK_MODELS": "anthropic/ok",
-                "OMH_TEST_SKIP_MODEL_PREFLIGHT": "1",
+                "GARDN_REPO_DIR": str(repo_root),
+                "GARDN_AGENT_TEST_MODELS_LIB": str(models_copy),
+                "GARDN_REMAINING_STATUS_TEST_DIR": str(test_dir),
+                "GARDN_REMAINING_STATUS_TEST_TIMEOUT": "5",
+                "GARDN_TEST_MODEL": "anthropic/overloaded",
+                "GARDN_TEST_FALLBACK_MODELS": "anthropic/ok",
+                "GARDN_TEST_SKIP_MODEL_PREFLIGHT": "1",
                 "DROID_HOME": str(factory_home),
                 "FACTORY_HOME": str(factory_home),
                 "KIMI_CODE_HOME": str(kimi_home),

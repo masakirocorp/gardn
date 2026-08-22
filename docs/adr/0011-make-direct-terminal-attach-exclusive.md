@@ -4,7 +4,7 @@ status: accepted
 
 # Make direct terminal attach exclusive by default
 
-Oh My Herdr direct terminal attach gives one client writable ownership of one terminal unless another client explicitly requests takeover. The built-in direct-attach client requests `ClientLaunchMode::TerminalAttach` and `RenderEncoding::TerminalAnsi` in `Hello`, then sends `ClientMessage::AttachTerminal { terminal_id, takeover }`.
+Gardn direct terminal attach gives one client writable ownership of one terminal unless another client explicitly requests takeover. The built-in direct-attach client requests `ClientLaunchMode::TerminalAttach` and `RenderEncoding::TerminalAnsi` in `Hello`, then sends `ClientMessage::AttachTerminal { terminal_id, takeover }`.
 
 After that attach request succeeds, the server switches the connection into `ClientConnectionMode::TerminalAttach` and renders that one terminal runtime for the connection. The server uses `terminal_attach_owners` as the attach admission/takeover map for terminal-id strings.
 
@@ -22,6 +22,6 @@ This is accepted because direct attach bypasses normal app input semantics and w
 
 A direct attach request for a missing terminal shuts down that client with an explanatory error. A direct attach request for an already-owned terminal is rejected unless `takeover` is true. When takeover is true, the previous owner receives a shutdown message and is removed before the new owner is recorded. Once a client is in terminal-attach mode, subsequent input from that connection bypasses app semantic decoding and is forwarded directly to the attached terminal runtime.
 
-Pending attach clients are excluded from normal app-client foreground/render accounting. After attach, they are terminal-attach render targets for one runtime. The built-in attach client uses terminal-ANSI rendering, keeps a client-local escape state, and detaches with the `Ctrl+B` then `q` sequence; doubled prefix sends a literal prefix and prefix followed by another byte forwards both. If the attached terminal dies, Oh My Herdr shuts down matching attach clients. When an attach client disconnects, Oh My Herdr clears its owner entry and releases the direct-attach resize lock; if a foreground app client remains, the shared render path recomputes unlocked runtime sizing from that app client's effective size.
+Pending attach clients are excluded from normal app-client foreground/render accounting. After attach, they are terminal-attach render targets for one runtime. The built-in attach client uses terminal-ANSI rendering, keeps a client-local escape state, and detaches with the `Ctrl+B` then `q` sequence; doubled prefix sends a literal prefix and prefix followed by another byte forwards both. If the attached terminal dies, Gardn shuts down matching attach clients. When an attach client disconnects, Gardn clears its owner entry and releases the direct-attach resize lock; if a foreground app client remains, the shared render path recomputes unlocked runtime sizing from that app client's effective size.
 
 Historical rationale beyond the current source is `[INFERENCE]`: this policy likely exists to make direct attach feel like controlling a real terminal device while avoiding accidental multi-client input races in remote/headless operation.

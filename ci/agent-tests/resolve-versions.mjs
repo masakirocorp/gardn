@@ -4,9 +4,9 @@
 //
 // Override knobs (tests / diagnosis):
 //   GITHUB_TOKEN | GH_TOKEN     required for GitHub release lookups
-//   OMH_RESOLVE_NPM             npm executable (default: npm)
-//   OMH_RESOLVE_GITHUB_API      API origin (default: https://api.github.com)
-//   OMH_RESOLVE_FETCH           optional path to a node module exporting fetch
+//   GARDN_RESOLVE_NPM             npm executable (default: npm)
+//   GARDN_RESOLVE_GITHUB_API      API origin (default: https://api.github.com)
+//   GARDN_RESOLVE_FETCH           optional path to a node module exporting fetch
 //   CLAUDE_CODE_VERSION, CODEX_VERSION, OPENCODE_VERSION, COPILOT_VERSION,
 //   HERMES_VERSION, DROID_VERSION, PI_VERSION, KIMI_VERSION, MAKI_VERSION,
 //   OMP_REF                     optional exact overrides (skip remote lookup)
@@ -114,7 +114,7 @@ function resolveNpmVersion(packageName, buildArg) {
     return assertVersionShaped(buildArg, override);
   }
 
-  const npmBin = process.env.OMH_RESOLVE_NPM || "npm";
+  const npmBin = process.env.GARDN_RESOLVE_NPM || "npm";
   const result = spawnSync(
     npmBin,
     ["view", packageName, "version", "--json"],
@@ -172,19 +172,19 @@ function githubToken() {
 }
 
 function githubApiBase() {
-  return (process.env.OMH_RESOLVE_GITHUB_API || "https://api.github.com").replace(
+  return (process.env.GARDN_RESOLVE_GITHUB_API || "https://api.github.com").replace(
     /\/+$/,
     "",
   );
 }
 
 function loadFetch() {
-  if (process.env.OMH_RESOLVE_FETCH) {
+  if (process.env.GARDN_RESOLVE_FETCH) {
     const require = createRequire(import.meta.url);
-    const mod = require(process.env.OMH_RESOLVE_FETCH);
+    const mod = require(process.env.GARDN_RESOLVE_FETCH);
     const candidate = mod.fetch || mod.default || mod;
     if (typeof candidate !== "function") {
-      fail(`OMH_RESOLVE_FETCH must export a fetch function: ${process.env.OMH_RESOLVE_FETCH}`);
+      fail(`GARDN_RESOLVE_FETCH must export a fetch function: ${process.env.GARDN_RESOLVE_FETCH}`);
     }
     return candidate.bind(mod);
   }
@@ -206,7 +206,7 @@ async function githubLatestRelease(repo) {
         headers: {
           Accept: "application/vnd.github+json",
           Authorization: `Bearer ${token}`,
-          "User-Agent": "omh-agent-tests-resolve-versions",
+          "User-Agent": "gardn-agent-tests-resolve-versions",
           "X-GitHub-Api-Version": "2022-11-28",
         },
       });

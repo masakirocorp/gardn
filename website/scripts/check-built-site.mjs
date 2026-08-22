@@ -116,7 +116,7 @@ for (const [label, candidates] of routes) {
 
   const html = await readFile(path.join(publicRoot, routeFile), "utf8");
   routeHtml.set(label, html);
-  if (!html.includes("Oh My Herdr")) failures.push(`${label}: missing product identity`);
+  if (!html.includes("Gardn")) failures.push(`${label}: missing product identity`);
   if (label !== "404" && !html.includes('rel="canonical"')) {
     failures.push(`${label}: missing canonical URL`);
   }
@@ -124,20 +124,20 @@ for (const [label, candidates] of routes) {
   if (html.includes("My Page") || html.includes("Hello World")) {
     failures.push(`${label}: generated placeholder content leaked into the build`);
   }
-  if (label !== "404" && !html.includes("https://ohmyherdr.com")) {
+  if (label !== "404" && !html.includes("https://gardn.dev")) {
     failures.push(`${label}: canonical and social metadata must use the production origin`);
   }
-  if (html.includes("oh-my-herdr.invalid") || html.includes(".workers.dev")) {
+  if (html.includes("gardn.invalid") || html.includes(".workers.dev")) {
     failures.push(`${label}: non-production origin leaked into public metadata`);
   }
   for (const forbidden of [
-    "Hako",
+    "Gardn",
     "--handoff-import",
     "remote-client-bridge",
     "ClientMessage",
     "ServerMessage",
     "HandoffManifest",
-    "cargo install oh-my-herdr",
+    "cargo install gardn",
   ]) {
     if (html.includes(forbidden)) failures.push(`${label}: unsupported public claim ${forbidden}`);
   }
@@ -166,11 +166,11 @@ for (const label of ["download", "releases"]) {
 
   for (const unavailableArtifact of [
     "/releases/download/",
-    "omh-linux-x86_64",
-    "omh-linux-aarch64",
-    "omh-macos-x86_64",
-    "omh-macos-aarch64",
-    "omh-windows-x86_64.exe",
+    "gardn-linux-x86_64",
+    "gardn-linux-aarch64",
+    "gardn-macos-x86_64",
+    "gardn-macos-aarch64",
+    "gardn-windows-x86_64.exe",
   ]) {
     if (html.includes(unavailableArtifact)) {
       failures.push(`${label}: unavailable artifact control ${unavailableArtifact}`);

@@ -36,7 +36,7 @@ RUN apt-get update \
         tini \
     && rm -rf /var/lib/apt/lists/*
 
-RUN --mount=type=cache,id=omh-agent-tests-pnpm,target=/pnpm/store \
+RUN --mount=type=cache,id=gardn-agent-tests-pnpm,target=/pnpm/store \
     set -eux; \
     for required in \
       CLAUDE_CODE_VERSION \
@@ -159,31 +159,31 @@ RUN set -eux; \
     curl -fsSL "https://github.com/can1357/oh-my-pi/releases/download/${OMP_REF}/omp-linux-${omp_arch}" -o /usr/local/bin/omp; \
     chmod +x /usr/local/bin/omp
 
-COPY test-env.sh /usr/local/bin/omh-agent-tests-env
-COPY doctor.sh /usr/local/bin/omh-agent-tests-doctor
-COPY verify-env.sh /usr/local/bin/omh-agent-tests-verify-env
-COPY opencode-cli-test.sh /usr/local/bin/omh-agent-tests-opencode
-COPY test-models.sh /usr/local/lib/omh-agent-test-models.sh
-COPY opencode-status-test.sh /usr/local/bin/omh-agent-tests-opencode-status
-COPY opencode-plugin-status-test.mjs /usr/local/bin/omh-agent-opencode-plugin-status-test
-COPY pi-omp-plugin-status-test.mjs /usr/local/bin/omh-agent-pi-omp-plugin-status-test
-COPY pi-omp-status-test.sh /usr/local/bin/omh-agent-tests-pi-omp-status
-COPY claude-status-test.sh /usr/local/bin/omh-agent-tests-claude-status
-COPY codex-status-test.sh /usr/local/bin/omh-agent-tests-codex-status
-COPY remaining-status-test.sh /usr/local/bin/omh-agent-tests-remaining-status
-COPY cursor-openrouter-proxy.mjs /usr/local/bin/omh-agent-cursor-openrouter-proxy
-COPY cursor-proxy-status-test.sh /usr/local/bin/omh-agent-tests-cursor-proxy-status
-COPY qoder-openrouter-proxy.mjs /usr/local/bin/omh-agent-qoder-openrouter-proxy
-COPY qoder-proxy-status-test.sh /usr/local/bin/omh-agent-tests-qoder-proxy-status
-COPY maki-status-test.sh /usr/local/bin/omh-agent-tests-maki-status
-COPY run-target.sh /usr/local/bin/omh-agent-tests-target
+COPY test-env.sh /usr/local/bin/gardn-agent-tests-env
+COPY doctor.sh /usr/local/bin/gardn-agent-tests-doctor
+COPY verify-env.sh /usr/local/bin/gardn-agent-tests-verify-env
+COPY opencode-cli-test.sh /usr/local/bin/gardn-agent-tests-opencode
+COPY test-models.sh /usr/local/lib/gardn-agent-test-models.sh
+COPY opencode-status-test.sh /usr/local/bin/gardn-agent-tests-opencode-status
+COPY opencode-plugin-status-test.mjs /usr/local/bin/gardn-agent-opencode-plugin-status-test
+COPY pi-omp-plugin-status-test.mjs /usr/local/bin/gardn-agent-pi-omp-plugin-status-test
+COPY pi-omp-status-test.sh /usr/local/bin/gardn-agent-tests-pi-omp-status
+COPY claude-status-test.sh /usr/local/bin/gardn-agent-tests-claude-status
+COPY codex-status-test.sh /usr/local/bin/gardn-agent-tests-codex-status
+COPY remaining-status-test.sh /usr/local/bin/gardn-agent-tests-remaining-status
+COPY cursor-openrouter-proxy.mjs /usr/local/bin/gardn-agent-cursor-openrouter-proxy
+COPY cursor-proxy-status-test.sh /usr/local/bin/gardn-agent-tests-cursor-proxy-status
+COPY qoder-openrouter-proxy.mjs /usr/local/bin/gardn-agent-qoder-openrouter-proxy
+COPY qoder-proxy-status-test.sh /usr/local/bin/gardn-agent-tests-qoder-proxy-status
+COPY maki-status-test.sh /usr/local/bin/gardn-agent-tests-maki-status
+COPY run-target.sh /usr/local/bin/gardn-agent-tests-target
 # Pre-resolved cohort manifest written by resolve-versions.mjs before docker build.
-COPY cohort.json /usr/local/share/omh-agent-tests/cohort.json
-RUN chmod +x /usr/local/bin/omh-agent-tests-env /usr/local/bin/omh-agent-tests-doctor /usr/local/bin/omh-agent-tests-verify-env /usr/local/bin/omh-agent-tests-opencode /usr/local/bin/omh-agent-tests-opencode-status /usr/local/bin/omh-agent-tests-pi-omp-status /usr/local/bin/omh-agent-tests-claude-status /usr/local/bin/omh-agent-tests-codex-status /usr/local/bin/omh-agent-tests-remaining-status /usr/local/bin/omh-agent-tests-cursor-proxy-status /usr/local/bin/omh-agent-tests-qoder-proxy-status /usr/local/bin/omh-agent-tests-maki-status /usr/local/bin/omh-agent-tests-target /usr/local/bin/omh-agent-cursor-openrouter-proxy /usr/local/bin/omh-agent-qoder-openrouter-proxy /usr/local/bin/omh-agent-opencode-plugin-status-test /usr/local/bin/omh-agent-pi-omp-plugin-status-test \
+COPY cohort.json /usr/local/share/gardn-agent-tests/cohort.json
+RUN chmod +x /usr/local/bin/gardn-agent-tests-env /usr/local/bin/gardn-agent-tests-doctor /usr/local/bin/gardn-agent-tests-verify-env /usr/local/bin/gardn-agent-tests-opencode /usr/local/bin/gardn-agent-tests-opencode-status /usr/local/bin/gardn-agent-tests-pi-omp-status /usr/local/bin/gardn-agent-tests-claude-status /usr/local/bin/gardn-agent-tests-codex-status /usr/local/bin/gardn-agent-tests-remaining-status /usr/local/bin/gardn-agent-tests-cursor-proxy-status /usr/local/bin/gardn-agent-tests-qoder-proxy-status /usr/local/bin/gardn-agent-tests-maki-status /usr/local/bin/gardn-agent-tests-target /usr/local/bin/gardn-agent-cursor-openrouter-proxy /usr/local/bin/gardn-agent-qoder-openrouter-proxy /usr/local/bin/gardn-agent-opencode-plugin-status-test /usr/local/bin/gardn-agent-pi-omp-plugin-status-test \
     && useradd --create-home --shell /bin/bash agenttest \
-    && chmod 0644 /usr/local/share/omh-agent-tests/cohort.json
+    && chmod 0644 /usr/local/share/gardn-agent-tests/cohort.json
 
 USER agenttest
 WORKDIR /work
 ENTRYPOINT ["/usr/bin/tini", "--"]
-CMD ["omh-agent-tests-doctor"]
+CMD ["gardn-agent-tests-doctor"]

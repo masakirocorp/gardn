@@ -32,7 +32,7 @@ A `ResourceLocation` keeps the execution host and host-native path together:
 { "execution_host_id": "ssh:workbox:1", "path": "/srv/project" }
 ```
 
-`execution_host_id` is `local` for the coordinator host or the id returned by `connection.list` for an SSH host. Paths are opaque to the coordinator for remote hosts. Oh My Herdr does not reinterpret a remote Unix path with local path rules.
+`execution_host_id` is `local` for the coordinator host or the id returned by `connection.list` for an SSH host. Paths are opaque to the coordinator for remote hosts. Gardn does not reinterpret a remote Unix path with local path rules.
 
 Creation resolves placement from the first available source in this order:
 
@@ -86,7 +86,7 @@ Example:
           "workspace_id": "w1943cd2b11a1",
           "group_id": "default",
           "number": 1,
-          "label": "omh",
+          "label": "gardn",
           "focused": true,
           "pane_count": 1,
           "tab_count": 1,
@@ -99,7 +99,7 @@ Example:
           "tab_id": "w1943cd2b11a1:t1",
           "workspace_id": "w1943cd2b11a1",
           "number": 1,
-          "label": "omh",
+          "label": "gardn",
           "focused": true,
           "pane_count": 1,
           "agent_status": "idle"
@@ -148,10 +148,10 @@ Example:
   "id": "ws:create",
   "method": "workspace.create",
   "params": {
-    "cwd": "/home/me/src/omh",
-    "label": "omh-docs",
+    "cwd": "/home/me/src/gardn",
+    "label": "gardn-docs",
     "focus": true,
-    "env": { "OMH_TASK": "docs" }
+    "env": { "GARDN_TASK": "docs" }
   }
 }
 ```
@@ -165,7 +165,7 @@ Example:
       "workspace_id": "w1943cf02aa2",
       "group_id": "default",
       "number": 2,
-      "label": "omh-docs",
+      "label": "gardn-docs",
       "focused": true,
       "pane_count": 1,
       "tab_count": 1,
@@ -176,7 +176,7 @@ Example:
       "tab_id": "w1943cf02aa2:t1",
       "workspace_id": "w1943cf02aa2",
       "number": 1,
-      "label": "omh-docs",
+      "label": "gardn-docs",
       "focused": true,
       "pane_count": 1,
       "agent_status": "idle"
@@ -212,7 +212,7 @@ Example:
         "workspace_id": "w1943cd2b11a1",
         "group_id": "default",
         "number": 1,
-        "label": "omh",
+        "label": "gardn",
         "focused": true,
         "pane_count": 2,
         "tab_count": 1,
@@ -257,7 +257,7 @@ Example:
       "workspace_id": "w1943cd2b11a1",
       "group_id": "default",
       "number": 1,
-      "label": "omh",
+      "label": "gardn",
       "focused": true,
       "pane_count": 2,
       "tab_count": 1,
@@ -301,7 +301,7 @@ Example:
       "workspace_id": "w1943cd2b11a1",
       "group_id": "default",
       "number": 1,
-      "label": "omh",
+      "label": "gardn",
       "focused": true,
       "pane_count": 2,
       "tab_count": 1,
@@ -660,7 +660,7 @@ Example:
         "tab_id": "w1943cd2b11a1:t1",
         "workspace_id": "w1943cd2b11a1",
         "number": 1,
-        "label": "omh",
+        "label": "gardn",
         "focused": true,
         "pane_count": 2,
         "agent_status": "working"
@@ -703,7 +703,7 @@ Example:
       "tab_id": "w1943cd2b11a1:t1",
       "workspace_id": "w1943cd2b11a1",
       "number": 1,
-      "label": "omh",
+      "label": "gardn",
       "focused": true,
       "pane_count": 2,
       "agent_status": "working"

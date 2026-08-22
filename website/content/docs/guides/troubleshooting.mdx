@@ -1,9 +1,9 @@
 ---
-title: Troubleshoot Oh My Herdr
-description: Diagnose session, configuration, SSH, integration, plugin, agent-detection, and terminal-input failures with observable Oh My Herdr commands.
+title: Troubleshoot Gardn
+description: Diagnose session, configuration, SSH, integration, plugin, agent-detection, and terminal-input failures with observable Gardn commands.
 ---
 
-# Troubleshoot Oh My Herdr
+# Troubleshoot Gardn
 
 Use this guide when a client cannot attach, state looks stale, an integration stops reporting, or a plugin action fails. Start with status output, then inspect the narrowest failing boundary.
 
@@ -12,62 +12,62 @@ Use this guide when a client cannot attach, state looks stale, an integration st
 Run the full status view first:
 
 ```bash
-omh status
-omh status --json
+gardn status
+gardn status --json
 ```
 
 The text view shows the local client version and protocol, the running server version and protocol, the API socket path, and whether a restart is needed. JSON is the machine-readable form for scripts. Inspect each side separately when needed:
 
 ```bash
-omh status client --json
-omh status server --json
+gardn status client --json
+gardn status server --json
 ```
 
-Compare `client.version`/`client.protocol` with `server.version`/`server.protocol` in the full JSON, or compare `compatible` in the server JSON. A running server with `compatible: false`, or `restart_needed: true`, means the client and server came from different releases or protocol generations. Stop the affected server/session and start it again with the same `omh` binary before retrying. Stopping a live session can terminate its running panes, so preserve any work before doing so.
+Compare `client.version`/`client.protocol` with `server.version`/`server.protocol` in the full JSON, or compare `compatible` in the server JSON. A running server with `compatible: false`, or `restart_needed: true`, means the client and server came from different releases or protocol generations. Stop the affected server/session and start it again with the same `gardn` binary before retrying. Stopping a live session can terminate its running panes, so preserve any work before doing so.
 
 A socket path can be correct for one session and wrong for another. List sessions and select the intended one:
 
 ```bash
-omh session list --json
-omh session attach SESSION_NAME
+gardn session list --json
+gardn session attach SESSION_NAME
 ```
 
-The same selection can be made with `--session SESSION_NAME` or `OMH_SESSION=SESSION_NAME`. `OMH_SOCKET_PATH` overrides the local JSON API socket; use it only when the server was deliberately started with that override. If a socket file exists but `omh status server` reports `not_running`, treat it as stale and use the session/server stop command rather than deleting an unknown socket by hand.
+The same selection can be made with `--session SESSION_NAME` or `GARDN_SESSION=SESSION_NAME`. `GARDN_SOCKET_PATH` overrides the local JSON API socket; use it only when the server was deliberately started with that override. If a socket file exists but `gardn status server` reports `not_running`, treat it as stale and use the session/server stop command rather than deleting an unknown socket by hand.
 
 ## 2. Validate and reload configuration
 
 Check the file without changing it:
 
 ```bash
-omh config check
+gardn config check
 ```
 
-`config: ok` exits successfully. `config: issues found` prints each diagnostic and exits non-zero; fix the reported TOML, unknown section, or invalid value before reloading. The active file is `OMH_CONFIG_PATH` when set. Otherwise, configuration defaults to `$XDG_CONFIG_HOME/omh/config.toml`, `~/.config/omh/config.toml`, or `%APPDATA%\\omh\\config.toml` on Windows.
+`config: ok` exits successfully. `config: issues found` prints each diagnostic and exits non-zero; fix the reported TOML, unknown section, or invalid value before reloading. The active file is `GARDN_CONFIG_PATH` when set. Otherwise, configuration defaults to `$XDG_CONFIG_HOME/gardn/config.toml`, `~/.config/gardn/config.toml`, or `%APPDATA%\\gardn\\config.toml` on Windows.
 
 Apply a corrected file to a running server:
 
 ```bash
-omh server reload-config
+gardn server reload-config
 ```
 
 The response reports `applied`, `partial`, or `failed` plus diagnostics. A complete read or parse failure keeps the current live configuration; a partial reload keeps the affected invalid section at its previous value. Do not assume that a successful API response means every requested setting was applied—read the diagnostics.
 
-If an old keybinding section is blocking the built-in bindings, `omh config reset-keys` makes a timestamped backup and removes only the keybinding sections. It is destructive to those custom keybindings; use the printed restore command and reload the config only after checking the backup.
+If an old keybinding section is blocking the built-in bindings, `gardn config reset-keys` makes a timestamped backup and removes only the keybinding sections. It is destructive to those custom keybindings; use the printed restore command and reload the config only after checking the backup.
 
 ## 3. Read the right logs
 
-Oh My Herdr writes rotating logs below the active data directory:
+Gardn writes rotating logs below the active data directory:
 
-- `omh.log` for the app process.
-- `omh-client.log` for a thin client.
-- `omh-server.log` for a headless server.
+- `gardn.log` for the app process.
+- `gardn-client.log` for a thin client.
+- `gardn-server.log` for a headless server.
 
-For the default session, the directory is the Oh My Herdr config directory. For a named session, it is that directory's `sessions/SESSION_NAME` child. The path is platform-aware: `$XDG_CONFIG_HOME/omh` or `~/.config/omh` on Unix-like systems, `%APPDATA%\\omh` on Windows, and the session child when a named session is active. The startup help also prints the resolved paths.
+For the default session, the directory is the Gardn config directory. For a named session, it is that directory's `sessions/SESSION_NAME` child. The path is platform-aware: `$XDG_CONFIG_HOME/gardn` or `~/.config/gardn` on Unix-like systems, `%APPDATA%\\gardn` on Windows, and the session child when a named session is active. The startup help also prints the resolved paths.
 
-`OMH_LOG` controls the tracing filter, not the log filename. For a one-off debug run, set it before launching the process:
+`GARDN_LOG` controls the tracing filter, not the log filename. For a one-off debug run, set it before launching the process:
 
 ```bash
-OMH_LOG=omh=debug omh
+GARDN_LOG=gardn=debug gardn
 ```
 
 Redact access tokens, selected text, paths, command arguments, and plugin context before sharing logs. Do not paste a whole session snapshot or private handoff material into a public report.
@@ -80,46 +80,46 @@ Remote attach supports Unix local clients (Linux and macOS) and Windows local cl
 ssh TARGET
 ```
 
-When authentication fails with a public-key, keyboard-interactive, or password permission error, Oh My Herdr prints the same `ssh TARGET` verification hint. If the key is passphrase-protected, load it into your SSH agent with `ssh-add` and retry `omh --remote TARGET`. Oh My Herdr's managed SSH configuration includes your existing `~/.ssh/config` and adds keepalive fallbacks by default; set the remote configuration's `manage_ssh_config` option to false only when you need plain SSH behavior.
+When authentication fails with a public-key, keyboard-interactive, or password permission error, Gardn prints the same `ssh TARGET` verification hint. If the key is passphrase-protected, load it into your SSH agent with `ssh-add` and retry `gardn --remote TARGET`. Gardn's managed SSH configuration includes your existing `~/.ssh/config` and adds keepalive fallbacks by default; set the remote configuration's `manage_ssh_config` option to false only when you need plain SSH behavior.
 
-Remote bootstrap checks the remote binary's platform and protocol. If it reports that the remote server must restart, rerun `omh --remote TARGET` from an interactive terminal so the stop/restart approval can be requested. Do not approve a remote server replacement while another client is using that session unless you have planned for the interruption.
+Remote bootstrap checks the remote binary's platform and protocol. If it reports that the remote server must restart, rerun `gardn --remote TARGET` from an interactive terminal so the stop/restart approval can be requested. Do not approve a remote server replacement while another client is using that session unless you have planned for the interruption.
 
 ## 5. Repair integrations
 
 Inspect all detected integration files and embedded versions:
 
 ```bash
-omh integration status
-omh integration status --outdated-only
+gardn integration status
+gardn integration status --outdated-only
 ```
 
 For a missing or outdated target, reinstall it and restart the agent pane:
 
 ```bash
-omh integration install TARGET
+gardn integration install TARGET
 ```
 
-Use one of the targets printed by `omh integration status` (for example, `codex` or `claude`). Install can fail when the agent is not installed, its version is below the hook minimum, its configuration directory cannot be found, or the target is unsupported on the host platform. The command's path and error are more reliable than a guessed dot-directory.
+Use one of the targets printed by `gardn integration status` (for example, `codex` or `claude`). Install can fail when the agent is not installed, its version is below the hook minimum, its configuration directory cannot be found, or the target is unsupported on the host platform. The command's path and error are more reliable than a guessed dot-directory.
 
-Install rewrites Oh My Herdr-managed hooks/extensions and updates only Oh My Herdr-owned configuration entries. If you customized a managed hook file directly, save that customization elsewhere before reinstalling; a later install or update overwrites the managed file. Uninstall removes those managed files and entries but does not remove the agent.
+Install rewrites Gardn-managed hooks/extensions and updates only Gardn-owned configuration entries. If you customized a managed hook file directly, save that customization elsewhere before reinstalling; a later install or update overwrites the managed file. Uninstall removes those managed files and entries but does not remove the agent.
 
 ## 6. Repair plugin manifests, builds, and runtime commands
 
 Start with the registry and manifest warnings:
 
 ```bash
-omh plugin list --json
+gardn plugin list --json
 ```
 
-A linked plugin must still have a readable manifest at its registered path. A missing, unreadable, malformed, or incompatible manifest is reported as a manifest warning or error. Fix the source and re-link it, or unlink the entry before trying another source. The preferred filename is `omh-plugin.toml`; `herdr-plugin.toml` is a compatibility alias only.
+A linked plugin must still have a readable manifest at its registered path. A missing, unreadable, malformed, or incompatible manifest is reported as a manifest warning or error. Fix the source and re-link it, or unlink the entry before trying another source. The preferred filename is `gardn-plugin.toml`; `gardn-plugin.toml` is a compatibility alias only.
 
 For a GitHub install, rerun the install from the reviewed ref. The installer previews the resolved commit and every declared build/action/event/pane command before confirmation. Do not use `--yes` to skip review just to get past an error. A build failure reports the plugin, build index, working directory, argv, exit status, and capped stdout/stderr. A build that edits the manifest aborts the install; restore the manifest and retry.
 
 For an enabled plugin whose action, event hook, or pane fails, inspect the bounded runtime log:
 
 ```bash
-omh plugin action list --plugin PLUGIN_ID
-omh plugin log list --plugin PLUGIN_ID --limit 200
+gardn plugin action list --plugin PLUGIN_ID
+gardn plugin log list --plugin PLUGIN_ID --limit 200
 ```
 
 Look for `running`, `succeeded`, or `failed`, the exit code, stderr, and the command that actually ran. Runtime commands run as your current user from the plugin root. Plugin output is capped at 64 KiB, at most 32 plugin commands run concurrently, and only the most recent 200 command logs are retained in the session. A missing old log is therefore not proof that the command never ran. A disabled plugin, unsupported platform, missing pane entrypoint, or invalid protected environment override is rejected before launch. See [Install and operate plugins and integrations](/docs/guides/plugins-and-integrations) and the [plugin manifest reference](/docs/reference/plugin-manifest) for the supported lifecycle and fields.
@@ -133,37 +133,37 @@ Screen-based detection is evidence-based, not a guarantee. It evaluates the pane
 For a live pane, ask the server to explain the decision:
 
 ```bash
-omh agent explain PANE_ID --json
-omh agent explain PANE_ID --verbose
+gardn agent explain PANE_ID --json
+gardn agent explain PANE_ID --verbose
 ```
 
-Check `manifest_source`, `manifest_version`, `matched_rule`, `visible_idle`, `visible_working`, `visible_blocker`, `fallback_reason`, and `screen_detection_skip_reason`. If there is no detected agent label, the explain request reports that it is unavailable. Install the matching built-in integration when the agent supports one, restart the pane so its hooks load, and use the explain output to distinguish missing evidence from a bad rule. `omh server agent-manifests` and `omh server reload-agent-manifests` expose the local detection-manifest state when a manifest update is suspected.
+Check `manifest_source`, `manifest_version`, `matched_rule`, `visible_idle`, `visible_working`, `visible_blocker`, `fallback_reason`, and `screen_detection_skip_reason`. If there is no detected agent label, the explain request reports that it is unavailable. Install the matching built-in integration when the agent supports one, restart the pane so its hooks load, and use the explain output to distinguish missing evidence from a bad rule. `gardn server agent-manifests` and `gardn server reload-agent-manifests` expose the local detection-manifest state when a manifest update is suspected.
 
 ## 8. Debug terminal keys and custom host bindings
 
-Oh My Herdr's default prefix is `Ctrl+B`, and application bindings are configurable in `config.toml`. A host terminal can intercept a key before Oh My Herdr sees it. In particular, Oh My Herdr does not install a default Ghostty `Shift+Enter` binding. If Ghostty configuration contains a custom `Shift+Enter=text:\\n` or `Shift+Enter=text:\\x1b\\r` entry, it converts the key into legacy bytes; the downstream agent cannot reliably distinguish that input from `Ctrl+J` or `Alt+Enter`.
+Gardn's default prefix is `Ctrl+B`, and application bindings are configurable in `config.toml`. A host terminal can intercept a key before Gardn sees it. In particular, Gardn does not install a default Ghostty `Shift+Enter` binding. If Ghostty configuration contains a custom `Shift+Enter=text:\\n` or `Shift+Enter=text:\\x1b\\r` entry, it converts the key into legacy bytes; the downstream agent cannot reliably distinguish that input from `Ctrl+J` or `Alt+Enter`.
 
 When `Shift+Enter` behaves differently inside an agent pane:
 
 1. Inspect the host terminal configuration for custom `Shift+Enter` entries and remove them temporarily.
-2. Retest in a clean host configuration before changing Oh My Herdr bindings.
-3. Run `omh config check` if an Oh My Herdr keybinding was changed, then use the keybinding-help surface to confirm the active binding.
+2. Retest in a clean host configuration before changing Gardn bindings.
+3. Run `gardn config check` if an Gardn keybinding was changed, then use the keybinding-help surface to confirm the active binding.
 4. If the key works in a direct terminal but not through a remote client, check `--remote-keybindings local|server`; the default is `local`.
 
-Do not diagnose a host-emitted legacy byte as an Oh My Herdr key-encoding failure until it reproduces with the host binding removed. Custom direct printable bindings and reserved/duplicate combinations can also be rejected by configuration validation; use the printed diagnostic rather than forcing the binding.
+Do not diagnose a host-emitted legacy byte as an Gardn key-encoding failure until it reproduces with the host binding removed. Custom direct printable bindings and reserved/duplicate combinations can also be rejected by configuration validation; use the printed diagnostic rather than forcing the binding.
 
 ## 9. Share a bounded support report
 
-The current CLI has no public `omh support bundle` command. Build a small, redacted report from the failing boundary instead:
+The current CLI has no public `gardn support bundle` command. Build a small, redacted report from the failing boundary instead:
 
 ```bash
-omh status --json
-omh config check
-omh integration status
-omh plugin list --json
-omh plugin log list --plugin PLUGIN_ID --limit 200
+gardn status --json
+gardn config check
+gardn integration status
+gardn plugin list --json
+gardn plugin log list --plugin PLUGIN_ID --limit 200
 ```
 
-Add the relevant `omh-client.log`, `omh-server.log`, or `omh.log` path and the exact command that failed. Include the host platform, whether the session is named, and whether the failure reproduces with a clean host-terminal configuration.
+Add the relevant `gardn-client.log`, `gardn-server.log`, or `gardn.log` path and the exact command that failed. Include the host platform, whether the session is named, and whether the failure reproduces with a clean host-terminal configuration.
 
 Do not include credentials, SSH private keys, access tokens, full selected-text payloads, unreviewed plugin source, raw session snapshots, client wire-protocol frames, or private handoff manifests. Those artifacts can contain commands, paths, environment values, and live-session identity that are not required to diagnose the public behavior.

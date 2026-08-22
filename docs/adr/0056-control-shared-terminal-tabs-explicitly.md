@@ -4,7 +4,7 @@ status: accepted
 
 # Control shared terminal tabs explicitly
 
-Oh My Herdr assigns interactive control per stable tab identity, not per globally foreground app client. Each tab has at most one normal app client as its controller. The first client may claim a free tab, and switching to another free tab may claim that tab. An occupied tab is view-only for other normal app clients until they explicitly take over with `prefix+t` or the persistent Take control action in the desktop or mobile UI.
+Gardn assigns interactive control per stable tab identity, not per globally foreground app client. Each tab has at most one normal app client as its controller. The first client may claim a free tab, and switching to another free tab may claim that tab. An occupied tab is view-only for other normal app clients until they explicitly take over with `prefix+t` or the persistent Take control action in the desktop or mobile UI.
 
 This complements ADR 0052's split between shared session state and client view state: Tab Control is the runtime coordination boundary for the one tab that multiple independent views may observe.
 

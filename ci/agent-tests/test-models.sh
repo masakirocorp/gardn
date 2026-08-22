@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 
-OMH_TEST_DEFAULT_MODEL="openrouter/free"
-OMH_TEST_DEFAULT_FALLBACK_MODELS="nvidia/nemotron-3-super-120b-a12b:free"
+GARDN_TEST_DEFAULT_MODEL="openrouter/free"
+GARDN_TEST_DEFAULT_FALLBACK_MODELS="nvidia/nemotron-3-super-120b-a12b:free"
 
-omh_test_unique_candidates() {
+gardn_test_unique_candidates() {
   local primary="$1"
-  local fallbacks="${2:-${OMH_TEST_FALLBACK_MODELS:-}}"
+  local fallbacks="${2:-${GARDN_TEST_FALLBACK_MODELS:-}}"
   python3 - "$primary" "$fallbacks" <<'PY'
 import re
 import sys
@@ -26,13 +26,13 @@ for raw in [sys.argv[1], *sys.argv[2].split(",")]:
 PY
 }
 
-omh_test_available_candidates() {
+gardn_test_available_candidates() {
   local candidates=()
   local model
   while IFS= read -r model; do
     [[ -n "$model" ]] && candidates+=("$model")
   done
-  if [[ "${OMH_TEST_SKIP_MODEL_PREFLIGHT:-0}" == "1" ]]; then
+  if [[ "${GARDN_TEST_SKIP_MODEL_PREFLIGHT:-0}" == "1" ]]; then
     printf '%s\n' "${candidates[@]}"
     return 0
   fi
@@ -70,11 +70,11 @@ PY
   return "$status"
 }
 
-omh_test_provider_model() {
+gardn_test_provider_model() {
   printf 'openrouter/%s\n' "$1"
 }
 
-omh_test_non_openai_candidates() {
+gardn_test_non_openai_candidates() {
   while IFS= read -r model; do
     case "$model" in
       openai/*|gpt-*)
@@ -85,7 +85,7 @@ omh_test_non_openai_candidates() {
   done
 }
 
-omh_test_non_anthropic_candidates() {
+gardn_test_non_anthropic_candidates() {
   while IFS= read -r model; do
     case "$model" in
       anthropic/*|claude*)
@@ -96,7 +96,7 @@ omh_test_non_anthropic_candidates() {
   done
 }
 
-omh_test_configure_model() {
+gardn_test_configure_model() {
   local model="$1"
   local openrouter_base="${OPENROUTER_BASE_URL:-https://openrouter.ai/api/v1}"
   if [[ -z "${OPENROUTER_API_KEY:-}" ]]; then
@@ -104,7 +104,7 @@ omh_test_configure_model() {
     return 64
   fi
 
-  export OMH_TEST_MODEL="$model"
+  export GARDN_TEST_MODEL="$model"
   export OPENAI_API_KEY="$OPENROUTER_API_KEY"
   export ANTHROPIC_AUTH_TOKEN="$OPENROUTER_API_KEY"
   export ANTHROPIC_BASE_URL="$openrouter_base"
@@ -139,7 +139,7 @@ Path(codex_path).write_text(
 Path(factory_path).write_text(json.dumps({
     "customModels": [{
         "model": model,
-        "displayName": "Oh My Herdr Test OpenRouter",
+        "displayName": "Gardn Test OpenRouter",
         "baseUrl": base_url,
         "apiKey": "${OPENROUTER_API_KEY}",
         "provider": "generic-chat-completion-api",
@@ -175,25 +175,25 @@ OPENROUTER_API_KEY=$OPENROUTER_API_KEY
 EOF_HERMES_ENV
 }
 
-omh_test_retryable_output() {
+gardn_test_retryable_output() {
   local output="$1"
   [[ -f "$output" ]] || return 1
   grep -Eiq '(^|[^0-9])(408|429|500|502|503|504|529)([^0-9]|$)|rate.?limit|temporar(il)?y unavailable|overload|capacity|no route|no endpoint|provider[^[:alnum:]]+(unavailable|error)|model[^[:alnum:]]+(not found|unavailable|unsupported)|ProviderModelNotFoundError' "$output"
 }
 
-omh_test_retryable_status_or_output() {
+gardn_test_retryable_status_or_output() {
   local status="$1"
   local output="$2"
-  [[ "$status" -ne 0 ]] && omh_test_retryable_output "$output"
+  [[ "$status" -ne 0 ]] && gardn_test_retryable_output "$output"
 }
 
-omh_test_run_with_fallbacks() {
+gardn_test_run_with_fallbacks() {
   local script="$1"
   shift
   local attempts=()
   local model status
   local candidates=()
-  if [[ -n "${OMH_TEST_ACTIVE_MODEL:-}" ]]; then
+  if [[ -n "${GARDN_TEST_ACTIVE_MODEL:-}" ]]; then
     return 0
   fi
   while IFS= read -r model; do
@@ -204,7 +204,7 @@ omh_test_run_with_fallbacks() {
     attempt_output="$(mktemp)"
     printf 'trying test model: %s\n' "$model" >&2
     set +e
-    OMH_TEST_ACTIVE_MODEL="$model" "$script" "$@" >"$attempt_output" 2>&1
+    GARDN_TEST_ACTIVE_MODEL="$model" "$script" "$@" >"$attempt_output" 2>&1
     status=$?
     set -e
     cat "$attempt_output" >&2
@@ -221,7 +221,7 @@ omh_test_run_with_fallbacks() {
     rm -f "$attempt_output"
     return "$status"
   done
-  printf 'all test model candidates failed before Oh My Herdr assertions:\n' >&2
+  printf 'all test model candidates failed before Gardn assertions:\n' >&2
   printf '  %s\n' "${attempts[@]}" >&2
   return 75
 }

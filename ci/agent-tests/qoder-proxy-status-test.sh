@@ -1,25 +1,25 @@
 #!/usr/bin/env bash
 set -euo pipefail
 # This is a status acceptance test, not an optional test. A zero exit must mean
-# the latest real qodercli hook path reported Oh My Herdr status updates through the
+# the latest real qodercli hook path reported Gardn status updates through the
 # proxy. Provider, pricing, or entitlement failures are inputs to fix or route
 # around, never successful skips.
-source /usr/local/lib/omh-agent-test-models.sh
-primary_model="${OMH_TEST_QODER_PROXY_MODEL:-${OMH_TEST_MODEL:-$OMH_TEST_DEFAULT_MODEL}}"
-if [[ -z "${OMH_TEST_ACTIVE_MODEL:-}" ]]; then
-  omh_test_unique_candidates "$primary_model" "${OMH_TEST_FALLBACK_MODELS:-}" \
-    | omh_test_available_candidates \
-    | omh_test_run_with_fallbacks "$0" "$@"
+source /usr/local/lib/gardn-agent-test-models.sh
+primary_model="${GARDN_TEST_QODER_PROXY_MODEL:-${GARDN_TEST_MODEL:-$GARDN_TEST_DEFAULT_MODEL}}"
+if [[ -z "${GARDN_TEST_ACTIVE_MODEL:-}" ]]; then
+  gardn_test_unique_candidates "$primary_model" "${GARDN_TEST_FALLBACK_MODELS:-}" \
+    | gardn_test_available_candidates \
+    | gardn_test_run_with_fallbacks "$0" "$@"
   exit $?
 fi
 
-model="$OMH_TEST_ACTIVE_MODEL"
-omh_test_configure_model "$model"
-workdir="${OMH_QODER_PROXY_STATUS_TEST_DIR:-$(mktemp -d)}"
+model="$GARDN_TEST_ACTIVE_MODEL"
+gardn_test_configure_model "$model"
+workdir="${GARDN_QODER_PROXY_STATUS_TEST_DIR:-$(mktemp -d)}"
 proxy_log="$workdir/qoder-proxy.log"
-repo_dir="${OMH_REPO_DIR:-/repo}"
-socket_path="$workdir/omh.sock"
-request_log="$workdir/omh-requests.jsonl"
+repo_dir="${GARDN_REPO_DIR:-/repo}"
+socket_path="$workdir/gardn.sock"
+request_log="$workdir/gardn-requests.jsonl"
 
 
 if [[ -z "${OPENROUTER_API_KEY:-}" ]]; then
@@ -77,7 +77,7 @@ server_pid=$!
 proxy_pid=""
 trap '[[ -n "${proxy_pid:-}" ]] && kill "$proxy_pid" >/dev/null 2>&1 || true; kill "$server_pid" >/dev/null 2>&1 || true' EXIT
 for _ in $(seq 1 50); do [[ -S "$socket_path" ]] && break; sleep 0.1; done
-[[ -S "$socket_path" ]] || { echo "fake omh socket did not start" >&2; exit 1; }
+[[ -S "$socket_path" ]] || { echo "fake gardn socket did not start" >&2; exit 1; }
 
 openssl req -x509 -newkey rsa:2048 -nodes \
   -keyout "$workdir/qoder.key" \
@@ -86,14 +86,14 @@ openssl req -x509 -newkey rsa:2048 -nodes \
   -subj "/CN=qoder.sh" \
   -addext "subjectAltName=DNS:api1.qoder.sh,DNS:api2.qoder.sh,DNS:api2-v2.qoder.sh,DNS:localhost,IP:127.0.0.1" >/dev/null 2>&1
 
-static_reply="OMH_QODER_PROXY_OK"
-OMH_QODER_PROXY_CERT="$workdir/qoder.crt" \
-OMH_QODER_PROXY_KEY="$workdir/qoder.key" \
-OMH_QODER_PROXY_LOG="$proxy_log" \
+static_reply="GARDN_QODER_PROXY_OK"
+GARDN_QODER_PROXY_CERT="$workdir/qoder.crt" \
+GARDN_QODER_PROXY_KEY="$workdir/qoder.key" \
+GARDN_QODER_PROXY_LOG="$proxy_log" \
 OPENROUTER_API_KEY="$OPENROUTER_API_KEY" \
-OMH_TEST_QODER_PROXY_MODEL="$model" \
-OMH_QODER_PROXY_STATIC_REPLY="$static_reply" \
-node /usr/local/bin/omh-agent-qoder-openrouter-proxy &
+GARDN_TEST_QODER_PROXY_MODEL="$model" \
+GARDN_QODER_PROXY_STATIC_REPLY="$static_reply" \
+node /usr/local/bin/gardn-agent-qoder-openrouter-proxy &
 proxy_pid=$!
 for _ in $(seq 1 50); do
   grep -q 'qoder-proxy-listening' "$proxy_log" 2>/dev/null && break
@@ -103,42 +103,42 @@ grep -q 'qoder-proxy-listening' "$proxy_log" || { echo "qoder proxy did not star
 
 home="$workdir/home"
 mkdir -p "$home/.qoder/hooks"
-cp "$repo_dir/apps/omh/src/integration/assets/qodercli/omh-agent-state.sh" "$home/.qoder/hooks/omh-agent-state.sh"
-chmod +x "$home/.qoder/hooks/omh-agent-state.sh"
+cp "$repo_dir/apps/gardn/src/integration/assets/qodercli/gardn-agent-state.sh" "$home/.qoder/hooks/gardn-agent-state.sh"
+chmod +x "$home/.qoder/hooks/gardn-agent-state.sh"
 cat > "$home/.qoder/settings.json" <<EOF_HOOKS
 {
   "general": {
     "enableAutoUpdate": false
   },
   "hooks": {
-    "SessionStart": [{"matcher": "*", "hooks": [{"type": "command", "command": "bash $home/.qoder/hooks/omh-agent-state.sh idle", "timeout": 10}]}],
-    "UserPromptSubmit": [{"matcher": "*", "hooks": [{"type": "command", "command": "bash $home/.qoder/hooks/omh-agent-state.sh working", "timeout": 10}]}],
-    "PreToolUse": [{"matcher": "*", "hooks": [{"type": "command", "command": "bash $home/.qoder/hooks/omh-agent-state.sh working", "timeout": 10}]}],
-    "PermissionRequest": [{"matcher": "*", "hooks": [{"type": "command", "command": "bash $home/.qoder/hooks/omh-agent-state.sh blocked", "timeout": 10}]}],
-    "Stop": [{"matcher": "*", "hooks": [{"type": "command", "command": "bash $home/.qoder/hooks/omh-agent-state.sh idle", "timeout": 10}]}],
-    "SessionEnd": [{"matcher": "*", "hooks": [{"type": "command", "command": "bash $home/.qoder/hooks/omh-agent-state.sh release", "timeout": 10}]}]
+    "SessionStart": [{"matcher": "*", "hooks": [{"type": "command", "command": "bash $home/.qoder/hooks/gardn-agent-state.sh idle", "timeout": 10}]}],
+    "UserPromptSubmit": [{"matcher": "*", "hooks": [{"type": "command", "command": "bash $home/.qoder/hooks/gardn-agent-state.sh working", "timeout": 10}]}],
+    "PreToolUse": [{"matcher": "*", "hooks": [{"type": "command", "command": "bash $home/.qoder/hooks/gardn-agent-state.sh working", "timeout": 10}]}],
+    "PermissionRequest": [{"matcher": "*", "hooks": [{"type": "command", "command": "bash $home/.qoder/hooks/gardn-agent-state.sh blocked", "timeout": 10}]}],
+    "Stop": [{"matcher": "*", "hooks": [{"type": "command", "command": "bash $home/.qoder/hooks/gardn-agent-state.sh idle", "timeout": 10}]}],
+    "SessionEnd": [{"matcher": "*", "hooks": [{"type": "command", "command": "bash $home/.qoder/hooks/gardn-agent-state.sh release", "timeout": 10}]}]
   }
 }
 EOF_HOOKS
-generic_prompt='Reply exactly OMH_QODER_PROXY_OK and nothing else.'
+generic_prompt='Reply exactly GARDN_QODER_PROXY_OK and nothing else.'
 
 set +e
 (
   cd "$workdir"
   HOME="$home" \
-  OMH_ENV=1 \
-  OMH_SOCKET_PATH="$socket_path" \
-  OMH_PANE_ID="pane-qoder-proxy" \
+  GARDN_ENV=1 \
+  GARDN_SOCKET_PATH="$socket_path" \
+  GARDN_PANE_ID="pane-qoder-proxy" \
   NODE_EXTRA_CA_CERTS="$workdir/qoder.crt" \
   SSL_CERT_FILE="$workdir/qoder.crt" \
   REQUESTS_CA_BUNDLE="$workdir/qoder.crt" \
   QODER_MODEL_TRANSPORT="http" \
   QODER_MODEL_SERVER_HOST="localhost" \
-  timeout "${OMH_QODER_PROXY_STATUS_TEST_TIMEOUT:-180}" qodercli \
+  timeout "${GARDN_QODER_PROXY_STATUS_TEST_TIMEOUT:-180}" qodercli \
     -p \
     --output-format json \
     --permission-mode dont_ask \
-    --model "${OMH_TEST_QODER_CLI_MODEL:-efficient}" \
+    --model "${GARDN_TEST_QODER_CLI_MODEL:-efficient}" \
     "$generic_prompt" >"$workdir/qoder-output.jsonl" 2>&1
 )
 status=$?
@@ -161,7 +161,7 @@ from pathlib import Path
 output = Path(sys.argv[1]).read_text(errors='replace')
 proxy = Path(sys.argv[2]).read_text(errors='replace')
 requests = [json.loads(line) for line in Path(sys.argv[3]).read_text(errors='replace').splitlines() if line.strip()]
-if 'OMH_QODER_PROXY_OK' not in output:
+if 'GARDN_QODER_PROXY_OK' not in output:
     print(f'qoder proxy test did not return expected marker: {output[-1000:]}', file=sys.stderr)
     print('qoder proxy log:', proxy[-2000:], file=sys.stderr)
     raise SystemExit(1)
@@ -181,7 +181,7 @@ if not releases:
     raise SystemExit(f'qoder hook test did not release agent: {requests}')
 for req in reports + releases:
     params = req.get('params', {})
-    if params.get('source') != 'omh:qodercli' or params.get('agent') != 'qodercli':
+    if params.get('source') != 'gardn:qodercli' or params.get('agent') != 'qodercli':
         raise SystemExit(f'qoder hook test reported wrong source/agent: {req}')
-print('qoder proxy status test ok: real Qoder CLI completed through deterministic local proxy and emitted Oh My Herdr status hooks')
+print('qoder proxy status test ok: real Qoder CLI completed through deterministic local proxy and emitted Gardn status hooks')
 PY

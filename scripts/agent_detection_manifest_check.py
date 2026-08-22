@@ -11,7 +11,7 @@ from pathlib import Path
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-APP_SRC_DIR = PROJECT_ROOT / "apps" / "omh" / "src"
+APP_SRC_DIR = PROJECT_ROOT / "apps" / "gardn" / "src"
 DEFAULT_BUNDLED_DIR = APP_SRC_DIR / "manifests"
 DEFAULT_WEBSITE_DIR = PROJECT_ROOT / "website" / "agent-detection"
 ENGINE_SOURCE = APP_SRC_DIR / "manifest_update.rs"

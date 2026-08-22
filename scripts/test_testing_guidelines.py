@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Mechanical guardrails for Oh My Herdr test guidelines.
+"""Mechanical guardrails for Gardn test guidelines.
 
 This is intentionally narrow. It catches high-signal regressions that are easy to
 spot mechanically; the testing guidelines still require human review for whether
@@ -14,7 +14,7 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 
-RUST_TEST_FILES = [*sorted((ROOT / "apps" / "omh" / "tests").glob("*.rs")), *sorted((ROOT / "apps" / "omh" / "src").rglob("*.rs"))]
+RUST_TEST_FILES = [*sorted((ROOT / "apps" / "gardn" / "tests").glob("*.rs")), *sorted((ROOT / "apps" / "gardn" / "src").rglob("*.rs"))]
 
 
 def read(path: Path) -> str:
@@ -55,7 +55,7 @@ class TestingGuidelineGuardrails(unittest.TestCase):
         """Socket path existence is not readiness; tests must connect through a wait helper."""
         offenders: list[str] = []
         direct_connect = re.compile(r"UnixStream::connect\([^\n]+\)\s*\.\s*(expect|unwrap)\(")
-        for path in sorted((ROOT / "apps" / "omh" / "tests").glob("*.rs")):
+        for path in sorted((ROOT / "apps" / "gardn" / "tests").glob("*.rs")):
             text = read(path)
             for match in direct_connect.finditer(text):
                 line = text.count("\n", 0, match.start()) + 1
@@ -114,7 +114,7 @@ class TestingGuidelineGuardrails(unittest.TestCase):
     def test_protocol_error_tests_check_error_details(self) -> None:
         """Protocol boundary tests should pin useful error shape, not just that any error occurred."""
         offenders: list[str] = []
-        path = ROOT / "apps" / "omh" / "src" / "protocol" / "wire.rs"
+        path = ROOT / "apps" / "gardn" / "src" / "protocol" / "wire.rs"
         text = read(path)
         for match in re.finditer(r"assert!\([^\n]+\.is_err\(\)[^\n]*\)", text):
             line = text.count("\n", 0, match.start()) + 1
@@ -124,7 +124,7 @@ class TestingGuidelineGuardrails(unittest.TestCase):
 
     def test_protocol_framing_keeps_golden_byte_fixtures(self) -> None:
         """Wire compatibility needs explicit bytes, not only encode/decode round trips."""
-        path = ROOT / "apps" / "omh" / "src" / "protocol" / "wire.rs"
+        path = ROOT / "apps" / "gardn" / "src" / "protocol" / "wire.rs"
         text = read(path)
         bodies = {name: body for name, _line, body in rust_test_functions(text)}
         required = [

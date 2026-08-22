@@ -1119,7 +1119,7 @@ Report an agent state transition for a pane.
 | Property             | Type                                            | Required | Default |
 | -------------------- | ----------------------------------------------- | -------- | ------- | ---------------------------------------------------------------------------------------------------------------------- |
 | `pane_id`            | `string`                                        | yes      | —       |
-| `source`             | `string`                                        | yes      | —       | Free-form, conventionally `omh:<agent>` or `<integration>:<agent>`. Used by the resume subsystem to correlate reports. |
+| `source`             | `string`                                        | yes      | —       | Free-form, conventionally `gardn:<agent>` or `<integration>:<agent>`. Used by the resume subsystem to correlate reports. |
 | `agent`              | `string`                                        | yes      | —       | Agent label; trimmed and normalized when known, kept verbatim otherwise. Empty produces `invalid_agent`.               |
 | `state`              | `"idle" \| "working" \| "blocked" \| "unknown"` | yes      | —       | Maps directly to the internal `AgentState`.                                                                            |
 | `message`            | `string \| null`                                | no       | `null`  | Optional human-oriented message attached to the report.                                                                |
@@ -1139,7 +1139,7 @@ Errors: `pane_not_found`, `invalid_agent`.
   "method": "pane.report_agent",
   "params": {
     "pane_id": "w1943cd2b11a1:p2",
-    "source": "omh:claude",
+    "source": "gardn:claude",
     "agent": "claude",
     "state": "blocked",
     "message": "awaiting human review of migration plan",
@@ -1245,7 +1245,7 @@ Errors: `pane_not_found`, `invalid_agent`, `invalid_metadata_source`, `invalid_m
   "method": "pane.report_metadata",
   "params": {
     "pane_id": "w1943cd2b11a1:p2",
-    "source": "omh:claude",
+    "source": "gardn:claude",
     "title": "migration review",
     "custom_status": "awaiting input",
     "state_labels": { "blocked": "needs decision" },

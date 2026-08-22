@@ -143,13 +143,13 @@ class AgentCohortResolveTests(unittest.TestCase):
         if github_responses is not None:
             self.server, api_base = start_github_fixture(github_responses)
         else:
-            api_base = env.get("OMH_RESOLVE_GITHUB_API") if env else None
+            api_base = env.get("GARDN_RESOLVE_GITHUB_API") if env else None
 
         run_env = os.environ.copy()
         run_env["PATH"] = f"{self.bin_dir}{os.pathsep}{run_env.get('PATH', '')}"
-        run_env["OMH_RESOLVE_NPM"] = str(self.bin_dir / "npm")
+        run_env["GARDN_RESOLVE_NPM"] = str(self.bin_dir / "npm")
         if api_base:
-            run_env["OMH_RESOLVE_GITHUB_API"] = api_base
+            run_env["GARDN_RESOLVE_GITHUB_API"] = api_base
         run_env.setdefault("GH_TOKEN", "test-token")
         run_env.setdefault("SOURCE_REVISION", "deadbeef")
         run_env.setdefault("BUILD_RUN_ID", "123")
@@ -325,7 +325,7 @@ class AgentCohortWorkflowTests(unittest.TestCase):
 
     def test_dockerfile_requires_exact_versions_and_drops_kiro(self):
         self.assertIn("refusing floating or empty build arg", self.dockerfile)
-        self.assertIn("COPY cohort.json /usr/local/share/omh-agent-tests/cohort.json", self.dockerfile)
+        self.assertIn("COPY cohort.json /usr/local/share/gardn-agent-tests/cohort.json", self.dockerfile)
         self.assertNotIn("kiro", self.dockerfile.lower())
         self.assertNotIn("ARG CLAUDE_CODE_VERSION=latest", self.dockerfile)
         self.assertNotIn("ARG MAKI_VERSION=0.3.27", self.dockerfile)

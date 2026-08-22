@@ -1,25 +1,25 @@
 ---
 title: Send a Local API request
-description: Connect to an Oh My Herdr Unix socket and correlate one JSON response.
+description: Connect to an Gardn Unix socket and correlate one JSON response.
 ---
 
 # Send a Local API request
 
-This guide shows how to send a `ping` request from a local Unix script and read its JSON response. Use the `omh` CLI when it already exposes the operation you need; direct socket access is for integrations that need the JSON contract.
+This guide shows how to send a `ping` request from a local Unix script and read its JSON response. Use the `gardn` CLI when it already exposes the operation you need; direct socket access is for integrations that need the JSON contract.
 
 ## Prerequisites
 
-- A running persistent Oh My Herdr session on macOS or Linux.
+- A running persistent Gardn session on macOS or Linux.
 - Python 3.
 - The Local API socket path for that session.
 
 To target a named session, start it with `--session`:
 
 ```sh
-omh --session work
+gardn --session work
 ```
 
-Get the socket path from `omh status --json` and provide it to the script as `OMH_SOCKET_PATH`.
+Get the socket path from `gardn status --json` and provide it to the script as `GARDN_SOCKET_PATH`.
 
 ## Send `ping`
 
@@ -35,12 +35,12 @@ request = {
 }
 
 with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
-    client.connect(os.environ["OMH_SOCKET_PATH"])
+    client.connect(os.environ["GARDN_SOCKET_PATH"])
     client.sendall(json.dumps(request, separators=(",", ":")).encode() + b"\n")
 
     response_line = client.makefile("rb").readline()
     if not response_line:
-        raise RuntimeError("Oh My Herdr closed the Local API connection without a response")
+        raise RuntimeError("Gardn closed the Local API connection without a response")
 
 response = json.loads(response_line)
 if response.get("id") != request["id"]:
@@ -51,7 +51,7 @@ if "error" in response:
 print(response["result"])
 ```
 
-The result identifies the running Oh My Herdr version, the interactive client protocol version, and any advertised server capabilities.
+The result identifies the running Gardn version, the interactive client protocol version, and any advertised server capabilities.
 
 ## Keep the socket open for events
 

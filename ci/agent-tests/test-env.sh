@@ -6,20 +6,20 @@ if [[ -z "${OPENROUTER_API_KEY:-}" ]]; then
   exit 64
 fi
 
-test_model_lib="${OMH_AGENT_TEST_MODELS_LIB:-/usr/local/lib/omh-agent-test-models.sh}"
+test_model_lib="${GARDN_AGENT_TEST_MODELS_LIB:-/usr/local/lib/gardn-agent-test-models.sh}"
 if [[ ! -f "$test_model_lib" ]]; then
   echo "agent test environment needs $test_model_lib" >&2
   exit 1
 fi
 source "$test_model_lib"
 
-model="${OMH_TEST_MODEL:-$OMH_TEST_DEFAULT_MODEL}"
-fallback_models="${OMH_TEST_FALLBACK_MODELS:-$OMH_TEST_DEFAULT_FALLBACK_MODELS}"
-omh_test_unique_candidates "$model" "$fallback_models" >/dev/null
-export OMH_TEST_MODEL="$model"
-export OMH_TEST_FALLBACK_MODELS="$fallback_models"
+model="${GARDN_TEST_MODEL:-$GARDN_TEST_DEFAULT_MODEL}"
+fallback_models="${GARDN_TEST_FALLBACK_MODELS:-$GARDN_TEST_DEFAULT_FALLBACK_MODELS}"
+gardn_test_unique_candidates "$model" "$fallback_models" >/dev/null
+export GARDN_TEST_MODEL="$model"
+export GARDN_TEST_FALLBACK_MODELS="$fallback_models"
 export OPENROUTER_API_KEY
-omh_test_configure_model "$model"
+gardn_test_configure_model "$model"
 
 mkdir -p "$HOME/.qoder"
 cat > "$HOME/.qoder/settings.json" <<EOF_QODER

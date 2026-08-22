@@ -1,20 +1,20 @@
 #!/usr/bin/env bash
 set -euo pipefail
-source /usr/local/lib/omh-agent-test-models.sh
-primary_model="${OMH_TEST_CURSOR_MODEL:-${OMH_TEST_MODEL:-$OMH_TEST_DEFAULT_MODEL}}"
-if [[ -z "${OMH_TEST_ACTIVE_MODEL:-}" ]]; then
-  omh_test_unique_candidates "$primary_model" "${OMH_TEST_FALLBACK_MODELS:-}" \
-    | omh_test_available_candidates \
-    | omh_test_run_with_fallbacks "$0" "$@"
+source /usr/local/lib/gardn-agent-test-models.sh
+primary_model="${GARDN_TEST_CURSOR_MODEL:-${GARDN_TEST_MODEL:-$GARDN_TEST_DEFAULT_MODEL}}"
+if [[ -z "${GARDN_TEST_ACTIVE_MODEL:-}" ]]; then
+  gardn_test_unique_candidates "$primary_model" "${GARDN_TEST_FALLBACK_MODELS:-}" \
+    | gardn_test_available_candidates \
+    | gardn_test_run_with_fallbacks "$0" "$@"
   exit $?
 fi
 
-model="$OMH_TEST_ACTIVE_MODEL"
-omh_test_configure_model "$model"
-repo_dir="${OMH_REPO_DIR:-/repo}"
-workdir="${OMH_CURSOR_PROXY_STATUS_TEST_DIR:-$(mktemp -d)}"
-socket_path="$workdir/omh.sock"
-request_log="$workdir/omh-requests.jsonl"
+model="$GARDN_TEST_ACTIVE_MODEL"
+gardn_test_configure_model "$model"
+repo_dir="${GARDN_REPO_DIR:-/repo}"
+workdir="${GARDN_CURSOR_PROXY_STATUS_TEST_DIR:-$(mktemp -d)}"
+socket_path="$workdir/gardn.sock"
+request_log="$workdir/gardn-requests.jsonl"
 proxy_log="$workdir/cursor-proxy.log"
 
 
@@ -71,7 +71,7 @@ server_pid=$!
 proxy_pid=""
 trap '[[ -n "${proxy_pid:-}" ]] && kill "$proxy_pid" >/dev/null 2>&1 || true; kill "$server_pid" >/dev/null 2>&1 || true' EXIT
 for _ in $(seq 1 50); do [[ -S "$socket_path" ]] && break; sleep 0.1; done
-[[ -S "$socket_path" ]] || { echo "fake omh socket did not start" >&2; exit 1; }
+[[ -S "$socket_path" ]] || { echo "fake gardn socket did not start" >&2; exit 1; }
 
 openssl req -x509 -newkey rsa:2048 -nodes \
   -keyout "$workdir/cursor.key" \
@@ -79,33 +79,33 @@ openssl req -x509 -newkey rsa:2048 -nodes \
   -days 1 \
   -subj "/CN=api2.cursor.sh" \
   -addext "subjectAltName=DNS:api2.cursor.sh,DNS:api2geo.cursor.sh,DNS:api2direct.cursor.sh,DNS:agentn.api5.cursor.sh,DNS:agent.api5.cursor.sh" >/dev/null 2>&1
-cp "$workdir/cursor.crt" /usr/local/share/ca-certificates/omh-cursor-proxy.crt
+cp "$workdir/cursor.crt" /usr/local/share/ca-certificates/gardn-cursor-proxy.crt
 update-ca-certificates >/dev/null
 
-cp "$repo_dir/apps/omh/src/integration/assets/cursor/omh-agent-state.sh" "$HOME/.cursor/omh-agent-state.sh"
-chmod +x "$HOME/.cursor/omh-agent-state.sh"
+cp "$repo_dir/apps/gardn/src/integration/assets/cursor/gardn-agent-state.sh" "$HOME/.cursor/gardn-agent-state.sh"
+chmod +x "$HOME/.cursor/gardn-agent-state.sh"
 cat > "$HOME/.cursor/hooks.json" <<EOF_HOOKS
 {
   "version": 1,
   "hooks": {
-    "sessionStart": [{"command": "bash $HOME/.cursor/omh-agent-state.sh working", "timeout": 10}],
-    "beforeSubmitPrompt": [{"command": "bash $HOME/.cursor/omh-agent-state.sh working", "timeout": 10}],
-    "beforeShellExecution": [{"command": "bash $HOME/.cursor/omh-agent-state.sh working", "timeout": 10}],
-    "beforeMCPExecution": [{"command": "bash $HOME/.cursor/omh-agent-state.sh working", "timeout": 10}],
-    "stop": [{"command": "bash $HOME/.cursor/omh-agent-state.sh idle", "timeout": 10}],
-    "sessionEnd": [{"command": "bash $HOME/.cursor/omh-agent-state.sh release", "timeout": 10}]
+    "sessionStart": [{"command": "bash $HOME/.cursor/gardn-agent-state.sh working", "timeout": 10}],
+    "beforeSubmitPrompt": [{"command": "bash $HOME/.cursor/gardn-agent-state.sh working", "timeout": 10}],
+    "beforeShellExecution": [{"command": "bash $HOME/.cursor/gardn-agent-state.sh working", "timeout": 10}],
+    "beforeMCPExecution": [{"command": "bash $HOME/.cursor/gardn-agent-state.sh working", "timeout": 10}],
+    "stop": [{"command": "bash $HOME/.cursor/gardn-agent-state.sh idle", "timeout": 10}],
+    "sessionEnd": [{"command": "bash $HOME/.cursor/gardn-agent-state.sh release", "timeout": 10}]
   }
 }
 EOF_HOOKS
 
-static_reply="OMH_CURSOR_PROXY_OK"
-OMH_CURSOR_PROXY_CERT="$workdir/cursor.crt" \
-OMH_CURSOR_PROXY_KEY="$workdir/cursor.key" \
-OMH_CURSOR_PROXY_LOG="$proxy_log" \
+static_reply="GARDN_CURSOR_PROXY_OK"
+GARDN_CURSOR_PROXY_CERT="$workdir/cursor.crt" \
+GARDN_CURSOR_PROXY_KEY="$workdir/cursor.key" \
+GARDN_CURSOR_PROXY_LOG="$proxy_log" \
 OPENROUTER_API_KEY="$OPENROUTER_API_KEY" \
-OMH_TEST_CURSOR_MODEL="$model" \
-OMH_CURSOR_PROXY_STATIC_REPLY="$static_reply" \
-node /usr/local/bin/omh-agent-cursor-openrouter-proxy &
+GARDN_TEST_CURSOR_MODEL="$model" \
+GARDN_CURSOR_PROXY_STATIC_REPLY="$static_reply" \
+node /usr/local/bin/gardn-agent-cursor-openrouter-proxy &
 proxy_pid=$!
 for _ in $(seq 1 50); do
   grep -q 'cursor-proxy-listening' "$proxy_log" 2>/dev/null && break
@@ -113,18 +113,18 @@ for _ in $(seq 1 50); do
 done
 grep -q 'cursor-proxy-listening' "$proxy_log" || { echo "cursor proxy did not start" >&2; exit 1; }
 
-generic_prompt='Reply exactly OMH_CURSOR_PROXY_OK and nothing else.'
+generic_prompt='Reply exactly GARDN_CURSOR_PROXY_OK and nothing else.'
 
 (
   cd "$workdir"
-  OMH_ENV=1 \
-  OMH_SOCKET_PATH="$socket_path" \
-  OMH_PANE_ID="pane-cursor-proxy" \
+  GARDN_ENV=1 \
+  GARDN_SOCKET_PATH="$socket_path" \
+  GARDN_PANE_ID="pane-cursor-proxy" \
   NODE_EXTRA_CA_CERTS="$workdir/cursor.crt" \
   SSL_CERT_FILE="$workdir/cursor.crt" \
   REQUESTS_CA_BUNDLE="$workdir/cursor.crt" \
   CURSOR_API_KEY="$OPENROUTER_API_KEY" \
-  timeout "${OMH_CURSOR_PROXY_STATUS_TEST_TIMEOUT:-180}" cursor-agent \
+  timeout "${GARDN_CURSOR_PROXY_STATUS_TEST_TIMEOUT:-180}" cursor-agent \
     --print \
     --output-format text \
     --trust \
@@ -136,18 +136,18 @@ generic_prompt='Reply exactly OMH_CURSOR_PROXY_OK and nothing else.'
 before_interactive_completions="$(grep -c 'static-complete' "$proxy_log" 2>/dev/null || true)"
 (
   cd "$workdir"
-  OMH_ENV=1 \
-  OMH_SOCKET_PATH="$socket_path" \
-  OMH_PANE_ID="pane-cursor-proxy-interactive" \
+  GARDN_ENV=1 \
+  GARDN_SOCKET_PATH="$socket_path" \
+  GARDN_PANE_ID="pane-cursor-proxy-interactive" \
   NODE_EXTRA_CA_CERTS="$workdir/cursor.crt" \
   SSL_CERT_FILE="$workdir/cursor.crt" \
   REQUESTS_CA_BUNDLE="$workdir/cursor.crt" \
   CURSOR_API_KEY="$OPENROUTER_API_KEY" \
-  OMH_CURSOR_INTERACTIVE_ARGS="$(printf '%s\n' --api-key "$OPENROUTER_API_KEY" --model "$model" "$generic_prompt")" \
-  timeout "${OMH_CURSOR_INTERACTIVE_STATUS_TEST_TIMEOUT:-120}" python3 - "$workdir/cursor-interactive-output.txt" "$proxy_log" "$before_interactive_completions" <<'PY' || true
+  GARDN_CURSOR_INTERACTIVE_ARGS="$(printf '%s\n' --api-key "$OPENROUTER_API_KEY" --model "$model" "$generic_prompt")" \
+  timeout "${GARDN_CURSOR_INTERACTIVE_STATUS_TEST_TIMEOUT:-120}" python3 - "$workdir/cursor-interactive-output.txt" "$proxy_log" "$before_interactive_completions" <<'PY' || true
 import os, select, signal, subprocess, sys, time
 out_path, proxy_log, before_count = sys.argv[1], sys.argv[2], int(sys.argv[3])
-args = ["cursor-agent", *os.environ["OMH_CURSOR_INTERACTIVE_ARGS"].splitlines()]
+args = ["cursor-agent", *os.environ["GARDN_CURSOR_INTERACTIVE_ARGS"].splitlines()]
 proc = subprocess.Popen(args, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=False, preexec_fn=os.setsid)
 deadline = time.time() + 90
 buf = bytearray()
@@ -195,7 +195,7 @@ from pathlib import Path
 output = Path(sys.argv[1]).read_text(errors='replace')
 proxy = Path(sys.argv[2]).read_text(errors='replace')
 requests = [json.loads(line) for line in Path(sys.argv[3]).read_text(errors='replace').splitlines() if line.strip()]
-if 'OMH_CURSOR_PROXY_OK' not in output:
+if 'GARDN_CURSOR_PROXY_OK' not in output:
     print(f'cursor proxy test did not return expected marker: {output[-1000:]}', file=sys.stderr)
     raise SystemExit(1)
 for needle in ['unary', 'agent-stream', 'static-complete']:
@@ -204,5 +204,5 @@ for needle in ['unary', 'agent-stream', 'static-complete']:
 states = [req.get('params', {}).get('state') for req in requests if req.get('method') == 'pane.report_agent']
 if 'working' not in states or not any(req.get('method') == 'pane.release_agent' for req in requests):
     raise SystemExit(f'cursor hook test did not observe working+release from real CLI hooks: {requests}')
-print('cursor proxy status test ok: real Cursor CLI completed through deterministic local proxy and emitted Oh My Herdr status hooks')
+print('cursor proxy status test ok: real Cursor CLI completed through deterministic local proxy and emitted Gardn status hooks')
 PY

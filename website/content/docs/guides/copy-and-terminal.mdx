@@ -5,7 +5,7 @@ description: Select terminal text, use copy mode, and pass mouse input to pane a
 
 # Copy and terminal interaction
 
-Use this how-to to move text between an Oh My Herdr pane and the host clipboard without losing the pane application's mouse controls. For platform-specific clipboard requirements, see [platforms](/docs/reference/platforms).
+Use this how-to to move text between an Gardn pane and the host clipboard without losing the pane application's mouse controls. For platform-specific clipboard requirements, see [platforms](/docs/reference/platforms).
 
 ## Select and copy with the mouse
 
@@ -36,14 +36,14 @@ These copy-mode keys are mode-local and are not terminal application input. The 
 
 ## Give mouse input to a pane application
 
-Oh My Herdr captures mouse input for its own UI by default (`ui.mouse_capture = true`). A pane application that requests terminal mouse reporting can still receive supported mouse events. Set the option below to `false` when you want the outer terminal to handle normal clicks, such as command-clicking URLs; pane applications that request mouse reporting can still receive mouse input.
+Gardn captures mouse input for its own UI by default (`ui.mouse_capture = true`). A pane application that requests terminal mouse reporting can still receive supported mouse events. Set the option below to `false` when you want the outer terminal to handle normal clicks, such as command-clicking URLs; pane applications that request mouse reporting can still receive mouse input.
 
 ```toml
 [ui]
 mouse_capture = false
 ```
 
-When the pane application has mouse reporting enabled, click, drag, motion, and wheel events that are not consumed by Oh My Herdr are encoded and forwarded to that pane. A right-click normally opens the Oh My Herdr pane menu. To pass right-click press, drag, and release gestures to the pane application instead, configure a modifier (for example `ctrl`):
+When the pane application has mouse reporting enabled, click, drag, motion, and wheel events that are not consumed by Gardn are encoded and forwarded to that pane. A right-click normally opens the Gardn pane menu. To pass right-click press, drag, and release gestures to the pane application instead, configure a modifier (for example `ctrl`):
 
 ```toml
 [ui]
@@ -54,6 +54,6 @@ The modifier is held while making the right-click gesture. `shift` is intentiona
 
 ## Edit scrollback in an editor
 
-Choose **edit scrollback** from the command palette, or use the default `ctrl+b`, then `e`. Oh My Herdr writes the focused pane's scrollback to a temporary file, opens it with the platform editor command, and removes the temporary file when the editor exits. On Unix-like platforms it uses `$VISUAL`, then `$EDITOR`, then `vi`; on Windows it uses `$VISUAL`, then `$EDITOR`, then Notepad. If the editor command cannot be started, the pane remains available and the application reports the error.
+Choose **edit scrollback** from the command palette, or use the default `ctrl+b`, then `e`. Gardn writes the focused pane's scrollback to a temporary file, opens it with the platform editor command, and removes the temporary file when the editor exits. On Unix-like platforms it uses `$VISUAL`, then `$EDITOR`, then `vi`; on Windows it uses `$VISUAL`, then `$EDITOR`, then Notepad. If the editor command cannot be started, the pane remains available and the application reports the error.
 
 Scrollback editing is a snapshot for editing or copying; it does not send edited text back into the running pane process.

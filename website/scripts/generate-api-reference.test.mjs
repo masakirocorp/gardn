@@ -126,7 +126,7 @@ function validSchema() {
  */
 async function fakeBinary(directory, schema) {
   const schemaPath = path.join(directory, "binary-schema.json");
-  const binaryPath = path.join(directory, "omh-fixture");
+  const binaryPath = path.join(directory, "gardn-fixture");
   await writeFile(schemaPath, `${JSON.stringify(schema)}\n`);
   await writeFile(binaryPath, `#!/bin/sh\ncat ${JSON.stringify(schemaPath)}\n`);
   await chmod(binaryPath, 0o755);
@@ -145,7 +145,7 @@ function run(args, env = {}) {
 }
 
 test("binary-driven generation writes deterministic versioned reference", async (t) => {
-  const root = await mkdtemp(path.join(os.tmpdir(), "omh-api-reference-"));
+  const root = await mkdtemp(path.join(os.tmpdir(), "gardn-api-reference-"));
   t.after(() =>
     import("node:fs/promises").then(({ rm }) => rm(root, { recursive: true, force: true })),
   );
@@ -153,7 +153,7 @@ test("binary-driven generation writes deterministic versioned reference", async 
 
   const generated = run(["--binary", binary, "--root", root]);
   assert.equal(generated.status, 0, generated.stderr);
-  assert.match(generated.stdout, /generated Local API reference for Oh My Herdr 1\.2\.3/);
+  assert.match(generated.stdout, /generated Local API reference for Gardn 1\.2\.3/);
 
   const immutableSchema = await readFile(
     path.join(root, "public", "api", "1.2.3", "schema.json"),
@@ -194,7 +194,7 @@ test("binary-driven generation writes deterministic versioned reference", async 
 });
 
 test("generation refuses to replace an existing product version", async (t) => {
-  const root = await mkdtemp(path.join(os.tmpdir(), "omh-api-reference-immutable-"));
+  const root = await mkdtemp(path.join(os.tmpdir(), "gardn-api-reference-immutable-"));
   t.after(() =>
     import("node:fs/promises").then(({ rm }) => rm(root, { recursive: true, force: true })),
   );
@@ -208,11 +208,11 @@ test("generation refuses to replace an existing product version", async (t) => {
   const changed = run(["--binary", changedBinary, "--root", root]);
 
   assert.equal(changed.status, 1);
-  assert.match(changed.stderr, /bump the Oh My Herdr product version/);
+  assert.match(changed.stderr, /bump the Gardn product version/);
 });
 
 test("generation rejects request schemas that omit correlation ids", async (t) => {
-  const root = await mkdtemp(path.join(os.tmpdir(), "omh-api-reference-invalid-"));
+  const root = await mkdtemp(path.join(os.tmpdir(), "gardn-api-reference-invalid-"));
   t.after(() =>
     import("node:fs/promises").then(({ rm }) => rm(root, { recursive: true, force: true })),
   );
@@ -227,7 +227,7 @@ test("generation rejects request schemas that omit correlation ids", async (t) =
 });
 
 test("latest alias requires the release deployment gate", async (t) => {
-  const root = await mkdtemp(path.join(os.tmpdir(), "omh-api-reference-latest-"));
+  const root = await mkdtemp(path.join(os.tmpdir(), "gardn-api-reference-latest-"));
   t.after(() =>
     import("node:fs/promises").then(({ rm }) => rm(root, { recursive: true, force: true })),
   );
@@ -235,10 +235,10 @@ test("latest alias requires the release deployment gate", async (t) => {
 
   const rejected = run(["--binary", binary, "--root", root, "--publish-latest"]);
   assert.equal(rejected.status, 1);
-  assert.match(rejected.stderr, /requires OMH_API_RELEASE=1/);
+  assert.match(rejected.stderr, /requires GARDN_API_RELEASE=1/);
 
   const released = run(["--binary", binary, "--root", root, "--publish-latest"], {
-    OMH_API_RELEASE: "1",
+    GARDN_API_RELEASE: "1",
     GITHUB_REF_NAME: "v1.2.3",
   });
   assert.equal(released.status, 0, released.stderr);

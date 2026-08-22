@@ -1,26 +1,26 @@
 #!/usr/bin/env bash
 set -euo pipefail
-source /usr/local/lib/omh-agent-test-models.sh
-primary_model="${OMH_TEST_MODEL:-$OMH_TEST_DEFAULT_MODEL}"
-if [[ -z "${OMH_TEST_ACTIVE_MODEL:-}" ]]; then
-  omh_test_unique_candidates "$primary_model" "${OMH_TEST_FALLBACK_MODELS:-}" \
-    | omh_test_available_candidates \
-    | omh_test_non_openai_candidates \
-    | omh_test_run_with_fallbacks "$0" "$@"
+source /usr/local/lib/gardn-agent-test-models.sh
+primary_model="${GARDN_TEST_MODEL:-$GARDN_TEST_DEFAULT_MODEL}"
+if [[ -z "${GARDN_TEST_ACTIVE_MODEL:-}" ]]; then
+  gardn_test_unique_candidates "$primary_model" "${GARDN_TEST_FALLBACK_MODELS:-}" \
+    | gardn_test_available_candidates \
+    | gardn_test_non_openai_candidates \
+    | gardn_test_run_with_fallbacks "$0" "$@"
   exit $?
 fi
 
-model="$OMH_TEST_ACTIVE_MODEL"
-omh_test_configure_model "$model"
-repo_dir="${OMH_REPO_DIR:-/repo}"
-hook_path="$repo_dir/apps/omh/src/integration/assets/codex/omh-agent-state.sh"
-workdir="${OMH_CODEX_STATUS_TEST_DIR:-$(mktemp -d)}"
-socket_path="$workdir/omh.sock"
-request_log="$workdir/omh-requests.jsonl"
+model="$GARDN_TEST_ACTIVE_MODEL"
+gardn_test_configure_model "$model"
+repo_dir="${GARDN_REPO_DIR:-/repo}"
+hook_path="$repo_dir/apps/gardn/src/integration/assets/codex/gardn-agent-state.sh"
+workdir="${GARDN_CODEX_STATUS_TEST_DIR:-$(mktemp -d)}"
+socket_path="$workdir/gardn.sock"
+request_log="$workdir/gardn-requests.jsonl"
 
 
 if [[ ! -f "$hook_path" ]]; then
-  echo "codex status test needs omh repo mounted at $repo_dir" >&2
+  echo "codex status test needs gardn repo mounted at $repo_dir" >&2
   exit 1
 fi
 if [[ -z "${OPENROUTER_API_KEY:-}" ]]; then
@@ -91,7 +91,7 @@ for _ in $(seq 1 50); do
   sleep 0.1
 done
 if [[ ! -S "$socket_path" ]]; then
-  echo "fake omh socket did not start" >&2
+  echo "fake gardn socket did not start" >&2
   exit 1
 fi
 
@@ -100,7 +100,7 @@ fi
 # documents hooks for config layers, but openai/codex#26452 and #26383 track
 # that `codex exec` does not dispatch valid hooks.json/config.toml hooks. Until
 # that is fixed upstream, this test can only prove real Codex OpenRouter
-# transport plus Oh My Herdr's hook-script behavior through direct invocation.
+# transport plus Gardn's hook-script behavior through direct invocation.
 
 run_codex_cli() {
   local dir="$workdir/real-cli"
@@ -125,15 +125,15 @@ EOF_CONFIG
     cd "$dir/run"
     set +e
     CODEX_HOME="$dir/codex" \
-    timeout "${OMH_CODEX_STATUS_TEST_TIMEOUT:-180}" codex exec \
+    timeout "${GARDN_CODEX_STATUS_TEST_TIMEOUT:-180}" codex exec \
       --cd "$dir/run" \
       --model "$model" \
-      'Reply exactly OMH_CODEX_STATUS_OK.' >"$dir/output.txt" 2>&1
+      'Reply exactly GARDN_CODEX_STATUS_OK.' >"$dir/output.txt" 2>&1
     local status=$?
     set -e
     if [[ "$status" -ne 0 ]]; then
       cat "$dir/output.txt" >&2
-      if omh_test_retryable_status_or_output "$status" "$dir/output.txt"; then
+      if gardn_test_retryable_status_or_output "$status" "$dir/output.txt"; then
         echo "retryable Codex/OpenRouter provider failure with $model" >&2
         exit 75
       fi
@@ -144,7 +144,7 @@ EOF_CONFIG
 import sys
 from pathlib import Path
 output = Path(sys.argv[1]).read_text(errors="replace")
-if "OMH_CODEX_STATUS_OK" not in output:
+if "GARDN_CODEX_STATUS_OK" not in output:
     raise SystemExit("codex real cli did not produce expected marker")
 if "api.openai.com" in output or '"provider":"openai"' in output:
     raise SystemExit("codex test used OpenAI routing")
@@ -157,9 +157,9 @@ send_hook() {
   local pane_id="$1"
   local action="$2"
   local payload="$3"
-  OMH_ENV=1 \
-  OMH_SOCKET_PATH="$socket_path" \
-  OMH_PANE_ID="$pane_id" \
+  GARDN_ENV=1 \
+  GARDN_SOCKET_PATH="$socket_path" \
+  GARDN_PANE_ID="$pane_id" \
   CODEX_HOME="$workdir/codex-profile" \
   bash "$hook_path" "$action" <<<"$payload"
 }
@@ -214,7 +214,7 @@ def assert_common(pane_id):
     for req in pane_reports:
         params = req.get("params", {})
         assert params.get("pane_id") == pane_id, req
-        assert params.get("source") == "omh:codex", req
+        assert params.get("source") == "gardn:codex", req
         assert params.get("agent") == "codex", req
         assert isinstance(params.get("seq"), int), req
         launch_env = params.get("launch_env", {})

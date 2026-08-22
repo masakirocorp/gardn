@@ -16,13 +16,13 @@ export function createPaper() {
       }),
     ],
     packages: {
-      omh: {
+      gardn: {
         publish: false,
       },
-      "omh-docs": {
+      "gardn-docs": {
         publish: false,
       },
-      "omh-nix": {
+      "gardn-nix": {
         publish: false,
       },
     },

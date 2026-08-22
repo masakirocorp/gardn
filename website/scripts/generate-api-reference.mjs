@@ -23,7 +23,7 @@ function fail(message) {
 function parseArgs(argv) {
   /** @type {{ binary?: string, schema?: string, root: string, publishLatest: boolean, check: boolean }} */
   const options = {
-    binary: process.env.OMH_API_BINARY,
+    binary: process.env.GARDN_API_BINARY,
     schema: undefined,
     root: websiteRoot,
     publishLatest: false,
@@ -218,7 +218,7 @@ function frontmatter(title, description) {
 /** @param {SchemaNode} schema */
 function renderOverview(schema) {
   const version = schema.product_version;
-  return `${frontmatter("Generated Local API reference", `Generated Local API shapes for Oh My Herdr ${version}.`)}# Generated Local API reference\n\nThis reference was generated from the Oh My Herdr ${version} binary. It describes JSON shapes, not an HTTP or OpenAPI interface.\n\n| Metadata | Value |\n| --- | --- |\n| Product version | \`${version}\` |\n| Client wire compatibility protocol | \`${schema.protocol}\` |\n| Local API schema version | \`${schema.schema_version}\` |\n\n[Download the immutable JSON Schema for ${version}](/api/${version}/schema.json).\n\nUse the authored [Local API overview](/docs/api) for transport, lifecycle, trust, compatibility, and error semantics.\n`;
+  return `${frontmatter("Generated Local API reference", `Generated Local API shapes for Gardn ${version}.`)}# Generated Local API reference\n\nThis reference was generated from the Gardn ${version} binary. It describes JSON shapes, not an HTTP or OpenAPI interface.\n\n| Metadata | Value |\n| --- | --- |\n| Product version | \`${version}\` |\n| Client wire compatibility protocol | \`${schema.protocol}\` |\n| Local API schema version | \`${schema.schema_version}\` |\n\n[Download the immutable JSON Schema for ${version}](/api/${version}/schema.json).\n\nUse the authored [Local API overview](/docs/api) for transport, lifecycle, trust, compatibility, and error semantics.\n`;
 }
 
 /** @param {SchemaNode} schema */
@@ -417,7 +417,7 @@ async function assertVersionIsImmutable(filename, content) {
   }
   if (current !== content) {
     fail(
-      `${filename} already contains a different schema; bump the Oh My Herdr product version instead of replacing a versioned contract`,
+      `${filename} already contains a different schema; bump the Gardn product version instead of replacing a versioned contract`,
     );
   }
 }
@@ -453,8 +453,8 @@ async function main() {
     : await readSchemaFile(path.resolve(options.schema));
   validateSchema(schema);
   if (options.publishLatest) {
-    if (process.env.OMH_API_RELEASE !== "1") {
-      fail("--publish-latest requires OMH_API_RELEASE=1 from the release deployment");
+    if (process.env.GARDN_API_RELEASE !== "1") {
+      fail("--publish-latest requires GARDN_API_RELEASE=1 from the release deployment");
     }
     const releaseRef = process.env.GITHUB_REF_NAME;
     if (releaseRef && releaseRef !== `v${schema.product_version}`) {
@@ -487,7 +487,7 @@ async function main() {
   }
 
   console.log(
-    `${options.check ? "checked" : "generated"} Local API reference for Oh My Herdr ${schema.product_version}`,
+    `${options.check ? "checked" : "generated"} Local API reference for Gardn ${schema.product_version}`,
   );
 }
 
