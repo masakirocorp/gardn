@@ -4129,8 +4129,8 @@ impl HeadlessServer {
                 .app
                 .state
                 .spinner_tick
-                .wrapping_add(app::HEADLESS_ANIMATION_TICK_STEP);
-            self.app.next_animation_tick = Some(now + app::HEADLESS_ANIMATION_INTERVAL);
+                .wrapping_add(app::ANIMATION_TICK_STEP);
+            self.app.next_animation_tick = Some(now + app::ANIMATION_INTERVAL);
             changed = true;
         }
 
@@ -4207,15 +4207,17 @@ impl HeadlessServer {
     }
 
     fn sync_animation_timer(&mut self, now: Instant) {
-        let client_view_has_animation = self.clients.values().any(|client| {
-            client
-                .view_state
-                .as_ref()
-                .and_then(|view| view.settings.connection_editor.as_ref())
-                .is_some_and(crate::app::state::ConnectionEditorState::retirement_in_progress)
-        });
+        let has_app_client = self.has_app_client();
+        let client_view_has_animation = has_app_client
+            && self.clients.values().any(|client| {
+                client
+                    .view_state
+                    .as_ref()
+                    .and_then(|view| view.settings.connection_editor.as_ref())
+                    .is_some_and(crate::app::state::ConnectionEditorState::retirement_in_progress)
+            });
         self.app
-            .sync_headless_animation_timer(now, client_view_has_animation);
+            .sync_headless_animation_timer(now, has_app_client, client_view_has_animation);
     }
 
     /// Initiates graceful shutdown.
@@ -5239,7 +5241,7 @@ mod tests {
         server.sync_animation_timer(now);
         assert_eq!(
             server.app.next_animation_tick,
-            Some(now + app::HEADLESS_ANIMATION_INTERVAL)
+            Some(now + app::ANIMATION_INTERVAL)
         );
     }
 

@@ -719,13 +719,10 @@ fn render_tab_control_chip_segment(
     frame.render_widget(Paragraph::new(Line::from(spans)), segment.rect);
 }
 
-// Braille spinner frames — smooth rotation
 const SPINNERS: &[&str] = &["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
-/// Map spinner_tick (incremented every frame at ~60fps) to a spinner frame.
-/// We want ~8 updates/sec so divide by 8.
 pub(super) fn spinner_frame(tick: u32) -> &'static str {
-    SPINNERS[(tick as usize / 8) % SPINNERS.len()]
+    SPINNERS[(tick as usize / crate::app::ANIMATION_TICK_STEP as usize) % SPINNERS.len()]
 }
 
 /// Compute view geometry and reconcile pane sizes.

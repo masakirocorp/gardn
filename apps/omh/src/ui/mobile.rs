@@ -6,7 +6,9 @@ use ratatui::{
     Frame,
 };
 
-use super::status::{agent_section_icon, agent_section_style, state_icon, toast_kind_color};
+use super::status::{
+    agent_section_icon, agent_section_style, state_icon, toast_kind_color, AgentStatusGroup,
+};
 use super::text::{display_width_u16, truncate_end};
 use super::widgets::{fill_rect, panel_contrast_fg, render_panel_shell};
 use crate::app::state::{
@@ -60,7 +62,7 @@ pub(crate) enum MobileSwitcherTarget {
 #[derive(Debug, PartialEq, Eq)]
 enum MobileNavigationRow {
     AgentSection {
-        label: &'static str,
+        group: AgentStatusGroup,
         count: usize,
     },
     Agent {
@@ -111,7 +113,7 @@ fn mobile_navigation_rows(
                 continue;
             }
             rows.push(MobileNavigationRow::AgentSection {
-                label: section.label,
+                group: section.group,
                 count: section.entries.len(),
             });
             for entry in section.entries {
@@ -392,13 +394,13 @@ fn mobile_navigation_row_width(app: &AppState, row: &MobileNavigationRow) -> u16
                 .saturating_add(display_width_u16(&meta))
                 .saturating_add(3 + u16::from(!meta.is_empty()))
         }
-        MobileNavigationRow::AgentSection { label, count } => {
+        MobileNavigationRow::AgentSection { group, count } => {
             let counter_width = if app.show_counters {
                 count.to_string().chars().count() as u16 + 2
             } else {
                 0
             };
-            display_width_u16(label)
+            display_width_u16(group.label())
                 .saturating_add(counter_width)
                 .saturating_add(5)
         }
@@ -737,10 +739,10 @@ fn render_mobile_agent_strip(
             )
         },
     );
-    let count = |label: &str| {
+    let count = |group: AgentStatusGroup| {
         sections
             .iter()
-            .find(|section| section.label == label)
+            .find(|section| section.group == group)
             .map_or(0, |section| section.entries.len())
     };
     let expanded = view.map_or(app.mobile_agents_expanded, |view| {
@@ -769,7 +771,11 @@ fn render_mobile_agent_strip(
         summary_area,
         0,
         0,
-        (count("Triage"), count("Working"), count("Idle")),
+        (
+            count(AgentStatusGroup::Triage),
+            count(AgentStatusGroup::Working),
+            count(AgentStatusGroup::Idle),
+        ),
         expanded,
         false,
     );
@@ -1001,9 +1007,9 @@ fn render_mobile_navigation_rows(
                     Rect::new(content.x, y, content.width, 1),
                 );
             }
-            MobileNavigationRow::AgentSection { label, count } => {
+            MobileNavigationRow::AgentSection { group, count } => {
                 render_mobile_agent_section(
-                    app, frame, viewport, content, doc_y, scroll, label, *count,
+                    app, frame, viewport, content, doc_y, scroll, *group, *count,
                 );
             }
             MobileNavigationRow::Agent { label, meta, .. } => {
@@ -1121,15 +1127,17 @@ fn render_mobile_agent_summary(
                 }),
         ));
     } else {
-        for (label, count) in [
-            ("Triage", counts.0),
-            ("Working", counts.1),
-            ("Idle", counts.2),
+        for (group, count) in [
+            (AgentStatusGroup::Triage, counts.0),
+            (AgentStatusGroup::Working, counts.1),
+            (AgentStatusGroup::Idle, counts.2),
         ] {
             if count == 0 {
                 continue;
             }
-            let (icon, icon_style) = agent_section_icon(label, p);
+            let label = group.label();
+            let (icon, icon_style) =
+                agent_section_icon(group, app.spinner_tick, app.status_indicators, p);
             spans.push(Span::styled(" ", Style::default().bg(bg)));
             let selected_style = Style::default()
                 .fg(selected_fg)
@@ -1148,7 +1156,7 @@ fn render_mobile_agent_summary(
                 if selected {
                     selected_style
                 } else {
-                    agent_section_style(label, p).bg(bg)
+                    agent_section_style(group, p).bg(bg)
                 },
             ));
         }
@@ -1166,7 +1174,7 @@ fn render_mobile_agent_section(
     content: Rect,
     doc_y: usize,
     scroll: usize,
-    label: &str,
+    group: AgentStatusGroup,
     count: usize,
 ) {
     let Some(y) = visible_y(viewport, scroll, doc_y) else {
@@ -1179,7 +1187,8 @@ fn render_mobile_agent_section(
         Rect::new(content.x, y, content.width.min(1), 1),
     );
     if content.width > 2 {
-        let (icon, icon_style) = agent_section_icon(label, p);
+        let (icon, icon_style) =
+            agent_section_icon(group, app.spinner_tick, app.status_indicators, p);
         frame.render_widget(
             Paragraph::new(Span::styled(icon, icon_style.bg(p.panel_bg))),
             Rect::new(content.x + 2, y, 1, 1),
@@ -1197,8 +1206,8 @@ fn render_mobile_agent_section(
     if label_width > 0 {
         frame.render_widget(
             Paragraph::new(Span::styled(
-                truncate_end(label, label_width as usize),
-                agent_section_style(label, p).bg(p.panel_bg),
+                truncate_end(group.label(), label_width as usize),
+                agent_section_style(group, p).bg(p.panel_bg),
             )),
             Rect::new(content.x + 4, y, label_width, 1),
         );
@@ -1786,7 +1795,7 @@ mod tests {
             .expect("working label");
         assert_eq!(
             buffer[(working_x, 0)].style().fg,
-            agent_section_style("Working", &app.palette).fg
+            agent_section_style(AgentStatusGroup::Working, &app.palette).fg
         );
         assert!(buffer[(working_x, 0)]
             .style()
@@ -1848,7 +1857,12 @@ mod tests {
 
         let buffer = terminal.backend().buffer();
         let text = buffer_text(buffer);
-        for (label, count) in [("Triage", 2), ("Working", 1), ("Idle", 3)] {
+        for (group, count) in [
+            (AgentStatusGroup::Triage, 2),
+            (AgentStatusGroup::Working, 1),
+            (AgentStatusGroup::Idle, 3),
+        ] {
+            let label = group.label();
             assert!(
                 text.contains(&format!("{count} {label}")),
                 "summary: {text:?}"
@@ -1861,11 +1875,11 @@ mod tests {
                 })
                 .unwrap_or_else(|| panic!("{label} label"));
             let style = buffer[(label_x, 0)].style();
-            assert_eq!(style.fg, agent_section_style(label, &app.palette).fg);
+            assert_eq!(style.fg, agent_section_style(group, &app.palette).fg);
             assert!(style.add_modifier.contains(Modifier::BOLD));
         }
-        assert!(text.contains("! 2 Triage"), "summary: {text:?}");
-        assert!(text.contains("✓ 3 Idle"), "summary: {text:?}");
+        assert!(text.contains("● 2 Triage"), "summary: {text:?}");
+        assert!(text.contains("○ 3 Idle"), "summary: {text:?}");
     }
 
     #[test]
@@ -1876,13 +1890,35 @@ mod tests {
             ratatui::Terminal::new(ratatui::backend::TestBackend::new(20, 1)).unwrap();
 
         terminal
-            .draw(|frame| render_mobile_agent_section(&app, frame, area, area, 0, 0, "Working", 3))
+            .draw(|frame| {
+                render_mobile_agent_section(
+                    &app,
+                    frame,
+                    area,
+                    area,
+                    0,
+                    0,
+                    AgentStatusGroup::Working,
+                    3,
+                )
+            })
             .unwrap();
         assert_eq!(terminal.backend().buffer()[(18, 0)].symbol(), " ");
 
         app.show_counters = true;
         terminal
-            .draw(|frame| render_mobile_agent_section(&app, frame, area, area, 0, 0, "Working", 3))
+            .draw(|frame| {
+                render_mobile_agent_section(
+                    &app,
+                    frame,
+                    area,
+                    area,
+                    0,
+                    0,
+                    AgentStatusGroup::Working,
+                    3,
+                )
+            })
             .unwrap();
         assert_eq!(terminal.backend().buffer()[(18, 0)].symbol(), "3");
     }
@@ -2034,7 +2070,7 @@ mod tests {
         }));
         app.agent_panel_scope = AgentPanelScope::CurrentWorkspace;
         let (agent_label, agent_meta) = match rows.as_slice() {
-            [MobileNavigationRow::AgentSection { label, count }, MobileNavigationRow::Agent {
+            [MobileNavigationRow::AgentSection { group, count }, MobileNavigationRow::Agent {
                 label: agent_label,
                 meta,
                 target:
@@ -2044,7 +2080,7 @@ mod tests {
                         pane_id,
                     },
             }] => {
-                assert_eq!(*label, "Working");
+                assert_eq!(*group, AgentStatusGroup::Working);
                 assert_eq!(*count, 1);
                 assert_eq!(*pane_id, focused_pane);
                 (agent_label.clone(), meta.clone())
@@ -2105,7 +2141,12 @@ mod tests {
         let content = inset_for_left_scrollbar(areas.viewport);
         let section_y = areas.viewport.y;
         let agent_y = section_y + 1;
-        let (section_icon, section_icon_style) = agent_section_icon("Working", &app.palette);
+        let (section_icon, section_icon_style) = agent_section_icon(
+            AgentStatusGroup::Working,
+            app.spinner_tick,
+            app.status_indicators,
+            &app.palette,
+        );
         assert_eq!(buffer[(content.x, section_y)].symbol(), "▾");
         assert_eq!(buffer[(content.x + 2, section_y)].symbol(), section_icon);
         assert_eq!(
@@ -2115,7 +2156,7 @@ mod tests {
         assert_eq!(buffer[(content.x + 4, section_y)].symbol(), "W");
         assert_eq!(
             buffer[(content.x + 4, section_y)].style().fg,
-            agent_section_style("Working", &app.palette).fg
+            agent_section_style(AgentStatusGroup::Working, &app.palette).fg
         );
 
         assert_eq!(buffer[(content.x + 2, agent_y)].symbol(), " ");

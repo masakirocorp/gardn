@@ -3,9 +3,10 @@ use std::time::{Duration, Instant};
 use crossterm::terminal;
 
 use super::{
-    background_update_check_enabled, App, ANIMATION_INTERVAL, AUTO_UPDATE_CHECK_INTERVAL,
-    COMMAND_SCAN_INTERVAL, GIT_REMOTE_STATUS_REFRESH_INTERVAL, MIN_RENDER_INTERVAL,
-    PORT_SCAN_INTERVAL, PORT_STALE_TTL, RESIZE_POLL_INTERVAL, SELECTION_AUTOSCROLL_INTERVAL,
+    background_update_check_enabled, App, ANIMATION_INTERVAL, ANIMATION_TICK_STEP,
+    AUTO_UPDATE_CHECK_INTERVAL, COMMAND_SCAN_INTERVAL, GIT_REMOTE_STATUS_REFRESH_INTERVAL,
+    MIN_RENDER_INTERVAL, PORT_SCAN_INTERVAL, PORT_STALE_TTL, RESIZE_POLL_INTERVAL,
+    SELECTION_AUTOSCROLL_INTERVAL,
 };
 use crate::events::AppEvent;
 use crate::workspace::{GitStatusCacheEntry, Workspace, WorkspaceGitStatus};
@@ -533,7 +534,7 @@ impl App {
             .next_animation_tick
             .is_some_and(|deadline| now >= deadline)
         {
-            self.state.spinner_tick = self.state.spinner_tick.wrapping_add(1);
+            self.state.spinner_tick = self.state.spinner_tick.wrapping_add(ANIMATION_TICK_STEP);
             self.next_animation_tick = Some(now + ANIMATION_INTERVAL);
             changed = true;
         }
@@ -622,40 +623,43 @@ impl App {
     }
 
     pub(crate) fn sync_animation_timer(&mut self, now: Instant) {
-        self.sync_animation_timer_with_interval(now, ANIMATION_INTERVAL, false);
+        self.sync_animation_timer_with_client_animation(now, false);
     }
 
     pub(crate) fn sync_headless_animation_timer(
         &mut self,
         now: Instant,
+        has_app_client: bool,
         client_view_has_animation: bool,
     ) {
-        self.sync_animation_timer_with_interval(
-            now,
-            crate::app::HEADLESS_ANIMATION_INTERVAL,
-            client_view_has_animation,
-        );
+        if !has_app_client {
+            self.next_animation_tick = None;
+            return;
+        }
+        self.sync_animation_timer_with_client_animation(now, client_view_has_animation);
     }
 
-    fn sync_animation_timer_with_interval(
+    fn sync_animation_timer_with_client_animation(
         &mut self,
         now: Instant,
-        interval: Duration,
         client_view_has_animation: bool,
     ) {
         if client_view_has_animation || self.has_local_animation() {
-            self.next_animation_tick.get_or_insert(now + interval);
+            self.next_animation_tick
+                .get_or_insert(now + ANIMATION_INTERVAL);
         } else {
             self.next_animation_tick = None;
         }
     }
 
     fn has_local_animation(&self) -> bool {
-        self.state
-            .settings
-            .connection_editor
-            .as_ref()
-            .is_some_and(crate::app::state::ConnectionEditorState::retirement_in_progress)
+        self.state.status_indicator_animation_active()
+            || self
+                .state
+                .settings
+                .connection_editor
+                .as_ref()
+                .is_some_and(crate::app::state::ConnectionEditorState::retirement_in_progress)
             || self
                 .default_client_view
                 .settings
@@ -1176,6 +1180,33 @@ mod tests {
         app.state.status_indicators = crate::config::StatusIndicatorStyle::Dots;
         app.sync_animation_timer(now);
         assert_eq!(app.next_animation_tick, None);
+    }
+
+    #[test]
+    fn animation_clock_advances_one_braille_frame_every_128_milliseconds() {
+        let (mut app, pane_id) = test_app_with_pane();
+        app.state.ensure_test_terminals();
+        let terminal_id = app.state.workspaces[0].tabs[0].panes[&pane_id]
+            .attached_terminal_id
+            .clone();
+        let terminal = app
+            .state
+            .terminals
+            .get_mut(&terminal_id)
+            .expect("pane terminal");
+        terminal.detected_agent = Some(crate::detect::Agent::Codex);
+        terminal.state = crate::detect::AgentState::Working;
+        app.state.status_indicators = crate::config::StatusIndicatorStyle::Symbols;
+        app.state.spinner_tick = 0;
+        let now = Instant::now();
+        app.next_animation_tick = Some(now);
+
+        assert!(app.handle_scheduled_tasks(now, false));
+        assert_eq!(app.state.spinner_tick, 8);
+        assert_eq!(
+            app.next_animation_tick,
+            Some(now + Duration::from_millis(128))
+        );
     }
 
     #[test]

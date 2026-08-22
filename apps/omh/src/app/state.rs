@@ -4001,6 +4001,20 @@ impl AppState {
         self.status_indicators
     }
 
+    pub(crate) fn status_indicator_animation_active(&self) -> bool {
+        self.status_indicators == StatusIndicatorStyle::Symbols
+            && self
+                .workspaces
+                .iter()
+                .flat_map(|workspace| workspace.tabs.iter())
+                .flat_map(|tab| tab.panes.values())
+                .any(|pane| {
+                    self.terminals
+                        .get(&pane.attached_terminal_id)
+                        .is_some_and(|terminal| terminal.state == AgentState::Working)
+                })
+    }
+
     pub fn switch_ascii_input_source_in_prefix_enabled(&self) -> bool {
         self.switch_ascii_input_source_in_prefix
     }

@@ -12,6 +12,7 @@ use ratatui::{
 use super::scrollbar::{render_scrollbar, should_show_scrollbar};
 use super::status::{
     agent_section_icon, agent_section_style, state_icon, state_label, state_label_color,
+    AgentStatusGroup,
 };
 use super::text::display_width;
 use super::widgets::fill_rect;
@@ -59,7 +60,7 @@ pub(crate) struct AgentPanelEntry {
 }
 
 pub(crate) struct AgentPanelSection {
-    pub label: &'static str,
+    pub group: AgentStatusGroup,
     pub entries: Vec<AgentPanelEntry>,
 }
 
@@ -613,13 +614,13 @@ fn agent_panel_sections_from_entries(
     sort_agent_panel_entries_by_oldest_activity(&mut triage);
     if !triage.is_empty() {
         sections.push(AgentPanelSection {
-            label: "Triage",
+            group: AgentStatusGroup::Triage,
             entries: triage,
         });
     }
 
     sections.push(AgentPanelSection {
-        label: "Follow Up",
+        group: AgentStatusGroup::FollowUp,
         entries: follow_up,
     });
 
@@ -633,7 +634,7 @@ fn agent_panel_sections_from_entries(
     }
     if !working.is_empty() {
         sections.push(AgentPanelSection {
-            label: "Working",
+            group: AgentStatusGroup::Working,
             entries: working,
         });
     }
@@ -649,7 +650,7 @@ fn agent_panel_sections_from_entries(
     }
     if !idle.is_empty() {
         sections.push(AgentPanelSection {
-            label: "Idle",
+            group: AgentStatusGroup::Idle,
             entries: idle,
         });
     }
@@ -753,22 +754,18 @@ pub(crate) fn compact_agent_entry_text(entry: &AgentPanelEntry) -> (String, Stri
     (entry.primary_label.clone(), metadata.join(" · "))
 }
 
-fn agent_panel_section_shows_entry_status(section_label: &str) -> bool {
-    section_label == "Triage" || section_label == "Follow Up"
+fn agent_panel_section_shows_entry_status(group: AgentStatusGroup) -> bool {
+    matches!(group, AgentStatusGroup::Triage | AgentStatusGroup::FollowUp)
 }
 
-fn agent_panel_section_collapsed(app: &AppState, section_label: &str) -> bool {
-    app.agent_section_collapsed(section_label)
+fn agent_panel_section_collapsed(app: &AppState, group: AgentStatusGroup) -> bool {
+    app.agent_section_collapsed(group.label())
 }
 
-fn agent_panel_section_collapsed_for_view(view: &ClientViewState, section_label: &str) -> bool {
+fn agent_panel_section_collapsed_for_view(view: &ClientViewState, group: AgentStatusGroup) -> bool {
     view.collapsed_agent_sections
         .iter()
-        .any(|key| key == section_label)
-}
-
-fn agent_panel_section_display_label(section_label: &str) -> &str {
-    section_label
+        .any(|key| key == group.label())
 }
 
 fn agent_panel_should_show_agent_labels(sections: &[AgentPanelSection]) -> bool {
@@ -881,11 +878,16 @@ fn agent_token_line(
 }
 
 fn agent_panel_section_header_style(section: &AgentPanelSection, p: &Palette) -> Style {
-    agent_section_style(section.label, p)
+    agent_section_style(section.group, p)
 }
 
-fn agent_panel_section_icon(section: &AgentPanelSection, p: &Palette) -> (&'static str, Style) {
-    agent_section_icon(section.label, p)
+fn agent_panel_section_icon(
+    section: &AgentPanelSection,
+    tick: u32,
+    style: crate::config::StatusIndicatorStyle,
+    p: &Palette,
+) -> (&'static str, Style) {
+    agent_section_icon(section.group, tick, style, p)
 }
 
 fn right_entry_detail_prefix(_p: &Palette) -> Vec<Span<'static>> {
@@ -1288,7 +1290,7 @@ fn agent_panel_visible_count(app: &AppState, area: Rect, leading_separator: bool
     let mut visible = 0usize;
     let mut skip = app.agent_panel_scroll;
     for section in sections {
-        if agent_panel_section_collapsed(app, section.label) {
+        if agent_panel_section_collapsed(app, section.group) {
             if remaining_rows < 1 {
                 break;
             }
@@ -1304,7 +1306,7 @@ fn agent_panel_visible_count(app: &AppState, area: Rect, leading_separator: bool
         }
 
         remaining_rows = remaining_rows.saturating_sub(1);
-        let show_status = agent_panel_section_shows_entry_status(section.label);
+        let show_status = agent_panel_section_shows_entry_status(section.group);
         for detail in section.entries.iter().skip(skip) {
             let row_height =
                 agent_panel_entry_row_height(app, show_status, show_agent_labels, detail);
@@ -1327,7 +1329,7 @@ pub(crate) fn agent_panel_scroll_metrics(
     let viewport_rows = agent_panel_visible_count(app, area, leading_separator);
     let total_rows = agent_panel_sections(app)
         .iter()
-        .filter(|section| !agent_panel_section_collapsed(app, section.label))
+        .filter(|section| !agent_panel_section_collapsed(app, section.group))
         .map(|section| section.entries.len())
         .sum::<usize>();
     let max_offset_from_bottom = total_rows.saturating_sub(viewport_rows);
@@ -1357,7 +1359,7 @@ pub(crate) fn agent_panel_scroll_metrics_for_view(
     let mut skip = view.agent_panel_scroll;
     if body.width > 0 && body.height > 0 {
         for section in &sections {
-            if agent_panel_section_collapsed_for_view(view, section.label) {
+            if agent_panel_section_collapsed_for_view(view, section.group) {
                 if remaining_rows < 1 {
                     break;
                 }
@@ -1373,7 +1375,7 @@ pub(crate) fn agent_panel_scroll_metrics_for_view(
             }
 
             remaining_rows = remaining_rows.saturating_sub(1);
-            let show_status = agent_panel_section_shows_entry_status(section.label);
+            let show_status = agent_panel_section_shows_entry_status(section.group);
             for detail in section.entries.iter().skip(skip) {
                 let row_height =
                     agent_panel_entry_row_height(app, show_status, show_agent_labels, detail);
@@ -1389,7 +1391,7 @@ pub(crate) fn agent_panel_scroll_metrics_for_view(
 
     let total_rows = sections
         .iter()
-        .filter(|section| !agent_panel_section_collapsed_for_view(view, section.label))
+        .filter(|section| !agent_panel_section_collapsed_for_view(view, section.group))
         .map(|section| section.entries.len())
         .sum::<usize>();
     let max_offset_from_bottom = total_rows.saturating_sub(viewport_rows);
@@ -2090,9 +2092,11 @@ fn render_collapsed_agent_section_header(
     collapsed: bool,
     rows: Rect,
     row_y: u16,
+    tick: u32,
+    indicator_style: crate::config::StatusIndicatorStyle,
     p: &Palette,
 ) {
-    let (icon, icon_style) = agent_panel_section_icon(section, p);
+    let (icon, icon_style) = agent_panel_section_icon(section, tick, indicator_style, p);
     frame.render_widget(
         Paragraph::new(Line::from(vec![
             Span::styled(
@@ -2188,8 +2192,17 @@ fn render_collapsed_agent_panel(
         if row_y >= rows.y + rows.height {
             return;
         }
-        let collapsed = agent_panel_section_collapsed(app, section.label);
-        render_collapsed_agent_section_header(frame, &section, collapsed, rows, row_y, p);
+        let collapsed = agent_panel_section_collapsed(app, section.group);
+        render_collapsed_agent_section_header(
+            frame,
+            &section,
+            collapsed,
+            rows,
+            row_y,
+            app.spinner_tick,
+            app.status_indicators,
+            p,
+        );
         row_y = row_y.saturating_add(1);
         for entry in &section.entries {
             if !collapsed {
@@ -2262,8 +2275,17 @@ fn render_collapsed_agent_panel_for_view(
         if row_y >= rows.y + rows.height {
             return;
         }
-        let collapsed = agent_panel_section_collapsed_for_view(view, section.label);
-        render_collapsed_agent_section_header(frame, &section, collapsed, rows, row_y, p);
+        let collapsed = agent_panel_section_collapsed_for_view(view, section.group);
+        render_collapsed_agent_section_header(
+            frame,
+            &section,
+            collapsed,
+            rows,
+            row_y,
+            app.spinner_tick,
+            app.status_indicators,
+            p,
+        );
         row_y = row_y.saturating_add(1);
         for entry in &section.entries {
             if !collapsed {
@@ -2302,11 +2324,11 @@ pub(crate) fn collapsed_agent_panel_header_target_at_row(
     for section in agent_panel_sections(app) {
         if row == row_y {
             return Some(AgentPanelHeaderTarget {
-                section: section.label.to_string(),
+                section: section.group.label().to_string(),
             });
         }
         row_y = row_y.saturating_add(1);
-        if !agent_panel_section_collapsed(app, section.label) {
+        if !agent_panel_section_collapsed(app, section.group) {
             row_y = row_y.saturating_add(section.entries.len() as u16);
         }
         if row_y >= rows.y + rows.height {
@@ -2332,11 +2354,11 @@ pub(crate) fn collapsed_agent_panel_header_target_at_row_for_view(
     for section in agent_panel_sections_for_view(app, terminal_runtimes, view) {
         if row == row_y {
             return Some(AgentPanelHeaderTarget {
-                section: section.label.to_string(),
+                section: section.group.label().to_string(),
             });
         }
         row_y = row_y.saturating_add(1);
-        if !agent_panel_section_collapsed_for_view(view, section.label) {
+        if !agent_panel_section_collapsed_for_view(view, section.group) {
             row_y = row_y.saturating_add(section.entries.len() as u16);
         }
         if row_y >= rows.y + rows.height {
@@ -2359,7 +2381,7 @@ pub(crate) fn collapsed_agent_panel_entry_at_row(
     let mut row_y = rows.y;
     for section in agent_panel_sections(app) {
         row_y = row_y.saturating_add(1);
-        if agent_panel_section_collapsed(app, section.label) {
+        if agent_panel_section_collapsed(app, section.group) {
             continue;
         }
         for entry in section.entries {
@@ -2391,7 +2413,7 @@ pub(crate) fn collapsed_agent_panel_entry_at_row_for_view(
     let mut row_y = rows.y;
     for section in agent_panel_sections_for_view(app, terminal_runtimes, view) {
         row_y = row_y.saturating_add(1);
-        if agent_panel_section_collapsed_for_view(view, section.label) {
+        if agent_panel_section_collapsed_for_view(view, section.group) {
             continue;
         }
         for entry in section.entries {
@@ -4040,7 +4062,7 @@ pub(crate) fn agent_panel_entry_at_row(
     let show_agent_labels = agent_panel_should_show_agent_labels(&sections);
 
     for section in sections {
-        let collapsed = agent_panel_section_collapsed(app, section.label);
+        let collapsed = agent_panel_section_collapsed(app, section.group);
         if collapsed {
             row_y = row_y.saturating_add(1);
             continue;
@@ -4054,7 +4076,7 @@ pub(crate) fn agent_panel_entry_at_row(
         }
 
         row_y = row_y.saturating_add(1);
-        let show_status = agent_panel_section_shows_entry_status(section.label);
+        let show_status = agent_panel_section_shows_entry_status(section.group);
         for detail in section.entries.iter().skip(skip) {
             let row_height =
                 agent_panel_entry_row_height(app, show_status, show_agent_labels, detail);
@@ -4090,7 +4112,12 @@ fn render_agent_section_header(
         Paragraph::new(Span::styled(marker, dim)),
         Rect::new(body.x + RIGHT_SUBSECTION_MARKER_COL, row_y, 1, 1),
     );
-    let (section_icon, section_icon_style) = agent_panel_section_icon(section, &app.palette);
+    let (section_icon, section_icon_style) = agent_panel_section_icon(
+        section,
+        app.spinner_tick,
+        app.status_indicators,
+        &app.palette,
+    );
     frame.render_widget(
         Paragraph::new(Span::styled(section_icon, section_icon_style)),
         Rect::new(
@@ -4114,10 +4141,7 @@ fn render_agent_section_header(
         .saturating_sub(RIGHT_SUBSECTION_LABEL_COL + count_reserve);
     frame.render_widget(
         Paragraph::new(Span::styled(
-            truncate_text(
-                agent_panel_section_display_label(section.label),
-                label_width as usize,
-            ),
+            truncate_text(section.group.label(), label_width as usize),
             style,
         )),
         Rect::new(
@@ -4159,7 +4183,7 @@ pub(crate) fn agent_panel_header_target_at_row(
     let show_agent_labels = agent_panel_should_show_agent_labels(&sections);
 
     for section in sections {
-        let collapsed = agent_panel_section_collapsed(app, section.label);
+        let collapsed = agent_panel_section_collapsed(app, section.group);
         if !collapsed && !section.entries.is_empty() && skip >= section.entries.len() {
             skip -= section.entries.len();
             continue;
@@ -4170,7 +4194,7 @@ pub(crate) fn agent_panel_header_target_at_row(
 
         if row == row_y {
             return Some(AgentPanelHeaderTarget {
-                section: section.label.to_string(),
+                section: section.group.label().to_string(),
             });
         }
         row_y = row_y.saturating_add(1);
@@ -4178,7 +4202,7 @@ pub(crate) fn agent_panel_header_target_at_row(
         if collapsed {
             continue;
         }
-        let show_status = agent_panel_section_shows_entry_status(section.label);
+        let show_status = agent_panel_section_shows_entry_status(section.group);
         for detail in section.entries.iter().skip(skip) {
             row_y = row_y.saturating_add(agent_panel_entry_row_height(
                 app,
@@ -4207,7 +4231,7 @@ pub(crate) fn agent_panel_entry_at_row_for_view(
     let show_agent_labels = agent_panel_should_show_agent_labels(&sections);
 
     for section in sections {
-        let collapsed = agent_panel_section_collapsed_for_view(view, section.label);
+        let collapsed = agent_panel_section_collapsed_for_view(view, section.group);
         if collapsed {
             row_y = row_y.saturating_add(1);
             continue;
@@ -4221,7 +4245,7 @@ pub(crate) fn agent_panel_entry_at_row_for_view(
         }
 
         row_y = row_y.saturating_add(1);
-        let show_status = agent_panel_section_shows_entry_status(section.label);
+        let show_status = agent_panel_section_shows_entry_status(section.group);
         for detail in section.entries.iter().skip(skip) {
             let row_height =
                 agent_panel_entry_row_height(app, show_status, show_agent_labels, detail);
@@ -4257,7 +4281,7 @@ pub(crate) fn agent_panel_header_target_at_row_for_view(
     let show_agent_labels = agent_panel_should_show_agent_labels(&sections);
 
     for section in sections {
-        let collapsed = agent_panel_section_collapsed_for_view(view, section.label);
+        let collapsed = agent_panel_section_collapsed_for_view(view, section.group);
         if !collapsed && !section.entries.is_empty() && skip >= section.entries.len() {
             skip -= section.entries.len();
             continue;
@@ -4268,7 +4292,7 @@ pub(crate) fn agent_panel_header_target_at_row_for_view(
 
         if row == row_y {
             return Some(AgentPanelHeaderTarget {
-                section: section.label.to_string(),
+                section: section.group.label().to_string(),
             });
         }
         row_y = row_y.saturating_add(1);
@@ -4276,7 +4300,7 @@ pub(crate) fn agent_panel_header_target_at_row_for_view(
         if collapsed {
             continue;
         }
-        let show_status = agent_panel_section_shows_entry_status(section.label);
+        let show_status = agent_panel_section_shows_entry_status(section.group);
         for detail in section.entries.iter().skip(skip) {
             row_y = row_y.saturating_add(agent_panel_entry_row_height(
                 app,
@@ -4362,7 +4386,7 @@ fn render_agent_detail_from(
     let body_bottom = body.y + body.height;
     let mut skip = app.agent_panel_scroll;
     for section in sections {
-        let collapsed = agent_panel_section_collapsed(app, section.label);
+        let collapsed = agent_panel_section_collapsed(app, section.group);
         if collapsed {
             if row_y >= body_bottom {
                 break;
@@ -4381,7 +4405,7 @@ fn render_agent_detail_from(
 
         render_agent_section_header(app, frame, &section, false, body, row_y);
         row_y = row_y.saturating_add(1);
-        let show_status = agent_panel_section_shows_entry_status(section.label);
+        let show_status = agent_panel_section_shows_entry_status(section.group);
 
         for detail in section.entries.iter().skip(skip) {
             let row_height =
@@ -4494,7 +4518,7 @@ fn render_agent_detail_from_for_view(
     let body_bottom = body.y + body.height;
     let mut skip = client_view.agent_panel_scroll;
     for section in sections {
-        let collapsed = agent_panel_section_collapsed_for_view(client_view, section.label);
+        let collapsed = agent_panel_section_collapsed_for_view(client_view, section.group);
         if collapsed {
             if row_y >= body_bottom {
                 break;
@@ -4513,7 +4537,7 @@ fn render_agent_detail_from_for_view(
 
         render_agent_section_header(app, frame, &section, false, body, row_y);
         row_y = row_y.saturating_add(1);
-        let show_status = agent_panel_section_shows_entry_status(section.label);
+        let show_status = agent_panel_section_shows_entry_status(section.group);
 
         for detail in section.entries.iter().skip(skip) {
             let row_height =
@@ -4647,7 +4671,6 @@ fn render_right_sidebar_toggle(
 
 #[cfg(test)]
 mod tests {
-    use super::super::status::agent_icon;
     use super::*;
     use crate::{app::state::Group, detect::Agent, workspace::Workspace};
     use ratatui::{backend::TestBackend, buffer::Buffer, Terminal};
@@ -5327,7 +5350,13 @@ mod tests {
         assert_eq!(buffer[(detail_area.x, working_header_row)].symbol(), "▸");
         assert_eq!(
             buffer[(detail_area.x + 2, working_header_row)].symbol(),
-            agent_icon(AgentState::Working, true, &app.palette).0
+            agent_section_icon(
+                AgentStatusGroup::Working,
+                app.spinner_tick,
+                app.status_indicators,
+                &app.palette,
+            )
+            .0
         );
         assert_eq!(buffer[(detail_area.x, idle_header_row)].symbol(), "▾");
         assert_eq!(buffer[(detail_area.x + 2, idle_agent_row)].symbol(), "3");
@@ -5457,11 +5486,25 @@ mod tests {
         );
         assert_eq!(
             buffer[(detail_area.x + 2, triage_header_row)].style().fg,
-            agent_section_icon("Triage", &app.palette).1.fg
+            agent_section_icon(
+                AgentStatusGroup::Triage,
+                app.spinner_tick,
+                app.status_indicators,
+                &app.palette,
+            )
+            .1
+            .fg
         );
         assert_eq!(
             buffer[(detail_area.x + 2, working_header_row)].style().fg,
-            agent_icon(AgentState::Working, true, &app.palette).1.fg
+            agent_section_icon(
+                AgentStatusGroup::Working,
+                app.spinner_tick,
+                app.status_indicators,
+                &app.palette,
+            )
+            .1
+            .fg
         );
     }
 
@@ -5934,13 +5977,13 @@ mod tests {
         let sections = agent_panel_sections(&app);
 
         assert_eq!(sections.len(), 4);
-        assert_eq!(sections[0].label, "Triage");
+        assert_eq!(sections[0].group, AgentStatusGroup::Triage);
         assert_eq!(sections[0].entries[0].primary_label, "Done");
-        assert_eq!(sections[1].label, "Follow Up");
+        assert_eq!(sections[1].group, AgentStatusGroup::FollowUp);
         assert!(sections[1].entries.is_empty());
-        assert_eq!(sections[2].label, "Working");
+        assert_eq!(sections[2].group, AgentStatusGroup::Working);
         assert_eq!(sections[2].entries[0].primary_label, "Working");
-        assert_eq!(sections[3].label, "Idle");
+        assert_eq!(sections[3].group, AgentStatusGroup::Idle);
         assert_eq!(sections[3].entries[0].primary_label, "Idle");
     }
 
@@ -5982,7 +6025,7 @@ mod tests {
         let sections = agent_panel_sections(&app);
         let idle = sections
             .iter()
-            .find(|section| section.label == "Idle")
+            .find(|section| section.group == AgentStatusGroup::Idle)
             .expect("idle section");
 
         assert_eq!(idle.entries[0].primary_label, "New");
@@ -6037,7 +6080,7 @@ mod tests {
         let sections = agent_panel_sections(&app);
         let working = sections
             .iter()
-            .find(|section| section.label == "Working")
+            .find(|section| section.group == AgentStatusGroup::Working)
             .expect("working section");
 
         assert_eq!(working.entries[0].primary_label, "second");
@@ -6089,7 +6132,7 @@ mod tests {
         let sections = agent_panel_sections(&app);
         let idle = sections
             .iter()
-            .find(|section| section.label == "Idle")
+            .find(|section| section.group == AgentStatusGroup::Idle)
             .expect("idle section");
 
         assert_eq!(idle.entries[0].primary_label, "New");
@@ -6348,7 +6391,7 @@ mod tests {
     #[test]
     fn agent_section_headers_use_status_colors() {
         let mut triage = AgentPanelSection {
-            label: "Triage",
+            group: AgentStatusGroup::Triage,
             entries: vec![AgentPanelEntry {
                 ws_idx: 0,
                 tab_idx: 0,
@@ -6380,7 +6423,7 @@ mod tests {
         assert_eq!(
             agent_panel_section_header_style(
                 &AgentPanelSection {
-                    label: "Working",
+                    group: AgentStatusGroup::Working,
                     entries: Vec::new(),
                 },
                 &p,
@@ -6391,7 +6434,7 @@ mod tests {
         assert_eq!(
             agent_panel_section_header_style(
                 &AgentPanelSection {
-                    label: "Idle",
+                    group: AgentStatusGroup::Idle,
                     entries: Vec::new(),
                 },
                 &p,
@@ -6411,13 +6454,13 @@ mod tests {
     fn rendered_agent_section_indicator(
         indicator_style: crate::config::StatusIndicatorStyle,
         spinner_tick: u32,
-        label: &'static str,
+        group: AgentStatusGroup,
     ) -> (String, Option<ratatui::style::Color>) {
         let mut app = crate::app::state::AppState::test_new();
         app.status_indicators = indicator_style;
         app.spinner_tick = spinner_tick;
         let section = AgentPanelSection {
-            label,
+            group,
             entries: Vec::new(),
         };
         let area = Rect::new(0, 0, 12, 1);
@@ -6437,27 +6480,28 @@ mod tests {
             (
                 crate::config::StatusIndicatorStyle::Dots,
                 [
-                    ("Triage", "●", palette.peach),
-                    ("Follow Up", "●", palette.mauve),
-                    ("Working", "●", palette.yellow),
-                    ("Idle", "○", palette.green),
+                    (AgentStatusGroup::Triage, "●", palette.peach),
+                    (AgentStatusGroup::FollowUp, "●", palette.mauve),
+                    (AgentStatusGroup::Working, "●", palette.yellow),
+                    (AgentStatusGroup::Idle, "○", palette.green),
                 ],
             ),
             (
                 crate::config::StatusIndicatorStyle::Symbols,
                 [
-                    ("Triage", "!", palette.peach),
-                    ("Follow Up", "*", palette.mauve),
-                    ("Working", "⠋", palette.yellow),
-                    ("Idle", "✓", palette.green),
+                    (AgentStatusGroup::Triage, "!", palette.peach),
+                    (AgentStatusGroup::FollowUp, "*", palette.mauve),
+                    (AgentStatusGroup::Working, "⠋", palette.yellow),
+                    (AgentStatusGroup::Idle, "✓", palette.green),
                 ],
             ),
         ] {
-            for (label, expected_symbol, expected_color) in expected {
+            for (group, expected_symbol, expected_color) in expected {
                 assert_eq!(
-                    rendered_agent_section_indicator(indicator_style, 0, label),
+                    rendered_agent_section_indicator(indicator_style, 0, group),
                     (expected_symbol.to_string(), Some(expected_color)),
-                    "{indicator_style:?} {label}"
+                    "{indicator_style:?} {}",
+                    group.label()
                 );
             }
         }
@@ -6469,7 +6513,7 @@ mod tests {
             rendered_agent_section_indicator(
                 crate::config::StatusIndicatorStyle::Symbols,
                 0,
-                "Working"
+                AgentStatusGroup::Working,
             )
             .0,
             "⠋"
@@ -6478,7 +6522,7 @@ mod tests {
             rendered_agent_section_indicator(
                 crate::config::StatusIndicatorStyle::Symbols,
                 8,
-                "Working"
+                AgentStatusGroup::Working,
             )
             .0,
             "⠙"
@@ -6736,7 +6780,13 @@ mod tests {
         assert_eq!(buffer[(content.x, working_header_row)].symbol(), "▾");
         assert_eq!(
             buffer[(content.x + 2, working_header_row)].symbol(),
-            agent_icon(AgentState::Working, true, &app.palette).0
+            agent_section_icon(
+                AgentStatusGroup::Working,
+                app.spinner_tick,
+                app.status_indicators,
+                &app.palette,
+            )
+            .0
         );
         assert_eq!(buffer[(content.x + 2, working_agent_row)].symbol(), "2");
         assert_eq!(buffer[(toggle.x, toggle.y)].symbol(), "«");
@@ -6777,9 +6827,9 @@ mod tests {
         app.agent_panel_scope = AgentPanelScope::CurrentWorkspace;
 
         let sections = agent_panel_sections(&app);
-        assert_eq!(sections[0].label, "Follow Up");
+        assert_eq!(sections[0].group, AgentStatusGroup::FollowUp);
         assert!(sections[0].entries.is_empty());
-        assert_eq!(sections[1].label, "Idle");
+        assert_eq!(sections[1].group, AgentStatusGroup::Idle);
 
         let area = Rect::new(0, 0, 40, 24);
         crate::ui::compute_view(&mut app, area);
@@ -6824,15 +6874,19 @@ mod tests {
         let sections = agent_panel_sections(&app);
         let follow_up = sections
             .iter()
-            .find(|section| section.label == "Follow Up")
+            .find(|section| section.group == AgentStatusGroup::FollowUp)
             .expect("follow up");
         assert_eq!(follow_up.entries.len(), 2);
         assert_eq!(follow_up.entries[0].primary_label, "first");
         assert_eq!(follow_up.entries[0].state, AgentState::Working);
         assert_eq!(follow_up.entries[1].primary_label, "second");
         assert_eq!(follow_up.entries[1].state, AgentState::Blocked);
-        assert!(sections.iter().all(|section| section.label != "Working"));
-        assert!(sections.iter().all(|section| section.label != "Triage"));
+        assert!(sections
+            .iter()
+            .all(|section| section.group != AgentStatusGroup::Working));
+        assert!(sections
+            .iter()
+            .all(|section| section.group != AgentStatusGroup::Triage));
     }
 
     #[test]
@@ -6865,7 +6919,7 @@ mod tests {
         let sections = agent_panel_sections(&app);
         let follow_up = sections
             .iter()
-            .find(|section| section.label == "Follow Up")
+            .find(|section| section.group == AgentStatusGroup::FollowUp)
             .expect("follow up");
         let labels: Vec<_> = follow_up
             .entries
@@ -6925,7 +6979,7 @@ mod tests {
         let sections = agent_panel_sections(&app);
         let triage = sections
             .iter()
-            .find(|section| section.label == "Triage")
+            .find(|section| section.group == AgentStatusGroup::Triage)
             .expect("triage");
         let labels: Vec<_> = triage
             .entries
@@ -6958,7 +7012,7 @@ mod tests {
         assert!(app.insert_agent_follow_up(0, pane));
         assert!(!agent_panel_sections(&app)
             .iter()
-            .find(|section| section.label == "Follow Up")
+            .find(|section| section.group == AgentStatusGroup::FollowUp)
             .expect("follow up")
             .entries
             .is_empty());
@@ -6970,7 +7024,7 @@ mod tests {
 
         let follow_up = agent_panel_sections(&app)
             .into_iter()
-            .find(|section| section.label == "Follow Up")
+            .find(|section| section.group == AgentStatusGroup::FollowUp)
             .expect("follow up");
         assert_eq!(follow_up.entries.len(), 1);
         assert_eq!(follow_up.entries[0].pane_id, pane);

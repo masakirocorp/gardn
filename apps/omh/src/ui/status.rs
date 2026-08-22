@@ -171,11 +171,25 @@ pub(super) fn state_dot(state: AgentState, seen: bool, p: &Palette) -> (&'static
     }
 }
 
-pub(super) fn agent_icon(state: AgentState, seen: bool, p: &Palette) -> (&'static str, Style) {
-    state_dot(state, seen, p)
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum AgentStatusGroup {
+    Triage,
+    FollowUp,
+    Working,
+    Idle,
 }
 
-/// Distinct symbolic indicators: blocked pin, working spinner, idle/seen marks.
+impl AgentStatusGroup {
+    pub(crate) const fn label(self) -> &'static str {
+        match self {
+            Self::Triage => "Triage",
+            Self::FollowUp => "Follow Up",
+            Self::Working => "Working",
+            Self::Idle => "Idle",
+        }
+    }
+}
+
 fn state_symbol(state: AgentState, seen: bool, tick: u32, p: &Palette) -> (&'static str, Style) {
     match (state, seen) {
         (AgentState::Blocked, _) => ("◉", Style::default().fg(p.red)),
@@ -186,8 +200,6 @@ fn state_symbol(state: AgentState, seen: bool, tick: u32, p: &Palette) -> (&'sta
     }
 }
 
-/// Renders an agent state indicator using the configured style: uniform colored
-/// dots, or distinct symbols (with the spinner animation for working agents).
 pub(super) fn state_icon(
     state: AgentState,
     seen: bool,
@@ -201,25 +213,32 @@ pub(super) fn state_icon(
     }
 }
 
-pub(super) fn agent_section_style(label: &str, p: &Palette) -> Style {
-    let color = match label {
-        "Triage" => p.peach,
-        "Follow Up" => p.mauve,
-        "Working" => state_label_color(AgentState::Working, true, p),
-        "Idle" => state_label_color(AgentState::Idle, true, p),
-        _ => p.overlay0,
+pub(super) fn agent_section_style(group: AgentStatusGroup, p: &Palette) -> Style {
+    let color = match group {
+        AgentStatusGroup::Triage => p.peach,
+        AgentStatusGroup::FollowUp => p.mauve,
+        AgentStatusGroup::Working => p.yellow,
+        AgentStatusGroup::Idle => p.green,
     };
     Style::default().fg(color).add_modifier(Modifier::BOLD)
 }
 
-pub(super) fn agent_section_icon(label: &str, p: &Palette) -> (&'static str, Style) {
-    match label {
-        "Triage" => ("!", agent_section_style(label, p)),
-        "Follow Up" => ("*", agent_section_style(label, p)),
-        "Working" => agent_icon(AgentState::Working, true, p),
-        "Idle" => state_symbol(AgentState::Idle, true, 0, p),
-        _ => ("?", Style::default().fg(p.overlay0)),
-    }
+pub(super) fn agent_section_icon(
+    group: AgentStatusGroup,
+    tick: u32,
+    style: StatusIndicatorStyle,
+    p: &Palette,
+) -> (&'static str, Style) {
+    let icon = match (style, group) {
+        (StatusIndicatorStyle::Dots, AgentStatusGroup::Triage | AgentStatusGroup::FollowUp)
+        | (StatusIndicatorStyle::Dots, AgentStatusGroup::Working) => "●",
+        (StatusIndicatorStyle::Dots, AgentStatusGroup::Idle) => "○",
+        (StatusIndicatorStyle::Symbols, AgentStatusGroup::Triage) => "!",
+        (StatusIndicatorStyle::Symbols, AgentStatusGroup::FollowUp) => "*",
+        (StatusIndicatorStyle::Symbols, AgentStatusGroup::Working) => super::spinner_frame(tick),
+        (StatusIndicatorStyle::Symbols, AgentStatusGroup::Idle) => "✓",
+    };
+    (icon, agent_section_style(group, p))
 }
 
 pub(super) fn state_label(state: AgentState, seen: bool) -> &'static str {
@@ -268,7 +287,6 @@ mod tests {
             let (mark, style) = state_dot(state, seen, &palette);
             assert_eq!(mark, symbol);
             assert_eq!(style.fg, Some(color));
-            assert_eq!(agent_icon(state, seen, &palette), (mark, style));
         }
     }
 }

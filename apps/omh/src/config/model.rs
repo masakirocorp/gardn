@@ -1141,7 +1141,7 @@ pub struct UiConfig {
     pub prompt_new_workspace_name: bool,
     /// Agent metadata shown in split pane borders when no title or manual name is set.
     pub pane_border_agent_info: PaneBorderAgentInfoConfig,
-    /// How agent status is rendered: colored dots or distinct symbols. Default: "dots".
+    /// Status marks for Space rows and Agent group headers. Dots is the default.
     pub status_indicators: StatusIndicatorStyle,
     /// Format for the outer terminal window title. Empty leaves the title alone.
     /// Default: "{hostname}: {workspace}".
