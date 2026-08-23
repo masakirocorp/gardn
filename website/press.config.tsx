@@ -72,6 +72,16 @@ export default defineConfig({
 })
   .layouts({
     root: createRootLayout({ providerProps: { theme: { defaultTheme: "dark" } } }),
+    defaultProps: () => ({
+      nav: {
+        title: (
+          <span className="flex items-center gap-2">
+            <img alt="" aria-hidden="true" className="size-6" src="/logo.svg" />
+            Gardn
+          </span>
+        ),
+      },
+    }),
     notFound: NotFoundPage,
   })
   .plugins(
