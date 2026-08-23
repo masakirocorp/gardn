@@ -20,8 +20,8 @@ importers:
         specifier: 0.45.1
         version: 0.45.1
       tegami:
-        specifier: 1.3.1
-        version: 1.3.1
+        specifier: ^1.4.0
+        version: 1.4.0
       turbo:
         specifier: 2.10.11
         version: 2.10.11
@@ -2664,8 +2664,8 @@ packages:
     resolution: {integrity: sha512-uxc/zpqFg6x7C8vOE7lh6Lbda8eEL9zmVm/PLeTPBRhh1xCgdWaQ+J1CUieGpIfm2HdtsUpRv+HshiasBMcc6A==}
     engines: {node: '>=6'}
 
-  tegami@1.3.1:
-    resolution: {integrity: sha512-Ow9fSG8MOOnCBiFotAdKCk9cuRCBENR1DQvvf72Xu5BgdxjO/AbC5baRsERgtAGm4mwKNMmZ+W5zPe3/b+CSnA==}
+  tegami@1.4.0:
+    resolution: {integrity: sha512-QjoIJuAdsp+iAb1NT1CDn6zvxa7HqmEdJLN2BKW7LXZ8pbga/8tktcZr9bArw7KBdT5+Zj5Y9kreF3gjgrpfKQ==}
 
   terser@5.49.0:
     resolution: {integrity: sha512-SNiDnXyHSrxVcIOtVbULzcTmniUiwcV7Nwdyj1twVubeTmbjoa8p69KKDpfkdoOavuM4/GRm1+ykI8qqnavHoA==}
@@ -5408,7 +5408,7 @@ snapshots:
 
   tapable@2.3.3: {}
 
-  tegami@1.3.1:
+  tegami@1.4.0:
     dependencies:
       '@clack/prompts': 1.7.0
       '@rainbowatcher/toml-edit-js': 0.6.5

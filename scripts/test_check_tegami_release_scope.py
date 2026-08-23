@@ -15,6 +15,16 @@ class CheckTegamiReleaseScopeTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
+            (root / "Cargo.toml").write_text(
+                '[workspace]\nmembers = ["apps/gardn"]\nresolver = "2"\n',
+                encoding="utf-8",
+            )
+            app_dir = root / "apps" / "gardn"
+            app_dir.mkdir(parents=True)
+            (app_dir / "Cargo.toml").write_text(
+                '[package]\nname = "gardn"\nversion = "0.1.0"\nedition = "2021"\n',
+                encoding="utf-8",
+            )
             changelog_dir = root / ".tegami"
             changelog_dir.mkdir()
             (changelog_dir / "feature.md").write_text(
@@ -23,7 +33,6 @@ class CheckTegamiReleaseScopeTests(unittest.TestCase):
                     ---
                     packages:
                       gardn: patch
-                      gardn-docs: patch
                     ---
 
                     ### Add release notes menu
@@ -54,6 +63,16 @@ class CheckTegamiReleaseScopeTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
+            (root / "Cargo.toml").write_text(
+                '[workspace]\nmembers = ["apps/gardn"]\nresolver = "2"\n',
+                encoding="utf-8",
+            )
+            app_dir = root / "apps" / "gardn"
+            app_dir.mkdir(parents=True)
+            (app_dir / "Cargo.toml").write_text(
+                '[package]\nname = "gardn"\nversion = "0.1.0"\nedition = "2021"\n',
+                encoding="utf-8",
+            )
             changelog_dir = root / ".tegami"
             changelog_dir.mkdir()
             (changelog_dir / "docs-only.md").write_text(
