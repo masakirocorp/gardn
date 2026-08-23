@@ -64,7 +64,7 @@
               pkg-config
               rustc
               rustfmt
-              zig_0_15
+              zig_0_16
             ];
 
             env = {

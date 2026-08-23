@@ -5,7 +5,7 @@
   callPackage,
   runCommand,
   writeShellScriptBin,
-  zig_0_15,
+  zig_0_16,
   zstd,
   pkg-config,
   git,
@@ -29,7 +29,7 @@ let
   };
   zigTool = runCommand "gardn-zig-tool" { } ''
     mkdir -p $out/bin
-    ln -s ${lib.getExe zig_0_15} $out/bin/zig
+    ln -s ${lib.getExe zig_0_16} $out/bin/zig
   '';
 
   darwinSdkRoot = "${apple-sdk}/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk";
@@ -94,7 +94,7 @@ rustPlatform.buildRustPackage {
     LIBGHOSTTY_VT_OPTIMIZE = "ReleaseFast";
     LIBGHOSTTY_VT_SIMD = "true";
     LIBGHOSTTY_VT_ZIG_SYSTEM_DIR = zigDeps;
-    ZIG = lib.getExe zig_0_15;
+    ZIG = lib.getExe zig_0_16;
   }
   // lib.optionalAttrs stdenv.hostPlatform.isDarwin {
     SDKROOT = darwinSdkRoot;
