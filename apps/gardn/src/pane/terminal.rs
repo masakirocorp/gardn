@@ -1158,6 +1158,7 @@ impl GhosttyPaneTerminal {
                     terminal_responses.extend(replacement);
                 }
                 OrderedPtyResponseEvent::Xtgettcap(response) => {
+                    terminal_responses.retain(|candidate| candidate != &response.bytes);
                     libghostty_responses.retain(|candidate| candidate != &response.bytes);
                     terminal_responses.extend(libghostty_responses);
                     terminal_responses.push(response.bytes);
