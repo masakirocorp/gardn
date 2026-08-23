@@ -3005,6 +3005,19 @@ pub(crate) fn workspace_drop_indicator_row(
                 .min(body_bottom.saturating_sub(1))
         })
 }
+fn render_drop_indicator(
+    frame: &mut Frame,
+    left: u16,
+    right: u16,
+    row: u16,
+    color: ratatui::style::Color,
+) {
+    let buffer = frame.buffer_mut();
+    for x in left..right {
+        buffer[(x, row)].set_symbol("─");
+        buffer[(x, row)].set_style(Style::default().fg(color));
+    }
+}
 
 fn global_launcher_style(app: &AppState) -> Style {
     Style::default()
@@ -3595,11 +3608,13 @@ fn render_workspace_list_from(
         let indicator_right = scrollbar_rect
             .map(|rect| rect.x)
             .unwrap_or(area.x + area.width);
-        let buf = frame.buffer_mut();
-        for x in area.x..indicator_right {
-            buf[(x, y)].set_symbol("─");
-            buf[(x, y)].set_style(Style::default().fg(app.active_workspace_accent_color()));
-        }
+        render_drop_indicator(
+            frame,
+            area.x,
+            indicator_right,
+            y,
+            app.active_workspace_accent_color(),
+        );
     }
 
     if let Some(track) = scrollbar_rect {
@@ -3844,13 +3859,13 @@ fn render_workspace_list_from_for_view(
         let indicator_right = scrollbar_rect
             .map(|rect| rect.x)
             .unwrap_or(area.x + area.width);
-        let buf = frame.buffer_mut();
-        for x in area.x..indicator_right {
-            buf[(x, y)].set_symbol("─");
-            buf[(x, y)].set_style(
-                Style::default().fg(active_workspace_accent_color_for_view(app, client_view)),
-            );
-        }
+        render_drop_indicator(
+            frame,
+            area.x,
+            indicator_right,
+            y,
+            active_workspace_accent_color_for_view(app, client_view),
+        );
     }
 
     if let Some(track) = scrollbar_rect {
@@ -4210,16 +4225,6 @@ fn render_agent_section_header(
                 1,
             ),
         );
-    }
-}
-fn render_follow_up_drop_indicator(frame: &mut Frame, body: Rect, palette: &Palette) {
-    if body.width == 0 || body.y == 0 {
-        return;
-    }
-    let buffer = frame.buffer_mut();
-    for x in body.x..body.x + body.width {
-        buffer[(x, body.y - 1)].set_symbol("─");
-        buffer[(x, body.y - 1)].set_style(Style::default().fg(palette.accent));
     }
 }
 
@@ -4588,8 +4593,8 @@ fn render_agent_detail_from(
         skip = 0;
     }
 
-    if follow_up_drop_target {
-        render_follow_up_drop_indicator(frame, body, p);
+    if follow_up_drop_target && body.y > 0 {
+        render_drop_indicator(frame, body.x, body.x + body.width, body.y - 1, p.accent);
     }
 
     if let Some(track) = scrollbar_rect {
@@ -4738,8 +4743,8 @@ fn render_agent_detail_from_for_view(
         skip = 0;
     }
 
-    if follow_up_drop_target {
-        render_follow_up_drop_indicator(frame, body, p);
+    if follow_up_drop_target && body.y > 0 {
+        render_drop_indicator(frame, body.x, body.x + body.width, body.y - 1, p.accent);
     }
 
     if let Some(track) = scrollbar_rect {
