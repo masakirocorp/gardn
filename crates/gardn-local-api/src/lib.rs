@@ -4,9 +4,10 @@
 //! dependencies. Host crates inject product/protocol versions and provide
 //! adapters for domain types (sound, resource locations, ratatui geometry).
 
+use std::borrow::Cow;
 use std::collections::HashMap;
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 fn is_false(value: &bool) -> bool {
     !*value
@@ -1179,6 +1180,8 @@ pub struct InstalledPluginInfo {
     pub name: String,
     pub version: String,
     pub min_gardn_version: String,
+    #[serde(default)]
+    pub manifest_dialect: PluginManifestDialect,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
     pub manifest_path: String,
@@ -1262,6 +1265,134 @@ pub fn plugin_managed_path_component(value: &str) -> String {
         .collect()
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PopupSize {
+    Cells(u16),
+    Percent(u8),
+}
+
+impl PopupSize {
+    pub fn resolve(self, available: u16) -> u16 {
+        match self {
+            Self::Cells(cells) => cells,
+            Self::Percent(percent) => ((available as u32 * percent as u32) / 100) as u16,
+        }
+    }
+
+    pub fn parse_cli(value: &str) -> Result<Self, String> {
+        if let Some(percent) = value.strip_suffix('%') {
+            let percent = percent
+                .parse::<u8>()
+                .map_err(|_| "must be a number of cells or a percentage like 80%".to_string())?;
+            if !(1..=100).contains(&percent) {
+                return Err("percentage must be between 1% and 100%".to_string());
+            }
+            return Ok(Self::Percent(percent));
+        }
+        value
+            .parse::<u16>()
+            .map(Self::Cells)
+            .map_err(|_| "must be a number of cells or a percentage like 80%".to_string())
+    }
+
+    fn parse_percent_string(value: &str) -> Result<Self, String> {
+        if value.ends_with('%') {
+            return Self::parse_cli(value);
+        }
+        Err("string sizes must be percentages like 80%; use a number for cells".to_string())
+    }
+}
+
+impl Serialize for PopupSize {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        match self {
+            Self::Cells(cells) => serializer.serialize_u16(*cells),
+            Self::Percent(percent) => serializer.serialize_str(&format!("{percent}%")),
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for PopupSize {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        struct PopupSizeVisitor;
+
+        impl serde::de::Visitor<'_> for PopupSizeVisitor {
+            type Value = PopupSize;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("a cell count or percentage string like 80%")
+            }
+
+            fn visit_u64<E>(self, value: u64) -> Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                let value =
+                    u16::try_from(value).map_err(|_| E::custom("cell count must fit in u16"))?;
+                Ok(PopupSize::Cells(value))
+            }
+
+            fn visit_i64<E>(self, value: i64) -> Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                let value = u16::try_from(value)
+                    .map_err(|_| E::custom("cell count must be between 0 and 65535"))?;
+                Ok(PopupSize::Cells(value))
+            }
+
+            fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                PopupSize::parse_percent_string(value).map_err(E::custom)
+            }
+        }
+
+        deserializer.deserialize_any(PopupSizeVisitor)
+    }
+}
+
+impl schemars::JsonSchema for PopupSize {
+    fn schema_name() -> Cow<'static, str> {
+        "PopupSize".into()
+    }
+
+    fn json_schema(_generator: &mut schemars::SchemaGenerator) -> schemars::Schema {
+        schemars::json_schema!({
+            "oneOf": [
+                {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 65535,
+                    "description": "Outer popup size in terminal cells, including the border."
+                },
+                {
+                    "type": "string",
+                    "pattern": "^(100|[1-9][0-9]?)%$",
+                    "description": "Outer popup size as a percentage of the terminal area, for example 80%."
+                }
+            ]
+        })
+    }
+}
+
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default, schemars::JsonSchema,
+)]
+#[serde(rename_all = "snake_case")]
+pub enum PluginManifestDialect {
+    #[default]
+    Gardn,
+    HerdrV1,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct PluginManifestBuild {
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1307,6 +1438,10 @@ pub struct PluginManifestPane {
     pub platforms: Option<Vec<PluginPlatform>>,
     #[serde(default)]
     pub placement: PluginPanePlacement,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub width: Option<PopupSize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub height: Option<PopupSize>,
     pub command: Vec<String>,
 }
 
@@ -1451,6 +1586,10 @@ pub struct PluginPaneOpenParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub placement: Option<PluginPanePlacement>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub width: Option<PopupSize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub height: Option<PopupSize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub workspace_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub target_pane_id: Option<String>,
@@ -1471,6 +1610,7 @@ pub struct PluginPaneOpenParams {
 pub enum PluginPanePlacement {
     #[default]
     Overlay,
+    Popup,
     Split,
     Tab,
     Zoomed,
@@ -3311,6 +3451,7 @@ mod tests {
             name: "Workspace Bootstrap".into(),
             version: "1.0.0".into(),
             min_gardn_version: "0.1.0".into(),
+            manifest_dialect: PluginManifestDialect::HerdrV1,
             description: Some("Create useful workspaces".into()),
             manifest_path: "/plugins/workspace-bootstrap/gardn-plugin.toml".into(),
             plugin_root: "/plugins/workspace-bootstrap".into(),
@@ -3340,5 +3481,30 @@ mod tests {
         assert!(json.contains("\"type\":\"plugin_linked\""));
         let restored: SuccessResponse = serde_json::from_str(&json).unwrap();
         assert_eq!(restored, response);
+    }
+    #[test]
+    fn popup_pane_request_round_trips_dimensions() {
+        let request = PluginPaneOpenParams {
+            plugin_id: "example.popup".into(),
+            entrypoint: "status".into(),
+            placement: Some(PluginPanePlacement::Popup),
+            width: Some(PopupSize::Percent(80)),
+            height: Some(PopupSize::Cells(12)),
+            workspace_id: None,
+            target_pane_id: None,
+            direction: None,
+            cwd: None,
+            focus: true,
+            env: HashMap::new(),
+        };
+
+        let json = serde_json::to_value(&request).unwrap();
+        assert_eq!(json["placement"], "popup");
+        assert_eq!(json["width"], "80%");
+        assert_eq!(json["height"], 12);
+        assert_eq!(
+            serde_json::from_value::<PluginPaneOpenParams>(json).unwrap(),
+            request
+        );
     }
 }

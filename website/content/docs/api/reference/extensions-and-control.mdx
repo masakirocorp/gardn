@@ -419,9 +419,9 @@ The API handler calls the single-target uninstall path. In particular, unlike `i
 
 Plugin commands are not sandboxed. A plugin action, event hook, build command when run by another surface, and plugin pane command can execute as the current user. Action commands use the plugin root as their working directory. Pane commands use the plugin root unless `cwd` overrides it. The API only links and exposes manifests; `plugin.link` does not run a manifest build command.
 
-A manifest is loaded from `gardn-plugin.toml`. Plugin IDs are trimmed, non-empty, at most 120 characters, and contain only ASCII letters, digits, `:`, `.`, `_`, and `-`. Local action, pane, and link-handler IDs are trimmed, non-empty, at most 120 characters, and contain only ASCII letters, digits, `:`, `_`, and `-` (no dot). Platform values are `linux`, `macos`, and `windows`.
+A manifest is loaded from `gardn-plugin.toml` or a Herdr v0.8.2 compatibility manifest named `herdr-plugin.toml`. Gardn manifests require `min_gardn_version`; Herdr manifests require `min_herdr_version`. Plugin IDs are trimmed, non-empty, at most 120 characters, and contain only ASCII letters, digits, `:`, `.`, `_`, and `-`. Local action, pane, and link-handler IDs are trimmed, non-empty, at most 120 characters, and contain only ASCII letters, digits, `:`, `_`, and `-` (no dot). Platform values are `linux`, `macos`, and `windows`.
 
-An installed plugin record contains `plugin_id`, `name`, `version`, `min_gardn_version`, optional `description`, `manifest_path`, `plugin_root`, `enabled`, optional plugin `platforms`, arrays `build`, `actions`, `events`, `panes`, and `link_handlers`, `source`, and `warnings`. A missing source manifest is retained with a warning beginning `manifest unavailable: `; action listing skips it and action/pane execution rejects it.
+An installed plugin record contains `plugin_id`, `name`, `version`, `min_gardn_version`, `manifest_dialect`, optional `description`, `manifest_path`, `plugin_root`, `enabled`, optional plugin `platforms`, arrays `build`, `startup`, `actions`, `events`, `panes`, and `link_handlers`, `source`, and `warnings`. A missing source manifest is retained with a warning beginning `manifest unavailable: `; action listing skips it and action/pane execution rejects it.
 
 ### `plugin.link`
 
@@ -435,26 +435,26 @@ Loads and registers one plugin manifest. If the ID is already registered, the ne
 | `enabled` | `boolean`                  | `true`   | Whether actions, event hooks, and panes may run.                                                                                                                                                                                                                                                       |
 | `source`  | `PluginSourceInfo \| null` | `null`   | Optional provenance. `kind` is `local` (default) or `github`; optional fields are `owner`, `repo`, `subdir`, `requested_ref`, `resolved_commit`, `managed_path`, and `installed_unix_ms`. GitHub sources require a canonical `managed_path` under the managed plugin directory matching the plugin ID. |
 
-Manifest validation also requires non-empty `name`, `version`, and semantic `min_gardn_version`, non-empty command argv, valid platform names, unique action/pane/link-handler IDs, valid link-handler regexes, and link handlers that reference an existing action. Unknown event names are retained as warnings; only known hook event kinds execute.
+Manifest validation also requires non-empty `name`, `version`, and the dialect-specific semantic minimum version, non-empty command argv, valid platform names, unique action/pane/link-handler IDs, valid link-handler regexes, and link handlers that reference an existing action. Popup dimensions are valid only for popup placement. Unknown event names are retained as warnings; only known hook event kinds execute.
 
 **Success:** `ResponseResult::PluginLinked`, discriminator `"plugin_linked"`, with `plugin: InstalledPluginInfo`.
 
-| Error                                                                                                                                    | Meaning                                                                  |
-| ---------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
-| `plugin_manifest_not_found`                                                                                                              | The path could not be canonicalized.                                     |
-| `invalid_plugin_manifest_path`                                                                                                           | The canonical manifest has no parent directory.                          |
-| `plugin_manifest_read_failed`                                                                                                            | The manifest could not be read.                                          |
-| `plugin_manifest_parse_failed`                                                                                                           | TOML parsing failed.                                                     |
-| `invalid_plugin_id`, `invalid_plugin_name`, `invalid_plugin_version`, `invalid_plugin_min_gardn_version`                                 | A required identity/version field is invalid.                            |
-| `plugin_requires_newer_gardn`                                                                                                            | The manifest requires a newer Gardn release.                             |
-| `invalid_plugin_platform`                                                                                                                | A platform name is unknown or `platforms` is an empty array.             |
-| `invalid_plugin_command`                                                                                                                 | A command is empty or contains an empty argv string.                     |
-| `invalid_plugin_action_id`, `invalid_plugin_action_title`, `invalid_plugin_pane_id`, `invalid_plugin_pane_title`, `invalid_plugin_event` | A manifest member has an invalid ID, title, or event name.               |
-| `duplicate_plugin_action_id`, `duplicate_plugin_pane_id`, `duplicate_plugin_link_handler_id`                                             | A manifest contains duplicate IDs.                                       |
-| `invalid_plugin_link_handler_pattern`, `invalid_plugin_link_handler_action`                                                              | A link-handler pattern or action reference is invalid.                   |
-| `invalid_plugin_source`                                                                                                                  | Supplied provenance is inconsistent or its managed path is invalid.      |
-| `plugin_registry_save_failed`                                                                                                            | `plugins.json` could not be written; the previous record is restored.    |
-| `server_unavailable`                                                                                                                     | Shutdown was already in progress or the request could not be dispatched. |
+| Error                                                                                                                                        | Meaning                                                                  |
+| -------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| `plugin_manifest_not_found`                                                                                                                  | The path could not be canonicalized.                                     |
+| `invalid_plugin_manifest_path`                                                                                                               | The canonical manifest has no parent directory.                          |
+| `plugin_manifest_read_failed`                                                                                                                | The manifest could not be read.                                          |
+| `plugin_manifest_parse_failed`                                                                                                               | TOML parsing failed.                                                     |
+| `invalid_plugin_id`, `invalid_plugin_name`, `invalid_plugin_version`, `invalid_plugin_min_gardn_version`, `invalid_plugin_min_herdr_version` | A required identity/version field is invalid.                            |
+| `plugin_requires_newer_gardn`, `plugin_requires_newer_herdr`                                                                                 | The manifest requires an unsupported newer runtime.                      |
+| `invalid_plugin_platform`                                                                                                                    | A platform name is unknown or `platforms` is an empty array.             |
+| `invalid_plugin_command`                                                                                                                     | A command is empty or contains an empty argv string.                     |
+| `invalid_plugin_action_id`, `invalid_plugin_action_title`, `invalid_plugin_pane_id`, `invalid_plugin_pane_title`, `invalid_plugin_event`     | A manifest member has an invalid ID, title, or event name.               |
+| `duplicate_plugin_action_id`, `duplicate_plugin_pane_id`, `duplicate_plugin_link_handler_id`                                                 | A manifest contains duplicate IDs.                                       |
+| `invalid_plugin_link_handler_pattern`, `invalid_plugin_link_handler_action`                                                                  | A link-handler pattern or action reference is invalid.                   |
+| `invalid_plugin_source`                                                                                                                      | Supplied provenance is inconsistent or its managed path is invalid.      |
+| `plugin_registry_save_failed`                                                                                                                | `plugins.json` could not be written; the previous record is restored.    |
+| `server_unavailable`                                                                                                                         | Shutdown was already in progress or the request could not be dispatched. |
 
 ```json
 {"id":"link-1","method":"plugin.link","params":{"path":"/home/me/plugins/workspace-tools"}}
@@ -619,7 +619,7 @@ Each `PluginCommandLogInfo` contains `log_id`, `plugin_id`, optional `action_id`
 
 ### `plugin.pane.open`
 
-Opens a pane declared by a plugin manifest. The process runs as the current user. Split, tab, and zoomed placements create ordinary session panes; overlay placement creates a detached popup runtime owned by the requesting client view. The server records plugin attribution and emits `pane.created` (and `tab.created` for `tab` placement) before returning the success response.
+Opens a pane declared by a plugin manifest. The process runs as the current user. Split, tab, and zoomed placements create ordinary session panes; overlay and popup placement create a detached popup runtime owned by the requesting client view. The server records plugin attribution and emits `pane.created` (and `tab.created` for `tab` placement) before returning the success response.
 
 **Params:** `PluginPaneOpenParams`.
 
@@ -627,7 +627,9 @@ Opens a pane declared by a plugin manifest. The process runs as the current user
 | ---------------- | ----------------------------- | --------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
 | `plugin_id`      | `string`                      | required                                | Normalized plugin ID.                                                                                      |
 | `entrypoint`     | `string`                      | required                                | Local pane ID declared in the manifest.                                                                    |
-| `placement`      | `PluginPanePlacement \| null` | manifest placement, otherwise `overlay` | `overlay`, `split`, `tab`, or `zoomed`.                                                                    |
+| `placement`      | `PluginPanePlacement \| null` | manifest placement, otherwise `overlay` | `overlay`, `popup`, `split`, `tab`, or `zoomed`.                                                           |
+| `width`          | `PopupSize \| null`           | manifest popup width                    | Popup outer width in cells or a percentage such as `"80%"`. Valid only for `popup`.                        |
+| `height`         | `PopupSize \| null`           | manifest popup height                   | Popup outer height in cells or a percentage such as `"80%"`. Valid only for `popup`.                       |
 | `workspace_id`   | `string \| null`              | `null`                                  | Only used by `tab`; selects the workspace for a new tab.                                                   |
 | `target_pane_id` | `string \| null`              | current public pane for split/zoomed    | Existing pane to split.                                                                                    |
 | `direction`      | `SplitDirection \| null`      | `right` for split/zoomed                | `right` or `down`.                                                                                         |
@@ -640,13 +642,14 @@ Placement constraints:
 | Placement | Allowed targeting fields and behavior                                                                                                               |
 | --------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `overlay` | Rejects `workspace_id`, `target_pane_id`, and `direction`; opens against the requesting client's active workspace as a client-owned detached popup. |
+| `popup`   | Rejects `workspace_id`, `target_pane_id`, and `direction`; opens a client-owned detached popup and accepts `width` and `height`.                    |
 | `split`   | Rejects `workspace_id`; uses `target_pane_id` or the current public pane, and defaults `direction` to `right`.                                      |
 | `zoomed`  | Same target and direction rules as `split`, then marks the tab zoomed and focuses it.                                                               |
 | `tab`     | Allows `workspace_id` but rejects `target_pane_id` and `direction`; creates a tab in the named workspace or active workspace.                       |
 
-The plugin manifest's pane platform list overrides its plugin platform list. The launch environment removes caller attempts to set protected `GARDN_*` keys (`PLUGIN_ID`, `PLUGIN_ROOT`, `PLUGIN_CONFIG_DIR`, `PLUGIN_STATE_DIR`, `PLUGIN_ENTRYPOINT_ID`, `PLUGIN_CONTEXT_JSON`, and `BIN_PATH`) and replaces them with server values. The environment also includes the pane context JSON and entrypoint ID.
+The plugin manifest's pane platform list overrides its plugin platform list. The launch environment removes caller attempts to set protected `GARDN_*` and `HERDR_*` identity, path, context, executable, socket, and environment keys, then replaces them with server values.
 
-Only the client view that opened an overlay popup can see, focus, or close it through these methods. A second overlay request from that client replaces its current popup. The popup closes and its runtime and plugin attribution are removed when the owner closes it, disconnects, or the popup process exits. Other attached clients receive `plugin_pane_not_found` for that popup id. These ownership rules do not apply to split, tab, or zoomed plugin panes.
+Only the client view that opened an overlay or popup can see, focus, or close it through these methods. A second request from that client replaces its current popup. The popup closes and its runtime and plugin attribution are removed when the owner closes it, disconnects, or the popup process exits. Other attached clients receive `plugin_pane_not_found` for that popup id. These ownership rules do not apply to split, tab, or zoomed plugin panes.
 
 **Success:** `ResponseResult::PluginPaneOpened`, discriminator `"plugin_pane_opened"`, with `plugin_pane: PluginPaneInfo` containing `plugin_id`, `entrypoint`, and the standard `pane: PaneInfo` descriptor.
 

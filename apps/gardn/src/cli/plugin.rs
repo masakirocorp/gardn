@@ -10,7 +10,8 @@ use crate::api::schema::{
     PluginActionListParams, PluginInvocationContext, PluginLinkParams, PluginListParams,
     PluginLogListParams, PluginPaneCloseParams, PluginPaneFocusParams, PluginPaneOpenParams,
     PluginPanePlacement, PluginPlatform, PluginSetEnabledParams, PluginSourceInfo,
-    PluginSourceKind, PluginUnlinkParams, Request, ResponseResult, SplitDirection, SuccessResponse,
+    PluginSourceKind, PluginUnlinkParams, PopupSize, Request, ResponseResult, SplitDirection,
+    SuccessResponse,
 };
 
 const PLUGIN_BUILD_OUTPUT_MAX_BYTES: usize = 64 * 1024;
@@ -473,6 +474,8 @@ fn plugin_pane_open(args: &[String]) -> std::io::Result<i32> {
     let mut plugin_id = None;
     let mut entrypoint = None;
     let mut placement = None;
+    let mut width = None;
+    let mut height = None;
     let mut workspace_id = None;
     let mut target_pane_id = None;
     let mut direction = None;
@@ -503,6 +506,30 @@ fn plugin_pane_open(args: &[String]) -> std::io::Result<i32> {
                     return Ok(2);
                 };
                 placement = Some(parsed);
+            }
+            "--width" => {
+                let Some(value) = required_value(args, &mut index, "--width") else {
+                    return Ok(2);
+                };
+                width = match PopupSize::parse_cli(&value) {
+                    Ok(size) => Some(size),
+                    Err(err) => {
+                        eprintln!("invalid popup width: {err}");
+                        return Ok(2);
+                    }
+                };
+            }
+            "--height" => {
+                let Some(value) = required_value(args, &mut index, "--height") else {
+                    return Ok(2);
+                };
+                height = match PopupSize::parse_cli(&value) {
+                    Ok(size) => Some(size),
+                    Err(err) => {
+                        eprintln!("invalid popup height: {err}");
+                        return Ok(2);
+                    }
+                };
             }
             "--workspace" => {
                 let Some(value) = required_value(args, &mut index, "--workspace") else {
@@ -572,6 +599,8 @@ fn plugin_pane_open(args: &[String]) -> std::io::Result<i32> {
         plugin_id,
         entrypoint,
         placement,
+        width,
+        height,
         workspace_id,
         target_pane_id,
         direction,
@@ -621,6 +650,7 @@ fn required_value(args: &[String], index: &mut usize, flag: &str) -> Option<Stri
 fn parse_pane_placement(value: &str) -> Option<PluginPanePlacement> {
     match value {
         "overlay" => Some(PluginPanePlacement::Overlay),
+        "popup" => Some(PluginPanePlacement::Popup),
         "split" => Some(PluginPanePlacement::Split),
         "tab" => Some(PluginPanePlacement::Tab),
         "zoomed" | "fullscreen" => Some(PluginPanePlacement::Zoomed),
@@ -1612,7 +1642,9 @@ fn print_plugin_action_help() {
 
 fn print_plugin_pane_help() {
     eprintln!("gardn plugin pane commands:");
-    eprintln!("  gardn plugin pane open --plugin ID --entrypoint ID [--placement overlay|split|tab|zoomed] [--workspace ID] [--target-pane PANE] [--direction right|down] [--cwd PATH] [--env KEY=VALUE] [--focus|--no-focus]");
+    eprintln!(
+        "  gardn plugin pane open --plugin ID --entrypoint ID [--placement overlay|popup|split|tab|zoomed] [--width CELLS|PERCENT] [--height CELLS|PERCENT] [--workspace ID] [--target-pane PANE] [--direction right|down] [--cwd PATH] [--env KEY=VALUE] [--focus|--no-focus]"
+    );
     eprintln!("  gardn plugin pane focus <pane_id>");
     eprintln!("  gardn plugin pane close <pane_id>");
 }
@@ -1632,6 +1664,7 @@ mod tests {
             name: "Test Plugin".to_string(),
             version: "0.1.0".to_string(),
             min_gardn_version: "0.1.0".to_string(),
+            manifest_dialect: Default::default(),
             description: None,
             manifest_path: format!("/tmp/{id}/gardn-plugin.toml"),
             plugin_root: format!("/tmp/{id}"),

@@ -11,7 +11,7 @@ This page specifies the manifest format accepted by Gardn plugin v1. It describe
 
 ## Manifest file and top-level fields
 
-The manifest filename is `gardn-plugin.toml` at the plugin root.
+Gardn also accepts a Herdr v0.8.2 manifest named `herdr-plugin.toml`. It uses `min_herdr_version` instead of `min_gardn_version`. Both compatibility keys are required by their respective dialect and may not require a version newer than their supported runtime.
 
 The top-level table has these fields:
 
@@ -117,10 +117,11 @@ The supported event names are:
 - `title` is a trimmed, non-empty pane title.
 - `description` is optional.
 - `platforms` overrides the plugin-level list when present.
-- `placement` defaults to `overlay` and may be `overlay`, `split`, `tab`, or `zoomed`.
+- `placement` defaults to `overlay` and may be `overlay`, `popup`, `split`, `tab`, or `zoomed`.
+- `width` and `height` are optional only for `popup`. Each is an outer popup size in terminal cells or a percentage string such as `"80%"`.
 - `command` is the direct argv command for the pane process.
 
-The pane command's default working directory is the plugin root. A pane-open request can select a working-directory override, placement, focus behavior, split target/direction, workspace, and additional environment entries. Gardn rejects placement parameters that do not apply to the selected placement.
+The pane command's default working directory is the plugin root. A pane-open request can select a working-directory override, placement, popup dimensions, focus behavior, split target/direction, workspace, and additional environment entries. Gardn rejects placement parameters that do not apply to the selected placement.
 
 Plugin pane commands run only on the Local execution host in plugin v1. If the selected Workspace or source pane resolves to an SSH execution host, Gardn rejects the request with `unsupported_execution_host` before it creates a pane.
 
@@ -148,7 +149,10 @@ Builds and runtime commands use the plugin root as their working directory unles
 - `GARDN_PLUGIN_CONTEXT_JSON`, containing the invocation or lifecycle context;
 - `GARDN_BIN_PATH` and `GARDN_SOCKET_PATH`, pointing to the running Gardn executable and local API socket when available;
 - action/event metadata such as `GARDN_PLUGIN_ACTION_ID`, `GARDN_PLUGIN_EVENT`, and `GARDN_PLUGIN_EVENT_JSON` when applicable;
+
 - `GARDN_WORKSPACE_ID`, `GARDN_TAB_ID`, `GARDN_PANE_ID`, `GARDN_PLUGIN_CLICKED_URL`, and `GARDN_PLUGIN_LINK_HANDLER_ID` when those context values exist.
+
+Herdr v0.8.2 manifests receive equivalent protected `HERDR_*` names. These aliases include `HERDR_ENV`, `HERDR_SOCKET_PATH`, plugin path and identity values, invocation context, executable path, and applicable action, event, workspace, tab, and pane values. Plugin pane environment overrides cannot replace either protected Gardn or Herdr keys.
 
 `GARDN_PLUGIN_CONFIG_DIR` and `GARDN_PLUGIN_STATE_DIR` are per-plugin directories for configuration and state. Gardn also supplies `GARDN_ENV=1`.
 

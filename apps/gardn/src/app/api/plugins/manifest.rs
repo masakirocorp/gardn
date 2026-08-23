@@ -1,19 +1,47 @@
 use crate::api::schema::{
-    InstalledPluginInfo, PluginManifestAction, PluginManifestBuild, PluginManifestEventHook,
+    InstalledPluginInfo, PluginManifestAction, PluginManifestBuild,
+    PluginManifestDialect as ApiPluginManifestDialect, PluginManifestEventHook,
     PluginManifestLinkHandler, PluginManifestPane, PluginManifestStartup, PluginPanePlacement,
-    PluginPlatform, PluginSourceInfo, PluginSourceKind,
+    PluginPlatform, PluginSourceInfo, PluginSourceKind, PopupSize,
 };
 
+const HERDR_PLUGIN_V1_COMPAT_VERSION: &str = "0.8.2";
 const PLUGIN_ID_MAX_CHARS: usize = 120;
 const PLUGIN_ACTION_ID_MAX_CHARS: usize = 120;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum PluginManifestDialect {
+    Gardn,
+    HerdrV1,
+}
+
+impl PluginManifestDialect {
+    pub(crate) fn from_manifest_path(
+        path: &std::path::Path,
+    ) -> Result<Self, (&'static str, String)> {
+        match path.file_name().and_then(std::ffi::OsStr::to_str) {
+            Some("gardn-plugin.toml") => Ok(Self::Gardn),
+            Some("herdr-plugin.toml") => Ok(Self::HerdrV1),
+            _ => Err((
+                "invalid_plugin_manifest_path",
+                "plugin manifest must be named gardn-plugin.toml or herdr-plugin.toml".to_string(),
+            )),
+        }
+    }
+
+    pub(crate) fn manifest_filename(self) -> &'static str {
+        match self {
+            Self::Gardn => "gardn-plugin.toml",
+            Self::HerdrV1 => "herdr-plugin.toml",
+        }
+    }
+}
 
 #[derive(serde::Deserialize)]
 struct RawPluginManifest {
     id: String,
     name: String,
     version: String,
-    #[serde(default)]
-    min_gardn_version: Option<String>,
     #[serde(default)]
     description: Option<String>,
     #[serde(default)]
@@ -30,6 +58,22 @@ struct RawPluginManifest {
     panes: Vec<RawPluginManifestPane>,
     #[serde(default)]
     link_handlers: Vec<RawPluginManifestLinkHandler>,
+}
+
+#[derive(serde::Deserialize)]
+struct RawGardnPluginManifest {
+    #[serde(flatten)]
+    manifest: RawPluginManifest,
+    #[serde(default)]
+    min_gardn_version: Option<String>,
+}
+
+#[derive(serde::Deserialize)]
+struct RawHerdrPluginManifest {
+    #[serde(flatten)]
+    manifest: RawPluginManifest,
+    #[serde(default)]
+    min_herdr_version: Option<String>,
 }
 #[derive(serde::Deserialize)]
 struct RawPluginManifestBuild {
@@ -76,6 +120,10 @@ struct RawPluginManifestPane {
     platforms: Option<Vec<RawPlatform>>,
     #[serde(default)]
     placement: PluginPanePlacement,
+    #[serde(default)]
+    width: Option<PopupSize>,
+    #[serde(default)]
+    height: Option<PopupSize>,
     command: Vec<String>,
 }
 
@@ -115,13 +163,19 @@ pub(crate) fn load_plugin_manifest(
 ) -> Result<InstalledPluginInfo, (&'static str, String)> {
     let path = std::path::PathBuf::from(path);
     let manifest_path = if path.is_dir() {
-        path.join("gardn-plugin.toml")
+        let gardn_manifest = path.join(PluginManifestDialect::Gardn.manifest_filename());
+        if gardn_manifest.exists() {
+            gardn_manifest
+        } else {
+            path.join(PluginManifestDialect::HerdrV1.manifest_filename())
+        }
     } else {
         path
     };
     let manifest_path = manifest_path
         .canonicalize()
         .map_err(|err| ("plugin_manifest_not_found", err.to_string()))?;
+    let dialect = PluginManifestDialect::from_manifest_path(&manifest_path)?;
     let plugin_root = manifest_path
         .parent()
         .ok_or_else(|| {
@@ -133,8 +187,24 @@ pub(crate) fn load_plugin_manifest(
         .to_path_buf();
     let content = std::fs::read_to_string(&manifest_path)
         .map_err(|err| ("plugin_manifest_read_failed", err.to_string()))?;
-    let raw: RawPluginManifest = toml::from_str(&content)
-        .map_err(|err| ("plugin_manifest_parse_failed", err.to_string()))?;
+    let (raw, min_gardn_version) = match dialect {
+        PluginManifestDialect::Gardn => {
+            let raw: RawGardnPluginManifest = toml::from_str(&content)
+                .map_err(|err| ("plugin_manifest_parse_failed", err.to_string()))?;
+            (
+                raw.manifest,
+                validate_plugin_min_version(raw.min_gardn_version.as_deref())?,
+            )
+        }
+        PluginManifestDialect::HerdrV1 => {
+            let raw: RawHerdrPluginManifest = toml::from_str(&content)
+                .map_err(|err| ("plugin_manifest_parse_failed", err.to_string()))?;
+            (
+                raw.manifest,
+                validate_min_herdr_version(raw.min_herdr_version.as_deref())?,
+            )
+        }
+    };
     let plugin_id = normalize_plugin_id(&raw.id)
         .ok_or_else(|| ("invalid_plugin_id", "invalid plugin id".to_string()))?;
     let name = non_empty_trimmed(&raw.name, "invalid_plugin_name", "plugin name is required")?;
@@ -143,7 +213,6 @@ pub(crate) fn load_plugin_manifest(
         "invalid_plugin_version",
         "plugin version is required",
     )?;
-    let min_gardn_version = validate_plugin_min_version(raw.min_gardn_version.as_deref())?;
     let description = raw
         .description
         .map(|description| description.trim().to_string())
@@ -204,6 +273,10 @@ pub(crate) fn load_plugin_manifest(
         name,
         version,
         min_gardn_version,
+        manifest_dialect: match dialect {
+            PluginManifestDialect::Gardn => ApiPluginManifestDialect::Gardn,
+            PluginManifestDialect::HerdrV1 => ApiPluginManifestDialect::HerdrV1,
+        },
         description,
         startup,
         manifest_path: manifest_path.display().to_string(),
@@ -254,6 +327,39 @@ fn validate_min_gardn_version(value: &str) -> Result<String, (&'static str, Stri
         return Err((
             "plugin_requires_newer_gardn",
             format!("plugin requires Gardn {required} or newer; current Gardn is {current}"),
+        ));
+    }
+    Ok(required.to_string())
+}
+
+fn validate_min_herdr_version(
+    min_herdr_version: Option<&str>,
+) -> Result<String, (&'static str, String)> {
+    let value = min_herdr_version.ok_or_else(|| {
+        (
+            "invalid_plugin_min_herdr_version",
+            "plugin min_herdr_version is required".to_string(),
+        )
+    })?;
+    let value = non_empty_trimmed(
+        value,
+        "invalid_plugin_min_herdr_version",
+        "plugin min_herdr_version is required",
+    )?;
+    let required = crate::update::Version::parse(&value).ok_or_else(|| {
+        (
+            "invalid_plugin_min_herdr_version",
+            "plugin min_herdr_version must be a semantic version like 0.8.2".to_string(),
+        )
+    })?;
+    let supported = crate::update::Version::parse(HERDR_PLUGIN_V1_COMPAT_VERSION)
+        .expect("Herdr plugin compatibility version is valid");
+    if required > supported {
+        return Err((
+            "plugin_requires_newer_herdr",
+            format!(
+                "plugin requires Herdr plugin API {required} or newer; Gardn supports Herdr plugin API {supported}"
+            ),
         ));
     }
     Ok(required.to_string())
@@ -424,12 +530,22 @@ fn normalize_manifest_pane(
         .filter(|description| !description.is_empty());
     let platforms = normalize_platforms(pane.platforms)?;
     let command = normalize_command(pane.command)?;
+    if pane.placement != PluginPanePlacement::Popup
+        && (pane.width.is_some() || pane.height.is_some())
+    {
+        return Err((
+            "invalid_plugin_pane_size",
+            "pane width and height are only supported when placement is popup".to_string(),
+        ));
+    }
     Ok(PluginManifestPane {
         id,
         title,
         description,
         platforms,
         placement: pane.placement,
+        width: pane.width,
+        height: pane.height,
         command,
     })
 }

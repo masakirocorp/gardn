@@ -22,6 +22,18 @@ ALLOWED_PROVENANCE = (
     "herdrdev/" + RETIRED_UPSTREAM_NAME,
 )
 
+COMPATIBILITY_PATHS = {
+    "apps/gardn/src/app/api/plugins/env.rs",
+    "apps/gardn/src/app/api/plugins/manifest.rs",
+    "apps/gardn/src/app/api/plugins/mod.rs",
+    "apps/gardn/src/app/api/plugins/panes.rs",
+    "apps/gardn/src/app/api/plugins/runtime.rs",
+    "crates/gardn-local-api/src/lib.rs",
+    "docs/features.md",
+    "website/content/docs/api/reference/extensions-and-control.mdx",
+    "website/content/docs/reference/plugin-manifest.mdx",
+}
+
 ALLOWED_GUARD_LITERALS = (
     "HER" + "DR_",
     RETIRED_UPSTREAM_NAME + "-dev",
@@ -59,6 +71,9 @@ def scrub_allowed_provenance(path: Path, text: str) -> str:
     if path == REPO_ROOT / "scripts/guard_upstream_sync.py":
         for allowed in ALLOWED_GUARD_LITERALS:
             text = text.replace(allowed, "")
+    relative_path = path.relative_to(REPO_ROOT).as_posix()
+    if relative_path in COMPATIBILITY_PATHS:
+        text = re.sub(rf"(?i){RETIRED_UPSTREAM_NAME}(?=_|\b)", "", text)
     return text
 
 

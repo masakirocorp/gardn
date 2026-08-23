@@ -285,15 +285,15 @@ Integration path overrides include `PI_CODING_AGENT_DIR`, `PI_CONFIG_DIR`, `CLAU
 
 Gardn plugin v1 lets local extensions add actions, panes, link handlers, and event hooks through the Gardn socket API and CLI.
 
-Plugin manifests use `gardn-plugin.toml` with `min_gardn_version`. Gardn does not accept compatibility aliases for the manifest filename or version field.
+Plugin manifests use `gardn-plugin.toml` with `min_gardn_version`, or Herdr v0.8.2 compatibility manifests use `herdr-plugin.toml` with `min_herdr_version`.
 
 Plugins run unsandboxed as the current user. Remote installs show source, build commands, actions, panes, link handlers, and event hooks before install, and require confirmation unless `--yes` is passed.
 
 Installed and linked plugins live in one user-level registry shared by the default and named sessions. Legacy per-session registries migrate into that global registry, and registry entries survive live server handoff.
 `gardn plugin install`, `gardn plugin uninstall`, `gardn plugin link`, and `gardn plugin list` can read or update the registry while no server is running. Runtime operations such as actions, hooks, panes, enable/disable, and `plugin unlink` still require the server.
-Enabled, platform-compatible `[[startup]]` commands run once when the server starts. Refreshing plugin manifests does not replay them.
-Plugin panes support overlay, split, tab, and zoomed placement on the Local execution host. Plugin v1 rejects a pane whose selected Workspace or source pane resolves to an SSH execution host before it creates the pane. Overlay placement is a detached popup runtime owned by the requesting client: only that client can see, focus, or close it, opening another replaces its current popup, and `Esc` closes it. Split, tab, and zoomed placements are normal session panes; their attribution follows pane moves and is removed when tabs, workspaces, layouts, or plugins remove the pane.
-Plugin commands receive `GARDN_*` context variables, including plugin root/config/state directories and active workspace/tab/pane ids. Protected Gardn/plugin variables cannot be overwritten by plugin-provided env overrides.
+Enabled, platform-compatible `[[startup]]` commands run once after server readiness, including after live-handoff replacement. Refreshing plugin manifests does not replay them.
+Plugin panes support overlay, popup, split, tab, and zoomed placement on the Local execution host. Popup dimensions accept terminal cells or percentages and are valid only for popup placement. Plugin v1 rejects a pane whose selected Workspace or source pane resolves to an SSH execution host before it creates a pane. Overlay and popup placement use a detached runtime owned by the requesting client. Split, tab, and zoomed placements are normal session panes; their attribution follows pane moves and is removed when tabs, workspaces, layouts, or plugins remove the pane.
+Plugin commands receive protected dialect-compatible context variables. Gardn manifests use `GARDN_*`; Herdr v0.8.2 manifests also receive protected `HERDR_*` aliases that plugin-provided env overrides cannot replace.
 
 ## External tools
 

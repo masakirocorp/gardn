@@ -246,6 +246,7 @@ mod tests {
             panes: vec![],
             link_handlers: vec![],
             source: Default::default(),
+            manifest_dialect: Default::default(),
             warnings: vec![],
         }
     }
@@ -372,6 +373,7 @@ mod tests {
                 panes: vec![],
                 link_handlers: vec![],
                 source: Default::default(),
+                manifest_dialect: Default::default(),
                 warnings: vec![],
             })
         });

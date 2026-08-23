@@ -423,8 +423,17 @@ impl App {
             return crate::api::ApiRequestDisposition::Respond(encode_error(id, code, message));
         }
         let placement = params.placement.unwrap_or(pane.placement);
+        if placement != PluginPanePlacement::Popup
+            && (params.width.is_some() || params.height.is_some())
+        {
+            return crate::api::ApiRequestDisposition::Respond(encode_error(
+                id,
+                "invalid_plugin_pane_size",
+                "pane width and height are only supported when placement is popup",
+            ));
+        }
         match placement {
-            PluginPanePlacement::Overlay => {
+            PluginPanePlacement::Overlay | PluginPanePlacement::Popup => {
                 if params.workspace_id.is_some()
                     || params.target_pane_id.is_some()
                     || params.direction.is_some()
@@ -432,7 +441,7 @@ impl App {
                     return crate::api::ApiRequestDisposition::Respond(encode_error(
                         id,
                         "invalid_params",
-                        "overlay plugin panes target the active pane",
+                        "popup and overlay plugin panes target the active pane",
                     ));
                 }
             }
@@ -486,12 +495,14 @@ impl App {
         let location = match self.plugin_pane_target_location_for_view(view, placement, &params) {
             Ok(location) => location,
             Err((code, message)) => {
-                return crate::api::ApiRequestDisposition::Respond(encode_error(id, &code, message))
+                return crate::api::ApiRequestDisposition::Respond(encode_error(
+                    id, &code, message,
+                ));
             }
         };
 
         match placement {
-            PluginPanePlacement::Overlay => {
+            PluginPanePlacement::Overlay | PluginPanePlacement::Popup => {
                 self.open_plugin_popup_pane_for_view(view, id, params, &plugin, pane, location)
             }
             PluginPanePlacement::Split | PluginPanePlacement::Zoomed => {
@@ -1054,6 +1065,88 @@ action = "open"
     }
 
     #[test]
+    fn herdr_v1_manifest_loads_without_gardn_fields() {
+        let root = unique_temp_path("herdr-v1-manifest");
+        write_manifest_file(
+            &root,
+            "herdr-plugin.toml",
+            r#"
+id = "examples.herdr-v1"
+name = "Herdr v1"
+version = "0.1.0"
+min_herdr_version = "0.8.2"
+
+[[startup]]
+command = ["echo", "startup"]
+
+[[actions]]
+id = "status"
+title = "Status"
+command = ["echo", "status"]
+
+[[panes]]
+id = "popup"
+title = "Popup"
+placement = "popup"
+width = "80%"
+height = 12
+command = ["echo", "popup"]
+"#,
+        );
+
+        let plugin = load_plugin_manifest(&root.display().to_string(), true)
+            .expect("Herdr v1 manifest should load");
+
+        assert_eq!(plugin.plugin_id, "examples.herdr-v1");
+        assert_eq!(plugin.min_gardn_version, "0.8.2");
+        assert_eq!(plugin.startup[0].command, ["echo", "startup"]);
+        assert_eq!(plugin.actions[0].id, "status");
+        assert!(plugin.manifest_path.ends_with("herdr-plugin.toml"));
+        assert_eq!(
+            plugin.manifest_dialect,
+            crate::api::schema::PluginManifestDialect::HerdrV1
+        );
+        assert_eq!(plugin.panes[0].placement, PluginPanePlacement::Popup);
+        assert_eq!(
+            plugin.panes[0].width,
+            Some(crate::api::schema::PopupSize::Percent(80))
+        );
+        assert_eq!(
+            plugin.panes[0].height,
+            Some(crate::api::schema::PopupSize::Cells(12))
+        );
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn manifest_rejects_popup_dimensions_for_non_popup_panes() {
+        let root = unique_temp_path("invalid-pane-size");
+        write_manifest_file(
+            &root,
+            "gardn-plugin.toml",
+            r#"
+id = "examples.invalid-pane-size"
+name = "Invalid pane size"
+version = "0.1.0"
+min_gardn_version = "0.2.0"
+
+[[panes]]
+id = "overlay"
+title = "Overlay"
+placement = "overlay"
+width = "80%"
+command = ["echo", "overlay"]
+"#,
+        );
+
+        let error = load_plugin_manifest(&root.display().to_string(), true).unwrap_err();
+
+        assert_eq!(error.0, "invalid_plugin_pane_size");
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
     fn plugin_link_lists_and_unlinks_manifest() {
         let mut app = test_app();
         let root = unique_temp_path("plugin-link");
@@ -1402,9 +1495,11 @@ command = ["echo", " a", "first "]
 
     #[test]
     fn plugin_command_output_reader_caps_and_marks_truncation() {
-        let output = read_capped_plugin_output("abcdef".as_bytes(), 3);
+        let gardn = read_capped_plugin_output("abcdef".as_bytes(), 3, "Gardn");
+        let herdr = read_capped_plugin_output("abcdef".as_bytes(), 3, "herdr");
 
-        assert_eq!(output, "abc\n[Gardn truncated plugin output after 3 bytes]");
+        assert_eq!(gardn, "abc\n[Gardn truncated plugin output after 3 bytes]");
+        assert_eq!(herdr, "abc\n[herdr truncated plugin output after 3 bytes]");
     }
 
     #[test]
@@ -1453,6 +1548,8 @@ command = ["echo", " a", "first "]
                 direction: None,
                 cwd: None,
                 focus: false,
+                width: None,
+                height: None,
                 env: std::collections::HashMap::new(),
             }),
         });
@@ -1537,6 +1634,8 @@ title = "Plugin Board"
                     direction: None,
                     cwd: None,
                     focus: true,
+                    width: None,
+                    height: None,
                     env: std::collections::HashMap::new(),
                 },
             );
@@ -1676,6 +1775,8 @@ command = ["bash", "open.sh"]
                         .then_some(crate::api::schema::SplitDirection::Right),
                     cwd: None,
                     focus: true,
+                    width: None,
+                    height: None,
                     env: std::collections::HashMap::new(),
                 },
             );
@@ -1774,6 +1875,8 @@ command = ["sh", "-c", "printf '%s\n%s\n%s\n%s\n%s\n%s\n%s\n' \"$PWD\" \"$GARDN_
                         "/tmp/spoofed-gardn".to_string(),
                     ),
                 ]),
+                width: None,
+                height: None,
             }),
         });
         let ResponseResult::PluginPaneOpened { plugin_pane } = response_result(&open) else {
@@ -1880,6 +1983,8 @@ command = ["sh", "-c", "printf '%s\n%s\n%s\n' \"$GARDN_PLUGIN_ROOT\" \"$GARDN_PL
                         "/tmp/spoofed-state".to_string(),
                     ),
                 ]),
+                width: None,
+                height: None,
             }),
         });
         let ResponseResult::PluginPaneOpened { .. } = response_result(&open) else {
@@ -1974,6 +2079,8 @@ command = ["sh", "-c", "sleep 1"]
                 direction: None,
                 cwd: None,
                 focus: true,
+                width: None,
+                height: None,
                 env: std::collections::HashMap::new(),
             }),
         });
@@ -2129,6 +2236,8 @@ command = ["sh", "-c", "sleep 1"]
                 direction: None,
                 cwd: None,
                 focus: true,
+                width: None,
+                height: None,
                 env: std::collections::HashMap::new(),
             }),
         });

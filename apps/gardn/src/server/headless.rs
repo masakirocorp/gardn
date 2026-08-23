@@ -4558,6 +4558,7 @@ fn run_handoff_import_server(socket_path: &Path, token: &str) -> io::Result<()> 
         }
         info!("handoff import server started");
         print_ready_message(&api::socket_path(), &client_socket_path());
+        server.app.run_plugin_startup_hooks();
         server.run().await
     });
 
@@ -6848,7 +6849,11 @@ next_tab = ""
             .expect("client-visible restored tab should render a frame");
 
         assert!(
-            server.app.terminal_runtimes.get(&restored_terminal).is_some(),
+            server
+                .app
+                .terminal_runtimes
+                .get(&restored_terminal)
+                .is_some(),
             "rendering the client-visible restored tab should start its pending native-agent runtime"
         );
         assert!(

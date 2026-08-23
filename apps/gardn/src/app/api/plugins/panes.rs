@@ -61,13 +61,15 @@ impl App {
                     id,
                     "no_active_workspace",
                     "no active workspace",
-                ))
+                ));
             }
         };
         let launch = match resolve_plugin_pane_launch(plugin, params.cwd.as_deref(), &location) {
             Ok(plan) => plan,
             Err((code, message)) => {
-                return crate::api::ApiRequestDisposition::Respond(encode_error(id, &code, message))
+                return crate::api::ApiRequestDisposition::Respond(encode_error(
+                    id, &code, message,
+                ));
             }
         };
         let context = self.plugin_context_for_workspace(ws_idx, "plugin-pane");
@@ -77,7 +79,7 @@ impl App {
                 Err((code, message)) => {
                     return crate::api::ApiRequestDisposition::Respond(encode_error(
                         id, &code, message,
-                    ))
+                    ));
                 }
             };
 
@@ -86,7 +88,10 @@ impl App {
             &pane.command,
             Some(launch.cwd),
             extra_env,
-            crate::app::popup::PopupGeometry::default(),
+            crate::app::popup::PopupGeometry {
+                width: params.width.or(pane.width),
+                height: params.height.or(pane.height),
+            },
         ) {
             Ok(result) => result,
             Err(err) => {
@@ -94,7 +99,7 @@ impl App {
                     id,
                     "plugin_pane_open_failed",
                     err.to_string(),
-                ))
+                ));
             }
         };
         let entrypoint = pane.id.clone();
@@ -231,7 +236,9 @@ impl App {
         let launch = match resolve_plugin_pane_launch(plugin, params.cwd.as_deref(), &location) {
             Ok(plan) => plan,
             Err((code, message)) => {
-                return crate::api::ApiRequestDisposition::Respond(encode_error(id, &code, message))
+                return crate::api::ApiRequestDisposition::Respond(encode_error(
+                    id, &code, message,
+                ));
             }
         };
         let context = self.plugin_context_for_pane(ws_idx, target_pane, "plugin-pane");
@@ -241,7 +248,7 @@ impl App {
                 Err((code, message)) => {
                     return crate::api::ApiRequestDisposition::Respond(encode_error(
                         id, &code, message,
-                    ))
+                    ));
                 }
             };
         let direction = match params
@@ -281,7 +288,7 @@ impl App {
                     id,
                     "plugin_pane_open_failed",
                     err.to_string(),
-                ))
+                ));
             }
             None => {
                 return crate::api::ApiRequestDisposition::Respond(encode_error(
@@ -335,7 +342,7 @@ impl App {
                         id,
                         "workspace_not_found",
                         "workspace not found",
-                    ))
+                    ));
                 }
             },
             None => match self.state.active {
@@ -345,14 +352,16 @@ impl App {
                         id,
                         "no_active_workspace",
                         "no active workspace",
-                    ))
+                    ));
                 }
             },
         };
         let launch = match resolve_plugin_pane_launch(plugin, params.cwd.as_deref(), &location) {
             Ok(plan) => plan,
             Err((code, message)) => {
-                return crate::api::ApiRequestDisposition::Respond(encode_error(id, &code, message))
+                return crate::api::ApiRequestDisposition::Respond(encode_error(
+                    id, &code, message,
+                ));
             }
         };
         let context = self.plugin_context_for_workspace(ws_idx, "plugin-pane");
@@ -362,7 +371,7 @@ impl App {
                 Err((code, message)) => {
                     return crate::api::ApiRequestDisposition::Respond(encode_error(
                         id, &code, message,
-                    ))
+                    ));
                 }
             };
         let _ = view;
@@ -390,7 +399,7 @@ impl App {
                     id,
                     "plugin_pane_open_failed",
                     err.to_string(),
-                ))
+                ));
             }
         };
         let pane_id = ws.tabs[tab_idx].root_pane;
@@ -425,24 +434,48 @@ impl App {
             .map_err(|err| ("invalid_plugin_context".to_string(), err.to_string()))?;
         env.retain(|(key, _)| !plugin_pane_protected_env_key(key));
         env.extend(super::env::plugin_path_env(plugin));
+        env.push((
+            "HERDR_SOCKET_PATH".to_string(),
+            crate::api::socket_path().display().to_string(),
+        ));
+        env.push(("HERDR_ENV".to_string(), "1".to_string()));
         env.push(("GARDN_PLUGIN_ID".to_string(), plugin.plugin_id.clone()));
+        env.push(("HERDR_PLUGIN_ID".to_string(), plugin.plugin_id.clone()));
         env.push((
             "GARDN_PLUGIN_ENTRYPOINT_ID".to_string(),
             entrypoint.to_string(),
         ));
-        env.push(("GARDN_PLUGIN_CONTEXT_JSON".to_string(), context_json));
+        env.push((
+            "HERDR_PLUGIN_ENTRYPOINT_ID".to_string(),
+            entrypoint.to_string(),
+        ));
+        env.push((
+            "GARDN_PLUGIN_CONTEXT_JSON".to_string(),
+            context_json.clone(),
+        ));
+        env.push((
+            "HERDR_PLUGIN_CONTEXT_JSON".to_string(),
+            context_json.clone(),
+        ));
         if let Some(workspace_id) = context.workspace_id.as_ref() {
             env.push(("GARDN_WORKSPACE_ID".to_string(), workspace_id.clone()));
+            env.push(("HERDR_WORKSPACE_ID".to_string(), workspace_id.clone()));
         }
         if let Some(tab_id) = context.tab_id.as_ref() {
             env.push(("GARDN_TAB_ID".to_string(), tab_id.clone()));
+            env.push(("HERDR_TAB_ID".to_string(), tab_id.clone()));
         }
         if let Some(pane_id) = context.focused_pane_id.as_ref() {
             env.push(("GARDN_PANE_ID".to_string(), pane_id.clone()));
+            env.push(("HERDR_PANE_ID".to_string(), pane_id.clone()));
         }
         if let Ok(current_exe) = std::env::current_exe() {
             env.push((
                 "GARDN_BIN_PATH".to_string(),
+                current_exe.display().to_string(),
+            ));
+            env.push((
+                "HERDR_BIN_PATH".to_string(),
                 current_exe.display().to_string(),
             ));
         }
@@ -520,7 +553,7 @@ impl App {
         };
 
         match placement {
-            PluginPanePlacement::Overlay => {
+            PluginPanePlacement::Overlay | PluginPanePlacement::Popup => {
                 let ws_idx = view.active_workspace.ok_or_else(|| {
                     (
                         "no_active_workspace".to_string(),
@@ -601,15 +634,27 @@ fn plugin_pane_protected_env_key(key: &str) -> bool {
     matches!(
         key,
         "GARDN_PLUGIN_ID"
+            | "HERDR_PLUGIN_ID"
             | "GARDN_PLUGIN_ENTRYPOINT_ID"
+            | "HERDR_PLUGIN_ENTRYPOINT_ID"
             | "GARDN_PLUGIN_CONTEXT_JSON"
+            | "HERDR_PLUGIN_CONTEXT_JSON"
             | "GARDN_PLUGIN_ROOT"
+            | "HERDR_PLUGIN_ROOT"
             | "GARDN_PLUGIN_CONFIG_DIR"
+            | "HERDR_PLUGIN_CONFIG_DIR"
             | "GARDN_PLUGIN_STATE_DIR"
+            | "HERDR_PLUGIN_STATE_DIR"
             | "GARDN_WORKSPACE_ID"
+            | "HERDR_WORKSPACE_ID"
             | "GARDN_TAB_ID"
+            | "HERDR_TAB_ID"
             | "GARDN_PANE_ID"
+            | "HERDR_PANE_ID"
             | "GARDN_BIN_PATH"
+            | "HERDR_BIN_PATH"
+            | "HERDR_SOCKET_PATH"
+            | "HERDR_ENV"
     )
 }
 
@@ -636,6 +681,7 @@ mod tests {
             panes: Vec::new(),
             link_handlers: Vec::new(),
             source: Default::default(),
+            manifest_dialect: Default::default(),
             warnings: Vec::new(),
         }
     }
@@ -707,5 +753,21 @@ mod tests {
         }
         let local = resolve_plugin_pane_launch(&plugin, None, &local_location()).unwrap();
         assert_eq!(local.cwd, PathBuf::from(&plugin.plugin_root));
+    }
+    #[test]
+    fn herdr_launch_environment_keys_cannot_be_overridden() {
+        for key in [
+            "HERDR_SOCKET_PATH",
+            "HERDR_ENV",
+            "HERDR_PLUGIN_ID",
+            "HERDR_PLUGIN_ROOT",
+            "HERDR_PLUGIN_CONFIG_DIR",
+            "HERDR_PLUGIN_STATE_DIR",
+            "HERDR_PLUGIN_ENTRYPOINT_ID",
+            "HERDR_PLUGIN_CONTEXT_JSON",
+            "HERDR_BIN_PATH",
+        ] {
+            assert!(plugin_pane_protected_env_key(key), "{key}");
+        }
     }
 }
