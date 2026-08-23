@@ -919,13 +919,16 @@ fn clipped_placement(placement: &HostPlacement) -> Option<(ClippedPlacement, u32
     } else {
         0
     };
-    let top_clip_cells = if render.viewport_row < 0 {
-        render.viewport_row.saturating_neg() as u32
+    let viewport_row = render
+        .viewport_row
+        .saturating_add(placement.scrollback_offset.min(i32::MAX as u32) as i32);
+    let top_clip_cells = if viewport_row < 0 {
+        viewport_row.saturating_neg() as u32
     } else {
         0
     };
     let viewport_col = render.viewport_col.max(0) as u32;
-    let viewport_row = render.viewport_row.max(0) as u32;
+    let viewport_row = viewport_row.max(0) as u32;
     tracing::debug!(
         viewport_col = viewport_col,
         viewport_row = viewport_row,
@@ -1433,6 +1436,41 @@ mod tests {
         let redisplay = String::from_utf8_lossy(&bytes);
         assert!(!redisplay.contains("a=t"));
         assert!(redisplay.contains("a=p"));
+        assert!(redisplay.contains("\x1b[4;1H"));
+    }
+
+    #[test]
+    fn scrollback_offset_hides_placement_below_viewport() {
+        let mut images = HashMap::new();
+        let mut placements = HashMap::new();
+        let mut sources = HashMap::new();
+        let mut bytes = Vec::new();
+        let placement = test_placement(0, 0);
+
+        encode_graphics_update(
+            &mut bytes,
+            &[placement],
+            false,
+            &mut images,
+            &mut placements,
+            &mut sources,
+        );
+
+        bytes.clear();
+        let mut scrolled = test_placement(0, 0);
+        scrolled.scrollback_offset = 10;
+        encode_graphics_update(
+            &mut bytes,
+            &[scrolled],
+            false,
+            &mut images,
+            &mut placements,
+            &mut sources,
+        );
+
+        let redisplay = String::from_utf8_lossy(&bytes);
+        assert!(redisplay.contains("a=d,d=i"));
+        assert!(!redisplay.contains("a=p"));
     }
 
     #[test]
