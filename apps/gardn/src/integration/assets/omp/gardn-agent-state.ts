@@ -2,7 +2,7 @@
 // managed by Gardn; reinstalling or updating the integration overwrites this file.
 // add custom hooks/plugins beside this file instead of editing it.
 // GARDN_INTEGRATION_ID=omp
-// GARDN_INTEGRATION_VERSION=8
+// GARDN_INTEGRATION_VERSION=9
 // @ts-nocheck
 
 import net from "node:net";
@@ -541,8 +541,20 @@ export default function (pi) {
     publishState();
   }
 
+function isNonterminalAgentEnd(event: unknown): boolean {
+  return (
+    !!event
+    && typeof event === "object"
+    && "isTerminal" in event
+    && event.isTerminal === false
+  );
+}
+
   function markIdle(event?: unknown, ctx?: unknown) {
     if (!rootSessionActive(ctx)) {
+      return;
+    }
+    if (isNonterminalAgentEnd(event)) {
       return;
     }
     if (!activeAgents.delete(instanceId)) {
@@ -551,6 +563,7 @@ export default function (pi) {
       // cancel the retry hold and publish a false Idle.
       return;
     }
+
 
     const retryableMessage = retryableErrorMessage(event);
     if (retryableMessage) {

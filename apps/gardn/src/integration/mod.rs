@@ -19,7 +19,7 @@ const PI_EXTENSION_ASSET: &str = include_str!("assets/pi/gardn-agent-state.ts");
 const PI_INTEGRATION_VERSION: u32 = 7;
 const OMP_EXTENSION_INSTALL_NAME: &str = "gardn-omp-agent-state.ts";
 const OMP_EXTENSION_ASSET: &str = include_str!("assets/omp/gardn-agent-state.ts");
-const OMP_INTEGRATION_VERSION: u32 = 8;
+const OMP_INTEGRATION_VERSION: u32 = 9;
 const PI_CODING_AGENT_DIR_ENV_VAR: &str = "PI_CODING_AGENT_DIR";
 const OMP_CONFIG_DIR_ENV_VAR: &str = "PI_CONFIG_DIR";
 const CLAUDE_HOOK_INSTALL_NAME: &str = "gardn-agent-state.sh";
@@ -4323,7 +4323,7 @@ mod tests {
         assert_eq!(installed.extension_paths, vec![extension_path]);
         assert_eq!(content, OMP_EXTENSION_ASSET);
         assert!(content.contains("GARDN_INTEGRATION_ID=omp"));
-        assert!(content.contains("GARDN_INTEGRATION_VERSION=8"));
+        assert!(content.contains("GARDN_INTEGRATION_VERSION=9"));
         assert!(content.contains("agent: \"omp\""));
         assert!(!content.contains("agent: \"pi\""));
 
