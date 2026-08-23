@@ -838,7 +838,8 @@ impl App {
                     SettingsAction::SaveSwitchAsciiInputSourceInPrefix(enabled) => {
                         self.save_switch_ascii_input_source_in_prefix(enabled)
                     }
-                    action @ (SettingsAction::SaveResumeAgentsOnRestore(_)
+                    action @ (SettingsAction::SaveKittyGraphics(_)
+                    | SettingsAction::SaveResumeAgentsOnRestore(_)
                     | SettingsAction::SaveWindowTitle(_)
                     | SettingsAction::SaveHeadlessSize { .. }
                     | SettingsAction::SaveDefaultShell(_)

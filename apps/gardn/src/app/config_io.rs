@@ -610,6 +610,14 @@ impl App {
             self.apply_config_from_disk(false);
         }
     }
+    pub(super) fn save_kitty_graphics(&mut self, enabled: bool) {
+        self.state.kitty_graphics_enabled = enabled;
+        if self.update_config_file("Kitty graphics", |content| {
+            crate::config::upsert_section_bool(content, "experimental", "kitty_graphics", enabled)
+        }) {
+            self.apply_config_from_disk(false);
+        }
+    }
 
     pub(super) fn save_agent_profile(
         &mut self,
@@ -847,6 +855,34 @@ mod tests {
         assert!(app.state.session_dirty);
         let _ = std::fs::remove_file(path);
     }
+    #[test]
+    fn save_kitty_graphics_persists_experimental_setting() {
+        let _lock = match crate::config::test_config_env_lock().lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        let path = std::env::temp_dir().join(format!(
+            "gardn-kitty-graphics-{}-{}.toml",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let _config_path =
+            crate::config::TestEnvVar::set(crate::config::CONFIG_PATH_ENV_VAR, &path);
+        std::fs::write(&path, "[experimental]\npane_history = true\n").unwrap();
+        let mut app = test_app();
+
+        app.save_kitty_graphics(true);
+
+        assert!(app.state.kitty_graphics_enabled);
+        assert!(std::fs::read_to_string(&path)
+            .unwrap()
+            .contains("kitty_graphics = true"));
+        let _ = std::fs::remove_file(path);
+    }
+
     #[test]
     fn save_commands_persists_valid_toml_and_runtime_state() {
         let _lock = match crate::config::test_config_env_lock().lock() {

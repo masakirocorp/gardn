@@ -1336,6 +1336,7 @@ impl NotificationRowId {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum AdvancedRowId {
     SwitchAscii,
+    KittyGraphics,
     HeadlessCols,
     HeadlessRows,
     VersionCheck,
@@ -1343,8 +1344,9 @@ pub(crate) enum AdvancedRowId {
 }
 
 impl AdvancedRowId {
-    const ALL: [Self; 5] = [
+    const ALL: [Self; 6] = [
         Self::SwitchAscii,
+        Self::KittyGraphics,
         Self::HeadlessCols,
         Self::HeadlessRows,
         Self::VersionCheck,
@@ -1373,6 +1375,15 @@ fn experiment_rows(app: &AppState, settings: &SettingsState) -> Vec<SettingsList
         )],
     );
     rows.push(SettingsListRow::Spacer);
+    rows.extend(setting_group(
+        "Terminal Graphics",
+        [option(
+            AdvancedRowId::KittyGraphics.selection_index(),
+            "Kitty Graphics",
+            "Render inline images in Kitty-compatible terminals. Reconnect Gardn to apply.",
+            app.kitty_graphics_enabled,
+        )],
+    ));
     rows.extend(setting_group(
         "Server",
         [
@@ -2629,6 +2640,22 @@ mod tests {
             rows[initial_agent_scope + 2],
             SettingsListRow::Header("Panes")
         ));
+    }
+
+    #[test]
+    fn experimental_settings_expose_kitty_graphics_with_reconnect_guidance() {
+        let app = AppState::test_new();
+        let rows = experiment_rows(&app, &app.settings);
+        assert!(rows.iter().any(|row| matches!(
+            row,
+            SettingsListRow::Toggle {
+                title,
+                description,
+                enabled: false,
+                ..
+            } if title.as_ref() == "Kitty Graphics"
+                && description.contains("Reconnect Gardn")
+        )));
     }
 
     #[test]

@@ -446,7 +446,7 @@ Gardn tracks commits from `ogulcancelik/herdr` with an explicit port ledger.
 Experimental options currently include:
 
 - nested Gardn sessions
-- local Kitty graphics rendering for attached clients
+- local Kitty graphics rendering for attached clients, enabled from **Settings → Experiments → Terminal Graphics** and applied when Gardn reconnects
 - CJK IME hidden-cursor anchoring
 - agent-scoped CJK IME anchoring
 - configurable CJK IME anchor cursor shape

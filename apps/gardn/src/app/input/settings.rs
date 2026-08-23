@@ -73,6 +73,7 @@ pub(crate) enum SettingsAction {
         status_indicators: StatusIndicatorStyle,
     },
     SaveSwitchAsciiInputSourceInPrefix(bool),
+    SaveKittyGraphics(bool),
     SaveResumeAgentsOnRestore(bool),
     SaveWindowTitle(String),
     SaveHeadlessSize {
@@ -286,6 +287,7 @@ impl App {
             SettingsAction::SaveSwitchAsciiInputSourceInPrefix(enabled) => {
                 self.save_switch_ascii_input_source_in_prefix(enabled)
             }
+            SettingsAction::SaveKittyGraphics(enabled) => self.save_kitty_graphics(enabled),
             SettingsAction::CycleIntegrationHost => self.cycle_integration_host(),
             SettingsAction::InstallIntegration(target) => self.apply_integration_operation(
                 crate::integration::host::HostIntegrationOperation::EnsureCurrent { target },
@@ -3189,6 +3191,9 @@ fn selected_experiment_action(state: &mut AppState) -> Option<SettingsAction> {
                 !state.switch_ascii_input_source_in_prefix_enabled(),
             ))
         }
+        Some(AdvancedRowId::KittyGraphics) => Some(SettingsAction::SaveKittyGraphics(
+            !state.kitty_graphics_enabled,
+        )),
         Some(AdvancedRowId::HeadlessCols | AdvancedRowId::HeadlessRows) => {
             headless_size_action(state)
         }
@@ -6644,6 +6649,25 @@ mod tests {
             Some(SettingsAction::SaveSwitchAsciiInputSourceInPrefix(true))
         );
         assert_eq!(state.mode, Mode::Settings);
+    }
+
+    #[test]
+    fn settings_experiments_toggles_kitty_graphics() {
+        let mut state = state_with_workspaces(&["test"]);
+        state.kitty_graphics_enabled = false;
+        open_settings_at(&mut state, SettingsSection::Experiments);
+        state.settings.list.show();
+        state
+            .settings
+            .list
+            .select(AdvancedRowId::KittyGraphics.selection_index());
+
+        let action = update_settings_state(
+            &mut state,
+            KeyEvent::new(KeyCode::Enter, KeyModifiers::empty()),
+        );
+
+        assert_eq!(action, Some(SettingsAction::SaveKittyGraphics(true)));
     }
     #[test]
     fn settings_restores_resume_title_and_headless_controls() {
