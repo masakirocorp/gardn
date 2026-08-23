@@ -1182,7 +1182,7 @@ impl GhosttyPaneTerminal {
             .lock()
             .map(|mut responses| std::mem::take(&mut *responses))
             .unwrap_or_default();
-        responses.retain(|response| !response.starts_with(b"\x1bP1+r"));
+        responses.retain(|response| !is_gardn_managed_xtgettcap_response(response));
         responses
     }
 
@@ -2898,6 +2898,24 @@ impl PtyResponseTracker {
         let mut events = parse_default_color_events(&self.body);
         (events.len() == 1).then(|| events.remove(0))
     }
+}
+
+fn is_gardn_managed_xtgettcap_response(response: &[u8]) -> bool {
+    const PREFIX: &[u8] = b"\x1bP1+r";
+    const MANAGED_CAPABILITIES: [&[u8]; 7] = [
+        b"5463",
+        b"5375",
+        b"524742",
+        b"4D73",
+        b"536D756C78",
+        b"73657472676266",
+        b"73657472676262",
+    ];
+    response.strip_prefix(PREFIX).is_some_and(|response| {
+        MANAGED_CAPABILITIES
+            .iter()
+            .any(|capability| response.starts_with(capability))
+    })
 }
 
 fn parse_xtgettcap_responses(body: &[u8], end_offset: usize) -> Vec<OrderedPtyResponseEvent> {
@@ -5570,6 +5588,21 @@ mod tests {
                 Bytes::from_static(b"\x1b]11;rgb:0000/2b2b/3636\x1b\\"),
             ]
         );
+        assert!(rx.try_recv().is_err());
+    }
+
+    #[test]
+    fn process_pty_bytes_preserves_upstream_xtgettcap_capabilities() {
+        let (tx, mut rx) = mpsc::channel(4);
+        let terminal = crate::ghostty::Terminal::new(20, 5, 0).unwrap();
+        let pane = GhosttyPaneTerminal::new(terminal, tx.clone()).unwrap();
+
+        let result = pane.process_pty_bytes(PaneId::from_raw(1), 0, b"\x1bP+q436F\x1b\\", &tx);
+
+        assert!(result
+            .terminal_responses
+            .iter()
+            .any(|response| response.starts_with(b"\x1bP1+r436F")));
         assert!(rx.try_recv().is_err());
     }
 
