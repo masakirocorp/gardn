@@ -1,4 +1,4 @@
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, expect, test, vi } from "bun:test";
 import net, { createServer, type Server, type Socket } from "node:net";
 import { EventEmitter } from "node:events";
 import { rm } from "node:fs/promises";
@@ -456,6 +456,58 @@ test.serial("Pi settlement preserves blocked-state precedence", async () => {
   } finally {
     if (recording) await closeRecordingSocket(recording);
   }
+});
+
+test.serial("OMP keeps working after a nonterminal agent end", async () => {
+  const requests: RequestRecord[] = [];
+  net.createConnection = (() => {
+    const socket = new EventEmitter() as CapturedSocket;
+    socket.destroy = () => socket;
+    socket.setTimeout = () => socket;
+    socket.write = (request) => {
+      requests.push(JSON.parse(String(request)));
+      queueMicrotask(() => socket.emit("data"));
+      return true;
+    };
+    socket.end = () => socket;
+    queueMicrotask(() => socket.emit("connect"));
+    return socket as unknown as Socket;
+  }) as typeof net.createConnection;
+
+  const harness = createPiHarness();
+  const { default: install } = await freshImport("./omp/gardn-agent-state.ts");
+  install(harness.pi);
+
+  const context = {
+    hasUI: true,
+    mode: "tui",
+    isIdle: () => false,
+    sessionManager: {
+      getSessionFile: () => undefined,
+      getSessionId: () => undefined,
+    },
+  };
+  const sessionStart = harness.handlers.get("session_start");
+  const agentEnd = harness.handlers.get("agent_end");
+  expect(sessionStart).toBeDefined();
+  expect(agentEnd).toBeDefined();
+
+  await sessionStart?.({}, context);
+  await waitForState(requests, "working");
+  const idleReportsBeforeNonterminalEnd = stateRequests(requests, "idle").length;
+
+  vi.useFakeTimers();
+  try {
+    await agentEnd?.({ isTerminal: false }, context);
+    vi.advanceTimersByTime(300);
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+  } finally {
+    vi.useRealTimers();
+  }
+
+  expect(stateRequests(requests, "idle")).toHaveLength(idleReportsBeforeNonterminalEnd);
 });
 
 test.serial("OMP session resume resets blocked state and reports its lifecycle source", async () => {
