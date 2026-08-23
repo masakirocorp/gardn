@@ -4518,13 +4518,12 @@ fn render_agent_detail_from(
     }
 
     let sections = agent_panel_sections_from(app, terminal_runtimes);
-    let follow_up_drop_target = matches!(
-        app.drag.as_ref().map(|drag| &drag.target),
+    let follow_up_drop_indicator_row = match app.drag.as_ref().map(|drag| &drag.target) {
         Some(crate::app::state::DragTarget::AgentFollowUp {
-            is_drop_target: true,
-            ..
-        })
-    );
+            drop_indicator_row, ..
+        }) => *drop_indicator_row,
+        _ => None,
+    };
     if sections.is_empty() && body.height > 0 {
         frame.render_widget(
             Paragraph::new(Span::styled(
@@ -4593,8 +4592,8 @@ fn render_agent_detail_from(
         skip = 0;
     }
 
-    if follow_up_drop_target && body.y > 0 {
-        render_drop_indicator(frame, body.x, body.x + body.width, body.y - 1, p.accent);
+    if let Some(row) = follow_up_drop_indicator_row {
+        render_drop_indicator(frame, body.x, body.x + body.width, row, p.accent);
     }
 
     if let Some(track) = scrollbar_rect {
@@ -4668,13 +4667,12 @@ fn render_agent_detail_from_for_view(
     }
 
     let sections = agent_panel_sections_for_view(app, terminal_runtimes, client_view);
-    let follow_up_drop_target = matches!(
-        client_view.drag.as_ref().map(|drag| &drag.target),
+    let follow_up_drop_indicator_row = match client_view.drag.as_ref().map(|drag| &drag.target) {
         Some(crate::app::state::DragTarget::AgentFollowUp {
-            is_drop_target: true,
-            ..
-        })
-    );
+            drop_indicator_row, ..
+        }) => *drop_indicator_row,
+        _ => None,
+    };
     if sections.is_empty() && body.height > 0 {
         frame.render_widget(
             Paragraph::new(Span::styled(
@@ -4743,8 +4741,8 @@ fn render_agent_detail_from_for_view(
         skip = 0;
     }
 
-    if follow_up_drop_target && body.y > 0 {
-        render_drop_indicator(frame, body.x, body.x + body.width, body.y - 1, p.accent);
+    if let Some(row) = follow_up_drop_indicator_row {
+        render_drop_indicator(frame, body.x, body.x + body.width, row, p.accent);
     }
 
     if let Some(track) = scrollbar_rect {
@@ -6665,16 +6663,17 @@ mod tests {
     }
 
     #[test]
-    fn follow_up_drop_target_draws_workspace_style_indicator() {
+    fn follow_up_drop_target_replaces_empty_row_with_workspace_style_indicator() {
+        let area = Rect::new(0, 0, 12, 8);
+        let body = agent_panel_body_rect(area, false, true);
         let mut app = crate::app::state::AppState::test_new();
         app.drag = Some(crate::app::state::DragState {
             target: crate::app::state::DragTarget::AgentFollowUp {
                 workspace_id: "workspace".into(),
                 pane_number: 1,
-                is_drop_target: true,
+                drop_indicator_row: Some(body.y + 1),
             },
         });
-        let area = Rect::new(0, 0, 12, 8);
         let terminal_runtimes = TerminalRuntimeRegistry::new();
         let mut terminal =
             Terminal::new(TestBackend::new(area.width, area.height)).expect("test backend");
@@ -6683,11 +6682,48 @@ mod tests {
             .draw(|frame| render_agent_detail_from(&app, &terminal_runtimes, frame, area, true))
             .expect("render Follow Up drop target");
 
-        let body = agent_panel_body_rect(area, false, true);
         let buffer = terminal.backend().buffer();
         for x in body.x..body.x + body.width {
-            assert_eq!(buffer[(x, body.y - 1)].symbol(), "─");
-            assert_eq!(buffer[(x, body.y - 1)].style().fg, Some(app.palette.accent));
+            assert_eq!(buffer[(x, body.y + 1)].symbol(), "─");
+            assert_eq!(buffer[(x, body.y + 1)].style().fg, Some(app.palette.accent));
+        }
+    }
+
+    #[test]
+    fn follow_up_drop_target_replaces_agent_row_with_workspace_style_indicator() {
+        let area = Rect::new(0, 0, 18, 8);
+        let body = agent_panel_body_rect(area, false, true);
+        let mut app = crate::app::state::AppState::test_new();
+        let mut workspace = Workspace::test_new("agent");
+        let pane = workspace.tabs[0].root_pane;
+        workspace.tabs[0]
+            .panes
+            .get_mut(&pane)
+            .unwrap()
+            .detected_agent = Some(Agent::Codex);
+        workspace.tabs[0].panes.get_mut(&pane).unwrap().state = AgentState::Working;
+        app.workspaces = vec![workspace];
+        app.active = Some(0);
+        assert!(app.insert_agent_follow_up(0, pane));
+        app.drag = Some(crate::app::state::DragState {
+            target: crate::app::state::DragTarget::AgentFollowUp {
+                workspace_id: app.workspaces[0].id.clone(),
+                pane_number: 1,
+                drop_indicator_row: Some(body.y + 1),
+            },
+        });
+        let terminal_runtimes = TerminalRuntimeRegistry::new();
+        let mut terminal =
+            Terminal::new(TestBackend::new(area.width, area.height)).expect("test backend");
+
+        terminal
+            .draw(|frame| render_agent_detail_from(&app, &terminal_runtimes, frame, area, true))
+            .expect("render Follow Up agent drop target");
+
+        let buffer = terminal.backend().buffer();
+        for x in body.x..body.x + body.width {
+            assert_eq!(buffer[(x, body.y + 1)].symbol(), "─");
+            assert_eq!(buffer[(x, body.y + 1)].style().fg, Some(app.palette.accent));
         }
     }
 

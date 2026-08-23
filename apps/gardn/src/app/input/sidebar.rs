@@ -3906,9 +3906,9 @@ mod tests {
         assert!(matches!(
             app.state.drag.as_ref().map(|drag| &drag.target),
             Some(DragTarget::AgentFollowUp {
-                is_drop_target: true,
+                drop_indicator_row: Some(row),
                 ..
-            })
+            }) if *row == follow_up_row
         ));
         app.handle_mouse(mouse(
             MouseEventKind::Up(MouseButton::Left),

@@ -927,8 +927,9 @@ impl AppState {
                 let group_drop_target = group_drag_source_idx
                     .and_then(|source_idx| self.group_drop_target_at_row(mouse.row, source_idx));
                 let tab_drop_index = self.tab_drop_index_at(mouse.column, mouse.row);
-                let agent_follow_up_drop_target =
-                    self.agent_follow_up_drop_at(mouse.column, mouse.row);
+                let agent_follow_up_drop_indicator_row = self
+                    .agent_follow_up_drop_at(mouse.column, mouse.row)
+                    .then_some(mouse.row);
                 if self.drag.is_none() {
                     if let Some(press) = &self.workspace_press {
                         let delta_col = mouse.column.abs_diff(press.start_col);
@@ -983,7 +984,7 @@ impl AppState {
                                 target: DragTarget::AgentFollowUp {
                                     workspace_id: press.workspace_id.clone(),
                                     pane_number: press.pane_number,
-                                    is_drop_target: agent_follow_up_drop_target,
+                                    drop_indicator_row: agent_follow_up_drop_indicator_row,
                                 },
                             });
                         }
@@ -1025,10 +1026,13 @@ impl AppState {
                         *insert_idx = tab_drop_index;
                     }
                 } else if let Some(DragState {
-                    target: DragTarget::AgentFollowUp { is_drop_target, .. },
+                    target:
+                        DragTarget::AgentFollowUp {
+                            drop_indicator_row, ..
+                        },
                 }) = &mut self.drag
                 {
-                    *is_drop_target = agent_follow_up_drop_target;
+                    *drop_indicator_row = agent_follow_up_drop_indicator_row;
                 } else if let Some(drag) = &self.drag {
                     match &drag.target {
                         DragTarget::WorkspaceReorder { .. }
