@@ -86,14 +86,13 @@ jobs:
       - name: Select Xcode for Zig
         if: runner.os == 'macOS'
         run: |
-          # Zig 0.15.2 cannot link against Xcode 26.4+ macOS SDK TBDs
-          # because their libSystem entries are arm64e-only.
+          # Keep Zig aligned with the vendored libghostty-vt minimum version.
           echo "DEVELOPER_DIR=/Applications/Xcode_26.3.app/Contents/Developer" >> "$GITHUB_ENV"
 
       - name: Install Zig
         uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2.2.1
         with:
-          version: 0.15.2
+          version: 0.16.0
 
       - name: Install macOS build tools
         if: runner.os == 'macOS'
