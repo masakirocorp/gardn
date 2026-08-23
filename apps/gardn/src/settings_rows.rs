@@ -1384,6 +1384,7 @@ fn experiment_rows(app: &AppState, settings: &SettingsState) -> Vec<SettingsList
             app.kitty_graphics_enabled,
         )],
     ));
+    rows.push(SettingsListRow::Spacer);
     rows.extend(setting_group(
         "Server",
         [
@@ -2769,10 +2770,10 @@ mod tests {
             assert_eq!(id.selection_index(), index);
         }
         assert!(NotificationRowId::from_selection_index(6).is_none());
-        for index in 0..=4 {
+        for index in 0..=5 {
             let id = AdvancedRowId::from_selection_index(index).expect("advanced id");
             assert_eq!(id.selection_index(), index);
         }
-        assert!(AdvancedRowId::from_selection_index(5).is_none());
+        assert!(AdvancedRowId::from_selection_index(6).is_none());
     }
 }

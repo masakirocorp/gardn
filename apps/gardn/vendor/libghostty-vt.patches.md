@@ -16,7 +16,7 @@ upstream discussion: not opened; libghostty-vt currently exposes current mode mu
 
 upstream PR: not opened
 
-vendored base: `c5a21edfcbc2d5b46540ad91b7980aca31f5f1f3`
+vendored base: `5834a0e3df621802e9578e4562d88b0c2ad4ada8`
 
 local files:
 
@@ -48,7 +48,7 @@ patch: `apps/gardn/vendor/patches/libghostty-vt/0002-skip-unused-ghostty-bench-i
 upstream discussion: not opened; the upstream build initializes all named
 artifacts before deciding which ones to install
 
-vendored base: `c5a21edfcbc2d5b46540ad91b7980aca31f5f1f3`
+vendored base: `5834a0e3df621802e9578e4562d88b0c2ad4ada8`
 
 local files:
 

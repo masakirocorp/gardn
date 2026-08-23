@@ -8,15 +8,20 @@ to store multi-codepoint grapheme clusters in one terminal cell. Set it in the
 terminal's default modes so RIS restores clustering instead of disabling it.
 
 Upstream issue: https://github.com/ogulcancelik/herdr/issues/243
-Vendored base: c5a21edfcbc2d5b46540ad91b7980aca31f5f1f3
+Vendored base: 5834a0e3df621802e9578e4562d88b0c2ad4ada8
 ---
 diff --git a/apps/gardn/vendor/libghostty-vt/src/terminal/c/terminal.zig b/apps/gardn/vendor/libghostty-vt/src/terminal/c/terminal.zig
-index 1c3b9f0c..a896c0fd 100644
+index 0000000..0000000 100644
 --- a/apps/gardn/vendor/libghostty-vt/src/terminal/c/terminal.zig
 +++ b/apps/gardn/vendor/libghostty-vt/src/terminal/c/terminal.zig
-@@ -344,4 +344,5 @@ fn new_(
-         .rows = opts.rows,
-         .max_scrollback = opts.max_scrollback,
-+        .default_modes = .{ .grapheme_cluster = true },
-     });
+@@ -826,9 +826,10 @@ fn new_(
+     t.* = try .init(
+         io.io(),
+         alloc,
+         .{
+             .cols = cols,
+             .rows = rows,
++            .default_modes = .{ .grapheme_cluster = true },
+         },
+     );
      errdefer t.deinit(alloc);

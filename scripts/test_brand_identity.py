@@ -80,6 +80,8 @@ class BrandIdentityTests(unittest.TestCase):
     def test_tracked_text_uses_gardn_identity(self) -> None:
         violations: list[str] = []
         for path in tracked_paths():
+            if not path.is_file():
+                continue
             try:
                 text = path.read_text(encoding="utf-8")
             except (UnicodeDecodeError, IsADirectoryError):

@@ -6723,7 +6723,11 @@ mod tests {
             Some(SettingsAction::SaveWindowTitle("x".to_string()))
         );
 
-        switch_settings_section(&mut state, SettingsSection::Experiments, 1);
+        switch_settings_section(
+            &mut state,
+            SettingsSection::Experiments,
+            AdvancedRowId::HeadlessCols.selection_index(),
+        );
         focus_selected_settings_input(&mut state);
         assert_eq!(
             update_settings_state(
@@ -7487,12 +7491,20 @@ mod tests {
         assert_eq!(title_action, None);
         assert_eq!(app.state.settings.focused_input, Some(title_index));
 
-        switch_settings_section(&mut app.state, SettingsSection::Experiments, 1);
+        switch_settings_section(
+            &mut app.state,
+            SettingsSection::Experiments,
+            AdvancedRowId::HeadlessCols.selection_index(),
+        );
         app.state.settings.pending_headless_cols = Some("80".to_string());
         app.state.settings.pending_headless_rows = Some("24".to_string());
         let headless_rows =
             rows_for_section(&app.state, SettingsSection::Experiments).expect("advanced rows");
-        let cols_visual_row = selected_visual_row(&headless_rows, 1).expect("headless columns row");
+        let cols_visual_row = selected_visual_row(
+            &headless_rows,
+            AdvancedRowId::HeadlessCols.selection_index(),
+        )
+        .expect("headless columns row");
         let headless_list =
             settings_section_list_geometry(&app.state, SettingsSection::Experiments);
         let headless_action = app.state.handle_settings_mouse(mouse(
@@ -7502,7 +7514,10 @@ mod tests {
         ));
 
         assert_eq!(headless_action, None);
-        assert_eq!(app.state.settings.focused_input, Some(1));
+        assert_eq!(
+            app.state.settings.focused_input,
+            Some(AdvancedRowId::HeadlessCols.selection_index())
+        );
     }
 
     #[test]

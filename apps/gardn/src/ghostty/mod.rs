@@ -637,14 +637,19 @@ pub struct Terminal {
 impl Terminal {
     pub fn new(cols: u16, rows: u16, max_scrollback: usize) -> Result<Self, Error> {
         let mut raw = ptr::null_mut();
-        let options = ffi::GhosttyTerminalOptions {
-            cols,
-            rows,
-            max_scrollback,
-        };
-        // SAFETY: valid out pointer and options, null allocator means default allocator.
+        // SAFETY: valid out pointer and null allocator use the default allocator.
         unsafe {
-            ffi::ghostty_terminal_new(ptr::null(), &mut raw, options).into_result()?;
+            ffi::ghostty_terminal_new(ptr::null(), &mut raw, cols, rows).into_result()?;
+        }
+        // SAFETY: raw is a successfully created terminal and the value pointer matches
+        // the current libghostty-vt scrollback byte-limit ABI.
+        unsafe {
+            ffi::ghostty_terminal_set(
+                raw,
+                ffi::GhosttyTerminalOption_GHOSTTY_TERMINAL_OPT_SCROLLBACK_MAX_BYTES,
+                (&max_scrollback as *const usize).cast(),
+            )
+            .into_result()?;
         }
         let mut terminal = Self {
             raw,
@@ -788,6 +793,12 @@ impl Terminal {
         install_png_decoder_once();
         let storage_limit = KITTY_IMAGE_STORAGE_LIMIT_BYTES;
         let enable_medium = allow_host_file_media;
+        let temp_directory =
+            allow_host_file_media.then(|| std::env::temp_dir().to_string_lossy().into_owned());
+        let temp_directory = temp_directory.as_deref().map(|path| ffi::GhosttyString {
+            ptr: path.as_ptr(),
+            len: path.len(),
+        });
         unsafe {
             ffi::ghostty_terminal_set(
                 self.raw,
@@ -804,7 +815,12 @@ impl Terminal {
             ffi::ghostty_terminal_set(
                 self.raw,
                 ffi::GhosttyTerminalOption_GHOSTTY_TERMINAL_OPT_KITTY_IMAGE_MEDIUM_TEMP_FILE,
-                (&enable_medium as *const bool).cast(),
+                temp_directory
+                    .as_ref()
+                    .map_or(ptr::null(), |directory| {
+                        directory as *const ffi::GhosttyString
+                    })
+                    .cast(),
             )
             .into_result()?;
             ffi::ghostty_terminal_set(
@@ -860,13 +876,28 @@ impl Terminal {
     }
 
     pub fn mode_get(&self, mode: u16) -> Result<bool, Error> {
-        let mut out = false;
-        unsafe { ffi::ghostty_terminal_mode_get(self.raw, mode, &mut out).into_result()? };
-        Ok(out)
+        let mut out = ffi::GhosttyTerminalModeConfig { mode, value: false };
+        unsafe {
+            ffi::ghostty_terminal_get(
+                self.raw,
+                ffi::GhosttyTerminalData_GHOSTTY_TERMINAL_DATA_MODE,
+                (&mut out as *mut ffi::GhosttyTerminalModeConfig).cast(),
+            )
+            .into_result()?;
+        }
+        Ok(out.value)
     }
 
     pub fn mode_set(&mut self, mode: u16, value: bool) -> Result<(), Error> {
-        unsafe { ffi::ghostty_terminal_mode_set(self.raw, mode, value).into_result() }
+        let config = ffi::GhosttyTerminalModeConfig { mode, value };
+        unsafe {
+            ffi::ghostty_terminal_set(
+                self.raw,
+                ffi::GhosttyTerminalOption_GHOSTTY_TERMINAL_OPT_MODE,
+                (&config as *const ffi::GhosttyTerminalModeConfig).cast(),
+            )
+            .into_result()
+        }
     }
 
     pub fn kitty_keyboard_flags(&self) -> Result<u8, Error> {
@@ -2297,7 +2328,12 @@ impl RenderState {
             ..Default::default()
         };
         unsafe {
-            ffi::ghostty_render_state_colors_get(self.raw, &mut colors).into_result()?;
+            ffi::ghostty_render_state_get(
+                self.raw,
+                ffi::GhosttyRenderStateData_GHOSTTY_RENDER_STATE_DATA_COLORS,
+                (&mut colors as *mut ffi::GhosttyRenderStateColors).cast(),
+            )
+            .into_result()?;
         }
         Ok(RenderColors {
             background: colors.background.into(),
@@ -3062,12 +3098,14 @@ mod tests {
     #[test]
     fn kitty_image_fingerprint_refreshes_on_retransmission() {
         let mut terminal = Terminal::new(10, 5, 0).unwrap();
+        terminal.enable_kitty_graphics(true).unwrap();
+        terminal.resize(10, 5, 8, 16).unwrap();
         terminal.write(b"\x1b_Ga=T,f=32,t=d,i=7,p=3,s=1,v=1,c=10,r=5,q=2;/wAA/w==\x1b\\");
         let first = terminal
             .kitty_image_placements_with_data_filter(|_| true)
             .unwrap();
         assert_eq!(first.len(), 1);
-        terminal.write(b"\x1b_Ga=t,f=32,t=d,i=7,s=1,v=1,q=2;AAAAAA==\x1b\\");
+        terminal.write(b"\x1b_Ga=T,f=32,t=d,i=7,p=3,s=1,v=1,c=10,r=5,q=2;AAAAAA==\x1b\\");
         let second = terminal
             .kitty_image_placements_with_data_filter(|_| true)
             .unwrap();
@@ -3098,14 +3136,11 @@ mod tests {
     }
 
     #[test]
-    fn kitty_graphics_local_media_are_enabled() {
+    fn kitty_graphics_local_file_and_shared_memory_media_are_enabled() {
         let mut terminal = Terminal::new(10, 5, 0).unwrap();
         terminal.enable_kitty_graphics(true).unwrap();
         assert!(terminal
             .get_bool(ffi::GhosttyTerminalData_GHOSTTY_TERMINAL_DATA_KITTY_IMAGE_MEDIUM_FILE)
-            .unwrap());
-        assert!(terminal
-            .get_bool(ffi::GhosttyTerminalData_GHOSTTY_TERMINAL_DATA_KITTY_IMAGE_MEDIUM_TEMP_FILE)
             .unwrap());
         assert!(terminal
             .get_bool(ffi::GhosttyTerminalData_GHOSTTY_TERMINAL_DATA_KITTY_IMAGE_MEDIUM_SHARED_MEM)

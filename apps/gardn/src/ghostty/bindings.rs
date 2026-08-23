@@ -1693,6 +1693,13 @@ unsafe extern "C" {
 }
 #[doc = " A packed 16-bit terminal mode.\n\n Encodes a mode value (bits 0–14) and an ANSI flag (bit 15) into a\n single 16-bit integer. Use the inline helper functions to construct\n and inspect modes rather than manipulating bits directly."]
 pub type GhosttyMode = u16;
+
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct GhosttyTerminalModeConfig {
+    pub mode: GhosttyMode,
+    pub value: bool,
+}
 #[doc = " Mode is not recognized"]
 pub const GhosttyModeReportState_GHOSTTY_MODE_REPORT_NOT_RECOGNIZED: GhosttyModeReportState = 0;
 #[doc = " Mode is set (enabled)"]
@@ -2095,29 +2102,6 @@ unsafe extern "C" {
         out_info: *mut GhosttyKittyGraphicsPlacementRenderInfo,
     ) -> GhosttyResult;
 }
-#[doc = " Terminal initialization options.\n\n @ingroup terminal"]
-#[repr(C)]
-#[derive(Debug, Default, Copy, Clone)]
-pub struct GhosttyTerminalOptions {
-    #[doc = " Terminal width in cells. Must be greater than zero."]
-    pub cols: u16,
-    #[doc = " Terminal height in cells. Must be greater than zero."]
-    pub rows: u16,
-    #[doc = " Maximum number of lines to keep in scrollback history."]
-    pub max_scrollback: usize,
-}
-#[allow(clippy::unnecessary_operation, clippy::identity_op)]
-const _: () = {
-    ["Size of GhosttyTerminalOptions"][::std::mem::size_of::<GhosttyTerminalOptions>() - 16usize];
-    ["Alignment of GhosttyTerminalOptions"]
-        [::std::mem::align_of::<GhosttyTerminalOptions>() - 8usize];
-    ["Offset of field: GhosttyTerminalOptions::cols"]
-        [::std::mem::offset_of!(GhosttyTerminalOptions, cols) - 0usize];
-    ["Offset of field: GhosttyTerminalOptions::rows"]
-        [::std::mem::offset_of!(GhosttyTerminalOptions, rows) - 2usize];
-    ["Offset of field: GhosttyTerminalOptions::max_scrollback"]
-        [::std::mem::offset_of!(GhosttyTerminalOptions, max_scrollback) - 8usize];
-};
 #[doc = " Perform one bounded compression step suitable for idle scheduling."]
 pub const GhosttyTerminalCompressionMode_GHOSTTY_TERMINAL_COMPRESSION_MODE_INCREMENTAL:
     GhosttyTerminalCompressionMode = 0;
@@ -2500,6 +2484,11 @@ pub const GhosttyTerminalOption_GHOSTTY_TERMINAL_OPT_PWD_CHANGED: GhosttyTermina
 pub const GhosttyTerminalOption_GHOSTTY_TERMINAL_OPT_CLIPBOARD_WRITE: GhosttyTerminalOption = 26;
 #[doc = " Callback invoked when the running program performs a clipboard write.\n OSC 52 and iTerm2 OSC 1337 Copy writes are normalized to an atomic set\n of decoded MIME representations. Set to NULL to ignore clipboard writes.\n Clipboard read requests are always ignored; see\n GhosttyTerminalClipboardWriteFn.\n\n Input type: GhosttyTerminalClipboardWriteFn"]
 pub const GhosttyTerminalOption_GHOSTTY_TERMINAL_OPT_MAX_VALUE: GhosttyTerminalOption = 2147483647;
+#[doc = "Set the maximum scrollback allocation in bytes."]
+pub const GhosttyTerminalOption_GHOSTTY_TERMINAL_OPT_SCROLLBACK_MAX_BYTES: GhosttyTerminalOption =
+    27;
+#[doc = "Set the current value of a terminal mode."]
+pub const GhosttyTerminalOption_GHOSTTY_TERMINAL_OPT_MODE: GhosttyTerminalOption = 34;
 #[doc = " Terminal option identifiers.\n\n These values are used with ghostty_terminal_set() to configure\n terminal callbacks and associated state.\n\n @ingroup terminal"]
 pub type GhosttyTerminalOption = ::std::os::raw::c_uint;
 #[doc = " Invalid data type. Never results in any data extraction."]
@@ -2576,14 +2565,17 @@ pub const GhosttyTerminalData_GHOSTTY_TERMINAL_DATA_SELECTION: GhosttyTerminalDa
 pub const GhosttyTerminalData_GHOSTTY_TERMINAL_DATA_VIEWPORT_ACTIVE: GhosttyTerminalData = 32;
 #[doc = " Whether the viewport is currently pinned to the active area.\n\n This is true when the viewport is following the active terminal area,\n and false when the user has scrolled into history.\n\n Output type: bool *"]
 pub const GhosttyTerminalData_GHOSTTY_TERMINAL_DATA_MAX_VALUE: GhosttyTerminalData = 2147483647;
+#[doc = "The current value of a terminal mode."]
+pub const GhosttyTerminalData_GHOSTTY_TERMINAL_DATA_MODE: GhosttyTerminalData = 37;
 #[doc = " Terminal data types.\n\n These values specify what type of data to extract from a terminal\n using `ghostty_terminal_get`.\n\n @ingroup terminal"]
 pub type GhosttyTerminalData = ::std::os::raw::c_uint;
 unsafe extern "C" {
-    #[doc = " Create a new terminal instance.\n\n @param allocator Pointer to allocator, or NULL to use the default allocator\n @param terminal Pointer to store the created terminal handle\n @param options Terminal initialization options\n @return GHOSTTY_SUCCESS on success, or an error code on failure\n\n @ingroup terminal"]
+    #[doc = "Create a new terminal instance."]
     pub fn ghostty_terminal_new(
         allocator: *const GhosttyAllocator,
         terminal: *mut GhosttyTerminal,
-        options: GhosttyTerminalOptions,
+        cols: u16,
+        rows: u16,
     ) -> GhosttyResult;
 }
 unsafe extern "C" {
@@ -2636,22 +2628,6 @@ unsafe extern "C" {
         terminal: GhosttyTerminal,
         mode: GhosttyTerminalCompressionMode,
         out_result: *mut GhosttyTerminalCompressionResult,
-    ) -> GhosttyResult;
-}
-unsafe extern "C" {
-    #[doc = " Get the current value of a terminal mode.\n\n Returns the value of the mode identified by the given mode.\n\n @param terminal The terminal handle (NULL returns GHOSTTY_INVALID_VALUE)\n @param mode The mode identifying the mode to query\n @param[out] out_value On success, set to true if the mode is set, false\n             if it is reset\n @return GHOSTTY_SUCCESS on success, GHOSTTY_INVALID_VALUE if the terminal\n         is NULL or the mode does not correspond to a known mode\n\n @ingroup terminal"]
-    pub fn ghostty_terminal_mode_get(
-        terminal: GhosttyTerminal,
-        mode: GhosttyMode,
-        out_value: *mut bool,
-    ) -> GhosttyResult;
-}
-unsafe extern "C" {
-    #[doc = " Set the value of a terminal mode.\n\n Sets the mode identified by the given mode to the specified value.\n\n @param terminal The terminal handle (NULL returns GHOSTTY_INVALID_VALUE)\n @param mode The mode identifying the mode to set\n @param value true to set the mode, false to reset it\n @return GHOSTTY_SUCCESS on success, GHOSTTY_INVALID_VALUE if the terminal\n         is NULL or the mode does not correspond to a known mode\n\n @ingroup terminal"]
-    pub fn ghostty_terminal_mode_set(
-        terminal: GhosttyTerminal,
-        mode: GhosttyMode,
-        value: bool,
     ) -> GhosttyResult;
 }
 unsafe extern "C" {
@@ -2932,6 +2908,8 @@ pub const GhosttyRenderStateData_GHOSTTY_RENDER_STATE_DATA_CURSOR_VIEWPORT_Y:
 #[doc = " Whether the cursor is on the tail of a wide character (bool).\n  Only valid when CURSOR_VIEWPORT_HAS_VALUE is true."]
 pub const GhosttyRenderStateData_GHOSTTY_RENDER_STATE_DATA_CURSOR_VIEWPORT_WIDE_TAIL:
     GhosttyRenderStateData = 17;
+#[doc = "Render-state color information (GhosttyRenderStateColors)."]
+pub const GhosttyRenderStateData_GHOSTTY_RENDER_STATE_DATA_COLORS: GhosttyRenderStateData = 19;
 #[doc = " Whether the cursor is on the tail of a wide character (bool).\n  Only valid when CURSOR_VIEWPORT_HAS_VALUE is true."]
 pub const GhosttyRenderStateData_GHOSTTY_RENDER_STATE_DATA_MAX_VALUE: GhosttyRenderStateData =
     2147483647;
@@ -3094,13 +3072,6 @@ unsafe extern "C" {
         state: GhosttyRenderState,
         option: GhosttyRenderStateOption,
         value: *const ::std::os::raw::c_void,
-    ) -> GhosttyResult;
-}
-unsafe extern "C" {
-    #[doc = " Get the current color information from a render state.\n\n This writes as many fields as fit in the caller-provided sized struct.\n `out_colors->size` must be set by the caller (typically via\n GHOSTTY_INIT_SIZED(GhosttyRenderStateColors)).\n\n @param state The render state handle (NULL returns GHOSTTY_INVALID_VALUE)\n @param[out] out_colors Sized output struct to receive render-state colors\n @return GHOSTTY_SUCCESS on success, GHOSTTY_INVALID_VALUE if `state` or\n         `out_colors` is NULL, or if `out_colors->size` is smaller than\n         `sizeof(size_t)`\n\n @ingroup render"]
-    pub fn ghostty_render_state_colors_get(
-        state: GhosttyRenderState,
-        out_colors: *mut GhosttyRenderStateColors,
     ) -> GhosttyResult;
 }
 unsafe extern "C" {

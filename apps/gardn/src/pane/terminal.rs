@@ -1158,6 +1158,7 @@ impl GhosttyPaneTerminal {
                     terminal_responses.extend(replacement);
                 }
                 OrderedPtyResponseEvent::Xtgettcap(response) => {
+                    libghostty_responses.retain(|candidate| candidate != &response.bytes);
                     terminal_responses.extend(libghostty_responses);
                     terminal_responses.push(response.bytes);
                 }
@@ -1175,12 +1176,14 @@ impl GhosttyPaneTerminal {
             terminal_responses.extend(libghostty_responses);
         }
     }
-
     fn drain_pending_pty_responses(&self) -> Vec<Bytes> {
-        self.pending_pty_responses
+        let mut responses = self
+            .pending_pty_responses
             .lock()
             .map(|mut responses| std::mem::take(&mut *responses))
-            .unwrap_or_default()
+            .unwrap_or_default();
+        responses.retain(|response| !response.starts_with(b"\x1bP1+r"));
+        responses
     }
 
     pub fn seed_history_ansi(&self, ansi: &str) {
@@ -5968,7 +5971,9 @@ mod tests {
     fn kitty_graphics_write_requests_render_with_settle_backstop() {
         let _kitty_graphics = KittyGraphicsTestGuard::enabled();
         let (tx, _rx) = mpsc::channel(4);
-        let terminal = crate::ghostty::Terminal::new(80, 24, 0).unwrap();
+        let mut terminal = crate::ghostty::Terminal::new(80, 24, 0).unwrap();
+        terminal.enable_kitty_graphics(false).unwrap();
+        terminal.resize(80, 24, 8, 16).unwrap();
         let pane_terminal = GhosttyPaneTerminal::new(terminal, tx.clone()).unwrap();
         let result = pane_terminal.process_pty_bytes(
             PaneId::from_raw(1),

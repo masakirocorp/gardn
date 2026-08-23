@@ -7,7 +7,7 @@ Gardn builds only libghostty-vt. Initializing GhosttyBench resolves its
 unused dcimgui, vaxis, and zf dependencies, which causes network fetches for
 ImGui and zigimg. Initialize the bench only when the build emits it.
 
-Vendored base: c5a21edfcbc2d5b46540ad91b7980aca31f5f1f3
+Vendored base: 5834a0e3df621802e9578e4562d88b0c2ad4ada8
 ---
 diff --git a/apps/gardn/vendor/libghostty-vt/build.zig b/apps/gardn/vendor/libghostty-vt/build.zig
 --- a/apps/gardn/vendor/libghostty-vt/build.zig
