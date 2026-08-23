@@ -4145,18 +4145,11 @@ fn render_agent_section_header(
     frame: &mut Frame,
     section: &AgentPanelSection,
     collapsed: bool,
-    follow_up_drop_target: bool,
     body: Rect,
     row_y: u16,
 ) {
     if body.width == 0 {
         return;
-    }
-    if follow_up_drop_target && section.group == AgentStatusGroup::FollowUp {
-        let buffer = frame.buffer_mut();
-        for x in body.x..body.x + body.width {
-            buffer[(x, row_y)].set_style(Style::default().bg(app.palette.surface1));
-        }
     }
     let style = agent_panel_section_header_style(section, &app.palette);
     let dim = Style::default().fg(app.palette.overlay0);
@@ -4217,6 +4210,16 @@ fn render_agent_section_header(
                 1,
             ),
         );
+    }
+}
+fn render_follow_up_drop_indicator(frame: &mut Frame, body: Rect, palette: &Palette) {
+    if body.width == 0 || body.y == 0 {
+        return;
+    }
+    let buffer = frame.buffer_mut();
+    for x in body.x..body.x + body.width {
+        buffer[(x, body.y - 1)].set_symbol("─");
+        buffer[(x, body.y - 1)].set_style(Style::default().fg(palette.accent));
     }
 }
 
@@ -4541,15 +4544,7 @@ fn render_agent_detail_from(
             if row_y >= body_bottom {
                 break;
             }
-            render_agent_section_header(
-                app,
-                frame,
-                &section,
-                true,
-                follow_up_drop_target,
-                body,
-                row_y,
-            );
+            render_agent_section_header(app, frame, &section, true, body, row_y);
             row_y = row_y.saturating_add(1);
             continue;
         }
@@ -4562,15 +4557,7 @@ fn render_agent_detail_from(
             break;
         }
 
-        render_agent_section_header(
-            app,
-            frame,
-            &section,
-            false,
-            follow_up_drop_target,
-            body,
-            row_y,
-        );
+        render_agent_section_header(app, frame, &section, false, body, row_y);
         row_y = row_y.saturating_add(1);
         if let Some(label) = agent_panel_empty_row(&section) {
             if row_y < body_bottom {
@@ -4599,6 +4586,10 @@ fn render_agent_detail_from(
             row_y = row_y.saturating_add(row_height);
         }
         skip = 0;
+    }
+
+    if follow_up_drop_target {
+        render_follow_up_drop_indicator(frame, body, p);
     }
 
     if let Some(track) = scrollbar_rect {
@@ -4703,15 +4694,7 @@ fn render_agent_detail_from_for_view(
             if row_y >= body_bottom {
                 break;
             }
-            render_agent_section_header(
-                app,
-                frame,
-                &section,
-                true,
-                follow_up_drop_target,
-                body,
-                row_y,
-            );
+            render_agent_section_header(app, frame, &section, true, body, row_y);
             row_y = row_y.saturating_add(1);
             continue;
         }
@@ -4724,15 +4707,7 @@ fn render_agent_detail_from_for_view(
             break;
         }
 
-        render_agent_section_header(
-            app,
-            frame,
-            &section,
-            false,
-            follow_up_drop_target,
-            body,
-            row_y,
-        );
+        render_agent_section_header(app, frame, &section, false, body, row_y);
         row_y = row_y.saturating_add(1);
         if let Some(label) = agent_panel_empty_row(&section) {
             if row_y < body_bottom {
@@ -4761,6 +4736,10 @@ fn render_agent_detail_from_for_view(
             row_y = row_y.saturating_add(row_height);
         }
         skip = 0;
+    }
+
+    if follow_up_drop_target {
+        render_follow_up_drop_indicator(frame, body, p);
     }
 
     if let Some(track) = scrollbar_rect {
@@ -6674,30 +6653,36 @@ mod tests {
         let mut terminal =
             Terminal::new(TestBackend::new(area.width, area.height)).expect("test backend");
         terminal
-            .draw(|frame| render_agent_section_header(&app, frame, &section, false, false, area, 0))
+            .draw(|frame| render_agent_section_header(&app, frame, &section, false, area, 0))
             .expect("render agent section header");
         let cell = &terminal.backend().buffer()[(RIGHT_SUBSECTION_ICON_COL, 0)];
         (cell.symbol().to_string(), cell.style().fg)
     }
 
     #[test]
-    fn follow_up_drop_target_highlights_section_header() {
-        let app = crate::app::state::AppState::test_new();
-        let section = AgentPanelSection {
-            group: AgentStatusGroup::FollowUp,
-            entries: Vec::new(),
-        };
-        let area = Rect::new(0, 0, 12, 1);
+    fn follow_up_drop_target_draws_workspace_style_indicator() {
+        let mut app = crate::app::state::AppState::test_new();
+        app.drag = Some(crate::app::state::DragState {
+            target: crate::app::state::DragTarget::AgentFollowUp {
+                workspace_id: "workspace".into(),
+                pane_number: 1,
+                is_drop_target: true,
+            },
+        });
+        let area = Rect::new(0, 0, 12, 8);
+        let terminal_runtimes = TerminalRuntimeRegistry::new();
         let mut terminal =
             Terminal::new(TestBackend::new(area.width, area.height)).expect("test backend");
 
         terminal
-            .draw(|frame| render_agent_section_header(&app, frame, &section, false, true, area, 0))
+            .draw(|frame| render_agent_detail_from(&app, &terminal_runtimes, frame, area, true))
             .expect("render Follow Up drop target");
 
+        let body = agent_panel_body_rect(area, false, true);
         let buffer = terminal.backend().buffer();
-        for x in area.x..area.x + area.width {
-            assert_eq!(buffer[(x, area.y)].style().bg, Some(app.palette.surface1));
+        for x in body.x..body.x + body.width {
+            assert_eq!(buffer[(x, body.y - 1)].symbol(), "─");
+            assert_eq!(buffer[(x, body.y - 1)].style().fg, Some(app.palette.accent));
         }
     }
 
