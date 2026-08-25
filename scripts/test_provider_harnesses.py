@@ -51,7 +51,7 @@ class ProviderHarnessStructureTests(unittest.TestCase):
         self.assertIn('"colorScheme":"terminal"', antigravity)
         self.assertNotIn("ANTIGRAVITY_CLI_CONFIG_DIR", antigravity)
         self.assertIn('"Gemini API key" in text', antigravity)
-        self.assertIn('config_dir="${HOME}/.gemini/antigravity-cli"', antigravity)
+        self.assertIn("pwd.getpwuid(os.getuid()).pw_dir", antigravity)
         self.assertNotIn('HOME="$home"', antigravity)
 
     def test_qwen_hook_reports_session_contract(self):

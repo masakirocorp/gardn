@@ -3,7 +3,8 @@ set -euo pipefail
 repo_dir="${GARDN_REPO_DIR:-/repo}"
 hook_source="$repo_dir/apps/gardn/src/integration/assets/antigravity_cli/gardn-agent-session.sh"
 workdir="${GARDN_ANTIGRAVITY_STATUS_TEST_DIR:-$(mktemp -d)}"
-config_dir="${HOME}/.gemini/antigravity-cli"
+account_home="$(python3 -c 'import os, pwd; print(pwd.getpwuid(os.getuid()).pw_dir)')"
+config_dir="$account_home/.gemini/antigravity-cli"
 socket_path="$workdir/gardn.sock"; request_log="$workdir/gardn-requests.jsonl"; output="$workdir/antigravity-screen.txt"
 [[ -f "$hook_source" ]] || { echo "Antigravity status test needs Gardn repo mounted at $repo_dir" >&2; exit 1; }
 if [[ "${GARDN_ANTIGRAVITY_REAL:-0}" == 1 ]]; then
