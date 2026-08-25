@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-bins=(claude codex opencode copilot hermes droid kimi maki cursor-agent qoder qodercli omp pi jq python3 node pnpm git)
+bins=(claude codex opencode copilot hermes droid kimi maki qwen kilo kilo-code cursor-agent qoder qodercli omp pi jq python3 node pnpm git)
 missing=0
 for bin in "${bins[@]}"; do
   if ! command -v "$bin" >/dev/null 2>&1; then
@@ -28,7 +28,7 @@ printf 'agent test image ok\n'
 printf 'node: '; node --version
 printf 'pnpm: '; pnpm --version
 printf 'cohort: '; jq -c '{schema,resolved_at,source,agents:(.agents|keys)}' /usr/local/share/gardn-agent-tests/cohort.json
-for bin in claude codex opencode copilot hermes droid kimi maki cursor-agent qoder qodercli omp pi; do
+for bin in claude codex opencode copilot hermes droid kimi maki qwen kilo kilo-code cursor-agent qoder qodercli omp pi; do
   printf '%s: ' "$bin"
   "$bin" --version 2>&1 | tr '\n' ' '
   printf '\n'

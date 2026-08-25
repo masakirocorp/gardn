@@ -140,6 +140,9 @@ fn missing_integration_agent_title(agent: Agent) -> String {
         Agent::OpenCode => "OpenCode".to_string(),
         Agent::GithubCopilot => "Copilot".to_string(),
         Agent::Qodercli => "Qoder CLI".to_string(),
+        Agent::Qwen => "Qwen Code".to_string(),
+        Agent::Mastracode => "MastraCode".to_string(),
+        Agent::Antigravity => "Antigravity CLI".to_string(),
         _ => {
             let label = crate::detect::agent_label(agent);
             let mut chars = label.chars();

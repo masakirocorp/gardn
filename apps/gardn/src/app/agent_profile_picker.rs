@@ -27,7 +27,7 @@ impl AgentProfilePickerEntry {
     }
 }
 
-pub(crate) const AGENT_PROFILE_PICKER_TABS: [Option<AgentKind>; 10] = [
+pub(crate) const AGENT_PROFILE_PICKER_TABS: [Option<AgentKind>; 14] = [
     None,
     Some(AgentKind::Pi),
     Some(AgentKind::Omp),
@@ -35,8 +35,12 @@ pub(crate) const AGENT_PROFILE_PICKER_TABS: [Option<AgentKind>; 10] = [
     Some(AgentKind::Codex),
     Some(AgentKind::Copilot),
     Some(AgentKind::Opencode),
+    Some(AgentKind::Kilo),
+    Some(AgentKind::Mastracode),
+    Some(AgentKind::AntigravityCli),
     Some(AgentKind::Hermes),
     Some(AgentKind::Qodercli),
+    Some(AgentKind::Qwen),
     Some(AgentKind::Custom),
 ];
 

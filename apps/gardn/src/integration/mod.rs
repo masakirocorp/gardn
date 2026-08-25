@@ -143,6 +143,9 @@ const OPENCODE_TUI_PLUGIN_INSTALL_NAME: &str = "gardn-tui-session.js";
 const OPENCODE_TUI_PLUGIN_SPEC: &str = "./gardn-tui-session.js";
 const OPENCODE_TUI_PLUGIN_ASSET: &str = include_str!("assets/opencode/gardn-tui-session.js");
 const OPENCODE_INTEGRATION_VERSION: u32 = 8;
+const KILO_PLUGIN_INSTALL_NAME: &str = "gardn-agent-state.js";
+const KILO_PLUGIN_ASSET: &str = include_str!("assets/kilo/gardn-agent-state.js");
+const KILO_INTEGRATION_VERSION: u32 = 4;
 const HERMES_PLUGIN_INSTALL_NAME: &str = "gardn-agent-state";
 const HERMES_PLUGIN_MANIFEST_INSTALL_NAME: &str = "plugin.yaml";
 const HERMES_PLUGIN_INIT_INSTALL_NAME: &str = "__init__.py";
@@ -153,6 +156,59 @@ const QODERCLI_HOOK_INSTALL_NAME: &str = "gardn-agent-state.sh";
 const QODERCLI_HOOK_ASSET: &str = include_str!("assets/qodercli/gardn-agent-state.sh");
 const QODERCLI_INTEGRATION_VERSION: u32 = 1;
 const QODERCLI_CONFIG_DIR_ENV_VAR: &str = "QODER_CONFIG_DIR";
+const QWEN_HOOK_INSTALL_NAME: &str = if cfg!(windows) {
+    "gardn-agent-session.ps1"
+} else {
+    "gardn-agent-session.sh"
+};
+const QWEN_HOOK_ASSET: &str = if cfg!(windows) {
+    include_str!("assets/qwen/gardn-agent-session.ps1")
+} else {
+    include_str!("assets/qwen/gardn-agent-session.sh")
+};
+const QWEN_INTEGRATION_VERSION: u32 = 1;
+const QWEN_HOOK_EVENTS: [(&str, &str); 1] = [("SessionStart", "session")];
+const QWEN_HOME_ENV_VAR: &str = "QWEN_HOME";
+const MASTRACODE_HOOK_INSTALL_NAME: &str = if cfg!(windows) {
+    "gardn-agent-state.ps1"
+} else {
+    "gardn-agent-state.sh"
+};
+const MASTRACODE_HOOK_ASSET: &str = if cfg!(windows) {
+    include_str!("assets/mastracode/gardn-agent-state.ps1")
+} else {
+    include_str!("assets/mastracode/gardn-agent-state.sh")
+};
+const MASTRACODE_INTEGRATION_VERSION: u32 = 2;
+const MASTRACODE_HOOK_TIMEOUT_MS: u64 = 10_000;
+const MASTRACODE_HOOK_EVENTS: [(&str, &str); 11] = [
+    ("SessionStart", "session"),
+    ("UserPromptSubmit", "working"),
+    ("AgentStart", "working"),
+    ("PreToolUse", "working"),
+    ("PermissionRequest", "blocked"),
+    ("PermissionResult", "working"),
+    ("SubagentStart", "working"),
+    ("SubagentEnd", "working"),
+    ("Interrupt", "idle"),
+    ("AgentEnd", "idle"),
+    ("Stop", "idle"),
+];
+const ANTIGRAVITY_CLI_SESSION_INSTALL_NAME: &str = if cfg!(windows) {
+    "gardn-agent-session.ps1"
+} else {
+    "gardn-agent-session.sh"
+};
+const ANTIGRAVITY_CLI_HOOK_ASSET: &str = if cfg!(windows) {
+    include_str!("assets/antigravity_cli/gardn-agent-session.ps1")
+} else {
+    include_str!("assets/antigravity_cli/gardn-agent-session.sh")
+};
+const ANTIGRAVITY_CLI_INTEGRATION_VERSION: u32 = 2;
+const ANTIGRAVITY_CLI_HOOK_BLOCK_NAME: &str = "gardn";
+const ANTIGRAVITY_CLI_HOOK_TIMEOUT_SEC: u64 = 10;
+const ANTIGRAVITY_CLI_HOOK_EVENTS: [(&str, &str); 1] = [("PreInvocation", "session")];
+const ANTIGRAVITY_CLI_CONFIG_DIR_ENV_VAR: &str = "ANTIGRAVITY_CLI_CONFIG_DIR";
 const CURSOR_HOOK_INSTALL_NAME: &str = if cfg!(windows) {
     "gardn-agent-state.ps1"
 } else {
@@ -244,6 +300,27 @@ pub(crate) struct QodercliInstallPaths {
     pub hook_path: PathBuf,
     pub settings_path: PathBuf,
 }
+#[derive(Debug)]
+pub(crate) struct QwenInstallPaths {
+    pub hook_path: PathBuf,
+    pub settings_path: PathBuf,
+}
+#[derive(Debug)]
+pub(crate) struct KiloInstallPaths {
+    pub plugin_path: PathBuf,
+}
+
+#[derive(Debug)]
+pub(crate) struct MastracodeInstallPaths {
+    pub hook_path: PathBuf,
+    pub hooks_path: PathBuf,
+}
+
+#[derive(Debug)]
+pub(crate) struct AntigravityCliInstallPaths {
+    pub hook_path: PathBuf,
+    pub hooks_path: PathBuf,
+}
 
 #[derive(Debug)]
 pub(crate) struct CursorInstallPaths {
@@ -263,6 +340,34 @@ pub(crate) struct QodercliUninstallResult {
     pub settings_path: PathBuf,
     pub removed_hook_file: bool,
     pub updated_settings: bool,
+}
+#[derive(Debug)]
+pub(crate) struct QwenUninstallResult {
+    pub hook_path: PathBuf,
+    pub settings_path: PathBuf,
+    pub removed_hook_file: bool,
+    pub updated_settings: bool,
+}
+#[derive(Debug)]
+pub(crate) struct KiloUninstallResult {
+    pub plugin_path: PathBuf,
+    pub removed_plugin: bool,
+}
+
+#[derive(Debug)]
+pub(crate) struct MastracodeUninstallResult {
+    pub hook_path: PathBuf,
+    pub hooks_path: PathBuf,
+    pub removed_hook_file: bool,
+    pub updated_hooks: bool,
+}
+
+#[derive(Debug)]
+pub(crate) struct AntigravityCliUninstallResult {
+    pub hook_path: PathBuf,
+    pub hooks_path: PathBuf,
+    pub removed_hook_file: bool,
+    pub updated_hooks: bool,
 }
 
 #[derive(Debug)]
@@ -890,6 +995,52 @@ fn install_target_inner(target: crate::api::schema::IntegrationTarget) -> io::Re
                 ),
             ]
         }
+        crate::api::schema::IntegrationTarget::Qwen => {
+            let installed = install_qwen()?;
+            vec![
+                format!(
+                    "installed qwen integration hook to {}",
+                    installed.hook_path.display()
+                ),
+                format!(
+                    "ensured qwen settings at {}",
+                    installed.settings_path.display()
+                ),
+            ]
+        }
+        crate::api::schema::IntegrationTarget::Kilo => {
+            let installed = install_kilo()?;
+            vec![format!(
+                "installed kilo integration plugin to {}",
+                installed.plugin_path.display()
+            )]
+        }
+        crate::api::schema::IntegrationTarget::Mastracode => {
+            let installed = install_mastracode()?;
+            vec![
+                format!(
+                    "installed mastracode integration hook to {}",
+                    installed.hook_path.display()
+                ),
+                format!(
+                    "ensured mastracode hooks at {}",
+                    installed.hooks_path.display()
+                ),
+            ]
+        }
+        crate::api::schema::IntegrationTarget::AntigravityCli => {
+            let installed = install_antigravity_cli()?;
+            vec![
+                format!(
+                    "installed antigravity cli integration hook to {}",
+                    installed.hook_path.display()
+                ),
+                format!(
+                    "ensured antigravity cli hooks at {}",
+                    installed.hooks_path.display()
+                ),
+            ]
+        }
         crate::api::schema::IntegrationTarget::Cursor => {
             let installed = install_cursor()?;
             vec![
@@ -1196,6 +1347,89 @@ pub(crate) fn uninstall_target(
             }
             messages
         }
+        crate::api::schema::IntegrationTarget::Qwen => {
+            let result = uninstall_qwen()?;
+            let mut messages = Vec::new();
+            if result.removed_hook_file {
+                messages.push(format!(
+                    "removed qwen hook at {}",
+                    result.hook_path.display()
+                ));
+            } else {
+                messages.push(format!(
+                    "no qwen hook found at {}",
+                    result.hook_path.display()
+                ));
+            }
+            if result.updated_settings {
+                messages.push(format!(
+                    "removed gardn qwen hook entries from {}",
+                    result.settings_path.display()
+                ));
+            } else {
+                messages.push(format!(
+                    "no gardn qwen hook entries found in {}",
+                    result.settings_path.display()
+                ));
+            }
+            messages
+        }
+        crate::api::schema::IntegrationTarget::Kilo => {
+            let result = uninstall_kilo()?;
+            vec![if result.removed_plugin {
+                format!("removed kilo plugin at {}", result.plugin_path.display())
+            } else {
+                format!("no kilo plugin found at {}", result.plugin_path.display())
+            }]
+        }
+        crate::api::schema::IntegrationTarget::Mastracode => {
+            let result = uninstall_mastracode()?;
+            vec![
+                if result.removed_hook_file {
+                    format!("removed mastracode hook at {}", result.hook_path.display())
+                } else {
+                    format!("no mastracode hook found at {}", result.hook_path.display())
+                },
+                if result.updated_hooks {
+                    format!(
+                        "removed gardn mastracode hook entries from {}",
+                        result.hooks_path.display()
+                    )
+                } else {
+                    format!(
+                        "no gardn mastracode hook entries found in {}",
+                        result.hooks_path.display()
+                    )
+                },
+            ]
+        }
+        crate::api::schema::IntegrationTarget::AntigravityCli => {
+            let result = uninstall_antigravity_cli()?;
+            vec![
+                if result.removed_hook_file {
+                    format!(
+                        "removed antigravity cli hook at {}",
+                        result.hook_path.display()
+                    )
+                } else {
+                    format!(
+                        "no antigravity cli hook found at {}",
+                        result.hook_path.display()
+                    )
+                },
+                if result.updated_hooks {
+                    format!(
+                        "removed gardn antigravity cli hook entries from {}",
+                        result.hooks_path.display()
+                    )
+                } else {
+                    format!(
+                        "no gardn antigravity cli hook entries found in {}",
+                        result.hooks_path.display()
+                    )
+                },
+            ]
+        }
         crate::api::schema::IntegrationTarget::Cursor => {
             let result = uninstall_cursor()?;
             let mut messages = Vec::new();
@@ -1265,6 +1499,10 @@ pub(crate) fn integration_target_label(
         crate::api::schema::IntegrationTarget::Opencode => "opencode",
         crate::api::schema::IntegrationTarget::Hermes => "hermes",
         crate::api::schema::IntegrationTarget::Qodercli => "qodercli",
+        crate::api::schema::IntegrationTarget::Qwen => "qwen",
+        crate::api::schema::IntegrationTarget::Kilo => "kilo",
+        crate::api::schema::IntegrationTarget::Mastracode => "mastracode",
+        crate::api::schema::IntegrationTarget::AntigravityCli => "antigravity-cli",
         crate::api::schema::IntegrationTarget::Cursor => "cursor",
         crate::api::schema::IntegrationTarget::Grok => "grok",
     }
@@ -1285,6 +1523,10 @@ pub(crate) fn integration_target_command(
         crate::api::schema::IntegrationTarget::Opencode => "opencode",
         crate::api::schema::IntegrationTarget::Hermes => "hermes",
         crate::api::schema::IntegrationTarget::Qodercli => "qodercli",
+        crate::api::schema::IntegrationTarget::Qwen => "qwen",
+        crate::api::schema::IntegrationTarget::Kilo => "kilo",
+        crate::api::schema::IntegrationTarget::Mastracode => "mastracode",
+        crate::api::schema::IntegrationTarget::AntigravityCli => "agy",
         crate::api::schema::IntegrationTarget::Cursor => "cursor-agent",
         crate::api::schema::IntegrationTarget::Grok => "grok",
     }
@@ -1315,6 +1557,10 @@ fn integration_target_supported_for_platform(
             | crate::api::schema::IntegrationTarget::Opencode
             | crate::api::schema::IntegrationTarget::Hermes
             | crate::api::schema::IntegrationTarget::Qodercli
+            | crate::api::schema::IntegrationTarget::Qwen
+            | crate::api::schema::IntegrationTarget::Kilo
+            | crate::api::schema::IntegrationTarget::Mastracode
+            | crate::api::schema::IntegrationTarget::AntigravityCli
             | crate::api::schema::IntegrationTarget::Cursor
             | crate::api::schema::IntegrationTarget::Grok
     )
@@ -1327,6 +1573,9 @@ fn integration_target_available(target: crate::api::schema::IntegrationTarget) -
     if target == crate::api::schema::IntegrationTarget::Hermes && hermes_install_layout_available()
     {
         return true;
+    }
+    if target == crate::api::schema::IntegrationTarget::Kilo {
+        return command_available("kilo") || command_available("kilo-code");
     }
     command_available(integration_target_command(target))
 }
@@ -1468,7 +1717,7 @@ fn integration_specs() -> [(
     crate::api::schema::IntegrationTarget,
     io::Result<PathBuf>,
     u32,
-); 13] {
+); 17] {
     [
         (
             crate::api::schema::IntegrationTarget::Pi,
@@ -1524,6 +1773,27 @@ fn integration_specs() -> [(
             crate::api::schema::IntegrationTarget::Qodercli,
             qodercli_dir().map(|dir| dir.join("hooks").join(QODERCLI_HOOK_INSTALL_NAME)),
             QODERCLI_INTEGRATION_VERSION,
+        ),
+        (
+            crate::api::schema::IntegrationTarget::Qwen,
+            qwen_dir().map(|dir| dir.join("hooks").join(QWEN_HOOK_INSTALL_NAME)),
+            QWEN_INTEGRATION_VERSION,
+        ),
+        (
+            crate::api::schema::IntegrationTarget::Kilo,
+            kilo_dir().map(|dir| dir.join("plugin").join(KILO_PLUGIN_INSTALL_NAME)),
+            KILO_INTEGRATION_VERSION,
+        ),
+        (
+            crate::api::schema::IntegrationTarget::Mastracode,
+            mastracode_dir().map(|dir| dir.join("hooks").join(MASTRACODE_HOOK_INSTALL_NAME)),
+            MASTRACODE_INTEGRATION_VERSION,
+        ),
+        (
+            crate::api::schema::IntegrationTarget::AntigravityCli,
+            antigravity_cli_dir()
+                .map(|dir| dir.join("hooks").join(ANTIGRAVITY_CLI_SESSION_INSTALL_NAME)),
+            ANTIGRAVITY_CLI_INTEGRATION_VERSION,
         ),
         (
             crate::api::schema::IntegrationTarget::Cursor,
@@ -1649,6 +1919,10 @@ fn integration_asset_for_target(target: crate::api::schema::IntegrationTarget) -
         crate::api::schema::IntegrationTarget::Opencode => OPENCODE_PLUGIN_ASSET,
         crate::api::schema::IntegrationTarget::Hermes => HERMES_PLUGIN_INIT_ASSET,
         crate::api::schema::IntegrationTarget::Qodercli => QODERCLI_HOOK_ASSET,
+        crate::api::schema::IntegrationTarget::Qwen => QWEN_HOOK_ASSET,
+        crate::api::schema::IntegrationTarget::Kilo => KILO_PLUGIN_ASSET,
+        crate::api::schema::IntegrationTarget::Mastracode => MASTRACODE_HOOK_ASSET,
+        crate::api::schema::IntegrationTarget::AntigravityCli => ANTIGRAVITY_CLI_HOOK_ASSET,
         crate::api::schema::IntegrationTarget::Cursor => CURSOR_HOOK_ASSET,
         crate::api::schema::IntegrationTarget::Grok => GROK_HOOK_ASSET,
     }
@@ -2133,6 +2407,20 @@ pub(crate) fn install_opencode() -> io::Result<OpenCodeInstallPaths> {
         tui_config_path,
     })
 }
+pub(crate) fn install_kilo() -> io::Result<KiloInstallPaths> {
+    let dir = kilo_dir()?;
+    if !dir.is_dir() {
+        return Err(io::Error::other(format!(
+            "kilo config directory not found at {}. install kilo first",
+            dir.display()
+        )));
+    }
+    let plugins_dir = dir.join("plugin");
+    fs::create_dir_all(&plugins_dir)?;
+    let plugin_path = plugins_dir.join(KILO_PLUGIN_INSTALL_NAME);
+    fs::write(&plugin_path, KILO_PLUGIN_ASSET)?;
+    Ok(KiloInstallPaths { plugin_path })
+}
 
 pub(crate) fn install_hermes() -> io::Result<HermesInstallPaths> {
     let dir = hermes_dir()?;
@@ -2455,6 +2743,14 @@ pub(crate) fn uninstall_opencode() -> io::Result<OpenCodeUninstallResult> {
         updated_tui_config,
     })
 }
+pub(crate) fn uninstall_kilo() -> io::Result<KiloUninstallResult> {
+    let plugin_path = kilo_dir()?.join("plugin").join(KILO_PLUGIN_INSTALL_NAME);
+    let removed_plugin = remove_file_if_exists(&plugin_path)?;
+    Ok(KiloUninstallResult {
+        plugin_path,
+        removed_plugin,
+    })
+}
 
 pub(crate) fn uninstall_hermes() -> io::Result<HermesUninstallResult> {
     let dir = hermes_dir()?;
@@ -2572,6 +2868,58 @@ pub(crate) fn install_qodercli() -> io::Result<QodercliInstallPaths> {
     fs::write(&settings_path, serde_json::to_string_pretty(&settings)?)?;
 
     Ok(QodercliInstallPaths {
+        hook_path,
+        settings_path,
+    })
+}
+pub(crate) fn install_qwen() -> io::Result<QwenInstallPaths> {
+    let dir = qwen_dir()?;
+    if !dir.is_dir() {
+        return Err(io::Error::other(format!(
+            "qwen code config directory not found at {}. install qwen code first",
+            dir.display()
+        )));
+    }
+
+    let hooks_dir = dir.join("hooks");
+    fs::create_dir_all(&hooks_dir)?;
+
+    let hook_path = hooks_dir.join(QWEN_HOOK_INSTALL_NAME);
+    fs::write(&hook_path, QWEN_HOOK_ASSET)?;
+    make_executable(&hook_path)?;
+
+    let settings_path = dir.join("settings.json");
+    let mut settings = if settings_path.is_file() {
+        serde_json::from_str::<Value>(&fs::read_to_string(&settings_path)?).map_err(|err| {
+            io::Error::other(format!(
+                "failed to parse {}: {err}",
+                settings_path.display()
+            ))
+        })?
+    } else {
+        json!({})
+    };
+
+    let hooks = ensure_hooks_object(
+        &mut settings,
+        &settings_path,
+        "qwen settings",
+        "qwen settings hooks",
+    )?;
+    for (event, action) in QWEN_HOOK_EVENTS {
+        remove_hook_commands(hooks, event, &hook_path, Some(action))?;
+        ensure_command_hook(
+            hooks,
+            event,
+            hook_command(&hook_path, Some(action)),
+            10_000,
+            Some("*"),
+        )?;
+    }
+
+    fs::write(&settings_path, serde_json::to_string_pretty(&settings)?)?;
+
+    Ok(QwenInstallPaths {
         hook_path,
         settings_path,
     })
@@ -2788,6 +3136,189 @@ pub(crate) fn uninstall_qodercli() -> io::Result<QodercliUninstallResult> {
         updated_settings,
     })
 }
+pub(crate) fn uninstall_qwen() -> io::Result<QwenUninstallResult> {
+    let hook_path = qwen_dir()?.join("hooks").join(QWEN_HOOK_INSTALL_NAME);
+    let settings_path = qwen_dir()?.join("settings.json");
+    let mut updated_settings = false;
+
+    if settings_path.is_file() {
+        let mut settings = serde_json::from_str::<Value>(&fs::read_to_string(&settings_path)?)
+            .map_err(|err| {
+                io::Error::other(format!(
+                    "failed to parse {}: {err}",
+                    settings_path.display()
+                ))
+            })?;
+
+        if let Some(hooks) = hooks_object_if_present(
+            &mut settings,
+            &settings_path,
+            "qwen settings",
+            "qwen settings hooks",
+        )? {
+            for (event, action) in QWEN_HOOK_EVENTS {
+                updated_settings |= remove_hook_commands(hooks, event, &hook_path, Some(action))?;
+            }
+        }
+
+        if updated_settings {
+            fs::write(&settings_path, serde_json::to_string_pretty(&settings)?)?;
+        }
+    }
+
+    let removed_hook_file = remove_file_if_exists(&hook_path)?;
+
+    Ok(QwenUninstallResult {
+        hook_path,
+        settings_path,
+        removed_hook_file,
+        updated_settings,
+    })
+}
+pub(crate) fn install_mastracode() -> io::Result<MastracodeInstallPaths> {
+    let home = mastracode_dir()?;
+    let hooks_dir = home.join("hooks");
+    fs::create_dir_all(&hooks_dir)?;
+    let hook_path = hooks_dir.join(MASTRACODE_HOOK_INSTALL_NAME);
+    fs::write(&hook_path, MASTRACODE_HOOK_ASSET)?;
+    make_executable(&hook_path)?;
+    let hooks_path = home.join("hooks.json");
+    let mut hooks_file = if hooks_path.is_file() {
+        serde_json::from_str::<Value>(&fs::read_to_string(&hooks_path)?).map_err(|err| {
+            io::Error::other(format!("failed to parse {}: {err}", hooks_path.display()))
+        })?
+    } else {
+        json!({})
+    };
+    let hooks = hooks_file.as_object_mut().ok_or_else(|| {
+        io::Error::other(format!(
+            "mastracode hooks file at {} must be a JSON object",
+            hooks_path.display()
+        ))
+    })?;
+    for (event, action) in MASTRACODE_HOOK_EVENTS {
+        let command = hook_command(&hook_path, Some(action));
+        remove_flat_command_hook(hooks, event, &command)?;
+        ensure_flat_command_hook(hooks, event, command, MASTRACODE_HOOK_TIMEOUT_MS)?;
+    }
+    fs::write(&hooks_path, serde_json::to_string_pretty(&hooks_file)?)?;
+    Ok(MastracodeInstallPaths {
+        hook_path,
+        hooks_path,
+    })
+}
+
+pub(crate) fn uninstall_mastracode() -> io::Result<MastracodeUninstallResult> {
+    let home = mastracode_dir()?;
+    let hook_path = home.join("hooks").join(MASTRACODE_HOOK_INSTALL_NAME);
+    let hooks_path = home.join("hooks.json");
+    let mut updated_hooks = false;
+    if hooks_path.is_file() {
+        let mut hooks_file = serde_json::from_str::<Value>(&fs::read_to_string(&hooks_path)?)
+            .map_err(|err| {
+                io::Error::other(format!("failed to parse {}: {err}", hooks_path.display()))
+            })?;
+        let hooks = hooks_file.as_object_mut().ok_or_else(|| {
+            io::Error::other(format!(
+                "mastracode hooks file at {} must be a JSON object",
+                hooks_path.display()
+            ))
+        })?;
+        for (event, action) in MASTRACODE_HOOK_EVENTS {
+            updated_hooks |=
+                remove_flat_command_hook(hooks, event, &hook_command(&hook_path, Some(action)))?;
+        }
+        if updated_hooks {
+            fs::write(&hooks_path, serde_json::to_string_pretty(&hooks_file)?)?;
+        }
+    }
+    let removed_hook_file = remove_file_if_exists(&hook_path)?;
+    Ok(MastracodeUninstallResult {
+        hook_path,
+        hooks_path,
+        removed_hook_file,
+        updated_hooks,
+    })
+}
+
+pub(crate) fn install_antigravity_cli() -> io::Result<AntigravityCliInstallPaths> {
+    let dir = antigravity_cli_dir()?;
+    if !dir.is_dir() {
+        return Err(io::Error::other(format!(
+            "antigravity cli config directory not found at {}. install antigravity cli first",
+            dir.display()
+        )));
+    }
+    let hooks_dir = dir.join("hooks");
+    fs::create_dir_all(&hooks_dir)?;
+    let hook_path = hooks_dir.join(ANTIGRAVITY_CLI_SESSION_INSTALL_NAME);
+    fs::write(&hook_path, ANTIGRAVITY_CLI_HOOK_ASSET)?;
+    make_executable(&hook_path)?;
+    let hooks_path = dir.join("hooks.json");
+    let mut hooks_file = if hooks_path.is_file() {
+        serde_json::from_str::<Value>(&fs::read_to_string(&hooks_path)?).map_err(|err| {
+            io::Error::other(format!("failed to parse {}: {err}", hooks_path.display()))
+        })?
+    } else {
+        json!({})
+    };
+    let hooks = hooks_file.as_object_mut().ok_or_else(|| {
+        io::Error::other(format!(
+            "antigravity cli hooks file at {} must be a JSON object",
+            hooks_path.display()
+        ))
+    })?;
+    let mut block = Map::new();
+    for (event, action) in ANTIGRAVITY_CLI_HOOK_EVENTS {
+        block.insert(
+            event.to_string(),
+            json!([{
+                "type": "command",
+                "command": hook_command(&hook_path, Some(action)),
+                "timeout": ANTIGRAVITY_CLI_HOOK_TIMEOUT_SEC,
+            }]),
+        );
+    }
+    hooks.insert(
+        ANTIGRAVITY_CLI_HOOK_BLOCK_NAME.to_string(),
+        Value::Object(block),
+    );
+    fs::write(&hooks_path, serde_json::to_string_pretty(&hooks_file)?)?;
+    Ok(AntigravityCliInstallPaths {
+        hook_path,
+        hooks_path,
+    })
+}
+
+pub(crate) fn uninstall_antigravity_cli() -> io::Result<AntigravityCliUninstallResult> {
+    let dir = antigravity_cli_dir()?;
+    let hook_path = dir.join("hooks").join(ANTIGRAVITY_CLI_SESSION_INSTALL_NAME);
+    let hooks_path = dir.join("hooks.json");
+    let mut updated_hooks = false;
+    if hooks_path.is_file() {
+        let mut hooks_file = serde_json::from_str::<Value>(&fs::read_to_string(&hooks_path)?)
+            .map_err(|err| {
+                io::Error::other(format!("failed to parse {}: {err}", hooks_path.display()))
+            })?;
+        let hooks = hooks_file.as_object_mut().ok_or_else(|| {
+            io::Error::other(format!(
+                "antigravity cli hooks file at {} must be a JSON object",
+                hooks_path.display()
+            ))
+        })?;
+        updated_hooks = hooks.remove(ANTIGRAVITY_CLI_HOOK_BLOCK_NAME).is_some();
+        if updated_hooks {
+            fs::write(&hooks_path, serde_json::to_string_pretty(&hooks_file)?)?;
+        }
+    }
+    let removed_hook_file = remove_file_if_exists(&hook_path)?;
+    Ok(AntigravityCliUninstallResult {
+        hook_path,
+        hooks_path,
+        removed_hook_file,
+        updated_hooks,
+    })
+}
 
 pub(crate) fn uninstall_devin() -> io::Result<DevinUninstallResult> {
     let devin_home = devin_dir()?;
@@ -2970,6 +3501,31 @@ fn ensure_command_hook(
     entries.push(Value::Object(entry));
     Ok(())
 }
+fn ensure_flat_command_hook(
+    hooks: &mut Map<String, Value>,
+    event: &str,
+    command: String,
+    timeout_ms: u64,
+) -> io::Result<()> {
+    let entries = hooks
+        .entry(event.to_string())
+        .or_insert_with(|| Value::Array(Vec::new()))
+        .as_array_mut()
+        .ok_or_else(|| io::Error::other(format!("hook entries for {event} must be an array")))?;
+    if entries.iter().any(|entry| {
+        entry.get("type").and_then(Value::as_str) == Some("command")
+            && entry.get("command").and_then(Value::as_str) == Some(command.as_str())
+    }) {
+        return Ok(());
+    }
+    entries.push(json!({
+        "type": "command",
+        "command": command,
+        "timeout": timeout_ms,
+        "description": "Report MastraCode agent state to Gardn",
+    }));
+    Ok(())
+}
 
 fn ensure_direct_command_hook(
     hooks: &mut Map<String, Value>,
@@ -3053,6 +3609,29 @@ fn remove_command_hook(
         hooks.remove(event);
     }
 
+    Ok(removed)
+}
+
+fn remove_flat_command_hook(
+    hooks: &mut Map<String, Value>,
+    event: &str,
+    command: &str,
+) -> io::Result<bool> {
+    let Some(entries_value) = hooks.get_mut(event) else {
+        return Ok(false);
+    };
+    let entries = entries_value
+        .as_array_mut()
+        .ok_or_else(|| io::Error::other(format!("hook entries for {event} must be an array")))?;
+    let before = entries.len();
+    entries.retain(|entry| {
+        !(entry.get("type").and_then(Value::as_str) == Some("command")
+            && entry.get("command").and_then(Value::as_str) == Some(command))
+    });
+    let removed = entries.len() != before;
+    if entries.is_empty() {
+        hooks.remove(event);
+    }
     Ok(removed)
 }
 
@@ -3835,6 +4414,18 @@ fn config_dir_from_env_or_home(
     Ok(path)
 }
 
+fn kilo_dir() -> io::Result<PathBuf> {
+    Ok(home_dir()?.join(".config/kilo"))
+}
+
+fn mastracode_dir() -> io::Result<PathBuf> {
+    Ok(home_dir()?.join(".mastracode"))
+}
+
+fn antigravity_cli_dir() -> io::Result<PathBuf> {
+    config_dir_from_env_or_home(ANTIGRAVITY_CLI_CONFIG_DIR_ENV_VAR, &[".gemini", "config"])
+}
+
 fn expand_tilde_path(path: PathBuf) -> io::Result<PathBuf> {
     let Some(raw) = path.to_str() else {
         return Ok(path);
@@ -3907,6 +4498,9 @@ fn hermes_plugin_dir() -> io::Result<PathBuf> {
 fn qodercli_dir() -> io::Result<PathBuf> {
     config_dir_from_env_or_home(QODERCLI_CONFIG_DIR_ENV_VAR, &[".qoder"])
 }
+fn qwen_dir() -> io::Result<PathBuf> {
+    config_dir_from_env_or_home(QWEN_HOME_ENV_VAR, &[".qwen"])
+}
 fn cursor_dir() -> io::Result<PathBuf> {
     config_dir_from_env_or_home(CURSOR_CONFIG_DIR_ENV_VAR, &[".cursor"])
 }
@@ -3939,6 +4533,8 @@ pub(crate) fn integration_env_lock() -> MutexGuard<'static, ()> {
 mod tests {
     use super::*;
     use crate::config::TestEnvVar;
+    #[cfg(unix)]
+    use std::io::Write;
 
     #[test]
     fn extract_version_triple_parses_common_outputs() {
@@ -4010,7 +4606,7 @@ mod tests {
         assert_eq!(enforce_agent_version(&requirement).unwrap(), None);
     }
 
-    fn clear_integration_path_env() -> [TestEnvVar; 10] {
+    fn clear_integration_path_env() -> [TestEnvVar; 12] {
         [
             TestEnvVar::remove(PI_CODING_AGENT_DIR_ENV_VAR),
             TestEnvVar::remove(OMP_CONFIG_DIR_ENV_VAR),
@@ -4021,6 +4617,8 @@ mod tests {
             TestEnvVar::remove(KIMI_CODE_HOME_ENV_VAR),
             TestEnvVar::remove(CURSOR_CONFIG_DIR_ENV_VAR),
             TestEnvVar::remove(QODERCLI_CONFIG_DIR_ENV_VAR),
+            TestEnvVar::remove(QWEN_HOME_ENV_VAR),
+            TestEnvVar::remove(ANTIGRAVITY_CLI_CONFIG_DIR_ENV_VAR),
             TestEnvVar::remove("HOME"),
         ]
     }
@@ -4181,6 +4779,10 @@ mod tests {
             IntegrationTarget::Qodercli,
             true
         ));
+        assert!(integration_target_supported_for_platform(
+            IntegrationTarget::Qwen,
+            true
+        ));
     }
 
     #[test]
@@ -4220,6 +4822,7 @@ mod tests {
             IntegrationTarget::Opencode,
             IntegrationTarget::Hermes,
             IntegrationTarget::Qodercli,
+            IntegrationTarget::Qwen,
             IntegrationTarget::Cursor,
         ] {
             assert!(integration_target_supported_for_platform(target, false));
@@ -6141,6 +6744,273 @@ model: auto
         let err = install_hermes().unwrap_err().to_string();
 
         assert!(err.contains("hermes config directory not found"));
+
+        let _ = fs::remove_dir_all(base);
+    }
+    #[test]
+    fn kilo_installer_manages_only_its_plugin() {
+        let _lock = integration_env_lock();
+        let _path_env = clear_integration_path_env();
+        let base = unique_base();
+        let home = base.join("home");
+        let kilo_home = home.join(".config/kilo");
+        fs::create_dir_all(kilo_home.join("plugin")).unwrap();
+        fs::write(kilo_home.join("plugin/foreign.js"), "foreign").unwrap();
+        let _home = TestEnvVar::set("HOME", &home);
+
+        let installed = install_kilo().unwrap();
+        install_kilo().unwrap();
+        assert_eq!(
+            fs::read_to_string(&installed.plugin_path).unwrap(),
+            KILO_PLUGIN_ASSET
+        );
+        let result = uninstall_kilo().unwrap();
+        assert!(result.removed_plugin);
+        assert!(kilo_home.join("plugin/foreign.js").is_file());
+
+        let _ = fs::remove_dir_all(base);
+    }
+
+    #[test]
+    fn mastracode_installer_is_idempotent_and_preserves_foreign_hooks() {
+        let _lock = integration_env_lock();
+        let _path_env = clear_integration_path_env();
+        let base = unique_base();
+        let home = base.join("home");
+        let mastra_home = home.join(".mastracode");
+        fs::create_dir_all(&mastra_home).unwrap();
+        fs::write(
+            mastra_home.join("hooks.json"),
+            serde_json::to_string_pretty(&json!({
+                "UserPromptSubmit": [{
+                    "type": "command",
+                    "command": "foreign-hook",
+                    "timeout": 1
+                }]
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        let _home = TestEnvVar::set("HOME", &home);
+
+        let installed = install_mastracode().unwrap();
+        install_mastracode().unwrap();
+        let hooks: Value =
+            serde_json::from_str(&fs::read_to_string(&installed.hooks_path).unwrap()).unwrap();
+        let entries = hooks["UserPromptSubmit"].as_array().unwrap();
+        assert_eq!(
+            entries
+                .iter()
+                .filter(
+                    |entry| entry["command"] == hook_command(&installed.hook_path, Some("working"))
+                )
+                .count(),
+            1
+        );
+        assert!(entries
+            .iter()
+            .any(|entry| entry["command"] == "foreign-hook"));
+        assert!(hooks["PermissionRequest"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|entry| entry["command"] == hook_command(&installed.hook_path, Some("blocked"))));
+
+        let result = uninstall_mastracode().unwrap();
+        let hooks: Value =
+            serde_json::from_str(&fs::read_to_string(&result.hooks_path).unwrap()).unwrap();
+        assert!(result.removed_hook_file);
+        assert!(result.updated_hooks);
+        assert!(hooks["UserPromptSubmit"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|entry| entry["command"] == "foreign-hook"));
+
+        let _ = fs::remove_dir_all(base);
+    }
+
+    #[test]
+    fn antigravity_installer_rewrites_only_the_gardn_owned_block() {
+        let _lock = integration_env_lock();
+        let _path_env = clear_integration_path_env();
+        let base = unique_base();
+        let config_home = base.join("antigravity");
+        fs::create_dir_all(&config_home).unwrap();
+        fs::write(
+            config_home.join("hooks.json"),
+            serde_json::to_string_pretty(&json!({
+                "foreign": {"PreInvocation": [{"command": "foreign-hook"}]},
+                "gardn": {"stale": true}
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        let _config = TestEnvVar::set(ANTIGRAVITY_CLI_CONFIG_DIR_ENV_VAR, &config_home);
+
+        let installed = install_antigravity_cli().unwrap();
+        install_antigravity_cli().unwrap();
+        let hooks: Value =
+            serde_json::from_str(&fs::read_to_string(&installed.hooks_path).unwrap()).unwrap();
+        assert_eq!(
+            hooks["foreign"]["PreInvocation"][0]["command"],
+            "foreign-hook"
+        );
+        assert!(hooks["gardn"].get("stale").is_none());
+        assert_eq!(
+            hooks["gardn"]["PreInvocation"][0]["command"],
+            hook_command(&installed.hook_path, Some("session"))
+        );
+
+        let result = uninstall_antigravity_cli().unwrap();
+        let hooks: Value =
+            serde_json::from_str(&fs::read_to_string(&result.hooks_path).unwrap()).unwrap();
+        assert!(result.removed_hook_file);
+        assert!(result.updated_hooks);
+        assert!(hooks.get("gardn").is_none());
+        assert_eq!(
+            hooks["foreign"]["PreInvocation"][0]["command"],
+            "foreign-hook"
+        );
+
+        let _ = fs::remove_dir_all(base);
+    }
+
+    #[test]
+    fn qwen_install_is_idempotent_and_uninstall_preserves_foreign_settings() {
+        let _lock = integration_env_lock();
+        let _path_env = clear_integration_path_env();
+        let base = unique_base();
+        let qwen_home = base.join(".qwen");
+        fs::create_dir_all(&qwen_home).unwrap();
+        fs::write(
+            qwen_home.join("settings.json"),
+            serde_json::to_string_pretty(&json!({
+                "theme": "dark",
+                "hooks": {
+                    "SessionStart": [{
+                        "matcher": "foreign",
+                        "hooks": [{
+                            "type": "command",
+                            "command": "foreign-hook",
+                            "timeout": 3
+                        }]
+                    }]
+                }
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        let _qwen_home = TestEnvVar::set(QWEN_HOME_ENV_VAR, &qwen_home);
+
+        let installed = install_qwen().unwrap();
+        install_qwen().unwrap();
+        let settings: Value =
+            serde_json::from_str(&fs::read_to_string(&installed.settings_path).unwrap()).unwrap();
+        let entries = settings["hooks"]["SessionStart"].as_array().unwrap();
+        let managed_command = hook_command(&installed.hook_path, Some("session"));
+
+        assert_eq!(
+            fs::read_to_string(&installed.hook_path).unwrap(),
+            QWEN_HOOK_ASSET
+        );
+        assert_eq!(settings["theme"], "dark");
+        assert_eq!(
+            entries
+                .iter()
+                .flat_map(|entry| entry["hooks"].as_array().into_iter().flatten())
+                .filter(|hook| hook["command"] == managed_command)
+                .count(),
+            1
+        );
+        assert!(entries.iter().any(|entry| {
+            entry["hooks"]
+                .as_array()
+                .is_some_and(|hooks| hooks.iter().any(|hook| hook["command"] == "foreign-hook"))
+        }));
+
+        let result = uninstall_qwen().unwrap();
+        let settings: Value =
+            serde_json::from_str(&fs::read_to_string(&result.settings_path).unwrap()).unwrap();
+        assert!(result.removed_hook_file);
+        assert!(result.updated_settings);
+        assert_eq!(settings["theme"], "dark");
+        assert!(settings["hooks"]["SessionStart"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|entry| {
+                entry["hooks"]
+                    .as_array()
+                    .is_some_and(|hooks| hooks.iter().any(|hook| hook["command"] == "foreign-hook"))
+            }));
+
+        let _ = fs::remove_dir_all(base);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn qwen_unix_hook_reports_session_identity_and_filters_start_source() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let _lock = integration_env_lock();
+        let _path_env = clear_integration_path_env();
+        let base = unique_base();
+        let qwen_home = base.join(".qwen");
+        fs::create_dir_all(&qwen_home).unwrap();
+        let _qwen_home = TestEnvVar::set(QWEN_HOME_ENV_VAR, &qwen_home);
+        let installed = install_qwen().unwrap();
+        let capture_path = base.join("argv.txt");
+        let fake_gardn = base.join("gardn");
+        fs::write(
+            &fake_gardn,
+            format!(
+                "#!/bin/sh\nprintf '%s\\n' \"$@\" > {}\n",
+                shell_single_quote(&capture_path.display().to_string())
+            ),
+        )
+        .unwrap();
+        fs::set_permissions(&fake_gardn, fs::Permissions::from_mode(0o755)).unwrap();
+
+        let mut child = std::process::Command::new(&installed.hook_path)
+            .arg("session")
+            .env("GARDN_ENV", "1")
+            .env("GARDN_PANE_ID", "test:p1")
+            .env("GARDN_SOCKET_PATH", "/tmp/gardn.sock")
+            .env("GARDN_BIN_PATH", &fake_gardn)
+            .stdin(std::process::Stdio::piped())
+            .spawn()
+            .unwrap();
+        child
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(br#"{"session_id":"qwen-session","source":"resume"}"#)
+            .unwrap();
+        assert!(child.wait().unwrap().success());
+        let argv = fs::read_to_string(&capture_path).unwrap();
+        assert!(argv.contains("pane\nreport-agent-session\ntest:p1\n"));
+        assert!(argv.contains("--source\ngardn:qwen\n--agent\nqwen\n"));
+        assert!(argv.contains("--agent-session-id\nqwen-session\n"));
+        assert!(argv.contains("--session-start-source\nresume\n"));
+        let mut child = std::process::Command::new(&installed.hook_path)
+            .arg("session")
+            .env("GARDN_ENV", "1")
+            .env("GARDN_PANE_ID", "test:p1")
+            .env("GARDN_SOCKET_PATH", "/tmp/gardn.sock")
+            .env("GARDN_BIN_PATH", &fake_gardn)
+            .stdin(std::process::Stdio::piped())
+            .spawn()
+            .unwrap();
+        child
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(br#"{"session_id":"qwen-session","source":"external"}"#)
+            .unwrap();
+        assert!(child.wait().unwrap().success());
+        let argv = fs::read_to_string(&capture_path).unwrap();
+        assert!(!argv.contains("--session-start-source"));
 
         let _ = fs::remove_dir_all(base);
     }

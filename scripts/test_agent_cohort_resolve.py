@@ -20,6 +20,8 @@ NPM_PACKAGES = {
     "hermes-agent": "2.1.0",
     "droid": "3.3.3",
     "@earendil-works/pi-coding-agent": "0.7.8",
+    "@qwen-code/qwen-code": "0.22.0",
+    "@kilocode/cli": "7.4.23",
 }
 
 GITHUB_RELEASES = {
@@ -195,6 +197,8 @@ class AgentCohortResolveTests(unittest.TestCase):
                 "HERMES_VERSION": "2.1.0",
                 "DROID_VERSION": "3.3.3",
                 "PI_VERSION": "0.7.8",
+                "QWEN_CODE_VERSION": "0.22.0",
+                "KILO_VERSION": "7.4.23",
                 "KIMI_VERSION": "9.9.9",
                 "MAKI_VERSION": "v1.4.2",
                 "OMP_REF": "v0.12.0",
@@ -205,6 +209,10 @@ class AgentCohortResolveTests(unittest.TestCase):
             self.assertTrue(value)
 
         self.assertEqual(cohort["agents"]["claude"]["source"], "npm")
+        self.assertEqual(cohort["agents"]["qwen"]["package"], "@qwen-code/qwen-code")
+        self.assertEqual(cohort["agents"]["qwen"]["version"], "0.22.0")
+        self.assertEqual(cohort["agents"]["kilo"]["package"], "@kilocode/cli")
+        self.assertEqual(cohort["agents"]["kilo"]["version"], "7.4.23")
         self.assertEqual(cohort["agents"]["kimi"]["tag"], "@moonshot-ai/kimi-code@9.9.9")
         self.assertEqual(cohort["agents"]["maki"]["version"], "1.4.2")
         self.assertEqual(cohort["agents"]["omp"]["repo"], "can1357/oh-my-pi")
@@ -268,6 +276,8 @@ class AgentCohortResolveTests(unittest.TestCase):
                 "HERMES_VERSION": "9.9.5",
                 "DROID_VERSION": "9.9.6",
                 "PI_VERSION": "9.9.7",
+                "QWEN_CODE_VERSION": "9.9.8",
+                "KILO_VERSION": "9.9.9",
                 "KIMI_VERSION": "8.8.8",
                 "MAKI_VERSION": "v7.7.7",
                 "OMP_REF": "v6.6.6",
@@ -276,6 +286,8 @@ class AgentCohortResolveTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         cohort = json.loads(result.stdout)
         self.assertEqual(cohort["build_args"]["CLAUDE_CODE_VERSION"], "9.9.1")
+        self.assertEqual(cohort["build_args"]["QWEN_CODE_VERSION"], "9.9.8")
+        self.assertEqual(cohort["build_args"]["KILO_VERSION"], "9.9.9")
         self.assertEqual(cohort["build_args"]["KIMI_VERSION"], "8.8.8")
         self.assertEqual(cohort["build_args"]["MAKI_VERSION"], "v7.7.7")
         self.assertEqual(cohort["build_args"]["OMP_REF"], "v6.6.6")
@@ -339,6 +351,8 @@ class AgentCohortWorkflowTests(unittest.TestCase):
             "HERMES_VERSION",
             "DROID_VERSION",
             "PI_VERSION",
+            "QWEN_CODE_VERSION",
+            "KILO_VERSION",
             "KIMI_VERSION",
             "MAKI_VERSION",
             "OMP_REF",

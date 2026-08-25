@@ -12,6 +12,8 @@ ARG COPILOT_VERSION
 ARG HERMES_VERSION
 ARG DROID_VERSION
 ARG PI_VERSION
+ARG QWEN_CODE_VERSION
+ARG KILO_VERSION
 ARG PNPM_VERSION=11.6.0
 ARG KIMI_VERSION
 ARG MAKI_VERSION
@@ -46,6 +48,8 @@ RUN --mount=type=cache,id=gardn-agent-tests-pnpm,target=/pnpm/store \
       HERMES_VERSION \
       DROID_VERSION \
       PI_VERSION \
+      QWEN_CODE_VERSION \
+      KILO_VERSION \
       KIMI_VERSION \
       MAKI_VERSION \
       OMP_REF; do \
@@ -63,6 +67,8 @@ RUN --mount=type=cache,id=gardn-agent-tests-pnpm,target=/pnpm/store \
         'minimumReleaseAge: 0' \
         'allowBuilds:' \
         '  "@anthropic-ai/claude-code": true' \
+        '  "@kilocode/cli": true' \
+        '  "@qwen-code/qwen-code": true' \
         '  "@google/genai": false' \
         '  "droid": true' \
         '  "hermes-agent": true' \
@@ -79,15 +85,18 @@ RUN --mount=type=cache,id=gardn-agent-tests-pnpm,target=/pnpm/store \
         "    \"@github/copilot\": \"${COPILOT_VERSION}\"," \
         "    \"hermes-agent\": \"${HERMES_VERSION}\"," \
         "    \"droid\": \"${DROID_VERSION}\"," \
-        "    \"@earendil-works/pi-coding-agent\": \"${PI_VERSION}\"" \
+        "    \"@earendil-works/pi-coding-agent\": \"${PI_VERSION}\"," \
+        "    \"@qwen-code/qwen-code\": \"${QWEN_CODE_VERSION}\"," \
+        "    \"@kilocode/cli\": \"${KILO_VERSION}\"" \
         '  }' \
         '}' \
         > package.json \
     && pnpm install --prod \
-    && for bin in claude codex opencode copilot hermes droid pi; do \
+    && for bin in claude codex opencode copilot hermes droid pi qwen kilo kilocode; do \
         printf '%s\n' '#!/bin/sh' "exec /opt/agent-tests-node/node_modules/.bin/${bin} \"\$@\"" > "/usr/local/bin/${bin}"; \
         chmod +x "/usr/local/bin/${bin}"; \
     done \
+    && ln -s /usr/local/bin/kilo /usr/local/bin/kilo-code \
     && pnpm store prune
 
 RUN set -eux; \
@@ -176,10 +185,12 @@ COPY cursor-proxy-status-test.sh /usr/local/bin/gardn-agent-tests-cursor-proxy-s
 COPY qoder-openrouter-proxy.mjs /usr/local/bin/gardn-agent-qoder-openrouter-proxy
 COPY qoder-proxy-status-test.sh /usr/local/bin/gardn-agent-tests-qoder-proxy-status
 COPY maki-status-test.sh /usr/local/bin/gardn-agent-tests-maki-status
+COPY qwen-status-test.sh /usr/local/bin/gardn-agent-tests-qwen-status
+COPY kilo-status-test.sh /usr/local/bin/gardn-agent-tests-kilo-status
 COPY run-target.sh /usr/local/bin/gardn-agent-tests-target
 # Pre-resolved cohort manifest written by resolve-versions.mjs before docker build.
 COPY cohort.json /usr/local/share/gardn-agent-tests/cohort.json
-RUN chmod +x /usr/local/bin/gardn-agent-tests-env /usr/local/bin/gardn-agent-tests-doctor /usr/local/bin/gardn-agent-tests-verify-env /usr/local/bin/gardn-agent-tests-opencode /usr/local/bin/gardn-agent-tests-opencode-status /usr/local/bin/gardn-agent-tests-pi-omp-status /usr/local/bin/gardn-agent-tests-claude-status /usr/local/bin/gardn-agent-tests-codex-status /usr/local/bin/gardn-agent-tests-remaining-status /usr/local/bin/gardn-agent-tests-cursor-proxy-status /usr/local/bin/gardn-agent-tests-qoder-proxy-status /usr/local/bin/gardn-agent-tests-maki-status /usr/local/bin/gardn-agent-tests-target /usr/local/bin/gardn-agent-cursor-openrouter-proxy /usr/local/bin/gardn-agent-qoder-openrouter-proxy /usr/local/bin/gardn-agent-opencode-plugin-status-test /usr/local/bin/gardn-agent-pi-omp-plugin-status-test \
+RUN chmod +x /usr/local/bin/gardn-agent-tests-env /usr/local/bin/gardn-agent-tests-doctor /usr/local/bin/gardn-agent-tests-verify-env /usr/local/bin/gardn-agent-tests-opencode /usr/local/bin/gardn-agent-tests-opencode-status /usr/local/bin/gardn-agent-tests-pi-omp-status /usr/local/bin/gardn-agent-tests-claude-status /usr/local/bin/gardn-agent-tests-codex-status /usr/local/bin/gardn-agent-tests-remaining-status /usr/local/bin/gardn-agent-tests-cursor-proxy-status /usr/local/bin/gardn-agent-tests-qoder-proxy-status /usr/local/bin/gardn-agent-tests-maki-status /usr/local/bin/gardn-agent-tests-qwen-status /usr/local/bin/gardn-agent-tests-kilo-status /usr/local/bin/gardn-agent-tests-target /usr/local/bin/gardn-agent-cursor-openrouter-proxy /usr/local/bin/gardn-agent-qoder-openrouter-proxy /usr/local/bin/gardn-agent-opencode-plugin-status-test /usr/local/bin/gardn-agent-pi-omp-plugin-status-test \
     && useradd --create-home --shell /bin/bash agenttest \
     && chmod 0644 /usr/local/share/gardn-agent-tests/cohort.json
 

@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-all_targets='["opencode","pi","omp","claude","codex","copilot","cursor","qoder","devin","droid","kimi","hermes","maki"]'
+all_targets='["opencode","pi","omp","claude","codex","copilot","cursor","qoder","devin","droid","kimi","hermes","maki","qwen","kilo"]'
 target="${1:-all}"
 case "$target" in
   all|'')
     printf '%s\n' "$all_targets"
     ;;
-  opencode|pi|omp|claude|codex|copilot|cursor|qoder|devin|droid|kimi|hermes|maki)
+  opencode|pi|omp|claude|codex|copilot|cursor|qoder|devin|droid|kimi|hermes|maki|qwen|kilo)
     printf '["%s"]\n' "$target"
     ;;
   *)

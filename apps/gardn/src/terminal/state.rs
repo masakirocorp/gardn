@@ -907,6 +907,12 @@ impl TerminalState {
                 Some("startup" | "new" | "resume" | "fork")
             ) | ("gardn:hermes", "hermes", Some("startup" | "new" | "resume"))
                 | ("gardn:opencode", "opencode", Some("select"))
+                | (
+                    "gardn:qwen",
+                    "qwen",
+                    Some("startup" | "resume" | "clear" | "compact" | "branch")
+                )
+                | ("gardn:antigravity_cli", "agy", Some("startup"))
         )
     }
 
@@ -3055,6 +3061,49 @@ mod tests {
                 .map(|session| session.session_ref.value.as_str()),
             Some("hermes-new")
         );
+    }
+
+    #[test]
+    fn qwen_and_antigravity_session_start_replace_current_identity() {
+        for (source, label, agent, replacement_source) in [
+            ("gardn:qwen", "qwen", Agent::Qwen, "clear"),
+            (
+                "gardn:antigravity_cli",
+                "agy",
+                Agent::Antigravity,
+                "startup",
+            ),
+        ] {
+            let mut terminal = test_terminal();
+            terminal
+                .set_agent_session_ref_for_session_start(
+                    source.into(),
+                    label.into(),
+                    crate::agent_resume::AgentSessionRef::id("old-session"),
+                    Some(10),
+                    Some("startup".into()),
+                )
+                .expect("initial session");
+            terminal.set_detected_state(Some(agent), AgentState::Idle);
+
+            terminal
+                .set_agent_session_ref_for_session_start(
+                    source.into(),
+                    label.into(),
+                    crate::agent_resume::AgentSessionRef::id("new-session"),
+                    Some(11),
+                    Some(replacement_source.into()),
+                )
+                .expect("detected process can replace its session");
+
+            assert_eq!(
+                terminal
+                    .persisted_agent_session
+                    .as_ref()
+                    .map(|session| session.session_ref.value.as_str()),
+                Some("new-session")
+            );
+        }
     }
 
     #[test]

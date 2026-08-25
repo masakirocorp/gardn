@@ -110,13 +110,13 @@ fn parse_integration_target(
 ) -> std::io::Result<Option<IntegrationTarget>> {
     let Some(target) = args.first().map(|arg| arg.as_str()) else {
         eprintln!(
-            "usage: gardn integration {action} <pi|omp|claude|codex|devin|kimi|droid|copilot|opencode|hermes|qodercli|cursor>"
+            "usage: gardn integration {action} <pi|omp|claude|codex|devin|kimi|droid|copilot|opencode|kilo|mastracode|antigravity-cli|hermes|qodercli|qwen|cursor|grok>"
         );
         return Ok(None);
     };
     if args.len() != 1 {
         eprintln!(
-            "usage: gardn integration {action} <pi|omp|claude|codex|devin|kimi|droid|copilot|opencode|hermes|qodercli|cursor|grok>"
+            "usage: gardn integration {action} <pi|omp|claude|codex|devin|kimi|droid|copilot|opencode|kilo|mastracode|antigravity-cli|hermes|qodercli|qwen|cursor|grok>"
         );
         return Ok(None);
     }
@@ -133,11 +133,15 @@ fn parse_integration_target(
         "opencode" => IntegrationTarget::Opencode,
         "hermes" => IntegrationTarget::Hermes,
         "qodercli" => IntegrationTarget::Qodercli,
+        "qwen" => IntegrationTarget::Qwen,
+        "kilo" => IntegrationTarget::Kilo,
+        "mastracode" => IntegrationTarget::Mastracode,
+        "antigravity-cli" | "antigravity_cli" => IntegrationTarget::AntigravityCli,
         "cursor" => IntegrationTarget::Cursor,
         "grok" => IntegrationTarget::Grok,
         _ => {
             eprintln!("unknown integration target: {target}");
-            eprintln!("currently supported: pi, omp, claude, codex, devin, kimi, droid, copilot, opencode, hermes, qodercli, cursor, grok");
+            eprintln!("currently supported: pi, omp, claude, codex, devin, kimi, droid, copilot, opencode, kilo, mastracode, antigravity-cli, hermes, qodercli, qwen, cursor, grok");
             return Ok(None);
         }
     };
@@ -157,6 +161,10 @@ fn print_integration_help() {
     eprintln!("  gardn integration install opencode");
     eprintln!("  gardn integration install hermes");
     eprintln!("  gardn integration install qodercli");
+    eprintln!("  gardn integration install qwen");
+    eprintln!("  gardn integration install kilo");
+    eprintln!("  gardn integration install mastracode");
+    eprintln!("  gardn integration install antigravity-cli");
     eprintln!("  gardn integration install cursor");
     eprintln!("  gardn integration uninstall pi");
     eprintln!("  gardn integration uninstall omp");
@@ -168,6 +176,10 @@ fn print_integration_help() {
     eprintln!("  gardn integration uninstall opencode");
     eprintln!("  gardn integration uninstall hermes");
     eprintln!("  gardn integration uninstall qodercli");
+    eprintln!("  gardn integration uninstall qwen");
+    eprintln!("  gardn integration uninstall kilo");
+    eprintln!("  gardn integration uninstall mastracode");
+    eprintln!("  gardn integration uninstall antigravity-cli");
     eprintln!("  gardn integration uninstall cursor");
     eprintln!("  gardn integration status [--outdated-only]");
 }

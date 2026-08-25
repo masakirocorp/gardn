@@ -62,12 +62,14 @@ pub enum Agent {
     Grok,
     Hermes,
     Kilo,
+    Qwen,
+    Mastracode,
     Qodercli,
     Maki,
 }
 
 impl Agent {
-    pub const ALL: [Self; 20] = [
+    pub const ALL: [Self; 22] = [
         Self::Pi,
         Self::OhMyPi,
         Self::Claude,
@@ -86,6 +88,8 @@ impl Agent {
         Self::Grok,
         Self::Hermes,
         Self::Kilo,
+        Self::Qwen,
+        Self::Mastracode,
         Self::Qodercli,
         Self::Maki,
     ];
@@ -111,6 +115,8 @@ pub fn agent_label(agent: Agent) -> &'static str {
         Agent::Grok => "grok",
         Agent::Hermes => "hermes",
         Agent::Kilo => "kilo",
+        Agent::Qwen => "qwen",
+        Agent::Mastracode => "mastracode",
         Agent::Qodercli => "qodercli",
         Agent::Maki => "maki",
     }
@@ -137,6 +143,8 @@ pub fn parse_agent_label(agent: &str) -> Option<Agent> {
         "grok" | "grok-build" => Some(Agent::Grok),
         "hermes" | "hermes-agent" => Some(Agent::Hermes),
         "kilo" | "kilo-code" | "kilo code" => Some(Agent::Kilo),
+        "qwen" | "qwen-code" | "qwen code" => Some(Agent::Qwen),
+        "mastracode" => Some(Agent::Mastracode),
         "qodercli" | "qoderclicn" | "qoder" | "qodercn" => Some(Agent::Qodercli),
         "maki" => Some(Agent::Maki),
         _ => None,
@@ -171,6 +179,8 @@ pub fn identify_agent(process_name: &str) -> Option<Agent> {
         "grok" | "grok-build" => Some(Agent::Grok),
         "hermes" | "hermes-agent" => Some(Agent::Hermes),
         "kilo" | "kilo-code" | "kilo code" => Some(Agent::Kilo),
+        "qwen" | "qwen-code" | "qwen code" => Some(Agent::Qwen),
+        "mastracode" => Some(Agent::Mastracode),
         "qodercli" | "qoderclicn" | "qoder" | "qodercn" => Some(Agent::Qodercli),
         "maki" => Some(Agent::Maki),
         _ => None,
@@ -251,24 +261,38 @@ pub fn should_skip_state_update(agent: Option<Agent>, screen_content: &str) -> b
     agent.is_some_and(|agent| manifest::should_skip_state_update(agent, screen_content))
 }
 
-pub(crate) fn full_lifecycle_hook_authority(source: &str, agent_label: &str) -> bool {
-    matches!(
-        (source, agent_label),
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum AgentReportMode {
+    SessionOnly,
+    FullLifecycle,
+}
+
+pub(crate) fn agent_report_mode(source: &str, agent_label: &str) -> Option<AgentReportMode> {
+    match (source, agent_label) {
         ("gardn:claude", "claude")
-            | ("gardn:codex", "codex")
-            | ("gardn:copilot", "copilot")
-            | ("gardn:cursor", "cursor")
-            | ("gardn:droid", "droid")
-            | ("gardn:grok", "grok")
-            | ("gardn:opencode", "opencode")
-            | ("gardn:kilo", "kilo")
-            | ("gardn:kimi", "kimi")
-            | ("gardn:qodercli", "qodercli")
-    )
+        | ("gardn:codex", "codex")
+        | ("gardn:copilot", "copilot")
+        | ("gardn:cursor", "cursor")
+        | ("gardn:droid", "droid")
+        | ("gardn:grok", "grok")
+        | ("gardn:opencode", "opencode")
+        | ("gardn:kilo", "kilo")
+        | ("gardn:mastracode", "mastracode")
+        | ("gardn:kimi", "kimi")
+        | ("gardn:qodercli", "qodercli") => Some(AgentReportMode::FullLifecycle),
+        ("gardn:hermes", "hermes") | ("gardn:qwen", "qwen") | ("gardn:antigravity_cli", "agy") => {
+            Some(AgentReportMode::SessionOnly)
+        }
+        _ => None,
+    }
+}
+
+pub(crate) fn full_lifecycle_hook_authority(source: &str, agent_label: &str) -> bool {
+    agent_report_mode(source, agent_label) == Some(AgentReportMode::FullLifecycle)
 }
 
 pub(crate) fn session_identity_only_integration(source: &str, agent_label: &str) -> bool {
-    (source, agent_label) == ("gardn:hermes", "hermes")
+    agent_report_mode(source, agent_label) == Some(AgentReportMode::SessionOnly)
 }
 
 // ---------------------------------------------------------------------------
@@ -672,10 +696,13 @@ mod tests {
         assert_eq!(identify_agent("ghcs"), Some(Agent::GithubCopilot));
         assert_eq!(identify_agent("grok"), Some(Agent::Grok));
         assert_eq!(identify_agent("grok-build"), Some(Agent::Grok));
+        assert_eq!(identify_agent("mastracode"), Some(Agent::Mastracode));
         assert_eq!(identify_agent("hermes"), Some(Agent::Hermes));
         assert_eq!(identify_agent("hermes-agent"), Some(Agent::Hermes));
         assert_eq!(identify_agent("kilo"), Some(Agent::Kilo));
         assert_eq!(identify_agent("kilo-code"), Some(Agent::Kilo));
+        assert_eq!(identify_agent("qwen"), Some(Agent::Qwen));
+        assert_eq!(identify_agent("qwen-code.exe"), Some(Agent::Qwen));
         assert_eq!(identify_agent("maki"), Some(Agent::Maki));
     }
 
@@ -694,11 +721,13 @@ mod tests {
             parse_agent_label("github-copilot"),
             Some(Agent::GithubCopilot)
         );
+        assert_eq!(parse_agent_label("mastracode"), Some(Agent::Mastracode));
         assert_eq!(parse_agent_label("amp-local"), Some(Agent::Amp));
         assert_eq!(parse_agent_label("kiro-cli"), Some(Agent::Kiro));
         assert_eq!(parse_agent_label("grok-build"), Some(Agent::Grok));
         assert_eq!(parse_agent_label("hermes-agent"), Some(Agent::Hermes));
         assert_eq!(parse_agent_label("kilo-code"), Some(Agent::Kilo));
+        assert_eq!(parse_agent_label("qwen-code"), Some(Agent::Qwen));
         assert_eq!(parse_agent_label("maki"), Some(Agent::Maki));
     }
 
@@ -708,11 +737,13 @@ mod tests {
         assert_eq!(agent_label(Agent::OhMyPi), "omp");
         assert_eq!(agent_label(Agent::GithubCopilot), "copilot");
         assert_eq!(agent_label(Agent::OpenCode), "opencode");
+        assert_eq!(agent_label(Agent::Mastracode), "mastracode");
         assert_eq!(agent_label(Agent::Antigravity), "agy");
         assert_eq!(agent_label(Agent::Kiro), "kiro");
         assert_eq!(agent_label(Agent::Grok), "grok");
         assert_eq!(agent_label(Agent::Hermes), "hermes");
         assert_eq!(agent_label(Agent::Kilo), "kilo");
+        assert_eq!(agent_label(Agent::Qwen), "qwen");
         assert_eq!(agent_label(Agent::Maki), "maki");
     }
 
@@ -720,6 +751,39 @@ mod tests {
     fn hermes_session_integration_leaves_state_to_screen_detection() {
         assert!(!full_lifecycle_hook_authority("gardn:hermes", "hermes"));
         assert!(session_identity_only_integration("gardn:hermes", "hermes"));
+    }
+    #[test]
+    fn qwen_session_integration_leaves_state_to_screen_detection() {
+        assert_eq!(
+            agent_report_mode("gardn:qwen", "qwen"),
+            Some(AgentReportMode::SessionOnly)
+        );
+        assert!(!full_lifecycle_hook_authority("gardn:qwen", "qwen"));
+        assert!(session_identity_only_integration("gardn:qwen", "qwen"));
+    }
+    #[test]
+    fn remaining_family_reports_preserve_lifecycle_ownership() {
+        assert_eq!(
+            agent_report_mode("gardn:kilo", "kilo"),
+            Some(AgentReportMode::FullLifecycle)
+        );
+        assert_eq!(
+            agent_report_mode("gardn:mastracode", "mastracode"),
+            Some(AgentReportMode::FullLifecycle)
+        );
+        assert_eq!(
+            agent_report_mode("gardn:antigravity_cli", "agy"),
+            Some(AgentReportMode::SessionOnly)
+        );
+        assert!(full_lifecycle_hook_authority("gardn:kilo", "kilo"));
+        assert!(full_lifecycle_hook_authority(
+            "gardn:mastracode",
+            "mastracode"
+        ));
+        assert!(!full_lifecycle_hook_authority(
+            "gardn:antigravity_cli",
+            "agy"
+        ));
     }
 
     #[test]

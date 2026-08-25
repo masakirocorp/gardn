@@ -178,6 +178,58 @@ test.serial("OpenCode keeps the Unix socket endpoint unchanged", async () => {
 
   expect(connectedEndpoint()).toBe(socketPath);
 });
+test.serial("Kilo reports session identity and lifecycle states", async () => {
+  let recording: RecordingSocket | undefined;
+  try {
+    recording = await recordingSocket((_request, _connection, socket) => socket.end("{}\n"));
+    configureIntegrationEnvironment(recording.path);
+    const { GardnAgentStatePlugin } = await freshImport("./kilo/gardn-agent-state.js");
+    const plugin = await GardnAgentStatePlugin();
+
+    await plugin.event?.({
+      event: { type: "session.created", properties: { sessionID: "kilo-session" } },
+    });
+    await plugin.event?.({
+      event: {
+        type: "session.status",
+        properties: { sessionID: "kilo-session", status: "streaming" },
+      },
+    });
+    await plugin.event?.({
+      event: { type: "permission.asked", properties: { sessionID: "kilo-session" } },
+    });
+    await plugin.event?.({
+      event: { type: "session.idle", properties: { sessionID: "kilo-session" } },
+    });
+    await plugin.event?.({
+      event: {
+        type: "session.status",
+        properties: { sessionID: "kilo-session", status: "future-status" },
+      },
+    });
+
+    expect(recording.requests.map((request) => request.method)).toEqual([
+      "pane.report_agent_session",
+      "pane.report_agent",
+      "pane.report_agent",
+      "pane.report_agent",
+      "pane.report_agent_session",
+    ]);
+    expect(recording.requests.map((request) => {
+      if (!isRecord(request.params)) return undefined;
+      return request.params.state;
+    })).toEqual([undefined, "working", "blocked", "idle", undefined]);
+    expect(recording.requests.every((request) => {
+      return isRecord(request.params)
+        && request.params.source === "gardn:kilo"
+        && request.params.agent === "kilo"
+        && request.params.agent_session_id === "kilo-session";
+    })).toBe(true);
+  } finally {
+    if (recording) await closeRecordingSocket(recording);
+  }
+});
+
 
 async function recordingSocket(
   handle: (request: RequestRecord, connection: number, socket: Socket) => void,

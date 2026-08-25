@@ -901,6 +901,12 @@ mod tests {
     fn picker_ctrl_f_toggles_target_group_favorite() {
         let mut app = app_with_space();
         open_new_agent_picker_for_workspace(&mut app.state, 0);
+        let claude_index =
+            crate::app::agent_profile_picker::agent_profile_picker_entries(&app.state)
+                .iter()
+                .position(|entry| entry.profile_id == "system:claude")
+                .expect("Claude profile");
+        app.state.agent_profile_picker.list.select(claude_index);
 
         app.handle_agent_profile_picker_key(KeyEvent::new(
             KeyCode::Char('f'),

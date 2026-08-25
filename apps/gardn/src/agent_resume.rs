@@ -118,6 +118,7 @@ pub fn launch_env_from_report(
         ("gardn:hermes", "hermes") => &["HERMES_HOME"][..],
         ("gardn:opencode", "opencode") => &["OPENCODE_CONFIG", "XDG_DATA_HOME"][..],
         ("gardn:grok", "grok") => &["GROK_HOME"][..],
+        ("gardn:antigravity_cli", "agy") => &["ANTIGRAVITY_CLI_CONFIG_DIR"][..],
         _ => &[],
     };
 
@@ -213,6 +214,20 @@ pub fn plan(source: &str, agent: &str, session_ref: &AgentSessionRef) -> Option<
                 }
                 .into(),
                 "--resume".into(),
+                session_ref.value.clone(),
+            ]
+        }
+        ("gardn:mastracode", "mastracode", AgentSessionRefKind::Id) => {
+            vec![
+                "mastracode".into(),
+                "--thread".into(),
+                session_ref.value.clone(),
+            ]
+        }
+        ("gardn:antigravity_cli", "agy", AgentSessionRefKind::Id) => {
+            vec![
+                "agy".into(),
+                "--conversation".into(),
                 session_ref.value.clone(),
             ]
         }
@@ -433,6 +448,8 @@ pub(crate) fn is_official_agent_source(source: &str, agent: &str) -> bool {
             | ("gardn:opencode", "opencode")
             | ("gardn:cursor", "cursor")
             | ("gardn:grok", "grok")
+            | ("gardn:mastracode", "mastracode")
+            | ("gardn:antigravity_cli", "agy")
     )
 }
 pub(crate) fn releases_process_owned_agent(source: &str, agent: &str) -> bool {
@@ -632,6 +649,24 @@ mod tests {
                 "cursor-session",
             ]
         );
+    }
+    #[test]
+    fn remaining_family_resume_contracts_are_explicit() {
+        let session_ref = AgentSessionRef::id("family-session").unwrap();
+        assert_eq!(
+            plan("gardn:mastracode", "mastracode", &session_ref)
+                .unwrap()
+                .argv,
+            vec!["mastracode", "--thread", "family-session"]
+        );
+        assert_eq!(
+            plan("gardn:antigravity_cli", "agy", &session_ref)
+                .unwrap()
+                .argv,
+            vec!["agy", "--conversation", "family-session"]
+        );
+        assert!(plan("gardn:qwen", "qwen", &session_ref).is_none());
+        assert!(plan("gardn:kilo", "kilo", &session_ref).is_none());
     }
 
     #[test]

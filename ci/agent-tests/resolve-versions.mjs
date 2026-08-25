@@ -8,8 +8,9 @@
 //   GARDN_RESOLVE_GITHUB_API      API origin (default: https://api.github.com)
 //   GARDN_RESOLVE_FETCH           optional path to a node module exporting fetch
 //   CLAUDE_CODE_VERSION, CODEX_VERSION, OPENCODE_VERSION, COPILOT_VERSION,
-//   HERMES_VERSION, DROID_VERSION, PI_VERSION, KIMI_VERSION, MAKI_VERSION,
-//   OMP_REF                     optional exact overrides (skip remote lookup)
+//   HERMES_VERSION, DROID_VERSION, PI_VERSION, QWEN_CODE_VERSION, KILO_VERSION,
+//   KIMI_VERSION, MAKI_VERSION, OMP_REF
+//                                 optional exact overrides (skip remote lookup)
 //   COHORT_PATH                 optional path to also write the JSON document
 //   BUILD_ARGS_PATH             optional path for docker --build-arg lines
 
@@ -56,8 +57,17 @@ const NPM_AGENTS = [
     buildArg: "PI_VERSION",
     packageName: "@earendil-works/pi-coding-agent",
   },
+  {
+    name: "qwen",
+    buildArg: "QWEN_CODE_VERSION",
+    packageName: "@qwen-code/qwen-code",
+  },
+  {
+    name: "kilo",
+    buildArg: "KILO_VERSION",
+    packageName: "@kilocode/cli",
+  },
 ];
-
 const KIMI_TAG_PREFIX = "@moonshot-ai/kimi-code@";
 const KIMI_ASSETS = [
   "kimi-code-linux-x64.zip",

@@ -106,6 +106,7 @@ gardn_test_configure_model() {
 
   export GARDN_TEST_MODEL="$model"
   export OPENAI_API_KEY="$OPENROUTER_API_KEY"
+  export OPENAI_BASE_URL="$openrouter_base"
   export ANTHROPIC_AUTH_TOKEN="$OPENROUTER_API_KEY"
   export ANTHROPIC_BASE_URL="$openrouter_base"
   export ANTHROPIC_MODEL="$model"
@@ -113,6 +114,7 @@ gardn_test_configure_model() {
   export COPILOT_PROVIDER_BASE_URL="$openrouter_base"
   export COPILOT_MODEL="$model"
   export OPENCODE_AUTH_CONTENT="{\"openrouter\":{\"type\":\"api\",\"key\":\"$OPENROUTER_API_KEY\"}}"
+  export KILO_AUTH_CONTENT="$OPENCODE_AUTH_CONTENT"
 
   export CODEX_HOME="${CODEX_HOME:-$HOME/.codex}"
   local factory_home="${FACTORY_HOME:-${DROID_HOME:-$HOME/.factory}}"

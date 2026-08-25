@@ -29,6 +29,12 @@ case "$target" in
   maki)
     exec gardn-agent-tests-maki-status
     ;;
+  qwen)
+    exec gardn-agent-tests-qwen-status
+    ;;
+  kilo)
+    exec gardn-agent-tests-kilo-status
+    ;;
   *)
     echo "unknown agent test target: $target" >&2
     exit 2

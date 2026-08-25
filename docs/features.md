@@ -106,10 +106,12 @@ Supported built-in detection includes:
 - Grok CLI
 - Hermes agent
 - Kilo Code CLI
+- Qwen Code
+- MastraCode
 - Maki
 
 
-- **Manifest rules** — bundled per-agent TOML manifests define screen, OSC title, and OSC progress matching rules for every built-in agent family, including OMP. Screen rules can provide strong visible evidence; OSC-only rules are fallback evidence and do not override hook authority as visible UI.
+- **Manifest rules** — bundled per-agent TOML manifests define screen, OSC title, and OSC progress matching rules for screen-detectable built-in families, including Qwen Code. MastraCode intentionally has no screen manifest because its hook owns lifecycle state. Screen rules can provide strong visible evidence; OSC-only rules are fallback evidence and do not override hook authority as visible UI.
 - **Manifest updates** — Gardn can cache newer remote manifests, reject downgrades or incompatible engine versions, reload local manifests through `gardn server reload-agent-manifests`, and report updated detection rules through the normal toast/update path.
 - **Wrapped-process hints** — Gardn-managed profiles automatically set `GARDN_AGENT=<agent>` from the selected supported agent kind, so host-visible wrappers remain detectable on Linux and macOS. Set the hint explicitly only when launching a wrapper manually inside an arbitrary pane. The hint is process-scoped; avoid exporting it globally. Upstream-branded hint names are not accepted.
 
@@ -120,7 +122,7 @@ Supported built-in detection includes:
 - **Agent labels** — manual, detected, and integration-reported labels are surfaced in lists and pane borders.
 - **Agent metadata tokens** — pane metadata token patches are exposed consistently through pane/agent API snapshots and rendered without leaking one client's sidebar view into another.
 - **State notifications** — background state changes can trigger Gardn toasts, terminal toasts, system toasts, and sounds.
-- **Integration authority** — installed hooks either report native session identity for restore or report state directly. Claude Code, Codex, Pi, OMP, OpenCode, Copilot, Qoder-style, and Grok Build integrations can report state directly; Kimi, Droid, Cursor, and Hermes use session identity plus screen detection for state.
+- **Integration authority** — installed hooks either report native session identity for restore or report state directly. Kilo and MastraCode hooks own lifecycle state. Qwen Code and Antigravity CLI hooks report session identity only while their screen manifests own lifecycle state.
 - **Pi settled lifecycle** — the Pi integration reports only TUI sessions and keeps an active root agent working through compaction. It reports the root agent idle only after Pi emits `agent_settled` while the root session is actually idle. Stale or non-idle settlement signals do not end active work.
 - **Missing integration warning** — if screen detection sees an integration-capable agent such as Codex but no accepted Gardn hook, session, or metadata report arrives for that pane, Gardn shows a pane-targeted toast with the matching `gardn integration install <agent>` command.
 - **Host-scoped integration management** — Settings can inspect, install, update, and uninstall agent integrations on Local or a saved SSH Execution Host. Remote operations run through the managed worker in order, and remote hooks report through a restricted authenticated worker endpoint instead of receiving the coordinator's Local API socket.
@@ -141,6 +143,7 @@ Gardn resumes supported agents into native agent sessions during session restore
 - Duplicate session references are deduplicated during a restore pass.
 - Native agent restore suppresses pane-history replay so the resumed agent owns its conversation history.
 - Restored agents launch as one-shot executable or shell-wrapper commands with their saved environment. OMP restores reconcile safe `.omp` and `.omp-*` session paths with the matching profile wrapper and environment before launch.
+- MastraCode restores with `mastracode --thread <id>`. Antigravity CLI restores with `agy --conversation <id>`. Qwen Code and Kilo do not advertise restore support.
 
 ## Navigation and interaction
 
@@ -261,6 +264,10 @@ Built-in installable integrations:
 - Qoder CLI
 - Cursor
 - Grok Build
+- Qwen Code
+- Kilo
+- MastraCode
+- Antigravity CLI
 
 Integration management supports:
 
@@ -271,14 +278,14 @@ Integration management supports:
 - in-app integration management
 - Local and configured SSH execution-host selection
 
-Integration install side effects are agent-specific: pi and OMP install extensions, Claude, Codex, Grok Build, Kimi, Droid, Cursor, Copilot, and Qoder-style CLIs install/update hooks or settings, OpenCode installs a server plugin plus a TUI session plugin and enables the TUI session plugin, and Hermes installs/enables a plugin.
+Integration install side effects are agent-specific: pi and OMP install extensions; OpenCode and Kilo install JavaScript plugins; Hermes installs and enables a plugin; and the remaining built-in targets install hooks or settings without replacing foreign configuration.
 
-Claude Code, Codex, Pi, OMP, OpenCode, Copilot, Qoder-style, and Grok Build integrations can report state directly. Hermes reports session identity only; screen detection provides its state. Pi uses its settled lifecycle as the idle boundary, so compaction completion and stale settlement signals do not prematurely end active work. The Grok Build integration reports native session identity plus parent-agent working, blocked, idle, and release transitions while ignoring child-agent completion as a parent completion. Its Gardn-owned hook also prevents Grok's Claude and Cursor compatibility hooks from claiming Grok panes.
+Kilo and MastraCode integrations report native session identity and lifecycle state directly. Qwen Code and Antigravity CLI report session identity only, so their screen manifests provide blocked, working, and idle state. MastraCode and Antigravity CLI provide verified native restore commands.
 
 Integration management runs on the selected host. SSH integration operations use the managed execution worker. Agent panes on an SSH host send lifecycle reports to a restricted worker-local endpoint. They do not receive the coordinator Local API socket.
 
-Integration path overrides include `PI_CODING_AGENT_DIR`, `PI_CONFIG_DIR`, `CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `COPILOT_HOME`, `DEVIN_CONFIG_DIR`, `GROK_HOME`, `HERMES_HOME`, `KIMI_CODE_HOME`, `QODER_CONFIG_DIR`, and `CURSOR_CONFIG_DIR`. OMP install/status checks scan `.omp` and `.omp-*` extension directories.
-- On Windows, installable integrations include the Pi, OMP, and OpenCode JavaScript integrations, the Hermes plugin, and CLI hook integrations with supported path layouts: Claude, Codex, Copilot, Devin, Grok Build, Kimi, Droid, Cursor, and Qoder-style CLIs. Kilo has no Gardn installable integration.
+Integration path overrides include `PI_CODING_AGENT_DIR`, `PI_CONFIG_DIR`, `CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `COPILOT_HOME`, `DEVIN_CONFIG_DIR`, `GROK_HOME`, `HERMES_HOME`, `KIMI_CODE_HOME`, `QODER_CONFIG_DIR`, `QWEN_HOME`, `ANTIGRAVITY_CLI_CONFIG_DIR`, and `CURSOR_CONFIG_DIR`. OMP install/status checks scan `.omp` and `.omp-*` extension directories.
+- On Windows, Qwen Code, Kilo, MastraCode, and Antigravity CLI use their upstream-supported PowerShell or JavaScript integration assets.
 
 
 ## Plugins

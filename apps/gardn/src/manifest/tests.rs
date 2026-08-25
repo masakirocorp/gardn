@@ -491,13 +491,17 @@ fn detection_uses_cached_manifest_until_explicit_reload() {
 }
 
 #[test]
-fn all_bundled_manifests_parse_and_validate() {
+fn bundled_manifest_coverage_matches_agent_contract() {
     for agent in Agent::ALL {
-        assert!(
-            bundled_manifest(agent).is_some(),
-            "missing bundled manifest for {}",
-            agent_label(agent)
-        );
+        if agent == Agent::Mastracode {
+            assert!(bundled_manifest(agent).is_none());
+        } else {
+            assert!(
+                bundled_manifest(agent).is_some(),
+                "missing bundled manifest for {}",
+                agent_label(agent)
+            );
+        }
     }
 }
 
@@ -713,6 +717,62 @@ fn antigravity_background_task_count_without_tasks_hint_is_working() {
         working.matched_rule.as_ref().map(|rule| rule.id.as_str()),
         Some("background_tasks_working")
     );
+}
+#[test]
+fn qwen_manifest_distinguishes_blocked_working_and_idle_evidence() {
+    let blocked_title = explain_with_input(
+        Agent::Qwen,
+        DetectionInput {
+            screen: "",
+            osc_title: "✳ Confirm tool",
+            osc_progress: "",
+        },
+    );
+    assert_eq!(blocked_title.state, AgentState::Blocked);
+
+    for screen in [
+        "⠏ Waiting for user confirmation...",
+        "allow execution of: rm -rf tmp\nyes, allow once",
+        "❯ 1. Continue\n↑/↓: Select  Enter: Confirm",
+        "Do you trust this folder?\ntrust folder (y)\ndon't trust (esc)",
+    ] {
+        let blocked = explain(Agent::Qwen, screen);
+        assert_eq!(blocked.state, AgentState::Blocked, "{screen}");
+        assert!(blocked.visible_blocker, "{screen}");
+    }
+
+    let working_title = explain_with_input(
+        Agent::Qwen,
+        DetectionInput {
+            screen: "",
+            osc_title: "◐ Editing files",
+            osc_progress: "",
+        },
+    );
+    assert_eq!(working_title.state, AgentState::Working);
+
+    for screen in [
+        "⠋ Thinking (12s · esc to cancel)",
+        "(2m 4s · esc to cancel)",
+    ] {
+        let working = explain(Agent::Qwen, screen);
+        assert_eq!(working.state, AgentState::Working, "{screen}");
+        assert!(working.visible_working, "{screen}");
+    }
+
+    let progress = explain_with_input(
+        Agent::Qwen,
+        DetectionInput {
+            screen: "",
+            osc_title: "",
+            osc_progress: "4;3;20",
+        },
+    );
+    assert_eq!(progress.state, AgentState::Working);
+
+    let idle = explain(Agent::Qwen, "> type your message");
+    assert_eq!(idle.state, AgentState::Idle);
+    assert!(idle.visible_idle);
 }
 
 #[test]

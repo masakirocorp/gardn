@@ -21,6 +21,8 @@ TARGETS = [
     "kimi",
     "hermes",
     "maki",
+    "qwen",
+    "kilo",
 ]
 
 
@@ -68,6 +70,32 @@ class AgentTestWorkflowTests(unittest.TestCase):
         for host in cursor_hosts:
             self.assertIn(f"--add-host {host}:127.0.0.1", workflow)
 
+        matrix = (self.repo_root / "ci/agent-tests/target-matrix.sh").read_text()
+        for target in ("qwen", "kilo"):
+            self.assertIn(f"          - {target}", workflow)
+            self.assertIn(f'"{target}"', matrix)
+            self.assertIn(f"gardn-agent-tests-{target}-status", (self.repo_root / "ci/agent-tests/run-target.sh").read_text())
+
+    def test_qwen_and_kilo_image_contract_is_complete(self):
+        dockerfile = (self.repo_root / "ci/agent-tests/Dockerfile").read_text()
+        doctor = (self.repo_root / "ci/agent-tests/doctor.sh").read_text()
+        model_helpers = (self.repo_root / "ci/agent-tests/test-models.sh").read_text()
+        expected = {
+            "qwen": ("@qwen-code/qwen-code", "QWEN_CODE_VERSION"),
+            "kilo": ("@kilocode/cli", "KILO_VERSION"),
+        }
+        for target, (package, build_arg) in expected.items():
+            script = (self.repo_root / f"ci/agent-tests/{target}-status-test.sh").read_text()
+            self.assertIn(package, dockerfile)
+            self.assertIn(f"ARG {build_arg}", dockerfile)
+            self.assertIn(f"COPY {target}-status-test.sh /usr/local/bin/gardn-agent-tests-{target}-status", dockerfile)
+            self.assertIn(f"gardn-agent-tests-{target}-status", dockerfile)
+            self.assertIn(target, doctor)
+            self.assertIn("gardn_test_run_with_fallbacks", script)
+            self.assertIn("exit 75", script)
+        self.assertIn('export OPENAI_BASE_URL="$openrouter_base"', model_helpers)
+        self.assertIn('export KILO_AUTH_CONTENT="$OPENCODE_AUTH_CONTENT"', model_helpers)
+
     def test_target_dispatcher_runs_exactly_one_agent(self):
         dispatcher = self.repo_root / "ci/agent-tests/run-target.sh"
         commands = {
@@ -84,6 +112,8 @@ class AgentTestWorkflowTests(unittest.TestCase):
             "kimi": "gardn-agent-tests-remaining-status",
             "hermes": "gardn-agent-tests-remaining-status",
             "maki": "gardn-agent-tests-maki-status",
+            "qwen": "gardn-agent-tests-qwen-status",
+            "kilo": "gardn-agent-tests-kilo-status",
         }
 
         with tempfile.TemporaryDirectory() as tmp:

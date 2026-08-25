@@ -40,6 +40,8 @@ on:
           - kimi
           - hermes
           - maki
+          - qwen
+          - kilo
   schedule:
     - cron: "17 9 * * *"
 
@@ -117,6 +119,8 @@ jobs:
             echo "HERMES_VERSION=$(jq -r '.build_args.HERMES_VERSION' "$cohort_path")"
             echo "DROID_VERSION=$(jq -r '.build_args.DROID_VERSION' "$cohort_path")"
             echo "PI_VERSION=$(jq -r '.build_args.PI_VERSION' "$cohort_path")"
+            echo "QWEN_CODE_VERSION=$(jq -r '.build_args.QWEN_CODE_VERSION' "$cohort_path")"
+            echo "KILO_VERSION=$(jq -r '.build_args.KILO_VERSION' "$cohort_path")"
             echo "KIMI_VERSION=$(jq -r '.build_args.KIMI_VERSION' "$cohort_path")"
             echo "MAKI_VERSION=$(jq -r '.build_args.MAKI_VERSION' "$cohort_path")"
             echo "OMP_REF=$(jq -r '.build_args.OMP_REF' "$cohort_path")"
@@ -137,6 +141,8 @@ jobs:
           HERMES_VERSION: ${{ steps.cohort.outputs.HERMES_VERSION }}
           DROID_VERSION: ${{ steps.cohort.outputs.DROID_VERSION }}
           PI_VERSION: ${{ steps.cohort.outputs.PI_VERSION }}
+          QWEN_CODE_VERSION: ${{ steps.cohort.outputs.QWEN_CODE_VERSION }}
+          KILO_VERSION: ${{ steps.cohort.outputs.KILO_VERSION }}
           KIMI_VERSION: ${{ steps.cohort.outputs.KIMI_VERSION }}
           MAKI_VERSION: ${{ steps.cohort.outputs.MAKI_VERSION }}
           OMP_REF: ${{ steps.cohort.outputs.OMP_REF }}
@@ -150,6 +156,8 @@ jobs:
             --build-arg "HERMES_VERSION=${HERMES_VERSION}" \
             --build-arg "DROID_VERSION=${DROID_VERSION}" \
             --build-arg "PI_VERSION=${PI_VERSION}" \
+            --build-arg "QWEN_CODE_VERSION=${QWEN_CODE_VERSION}" \
+            --build-arg "KILO_VERSION=${KILO_VERSION}" \
             --build-arg "KIMI_VERSION=${KIMI_VERSION}" \
             --build-arg "MAKI_VERSION=${MAKI_VERSION}" \
             --build-arg "OMP_REF=${OMP_REF}" \

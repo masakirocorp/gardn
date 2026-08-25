@@ -17,13 +17,18 @@ pub enum AgentKind {
     Opencode,
     Hermes,
     Qodercli,
+    Qwen,
+    Kilo,
+    Mastracode,
+    AntigravityCli,
     Cursor,
     Grok,
     Custom,
 }
 
 impl AgentKind {
-    pub const ALL: [Self; 14] = [
+    pub const ALL: [Self; 18] = [
+        Self::AntigravityCli,
         Self::Claude,
         Self::Codex,
         Self::Copilot,
@@ -33,14 +38,18 @@ impl AgentKind {
         Self::Droid,
         Self::Grok,
         Self::Hermes,
+        Self::Kilo,
         Self::Kimi,
+        Self::Mastracode,
         Self::Omp,
         Self::Opencode,
         Self::Pi,
         Self::Qodercli,
+        Self::Qwen,
     ];
 
-    pub const SYSTEM: [Self; 13] = [
+    pub const SYSTEM: [Self; 17] = [
+        Self::AntigravityCli,
         Self::Claude,
         Self::Codex,
         Self::Copilot,
@@ -49,11 +58,14 @@ impl AgentKind {
         Self::Droid,
         Self::Grok,
         Self::Hermes,
+        Self::Kilo,
         Self::Kimi,
+        Self::Mastracode,
         Self::Omp,
         Self::Opencode,
         Self::Pi,
         Self::Qodercli,
+        Self::Qwen,
     ];
 
     pub fn as_str(self) -> &'static str {
@@ -70,6 +82,10 @@ impl AgentKind {
             Self::Grok => "grok",
             Self::Hermes => "hermes",
             Self::Qodercli => "qodercli",
+            Self::Qwen => "qwen",
+            Self::Kilo => "kilo",
+            Self::Mastracode => "mastracode",
+            Self::AntigravityCli => "antigravity_cli",
             Self::Cursor => "cursor",
             Self::Custom => "custom",
         }
@@ -87,6 +103,10 @@ impl AgentKind {
             Self::Opencode => "OpenCode",
             Self::Hermes => "Hermes",
             Self::Qodercli => "Qoder CLI",
+            Self::Qwen => "Qwen Code",
+            Self::Kilo => "Kilo",
+            Self::Mastracode => "MastraCode",
+            Self::AntigravityCli => "Antigravity CLI",
             Self::Cursor => "Cursor",
             Self::Grok => "Grok",
             Self::Custom => "Custom",
@@ -107,6 +127,10 @@ impl AgentKind {
             Self::Hermes => "hermes",
             Self::Grok => "grok",
             Self::Qodercli => "qoder",
+            Self::Qwen => "qwen",
+            Self::Kilo => "kilo",
+            Self::Mastracode => "mastracode",
+            Self::AntigravityCli => "agy",
             Self::Cursor => "cursor-agent",
             Self::Custom => "custom",
         }
@@ -134,6 +158,10 @@ impl AgentKind {
             Self::Hermes => Some(crate::api::schema::IntegrationTarget::Hermes),
             Self::Grok => Some(crate::api::schema::IntegrationTarget::Grok),
             Self::Qodercli => Some(crate::api::schema::IntegrationTarget::Qodercli),
+            Self::Qwen => Some(crate::api::schema::IntegrationTarget::Qwen),
+            Self::Kilo => Some(crate::api::schema::IntegrationTarget::Kilo),
+            Self::Mastracode => Some(crate::api::schema::IntegrationTarget::Mastracode),
+            Self::AntigravityCli => Some(crate::api::schema::IntegrationTarget::AntigravityCli),
             Self::Cursor => Some(crate::api::schema::IntegrationTarget::Cursor),
             Self::Custom => None,
         }
@@ -155,6 +183,10 @@ impl From<crate::api::schema::IntegrationTarget> for AgentKind {
             crate::api::schema::IntegrationTarget::Hermes => Self::Hermes,
             crate::api::schema::IntegrationTarget::Grok => Self::Grok,
             crate::api::schema::IntegrationTarget::Qodercli => Self::Qodercli,
+            crate::api::schema::IntegrationTarget::Qwen => Self::Qwen,
+            crate::api::schema::IntegrationTarget::Kilo => Self::Kilo,
+            crate::api::schema::IntegrationTarget::Mastracode => Self::Mastracode,
+            crate::api::schema::IntegrationTarget::AntigravityCli => Self::AntigravityCli,
             crate::api::schema::IntegrationTarget::Cursor => Self::Cursor,
         }
     }
@@ -360,15 +392,15 @@ mod tests {
     fn default_system_profiles_are_alphabetical() {
         let catalog = AgentProfileCatalog::from_config(&AgentProfilesConfig::default());
 
-        assert_eq!(
-            catalog
-                .profiles()
-                .iter()
-                .take(3)
-                .map(|profile| profile.id.as_str())
-                .collect::<Vec<_>>(),
-            ["system:claude", "system:codex", "system:copilot"]
-        );
+        let ids = catalog
+            .profiles()
+            .iter()
+            .map(|profile| profile.id.as_str())
+            .collect::<Vec<_>>();
+        let mut sorted = ids.clone();
+        sorted.sort_unstable();
+
+        assert_eq!(ids, sorted);
     }
 
     #[test]

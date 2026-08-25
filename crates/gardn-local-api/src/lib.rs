@@ -1145,6 +1145,10 @@ pub enum IntegrationTarget {
     Opencode,
     Hermes,
     Qodercli,
+    Qwen,
+    Kilo,
+    Mastracode,
+    AntigravityCli,
     Cursor,
     Grok,
 }
