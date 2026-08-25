@@ -169,7 +169,7 @@ def read_until(predicate, timeout, label, start=0):
             break
     raise RuntimeError(f"timed out waiting for {label}; process={proc.poll()} tail={clean(bytes(raw))[-2000:]!r}")
 
-idle = re.compile(r"(?im)^\s*>\s*(?:type\s*)?.*(?:message|@path/to/file)")
+idle = re.compile(r"(?im)^\s*[>*]\s*(?:type\s*)?.*(?:message|@path/to/file)")
 working = re.compile(r"(?i)(?:esc to cancel|◐)")
 try:
     read_until(lambda _raw, text: bool(idle.search(text)), 30, "initial idle composer")
