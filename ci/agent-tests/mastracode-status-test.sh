@@ -43,7 +43,7 @@ socket_pid=$!; trap 'kill "$socket_pid" >/dev/null 2>&1 || true' EXIT
 for _ in $(seq 1 50); do [[ -S "$socket_path" ]] && break; sleep .1; done
 [[ -S "$socket_path" ]] || { echo "fake Gardn socket did not start" >&2; exit 1; }
 set +e
-HOME="$home" GARDN_ENV=1 GARDN_SOCKET_PATH="$socket_path" GARDN_PANE_ID=pane-mastracode MASTRACODE_DISABLE_MCP=1 MASTRACODE_DISABLE_MEMORY=1 mastracode \
+HOME="$home" MASTRA_APP_DATA_DIR="$mastra_home" GARDN_ENV=1 GARDN_SOCKET_PATH="$socket_path" GARDN_PANE_ID=pane-mastracode MASTRACODE_DISABLE_MCP=1 MASTRACODE_DISABLE_MEMORY=1 mastracode \
  --settings "$mastra_home/settings.json" --permission-mode auto --max-turns 4 --timeout 120 --output json \
  --prompt "Use the shell tool to run exactly: printf GARDN_PROVIDER_TOOL_OK. Do not answer before running it." > "$output" 2>"${output}.stderr"
 status=$?

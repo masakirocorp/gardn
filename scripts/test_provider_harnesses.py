@@ -44,6 +44,7 @@ class ProviderHarnessStructureTests(unittest.TestCase):
         self.assertIn("gardn-agent-state.sh", mastra)
         self.assertIn('(\"working\",\"blocked\",\"working\",\"idle\")', mastra)
         self.assertIn('"build":"gardn/gardn-tool"', mastra)
+        self.assertIn('MASTRA_APP_DATA_DIR="$mastra_home"', mastra)
         self.assertIn("gardn-agent-session.sh", antigravity)
         self.assertIn("pane.report_agent_session", antigravity)
 
