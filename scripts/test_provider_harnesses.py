@@ -48,6 +48,8 @@ class ProviderHarnessStructureTests(unittest.TestCase):
         self.assertIn('"session_id":"gardn-mastracode-fixture"', mastra)
         self.assertIn("gardn-agent-session.sh", antigravity)
         self.assertIn("pane.report_agent_session", antigravity)
+        self.assertIn('"colorScheme":"terminal"', antigravity)
+        self.assertNotIn("ANTIGRAVITY_CLI_CONFIG_DIR", antigravity)
 
     def test_qwen_hook_reports_session_contract(self):
         hook = ROOT / "apps/gardn/src/integration/assets/qwen/gardn-agent-session.sh"

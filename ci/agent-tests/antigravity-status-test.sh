@@ -19,7 +19,7 @@ else
   prompt="Reply with exactly GARDN_PROVIDER_OK."
 fi
 mkdir -p "$config_dir/hooks"; cp "$hook_source" "$config_dir/hooks/gardn-agent-session.sh"; chmod +x "$config_dir/hooks/gardn-agent-session.sh"
-printf '{"modelProvider":"gemini"}\n' > "$config_dir/settings.json"
+printf '{"modelProvider":"gemini","colorScheme":"terminal"}\n' > "$config_dir/settings.json"
 printf '{"gardn":{"PreInvocation":[{"type":"command","command":"bash %s session","timeout":10}]}}\n' "$config_dir/hooks/gardn-agent-session.sh" > "$config_dir/hooks.json"
 python3 - "$socket_path" "$request_log" <<'PY' &
 import json, os, socket, sys, time
@@ -48,7 +48,7 @@ PY
 socket_pid=$!; trap 'kill "$socket_pid" >/dev/null 2>&1 || true' EXIT
 for _ in $(seq 1 50); do [[ -S "$socket_path" ]] && break; sleep .1; done
 [[ -S "$socket_path" ]] || { echo "fake Gardn socket did not start" >&2; exit 1; }
-HOME="$home" ANTIGRAVITY_CLI_CONFIG_DIR="$config_dir" GARDN_ENV=1 GARDN_SOCKET_PATH="$socket_path" GARDN_PANE_ID=pane-antigravity \
+HOME="$home" GARDN_ENV=1 GARDN_SOCKET_PATH="$socket_path" GARDN_PANE_ID=pane-antigravity \
 python3 - "$prompt" "$expected" "$output" <<'PY'
 import fcntl, os, pty, re, select, signal, struct, subprocess, sys, termios, time
 from pathlib import Path
