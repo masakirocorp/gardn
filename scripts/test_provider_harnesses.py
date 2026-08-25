@@ -92,6 +92,14 @@ class ProviderHarnessStructureTests(unittest.TestCase):
         self.assertIn('\\"mastracode\\": \\"${MASTRACODE_VERSION}\\"', dockerfile)
         self.assertIn("ARG TARGETARCH", dockerfile)
         self.assertIn('test "$TARGETARCH" = amd64', dockerfile)
+        for package in (
+            "agent-browser",
+            "bufferutil",
+            "edgedriver",
+            "geckodriver",
+            "onnxruntime-node",
+        ):
+            self.assertIn(f'"{package}": false', dockerfile)
         for workflow in (
             self.read(".github/workflows/agent-tests.yml"),
             self.read(".github/workflows/live-agent-tests.yml"),

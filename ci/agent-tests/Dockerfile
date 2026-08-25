@@ -77,6 +77,11 @@ RUN --mount=type=cache,id=gardn-agent-tests-pnpm,target=/pnpm/store \
         '  "@qwen-code/qwen-code": true' \
         '  "@qwen-code/audio-capture": false' \
         '  "@google/genai": false' \
+        '  "agent-browser": false' \
+        '  "bufferutil": false' \
+        '  "edgedriver": false' \
+        '  "geckodriver": false' \
+        '  "onnxruntime-node": false' \
         '  "droid": true' \
         '  "hermes-agent": true' \
         '  "opencode-ai": true' \
