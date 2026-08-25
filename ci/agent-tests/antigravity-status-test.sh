@@ -7,6 +7,7 @@ account_home="$(python3 -c 'import os, pwd; print(pwd.getpwuid(os.getuid()).pw_d
 config_dir="$account_home/.gemini/antigravity-cli"
 socket_path="$workdir/gardn.sock"; request_log="$workdir/gardn-requests.jsonl"; output="$workdir/antigravity-screen.txt"
 [[ -f "$hook_source" ]] || { echo "Antigravity status test needs Gardn repo mounted at $repo_dir" >&2; exit 1; }
+model=gemini-2.5-flash
 if [[ "${GARDN_ANTIGRAVITY_REAL:-0}" == 1 ]]; then
   [[ -n "${GEMINI_API_KEY:-}" ]] || { echo "GEMINI_API_KEY is required for selected Antigravity real smoke" >&2; exit 64; }
   unset GOOGLE_GEMINI_BASE_URL
@@ -15,9 +16,7 @@ if [[ "${GARDN_ANTIGRAVITY_REAL:-0}" == 1 ]]; then
 else
   : "${GARDN_DETERMINISTIC_PROVIDER_URL:?Antigravity deterministic harness requires provider}"
   export GEMINI_API_KEY=gardn-deterministic-key
-  export GOOGLE_GEMINI_BASE_URL="$GARDN_DETERMINISTIC_PROVIDER_URL"
   expected=GARDN_PROVIDER_OK
-  prompt="Reply with exactly GARDN_PROVIDER_OK."
 fi
 mkdir -p "$config_dir/hooks"; cp "$hook_source" "$config_dir/hooks/gardn-agent-session.sh"; chmod +x "$config_dir/hooks/gardn-agent-session.sh"
 printf '{"modelProvider":"gemini","colorScheme":"terminal"}\n' > "$config_dir/settings.json"
@@ -54,7 +53,7 @@ printf '{"conversationId":"gardn-antigravity-fixture"}\n' | \
   bash "$config_dir/hooks/gardn-agent-session.sh" session >/dev/null
 set +e
 GARDN_ENV=1 GARDN_SOCKET_PATH="$socket_path" GARDN_PANE_ID=pane-antigravity \
-  agy -p "$prompt" --output-format json >"$output" 2>"${output}.stderr"
+  agy -p "$prompt" --model "$model" --output-format json >"$output" 2>"${output}.stderr"
 status=$?
 set -e
 if [[ "$status" -ne 0 ]] || ! grep -Fq "$expected" "$output"; then
