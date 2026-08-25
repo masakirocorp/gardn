@@ -56,16 +56,21 @@ prompt, expected, output = sys.argv[1:4]
 env=os.environ.copy(); env.update({"TERM":"xterm-256color","COLORTERM":"truecolor","COLUMNS":"120","LINES":"40"})
 master,slave=pty.openpty(); fcntl.ioctl(slave,termios.TIOCSWINSZ,struct.pack("HHHH",40,120,0,0))
 proc=subprocess.Popen(["agy"],stdin=slave,stdout=slave,stderr=slave,env=env,cwd="/work",start_new_session=True); os.close(slave)
-raw=bytearray(); sent=False; deadline=time.monotonic()+150
+raw=bytearray(); sent=False; selected_theme=False; theme_selected_at=None; deadline=time.monotonic()+90
 try:
   while time.monotonic()<deadline:
     readable,_,_=select.select([master],[],[],.25)
     if readable:
       try: raw.extend(os.read(master,65536))
       except OSError: break
-    if not sent and time.monotonic()>deadline-147:
-      os.write(master,prompt.encode()+b"\r"); sent=True
     text=re.sub(rb"\x1b\[[0-?]*[ -/]*[@-~]",b"",bytes(raw)).replace(b"\r",b"").decode("utf-8","replace")
+    if not selected_theme and "Choose your color scheme:" in text:
+      os.write(master,b"\r")
+      selected_theme=True
+      theme_selected_at=time.monotonic()
+    if not sent and "Gemini API key" in text and (theme_selected_at is None or time.monotonic()-theme_selected_at>.5):
+      os.write(master,prompt.encode()+b"\r")
+      sent=True
     if sent and expected in text: break
     if proc.poll() is not None and not readable: break
   Path(output).write_text(text,encoding="utf-8")
