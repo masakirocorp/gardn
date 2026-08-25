@@ -80,6 +80,10 @@ class AgentTestWorkflowTests(unittest.TestCase):
         dockerfile = (self.repo_root / "ci/agent-tests/Dockerfile").read_text()
         doctor = (self.repo_root / "ci/agent-tests/doctor.sh").read_text()
         model_helpers = (self.repo_root / "ci/agent-tests/test-models.sh").read_text()
+        fixture_workflow = (
+            self.repo_root / ".github/workflows/agent-tests.yml"
+        ).read_text()
+        dockerignore = (self.repo_root / "ci/agent-tests/.dockerignore").read_text()
         expected = {
             "qwen": ("@qwen-code/qwen-code", "QWEN_CODE_VERSION"),
             "kilo": ("@kilocode/cli", "KILO_VERSION"),
@@ -93,6 +97,16 @@ class AgentTestWorkflowTests(unittest.TestCase):
             self.assertIn(target, doctor)
             self.assertIn("gardn_test_run_with_fallbacks", script)
             self.assertIn("exit 75", script)
+            self.assertIn(f"!{target}-status-test.sh", dockerignore)
+            self.assertIn(
+                f"echo \"{build_arg}=$(jq -r '.build_args.{build_arg}'",
+                fixture_workflow,
+            )
+            self.assertIn(
+                f"{build_arg}: ${{{{ steps.cohort.outputs.{build_arg} }}}}",
+                fixture_workflow,
+            )
+            self.assertIn(f'--build-arg "{build_arg}=', fixture_workflow)
         self.assertIn('export OPENAI_BASE_URL="$openrouter_base"', model_helpers)
         self.assertIn('export KILO_AUTH_CONTENT="$OPENCODE_AUTH_CONTENT"', model_helpers)
 
