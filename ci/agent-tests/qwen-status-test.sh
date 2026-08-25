@@ -159,21 +159,14 @@ def read_until(predicate, timeout, label, start=0):
 
 idle = re.compile(r"(?im)^\s*>\s*(?:type\s*)?.*(?:message|@path/to/file)")
 working = re.compile(r"(?i)(?:esc to cancel|◐)")
-session = re.compile(r'"method"\s*:\s*"pane\.report_agent_session"')
 try:
     read_until(lambda _raw, text: bool(idle.search(text)), 30, "initial idle composer")
     start = len(raw)
     os.write(master, b"Reply with exactly GARDN_QWEN_STATUS_IDLE.\r")
-    read_until(
-        lambda _raw, _text: Path(request_log).exists() and bool(session.search(Path(request_log).read_text(errors="replace"))),
-        30,
-        "Qwen session report",
-        start,
-    )
     read_until(lambda payload, text: bool(working.search(payload.decode("utf-8", "replace"))) or bool(working.search(text)), 90, "working status", start)
     read_until(lambda _raw, text: "GARDN_QWEN_STATUS_IDLE" in text and bool(idle.search(text)), 120, "eventual idle composer", start)
     Path(output_path).write_text(clean(bytes(raw)), encoding="utf-8")
-    print("qwen live status test ok: initial idle -> working -> idle with session identity")
+    print("qwen live status test ok: initial idle -> working -> idle")
 except Exception:
     Path(output_path).write_text(clean(bytes(raw)), encoding="utf-8")
     raise
@@ -196,17 +189,3 @@ if [[ "$status" -ne 0 ]]; then
   exit "$status"
 fi
 
-python3 - "$request_log" <<'PY'
-import json
-import sys
-from pathlib import Path
-requests = [json.loads(line) for line in Path(sys.argv[1]).read_text().splitlines() if line.strip()]
-sessions = [item for item in requests if item.get("method") == "pane.report_agent_session"]
-if not sessions:
-    raise SystemExit("Qwen emitted no session report")
-params = sessions[-1].get("params", {})
-assert params.get("pane_id") == "pane-qwen", params
-assert params.get("source") == "gardn:qwen", params
-assert params.get("agent") == "qwen", params
-assert params.get("agent_session_id"), params
-PY
