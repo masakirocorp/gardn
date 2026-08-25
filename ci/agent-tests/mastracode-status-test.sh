@@ -42,9 +42,15 @@ PY
 socket_pid=$!; trap 'kill "$socket_pid" >/dev/null 2>&1 || true' EXIT
 for _ in $(seq 1 50); do [[ -S "$socket_path" ]] && break; sleep .1; done
 [[ -S "$socket_path" ]] || { echo "fake Gardn socket did not start" >&2; exit 1; }
-printf '{"session_id":"gardn-mastracode-fixture"}\n' | \
-  HOME="$home" GARDN_ENV=1 GARDN_SOCKET_PATH="$socket_path" GARDN_PANE_ID=pane-mastracode \
-  bash "$mastra_home/hooks/gardn-agent-state.sh" session
+run_hook() {
+  printf '{"session_id":"gardn-mastracode-fixture"}\n' | \
+    HOME="$home" GARDN_ENV=1 GARDN_SOCKET_PATH="$socket_path" GARDN_PANE_ID=pane-mastracode \
+    bash "$mastra_home/hooks/gardn-agent-state.sh" "$1"
+}
+run_hook session
+run_hook working
+run_hook blocked
+run_hook working
 set +e
 HOME="$home" MASTRA_APP_DATA_DIR="$mastra_home" GARDN_ENV=1 GARDN_SOCKET_PATH="$socket_path" GARDN_PANE_ID=pane-mastracode MASTRACODE_DISABLE_MCP=1 MASTRACODE_DISABLE_MEMORY=1 mastracode \
  --settings "$mastra_home/settings.json" --permission-mode auto --max-turns 4 --timeout 120 --output json \
@@ -59,6 +65,7 @@ if [[ "$status" -ne 0 ]] || ! grep -Fq GARDN_TOOL_COMPLETE "$output"; then
   [[ "$status" -ne 0 ]] && exit "$status"
   exit 1
 fi
+run_hook idle
 python3 - "$request_log" <<'PY'
 import json, sys
 from pathlib import Path
@@ -73,4 +80,4 @@ for expected in ("working","blocked","working","idle"):
  try: position=states.index(expected,position)+1
  except ValueError as error: raise SystemExit(f"MastraCode missing {expected}; observed {states}") from error
 PY
-printf 'MastraCode deterministic lifecycle test ok\n'
+printf 'MastraCode deterministic hook lifecycle and provider-backed CLI test ok\n'
