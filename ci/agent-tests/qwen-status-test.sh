@@ -1,17 +1,21 @@
 #!/usr/bin/env bash
 set -euo pipefail
-source /usr/local/lib/gardn-agent-test-models.sh
-
-primary_model="${GARDN_TEST_MODEL:-$GARDN_TEST_DEFAULT_MODEL}"
-if [[ -z "${GARDN_TEST_ACTIVE_MODEL:-}" ]]; then
-  gardn_test_unique_candidates "$primary_model" "${GARDN_TEST_FALLBACK_MODELS:-}" \
-    | gardn_test_available_candidates \
-    | gardn_test_run_with_fallbacks "$0" "$@"
-  exit $?
+if [[ -n "${GARDN_DETERMINISTIC_PROVIDER_URL:-}" ]]; then
+  model="gardn-text"
+  export GARDN_QWEN_EXPECTED_TEXT="GARDN_PROVIDER_OK"
+else
+  source /usr/local/lib/gardn-agent-test-models.sh
+  primary_model="${GARDN_TEST_MODEL:-$GARDN_TEST_DEFAULT_MODEL}"
+  if [[ -z "${GARDN_TEST_ACTIVE_MODEL:-}" ]]; then
+    gardn_test_unique_candidates "$primary_model" "${GARDN_TEST_FALLBACK_MODELS:-}" \
+      | gardn_test_available_candidates \
+      | gardn_test_run_with_fallbacks "$0" "$@"
+    exit $?
+  fi
+  model="$GARDN_TEST_ACTIVE_MODEL"
+  gardn_test_configure_model "$model"
+  export GARDN_QWEN_EXPECTED_TEXT="GARDN_QWEN_STATUS_IDLE"
 fi
-
-model="$GARDN_TEST_ACTIVE_MODEL"
-gardn_test_configure_model "$model"
 repo_dir="${GARDN_REPO_DIR:-/repo}"
 hook_path="$repo_dir/apps/gardn/src/integration/assets/qwen/gardn-agent-session.sh"
 workdir="${GARDN_QWEN_STATUS_TEST_DIR:-$(mktemp -d)}"
@@ -124,8 +128,16 @@ env = os.environ.copy()
 env.update({"TERM": "xterm-256color", "COLORTERM": "truecolor", "COLUMNS": "120", "LINES": "40"})
 master, slave = pty.openpty()
 fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 40, 120, 0, 0))
+qwen_args = ["qwen", "--model", model]
+if os.environ.get("GARDN_DETERMINISTIC_PROVIDER_URL"):
+    qwen_args.extend([
+        "--auth-type", "openai",
+        "--openai-base-url", os.environ["GARDN_DETERMINISTIC_PROVIDER_URL"] + "/v1",
+        "--openai-api-key", os.environ["OPENAI_API_KEY"],
+        "--approval-mode", "yolo",
+    ])
 proc = subprocess.Popen(
-    ["qwen", "--model", model],
+    qwen_args,
     stdin=slave,
     stdout=slave,
     stderr=slave,
@@ -162,9 +174,10 @@ working = re.compile(r"(?i)(?:esc to cancel|◐)")
 try:
     read_until(lambda _raw, text: bool(idle.search(text)), 30, "initial idle composer")
     start = len(raw)
+    expected_text = os.environ["GARDN_QWEN_EXPECTED_TEXT"]
     os.write(master, b"Reply with exactly GARDN_QWEN_STATUS_IDLE.\r")
     read_until(lambda payload, text: bool(working.search(payload.decode("utf-8", "replace"))) or bool(working.search(text)), 90, "working status", start)
-    read_until(lambda _raw, text: "GARDN_QWEN_STATUS_IDLE" in text and bool(idle.search(text)), 120, "eventual idle composer", start)
+    read_until(lambda _raw, text: expected_text in text and bool(idle.search(text)), 120, "eventual idle composer", start)
     Path(output_path).write_text(clean(bytes(raw)), encoding="utf-8")
     print("qwen live status test ok: initial idle -> working -> idle")
 except Exception:
@@ -182,7 +195,7 @@ PY
 status=$?
 set -e
 if [[ "$status" -ne 0 ]]; then
-  if gardn_test_retryable_status_or_output "$status" "$output"; then
+  if [[ -z "${GARDN_DETERMINISTIC_PROVIDER_URL:-}" ]] && gardn_test_retryable_status_or_output "$status" "$output"; then
     echo "retryable Qwen/OpenRouter provider failure with $model" >&2
     exit 75
   fi

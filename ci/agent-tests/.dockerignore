@@ -20,4 +20,8 @@
 !maki-status-test.sh
 !qwen-status-test.sh
 !kilo-status-test.sh
+!deterministic-provider.mjs
+!with-deterministic-provider.sh
+!mastracode-status-test.sh
+!antigravity-status-test.sh
 !run-target.sh

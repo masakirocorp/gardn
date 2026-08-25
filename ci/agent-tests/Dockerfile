@@ -5,6 +5,7 @@
 # and passed as exact build args. Do not pass floating dist-tags such as latest.
 FROM node:24-bookworm-slim
 
+ARG TARGETARCH
 ARG CLAUDE_CODE_VERSION
 ARG CODEX_VERSION
 ARG OPENCODE_VERSION
@@ -14,10 +15,14 @@ ARG DROID_VERSION
 ARG PI_VERSION
 ARG QWEN_CODE_VERSION
 ARG KILO_VERSION
+ARG MASTRACODE_VERSION
 ARG PNPM_VERSION=11.6.0
 ARG KIMI_VERSION
 ARG MAKI_VERSION
 ARG OMP_REF
+ARG ANTIGRAVITY_VERSION
+ARG ANTIGRAVITY_DOWNLOAD_URL
+ARG ANTIGRAVITY_SHA512
 ENV DEBIAN_FRONTEND=noninteractive \
     PIP_BREAK_SYSTEM_PACKAGES=1 \
     COREPACK_ENABLE_DOWNLOAD_PROMPT=0 \
@@ -50,6 +55,7 @@ RUN --mount=type=cache,id=gardn-agent-tests-pnpm,target=/pnpm/store \
       PI_VERSION \
       QWEN_CODE_VERSION \
       KILO_VERSION \
+      MASTRACODE_VERSION \
       KIMI_VERSION \
       MAKI_VERSION \
       OMP_REF; do \
@@ -88,12 +94,13 @@ RUN --mount=type=cache,id=gardn-agent-tests-pnpm,target=/pnpm/store \
         "    \"droid\": \"${DROID_VERSION}\"," \
         "    \"@earendil-works/pi-coding-agent\": \"${PI_VERSION}\"," \
         "    \"@qwen-code/qwen-code\": \"${QWEN_CODE_VERSION}\"," \
-        "    \"@kilocode/cli\": \"${KILO_VERSION}\"" \
+        "    \"@kilocode/cli\": \"${KILO_VERSION}\"," \
+        "    \"mastracode\": \"${MASTRACODE_VERSION}\"" \
         '  }' \
         '}' \
         > package.json \
     && pnpm install --prod \
-    && for bin in claude codex opencode copilot hermes droid pi qwen kilo kilocode; do \
+    && for bin in claude codex opencode copilot hermes droid pi qwen kilo kilocode mastracode; do \
         printf '%s\n' '#!/bin/sh' "exec /opt/agent-tests-node/node_modules/.bin/${bin} \"\$@\"" > "/usr/local/bin/${bin}"; \
         chmod +x "/usr/local/bin/${bin}"; \
     done \
@@ -169,6 +176,20 @@ RUN set -eux; \
     curl -fsSL "https://github.com/can1357/oh-my-pi/releases/download/${OMP_REF}/omp-linux-${omp_arch}" -o /usr/local/bin/omp; \
     chmod +x /usr/local/bin/omp
 
+RUN set -eux; \
+    test "$TARGETARCH" = amd64; \
+    case "$ANTIGRAVITY_VERSION" in latest|"") echo "ANTIGRAVITY_VERSION must be exact" >&2; exit 1 ;; esac; \
+    case "$ANTIGRAVITY_DOWNLOAD_URL" in https://*) ;; *) echo "ANTIGRAVITY_DOWNLOAD_URL must be HTTPS" >&2; exit 1 ;; esac; \
+    case "$ANTIGRAVITY_SHA512" in *[!0-9a-fA-F]*|"") echo "ANTIGRAVITY_SHA512 must be hexadecimal" >&2; exit 1 ;; esac; \
+    test "${#ANTIGRAVITY_SHA512}" -eq 128; \
+    curl -fsSL "$ANTIGRAVITY_DOWNLOAD_URL" -o /tmp/antigravity-payload; \
+    echo "$ANTIGRAVITY_SHA512  /tmp/antigravity-payload" | sha512sum -c -; \
+    case "$ANTIGRAVITY_DOWNLOAD_URL" in \
+      *.tar.gz*) tar -xzf /tmp/antigravity-payload -C /tmp antigravity; install -m 0755 /tmp/antigravity /usr/local/bin/agy ;; \
+      *) install -m 0755 /tmp/antigravity-payload /usr/local/bin/agy ;; \
+    esac; \
+    rm -f /tmp/antigravity-payload /tmp/antigravity
+
 COPY test-env.sh /usr/local/bin/gardn-agent-tests-env
 COPY doctor.sh /usr/local/bin/gardn-agent-tests-doctor
 COPY verify-env.sh /usr/local/bin/gardn-agent-tests-verify-env
@@ -188,10 +209,14 @@ COPY qoder-proxy-status-test.sh /usr/local/bin/gardn-agent-tests-qoder-proxy-sta
 COPY maki-status-test.sh /usr/local/bin/gardn-agent-tests-maki-status
 COPY qwen-status-test.sh /usr/local/bin/gardn-agent-tests-qwen-status
 COPY kilo-status-test.sh /usr/local/bin/gardn-agent-tests-kilo-status
+COPY deterministic-provider.mjs /usr/local/lib/gardn-deterministic-provider.mjs
+COPY with-deterministic-provider.sh /usr/local/bin/gardn-agent-tests-with-provider
+COPY mastracode-status-test.sh /usr/local/bin/gardn-agent-tests-mastracode-status
+COPY antigravity-status-test.sh /usr/local/bin/gardn-agent-tests-antigravity-status
 COPY run-target.sh /usr/local/bin/gardn-agent-tests-target
 # Pre-resolved cohort manifest written by resolve-versions.mjs before docker build.
 COPY cohort.json /usr/local/share/gardn-agent-tests/cohort.json
-RUN chmod +x /usr/local/bin/gardn-agent-tests-env /usr/local/bin/gardn-agent-tests-doctor /usr/local/bin/gardn-agent-tests-verify-env /usr/local/bin/gardn-agent-tests-opencode /usr/local/bin/gardn-agent-tests-opencode-status /usr/local/bin/gardn-agent-tests-pi-omp-status /usr/local/bin/gardn-agent-tests-claude-status /usr/local/bin/gardn-agent-tests-codex-status /usr/local/bin/gardn-agent-tests-remaining-status /usr/local/bin/gardn-agent-tests-cursor-proxy-status /usr/local/bin/gardn-agent-tests-qoder-proxy-status /usr/local/bin/gardn-agent-tests-maki-status /usr/local/bin/gardn-agent-tests-qwen-status /usr/local/bin/gardn-agent-tests-kilo-status /usr/local/bin/gardn-agent-tests-target /usr/local/bin/gardn-agent-cursor-openrouter-proxy /usr/local/bin/gardn-agent-qoder-openrouter-proxy /usr/local/bin/gardn-agent-opencode-plugin-status-test /usr/local/bin/gardn-agent-pi-omp-plugin-status-test \
+RUN chmod +x /usr/local/bin/gardn-agent-tests-env /usr/local/bin/gardn-agent-tests-doctor /usr/local/bin/gardn-agent-tests-verify-env /usr/local/bin/gardn-agent-tests-opencode /usr/local/bin/gardn-agent-tests-opencode-status /usr/local/bin/gardn-agent-tests-pi-omp-status /usr/local/bin/gardn-agent-tests-claude-status /usr/local/bin/gardn-agent-tests-codex-status /usr/local/bin/gardn-agent-tests-remaining-status /usr/local/bin/gardn-agent-tests-cursor-proxy-status /usr/local/bin/gardn-agent-tests-qoder-proxy-status /usr/local/bin/gardn-agent-tests-maki-status /usr/local/bin/gardn-agent-tests-qwen-status /usr/local/bin/gardn-agent-tests-kilo-status /usr/local/bin/gardn-agent-tests-mastracode-status /usr/local/bin/gardn-agent-tests-antigravity-status /usr/local/bin/gardn-agent-tests-with-provider /usr/local/bin/gardn-agent-tests-target /usr/local/bin/gardn-agent-cursor-openrouter-proxy /usr/local/bin/gardn-agent-qoder-openrouter-proxy /usr/local/bin/gardn-agent-opencode-plugin-status-test /usr/local/bin/gardn-agent-pi-omp-plugin-status-test /usr/local/lib/gardn-deterministic-provider.mjs \
     && useradd --create-home --shell /bin/bash agenttest \
     && chmod 0644 /usr/local/share/gardn-agent-tests/cohort.json
 

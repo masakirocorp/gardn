@@ -22,6 +22,7 @@ NPM_PACKAGES = {
     "@earendil-works/pi-coding-agent": "0.7.8",
     "@qwen-code/qwen-code": "0.22.0",
     "@kilocode/cli": "7.4.23",
+    "mastracode": "0.35.0",
 }
 
 GITHUB_RELEASES = {
@@ -156,6 +157,9 @@ class AgentCohortResolveTests(unittest.TestCase):
         run_env.setdefault("SOURCE_REVISION", "deadbeef")
         run_env.setdefault("BUILD_RUN_ID", "123")
         run_env.setdefault("BUILD_RUN_ATTEMPT", "1")
+        run_env.setdefault("ANTIGRAVITY_VERSION", "1.2.3")
+        run_env.setdefault("ANTIGRAVITY_DOWNLOAD_URL", "https://example.test/agy")
+        run_env.setdefault("ANTIGRAVITY_SHA512", "a" * 128)
         if env:
             run_env.update(env)
 
@@ -199,9 +203,13 @@ class AgentCohortResolveTests(unittest.TestCase):
                 "PI_VERSION": "0.7.8",
                 "QWEN_CODE_VERSION": "0.22.0",
                 "KILO_VERSION": "7.4.23",
+                "MASTRACODE_VERSION": "0.35.0",
                 "KIMI_VERSION": "9.9.9",
                 "MAKI_VERSION": "v1.4.2",
                 "OMP_REF": "v0.12.0",
+                "ANTIGRAVITY_VERSION": "1.2.3",
+                "ANTIGRAVITY_DOWNLOAD_URL": "https://example.test/agy",
+                "ANTIGRAVITY_SHA512": "a" * 128,
             },
         )
         for value in build_args.values():
@@ -213,6 +221,10 @@ class AgentCohortResolveTests(unittest.TestCase):
         self.assertEqual(cohort["agents"]["qwen"]["version"], "0.22.0")
         self.assertEqual(cohort["agents"]["kilo"]["package"], "@kilocode/cli")
         self.assertEqual(cohort["agents"]["kilo"]["version"], "7.4.23")
+        self.assertEqual(cohort["agents"]["mastracode"]["package"], "mastracode")
+        self.assertEqual(cohort["agents"]["mastracode"]["version"], "0.35.0")
+        self.assertEqual(cohort["agents"]["antigravity"]["source"], "manifest")
+        self.assertEqual(cohort["agents"]["antigravity"]["sha512"], "a" * 128)
         self.assertEqual(cohort["agents"]["kimi"]["tag"], "@moonshot-ai/kimi-code@9.9.9")
         self.assertEqual(cohort["agents"]["maki"]["version"], "1.4.2")
         self.assertEqual(cohort["agents"]["omp"]["repo"], "can1357/oh-my-pi")
@@ -278,9 +290,13 @@ class AgentCohortResolveTests(unittest.TestCase):
                 "PI_VERSION": "9.9.7",
                 "QWEN_CODE_VERSION": "9.9.8",
                 "KILO_VERSION": "9.9.9",
+                "MASTRACODE_VERSION": "9.9.10",
                 "KIMI_VERSION": "8.8.8",
                 "MAKI_VERSION": "v7.7.7",
                 "OMP_REF": "v6.6.6",
+                "ANTIGRAVITY_VERSION": "5.5.5",
+                "ANTIGRAVITY_DOWNLOAD_URL": "https://example.test/agy-exact",
+                "ANTIGRAVITY_SHA512": "b" * 128,
             },
         )
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
@@ -288,9 +304,12 @@ class AgentCohortResolveTests(unittest.TestCase):
         self.assertEqual(cohort["build_args"]["CLAUDE_CODE_VERSION"], "9.9.1")
         self.assertEqual(cohort["build_args"]["QWEN_CODE_VERSION"], "9.9.8")
         self.assertEqual(cohort["build_args"]["KILO_VERSION"], "9.9.9")
+        self.assertEqual(cohort["build_args"]["MASTRACODE_VERSION"], "9.9.10")
         self.assertEqual(cohort["build_args"]["KIMI_VERSION"], "8.8.8")
         self.assertEqual(cohort["build_args"]["MAKI_VERSION"], "v7.7.7")
         self.assertEqual(cohort["build_args"]["OMP_REF"], "v6.6.6")
+        self.assertEqual(cohort["build_args"]["ANTIGRAVITY_VERSION"], "5.5.5")
+        self.assertEqual(cohort["build_args"]["ANTIGRAVITY_SHA512"], "b" * 128)
         self.assertNotIn("latest", json.dumps(cohort))
 
     def test_rejects_latest_override(self):
@@ -353,9 +372,13 @@ class AgentCohortWorkflowTests(unittest.TestCase):
             "PI_VERSION",
             "QWEN_CODE_VERSION",
             "KILO_VERSION",
+            "MASTRACODE_VERSION",
             "KIMI_VERSION",
             "MAKI_VERSION",
             "OMP_REF",
+            "ANTIGRAVITY_VERSION",
+            "ANTIGRAVITY_DOWNLOAD_URL",
+            "ANTIGRAVITY_SHA512",
         ]:
             self.assertIn(f'--build-arg "{arg}=', self.workflow)
 

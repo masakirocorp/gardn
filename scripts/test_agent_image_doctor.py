@@ -30,6 +30,8 @@ class AgentImageDoctorTests(unittest.TestCase):
                 "qwen",
                 "kilo",
                 "kilo-code",
+                "mastracode",
+                "agy",
                 "cursor-agent",
                 "qoder",
                 "qodercli",

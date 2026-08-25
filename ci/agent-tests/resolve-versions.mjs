@@ -9,7 +9,8 @@
 //   GARDN_RESOLVE_FETCH           optional path to a node module exporting fetch
 //   CLAUDE_CODE_VERSION, CODEX_VERSION, OPENCODE_VERSION, COPILOT_VERSION,
 //   HERMES_VERSION, DROID_VERSION, PI_VERSION, QWEN_CODE_VERSION, KILO_VERSION,
-//   KIMI_VERSION, MAKI_VERSION, OMP_REF
+//   MASTRACODE_VERSION, KIMI_VERSION, MAKI_VERSION, OMP_REF,
+//   ANTIGRAVITY_VERSION, ANTIGRAVITY_DOWNLOAD_URL, ANTIGRAVITY_SHA512
 //                                 optional exact overrides (skip remote lookup)
 //   COHORT_PATH                 optional path to also write the JSON document
 //   BUILD_ARGS_PATH             optional path for docker --build-arg lines
@@ -67,6 +68,11 @@ const NPM_AGENTS = [
     buildArg: "KILO_VERSION",
     packageName: "@kilocode/cli",
   },
+  {
+    name: "mastracode",
+    buildArg: "MASTRACODE_VERSION",
+    packageName: "mastracode",
+  },
 ];
 const KIMI_TAG_PREFIX = "@moonshot-ai/kimi-code@";
 const KIMI_ASSETS = [
@@ -75,6 +81,8 @@ const KIMI_ASSETS = [
   "kimi-code-linux-x64.zip.sha256",
   "kimi-code-linux-arm64.zip.sha256",
 ];
+const ANTIGRAVITY_MANIFEST =
+  "https://antigravity-cli-auto-updater-974169037036.us-central1.run.app/manifests/linux_amd64.json";
 
 function fail(message) {
   process.stderr.write(`${message}\n`);
@@ -399,6 +407,52 @@ async function resolveOmp() {
   };
 }
 
+async function resolveAntigravity() {
+  const names = ["ANTIGRAVITY_VERSION", "ANTIGRAVITY_DOWNLOAD_URL", "ANTIGRAVITY_SHA512"];
+  const overrides = Object.fromEntries(names.map((name) => [name, envOverride(name)]));
+  const overridden = names.filter((name) => overrides[name] !== undefined);
+  let payload;
+  if (overridden.length > 0) {
+    if (overridden.length !== names.length) fail(`Antigravity overrides must set all of ${names.join(", ")}`);
+    payload = { version: overrides.ANTIGRAVITY_VERSION, url: overrides.ANTIGRAVITY_DOWNLOAD_URL, sha512: overrides.ANTIGRAVITY_SHA512 };
+  } else {
+    const fetchImpl = loadFetch();
+    let response;
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      try {
+        response = await fetchImpl(ANTIGRAVITY_MANIFEST, { headers: { "User-Agent": "gardn-agent-tests-resolve-versions" } });
+      } catch (error) {
+        if (attempt < 3) {
+          await new Promise((resolve) => setTimeout(resolve, attempt * 1000));
+          continue;
+        }
+        fail(`Antigravity manifest lookup: ${error.message || error}`);
+      }
+      if (response?.ok) break;
+      if ((response?.status === 429 || response?.status >= 500) && attempt < 3) {
+        await new Promise((resolve) => setTimeout(resolve, attempt * 1000));
+        continue;
+      }
+      fail(`Antigravity manifest lookup: HTTP ${response?.status ?? "unknown"}`);
+    }
+    try {
+      payload = await response.json();
+    } catch (error) {
+      fail(`Antigravity manifest lookup: non-JSON body (${error.message || error})`);
+    }
+  }
+  const version = assertVersionShaped("ANTIGRAVITY_VERSION", payload?.version);
+  const url = typeof payload?.url === "string" ? payload.url.trim() : "";
+  const sha512 = typeof payload?.sha512 === "string" ? payload.sha512.trim().toLowerCase() : "";
+  if (!/^https:\/\/\S+$/.test(url)) fail("ANTIGRAVITY_DOWNLOAD_URL: invalid HTTPS URL");
+  if (!/^[0-9a-f]{128}$/.test(sha512)) fail("ANTIGRAVITY_SHA512: expected 128 lowercase hex characters");
+  return {
+    name: "antigravity",
+    entry: { source: "manifest", manifest: ANTIGRAVITY_MANIFEST, version, url, sha512 },
+    buildArgs: { ANTIGRAVITY_VERSION: version, ANTIGRAVITY_DOWNLOAD_URL: url, ANTIGRAVITY_SHA512: sha512 },
+  };
+}
+
 function buildArgsLines(buildArgs) {
   return Object.entries(buildArgs)
     .map(([key, value]) => `--build-arg ${key}=${value}`)
@@ -423,13 +477,19 @@ async function main() {
     agents[resolved.name] = resolved.entry;
     buildArgs[resolved.buildArg] = resolved.buildValue;
   }
+  const antigravity = await resolveAntigravity();
+  agents[antigravity.name] = antigravity.entry;
+  Object.assign(buildArgs, antigravity.buildArgs);
 
-  // Refuse any lingering floating tokens in the concrete build-arg set.
   for (const [key, value] of Object.entries(buildArgs)) {
-    assertVersionShaped(key, value);
-    if (String(value).toLowerCase() === "latest") {
-      fail(`${key}: cohort must not contain latest`);
+    if (key === "ANTIGRAVITY_DOWNLOAD_URL") {
+      if (!/^https:\/\/\S+$/.test(value)) fail(`${key}: invalid HTTPS URL`);
+    } else if (key === "ANTIGRAVITY_SHA512") {
+      if (!/^[0-9a-f]{128}$/.test(value)) fail(`${key}: invalid SHA-512`);
+    } else {
+      assertVersionShaped(key, value);
     }
+    if (String(value).toLowerCase() === "latest") fail(`${key}: cohort must not contain latest`);
   }
 
   const cohort = {

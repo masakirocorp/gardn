@@ -35,6 +35,22 @@ case "$target" in
   kilo)
     exec gardn-agent-tests-kilo-status
     ;;
+  qwen-deterministic)
+    exec gardn-agent-tests-with-provider gardn-agent-tests-qwen-status
+    ;;
+  kilo-deterministic)
+    exec gardn-agent-tests-with-provider gardn-agent-tests-kilo-status
+    ;;
+  mastracode)
+    exec gardn-agent-tests-with-provider gardn-agent-tests-mastracode-status
+    ;;
+  antigravity)
+    exec gardn-agent-tests-with-provider gardn-agent-tests-antigravity-status
+    ;;
+  antigravity-gemini)
+    export GARDN_ANTIGRAVITY_REAL=1
+    exec gardn-agent-tests-antigravity-status
+    ;;
   *)
     echo "unknown agent test target: $target" >&2
     exit 2

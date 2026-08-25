@@ -61,9 +61,13 @@ jobs:
             echo "PI_VERSION=$(jq -r '.build_args.PI_VERSION' "$cohort_path")"
             echo "QWEN_CODE_VERSION=$(jq -r '.build_args.QWEN_CODE_VERSION' "$cohort_path")"
             echo "KILO_VERSION=$(jq -r '.build_args.KILO_VERSION' "$cohort_path")"
+            echo "MASTRACODE_VERSION=$(jq -r '.build_args.MASTRACODE_VERSION' "$cohort_path")"
             echo "KIMI_VERSION=$(jq -r '.build_args.KIMI_VERSION' "$cohort_path")"
             echo "MAKI_VERSION=$(jq -r '.build_args.MAKI_VERSION' "$cohort_path")"
             echo "OMP_REF=$(jq -r '.build_args.OMP_REF' "$cohort_path")"
+            echo "ANTIGRAVITY_VERSION=$(jq -r '.build_args.ANTIGRAVITY_VERSION' "$cohort_path")"
+            echo "ANTIGRAVITY_DOWNLOAD_URL=$(jq -r '.build_args.ANTIGRAVITY_DOWNLOAD_URL' "$cohort_path")"
+            echo "ANTIGRAVITY_SHA512=$(jq -r '.build_args.ANTIGRAVITY_SHA512' "$cohort_path")"
           } >> "$GITHUB_OUTPUT"
 
       - name: Build image
@@ -77,12 +81,17 @@ jobs:
           PI_VERSION: ${{ steps.cohort.outputs.PI_VERSION }}
           QWEN_CODE_VERSION: ${{ steps.cohort.outputs.QWEN_CODE_VERSION }}
           KILO_VERSION: ${{ steps.cohort.outputs.KILO_VERSION }}
+          MASTRACODE_VERSION: ${{ steps.cohort.outputs.MASTRACODE_VERSION }}
           KIMI_VERSION: ${{ steps.cohort.outputs.KIMI_VERSION }}
           MAKI_VERSION: ${{ steps.cohort.outputs.MAKI_VERSION }}
           OMP_REF: ${{ steps.cohort.outputs.OMP_REF }}
+          ANTIGRAVITY_VERSION: ${{ steps.cohort.outputs.ANTIGRAVITY_VERSION }}
+          ANTIGRAVITY_DOWNLOAD_URL: ${{ steps.cohort.outputs.ANTIGRAVITY_DOWNLOAD_URL }}
+          ANTIGRAVITY_SHA512: ${{ steps.cohort.outputs.ANTIGRAVITY_SHA512 }}
         run: |
           set -euo pipefail
           docker build \
+            --platform linux/amd64 \
             --build-arg "CLAUDE_CODE_VERSION=${CLAUDE_CODE_VERSION}" \
             --build-arg "CODEX_VERSION=${CODEX_VERSION}" \
             --build-arg "OPENCODE_VERSION=${OPENCODE_VERSION}" \
@@ -92,14 +101,29 @@ jobs:
             --build-arg "PI_VERSION=${PI_VERSION}" \
             --build-arg "QWEN_CODE_VERSION=${QWEN_CODE_VERSION}" \
             --build-arg "KILO_VERSION=${KILO_VERSION}" \
+            --build-arg "MASTRACODE_VERSION=${MASTRACODE_VERSION}" \
             --build-arg "KIMI_VERSION=${KIMI_VERSION}" \
             --build-arg "MAKI_VERSION=${MAKI_VERSION}" \
             --build-arg "OMP_REF=${OMP_REF}" \
+            --build-arg "ANTIGRAVITY_VERSION=${ANTIGRAVITY_VERSION}" \
+            --build-arg "ANTIGRAVITY_DOWNLOAD_URL=${ANTIGRAVITY_DOWNLOAD_URL}" \
+            --build-arg "ANTIGRAVITY_SHA512=${ANTIGRAVITY_SHA512}" \
             -t gardn-agent-tests:ci \
             ci/agent-tests
 
       - name: Check installed CLIs
         run: docker run --rm gardn-agent-tests:ci
+
+      - name: Check deterministic provider behavior
+        run: node --test ci/agent-tests/deterministic-provider.test.mjs
+
+      - name: Check deterministic provider-backed CLIs
+        run: |
+          set -euo pipefail
+          for target in qwen-deterministic kilo-deterministic mastracode antigravity; do
+            docker run --rm -v "${{ github.workspace }}:/repo:ro" gardn-agent-tests:ci \
+              gardn-agent-tests-target "$target"
+          done
 
       - name: Check provider env wiring
         run: >-

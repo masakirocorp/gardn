@@ -23,6 +23,11 @@ TARGETS = [
     "maki",
     "qwen",
     "kilo",
+    "qwen-deterministic",
+    "kilo-deterministic",
+    "mastracode",
+    "antigravity",
+    "antigravity-gemini",
 ]
 
 
