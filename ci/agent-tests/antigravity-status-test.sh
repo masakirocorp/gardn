@@ -7,7 +7,7 @@ account_home="$(python3 -c 'import os, pwd; print(pwd.getpwuid(os.getuid()).pw_d
 config_dir="$account_home/.gemini/antigravity-cli"
 socket_path="$workdir/gardn.sock"; request_log="$workdir/gardn-requests.jsonl"; output="$workdir/antigravity-screen.txt"
 [[ -f "$hook_source" ]] || { echo "Antigravity status test needs Gardn repo mounted at $repo_dir" >&2; exit 1; }
-model=gemini-2.5-flash
+model="Gemini 3.5 Flash"
 if [[ "${GARDN_ANTIGRAVITY_REAL:-0}" == 1 ]]; then
   [[ -n "${GEMINI_API_KEY:-}" ]] || { echo "GEMINI_API_KEY is required for selected Antigravity real smoke" >&2; exit 64; }
   unset GOOGLE_GEMINI_BASE_URL
@@ -17,6 +17,7 @@ else
   : "${GARDN_DETERMINISTIC_PROVIDER_URL:?Antigravity deterministic harness requires provider}"
   export GEMINI_API_KEY=gardn-deterministic-key
   expected=GARDN_PROVIDER_OK
+  prompt="Reply with exactly GARDN_PROVIDER_OK."
 fi
 mkdir -p "$config_dir/hooks"; cp "$hook_source" "$config_dir/hooks/gardn-agent-session.sh"; chmod +x "$config_dir/hooks/gardn-agent-session.sh"
 printf '{"modelProvider":"gemini","colorScheme":"terminal"}\n' > "$config_dir/settings.json"
