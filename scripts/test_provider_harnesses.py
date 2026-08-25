@@ -50,8 +50,8 @@ class ProviderHarnessStructureTests(unittest.TestCase):
         self.assertIn("pane.report_agent_session", antigravity)
         self.assertIn('"colorScheme":"terminal"', antigravity)
         self.assertNotIn("ANTIGRAVITY_CLI_CONFIG_DIR", antigravity)
-        self.assertIn('"Gemini API key" in text', antigravity)
         self.assertIn("pwd.getpwuid(os.getuid()).pw_dir", antigravity)
+        self.assertIn('agy -p "$prompt" --output-format json', antigravity)
         self.assertNotIn('HOME="$home"', antigravity)
 
     def test_qwen_hook_reports_session_contract(self):

@@ -49,40 +49,18 @@ PY
 socket_pid=$!; trap 'kill "$socket_pid" >/dev/null 2>&1 || true' EXIT
 for _ in $(seq 1 50); do [[ -S "$socket_path" ]] && break; sleep .1; done
 [[ -S "$socket_path" ]] || { echo "fake Gardn socket did not start" >&2; exit 1; }
+set +e
 GARDN_ENV=1 GARDN_SOCKET_PATH="$socket_path" GARDN_PANE_ID=pane-antigravity \
-python3 - "$prompt" "$expected" "$output" <<'PY'
-import fcntl, os, pty, re, select, signal, struct, subprocess, sys, termios, time
-from pathlib import Path
-prompt, expected, output = sys.argv[1:4]
-env=os.environ.copy(); env.update({"TERM":"xterm-256color","COLORTERM":"truecolor","COLUMNS":"120","LINES":"40"})
-master,slave=pty.openpty(); fcntl.ioctl(slave,termios.TIOCSWINSZ,struct.pack("HHHH",40,120,0,0))
-proc=subprocess.Popen(["agy"],stdin=slave,stdout=slave,stderr=slave,env=env,cwd="/work",start_new_session=True); os.close(slave)
-raw=bytearray(); sent=False; selected_theme=False; theme_selected_at=None; deadline=time.monotonic()+90
-try:
-  while time.monotonic()<deadline:
-    readable,_,_=select.select([master],[],[],.25)
-    if readable:
-      try: raw.extend(os.read(master,65536))
-      except OSError: break
-    text=re.sub(rb"\x1b\[[0-?]*[ -/]*[@-~]",b"",bytes(raw)).replace(b"\r",b"").decode("utf-8","replace")
-    if not selected_theme and "Choose your color scheme:" in text:
-      os.write(master,b"\r")
-      selected_theme=True
-      theme_selected_at=time.monotonic()
-    if not sent and "Gemini API key" in text and (theme_selected_at is None or time.monotonic()-theme_selected_at>.5):
-      os.write(master,prompt.encode()+b"\r")
-      sent=True
-    if sent and expected in text: break
-    if proc.poll() is not None and not readable: break
-  Path(output).write_text(text,encoding="utf-8")
-  if expected not in text: raise RuntimeError(f"Antigravity completion missing {expected}; process={proc.poll()} tail={text[-2000:]!r}")
-finally:
-  if proc.poll() is None:
-    os.killpg(proc.pid,signal.SIGTERM)
-    try: proc.wait(timeout=5)
-    except subprocess.TimeoutExpired: os.killpg(proc.pid,signal.SIGKILL)
-  os.close(master)
-PY
+  agy -p "$prompt" --output-format json >"$output" 2>"${output}.stderr"
+status=$?
+set -e
+if [[ "$status" -ne 0 ]] || ! grep -Fq "$expected" "$output"; then
+  cat "$output" >&2
+  cat "${output}.stderr" >&2
+  [[ -n "${GARDN_DETERMINISTIC_PROVIDER_LOG:-}" ]] && cat "$GARDN_DETERMINISTIC_PROVIDER_LOG" >&2
+  [[ "$status" -ne 0 ]] && exit "$status"
+  exit 1
+fi
 python3 - "$request_log" <<'PY'
 import json, sys
 from pathlib import Path
