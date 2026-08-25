@@ -42,10 +42,20 @@ PY
 socket_pid=$!; trap 'kill "$socket_pid" >/dev/null 2>&1 || true' EXIT
 for _ in $(seq 1 50); do [[ -S "$socket_path" ]] && break; sleep .1; done
 [[ -S "$socket_path" ]] || { echo "fake Gardn socket did not start" >&2; exit 1; }
+set +e
 HOME="$home" GARDN_ENV=1 GARDN_SOCKET_PATH="$socket_path" GARDN_PANE_ID=pane-mastracode MASTRACODE_DISABLE_MCP=1 MASTRACODE_DISABLE_MEMORY=1 mastracode \
  --settings "$mastra_home/settings.json" --model gardn/gardn-tool --permission-mode auto --max-turns 4 --timeout 120 --output json \
- --prompt "Use the shell tool to run exactly: printf GARDN_PROVIDER_TOOL_OK. Do not answer before running it." > "$output"
-grep -Fq GARDN_TOOL_COMPLETE "$output"
+ --prompt "Use the shell tool to run exactly: printf GARDN_PROVIDER_TOOL_OK. Do not answer before running it." > "$output" 2>"${output}.stderr"
+status=$?
+set -e
+if [[ "$status" -ne 0 ]] || ! grep -Fq GARDN_TOOL_COMPLETE "$output"; then
+  cat "$output" >&2
+  cat "${output}.stderr" >&2
+  cat "$request_log" >&2
+  [[ -n "${GARDN_DETERMINISTIC_PROVIDER_LOG:-}" ]] && cat "$GARDN_DETERMINISTIC_PROVIDER_LOG" >&2
+  [[ "$status" -ne 0 ]] && exit "$status"
+  exit 1
+fi
 python3 - "$request_log" <<'PY'
 import json, sys
 from pathlib import Path
