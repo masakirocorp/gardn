@@ -3,7 +3,7 @@ set -euo pipefail
 repo_dir="${GARDN_REPO_DIR:-/repo}"
 hook_source="$repo_dir/apps/gardn/src/integration/assets/antigravity_cli/gardn-agent-session.sh"
 workdir="${GARDN_ANTIGRAVITY_STATUS_TEST_DIR:-$(mktemp -d)}"
-home="$workdir/home"; config_dir="$home/.gemini/antigravity-cli"
+config_dir="${HOME}/.gemini/antigravity-cli"
 socket_path="$workdir/gardn.sock"; request_log="$workdir/gardn-requests.jsonl"; output="$workdir/antigravity-screen.txt"
 [[ -f "$hook_source" ]] || { echo "Antigravity status test needs Gardn repo mounted at $repo_dir" >&2; exit 1; }
 if [[ "${GARDN_ANTIGRAVITY_REAL:-0}" == 1 ]]; then
@@ -48,7 +48,7 @@ PY
 socket_pid=$!; trap 'kill "$socket_pid" >/dev/null 2>&1 || true' EXIT
 for _ in $(seq 1 50); do [[ -S "$socket_path" ]] && break; sleep .1; done
 [[ -S "$socket_path" ]] || { echo "fake Gardn socket did not start" >&2; exit 1; }
-HOME="$home" GARDN_ENV=1 GARDN_SOCKET_PATH="$socket_path" GARDN_PANE_ID=pane-antigravity \
+GARDN_ENV=1 GARDN_SOCKET_PATH="$socket_path" GARDN_PANE_ID=pane-antigravity \
 python3 - "$prompt" "$expected" "$output" <<'PY'
 import fcntl, os, pty, re, select, signal, struct, subprocess, sys, termios, time
 from pathlib import Path

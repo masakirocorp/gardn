@@ -51,6 +51,8 @@ class ProviderHarnessStructureTests(unittest.TestCase):
         self.assertIn('"colorScheme":"terminal"', antigravity)
         self.assertNotIn("ANTIGRAVITY_CLI_CONFIG_DIR", antigravity)
         self.assertIn('"Gemini API key" in text', antigravity)
+        self.assertIn('config_dir="${HOME}/.gemini/antigravity-cli"', antigravity)
+        self.assertNotIn('HOME="$home"', antigravity)
 
     def test_qwen_hook_reports_session_contract(self):
         hook = ROOT / "apps/gardn/src/integration/assets/qwen/gardn-agent-session.sh"
