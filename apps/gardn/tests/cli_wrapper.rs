@@ -1441,7 +1441,7 @@ fn integration_commands_run_locally_when_server_is_missing() {
     let status_stdout = String::from_utf8_lossy(&integration_status.stdout);
     assert!(status_stdout.contains("pi: current (v7)"));
     assert!(status_stdout.contains("claude: not installed"));
-    assert!(status_stdout.contains("omp: current (v8)"));
+    assert!(status_stdout.contains("omp: current (v9)"));
 
     let integration_uninstall = Command::new(env!("CARGO_BIN_EXE_gardn"))
         .args(["integration", "uninstall", "pi"])
