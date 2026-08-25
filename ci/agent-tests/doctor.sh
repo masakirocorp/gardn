@@ -30,6 +30,10 @@ printf 'pnpm: '; pnpm --version
 printf 'cohort: '; jq -c '{schema,resolved_at,source,agents:(.agents|keys)}' /usr/local/share/gardn-agent-tests/cohort.json
 for bin in claude codex opencode copilot hermes droid kimi maki qwen kilo kilo-code mastracode agy cursor-agent qoder qodercli omp pi; do
   printf '%s: ' "$bin"
-  "$bin" --version 2>&1 | tr '\n' ' '
+  if [[ "$bin" == mastracode ]]; then
+    "$bin" --help 2>&1 | tr '\n' ' '
+  else
+    "$bin" --version 2>&1 | tr '\n' ' '
+  fi
   printf '\n'
 done
