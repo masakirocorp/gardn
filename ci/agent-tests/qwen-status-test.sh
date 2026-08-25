@@ -162,13 +162,14 @@ working = re.compile(r"(?i)(?:esc to cancel|◐)")
 session = re.compile(r'"method"\s*:\s*"pane\.report_agent_session"')
 try:
     read_until(lambda _raw, text: bool(idle.search(text)), 30, "initial idle composer")
-    read_until(
-        lambda _raw, _text: Path(request_log).exists() and bool(session.search(Path(request_log).read_text(errors="replace"))),
-        15,
-        "Qwen session report",
-    )
     start = len(raw)
     os.write(master, b"Reply with exactly GARDN_QWEN_STATUS_IDLE.\r")
+    read_until(
+        lambda _raw, _text: Path(request_log).exists() and bool(session.search(Path(request_log).read_text(errors="replace"))),
+        30,
+        "Qwen session report",
+        start,
+    )
     read_until(lambda payload, text: bool(working.search(payload.decode("utf-8", "replace"))) or bool(working.search(text)), 90, "working status", start)
     read_until(lambda _raw, text: "GARDN_QWEN_STATUS_IDLE" in text and bool(idle.search(text)), 120, "eventual idle composer", start)
     Path(output_path).write_text(clean(bytes(raw)), encoding="utf-8")
