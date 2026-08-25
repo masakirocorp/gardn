@@ -14,7 +14,7 @@ path, hook = sys.argv[1:3]
 events = {"SessionStart":"session","UserPromptSubmit":"working","AgentStart":"working","PreToolUse":"working","PermissionRequest":"blocked","PermissionResult":"working","SubagentStart":"working","SubagentEnd":"working","Interrupt":"idle","AgentEnd":"idle","Stop":"idle"}
 with open(path, "w", encoding="utf-8") as f: json.dump({event:[{"type":"command","command":f"bash {hook} {action}","timeout":10000}] for event, action in events.items()}, f)
 PY
-printf '{"customProviders":[{"name":"gardn","url":"%s/v1","apiKey":"gardn-deterministic-key","models":["gardn-tool"]}]}\n' "$provider_url" > "$mastra_home/settings.json"
+printf '{"models":{"modeDefaults":{"build":"gardn/gardn-tool"}},"customProviders":[{"name":"gardn","url":"%s/v1","apiKey":"gardn-deterministic-key","models":["gardn-tool"]}]}\n' "$provider_url" > "$mastra_home/settings.json"
 python3 - "$socket_path" "$request_log" <<'PY' &
 import json, os, socket, sys, time
 path, log = sys.argv[1:3]
@@ -44,7 +44,7 @@ for _ in $(seq 1 50); do [[ -S "$socket_path" ]] && break; sleep .1; done
 [[ -S "$socket_path" ]] || { echo "fake Gardn socket did not start" >&2; exit 1; }
 set +e
 HOME="$home" GARDN_ENV=1 GARDN_SOCKET_PATH="$socket_path" GARDN_PANE_ID=pane-mastracode MASTRACODE_DISABLE_MCP=1 MASTRACODE_DISABLE_MEMORY=1 mastracode \
- --settings "$mastra_home/settings.json" --model mastracode/gardn/gardn-tool --permission-mode auto --max-turns 4 --timeout 120 --output json \
+ --settings "$mastra_home/settings.json" --permission-mode auto --max-turns 4 --timeout 120 --output json \
  --prompt "Use the shell tool to run exactly: printf GARDN_PROVIDER_TOOL_OK. Do not answer before running it." > "$output" 2>"${output}.stderr"
 status=$?
 set -e
