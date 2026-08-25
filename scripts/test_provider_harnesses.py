@@ -43,6 +43,7 @@ class ProviderHarnessStructureTests(unittest.TestCase):
         self.assertIn('"permission": {"bash": "ask"}', kilo)
         self.assertIn("gardn-agent-state.sh", mastra)
         self.assertIn('(\"working\",\"blocked\",\"working\",\"idle\")', mastra)
+        self.assertIn("--model mastracode/gardn/gardn-tool", mastra)
         self.assertIn("gardn-agent-session.sh", antigravity)
         self.assertIn("pane.report_agent_session", antigravity)
 
