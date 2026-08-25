@@ -106,7 +106,7 @@ master, slave = pty.openpty()
 fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 40, 120, 0, 0))
 proc = subprocess.Popen(
     [
-        "kilo", "run", "--interactive", "--format", "json", "--model", model,
+        "kilo", "run", "--interactive", "--model", model,
         "Use the bash tool to run exactly: printf GARDN_KILO_STATUS_OK. Do not answer until it runs.",
     ],
     stdin=slave,
