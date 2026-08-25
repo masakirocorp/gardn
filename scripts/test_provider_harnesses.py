@@ -52,6 +52,7 @@ class ProviderHarnessStructureTests(unittest.TestCase):
         self.assertNotIn("ANTIGRAVITY_CLI_CONFIG_DIR", antigravity)
         self.assertIn("pwd.getpwuid(os.getuid()).pw_dir", antigravity)
         self.assertIn('agy -p "$prompt" --output-format json', antigravity)
+        self.assertIn('"conversationId":"gardn-antigravity-fixture"', antigravity)
         self.assertNotIn('HOME="$home"', antigravity)
 
     def test_qwen_hook_reports_session_contract(self):

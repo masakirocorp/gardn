@@ -49,6 +49,9 @@ PY
 socket_pid=$!; trap 'kill "$socket_pid" >/dev/null 2>&1 || true' EXIT
 for _ in $(seq 1 50); do [[ -S "$socket_path" ]] && break; sleep .1; done
 [[ -S "$socket_path" ]] || { echo "fake Gardn socket did not start" >&2; exit 1; }
+printf '{"conversationId":"gardn-antigravity-fixture"}\n' | \
+  GARDN_ENV=1 GARDN_SOCKET_PATH="$socket_path" GARDN_PANE_ID=pane-antigravity \
+  bash "$config_dir/hooks/gardn-agent-session.sh" session >/dev/null
 set +e
 GARDN_ENV=1 GARDN_SOCKET_PATH="$socket_path" GARDN_PANE_ID=pane-antigravity \
   agy -p "$prompt" --output-format json >"$output" 2>"${output}.stderr"
