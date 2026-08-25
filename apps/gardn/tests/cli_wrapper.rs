@@ -1426,7 +1426,7 @@ fn integration_commands_run_locally_when_server_is_missing() {
     );
     let omp_content = fs::read_to_string(&expected_omp_extension).unwrap();
     assert!(omp_content.contains("GARDN_INTEGRATION_ID=omp"));
-    assert!(omp_content.contains("GARDN_INTEGRATION_VERSION=8"));
+    assert!(omp_content.contains("GARDN_INTEGRATION_VERSION=9"));
     assert!(omp_content.contains("agent: \"omp\""));
 
     let integration_status = Command::new(env!("CARGO_BIN_EXE_gardn"))
