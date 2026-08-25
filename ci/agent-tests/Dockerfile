@@ -69,6 +69,7 @@ RUN --mount=type=cache,id=gardn-agent-tests-pnpm,target=/pnpm/store \
         '  "@anthropic-ai/claude-code": true' \
         '  "@kilocode/cli": true' \
         '  "@qwen-code/qwen-code": true' \
+        '  "@qwen-code/audio-capture": false' \
         '  "@google/genai": false' \
         '  "droid": true' \
         '  "hermes-agent": true' \
