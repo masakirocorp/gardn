@@ -35,6 +35,7 @@ if [[ -n "${GARDN_DETERMINISTIC_PROVIDER_URL:-}" ]]; then
   cat > "$config_home/kilo/kilo.jsonc" <<EOF_CONFIG
 {
   "model": "gardn/gardn-tool",
+  "permission": {"bash": "ask"},
   "provider": {
     "gardn": {
       "npm": "@ai-sdk/openai-compatible",

@@ -40,6 +40,7 @@ class ProviderHarnessStructureTests(unittest.TestCase):
         self.assertIn("initial idle -> working -> idle", qwen)
         self.assertIn("gardn-agent-state.js", kilo)
         self.assertIn('(\"working\", \"blocked\", \"working\", \"idle\")', kilo)
+        self.assertIn('"permission": {"bash": "ask"}', kilo)
         self.assertIn("gardn-agent-state.sh", mastra)
         self.assertIn('(\"working\",\"blocked\",\"working\",\"idle\")', mastra)
         self.assertIn("gardn-agent-session.sh", antigravity)

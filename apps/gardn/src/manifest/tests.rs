@@ -770,7 +770,10 @@ fn qwen_manifest_distinguishes_blocked_working_and_idle_evidence() {
     );
     assert_eq!(progress.state, AgentState::Working);
 
-    for screen in ["> type your message", "* Type your message or @path/to/file"] {
+    for screen in [
+        "> type your message",
+        "* Type your message or @path/to/file",
+    ] {
         let idle = explain(Agent::Qwen, screen);
         assert_eq!(idle.state, AgentState::Idle, "{screen}");
         assert!(idle.visible_idle, "{screen}");
