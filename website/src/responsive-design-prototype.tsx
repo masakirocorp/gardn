@@ -83,14 +83,11 @@ export function ResponsiveDesignPrototype() {
         Skip to content
       </a>
       <PrototypeBar
-        releaseState={releaseState}
         theme={theme}
-        onState={selectState}
         onTheme={(nextTheme) => {
           setTheme(nextTheme);
           const url = new URL(window.location.href);
           url.searchParams.set("page", page);
-          url.searchParams.set("state", releaseState);
           url.searchParams.set("theme", nextTheme);
           window.history.replaceState({}, "", url);
         }}
@@ -98,7 +95,7 @@ export function ResponsiveDesignPrototype() {
       <SiteHeader page={page} onPage={selectPage} />
       <main id="rd-main">
         {page === "home" && (
-          <HomePage onPage={selectPage} />
+          <HomePage />
         )}
         {page === "download" && (
           <DownloadPage />
@@ -114,14 +111,10 @@ export function ResponsiveDesignPrototype() {
 
 
 function PrototypeBar({
-  releaseState,
   theme,
-  onState,
   onTheme,
 }: {
-  releaseState: ReleaseState;
   theme: ThemeName;
-  onState: (state: ReleaseState) => void;
   onTheme: (theme: ThemeName) => void;
 }) {
   return (
@@ -141,21 +134,6 @@ function PrototypeBar({
         >
           <option value="light">Light</option>
           <option value="dark">Dark</option>
-        </select>
-      </label>
-      <label className="rd-state-control">
-        <span>Release state</span>
-        <select
-          value={releaseState}
-          onChange={(event) => {
-            const nextState = event.target.value;
-            if (isReleaseState(nextState)) onState(nextState);
-          }}
-        >
-          <option value="prepublic">Pre-public</option>
-          <option value="tagged">Tagged preview</option>
-          <option value="loading">Loading</option>
-          <option value="error">Error</option>
         </select>
       </label>
     </aside>
@@ -195,50 +173,22 @@ function SiteHeader({ page, onPage }: { page: PageName; onPage: (page: PageName)
         <a href="/docs" onClick={() => setMenuOpen(false)}>
           Documentation
         </a>
-        <a
-          href="?page=releases"
-          aria-current={page === "releases" ? "page" : undefined}
-          onClick={(event) => openPage(event, "releases")}
-        >
-          Releases
-        </a>
         <a href="https://github.com/masakirocorp/gardn" onClick={() => setMenuOpen(false)}>
           GitHub
         </a>
       </nav>
-      <a
-        className="rd-header-action"
-        href="?page=download"
-        onClick={(event) => openPage(event, "download")}
-      >
-        Install from source
-      </a>
     </header>
   );
 }
 
-function HomePage({ onPage }: { onPage: (page: PageName) => void }) {
+function HomePage() {
   return (
     <section className="rd-hero rd-shell" aria-labelledby="rd-home-title">
       <div className="rd-hero-art" aria-hidden="true">
         <BrandMark />
       </div>
       <h1 id="rd-home-title">All agents, all terminals, all machines, one session.</h1>
-      <div className="rd-actions">
-        <a
-          className="rd-button rd-button-primary"
-          href="?page=download"
-          onClick={(event) => {
-            event.preventDefault();
-            onPage("download");
-          }}
-        >
-          Install
-        </a>
-        <a className="rd-button" href="/docs">
-          Documentation
-        </a>
-      </div>
+      <InstallCommand />
     </section>
   );
 }
@@ -338,20 +288,14 @@ function FeatureCard({ feature }: { feature: RecentFeature }) {
   );
 }
 
-const installCommands = {
-  cargo:
-    "git clone https://github.com/masakirocorp/gardn.git && cd gardn && cargo install --path apps/gardn",
-  nix: 'nix profile install "github:masakirocorp/gardn#gardn"',
-} as const;
+const installCommand = "curl -fsSL https://gardn.dev/install | sh";
 
-function DownloadPage() {
-  const [method, setMethod] = useState<keyof typeof installCommands>("cargo");
+function InstallCommand() {
   const [copied, setCopied] = useState(false);
-  const command = installCommands[method];
 
   const copy = async () => {
     try {
-      await navigator.clipboard.writeText(command);
+      await navigator.clipboard.writeText(installCommand);
       setCopied(true);
       window.setTimeout(() => setCopied(false), 1500);
     } catch {
@@ -360,34 +304,22 @@ function DownloadPage() {
   };
 
   return (
+    <div className="rd-install-box">
+      <div className="rd-install-row">
+        <code>{installCommand}</code>
+        <button type="button" onClick={() => void copy()}>
+          {copied ? "Copied" : "Copy"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function DownloadPage() {
+  return (
     <section className="rd-hero rd-shell" aria-labelledby="rd-install-title">
       <h1 id="rd-install-title">Install</h1>
-      <div className="rd-install-box">
-        <div className="rd-install-tabs" role="tablist" aria-label="Install method">
-          <button
-            type="button"
-            role="tab"
-            aria-selected={method === "cargo"}
-            onClick={() => setMethod("cargo")}
-          >
-            Cargo
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={method === "nix"}
-            onClick={() => setMethod("nix")}
-          >
-            Nix
-          </button>
-        </div>
-        <div className="rd-install-row">
-          <code>{command}</code>
-          <button type="button" onClick={() => void copy()}>
-            {copied ? "Copied" : "Copy"}
-          </button>
-        </div>
-      </div>
+      <InstallCommand />
     </section>
   );
 }
