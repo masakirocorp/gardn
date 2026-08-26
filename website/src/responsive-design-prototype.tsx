@@ -101,7 +101,7 @@ export function ResponsiveDesignPrototype() {
           <HomePage onPage={selectPage} />
         )}
         {page === "download" && (
-          <DownloadPage releaseState={releaseState} onPage={selectPage} onState={selectState} />
+          <DownloadPage />
         )}
         {page === "releases" && (
           <ReleasesPage releaseState={releaseState} onPage={selectPage} onState={selectState} />
@@ -338,117 +338,57 @@ function FeatureCard({ feature }: { feature: RecentFeature }) {
   );
 }
 
-function DownloadPage({
-  releaseState,
-  onPage,
-  onState,
-}: {
-  releaseState: ReleaseState;
-  onPage: (page: PageName) => void;
-  onState: (state: ReleaseState) => void;
-}) {
-  const tagged = releaseState === "tagged";
+const installCommands = {
+  cargo:
+    "git clone https://github.com/masakirocorp/gardn.git && cd gardn && cargo install --path apps/gardn",
+  nix: 'nix profile install "github:masakirocorp/gardn#gardn"',
+} as const;
+
+function DownloadPage() {
+  const [method, setMethod] = useState<keyof typeof installCommands>("cargo");
+  const [copied, setCopied] = useState(false);
+  const command = installCommands[method];
+
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(command);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1500);
+    } catch {
+      setCopied(false);
+    }
+  };
+
   return (
-    <>
-      <PageHero
-        eyebrow="Install Gardn"
-        title={
-          tagged
-            ? "Choose the binary for your machine."
-            : "Start from source. Downloads stay gated."
-        }
-        status={tagged ? "Release verified" : "Public binaries in verification"}
-      >
-        {tagged
-          ? "Tagged-preview state: verified artifacts appear only after platform, checksum, and release metadata agree."
-          : "Build the current source or use the Nix flake today. Binary controls remain unavailable until the release gate passes."}
-      </PageHero>
-
-      <section className="rd-download-options rd-shell" aria-labelledby="rd-install-options-title">
-        <SectionHeading
-          eyebrow="Available now"
-          title="Two source-backed paths."
-          id="rd-install-options-title"
-        >
-          Install snippets remain legible at narrow widths and scroll inside their own boundary instead
-          of overflowing the page.
-        </SectionHeading>
-        <div className="rd-option-grid">
-          <InstallOption
-            index="01"
-            title="Build with Cargo"
-            copy="Clone the repository and install the workspace binary from its package."
-            command={
-              "git clone https://github.com/masakirocorp/gardn.git\ncd gardn\ncargo install --path apps/gardn"
-            }
-          />
-          <InstallOption
-            index="02"
-            title="Install with Nix"
-            copy="Use the repository flake on x86_64 or aarch64 Linux and macOS."
-            command={'nix profile install "github:masakirocorp/gardn#gardn"'}
-          />
-        </div>
-      </section>
-
-      <section className="rd-binary-gate rd-shell" aria-labelledby="rd-binary-title">
-        <div>
-          <p className="rd-eyebrow">Release gate</p>
-          <h2 id="rd-binary-title">No button before its binary.</h2>
-        </div>
-        <ReleaseControl state={releaseState} onRetry={() => onState("prepublic")} />
-      </section>
-
-      <section className="rd-platforms rd-shell" aria-labelledby="rd-platform-title">
-        <SectionHeading
-          eyebrow="Compatibility"
-          title="Know the boundary before install."
-          id="rd-platform-title"
-        >
-          The desktop table becomes labeled records on narrow screens; no horizontal page scroll is
-          required.
-        </SectionHeading>
-        <div className="rd-platform-table" role="table" aria-label="Supported platforms">
-          <div className="rd-platform-row rd-platform-head" role="row">
-            <span role="columnheader">Platform</span>
-            <span role="columnheader">Architectures</span>
-            <span role="columnheader">Role</span>
-            <span role="columnheader">Status</span>
-          </div>
-          {platformRows.map((row) => (
-            <div className="rd-platform-row" role="row" key={row.platform}>
-              <span role="cell" data-label="Platform">
-                <b>{row.platform}</b>
-              </span>
-              <span role="cell" data-label="Architectures">
-                {row.architectures}
-              </span>
-              <span role="cell" data-label="Role">
-                {row.role}
-              </span>
-              <span role="cell" data-label="Status">
-                <i className="rd-check" /> supported
-              </span>
-            </div>
-          ))}
-        </div>
-        <div className="rd-actions">
-          <a className="rd-button rd-button-primary" href="/docs/getting-started/install">
-            Open install guide
-          </a>
-          <a
-            className="rd-button"
-            href="?page=releases"
-            onClick={(event) => {
-              event.preventDefault();
-              onPage("releases");
-            }}
+    <section className="rd-hero rd-shell" aria-labelledby="rd-install-title">
+      <h1 id="rd-install-title">Install</h1>
+      <div className="rd-install-box">
+        <div className="rd-install-tabs" role="tablist" aria-label="Install method">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={method === "cargo"}
+            onClick={() => setMethod("cargo")}
           >
-            Release status
-          </a>
+            Cargo
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={method === "nix"}
+            onClick={() => setMethod("nix")}
+          >
+            Nix
+          </button>
         </div>
-      </section>
-    </>
+        <div className="rd-install-row">
+          <code>{command}</code>
+          <button type="button" onClick={() => void copy()}>
+            {copied ? "Copied" : "Copy"}
+          </button>
+        </div>
+      </div>
+    </section>
   );
 }
 
