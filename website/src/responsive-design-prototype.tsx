@@ -239,7 +239,7 @@ function HomePage({ onPage }: { onPage: (page: PageName) => void }) {
           <h1 id="rd-home-title">Close the window. The agents stay.</h1>
           <p className="rd-lede">
             Gardn is a terminal workspace for coding agents. Local ones and SSH ones sit in the same
-            session. No public binaries yet. Source or Nix.
+            session.
           </p>
           <div className="rd-actions">
             <a
@@ -271,18 +271,18 @@ function HomePage({ onPage }: { onPage: (page: PageName) => void }) {
       </section>
 
       <section className="rd-story rd-shell" aria-labelledby="rd-status-title">
-        <h2 id="rd-status-title">Compaction still counts as work.</h2>
+        <h2 id="rd-status-title">Get notified when the status is real.</h2>
         <p>
           Gardn stays <span className="rd-mono">Working</span> through compaction and the first
-          prompt. A permission gate is <span className="rd-mono">Blocked</span>. After a resume
-          report the session is still there.
+          prompt. A permission prompt is <span className="rd-mono">Blocked</span>. You get notified
+          when that status actually changes.
         </p>
       </section>
 
       <section className="rd-story rd-shell" aria-labelledby="rd-attach-title">
-        <h2 id="rd-attach-title">Looking is free. Typing is not.</h2>
+        <h2 id="rd-attach-title">Open as many windows as you like.</h2>
         <p>
-          Open a second client and scroll. You cannot type until someone takes control.
+          Each window has its own view. Only one types, after Take control.
         </p>
       </section>
     </>
@@ -825,7 +825,7 @@ function SiteFooter({ onPage }: { onPage: (page: PageName) => void }) {
           <BrandMark />
           <span>Gardn</span>
         </a>
-        <p>Source and Nix until we ship a release.</p>
+        <p>A terminal workspace for coding agents.</p>
       </div>
       <nav aria-label="Footer navigation">
         <div>
