@@ -2,7 +2,7 @@
 export GARDN_AGENT=kimi
 printf '%b' '\033[2J\033[H\033]0;✳ review\007'
 cat <<'EOF'
-  lumen / checkout
+  checkout
 
   review pane is ready
 

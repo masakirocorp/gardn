@@ -2,7 +2,7 @@
 export GARDN_AGENT=codex
 printf '%b' '\033[2J\033[H\033]0;⠋ billing\007'
 cat <<'EOF'
-  lumen / billing
+  billing
 
   > add the tax preview
 

@@ -2,7 +2,7 @@
 export GARDN_AGENT=pi
 printf '%b' '\033[2J\033[H\033]0;pi · checkout\007'
 cat <<'EOF'
-  lumen / checkout
+  checkout
 
   > split the cart form into two steps
 

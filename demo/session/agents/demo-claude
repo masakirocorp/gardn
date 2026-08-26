@@ -2,7 +2,7 @@
 export GARDN_AGENT=claude
 printf '%b' '\033[2J\033[H\033]0;claude · deploy\007'
 cat <<'EOF'
-  lumen / deploy
+  deploy
 
   roll the worker to staging
 

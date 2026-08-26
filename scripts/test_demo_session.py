@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Behavior of the fictional lumen demo fixture."""
+"""Behavior of the isolated demo session fixture."""
 
 from __future__ import annotations
 
 import unittest
 
-from scripts.demo_lumen_session import (
+from scripts.demo_session import (
     AGENT_DIR,
     AGENTS,
     FIXTURE_DIR,
@@ -15,7 +15,7 @@ from scripts.demo_lumen_session import (
 )
 
 
-class DemoLumenFixtureTests(unittest.TestCase):
+class DemoSessionFixtureTests(unittest.TestCase):
     def test_fixture_files_exist_for_every_agent_script(self) -> None:
         missing = [
             spec["script"]
@@ -26,6 +26,16 @@ class DemoLumenFixtureTests(unittest.TestCase):
         self.assertTrue((AGENT_DIR / "demo-logs").is_file())
         self.assertTrue((AGENT_DIR / "hold.py").is_file())
         self.assertTrue((FIXTURE_DIR / "config.toml").is_file())
+
+    def test_config_does_not_force_a_color_theme(self) -> None:
+        text = (FIXTURE_DIR / "config.toml").read_text()
+        self.assertNotIn("[theme]", text)
+        self.assertNotIn("terminal_accent", text)
+
+    def test_agent_screens_do_not_use_a_product_brand(self) -> None:
+        for spec in AGENTS:
+            text = (AGENT_DIR / spec["script"]).read_text()
+            self.assertNotIn("lumen", text.lower(), spec["script"])
 
     def test_agent_scripts_export_their_hint(self) -> None:
         for spec in AGENTS:

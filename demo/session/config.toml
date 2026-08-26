@@ -29,11 +29,6 @@ delivery = "gardn"
 [ui.toast.gardn]
 position = "top-right"
 
-[theme]
-mode = "dark"
-dark = "system"
-terminal_accent = "yellow"
-
 [terminal]
 new_cwd = "follow"
 

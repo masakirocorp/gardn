@@ -2,7 +2,7 @@
 export GARDN_AGENT=cursor
 printf '%b' '\033[2J\033[H\033]0;cursor · inventory\007'
 cat <<'EOF'
-  lumen / inventory
+  inventory
 
   > recount reserved stock
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Create or attach the fictional lumen Gardn demo session."""
+"""Create or attach the isolated Gardn demo session."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-FIXTURE_DIR = REPO_ROOT / "demo" / "lumen"
+FIXTURE_DIR = REPO_ROOT / "demo" / "session"
 AGENT_DIR = FIXTURE_DIR / "agents"
 SESSION_NAME = "demo"
 
@@ -159,7 +159,7 @@ def stop_server(bin_path: Path, home: Path) -> None:
 
 def install_fixture(home: Path) -> None:
     for name in ("checkout", "catalog", "deploy", "metrics", "billing", "inventory"):
-        (home / "lumen" / name).mkdir(parents=True, exist_ok=True)
+        (home / "spaces" / name).mkdir(parents=True, exist_ok=True)
     runtime_agents = home / "bin"
     runtime_agents.mkdir(parents=True, exist_ok=True)
     for script in AGENT_DIR.iterdir():
@@ -198,7 +198,7 @@ def ensure_groups(bin_path: Path, home: Path) -> dict[str, dict[str, Any]]:
     for spec in GROUPS:
         if spec["name"] in groups:
             continue
-        cwd = home / "lumen" / spec["cwd"]
+        cwd = home / "spaces" / spec["cwd"]
         run_cli(bin_path, home, "group", "create", spec["name"], "--cwd", str(cwd))
         groups = group_map(run_cli(bin_path, home, "group", "list"))
     return groups
@@ -209,7 +209,7 @@ def ensure_workspaces(bin_path: Path, home: Path) -> dict[str, dict[str, Any]]:
     for spec in WORKSPACES:
         if spec["label"] in workspaces:
             continue
-        cwd = home / "lumen" / spec["dir"]
+        cwd = home / "spaces" / spec["dir"]
         created = run_cli(
             bin_path,
             home,
@@ -238,7 +238,7 @@ def ensure_tabs(
         existing = {
             tab["label"]: tab for tab in by_workspace.get(workspace["workspace_id"], [])
         }
-        cwd = str(home / "lumen" / spec["dir"])
+        cwd = str(home / "spaces" / spec["dir"])
         for label in spec["tabs"]:
             tab = existing.get(label)
             if tab is None:
@@ -511,7 +511,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "command",
         choices=("seed", "start", "stop", "status", "attach", "print-attach"),
-        help="seed rebuilds the fictional lumen session",
+        help="seed rebuilds the isolated demo session",
     )
     parser.add_argument("--reset", action="store_true", help="wipe the isolated session first")
     parser.add_argument("--home", type=Path, default=default_home())

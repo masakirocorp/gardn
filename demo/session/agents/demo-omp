@@ -2,7 +2,7 @@
 export GARDN_AGENT=omp
 printf '%b' '\033[2J\033[H\033]0;omp · catalog\007'
 cat <<'EOF'
-  lumen / catalog
+  catalog
 
   index the new merch collection
 

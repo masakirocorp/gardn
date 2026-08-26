@@ -2,7 +2,7 @@
 export GARDN_AGENT=gemini
 printf '%b' '\033[2J\033[H\033]0;gemini · metrics\007'
 cat <<'EOF'
-  lumen / metrics
+  metrics
 
   > chart checkout conversion
 

@@ -146,7 +146,7 @@ function HomePage() {
           src="/session.png"
           width={3200}
           height={1904}
-          alt="A Gardn session of a fictional lumen workspace. Groups product, ops, and commerce use different accents. Checkout is split across two panes. The agent list shows triage, working, and idle."
+          alt="A Gardn session with product, ops, and commerce groups, a split checkout space, and agents in triage, working, and idle."
         />
       </figure>
       <h1 id="rd-home-title">All agents, all terminals, all machines, one session.</h1>
