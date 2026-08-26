@@ -258,25 +258,32 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding-block: 3rem;
+  gap: 1.75rem;
+  padding-block: 2.5rem 1.5rem;
   text-align: center;
 }
-.rd-hero-art {
-  margin-bottom: 1.75rem;
+.rd-shot {
+  width: min(100% - 2rem, 56rem);
+  margin: 0;
 }
-.rd-hero-art .rd-brand-mark {
-  width: 7rem;
-  height: 7rem;
-  margin-inline: auto;
+.rd-shot-frame {
+  aspect-ratio: 16 / 10;
+  border: 1px solid var(--border);
+  border-radius: 0.6rem;
+  background: var(--surface);
 }
 .rd-hero h1 {
-  max-width: 26ch;
+  max-width: 28ch;
   margin: 0;
-  font-size: clamp(2rem, 4.6vw, 3.25rem);
+  font-size: clamp(1.35rem, 2.4vw, 1.85rem);
   font-weight: 600;
-  line-height: 1.12;
-  letter-spacing: -0.035em;
+  line-height: 1.25;
+  letter-spacing: -0.03em;
   text-wrap: balance;
+}
+.rd-install-box {
+  width: min(100% - 2rem, 36rem);
+  margin-top: 0;
 }
 .rd-lede {
   max-width: 38rem;

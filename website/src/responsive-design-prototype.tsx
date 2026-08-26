@@ -140,9 +140,9 @@ function SiteHeader() {
 function HomePage() {
   return (
     <section className="rd-hero rd-shell" aria-labelledby="rd-home-title">
-      <div className="rd-hero-art" aria-hidden="true">
-        <BrandMark />
-      </div>
+      <figure className="rd-shot">
+        <div className="rd-shot-frame" />
+      </figure>
       <h1 id="rd-home-title">All agents, all terminals, all machines, one session.</h1>
       <InstallCommand />
     </section>
