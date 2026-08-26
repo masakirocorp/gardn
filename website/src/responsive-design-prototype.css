@@ -267,7 +267,11 @@
   margin: 0;
 }
 .rd-shot-frame {
+  display: block;
+  width: 100%;
   aspect-ratio: 16 / 10;
+  object-fit: cover;
+  object-position: left top;
   border: 1px solid var(--border);
   border-radius: 0.6rem;
   background: var(--surface);

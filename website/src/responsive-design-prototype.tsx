@@ -141,7 +141,13 @@ function HomePage() {
   return (
     <section className="rd-hero rd-shell" aria-labelledby="rd-home-title">
       <figure className="rd-shot">
-        <div className="rd-shot-frame" />
+        <img
+          className="rd-shot-frame"
+          src="/session.png"
+          width={2560}
+          height={1700}
+          alt="A Gardn session. Groups product and ops sit in the sidebar. Checkout is focused. Agents for checkout, billing, and deploy are listed below."
+        />
       </figure>
       <h1 id="rd-home-title">All agents, all terminals, all machines, one session.</h1>
       <InstallCommand />
