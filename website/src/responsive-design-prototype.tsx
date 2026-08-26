@@ -237,7 +237,10 @@ function HomePage({ onPage }: { onPage: (page: PageName) => void }) {
       <section className="rd-hero rd-shell" aria-labelledby="rd-home-title">
         <div className="rd-hero-copy">
           <h1 id="rd-home-title">All your agents from all your boxes, in one session.</h1>
-          <p className="rd-lede">Gardn is a terminal workspace for AI coding agents.</p>
+          <p className="rd-lede">
+            A terminal workspace. You can run agents, shells, servers, and editors in the same
+            session.
+          </p>
           <div className="rd-actions">
             <a
               className="rd-button rd-button-primary"
@@ -824,7 +827,7 @@ function SiteFooter({ onPage }: { onPage: (page: PageName) => void }) {
           <BrandMark />
           <span>Gardn</span>
         </a>
-        <p>A terminal workspace for coding agents.</p>
+        <p>A terminal workspace for agents, shells, and the rest of the session.</p>
       </div>
       <nav aria-label="Footer navigation">
         <div>
