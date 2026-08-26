@@ -144,9 +144,9 @@ function HomePage() {
         <img
           className="rd-shot-frame"
           src="/session.png"
-          width={2560}
-          height={1700}
-          alt="A Gardn session. Groups product and ops sit in the sidebar. Checkout is focused. Agents for checkout, billing, and deploy are listed below."
+          width={3200}
+          height={1904}
+          alt="A Gardn session of a fictional lumen workspace. Groups product, ops, and commerce use different accents. Checkout is split across two panes. The agent list shows triage, working, and idle."
         />
       </figure>
       <h1 id="rd-home-title">All agents, all terminals, all machines, one session.</h1>
