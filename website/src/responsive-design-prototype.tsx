@@ -78,33 +78,15 @@ export function ResponsiveDesignPrototype() {
   };
 
   return (
-    <div className="rd-root" data-page={page} data-release-state={releaseState} data-theme={theme}>
+    <div className="rd-root" data-theme="light">
       <a className="rd-skip" href="#rd-main">
         Skip to content
       </a>
-      <PrototypeBar
-        theme={theme}
-        onTheme={(nextTheme) => {
-          setTheme(nextTheme);
-          const url = new URL(window.location.href);
-          url.searchParams.set("page", page);
-          url.searchParams.set("theme", nextTheme);
-          window.history.replaceState({}, "", url);
-        }}
-      />
-      <SiteHeader page={page} onPage={selectPage} />
+      <SiteHeader />
       <main id="rd-main">
-        {page === "home" && (
-          <HomePage />
-        )}
-        {page === "download" && (
-          <DownloadPage />
-        )}
-        {page === "releases" && (
-          <ReleasesPage releaseState={releaseState} onPage={selectPage} onState={selectState} />
-        )}
+        <HomePage />
       </main>
-      <SiteFooter onPage={selectPage} />
+      <SiteFooter />
     </div>
   );
 }
@@ -140,42 +122,16 @@ function PrototypeBar({
   );
 }
 
-function SiteHeader({ page, onPage }: { page: PageName; onPage: (page: PageName) => void }) {
-  const [menuOpen, setMenuOpen] = useState(false);
-
-
-  const openPage = (event: React.MouseEvent<HTMLAnchorElement>, nextPage: PageName) => {
-    event.preventDefault();
-    onPage(nextPage);
-    setMenuOpen(false);
-  };
-
+function SiteHeader() {
   return (
     <header className="rd-header">
-      <a className="rd-brand" href="?page=home" onClick={(event) => openPage(event, "home")}>
+      <a className="rd-brand" href="/">
         <BrandMark />
         <span>Gardn</span>
       </a>
-      <button
-        className="rd-nav-toggle"
-        type="button"
-        aria-controls="rd-primary-navigation"
-        aria-expanded={menuOpen}
-        onClick={() => setMenuOpen((open) => !open)}
-      >
-        Menu
-      </button>
-      <nav
-        id="rd-primary-navigation"
-        className={`rd-nav${menuOpen ? " is-open" : ""}`}
-        aria-label="Primary navigation"
-      >
-        <a href="/docs" onClick={() => setMenuOpen(false)}>
-          Documentation
-        </a>
-        <a href="https://github.com/masakirocorp/gardn" onClick={() => setMenuOpen(false)}>
-          GitHub
-        </a>
+      <nav className="rd-nav" aria-label="Primary">
+        <a href="/docs">Docs</a>
+        <a href="https://github.com/masakirocorp/gardn">GitHub</a>
       </nav>
     </header>
   );
@@ -625,73 +581,12 @@ function SectionHeading({
   );
 }
 
-function SiteFooter({ onPage }: { onPage: (page: PageName) => void }) {
-  const openMigration = (event: React.MouseEvent<HTMLAnchorElement>) => {
-    event.preventDefault();
-    onPage("home");
-    const url = new URL(window.location.href);
-    url.hash = "compare";
-    window.history.replaceState({}, "", url);
-    window.requestAnimationFrame(() => {
-      document.getElementById("compare")?.scrollIntoView({ behavior: "smooth" });
-    });
-  };
-
+function SiteFooter() {
   return (
     <footer className="rd-footer">
-      <div>
-        <a
-          className="rd-brand"
-          href="?page=home"
-          onClick={(event) => {
-            event.preventDefault();
-            onPage("home");
-          }}
-        >
-          <BrandMark />
-          <span>Gardn</span>
-        </a>
-        <p>A terminal workspace. Groups and Spaces for the work.</p>
-      </div>
-      <nav aria-label="Footer navigation">
-        <div>
-          <b>Product</b>
-          <a
-            href="?page=download"
-            onClick={(event) => {
-              event.preventDefault();
-              onPage("download");
-            }}
-          >
-            Download
-          </a>
-          <a
-            href="?page=releases"
-            onClick={(event) => {
-              event.preventDefault();
-              onPage("releases");
-            }}
-          >
-            Releases
-          </a>
-          <a href="?page=home#compare" onClick={openMigration}>
-            Herdr migration
-          </a>
-        </div>
-        <div>
-          <b>Learn</b>
-          <a href="/docs/getting-started/quick-start">Quick start</a>
-          <a href="/docs">Documentation</a>
-          <a href="/docs/reference/platforms">Platform support</a>
-          <a href="/docs/api">Local API</a>
-        </div>
-        <div>
-          <b>Project</b>
-          <a href="https://github.com/masakirocorp/gardn">GitHub</a>
-          <a href="https://github.com/masakirocorp/gardn/blob/master/LICENSE">License</a>
-        </div>
-      </nav>
-      <p className="rd-footer-meta">AGPL-3.0-or-later. Gardn is a fork of Herdr.</p>
+      <a href="https://github.com/masakirocorp/gardn/blob/master/LICENSE">License</a>
+      <a href="https://github.com/masakirocorp/gardn">GitHub</a>
+      <span>A fork of Herdr</span>
     </footer>
   );
 }
