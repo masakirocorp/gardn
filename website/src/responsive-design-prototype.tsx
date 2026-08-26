@@ -223,7 +223,7 @@ function HomePage({ onPage }: { onPage: (page: PageName) => void }) {
       <div className="rd-hero-art" aria-hidden="true">
         <BrandMark />
       </div>
-      <h1 id="rd-home-title">All your agents from all your boxes, in one session.</h1>
+      <h1 id="rd-home-title">All agents, all terminals, all machines, one session.</h1>
       <div className="rd-actions">
         <a
           className="rd-button rd-button-primary"

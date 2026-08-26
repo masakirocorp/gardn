@@ -279,7 +279,7 @@
   filter: none;
 }
 .rd-hero h1 {
-  max-width: 22ch;
+  max-width: 28ch;
   margin: 0;
   font-size: clamp(1.65rem, 3.4vw, 2.35rem);
   font-weight: 600;
