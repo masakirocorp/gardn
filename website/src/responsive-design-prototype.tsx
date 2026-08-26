@@ -238,8 +238,7 @@ function HomePage({ onPage }: { onPage: (page: PageName) => void }) {
         <div className="rd-hero-copy">
           <h1 id="rd-home-title">All your agents from all your boxes, in one session.</h1>
           <p className="rd-lede">
-            A terminal workspace. You can run agents, shells, servers, and editors in the same
-            session.
+            Shells, servers, and editors too. You put them in Groups and Spaces.
           </p>
           <div className="rd-actions">
             <a
@@ -828,6 +827,7 @@ function SiteFooter({ onPage }: { onPage: (page: PageName) => void }) {
           <span>Gardn</span>
         </a>
         <p>A terminal workspace for agents, shells, and the rest of the session.</p>
+        <p>A terminal workspace. Groups and Spaces for the work.</p>
       </div>
       <nav aria-label="Footer navigation">
         <div>
