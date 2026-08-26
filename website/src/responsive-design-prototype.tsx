@@ -826,7 +826,6 @@ function SiteFooter({ onPage }: { onPage: (page: PageName) => void }) {
           <BrandMark />
           <span>Gardn</span>
         </a>
-        <p>A terminal workspace for agents, shells, and the rest of the session.</p>
         <p>A terminal workspace. Groups and Spaces for the work.</p>
       </div>
       <nav aria-label="Footer navigation">
