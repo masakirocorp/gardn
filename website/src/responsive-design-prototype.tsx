@@ -236,12 +236,11 @@ function HomePage({ onPage }: { onPage: (page: PageName) => void }) {
     <>
       <section className="rd-hero rd-shell" aria-labelledby="rd-home-title">
         <div className="rd-hero-copy">
-          <h1 id="rd-home-title">A place for agent work to live.</h1>
+          <h1 id="rd-home-title">Close the window. The agents stay.</h1>
           <p className="rd-lede">
-            Gardn is a terminal workspace that holds your agents, sessions, and projects. On your
-            machine, or over SSH.
+            Gardn is a terminal workspace for coding agents. Local ones and SSH ones sit in the same
+            session. No public binaries yet. Source or Nix.
           </p>
-          <p className="rd-status-line">Pre-public. Source and Nix only.</p>
           <div className="rd-actions">
             <a
               className="rd-button rd-button-primary"
@@ -264,29 +263,26 @@ function HomePage({ onPage }: { onPage: (page: PageName) => void }) {
       </section>
 
       <section className="rd-story rd-shell" aria-labelledby="rd-groups-title">
-        <h2 id="rd-groups-title">Every project gets a room of its own.</h2>
+        <h2 id="rd-groups-title">Groups are not Git worktrees.</h2>
         <p>
-          Groups give related Spaces a home, a host, and a default agent profile. Triage shows what
-          needs you. Follow Up is a later list, not a status.
+          You make a Group, drop Spaces in it, and set a host plus a default agent. Triage is the
+          stuff that needs a human. Follow Up is the stuff you parked on purpose.
         </p>
       </section>
 
       <section className="rd-story rd-shell" aria-labelledby="rd-status-title">
-        <h2 id="rd-status-title">Working means working.</h2>
+        <h2 id="rd-status-title">Compaction still counts as work.</h2>
         <p>
           Gardn stays <span className="rd-mono">Working</span> through compaction and the first
-          prompt. Permission prompts show <span className="rd-mono">Blocked</span>. Live hooks keep{" "}
-          <span className="rd-mono">Working</span>, <span className="rd-mono">Blocked</span>, and{" "}
-          <span className="rd-mono">Idle</span> honest. A resume report keeps the session instead of
-          dropping the agent.
+          prompt. A permission gate is <span className="rd-mono">Blocked</span>. After a resume
+          report the session is still there.
         </p>
       </section>
 
       <section className="rd-story rd-shell" aria-labelledby="rd-attach-title">
-        <h2 id="rd-attach-title">Take control when you mean it.</h2>
+        <h2 id="rd-attach-title">Looking is free. Typing is not.</h2>
         <p>
-          Run a local agent next to one on SSH. Another client can watch. It cannot type until
-          someone selects Take control. Detach mid-run. The work stays put.
+          Open a second client and scroll. You cannot type until someone takes control.
         </p>
       </section>
     </>
@@ -829,7 +825,7 @@ function SiteFooter({ onPage }: { onPage: (page: PageName) => void }) {
           <BrandMark />
           <span>Gardn</span>
         </a>
-        <p>Terminal workspace management for AI coding agents.</p>
+        <p>Source and Nix until we ship a release.</p>
       </div>
       <nav aria-label="Footer navigation">
         <div>
