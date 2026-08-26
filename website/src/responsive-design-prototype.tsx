@@ -165,17 +165,6 @@ function PrototypeBar({
 function SiteHeader({ page, onPage }: { page: PageName; onPage: (page: PageName) => void }) {
   const [menuOpen, setMenuOpen] = useState(false);
 
-  const openHomeSection = (event: React.MouseEvent<HTMLAnchorElement>, sectionId: string) => {
-    event.preventDefault();
-    onPage("home");
-    setMenuOpen(false);
-    const url = new URL(window.location.href);
-    url.hash = sectionId;
-    window.history.replaceState({}, "", url);
-    window.requestAnimationFrame(() => {
-      document.getElementById(sectionId)?.scrollIntoView({ behavior: "smooth" });
-    });
-  };
 
   const openPage = (event: React.MouseEvent<HTMLAnchorElement>, nextPage: PageName) => {
     event.preventDefault();
@@ -203,9 +192,6 @@ function SiteHeader({ page, onPage }: { page: PageName; onPage: (page: PageName)
         className={`rd-nav${menuOpen ? " is-open" : ""}`}
         aria-label="Primary navigation"
       >
-        <a href="?page=home#product" onClick={(event) => openHomeSection(event, "product")}>
-          Product
-        </a>
         <a href="/docs" onClick={() => setMenuOpen(false)}>
           Documentation
         </a>
@@ -233,60 +219,27 @@ function SiteHeader({ page, onPage }: { page: PageName; onPage: (page: PageName)
 
 function HomePage({ onPage }: { onPage: (page: PageName) => void }) {
   return (
-    <>
-      <section className="rd-hero rd-shell" aria-labelledby="rd-home-title">
-        <div className="rd-hero-copy">
-          <h1 id="rd-home-title">All your agents from all your boxes, in one session.</h1>
-          <p className="rd-lede">
-            Shells, servers, and editors too. You put them in Groups and Spaces.
-          </p>
-          <div className="rd-actions">
-            <a
-              className="rd-button rd-button-primary"
-              href="?page=download"
-              onClick={(event) => {
-                event.preventDefault();
-                onPage("download");
-              }}
-            >
-              Install from source
-            </a>
-            <a className="rd-text-link" href="/docs">
-              Read the documentation
-            </a>
-          </div>
-        </div>
-        <div className="rd-hero-art" aria-hidden="true">
-          <BrandMark />
-        </div>
-      </section>
-
-      <section className="rd-story rd-shell" aria-labelledby="rd-groups-title">
-        <h2 id="rd-groups-title">Groups</h2>
-        <p>
-          Create a Group, add Spaces, and set a default host and agent profile. Triage lists agents
-          that need attention. Follow Up is a list you manage.
-        </p>
-      </section>
-
-      <section className="rd-story rd-shell" aria-labelledby="rd-status-title">
-        <h2 id="rd-status-title">Agent status</h2>
-        <p>
-          The sidebar shows <span className="rd-mono">Working</span>,{" "}
-          <span className="rd-mono">Blocked</span>, and <span className="rd-mono">Idle</span> from
-          the agent. Compaction and the first prompt stay Working. Permission prompts are Blocked.
-          Notifications follow those states.
-        </p>
-      </section>
-
-      <section className="rd-story rd-shell" aria-labelledby="rd-attach-title">
-        <h2 id="rd-attach-title">Multiple clients</h2>
-        <p>
-          Attach more than one window to the same session. Each window has its own view. Input goes
-          to the client that has Take control.
-        </p>
-      </section>
-    </>
+    <section className="rd-hero rd-shell" aria-labelledby="rd-home-title">
+      <div className="rd-hero-art" aria-hidden="true">
+        <BrandMark />
+      </div>
+      <h1 id="rd-home-title">All your agents from all your boxes, in one session.</h1>
+      <div className="rd-actions">
+        <a
+          className="rd-button rd-button-primary"
+          href="?page=download"
+          onClick={(event) => {
+            event.preventDefault();
+            onPage("download");
+          }}
+        >
+          Install
+        </a>
+        <a className="rd-button" href="/docs">
+          Documentation
+        </a>
+      </div>
+    </section>
   );
 }
 

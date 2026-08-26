@@ -259,29 +259,32 @@
 .rd-hero {
   position: relative;
   z-index: 1;
-  display: grid;
-  grid-template-columns: minmax(0, 0.9fr) minmax(16rem, 0.8fr);
-  align-items: end;
-  gap: 3rem;
-  min-height: 32rem;
-  padding-top: clamp(4rem, 8vw, 8rem);
-  padding-bottom: clamp(4rem, 8vw, 7rem);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: calc(100vh - 8rem);
+  padding-block: 4rem;
+  text-align: center;
 }
-.rd-hero-copy {
-  position: relative;
-  z-index: 2;
-  max-width: 44rem;
+.rd-hero-art {
+  position: static;
+  min-height: 0;
+  margin-bottom: 2rem;
 }
-.rd-hero .rd-eyebrow {
-  color: var(--rd-acid);
+.rd-hero-art .rd-brand-mark {
+  width: 8.5rem;
+  height: 8.5rem;
+  margin-inline: auto;
+  filter: none;
 }
 .rd-hero h1 {
-  max-width: 10ch;
-  margin-top: 1.6rem;
-  font-size: clamp(4.1rem, 8.3vw, 8.2rem);
-  font-weight: 650;
-  line-height: 0.84;
-  letter-spacing: -0.075em;
+  max-width: 22ch;
+  margin: 0;
+  font-size: clamp(1.65rem, 3.4vw, 2.35rem);
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: -0.03em;
   text-wrap: balance;
 }
 .rd-lede {
@@ -302,6 +305,8 @@
 .rd-actions {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
   gap: 0.75rem;
   margin-top: 2rem;
 }
@@ -362,17 +367,8 @@
     monospace;
 }
 .rd-hero-art {
-  position: relative;
-  z-index: 1;
-  min-height: 30rem;
-}
-.rd-hero-art .rd-brand-mark {
-  display: block;
-  width: min(72%, 22rem);
-  height: auto;
-  margin-inline: auto;
-  color: var(--primary);
-  filter: drop-shadow(0 3rem 5rem color-mix(in oklab, var(--primary) 18%, transparent));
+  position: static;
+  min-height: 0;
 }
 
 .rd-status-line,
