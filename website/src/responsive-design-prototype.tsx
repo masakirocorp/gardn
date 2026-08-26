@@ -236,10 +236,8 @@ function HomePage({ onPage }: { onPage: (page: PageName) => void }) {
     <>
       <section className="rd-hero rd-shell" aria-labelledby="rd-home-title">
         <div className="rd-hero-copy">
-          <h1 id="rd-home-title">Gardn runs AI coding agents in the terminal.</h1>
-          <p className="rd-lede">
-            A session can include agents on this computer and agents you reach over SSH.
-          </p>
+          <h1 id="rd-home-title">All your agents from all your boxes, in one session.</h1>
+          <p className="rd-lede">Gardn is a terminal workspace for AI coding agents.</p>
           <div className="rd-actions">
             <a
               className="rd-button rd-button-primary"
