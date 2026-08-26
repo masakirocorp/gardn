@@ -236,10 +236,8 @@ function HomePage({ onPage }: { onPage: (page: PageName) => void }) {
     <>
       <section className="rd-hero rd-shell" aria-labelledby="rd-home-title">
         <div className="rd-hero-copy">
-          <h1 id="rd-home-title">A terminal workspace for coding agents.</h1>
-          <p className="rd-lede">
-            Run local and SSH agents in the same session.
-          </p>
+          <h1 id="rd-home-title">Local and SSH agents in one session.</h1>
+          <p className="rd-lede">Gardn is a terminal workspace for coding agents.</p>
           <div className="rd-actions">
             <a
               className="rd-button rd-button-primary"
