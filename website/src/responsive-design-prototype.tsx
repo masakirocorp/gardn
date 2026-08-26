@@ -236,10 +236,9 @@ function HomePage({ onPage }: { onPage: (page: PageName) => void }) {
     <>
       <section className="rd-hero rd-shell" aria-labelledby="rd-home-title">
         <div className="rd-hero-copy">
-          <h1 id="rd-home-title">Close the window. The agents stay.</h1>
+          <h1 id="rd-home-title">A terminal workspace for coding agents.</h1>
           <p className="rd-lede">
-            Gardn is a terminal workspace for coding agents. Local ones and SSH ones sit in the same
-            session.
+            Run local and SSH agents in the same session.
           </p>
           <div className="rd-actions">
             <a
@@ -263,26 +262,28 @@ function HomePage({ onPage }: { onPage: (page: PageName) => void }) {
       </section>
 
       <section className="rd-story rd-shell" aria-labelledby="rd-groups-title">
-        <h2 id="rd-groups-title">Groups are not Git worktrees.</h2>
+        <h2 id="rd-groups-title">Groups</h2>
         <p>
-          You make a Group, drop Spaces in it, and set a host plus a default agent. Triage is the
-          stuff that needs a human. Follow Up is the stuff you parked on purpose.
+          Create a Group, add Spaces, and set a default host and agent profile. Triage lists agents
+          that need attention. Follow Up is a list you manage.
         </p>
       </section>
 
       <section className="rd-story rd-shell" aria-labelledby="rd-status-title">
-        <h2 id="rd-status-title">Get notified when the status is real.</h2>
+        <h2 id="rd-status-title">Agent status</h2>
         <p>
-          Gardn stays <span className="rd-mono">Working</span> through compaction and the first
-          prompt. A permission prompt is <span className="rd-mono">Blocked</span>. You get notified
-          when that status actually changes.
+          The sidebar shows <span className="rd-mono">Working</span>,{" "}
+          <span className="rd-mono">Blocked</span>, and <span className="rd-mono">Idle</span> from
+          the agent. Compaction and the first prompt stay Working. Permission prompts are Blocked.
+          Notifications follow those states.
         </p>
       </section>
 
       <section className="rd-story rd-shell" aria-labelledby="rd-attach-title">
-        <h2 id="rd-attach-title">Open as many windows as you like.</h2>
+        <h2 id="rd-attach-title">Multiple clients</h2>
         <p>
-          Each window has its own view. Only one types, after Take control.
+          Attach more than one window to the same session. Each window has its own view. Input goes
+          to the client that has Take control.
         </p>
       </section>
     </>
