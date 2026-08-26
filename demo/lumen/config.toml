@@ -1,0 +1,41 @@
+onboarding = false
+
+[ui]
+confirm_close = false
+prompt_new_tab_name = false
+prompt_new_workspace_name = false
+mouse_scroll_lines = 3
+sidebar_width = 28
+sidebar_min_width = 20
+sidebar_max_width = 36
+sidebar_arrangement = "combined_left"
+context_bar = "always"
+pane_border_agent_info = "hidden"
+show_counters = false
+pane_borders = true
+pane_scrollbars = false
+pane_gaps = true
+hide_tab_bar_when_single_tab = false
+copy_on_select = true
+status_indicators = "symbols"
+
+[ui.sidebar]
+initial_state = "expanded"
+initial_agent_scope = "all"
+
+[ui.toast]
+delivery = "gardn"
+
+[ui.toast.gardn]
+position = "top-right"
+
+[theme]
+mode = "dark"
+dark = "system"
+terminal_accent = "yellow"
+
+[terminal]
+new_cwd = "follow"
+
+[session]
+resume_agents_on_restore = false

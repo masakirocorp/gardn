@@ -1,0 +1,16 @@
+#!/bin/sh
+export GARDN_AGENT=claude
+printf '%b' '\033[2J\033[H\033]0;claude · deploy\007'
+cat <<'EOF'
+  lumen / deploy
+
+  roll the worker to staging
+
+  Do you want to proceed?
+  ❯ 1. Yes
+    2. No
+
+  enter to confirm · esc to cancel
+EOF
+DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+exec python3 "$DIR/hold.py"

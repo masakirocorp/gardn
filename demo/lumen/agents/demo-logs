@@ -1,0 +1,11 @@
+#!/bin/sh
+printf '%b' '\033[2J\033[H'
+cat <<'EOF'
+  12:04  POST /cart/review     204
+  12:04  GET  /catalog/sku     200
+  12:05  POST /billing/tax     201
+  12:05  GET  /inventory/bin   200
+  12:06  POST /deploy/stage    202
+EOF
+DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+exec python3 "$DIR/hold.py"

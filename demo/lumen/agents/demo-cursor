@@ -1,0 +1,13 @@
+#!/bin/sh
+export GARDN_AGENT=cursor
+printf '%b' '\033[2J\033[H\033]0;cursor · inventory\007'
+cat <<'EOF'
+  lumen / inventory
+
+  > recount reserved stock
+
+  scanning warehouse bins
+  ctrl+c to stop
+EOF
+DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+exec python3 "$DIR/hold.py"

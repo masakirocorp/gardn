@@ -169,7 +169,8 @@
         "scripts.test_agent_status_acceptance_invariant",
         "scripts.test_agent_model_candidates",
         "scripts.test_remaining_status_fallback",
-        "scripts.test_agent_workflows"
+        "scripts.test_agent_workflows",
+        "scripts.test_demo_lumen_session"
       ],
       "inputs": [
         ".github/workflows/agent-tests.yml",
