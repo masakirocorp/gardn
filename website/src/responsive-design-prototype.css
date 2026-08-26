@@ -19,22 +19,36 @@
 }
 
 .rd-root {
-  --rd-paper: oklch(0.13 0.009 128);
-  --rd-deep: oklch(0.105 0.009 128);
-  --rd-panel: oklch(0.155 0.012 128);
-  --rd-cream: oklch(0.94 0.025 100);
-  --rd-muted: oklch(0.68 0.015 100);
-  --rd-faint: oklch(0.5 0.014 100);
-  --rd-rule: oklch(0.94 0.02 100 / 0.16);
-  --rd-acid: oklch(0.87 0.18 102);
-  --rd-orange: oklch(0.72 0.2 43);
-  --rd-cyan: oklch(0.79 0.14 204);
-  --rd-red: oklch(0.64 0.2 28);
+  --background: #fffffc;
+  --surface: #f7f3ea;
+  --surface-muted: #dfd9cd;
+  --border: #d6cdbe;
+  --text: #1f1f1f;
+  --text-muted: #636462;
+  --primary: #0b5a3c;
+  --primary-hover: #063624;
+  --primary-soft: #e5efe7;
+  --accent: #a7c957;
+  --info: #4d8bb9;
+  --danger: #f26139;
+  --pink: #efc8d9;
+  --on-primary: #fffffc;
+  --rd-paper: var(--background);
+  --rd-deep: var(--surface-muted);
+  --rd-panel: var(--surface);
+  --rd-cream: var(--text);
+  --rd-muted: var(--text-muted);
+  --rd-faint: #7a7b78;
+  --rd-rule: var(--border);
+  --rd-acid: var(--primary);
+  --rd-orange: var(--primary);
+  --rd-cyan: var(--info);
+  --rd-red: var(--danger);
   min-width: 0;
   min-height: 100vh;
   overflow-x: clip;
-  color: var(--rd-cream);
-  background: var(--rd-paper);
+  color: var(--text);
+  background: var(--background);
   font-family:
     ui-sans-serif,
     -apple-system,
@@ -42,6 +56,23 @@
     "Segoe UI",
     sans-serif;
   font-synthesis: none;
+}
+.rd-root[data-theme="dark"] {
+  --background: #071a13;
+  --surface: #0d241a;
+  --surface-muted: #123122;
+  --border: #244a37;
+  --text: #f7f3ea;
+  --text-muted: #aeb8ac;
+  --primary: #7dba72;
+  --primary-hover: #a7c957;
+  --primary-soft: #143d2a;
+  --accent: #a7c957;
+  --info: #7eb6d9;
+  --danger: #ff7a59;
+  --pink: #f0b8cd;
+  --on-primary: #071a13;
+  --rd-faint: #8e9a8c;
 }
 
 .rd-root *,
@@ -105,7 +136,7 @@
   left: 0.5rem;
   padding: 0.75rem 1rem;
   transform: translateY(-180%);
-  color: var(--rd-paper) !important;
+  color: var(--on-primary) !important;
   background: var(--rd-acid);
   font:
     600 0.7rem/1 "Masakiro Mono",
@@ -115,19 +146,18 @@
 .rd-skip:focus {
   transform: none;
 }
-
-/* Compact prototype-only context, matching the original A review treatment. */
 .rd-prototype-bar {
   position: relative;
   z-index: 50;
   display: flex;
+  flex-wrap: wrap;
   min-height: 2rem;
   align-items: center;
   justify-content: space-between;
   gap: 1rem;
   padding: 0.3rem clamp(1rem, 4vw, 4rem);
-  color: oklch(0.19 0.01 100);
-  background: var(--rd-acid);
+  color: var(--text);
+  background: var(--surface-muted);
   font:
     650 0.62rem/1.2 "Masakiro Mono",
     monospace;
@@ -149,19 +179,17 @@
   gap: 0.5rem;
 }
 .rd-state-control select {
-  min-height: 1.5rem;
-  padding: 0.15rem 1.6rem 0.15rem 0.55rem;
-  border: 1px solid oklch(0.19 0.01 100 / 0.3);
+  border: 1px solid var(--rd-rule);
   border-radius: 999px;
+  padding: 0.35rem 0.7rem;
   color: var(--rd-cream);
   background: var(--rd-paper);
   font-size: 0.56rem;
 }
-
 .rd-header {
   position: sticky;
-  z-index: 40;
   top: 0;
+  z-index: 40;
   display: grid;
   grid-template-columns: 1fr auto 1fr;
   min-height: 4.75rem;
@@ -169,7 +197,7 @@
   gap: 2rem;
   padding-inline: clamp(1rem, 5vw, 5rem);
   border-bottom: 1px solid var(--rd-rule);
-  background: oklch(0.11 0.008 128 / 0.92);
+  background: color-mix(in oklab, var(--background) 88%, transparent);
   backdrop-filter: blur(1rem);
 }
 .rd-brand {
@@ -181,16 +209,10 @@
   font-weight: 650;
 }
 .rd-brand-mark {
-  display: grid;
-  width: 1.75rem;
-  aspect-ratio: 1;
-  place-items: center;
-  border-radius: 0.45rem;
-  color: var(--rd-paper);
-  background: var(--rd-cream);
-  font:
-    600 1rem/1 "Masakiro Mono",
-    monospace;
+  display: block;
+  width: 1.85rem;
+  height: 1.85rem;
+  color: var(--primary);
 }
 .rd-nav-toggle {
   display: none;
@@ -204,7 +226,6 @@
     monospace;
   text-transform: uppercase;
 }
-
 .rd-nav {
   display: flex;
   gap: clamp(0.8rem, 1.6vw, 1.8rem);
@@ -229,13 +250,12 @@
   padding: 0.65rem 1rem;
   border: 1px solid var(--rd-acid);
   border-radius: 999px;
-  color: var(--rd-paper);
+  color: var(--on-primary);
   background: var(--rd-acid);
   font:
     650 0.65rem/1 "Masakiro Mono",
     monospace;
 }
-
 .rd-hero {
   position: relative;
   display: grid;
@@ -244,9 +264,9 @@
   padding-top: clamp(5rem, 9vw, 9rem);
   padding-bottom: 12rem;
   background-image:
-    radial-gradient(circle at 74% 30%, oklch(0.73 0.2 45 / 0.18), transparent 25rem),
-    linear-gradient(oklch(0.92 0.01 100 / 0.035) 1px, transparent 1px),
-    linear-gradient(90deg, oklch(0.92 0.01 100 / 0.035) 1px, transparent 1px);
+    radial-gradient(circle at 74% 30%, color-mix(in oklab, var(--primary) 16%, transparent), transparent 25rem),
+    linear-gradient(color-mix(in oklab, var(--border) 65%, transparent) 1px, transparent 1px),
+    linear-gradient(90deg, color-mix(in oklab, var(--border) 65%, transparent) 1px, transparent 1px);
   background-size:
     auto,
     3.5rem 3.5rem,
@@ -257,7 +277,7 @@
   inset-inline: calc((100vw - 100%) / -2);
   inset-block: 0;
   z-index: 0;
-  opacity: 0.35;
+  opacity: 0.12;
   background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.86' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.2'/%3E%3C/svg%3E");
   content: "";
   pointer-events: none;
@@ -282,7 +302,7 @@
 .rd-lede {
   max-width: 38rem;
   margin-top: 2rem !important;
-  color: oklch(0.76 0.015 100);
+  color: var(--rd-muted);
   font-size: 1.02rem;
   line-height: 1.65;
 }
@@ -306,7 +326,7 @@
   align-items: center;
   justify-content: center;
   padding: 0.7rem 1rem;
-  border: 1px solid oklch(0.94 0.02 100 / 0.28);
+  border: 1px solid var(--rd-rule);
   border-radius: 999px;
   color: var(--rd-cream);
   background: transparent;
@@ -320,11 +340,11 @@
 }
 .rd-button:hover {
   transform: translateY(-2px);
-  background: oklch(0.94 0.02 100 / 0.08);
+  background: var(--primary-soft);
 }
 .rd-button-primary {
   border-color: var(--rd-acid);
-  color: var(--rd-paper);
+  color: var(--on-primary);
   background: var(--rd-acid);
 }
 .rd-availability {
@@ -341,7 +361,7 @@
   width: 0.42rem;
   height: 0.42rem;
   border-radius: 50%;
-  background: oklch(0.8 0.17 146);
+  background: var(--accent);
 }
 .rd-hero-docs {
   margin-top: 1.2rem;
@@ -361,11 +381,13 @@
   z-index: 1;
   min-height: 30rem;
 }
-.rd-hero-art .vdp-orb {
+.rd-hero-art .rd-brand-mark {
   display: block;
-  width: min(100%, 39rem);
+  width: min(72%, 22rem);
+  height: auto;
   margin-inline: auto;
-  filter: drop-shadow(0 3rem 5rem oklch(0.7 0.17 50 / 0.2));
+  color: var(--primary);
+  filter: drop-shadow(0 3rem 5rem color-mix(in oklab, var(--primary) 18%, transparent));
 }
 .rd-coordinate {
   position: absolute;
@@ -428,11 +450,11 @@
 .rd-surface {
   min-width: 0;
   overflow: hidden;
-  border: 1px solid oklch(0.94 0.02 100 / 0.18);
+  border: 1px solid var(--border);
   border-radius: 1rem;
   color: var(--rd-cream);
-  background: oklch(0.095 0.012 128 / 0.96);
-  box-shadow: 0 1.5rem 4rem oklch(0.04 0.01 128 / 0.4);
+  background: var(--surface);
+  box-shadow: 0 1.5rem 4rem color-mix(in oklab, var(--text) 10%, transparent);
   font:
     400 0.68rem/1.45 "Masakiro Mono",
     monospace;
@@ -445,7 +467,7 @@
   min-width: 0;
   padding: 0.8rem 1rem;
   color: var(--rd-faint);
-  background: oklch(0.13 0.012 128);
+  background: var(--surface-muted);
   font-size: 0.58rem;
   text-transform: uppercase;
 }
@@ -467,7 +489,7 @@
   align-items: center;
   gap: 0.4rem;
   margin-left: auto;
-  color: oklch(0.8 0.17 146);
+  color: var(--accent);
 }
 .rd-surface-live i,
 .rd-surface-agent i {
@@ -487,7 +509,7 @@
   min-width: 0;
   padding: 1rem;
   border-right: 1px solid var(--rd-rule);
-  background: oklch(0.115 0.012 128);
+  background: var(--surface-muted);
 }
 .rd-surface-label {
   color: var(--rd-faint);
@@ -574,10 +596,10 @@
   align-items: center;
   min-width: 0;
   padding: 0.65rem 0.75rem;
-  border: 1px solid oklch(0.87 0.18 102 / 0.48);
+  border: 1px solid var(--primary);
   border-radius: 0.45rem;
   color: var(--rd-muted);
-  background: oklch(0.17 0.02 128);
+  background: var(--primary-soft);
 }
 .rd-surface-palette > span {
   color: var(--rd-acid);
@@ -598,7 +620,7 @@
   overflow: hidden;
   border: 1px solid var(--rd-rule);
   border-radius: 0.55rem;
-  background: oklch(0.115 0.012 128);
+  background: var(--surface-muted);
 }
 .rd-surface-terminal-primary {
   grid-column: 1 / -1;
@@ -617,7 +639,7 @@
   color: var(--rd-acid);
 }
 .rd-surface-terminal-title .ok {
-  color: oklch(0.8 0.17 146);
+  color: var(--accent);
 }
 .rd-surface-terminal-title .warn {
   color: var(--rd-red);
@@ -643,7 +665,7 @@
   color: var(--rd-acid);
 }
 .rd-surface-terminal .ok {
-  color: oklch(0.8 0.17 146);
+  color: var(--accent);
 }
 .rd-surface-terminal .warn {
   color: var(--rd-red);
@@ -817,7 +839,7 @@
   border: 1px solid var(--rd-rule);
   border-radius: 1.5rem;
   background:
-    radial-gradient(circle at 50% 35%, oklch(0.72 0.2 43 / 0.15), transparent 16rem), var(--rd-deep);
+    radial-gradient(circle at 50% 35%, color-mix(in oklab, var(--primary) 14%, transparent), transparent 16rem), var(--rd-deep);
 }
 .rd-session-core {
   display: flex;
@@ -920,7 +942,7 @@
   padding: 1.7rem;
   border: 1px solid var(--rd-rule);
   border-radius: 1.2rem;
-  background: oklch(0.15 0.01 128);
+  background: var(--surface);
 }
 .rd-feature-card > div {
   display: flex;
@@ -995,7 +1017,7 @@
   border: 1px solid var(--rd-red);
   border-radius: 1rem;
   color: var(--rd-muted);
-  background: oklch(0.16 0.025 25);
+  background: color-mix(in oklab, var(--danger) 14%, var(--surface));
 }
 .rd-inline-error button {
   padding: 0.6rem 0.9rem;
@@ -1017,7 +1039,7 @@
   overflow: hidden;
   border-top: 1px solid var(--rd-rule);
   background:
-    radial-gradient(ellipse at 50% 100%, oklch(0.72 0.2 43 / 0.16), transparent 42%), var(--rd-deep);
+    radial-gradient(ellipse at 50% 100%, color-mix(in oklab, var(--primary) 14%, transparent), transparent 42%), var(--rd-deep);
   text-align: center;
 }
 .rd-install::before {
@@ -1076,7 +1098,7 @@
   min-height: 40rem;
   padding-block: clamp(6rem, 12vw, 11rem);
   background:
-    radial-gradient(circle at 82% 35%, oklch(0.72 0.2 43 / 0.18), transparent 22rem),
+    radial-gradient(circle at 82% 35%, color-mix(in oklab, var(--primary) 16%, transparent), transparent 22rem),
     linear-gradient(oklch(0.92 0.01 100 / 0.03) 1px, transparent 1px),
     linear-gradient(90deg, oklch(0.92 0.01 100 / 0.03) 1px, transparent 1px);
   background-size:
@@ -1107,7 +1129,7 @@
   background: var(--rd-orange);
 }
 [data-release-state="tagged"] .rd-page-status i {
-  background: oklch(0.8 0.17 146);
+  background: var(--accent);
 }
 .rd-page-hero h1 {
   max-width: 14ch;
@@ -1232,10 +1254,10 @@
 }
 .rd-release-control-error {
   border-color: var(--rd-red);
-  background: oklch(0.16 0.025 25);
+  background: color-mix(in oklab, var(--danger) 14%, var(--surface));
 }
 .rd-release-control-ready {
-  border-color: oklch(0.8 0.17 146 / 0.6);
+  border-color: color-mix(in oklab, var(--accent) 60%, var(--border));
 }
 .rd-spinner {
   width: 2rem;
@@ -1284,7 +1306,7 @@
   height: 0.4rem;
   margin-right: 0.35rem;
   border-radius: 50%;
-  background: oklch(0.8 0.17 146);
+  background: var(--accent);
 }
 
 .rd-release-list {
@@ -1299,7 +1321,7 @@
   border: 1px solid var(--rd-rule);
   border-radius: 1.5rem;
   background:
-    radial-gradient(circle at 88% 30%, oklch(0.72 0.2 43 / 0.16), transparent 18rem),
+    radial-gradient(circle at 88% 30%, color-mix(in oklab, var(--primary) 14%, transparent), transparent 18rem),
     var(--rd-panel);
 }
 .rd-release-empty > span {
@@ -1623,8 +1645,8 @@
     gap: 0;
     padding: 0.75rem 1rem 1rem;
     border-bottom: 1px solid var(--rd-rule);
-    background: oklch(0.1 0.008 128 / 0.98);
-    box-shadow: 0 1.25rem 2.5rem oklch(0.03 0.005 128 / 0.45);
+    background: color-mix(in oklab, var(--background) 96%, transparent);
+    box-shadow: 0 1.25rem 2.5rem color-mix(in oklab, var(--text) 12%, transparent);
   }
   .rd-nav.is-open {
     display: flex;

@@ -2,14 +2,12 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256" role="img" aria-labelledby="title desc">
   <title id="title">GARDN logo</title>
   <desc id="desc">An emerald-green isometric cube hovering above a shifted-perspective square platform.</desc>
-
-  <g fill="none" stroke="#075B3A" stroke-width="6" stroke-linecap="round" stroke-linejoin="round">
+  <g fill="none" stroke="#0B5A3C" stroke-width="6" stroke-linecap="round" stroke-linejoin="round">
     <g id="cube">
       <path d="M128 38 176 72 128 112 80 72Z"/>
       <path d="M80 72v68l48 40 48-40V72"/>
       <path d="M128 112v68"/>
     </g>
-
     <path id="platform" d="M91 170 44 188l84 36 84-36-47-18"/>
   </g>
 </svg>

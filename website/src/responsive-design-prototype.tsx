@@ -8,13 +8,38 @@ import {
   type OperatingModule,
   type RecentFeature,
 } from "./responsive-design-data";
-import { DitherOrb, MiniLifecycle } from "./visual-direction-prototype";
+import { MiniLifecycle } from "./visual-direction-prototype";
 
 type PageName = "home" | "download" | "releases";
 type ReleaseState = "prepublic" | "tagged" | "loading" | "error";
+type ThemeName = "light" | "dark";
 
 const pageNames: PageName[] = ["home", "download", "releases"];
 const releaseStates: ReleaseState[] = ["prepublic", "tagged", "loading", "error"];
+const themeNames: ThemeName[] = ["light", "dark"];
+
+function isThemeName(value: string | null): value is ThemeName {
+  return value !== null && themeNames.includes(value as ThemeName);
+}
+
+function BrandMark() {
+  return (
+    <svg className="rd-brand-mark" viewBox="0 0 256 256" aria-hidden="true">
+      <g
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="14"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <path d="M128 38 176 72 128 112 80 72Z" />
+        <path d="M80 72v68l48 40 48-40V72" />
+        <path d="M128 112v68" />
+        <path d="M91 170 44 188l84 36 84-36-47-18" />
+      </g>
+    </svg>
+  );
+}
 
 function isPageName(value: string | null): value is PageName {
   return value !== null && pageNames.some((page) => page === value);
@@ -28,13 +53,16 @@ function isReleaseState(value: string | null): value is ReleaseState {
 export function ResponsiveDesignPrototype() {
   const [page, setPage] = useState<PageName>("home");
   const [releaseState, setReleaseState] = useState<ReleaseState>("prepublic");
+  const [theme, setTheme] = useState<ThemeName>("light");
 
   useEffect(() => {
     const search = new URLSearchParams(window.location.search);
     const requestedPage = search.get("page");
     const requestedState = search.get("state");
+    const requestedTheme = search.get("theme");
     if (isPageName(requestedPage)) setPage(requestedPage);
     if (isReleaseState(requestedState)) setReleaseState(requestedState);
+    if (isThemeName(requestedTheme)) setTheme(requestedTheme);
   }, []);
 
   const selectPage = (nextPage: PageName) => {
@@ -42,6 +70,7 @@ export function ResponsiveDesignPrototype() {
     const url = new URL(window.location.href);
     url.searchParams.set("page", nextPage);
     url.searchParams.set("state", releaseState);
+    url.searchParams.set("theme", theme);
     window.history.replaceState({}, "", url);
     window.scrollTo({ top: 0, behavior: "instant" });
   };
@@ -51,15 +80,28 @@ export function ResponsiveDesignPrototype() {
     const url = new URL(window.location.href);
     url.searchParams.set("page", page);
     url.searchParams.set("state", nextState);
+    url.searchParams.set("theme", theme);
     window.history.replaceState({}, "", url);
   };
 
   return (
-    <div className="rd-root" data-page={page} data-release-state={releaseState}>
+    <div className="rd-root" data-page={page} data-release-state={releaseState} data-theme={theme}>
       <a className="rd-skip" href="#rd-main">
         Skip to content
       </a>
-      <PrototypeBar releaseState={releaseState} onState={selectState} />
+      <PrototypeBar
+        releaseState={releaseState}
+        theme={theme}
+        onState={selectState}
+        onTheme={(nextTheme) => {
+          setTheme(nextTheme);
+          const url = new URL(window.location.href);
+          url.searchParams.set("page", page);
+          url.searchParams.set("state", releaseState);
+          url.searchParams.set("theme", nextTheme);
+          window.history.replaceState({}, "", url);
+        }}
+      />
       <SiteHeader page={page} onPage={selectPage} />
       <main id="rd-main">
         {page === "home" && (
@@ -175,17 +217,34 @@ function GardnProductSurface() {
 
 function PrototypeBar({
   releaseState,
+  theme,
   onState,
+  onTheme,
 }: {
   releaseState: ReleaseState;
+  theme: ThemeName;
   onState: (state: ReleaseState) => void;
+  onTheme: (theme: ThemeName) => void;
 }) {
   return (
     <aside className="rd-prototype-bar" aria-label="Design prototype controls">
       <div className="rd-prototype-note">
         <strong>ENG-128</strong>
-        <span>Responsive design · provisional copy and media</span>
+        <span>Brand system · provisional copy</span>
       </div>
+      <label className="rd-state-control">
+        <span>Theme</span>
+        <select
+          value={theme}
+          onChange={(event) => {
+            const nextTheme = event.target.value;
+            if (isThemeName(nextTheme)) onTheme(nextTheme);
+          }}
+        >
+          <option value="light">Light</option>
+          <option value="dark">Dark</option>
+        </select>
+      </label>
       <label className="rd-state-control">
         <span>Release state</span>
         <select
@@ -229,9 +288,7 @@ function SiteHeader({ page, onPage }: { page: PageName; onPage: (page: PageName)
   return (
     <header className="rd-header">
       <a className="rd-brand" href="?page=home" onClick={(event) => openPage(event, "home")}>
-        <span className="rd-brand-mark" aria-hidden="true">
-          g
-        </span>
+        <BrandMark />
         <span>Gardn</span>
       </a>
       <button
@@ -326,9 +383,9 @@ function HomePage({
             Idle. A resume report keeps the session instead of dropping the agent.
           </p>
         </div>
-        <div className="rd-hero-art" aria-label="Dithered session field">
-          <DitherOrb />
-          <span className="rd-coordinate">36.7185° N / 4 active operations</span>
+        <div className="rd-hero-art" aria-label="Gardn mark">
+          <BrandMark />
+          <span className="rd-coordinate">workspace atlas · 4 live operations</span>
         </div>
         <div className="rd-hero-product">
           <GardnProductSurface />
@@ -1043,9 +1100,7 @@ function SiteFooter({ onPage }: { onPage: (page: PageName) => void }) {
             onPage("home");
           }}
         >
-          <span className="rd-brand-mark" aria-hidden="true">
-            g
-          </span>
+          <BrandMark />
           <span>Gardn</span>
         </a>
         <p>Terminal workspace management for AI coding agents.</p>
