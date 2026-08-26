@@ -1,14 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import {
-  operatingModules,
-  platformRows,
-  releasePreview,
-  type OperatingModule,
-  type RecentFeature,
-} from "./responsive-design-data";
-import { MiniLifecycle } from "./visual-direction-prototype";
+import { platformRows, releasePreview, type RecentFeature } from "./responsive-design-data";
 
 type PageName = "home" | "download" | "releases";
 type ReleaseState = "prepublic" | "tagged" | "loading" | "error";
@@ -105,7 +98,7 @@ export function ResponsiveDesignPrototype() {
       <SiteHeader page={page} onPage={selectPage} />
       <main id="rd-main">
         {page === "home" && (
-          <HomePage releaseState={releaseState} onPage={selectPage} onState={selectState} />
+          <HomePage onPage={selectPage} />
         )}
         {page === "download" && (
           <DownloadPage releaseState={releaseState} onPage={selectPage} onState={selectState} />
@@ -119,101 +112,6 @@ export function ResponsiveDesignPrototype() {
   );
 }
 
-function GardnProductSurface() {
-  return (
-    <div className="rd-surface" aria-label="Gardn product workspace proof">
-      <div className="rd-surface-topbar">
-        <span className="rd-surface-brand">GARDN / atlas</span>
-        <span>workspace: atlas</span>
-        <span className="rd-surface-live">
-          <i /> live
-        </span>
-      </div>
-      <div className="rd-surface-body">
-        <aside className="rd-surface-sidebar" aria-label="Workspace and agent state">
-          <p className="rd-surface-label">Projects</p>
-          <div className="rd-surface-project is-active">
-            <span className="rd-surface-project-mark">A</span>
-            <span>
-              <b>atlas</b>
-              <small>3 agents · active</small>
-            </span>
-          </div>
-          <div className="rd-surface-project">
-            <span className="rd-surface-project-mark">O</span>
-            <span>
-              <b>orbit</b>
-              <small>1 agent · ready</small>
-            </span>
-          </div>
-          <p className="rd-surface-label rd-surface-label-agents">Agent state</p>
-          <div className="rd-surface-agent">
-            <i className="is-working" />
-            <span>codex</span>
-            <em>working</em>
-          </div>
-          <div className="rd-surface-agent">
-            <i className="is-blocked" />
-            <span>claude</span>
-            <em>blocked</em>
-          </div>
-          <div className="rd-surface-agent">
-            <i className="is-idle" />
-            <span>pi</span>
-            <em>idle</em>
-          </div>
-        </aside>
-        <div className="rd-surface-workspace">
-          <div className="rd-surface-palette">
-            <span>⌘K</span>
-            <b>Project palette</b>
-            <small>run managed action</small>
-          </div>
-          <div className="rd-surface-terminal rd-surface-terminal-primary">
-            <div className="rd-surface-terminal-title">
-              <span>codex · api</span>
-              <span>working</span>
-            </div>
-            <pre>
-              <span className="dim">$</span> gardn project triage{"\n"}
-              <span className="accent">◆</span> loading atlas policy{"\n"}
-              <span className="accent">◆</span> follow-up queue ready{"\n"}
-              <span className="dim"> 3 agents · 2 awaiting input</span>
-              {"\n"}
-              <span className="cursor">▋</span>
-            </pre>
-          </div>
-          <div className="rd-surface-terminal">
-            <div className="rd-surface-terminal-title">
-              <span>shell · local</span>
-              <span className="ok">ready</span>
-            </div>
-            <pre>
-              <span className="dim">$</span> git diff --stat{"\n"}
-              <span className="ok">ready</span> 4 files changed
-            </pre>
-          </div>
-          <div className="rd-surface-terminal">
-            <div className="rd-surface-terminal-title">
-              <span>agent · review</span>
-              <span className="warn">blocked</span>
-            </div>
-            <pre>
-              <span className="warn">!</span> permission needed{"\n"}
-              <span className="dim">awaiting explicit approval</span>
-            </pre>
-          </div>
-        </div>
-      </div>
-      <div className="rd-surface-status">
-        <span>3 projects</span>
-        <span>17 profiles</span>
-        <span>local + SSH</span>
-        <span>client-private view</span>
-      </div>
-    </div>
-  );
-}
 
 function PrototypeBar({
   releaseState,
@@ -327,35 +225,23 @@ function SiteHeader({ page, onPage }: { page: PageName; onPage: (page: PageName)
         href="?page=download"
         onClick={(event) => openPage(event, "download")}
       >
-        Install <span aria-hidden="true">↗</span>
+        Install from source
       </a>
     </header>
   );
 }
 
-function HomePage({
-  releaseState,
-  onPage,
-  onState,
-}: {
-  releaseState: ReleaseState;
-  onPage: (page: PageName) => void;
-  onState: (state: ReleaseState) => void;
-}) {
+function HomePage({ onPage }: { onPage: (page: PageName) => void }) {
   return (
     <>
       <section className="rd-hero rd-shell" aria-labelledby="rd-home-title">
         <div className="rd-hero-copy">
-          <p className="rd-eyebrow">
-            <span>Terminal workspace manager</span>
-            <span className="rd-rule" />
-          </p>
-          <h1 id="rd-home-title">Run the whole coding operation.</h1>
-          <p className="rd-hero-promise">It is still just your terminal.</p>
+          <h1 id="rd-home-title">A place for agent work to live.</h1>
           <p className="rd-lede">
-            Keep agents, shells, servers, repositories, and project commands in one durable
-            workspace, without replacing the terminal tools you already trust.
+            Gardn is a terminal workspace that holds your agents, sessions, and projects. On your
+            machine, or over SSH.
           </p>
+          <p className="rd-status-line">Pre-public. Source and Nix only.</p>
           <div className="rd-actions">
             <a
               className="rd-button rd-button-primary"
@@ -365,208 +251,48 @@ function HomePage({
                 onPage("download");
               }}
             >
-              Install Gardn
+              Install from source
             </a>
-            <a className="rd-button" href="#product">
-              Watch the workflow
+            <a className="rd-text-link" href="/docs">
+              Read the documentation
             </a>
           </div>
-          <a className="rd-text-link rd-hero-docs" href="/docs">
-            Read the documentation <span>↗</span>
-          </a>
-          <p className="rd-availability">
-            <span className="rd-signal" /> Source install available · public binaries gated
-          </p>
-          <p className="rd-status-sentence">
-            More accurate agent status than Herdr. Gardn stays Working through compaction and the
-            first prompt. Permission prompts show Blocked. Live hooks update Working, Blocked, and
-            Idle. A resume report keeps the session instead of dropping the agent.
-          </p>
         </div>
-        <div className="rd-hero-art" aria-label="Gardn mark">
+        <div className="rd-hero-art" aria-hidden="true">
           <BrandMark />
-          <span className="rd-coordinate">workspace atlas · 4 live operations</span>
-        </div>
-        <div className="rd-hero-product">
-          <GardnProductSurface />
         </div>
       </section>
 
-      <section id="product" className="rd-product rd-shell" aria-labelledby="rd-product-title">
-        <SectionHeading
-          eyebrow="Product demonstration"
-          title="Launch, operate, return."
-          id="rd-product-title"
-        >
-          Launch a workspace, start agents, run a project action from the palette, and detach
-          without losing the work. Every pane remains a real terminal.
-        </SectionHeading>
-        <div className="rd-product-stage">
-          <GardnProductSurface />
-        </div>
-        <MiniLifecycle mode="a" />
-        <div className="rd-product-meta" aria-label="Product operation details">
-          <span>
-            <b>17</b> profiles
-          </span>
-          <span>
-            <b>04</b> project roles
-          </span>
-          <span>
-            <b>SSH</b> + local
-          </span>
-          <span>
-            <b>01</b> private view
-          </span>
-        </div>
-      </section>
-
-      <section className="rd-freedom rd-shell" aria-labelledby="rd-freedom-title">
-        <p className="rd-vertical-label" aria-hidden="true">
-          TOOLS STAY YOURS
+      <section className="rd-story rd-shell" aria-labelledby="rd-groups-title">
+        <h2 id="rd-groups-title">Every project gets a room of its own.</h2>
+        <p>
+          Groups give related Spaces a home, a host, and a default agent profile. Triage shows what
+          needs you. Follow Up is a later list, not a status.
         </p>
-        <div>
-          <p className="rd-eyebrow">Still your terminal</p>
-          <h2 id="rd-freedom-title">Native panes stay the work surface.</h2>
-          <p>
-            Run Codex, Claude, a shell, a server, an editor, or the next tool you adopt. Gardn adds
-            status and restore context without gating what can run.
-          </p>
-        </div>
-        <ul className="rd-tool-list" aria-label="Example terminal tools">
-          <li>
-            <span>agents</span>
-            <b>Codex · Claude · any CLI</b>
-          </li>
-          <li>
-            <span>shells</span>
-            <b>zsh · bash · fish · PowerShell</b>
-          </li>
-          <li>
-            <span>services</span>
-            <b>dev servers · databases · tunnels</b>
-          </li>
-          <li>
-            <span>editors</span>
-            <b>vim · helix · your terminal editor</b>
-          </li>
-        </ul>
       </section>
 
-      <section className="rd-operating rd-shell" aria-labelledby="rd-operating-title">
-        <SectionHeading
-          eyebrow="Operating layer"
-          title="A clearer loop for every project."
-          id="rd-operating-title"
-        >
-          Four modules make the surrounding work legible while the terminal remains the place where
-          work happens.
-        </SectionHeading>
-        <div className="rd-operating-grid">
-          {operatingModules.map((module) => (
-            <OperatingModuleCard key={module.number} module={module} />
-          ))}
-        </div>
+      <section className="rd-story rd-shell" aria-labelledby="rd-status-title">
+        <h2 id="rd-status-title">Working means working.</h2>
+        <p>
+          Gardn stays <span className="rd-mono">Working</span> through compaction and the first
+          prompt. Permission prompts show <span className="rd-mono">Blocked</span>. Live hooks keep{" "}
+          <span className="rd-mono">Working</span>, <span className="rd-mono">Blocked</span>, and{" "}
+          <span className="rd-mono">Idle</span> honest. A resume report keeps the session instead of
+          dropping the agent.
+        </p>
       </section>
 
-      <section className="rd-persistence rd-shell" aria-labelledby="rd-persistence-title">
-        <div className="rd-persistence-copy">
-          <p className="rd-eyebrow">Durable session lifecycle</p>
-          <h2 id="rd-persistence-title">The session owns the work. Clients are views.</h2>
-          <p>
-            Disconnecting a terminal does not dismantle the workspace. The session retains panes,
-            process runtimes, layouts, and agent state while each attached client keeps its own
-            navigation and viewport.
-          </p>
-          <a className="rd-text-link" href="/docs/concepts">
-            Read the session model <span>↗</span>
-          </a>
-        </div>
-        <div
-          className="rd-session-diagram"
-          role="img"
-          aria-label="One persistent session serving three independent clients"
-        >
-          <div className="rd-session-core">
-            <span>persistent session</span>
-            <b>workspaces · tabs · panes · runtimes</b>
-          </div>
-          <div className="rd-session-line" />
-          <div className="rd-client-row">
-            <span>local client</span>
-            <span>SSH client</span>
-            <span>API client</span>
-          </div>
-        </div>
-      </section>
-
-      <section id="compare" className="rd-migration rd-shell" aria-labelledby="rd-migration-title">
-        <div>
-          <p className="rd-eyebrow">Herdr migration</p>
-          <h2 id="rd-migration-title">Familiar workflow. Independent roadmap.</h2>
-        </div>
-        <div className="rd-migration-body">
-          <p>
-            Gardn credits Herdr upstream and keeps its own release process, documentation, and
-            product direction. Review the differences, then install Gardn alongside an existing
-            setup. Nothing silently changes.
-          </p>
-          <div className="rd-migration-path" aria-label="Herdr migration path">
-            <span>Herdr workspace</span>
-            <i>→</i>
-            <span>review differences</span>
-            <i>→</i>
-            <span>Gardn workspace</span>
-          </div>
-          <a className="rd-text-link" href="/docs/guides/migrate-from-herdr">
-            Open the migration guide <span>↗</span>
-          </a>
-        </div>
-      </section>
-
-      <RecentSection releaseState={releaseState} onState={onState} />
-
-      <section className="rd-install rd-shell" aria-labelledby="rd-install-title">
-        <div>
-          <p className="rd-eyebrow">Ready when you are</p>
-          <h2 id="rd-install-title">Keep the operation together.</h2>
-        </div>
-        <div className="rd-install-command">
-          <code>cargo install --path apps/gardn</code>
-          <button type="button" aria-label="Copy install command">
-            copy
-          </button>
-        </div>
-        <div className="rd-actions">
-          <a
-            className="rd-button rd-button-primary"
-            href="?page=download"
-            onClick={(event) => {
-              event.preventDefault();
-              onPage("download");
-            }}
-          >
-            Install Gardn
-          </a>
-          <a className="rd-button" href="/docs">
-            Read the documentation
-          </a>
-        </div>
+      <section className="rd-story rd-shell" aria-labelledby="rd-attach-title">
+        <h2 id="rd-attach-title">Take control when you mean it.</h2>
+        <p>
+          Run a local agent next to one on SSH. Another client can watch. It cannot type until
+          someone selects Take control. Detach mid-run. The work stays put.
+        </p>
       </section>
     </>
   );
 }
 
-function OperatingModuleCard({ module }: { module: OperatingModule }) {
-  return (
-    <article className="rd-operating-card">
-      <span>{module.number}</span>
-      <h3>{module.title}</h3>
-      <strong>{module.evidence}</strong>
-      <p>{module.summary}</p>
-    </article>
-  );
-}
 
 function RecentSection({
   releaseState,
@@ -1143,7 +869,7 @@ function SiteFooter({ onPage }: { onPage: (page: PageName) => void }) {
           <a href="https://github.com/masakirocorp/gardn/blob/master/LICENSE">License</a>
         </div>
       </nav>
-      <p className="rd-footer-meta">AGPL-3.0-or-later · credited fork of Herdr</p>
+      <p className="rd-footer-meta">AGPL-3.0-or-later. Gardn is a fork of Herdr.</p>
     </footer>
   );
 }
