@@ -338,20 +338,33 @@ impl AppState {
             } else {
                 None
             };
-            self.collapsed_sidebar_hover = if self.sidebar_collapsed && in_sidebar {
-                crate::ui::collapsed_workspace_group_header_at_row(
-                    self,
-                    self.view.sidebar_rect,
-                    mouse.row,
-                )
-                .map(crate::app::state::CollapsedSidebarHover::Group)
-                .or_else(|| {
-                    self.collapsed_workspace_at_row(mouse.row)
-                        .map(crate::app::state::CollapsedSidebarHover::Workspace)
-                })
-            } else {
-                None
-            };
+            self.collapsed_sidebar_hover =
+                if self.sidebar_collapsed && in_sidebar {
+                    crate::ui::collapsed_workspace_group_header_at_row(
+                        self,
+                        self.view.sidebar_rect,
+                        mouse.row,
+                    )
+                    .map(crate::app::state::CollapsedSidebarHover::Group)
+                    .or_else(|| {
+                        self.collapsed_workspace_at_row(mouse.row)
+                            .map(crate::app::state::CollapsedSidebarHover::Workspace)
+                    })
+                    .or_else(|| {
+                        self.collapsed_agent_detail_target_at(mouse.row).map(
+                            |(ws_idx, _, pane_id)| {
+                                crate::app::state::CollapsedSidebarHover::Agent { ws_idx, pane_id }
+                            },
+                        )
+                    })
+                } else if self.right_sidebar_collapsed && in_right_sidebar {
+                    self.collapsed_agent_detail_target_at(mouse.row)
+                        .map(|(ws_idx, _, pane_id)| {
+                            crate::app::state::CollapsedSidebarHover::Agent { ws_idx, pane_id }
+                        })
+                } else {
+                    None
+                };
             if self.on_tab_bar(mouse.column, mouse.row) {
                 return None;
             }

@@ -2341,6 +2341,10 @@ pub(crate) struct DragState {
 pub(crate) enum CollapsedSidebarHover {
     Group(usize),
     Workspace(usize),
+    Agent {
+        ws_idx: usize,
+        pane_id: crate::layout::PaneId,
+    },
 }
 
 #[derive(Clone)]

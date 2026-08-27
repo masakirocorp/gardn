@@ -1564,7 +1564,10 @@ pub fn render_with_runtime_registry(
     if right_sidebar_area != Rect::default() {
         render_right_sidebar(app, terminal_runtimes, frame, right_sidebar_area);
     }
-    if !app.zen_mode && app.sidebar_collapsed && app.view.layout != ViewLayout::Mobile {
+    if !app.zen_mode
+        && (app.sidebar_collapsed || app.right_sidebar_collapsed)
+        && app.view.layout != ViewLayout::Mobile
+    {
         render_collapsed_sidebar_hover(app, frame);
     }
     render_context_bar(app, &app.view.context_bar, frame);
@@ -1657,7 +1660,7 @@ pub fn render_with_runtime_registry_for_view(
         );
     }
     if !client_view.zen_mode
-        && client_view.sidebar_collapsed
+        && (client_view.sidebar_collapsed || client_view.right_sidebar_collapsed)
         && client_view.computed.layout != ViewLayout::Mobile
     {
         render_collapsed_sidebar_hover_for_view(app, client_view, frame);

@@ -11816,6 +11816,25 @@ impl App {
                         state::CollapsedSidebarHover::Workspace(ws_idx)
                     }
                 })
+                .or_else(|| {
+                    self.client_view_agent_detail_target_at(client_view, mouse.column, mouse.row)
+                        .map(|(ws_idx, _, pane_id)| state::CollapsedSidebarHover::Agent {
+                            ws_idx,
+                            pane_id,
+                        })
+                })
+            } else if client_view.right_sidebar_collapsed
+                && Self::rect_contains(
+                    client_view.computed.right_sidebar_rect,
+                    mouse.column,
+                    mouse.row,
+                )
+            {
+                self.client_view_agent_detail_target_at(client_view, mouse.column, mouse.row)
+                    .map(|(ws_idx, _, pane_id)| state::CollapsedSidebarHover::Agent {
+                        ws_idx,
+                        pane_id,
+                    })
             } else {
                 None
             };
