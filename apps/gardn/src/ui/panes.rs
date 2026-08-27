@@ -198,8 +198,12 @@ fn render_projected_pane_border(
         );
     }
     if rect.height > 1 {
+        let right = rect.x.saturating_add(rect.width).saturating_sub(1);
         for y in rect.y.saturating_add(1)..rect.y.saturating_add(rect.height).saturating_sub(1) {
             set_cell(rect.x, y, vertical);
+            if rect.width > 1 {
+                set_cell(right, y, vertical);
+            }
         }
         if rect.width > 1 {
             let bottom = rect.y.saturating_add(rect.height).saturating_sub(1);
@@ -1598,6 +1602,50 @@ mod tests {
         assert_eq!(buffer[(3, 0)].symbol(), " ");
         assert_eq!(buffer[(3, 1)].symbol(), " ");
         assert_eq!(buffer[(3, 2)].symbol(), "─");
+    }
+
+    #[test]
+    fn projected_pane_border_draws_all_four_edges() {
+        let info = PaneInfo {
+            id: PaneId::from_raw(1),
+            rect: Rect::new(0, 0, 8, 5),
+            inner_rect: Rect::new(1, 1, 6, 3),
+            scrollbar_rect: None,
+            is_focused: true,
+        };
+        let canvas = crate::app::view_state::TabCanvasViewport::new(
+            ratatui::layout::Size::new(8, 5),
+            Rect::new(0, 0, 8, 5),
+            crate::app::view_state::CanvasOrigin { col: 0, row: 0 },
+        );
+        let backend = TestBackend::new(8, 5);
+        let mut terminal = Terminal::new(backend).expect("test backend");
+        terminal
+            .draw(|frame| {
+                render_projected_pane_border(
+                    frame,
+                    canvas,
+                    &info,
+                    frame.area(),
+                    Style::default().fg(Color::White),
+                    true,
+                    None,
+                );
+            })
+            .expect("render full projected border");
+        let buffer = terminal.backend().buffer();
+        assert_eq!(buffer[(0, 0)].symbol(), "┏");
+        assert_eq!(buffer[(7, 0)].symbol(), "┓");
+        assert_eq!(buffer[(0, 4)].symbol(), "┗");
+        assert_eq!(buffer[(7, 4)].symbol(), "┛");
+        for x in 1..7 {
+            assert_eq!(buffer[(x, 0)].symbol(), "━");
+            assert_eq!(buffer[(x, 4)].symbol(), "━");
+        }
+        for y in 1..4 {
+            assert_eq!(buffer[(0, y)].symbol(), "┃");
+            assert_eq!(buffer[(7, y)].symbol(), "┃");
+        }
     }
 
     #[test]
