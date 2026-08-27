@@ -2253,6 +2253,8 @@ fn theme_display_name(name: &'static str) -> &'static str {
         "monokai-pro-machine" => "Monokai Pro Machine",
         "monokai-classic" => "Monokai Classic",
         "flexoki-light" => "Flexoki Light",
+        "gardn-day" => "Gardn Day",
+        "gardn-night" => "Gardn Night",
         "hackerman" => "Hackerman",
         "last-horizon" => "Last Horizon",
         "lumon" => "Lumon",

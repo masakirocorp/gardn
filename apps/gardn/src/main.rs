@@ -92,11 +92,11 @@ const DEFAULT_CONFIG: &str = r##"# Gardn configuration
 
 [theme]
 # built-in themes: system, terminal, catppuccin-latte, flexoki-light,
-#                 gruvbox-light, kanagawa-lotus, monokai-pro-light,
+#                 gardn-day, gruvbox-light, kanagawa-lotus, monokai-pro-light,
 #                 monokai-pro-light-sun, one-light, rose-pine-dawn,
 #                 solarized-light, tokyo-night-day, white, catppuccin,
 #                 catppuccin-frappe, catppuccin-macchiato, dracula,
-#                 ethereal, everforest, flexoki, gruvbox, hackerman,
+#                 ethereal, everforest, flexoki, gardn-night, gruvbox, hackerman,
 #                 kanagawa, last-horizon, lumon, matte-black, miasma,
 #                 monokai-classic, monokai-pro, monokai-pro-machine,
 #                 monokai-pro-octagon, monokai-pro-ristretto,

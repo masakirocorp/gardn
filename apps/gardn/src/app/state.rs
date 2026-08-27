@@ -1272,6 +1272,50 @@ impl Palette {
         )
     }
 
+    /// Gardn Day: paper surfaces, Sumi ink, GARDN Green chrome.
+    pub fn gardn_day() -> Self {
+        Self::catppuccin_palette(
+            Self::rgb(11, 90, 60),
+            Self::rgb(255, 255, 252),
+            Self::rgb(247, 243, 234),
+            Self::rgb(223, 217, 205),
+            Self::rgb(214, 205, 190),
+            Self::rgb(99, 100, 98),
+            Self::rgb(80, 82, 80),
+            Self::rgb(31, 31, 31),
+            Self::rgb(99, 100, 98),
+            Self::rgb(155, 79, 115),
+            Self::rgb(63, 92, 54),
+            Self::rgb(92, 112, 24),
+            Self::rgb(176, 58, 32),
+            Self::rgb(46, 106, 148),
+            Self::rgb(61, 122, 92),
+            Self::rgb(155, 79, 115),
+        )
+    }
+
+    /// Gardn Night: deep green-black, warm paper text, lifted green chrome.
+    pub fn gardn_night() -> Self {
+        Self::catppuccin_palette(
+            Self::rgb(125, 186, 114),
+            Self::rgb(7, 26, 19),
+            Self::rgb(13, 36, 26),
+            Self::rgb(18, 49, 34),
+            Self::rgb(36, 74, 55),
+            Self::rgb(122, 138, 124),
+            Self::rgb(174, 184, 172),
+            Self::rgb(247, 243, 234),
+            Self::rgb(174, 184, 172),
+            Self::rgb(240, 184, 205),
+            Self::rgb(125, 186, 114),
+            Self::rgb(167, 201, 87),
+            Self::rgb(255, 122, 89),
+            Self::rgb(126, 182, 217),
+            Self::rgb(95, 168, 152),
+            Self::rgb(240, 184, 205),
+        )
+    }
+
     /// Resolve a theme by name. Returns None for unknown names.
     pub fn from_name(name: &str) -> Option<Self> {
         match name.to_lowercase().replace([' ', '_'], "-").as_str() {
@@ -1317,6 +1361,8 @@ impl Palette {
             "everforest" => Some(Self::everforest()),
             "flexoki" => Some(Self::flexoki()),
             "flexoki-light" => Some(Self::flexoki_light()),
+            "gardn-day" => Some(Self::gardn_day()),
+            "gardn-night" => Some(Self::gardn_night()),
             "hackerman" => Some(Self::hackerman()),
             "last-horizon" => Some(Self::last_horizon()),
             "lumon" => Some(Self::lumon()),
@@ -1767,6 +1813,7 @@ pub const THEME_NAMES: &[&str] = &[
     "ethereal",
     "everforest",
     "flexoki",
+    "gardn-night",
     "gruvbox",
     "hackerman",
     "kanagawa",
@@ -1797,6 +1844,7 @@ pub const THEME_NAMES: &[&str] = &[
 pub const LIGHT_THEME_NAMES: &[&str] = &[
     DEFAULT_LIGHT_THEME_NAME,
     "flexoki-light",
+    "gardn-day",
     "gruvbox-light",
     "kanagawa-lotus",
     "monokai-pro-light",
@@ -1817,6 +1865,7 @@ pub const DARK_THEME_NAMES: &[&str] = &[
     "ethereal",
     "everforest",
     "flexoki",
+    "gardn-night",
     "gruvbox",
     "hackerman",
     "kanagawa",
@@ -1885,6 +1934,7 @@ pub fn theme_name_for_appearance(name: &str, appearance: ThemeAppearance) -> Opt
                 Some("monokai-pro-light-sun")
             }
             "flexoki" | "flexoki-light" => Some("flexoki-light"),
+            "gardn-day" | "gardn-night" => Some("gardn-day"),
             "white" => Some("white"),
             "dracula"
             | "nord"
@@ -1955,6 +2005,7 @@ pub fn theme_name_for_appearance(name: &str, appearance: ThemeAppearance) -> Opt
             "ethereal" => Some("ethereal"),
             "everforest" => Some("everforest"),
             "flexoki" | "flexoki-light" => Some("flexoki"),
+            "gardn-day" | "gardn-night" => Some("gardn-night"),
             "hackerman" => Some("hackerman"),
             "last-horizon" => Some("last-horizon"),
             "lumon" => Some("lumon"),
@@ -4678,6 +4729,26 @@ mod tests {
                 "catppuccin flavor should resolve: {name}"
             );
         }
+    }
+
+    #[test]
+    fn gardn_day_and_night_resolve_and_pair_across_appearance() {
+        let day = Palette::from_name("gardn-day").expect("gardn day");
+        let night = Palette::from_name("gardn-night").expect("gardn night");
+        assert_eq!(day.accent, Color::Rgb(11, 90, 60));
+        assert_eq!(day.panel_bg, Color::Rgb(255, 255, 252));
+        assert_eq!(day.text, Color::Rgb(31, 31, 31));
+        assert_eq!(night.accent, Color::Rgb(125, 186, 114));
+        assert_eq!(night.panel_bg, Color::Rgb(7, 26, 19));
+        assert_eq!(night.text, Color::Rgb(247, 243, 234));
+        assert_eq!(
+            theme_name_for_appearance("gardn-night", ThemeAppearance::Light),
+            Some("gardn-day")
+        );
+        assert_eq!(
+            theme_name_for_appearance("gardn-day", ThemeAppearance::Dark),
+            Some("gardn-night")
+        );
     }
 
     #[test]
