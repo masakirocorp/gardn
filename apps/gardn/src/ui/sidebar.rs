@@ -2936,19 +2936,35 @@ pub(super) fn render_sidebar_collapsed_for_view(
 }
 
 pub(super) fn render_collapsed_sidebar_hover(app: &AppState, frame: &mut Frame) {
-    if let Some(CollapsedSidebarHover::Agent { ws_idx, pane_id }) = app.collapsed_sidebar_hover {
-        render_collapsed_agent_hover(
-            app,
-            frame,
-            app.view.sidebar_rect,
-            app.view.right_sidebar_rect,
-            app.sidebar_collapsed,
-            app.right_sidebar_collapsed,
-            app.sidebar_section_split,
-            ws_idx,
-            pane_id,
-        );
-        return;
+    match &app.collapsed_sidebar_hover {
+        Some(CollapsedSidebarHover::Agent { ws_idx, pane_id }) => {
+            render_collapsed_agent_hover(
+                app,
+                frame,
+                app.view.sidebar_rect,
+                app.view.right_sidebar_rect,
+                app.sidebar_collapsed,
+                app.right_sidebar_collapsed,
+                app.sidebar_section_split,
+                *ws_idx,
+                *pane_id,
+            );
+            return;
+        }
+        Some(CollapsedSidebarHover::AgentStatus { section }) => {
+            render_collapsed_agent_status_hover(
+                app,
+                frame,
+                app.view.sidebar_rect,
+                app.view.right_sidebar_rect,
+                app.sidebar_collapsed,
+                app.right_sidebar_collapsed,
+                app.sidebar_section_split,
+                section,
+            );
+            return;
+        }
+        _ => {}
     }
     render_collapsed_sidebar_hover_entry(
         app,
@@ -2958,7 +2974,7 @@ pub(super) fn render_collapsed_sidebar_hover(app: &AppState, frame: &mut Frame) 
         app.view.right_sidebar_rect == Rect::default(),
         matches!(app.mode, Mode::Navigate),
         app.selected,
-        app.collapsed_sidebar_hover,
+        app.collapsed_sidebar_hover.clone(),
         collapsed_workspace_row_entries(app),
     );
 }
@@ -2968,19 +2984,35 @@ pub(super) fn render_collapsed_sidebar_hover_for_view(
     view: &ClientViewState,
     frame: &mut Frame,
 ) {
-    if let Some(CollapsedSidebarHover::Agent { ws_idx, pane_id }) = view.collapsed_sidebar_hover {
-        render_collapsed_agent_hover(
-            app,
-            frame,
-            view.computed.sidebar_rect,
-            view.computed.right_sidebar_rect,
-            view.sidebar_collapsed,
-            view.right_sidebar_collapsed,
-            view.sidebar_section_split,
-            ws_idx,
-            pane_id,
-        );
-        return;
+    match &view.collapsed_sidebar_hover {
+        Some(CollapsedSidebarHover::Agent { ws_idx, pane_id }) => {
+            render_collapsed_agent_hover(
+                app,
+                frame,
+                view.computed.sidebar_rect,
+                view.computed.right_sidebar_rect,
+                view.sidebar_collapsed,
+                view.right_sidebar_collapsed,
+                view.sidebar_section_split,
+                *ws_idx,
+                *pane_id,
+            );
+            return;
+        }
+        Some(CollapsedSidebarHover::AgentStatus { section }) => {
+            render_collapsed_agent_status_hover(
+                app,
+                frame,
+                view.computed.sidebar_rect,
+                view.computed.right_sidebar_rect,
+                view.sidebar_collapsed,
+                view.right_sidebar_collapsed,
+                view.sidebar_section_split,
+                section,
+            );
+            return;
+        }
+        _ => {}
     }
     render_collapsed_sidebar_hover_entry(
         app,
@@ -2990,7 +3022,7 @@ pub(super) fn render_collapsed_sidebar_hover_for_view(
         view.computed.right_sidebar_rect == Rect::default(),
         matches!(view.mode, Mode::Navigate),
         view.selected_workspace,
-        view.collapsed_sidebar_hover,
+        view.collapsed_sidebar_hover.clone(),
         collapsed_workspace_row_entries_for_view(app, view),
     );
 }
@@ -3031,6 +3063,71 @@ fn render_collapsed_agent_hover(
     );
 }
 
+fn render_collapsed_agent_status_hover(
+    app: &AppState,
+    frame: &mut Frame,
+    sidebar: Rect,
+    right_sidebar: Rect,
+    sidebar_collapsed: bool,
+    right_sidebar_collapsed: bool,
+    split_ratio: f32,
+    section: &str,
+) {
+    let Some(rail) = collapsed_agent_rail_rect(
+        sidebar,
+        right_sidebar,
+        sidebar_collapsed,
+        right_sidebar_collapsed,
+        split_ratio,
+    ) else {
+        return;
+    };
+    let Some((row, group)) = collapsed_agent_status_hover_row(app, rail, section) else {
+        return;
+    };
+    let (icon, icon_style) =
+        agent_section_icon(group, app.spinner_tick, app.status_indicators, &app.palette);
+    let opens_left = app.sidebar_arrangement
+        == crate::config::SidebarArrangementConfig::CombinedRight
+        || right_sidebar != Rect::default();
+    render_collapsed_hover_popup(
+        app,
+        frame,
+        rail,
+        row,
+        opens_left,
+        vec![Line::from(vec![
+            Span::styled(icon, icon_style),
+            Span::styled(format!(" {section}"), icon_style),
+        ])],
+    );
+}
+
+fn collapsed_agent_status_hover_row(
+    app: &AppState,
+    area: Rect,
+    section: &str,
+) -> Option<(u16, AgentStatusGroup)> {
+    let rows = collapsed_agent_panel_body_rect(area);
+    if rows == Rect::default() {
+        return None;
+    }
+    let mut row_y = rows.y;
+    for panel in agent_panel_sections(app) {
+        if row_y >= rows.y + rows.height {
+            return None;
+        }
+        if panel.group.label() == section {
+            return Some((row_y, panel.group));
+        }
+        row_y = row_y.saturating_add(1);
+        if !agent_panel_section_collapsed(app, panel.group) {
+            row_y = row_y.saturating_add(panel.entries.len() as u16);
+        }
+    }
+    None
+}
+
 #[allow(clippy::too_many_arguments)] // Keeps the shared and client-local render paths identical.
 fn render_collapsed_sidebar_hover_entry(
     app: &AppState,
@@ -3049,7 +3146,7 @@ fn render_collapsed_sidebar_hover_entry(
         return;
     };
     let entry = match target {
-        CollapsedSidebarHover::Agent { .. } => return,
+        CollapsedSidebarHover::Agent { .. } | CollapsedSidebarHover::AgentStatus { .. } => return,
         CollapsedSidebarHover::Group(group_idx) => {
             CollapsedWorkspaceRowEntry::GroupHeader { group_idx }
         }
@@ -5338,6 +5435,47 @@ mod tests {
                 .style()
                 .fg,
             Some(app.group_accent_color(1))
+        );
+    }
+
+    #[test]
+    fn collapsed_agent_status_hover_shows_icon_and_name() {
+        let mut app = crate::app::state::AppState::test_new();
+        let mut workspace = Workspace::test_new("checkout");
+        let pane_id = workspace.tabs[0].root_pane;
+        let pane = workspace.tabs[0]
+            .panes
+            .get_mut(&pane_id)
+            .expect("root pane");
+        pane.detected_agent = Some(Agent::Pi);
+        pane.state = AgentState::Working;
+        pane.seen = true;
+        app.workspaces = vec![workspace];
+        app.active = Some(0);
+        app.sidebar_collapsed = true;
+        app.sidebar_arrangement = crate::config::SidebarArrangementConfig::CombinedLeft;
+        app.view.sidebar_rect = Rect::new(0, 0, 4, 24);
+        app.collapsed_sidebar_hover = Some(CollapsedSidebarHover::AgentStatus {
+            section: "Working".to_string(),
+        });
+
+        let backend = TestBackend::new(60, 24);
+        let mut terminal = Terminal::new(backend).expect("test backend");
+        terminal
+            .draw(|frame| render_collapsed_sidebar_hover(&app, frame))
+            .expect("render collapsed status hover");
+
+        let buffer = terminal.backend().buffer();
+        let text = buffer_text(buffer, 60, 24);
+        assert!(
+            text.contains("Working"),
+            "status hover should name the group; rendered:\n{text}"
+        );
+        let (x, y) = first_cell_with_symbol(buffer, 60, 24, "W").expect("Working label");
+        assert_eq!(
+            buffer[(x, y)].style().fg,
+            Some(app.palette.yellow),
+            "status hover should use the section color"
         );
     }
 

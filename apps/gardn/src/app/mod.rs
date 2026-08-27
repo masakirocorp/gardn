@@ -11817,6 +11817,12 @@ impl App {
                     }
                 })
                 .or_else(|| {
+                    self.client_view_agent_header_target_at(client_view, mouse.column, mouse.row)
+                        .map(|header| state::CollapsedSidebarHover::AgentStatus {
+                            section: header.section,
+                        })
+                })
+                .or_else(|| {
                     self.client_view_agent_detail_target_at(client_view, mouse.column, mouse.row)
                         .map(|(ws_idx, _, pane_id)| state::CollapsedSidebarHover::Agent {
                             ws_idx,
@@ -11830,10 +11836,19 @@ impl App {
                     mouse.row,
                 )
             {
-                self.client_view_agent_detail_target_at(client_view, mouse.column, mouse.row)
-                    .map(|(ws_idx, _, pane_id)| state::CollapsedSidebarHover::Agent {
-                        ws_idx,
-                        pane_id,
+                self.client_view_agent_header_target_at(client_view, mouse.column, mouse.row)
+                    .map(|header| state::CollapsedSidebarHover::AgentStatus {
+                        section: header.section,
+                    })
+                    .or_else(|| {
+                        self.client_view_agent_detail_target_at(
+                            client_view,
+                            mouse.column,
+                            mouse.row,
+                        )
+                        .map(|(ws_idx, _, pane_id)| {
+                            state::CollapsedSidebarHover::Agent { ws_idx, pane_id }
+                        })
                     })
             } else {
                 None

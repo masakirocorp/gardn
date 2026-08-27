@@ -2338,13 +2338,16 @@ pub(crate) struct DragState {
     pub target: DragTarget,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum CollapsedSidebarHover {
     Group(usize),
     Workspace(usize),
     Agent {
         ws_idx: usize,
         pane_id: crate::layout::PaneId,
+    },
+    AgentStatus {
+        section: String,
     },
 }
 

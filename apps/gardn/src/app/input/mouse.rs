@@ -338,18 +338,38 @@ impl AppState {
             } else {
                 None
             };
-            self.collapsed_sidebar_hover =
-                if self.sidebar_collapsed && in_sidebar {
-                    crate::ui::collapsed_workspace_group_header_at_row(
-                        self,
-                        self.view.sidebar_rect,
-                        mouse.row,
+            self.collapsed_sidebar_hover = if self.sidebar_collapsed && in_sidebar {
+                crate::ui::collapsed_workspace_group_header_at_row(
+                    self,
+                    self.view.sidebar_rect,
+                    mouse.row,
+                )
+                .map(crate::app::state::CollapsedSidebarHover::Group)
+                .or_else(|| {
+                    self.collapsed_workspace_at_row(mouse.row)
+                        .map(crate::app::state::CollapsedSidebarHover::Workspace)
+                })
+                .or_else(|| {
+                    self.collapsed_agent_header_target_at(mouse.row)
+                        .map(
+                            |header| crate::app::state::CollapsedSidebarHover::AgentStatus {
+                                section: header.section,
+                            },
+                        )
+                })
+                .or_else(|| {
+                    self.collapsed_agent_detail_target_at(mouse.row)
+                        .map(|(ws_idx, _, pane_id)| {
+                            crate::app::state::CollapsedSidebarHover::Agent { ws_idx, pane_id }
+                        })
+                })
+            } else if self.right_sidebar_collapsed && in_right_sidebar {
+                self.collapsed_agent_header_target_at(mouse.row)
+                    .map(
+                        |header| crate::app::state::CollapsedSidebarHover::AgentStatus {
+                            section: header.section,
+                        },
                     )
-                    .map(crate::app::state::CollapsedSidebarHover::Group)
-                    .or_else(|| {
-                        self.collapsed_workspace_at_row(mouse.row)
-                            .map(crate::app::state::CollapsedSidebarHover::Workspace)
-                    })
                     .or_else(|| {
                         self.collapsed_agent_detail_target_at(mouse.row).map(
                             |(ws_idx, _, pane_id)| {
@@ -357,14 +377,9 @@ impl AppState {
                             },
                         )
                     })
-                } else if self.right_sidebar_collapsed && in_right_sidebar {
-                    self.collapsed_agent_detail_target_at(mouse.row)
-                        .map(|(ws_idx, _, pane_id)| {
-                            crate::app::state::CollapsedSidebarHover::Agent { ws_idx, pane_id }
-                        })
-                } else {
-                    None
-                };
+            } else {
+                None
+            };
             if self.on_tab_bar(mouse.column, mouse.row) {
                 return None;
             }
