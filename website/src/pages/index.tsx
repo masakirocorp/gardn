@@ -6,7 +6,7 @@ import {
   Footer,
   Hero,
   PlatformCard,
-  Schematic,
+  SessionShot,
   Workflow,
 } from "../marketing";
 
@@ -63,7 +63,7 @@ export default function HomePage() {
           </p>
         </Hero>
 
-        <Schematic
+        <SessionShot
           title="The session owns your work; clients are just views"
           caption={
             <>

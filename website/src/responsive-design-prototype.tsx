@@ -144,8 +144,8 @@ function HomePage() {
         <img
           className="rd-shot-frame"
           src="/session.png"
-          width={3200}
-          height={1904}
+          width={1284}
+          height={820}
           alt="A Gardn session with product, ops, and commerce groups, a split checkout space, and agents in triage, working, and idle."
         />
       </figure>

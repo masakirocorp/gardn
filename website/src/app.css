@@ -302,6 +302,25 @@
   color: var(--color-gardn-ink-2);
 }
 
+.gardn-session-shot {
+  margin-block: clamp(2rem, 5vw, 3rem);
+}
+
+.gardn-session-shot img {
+  display: block;
+  width: 100%;
+  height: auto;
+  border: 1.5px solid var(--color-gardn-ink);
+  border-radius: 0.75rem;
+  background: var(--color-gardn-paper-2);
+}
+
+.gardn-session-shot-caption {
+  margin-block-start: 0.75rem;
+  font-size: 0.875rem;
+  color: var(--color-gardn-ink-2);
+}
+
 .gardn-schematic {
   margin-block: clamp(2rem, 5vw, 3rem);
   border: 1.5px solid var(--color-gardn-ink);
