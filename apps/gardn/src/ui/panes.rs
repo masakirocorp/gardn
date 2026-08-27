@@ -409,6 +409,28 @@ fn runtime_for_tab_pane<'a>(
         .map(|runtime| (terminal_id, runtime))
 }
 
+fn separate_split_panes(pane_infos: &mut [PaneInfo], splits: &[crate::layout::SplitBorder]) {
+    for split in splits {
+        match split.direction {
+            ratatui::layout::Direction::Horizontal => {
+                for info in pane_infos.iter_mut() {
+                    let right = info.rect.x.saturating_add(info.rect.width);
+                    if right == split.pos && info.rect.width > 1 {
+                        info.rect.width -= 1;
+                    }
+                }
+            }
+            ratatui::layout::Direction::Vertical => {
+                for info in pane_infos.iter_mut() {
+                    let bottom = info.rect.y.saturating_add(info.rect.height);
+                    if bottom == split.pos && info.rect.height > 1 {
+                        info.rect.height -= 1;
+                    }
+                }
+            }
+        }
+    }
+}
 fn stable_scrollbar_gutter(
     rt: &TerminalRuntime,
     pane_inner: Rect,
@@ -491,7 +513,9 @@ pub(crate) fn compute_pane_infos(
     }
 
     let mut pane_infos = tab.layout.panes(area);
-
+    if app.pane_gaps && multi_pane {
+        separate_split_panes(&mut pane_infos, &tab.layout.splits(area));
+    }
     for info in &mut pane_infos {
         let pane_inner = if multi_pane {
             let border_set = if info.is_focused && terminal_active {
@@ -609,6 +633,9 @@ pub(super) fn compute_pane_infos_for_view(
     }
 
     let mut pane_infos = layout.panes(area);
+    if app.pane_gaps && multi_pane {
+        separate_split_panes(&mut pane_infos, &layout.splits(area));
+    }
     for info in &mut pane_infos {
         info.is_focused = info.id == focused_id;
         let pane_inner = if multi_pane {
@@ -1645,6 +1672,76 @@ mod tests {
         for y in 1..4 {
             assert_eq!(buffer[(0, y)].symbol(), "┃");
             assert_eq!(buffer[(7, y)].symbol(), "┃");
+        }
+    }
+
+    #[test]
+    fn client_split_panes_draw_closed_right_edges() {
+        let mut app = AppState::test_new();
+        app.zen_mode = true;
+        app.pane_borders = true;
+        app.pane_scrollbars = false;
+        app.pane_gaps = true;
+        let mut workspace = Workspace::test_new("split");
+        let left = workspace.tabs[0].root_pane;
+        let right = workspace.test_split(ratatui::layout::Direction::Horizontal);
+        workspace.tabs[0].runtimes.insert(
+            left,
+            TerminalRuntime::test_with_scrollback_bytes(20, 8, 1024, b"left\n"),
+        );
+        workspace.tabs[0].runtimes.insert(
+            right,
+            TerminalRuntime::test_with_scrollback_bytes(20, 8, 1024, b"right\n"),
+        );
+        workspace.tabs[0].layout.focus_pane(left);
+        app.workspaces = vec![workspace];
+        app.active = Some(0);
+
+        let area = Rect::new(0, 0, 40, 12);
+        let terminal_runtimes = TerminalRuntimeRegistry::new();
+        let mut client = ClientViewState::from_default_client_state(&app);
+        client.zen_mode = true;
+        crate::ui::compute_view_for_client_without_resizing_panes(
+            &app,
+            &mut client,
+            &terminal_runtimes,
+            area,
+        );
+        let backend = TestBackend::new(area.width, area.height);
+        let mut terminal = Terminal::new(backend).expect("test backend");
+        terminal
+            .draw(|frame| {
+                crate::ui::render_with_runtime_registry_for_view(
+                    &app,
+                    &client,
+                    &terminal_runtimes,
+                    frame,
+                );
+            })
+            .expect("render split panes");
+        let buffer = terminal.backend().buffer();
+        let dump = buffer_text(buffer, area.width, area.height);
+        let mut panes = client.computed.pane_infos.clone();
+        panes.sort_by_key(|info| info.rect.x);
+        assert_eq!(panes.len(), 2, "expected a two-pane split:\n{dump}");
+        assert_eq!(
+            panes[0].rect.x + panes[0].rect.width + 1,
+            panes[1].rect.x,
+            "pane_gaps should leave a column between split boxes:\n{dump}"
+        );
+        let canvas = client.tab_canvas_view.expect("canvas");
+        for info in &panes {
+            let right_x = info.rect.x + info.rect.width - 1;
+            let edge_y = info.rect.y.saturating_add(1);
+            let (x, y) = canvas
+                .canvas_to_screen(right_x, edge_y)
+                .expect("right edge should be on screen");
+            let symbol = buffer[(x, y)].symbol();
+            assert!(
+                symbol == "┃" || symbol == "│",
+                "pane {} missing right border at canvas ({right_x},{edge_y}) screen ({x},{y}) got {symbol:?}\n{dump}",
+                info.id.raw()
+            );
         }
     }
 
