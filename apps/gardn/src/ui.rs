@@ -1700,8 +1700,8 @@ pub fn render_with_runtime_registry_for_view(
     }
     render_panes_for_view(app, client_view, terminal_runtimes, frame, terminal_area);
     if client_view.tab_control.is_watching() {
-        panes::wash_rect(frame, tab_bar_area, app.palette.panel_bg, 0.45);
-        panes::wash_rect(frame, terminal_area, app.palette.panel_bg, 0.45);
+        panes::wash_rect(frame, tab_bar_area, &app.palette);
+        panes::wash_rect(frame, terminal_area, &app.palette);
     }
     if right_sidebar_area != Rect::default() {
         render_right_sidebar_for_view(

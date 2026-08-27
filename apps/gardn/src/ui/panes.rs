@@ -1349,13 +1349,15 @@ fn color_to_rgb(color: Color) -> Option<Rgb> {
     }
 }
 
-pub(super) fn wash_rect(frame: &mut Frame, area: Rect, toward: Color, amount: f32) {
+pub(super) fn wash_rect(frame: &mut Frame, area: Rect, palette: &Palette) {
     if area.width == 0 || area.height == 0 {
         return;
     }
-    let Some(target) = color_to_rgb(toward) else {
+    let Some(mute) = color_to_rgb(palette.overlay1) else {
         return;
     };
+    let panel = color_to_rgb(palette.panel_bg);
+    let default_fg = color_to_rgb(palette.text).unwrap_or(mute);
     let buf = frame.buffer_mut();
     let right = area.x.saturating_add(area.width);
     let bottom = area.y.saturating_add(area.height);
@@ -1364,14 +1366,11 @@ pub(super) fn wash_rect(frame: &mut Frame, area: Rect, toward: Color, amount: f3
             let cell = &mut buf[(x, y)];
             let style = cell.style();
             let mut next = style.remove_modifier(Modifier::BOLD);
-            if let Some(fg) = style.fg.and_then(color_to_rgb) {
-                let (r, g, b) = mix_rgb(fg, target, amount);
-                next = next.fg(Color::Rgb(r, g, b));
-            } else if let Some((r, g, b)) = color_to_rgb(toward) {
-                next = next.fg(Color::Rgb(r, g, b));
-            }
-            if let Some(bg) = style.bg.and_then(color_to_rgb) {
-                let (r, g, b) = mix_rgb(bg, target, amount);
+            let fg = style.fg.and_then(color_to_rgb).unwrap_or(default_fg);
+            let (r, g, b) = mix_rgb(fg, mute, 0.32);
+            next = next.fg(Color::Rgb(r, g, b));
+            if let (Some(bg), Some(panel)) = (style.bg.and_then(color_to_rgb), panel) {
+                let (r, g, b) = mix_rgb(bg, panel, 0.18);
                 next = next.bg(Color::Rgb(r, g, b));
             }
             cell.set_style(next);
@@ -1849,11 +1848,23 @@ mod tests {
         let (x, y) = canvas
             .canvas_to_screen(pane.inner_rect.x, pane.inner_rect.y)
             .expect("inner cell on screen");
-        let controller_fg = controller_terminal.backend().buffer()[(x, y)].style().fg;
-        let watcher_fg = watcher_terminal.backend().buffer()[(x, y)].style().fg;
+        let controller_cell = &controller_terminal.backend().buffer()[(x, y)];
+        let watcher_cell = &watcher_terminal.backend().buffer()[(x, y)];
+        assert_eq!(
+            watcher_cell.symbol(),
+            controller_cell.symbol(),
+            "watching wash should not erase glyphs"
+        );
+        assert_ne!(watcher_cell.symbol(), " ", "washed pane still has content");
         assert_ne!(
-            watcher_fg, controller_fg,
-            "watching panes should mix toward the panel background"
+            watcher_cell.style().fg,
+            Some(app.palette.panel_bg),
+            "washed text must not collapse into the background"
+        );
+        assert_ne!(
+            watcher_cell.style().fg,
+            controller_cell.style().fg,
+            "watching panes should mix toward muted chrome"
         );
     }
 
