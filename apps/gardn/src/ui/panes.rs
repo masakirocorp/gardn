@@ -1349,6 +1349,36 @@ fn color_to_rgb(color: Color) -> Option<Rgb> {
     }
 }
 
+pub(super) fn wash_rect(frame: &mut Frame, area: Rect, toward: Color, amount: f32) {
+    if area.width == 0 || area.height == 0 {
+        return;
+    }
+    let Some(target) = color_to_rgb(toward) else {
+        return;
+    };
+    let buf = frame.buffer_mut();
+    let right = area.x.saturating_add(area.width);
+    let bottom = area.y.saturating_add(area.height);
+    for y in area.y..bottom {
+        for x in area.x..right {
+            let cell = &mut buf[(x, y)];
+            let style = cell.style();
+            let mut next = style.remove_modifier(Modifier::BOLD);
+            if let Some(fg) = style.fg.and_then(color_to_rgb) {
+                let (r, g, b) = mix_rgb(fg, target, amount);
+                next = next.fg(Color::Rgb(r, g, b));
+            } else if let Some((r, g, b)) = color_to_rgb(toward) {
+                next = next.fg(Color::Rgb(r, g, b));
+            }
+            if let Some(bg) = style.bg.and_then(color_to_rgb) {
+                let (r, g, b) = mix_rgb(bg, target, amount);
+                next = next.bg(Color::Rgb(r, g, b));
+            }
+            cell.set_style(next);
+        }
+    }
+}
+
 fn render_empty_for_view(app: &AppState, client_view: &ClientViewState, frame: &mut Frame) {
     render_empty_with_context(
         app,
@@ -1758,7 +1788,7 @@ mod tests {
     }
 
     #[test]
-    fn watching_client_dims_pane_contents() {
+    fn watching_client_washes_pane_contents() {
         let mut app = AppState::test_new();
         app.zen_mode = true;
         let mut workspace = Workspace::test_new("watch");
@@ -1772,36 +1802,58 @@ mod tests {
 
         let area = Rect::new(0, 0, 40, 12);
         let terminal_runtimes = TerminalRuntimeRegistry::new();
-        let mut client = ClientViewState::from_default_client_state(&app);
-        client.zen_mode = true;
-        client.set_tab_control(crate::app::ClientTabControl::WatchingControlled { epoch: 3 });
+        let mut controller = ClientViewState::from_default_client_state(&app);
+        controller.zen_mode = true;
+        let mut watcher = controller.clone();
+        watcher.set_tab_control(crate::app::ClientTabControl::WatchingControlled { epoch: 3 });
         crate::ui::compute_view_for_client_without_resizing_panes(
             &app,
-            &mut client,
+            &mut controller,
             &terminal_runtimes,
             area,
         );
-        let backend = TestBackend::new(area.width, area.height);
-        let mut terminal = Terminal::new(backend).expect("test backend");
-        terminal
+        crate::ui::compute_view_for_client_without_resizing_panes(
+            &app,
+            &mut watcher,
+            &terminal_runtimes,
+            area,
+        );
+
+        let mut controller_terminal =
+            Terminal::new(TestBackend::new(area.width, area.height)).expect("controller backend");
+        controller_terminal
             .draw(|frame| {
                 crate::ui::render_with_runtime_registry_for_view(
                     &app,
-                    &client,
+                    &controller,
                     &terminal_runtimes,
                     frame,
                 );
             })
-            .expect("render watching panes");
-        let buffer = terminal.backend().buffer();
-        let pane = client.computed.pane_infos.first().expect("pane");
-        let canvas = client.tab_canvas_view.expect("canvas");
+            .expect("render controller");
+        let mut watcher_terminal =
+            Terminal::new(TestBackend::new(area.width, area.height)).expect("watcher backend");
+        watcher_terminal
+            .draw(|frame| {
+                crate::ui::render_with_runtime_registry_for_view(
+                    &app,
+                    &watcher,
+                    &terminal_runtimes,
+                    frame,
+                );
+            })
+            .expect("render watcher");
+
+        let pane = watcher.computed.pane_infos.first().expect("pane");
+        let canvas = watcher.tab_canvas_view.expect("canvas");
         let (x, y) = canvas
             .canvas_to_screen(pane.inner_rect.x, pane.inner_rect.y)
             .expect("inner cell on screen");
-        assert!(
-            buffer[(x, y)].style().add_modifier.contains(Modifier::DIM),
-            "watching panes should look washed out"
+        let controller_fg = controller_terminal.backend().buffer()[(x, y)].style().fg;
+        let watcher_fg = watcher_terminal.backend().buffer()[(x, y)].style().fg;
+        assert_ne!(
+            watcher_fg, controller_fg,
+            "watching panes should mix toward the panel background"
         );
     }
 

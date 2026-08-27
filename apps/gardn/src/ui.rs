@@ -741,13 +741,16 @@ fn render_tab_control_chip_segment(
         }
         None => (suffix.to_string(), String::new()),
     };
-    let mut spans = vec![Span::styled(
-        badge.to_string(),
+    let mut spans = Vec::new();
+    let status_style = if action.is_empty() {
         Style::default()
             .fg(widgets::panel_contrast_fg(p))
             .bg(badge_bg)
-            .add_modifier(Modifier::BOLD),
-    )];
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(p.overlay1).bg(p.surface0)
+    };
+    spans.push(Span::styled(badge.to_string(), status_style));
     if !hint.is_empty() {
         spans.push(Span::styled(
             hint,
@@ -758,9 +761,9 @@ fn render_tab_control_chip_segment(
         spans.push(Span::styled(
             action,
             Style::default()
-                .fg(p.text)
-                .bg(p.surface0)
-                .add_modifier(Modifier::UNDERLINED),
+                .fg(widgets::panel_contrast_fg(p))
+                .bg(badge_bg)
+                .add_modifier(Modifier::BOLD),
         ));
     }
     frame.render_widget(Paragraph::new(Line::from(spans)), segment.rect);
@@ -1696,6 +1699,10 @@ pub fn render_with_runtime_registry_for_view(
         render_tab_bar_for_view(app, client_view, frame, tab_bar_area);
     }
     render_panes_for_view(app, client_view, terminal_runtimes, frame, terminal_area);
+    if client_view.tab_control.is_watching() {
+        panes::wash_rect(frame, tab_bar_area, app.palette.panel_bg, 0.45);
+        panes::wash_rect(frame, terminal_area, app.palette.panel_bg, 0.45);
+    }
     if right_sidebar_area != Rect::default() {
         render_right_sidebar_for_view(
             app,
@@ -2519,18 +2526,16 @@ mod tests {
         assert!(line.contains("Watching"), "{line:?}");
         assert!(line.contains("Another Client Controls"), "{line:?}");
         let badge_x = line.find("Watching").expect("badge text") as u16;
-        assert_eq!(
+        assert_ne!(
             terminal.backend().buffer()[(badge_x, 19)].style().bg,
             Some(app.palette.overlay0),
-            "watching badge should use the overlay badge background"
+            "Watching is status, not the action chip"
         );
         let take_x = line.find("Take Over").expect("take over text") as u16;
-        assert!(
-            terminal.backend().buffer()[(take_x, 19)]
-                .style()
-                .add_modifier
-                .contains(Modifier::UNDERLINED),
-            "only Take Over should look like a link"
+        assert_eq!(
+            terminal.backend().buffer()[(take_x, 19)].style().bg,
+            Some(app.palette.overlay0),
+            "Take Over should carry the action badge"
         );
     }
 
