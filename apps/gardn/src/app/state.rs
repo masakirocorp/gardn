@@ -1471,6 +1471,7 @@ pub(crate) struct ContextBarSegment {
     pub(crate) target: ContextBarTarget,
     pub(crate) label: String,
     pub(crate) rect: Rect,
+    pub(crate) hit_rect: Option<Rect>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -1484,7 +1485,7 @@ pub(crate) struct ContextBarView {
 impl ContextBarView {
     pub(crate) fn target_at(&self, col: u16, row: u16) -> Option<ContextBarTarget> {
         self.segments.iter().find_map(|segment| {
-            let rect = segment.rect;
+            let rect = segment.hit_rect.unwrap_or(segment.rect);
             (col >= rect.x
                 && col < rect.x.saturating_add(rect.width)
                 && row >= rect.y

@@ -461,7 +461,12 @@ pub(super) fn render_tab_bar_for_view(
             continue;
         }
         let active = idx == active_tab_idx;
-        let style = if active {
+        let style = if active && view.tab_control.is_watching() {
+            Style::default()
+                .fg(p.overlay1)
+                .bg(p.surface0)
+                .add_modifier(Modifier::DIM)
+        } else if active {
             let base = Style::default().fg(panel_contrast_fg(p)).bg(active_accent);
             if tab.is_auto_named() {
                 base

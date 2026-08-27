@@ -16649,8 +16649,9 @@ command = "printf literal > '{}'"
         );
         client.computed.context_bar.segments = vec![state::ContextBarSegment {
             target: state::ContextBarTarget::TabControl,
-            label: "watching".to_string(),
-            rect: ratatui::layout::Rect::new(100, 20, 4, 1),
+            label: " Watching  Another Client Controls · Take Over".to_string(),
+            rect: ratatui::layout::Rect::new(100, 20, 48, 1),
+            hit_rect: Some(ratatui::layout::Rect::new(138, 20, 9, 1)),
         }];
 
         app.route_client_events_for_view(
@@ -16658,7 +16659,13 @@ command = "printf literal > '{}'"
             vec![raw_mouse(MouseEventKind::Down(MouseButton::Left), 101, 20)],
             false,
         );
+        assert_eq!(client.take_tab_control_request(), None);
 
+        app.route_client_events_for_view(
+            &mut client,
+            vec![raw_mouse(MouseEventKind::Down(MouseButton::Left), 138, 20)],
+            false,
+        );
         assert_eq!(client.take_tab_control_request(), Some(19));
         assert_eq!(client.take_tab_control_request(), None);
     }

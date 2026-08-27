@@ -791,6 +791,7 @@ pub(super) fn render_panes_for_view(
     let multi_pane = tab.layout.pane_count() > 1;
     let active_accent = app.palette_for_workspace(ws_idx).accent;
     let terminal_active = client_view.mode == Mode::Terminal;
+    let watching = client_view.tab_control.is_watching();
 
     for info in &client_view.computed.pane_infos {
         let pane_state = tab.panes.get(&info.id);
@@ -799,7 +800,9 @@ pub(super) fn render_panes_for_view(
         };
 
         if multi_pane {
-            let (border_style, thick) = if info.is_focused && terminal_active {
+            let (border_style, thick) = if watching {
+                (Style::default().fg(app.palette.overlay0), false)
+            } else if info.is_focused && terminal_active {
                 (Style::default().fg(active_accent), true)
             } else if info.is_focused {
                 (Style::default().fg(active_accent), false)
@@ -870,8 +873,17 @@ pub(super) fn render_panes_for_view(
         render_projected_scrollbar(app, frame, canvas, frame_area, info, rt);
 
         let should_dim = !info.is_focused && multi_pane && !terminal_active;
-        if should_dim {
-            let inner = projected_inner.destination;
+        let dim_area = if watching {
+            canvas
+                .project_rect(info.rect)
+                .and_then(|projected| clip_projected_rect(projected, frame_area))
+                .map(|projected| projected.destination)
+        } else if should_dim {
+            Some(projected_inner.destination)
+        } else {
+            None
+        };
+        if let Some(inner) = dim_area {
             let buf = frame.buffer_mut();
             for y in inner.y..inner.y + inner.height {
                 for x in inner.x..inner.x + inner.width {
@@ -1743,6 +1755,54 @@ mod tests {
                 info.id.raw()
             );
         }
+    }
+
+    #[test]
+    fn watching_client_dims_pane_contents() {
+        let mut app = AppState::test_new();
+        app.zen_mode = true;
+        let mut workspace = Workspace::test_new("watch");
+        let root = workspace.tabs[0].root_pane;
+        workspace.tabs[0].runtimes.insert(
+            root,
+            TerminalRuntime::test_with_scrollback_bytes(20, 8, 1024, b"hello\n"),
+        );
+        app.workspaces = vec![workspace];
+        app.active = Some(0);
+
+        let area = Rect::new(0, 0, 40, 12);
+        let terminal_runtimes = TerminalRuntimeRegistry::new();
+        let mut client = ClientViewState::from_default_client_state(&app);
+        client.zen_mode = true;
+        client.set_tab_control(crate::app::ClientTabControl::WatchingControlled { epoch: 3 });
+        crate::ui::compute_view_for_client_without_resizing_panes(
+            &app,
+            &mut client,
+            &terminal_runtimes,
+            area,
+        );
+        let backend = TestBackend::new(area.width, area.height);
+        let mut terminal = Terminal::new(backend).expect("test backend");
+        terminal
+            .draw(|frame| {
+                crate::ui::render_with_runtime_registry_for_view(
+                    &app,
+                    &client,
+                    &terminal_runtimes,
+                    frame,
+                );
+            })
+            .expect("render watching panes");
+        let buffer = terminal.backend().buffer();
+        let pane = client.computed.pane_infos.first().expect("pane");
+        let canvas = client.tab_canvas_view.expect("canvas");
+        let (x, y) = canvas
+            .canvas_to_screen(pane.inner_rect.x, pane.inner_rect.y)
+            .expect("inner cell on screen");
+        assert!(
+            buffer[(x, y)].style().add_modifier.contains(Modifier::DIM),
+            "watching panes should look washed out"
+        );
     }
 
     #[test]
