@@ -583,7 +583,7 @@ function SiteFooter() {
     <footer className="rd-footer">
       <a href="https://github.com/masakirocorp/gardn/blob/master/LICENSE">License</a>
       <a href="https://github.com/masakirocorp/gardn">GitHub</a>
-      <span>A fork of Herdr</span>
+      <span>A fork of ogulcancelik/herdr</span>
     </footer>
   );
 }

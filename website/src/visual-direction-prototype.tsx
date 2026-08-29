@@ -48,10 +48,10 @@ export function ProductSurface({ mode }: { mode: Variant }) {
   return (
     <div
       className={`vdp-product vdp-product--${mode}`}
-      aria-label="Provisional Oh My Herdr product composition"
+      aria-label="Provisional Gardn product composition"
     >
       <div className="vdp-product__topbar">
-        <span className="vdp-product__brand">OMH / atlas</span>
+        <span className="vdp-product__brand">Gardn / atlas</span>
         <span>session: main</span>
         <span className="vdp-live">
           <i /> live
@@ -203,9 +203,9 @@ export function MiniLifecycle({ mode }: { mode: Variant }) {
 function SiteHeader({ label, mode }: { label: string; mode: Variant }) {
   return (
     <header className={`vdp-header vdp-header--${mode}`}>
-      <a className="vdp-logo" href="#top" aria-label="Oh My Herdr prototype home">
+      <a className="vdp-logo" href="#top" aria-label="Gardn prototype home">
         <img src="/logo.svg" alt="" />
-        <span>Oh My Herdr</span>
+        <span>Gardn</span>
       </a>
       <nav aria-label={`${label} concept navigation`}>
         <a href="#product">Product</a>
@@ -235,7 +235,7 @@ function ConceptA() {
             </p>
             <div className="vdp-actions">
               <a className="vdp-button is-primary" href="#install">
-                Install Oh My Herdr
+                Install Gardn
               </a>
               <a className="vdp-button" href="#product">
                 Watch the workflow
@@ -327,7 +327,7 @@ function ConceptB() {
       <main>
         <section className="b-hero">
           <div className="b-hero__index">
-            <span>OMH::01</span>
+            <span>GARDN::01</span>
             <span>persistent operations</span>
           </div>
           <p className="vdp-kicker">Your terminal operation / observable and intact</p>
@@ -488,8 +488,7 @@ function ConceptC() {
         <section className="c-manifesto">
           <p>Not another wrapper around your agents.</p>
           <h2>
-            Oh My Herdr gives the work a durable shape while every process remains exactly what it
-            is.
+            Gardn gives the work a durable shape while every process remains exactly what it is.
           </h2>
           <div>
             <span>Native terminal panes</span>
