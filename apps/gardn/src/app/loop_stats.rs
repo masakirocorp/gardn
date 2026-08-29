@@ -37,7 +37,7 @@ impl LoopStats {
         draw: Duration,
         input: Duration,
         event: &str,
-        loop_total: Duration,
+        _loop_total: Duration,
     ) {
         if !self.enabled {
             return;

@@ -336,14 +336,6 @@ pub(super) fn render_modal_text_input(frame: &mut Frame, area: Rect, value: &str
     }
 }
 
-pub(super) fn render_modal_text_value(frame: &mut Frame, area: Rect, value: &str, p: &Palette) {
-    let visible = truncate_end(value, area.width.saturating_sub(1) as usize);
-    frame.render_widget(
-        Paragraph::new(format!(" {visible}")).style(Style::default().fg(p.text)),
-        area,
-    );
-}
-
 pub(super) fn primary_action_style(p: &Palette) -> Style {
     Style::default()
         .fg(panel_contrast_fg(p))
