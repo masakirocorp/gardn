@@ -42,6 +42,7 @@ pub(crate) enum CommandPaletteAction {
     NextGroup,
     SwitchGroup(usize),
     OpenAgentMenu,
+    OpenContextMenu,
     SetAgentScope(AgentPanelScope),
     PreviousAgent,
     NextAgent,
@@ -230,6 +231,11 @@ pub(crate) fn command_palette_commands(state: &AppState) -> Vec<CommandPaletteCo
             "Open Agent Menu",
             "agents",
             CommandPaletteAction::OpenAgentMenu,
+        ),
+        CommandPaletteCommand::new(
+            "Open Context Menu",
+            "agents",
+            CommandPaletteAction::OpenContextMenu,
         ),
         CommandPaletteCommand::new(
             "Agents: Space",
@@ -426,6 +432,7 @@ fn command_palette_key_label(state: &AppState, action: &CommandPaletteAction) ->
         CommandPaletteAction::PreviousGroup => label(&kb.previous_group),
         CommandPaletteAction::NextGroup => label(&kb.next_group),
         CommandPaletteAction::OpenAgentMenu => label(&kb.open_agent_menu),
+        CommandPaletteAction::OpenContextMenu => label(&kb.open_context_menu),
         CommandPaletteAction::PreviousAgent => label(&kb.previous_agent),
         CommandPaletteAction::NextAgent => label(&kb.next_agent),
         CommandPaletteAction::OpenGit

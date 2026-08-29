@@ -1095,7 +1095,9 @@ impl App {
                 pending_headless_rows: None,
                 pending_group_accent_choice: None,
                 pending_group_name: None,
+                pending_group_icon: None,
                 pending_group_default_directory: None,
+
                 pending_group_default_execution_host_id: None,
                 pending_workspace_name: None,
                 pending_workspace_default_cwd: None,
@@ -1109,7 +1111,9 @@ impl App {
                 integration_host_profile_id: None,
                 connection_editor: None,
                 group_settings_target: None,
+                group_icon_picker_open: false,
                 workspace_settings_target: None,
+
             },
             integration_recommendations,
             host_integration_observations: std::collections::HashMap::new(),
@@ -5772,6 +5776,28 @@ impl App {
                 client_view.agent_menu = state::ModalListState::hidden(highlighted);
                 client_view.mode = Mode::AgentMenu;
             }
+            crate::app::command_palette::CommandPaletteAction::OpenContextMenu => {
+                let ws_idx = client_view
+                    .active_workspace
+                    .unwrap_or(client_view.selected_workspace);
+                let pane_id = client_view
+                    .focused_pane_for_workspace(&self.state, ws_idx)
+                    .map(|(_, pane_id)| pane_id)
+                    .or_else(|| {
+                        self.state
+                            .workspaces
+                            .get(ws_idx)
+                            .and_then(|workspace| workspace.focused_pane_id())
+                    });
+                if let Some(pane_id) = pane_id {
+                    if let Some(menu) =
+                        input::context_menu_state_for_pane(&self.state, ws_idx, pane_id)
+                    {
+                        client_view.context_menu = Some(menu);
+                        client_view.mode = Mode::ContextMenu;
+                    }
+                }
+            }
             crate::app::command_palette::CommandPaletteAction::SetAgentScope(scope) => {
                 client_view.agent_panel_scope = scope;
                 client_view.agent_panel_scroll = 0;
@@ -7364,6 +7390,28 @@ impl App {
                 client_view.group_menu = state::ModalListState::hidden(highlighted);
                 client_view.mode = Mode::GroupMenu;
             }
+            input::NavigateAction::OpenContextMenu => {
+                let ws_idx = client_view
+                    .active_workspace
+                    .unwrap_or(client_view.selected_workspace);
+                let pane_id = client_view
+                    .focused_pane_for_workspace(&self.state, ws_idx)
+                    .map(|(_, pane_id)| pane_id)
+                    .or_else(|| {
+                        self.state
+                            .workspaces
+                            .get(ws_idx)
+                            .and_then(|workspace| workspace.focused_pane_id())
+                    });
+                if let Some(pane_id) = pane_id {
+                    if let Some(menu) =
+                        input::context_menu_state_for_pane(&self.state, ws_idx, pane_id)
+                    {
+                        client_view.context_menu = Some(menu);
+                        client_view.mode = Mode::ContextMenu;
+                    }
+                }
+            }
             input::NavigateAction::SwitchGroup(idx) => {
                 self.switch_client_view_group(client_view, idx);
                 Self::leave_client_view_command_mode(client_view);
@@ -7904,6 +7952,22 @@ impl App {
 
             if client_view.creating_new_group
                 && Self::rect_contains(
+                    crate::ui::group_default_host_rect_for_view(
+                        client_view.creating_new_group,
+                        client_view.group_icon_picker_open,
+                        inner,
+                    ),
+                    mouse.column,
+                    mouse.row,
+                )
+            {
+                client_view.group_modal_selected_field = 1;
+                client_view.name_input_replace_on_type = false;
+                return true;
+            }
+
+            if client_view.creating_new_group
+                && Self::rect_contains(
                     crate::ui::group_default_directory_input_rect_for_view(
                         client_view.creating_new_group,
                         client_view.group_icon_picker_open,
@@ -7917,6 +7981,7 @@ impl App {
                 client_view.name_input_replace_on_type = false;
                 return true;
             }
+
 
             if Self::rect_contains(
                 crate::ui::group_name_input_rect_for_view(client_view.creating_new_group, inner),
@@ -10280,7 +10345,9 @@ impl App {
             return false;
         };
         let Some((info, (column, row))) =
-            Self::client_view_pane_at_screen(client_view, mouse.column, mouse.row)
+            Self::client_view_pane_at_screen(client_view, mouse.column, mouse.row).or_else(|| {
+                Self::client_view_pane_frame_at_screen(client_view, mouse.column, mouse.row)
+            })
         else {
             return false;
         };
@@ -10323,6 +10390,11 @@ impl App {
         }
 
         client_view.focus_pane_in_workspace(&self.state, ws_idx, tab_idx, info.id);
+        if client_view.can_mutate_tab() {
+            self.state.focus_pane_in_workspace(ws_idx, info.id);
+        } else {
+            client_view.request_tab_control();
+        }
         if client_view.mode != Mode::Terminal {
             client_view.mode = Mode::Terminal;
         }
@@ -11816,6 +11888,40 @@ impl App {
                         state::CollapsedSidebarHover::Workspace(ws_idx)
                     }
                 })
+                .or_else(|| {
+                    self.client_view_agent_header_target_at(client_view, mouse.column, mouse.row)
+                        .map(|header| state::CollapsedSidebarHover::AgentStatus {
+                            section: header.section,
+                        })
+                })
+                .or_else(|| {
+                    self.client_view_agent_detail_target_at(client_view, mouse.column, mouse.row)
+                        .map(|(ws_idx, _, pane_id)| state::CollapsedSidebarHover::Agent {
+                            ws_idx,
+                            pane_id,
+                        })
+                })
+            } else if client_view.right_sidebar_collapsed
+                && Self::rect_contains(
+                    client_view.computed.right_sidebar_rect,
+                    mouse.column,
+                    mouse.row,
+                )
+            {
+                self.client_view_agent_header_target_at(client_view, mouse.column, mouse.row)
+                    .map(|header| state::CollapsedSidebarHover::AgentStatus {
+                        section: header.section,
+                    })
+                    .or_else(|| {
+                        self.client_view_agent_detail_target_at(
+                            client_view,
+                            mouse.column,
+                            mouse.row,
+                        )
+                        .map(|(ws_idx, _, pane_id)| {
+                            state::CollapsedSidebarHover::Agent { ws_idx, pane_id }
+                        })
+                    })
             } else {
                 None
             };
@@ -16630,8 +16736,9 @@ command = "printf literal > '{}'"
         );
         client.computed.context_bar.segments = vec![state::ContextBarSegment {
             target: state::ContextBarTarget::TabControl,
-            label: "watching".to_string(),
-            rect: ratatui::layout::Rect::new(100, 20, 4, 1),
+            label: " Watching  Another Client Controls · Take Over".to_string(),
+            rect: ratatui::layout::Rect::new(100, 20, 48, 1),
+            hit_rect: Some(ratatui::layout::Rect::new(138, 20, 9, 1)),
         }];
 
         app.route_client_events_for_view(
@@ -16639,7 +16746,13 @@ command = "printf literal > '{}'"
             vec![raw_mouse(MouseEventKind::Down(MouseButton::Left), 101, 20)],
             false,
         );
+        assert_eq!(client.take_tab_control_request(), None);
 
+        app.route_client_events_for_view(
+            &mut client,
+            vec![raw_mouse(MouseEventKind::Down(MouseButton::Left), 138, 20)],
+            false,
+        );
         assert_eq!(client.take_tab_control_request(), Some(19));
         assert_eq!(client.take_tab_control_request(), None);
     }
@@ -18425,6 +18538,221 @@ command = "printf literal > '{}'"
         );
         assert!(client.selection.is_none());
     }
+
+    #[tokio::test]
+    async fn client_left_click_focuses_unfocused_split_pane() {
+        let mut app = test_app();
+        let mut workspace = Workspace::test_new("split-focus");
+        let left = workspace.tabs[0].root_pane;
+        let right = workspace.test_split(ratatui::layout::Direction::Horizontal);
+        workspace.tabs[0].layout.focus_pane(left);
+        app.state.workspaces = vec![workspace];
+        app.state.ensure_test_terminals();
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::Terminal;
+        app.state.mouse_capture = true;
+
+        let mut client = ClientViewState::from_default_client_state(&app.state);
+        client.mode = Mode::Terminal;
+        compute_client_view(&app, &mut client, ratatui::layout::Rect::new(0, 0, 80, 24));
+        assert_eq!(
+            client.focused_pane_for_workspace(&app.state, 0),
+            Some((0, left))
+        );
+        let right_info = client
+            .computed
+            .pane_infos
+            .iter()
+            .find(|info| info.id == right)
+            .cloned()
+            .expect("right pane geometry");
+        let (col, row) = screen_point_for_client_canvas(
+            &client,
+            right_info.inner_rect.x.saturating_add(2),
+            right_info.inner_rect.y.saturating_add(2),
+        );
+
+        app.route_client_events_for_view(
+            &mut client,
+            vec![raw_mouse(
+                crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left),
+                col,
+                row,
+            )],
+            true,
+        );
+
+        assert_eq!(
+            client.focused_pane_for_workspace(&app.state, 0),
+            Some((0, right))
+        );
+        compute_client_view(&app, &mut client, ratatui::layout::Rect::new(0, 0, 80, 24));
+        let focused_border = client
+            .computed
+            .pane_infos
+            .iter()
+            .find(|info| info.is_focused)
+            .map(|info| info.id);
+        assert_eq!(focused_border, Some(right));
+    }
+
+    #[tokio::test]
+    async fn client_left_click_focuses_right_split_with_combined_sidebar() {
+        let mut app = test_app();
+        app.state.sidebar_arrangement = crate::config::SidebarArrangementConfig::CombinedLeft;
+        app.state.sidebar_width = 32;
+        app.state.sidebar_collapsed = false;
+        let mut workspace = Workspace::test_new("checkout");
+        workspace.tabs[0].custom_name = Some("cart".into());
+        let left = workspace.tabs[0].root_pane;
+        let right = workspace.test_split(ratatui::layout::Direction::Horizontal);
+        workspace.tabs[0].layout.focus_pane(left);
+        app.state.workspaces = vec![workspace];
+        app.state.ensure_test_terminals();
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::Terminal;
+        app.state.mouse_capture = true;
+
+        let mut client = ClientViewState::from_default_client_state(&app.state);
+        client.mode = Mode::Terminal;
+        let area = ratatui::layout::Rect::new(0, 0, 180, 48);
+        compute_client_view(&app, &mut client, area);
+        let right_info = client
+            .computed
+            .pane_infos
+            .iter()
+            .find(|info| info.id == right)
+            .cloned()
+            .expect("right pane geometry");
+        let (col, row) = screen_point_for_client_canvas(
+            &client,
+            right_info.inner_rect.x + right_info.inner_rect.width / 2,
+            right_info.inner_rect.y + right_info.inner_rect.height / 2,
+        );
+
+        app.route_client_events_for_view(
+            &mut client,
+            vec![raw_mouse(
+                crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left),
+                col,
+                row,
+            )],
+            true,
+        );
+        compute_client_view(&app, &mut client, area);
+        let focused_border = client
+            .computed
+            .pane_infos
+            .iter()
+            .find(|info| info.is_focused)
+            .map(|info| info.id);
+        assert_eq!(
+            focused_border,
+            Some(right),
+            "click at ({col},{row}) pane_infos={:?}",
+            client
+                .computed
+                .pane_infos
+                .iter()
+                .map(|info| (info.id, info.rect, info.inner_rect, info.is_focused))
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[tokio::test]
+    async fn watching_client_pane_click_requests_tab_control() {
+        let mut app = test_app();
+        let mut workspace = Workspace::test_new("watch-click");
+        let left = workspace.tabs[0].root_pane;
+        let right = workspace.test_split(ratatui::layout::Direction::Horizontal);
+        workspace.tabs[0].layout.focus_pane(left);
+        app.state.workspaces = vec![workspace];
+        app.state.ensure_test_terminals();
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::Terminal;
+        app.state.mouse_capture = true;
+
+        let mut client = ClientViewState::from_default_client_state(&app.state);
+        client.mode = Mode::Terminal;
+        client.set_tab_control(crate::app::ClientTabControl::WatchingControlled { epoch: 9 });
+        compute_client_view(&app, &mut client, ratatui::layout::Rect::new(0, 0, 80, 24));
+        let right_info = client
+            .computed
+            .pane_infos
+            .iter()
+            .find(|info| info.id == right)
+            .cloned()
+            .expect("right pane geometry");
+        let (col, row) = screen_point_for_client_canvas(
+            &client,
+            right_info.inner_rect.x.saturating_add(2),
+            right_info.inner_rect.y.saturating_add(2),
+        );
+
+        app.route_client_events_for_view(
+            &mut client,
+            vec![raw_mouse(
+                crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left),
+                col,
+                row,
+            )],
+            true,
+        );
+
+        assert_eq!(client.take_tab_control_request(), Some(9));
+    }
+
+
+
+    #[tokio::test]
+    async fn client_left_click_on_pane_frame_focuses_that_pane() {
+        let mut app = test_app();
+        let mut workspace = Workspace::test_new("split-frame-focus");
+        let left = workspace.tabs[0].root_pane;
+        let right = workspace.test_split(ratatui::layout::Direction::Horizontal);
+        workspace.tabs[0].layout.focus_pane(left);
+        app.state.workspaces = vec![workspace];
+        app.state.ensure_test_terminals();
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::Terminal;
+        app.state.mouse_capture = true;
+
+        let mut client = ClientViewState::from_default_client_state(&app.state);
+        client.mode = Mode::Terminal;
+        compute_client_view(&app, &mut client, ratatui::layout::Rect::new(0, 0, 80, 24));
+        let right_info = client
+            .computed
+            .pane_infos
+            .iter()
+            .find(|info| info.id == right)
+            .cloned()
+            .expect("right pane geometry");
+        let (col, row) = screen_point_for_client_canvas(
+            &client,
+            right_info.rect.x.saturating_add(right_info.rect.width / 2),
+            right_info.rect.y,
+        );
+
+        app.route_client_events_for_view(
+            &mut client,
+            vec![raw_mouse(
+                crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left),
+                col,
+                row,
+            )],
+            true,
+        );
+
+        assert_eq!(
+            client.focused_pane_for_workspace(&app.state, 0),
+            Some((0, right))
+        );
+    }
+
 
     #[tokio::test]
     async fn watcher_visible_split_hit_cannot_start_shared_resize() {
@@ -21081,7 +21409,9 @@ command = "printf literal > '{}'"
             true,
             crate::kitty_graphics::HostCellSize::default(),
         );
-        let popup = crate::ui::centered_popup_rect(first_client.screen_rect(), 64, 20)
+        let (popup_w, popup_h) =
+            crate::ui::rename_modal_size_for_view(crate::app::Mode::RenameGroup, true);
+        let popup = crate::ui::centered_popup_rect(first_client.screen_rect(), popup_w, popup_h)
             .expect("new-group popup");
         let inner = ratatui::widgets::Block::default()
             .borders(ratatui::widgets::Borders::ALL)

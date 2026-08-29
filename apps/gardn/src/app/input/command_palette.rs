@@ -787,6 +787,10 @@ pub(crate) fn execute_command_palette_action(app: &mut App, action: CommandPalet
             super::modal::open_agent_menu(&mut app.state);
             return;
         }
+        CommandPaletteAction::OpenContextMenu => {
+            super::modal::open_context_menu_for_focus(&mut app.state);
+            return;
+        }
         CommandPaletteAction::SetAgentScope(scope) => {
             app.state.agent_panel_scope = scope;
             app.state.agent_panel_scroll = 0;

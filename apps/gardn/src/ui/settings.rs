@@ -602,7 +602,8 @@ fn settings_section_description(app: &AppState, section: SettingsSection) -> &'s
             "Credentials and host keys stay with OpenSSH; Gardn never stores them"
         }
         SettingsSection::Connections => "Add SSH hosts and manage their connections",
-        SettingsSection::GroupGeneral => "Rename this group or delete it",
+        SettingsSection::GroupGeneral => "Rename this group, change its icon, or delete it",
+
         SettingsSection::GroupProfiles => {
             "Choose favorite and default agent profiles for this group"
         }
@@ -937,7 +938,8 @@ fn settings_section_description_for(
             "Credentials and host keys stay with OpenSSH; Gardn never stores them"
         }
         SettingsSection::Connections => "Add SSH hosts and manage their connections",
-        SettingsSection::GroupGeneral => "Rename this group or delete it",
+        SettingsSection::GroupGeneral => "Rename this group, change its icon, or delete it",
+
         SettingsSection::GroupProfiles => {
             "Choose favorite and default agent profiles for this group"
         }
@@ -1203,9 +1205,10 @@ fn render_settings_rows_for_view(
             | SettingsListRow::Action { index, .. }
             | SettingsListRow::Status { index, .. }
             | SettingsListRow::Profile { index, .. } => Some(*index),
-            SettingsListRow::Header(_) | SettingsListRow::Caption(_) | SettingsListRow::Spacer => {
-                None
-            }
+            SettingsListRow::Header(_)
+            | SettingsListRow::Caption(_)
+            | SettingsListRow::Spacer
+            | SettingsListRow::GroupIconPicker => None,
         };
         let selected =
             settings.list.visible() == selected_index || settings.focused_input == selected_index;
@@ -1227,6 +1230,13 @@ fn render_settings_rows_for_view(
                 Style::default().fg(p.subtext0),
             )))),
             SettingsListRow::Spacer => rows.push(ListItem::new(Line::from(""))),
+            SettingsListRow::GroupIconPicker => {
+                rows.extend(group_icon_picker_list_items(
+                    group_settings_picker_icon(settings),
+                    p,
+                ));
+            }
+
             SettingsListRow::Toggle {
                 title,
                 description,
@@ -1628,6 +1638,45 @@ fn render_settings_sectioned_toggle_list(
 }
 
 const SETTINGS_BODY_INDENT: usize = 2;
+
+fn group_icon_picker_list_items(
+    selected_icon: &str,
+    p: &crate::app::state::Palette,
+) -> Vec<ListItem<'static>> {
+    let row_count = crate::ui::group_icon_picker_row_count() as usize;
+    (0..row_count)
+        .map(|row| {
+            let mut spans = vec![Span::raw(" ".repeat(SETTINGS_BODY_INDENT))];
+            for col in 0..5 {
+                let idx = row * 5 + col;
+                let Some(icon) = crate::app::state::GROUP_ICONS.get(idx) else {
+                    break;
+                };
+                let selected = *icon == selected_icon;
+                spans.push(Span::styled(
+                    format!(" {icon} "),
+                    if selected {
+                        Style::default()
+                            .fg(panel_contrast_fg(p))
+                            .bg(p.accent)
+                    } else {
+                        Style::default().fg(p.text).bg(p.surface0)
+                    },
+                ));
+                spans.push(Span::raw(" "));
+            }
+            ListItem::new(Line::from(spans))
+        })
+        .collect()
+}
+
+fn group_settings_picker_icon(settings: &SettingsState) -> &str {
+    settings
+        .pending_group_icon
+        .as_deref()
+        .unwrap_or(crate::app::state::DEFAULT_GROUP_ICON)
+}
+
 const SETTINGS_DESCRIPTION_INDENT: usize = 4;
 
 fn settings_body_width(width: usize) -> usize {
@@ -1833,6 +1882,12 @@ fn render_settings_rows(
                 ))));
             }
             SettingsListRow::Spacer => rows.push(ListItem::new(Line::from(""))),
+            SettingsListRow::GroupIconPicker => {
+                rows.extend(group_icon_picker_list_items(
+                    group_settings_picker_icon(&app.settings),
+                    p,
+                ));
+            }
             SettingsListRow::Toggle {
                 index,
                 title,
@@ -2267,20 +2322,22 @@ mod tests {
         app.settings.group_settings_target = Some(group_idx);
         app.settings.section = SettingsSection::GroupGeneral;
 
-        let backend = TestBackend::new(80, 24);
+        let backend = TestBackend::new(80, 30);
         let mut terminal = Terminal::new(backend).expect("test backend");
         terminal
-            .draw(|frame| render_settings_overlay(&app, frame, Rect::new(0, 0, 80, 24)))
+            .draw(|frame| render_settings_overlay(&app, frame, Rect::new(0, 0, 80, 30)))
             .expect("render group settings overlay");
 
-        let text = buffer_text(terminal.backend().buffer(), 80, 24);
+        let text = buffer_text(terminal.backend().buffer(), 80, 30);
         assert!(text.contains("Name"));
         assert!(text.contains("Work"));
+        assert!(text.contains("Icon"));
         assert!(text.contains("Default Location for New Spaces"));
         assert!(text.contains("‹ Local ›"));
         assert!(text.contains("Directory"));
         assert!(text.contains("Danger Zone"));
         assert!(text.contains("× Delete Group"));
+
         assert!(!text.contains("●"));
         assert!(!text.contains("○"));
         assert!(!text.contains("Work█"));
@@ -2331,27 +2388,27 @@ mod tests {
         app.settings.group_settings_target = Some(group_idx);
         app.settings.section = SettingsSection::GroupGeneral;
 
-        let backend = TestBackend::new(80, 24);
+        let backend = TestBackend::new(80, 30);
         let mut terminal = Terminal::new(backend).expect("test backend");
         terminal
-            .draw(|frame| render_settings_overlay(&app, frame, Rect::new(0, 0, 80, 24)))
+            .draw(|frame| render_settings_overlay(&app, frame, Rect::new(0, 0, 80, 30)))
             .expect("render group settings overlay");
 
         let buffer = terminal.backend().buffer();
-        let text = buffer_text(buffer, 80, 24);
+        let text = buffer_text(buffer, 80, 30);
         let (y, x) = find_text_cell(&text, "× Delete Group").expect("delete action row");
         assert_eq!(buffer[(x, y)].style().fg, Some(app.palette.red));
         assert_eq!(buffer[(x + 2, y)].style().fg, Some(app.palette.red));
         assert_ne!(buffer[(x, y)].style().bg, Some(app.palette.red));
 
-        app.settings.list.selected = 3;
+        app.settings.list.selected = crate::settings_rows::GROUP_GENERAL_DELETE;
         app.settings.list.show();
         terminal
-            .draw(|frame| render_settings_overlay(&app, frame, Rect::new(0, 0, 80, 24)))
+            .draw(|frame| render_settings_overlay(&app, frame, Rect::new(0, 0, 80, 30)))
             .expect("render group settings overlay");
 
         let buffer = terminal.backend().buffer();
-        let text = buffer_text(buffer, 80, 24);
+        let text = buffer_text(buffer, 80, 30);
         let (y, x) = find_text_cell(&text, "× Delete Group").expect("delete action row");
         assert_eq!(buffer[(x, y)].style().bg, Some(app.palette.red));
         assert_eq!(buffer[(x + 2, y)].style().bg, Some(app.palette.red));
@@ -2441,10 +2498,13 @@ mod tests {
         assert!(matches!(rows[1], SettingsListRow::Spacer));
         assert!(matches!(rows[2], SettingsListRow::Status { index: 1, .. }));
         assert!(matches!(rows[3], SettingsListRow::Spacer));
+        assert!(matches!(rows[4], SettingsListRow::Status { index: 2, .. }));
+        assert!(matches!(rows[5], SettingsListRow::Spacer));
         assert!(matches!(
-            rows[4],
-            SettingsListRow::TextInput { index: 2, .. }
+            rows[6],
+            SettingsListRow::TextInput { index: 3, .. }
         ));
+
     }
 
     #[test]
@@ -3226,7 +3286,8 @@ mod tests {
         app.settings.section = SettingsSection::GroupGeneral;
 
         for description in [
-            "Rename this group or delete it",
+            "Rename this group, change its icon, or delete it",
+
             "Set this space's display name, execution host, and directory",
         ] {
             let backend = TestBackend::new(area.width, area.height);

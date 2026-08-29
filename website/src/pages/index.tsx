@@ -6,7 +6,7 @@ import {
   Footer,
   Hero,
   PlatformCard,
-  Schematic,
+  SessionShot,
   Workflow,
 } from "../marketing";
 
@@ -63,7 +63,7 @@ export default function HomePage() {
           </p>
         </Hero>
 
-        <Schematic
+        <SessionShot
           title="The session owns your work; clients are just views"
           caption={
             <>
@@ -73,6 +73,29 @@ export default function HomePage() {
             </>
           }
         />
+
+        <SessionShot
+          headingId="groups-shot-title"
+          src="/groups.png"
+          srcDark="/groups-night.png"
+          video="/groups.mp4"
+          videoDark="/groups-night.mp4"
+          title="Filter the session by group"
+          alt="The Groups menu open over a Gardn session, listing All plus product, ops, and commerce."
+          caption="Groups keep product, ops, and commerce in one session without mixing their spaces."
+        />
+
+        <SessionShot
+          headingId="follow-up-shot-title"
+          src="/follow-up.png"
+          srcDark="/follow-up-night.png"
+          video="/follow-up.mp4"
+          videoDark="/follow-up-night.mp4"
+          title="Manage follow-up from an agent row"
+          alt="The Remove from Follow Up menu on the claude agent in Follow Up, with triage, working, and idle lists in the sidebar."
+          caption="Triage, Follow Up, and Working are first-class. Right-click an agent row to add or remove Follow Up without leaving the current space."
+        />
+
 
         <Workflow
           title="From launch to reattach"

@@ -1,0 +1,1972 @@
+/* The prototype is a full-bleed marketing page, not docs content. */
+#nd-home-layout:has(.rd-root) > #nd-nav {
+  display: none;
+}
+
+#nd-home-layout:has(.rd-root) > main {
+  width: 100%;
+  max-width: none;
+  padding: 0;
+}
+
+@font-face {
+  font-family: "Masakiro Mono";
+  src: url("https://raw.githubusercontent.com/masakirocorp/masakiro-mono/7643dd39c1d8a8dcbde8bab1bcbc86ecca4ef577/fonts/MasakiroMono-Regular.woff2")
+    format("woff2");
+  font-display: swap;
+  font-style: normal;
+  font-weight: 400;
+}
+
+.rd-root {
+  --background: #fffffc;
+  --surface: #f7f3ea;
+  --surface-muted: #dfd9cd;
+  --border: #d6cdbe;
+  --text: #1f1f1f;
+  --text-muted: #636462;
+  --primary: #0b5a3c;
+  --primary-hover: #063624;
+  --primary-soft: #e5efe7;
+  --accent: #a7c957;
+  --info: #4d8bb9;
+  --danger: #f26139;
+  --pink: #efc8d9;
+  --on-primary: #fffffc;
+  --rd-paper: var(--background);
+  --rd-deep: var(--surface-muted);
+  --rd-panel: var(--surface);
+  --rd-cream: var(--text);
+  --rd-muted: var(--text-muted);
+  --rd-faint: #7a7b78;
+  --rd-rule: var(--border);
+  --rd-acid: var(--primary);
+  --rd-orange: var(--primary);
+  --rd-cyan: var(--info);
+  --rd-red: var(--danger);
+  display: flex;
+  min-width: 0;
+  min-height: 100vh;
+  flex-direction: column;
+  overflow-x: clip;
+  color: var(--text);
+  background: var(--background);
+  font-family:
+    "Iowan Old Style",
+    "Palatino Linotype",
+    Palatino,
+    "Times New Roman",
+    serif;
+  font-synthesis: none;
+}
+.rd-root[data-theme="dark"],
+.dark .rd-root {
+  --background: #071a13;
+  --surface: #0d241a;
+  --surface-muted: #123122;
+  --border: #244a37;
+  --text: #f7f3ea;
+  --text-muted: #aeb8ac;
+  --primary: #7dba72;
+  --primary-hover: #a7c957;
+  --primary-soft: #143d2a;
+  --accent: #a7c957;
+  --info: #7eb6d9;
+  --danger: #ff7a59;
+  --pink: #f0b8cd;
+  --on-primary: #071a13;
+  --rd-faint: #8e9a8c;
+}
+
+.rd-root *,
+.rd-root *::before,
+.rd-root *::after {
+  box-sizing: border-box;
+}
+.rd-root h1,
+.rd-root h2,
+.rd-root h3,
+.rd-root p {
+  margin: 0;
+}
+.rd-root a {
+  color: inherit;
+  text-decoration: none;
+}
+.rd-root button,
+.rd-root select {
+  color: inherit;
+  font: inherit;
+}
+.rd-root button {
+  cursor: pointer;
+}
+.rd-root button:disabled {
+  cursor: not-allowed;
+}
+.rd-root :focus-visible {
+  outline: 3px solid var(--rd-acid);
+  outline-offset: 4px;
+}
+.rd-shell {
+  width: min(100% - clamp(2rem, 10vw, 10rem), 86rem);
+  margin-inline: auto;
+}
+.rd-eyebrow {
+  color: var(--rd-acid);
+  font:
+    600 0.66rem/1.35 "Masakiro Mono",
+    ui-monospace,
+    monospace;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+}
+.rd-hero .rd-eyebrow {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+}
+.rd-rule {
+  display: inline-block;
+  width: 3.5rem;
+  height: 1px;
+  background: currentColor;
+}
+.rd-skip {
+  position: fixed;
+  z-index: 100;
+  top: 0.5rem;
+  left: 0.5rem;
+  padding: 0.75rem 1rem;
+  transform: translateY(-180%);
+  color: var(--on-primary) !important;
+  background: var(--rd-acid);
+  font:
+    600 0.7rem/1 "Masakiro Mono",
+    monospace;
+  text-transform: uppercase;
+}
+.rd-skip:focus {
+  transform: none;
+}
+.rd-prototype-bar {
+  position: relative;
+  z-index: 50;
+  display: flex;
+  flex-wrap: wrap;
+  min-height: 2rem;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.3rem clamp(1rem, 4vw, 4rem);
+  color: var(--text);
+  background: var(--surface-muted);
+  font:
+    650 0.62rem/1.2 "Masakiro Mono",
+    monospace;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.rd-prototype-note,
+.rd-state-control {
+  display: flex;
+  align-items: center;
+}
+.rd-prototype-note {
+  gap: 0.65rem;
+}
+.rd-prototype-note span {
+  opacity: 0.72;
+}
+.rd-state-control {
+  gap: 0.5rem;
+}
+.rd-state-control select {
+  border: 1px solid var(--rd-rule);
+  border-radius: 999px;
+  padding: 0.35rem 0.7rem;
+  color: var(--rd-cream);
+  background: var(--rd-paper);
+  font-size: 0.56rem;
+}
+.rd-header {
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 4rem;
+  padding-inline: clamp(1.25rem, 4vw, 3rem);
+}
+.rd-brand {
+  display: inline-flex;
+  width: max-content;
+  align-items: center;
+  gap: 0.65rem;
+  font-size: 0.78rem;
+  font-weight: 650;
+}
+.rd-brand-mark {
+  display: block;
+  width: 1.85rem;
+  height: 1.85rem;
+  color: var(--primary);
+}
+.rd-nav-toggle {
+  display: none;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid var(--rd-rule);
+  border-radius: 999px;
+  color: var(--rd-cream);
+  background: transparent;
+  font:
+    600 0.58rem/1 "Masakiro Mono",
+    monospace;
+  text-transform: uppercase;
+}
+.rd-nav {
+  display: flex;
+  gap: 1.5rem;
+  color: var(--text-muted);
+  font-size: 0.95rem;
+}
+.rd-nav a:hover {
+  color: var(--text);
+}
+.rd-nav a {
+  padding: 0.75rem 0;
+}
+.rd-nav a:hover,
+.rd-nav a[aria-current="page"] {
+  color: var(--rd-cream);
+}
+.rd-nav a[aria-current="page"] {
+  border-bottom: 1px solid var(--rd-acid);
+}
+.rd-header-action {
+  justify-self: end;
+  padding: 0.65rem 1rem;
+  border: 1px solid var(--rd-acid);
+  border-radius: 999px;
+  color: var(--on-primary);
+  background: var(--rd-acid);
+  font:
+    650 0.65rem/1 "Masakiro Mono",
+    monospace;
+}
+.rd-hero {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1.75rem;
+  padding-block: 2.5rem 1.5rem;
+  text-align: center;
+}
+.rd-shot {
+  width: min(100% - 2rem, 56rem);
+  margin: 0;
+}
+.rd-shot-frame {
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 10;
+  object-fit: cover;
+  object-position: left top;
+  border: 1px solid var(--border);
+  border-radius: 0.6rem;
+  background: var(--surface);
+}
+.rd-hero h1 {
+  max-width: 28ch;
+  margin: 0;
+  font-size: clamp(1.35rem, 2.4vw, 1.85rem);
+  font-weight: 600;
+  line-height: 1.25;
+  letter-spacing: -0.03em;
+  text-wrap: balance;
+}
+.rd-install-box {
+  width: min(100% - 2rem, 36rem);
+  margin-top: 0;
+}
+.rd-lede {
+  max-width: 38rem;
+  margin-top: 2rem !important;
+  color: var(--rd-muted);
+  font-size: 1.02rem;
+  line-height: 1.65;
+}
+.rd-hero-promise {
+  margin-top: 1.25rem !important;
+  color: var(--rd-orange);
+  font:
+    600 clamp(1.25rem, 2vw, 2rem)/1.1 "Masakiro Mono",
+    monospace;
+  letter-spacing: -0.04em;
+}
+.rd-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  margin-top: 2rem;
+}
+
+.rd-install-box {
+  width: min(100% - 2rem, 36rem);
+  margin-top: 2rem;
+}
+.rd-install-row {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  justify-content: center;
+}
+.rd-install-row code {
+  min-width: 0;
+  overflow-x: auto;
+  color: var(--text);
+  font:
+    400 0.9rem/1.4 "Masakiro Mono",
+    ui-monospace,
+    monospace;
+}
+.rd-install-row button {
+  flex: none;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--primary);
+  font:
+    600 0.8rem/1 "Masakiro Mono",
+    ui-monospace,
+    monospace;
+}
+.rd-button {
+  display: inline-flex;
+  min-height: 2.75rem;
+  align-items: center;
+  justify-content: center;
+  padding: 0.7rem 1rem;
+  border: 1px solid var(--rd-rule);
+  border-radius: 999px;
+  color: var(--rd-cream);
+  background: transparent;
+  font:
+    600 0.65rem/1.2 "Masakiro Mono",
+    monospace;
+  text-transform: uppercase;
+  transition:
+    transform 140ms ease,
+    background 140ms ease;
+}
+.rd-button:hover {
+  transform: translateY(-2px);
+  background: var(--primary-soft);
+}
+.rd-button-primary {
+  border-color: var(--rd-acid);
+  color: var(--on-primary);
+  background: var(--rd-acid);
+}
+.rd-availability {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  margin-top: 1.5rem !important;
+  color: var(--rd-muted);
+  font:
+    400 0.64rem/1.4 "Masakiro Mono",
+    monospace;
+}
+.rd-signal {
+  width: 0.42rem;
+  height: 0.42rem;
+  border-radius: 50%;
+  background: var(--accent);
+}
+.rd-hero-docs {
+  margin-top: 1.2rem;
+}
+.rd-status-sentence {
+  max-width: 36rem;
+  margin-top: 1.35rem !important;
+  padding-left: 0.8rem;
+  border-left: 1px solid var(--rd-orange);
+  color: var(--rd-faint);
+  font:
+    400 0.62rem/1.55 "Masakiro Mono",
+    monospace;
+}
+.rd-hero-art {
+  position: static;
+  min-height: 0;
+}
+
+.rd-status-line,
+.rd-mono {
+  font-family: "Masakiro Mono", ui-monospace, monospace;
+}
+.rd-status-line {
+  margin-top: 1.5rem !important;
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+}
+.rd-story {
+  max-width: 38rem;
+  padding-block: clamp(4rem, 8vw, 7rem);
+  border-top: 1px solid var(--border);
+}
+.rd-story h2 {
+  max-width: 16ch;
+  font-size: clamp(2rem, 4vw, 3.1rem);
+  font-weight: 600;
+  line-height: 1.05;
+  letter-spacing: -0.04em;
+}
+.rd-story p {
+  margin-top: 1.25rem;
+  color: var(--text);
+  font-size: 1.125rem;
+  line-height: 1.55;
+}
+.rd-actions .rd-text-link {
+  align-self: center;
+}
+.rd-coordinate {
+  position: absolute;
+  right: 0;
+  bottom: 3rem;
+  color: var(--rd-muted);
+  font:
+    600 0.6rem/1.4 "Masakiro Mono",
+    monospace;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  writing-mode: vertical-rl;
+}
+.rd-hero-product {
+  position: absolute;
+  z-index: 3;
+  right: 0;
+  bottom: -6rem;
+  width: min(63rem, 67vw);
+  transform: perspective(80rem) rotateX(1deg) rotateY(-3deg);
+  transform-origin: bottom right;
+}
+
+.rd-section-heading {
+  display: grid;
+  grid-template-columns: minmax(8rem, 0.25fr) minmax(0, 0.5fr) minmax(10rem, 0.25fr);
+  gap: 1.5rem;
+  align-items: start;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--rd-rule);
+}
+.rd-section-heading .rd-eyebrow {
+  color: var(--rd-muted);
+}
+.rd-section-heading h2 {
+  max-width: 15ch;
+  font-size: clamp(2.6rem, 5vw, 5rem);
+  font-weight: 500;
+  line-height: 0.96;
+  letter-spacing: -0.065em;
+  text-wrap: balance;
+}
+.rd-section-heading > p:last-child {
+  max-width: 26rem;
+  color: var(--rd-muted);
+  font-size: 0.86rem;
+  line-height: 1.55;
+}
+.rd-product,
+.rd-operating,
+.rd-recent,
+.rd-download-options,
+.rd-platforms,
+.rd-release-contract {
+  padding-block: clamp(7rem, 12vw, 12rem);
+}
+.rd-product {
+  padding-top: 15rem;
+}
+.rd-surface {
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 1rem;
+  color: var(--rd-cream);
+  background: var(--surface);
+  box-shadow: 0 1.5rem 4rem color-mix(in oklab, var(--text) 10%, transparent);
+  font:
+    400 0.68rem/1.45 "Masakiro Mono",
+    monospace;
+}
+.rd-surface-topbar,
+.rd-surface-status {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  min-width: 0;
+  padding: 0.8rem 1rem;
+  color: var(--rd-faint);
+  background: var(--surface-muted);
+  font-size: 0.58rem;
+  text-transform: uppercase;
+}
+.rd-surface-topbar {
+  border-bottom: 1px solid var(--rd-rule);
+}
+.rd-surface-topbar > span:nth-child(2) {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rd-surface-brand {
+  color: var(--rd-acid);
+  font-weight: 600;
+}
+.rd-surface-live {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-left: auto;
+  color: var(--accent);
+}
+.rd-surface-live i,
+.rd-surface-agent i {
+  display: inline-block;
+  width: 0.42rem;
+  height: 0.42rem;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: currentColor;
+}
+.rd-surface-body {
+  display: grid;
+  grid-template-columns: 12rem minmax(0, 1fr);
+  min-width: 0;
+}
+.rd-surface-sidebar {
+  min-width: 0;
+  padding: 1rem;
+  border-right: 1px solid var(--rd-rule);
+  background: var(--surface-muted);
+}
+.rd-surface-label {
+  color: var(--rd-faint);
+  font-size: 0.54rem;
+  letter-spacing: 0.08em;
+}
+.rd-surface-label-agents {
+  margin-top: 1.8rem;
+}
+.rd-surface-project {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  min-width: 0;
+  padding: 0.6rem 0;
+  color: var(--rd-muted);
+}
+.rd-surface-project.is-active {
+  color: var(--rd-cream);
+}
+.rd-surface-project-mark {
+  display: grid;
+  width: 1.35rem;
+  height: 1.35rem;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 1px solid var(--rd-rule);
+  border-radius: 0.3rem;
+  color: var(--rd-orange);
+  font-size: 0.62rem;
+}
+.rd-surface-project > span:last-child {
+  display: grid;
+  min-width: 0;
+  gap: 0.15rem;
+}
+.rd-surface-project b {
+  overflow: hidden;
+  font-size: 0.65rem;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rd-surface-project small {
+  color: var(--rd-faint);
+  font-size: 0.5rem;
+}
+.rd-surface-agent {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 0.45rem;
+  align-items: center;
+  padding: 0.45rem 0;
+  color: var(--rd-muted);
+  font-size: 0.58rem;
+}
+.rd-surface-agent i.is-working {
+  color: var(--rd-acid);
+}
+.rd-surface-agent i.is-blocked {
+  color: var(--rd-red);
+}
+.rd-surface-agent i.is-idle {
+  color: var(--rd-faint);
+}
+.rd-surface-agent em {
+  color: var(--rd-faint);
+  font-size: 0.5rem;
+  font-style: normal;
+  text-transform: uppercase;
+}
+.rd-surface-workspace {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.65rem;
+  min-width: 0;
+  padding: 1rem;
+}
+.rd-surface-palette {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 0.65rem;
+  align-items: center;
+  min-width: 0;
+  padding: 0.65rem 0.75rem;
+  border: 1px solid var(--primary);
+  border-radius: 0.45rem;
+  color: var(--rd-muted);
+  background: var(--primary-soft);
+}
+.rd-surface-palette > span {
+  color: var(--rd-acid);
+  font-size: 0.56rem;
+}
+.rd-surface-palette b {
+  color: var(--rd-cream);
+  font-size: 0.62rem;
+  font-weight: 500;
+}
+.rd-surface-palette small {
+  color: var(--rd-faint);
+  font-size: 0.5rem;
+  text-transform: uppercase;
+}
+.rd-surface-terminal {
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--rd-rule);
+  border-radius: 0.55rem;
+  background: var(--surface-muted);
+}
+.rd-surface-terminal-primary {
+  grid-column: 1 / -1;
+}
+.rd-surface-terminal-title {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.55rem 0.7rem;
+  border-bottom: 1px solid var(--rd-rule);
+  color: var(--rd-muted);
+  font-size: 0.52rem;
+  text-transform: uppercase;
+}
+.rd-surface-terminal-title > span:last-child {
+  color: var(--rd-acid);
+}
+.rd-surface-terminal-title .ok {
+  color: var(--accent);
+}
+.rd-surface-terminal-title .warn {
+  color: var(--rd-red);
+}
+.rd-surface-terminal pre {
+  min-height: 6rem;
+  padding: 0.75rem;
+  margin: 0;
+  overflow: auto;
+  color: var(--rd-muted);
+  font:
+    400 0.57rem/1.75 "Masakiro Mono",
+    monospace;
+  white-space: pre-wrap;
+}
+.rd-surface-terminal-primary pre {
+  min-height: 8rem;
+}
+.rd-surface-terminal .dim {
+  color: var(--rd-faint);
+}
+.rd-surface-terminal .accent {
+  color: var(--rd-acid);
+}
+.rd-surface-terminal .ok {
+  color: var(--accent);
+}
+.rd-surface-terminal .warn {
+  color: var(--rd-red);
+}
+.rd-surface-terminal .cursor {
+  color: var(--rd-acid);
+}
+.rd-surface-status {
+  flex-wrap: wrap;
+  border-top: 1px solid var(--rd-rule);
+  color: var(--rd-faint);
+}
+.rd-surface-status span {
+  padding-right: 1rem;
+}
+.rd-product-stage {
+  position: relative;
+  margin-top: 6rem;
+  padding: clamp(1rem, 3vw, 2.5rem);
+  overflow: hidden;
+  border-radius: 1.5rem;
+  background:
+    radial-gradient(circle at 20% 20%, var(--rd-acid), transparent 36%),
+    radial-gradient(circle at 80% 75%, oklch(0.43 0.18 245), transparent 43%),
+    repeating-radial-gradient(
+      circle at 70% 30%,
+      transparent 0 3px,
+      oklch(0.1 0.02 120 / 0.6) 4px 5px
+    ),
+    oklch(0.75 0.2 48);
+}
+.rd-product-stage .rd-surface {
+  transform: rotate(0.8deg);
+}
+.rd-product .vdp-lifecycle {
+  margin-top: 4rem;
+}
+.rd-product-meta {
+  display: flex;
+  justify-content: center;
+  gap: 0.6rem;
+  margin-top: 2rem;
+}
+.rd-product-meta span {
+  padding: 0.45rem 0.7rem;
+  border: 1px solid var(--rd-rule);
+  border-radius: 999px;
+  color: var(--rd-muted);
+  font:
+    400 0.58rem/1 "Masakiro Mono",
+    monospace;
+  text-transform: uppercase;
+}
+.rd-product-meta b {
+  color: var(--rd-cream);
+  font-weight: 500;
+}
+
+.rd-freedom,
+.rd-persistence,
+.rd-migration,
+.rd-binary-gate {
+  display: grid;
+  grid-template-columns: minmax(0, 0.85fr) minmax(22rem, 1.15fr);
+  gap: clamp(3rem, 8vw, 9rem);
+  padding-block: clamp(7rem, 12vw, 11rem);
+  border-top: 1px solid var(--rd-rule);
+}
+.rd-vertical-label {
+  display: none;
+}
+.rd-freedom h2,
+.rd-persistence h2,
+.rd-migration h2,
+.rd-binary-gate h2,
+.rd-install h2,
+.rd-release-empty h2 {
+  margin-top: 1rem;
+  font-size: clamp(3rem, 5.5vw, 5.8rem);
+  font-weight: 500;
+  line-height: 0.9;
+  letter-spacing: -0.07em;
+  text-wrap: balance;
+}
+.rd-freedom > div > p:last-child,
+.rd-persistence-copy > p:last-of-type,
+.rd-migration-body > p {
+  max-width: 38rem;
+  margin-top: 1.5rem;
+  color: var(--rd-muted);
+  line-height: 1.65;
+}
+.rd-tool-list {
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+.rd-tool-list li {
+  display: grid;
+  grid-template-columns: 7rem 1fr;
+  gap: 1rem;
+  padding: 1.2rem 0;
+  border-top: 1px solid var(--rd-rule);
+}
+.rd-tool-list li:last-child {
+  border-bottom: 1px solid var(--rd-rule);
+}
+.rd-tool-list span {
+  color: var(--rd-orange);
+  font:
+    600 0.58rem/1.4 "Masakiro Mono",
+    monospace;
+  text-transform: uppercase;
+}
+.rd-tool-list b {
+  color: var(--rd-cream);
+  font-size: 0.85rem;
+  font-weight: 500;
+  line-height: 1.45;
+}
+
+
+.rd-operating-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1px;
+  margin-top: 6rem;
+  overflow: hidden;
+  border: 1px solid var(--rd-rule);
+  border-radius: 1.2rem;
+  background: var(--rd-rule);
+}
+.rd-operating-card {
+  min-height: 16rem;
+  padding: 1.7rem;
+  background: var(--rd-panel);
+}
+.rd-operating-card > span {
+  color: var(--rd-orange);
+  font:
+    600 0.62rem/1 "Masakiro Mono",
+    monospace;
+}
+.rd-operating-card h3 {
+  max-width: 16ch;
+  margin-top: 3.5rem;
+  font-size: clamp(1.35rem, 2.4vw, 2.2rem);
+  font-weight: 500;
+  line-height: 1;
+  letter-spacing: -0.04em;
+}
+.rd-operating-card strong {
+  display: block;
+  margin-top: 1rem;
+  color: var(--rd-acid);
+  font:
+    500 0.6rem/1.35 "Masakiro Mono",
+    monospace;
+  text-transform: uppercase;
+}
+.rd-operating-card p {
+  max-width: 30rem;
+  margin-top: 0.8rem;
+  color: var(--rd-muted);
+  font-size: 0.82rem;
+  line-height: 1.55;
+}
+.rd-session-diagram {
+  align-self: center;
+  padding: 2rem;
+  border: 1px solid var(--rd-rule);
+  border-radius: 1.5rem;
+  background:
+    radial-gradient(circle at 50% 35%, color-mix(in oklab, var(--primary) 14%, transparent), transparent 16rem), var(--rd-deep);
+}
+.rd-session-core {
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+  padding: 2rem;
+  border: 1px solid var(--rd-rule);
+  border-radius: 1rem;
+  background: var(--rd-panel);
+}
+.rd-session-core span {
+  color: var(--rd-acid);
+  font:
+    500 0.62rem/1 "Masakiro Mono",
+    monospace;
+  text-transform: uppercase;
+}
+.rd-session-core b {
+  font-size: 0.85rem;
+  font-weight: 500;
+  line-height: 1.55;
+}
+.rd-session-line {
+  width: 1px;
+  height: 3rem;
+  margin-inline: auto;
+  background: var(--rd-rule);
+}
+.rd-client-row {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.5rem;
+}
+.rd-client-row span {
+  display: grid;
+  min-height: 4.2rem;
+  place-items: center;
+  border: 1px solid var(--rd-rule);
+  border-radius: 999px;
+  color: var(--rd-muted);
+  font:
+    400 0.58rem/1.3 "Masakiro Mono",
+    monospace;
+  text-align: center;
+}
+.rd-text-link {
+  display: inline-flex;
+  gap: 0.5rem;
+  margin-top: 1.75rem;
+  color: var(--rd-acid);
+  font:
+    600 0.65rem/1.3 "Masakiro Mono",
+    monospace;
+  text-transform: uppercase;
+}
+.rd-migration {
+  align-items: start;
+}
+.rd-migration-path {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr auto 1fr;
+  align-items: center;
+  margin-top: 2rem;
+}
+.rd-migration-path span {
+  padding: 1rem;
+  border: 1px solid var(--rd-rule);
+  border-radius: 999px;
+  color: var(--rd-muted);
+  font:
+    400 0.58rem/1.3 "Masakiro Mono",
+    monospace;
+  text-align: center;
+}
+.rd-migration-path i {
+  color: var(--rd-orange);
+  font-style: normal;
+}
+
+.rd-recent-heading {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 2rem;
+  align-items: end;
+}
+.rd-release-date {
+  color: var(--rd-muted);
+  font:
+    400 0.58rem/1.4 "Masakiro Mono",
+    monospace;
+}
+.rd-feature-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 1rem;
+  margin-top: 6rem;
+}
+.rd-feature-card {
+  min-height: 18rem;
+  padding: 1.7rem;
+  border: 1px solid var(--rd-rule);
+  border-radius: 1.2rem;
+  background: var(--surface);
+}
+.rd-feature-card > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  color: var(--rd-orange);
+  font:
+    500 0.58rem/1 "Masakiro Mono",
+    monospace;
+  text-transform: uppercase;
+}
+.rd-feature-card code {
+  padding: 0.35rem 0.55rem;
+  border-radius: 999px;
+  color: var(--rd-paper);
+  background: var(--rd-acid);
+  font-size: 0.54rem;
+}
+.rd-feature-card h3 {
+  max-width: 18ch;
+  margin-top: 4rem;
+  font-size: clamp(1.5rem, 2.5vw, 2.4rem);
+  font-weight: 500;
+  line-height: 1.05;
+  letter-spacing: -0.04em;
+}
+.rd-feature-card p {
+  margin-top: 1rem;
+  color: var(--rd-muted);
+  font-size: 0.88rem;
+  line-height: 1.55;
+}
+.rd-feature-card a {
+  display: inline-block;
+  margin-top: 1.3rem;
+  color: var(--rd-acid);
+  font:
+    600 0.6rem/1 "Masakiro Mono",
+    monospace;
+  text-transform: uppercase;
+}
+.rd-recent-link {
+  margin-top: 2rem;
+}
+.rd-skeleton-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 1rem;
+  margin-top: 5rem;
+}
+.rd-skeleton-grid i,
+.rd-release-skeleton i {
+  min-height: 14rem;
+  border-radius: 1.2rem;
+  background: linear-gradient(
+    105deg,
+    var(--rd-panel) 35%,
+    oklch(0.22 0.015 120) 50%,
+    var(--rd-panel) 65%
+  );
+  background-size: 200% 100%;
+  animation: rd-shimmer 1.4s linear infinite;
+}
+.rd-inline-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-top: 4rem;
+  padding: 1.2rem;
+  border: 1px solid var(--rd-red);
+  border-radius: 1rem;
+  color: var(--rd-muted);
+  background: color-mix(in oklab, var(--danger) 14%, var(--surface));
+}
+.rd-inline-error button {
+  padding: 0.6rem 0.9rem;
+  border: 1px solid var(--rd-red);
+  border-radius: 999px;
+  background: transparent;
+  font:
+    600 0.6rem/1 "Masakiro Mono",
+    monospace;
+  text-transform: uppercase;
+}
+
+.rd-install {
+  position: relative;
+  display: grid;
+  min-height: 43rem;
+  place-items: center;
+  padding: 7rem 1rem;
+  overflow: hidden;
+  border-top: 1px solid var(--rd-rule);
+  background:
+    radial-gradient(ellipse at 50% 100%, color-mix(in oklab, var(--primary) 14%, transparent), transparent 42%), var(--rd-deep);
+  text-align: center;
+}
+.rd-install::before {
+  position: absolute;
+  bottom: -8rem;
+  width: min(54rem, 84vw);
+  aspect-ratio: 1.55;
+  opacity: 0.32;
+  background: radial-gradient(circle, var(--rd-acid) 0 1px, transparent 1.5px);
+  background-size: 8px 8px;
+  content: "";
+  mask-image: radial-gradient(ellipse, black, transparent 70%);
+}
+.rd-install > div {
+  position: relative;
+  z-index: 2;
+}
+.rd-install-command {
+  display: flex;
+  min-width: min(100%, 32rem);
+  margin-top: 2rem;
+  overflow: hidden;
+  border: 1px solid var(--rd-rule);
+  border-radius: 999px;
+  background: var(--rd-panel);
+}
+.rd-install-command code {
+  min-width: 0;
+  padding: 0.9rem 1rem;
+  overflow-x: auto;
+  color: var(--rd-cream);
+  font:
+    400 0.62rem/1.4 "Masakiro Mono",
+    monospace;
+  white-space: nowrap;
+}
+.rd-install-command button,
+.rd-code button {
+  flex: 0 0 auto;
+  padding: 0 1rem;
+  border: 0;
+  color: var(--rd-paper);
+  background: var(--rd-acid);
+  font:
+    600 0.58rem/1 "Masakiro Mono",
+    monospace;
+  text-transform: uppercase;
+}
+.rd-install > .rd-actions {
+  margin-top: 2rem;
+}
+
+/* Download and Releases use the same A system, not a separate editorial shell. */
+.rd-page-hero {
+  position: relative;
+  min-height: 40rem;
+  padding-block: clamp(6rem, 12vw, 11rem);
+  background:
+    radial-gradient(circle at 82% 35%, color-mix(in oklab, var(--primary) 16%, transparent), transparent 22rem),
+    linear-gradient(oklch(0.92 0.01 100 / 0.03) 1px, transparent 1px),
+    linear-gradient(90deg, oklch(0.92 0.01 100 / 0.03) 1px, transparent 1px);
+  background-size:
+    auto,
+    3.5rem 3.5rem,
+    3.5rem 3.5rem;
+}
+.rd-page-status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 2rem;
+}
+.rd-page-status > span {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--rd-muted);
+  font:
+    400 0.6rem/1 "Masakiro Mono",
+    monospace;
+  text-transform: uppercase;
+}
+.rd-page-status i {
+  width: 0.45rem;
+  height: 0.45rem;
+  border-radius: 50%;
+  background: var(--rd-orange);
+}
+[data-release-state="tagged"] .rd-page-status i {
+  background: var(--accent);
+}
+.rd-page-hero h1 {
+  max-width: 14ch;
+  margin-top: 4rem;
+  font-size: clamp(4rem, 8vw, 8rem);
+  font-weight: 600;
+  line-height: 0.86;
+  letter-spacing: -0.075em;
+  text-wrap: balance;
+}
+.rd-page-hero > p {
+  max-width: 45rem;
+  margin-top: 2rem;
+  color: var(--rd-muted);
+  font-size: 1rem;
+  line-height: 1.65;
+}
+.rd-option-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 1rem;
+  margin-top: 6rem;
+}
+.rd-install-option {
+  min-width: 0;
+  padding: 2rem;
+  border: 1px solid var(--rd-rule);
+  border-radius: 1.2rem;
+  background: var(--rd-panel);
+}
+.rd-install-option > span {
+  color: var(--rd-orange);
+  font:
+    600 0.62rem/1 "Masakiro Mono",
+    monospace;
+}
+.rd-install-option h3 {
+  margin-top: 4rem;
+  font-size: clamp(1.7rem, 3vw, 2.8rem);
+  font-weight: 500;
+  line-height: 1;
+}
+.rd-install-option > p {
+  min-height: 3rem;
+  margin-top: 1rem;
+  color: var(--rd-muted);
+  font-size: 0.88rem;
+  line-height: 1.55;
+}
+.rd-code {
+  display: flex;
+  min-width: 0;
+  margin-top: 2rem;
+  overflow: hidden;
+  border: 1px solid var(--rd-rule);
+  border-radius: 0.8rem;
+  background: var(--rd-deep);
+}
+.rd-code pre {
+  min-width: 0;
+  max-width: 100%;
+  padding: 1rem;
+  margin: 0;
+  overflow-x: auto;
+}
+.rd-code code {
+  color: var(--rd-cream);
+  font:
+    400 0.62rem/1.65 "Masakiro Mono",
+    monospace;
+  white-space: pre;
+}
+.rd-release-control {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 1rem;
+  align-items: center;
+  min-height: 7rem;
+  padding: 1.25rem;
+  border: 1px solid var(--rd-rule);
+  border-radius: 1rem;
+  background: var(--rd-panel);
+}
+.rd-release-control > span {
+  display: grid;
+  width: 2rem;
+  height: 2rem;
+  place-items: center;
+  border: 1px solid var(--rd-rule);
+  border-radius: 50%;
+  font:
+    600 0.7rem/1 "Masakiro Mono",
+    monospace;
+}
+.rd-release-control b {
+  font:
+    600 0.78rem/1.3 "Masakiro Mono",
+    monospace;
+}
+.rd-release-control p {
+  margin-top: 0.35rem;
+  color: var(--rd-muted);
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+.rd-release-control button,
+.rd-assets button {
+  min-height: 2.5rem;
+  padding: 0.6rem 0.85rem;
+  border: 1px solid var(--rd-rule);
+  border-radius: 999px;
+  color: var(--rd-paper);
+  background: var(--rd-acid);
+  font:
+    600 0.56rem/1 "Masakiro Mono",
+    monospace;
+  text-transform: uppercase;
+}
+.rd-release-control button:disabled {
+  color: var(--rd-faint);
+  background: transparent;
+}
+.rd-release-control-error {
+  border-color: var(--rd-red);
+  background: color-mix(in oklab, var(--danger) 14%, var(--surface));
+}
+.rd-release-control-ready {
+  border-color: color-mix(in oklab, var(--accent) 60%, var(--border));
+}
+.rd-spinner {
+  width: 2rem;
+  height: 2rem;
+  border: 2px solid var(--rd-rule);
+  border-top-color: var(--rd-acid);
+  border-radius: 50%;
+  animation: rd-spin 800ms linear infinite;
+}
+.rd-platform-table {
+  margin-top: 6rem;
+  border: 1px solid var(--rd-rule);
+  border-radius: 1.2rem;
+  overflow: hidden;
+}
+.rd-platform-row {
+  display: grid;
+  grid-template-columns: 0.8fr 1.15fr 1.35fr 0.7fr;
+  border-bottom: 1px solid var(--rd-rule);
+}
+.rd-platform-row:last-child {
+  border-bottom: 0;
+}
+.rd-platform-row > span {
+  padding: 1rem;
+  color: var(--rd-muted);
+  font-size: 0.82rem;
+}
+.rd-platform-row b {
+  color: var(--rd-cream);
+  font-weight: 600;
+}
+.rd-platform-head {
+  background: var(--rd-panel);
+}
+.rd-platform-head > span {
+  color: var(--rd-faint);
+  font:
+    600 0.56rem/1 "Masakiro Mono",
+    monospace;
+  text-transform: uppercase;
+}
+.rd-check {
+  display: inline-block;
+  width: 0.4rem;
+  height: 0.4rem;
+  margin-right: 0.35rem;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+.rd-release-list {
+  padding-block: 3rem clamp(7rem, 12vw, 11rem);
+}
+.rd-release-empty {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: clamp(1.5rem, 4vw, 4rem);
+  align-items: center;
+  padding: clamp(2rem, 5vw, 5rem);
+  border: 1px solid var(--rd-rule);
+  border-radius: 1.5rem;
+  background:
+    radial-gradient(circle at 88% 30%, color-mix(in oklab, var(--primary) 14%, transparent), transparent 18rem),
+    var(--rd-panel);
+}
+.rd-release-empty > span {
+  align-self: start;
+  color: var(--rd-orange);
+  font:
+    400 2rem/1 "Masakiro Mono",
+    monospace;
+}
+.rd-release-empty p:last-child {
+  max-width: 46rem;
+  margin-top: 1rem;
+  color: var(--rd-muted);
+  line-height: 1.6;
+}
+.rd-release-empty-error {
+  border-color: var(--rd-red);
+}
+.rd-release-skeleton {
+  display: grid;
+  gap: 1rem;
+}
+.rd-release-skeleton i {
+  min-height: 5rem;
+}
+.rd-release-entry {
+  overflow: hidden;
+  border: 1px solid var(--rd-rule);
+  border-radius: 1.5rem;
+  background: var(--rd-panel);
+}
+.rd-release-entry > header {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 2rem;
+  padding: clamp(2rem, 4vw, 4rem);
+  border-bottom: 1px solid var(--rd-rule);
+}
+.rd-release-entry header p {
+  color: var(--rd-orange);
+  font:
+    400 0.6rem/1.3 "Masakiro Mono",
+    monospace;
+}
+.rd-release-entry header h2 {
+  margin-top: 0.8rem;
+  font-size: clamp(2.8rem, 6vw, 6rem);
+  font-weight: 500;
+  line-height: 0.9;
+  letter-spacing: -0.065em;
+}
+.rd-release-entry header > span {
+  padding: 0.4rem 0.6rem;
+  border-radius: 999px;
+  color: var(--rd-paper);
+  background: var(--rd-acid);
+  font:
+    600 0.56rem/1 "Masakiro Mono",
+    monospace;
+  text-transform: uppercase;
+}
+.rd-release-summary {
+  max-width: 52rem;
+  padding: clamp(2rem, 4vw, 4rem);
+  color: var(--rd-muted);
+  line-height: 1.65;
+}
+.rd-release-notes {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  border-top: 1px solid var(--rd-rule);
+}
+.rd-release-notes > div {
+  min-height: 14rem;
+  padding: 2rem;
+  border-right: 1px solid var(--rd-rule);
+  border-bottom: 1px solid var(--rd-rule);
+}
+.rd-release-notes > div:nth-child(2n) {
+  border-right: 0;
+}
+.rd-release-notes span {
+  color: var(--rd-orange);
+  font:
+    500 0.56rem/1 "Masakiro Mono",
+    monospace;
+  text-transform: uppercase;
+}
+.rd-release-notes h3 {
+  margin-top: 3rem;
+  font-size: 1.2rem;
+  font-weight: 600;
+}
+.rd-release-notes p {
+  margin-top: 0.8rem;
+  color: var(--rd-muted);
+  font-size: 0.85rem;
+  line-height: 1.55;
+}
+.rd-assets {
+  padding: clamp(2rem, 4vw, 4rem);
+}
+.rd-assets > h3 {
+  margin-bottom: 1rem;
+  font:
+    600 0.65rem/1 "Masakiro Mono",
+    monospace;
+  text-transform: uppercase;
+}
+.rd-assets > div {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(11rem, auto) auto;
+  gap: 1rem;
+  align-items: center;
+  padding: 0.85rem 0;
+  border-top: 1px solid var(--rd-rule);
+  color: var(--rd-muted);
+  font:
+    400 0.64rem/1.3 "Masakiro Mono",
+    monospace;
+}
+.rd-assets code {
+  color: var(--rd-faint);
+}
+.rd-release-entry > footer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem 1.5rem;
+  padding: 1.2rem clamp(2rem, 4vw, 4rem);
+  border-top: 1px solid var(--rd-rule);
+  color: var(--rd-muted);
+  font:
+    400 0.6rem/1.4 "Masakiro Mono",
+    monospace;
+}
+.rd-release-entry > footer a {
+  margin-left: auto;
+  color: var(--rd-acid);
+}
+.rd-release-contract ol {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  padding: 0;
+  margin: 6rem 0 0;
+  overflow: hidden;
+  border: 1px solid var(--rd-rule);
+  border-radius: 1.2rem;
+  list-style: none;
+}
+.rd-release-contract li {
+  min-height: 17rem;
+  padding: 1.7rem;
+  border-right: 1px solid var(--rd-rule);
+}
+.rd-release-contract li:last-child {
+  border-right: 0;
+}
+.rd-release-contract li > span {
+  color: var(--rd-orange);
+  font:
+    500 0.6rem/1 "Masakiro Mono",
+    monospace;
+}
+.rd-release-contract h3 {
+  margin-top: 5rem;
+  font-size: 1.25rem;
+}
+.rd-release-contract li p {
+  margin-top: 0.8rem;
+  color: var(--rd-muted);
+  font-size: 0.85rem;
+  line-height: 1.5;
+}
+
+.rd-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 1.25rem 1.75rem;
+  padding: 1.25rem;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+.rd-footer a:hover {
+  color: var(--text);
+}
+#rd-main {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+}
+
+@keyframes rd-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes rd-shimmer {
+  to {
+    background-position: -200% 0;
+  }
+}
+
+@media (max-width: 960px) {
+  .rd-prototype-note span,
+  .rd-state-control > span {
+    display: none;
+  }
+  .rd-header {
+    grid-template-columns: 1fr auto;
+  }
+  .rd-nav {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    justify-content: center;
+    padding-bottom: 0.8rem;
+  }
+  .rd-header-action {
+    grid-column: 2;
+    grid-row: 1;
+  }
+  .rd-hero {
+    grid-template-columns: 1fr;
+    padding-bottom: 14rem;
+  }
+  .rd-hero-art {
+    min-height: 26rem;
+  }
+  .rd-hero-art .vdp-orb {
+    width: min(30rem, 100%);
+  }
+  .rd-hero-product {
+    right: 0;
+    width: 100%;
+    transform: none;
+  }
+  .rd-section-heading {
+    grid-template-columns: 0.25fr 0.75fr;
+  }
+  .rd-section-heading > p:last-child {
+    grid-column: 2;
+  }
+  .rd-freedom,
+  .rd-persistence,
+  .rd-migration,
+  .rd-binary-gate {
+    grid-template-columns: 1fr;
+  }
+  .rd-session-diagram {
+    width: min(100%, 44rem);
+  }
+  .rd-option-grid {
+    grid-template-columns: 1fr;
+  }
+  .rd-release-contract ol {
+    grid-template-columns: 1fr;
+  }
+  .rd-release-contract li {
+    min-height: auto;
+    border-right: 0;
+    border-bottom: 1px solid var(--rd-rule);
+  }
+  .rd-release-contract h3 {
+    margin-top: 2rem;
+  }
+}
+
+@media (max-width: 680px) {
+  .rd-shell {
+    width: calc(100% - 2rem);
+  }
+  .rd-header {
+    position: relative;
+    grid-template-columns: 1fr auto auto;
+    min-height: 4rem;
+    gap: 0.65rem;
+    padding-inline: 1rem;
+  }
+  .rd-nav-toggle {
+    display: block;
+    grid-column: 3;
+    grid-row: 1;
+  }
+  .rd-nav {
+    position: absolute;
+    top: 100%;
+    right: 0;
+    left: 0;
+    display: none;
+    align-items: stretch;
+    flex-direction: column;
+    gap: 0;
+    padding: 0.75rem 1rem 1rem;
+    border-bottom: 1px solid var(--rd-rule);
+    background: color-mix(in oklab, var(--background) 96%, transparent);
+    box-shadow: 0 1.25rem 2.5rem color-mix(in oklab, var(--text) 12%, transparent);
+  }
+  .rd-nav.is-open {
+    display: flex;
+  }
+  .rd-nav a {
+    padding: 0.8rem 0;
+    border-bottom: 1px solid var(--rd-rule);
+    font-size: 0.62rem;
+  }
+  .rd-header-action {
+    grid-column: 2;
+    grid-row: 1;
+    padding: 0.55rem 0.75rem;
+    font-size: 0.56rem;
+  }
+  .rd-hero {
+    min-height: auto;
+    padding-top: 4.5rem;
+    padding-bottom: 13rem;
+  }
+  .rd-hero h1 {
+    max-width: 9ch;
+    font-size: clamp(3.8rem, 17vw, 5.4rem);
+  }
+  .rd-lede {
+    font-size: 0.95rem;
+  }
+  .rd-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .rd-button {
+    width: 100%;
+  }
+  .rd-hero-art {
+    min-height: 22rem;
+    margin-top: 2rem;
+  }
+  .rd-hero-product {
+    bottom: -5rem;
+  }
+  .rd-surface-topbar,
+  .rd-surface-status {
+    gap: 0.55rem;
+    padding-inline: 0.75rem;
+    font-size: 0.5rem;
+  }
+  .rd-surface-body {
+    grid-template-columns: 1fr;
+  }
+  .rd-surface-sidebar {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    column-gap: 1rem;
+    border-right: 0;
+    border-bottom: 1px solid var(--rd-rule);
+  }
+  .rd-surface-label {
+    grid-column: 1 / -1;
+  }
+  .rd-surface-label-agents {
+    margin-top: 0.5rem;
+  }
+  .rd-surface-workspace {
+    grid-template-columns: 1fr;
+  }
+  .rd-coordinate {
+    right: 0;
+    bottom: 1rem;
+  }
+  .rd-section-heading {
+    grid-template-columns: 1fr;
+    gap: 1rem;
+  }
+  .rd-section-heading > p:last-child {
+    grid-column: auto;
+  }
+  .rd-section-heading h2 {
+    font-size: clamp(2.8rem, 13vw, 4rem);
+  }
+  .rd-product {
+    padding-top: 11rem;
+  }
+  .rd-product-stage {
+    width: calc(100% + 2rem);
+    margin: 4rem -1rem 0;
+    border-radius: 0;
+  }
+  .rd-product .vdp-lifecycle {
+    overflow-x: auto;
+    justify-content: flex-start;
+  }
+  .rd-product-meta {
+    flex-wrap: wrap;
+  }
+  .rd-freedom,
+  .rd-persistence,
+  .rd-migration,
+  .rd-binary-gate {
+    gap: 3rem;
+    padding-block: 6rem;
+  }
+  .rd-freedom h2,
+  .rd-persistence h2,
+  .rd-migration h2,
+  .rd-binary-gate h2,
+  .rd-install h2,
+  .rd-release-empty h2 {
+    font-size: clamp(3rem, 13vw, 4.2rem);
+  }
+  .rd-tool-list li {
+    grid-template-columns: 5.5rem 1fr;
+  }
+  .rd-operating-grid {
+    grid-template-columns: 1fr;
+    margin-top: 4rem;
+  }
+  .rd-operating-card {
+    min-height: auto;
+  }
+  .rd-session-diagram {
+    padding: 1rem;
+  }
+  .rd-client-row {
+    gap: 0.3rem;
+  }
+  .rd-client-row span {
+    min-height: 3.8rem;
+    padding: 0.4rem;
+    font-size: 0.5rem;
+  }
+  .rd-migration-path {
+    grid-template-columns: 1fr;
+    gap: 0.5rem;
+  }
+  .rd-migration-path i {
+    transform: rotate(90deg);
+    text-align: center;
+  }
+  .rd-recent-heading {
+    grid-template-columns: 1fr;
+  }
+  .rd-feature-grid,
+  .rd-skeleton-grid {
+    grid-template-columns: 1fr;
+    margin-top: 4rem;
+  }
+  .rd-feature-card {
+    min-height: 16rem;
+  }
+  .rd-feature-card h3 {
+    margin-top: 3rem;
+  }
+  .rd-inline-error {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .rd-install {
+    min-height: 38rem;
+  }
+  .rd-install-command {
+    width: 100%;
+    min-width: 0;
+  }
+  .rd-install-command code {
+    flex: 1;
+  }
+  .rd-page-hero {
+    min-height: 36rem;
+    padding-block: 5rem;
+  }
+  .rd-page-status {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .rd-page-hero h1 {
+    margin-top: 3rem;
+    font-size: clamp(3.8rem, 16vw, 5.2rem);
+  }
+  .rd-page-hero > p {
+    font-size: 0.95rem;
+  }
+  .rd-install-option {
+    padding: 1.5rem;
+  }
+  .rd-install-option h3 {
+    margin-top: 3rem;
+  }
+  .rd-install-option > p {
+    min-height: 0;
+  }
+  .rd-code {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .rd-code button {
+    min-height: 2.5rem;
+  }
+  .rd-release-control {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+  .rd-release-control button {
+    grid-column: 1 / -1;
+    width: 100%;
+  }
+  .rd-platform-head {
+    display: none;
+  }
+  .rd-platform-row {
+    grid-template-columns: 1fr;
+    padding: 1rem;
+  }
+  .rd-platform-row > span {
+    display: grid;
+    grid-template-columns: 7rem minmax(0, 1fr);
+    gap: 0.75rem;
+    padding: 0.35rem 0;
+  }
+  .rd-platform-row > span::before {
+    color: var(--rd-faint);
+    content: attr(data-label);
+    font:
+      600 0.53rem/1.5 "Masakiro Mono",
+      monospace;
+    text-transform: uppercase;
+  }
+  .rd-release-empty {
+    grid-template-columns: 1fr;
+    padding: 1.5rem;
+  }
+  .rd-release-entry > header {
+    flex-direction: column;
+  }
+  .rd-release-notes {
+    grid-template-columns: 1fr;
+  }
+  .rd-release-notes > div {
+    min-height: 13rem;
+    border-right: 0;
+  }
+  .rd-assets > div {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+  .rd-assets code {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+  .rd-assets button {
+    grid-column: 2;
+    grid-row: 1;
+  }
+  .rd-release-entry > footer {
+    flex-direction: column;
+  }
+  .rd-release-entry > footer a {
+    margin-left: 0;
+  }
+  .rd-footer {
+    grid-template-columns: 1fr;
+    padding-inline: 1rem;
+  }
+  .rd-footer nav {
+    gap: 1rem;
+  }
+  .rd-footer-meta {
+    grid-column: auto;
+  }
+}
+
+@media (max-width: 360px) {
+  .rd-prototype-note span {
+    display: none;
+  }
+  .rd-state-control select {
+    max-width: 7.2rem;
+  }
+  .rd-hero h1 {
+    font-size: 3.65rem;
+  }
+  .rd-client-row {
+    grid-template-columns: 1fr;
+  }
+  .rd-session-line {
+    height: 1.5rem;
+  }
+  .rd-footer nav {
+    grid-template-columns: 1fr 1fr;
+  }
+  .rd-footer nav div:last-child {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rd-root *,
+  .rd-root *::before,
+  .rd-root *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

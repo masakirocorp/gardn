@@ -12,6 +12,13 @@ use crate::{
     terminal_theme::ThemeAppearance,
 };
 
+pub(crate) const GROUP_GENERAL_NAME: usize = 0;
+pub(crate) const GROUP_GENERAL_ICON: usize = 1;
+pub(crate) const GROUP_GENERAL_HOST: usize = 2;
+pub(crate) const GROUP_GENERAL_DIRECTORY: usize = 3;
+pub(crate) const GROUP_GENERAL_DELETE: usize = 4;
+
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum SettingsListRow {
     Header(&'static str),
@@ -59,7 +66,9 @@ pub(crate) enum SettingsListRow {
         badge: Option<Cow<'static, str>>,
         tone: SettingsMarkerTone,
     },
+    GroupIconPicker,
 }
+
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum SettingsMarkerTone {
@@ -83,11 +92,20 @@ pub(crate) fn option_hit_for_visual_row(
     let mut visual_row = 0;
     for entry in rows {
         match entry {
-            SettingsListRow::Header(_) | SettingsListRow::Caption(_) | SettingsListRow::Spacer => {
+            SettingsListRow::Header(_)
+            | SettingsListRow::Caption(_)
+            | SettingsListRow::Spacer => {
                 if row == visual_row {
                     return None;
                 }
                 visual_row += 1;
+            }
+            SettingsListRow::GroupIconPicker => {
+                let height = group_icon_picker_visual_rows();
+                if row >= visual_row && row < visual_row + height {
+                    return None;
+                }
+                visual_row += height;
             }
             SettingsListRow::Toggle { index, .. } => {
                 if row == visual_row || row == visual_row + 1 {
@@ -190,6 +208,9 @@ pub(crate) fn selected_visual_row(rows: &[SettingsListRow], selected: usize) -> 
             SettingsListRow::Header(_) | SettingsListRow::Caption(_) | SettingsListRow::Spacer => {
                 visual_row += 1;
             }
+            SettingsListRow::GroupIconPicker => {
+                visual_row += group_icon_picker_visual_rows();
+            }
             SettingsListRow::Toggle { index, .. } | SettingsListRow::Value { index, .. } => {
                 if *index == selected {
                     return Some(visual_row);
@@ -229,14 +250,20 @@ pub(crate) fn visual_row_count(rows: &[SettingsListRow]) -> usize {
             | SettingsListRow::Spacer
             | SettingsListRow::Choice { .. }
             | SettingsListRow::Action { .. }
-            | SettingsListRow::Status { .. } => 1,
+            | SettingsListRow::Status { .. }
+            | SettingsListRow::Profile { .. } => 1,
             SettingsListRow::Toggle { .. }
             | SettingsListRow::Value { .. }
             | SettingsListRow::TextInput { .. } => 2,
-            SettingsListRow::Profile { .. } => 1,
+            SettingsListRow::GroupIconPicker => group_icon_picker_visual_rows(),
         })
         .sum()
 }
+
+fn group_icon_picker_visual_rows() -> usize {
+    crate::app::state::GROUP_ICONS.len().div_ceil(5)
+}
+
 
 fn option_index(row: &SettingsListRow) -> Option<usize> {
     match row {
@@ -247,7 +274,11 @@ fn option_index(row: &SettingsListRow) -> Option<usize> {
         | SettingsListRow::Action { index, .. }
         | SettingsListRow::Status { index, .. }
         | SettingsListRow::Profile { index, .. } => Some(*index),
-        SettingsListRow::Header(_) | SettingsListRow::Caption(_) | SettingsListRow::Spacer => None,
+        SettingsListRow::Header(_)
+        | SettingsListRow::Caption(_)
+        | SettingsListRow::Spacer
+        | SettingsListRow::GroupIconPicker => None,
+
     }
 }
 
@@ -462,20 +493,20 @@ fn execution_host_label(
 }
 
 fn group_general_rows(app: &AppState, settings: &SettingsState) -> Vec<SettingsListRow> {
+    let group = settings
+        .group_settings_target
+        .and_then(|group_idx| app.groups.get(group_idx));
     let group_name = settings
         .pending_group_name
         .clone()
-        .or_else(|| {
-            settings
-                .group_settings_target
-                .and_then(|group_idx| app.groups.get(group_idx))
-                .map(|group| group.name.clone())
-        })
+        .or_else(|| group.map(|group| group.name.clone()))
         .unwrap_or_else(|| "Group".to_string());
-    let default_location = settings
-        .group_settings_target
-        .and_then(|group_idx| app.groups.get(group_idx))
-        .and_then(|group| group.default_location.as_ref());
+    let icon = settings
+        .pending_group_icon
+        .clone()
+        .or_else(|| group.map(|group| group.icon.clone()))
+        .unwrap_or_else(|| crate::app::state::DEFAULT_GROUP_ICON.to_string());
+    let default_location = group.and_then(|group| group.default_location.as_ref());
     let default_directory = settings
         .pending_group_default_directory
         .clone()
@@ -487,35 +518,49 @@ fn group_general_rows(app: &AppState, settings: &SettingsState) -> Vec<SettingsL
         .or_else(|| default_location.map(|location| &location.execution_host_id));
     let host_label = execution_host_label(app, host_id);
 
-    vec![
+    let mut rows = vec![
         SettingsListRow::TextInput {
-            index: 0,
+            index: GROUP_GENERAL_NAME,
             title: "Name".into(),
             value: group_name.into(),
         },
         SettingsListRow::Spacer,
         SettingsListRow::Status {
-            index: 1,
+            index: GROUP_GENERAL_ICON,
+            label: "Icon".into(),
+            status: format!("‹ {icon} ›").into(),
+            tone: SettingsMarkerTone::Accent,
+        },
+    ];
+    if settings.group_icon_picker_open {
+        rows.push(SettingsListRow::GroupIconPicker);
+    }
+    rows.extend([
+        SettingsListRow::Spacer,
+        SettingsListRow::Status {
+            index: GROUP_GENERAL_HOST,
             label: "Default Location for New Spaces".into(),
             status: format!("‹ {host_label} ›").into(),
             tone: SettingsMarkerTone::Accent,
         },
         SettingsListRow::Spacer,
         SettingsListRow::TextInput {
-            index: 2,
+            index: GROUP_GENERAL_DIRECTORY,
             title: "Directory".into(),
             value: default_directory.into(),
         },
         SettingsListRow::Spacer,
         SettingsListRow::Header("Danger Zone"),
         SettingsListRow::Action {
-            index: 3,
+            index: GROUP_GENERAL_DELETE,
             icon: "×".into(),
             label: "Delete Group".into(),
             tone: SettingsMarkerTone::Danger,
         },
-    ]
+    ]);
+    rows
 }
+
 
 fn workspace_general_rows(app: &AppState, settings: &SettingsState) -> Vec<SettingsListRow> {
     let workspace = settings
@@ -2253,6 +2298,8 @@ fn theme_display_name(name: &'static str) -> &'static str {
         "monokai-pro-machine" => "Monokai Pro Machine",
         "monokai-classic" => "Monokai Classic",
         "flexoki-light" => "Flexoki Light",
+        "gardn-day" => "Gardn Day",
+        "gardn-night" => "Gardn Night",
         "hackerman" => "Hackerman",
         "last-horizon" => "Last Horizon",
         "lumon" => "Lumon",

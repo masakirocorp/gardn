@@ -127,6 +127,67 @@ pub(super) fn open_agent_menu(state: &mut AppState) {
     state.mode = Mode::AgentMenu;
 }
 
+pub(crate) fn context_menu_state_for_pane(
+    state: &AppState,
+    ws_idx: usize,
+    pane_id: crate::layout::PaneId,
+) -> Option<ContextMenuState> {
+    let workspace = state.workspaces.get(ws_idx)?;
+    let pane = workspace.pane_state(pane_id)?;
+    let is_agent = state
+        .terminals
+        .get(&pane.attached_terminal_id)
+        .is_some_and(|terminal| terminal.is_agent_terminal());
+    let (x, y) = state
+        .view
+        .pane_infos
+        .iter()
+        .find(|info| info.id == pane_id)
+        .map(|info| (info.rect.x.saturating_add(1), info.rect.y.saturating_add(1)))
+        .unwrap_or((1, 1));
+    let kind = if is_agent {
+        ContextMenuKind::Agent {
+            ws_idx,
+            pane_id,
+            in_follow_up: state.is_agent_follow_up(ws_idx, pane_id),
+        }
+    } else {
+        ContextMenuKind::Pane {
+            ws_idx,
+            pane_id,
+            has_manual_label: state
+                .terminals
+                .get(&pane.attached_terminal_id)
+                .and_then(|terminal| terminal.manual_label.as_ref())
+                .is_some(),
+            right_click_passthrough: pane.right_click_passthrough,
+        }
+    };
+    Some(ContextMenuState {
+        kind,
+        x,
+        y,
+        list: ModalListState::hidden(0),
+    })
+}
+
+pub(crate) fn context_menu_state_for_workspace_focus(
+    state: &AppState,
+    ws_idx: usize,
+) -> Option<ContextMenuState> {
+    let pane_id = state.workspaces.get(ws_idx)?.focused_pane_id()?;
+    context_menu_state_for_pane(state, ws_idx, pane_id)
+}
+
+pub(super) fn open_context_menu_for_focus(state: &mut AppState) {
+    let ws_idx = state.active.unwrap_or(state.selected);
+    let Some(menu) = context_menu_state_for_workspace_focus(state, ws_idx) else {
+        return;
+    };
+    state.context_menu = Some(menu);
+    state.mode = Mode::ContextMenu;
+}
+
 pub(super) fn open_keybind_help(state: &mut AppState) {
     reset_keybind_help(&mut state.keybind_help);
     state.mode = Mode::KeybindHelp;

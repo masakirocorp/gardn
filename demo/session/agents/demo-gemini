@@ -1,0 +1,14 @@
+#!/bin/sh
+export GARDN_AGENT=gemini
+printf '%b' '\033[2J\033[H\033]0;gemini · metrics\007'
+cat <<'EOF'
+  metrics · dash
+
+  > chart checkout conversion
+
+  sampling last 60m
+  conversion  4.2% → 4.8%
+  Working
+EOF
+DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+exec python3 "$DIR/hold.py"

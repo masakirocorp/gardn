@@ -747,6 +747,26 @@ impl AppState {
         crate::ui::collapsed_workspace_at_row(self, self.view.sidebar_rect, row)
     }
 
+    pub(super) fn collapsed_agent_header_target_at(
+        &self,
+        row: u16,
+    ) -> Option<crate::ui::AgentPanelHeaderTarget> {
+        let detail_area =
+            if self.view.right_sidebar_rect != Rect::default() && self.right_sidebar_collapsed {
+                crate::ui::right_sidebar_content_rect(self.view.right_sidebar_rect)
+            } else if self.sidebar_collapsed && self.view.right_sidebar_rect == Rect::default() {
+                let (_, _, detail_area) = crate::ui::collapsed_sidebar_sections_for_split(
+                    self.view.sidebar_rect,
+                    true,
+                    self.sidebar_section_split,
+                );
+                detail_area
+            } else {
+                return None;
+            };
+        crate::ui::collapsed_agent_panel_header_target_at_row(self, detail_area, row)
+    }
+
     pub(super) fn collapsed_agent_detail_target_at(
         &self,
         row: u16,

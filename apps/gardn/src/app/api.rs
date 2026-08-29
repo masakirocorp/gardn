@@ -2339,6 +2339,7 @@ mod tests {
                     seq: Some(1),
                     agent_session_id: Some("claude-session".into()),
                     agent_session_path: None,
+                    activity_unix_secs: Some(1_700_000_000),
                     launch_env: std::collections::BTreeMap::new(),
                 },
             ),
@@ -2348,6 +2349,10 @@ mod tests {
         let terminal = app.state.terminals.get(&terminal_id).unwrap();
         assert_eq!(terminal.effective_agent_label(), Some("claude"));
         assert_eq!(terminal.state, AgentState::Working);
+        assert_eq!(
+            terminal.last_meaningful_agent_activity_unix_secs(),
+            Some(1_700_000_000)
+        );
         assert!(terminal.full_lifecycle_hook_authority_active());
 
         let response = app.handle_api_request(crate::api::schema::Request {
@@ -2363,6 +2368,7 @@ mod tests {
                     seq: Some(2),
                     agent_session_id: Some("codex-session".into()),
                     agent_session_path: None,
+                    activity_unix_secs: None,
                     launch_env: std::collections::BTreeMap::new(),
                 },
             ),

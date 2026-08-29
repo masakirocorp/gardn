@@ -15,6 +15,8 @@ const VALID_THEME_NAMES: &[&str] = &[
     "everforest",
     "flexoki",
     "flexoki-light",
+    "gardn-day",
+    "gardn-night",
     "gruvbox",
     "gruvbox-light",
     "hackerman",

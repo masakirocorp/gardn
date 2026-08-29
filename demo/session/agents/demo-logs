@@ -1,0 +1,33 @@
+#!/bin/sh
+export GARDN_AGENT=logs
+printf '%b' '\033]0;logs · cart\007'
+DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+exec python3 - "$DIR" <<'PY'
+import sys
+import time
+
+lines = (
+    "20:48:01  \033[36mGET\033[0m   /cart              \033[32m200\033[0m   12ms",
+    "20:48:01  \033[36mGET\033[0m   /cart/items        \033[32m200\033[0m    9ms",
+    "20:48:02  \033[36mGET\033[0m   /assets/app.js     \033[32m200\033[0m    4ms",
+    "20:48:03  \033[33mPOST\033[0m  /cart/items        \033[32m201\033[0m   18ms",
+    "20:48:04  \033[36mGET\033[0m   /review            \033[32m200\033[0m   11ms",
+    "20:48:05  \033[33mWARN\033[0m  slow checkout total    82ms",
+    "20:48:06  \033[36mGET\033[0m   /cart              \033[32m200\033[0m    8ms",
+    "20:48:07  \033[36mGET\033[0m   /review            \033[32m200\033[0m    7ms",
+)
+
+header = "  checkout · cart api\n  \033[32mlistening\033[0m  :5179\n"
+sys.stdout.write("\033[2J\033[H")
+sys.stdout.write(header + "\n")
+shown = []
+for line in lines:
+    shown.append(line)
+    sys.stdout.write("\033[2J\033[H")
+    sys.stdout.write(header + "\n")
+    sys.stdout.write("\n".join(shown) + "\n")
+    sys.stdout.flush()
+    time.sleep(0.12)
+while True:
+    time.sleep(3600)
+PY

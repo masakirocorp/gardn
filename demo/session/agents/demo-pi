@@ -1,0 +1,20 @@
+#!/bin/sh
+export GARDN_AGENT=pi
+printf '%b' '\033[2J\033[H\033]0;pi · cart\007'
+printf '%b' '
+  checkout · cart
+
+\033[36m  >\033[0m split checkout into cart items and a review step.
+
+\033[34m  Read\033[0m   src/cart/CartItems.ts
+\033[34m  Edit\033[0m   src/cart/ReviewStep.ts
+\033[32m  Wrote\033[0m  src/cart/index.html
+
+  Cart items is the first step.
+  Review is the second step.
+  Quantities update totals live.
+
+  checkout/  \033[33mgpt-fixture\033[0m
+'
+DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+exec python3 "$DIR/hold.py"

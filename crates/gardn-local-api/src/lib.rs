@@ -938,6 +938,8 @@ pub struct PaneReportAgentParams {
     pub agent_session_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent_session_path: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub activity_unix_secs: Option<u64>,
     #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
     pub launch_env: std::collections::BTreeMap<String, String>,
 }
@@ -2851,6 +2853,7 @@ mod tests {
                 seq: Some(42),
                 agent_session_id: Some("pi-session".into()),
                 agent_session_path: Some("/tmp/pi-session.jsonl".into()),
+                activity_unix_secs: None,
                 launch_env: std::collections::BTreeMap::new(),
             }),
         };

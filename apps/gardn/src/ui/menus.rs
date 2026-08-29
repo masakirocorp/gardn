@@ -39,6 +39,21 @@ fn render_menu_separator(frame: &mut Frame, area: Rect, row_idx: usize, style: S
     }
 }
 
+
+fn context_menu_row_label(item: &str, items: &[&str]) -> String {
+    let display = ContextMenuState::item_display_label(item);
+    if ContextMenuState::item_is_section_header(item) || display.starts_with(" +") {
+        return format!(" {display}");
+    }
+    if items
+        .iter()
+        .any(|item| ContextMenuState::item_is_section_header(item))
+    {
+        format!("  {display}")
+    } else {
+        format!(" {display}")
+    }
+}
 fn render_menu_row(
     frame: &mut Frame,
     area: Rect,
@@ -800,7 +815,8 @@ pub(super) fn render_context_menu(app: &AppState, frame: &mut Frame) {
 
     let visible = menu.list.visible();
     let visible_range = menu.visible_item_range(inner.height as usize);
-    for (row, item) in menu.items()[visible_range.clone()].iter().enumerate() {
+    let items = menu.items();
+    for (row, item) in items[visible_range.clone()].iter().enumerate() {
         let idx = visible_range.start + row;
         let display_item = ContextMenuState::item_display_label(item);
         if ContextMenuState::item_is_separator(item) {
@@ -816,16 +832,11 @@ pub(super) fn render_context_menu(app: &AppState, frame: &mut Frame) {
                 dim_style,
             );
         } else {
-            let label = if display_item.starts_with(" +") {
-                format!(" {display_item}")
-            } else {
-                format!("  {display_item}")
-            };
             render_menu_row(
                 frame,
                 inner,
                 row,
-                Line::from(label),
+                Line::from(context_menu_row_label(item, items)),
                 visible == Some(idx),
                 selected_style,
                 text_style,
@@ -1079,7 +1090,8 @@ pub(super) fn render_context_menu_for_view(
     let dim = Style::default().fg(palette.overlay0);
     let visible = menu.list.visible();
     let visible_range = menu.visible_item_range(inner.height as usize);
-    for (row, item) in menu.items()[visible_range.clone()].iter().enumerate() {
+    let items = menu.items();
+    for (row, item) in items[visible_range.clone()].iter().enumerate() {
         let idx = visible_range.start + row;
         let display_item = ContextMenuState::item_display_label(item);
         if ContextMenuState::item_is_separator(item) {
@@ -1093,7 +1105,7 @@ pub(super) fn render_context_menu_for_view(
                 Line::from(if header {
                     format!(" {display_item}")
                 } else {
-                    format!("  {display_item}")
+                    context_menu_row_label(item, items)
                 }),
                 !header && visible == Some(idx),
                 selected,
@@ -1481,6 +1493,45 @@ mod tests {
                 "selected global menu row background should fill the inner width at x={x}"
             );
         }
+    }
+
+    #[test]
+    fn agent_follow_up_item_uses_one_leading_space() {
+        let mut app = AppState::test_new();
+        let workspace = crate::workspace::Workspace::test_new("api");
+        let pane_id = workspace.tabs[0].root_pane;
+        app.workspaces = vec![workspace];
+        app.active = Some(0);
+        app.mode = crate::app::state::Mode::ContextMenu;
+        app.context_menu = Some(crate::app::state::ContextMenuState {
+            kind: crate::app::state::ContextMenuKind::Agent {
+                ws_idx: 0,
+                pane_id,
+                in_follow_up: false,
+            },
+            x: 4,
+            y: 4,
+            list: crate::app::state::ModalListState::hidden(0),
+        });
+        crate::ui::compute_view(&mut app, Rect::new(0, 0, 80, 20));
+
+        let backend = TestBackend::new(80, 20);
+        let mut terminal = Terminal::new(backend).expect("test backend");
+        terminal
+            .draw(|frame| render_context_menu(&app, frame))
+            .expect("render context menu");
+
+        let buffer = terminal.backend().buffer();
+        let (x, y) = first_cell_with_text(buffer, 80, 20, "Add to Follow Up")
+            .expect("add to follow up label");
+        let rect = app.context_menu_rect().expect("menu rect");
+        assert_eq!(
+            x,
+            rect.x + 2,
+            "unsectioned items should use one space after the border"
+        );
+        assert_eq!(buffer[(x - 1, y)].symbol(), " ");
+        assert_ne!(buffer[(x - 2, y)].symbol(), " ");
     }
 
     fn buffer_text(buffer: &Buffer, width: u16, height: u16) -> String {

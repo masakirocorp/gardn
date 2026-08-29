@@ -36,7 +36,8 @@ A workspace contains tabs, panes, cwd metadata, and agent state rollups.
 - **Desktop context bar** - an independent bottom row shows the attached client's active group / workspace / tab path, plus the focused pane name when a tab is split, on the left and optional live topology counts on the right. It is visible by default; set `ui.context_bar = "never"` to hide it persistently, or toggle one client temporarily with `prefix+Down`. Set `ui.show_counters = true` to show right-aligned group, space, tab, pane, and agent section counts across desktop and mobile UI; counters are hidden by default. Every path segment opens the same workspace navigator with the matching group, space, tab, or pane visibly selected; narrow terminals drop counts before shortening path segments.
 - **Workspace groups** — group workspaces, filter the sidebar by group, collapse groups, and assign per-group theme accent colors that tint group labels, tabs, menus, and related group UI.
 - **Group lifecycle** — create, rename, delete, focus, and switch groups from the TUI, CLI, or socket API; reorder groups by dragging headers in the all-groups sidebar. New groups start with an initial space, creating a group preserves the all-groups view, and a group's context menu creates spaces in that group. Right-clicking the blank area after the final group or space opens a compact creation menu; a new space belongs to the active workspace's group. The expanded sidebar labels the all-groups scope as **groups** and a filtered scope as **spaces**.
-- **Group icons** — group creation and rename flows can choose from a curated set of single-cell icons.
+- **Group icons** — group creation, rename, and group settings can choose from a curated set of single-cell icons.
+
 - **Move between groups** — move workspaces between groups from the TUI/sidebar group workflows.
 - **Public IDs** — CLI and socket API commands target workspaces, tabs, panes, and groups with public IDs; raw pane IDs remain compatibility inputs and are remapped after live handoff where possible.
 - **Live cwd labels** — workspace labels can follow active pane cwd unless manually renamed.
@@ -176,7 +177,7 @@ Mouse capture is enabled by default.
 - Drag pane borders to resize.
 - Drag workspace rows to reorder.
 - Scroll lists, panes, modals, and scrollbars. Set `ui.pane_scrollbars = false` to hide pane scrollbars and reclaim the gutter column.
-- Right-click where context menus are available.
+- Right-click where context menus are available. Shift+F10 opens the same menu for the focused pane or agent.
 - Configure `ui.right_click_passthrough_modifier` to send modified right-click hold/drag gestures to mouse-reporting pane apps while normal right-click keeps Gardn menus.
 - Select pane text for copy workflows.
 - **Mobile layout** — narrow terminals keep the terminal nearly full-height under a compact two-row header: an always-visible agent-status row on top opens the agent list directly, and a breadcrumb below shows the active group, space, tab, and split pane. Each breadcrumb segment opens a compact, bordered dropdown anchored beneath it; group, space, and tab dropdowns include contextual creation, while split actions appear in the pane dropdown when the focused pane has room. Current items are marked, selecting a space, tab, or pane closes the dropdown, Right drills into the highlighted row's children, Left returns to the parent breadcrumb level, Up/Down or `j`/`k` moves within a dropdown, Enter activates the selected row, and Escape closes the dropdown without changing focus.
@@ -381,7 +382,8 @@ Gardn supports terminal-derived colors and built-in palettes.
 - **Light and dark palette selection** — choose separate palettes when system mode is enabled.
 - **Live system sync** — in system mode, Gardn follows foreground host-terminal light/dark color changes while it is running and refreshes pane terminal defaults.
 - **Nested terminal palette** — pane applications that query ANSI colors receive the active host palette. Application-defined palette colors keep precedence until the application resets them.
-- **Group settings** — rename or delete groups, assign per-group theme accent colors, choose favorite/default agent profiles, or inherit the global accent from the group settings modal.
+- **Group settings** — rename groups, choose a group icon, set the default location and directory for new spaces, assign per-group theme accent colors, choose favorite/default agent profiles, or inherit the global accent from the group settings modal.
+
 - **Accent color** — choose highlight, border, and navigation accent from the built-in theme palette or, when following terminal colors, from the six terminal ANSI accents (with separate light and dark choices).
 
 ### Sound and toasts
