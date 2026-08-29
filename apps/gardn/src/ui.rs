@@ -2593,10 +2593,16 @@ mod tests {
         assert!(line.contains("Free"), "{line:?}");
         assert!(line.contains("Take Control"), "{line:?}");
         let badge_x = line.find("Free").expect("badge text") as u16;
-        assert_eq!(
+        assert_ne!(
             terminal.backend().buffer()[(badge_x, 19)].style().bg,
             Some(app.palette.teal),
-            "free badge should use the positive teal background"
+            "Free is status, not the action chip"
+        );
+        let take_x = line.find("Take Control").expect("take control text") as u16;
+        assert_eq!(
+            terminal.backend().buffer()[(take_x, 19)].style().bg,
+            Some(app.palette.teal),
+            "Take Control should use the positive teal background"
         );
     }
 
