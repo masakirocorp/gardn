@@ -59,7 +59,13 @@ export function SessionShot({
         {title}
       </h2>
       <figure className="gardn-session-shot">
-        <img className="gardn-session-still gardn-session-day" src={src} width={width} height={height} alt={label} />
+        <img
+          className="gardn-session-still gardn-session-day"
+          src={src}
+          width={width}
+          height={height}
+          alt={label}
+        />
         <img
           className="gardn-session-still gardn-session-night"
           src={srcDark}

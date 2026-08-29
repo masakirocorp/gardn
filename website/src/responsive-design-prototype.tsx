@@ -42,7 +42,6 @@ function isReleaseState(value: string | null): value is ReleaseState {
   return value !== null && releaseStates.some((state) => state === value);
 }
 
-
 export function ResponsiveDesignPrototype() {
   const [page, setPage] = useState<PageName>("home");
   const [releaseState, setReleaseState] = useState<ReleaseState>("prepublic");
@@ -90,7 +89,6 @@ export function ResponsiveDesignPrototype() {
     </div>
   );
 }
-
 
 function _PrototypeBar({
   theme,
@@ -154,7 +152,6 @@ function HomePage() {
     </section>
   );
 }
-
 
 function _RecentSection({
   releaseState,
@@ -314,13 +311,7 @@ function _InstallOption({
   );
 }
 
-function _ReleaseControl({
-  state,
-  onRetry,
-}: {
-  state: ReleaseState;
-  onRetry: () => void;
-}) {
+function _ReleaseControl({ state, onRetry }: { state: ReleaseState; onRetry: () => void }) {
   if (state === "loading")
     return (
       <div className="rd-release-control" aria-busy="true">

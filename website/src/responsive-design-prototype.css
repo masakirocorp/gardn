@@ -51,12 +51,7 @@
   overflow-x: clip;
   color: var(--text);
   background: var(--background);
-  font-family:
-    "Iowan Old Style",
-    "Palatino Linotype",
-    Palatino,
-    "Times New Roman",
-    serif;
+  font-family: "Iowan Old Style", "Palatino Linotype", Palatino, "Times New Roman", serif;
   font-synthesis: none;
 }
 .rd-root[data-theme="dark"],
@@ -834,7 +829,6 @@
   line-height: 1.45;
 }
 
-
 .rd-operating-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -886,7 +880,12 @@
   border: 1px solid var(--rd-rule);
   border-radius: 1.5rem;
   background:
-    radial-gradient(circle at 50% 35%, color-mix(in oklab, var(--primary) 14%, transparent), transparent 16rem), var(--rd-deep);
+    radial-gradient(
+      circle at 50% 35%,
+      color-mix(in oklab, var(--primary) 14%, transparent),
+      transparent 16rem
+    ),
+    var(--rd-deep);
 }
 .rd-session-core {
   display: flex;
@@ -1086,7 +1085,12 @@
   overflow: hidden;
   border-top: 1px solid var(--rd-rule);
   background:
-    radial-gradient(ellipse at 50% 100%, color-mix(in oklab, var(--primary) 14%, transparent), transparent 42%), var(--rd-deep);
+    radial-gradient(
+      ellipse at 50% 100%,
+      color-mix(in oklab, var(--primary) 14%, transparent),
+      transparent 42%
+    ),
+    var(--rd-deep);
   text-align: center;
 }
 .rd-install::before {
@@ -1145,7 +1149,11 @@
   min-height: 40rem;
   padding-block: clamp(6rem, 12vw, 11rem);
   background:
-    radial-gradient(circle at 82% 35%, color-mix(in oklab, var(--primary) 16%, transparent), transparent 22rem),
+    radial-gradient(
+      circle at 82% 35%,
+      color-mix(in oklab, var(--primary) 16%, transparent),
+      transparent 22rem
+    ),
     linear-gradient(oklch(0.92 0.01 100 / 0.03) 1px, transparent 1px),
     linear-gradient(90deg, oklch(0.92 0.01 100 / 0.03) 1px, transparent 1px);
   background-size:
@@ -1368,7 +1376,11 @@
   border: 1px solid var(--rd-rule);
   border-radius: 1.5rem;
   background:
-    radial-gradient(circle at 88% 30%, color-mix(in oklab, var(--primary) 14%, transparent), transparent 18rem),
+    radial-gradient(
+      circle at 88% 30%,
+      color-mix(in oklab, var(--primary) 14%, transparent),
+      transparent 18rem
+    ),
     var(--rd-panel);
 }
 .rd-release-empty > span {

@@ -96,7 +96,6 @@ export default function HomePage() {
           caption="Triage, Follow Up, and Working are first-class. Right-click an agent row to add or remove Follow Up without leaving the current space."
         />
 
-
         <Workflow
           title="From launch to reattach"
           steps={[

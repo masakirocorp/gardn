@@ -100,7 +100,13 @@ const features = [
 function Logo({ className }: { className?: string }) {
   return (
     <svg className={className} viewBox="0 0 256 256" aria-hidden="true">
-      <g fill="none" stroke="currentColor" strokeWidth="6" strokeLinecap="round" strokeLinejoin="round">
+      <g
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="6"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
         <path d="M128 38 176 72 128 112 80 72Z" />
         <path d="M80 72v68l48 40 48-40V72" />
         <path d="M128 112v68" />
