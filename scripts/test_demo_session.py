@@ -19,6 +19,7 @@ from scripts.demo_session import (
     NESTED_UNSETS,
     WORKSPACES,
     apply_theme,
+    resolve_demo_theme,
     is_capture_window,
     patch_session_snapshot,
     write_attach_wrapper,
@@ -69,6 +70,21 @@ class DemoSessionFixtureTests(unittest.TestCase):
             apply_theme(home, "day")
             text = (home / "config" / "gardn" / "config.toml").read_text()
             self.assertIn('mode = "light"', text)
+
+    def test_resolve_demo_theme_prefers_explicit_then_env(self) -> None:
+        self.assertEqual(resolve_demo_theme("night"), "night")
+        self.assertEqual(resolve_demo_theme("day"), "day")
+        previous = os.environ.get("GARDN_DEMO_THEME")
+        os.environ["GARDN_DEMO_THEME"] = "night"
+        try:
+            self.assertEqual(resolve_demo_theme(None), "night")
+            self.assertEqual(resolve_demo_theme("day"), "day")
+        finally:
+            if previous is None:
+                os.environ.pop("GARDN_DEMO_THEME", None)
+            else:
+                os.environ["GARDN_DEMO_THEME"] = previous
+
 
     def test_agent_screens_do_not_use_a_product_brand(self) -> None:
         for spec in AGENTS:

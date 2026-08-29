@@ -230,7 +230,29 @@ def install_fixture(home: Path) -> None:
         dest = home / "config" / app_dir
         dest.mkdir(parents=True, exist_ok=True)
         (dest / "config.toml").write_text(config_text)
-    apply_theme(home, os.environ.get("GARDN_DEMO_THEME", "day"))
+    apply_theme(home, resolve_demo_theme())
+
+
+def macos_appearance() -> str:
+    completed = subprocess.run(
+        ["defaults", "read", "-g", "AppleInterfaceStyle"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if completed.returncode == 0 and completed.stdout.strip().lower() == "dark":
+        return "night"
+    return "day"
+
+
+def resolve_demo_theme(theme: str | None = None) -> str:
+    if theme in HOST_TERMINAL:
+        return theme
+    env = os.environ.get("GARDN_DEMO_THEME")
+    if env in HOST_TERMINAL:
+        return env
+    return macos_appearance()
+
 
 
 def apply_theme(home: Path, theme: str) -> None:
@@ -687,6 +709,33 @@ def prepare_demo_runtime(
     focus_showcase(bin_path, home)
 
 
+def ensure_demo_ready(
+    bin_path: Path,
+    home: Path,
+    *,
+    theme: str | None = None,
+    sidebar_collapsed: bool = False,
+) -> None:
+    theme = resolve_demo_theme(theme)
+    install_fixture(home)
+    apply_theme(home, theme)
+    start_server(bin_path, home)
+    listed = try_cli(bin_path, home, "workspace", "list")
+    labels = set()
+    if listed and listed.get("result"):
+        labels = {
+            workspace.get("label")
+            for workspace in listed["result"].get("workspaces") or []
+        }
+    if "checkout" not in labels:
+        seed(bin_path, home, reset=False)
+        apply_theme(home, theme)
+        return
+    prepare_demo_runtime(bin_path, home, sidebar_collapsed=sidebar_collapsed)
+
+
+
+
 
 
 def seed(bin_path: Path, home: Path, reset: bool) -> None:
@@ -1016,8 +1065,9 @@ def raise_capture_window(window: dict[str, Any]) -> None:
     subprocess.run([str(cliclick), f"c:{x},{y}"], check=False, capture_output=True, text=True)
 
 
-def open_capture_window(bin_path: Path, home: Path, theme: str = "day") -> dict[str, Any]:
-    start_server(bin_path, home)
+def open_capture_window(bin_path: Path, home: Path, theme: str | None = None) -> dict[str, Any]:
+    theme = resolve_demo_theme(theme)
+    ensure_demo_ready(bin_path, home, theme=theme)
     wrapper = write_attach_wrapper(bin_path, home)
     config = write_ghostty_config(home, wrapper, theme)
     close_stray_demo_windows()
@@ -1092,8 +1142,8 @@ end tell
 
 
 
-def attach(bin_path: Path, home: Path) -> int:
-    start_server(bin_path, home)
+def attach(bin_path: Path, home: Path, theme: str | None = None) -> int:
+    ensure_demo_ready(bin_path, home, theme=theme)
     env = attach_env(home)
     os.execvpe(str(bin_path), [str(bin_path), "--session", SESSION_NAME], env)
     return 1
@@ -1107,6 +1157,12 @@ def parse_args() -> argparse.Namespace:
         help="seed rebuilds the isolated demo session",
     )
     parser.add_argument("--reset", action="store_true", help="wipe the isolated session first")
+    parser.add_argument(
+        "--theme",
+        choices=("day", "night", "system"),
+        default="system",
+        help="Gardn and Ghostty appearance; system follows macOS",
+    )
     parser.add_argument("--home", type=Path, default=default_home())
     parser.add_argument("--bin", type=Path, default=default_bin())
     return parser.parse_args()
@@ -1116,18 +1172,21 @@ def main() -> int:
     args = parse_args()
     home = args.home.expanduser()
     bin_path = args.bin.expanduser()
+    theme = None if args.theme == "system" else args.theme
     if not bin_path.exists():
         print(f"error: gardn binary not found: {bin_path}", file=sys.stderr)
         return 1
     if args.command == "seed":
+        if theme:
+            os.environ["GARDN_DEMO_THEME"] = theme
         seed(bin_path, home, reset=args.reset)
+        apply_theme(home, resolve_demo_theme(theme))
         print_status(bin_path, home)
         print("attach\tjust demo-window")
         print("or\t" + " ".join(attach_command(bin_path, home)))
         return 0
     if args.command == "start":
-        install_fixture(home)
-        start_server(bin_path, home)
+        ensure_demo_ready(bin_path, home, theme=theme)
         print_status(bin_path, home)
         return 0
     if args.command == "stop":
@@ -1141,12 +1200,12 @@ def main() -> int:
         print(" ".join(attach_command(bin_path, home)))
         return 0
     if args.command == "open-window":
-        window = open_capture_window(bin_path, home)
+        window = open_capture_window(bin_path, home, theme=theme)
         print(f"window\t{window['name']}\t{window['width']}x{window['height']}")
         print_status(bin_path, home)
         return 0
     if args.command == "attach":
-        return attach(bin_path, home)
+        return attach(bin_path, home, theme=theme)
     return 2
 
 

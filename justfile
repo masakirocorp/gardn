@@ -124,9 +124,18 @@ demo:
 demo-reset:
     python3 scripts/demo_session.py seed --reset
 
-# Open a dedicated Ghostty window attached to the isolated demo session
+# Open a dedicated Ghostty window; appearance follows macOS unless --theme is set
 demo-window:
     python3 scripts/demo_session.py open-window
+
+
+# Open the capture window in Gardn Day
+demo-window-day:
+    python3 scripts/demo_session.py open-window --theme day
+
+# Open the capture window in Gardn Night
+demo-window-night:
+    python3 scripts/demo_session.py open-window --theme night
 
 # Attach a client to the isolated demo session in the current terminal
 demo-attach:
