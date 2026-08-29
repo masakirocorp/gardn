@@ -323,6 +323,7 @@ pub struct Keybinds {
     pub previous_agent: ActionKeybinds,
     pub next_agent: ActionKeybinds,
     pub open_agent_menu: ActionKeybinds,
+    pub open_context_menu: ActionKeybinds,
     pub focus_agent: Vec<IndexedKeybind>,
     pub new_tab: ActionKeybinds,
     pub take_control: ActionKeybinds,
@@ -492,6 +493,7 @@ impl Config {
             previous_agent: empty_action!(),
             next_agent: empty_action!(),
             open_agent_menu: empty_action!(),
+            open_context_menu: empty_action!(),
             focus_agent: Vec::new(),
             new_tab: empty_action!(),
             take_control: empty_action!(),
@@ -620,6 +622,7 @@ impl Config {
             apply_action!(keybinds.previous_group, previous_group, source);
             apply_action!(keybinds.next_group, next_group, source);
             apply_action!(keybinds.open_agent_menu, open_agent_menu, source);
+            apply_action!(keybinds.open_context_menu, open_context_menu, source);
             apply_action!(keybinds.previous_workspace, previous_workspace, source);
             apply_action!(keybinds.next_workspace, next_workspace, source);
             apply_action!(keybinds.previous_agent, previous_agent, source);

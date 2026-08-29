@@ -92,11 +92,11 @@ const DEFAULT_CONFIG: &str = r##"# Gardn configuration
 
 [theme]
 # built-in themes: system, terminal, catppuccin-latte, flexoki-light,
-#                 gruvbox-light, kanagawa-lotus, monokai-pro-light,
+#                 gardn-day, gruvbox-light, kanagawa-lotus, monokai-pro-light,
 #                 monokai-pro-light-sun, one-light, rose-pine-dawn,
 #                 solarized-light, tokyo-night-day, white, catppuccin,
 #                 catppuccin-frappe, catppuccin-macchiato, dracula,
-#                 ethereal, everforest, flexoki, gruvbox, hackerman,
+#                 ethereal, everforest, flexoki, gardn-night, gruvbox, hackerman,
 #                 kanagawa, last-horizon, lumon, matte-black, miasma,
 #                 monokai-classic, monokai-pro, monokai-pro-machine,
 #                 monokai-pro-octagon, monokai-pro-ristretto,
@@ -185,6 +185,7 @@ const DEFAULT_CONFIG: &str = r##"# Gardn configuration
 # previous_agent = ""     # optional, unset by default
 # next_agent = ""         # optional, unset by default
 # open_agent_menu = ""    # optional, unset by default
+# open_context_menu = "shift+f10"
 # command_palette = "prefix+space"
 # focus_agent = ""        # optional indexed binding, e.g. "prefix+alt+1..9"
 # remote_image_paste = "ctrl+v" # only active in gardn --remote; empty disables raw-key image paste

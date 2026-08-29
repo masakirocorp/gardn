@@ -1524,6 +1524,18 @@ impl App {
             custom_status: normalize_custom_status(params.custom_status),
             seq: params.seq,
         });
+        if let Some(unix_secs) = params.activity_unix_secs {
+            if let Some(terminal_id) = self
+                .state
+                .workspaces
+                .iter()
+                .find_map(|ws| ws.pane_state(pane_id).map(|pane| pane.attached_terminal_id.clone()))
+            {
+                if let Some(terminal) = self.state.terminals.get_mut(&terminal_id) {
+                    terminal.mark_meaningful_agent_activity(params.seq.unwrap_or(0), unix_secs);
+                }
+            }
+        }
 
         encode_success(id, ResponseResult::Ok {})
     }

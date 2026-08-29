@@ -27,55 +27,74 @@ export function Hero({
   );
 }
 
-export function Schematic({ title, caption }: { title: string; caption?: ReactNode }) {
+export function SessionShot({
+  title,
+  caption,
+  src = "/session.png",
+  srcDark = "/session-night.png",
+  video = "/session.mp4",
+  videoDark = "/session-night.mp4",
+  width = 1920,
+  height = 1200,
+  alt,
+  headingId = "session-shot-title",
+}: {
+  title: string;
+  caption?: ReactNode;
+  src?: string;
+  srcDark?: string;
+  video?: string;
+  videoDark?: string;
+  width?: number;
+  height?: number;
+  alt?: string;
+  headingId?: string;
+}) {
+  const label =
+    alt ??
+    "A Gardn session with product, ops, and commerce groups, a split checkout space, and agents in triage, working, and idle.";
   return (
-    <section className="gardn-section" aria-labelledby="schematic-title">
-      <h2 id="schematic-title" className="gardn-section-title">
+    <section className="gardn-section" aria-labelledby={headingId}>
+      <h2 id={headingId} className="gardn-section-title">
         {title}
       </h2>
-      <figure className="gardn-schematic" aria-label="Gardn session interface schematic">
-        <div className="gardn-schematic-titlebar">
-          <span className="gardn-schematic-dot" aria-hidden="true" />
-          <span className="gardn-schematic-title">gardn · default session</span>
-        </div>
-        <div className="gardn-schematic-body">
-          <div className="gardn-schematic-sidebar">
-            <div className="gardn-schematic-group">Spaces</div>
-            <ul className="gardn-schematic-list">
-              <li className="is-active">web</li>
-              <li>api</li>
-              <li>agents</li>
-            </ul>
-            <div className="gardn-schematic-group">Agents</div>
-            <ul className="gardn-schematic-list">
-              <li>
-                <span className="gardn-status gardn-status--working">working</span>
-                <span>codex</span>
-              </li>
-              <li>
-                <span className="gardn-status gardn-status--idle">idle</span>
-                <span>omp</span>
-              </li>
-            </ul>
-          </div>
-          <div className="gardn-schematic-main">
-            <div className="gardn-schematic-tabs">
-              <div className="gardn-schematic-tab is-active">tab 1</div>
-              <div className="gardn-schematic-tab">tab 2</div>
-            </div>
-            <div className="gardn-schematic-panes">
-              <div className="gardn-schematic-pane">editor · shell</div>
-              <div className="gardn-schematic-pane">agent · codex</div>
-            </div>
-            <div className="gardn-schematic-statusbar">
-              <span className="gardn-command">ctrl+b</span>
-              <span>space</span>
-              <span>new agent</span>
-            </div>
-          </div>
-        </div>
+      <figure className="gardn-session-shot">
+        <img className="gardn-session-still gardn-session-day" src={src} width={width} height={height} alt={label} />
+        <img
+          className="gardn-session-still gardn-session-night"
+          src={srcDark}
+          width={width}
+          height={height}
+          alt={label}
+        />
+        <video
+          className="gardn-session-motion gardn-session-day"
+          width={width}
+          height={height}
+          poster={src}
+          autoPlay
+          muted
+          loop
+          playsInline
+          aria-label={label}
+        >
+          <source src={video} type="video/mp4" />
+        </video>
+        <video
+          className="gardn-session-motion gardn-session-night"
+          width={width}
+          height={height}
+          poster={srcDark}
+          autoPlay
+          muted
+          loop
+          playsInline
+          aria-label={label}
+        >
+          <source src={videoDark} type="video/mp4" />
+        </video>
+        {caption && <figcaption className="gardn-session-shot-caption">{caption}</figcaption>}
       </figure>
-      {caption && <p className="gardn-schematic-caption">{caption}</p>}
     </section>
   );
 }

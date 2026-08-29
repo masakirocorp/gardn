@@ -105,7 +105,8 @@ pub(crate) use self::{
     },
     modal::{
         apply_keybind_help_key, confirm_close_accept, confirm_close_cancel,
-        confirm_delete_group_accept, confirm_delete_group_cancel, global_menu_actions,
+        confirm_delete_group_accept, confirm_delete_group_cancel, context_menu_state_for_pane,
+        global_menu_actions,
         handle_agent_menu_key, handle_config_diagnostics_key, handle_confirm_close_key,
         handle_confirm_delete_group_key, handle_context_menu_key, handle_global_menu_key,
         handle_group_menu_key, handle_keybind_help_key, handle_navigator_key, handle_rename_key,
@@ -819,6 +820,10 @@ impl App {
                     SettingsAction::SaveGroupName { group_idx, name } => {
                         self.state.rename_group(group_idx, name);
                     }
+                    SettingsAction::SaveGroupIcon { group_idx, icon } => {
+                        self.state.set_group_icon(group_idx, icon);
+                    }
+
                     SettingsAction::SaveGroupDefaultLocation {
                         group_idx,
                         default_location,

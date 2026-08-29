@@ -198,8 +198,12 @@ fn render_projected_pane_border(
         );
     }
     if rect.height > 1 {
+        let right = rect.x.saturating_add(rect.width).saturating_sub(1);
         for y in rect.y.saturating_add(1)..rect.y.saturating_add(rect.height).saturating_sub(1) {
             set_cell(rect.x, y, vertical);
+            if rect.width > 1 {
+                set_cell(right, y, vertical);
+            }
         }
         if rect.width > 1 {
             let bottom = rect.y.saturating_add(rect.height).saturating_sub(1);
@@ -405,6 +409,28 @@ fn runtime_for_tab_pane<'a>(
         .map(|runtime| (terminal_id, runtime))
 }
 
+fn separate_split_panes(pane_infos: &mut [PaneInfo], splits: &[crate::layout::SplitBorder]) {
+    for split in splits {
+        match split.direction {
+            ratatui::layout::Direction::Horizontal => {
+                for info in pane_infos.iter_mut() {
+                    let right = info.rect.x.saturating_add(info.rect.width);
+                    if right == split.pos && info.rect.width > 1 {
+                        info.rect.width -= 1;
+                    }
+                }
+            }
+            ratatui::layout::Direction::Vertical => {
+                for info in pane_infos.iter_mut() {
+                    let bottom = info.rect.y.saturating_add(info.rect.height);
+                    if bottom == split.pos && info.rect.height > 1 {
+                        info.rect.height -= 1;
+                    }
+                }
+            }
+        }
+    }
+}
 fn stable_scrollbar_gutter(
     rt: &TerminalRuntime,
     pane_inner: Rect,
@@ -487,7 +513,9 @@ pub(crate) fn compute_pane_infos(
     }
 
     let mut pane_infos = tab.layout.panes(area);
-
+    if app.pane_gaps && multi_pane {
+        separate_split_panes(&mut pane_infos, &tab.layout.splits(area));
+    }
     for info in &mut pane_infos {
         let pane_inner = if multi_pane {
             let border_set = if info.is_focused && terminal_active {
@@ -573,13 +601,13 @@ pub(super) fn compute_pane_infos_for_view(
     };
     let layout = layout_for_client_view(app, client_view, tab);
     let focused_id = client_view
-        .focused_pane_for_tab(&ws.id, tab_idx + 1)
+        .focused_pane_for_tab(&ws.id, tab.number)
         .filter(|pane_id| layout.pane_ids().contains(pane_id))
         .unwrap_or_else(|| layout.focused());
     let multi_pane = layout.pane_count() > 1;
     let terminal_active = client_view.mode == Mode::Terminal;
 
-    if client_view.tab_is_zoomed(&ws.id, tab_idx + 1) {
+    if client_view.tab_is_zoomed(&ws.id, tab.number) {
         let pane_inner = pane_inner_rect(area, multi_pane);
         let mut inner_rect = pane_inner;
         let mut scrollbar_rect = None;
@@ -605,6 +633,9 @@ pub(super) fn compute_pane_infos_for_view(
     }
 
     let mut pane_infos = layout.panes(area);
+    if app.pane_gaps && multi_pane {
+        separate_split_panes(&mut pane_infos, &layout.splits(area));
+    }
     for info in &mut pane_infos {
         info.is_focused = info.id == focused_id;
         let pane_inner = if multi_pane {
@@ -760,6 +791,7 @@ pub(super) fn render_panes_for_view(
     let multi_pane = tab.layout.pane_count() > 1;
     let active_accent = app.palette_for_workspace(ws_idx).accent;
     let terminal_active = client_view.mode == Mode::Terminal;
+    let watching = client_view.tab_control.is_watching();
 
     for info in &client_view.computed.pane_infos {
         let pane_state = tab.panes.get(&info.id);
@@ -768,7 +800,9 @@ pub(super) fn render_panes_for_view(
         };
 
         if multi_pane {
-            let (border_style, thick) = if info.is_focused && terminal_active {
+            let (border_style, thick) = if watching {
+                (Style::default().fg(app.palette.overlay0), false)
+            } else if info.is_focused && terminal_active {
                 (Style::default().fg(active_accent), true)
             } else if info.is_focused {
                 (Style::default().fg(active_accent), false)
@@ -839,8 +873,17 @@ pub(super) fn render_panes_for_view(
         render_projected_scrollbar(app, frame, canvas, frame_area, info, rt);
 
         let should_dim = !info.is_focused && multi_pane && !terminal_active;
-        if should_dim {
-            let inner = projected_inner.destination;
+        let dim_area = if watching {
+            canvas
+                .project_rect(info.rect)
+                .and_then(|projected| clip_projected_rect(projected, frame_area))
+                .map(|projected| projected.destination)
+        } else if should_dim {
+            Some(projected_inner.destination)
+        } else {
+            None
+        };
+        if let Some(inner) = dim_area {
             let buf = frame.buffer_mut();
             for y in inner.y..inner.y + inner.height {
                 for x in inner.x..inner.x + inner.width {
@@ -1306,6 +1349,35 @@ fn color_to_rgb(color: Color) -> Option<Rgb> {
     }
 }
 
+pub(super) fn wash_rect(frame: &mut Frame, area: Rect, palette: &Palette) {
+    if area.width == 0 || area.height == 0 {
+        return;
+    }
+    let Some(mute) = color_to_rgb(palette.overlay1) else {
+        return;
+    };
+    let panel = color_to_rgb(palette.panel_bg);
+    let default_fg = color_to_rgb(palette.text).unwrap_or(mute);
+    let buf = frame.buffer_mut();
+    let right = area.x.saturating_add(area.width);
+    let bottom = area.y.saturating_add(area.height);
+    for y in area.y..bottom {
+        for x in area.x..right {
+            let cell = &mut buf[(x, y)];
+            let style = cell.style();
+            let mut next = style.remove_modifier(Modifier::BOLD);
+            let fg = style.fg.and_then(color_to_rgb).unwrap_or(default_fg);
+            let (r, g, b) = mix_rgb(fg, mute, 0.32);
+            next = next.fg(Color::Rgb(r, g, b));
+            if let (Some(bg), Some(panel)) = (style.bg.and_then(color_to_rgb), panel) {
+                let (r, g, b) = mix_rgb(bg, panel, 0.18);
+                next = next.bg(Color::Rgb(r, g, b));
+            }
+            cell.set_style(next);
+        }
+    }
+}
+
 fn render_empty_for_view(app: &AppState, client_view: &ClientViewState, frame: &mut Frame) {
     render_empty_with_context(
         app,
@@ -1598,6 +1670,202 @@ mod tests {
         assert_eq!(buffer[(3, 0)].symbol(), " ");
         assert_eq!(buffer[(3, 1)].symbol(), " ");
         assert_eq!(buffer[(3, 2)].symbol(), "─");
+    }
+
+    #[test]
+    fn projected_pane_border_draws_all_four_edges() {
+        let info = PaneInfo {
+            id: PaneId::from_raw(1),
+            rect: Rect::new(0, 0, 8, 5),
+            inner_rect: Rect::new(1, 1, 6, 3),
+            scrollbar_rect: None,
+            is_focused: true,
+        };
+        let canvas = crate::app::view_state::TabCanvasViewport::new(
+            ratatui::layout::Size::new(8, 5),
+            Rect::new(0, 0, 8, 5),
+            crate::app::view_state::CanvasOrigin { col: 0, row: 0 },
+        );
+        let backend = TestBackend::new(8, 5);
+        let mut terminal = Terminal::new(backend).expect("test backend");
+        terminal
+            .draw(|frame| {
+                render_projected_pane_border(
+                    frame,
+                    canvas,
+                    &info,
+                    frame.area(),
+                    Style::default().fg(Color::White),
+                    true,
+                    None,
+                );
+            })
+            .expect("render full projected border");
+        let buffer = terminal.backend().buffer();
+        assert_eq!(buffer[(0, 0)].symbol(), "┏");
+        assert_eq!(buffer[(7, 0)].symbol(), "┓");
+        assert_eq!(buffer[(0, 4)].symbol(), "┗");
+        assert_eq!(buffer[(7, 4)].symbol(), "┛");
+        for x in 1..7 {
+            assert_eq!(buffer[(x, 0)].symbol(), "━");
+            assert_eq!(buffer[(x, 4)].symbol(), "━");
+        }
+        for y in 1..4 {
+            assert_eq!(buffer[(0, y)].symbol(), "┃");
+            assert_eq!(buffer[(7, y)].symbol(), "┃");
+        }
+    }
+
+    #[test]
+    fn client_split_panes_draw_closed_right_edges() {
+        let mut app = AppState::test_new();
+        app.zen_mode = true;
+        app.pane_borders = true;
+        app.pane_scrollbars = false;
+        app.pane_gaps = true;
+        let mut workspace = Workspace::test_new("split");
+        let left = workspace.tabs[0].root_pane;
+        let right = workspace.test_split(ratatui::layout::Direction::Horizontal);
+        workspace.tabs[0].runtimes.insert(
+            left,
+            TerminalRuntime::test_with_scrollback_bytes(20, 8, 1024, b"left\n"),
+        );
+        workspace.tabs[0].runtimes.insert(
+            right,
+            TerminalRuntime::test_with_scrollback_bytes(20, 8, 1024, b"right\n"),
+        );
+        workspace.tabs[0].layout.focus_pane(left);
+        app.workspaces = vec![workspace];
+        app.active = Some(0);
+
+        let area = Rect::new(0, 0, 40, 12);
+        let terminal_runtimes = TerminalRuntimeRegistry::new();
+        let mut client = ClientViewState::from_default_client_state(&app);
+        client.zen_mode = true;
+        crate::ui::compute_view_for_client_without_resizing_panes(
+            &app,
+            &mut client,
+            &terminal_runtimes,
+            area,
+        );
+        let backend = TestBackend::new(area.width, area.height);
+        let mut terminal = Terminal::new(backend).expect("test backend");
+        terminal
+            .draw(|frame| {
+                crate::ui::render_with_runtime_registry_for_view(
+                    &app,
+                    &client,
+                    &terminal_runtimes,
+                    frame,
+                );
+            })
+            .expect("render split panes");
+        let buffer = terminal.backend().buffer();
+        let dump = buffer_text(buffer, area.width, area.height);
+        let mut panes = client.computed.pane_infos.clone();
+        panes.sort_by_key(|info| info.rect.x);
+        assert_eq!(panes.len(), 2, "expected a two-pane split:\n{dump}");
+        assert_eq!(
+            panes[0].rect.x + panes[0].rect.width + 1,
+            panes[1].rect.x,
+            "pane_gaps should leave a column between split boxes:\n{dump}"
+        );
+        let canvas = client.tab_canvas_view.expect("canvas");
+        for info in &panes {
+            let right_x = info.rect.x + info.rect.width - 1;
+            let edge_y = info.rect.y.saturating_add(1);
+            let (x, y) = canvas
+                .canvas_to_screen(right_x, edge_y)
+                .expect("right edge should be on screen");
+            let symbol = buffer[(x, y)].symbol();
+            assert!(
+                symbol == "┃" || symbol == "│",
+                "pane {} missing right border at canvas ({right_x},{edge_y}) screen ({x},{y}) got {symbol:?}\n{dump}",
+                info.id.raw()
+            );
+        }
+    }
+
+    #[test]
+    fn watching_client_washes_pane_contents() {
+        let mut app = AppState::test_new();
+        app.zen_mode = true;
+        let mut workspace = Workspace::test_new("watch");
+        let root = workspace.tabs[0].root_pane;
+        workspace.tabs[0].runtimes.insert(
+            root,
+            TerminalRuntime::test_with_scrollback_bytes(20, 8, 1024, b"hello\n"),
+        );
+        app.workspaces = vec![workspace];
+        app.active = Some(0);
+
+        let area = Rect::new(0, 0, 40, 12);
+        let terminal_runtimes = TerminalRuntimeRegistry::new();
+        let mut controller = ClientViewState::from_default_client_state(&app);
+        controller.zen_mode = true;
+        let mut watcher = controller.clone();
+        watcher.set_tab_control(crate::app::ClientTabControl::WatchingControlled { epoch: 3 });
+        crate::ui::compute_view_for_client_without_resizing_panes(
+            &app,
+            &mut controller,
+            &terminal_runtimes,
+            area,
+        );
+        crate::ui::compute_view_for_client_without_resizing_panes(
+            &app,
+            &mut watcher,
+            &terminal_runtimes,
+            area,
+        );
+
+        let mut controller_terminal =
+            Terminal::new(TestBackend::new(area.width, area.height)).expect("controller backend");
+        controller_terminal
+            .draw(|frame| {
+                crate::ui::render_with_runtime_registry_for_view(
+                    &app,
+                    &controller,
+                    &terminal_runtimes,
+                    frame,
+                );
+            })
+            .expect("render controller");
+        let mut watcher_terminal =
+            Terminal::new(TestBackend::new(area.width, area.height)).expect("watcher backend");
+        watcher_terminal
+            .draw(|frame| {
+                crate::ui::render_with_runtime_registry_for_view(
+                    &app,
+                    &watcher,
+                    &terminal_runtimes,
+                    frame,
+                );
+            })
+            .expect("render watcher");
+
+        let pane = watcher.computed.pane_infos.first().expect("pane");
+        let canvas = watcher.tab_canvas_view.expect("canvas");
+        let (x, y) = canvas
+            .canvas_to_screen(pane.inner_rect.x, pane.inner_rect.y)
+            .expect("inner cell on screen");
+        let controller_cell = &controller_terminal.backend().buffer()[(x, y)];
+        let watcher_cell = &watcher_terminal.backend().buffer()[(x, y)];
+        assert_eq!(
+            watcher_cell.symbol(),
+            controller_cell.symbol(),
+            "watching wash should not erase glyphs"
+        );
+        assert_ne!(watcher_cell.symbol(), " ", "washed pane still has content");
+        assert_ne!(
+            watcher_cell.style().fg,
+            Some(app.palette.panel_bg),
+            "washed text must not collapse into the background"
+        );
+        assert_ne!(
+            watcher_cell.style().fg,
+            controller_cell.style().fg,
+            "watching panes should mix toward muted chrome"
+        );
     }
 
     #[test]

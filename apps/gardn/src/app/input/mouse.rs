@@ -349,6 +349,34 @@ impl AppState {
                     self.collapsed_workspace_at_row(mouse.row)
                         .map(crate::app::state::CollapsedSidebarHover::Workspace)
                 })
+                .or_else(|| {
+                    self.collapsed_agent_header_target_at(mouse.row)
+                        .map(
+                            |header| crate::app::state::CollapsedSidebarHover::AgentStatus {
+                                section: header.section,
+                            },
+                        )
+                })
+                .or_else(|| {
+                    self.collapsed_agent_detail_target_at(mouse.row)
+                        .map(|(ws_idx, _, pane_id)| {
+                            crate::app::state::CollapsedSidebarHover::Agent { ws_idx, pane_id }
+                        })
+                })
+            } else if self.right_sidebar_collapsed && in_right_sidebar {
+                self.collapsed_agent_header_target_at(mouse.row)
+                    .map(
+                        |header| crate::app::state::CollapsedSidebarHover::AgentStatus {
+                            section: header.section,
+                        },
+                    )
+                    .or_else(|| {
+                        self.collapsed_agent_detail_target_at(mouse.row).map(
+                            |(ws_idx, _, pane_id)| {
+                                crate::app::state::CollapsedSidebarHover::Agent { ws_idx, pane_id }
+                            },
+                        )
+                    })
             } else {
                 None
             };
@@ -448,6 +476,18 @@ impl AppState {
 
                         if self.creating_new_group
                             && rect_contains(
+                                crate::ui::group_default_host_rect(self, inner),
+                                mouse.column,
+                                mouse.row,
+                            )
+                        {
+                            self.group_modal_selected_field = 1;
+                            self.name_input_replace_on_type = false;
+                            return None;
+                        }
+
+                        if self.creating_new_group
+                            && rect_contains(
                                 crate::ui::group_default_directory_input_rect(self, inner),
                                 mouse.column,
                                 mouse.row,
@@ -457,6 +497,7 @@ impl AppState {
                             self.name_input_replace_on_type = false;
                             return None;
                         }
+
 
                         if rect_contains(
                             crate::ui::group_name_input_rect(self, inner),

@@ -2454,11 +2454,198 @@ pub(crate) fn collapsed_agent_panel_entry_at_row_for_view(
     None
 }
 
+pub(crate) fn collapsed_agent_rail_rect(
+    sidebar: Rect,
+    right_sidebar: Rect,
+    sidebar_collapsed: bool,
+    right_sidebar_collapsed: bool,
+    split_ratio: f32,
+) -> Option<Rect> {
+    if right_sidebar != Rect::default() && right_sidebar_collapsed {
+        let content = right_sidebar_content_rect(right_sidebar);
+        return (content != Rect::default()).then_some(content);
+    }
+    if sidebar_collapsed && right_sidebar == Rect::default() {
+        let (_, _, detail_area) = collapsed_sidebar_sections_for_split(sidebar, true, split_ratio);
+        return (detail_area != Rect::default()).then_some(detail_area);
+    }
+    None
+}
+
+fn collapsed_agent_hover_row(
+    app: &AppState,
+    area: Rect,
+    ws_idx: usize,
+    pane_id: crate::layout::PaneId,
+) -> Option<(u16, AgentPanelEntry)> {
+    let rows = collapsed_agent_panel_body_rect(area);
+    if rows == Rect::default() {
+        return None;
+    }
+    let mut row_y = rows.y;
+    for section in agent_panel_sections(app) {
+        row_y = row_y.saturating_add(1);
+        if agent_panel_section_collapsed(app, section.group) {
+            continue;
+        }
+        for entry in section.entries {
+            if row_y >= rows.y + rows.height {
+                return None;
+            }
+            if entry.ws_idx == ws_idx && entry.pane_id == pane_id {
+                return Some((row_y, entry));
+            }
+            row_y = row_y.saturating_add(1);
+        }
+    }
+    None
+}
+
+fn collapsed_agent_hover_lines(app: &AppState, entry: &AgentPanelEntry) -> Vec<Line<'static>> {
+    let p = &app.palette;
+    let status = state_label(entry.state, entry.seen);
+    let mut detail = Vec::new();
+    if let Some(agent_label) = entry.agent_label.as_deref() {
+        detail.push(Span::styled(
+            agent_label.to_string(),
+            Style::default().fg(p.overlay1),
+        ));
+        detail.push(Span::styled(" · ", Style::default().fg(p.overlay0)));
+    }
+    detail.push(Span::styled(
+        status,
+        Style::default()
+            .fg(state_label_color(entry.state, entry.seen, p))
+            .add_modifier(Modifier::BOLD),
+    ));
+    vec![
+        Line::from(Span::styled(
+            entry.primary_label.clone(),
+            Style::default().fg(p.text),
+        )),
+        Line::from(detail),
+    ]
+}
+
+fn render_collapsed_hover_popup(
+    app: &AppState,
+    frame: &mut Frame,
+    rail: Rect,
+    row: u16,
+    opens_left: bool,
+    lines: Vec<Line<'static>>,
+) {
+    let content_width = lines
+        .iter()
+        .map(|line| {
+            line.spans
+                .iter()
+                .map(|span| display_width(span.content.as_ref()))
+                .sum::<usize>()
+        })
+        .max()
+        .unwrap_or_default();
+    let popup_height = lines.len() as u16 + 2;
+    let screen = frame.area();
+    let available = if opens_left {
+        rail.x.saturating_sub(screen.x)
+    } else {
+        screen
+            .x
+            .saturating_add(screen.width)
+            .saturating_sub(rail.x.saturating_add(rail.width))
+    };
+    let width = (content_width as u16)
+        .saturating_add(2)
+        .min(40)
+        .min(available);
+    if width < 4 || screen.height < popup_height {
+        return;
+    }
+    let x = if opens_left {
+        rail.x.saturating_sub(width)
+    } else {
+        rail.x.saturating_add(rail.width)
+    };
+    let y = row.saturating_sub(1).min(
+        screen
+            .y
+            .saturating_add(screen.height)
+            .saturating_sub(popup_height),
+    );
+    let popup = Rect::new(x, y, width, popup_height);
+    frame.render_widget(Clear, popup);
+    frame.render_widget(
+        Paragraph::new(lines).block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(app.palette.overlay0))
+                .style(
+                    Style::default()
+                        .bg(app.palette.panel_bg)
+                        .fg(app.palette.text),
+                ),
+        ),
+        popup,
+    );
+}
+
 /// Collapsed sidebar: workspace glance plus compact agent list.
 fn sidebar_is_combined_right(app: &AppState) -> bool {
     app.view.right_sidebar_rect == Rect::default()
         && app.sidebar_arrangement == crate::config::SidebarArrangementConfig::CombinedRight
 }
+
+fn collapsed_rail_separator_x(area: Rect, combined_right: bool) -> u16 {
+    if combined_right {
+        area.x
+    } else {
+        area.x + area.width.saturating_sub(1)
+    }
+}
+
+fn paint_collapsed_rail_separator(
+    frame: &mut Frame,
+    area: Rect,
+    combined_right: bool,
+    style: Style,
+) {
+    let sep_x = collapsed_rail_separator_x(area, combined_right);
+    let buf = frame.buffer_mut();
+    for y in area.y..area.y + area.height {
+        buf[(sep_x, y)].set_symbol("│");
+        buf[(sep_x, y)].set_style(style);
+    }
+}
+
+fn collapsed_workspace_status_icon(
+    state: AgentState,
+    seen: bool,
+    tick: u32,
+    style: crate::config::StatusIndicatorStyle,
+    p: &Palette,
+) -> (&'static str, Style) {
+    let (icon, icon_style) = state_icon(state, seen, tick, style, p);
+    // ◉ is optically wider than the rail cell and overlaps the collapsed border.
+    if icon == "◉" {
+        ("●", icon_style)
+    } else {
+        (icon, icon_style)
+    }
+}
+
+fn collapsed_workspace_index_line(
+    ordinal: usize,
+    icon: &'static str,
+    icon_style: Style,
+    num_style: Style,
+) -> Line<'static> {
+    Line::from(vec![
+        Span::styled(ordinal.to_string(), num_style),
+        Span::styled(icon, icon_style),
+    ])
+}
+
 
 pub(super) fn render_sidebar_collapsed(app: &AppState, frame: &mut Frame, area: Rect) {
     let is_navigating = matches!(app.mode, Mode::Navigate);
@@ -2473,16 +2660,8 @@ pub(super) fn render_sidebar_collapsed(app: &AppState, frame: &mut Frame, area: 
         Style::default().fg(p.overlay0).bg(p.panel_bg)
     };
     let combined_right = sidebar_is_combined_right(app);
-    let sep_x = if combined_right {
-        area.x
-    } else {
-        area.x + area.width.saturating_sub(1)
-    };
-    let buf = frame.buffer_mut();
-    for y in area.y..area.y + area.height {
-        buf[(sep_x, y)].set_symbol("│");
-        buf[(sep_x, y)].set_style(sep_style);
-    }
+    paint_collapsed_rail_separator(frame, area, combined_right, sep_style);
+
 
     let (ws_area, divider_y, detail_area) = if combined_right {
         right_aligned_collapsed_sidebar_sections(area, show_agent_detail, app.sidebar_section_split)
@@ -2569,13 +2748,14 @@ pub(super) fn render_sidebar_collapsed(app: &AppState, frame: &mut Frame, area: 
                     continue;
                 };
                 let (agg_state, agg_seen) = ws.aggregate_state(&app.terminals);
-                let (icon, icon_style) = state_icon(
+                let (icon, icon_style) = collapsed_workspace_status_icon(
                     agg_state,
                     agg_seen,
                     app.spinner_tick,
                     app.status_indicators,
                     p,
                 );
+
                 let is_selected = ws_idx == app.selected && is_navigating;
                 let is_active = Some(ws_idx) == app.active;
                 let row_style = if is_selected {
@@ -2601,15 +2781,15 @@ pub(super) fn render_sidebar_collapsed(app: &AppState, frame: &mut Frame, area: 
                 }
 
                 frame.render_widget(
-                    Paragraph::new(Line::from(vec![
-                        Span::styled(format!("{ordinal:<2}"), num_style),
-                        Span::styled(icon, icon_style),
-                    ])),
+                    Paragraph::new(collapsed_workspace_index_line(
+                        ordinal, icon, icon_style, num_style,
+                    )),
                     Rect::new(workspace_rows.x, y, workspace_rows.width, 1),
                 );
             }
         }
     }
+    paint_collapsed_rail_separator(frame, area, combined_right, sep_style);
 
     if let Some(divider_y) = divider_y {
         let buf = frame.buffer_mut();
@@ -2619,9 +2799,11 @@ pub(super) fn render_sidebar_collapsed(app: &AppState, frame: &mut Frame, area: 
         }
     }
 
+
     if !show_agent_detail {
         render_global_launcher(app, frame);
         render_sidebar_toggle(app, frame, area, true, p);
+        paint_collapsed_rail_separator(frame, area, combined_right, sep_style);
         return;
     }
 
@@ -2632,7 +2814,9 @@ pub(super) fn render_sidebar_collapsed(app: &AppState, frame: &mut Frame, area: 
 
     render_global_launcher(app, frame);
     render_sidebar_toggle(app, frame, area, true, p);
+    paint_collapsed_rail_separator(frame, area, combined_right, sep_style);
 }
+
 pub(super) fn render_sidebar_collapsed_for_view(
     app: &AppState,
     terminal_runtimes: &TerminalRuntimeRegistry,
@@ -2652,16 +2836,8 @@ pub(super) fn render_sidebar_collapsed_for_view(
     } else {
         Style::default().fg(p.overlay0).bg(p.panel_bg)
     };
-    let separator_x = if combined_right {
-        area.x
-    } else {
-        area.x + area.width.saturating_sub(1)
-    };
-    for y in area.y..area.y + area.height {
-        frame.buffer_mut()[(separator_x, y)]
-            .set_symbol("│")
-            .set_style(separator_style);
-    }
+    paint_collapsed_rail_separator(frame, area, combined_right, separator_style);
+
 
     let (workspace_area, divider_y, agent_area) = if combined_right {
         right_aligned_collapsed_sidebar_sections(
@@ -2752,8 +2928,14 @@ pub(super) fn render_sidebar_collapsed_for_view(
                         continue;
                     };
                     let (state, seen) = workspace.aggregate_state(&app.terminals);
-                    let (icon, icon_style) =
-                        state_icon(state, seen, app.spinner_tick, app.status_indicators, p);
+                    let (icon, icon_style) = collapsed_workspace_status_icon(
+                        state,
+                        seen,
+                        app.spinner_tick,
+                        app.status_indicators,
+                        p,
+                    );
+
                     let selected = navigating && ws_idx == view.selected_workspace;
                     let active = Some(ws_idx) == view.active_workspace;
                     let bg = if selected { p.surface0 } else { p.surface_dim };
@@ -2775,10 +2957,9 @@ pub(super) fn render_sidebar_collapsed_for_view(
                         }
                     }
                     frame.render_widget(
-                        Paragraph::new(Line::from(vec![
-                            Span::styled(format!("{ordinal:<2}"), num_style),
-                            Span::styled(icon, icon_style),
-                        ])),
+                        Paragraph::new(collapsed_workspace_index_line(
+                            ordinal, icon, icon_style, num_style,
+                        )),
                         Rect::new(rows.x, y, rows.width, 1),
                     );
                 }
@@ -2797,9 +2978,41 @@ pub(super) fn render_sidebar_collapsed_for_view(
     }
     render_global_launcher_for_view(app, view, frame);
     render_sidebar_toggle(app, frame, area, true, p);
+    paint_collapsed_rail_separator(frame, area, combined_right, separator_style);
 }
 
+
 pub(super) fn render_collapsed_sidebar_hover(app: &AppState, frame: &mut Frame) {
+    match &app.collapsed_sidebar_hover {
+        Some(CollapsedSidebarHover::Agent { ws_idx, pane_id }) => {
+            render_collapsed_agent_hover(
+                app,
+                frame,
+                app.view.sidebar_rect,
+                app.view.right_sidebar_rect,
+                app.sidebar_collapsed,
+                app.right_sidebar_collapsed,
+                app.sidebar_section_split,
+                *ws_idx,
+                *pane_id,
+            );
+            return;
+        }
+        Some(CollapsedSidebarHover::AgentStatus { section }) => {
+            render_collapsed_agent_status_hover(
+                app,
+                frame,
+                app.view.sidebar_rect,
+                app.view.right_sidebar_rect,
+                app.sidebar_collapsed,
+                app.right_sidebar_collapsed,
+                app.sidebar_section_split,
+                section,
+            );
+            return;
+        }
+        _ => {}
+    }
     render_collapsed_sidebar_hover_entry(
         app,
         frame,
@@ -2808,7 +3021,7 @@ pub(super) fn render_collapsed_sidebar_hover(app: &AppState, frame: &mut Frame) 
         app.view.right_sidebar_rect == Rect::default(),
         matches!(app.mode, Mode::Navigate),
         app.selected,
-        app.collapsed_sidebar_hover,
+        app.collapsed_sidebar_hover.clone(),
         collapsed_workspace_row_entries(app),
     );
 }
@@ -2818,6 +3031,36 @@ pub(super) fn render_collapsed_sidebar_hover_for_view(
     view: &ClientViewState,
     frame: &mut Frame,
 ) {
+    match &view.collapsed_sidebar_hover {
+        Some(CollapsedSidebarHover::Agent { ws_idx, pane_id }) => {
+            render_collapsed_agent_hover(
+                app,
+                frame,
+                view.computed.sidebar_rect,
+                view.computed.right_sidebar_rect,
+                view.sidebar_collapsed,
+                view.right_sidebar_collapsed,
+                view.sidebar_section_split,
+                *ws_idx,
+                *pane_id,
+            );
+            return;
+        }
+        Some(CollapsedSidebarHover::AgentStatus { section }) => {
+            render_collapsed_agent_status_hover(
+                app,
+                frame,
+                view.computed.sidebar_rect,
+                view.computed.right_sidebar_rect,
+                view.sidebar_collapsed,
+                view.right_sidebar_collapsed,
+                view.sidebar_section_split,
+                section,
+            );
+            return;
+        }
+        _ => {}
+    }
     render_collapsed_sidebar_hover_entry(
         app,
         frame,
@@ -2826,9 +3069,110 @@ pub(super) fn render_collapsed_sidebar_hover_for_view(
         view.computed.right_sidebar_rect == Rect::default(),
         matches!(view.mode, Mode::Navigate),
         view.selected_workspace,
-        view.collapsed_sidebar_hover,
+        view.collapsed_sidebar_hover.clone(),
         collapsed_workspace_row_entries_for_view(app, view),
     );
+}
+
+fn render_collapsed_agent_hover(
+    app: &AppState,
+    frame: &mut Frame,
+    sidebar: Rect,
+    right_sidebar: Rect,
+    sidebar_collapsed: bool,
+    right_sidebar_collapsed: bool,
+    split_ratio: f32,
+    ws_idx: usize,
+    pane_id: crate::layout::PaneId,
+) {
+    let Some(rail) = collapsed_agent_rail_rect(
+        sidebar,
+        right_sidebar,
+        sidebar_collapsed,
+        right_sidebar_collapsed,
+        split_ratio,
+    ) else {
+        return;
+    };
+    let Some((row, entry)) = collapsed_agent_hover_row(app, rail, ws_idx, pane_id) else {
+        return;
+    };
+    let opens_left = app.sidebar_arrangement
+        == crate::config::SidebarArrangementConfig::CombinedRight
+        || right_sidebar != Rect::default();
+    render_collapsed_hover_popup(
+        app,
+        frame,
+        rail,
+        row,
+        opens_left,
+        collapsed_agent_hover_lines(app, &entry),
+    );
+}
+
+fn render_collapsed_agent_status_hover(
+    app: &AppState,
+    frame: &mut Frame,
+    sidebar: Rect,
+    right_sidebar: Rect,
+    sidebar_collapsed: bool,
+    right_sidebar_collapsed: bool,
+    split_ratio: f32,
+    section: &str,
+) {
+    let Some(rail) = collapsed_agent_rail_rect(
+        sidebar,
+        right_sidebar,
+        sidebar_collapsed,
+        right_sidebar_collapsed,
+        split_ratio,
+    ) else {
+        return;
+    };
+    let Some((row, group)) = collapsed_agent_status_hover_row(app, rail, section) else {
+        return;
+    };
+    let (icon, icon_style) =
+        agent_section_icon(group, app.spinner_tick, app.status_indicators, &app.palette);
+    let opens_left = app.sidebar_arrangement
+        == crate::config::SidebarArrangementConfig::CombinedRight
+        || right_sidebar != Rect::default();
+    render_collapsed_hover_popup(
+        app,
+        frame,
+        rail,
+        row,
+        opens_left,
+        vec![Line::from(vec![
+            Span::styled(icon, icon_style),
+            Span::styled(format!(" {section}"), icon_style),
+        ])],
+    );
+}
+
+fn collapsed_agent_status_hover_row(
+    app: &AppState,
+    area: Rect,
+    section: &str,
+) -> Option<(u16, AgentStatusGroup)> {
+    let rows = collapsed_agent_panel_body_rect(area);
+    if rows == Rect::default() {
+        return None;
+    }
+    let mut row_y = rows.y;
+    for panel in agent_panel_sections(app) {
+        if row_y >= rows.y + rows.height {
+            return None;
+        }
+        if panel.group.label() == section {
+            return Some((row_y, panel.group));
+        }
+        row_y = row_y.saturating_add(1);
+        if !agent_panel_section_collapsed(app, panel.group) {
+            row_y = row_y.saturating_add(panel.entries.len() as u16);
+        }
+    }
+    None
 }
 
 #[allow(clippy::too_many_arguments)] // Keeps the shared and client-local render paths identical.
@@ -2849,6 +3193,7 @@ fn render_collapsed_sidebar_hover_entry(
         return;
     };
     let entry = match target {
+        CollapsedSidebarHover::Agent { .. } | CollapsedSidebarHover::AgentStatus { .. } => return,
         CollapsedSidebarHover::Group(group_idx) => {
             CollapsedWorkspaceRowEntry::GroupHeader { group_idx }
         }
@@ -5141,6 +5486,47 @@ mod tests {
     }
 
     #[test]
+    fn collapsed_agent_status_hover_shows_icon_and_name() {
+        let mut app = crate::app::state::AppState::test_new();
+        let mut workspace = Workspace::test_new("checkout");
+        let pane_id = workspace.tabs[0].root_pane;
+        let pane = workspace.tabs[0]
+            .panes
+            .get_mut(&pane_id)
+            .expect("root pane");
+        pane.detected_agent = Some(Agent::Pi);
+        pane.state = AgentState::Working;
+        pane.seen = true;
+        app.workspaces = vec![workspace];
+        app.active = Some(0);
+        app.sidebar_collapsed = true;
+        app.sidebar_arrangement = crate::config::SidebarArrangementConfig::CombinedLeft;
+        app.view.sidebar_rect = Rect::new(0, 0, 4, 24);
+        app.collapsed_sidebar_hover = Some(CollapsedSidebarHover::AgentStatus {
+            section: "Working".to_string(),
+        });
+
+        let backend = TestBackend::new(60, 24);
+        let mut terminal = Terminal::new(backend).expect("test backend");
+        terminal
+            .draw(|frame| render_collapsed_sidebar_hover(&app, frame))
+            .expect("render collapsed status hover");
+
+        let buffer = terminal.backend().buffer();
+        let text = buffer_text(buffer, 60, 24);
+        assert!(
+            text.contains("Working"),
+            "status hover should name the group; rendered:\n{text}"
+        );
+        let (x, y) = first_cell_with_symbol(buffer, 60, 24, "W").expect("Working label");
+        assert_eq!(
+            buffer[(x, y)].style().fg,
+            Some(app.palette.yellow),
+            "status hover should use the section color"
+        );
+    }
+
+    #[test]
     fn collapsed_sidebar_group_icon_uses_group_accent() {
         let mut app = crate::app::state::AppState::test_new();
         let group_idx = app.create_group("work".to_string());
@@ -5160,6 +5546,54 @@ mod tests {
         assert_eq!(
             buffer[(x, y)].style().fg,
             Some(app.group_accent_color(group_idx))
+        );
+    }
+
+    #[test]
+    fn collapsed_agent_hover_shows_space_agent_and_status() {
+        let mut app = crate::app::state::AppState::test_new();
+        let mut workspace = Workspace::test_new("checkout");
+        let pane_id = workspace.tabs[0].root_pane;
+        let pane = workspace.tabs[0]
+            .panes
+            .get_mut(&pane_id)
+            .expect("root pane");
+        pane.detected_agent = Some(Agent::Pi);
+        pane.state = AgentState::Working;
+        pane.seen = true;
+        app.workspaces = vec![workspace];
+        app.active = Some(0);
+        app.selected = 0;
+        app.sidebar_collapsed = true;
+        app.sidebar_arrangement = crate::config::SidebarArrangementConfig::CombinedLeft;
+        app.view.sidebar_rect = Rect::new(0, 0, 4, 24);
+        app.collapsed_sidebar_hover = Some(CollapsedSidebarHover::Agent { ws_idx: 0, pane_id });
+
+        let backend = TestBackend::new(60, 24);
+        let mut terminal = Terminal::new(backend).expect("test backend");
+        terminal
+            .draw(|frame| render_collapsed_sidebar_hover(&app, frame))
+            .expect("render collapsed agent hover");
+
+        let buffer = terminal.backend().buffer();
+        let text = buffer_text(buffer, 60, 24);
+        assert!(
+            text.contains("checkout"),
+            "hover should name the space; rendered:\n{text}"
+        );
+        assert!(
+            text.contains("pi"),
+            "hover should name the agent; rendered:\n{text}"
+        );
+        assert!(
+            text.contains("Working"),
+            "hover should show status; rendered:\n{text}"
+        );
+        let (status_x, status_y) =
+            first_cell_with_symbol(buffer, 60, 24, "W").expect("Working status");
+        assert_eq!(
+            buffer[(status_x, status_y)].style().fg,
+            Some(state_label_color(AgentState::Working, true, &app.palette))
         );
     }
 
@@ -5275,12 +5709,61 @@ mod tests {
         let tenth_row = rows_y + 9;
         let buffer = terminal.backend().buffer();
         assert_eq!(buffer[(ws_area.x, rows_y)].symbol(), "1");
-        assert_eq!(buffer[(ws_area.x + 1, rows_y)].symbol(), " ");
-        assert_eq!(buffer[(ws_area.x + 2, rows_y)].symbol(), "·");
+        assert_eq!(buffer[(ws_area.x + 1, rows_y)].symbol(), "·");
+        assert_ne!(
+            buffer[(ws_area.x + 2, rows_y)].symbol(),
+            "·",
+            "single-digit status should leave a gutter before the rail border"
+        );
         assert_eq!(buffer[(ws_area.x, tenth_row)].symbol(), "1");
         assert_eq!(buffer[(ws_area.x + 1, tenth_row)].symbol(), "0");
         assert_eq!(buffer[(ws_area.x + 2, tenth_row)].symbol(), "·");
     }
+
+    #[test]
+    fn collapsed_sidebar_blocked_status_does_not_overwrite_border() {
+        let mut app = crate::app::state::AppState::test_new();
+        app.status_indicators = crate::config::StatusIndicatorStyle::Symbols;
+        let mut workspace = Workspace::test_new("blocked");
+        let pane_id = workspace.tabs[0].root_pane;
+        {
+            let pane = workspace.tabs[0]
+                .panes
+                .get_mut(&pane_id)
+                .expect("root pane");
+            pane.detected_agent = Some(Agent::Claude);
+            pane.state = AgentState::Blocked;
+            pane.seen = true;
+        }
+        app.workspaces = vec![workspace];
+        app.ensure_test_terminals();
+        let terminal_id = app.workspaces[0].tabs[0].panes[&pane_id]
+            .attached_terminal_id
+            .clone();
+        let attached = app
+            .terminals
+            .get_mut(&terminal_id)
+            .expect("attached terminal");
+        attached.detected_agent = Some(Agent::Claude);
+        attached.state = AgentState::Blocked;
+
+        let area = Rect::new(0, 0, 4, 12);
+        let (ws_area, _, _) = collapsed_sidebar_sections(area, true);
+        let rows_y = ws_area.y + COLLAPSED_SECTION_HEADER_ROWS;
+        let mut terminal = Terminal::new(TestBackend::new(area.width, area.height))
+            .expect("test terminal should initialize");
+
+        terminal
+            .draw(|frame| render_sidebar_collapsed(&app, frame, area))
+            .expect("collapsed sidebar should render");
+
+        let buffer = terminal.backend().buffer();
+        let border_x = area.x + area.width - 1;
+        assert_eq!(buffer[(ws_area.x, rows_y)].symbol(), "1");
+        assert_eq!(buffer[(ws_area.x + 1, rows_y)].symbol(), "●");
+        assert_eq!(buffer[(border_x, rows_y)].symbol(), "│");
+    }
+
 
     #[test]
     fn collapsed_workspace_hover_shows_group_name_and_colored_status() {

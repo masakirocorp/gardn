@@ -1011,7 +1011,7 @@ fn pane_run(args: &[String]) -> std::io::Result<i32> {
 
 fn pane_report_agent(args: &[String]) -> std::io::Result<i32> {
     let Some(raw_pane_id) = args.first() else {
-        eprintln!("usage: gardn pane report-agent <pane_id> --source ID --agent LABEL --state idle|working|blocked|unknown [--message TEXT] [--custom-status TEXT] [--seq N] [--agent-session-id ID] [--agent-session-path PATH]");
+        eprintln!("usage: gardn pane report-agent <pane_id> --source ID --agent LABEL --state idle|working|blocked|unknown [--message TEXT] [--custom-status TEXT] [--seq N] [--agent-session-id ID] [--agent-session-path PATH] [--activity-unix-secs N]");
         return Ok(2);
     };
 
@@ -1024,6 +1024,7 @@ fn pane_report_agent(args: &[String]) -> std::io::Result<i32> {
     let mut seq = None;
     let mut agent_session_id = None;
     let mut agent_session_path = None;
+    let mut activity_unix_secs = None;
 
     let mut index = 1;
     while index < args.len() {
@@ -1092,6 +1093,14 @@ fn pane_report_agent(args: &[String]) -> std::io::Result<i32> {
                 agent_session_path = Some(value.clone());
                 index += 2;
             }
+            "--activity-unix-secs" => {
+                let Some(value) = args.get(index + 1) else {
+                    eprintln!("missing value for --activity-unix-secs");
+                    return Ok(2);
+                };
+                activity_unix_secs = Some(super::parse_u64_flag("--activity-unix-secs", value)?);
+                index += 2;
+            }
             other => {
                 eprintln!("unknown option: {other}");
                 return Ok(2);
@@ -1125,6 +1134,7 @@ fn pane_report_agent(args: &[String]) -> std::io::Result<i32> {
         seq,
         agent_session_id,
         agent_session_path,
+        activity_unix_secs,
         launch_env: Default::default(),
     }))
 }
@@ -1508,7 +1518,7 @@ fn print_pane_help() {
     eprintln!("  gardn pane close <pane_id>");
     eprintln!("  gardn pane send-text <pane_id> <text>");
     eprintln!("  gardn pane send-keys <pane_id> <key> [key ...]");
-    eprintln!("  gardn pane report-agent <pane_id> --source ID --agent LABEL --state idle|working|blocked|unknown [--message TEXT] [--custom-status TEXT] [--seq N] [--agent-session-id ID] [--agent-session-path PATH]");
+    eprintln!("  gardn pane report-agent <pane_id> --source ID --agent LABEL --state idle|working|blocked|unknown [--message TEXT] [--custom-status TEXT] [--seq N] [--agent-session-id ID] [--agent-session-path PATH] [--activity-unix-secs N]");
     eprintln!("  gardn pane report-agent-session <pane_id> --source ID --agent LABEL [--seq N] [--agent-session-id ID] [--agent-session-path PATH]");
     eprintln!("  gardn pane release-agent <pane_id> --source ID --agent LABEL [--seq N]");
     eprintln!("  gardn pane report-metadata <pane_id> --source ID [--agent LABEL] [--applies-to-source ID] [--title TEXT|--clear-title] [--display-agent TEXT|--clear-display-agent] [--custom-status TEXT|--clear-custom-status] [--state-label STATUS=TEXT] [--clear-state-labels] [--seq N] [--ttl-ms N]");

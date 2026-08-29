@@ -116,6 +116,38 @@ agent-test-pi-omp-plugin-status:
     docker run --rm -v "$PWD:/repo:ro" gardn-agent-tests:local node --experimental-strip-types /usr/local/bin/gardn-agent-pi-omp-plugin-status-test /repo/apps/gardn/src/integration/assets/pi/gardn-agent-state.ts pi
     docker run --rm -v "$PWD:/repo:ro" gardn-agent-tests:local node --experimental-strip-types /usr/local/bin/gardn-agent-pi-omp-plugin-status-test /repo/apps/gardn/src/integration/assets/omp/gardn-agent-state.ts omp
 
+# Rebuild the isolated demo session
+demo:
+    python3 scripts/demo_session.py seed
+
+# Rebuild the demo session from a clean isolated home
+demo-reset:
+    python3 scripts/demo_session.py seed --reset
+
+# Open a dedicated Ghostty window attached to the isolated demo session
+demo-window:
+    python3 scripts/demo_session.py open-window
+
+# Attach a client to the isolated demo session in the current terminal
+demo-attach:
+    python3 scripts/demo_session.py attach
+
+# Show isolated demo session status
+demo-status:
+    python3 scripts/demo_session.py status
+
+# Check Cap, cliclick, Ghostty, and gardn capture dependencies
+demo-capture-deps:
+    python3 scripts/demo_capture.py deps
+
+# Capture marketing shots with Cap CLI and cliclick
+demo-capture:
+    python3 scripts/demo_capture.py all --theme all
+
+# Capture one named shot in day theme
+demo-capture-day SHOT:
+    python3 scripts/demo_capture.py {{SHOT}} --theme day
+
 # Print default config
 default-config:
     cargo run --release --locked -- --default-config

@@ -115,10 +115,14 @@ pub(crate) use self::{
 pub(crate) use self::{
     dialogs::{
         confirm_close_button_rects, confirm_close_popup_rect, group_default_directory_input_rect,
-        group_default_directory_input_rect_for_view, group_icon_button_rect,
-        group_icon_button_rect_for_view, group_icon_picker_rects, group_icon_picker_rects_for_view,
-        group_name_input_rect, group_name_input_rect_for_view, rename_button_rects,
-        rename_modal_size, rename_modal_size_for_view,
+        group_default_directory_input_rect_for_view, group_default_host_rect,
+        group_default_host_rect_for_view, group_icon_button_rect, group_icon_button_rect_for_view,
+        group_icon_picker_rects, group_icon_picker_rects_at, group_icon_picker_rects_for_view,
+        group_icon_picker_row_count, group_name_input_rect, group_name_input_rect_for_view,
+        rename_button_rects, rename_modal_size, rename_modal_size_for_view,
+
+
+
     },
     settings::{
         settings_close_button_rect, settings_editor_back_button_rect, settings_section_list_rect,
@@ -238,8 +242,7 @@ pub(crate) fn tab_control_chip(tab_control: ClientTabControl) -> Option<TabContr
 }
 
 /// Truncate the desktop chip label for a narrow bar: the hint suffix elides
-/// first, then the badge. A dangling one-column ellipsis is never appended to
-/// the bare badge, so the clickable chip always reads as an action.
+/// first, then the badge.
 fn truncate_tab_control_chip_label(label: &str, max_width: usize) -> String {
     for badge in [WATCHING_CHIP_BADGE, FREE_CHIP_BADGE] {
         if let Some(suffix) = label.strip_prefix(badge) {
@@ -260,6 +263,42 @@ fn truncate_tab_control_chip_label(label: &str, max_width: usize) -> String {
     text::truncate_end(label, max_width)
 }
 
+const TAB_CONTROL_ACTIONS: [&str; 2] = ["Take Over", "Take Control"];
+
+fn tab_control_action_span(label: &str) -> Option<(u16, u16)> {
+    for action in TAB_CONTROL_ACTIONS {
+        if let Some(idx) = label.find(action) {
+            let start = text::display_width_u16(&label[..idx]);
+            let width = text::display_width_u16(action);
+            if width > 0 {
+                return Some((start, width));
+            }
+        }
+    }
+    None
+}
+
+fn tab_control_action_hit_rect(label: &str, rect: Rect) -> Option<Rect> {
+    let (start, width) = tab_control_action_span(label)?;
+    Some(Rect::new(rect.x.saturating_add(start), rect.y, width, 1))
+}
+
+fn context_bar_segment(
+    target: crate::app::state::ContextBarTarget,
+    label: String,
+    rect: Rect,
+) -> crate::app::state::ContextBarSegment {
+    let hit_rect = (target == crate::app::state::ContextBarTarget::TabControl)
+        .then(|| tab_control_action_hit_rect(&label, rect))
+        .flatten();
+    crate::app::state::ContextBarSegment {
+        target,
+        label,
+        rect,
+        hit_rect,
+    }
+}
+
 fn compute_context_bar(
     app: &AppState,
     terminal_runtimes: &TerminalRuntimeRegistry,
@@ -270,7 +309,7 @@ fn compute_context_bar(
     tab_control: ClientTabControl,
     rect: Rect,
 ) -> crate::app::state::ContextBarView {
-    use crate::app::state::{ContextBarSegment, ContextBarTarget, ContextBarView};
+    use crate::app::state::{ContextBarTarget, ContextBarView};
 
     if rect.width < 2 || rect.height == 0 {
         return ContextBarView::default();
@@ -423,11 +462,7 @@ fn compute_context_bar(
                 cursor = cursor.saturating_add(CONTEXT_BAR_SEPARATOR.len() as u16);
             }
             let width = text::display_width_u16(&label);
-            let segment = ContextBarSegment {
-                target,
-                label,
-                rect: Rect::new(cursor, rect.y, width, 1),
-            };
+            let segment = context_bar_segment(target, label, Rect::new(cursor, rect.y, width, 1));
             cursor = cursor.saturating_add(width);
             segment
         })
@@ -579,11 +614,8 @@ fn compute_mobile_breadcrumb(
                 text,
                 " ".repeat(padding.saturating_sub(leading_padding))
             );
-            let segment = ContextBarSegment {
-                target,
-                label,
-                rect: Rect::new(cursor, rect.y, width as u16, 1),
-            };
+            let segment =
+                context_bar_segment(target, label, Rect::new(cursor, rect.y, width as u16, 1));
             cursor = cursor.saturating_add(width as u16);
             segment
         })
@@ -596,11 +628,11 @@ fn compute_mobile_breadcrumb(
                 .saturating_add(rect.width)
                 .saturating_sub(width)
                 .saturating_sub(1);
-            segments.push(ContextBarSegment {
-                target: ContextBarTarget::TabControl,
-                label: chip_label,
-                rect: Rect::new(x, rect.y, width, 1),
-            });
+            segments.push(context_bar_segment(
+                ContextBarTarget::TabControl,
+                chip_label,
+                Rect::new(x, rect.y, width, 1),
+            ));
         }
     }
 
@@ -704,19 +736,40 @@ fn render_tab_control_chip_segment(
             (segment.label.as_str(), "", false)
         };
     let badge_bg = if free { p.teal } else { p.overlay0 };
-    let spans = vec![
-        Span::styled(
-            badge.to_string(),
+    let (hint, action) = match tab_control_action_span(suffix) {
+        Some((start, width)) => {
+            let start = start as usize;
+            let hint: String = suffix.chars().take(start).collect();
+            let action: String = suffix.chars().skip(start).take(width as usize).collect();
+            (hint, action)
+        }
+        None => (suffix.to_string(), String::new()),
+    };
+    let mut spans = Vec::new();
+    let status_style = if action.is_empty() {
+        Style::default()
+            .fg(widgets::panel_contrast_fg(p))
+            .bg(badge_bg)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(p.overlay1).bg(p.surface0)
+    };
+    spans.push(Span::styled(badge.to_string(), status_style));
+    if !hint.is_empty() {
+        spans.push(Span::styled(
+            hint,
+            Style::default().fg(p.overlay0).bg(p.surface0),
+        ));
+    }
+    if !action.is_empty() {
+        spans.push(Span::styled(
+            action,
             Style::default()
                 .fg(widgets::panel_contrast_fg(p))
                 .bg(badge_bg)
                 .add_modifier(Modifier::BOLD),
-        ),
-        Span::styled(
-            suffix.to_string(),
-            Style::default().fg(p.overlay0).bg(p.surface0),
-        ),
-    ];
+        ));
+    }
     frame.render_widget(Paragraph::new(Line::from(spans)), segment.rect);
 }
 
@@ -1564,7 +1617,10 @@ pub fn render_with_runtime_registry(
     if right_sidebar_area != Rect::default() {
         render_right_sidebar(app, terminal_runtimes, frame, right_sidebar_area);
     }
-    if !app.zen_mode && app.sidebar_collapsed && app.view.layout != ViewLayout::Mobile {
+    if !app.zen_mode
+        && (app.sidebar_collapsed || app.right_sidebar_collapsed)
+        && app.view.layout != ViewLayout::Mobile
+    {
         render_collapsed_sidebar_hover(app, frame);
     }
     render_context_bar(app, &app.view.context_bar, frame);
@@ -1647,6 +1703,10 @@ pub fn render_with_runtime_registry_for_view(
         render_tab_bar_for_view(app, client_view, frame, tab_bar_area);
     }
     render_panes_for_view(app, client_view, terminal_runtimes, frame, terminal_area);
+    if client_view.tab_control.is_watching() {
+        panes::wash_rect(frame, tab_bar_area, &app.palette);
+        panes::wash_rect(frame, terminal_area, &app.palette);
+    }
     if right_sidebar_area != Rect::default() {
         render_right_sidebar_for_view(
             app,
@@ -1657,7 +1717,7 @@ pub fn render_with_runtime_registry_for_view(
         );
     }
     if !client_view.zen_mode
-        && client_view.sidebar_collapsed
+        && (client_view.sidebar_collapsed || client_view.right_sidebar_collapsed)
         && client_view.computed.layout != ViewLayout::Mobile
     {
         render_collapsed_sidebar_hover_for_view(app, client_view, frame);
@@ -2429,9 +2489,14 @@ mod tests {
             chip.rect.x + chip.rect.width <= bar.rect.x + bar.rect.width,
             "{chip:?}"
         );
-        // The chip rect resolves through target_at for later click wiring.
+        assert_eq!(bar.target_at(chip.rect.x, chip.rect.y), None);
+        let take_over = chip
+            .label
+            .find("Take Over")
+            .expect("desktop chip keeps the take-over action");
+        let take_over_x = chip.rect.x + take_over as u16;
         assert_eq!(
-            bar.target_at(chip.rect.x, chip.rect.y),
+            bar.target_at(take_over_x, chip.rect.y),
             Some(crate::app::state::ContextBarTarget::TabControl)
         );
 
@@ -2465,10 +2530,16 @@ mod tests {
         assert!(line.contains("Watching"), "{line:?}");
         assert!(line.contains("Another Client Controls"), "{line:?}");
         let badge_x = line.find("Watching").expect("badge text") as u16;
-        assert_eq!(
+        assert_ne!(
             terminal.backend().buffer()[(badge_x, 19)].style().bg,
             Some(app.palette.overlay0),
-            "watching badge should use the overlay badge background"
+            "Watching is status, not the action chip"
+        );
+        let take_x = line.find("Take Over").expect("take over text") as u16;
+        assert_eq!(
+            terminal.backend().buffer()[(take_x, 19)].style().bg,
+            Some(app.palette.overlay0),
+            "Take Over should carry the action badge"
         );
     }
 

@@ -1,0 +1,14 @@
+#!/bin/sh
+export GARDN_AGENT=codex
+printf '%b' '\033[2J\033[H\033]0;codex · billing\007'
+cat <<'EOF'
+  billing · invoices
+
+  > add the tax preview
+
+  src/billing/InvoiceTotals.ts
+  compiling invoice totals
+  ⠋ writing tests
+EOF
+DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+exec python3 "$DIR/hold.py"

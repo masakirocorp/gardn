@@ -147,8 +147,8 @@ impl Tab {
 fn pane_attention_priority(state: AgentState, seen: bool) -> u8 {
     match (state, seen) {
         (AgentState::Blocked, _) => 4,
-        (AgentState::Idle, false) => 3,
-        (AgentState::Working, _) => 2,
+        (AgentState::Working, _) => 3,
+        (AgentState::Idle, false) => 2,
         (AgentState::Idle, true) => 1,
         (AgentState::Unknown, _) => 0,
     }
@@ -270,7 +270,7 @@ mod tests {
     }
 
     #[test]
-    fn aggregate_state_done_unseen_beats_working() {
+    fn aggregate_state_working_beats_done_unseen() {
         let mut ws = Workspace::test_new("test");
         let id2 = ws.test_split(Direction::Horizontal);
         let root_id = ws.tabs[0]
@@ -291,8 +291,8 @@ mod tests {
 
         let (state, seen) = ws.aggregate_state(&terminals);
 
-        assert_eq!(state, AgentState::Idle);
-        assert!(!seen);
+        assert_eq!(state, AgentState::Working);
+        assert!(seen);
     }
 
     #[test]

@@ -141,6 +141,7 @@ pub(super) fn keybind_help_groups(app: &AppState) -> Vec<HelpGroup> {
 
     let agents = vec![
         help_entry(keybind_label(&kb.open_agent_menu), "Open Agent Menu"),
+        help_entry(keybind_label(&kb.open_context_menu), "Open Context Menu"),
         help_entry(keybind_label(&kb.previous_agent), "Previous Agent"),
         help_entry(keybind_label(&kb.next_agent), "Next Agent"),
     ];

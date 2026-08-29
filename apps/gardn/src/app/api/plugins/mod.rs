@@ -2968,6 +2968,7 @@ action = "missing"
                 seq: None,
                 agent_session_id: None,
                 agent_session_path: None,
+                activity_unix_secs: None,
                 launch_env: Default::default(),
             },
         );

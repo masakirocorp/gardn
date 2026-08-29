@@ -2,16 +2,22 @@ use ratatui::{
     layout::{Alignment, Constraint, Layout, Rect},
     style::{Modifier, Style},
     text::{Line, Span},
-    widgets::Paragraph,
+    widgets::{Clear, Paragraph},
+
     Frame,
 };
 
-use super::widgets::{
-    action_button_row_rects, centered_popup_rect, danger_action_style, modal_section_heading_style,
-    panel_contrast_fg, primary_action_style, render_action_button, render_modal_description,
-    render_modal_divider, render_modal_header_bar, render_modal_shell, render_modal_text_input,
-    render_panel_shell, secondary_action_style, ActionButtonSpec,
+use super::{
+    text::display_width_u16,
+    widgets::{
+        action_button_row_rects, centered_popup_rect, danger_action_style, panel_contrast_fg,
+        primary_action_style, render_action_button, render_modal_description, render_modal_divider,
+        render_modal_header_bar, render_modal_shell, render_modal_text_input, render_panel_shell,
+        secondary_action_style, ActionButtonSpec,
+    },
 };
+
+
 use crate::{
     app::{AppState, Mode},
     terminal::TerminalRuntimeRegistry,
@@ -40,7 +46,7 @@ pub(crate) fn rename_button_rects(inner: Rect) -> (Rect, Rect, Rect) {
 
 pub(crate) fn rename_modal_size_for_view(mode: Mode, creating_new_group: bool) -> (u16, u16) {
     if matches!(mode, Mode::RenameGroup) && creating_new_group {
-        (64, 20)
+        (64, 22)
     } else if matches!(mode, Mode::RenameGroup) {
         (56, 17)
     } else {
@@ -70,13 +76,32 @@ pub(crate) fn rename_name_input_rect_for_view(
     Rect::new(inner.x, inner.y + 2, inner.width, 1)
 }
 
-fn group_field_rect_for_view(
-    creating_new_group: bool,
-    inner: Rect,
-    y: u16,
-    min_height: u16,
-) -> Rect {
-    if inner.width == 0 || inner.height < min_height {
+#[derive(Clone, Copy)]
+struct GroupModalLayout {
+    name_label_y: u16,
+    name_input_y: u16,
+    icon_y: u16,
+    picker_y: Option<u16>,
+    host_y: Option<u16>,
+    directory_label_y: Option<u16>,
+    directory_input_y: Option<u16>,
+}
+
+fn group_modal_layout(creating_new_group: bool, picker_open: bool) -> GroupModalLayout {
+    let host_y = creating_new_group.then_some(if picker_open { 14 } else { 11 });
+    GroupModalLayout {
+        name_label_y: 6,
+        name_input_y: 7,
+        icon_y: 9,
+        picker_y: picker_open.then_some(10),
+        host_y,
+        directory_label_y: host_y.map(|y| y + 2),
+        directory_input_y: host_y.map(|y| y + 3),
+    }
+}
+
+fn group_field_rect_for_view(creating_new_group: bool, inner: Rect, y: u16) -> Rect {
+    if inner.width == 0 || inner.height <= y {
         return Rect::default();
     }
     let left = if creating_new_group { 1 } else { 2 };
@@ -88,20 +113,16 @@ fn group_field_rect_for_view(
     )
 }
 
-fn group_field_rect(app: &AppState, inner: Rect, y: u16, min_height: u16) -> Rect {
-    group_field_rect_for_view(app.creating_new_group, inner, y, min_height)
-}
-
 pub(crate) fn group_icon_button_rect_for_view(creating_new_group: bool, inner: Rect) -> Rect {
-    let field = group_field_rect_for_view(creating_new_group, inner, 10, 4);
-    if field.width < 3 {
-        return Rect::default();
-    }
-    Rect::new(field.x, field.y, 3, 1)
+    group_field_rect_for_view(creating_new_group, inner, group_modal_layout(creating_new_group, false).icon_y)
 }
 
 pub(crate) fn group_name_input_rect_for_view(creating_new_group: bool, inner: Rect) -> Rect {
-    group_field_rect_for_view(creating_new_group, inner, 7, 6)
+    group_field_rect_for_view(
+        creating_new_group,
+        inner,
+        group_modal_layout(creating_new_group, false).name_input_y,
+    )
 }
 
 pub(crate) fn group_default_directory_input_rect_for_view(
@@ -109,24 +130,33 @@ pub(crate) fn group_default_directory_input_rect_for_view(
     group_icon_picker_open: bool,
     inner: Rect,
 ) -> Rect {
-    // Keep Directory above the action row when popup height clamps on short
-    // terminals (20-row screens → inner height 16).
-    let y = if group_icon_picker_open { 16 } else { 13 };
-    group_field_rect_for_view(creating_new_group, inner, y, 7)
+    let Some(y) = group_modal_layout(creating_new_group, group_icon_picker_open).directory_input_y
+    else {
+        return Rect::default();
+    };
+    group_field_rect_for_view(creating_new_group, inner, y)
 }
 
-pub(crate) fn group_icon_picker_rects_for_view(
+pub(crate) fn group_default_host_rect_for_view(
     creating_new_group: bool,
+    group_icon_picker_open: bool,
     inner: Rect,
-) -> Vec<(Rect, &'static str)> {
-    let y = inner.y + 11;
-    let picker_height = 3;
-    let field = group_field_rect_for_view(creating_new_group, inner, 11, 4);
-    let start = Rect::new(field.x, y, field.width.min(24), picker_height);
+) -> Rect {
+    let Some(y) = group_modal_layout(creating_new_group, group_icon_picker_open).host_y else {
+        return Rect::default();
+    };
+    group_field_rect_for_view(creating_new_group, inner, y)
+}
+
+pub(crate) fn group_icon_picker_row_count() -> u16 {
+    let count = crate::app::state::GROUP_ICONS.len() as u16;
+    count.div_ceil(5)
+}
+
+pub(crate) fn group_icon_picker_rects_at(start: Rect) -> Vec<(Rect, &'static str)> {
     if start.width < 3 || start.height == 0 {
         return Vec::new();
     }
-
     crate::app::state::GROUP_ICONS
         .iter()
         .enumerate()
@@ -145,6 +175,19 @@ pub(crate) fn group_icon_picker_rects_for_view(
         .collect()
 }
 
+pub(crate) fn group_icon_picker_rects_for_view(
+    creating_new_group: bool,
+    inner: Rect,
+) -> Vec<(Rect, &'static str)> {
+    let Some(y) = group_modal_layout(creating_new_group, true).picker_y else {
+        return Vec::new();
+    };
+    let field = group_field_rect_for_view(creating_new_group, inner, y);
+    let start = Rect::new(field.x, inner.y + y, field.width.min(24), 3);
+    group_icon_picker_rects_at(start)
+}
+
+
 pub(crate) fn group_icon_button_rect(app: &AppState, inner: Rect) -> Rect {
     group_icon_button_rect_for_view(app.creating_new_group, inner)
 }
@@ -161,9 +204,206 @@ pub(crate) fn group_default_directory_input_rect(app: &AppState, inner: Rect) ->
     )
 }
 
+pub(crate) fn group_default_host_rect(app: &AppState, inner: Rect) -> Rect {
+    group_default_host_rect_for_view(
+        app.creating_new_group,
+        app.group_icon_picker_open,
+        inner,
+    )
+}
+
 pub(crate) fn group_icon_picker_rects(app: &AppState, inner: Rect) -> Vec<(Rect, &'static str)> {
     group_icon_picker_rects_for_view(app.creating_new_group, inner)
 }
+
+fn group_host_label(
+    app: &AppState,
+    host_id: &crate::execution_host::ExecutionHostId,
+) -> String {
+    if host_id.is_local() {
+        "Local".to_string()
+    } else {
+        app.ssh_connection_profiles
+            .iter()
+            .find(|profile| profile.execution_host_id() == *host_id)
+
+            .map(|profile| profile.name().to_string())
+            .unwrap_or_else(|| host_id.as_str().to_string())
+    }
+}
+
+fn render_group_status_row(
+    frame: &mut Frame,
+    area: Rect,
+    label: &str,
+    value: &str,
+    selected: bool,
+    palette: &crate::app::state::Palette,
+) {
+    if area.width == 0 {
+        return;
+    }
+    let label_style = if selected {
+        Style::default()
+            .fg(palette.accent)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(palette.overlay0)
+    };
+    let value_style = if selected {
+        Style::default()
+            .fg(palette.accent)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(palette.accent)
+    };
+    let value_text = format!("‹ {value} ›");
+    let used = display_width_u16(label).saturating_add(display_width_u16(&value_text));
+    let gap = area.width.saturating_sub(used) as usize;
+    frame.render_widget(
+        Paragraph::new(Line::from(vec![
+            Span::styled(label.to_string(), label_style),
+            Span::raw(" ".repeat(gap)),
+            Span::styled(value_text, value_style),
+        ])),
+        area,
+    );
+}
+
+fn render_group_text_bar(
+    frame: &mut Frame,
+    area: Rect,
+    value: &str,
+    palette: &crate::app::state::Palette,
+    focused: bool,
+) {
+    if focused {
+        render_modal_text_input(frame, area, value, palette);
+        return;
+    }
+    if area.width == 0 {
+        return;
+    }
+    let visible = super::text::truncate_end(value, area.width.saturating_sub(2) as usize);
+    frame.render_widget(Clear, area);
+    frame.render_widget(
+        Paragraph::new(format!(" {visible}"))
+            .style(Style::default().fg(palette.text).bg(palette.surface0)),
+        area,
+    );
+}
+
+fn render_group_modal_fields(
+    app: &AppState,
+    frame: &mut Frame,
+    inner: Rect,
+    creating_new_group: bool,
+    picker_open: bool,
+    selected_field: usize,
+    name: &str,
+    icon: &str,
+    directory: &str,
+    host_id: &crate::execution_host::ExecutionHostId,
+    palette: &crate::app::state::Palette,
+) {
+    let layout = group_modal_layout(creating_new_group, picker_open);
+    let field = |y| group_field_rect_for_view(creating_new_group, inner, y);
+    let description = if creating_new_group {
+        "Set this group's name, icon, and default location"
+    } else {
+        "Rename this group or change its icon"
+    };
+    render_modal_description(
+        frame,
+        Rect::new(inner.x, inner.y + 3, inner.width, 1),
+        "General",
+        Style::default().fg(palette.accent),
+    );
+    render_modal_description(
+        frame,
+        Rect::new(inner.x, inner.y + 4, inner.width, 1),
+        description,
+        Style::default().fg(palette.overlay0),
+    );
+
+    let name_selected = selected_field == 0;
+    frame.render_widget(
+        Paragraph::new("Name").style(if name_selected {
+            Style::default()
+                .fg(palette.accent)
+                .add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(palette.overlay0)
+        }),
+        field(layout.name_label_y),
+    );
+    render_group_text_bar(
+        frame,
+        field(layout.name_input_y),
+        name,
+        palette,
+        name_selected,
+    );
+
+    render_group_status_row(
+        frame,
+        field(layout.icon_y),
+        "Icon",
+        icon,
+        picker_open,
+        palette,
+    );
+
+    if let Some(host_y) = layout.host_y {
+        render_group_status_row(
+            frame,
+            field(host_y),
+            "Default Location for New Spaces",
+            &group_host_label(app, host_id),
+            selected_field == 1,
+            palette,
+        );
+    }
+    if let (Some(label_y), Some(input_y)) = (layout.directory_label_y, layout.directory_input_y) {
+        let directory_selected = selected_field == 2;
+        frame.render_widget(
+            Paragraph::new("Directory").style(if directory_selected {
+                Style::default()
+                    .fg(palette.accent)
+                    .add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(palette.overlay0)
+            }),
+            field(label_y),
+        );
+        render_group_text_bar(
+            frame,
+            field(input_y),
+            directory,
+            palette,
+            directory_selected,
+        );
+    }
+
+    if picker_open {
+        for (rect, picker_icon) in group_icon_picker_rects_for_view(creating_new_group, inner) {
+            let selected = icon == picker_icon;
+            frame.render_widget(
+                Paragraph::new(format!(" {picker_icon} "))
+                    .style(if selected {
+                        Style::default()
+                            .fg(panel_contrast_fg(palette))
+                            .bg(palette.accent)
+                    } else {
+                        Style::default().fg(palette.text).bg(palette.surface0)
+                    })
+                    .alignment(Alignment::Center),
+                rect,
+            );
+        }
+    }
+}
+
 
 fn rename_palette(app: &AppState) -> crate::app::state::Palette {
     match app.mode {
@@ -220,13 +460,7 @@ fn render_rename_overlay_with_view_state(
         _ => app.palette.clone(),
     };
     let (popup_w, popup_h) =
-        if matches!(client_view.mode, Mode::RenameGroup) && client_view.creating_new_group {
-            (64, 20)
-        } else if matches!(client_view.mode, Mode::RenameGroup) {
-            (56, 17)
-        } else {
-            (56, 7)
-        };
+        rename_modal_size_for_view(client_view.mode, client_view.creating_new_group);
     super::dim_background(frame, area);
     let Some(inner) = render_modal_shell(frame, area, popup_w, popup_h, &palette) else {
         return;
@@ -243,167 +477,19 @@ fn render_rename_overlay_with_view_state(
     render_modal_header_bar(frame, rows[0], title, &palette, true);
     if matches!(client_view.mode, Mode::RenameGroup) {
         render_modal_divider(frame, rows[1], &palette);
-    }
-    if matches!(client_view.mode, Mode::RenameGroup) {
-        let section_description = if client_view.creating_new_group {
-            "Name + Icon + Runs On + Directory"
-        } else {
-            "Name + Icon"
-        };
-        let group_left = if client_view.creating_new_group { 1 } else { 2 };
-        let field = |y| {
-            Rect::new(
-                inner.x + group_left,
-                inner.y + y,
-                inner.width.saturating_sub(group_left),
-                1,
-            )
-        };
-        render_modal_description(
+        render_group_modal_fields(
+            app,
             frame,
-            Rect::new(inner.x, inner.y + 3, inner.width, 1),
-            "General",
-            Style::default().fg(palette.accent),
+            inner,
+            client_view.creating_new_group,
+            client_view.group_icon_picker_open,
+            client_view.group_modal_selected_field,
+            &client_view.name_input,
+            &client_view.group_icon_input,
+            &client_view.group_default_directory_input,
+            &client_view.group_default_execution_host_id,
+            &palette,
         );
-        render_modal_description(
-            frame,
-            Rect::new(inner.x, inner.y + 4, inner.width, 1),
-            section_description,
-            Style::default().fg(palette.overlay0),
-        );
-        let name_selected = client_view.group_modal_selected_field == 0;
-        frame.render_widget(
-            Paragraph::new("Name").style(if name_selected {
-                Style::default()
-                    .fg(palette.accent)
-                    .add_modifier(Modifier::BOLD)
-            } else {
-                Style::default().fg(palette.overlay0)
-            }),
-            field(6),
-        );
-        let name_rect = field(7);
-        if name_selected {
-            render_modal_text_input(frame, name_rect, &client_view.name_input, &palette);
-        } else {
-            super::widgets::render_modal_text_value(
-                frame,
-                name_rect,
-                &client_view.name_input,
-                &palette,
-            );
-        }
-        let picker_open = client_view.group_icon_picker_open;
-        frame.render_widget(
-            Paragraph::new("Icon").style(if picker_open {
-                Style::default()
-                    .fg(palette.accent)
-                    .add_modifier(Modifier::BOLD)
-            } else {
-                Style::default().fg(palette.overlay0)
-            }),
-            field(9),
-        );
-        let icon_rect = Rect::new(field(10).x, field(10).y, 3, 1);
-        frame.render_widget(
-            Paragraph::new(format!(" {} ", client_view.group_icon_input))
-                .style(if picker_open {
-                    Style::default()
-                        .fg(panel_contrast_fg(&palette))
-                        .bg(palette.accent)
-                } else {
-                    Style::default().fg(palette.text).bg(palette.surface0)
-                })
-                .alignment(Alignment::Center),
-            icon_rect,
-        );
-        if client_view.creating_new_group {
-            // Single-line host keeps Directory at y=12/13 (15/16 with picker)
-            // so save/clear stay hittable on clamped 20-row screens.
-            let host_y = if picker_open { 14 } else { 11 };
-            let host_selected = client_view.group_modal_selected_field == 1;
-            let host_name = if client_view.group_default_execution_host_id.is_local() {
-                "Local".to_string()
-            } else {
-                app.ssh_connection_profiles
-                    .iter()
-                    .find(|profile| {
-                        profile.execution_host_id() == client_view.group_default_execution_host_id
-                    })
-                    .map(|profile| profile.name().to_string())
-                    .unwrap_or_else(|| {
-                        client_view
-                            .group_default_execution_host_id
-                            .as_str()
-                            .to_string()
-                    })
-            };
-            frame.render_widget(
-                Paragraph::new(format!("Runs On · {host_name}")).style(if host_selected {
-                    Style::default()
-                        .fg(palette.accent)
-                        .add_modifier(Modifier::BOLD)
-                } else {
-                    Style::default().fg(palette.overlay0)
-                }),
-                field(host_y),
-            );
-            let directory_y = host_y + 1;
-            let directory_selected = client_view.group_modal_selected_field == 2;
-            frame.render_widget(
-                Paragraph::new("Directory").style(if directory_selected {
-                    Style::default()
-                        .fg(palette.accent)
-                        .add_modifier(Modifier::BOLD)
-                } else {
-                    Style::default().fg(palette.overlay0)
-                }),
-                field(directory_y),
-            );
-            let directory_rect = field(directory_y + 1);
-            if directory_selected {
-                render_modal_text_input(
-                    frame,
-                    directory_rect,
-                    &client_view.group_default_directory_input,
-                    &palette,
-                );
-            } else {
-                super::widgets::render_modal_text_value(
-                    frame,
-                    directory_rect,
-                    &client_view.group_default_directory_input,
-                    &palette,
-                );
-            }
-        }
-        if picker_open {
-            let start = Rect::new(field(11).x, inner.y + 11, field(11).width.min(24), 3);
-            for (index, icon) in crate::app::state::GROUP_ICONS.iter().enumerate() {
-                let col = (index % 5) as u16;
-                let row = (index / 5) as u16;
-                if row >= start.height {
-                    continue;
-                }
-                let rect = Rect::new(start.x + col * 4, start.y + row, 3, 1);
-                if rect.x >= start.x + start.width {
-                    continue;
-                }
-                let selected = client_view.group_icon_input == *icon;
-                frame.render_widget(
-                    Paragraph::new(format!(" {icon} "))
-                        .style(if selected {
-                            Style::default()
-                                .fg(panel_contrast_fg(&palette))
-                                .bg(palette.accent)
-                        } else {
-                            Style::default().fg(palette.text).bg(palette.surface0)
-                        })
-                        .alignment(Alignment::Center),
-                    rect,
-                );
-            }
-        }
     } else {
         render_modal_text_input(
             frame,
@@ -416,18 +502,10 @@ fn render_rename_overlay_with_view_state(
             &palette,
         );
         if let Some(location) = client_view.pending_workspace_create_location.as_ref() {
-            let host = if location.is_local() {
-                "Local".to_string()
-            } else {
-                app.ssh_connection_profiles
-                    .iter()
-                    .find(|profile| profile.execution_host_id() == location.execution_host_id)
-                    .map(|profile| profile.name().to_string())
-                    .unwrap_or_else(|| location.execution_host_id.as_str().to_string())
-            };
             frame.render_widget(
                 Paragraph::new(format!(
-                    "Runs On {host} · Directory {}",
+                    "Runs On {} · Directory {}",
+                    group_host_label(app, &location.execution_host_id),
                     location.path.as_path().display()
                 ))
                 .style(Style::default().fg(palette.overlay0)),
@@ -435,6 +513,7 @@ fn render_rename_overlay_with_view_state(
             );
         }
     }
+
     let (save_rect, clear_rect, _) = rename_button_rects(inner);
     render_action_button(
         frame,
@@ -485,155 +564,27 @@ pub(super) fn render_rename_overlay(app: &AppState, frame: &mut Frame, area: Rec
     render_modal_header_bar(frame, rows[0], title, &palette, true);
     if matches!(app.mode, Mode::RenameGroup) {
         render_modal_divider(frame, rows[1], &palette);
-    }
-
-    if matches!(app.mode, Mode::RenameGroup) {
-        let section_description = if app.creating_new_group {
-            "Name + Icon + Runs On + Directory"
-        } else {
-            "Name + Icon"
-        };
-        if app.creating_new_group {
-            render_modal_description(
-                frame,
-                Rect::new(inner.x, inner.y + 3, inner.width, 1),
-                "General",
-                Style::default().fg(palette.accent),
-            );
-            render_modal_description(
-                frame,
-                Rect::new(inner.x, inner.y + 4, inner.width, 1),
-                section_description,
-                Style::default().fg(palette.overlay0),
-            );
-        } else {
-            frame.render_widget(
-                Paragraph::new("General").style(modal_section_heading_style(&palette)),
-                Rect::new(inner.x, inner.y + 3, inner.width, 1),
-            );
-            frame.render_widget(
-                Paragraph::new(section_description).style(Style::default().fg(palette.overlay0)),
-                Rect::new(inner.x, inner.y + 4, inner.width, 1),
-            );
-        }
-
-        let name_label_style = if app.group_modal_selected_field == 0 {
-            Style::default()
-                .fg(palette.accent)
-                .add_modifier(Modifier::BOLD)
-        } else {
-            Style::default().fg(palette.overlay0)
-        };
-        frame.render_widget(
-            Paragraph::new("Name").style(name_label_style),
-            group_field_rect(app, inner, 6, 6),
+        render_group_modal_fields(
+            app,
+            frame,
+            inner,
+            app.creating_new_group,
+            app.group_icon_picker_open,
+            app.group_modal_selected_field,
+            &app.name_input,
+            &app.group_icon_input,
+            &app.group_default_directory_input,
+            &app.group_default_execution_host_id,
+            &palette,
         );
-        let name_rect = group_name_input_rect(app, inner);
-        if app.group_modal_selected_field == 0 {
-            render_modal_text_input(frame, name_rect, &app.name_input, &palette);
-        } else {
-            super::widgets::render_modal_text_value(frame, name_rect, &app.name_input, &palette);
-        }
-
-        let icon_label_style = if app.group_icon_picker_open {
-            Style::default()
-                .fg(palette.accent)
-                .add_modifier(Modifier::BOLD)
-        } else {
-            Style::default().fg(palette.overlay0)
-        };
-        frame.render_widget(
-            Paragraph::new("Icon").style(icon_label_style),
-            group_field_rect(app, inner, 9, 4),
-        );
-        let icon_rect = group_icon_button_rect(app, inner);
-        let icon_style = if app.group_icon_picker_open {
-            Style::default()
-                .fg(panel_contrast_fg(&palette))
-                .bg(palette.accent)
-                .add_modifier(Modifier::BOLD)
-        } else {
-            Style::default()
-                .fg(palette.text)
-                .bg(palette.surface0)
-                .add_modifier(Modifier::BOLD)
-        };
-        frame.render_widget(
-            Paragraph::new(format!(" {} ", app.group_icon_input))
-                .style(icon_style)
-                .alignment(ratatui::layout::Alignment::Center),
-            icon_rect,
-        );
-
-        if app.creating_new_group {
-            let host_y = if app.group_icon_picker_open { 14 } else { 11 };
-            let host_style = if app.group_modal_selected_field == 1 {
-                Style::default()
-                    .fg(palette.accent)
-                    .add_modifier(Modifier::BOLD)
-            } else {
-                Style::default().fg(palette.overlay0)
-            };
-            let host_name = if app.group_default_execution_host_id.is_local() {
-                "Local".to_string()
-            } else {
-                app.ssh_connection_profiles
-                    .iter()
-                    .find(|profile| {
-                        profile.execution_host_id() == app.group_default_execution_host_id
-                    })
-                    .map(|profile| profile.name().to_string())
-                    .unwrap_or_else(|| app.group_default_execution_host_id.as_str().to_string())
-            };
-            frame.render_widget(
-                Paragraph::new(format!("Runs On · {host_name}")).style(host_style),
-                group_field_rect(app, inner, host_y, 7),
-            );
-            let directory_y = host_y + 1;
-            let directory_label_style = if app.group_modal_selected_field == 2 {
-                Style::default()
-                    .fg(palette.accent)
-                    .add_modifier(Modifier::BOLD)
-            } else {
-                Style::default().fg(palette.overlay0)
-            };
-            frame.render_widget(
-                Paragraph::new("Directory").style(directory_label_style),
-                group_field_rect(app, inner, directory_y, 7),
-            );
-            let directory_rect = group_default_directory_input_rect(app, inner);
-            if app.group_modal_selected_field == 2 {
-                render_modal_text_input(
-                    frame,
-                    directory_rect,
-                    &app.group_default_directory_input,
-                    &palette,
-                );
-            } else {
-                super::widgets::render_modal_text_value(
-                    frame,
-                    directory_rect,
-                    &app.group_default_directory_input,
-                    &palette,
-                );
-            }
-        }
     } else {
         let input_rect = rename_name_input_rect(app, inner);
         render_modal_text_input(frame, input_rect, &app.name_input, &palette);
         if let Some(location) = app.pending_workspace_create_location.as_ref() {
-            let host = if location.is_local() {
-                "Local".to_string()
-            } else {
-                app.ssh_connection_profiles
-                    .iter()
-                    .find(|profile| profile.execution_host_id() == location.execution_host_id)
-                    .map(|profile| profile.name().to_string())
-                    .unwrap_or_else(|| location.execution_host_id.as_str().to_string())
-            };
             frame.render_widget(
                 Paragraph::new(format!(
-                    "Runs On {host} · Directory {}",
+                    "Runs On {} · Directory {}",
+                    group_host_label(app, &location.execution_host_id),
                     location.path.as_path().display()
                 ))
                 .style(Style::default().fg(palette.overlay0)),
@@ -642,25 +593,6 @@ pub(super) fn render_rename_overlay(app: &AppState, frame: &mut Frame, area: Rec
         }
     }
 
-    if matches!(app.mode, Mode::RenameGroup) && app.group_icon_picker_open {
-        for (rect, icon) in group_icon_picker_rects(app, inner) {
-            let selected = app.group_icon_input == icon;
-            let style = if selected {
-                Style::default()
-                    .fg(panel_contrast_fg(&palette))
-                    .bg(palette.accent)
-                    .add_modifier(Modifier::BOLD)
-            } else {
-                Style::default().fg(palette.text).bg(palette.surface0)
-            };
-            frame.render_widget(
-                Paragraph::new(format!(" {icon} "))
-                    .style(style)
-                    .alignment(Alignment::Center),
-                rect,
-            );
-        }
-    }
 
     let (save_rect, clear_rect, _) = rename_button_rects(inner);
 
@@ -1171,11 +1103,15 @@ mod tests {
         let buffer = terminal.backend().buffer();
         let text = buffer_text(buffer, 90, 28);
         assert!(text.contains("New Group"));
-        assert!(text.contains("Name + Icon + Runs On + Directory"));
+        assert!(text.contains("Set this group's name, icon, and default location"));
+        assert!(text.contains("Default Location for New Spaces"));
+        assert!(text.contains("‹ Local ›"));
         assert!(text.contains("Directory"));
         assert!(text.contains("/tmp/work"));
         assert!(text.contains("Save"));
         assert!(text.contains("Clear"));
+        assert!(!text.contains("Name + Icon + Runs On + Directory"));
+        assert!(!text.contains("Runs On ·"));
 
         let (popup_w, popup_h) = rename_modal_size(&app);
         let popup = centered_popup_rect(Rect::new(0, 0, 90, 28), popup_w, popup_h).unwrap();
@@ -1187,6 +1123,18 @@ mod tests {
         );
         assert!(row_text(buffer, inner.x, inner.width, inner.y + 1).contains("─"));
         assert!(row_text(buffer, inner.x, inner.width, inner.y + 2)
+            .trim()
+            .is_empty());
+        assert!(row_text(buffer, inner.x, inner.width, inner.y + 5)
+            .trim()
+            .is_empty());
+        assert!(row_text(buffer, inner.x, inner.width, inner.y + 8)
+            .trim()
+            .is_empty());
+        assert!(row_text(buffer, inner.x, inner.width, inner.y + 10)
+            .trim()
+            .is_empty());
+        assert!(row_text(buffer, inner.x, inner.width, inner.y + 12)
             .trim()
             .is_empty());
         assert_eq!(buffer[(inner.x + 1, inner.y + 3)].symbol(), "G");
@@ -1202,14 +1150,15 @@ mod tests {
         assert_eq!(group_name_input_rect(&app, inner).x, inner.x + 1);
         assert_eq!(
             group_default_directory_input_rect(&app, inner),
-            Rect::new(inner.x + 1, inner.y + 13, inner.width.saturating_sub(1), 1)
+            Rect::new(inner.x + 1, inner.y + 14, inner.width.saturating_sub(1), 1)
         );
 
         app.group_icon_picker_open = true;
         assert_eq!(
             group_default_directory_input_rect(&app, inner),
-            Rect::new(inner.x + 1, inner.y + 16, inner.width.saturating_sub(1), 1)
+            Rect::new(inner.x + 1, inner.y + 17, inner.width.saturating_sub(1), 1)
         );
+
     }
 
     #[test]

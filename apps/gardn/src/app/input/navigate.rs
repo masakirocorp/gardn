@@ -1266,6 +1266,7 @@ pub(crate) enum NavigateAction {
     PreviousAgent,
     NextAgent,
     OpenAgentMenu,
+    OpenContextMenu,
     NewTab,
     TakeTabControl,
     RenameTab,
@@ -1401,6 +1402,7 @@ pub(crate) fn non_indexed_action_for_key(
         (&kb.previous_agent, NavigateAction::PreviousAgent),
         (&kb.next_agent, NavigateAction::NextAgent),
         (&kb.open_agent_menu, NavigateAction::OpenAgentMenu),
+        (&kb.open_context_menu, NavigateAction::OpenContextMenu),
         (&kb.new_tab, NavigateAction::NewTab),
         (&kb.take_control, NavigateAction::TakeTabControl),
         (&kb.rename_tab, NavigateAction::RenameTab),
@@ -1574,6 +1576,7 @@ pub(crate) fn execute_navigate_action_in_context(
             leave_navigate_mode(state);
         }
         NavigateAction::OpenAgentMenu => super::modal::open_agent_menu(state),
+        NavigateAction::OpenContextMenu => super::modal::open_context_menu_for_focus(state),
         NavigateAction::TakeTabControl => leave_navigate_mode(state),
         NavigateAction::NewTab => {
             if state.active.is_some() {
@@ -2381,6 +2384,43 @@ navigate_pane_right = "ctrl+l"
                 BindingDispatch::Prefix,
             ),
             Some(NavigateAction::ToggleRightSidebar)
+        );
+    }
+
+    #[test]
+    fn default_shift_f10_maps_to_open_context_menu() {
+        let mut state = state_with_workspaces(&["test"]);
+        state.keybinds = Config::default().keybinds();
+
+        let action = non_indexed_action_for_key(
+            &state,
+            &TerminalKey::new(KeyCode::F(10), KeyModifiers::SHIFT),
+            BindingDispatch::Direct,
+        );
+
+        assert_eq!(action, Some(NavigateAction::OpenContextMenu));
+    }
+
+    #[test]
+    fn open_context_menu_on_agent_pane_offers_add_to_follow_up() {
+        let mut state = state_with_workspaces(&["api"]);
+        state.active = Some(0);
+        let pane_id = state.workspaces[0].tabs[0].root_pane;
+        state.ensure_test_terminals();
+        let terminal_id = state.workspaces[0].tabs[0].panes[&pane_id]
+            .attached_terminal_id
+            .clone();
+        if let Some(terminal) = state.terminals.get_mut(&terminal_id) {
+            terminal.agent_name = Some("claude".into());
+        }
+
+        super::super::modal::open_context_menu_for_focus(&mut state);
+
+        assert_eq!(state.mode, Mode::ContextMenu);
+        let menu = state.context_menu.as_ref().expect("context menu");
+        assert_eq!(
+            menu.items(),
+            &[crate::app::state::ADD_TO_FOLLOW_UP_CONTEXT_ITEM]
         );
     }
 

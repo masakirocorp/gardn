@@ -22,7 +22,10 @@ use crate::{
         option_hit_for_visual_row, previous_option_index, rows_for_section, selected_visual_row,
         visual_row_count, AdvancedRowId, BehaviorRowId, CommandAction, CommandField, CommandRowId,
         ConnectionField, ConnectionRowId, NotificationRowId, SettingsListRow, SettingsRowHit,
+        GROUP_GENERAL_DELETE, GROUP_GENERAL_DIRECTORY, GROUP_GENERAL_HOST, GROUP_GENERAL_ICON,
+        GROUP_GENERAL_NAME,
     },
+
     terminal_theme::ThemeAppearance,
 };
 
@@ -96,6 +99,11 @@ pub(crate) enum SettingsAction {
         group_idx: usize,
         name: String,
     },
+    SaveGroupIcon {
+        group_idx: usize,
+        icon: String,
+    },
+
     SaveGroupDefaultLocation {
         group_idx: usize,
         default_location: Option<crate::execution_host::ResourceLocation>,
@@ -267,13 +275,18 @@ impl App {
             SettingsAction::SaveWorkspaceDefaultLocation { ws_idx, location } => {
                 self.state.set_workspace_default_location(ws_idx, location);
             }
+
+            SettingsAction::SaveGroupName { group_idx, name } => {
+                self.state.rename_group(group_idx, name);
+            }
+            SettingsAction::SaveGroupIcon { group_idx, icon } => {
+                self.state.set_group_icon(group_idx, icon);
+            }
             SettingsAction::SaveGroupAccent { group_idx, accent } => {
                 self.state.set_group_accent(group_idx, accent);
                 self.query_host_terminal_theme();
             }
-            SettingsAction::SaveGroupName { group_idx, name } => {
-                self.state.rename_group(group_idx, name);
-            }
+
             SettingsAction::SaveGroupDefaultLocation {
                 group_idx,
                 default_location,
@@ -813,6 +826,55 @@ fn set_pending_group_name(state: &mut AppState, name: String) {
     state.settings.pending_group_name = Some(name);
 }
 
+fn pending_group_icon(state: &AppState) -> String {
+    state
+        .settings
+        .pending_group_icon
+        .clone()
+        .or_else(|| {
+            state
+                .settings
+                .group_settings_target
+                .and_then(|group_idx| state.groups.get(group_idx))
+                .map(|group| group.icon.clone())
+        })
+        .unwrap_or_else(|| crate::app::state::DEFAULT_GROUP_ICON.to_string())
+}
+
+
+fn toggle_group_icon_picker(state: &mut AppState) {
+    state.settings.group_icon_picker_open = !state.settings.group_icon_picker_open;
+}
+
+fn group_settings_icon_picker_hit(state: &AppState, col: u16, row: u16) -> Option<&'static str> {
+    if !state.settings.group_icon_picker_open
+        || state.settings.section != SettingsSection::GroupGeneral
+    {
+        return None;
+    }
+    let list = settings_section_list_geometry(state, SettingsSection::GroupGeneral);
+    let rows = rows_for_section(state, SettingsSection::GroupGeneral)?;
+    let icon_visual = selected_visual_row(&rows, GROUP_GENERAL_ICON)?;
+    let picker_start = icon_visual + 1;
+    let y = list.rect.y + picker_start.saturating_sub(state.settings.scroll) as u16;
+    let origin = Rect::new(
+        list.rect.x + 2,
+        y,
+        list.rect.width.saturating_sub(2).min(24),
+        crate::ui::group_icon_picker_row_count(),
+    );
+    crate::ui::group_icon_picker_rects_at(origin)
+        .into_iter()
+        .find(|(rect, _)| {
+            col >= rect.x
+                && col < rect.x + rect.width
+                && row >= rect.y
+                && row < rect.y + rect.height
+        })
+        .map(|(_, icon)| icon)
+}
+
+
 fn pending_group_default_directory(state: &AppState) -> String {
     state
         .settings
@@ -890,16 +952,16 @@ fn set_pending_group_default_directory(state: &mut AppState, default_directory: 
 
 fn pending_group_field(state: &AppState, selected: usize) -> Option<String> {
     match selected {
-        0 => Some(pending_group_name(state)),
-        2 => Some(pending_group_default_directory(state)),
+        GROUP_GENERAL_NAME => Some(pending_group_name(state)),
+        GROUP_GENERAL_DIRECTORY => Some(pending_group_default_directory(state)),
         _ => None,
     }
 }
 
 fn set_pending_group_field(state: &mut AppState, selected: usize, value: String) {
     match selected {
-        0 => set_pending_group_name(state, value),
-        2 => set_pending_group_default_directory(state, value),
+        GROUP_GENERAL_NAME => set_pending_group_name(state, value),
+        GROUP_GENERAL_DIRECTORY => set_pending_group_default_directory(state, value),
         _ => {}
     }
 }
@@ -922,9 +984,10 @@ fn edit_pending_group_field(state: &mut AppState, key: KeyEvent) -> bool {
         return false;
     };
     state.settings.list.select(selected);
-    if !matches!(selected, 0 | 2) {
+    if !matches!(selected, GROUP_GENERAL_NAME | GROUP_GENERAL_DIRECTORY) {
         return false;
     }
+
 
     match key.code {
         KeyCode::Char('u') if key.modifiers.contains(KeyModifiers::CONTROL) => {
@@ -2567,11 +2630,15 @@ fn selected_group_general_action(state: &mut AppState) -> Option<SettingsAction>
     }
     let group_idx = state.settings.group_settings_target?;
     match state.settings.list.selected {
-        0 => {
+        GROUP_GENERAL_NAME => {
             let name = pending_group_name(state).trim().to_string();
             (!name.is_empty()).then_some(SettingsAction::SaveGroupName { group_idx, name })
         }
-        1 | 2 => {
+        GROUP_GENERAL_ICON => Some(SettingsAction::SaveGroupIcon {
+            group_idx,
+            icon: pending_group_icon(state),
+        }),
+        GROUP_GENERAL_HOST | GROUP_GENERAL_DIRECTORY => {
             let default_directory = pending_group_default_directory(state).trim().to_string();
             let default_location = (!default_directory.is_empty())
                 .then(|| {
@@ -2590,13 +2657,14 @@ fn selected_group_general_action(state: &mut AppState) -> Option<SettingsAction>
                 default_location,
             })
         }
-        3 => {
+        GROUP_GENERAL_DELETE => {
             close_settings(state);
             Some(SettingsAction::DeleteGroup(group_idx))
         }
         _ => None,
     }
 }
+
 
 fn selected_workspace_general_action(state: &mut AppState) -> Option<SettingsAction> {
     if !settings_selection_active(state) {
@@ -2713,7 +2781,11 @@ fn clear_settings_pending(state: &mut AppState) {
     state.settings.pending_switch_ascii_input_source_in_prefix = None;
     state.settings.pending_group_accent_choice = None;
     state.settings.pending_group_name = None;
+    state.settings.pending_group_icon = None;
+    state.settings.group_icon_picker_open = false;
     state.settings.pending_group_default_directory = None;
+
+
     state.settings.pending_workspace_name = None;
     state.settings.pending_workspace_default_cwd = None;
     state.settings.pending_agent_profile_id = None;
@@ -2990,7 +3062,10 @@ fn settings_row_option_index(row: &SettingsListRow) -> Option<usize> {
         | SettingsListRow::Action { index, .. }
         | SettingsListRow::Status { index, .. }
         | SettingsListRow::Profile { index, .. } => Some(*index),
-        SettingsListRow::Header(_) | SettingsListRow::Caption(_) | SettingsListRow::Spacer => None,
+        SettingsListRow::Header(_)
+        | SettingsListRow::Caption(_)
+        | SettingsListRow::Spacer
+        | SettingsListRow::GroupIconPicker => None,
     }
 }
 
@@ -3237,7 +3312,8 @@ fn settings_row_accepts_text_input(state: &AppState, selected: usize) -> bool {
         SettingsSection::Sound => {
             NotificationRowId::from_selection_index(selected) == Some(NotificationRowId::ToastDelay)
         }
-        SettingsSection::GroupGeneral => matches!(selected, 0 | 2),
+        SettingsSection::GroupGeneral => matches!(selected, GROUP_GENERAL_NAME | GROUP_GENERAL_DIRECTORY),
+
         SettingsSection::WorkspaceGeneral => matches!(selected, 0 | 2),
         SettingsSection::Agents if agent_profile_editor_open(state) => {
             selected == AGENT_PROFILE_NAME_INDEX || selected == agent_profile_command_index(state)
@@ -3757,18 +3833,28 @@ pub(super) fn update_settings_state(state: &mut AppState, key: KeyEvent) -> Opti
                     settings_section_choice_len(state, SettingsSection::GroupGeneral),
                 );
             }
-            KeyCode::Enter if state.settings.list.selected == 1 => {
+            KeyCode::Enter if state.settings.list.selected == GROUP_GENERAL_ICON => {
+                toggle_group_icon_picker(state);
+                return None;
+            }
+            KeyCode::Enter if state.settings.list.selected == GROUP_GENERAL_HOST => {
                 cycle_default_host(state, false);
                 return selected_group_general_action(state);
             }
             KeyCode::Enter => return selected_group_general_action(state),
-            KeyCode::Char(' ') if state.settings.list.selected == 1 => {
+            KeyCode::Char(' ') if state.settings.list.selected == GROUP_GENERAL_ICON => {
+                toggle_group_icon_picker(state);
+                return None;
+            }
+
+            KeyCode::Char(' ') if state.settings.list.selected == GROUP_GENERAL_HOST => {
                 cycle_default_host(state, false);
                 return selected_group_general_action(state);
             }
-            KeyCode::Char(' ') if state.settings.list.selected == 3 => {
+            KeyCode::Char(' ') if state.settings.list.selected == GROUP_GENERAL_DELETE => {
                 return selected_group_general_action(state);
             }
+
             KeyCode::BackTab | KeyCode::Left | KeyCode::Char('h') => {
                 state.settings.section = SettingsSection::GroupProfiles;
                 state.settings.list.selected = 0;
@@ -4121,7 +4207,9 @@ pub(crate) fn prepare_group_settings_state(
     };
     reset_settings_for_scoped_editor(state, settings);
     settings.pending_group_name = Some(group.name.clone());
+    settings.pending_group_icon = Some(group.icon.clone());
     settings.pending_group_default_directory = None;
+
     settings.pending_group_default_execution_host_id = group
         .default_location
         .as_ref()
@@ -4148,7 +4236,9 @@ pub(crate) fn prepare_workspace_settings_state(
     };
     reset_settings_for_scoped_editor(state, settings);
     settings.pending_group_name = None;
+    settings.pending_group_icon = None;
     settings.pending_group_default_directory = None;
+
     settings.pending_workspace_name = Some(workspace.display_name());
     settings.pending_workspace_default_cwd = Some(
         workspace
@@ -4191,6 +4281,7 @@ pub(crate) fn open_group_settings(state: &mut AppState, group_idx: usize) {
     };
     let group_accent = group.accent;
     let group_name = group.name.clone();
+    let group_icon = group.icon.clone();
     state.settings.original_palette = Some(state.palette.clone());
     state.settings.original_theme = Some(state.theme_name.clone());
     state.settings.pending_theme_name = None;
@@ -4201,7 +4292,9 @@ pub(crate) fn open_group_settings(state: &mut AppState, group_idx: usize) {
     state.settings.pending_terminal_dark_accent = None;
     state.settings.pending_group_accent_choice = None;
     state.settings.pending_group_name = Some(group_name);
+    state.settings.pending_group_icon = Some(group_icon);
     state.settings.pending_workspace_name = None;
+
     state.settings.pending_group_default_execution_host_id = group
         .default_location
         .as_ref()
@@ -4285,7 +4378,9 @@ pub(crate) fn open_workspace_settings(state: &mut AppState, ws_idx: usize) {
     state.settings.pending_terminal_dark_accent = None;
     state.settings.pending_group_accent_choice = None;
     state.settings.pending_group_name = None;
+    state.settings.pending_group_icon = None;
     state.settings.pending_workspace_name = Some(workspace_name);
+
     state.settings.pending_workspace_default_cwd = Some(default_cwd);
     state.settings.pending_workspace_default_execution_host_id = Some(default_execution_host_id);
     state.settings.pending_sound_enabled = None;
@@ -4554,11 +4649,13 @@ impl AppState {
                         SettingsSection::GroupProfiles => 0,
                         SettingsSection::WorkspaceGeneral => 0,
                     });
+                    self.settings.group_icon_picker_open = false;
                     clear_settings_selection(self);
                     if section == SettingsSection::Theme {
                         ensure_settings_selection_visible(self);
                     }
                     return None;
+
                 }
 
                 self.settings.sidebar_focused = false;
@@ -4569,6 +4666,12 @@ impl AppState {
                         _ => {}
                     }
                     return None;
+                }
+                if let Some(icon) = group_settings_icon_picker_hit(self, mouse.column, mouse.row) {
+                    self.settings.pending_group_icon = Some(icon.to_string());
+                    self.settings.group_icon_picker_open = false;
+                    self.settings.list.select(GROUP_GENERAL_ICON);
+                    return selected_group_general_action(self);
                 }
                 if let Some(target) = self.settings_list_hit_at(mouse.column, mouse.row) {
                     let idx = target.index;
@@ -4592,12 +4695,23 @@ impl AppState {
                         SettingsSection::Connections => selected_connection_profile_action(self),
                         SettingsSection::Integrations => selected_integration_action(self),
                         SettingsSection::GroupGeneral => match idx {
-                            1 => {
+                            GROUP_GENERAL_ICON => {
+                                toggle_group_icon_picker(self);
+                                None
+                            }
+                            GROUP_GENERAL_HOST => {
+                                self.settings.group_icon_picker_open = false;
                                 cycle_default_host(self, false);
                                 selected_group_general_action(self)
                             }
-                            3 => selected_group_general_action(self),
-                            _ => None,
+                            GROUP_GENERAL_DELETE => {
+                                self.settings.group_icon_picker_open = false;
+                                selected_group_general_action(self)
+                            }
+                            _ => {
+                                self.settings.group_icon_picker_open = false;
+                                None
+                            }
                         },
                         SettingsSection::GroupProfiles => None,
                         SettingsSection::WorkspaceGeneral => match idx {
@@ -5563,7 +5677,7 @@ mod tests {
 
         open_group_settings(&mut state, group_idx);
         state.settings.section = SettingsSection::GroupGeneral;
-        state.settings.list.selected = 3;
+        state.settings.list.selected = crate::settings_rows::GROUP_GENERAL_DELETE;
         state.settings.list.show();
         state.settings.focused_input = None;
         let delete_action = update_settings_state(
@@ -5585,9 +5699,10 @@ mod tests {
         );
         open_group_settings(&mut state, group_idx);
         state.settings.section = SettingsSection::GroupGeneral;
-        state.settings.list.selected = 2;
+        state.settings.list.selected = crate::settings_rows::GROUP_GENERAL_DIRECTORY;
         state.settings.list.show();
-        state.settings.focused_input = Some(2);
+        state.settings.focused_input = Some(crate::settings_rows::GROUP_GENERAL_DIRECTORY);
+
 
         let action = update_settings_state(
             &mut state,
@@ -5623,7 +5738,8 @@ mod tests {
         );
         open_group_settings(&mut app.state, group_idx);
         app.state.settings.section = SettingsSection::GroupGeneral;
-        app.state.settings.list.selected = 1;
+        app.state.settings.list.selected = crate::settings_rows::GROUP_GENERAL_HOST;
+
         app.state.settings.list.show();
 
         let action = update_settings_state(
@@ -5644,12 +5760,65 @@ mod tests {
     }
 
     #[test]
+    fn group_general_settings_opens_icon_picker_and_saves_a_clicked_icon() {
+        let mut app = app_for_mouse_test();
+        app.state.view.terminal_area = Rect::new(26, 0, 100, 30);
+        let group_idx = app.state.create_group("Side".to_string());
+        open_group_settings(&mut app.state, group_idx);
+        app.state.settings.section = SettingsSection::GroupGeneral;
+        app.state.settings.list.selected = crate::settings_rows::GROUP_GENERAL_ICON;
+        app.state.settings.list.show();
+
+        let action = update_settings_state(
+            &mut app.state,
+            KeyEvent::new(KeyCode::Char(' '), KeyModifiers::empty()),
+        );
+        assert_eq!(action, None);
+        assert!(app.state.settings.group_icon_picker_open);
+
+        let list = settings_section_list_geometry(&app.state, SettingsSection::GroupGeneral);
+        let rows =
+            rows_for_section(&app.state, SettingsSection::GroupGeneral).expect("group rows");
+        let icon_visual = selected_visual_row(&rows, crate::settings_rows::GROUP_GENERAL_ICON)
+            .expect("icon row");
+        let origin = Rect::new(
+            list.rect.x + 2,
+            list.rect.y + icon_visual as u16 + 1,
+            list.rect.width.saturating_sub(2).min(24),
+            crate::ui::group_icon_picker_row_count(),
+        );
+        let (cell, icon) = crate::ui::group_icon_picker_rects_at(origin)
+            .into_iter()
+            .find(|(_, candidate)| *candidate == crate::app::state::GROUP_ICONS[1])
+            .expect("next group icon cell");
+
+        let action = app.state.handle_settings_mouse(mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            cell.x,
+            cell.y,
+        ));
+        assert_eq!(
+            action,
+            Some(SettingsAction::SaveGroupIcon {
+                group_idx,
+                icon: icon.to_string(),
+            })
+        );
+        assert!(!app.state.settings.group_icon_picker_open);
+    }
+
+
+
+
+    #[test]
     fn group_general_keyboard_navigation_focuses_editable_rows() {
         let mut state = state_with_workspaces(&["test"]);
         let group_idx = state.create_group("Side".to_string());
         open_group_settings(&mut state, group_idx);
         state.settings.section = SettingsSection::GroupGeneral;
-        state.settings.list = crate::app::state::ModalListState::hidden(3);
+        state.settings.list =
+            crate::app::state::ModalListState::hidden(crate::settings_rows::GROUP_GENERAL_DELETE);
+
 
         update_settings_state(
             &mut state,
@@ -5678,18 +5847,21 @@ mod tests {
         app.state.view.terminal_area = Rect::new(26, 0, 100, 30);
         open_group_settings(&mut app.state, group_idx);
         app.state.settings.section = SettingsSection::GroupGeneral;
-        app.state.settings.list.selected = 3;
+        app.state.settings.list.selected = crate::settings_rows::GROUP_GENERAL_DELETE;
         app.state.settings.list.hide();
 
         let list_area = settings_section_list_rect(&app.state, SettingsSection::GroupGeneral);
-        for input_row in [1, 6] {
+        for input_row in [1, 8] {
             let hover_action = app.state.handle_settings_mouse(mouse(
                 MouseEventKind::Moved,
                 list_area.x + 2,
                 list_area.y + input_row,
             ));
             assert_eq!(hover_action, None);
-            assert_eq!(app.state.settings.list.selected, 3);
+            assert_eq!(
+                app.state.settings.list.selected,
+                crate::settings_rows::GROUP_GENERAL_DELETE
+            );
             assert!(!app.state.settings.list.is_active());
         }
 
@@ -7682,6 +7854,9 @@ mod tests {
                 | crate::settings_rows::SettingsListRow::Action { .. }
                 | crate::settings_rows::SettingsListRow::Status { .. }
                 | crate::settings_rows::SettingsListRow::Profile { .. } => visual_row += 1,
+                crate::settings_rows::SettingsListRow::GroupIconPicker => {
+                    visual_row += crate::ui::group_icon_picker_row_count() as usize;
+                }
                 crate::settings_rows::SettingsListRow::Toggle { .. }
                 | crate::settings_rows::SettingsListRow::Value { .. }
                 | crate::settings_rows::SettingsListRow::TextInput { .. } => visual_row += 2,

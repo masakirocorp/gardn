@@ -288,7 +288,7 @@ fn append_mobile_split_actions(
         .and_then(|workspace| {
             let tab = workspace.tabs.get(tab_idx)?;
             let focused_pane = view
-                .and_then(|view| view.focused_pane_for_tab(&workspace.id, tab_idx + 1))
+                .and_then(|view| view.focused_pane_for_tab(&workspace.id, tab.number))
                 .unwrap_or_else(|| tab.layout.focused());
             let pane_infos = view
                 .map(|view| view.computed.pane_infos.as_slice())

@@ -7,14 +7,14 @@
   --font-sans: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --font-mono: ui-monospace, "SFMono-Regular", Consolas, "Liberation Mono", monospace;
   --default-font-family: var(--font-sans);
-  --color-gardn-ink: oklch(0.175 0.009 145);
-  --color-gardn-ink-2: oklch(0.32 0.02 145);
-  --color-gardn-paper: oklch(0.965 0.005 120);
-  --color-gardn-paper-2: oklch(0.935 0.005 120);
-  --color-gardn-paper-3: oklch(0.88 0.005 120);
-  --color-gardn-accent: oklch(0.678 0.139 55);
-  --color-gardn-accent-2: oklch(0.82 0.11 65);
-  --color-gardn-muted: oklch(0.55 0.02 145);
+  --color-gardn-ink: #1f1f1f;
+  --color-gardn-ink-2: #636462;
+  --color-gardn-paper: #fffffc;
+  --color-gardn-paper-2: #f7f3ea;
+  --color-gardn-paper-3: #dfd9cd;
+  --color-gardn-accent: #0b5a3c;
+  --color-gardn-accent-2: #a7c957;
+  --color-gardn-muted: #636462;
 }
 
 :root {
@@ -23,19 +23,57 @@
   text-decoration-thickness: from-font;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  --color-gardn-rule: oklch(0.175 0.009 145 / 0.14);
-  --color-gardn-rule-strong: oklch(0.175 0.009 145 / 0.28);
+  --color-gardn-rule: #d6cdbe;
+  --color-gardn-rule-strong: #d6cdbe;
+  --color-gardn-on-accent: #fffffc;
+  --color-gardn-accent-hover: #063624;
+  --color-fd-background: #fffffc;
+  --color-fd-foreground: #1f1f1f;
+  --color-fd-muted: #f7f3ea;
+  --color-fd-muted-foreground: #636462;
+  --color-fd-popover: #fffffc;
+  --color-fd-popover-foreground: #1f1f1f;
+  --color-fd-card: #f7f3ea;
+  --color-fd-card-foreground: #1f1f1f;
+  --color-fd-border: #d6cdbe;
+  --color-fd-primary: #0b5a3c;
+  --color-fd-primary-foreground: #fffffc;
+  --color-fd-secondary: #e5efe7;
+  --color-fd-secondary-foreground: #0b5a3c;
+  --color-fd-accent: #e5efe7;
+  --color-fd-accent-foreground: #0b5a3c;
+  --color-fd-ring: #0b5a3c;
 }
 
-.dark .gardn-page {
-  --color-gardn-ink: oklch(0.94 0.005 120);
-  --color-gardn-ink-2: oklch(0.77 0.01 120);
-  --color-gardn-paper: oklch(0.14 0.009 145);
-  --color-gardn-paper-2: oklch(0.18 0.01 145);
-  --color-gardn-paper-3: oklch(0.23 0.01 145);
-  --color-gardn-muted: oklch(0.68 0.01 120);
-  --color-gardn-rule: oklch(0.94 0.005 120 / 0.14);
-  --color-gardn-rule-strong: oklch(0.94 0.005 120 / 0.28);
+.dark {
+  --color-gardn-ink: #f7f3ea;
+  --color-gardn-ink-2: #aeb8ac;
+  --color-gardn-paper: #071a13;
+  --color-gardn-paper-2: #0d241a;
+  --color-gardn-paper-3: #123122;
+  --color-gardn-accent: #7dba72;
+  --color-gardn-accent-2: #a7c957;
+  --color-gardn-muted: #aeb8ac;
+  --color-gardn-rule: #244a37;
+  --color-gardn-rule-strong: #244a37;
+  --color-gardn-on-accent: #071a13;
+  --color-gardn-accent-hover: #a7c957;
+  --color-fd-background: #071a13;
+  --color-fd-foreground: #f7f3ea;
+  --color-fd-muted: #0d241a;
+  --color-fd-muted-foreground: #aeb8ac;
+  --color-fd-popover: #0d241a;
+  --color-fd-popover-foreground: #f7f3ea;
+  --color-fd-card: #0d241a;
+  --color-fd-card-foreground: #f7f3ea;
+  --color-fd-border: #244a37;
+  --color-fd-primary: #7dba72;
+  --color-fd-primary-foreground: #071a13;
+  --color-fd-secondary: #143d2a;
+  --color-fd-secondary-foreground: #f7f3ea;
+  --color-fd-accent: #143d2a;
+  --color-fd-accent-foreground: #a7c957;
+  --color-fd-ring: #a7c957;
 }
 
 ::selection {
@@ -46,7 +84,11 @@
 .gardn-page {
   min-height: calc(100vh - 4rem);
   background:
-    radial-gradient(circle at 92% 0%, oklch(0.678 0.139 55 / 0.06), transparent 24rem),
+    radial-gradient(
+      circle at 92% 0%,
+      color-mix(in oklab, var(--color-gardn-accent) 14%, transparent),
+      transparent 24rem
+    ),
     var(--color-gardn-paper);
   color: var(--color-gardn-ink);
 }
@@ -136,19 +178,15 @@
 }
 
 .gardn-action[data-primary="true"] {
-  border-color: var(--color-gardn-ink);
-  color: var(--color-gardn-paper);
-  background: var(--color-gardn-ink);
+  border-color: var(--color-gardn-accent);
+  color: var(--color-gardn-on-accent);
+  background: var(--color-gardn-accent);
 }
 
 .gardn-action[data-primary="true"]:hover {
-  border-color: var(--color-gardn-ink-2);
-  background: var(--color-gardn-ink-2);
-}
-
-.gardn-action:hover {
-  border-color: var(--color-gardn-accent);
-  color: var(--color-gardn-accent);
+  border-color: var(--color-gardn-accent-hover);
+  color: var(--color-gardn-on-accent);
+  background: var(--color-gardn-accent-hover);
 }
 
 .gardn-action:focus-visible {
@@ -255,12 +293,12 @@
 
 .gardn-status--live {
   color: var(--color-gardn-accent);
-  border-color: oklch(0.678 0.139 55 / 0.35);
+  border-color: color-mix(in oklab, var(--color-gardn-accent) 35%, transparent);
 }
 
 .gardn-status--working {
-  color: oklch(0.65 0.12 55);
-  border-color: oklch(0.65 0.12 55 / 0.35);
+  color: var(--color-gardn-accent-2);
+  border-color: color-mix(in oklab, var(--color-gardn-accent-2) 35%, transparent);
 }
 
 .gardn-status--idle {
@@ -299,6 +337,59 @@
   gap: 0.75rem;
   margin-block-start: 1.5rem;
   font-size: 0.9375rem;
+  color: var(--color-gardn-ink-2);
+}
+
+.gardn-session-shot {
+  margin-block: clamp(2rem, 5vw, 3rem);
+}
+
+.gardn-session-shot img,
+.gardn-session-shot video {
+  width: 100%;
+  height: auto;
+  border: 1.5px solid var(--color-gardn-ink);
+  background: var(--color-gardn-paper-2);
+}
+
+.gardn-session-shot .gardn-session-motion.gardn-session-day {
+  display: block;
+}
+
+.gardn-session-shot .gardn-session-still,
+.gardn-session-shot .gardn-session-night {
+  display: none;
+}
+
+.dark .gardn-session-shot .gardn-session-day {
+  display: none;
+}
+
+.dark .gardn-session-shot .gardn-session-motion.gardn-session-night {
+  display: block;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .gardn-session-shot .gardn-session-motion {
+    display: none;
+  }
+
+  .gardn-session-shot .gardn-session-still.gardn-session-day {
+    display: block;
+  }
+
+  .dark .gardn-session-shot .gardn-session-still.gardn-session-day {
+    display: none;
+  }
+
+  .dark .gardn-session-shot .gardn-session-still.gardn-session-night {
+    display: block;
+  }
+}
+
+.gardn-session-shot-caption {
+  margin-block-start: 0.75rem;
+  font-size: 0.875rem;
   color: var(--color-gardn-ink-2);
 }
 

@@ -430,7 +430,7 @@ impl ClientViewState {
             tab_scroll: state.tab_scroll,
             tab_scroll_follow_active: state.tab_scroll_follow_active,
             hovered_tab: state.hovered_tab,
-            collapsed_sidebar_hover: state.collapsed_sidebar_hover,
+            collapsed_sidebar_hover: state.collapsed_sidebar_hover.clone(),
             mobile_switcher_scroll: state.mobile_switcher_scroll,
             mobile_switcher_level: state.mobile_switcher_level,
             mobile_switcher_selected: state.mobile_switcher_selected,

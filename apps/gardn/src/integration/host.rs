@@ -152,6 +152,7 @@ impl WorkerAgentReport {
             seq: self.seq,
             agent_session_id: self.agent_session_id,
             agent_session_path: self.agent_session_path,
+            activity_unix_secs: None,
             launch_env: self.launch_env,
         }
     }

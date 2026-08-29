@@ -616,6 +616,8 @@ pub struct KeysConfig {
     pub next_agent: BindingConfig,
     /// Open the agent scope menu. Unset by default.
     pub open_agent_menu: BindingConfig,
+    /// Open the context menu for the focused pane or agent. Default: "shift+f10".
+    pub open_context_menu: BindingConfig,
     /// Focus an agent by index 1-9. Unset by default.
     pub focus_agent: BindingConfig,
     /// Local-client shortcut that sends a clipboard image to a remote Gardn session. Default: "ctrl+v".
@@ -750,6 +752,8 @@ pub(crate) struct KeysConfigOverlay {
     #[serde(skip_serializing_if = "Option::is_none")]
     open_agent_menu: Option<BindingConfig>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    open_context_menu: Option<BindingConfig>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     focus_agent: Option<BindingConfig>,
     #[serde(skip_serializing_if = "Option::is_none")]
     remote_image_paste: Option<String>,
@@ -863,6 +867,7 @@ impl<'de> Deserialize<'de> for KeysConfig {
         apply_field!(toggle_context_bar);
         apply_field!(zen_mode);
         apply_field!(open_agent_menu);
+        apply_field!(open_context_menu);
         apply_field!(focus_agent);
         apply_field!(remote_image_paste);
         apply_field!(new_tab);
@@ -960,6 +965,7 @@ impl KeysConfig {
         copy_effective_action_field!(zen_mode, keybinds.zen_mode);
         copy_effective_action_field!(next_agent, keybinds.next_agent);
         copy_effective_action_field!(open_agent_menu, keybinds.open_agent_menu);
+        copy_effective_action_field!(open_context_menu, keybinds.open_context_menu);
         copy_effective_indexed_field!(focus_agent, keybinds.focus_agent);
         copy_effective_action_field!(new_tab, keybinds.new_tab);
         copy_effective_action_field!(take_control, keybinds.take_control);
@@ -1309,6 +1315,7 @@ impl Default for KeysConfig {
             previous_agent: BindingConfig::empty(),
             next_agent: BindingConfig::empty(),
             open_agent_menu: BindingConfig::empty(),
+            open_context_menu: BindingConfig::one("shift+f10"),
             focus_agent: BindingConfig::empty(),
             remote_image_paste: "ctrl+v".into(),
             new_tab: BindingConfig::one("prefix+c"),
