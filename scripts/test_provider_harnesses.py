@@ -52,7 +52,7 @@ class ProviderHarnessStructureTests(unittest.TestCase):
         self.assertNotIn("ANTIGRAVITY_CLI_CONFIG_DIR", antigravity)
         self.assertIn("pwd.getpwuid(os.getuid()).pw_dir", antigravity)
         self.assertIn('agy -p "$prompt" --model "$model" --output-format json', antigravity)
-        self.assertIn('model="Gemini 3.5 Flash"', antigravity)
+        self.assertIn('model="Gemini 3.5 Flash (Medium)"', antigravity)
         self.assertIn('"conversationId":"gardn-antigravity-fixture"', antigravity)
         self.assertNotIn('HOME="$home"', antigravity)
 
