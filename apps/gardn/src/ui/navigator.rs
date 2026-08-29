@@ -380,18 +380,45 @@ fn render_row(
             style
         }
     };
-    let left_fixed = format!(" {prefix} ");
-    let meta_width = metadata_width(rect.width);
+    let prefix_width = display_width(&prefix) as u16;
     let status_width = status
         .as_ref()
         .map_or(0, |(icon, _)| display_width(icon).saturating_add(1) as u16);
-    let left_budget = rect
-        .width
-        .saturating_sub(meta_width)
-        .saturating_sub(display_width(&left_fixed) as u16)
-        .saturating_sub(status_width)
-        .saturating_sub(3) as usize;
-    let title = truncate_end(&row.label, left_budget);
+    let left_fixed = prefix_width.saturating_add(1).saturating_add(status_width);
+    let title_width = display_width(&row.label) as u16;
+    let meta_needed = if row.meta.is_empty() {
+        0
+    } else {
+        (display_width(&row.meta) as u16).saturating_add(1)
+    };
+    let (title, meta_width) = if meta_needed == 0 {
+        (
+            truncate_end(&row.label, rect.width.saturating_sub(left_fixed) as usize),
+            0,
+        )
+    } else if left_fixed
+        .saturating_add(title_width)
+        .saturating_add(meta_needed)
+        <= rect.width
+    {
+        (
+            row.label.clone(),
+            rect.width
+                .saturating_sub(left_fixed)
+                .saturating_sub(title_width),
+        )
+    } else {
+        let min_title = 8u16;
+        let meta_width = meta_needed.min(
+            rect.width
+                .saturating_sub(left_fixed.saturating_add(min_title)),
+        );
+        let title_budget = rect
+            .width
+            .saturating_sub(left_fixed)
+            .saturating_sub(meta_width) as usize;
+        (truncate_end(&row.label, title_budget), meta_width)
+    };
 
     let mut spans = Vec::with_capacity(6);
     spans.push(Span::styled(prefix, prefix_style));
@@ -410,7 +437,7 @@ fn render_row(
             meta_width,
             1,
         );
-        let meta = truncate_end(&row.meta, meta_width.saturating_sub(2) as usize);
+        let meta = truncate_end(&row.meta, meta_width.saturating_sub(1) as usize);
         let meta_style = if selected {
             base_style
         } else if context_only || row.is_group || row.is_workspace || row.is_tab {
@@ -475,18 +502,6 @@ fn has_following_sibling_at_depth(rows: &[NavigatorRow], idx: usize, depth: u8) 
         .iter()
         .take_while(|row| row.depth >= depth)
         .any(|row| row.depth == depth)
-}
-
-fn metadata_width(width: u16) -> u16 {
-    if width >= 90 {
-        28
-    } else if width >= 68 {
-        20
-    } else if width >= 52 {
-        14
-    } else {
-        0
-    }
 }
 
 fn detail_for_row(app: &AppState, row: &NavigatorRow) -> String {
@@ -873,6 +888,52 @@ mod tests {
         let text = buffer_text(terminal.backend().buffer(), 80, 1);
         assert!(text.contains("personal"), "tab row: {text:?}");
         assert!(!text.contains(['▸', '▾', '├']), "tab row: {text:?}");
+    }
+
+    #[test]
+    fn navigator_row_keeps_full_meta_when_the_row_has_room() {
+        let app = AppState::test_new();
+        let row = NavigatorRow {
+            target: NavigatorTarget::Group { group_idx: 0 },
+            depth: 0,
+            label: "product".to_string(),
+            meta: "2 Spaces · 5 Panes · 1 Blocked".to_string(),
+            status: crate::detect::AgentState::Unknown,
+            seen: true,
+            is_current: true,
+            is_group: true,
+            is_workspace: false,
+            is_tab: false,
+            has_children: true,
+            expanded: true,
+            search_text: String::new(),
+            matched: true,
+        };
+        let backend = TestBackend::new(90, 1);
+        let mut terminal = Terminal::new(backend).expect("test backend");
+        terminal
+            .draw(|frame| {
+                render_row(
+                    &app,
+                    &app.navigator,
+                    frame,
+                    frame.area(),
+                    std::slice::from_ref(&row),
+                    0,
+                    false,
+                )
+            })
+            .expect("render group row");
+
+        let text = buffer_text(terminal.backend().buffer(), 90, 1);
+        assert!(
+            text.contains("2 Spaces · 5 Panes · 1 Blocked"),
+            "full meta should stay visible: {text:?}"
+        );
+        assert!(
+            !text.contains('…'),
+            "meta should not ellipsize while the row has room: {text:?}"
+        );
     }
 
     #[test]
