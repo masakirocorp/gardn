@@ -2646,7 +2646,6 @@ fn collapsed_workspace_index_line(
     ])
 }
 
-
 pub(super) fn render_sidebar_collapsed(app: &AppState, frame: &mut Frame, area: Rect) {
     let is_navigating = matches!(app.mode, Mode::Navigate);
     let show_agent_detail = app.view.right_sidebar_rect == Rect::default();
@@ -2661,7 +2660,6 @@ pub(super) fn render_sidebar_collapsed(app: &AppState, frame: &mut Frame, area: 
     };
     let combined_right = sidebar_is_combined_right(app);
     paint_collapsed_rail_separator(frame, area, combined_right, sep_style);
-
 
     let (ws_area, divider_y, detail_area) = if combined_right {
         right_aligned_collapsed_sidebar_sections(area, show_agent_detail, app.sidebar_section_split)
@@ -2799,7 +2797,6 @@ pub(super) fn render_sidebar_collapsed(app: &AppState, frame: &mut Frame, area: 
         }
     }
 
-
     if !show_agent_detail {
         render_global_launcher(app, frame);
         render_sidebar_toggle(app, frame, area, true, p);
@@ -2837,7 +2834,6 @@ pub(super) fn render_sidebar_collapsed_for_view(
         Style::default().fg(p.overlay0).bg(p.panel_bg)
     };
     paint_collapsed_rail_separator(frame, area, combined_right, separator_style);
-
 
     let (workspace_area, divider_y, agent_area) = if combined_right {
         right_aligned_collapsed_sidebar_sections(
@@ -2980,7 +2976,6 @@ pub(super) fn render_sidebar_collapsed_for_view(
     render_sidebar_toggle(app, frame, area, true, p);
     paint_collapsed_rail_separator(frame, area, combined_right, separator_style);
 }
-
 
 pub(super) fn render_collapsed_sidebar_hover(app: &AppState, frame: &mut Frame) {
     match &app.collapsed_sidebar_hover {
@@ -5763,7 +5758,6 @@ mod tests {
         assert_eq!(buffer[(ws_area.x + 1, rows_y)].symbol(), "●");
         assert_eq!(buffer[(border_x, rows_y)].symbol(), "│");
     }
-
 
     #[test]
     fn collapsed_workspace_hover_shows_group_name_and_colored_status() {

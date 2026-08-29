@@ -498,7 +498,6 @@ impl AppState {
                             return None;
                         }
 
-
                         if rect_contains(
                             crate::ui::group_name_input_rect(self, inner),
                             mouse.column,

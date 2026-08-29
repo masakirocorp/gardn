@@ -447,7 +447,8 @@ impl HeadlessServer {
                     needs_render = false;
                 } else {
                     self.app.sync_pending_agent_resume_deadline(now);
-                    let allow_pending_agent_resume_empty_theme = self.app.pending_agent_resume_due(now);
+                    let allow_pending_agent_resume_empty_theme =
+                        self.app.pending_agent_resume_due(now);
                     let draw_started = Instant::now();
                     let pending_resume_started = self.render_and_stream_with_pending_agent_resume(
                         allow_pending_agent_resume_empty_theme,

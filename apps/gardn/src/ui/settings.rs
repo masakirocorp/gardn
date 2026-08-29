@@ -1656,9 +1656,7 @@ fn group_icon_picker_list_items(
                 spans.push(Span::styled(
                     format!(" {icon} "),
                     if selected {
-                        Style::default()
-                            .fg(panel_contrast_fg(p))
-                            .bg(p.accent)
+                        Style::default().fg(panel_contrast_fg(p)).bg(p.accent)
                     } else {
                         Style::default().fg(p.text).bg(p.surface0)
                     },
@@ -2504,7 +2502,6 @@ mod tests {
             rows[6],
             SettingsListRow::TextInput { index: 3, .. }
         ));
-
     }
 
     #[test]
@@ -3287,7 +3284,6 @@ mod tests {
 
         for description in [
             "Rename this group, change its icon, or delete it",
-
             "Set this space's display name, execution host, and directory",
         ] {
             let backend = TestBackend::new(area.width, area.height);

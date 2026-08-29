@@ -2274,7 +2274,6 @@ pub struct SettingsState {
     pub group_icon_picker_open: bool,
     /// Workspace whose settings are being edited, if settings was opened from a workspace menu.
     pub workspace_settings_target: Option<usize>,
-
 }
 
 #[derive(Clone)]
@@ -4600,7 +4599,6 @@ impl AppState {
                 group_settings_target: None,
                 group_icon_picker_open: false,
                 workspace_settings_target: None,
-
             },
             integration_recommendations: Vec::new(),
             host_integration_observations: std::collections::HashMap::new(),

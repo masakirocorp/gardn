@@ -17,9 +17,9 @@ mod creation;
 mod ids;
 mod input;
 pub(crate) mod integration_host;
+pub(crate) mod loop_stats;
 pub(crate) mod pane_graphics;
 mod popup;
-pub(crate) mod loop_stats;
 
 mod runtime;
 mod runtime_mutations;
@@ -1117,7 +1117,6 @@ impl App {
                 group_settings_target: None,
                 group_icon_picker_open: false,
                 workspace_settings_target: None,
-
             },
             integration_recommendations,
             host_integration_observations: std::collections::HashMap::new(),
@@ -8023,7 +8022,6 @@ impl App {
                 client_view.name_input_replace_on_type = false;
                 return true;
             }
-
 
             if Self::rect_contains(
                 crate::ui::group_name_input_rect_for_view(client_view.creating_new_group, inner),
@@ -18747,8 +18745,6 @@ command = "printf literal > '{}'"
         assert_eq!(client.take_tab_control_request(), Some(9));
     }
 
-
-
     #[tokio::test]
     async fn client_left_click_on_pane_frame_focuses_that_pane() {
         let mut app = test_app();
@@ -18794,7 +18790,6 @@ command = "printf literal > '{}'"
             Some((0, right))
         );
     }
-
 
     #[tokio::test]
     async fn watcher_visible_split_hit_cannot_start_shared_resize() {

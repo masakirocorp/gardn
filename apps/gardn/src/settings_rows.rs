@@ -18,7 +18,6 @@ pub(crate) const GROUP_GENERAL_HOST: usize = 2;
 pub(crate) const GROUP_GENERAL_DIRECTORY: usize = 3;
 pub(crate) const GROUP_GENERAL_DELETE: usize = 4;
 
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum SettingsListRow {
     Header(&'static str),
@@ -69,7 +68,6 @@ pub(crate) enum SettingsListRow {
     GroupIconPicker,
 }
 
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum SettingsMarkerTone {
     Good,
@@ -92,9 +90,7 @@ pub(crate) fn option_hit_for_visual_row(
     let mut visual_row = 0;
     for entry in rows {
         match entry {
-            SettingsListRow::Header(_)
-            | SettingsListRow::Caption(_)
-            | SettingsListRow::Spacer => {
+            SettingsListRow::Header(_) | SettingsListRow::Caption(_) | SettingsListRow::Spacer => {
                 if row == visual_row {
                     return None;
                 }
@@ -264,7 +260,6 @@ fn group_icon_picker_visual_rows() -> usize {
     crate::app::state::GROUP_ICONS.len().div_ceil(5)
 }
 
-
 fn option_index(row: &SettingsListRow) -> Option<usize> {
     match row {
         SettingsListRow::Toggle { index, .. }
@@ -278,7 +273,6 @@ fn option_index(row: &SettingsListRow) -> Option<usize> {
         | SettingsListRow::Caption(_)
         | SettingsListRow::Spacer
         | SettingsListRow::GroupIconPicker => None,
-
     }
 }
 
@@ -560,7 +554,6 @@ fn group_general_rows(app: &AppState, settings: &SettingsState) -> Vec<SettingsL
     ]);
     rows
 }
-
 
 fn workspace_general_rows(app: &AppState, settings: &SettingsState) -> Vec<SettingsListRow> {
     let workspace = settings

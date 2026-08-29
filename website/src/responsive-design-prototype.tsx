@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { platformRows, releasePreview, type RecentFeature } from "./responsive-design-data";
+import { releasePreview, type RecentFeature } from "./responsive-design-data";
 
 type PageName = "home" | "download" | "releases";
 type ReleaseState = "prepublic" | "tagged" | "loading" | "error";
@@ -58,7 +58,7 @@ export function ResponsiveDesignPrototype() {
     if (isThemeName(requestedTheme)) setTheme(requestedTheme);
   }, []);
 
-  const selectPage = (nextPage: PageName) => {
+  const _selectPage = (nextPage: PageName) => {
     setPage(nextPage);
     const url = new URL(window.location.href);
     url.searchParams.set("page", nextPage);
@@ -68,7 +68,7 @@ export function ResponsiveDesignPrototype() {
     window.scrollTo({ top: 0, behavior: "instant" });
   };
 
-  const selectState = (nextState: ReleaseState) => {
+  const _selectState = (nextState: ReleaseState) => {
     setReleaseState(nextState);
     const url = new URL(window.location.href);
     url.searchParams.set("page", page);
@@ -92,7 +92,7 @@ export function ResponsiveDesignPrototype() {
 }
 
 
-function PrototypeBar({
+function _PrototypeBar({
   theme,
   onTheme,
 }: {
@@ -156,7 +156,7 @@ function HomePage() {
 }
 
 
-function RecentSection({
+function _RecentSection({
   releaseState,
   onState,
 }: {
@@ -277,7 +277,7 @@ function InstallCommand() {
   );
 }
 
-function DownloadPage() {
+function _DownloadPage() {
   return (
     <section className="rd-hero rd-shell" aria-labelledby="rd-install-title">
       <h1 id="rd-install-title">Install</h1>
@@ -286,7 +286,7 @@ function DownloadPage() {
   );
 }
 
-function InstallOption({
+function _InstallOption({
   index,
   title,
   copy,
@@ -314,7 +314,7 @@ function InstallOption({
   );
 }
 
-function ReleaseControl({
+function _ReleaseControl({
   state,
   onRetry,
 }: {
@@ -372,7 +372,7 @@ function ReleaseControl({
   );
 }
 
-function ReleasesPage({
+function _ReleasesPage({
   releaseState,
   onPage,
   onState,

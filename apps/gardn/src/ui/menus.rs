@@ -39,7 +39,6 @@ fn render_menu_separator(frame: &mut Frame, area: Rect, row_idx: usize, style: S
     }
 }
 
-
 fn context_menu_row_label(item: &str, items: &[&str]) -> String {
     let display = ContextMenuState::item_display_label(item);
     if ContextMenuState::item_is_section_header(item) || display.starts_with(" +") {

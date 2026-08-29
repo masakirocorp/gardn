@@ -3,7 +3,6 @@ use ratatui::{
     style::{Modifier, Style},
     text::{Line, Span},
     widgets::{Clear, Paragraph},
-
     Frame,
 };
 
@@ -16,7 +15,6 @@ use super::{
         secondary_action_style, ActionButtonSpec,
     },
 };
-
 
 use crate::{
     app::{AppState, Mode},
@@ -114,7 +112,11 @@ fn group_field_rect_for_view(creating_new_group: bool, inner: Rect, y: u16) -> R
 }
 
 pub(crate) fn group_icon_button_rect_for_view(creating_new_group: bool, inner: Rect) -> Rect {
-    group_field_rect_for_view(creating_new_group, inner, group_modal_layout(creating_new_group, false).icon_y)
+    group_field_rect_for_view(
+        creating_new_group,
+        inner,
+        group_modal_layout(creating_new_group, false).icon_y,
+    )
 }
 
 pub(crate) fn group_name_input_rect_for_view(creating_new_group: bool, inner: Rect) -> Rect {
@@ -187,7 +189,6 @@ pub(crate) fn group_icon_picker_rects_for_view(
     group_icon_picker_rects_at(start)
 }
 
-
 pub(crate) fn group_icon_button_rect(app: &AppState, inner: Rect) -> Rect {
     group_icon_button_rect_for_view(app.creating_new_group, inner)
 }
@@ -205,28 +206,20 @@ pub(crate) fn group_default_directory_input_rect(app: &AppState, inner: Rect) ->
 }
 
 pub(crate) fn group_default_host_rect(app: &AppState, inner: Rect) -> Rect {
-    group_default_host_rect_for_view(
-        app.creating_new_group,
-        app.group_icon_picker_open,
-        inner,
-    )
+    group_default_host_rect_for_view(app.creating_new_group, app.group_icon_picker_open, inner)
 }
 
 pub(crate) fn group_icon_picker_rects(app: &AppState, inner: Rect) -> Vec<(Rect, &'static str)> {
     group_icon_picker_rects_for_view(app.creating_new_group, inner)
 }
 
-fn group_host_label(
-    app: &AppState,
-    host_id: &crate::execution_host::ExecutionHostId,
-) -> String {
+fn group_host_label(app: &AppState, host_id: &crate::execution_host::ExecutionHostId) -> String {
     if host_id.is_local() {
         "Local".to_string()
     } else {
         app.ssh_connection_profiles
             .iter()
             .find(|profile| profile.execution_host_id() == *host_id)
-
             .map(|profile| profile.name().to_string())
             .unwrap_or_else(|| host_id.as_str().to_string())
     }
@@ -403,7 +396,6 @@ fn render_group_modal_fields(
         }
     }
 }
-
 
 fn rename_palette(app: &AppState) -> crate::app::state::Palette {
     match app.mode {
@@ -592,7 +584,6 @@ pub(super) fn render_rename_overlay(app: &AppState, frame: &mut Frame, area: Rec
             );
         }
     }
-
 
     let (save_rect, clear_rect, _) = rename_button_rects(inner);
 
@@ -1158,7 +1149,6 @@ mod tests {
             group_default_directory_input_rect(&app, inner),
             Rect::new(inner.x + 1, inner.y + 17, inner.width.saturating_sub(1), 1)
         );
-
     }
 
     #[test]

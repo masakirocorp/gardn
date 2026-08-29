@@ -25,7 +25,6 @@ use crate::{
         GROUP_GENERAL_DELETE, GROUP_GENERAL_DIRECTORY, GROUP_GENERAL_HOST, GROUP_GENERAL_ICON,
         GROUP_GENERAL_NAME,
     },
-
     terminal_theme::ThemeAppearance,
 };
 
@@ -841,7 +840,6 @@ fn pending_group_icon(state: &AppState) -> String {
         .unwrap_or_else(|| crate::app::state::DEFAULT_GROUP_ICON.to_string())
 }
 
-
 fn toggle_group_icon_picker(state: &mut AppState) {
     state.settings.group_icon_picker_open = !state.settings.group_icon_picker_open;
 }
@@ -873,7 +871,6 @@ fn group_settings_icon_picker_hit(state: &AppState, col: u16, row: u16) -> Optio
         })
         .map(|(_, icon)| icon)
 }
-
 
 fn pending_group_default_directory(state: &AppState) -> String {
     state
@@ -987,7 +984,6 @@ fn edit_pending_group_field(state: &mut AppState, key: KeyEvent) -> bool {
     if !matches!(selected, GROUP_GENERAL_NAME | GROUP_GENERAL_DIRECTORY) {
         return false;
     }
-
 
     match key.code {
         KeyCode::Char('u') if key.modifiers.contains(KeyModifiers::CONTROL) => {
@@ -2665,7 +2661,6 @@ fn selected_group_general_action(state: &mut AppState) -> Option<SettingsAction>
     }
 }
 
-
 fn selected_workspace_general_action(state: &mut AppState) -> Option<SettingsAction> {
     if !settings_selection_active(state) {
         return None;
@@ -2784,7 +2779,6 @@ fn clear_settings_pending(state: &mut AppState) {
     state.settings.pending_group_icon = None;
     state.settings.group_icon_picker_open = false;
     state.settings.pending_group_default_directory = None;
-
 
     state.settings.pending_workspace_name = None;
     state.settings.pending_workspace_default_cwd = None;
@@ -3312,7 +3306,9 @@ fn settings_row_accepts_text_input(state: &AppState, selected: usize) -> bool {
         SettingsSection::Sound => {
             NotificationRowId::from_selection_index(selected) == Some(NotificationRowId::ToastDelay)
         }
-        SettingsSection::GroupGeneral => matches!(selected, GROUP_GENERAL_NAME | GROUP_GENERAL_DIRECTORY),
+        SettingsSection::GroupGeneral => {
+            matches!(selected, GROUP_GENERAL_NAME | GROUP_GENERAL_DIRECTORY)
+        }
 
         SettingsSection::WorkspaceGeneral => matches!(selected, 0 | 2),
         SettingsSection::Agents if agent_profile_editor_open(state) => {
@@ -4655,7 +4651,6 @@ impl AppState {
                         ensure_settings_selection_visible(self);
                     }
                     return None;
-
                 }
 
                 self.settings.sidebar_focused = false;
@@ -5703,7 +5698,6 @@ mod tests {
         state.settings.list.show();
         state.settings.focused_input = Some(crate::settings_rows::GROUP_GENERAL_DIRECTORY);
 
-
         let action = update_settings_state(
             &mut state,
             KeyEvent::new(KeyCode::Char('2'), KeyModifiers::empty()),
@@ -5777,10 +5771,9 @@ mod tests {
         assert!(app.state.settings.group_icon_picker_open);
 
         let list = settings_section_list_geometry(&app.state, SettingsSection::GroupGeneral);
-        let rows =
-            rows_for_section(&app.state, SettingsSection::GroupGeneral).expect("group rows");
-        let icon_visual = selected_visual_row(&rows, crate::settings_rows::GROUP_GENERAL_ICON)
-            .expect("icon row");
+        let rows = rows_for_section(&app.state, SettingsSection::GroupGeneral).expect("group rows");
+        let icon_visual =
+            selected_visual_row(&rows, crate::settings_rows::GROUP_GENERAL_ICON).expect("icon row");
         let origin = Rect::new(
             list.rect.x + 2,
             list.rect.y + icon_visual as u16 + 1,
@@ -5807,9 +5800,6 @@ mod tests {
         assert!(!app.state.settings.group_icon_picker_open);
     }
 
-
-
-
     #[test]
     fn group_general_keyboard_navigation_focuses_editable_rows() {
         let mut state = state_with_workspaces(&["test"]);
@@ -5818,7 +5808,6 @@ mod tests {
         state.settings.section = SettingsSection::GroupGeneral;
         state.settings.list =
             crate::app::state::ModalListState::hidden(crate::settings_rows::GROUP_GENERAL_DELETE);
-
 
         update_settings_state(
             &mut state,

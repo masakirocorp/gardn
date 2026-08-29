@@ -120,9 +120,6 @@ pub(crate) use self::{
         group_icon_picker_rects, group_icon_picker_rects_at, group_icon_picker_rects_for_view,
         group_icon_picker_row_count, group_name_input_rect, group_name_input_rect_for_view,
         rename_button_rects, rename_modal_size, rename_modal_size_for_view,
-
-
-
     },
     settings::{
         settings_close_button_rect, settings_editor_back_button_rect, settings_section_list_rect,
@@ -1660,12 +1657,7 @@ pub fn render_with_runtime_registry(
     render_notifications(app, frame, terminal_area);
 }
 
-pub(crate) fn render_loop_debug(
-    frame: &mut Frame,
-    line: &str,
-    bg: Color,
-    fg: Color,
-) {
+pub(crate) fn render_loop_debug(frame: &mut Frame, line: &str, bg: Color, fg: Color) {
     let area = frame.area();
     if area.width == 0 || area.height == 0 {
         return;
@@ -1678,7 +1670,6 @@ pub(crate) fn render_loop_debug(
         Rect::new(x, y, width, 1),
     );
 }
-
 
 pub fn render_with_runtime_registry_for_view(
     app: &AppState,
