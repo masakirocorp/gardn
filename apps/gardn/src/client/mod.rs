@@ -23,7 +23,7 @@ use std::io::{self, Write as _};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 use std::sync::{Arc, Mutex, OnceLock};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use crossterm::event::{
     DisableBracketedPaste, DisableFocusChange, DisableMouseCapture, EnableBracketedPaste,
@@ -1034,11 +1034,25 @@ async fn run_client_loop(ctx: ClientLoopContext) -> Result<(), ClientError> {
     let mut prefix_input_source = crate::platform::RealPrefixInputSource::default();
     let mut graphics_matcher = direct_graphics::ResponseMatcher::default();
 
+    let mut loop_stats = crate::app::loop_stats::LoopStats::from_env();
+
     // Main event loop.
     while !should_quit.load(Ordering::Acquire) {
+        let loop_started = Instant::now();
         let event = tokio::select! {
             ev = event_rx.recv() => ev.unwrap_or(ClientLoopEvent::Timer),
             _ = tokio::time::sleep(Duration::from_millis(100)) => ClientLoopEvent::Timer,
+        };
+        let handle_started = Instant::now();
+        let event_name = match &event {
+            ClientLoopEvent::StdinInput(_) => "input",
+            ClientLoopEvent::Resize(_, _, _, _) => "resize",
+            ClientLoopEvent::ServerMessage(ServerMessage::Frame(_)) => "frame",
+            ClientLoopEvent::ServerMessage(_) => "server",
+            ClientLoopEvent::ServerDisconnected => "drop",
+            ClientLoopEvent::Timer => "timer",
+            #[cfg(windows)]
+            ClientLoopEvent::StdinEvents(_) => "input",
         };
 
         match event {
@@ -1374,6 +1388,14 @@ async fn run_client_loop(ctx: ClientLoopContext) -> Result<(), ClientError> {
                 }
             }
         }
+        loop_stats.finish_frame(
+            Duration::ZERO,
+            Duration::ZERO,
+            Duration::ZERO,
+            handle_started.elapsed(),
+            event_name,
+            loop_started.elapsed(),
+        );
     }
 
     // Clean exit (Ctrl+C). Send Detach, then half-close the write side.

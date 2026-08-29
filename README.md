@@ -55,6 +55,8 @@ pnpm install --frozen-lockfile
 pnpm --filter @gardn/website dev
 ```
 
+Maintainer local tooling lives in [`docs/development.md`](docs/development.md), including the Just recipe list. Keep production `gardn` on the latest GitHub release. Use `gardn-dev` for checkout builds. Run `just --list` for the live recipe index.
+
 AI coding agents must read [`AGENTS.md`](./AGENTS.md) before changing this repository.
 
 ## License

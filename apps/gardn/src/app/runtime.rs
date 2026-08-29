@@ -306,6 +306,8 @@ impl App {
         false
     }
 
+    // ENG-187: unused until ports have a UI; keep the scan off this loop.
+    #[allow(dead_code)]
     pub(crate) fn refresh_ports(&mut self, now: Instant) -> bool {
         let terminals = &self.state.terminals;
         let terminal_targets = self
@@ -477,7 +479,8 @@ impl App {
         }
 
         if now >= self.next_port_scan {
-            changed |= self.refresh_ports(now);
+            // ENG-187: ports are unused in the UI. Keep the timer so a later
+            // surface can observe in the background instead of this loop.
             self.next_port_scan = now + PORT_SCAN_INTERVAL;
         }
 

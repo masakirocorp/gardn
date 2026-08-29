@@ -327,6 +327,8 @@ impl HeadlessServer {
         let mut needs_render = true;
 
         loop {
+            let loop_started = Instant::now();
+            let drain_started = Instant::now();
             self.app.reap_finished_custom_commands();
             // If shutdown has been initiated, complete it and exit.
             if self.shutting_down {
@@ -376,10 +378,11 @@ impl HeadlessServer {
             // 4. Accept new client connections.
             self.accept_client_connections()?;
 
-            // 5. Drain server events from client threads.
             if self.drain_server_events() {
                 needs_render = true;
             }
+            let drain = drain_started.elapsed();
+            let schedule_started = Instant::now();
 
             // 6. Handle scheduled tasks.
             let now = Instant::now();
@@ -423,6 +426,7 @@ impl HeadlessServer {
             self.stream_host_mouse_capture_mode();
 
             self.sync_animation_timer(now);
+            let schedule = schedule_started.elapsed();
 
             // 7. Render virtually and stream frames.
             if needs_render && self.app.can_render_now(now) {
@@ -432,25 +436,42 @@ impl HeadlessServer {
                     && !self.pty_sources_visible_to_any_render_target(&render_request.pty_sources)
                 {
                     self.app.last_render_at = Some(now);
+                    self.app.loop_stats.finish_frame(
+                        drain,
+                        schedule,
+                        Duration::ZERO,
+                        Duration::ZERO,
+                        "skip",
+                        loop_started.elapsed(),
+                    );
                     needs_render = false;
-                    continue;
+                } else {
+                    self.app.sync_pending_agent_resume_deadline(now);
+                    let allow_pending_agent_resume_empty_theme = self.app.pending_agent_resume_due(now);
+                    let draw_started = Instant::now();
+                    let pending_resume_started = self.render_and_stream_with_pending_agent_resume(
+                        allow_pending_agent_resume_empty_theme,
+                    );
+                    let draw = draw_started.elapsed();
+                    if pending_resume_started
+                        || self
+                            .app
+                            .start_pending_agent_resumes(allow_pending_agent_resume_empty_theme)
+                    {
+                        self.app.render_dirty.request_generic();
+                        self.app.render_notify.notify_one();
+                    }
+                    self.app.last_render_at = Some(now);
+                    self.app.loop_stats.finish_frame(
+                        drain,
+                        schedule,
+                        draw,
+                        Duration::ZERO,
+                        "draw",
+                        loop_started.elapsed(),
+                    );
+                    needs_render = false;
                 }
-                self.app.sync_pending_agent_resume_deadline(now);
-                let allow_pending_agent_resume_empty_theme = self.app.pending_agent_resume_due(now);
-                let pending_resume_started = self.render_and_stream_with_pending_agent_resume(
-                    allow_pending_agent_resume_empty_theme,
-                );
-                if pending_resume_started
-                    || self
-                        .app
-                        .start_pending_agent_resumes(allow_pending_agent_resume_empty_theme)
-                {
-                    self.app.render_dirty.request_generic();
-                    self.app.render_notify.notify_one();
-                }
-                self.app.last_render_at = Some(now);
-                needs_render = false;
-                continue;
             }
 
             // 8. Wait for next event.
@@ -502,7 +523,14 @@ impl HeadlessServer {
                     _ = self.app.render_notify.notified() => LoopEvent::RenderRequested,
                 }
             };
-
+            let input_started = Instant::now();
+            let event_name = match &event {
+                LoopEvent::Timer => "timer",
+                LoopEvent::Internal(_) => "event",
+                LoopEvent::Api(_) => "api",
+                LoopEvent::ServerEvent(_) => "client",
+                LoopEvent::RenderRequested => "notify",
+            };
             match event {
                 LoopEvent::Timer => {}
                 LoopEvent::Internal(ev) => {
@@ -526,6 +554,14 @@ impl HeadlessServer {
                     }
                 }
             }
+            self.app.loop_stats.finish_frame(
+                drain,
+                schedule,
+                Duration::ZERO,
+                input_started.elapsed(),
+                event_name,
+                loop_started.elapsed(),
+            );
         }
 
         // Save session on exit.
@@ -4058,7 +4094,8 @@ impl HeadlessServer {
         // Client resize messages drive size changes instead.
 
         if now >= self.app.next_port_scan {
-            changed |= self.app.refresh_ports(now);
+            // ENG-187: ports are unused in the UI. Keep the timer so a later
+            // surface can observe in the background instead of this loop.
             self.app.next_port_scan = now + app::PORT_SCAN_INTERVAL;
         }
 
@@ -5097,7 +5134,7 @@ mod tests {
     }
 
     #[test]
-    fn headless_scheduled_tasks_refresh_ports() {
+    fn headless_scheduled_tasks_defer_port_refresh() {
         let mut server = test_headless_server();
         let now = Instant::now();
         server.app.next_port_scan = now;

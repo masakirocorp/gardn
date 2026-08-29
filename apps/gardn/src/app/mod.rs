@@ -19,6 +19,8 @@ mod input;
 pub(crate) mod integration_host;
 pub(crate) mod pane_graphics;
 mod popup;
+pub(crate) mod loop_stats;
+
 mod runtime;
 mod runtime_mutations;
 mod session;
@@ -362,6 +364,8 @@ pub struct App {
     pub(crate) session_save_thread: Option<std::thread::JoinHandle<()>>,
     pub(crate) persist_pane_history: bool,
     pub(crate) last_render_at: Option<Instant>,
+    pub(crate) loop_stats: loop_stats::LoopStats,
+
     pub(crate) detached_custom_command_children: Vec<std::process::Child>,
     pub(crate) input_leases: input::InputLeaseTable,
     pub render_notify: Arc<Notify>,
@@ -1341,6 +1345,8 @@ impl App {
             selection_highlight_clear_deadline: None,
             persist_pane_history: config.experimental.pane_history,
             last_render_at: None,
+            loop_stats: loop_stats::LoopStats::from_env(),
+
             detached_custom_command_children: Vec::new(),
             input_leases: input::InputLeaseTable::default(),
             api_rx,
@@ -2090,6 +2096,8 @@ impl App {
         let mut host_keyboard_report_all_active = false;
 
         while !self.state.should_quit {
+            let loop_started = Instant::now();
+            let drain_started = Instant::now();
             self.reap_finished_custom_commands();
             if self.render_dirty.is_pending() {
                 needs_render = true;
@@ -2105,6 +2113,8 @@ impl App {
 
             self.sync_focus_events();
             self.sync_session_save_schedule();
+            let drain = drain_started.elapsed();
+            let schedule_started = Instant::now();
 
             let now = Instant::now();
             if self.poll_execution_hosts(now) {
@@ -2163,6 +2173,7 @@ impl App {
             if self.window_title_uses_terminal_title() && self.take_focused_terminal_title_dirty() {
                 needs_render = true;
             }
+            let schedule = schedule_started.elapsed();
 
             if needs_render && self.can_render_now(now) {
                 let _ = self.render_dirty.take();
@@ -2186,7 +2197,11 @@ impl App {
                     Self::clear_terminal_for_full_redraw(terminal)?;
                     self.full_redraw_pending = false;
                 }
+                let overlay = self.loop_stats.overlay_line().map(str::to_owned);
+                let overlay_bg = self.state.palette.surface0;
+                let overlay_fg = self.state.palette.overlay1;
                 let mut cell_size = crate::kitty_graphics::HostCellSize::default();
+                let draw_started = Instant::now();
                 terminal.draw(|frame| {
                     let area = frame.area();
                     if kitty_graphics_enabled {
@@ -2209,7 +2224,11 @@ impl App {
                         &self.terminal_runtimes,
                         frame,
                     );
+                    if let Some(line) = overlay.as_deref() {
+                        crate::ui::render_loop_debug(frame, line, overlay_bg, overlay_fg);
+                    }
                 })?;
+                let draw = draw_started.elapsed();
                 if kitty_graphics_enabled {
                     crate::kitty_graphics::paint_local_pane_graphics(
                         &self.state,
@@ -2224,8 +2243,15 @@ impl App {
                     self.render_notify.notify_one();
                 }
                 self.last_render_at = Some(now);
+                self.loop_stats.finish_frame(
+                    drain,
+                    schedule,
+                    draw,
+                    Duration::ZERO,
+                    "draw",
+                    loop_started.elapsed(),
+                );
                 needs_render = false;
-                continue;
             }
 
             let next_deadline = self.next_loop_deadline(now, needs_render);
@@ -2248,7 +2274,15 @@ impl App {
                     _ = self.render_notify.notified() => LoopEvent::RenderRequested,
                 }
             };
-
+            let input_started = Instant::now();
+            let event_name = match &event {
+                LoopEvent::Timer => "timer",
+                LoopEvent::Internal(_) => "event",
+                LoopEvent::Api(_) => "api",
+                LoopEvent::RawInput(_) => "input",
+                LoopEvent::InputClosed => "closed",
+                LoopEvent::RenderRequested => "notify",
+            };
             match event {
                 LoopEvent::Timer => {}
                 LoopEvent::Internal(ev) => {
@@ -2274,6 +2308,14 @@ impl App {
                     }
                 }
             }
+            self.loop_stats.finish_frame(
+                drain,
+                schedule,
+                Duration::ZERO,
+                input_started.elapsed(),
+                event_name,
+                loop_started.elapsed(),
+            );
         }
 
         // Save session on exit (skip in --no-session mode)

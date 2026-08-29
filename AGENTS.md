@@ -91,6 +91,10 @@ cargo build --profile debugging --package=gardn --locked
 ./target/debugging/gardn
 ```
 
+Local binaries, the `gardn` vs `gardn-dev` namespaces, session copy, and the loop
+timing overlay are documented in [`docs/development.md`](docs/development.md).
+`gardn` stays on the latest GitHub release. Source installs write `gardn-dev` only.
+
 Keep incremental compilation enabled and keep each worktree's `target/` directory isolated. Do not
 use a shared Cargo target, set `CARGO_INCREMENTAL=0`, add always-on sccache, or enable Turbo caching
 for the native `gardn` binary as part of the normal local loop. Use pnpm/Turbo for repository-wide or
@@ -168,7 +172,7 @@ The release workflow must publish these five assets:
 - `gardn-macos-aarch64`
 - `gardn-windows-x86_64.exe`
 
-When updating local binaries, build release and debug binaries, copy them to `~/.local/bin/gardn` and `~/.local/bin/gardn-dev`, codesign both on macOS, and stop the `gardn-dev` server so the next launch uses the new binary. Run `cargo clean` after installing local binaries to avoid accumulating large debug build artifacts.
+When updating the local development binary, run `just install-local`. That installs `~/.local/bin/gardn-dev` only. Do not install a source build over `~/.local/bin/gardn`. Production `gardn` stays on the latest GitHub release. After install, the next `gardn-dev` launch uses the new binary. `just install-local` runs `cargo clean` after install to avoid accumulating large debug build artifacts.
 
 When changing the server/client wire protocol, compare `apps/gardn/src/protocol/wire.rs::PROTOCOL_VERSION` against the latest Gardn release tag. Bump it only if the current source protocol is not already greater than the latest released protocol. Multiple unreleased wire changes in the same release cycle must share the same single protocol bump; Gardn supports tagged releases, not arbitrary `master` client/server compatibility. When a bump is required, update all hardcoded protocol expectations and manual protocol fixtures in tests. Keep protocol test expectations intentionally explicit so compatibility changes are reviewed instead of silently following the constant.
 

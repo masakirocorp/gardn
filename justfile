@@ -6,13 +6,17 @@
 build-libghostty-vt:
     scripts/build_vendored_libghostty_vt.sh
 
-# Build, install, sign, and bundle matching local development binaries
+# Build and install gardn-dev. Does not replace production gardn.
 install-local:
     scripts/install_local_binaries.sh
 
-# Build and atomically install gardn-dev with matching Linux workers
+# Alias for install-local
 install-dev:
     scripts/install_local_binaries.sh --dev-only
+
+# Copy ~/.config/gardn session state into ~/.config/gardn-dev
+copy-session-to-dev:
+    python3 scripts/copy_release_session_to_dev.py
 
 # Create a merge-commit PR from the upstream repository
 sync-upstream:

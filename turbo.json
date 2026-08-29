@@ -170,7 +170,8 @@
         "scripts.test_agent_model_candidates",
         "scripts.test_remaining_status_fallback",
         "scripts.test_agent_workflows",
-        "scripts.test_demo_session"
+        "scripts.test_demo_session",
+        "scripts.test_copy_release_session_to_dev"
       ],
       "inputs": [
         ".github/workflows/agent-tests.yml",

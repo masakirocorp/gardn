@@ -1,7 +1,7 @@
 use crate::app::view_state::{CanvasOrigin, ClientTabViewKey, TabCanvasViewport};
 use ratatui::{
     layout::{Constraint, Layout, Rect},
-    style::{Modifier, Style},
+    style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::Paragraph,
     Frame,
@@ -1659,6 +1659,26 @@ pub fn render_with_runtime_registry(
     // Notifications remain legible above interactive overlays.
     render_notifications(app, frame, terminal_area);
 }
+
+pub(crate) fn render_loop_debug(
+    frame: &mut Frame,
+    line: &str,
+    bg: Color,
+    fg: Color,
+) {
+    let area = frame.area();
+    if area.width == 0 || area.height == 0 {
+        return;
+    }
+    let width = (line.chars().count() as u16).min(area.width).max(1);
+    let x = area.x + area.width.saturating_sub(width);
+    let y = area.y + area.height.saturating_sub(1);
+    frame.render_widget(
+        Paragraph::new(line).style(Style::default().fg(fg).bg(bg)),
+        Rect::new(x, y, width, 1),
+    );
+}
+
 
 pub fn render_with_runtime_registry_for_view(
     app: &AppState,
