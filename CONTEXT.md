@@ -368,9 +368,14 @@ _Avoid_: Foreground client, observer
 A Gardn binary installed outside a package manager and owned by Gardn's own updater.
 _Avoid_: Standalone when ownership matters
 
+**Release Line**:
+The GitHub Release track a Direct Install follows. Stable follows the latest non-prerelease. Beta follows `vX.Y.Z-beta.N` prerelease tags. Both are official release builds and share Shared Session State under `~/.config/gardn`. Only one Coordinator Host may run that session at a time.
+_Avoid_: Build channel, Session Namespace, preview channel
+
 **Managed Install**:
 A Gardn binary installed and owned by a package manager such as Homebrew, mise, or Nix.
 _Avoid_: Direct install, self-managed install
+
 
 **Nix Flake Path**:
 The optional Nix-native package, app, check, dev shell, and overlay surface for users who install or develop Gardn through Nix.

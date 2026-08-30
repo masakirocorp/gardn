@@ -45,6 +45,10 @@ release:
     CI=true pnpm tegami version
     pnpm check
     @version="$(python3 -c 'import tomllib; print(tomllib.load(open("apps/gardn/Cargo.toml", "rb"))["package"]["version"])')"; \
+    if echo "$version" | grep -q -- '-'; then \
+        echo "error: Cargo.toml is still a prerelease ($version). Add changefiles so Tegami exits prerelease, or use just release-beta."; \
+        exit 1; \
+    fi; \
     tag="v$version"; \
     if git rev-parse "$tag" >/dev/null 2>&1; then \
         echo "error: tag $tag already exists"; \
@@ -60,6 +64,37 @@ release:
     git push origin HEAD; \
     git push origin "$tag"; \
     echo "$tag released — GitHub Actions building binaries"
+
+# Draft a Tegami beta prerelease, tag it, and trigger the GitHub Release workflow
+release-beta:
+    @if [ -n "$(git status --porcelain)" ]; then \
+        echo "error: commit your changes first"; \
+        exit 1; \
+    fi
+    node scripts/check-tegami-release-scope.mts gardn
+    CI=true GARDN_TEGAMI_PRERELEASE=beta pnpm tegami version
+    pnpm check
+    @version="$(python3 -c 'import tomllib; print(tomllib.load(open("apps/gardn/Cargo.toml", "rb"))["package"]["version"])')"; \
+    if ! echo "$version" | grep -q -- '-beta.'; then \
+        echo "error: expected a beta Cargo.toml version, got $version"; \
+        exit 1; \
+    fi; \
+    tag="v$version"; \
+    if git rev-parse "$tag" >/dev/null 2>&1; then \
+        echo "error: tag $tag already exists"; \
+        exit 1; \
+    fi; \
+    if git ls-remote --exit-code --tags origin "refs/tags/$tag" >/dev/null 2>&1; then \
+        echo "error: origin tag $tag already exists"; \
+        exit 1; \
+    fi; \
+    git add apps/gardn/Cargo.toml Cargo.lock .tegami pnpm-lock.yaml apps/gardn/CHANGELOG.md apps/docs/package.json apps/docs/CHANGELOG.md packages/nix/package.json packages/nix/CHANGELOG.md; \
+    git diff --cached --quiet || git commit -m "release: v$version"; \
+    git tag -a "$tag" -m "$tag"; \
+    git push origin HEAD; \
+    git push origin "$tag"; \
+    echo "$tag released — GitHub Actions building binaries"
+
 
 # Build the live agent test image
 agent-test-image:

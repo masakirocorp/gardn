@@ -8,6 +8,7 @@
 
 use crate::ipc::LocalStream;
 use interprocess::local_socket::traits::Stream as _;
+use std::cmp::Ordering;
 use std::env;
 use std::fs;
 use std::io::{self, BufRead, BufReader, IsTerminal, Write};
@@ -18,6 +19,8 @@ use std::time::{Duration, Instant};
 use serde::Deserialize;
 const GITHUB_LATEST_RELEASE_API_URL: &str =
     "https://api.github.com/repos/masakirocorp/gardn/releases/latest";
+const GITHUB_RELEASES_API_URL: &str =
+    "https://api.github.com/repos/masakirocorp/gardn/releases?per_page=100";
 const GARDN_UPDATE_COMMAND: &str = "gardn update";
 const MISE_UPDATE_COMMAND: &str = "mise upgrade gardn";
 const NIX_UPDATE_COMMAND: &str = "update through Nix";
@@ -38,36 +41,105 @@ fn fake_release_notes_body(version: &str) -> String {
 // Version
 // ---------------------------------------------------------------------------
 
-/// Parsed semver version for comparison.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+/// Which GitHub Release track a Direct Install follows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReleaseLine {
+    Stable,
+    Beta,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Prerelease {
+    id: String,
+    n: u32,
+}
+
+/// Parsed Gardn version for comparison.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Version {
     pub major: u32,
     pub minor: u32,
     pub patch: u32,
+    pre: Option<Prerelease>,
 }
 
 impl Version {
     pub fn parse(s: &str) -> Option<Self> {
         let s = s.strip_prefix('v').unwrap_or(s);
-        let parts: Vec<&str> = s.split('.').collect();
-        if parts.len() != 3 {
+        let (core, pre) = match s.split_once('-') {
+            None => (s, None),
+            Some((core, rest)) => {
+                let (id, n) = rest.split_once('.')?;
+                if id != "beta" {
+                    return None;
+                }
+                (
+                    core,
+                    Some(Prerelease {
+                        id: id.to_string(),
+                        n: n.parse().ok()?,
+                    }),
+                )
+            }
+        };
+        let mut parts = core.split('.');
+        let major = parts.next()?.parse().ok()?;
+        let minor = parts.next()?.parse().ok()?;
+        let patch = parts.next()?.parse().ok()?;
+        if parts.next().is_some() {
             return None;
         }
         Some(Self {
-            major: parts[0].parse().ok()?,
-            minor: parts[1].parse().ok()?,
-            patch: parts[2].parse().ok()?,
+            major,
+            minor,
+            patch,
+            pre,
         })
     }
 
     pub fn current() -> Self {
         Self::parse(crate::build_info::BASE_VERSION).expect("invalid CARGO_PKG_VERSION")
     }
+
+    pub fn release_line(&self) -> ReleaseLine {
+        match self.pre.as_ref().map(|pre| pre.id.as_str()) {
+            Some("beta") => ReleaseLine::Beta,
+            _ => ReleaseLine::Stable,
+        }
+    }
+}
+
+impl PartialOrd for Version {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for Version {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.major
+            .cmp(&other.major)
+            .then(self.minor.cmp(&other.minor))
+            .then(self.patch.cmp(&other.patch))
+            .then(match (&self.pre, &other.pre) {
+                (None, None) => Ordering::Equal,
+                (None, Some(_)) => Ordering::Greater,
+                (Some(_), None) => Ordering::Less,
+                (Some(left), Some(right)) => left.id.cmp(&right.id).then(left.n.cmp(&right.n)),
+            })
+    }
 }
 
 impl std::fmt::Display for Version {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}.{}.{}", self.major, self.minor, self.patch)
+        match &self.pre {
+            None => write!(f, "{}.{}.{}", self.major, self.minor, self.patch),
+            Some(pre) => write!(
+                f,
+                "{}.{}.{}-{}.{}",
+                self.major, self.minor, self.patch, pre.id, pre.n
+            ),
+        }
     }
 }
 
@@ -79,6 +151,11 @@ impl std::fmt::Display for Version {
 struct GitHubRelease {
     tag_name: String,
     body: Option<String>,
+    #[serde(default)]
+    draft: bool,
+    #[serde(default)]
+    #[allow(dead_code)]
+    prerelease: bool,
     assets: Vec<GitHubReleaseAsset>,
 }
 
@@ -168,6 +245,28 @@ fn fetch_github_latest_release() -> Result<GitHubRelease, String> {
         .map_err(|e| format!("failed to parse latest GitHub release JSON: {e}"))
 }
 
+fn fetch_github_releases() -> Result<Vec<GitHubRelease>, String> {
+    let bytes = fetch_url(GITHUB_RELEASES_API_URL, "GitHub releases")?;
+
+    serde_json::from_slice(&bytes).map_err(|e| format!("failed to parse GitHub releases JSON: {e}"))
+}
+
+fn newest_beta_release<'a>(
+    releases: &'a [GitHubRelease],
+    current: &Version,
+) -> Option<&'a GitHubRelease> {
+    releases
+        .iter()
+        .filter(|release| !release.draft)
+        .filter_map(|release| {
+            let version = Version::parse(&release.tag_name)?;
+            (version.release_line() == ReleaseLine::Beta && version > *current)
+                .then_some((version, release))
+        })
+        .max_by(|left, right| left.0.cmp(&right.0))
+        .map(|(_, release)| release)
+}
+
 fn github_release_notes_body(release: &GitHubRelease, version: &Version) -> String {
     release
         .body
@@ -182,12 +281,8 @@ fn release_info_from_github_release(
     release: &GitHubRelease,
 ) -> Result<Option<ReleaseInfo>, String> {
     let current = Version::current();
-    let latest = Version::parse(&release.tag_name).ok_or_else(|| {
-        format!(
-            "invalid version in latest GitHub release: {}",
-            release.tag_name
-        )
-    })?;
+    let latest = Version::parse(&release.tag_name)
+        .ok_or_else(|| format!("invalid version in GitHub release: {}", release.tag_name))?;
 
     if latest <= current {
         return Ok(None);
@@ -198,7 +293,7 @@ fn release_info_from_github_release(
         .assets
         .iter()
         .find(|asset| asset.name == asset_name)
-        .ok_or_else(|| format!("no binary asset named {asset_name} in latest GitHub release"))?;
+        .ok_or_else(|| format!("no binary asset named {asset_name} in GitHub release"))?;
     let download_url = asset.browser_download_url.clone();
     let sha256 = github_asset_sha256(asset, &asset_name)?;
     let notes_body = github_release_notes_body(release, &latest);
@@ -227,10 +322,21 @@ fn github_asset_sha256(asset: &GitHubReleaseAsset, asset_name: &str) -> Result<S
         .ok_or_else(|| format!("{asset_name} has no valid SHA-256 digest"))
 }
 
-/// Check for the latest release. Returns release info if newer.
+/// Check for a newer release on this binary's release line.
 fn check_latest() -> Result<Option<ReleaseInfo>, String> {
-    let github_release = fetch_github_latest_release()?;
-    release_info_from_github_release(&github_release)
+    match Version::current().release_line() {
+        ReleaseLine::Stable => {
+            let github_release = fetch_github_latest_release()?;
+            release_info_from_github_release(&github_release)
+        }
+        ReleaseLine::Beta => {
+            let releases = fetch_github_releases()?;
+            let Some(github_release) = newest_beta_release(&releases, &Version::current()) else {
+                return Ok(None);
+            };
+            release_info_from_github_release(github_release)
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1732,7 +1838,8 @@ mod tests {
             Some(Version {
                 major: 1,
                 minor: 2,
-                patch: 3
+                patch: 3,
+                pre: None,
             })
         );
     }
@@ -1744,7 +1851,8 @@ mod tests {
             Some(Version {
                 major: 0,
                 minor: 1,
-                patch: 0
+                patch: 0,
+                pre: None,
             })
         );
     }
@@ -1754,6 +1862,30 @@ mod tests {
         assert_eq!(Version::parse("1.2"), None);
         assert_eq!(Version::parse("abc"), None);
         assert_eq!(Version::parse(""), None);
+        assert_eq!(Version::parse("1.2.3-rc.1"), None);
+        assert_eq!(Version::parse("1.2.3-beta"), None);
+    }
+
+    #[test]
+    fn parse_version_beta_prerelease() {
+        let version = Version::parse("v0.9.5-beta.1").unwrap();
+        assert_eq!(version.major, 0);
+        assert_eq!(version.minor, 9);
+        assert_eq!(version.patch, 5);
+        assert_eq!(version.release_line(), ReleaseLine::Beta);
+        assert_eq!(version.to_string(), "0.9.5-beta.1");
+    }
+
+    #[test]
+    fn beta_versions_sort_below_matching_stable() {
+        let beta0 = Version::parse("0.9.5-beta.0").unwrap();
+        let beta1 = Version::parse("0.9.5-beta.1").unwrap();
+        let stable = Version::parse("0.9.5").unwrap();
+        let next = Version::parse("0.9.6-beta.0").unwrap();
+
+        assert!(beta0 < beta1);
+        assert!(beta1 < stable);
+        assert!(stable < next);
     }
 
     #[test]
@@ -1762,6 +1894,8 @@ mod tests {
         let release = GitHubRelease {
             tag_name: "v99.99.99".into(),
             body: Some("### Changed\n- One".into()),
+            draft: false,
+            prerelease: false,
             assets: vec![GitHubReleaseAsset {
                 name: asset_name.clone(),
                 browser_download_url: "https://example.com/gardn".into(),
@@ -1780,6 +1914,8 @@ mod tests {
         let release = GitHubRelease {
             tag_name: "v99.99.99".into(),
             body: Some("### Changed\n- One".into()),
+            draft: false,
+            prerelease: false,
             assets: vec![GitHubReleaseAsset {
                 name: asset_name.clone(),
                 browser_download_url: "https://example.com/gardn".into(),
@@ -2369,12 +2505,11 @@ mod tests {
 
     #[test]
     fn version_display() {
-        let v = Version {
-            major: 0,
-            minor: 1,
-            patch: 0,
-        };
-        assert_eq!(v.to_string(), "0.1.0");
+        assert_eq!(Version::parse("0.1.0").unwrap().to_string(), "0.1.0");
+        assert_eq!(
+            Version::parse("0.9.5-beta.2").unwrap().to_string(),
+            "0.9.5-beta.2"
+        );
     }
 
     #[test]
@@ -2399,6 +2534,8 @@ mod tests {
         let release = GitHubRelease {
             tag_name: "99.99.99".to_string(),
             body: Some("### Changed\n- GitHub release".to_string()),
+            draft: false,
+            prerelease: false,
             assets: vec![
                 GitHubReleaseAsset {
                     name: "gardn-plan9-riscv128".to_string(),
@@ -2446,11 +2583,51 @@ mod tests {
         let release = GitHubRelease {
             tag_name: "99.99.99".to_string(),
             body: Some("notes".to_string()),
+            draft: false,
+            prerelease: false,
             assets: Vec::new(),
         };
 
         let err = release_info_from_github_release(&release).expect_err("missing asset");
 
         assert!(err.contains("no binary asset named gardn-"), "{err}");
+    }
+
+    #[test]
+    fn newest_beta_release_skips_drafts_and_stable_tags() {
+        let current = Version::parse("0.9.5-beta.0").unwrap();
+        let releases = vec![
+            GitHubRelease {
+                tag_name: "v0.9.5-beta.3".into(),
+                body: None,
+                draft: true,
+                prerelease: true,
+                assets: Vec::new(),
+            },
+            GitHubRelease {
+                tag_name: "v0.9.5".into(),
+                body: None,
+                draft: false,
+                prerelease: false,
+                assets: Vec::new(),
+            },
+            GitHubRelease {
+                tag_name: "v0.9.5-beta.1".into(),
+                body: None,
+                draft: false,
+                prerelease: true,
+                assets: Vec::new(),
+            },
+            GitHubRelease {
+                tag_name: "v0.9.5-beta.2".into(),
+                body: None,
+                draft: false,
+                prerelease: true,
+                assets: Vec::new(),
+            },
+        ];
+
+        let selected = newest_beta_release(&releases, &current).unwrap();
+        assert_eq!(selected.tag_name, "v0.9.5-beta.2");
     }
 }

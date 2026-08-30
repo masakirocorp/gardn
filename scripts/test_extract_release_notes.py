@@ -60,6 +60,24 @@ class ExtractReleaseNotesTests(unittest.TestCase):
 
         self.assertEqual(notes, "GitHub release notes for the tag.")
 
+
+    def test_extracts_beta_prerelease_version_section(self) -> None:
+        changelog = textwrap.dedent(
+            """\
+            ## gardn@0.9.5-beta.1
+
+            Beta notes for the prerelease tag.
+
+            ## gardn@0.9.4
+
+            Stable notes must not be selected.
+            """
+        )
+
+        notes = extract_release_notes(changelog, "gardn", "v0.9.5-beta.1")
+
+        self.assertEqual(notes, "Beta notes for the prerelease tag.")
+
     def test_missing_section_fails_with_requested_package_and_version(self) -> None:
         changelog = textwrap.dedent(
             """\

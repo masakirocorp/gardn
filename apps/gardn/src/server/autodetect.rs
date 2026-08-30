@@ -83,6 +83,27 @@ fn read_server_status() -> io::Result<Option<crate::api::RuntimeStatus>> {
     crate::api::read_runtime_status_at(&crate::api::socket_path(), STATUS_REQUEST_TIMEOUT)
 }
 
+fn running_server_matches_this_binary(status: &crate::api::RuntimeStatus) -> Result<(), String> {
+    let client_version = crate::build_info::version();
+    let client_protocol = crate::protocol::PROTOCOL_VERSION;
+    let protocol_ok = status.protocol == Some(client_protocol);
+    let version_ok = status.version.as_deref() == Some(client_version.as_str());
+    if protocol_ok && version_ok {
+        return Ok(());
+    }
+
+    Err(format!(
+        "Gardn server is running from v{} / protocol {}, but this client is v{} / protocol {}.\nStop the old server with `gardn server stop`, then run `gardn` again.",
+        status.version.as_deref().unwrap_or("unknown"),
+        status
+            .protocol
+            .map(|value| value.to_string())
+            .unwrap_or_else(|| "unknown".to_string()),
+        client_version,
+        client_protocol
+    ))
+}
+
 fn validate_running_server_compatibility() -> io::Result<()> {
     let Some(status) = read_server_status()? else {
         return Err(io::Error::other(
@@ -90,20 +111,7 @@ fn validate_running_server_compatibility() -> io::Result<()> {
         ));
     };
 
-    if status.protocol == Some(crate::protocol::PROTOCOL_VERSION) {
-        return Ok(());
-    }
-
-    Err(io::Error::other(format!(
-        "Gardn server is running from v{} / protocol {}, but this client is v{} / protocol {}.\nStop the old server with `gardn server stop`, then run `gardn` again.",
-        status.version.as_deref().unwrap_or("unknown"),
-        status
-            .protocol
-            .map(|value| value.to_string())
-            .unwrap_or_else(|| "unknown".to_string()),
-        crate::build_info::version(),
-        crate::protocol::PROTOCOL_VERSION
-    )))
+    running_server_matches_this_binary(&status).map_err(io::Error::other)
 }
 
 // ---------------------------------------------------------------------------
@@ -440,5 +448,26 @@ mod tests {
             "unexpected error: {err}"
         );
         let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn running_server_matches_this_binary_requires_version_and_protocol() {
+        let version = crate::build_info::version();
+        let protocol = crate::protocol::PROTOCOL_VERSION;
+        let matching = crate::api::RuntimeStatus {
+            version: Some(version.clone()),
+            protocol: Some(protocol),
+            capabilities: None,
+        };
+        assert!(running_server_matches_this_binary(&matching).is_ok());
+
+        let other_version = crate::api::RuntimeStatus {
+            version: Some("0.0.1-beta.0".into()),
+            protocol: Some(protocol),
+            capabilities: None,
+        };
+        let err = running_server_matches_this_binary(&other_version).unwrap_err();
+        assert!(err.contains("0.0.1-beta.0"), "{err}");
+        assert!(err.contains(&version), "{err}");
     }
 }

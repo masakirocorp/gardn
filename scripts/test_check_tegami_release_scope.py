@@ -150,5 +150,45 @@ class CheckTegamiReleaseScopeTests(unittest.TestCase):
         self.assertIn("Every release-worthy Tegami changefile must include gardn", result.stderr)
         self.assertIn("- .tegami/unversioned.md", result.stderr)
 
+
+class TegamiPrereleaseEnvTests(unittest.TestCase):
+    def _run_prerelease(self, value: str | None) -> subprocess.CompletedProcess[str]:
+        repo_root = Path(__file__).resolve().parents[1]
+        env = os.environ.copy()
+        if value is None:
+            env.pop("GARDN_TEGAMI_PRERELEASE", None)
+        else:
+            env["GARDN_TEGAMI_PRERELEASE"] = value
+        return subprocess.run(
+            [
+                "node",
+                "--input-type=module",
+                "-e",
+                "import { tegamiPrerelease } from './scripts/tegami.mts'; console.log(tegamiPrerelease() ?? '')",
+            ],
+            cwd=repo_root,
+            env=env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            timeout=20,
+        )
+
+    def test_unset_prerelease_is_stable(self) -> None:
+        result = self._run_prerelease(None)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), "")
+
+    def test_beta_prerelease_is_accepted(self) -> None:
+        result = self._run_prerelease("beta")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), "beta")
+
+    def test_unknown_prerelease_is_rejected(self) -> None:
+        result = self._run_prerelease("alpha")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("GARDN_TEGAMI_PRERELEASE must be \"beta\" when set", result.stderr)
+
+
 if __name__ == "__main__":
     unittest.main()
