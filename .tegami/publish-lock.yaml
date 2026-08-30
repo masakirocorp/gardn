@@ -1,16 +1,24 @@
 core:changelogs:
-  - content: "---\npackages:\n  gardn:\n    type: patch\n---\n\n### Stabilize OMP conversations after resizing\n\nLoaded OMP conversations no longer enter a resize and repaint loop after the host window changes size.\n"
-    filename: omp-resize-flicker.md
+  - content: "---\npackages:\n  gardn:\n    type: patch\n---\n\n### Add Qwen, Kilo, MastraCode, and Antigravity integrations\n\nGardn now provides first-class profiles and installable integrations for Qwen Code, Kilo, MastraCode, and Antigravity CLI. Each integration follows its native lifecycle contract. MastraCode and Antigravity sessions can also resume through their native commands.\n"
+    filename: eng-179-agent-coverage.md
+    v: 0.0.0
+  - content: "---\npackages:\n  gardn:\n    type: patch\n---\n\n### Manage Follow Up from agent rows\n\nRight-click an agent row to add it to or remove it from Follow Up without changing the active workspace, tab, or pane. An expanded empty Follow Up section now shows a full-width `Drop an agent here` row that accepts dragged agents.\n"
+    filename: follow-up-context-actions.md
+    v: 0.0.0
+  - content: "---\npackages:\n  gardn:\n    type: patch\n---\n\n### Unify status indicators\n\nThe Status Indicators preference now controls both Space marks and Agent group headers. Symbols mode animates a Braille loader for Working while Dots remains static.\n"
+    filename: unified-status-indicators.md
     v: 0.0.0
 core:packages:
   - id: npm:@gardn/website
     updated: false
-  - id: cargo:gardn-local-api
-    updated: false
   - changelogIds:
-      - omp-resize-flicker.md
+      - eng-179-agent-coverage.md
+      - follow-up-context-actions.md
+      - unified-status-indicators.md
     id: cargo:gardn
     updated: true
+  - id: cargo:gardn-local-api
+    updated: false
   - id: cargo:portable-pty
     updated: false
 npm:packages:

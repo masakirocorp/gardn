@@ -1,3 +1,17 @@
+## gardn@0.9.4
+
+### Add Qwen, Kilo, MastraCode, and Antigravity integrations
+
+Gardn now provides first-class profiles and installable integrations for Qwen Code, Kilo, MastraCode, and Antigravity CLI. Each integration follows its native lifecycle contract. MastraCode and Antigravity sessions can also resume through their native commands.
+
+### Manage Follow Up from agent rows
+
+Right-click an agent row to add it to or remove it from Follow Up without changing the active workspace, tab, or pane. An expanded empty Follow Up section now shows a full-width `Drop an agent here` row that accepts dragged agents.
+
+### Unify status indicators
+
+The Status Indicators preference now controls both Space marks and Agent group headers. Symbols mode animates a Braille loader for Working while Dots remains static.
+
 ## gardn@0.9.3
 
 ### Stabilize OMP conversations after resizing
