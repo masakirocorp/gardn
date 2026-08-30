@@ -54,7 +54,7 @@ Run `just --list` for the live index. The Justfile comments are the source of tr
 
 | Recipe | What it does |
 | --- | --- |
-| `just demo` | Rebuild the isolated demo session. |
+| `just demo` | Rebuild the isolated demo session on `gardn-dev`. |
 | `just demo-reset` | Rebuild the demo session from a clean isolated home. |
 | `just demo-window` | Open a dedicated Ghostty window. Appearance follows macOS unless `--theme` is set. |
 | `just demo-window-day` | Open the capture window in Gardn Day. |
@@ -87,6 +87,8 @@ just install-local
 
 A debug source build uses the `gardn-dev` application directory. A release build uses `gardn`. The two namespaces do not share sockets, logs, or session files.
 
+Demo recipes use `gardn-dev --session demo` and an isolated home at `/tmp/gardn-demo` (`GARDN_DEMO_HOME` overrides). They do not touch production `gardn` or `~/.config/gardn`.
+
 ## Copy a release session into gardn-dev
 
 `gardn-dev` starts with its own empty or leftover session. To debug against the workspaces you actually use, copy the persisted release session:
@@ -113,6 +115,18 @@ python3 scripts/copy_release_session_to_dev.py --dry-run
 ```
 
 Then launch `gardn-dev`. The copied snapshot restores groups, spaces, tabs, and pane layout. Live pane processes stay with the release server. They do not move.
+
+## Copy a gardn-dev session back onto official gardn
+
+If a daily session was running under `gardn-dev` (`~/.config/gardn-dev/`), restore it onto official `gardn` after a release.
+
+1. Copy the same files listed above from `~/.config/gardn-dev/` into a backup directory.
+2. Install the GitHub release binary over `~/.local/bin/gardn` only. Do not replace it with a source build.
+3. Stop the `gardn-dev` namespaced daily server. Leave an isolated demo server alone.
+4. Copy the backup files into `~/.config/gardn/`. Do not copy sockets, logs, lock files, or installation IDs.
+5. Launch `gardn`. Agents resume from saved session refs as new processes. Live shells from the old server do not move.
+
+`just copy-session-to-dev` only copies release to dev. The reverse path is manual.
 
 ## Loop timing overlay
 
