@@ -1,6 +1,8 @@
 ---
 packages:
-  gardn: patch
+  gardn:
+    replay:
+      - exit-prerelease(cargo:gardn)
 ---
 
 ### Left-align tab names and hide a single-tab bar

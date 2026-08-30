@@ -1,3 +1,13 @@
+## gardn@0.10.0-beta.0
+
+### Add a beta Direct Install
+
+Install a GitHub prerelease as `gardn-beta` to dogfood the next stable on the same session. Stop the running server before switching binaries.
+
+### Left-align tab names and hide a single-tab bar
+
+Tab titles sit on the left of each tab cell. The Hide Single-Tab Bar setting now removes the tab row when a workspace has one tab.
+
 ## gardn@0.9.4
 
 ### Add Qwen, Kilo, MastraCode, and Antigravity integrations

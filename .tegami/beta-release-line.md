@@ -1,7 +1,8 @@
 ---
 packages:
-  gardn: minor
-  gardn-docs: patch
+  gardn:
+    replay:
+      - exit-prerelease(cargo:gardn)
 ---
 
 ### Add a beta Direct Install

@@ -1,25 +1,21 @@
 core:changelogs:
-  - content: "---\npackages:\n  gardn:\n    type: patch\n---\n\n### Add Qwen, Kilo, MastraCode, and Antigravity integrations\n\nGardn now provides first-class profiles and installable integrations for Qwen Code, Kilo, MastraCode, and Antigravity CLI. Each integration follows its native lifecycle contract. MastraCode and Antigravity sessions can also resume through their native commands.\n"
-    filename: eng-179-agent-coverage.md
+  - content: "---\npackages:\n  gardn:\n    type: minor\n  gardn-docs:\n    type: patch\n---\n\n### Add a beta Direct Install\n\nInstall a GitHub prerelease as `gardn-beta` to dogfood the next stable on the same session. Stop the running server before switching binaries.\n"
+    filename: beta-release-line.md
     v: 0.0.0
-  - content: "---\npackages:\n  gardn:\n    type: patch\n---\n\n### Manage Follow Up from agent rows\n\nRight-click an agent row to add it to or remove it from Follow Up without changing the active workspace, tab, or pane. An expanded empty Follow Up section now shows a full-width `Drop an agent here` row that accepts dragged agents.\n"
-    filename: follow-up-context-actions.md
-    v: 0.0.0
-  - content: "---\npackages:\n  gardn:\n    type: patch\n---\n\n### Unify status indicators\n\nThe Status Indicators preference now controls both Space marks and Agent group headers. Symbols mode animates a Braille loader for Working while Dots remains static.\n"
-    filename: unified-status-indicators.md
+  - content: "---\npackages:\n  gardn:\n    type: patch\n---\n\n### Left-align tab names and hide a single-tab bar\n\nTab titles sit on the left of each tab cell. The Hide Single-Tab Bar setting now removes the tab row when a workspace has one tab.\n"
+    filename: tab-bar-chrome.md
     v: 0.0.0
 core:packages:
   - id: npm:@gardn/website
     updated: false
   - changelogIds:
-      - eng-179-agent-coverage.md
-      - follow-up-context-actions.md
-      - unified-status-indicators.md
+      - beta-release-line.md
+      - tab-bar-chrome.md
     id: cargo:gardn
     updated: true
-  - id: cargo:gardn-local-api
-    updated: false
   - id: cargo:portable-pty
+    updated: false
+  - id: cargo:gardn-local-api
     updated: false
 npm:packages:
   - id: npm:@gardn/website
