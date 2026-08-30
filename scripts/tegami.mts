@@ -3,7 +3,19 @@ import { runCli } from "tegami/cli";
 import { cargo } from "tegami/plugins/cargo";
 import { pathToFileURL } from "node:url";
 
+export function tegamiPrerelease(): "beta" | undefined {
+  const value = process.env.GARDN_TEGAMI_PRERELEASE?.trim();
+  if (!value) {
+    return undefined;
+  }
+  if (value !== "beta") {
+    throw new Error('GARDN_TEGAMI_PRERELEASE must be "beta" when set');
+  }
+  return value;
+}
+
 export function createPaper() {
+  const prerelease = tegamiPrerelease();
   return tegami({
     cwd: process.cwd(),
     npm: {
@@ -18,6 +30,7 @@ export function createPaper() {
     packages: {
       gardn: {
         publish: false,
+        ...(prerelease ? { prerelease } : {}),
       },
       "gardn-docs": {
         publish: false,

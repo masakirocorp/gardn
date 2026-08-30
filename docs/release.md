@@ -82,3 +82,16 @@ just release
 7. pushes the branch and tag
 
 The GitHub Release workflow builds binary assets from the pushed tag and uses the generated `apps/gardn/CHANGELOG.md` section as the release body.
+
+## Beta release
+
+```bash
+just release-beta
+```
+
+`just release-beta` uses the same checks and tag push as `just release`, with Tegami's prerelease id set to `beta` for that run only. Cargo.toml, the git tag, and `GARDN_RELEASE_TAG` become `vX.Y.Z-beta.N`. The GitHub Release is marked prerelease, so `/releases/latest` still returns stable.
+
+`just release` refuses to tag while Cargo.toml still contains `-`. To cut stable from a beta, add changefiles so Tegami exits prerelease to `X.Y.Z`, then run `just release`.
+
+Install the beta asset as `~/.local/bin/gardn-beta`. That binary's updater follows newer beta tags. Stable `gardn` continues to follow `/releases/latest`.
+
