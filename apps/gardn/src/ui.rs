@@ -913,6 +913,29 @@ fn client_tab_canvas_view(
     (canvas_area, resize_pane_runtimes)
 }
 
+fn hide_tab_bar_when_single_tab(app: &AppState) -> bool {
+    app.settings
+        .pending_hide_tab_bar_when_single_tab
+        .unwrap_or(app.hide_tab_bar_when_single_tab)
+}
+
+fn tab_bar_layout(
+    hide_when_single: bool,
+    zen_mode: bool,
+    tab_count: usize,
+    main_area: Rect,
+) -> (Rect, Rect) {
+    let show =
+        !zen_mode && main_area.height > 1 && tab_count > 0 && !(hide_when_single && tab_count <= 1);
+    if show {
+        let [tab_bar_rect, terminal_area] =
+            Layout::vertical([Constraint::Length(1), Constraint::Min(1)]).areas(main_area);
+        (tab_bar_rect, terminal_area)
+    } else {
+        (Rect::default(), main_area)
+    }
+}
+
 fn compute_view_for_client_internal(
     app: &AppState,
     client_view: &mut ClientViewState,
@@ -985,18 +1008,17 @@ fn compute_view_for_client_internal(
         (sidebar_area, main_area, Rect::default())
     };
 
-    let has_tabs = client_view
+    let active_workspace = client_view
         .active_workspace
-        .and_then(|idx| app.workspaces.get(idx))
-        .is_some();
-    let (tab_bar_rect, terminal_area) = if !client_view.zen_mode && has_tabs && main_area.height > 1
-    {
-        let [tab_bar_rect, terminal_area] =
-            Layout::vertical([Constraint::Length(1), Constraint::Min(1)]).areas(main_area);
-        (tab_bar_rect, terminal_area)
-    } else {
-        (Rect::default(), main_area)
-    };
+        .and_then(|idx| app.workspaces.get(idx));
+    let (tab_bar_rect, terminal_area) = tab_bar_layout(
+        hide_tab_bar_when_single_tab(app),
+        client_view.zen_mode,
+        active_workspace
+            .map(|workspace| workspace.tabs.len())
+            .unwrap_or(0),
+        main_area,
+    );
 
     client_view.workspace_scroll = client_view
         .workspace_scroll
@@ -1215,14 +1237,15 @@ fn compute_view_internal(
         (sidebar_area, main_area, Rect::default())
     };
 
-    let has_tabs = app.active.and_then(|i| app.workspaces.get(i)).is_some();
-    let (tab_bar_rect, terminal_area) = if !app.zen_mode && has_tabs && main_area.height > 1 {
-        let [tab_bar_rect, terminal_area] =
-            Layout::vertical([Constraint::Length(1), Constraint::Min(1)]).areas(main_area);
-        (tab_bar_rect, terminal_area)
-    } else {
-        (Rect::default(), main_area)
-    };
+    let (tab_bar_rect, terminal_area) = tab_bar_layout(
+        hide_tab_bar_when_single_tab(app),
+        app.zen_mode,
+        app.active
+            .and_then(|idx| app.workspaces.get(idx))
+            .map(|workspace| workspace.tabs.len())
+            .unwrap_or(0),
+        main_area,
+    );
 
     app.workspace_scroll = app
         .workspace_scroll
@@ -2917,6 +2940,50 @@ mod tests {
             .collect::<String>();
         assert!(!text.contains("config warning"));
         assert!(!text.contains("unsafe direct keybinding"));
+    }
+    #[test]
+    fn hide_tab_bar_when_single_tab_collapses_the_tab_row() {
+        let mut app = crate::app::state::AppState::test_new();
+        app.workspaces = vec![Workspace::test_new("one")];
+        app.active = Some(0);
+        app.selected = 0;
+        app.mode = Mode::Terminal;
+        app.hide_tab_bar_when_single_tab = true;
+
+        compute_view(&mut app, Rect::new(0, 0, 106, 20));
+
+        assert_eq!(app.view.tab_bar_rect, Rect::default());
+        assert!(app.view.terminal_area.height > 1);
+    }
+
+    #[test]
+    fn hide_tab_bar_when_single_tab_keeps_the_row_for_multiple_tabs() {
+        let mut app = crate::app::state::AppState::test_new();
+        let mut workspace = Workspace::test_new("one");
+        workspace.test_add_tab(Some("two"));
+        app.workspaces = vec![workspace];
+        app.active = Some(0);
+        app.selected = 0;
+        app.mode = Mode::Terminal;
+        app.hide_tab_bar_when_single_tab = true;
+
+        compute_view(&mut app, Rect::new(0, 0, 106, 20));
+
+        assert_eq!(app.view.tab_bar_rect.height, 1);
+    }
+
+    #[test]
+    fn hide_tab_bar_when_single_tab_off_keeps_the_row() {
+        let mut app = crate::app::state::AppState::test_new();
+        app.workspaces = vec![Workspace::test_new("one")];
+        app.active = Some(0);
+        app.selected = 0;
+        app.mode = Mode::Terminal;
+        app.hide_tab_bar_when_single_tab = false;
+
+        compute_view(&mut app, Rect::new(0, 0, 106, 20));
+
+        assert_eq!(app.view.tab_bar_rect.height, 1);
     }
 
     #[test]

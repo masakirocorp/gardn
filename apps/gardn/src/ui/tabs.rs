@@ -284,8 +284,6 @@ fn fit_tab_label(name: &str, width: u16) -> String {
         return String::new();
     }
 
-    // Fit and pad by terminal columns, not chars, so wide glyphs stay centered
-    // and cannot overflow the tab.
     let mut fitted = String::new();
     let mut fitted_width = 0usize;
     for ch in name.chars() {
@@ -298,7 +296,7 @@ fn fit_tab_label(name: &str, width: u16) -> String {
     }
 
     let padding = width - fitted_width;
-    let left = padding / 2;
+    let left = padding.min(1);
     format!(
         "{empty:left$}{fitted}{empty:right$}",
         empty = "",
@@ -868,7 +866,7 @@ mod tests {
     }
 
     #[test]
-    fn tab_labels_are_centered_in_their_cells() {
+    fn tab_labels_are_left_aligned_in_their_cells() {
         let mut app = AppState::test_new();
         let mut ws = Workspace::test_new("test");
         ws.tabs[0].set_custom_name("omarchy".into());
@@ -897,11 +895,11 @@ mod tests {
         let cell: String = (rect.x..rect.x + rect.width)
             .map(|x| buffer[(x, rect.y)].symbol())
             .collect();
-        assert_eq!(cell, "  omarchy  ");
+        assert_eq!(cell, " omarchy   ");
     }
 
     #[test]
-    fn cjk_tab_labels_are_centered_by_display_width() {
+    fn cjk_tab_labels_are_left_aligned_by_display_width() {
         let mut app = AppState::test_new();
         let mut ws = Workspace::test_new("test");
         ws.tabs[0].set_custom_name("提交 gardn 的反馈".into());
@@ -925,15 +923,11 @@ mod tests {
             .draw(|frame| render_tab_bar(&app, frame, app.view.tab_bar_rect))
             .unwrap();
 
-        // 17 display columns + 4 padding: two columns each side, wide glyphs
-        // starting right after the left padding.
         let rect = app.view.tab_hit_areas[0];
         assert_eq!(rect.width, 21);
         let buffer = terminal.backend().buffer();
         assert_eq!(buffer[(rect.x, rect.y)].symbol(), " ");
-        assert_eq!(buffer[(rect.x + 1, rect.y)].symbol(), " ");
-        assert_eq!(buffer[(rect.x + 2, rect.y)].symbol(), "提");
-        assert_eq!(buffer[(rect.x + rect.width - 2, rect.y)].symbol(), " ");
+        assert_eq!(buffer[(rect.x + 1, rect.y)].symbol(), "提");
         assert_eq!(buffer[(rect.x + rect.width - 1, rect.y)].symbol(), " ");
     }
 }
