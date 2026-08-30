@@ -4,7 +4,7 @@ use crate::detect::{Agent, AgentState};
 use crate::layout::PaneId;
 use crate::terminal::{TerminalId, TerminalRuntimeRegistry, TerminalState};
 
-use super::{derive_label_from_cwd, Tab, Workspace};
+use super::{fallback_label_from_cwd, Tab, Workspace};
 
 /// Detail info for a single pane, used by the agent detail panel.
 pub struct PaneDetail {
@@ -99,9 +99,8 @@ impl Tab {
                     state
                 };
                 let presentation = terminal.map(TerminalState::effective_presentation);
-                let pane_label = self
-                    .cwd_for_pane(*id, terminals, terminal_runtimes)
-                    .map(|cwd| derive_label_from_cwd(&cwd))
+                let pane_label = terminal
+                    .map(|terminal| fallback_label_from_cwd(&terminal.cwd))
                     .unwrap_or_else(|| self.display_name());
                 let terminal_title = terminal
                     .and_then(|terminal| terminal_runtimes.get(&terminal.id))

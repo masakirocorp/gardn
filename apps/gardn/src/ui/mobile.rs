@@ -1279,21 +1279,24 @@ fn render_mobile_agent_row(
             .min(content.width / 2)
     };
     let label_width = content.width.saturating_sub(meta_width);
+    let leaf_style = Style::default()
+        .fg(if selected { selected_fg } else { p.subtext0 })
+        .bg(bg)
+        .add_modifier(if selected {
+            Modifier::BOLD
+        } else {
+            Modifier::empty()
+        });
+    let prefix_style = Style::default().fg(p.overlay1).bg(bg);
+    let mut label_spans = vec![Span::styled("    ", Style::default().bg(bg))];
+    label_spans.extend(super::sidebar::agent_panel_title_spans(
+        label,
+        Some(label_width.saturating_sub(4) as usize),
+        leaf_style,
+        prefix_style,
+    ));
     frame.render_widget(
-        Paragraph::new(Line::from(vec![
-            Span::styled("    ", Style::default().bg(bg)),
-            Span::styled(
-                truncate_end(label, label_width.saturating_sub(4) as usize),
-                Style::default()
-                    .fg(if selected { selected_fg } else { p.subtext0 })
-                    .bg(bg)
-                    .add_modifier(if selected {
-                        Modifier::BOLD
-                    } else {
-                        Modifier::empty()
-                    }),
-            ),
-        ])),
+        Paragraph::new(Line::from(label_spans)),
         Rect::new(content.x, y, label_width, 1),
     );
     if meta_width > 0 {

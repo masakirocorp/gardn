@@ -330,31 +330,28 @@ fn disambiguate_agent_panel_labels(app: &AppState, entries: &mut [AgentPanelEntr
     for idx in 0..entries.len() {
         let ws_idx = entries[idx].ws_idx;
         let tab_idx = entries[idx].tab_idx;
-        let workspace_entry_count = entries
-            .iter()
-            .filter(|entry| entry.ws_idx == ws_idx)
-            .count();
-        if workspace_entry_count <= 1 {
+        let Some(workspace) = app.workspaces.get(ws_idx) else {
+            continue;
+        };
+        let include_tab = workspace.tabs.len() > 1;
+        let include_pane = workspace
+            .tabs
+            .get(tab_idx)
+            .is_some_and(|tab| tab.layout.pane_count() > 1);
+        if !include_tab && !include_pane {
             continue;
         }
 
-        let has_other_tab = entries
-            .iter()
-            .any(|entry| entry.ws_idx == ws_idx && entry.tab_idx != tab_idx);
-        let same_tab_entry_count = entries
-            .iter()
-            .filter(|entry| entry.ws_idx == ws_idx && entry.tab_idx == tab_idx)
-            .count();
         let mut label = entries[idx].primary_label.clone();
-        if has_other_tab {
+        if include_tab {
             if let Some(tab_label) = entries[idx].primary_tab_label.as_deref() {
-                label.push_str(super::CONTEXT_BAR_SEPARATOR);
+                label.push('/');
                 label.push_str(tab_label);
             }
         }
-        if same_tab_entry_count > 1 {
+        if include_pane {
             if let Some(pane_label) = agent_panel_pane_disambiguator(app, &entries[idx]) {
-                label.push_str(super::CONTEXT_BAR_SEPARATOR);
+                label.push('/');
                 label.push_str(&pane_label);
             }
         }
@@ -778,6 +775,44 @@ pub(crate) fn compact_agent_entry_text(entry: &AgentPanelEntry) -> (String, Stri
     (entry.primary_label.clone(), metadata.join(" · "))
 }
 
+pub(crate) fn agent_panel_title_spans(
+    label: &str,
+    max_width: Option<usize>,
+    leaf_style: Style,
+    prefix_style: Style,
+) -> Vec<Span<'static>> {
+    let Some((prefix, leaf)) = label.rsplit_once('/') else {
+        let text = match max_width {
+            Some(width) => super::text::truncate_end(label, width),
+            None => label.to_string(),
+        };
+        return vec![Span::styled(text, leaf_style)];
+    };
+    let prefix = format!("{prefix}/");
+    let (prefix, leaf) = match max_width {
+        None => (prefix, leaf.to_string()),
+        Some(width) => {
+            let leaf_width = display_width(leaf);
+            if leaf_width >= width {
+                (String::new(), super::text::truncate_end(leaf, width))
+            } else {
+                (
+                    super::text::truncate_start(&prefix, width.saturating_sub(leaf_width)),
+                    leaf.to_string(),
+                )
+            }
+        }
+    };
+    let mut spans = Vec::new();
+    if !prefix.is_empty() {
+        spans.push(Span::styled(prefix, prefix_style));
+    }
+    if !leaf.is_empty() {
+        spans.push(Span::styled(leaf, leaf_style));
+    }
+    spans
+}
+
 fn agent_panel_section_shows_entry_status(group: AgentStatusGroup) -> bool {
     matches!(group, AgentStatusGroup::Triage | AgentStatusGroup::FollowUp)
 }
@@ -870,6 +905,15 @@ fn agent_token_line(
                 agent_style,
             ));
         }
+        if let ResolvedToken::Workspace(value) = token {
+            spans.extend(agent_panel_title_spans(
+                value,
+                None,
+                name_style,
+                Style::default().fg(app.palette.overlay1),
+            ));
+            continue;
+        }
         let (text, style) = match token {
             ResolvedToken::StateIcon => {
                 let (icon, style) = state_icon(
@@ -885,9 +929,7 @@ fn agent_token_line(
                 value.clone(),
                 Style::default().fg(state_label_color(detail.state, detail.seen, &app.palette)),
             ),
-            ResolvedToken::Workspace(value) | ResolvedToken::Pane(value) => {
-                (value.clone(), name_style)
-            }
+            ResolvedToken::Pane(value) => (value.clone(), name_style),
             ResolvedToken::Tab(value) | ResolvedToken::Agent(value) => (value.clone(), agent_style),
             ResolvedToken::TerminalTitle(value)
             | ResolvedToken::Custom(value)
@@ -895,6 +937,7 @@ fn agent_token_line(
             ResolvedToken::GitStatus { ahead, behind } => {
                 (format!("↑{ahead} ↓{behind}"), agent_style)
             }
+            ResolvedToken::Workspace(_) => continue,
         };
         spans.push(Span::styled(text, style));
     }
@@ -2534,9 +2577,11 @@ fn collapsed_agent_hover_lines(app: &AppState, entry: &AgentPanelEntry) -> Vec<L
             .add_modifier(Modifier::BOLD),
     ));
     vec![
-        Line::from(Span::styled(
-            entry.primary_label.clone(),
+        Line::from(agent_panel_title_spans(
+            &entry.primary_label,
+            None,
             Style::default().fg(p.text),
+            Style::default().fg(p.overlay1),
         )),
         Line::from(detail),
     ]
@@ -6304,7 +6349,7 @@ mod tests {
         assert_eq!(entries[0].primary_label, "one");
         assert_eq!(entries[0].primary_tab_label.as_deref(), Some("1"));
         assert_eq!(entries[0].agent_label.as_deref(), Some("omp"));
-        assert_eq!(entries[1].primary_label, "two");
+        assert_eq!(entries[1].primary_label, "two/logs");
         assert_eq!(entries[1].primary_tab_label.as_deref(), Some("logs"));
         assert_eq!(entries[1].agent_label.as_deref(), Some("claude"));
     }
@@ -6340,8 +6385,43 @@ mod tests {
         let entries = agent_panel_entries(&app);
 
         assert_eq!(entries.len(), 2);
-        assert_eq!(entries[0].primary_label, "personal / 1");
-        assert_eq!(entries[1].primary_label, "personal / 2");
+        assert_eq!(entries[0].primary_label, "personal/1");
+        assert_eq!(entries[1].primary_label, "personal/2");
+    }
+
+    #[test]
+    fn agent_panel_includes_tab_when_space_has_non_agent_tabs() {
+        let mut app = crate::app::state::AppState::test_new();
+        let mut workspace = Workspace::test_new("personal");
+        let agent_pane = workspace.tabs[0].root_pane;
+        workspace.test_add_tab(Some("shell"));
+        app.workspaces = vec![workspace];
+        app.ensure_test_terminals();
+        let terminal_id = app.workspaces[0].tabs[0].panes[&agent_pane]
+            .attached_terminal_id
+            .clone();
+        app.terminals.get_mut(&terminal_id).unwrap().detected_agent = Some(Agent::Codex);
+        app.active = Some(0);
+        app.selected = 0;
+        app.agent_panel_scope = AgentPanelScope::CurrentWorkspace;
+
+        let entries = agent_panel_entries(&app);
+
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].primary_label, "personal/1");
+    }
+
+    #[test]
+    fn agent_panel_title_mutes_text_before_the_last_slash() {
+        let spans =
+            agent_panel_title_spans("hako/2/Pane 1", None, Style::default(), Style::default());
+        assert_eq!(spans.len(), 2);
+        assert_eq!(spans[0].content.as_ref(), "hako/2/");
+        assert_eq!(spans[1].content.as_ref(), "Pane 1");
+
+        let single = agent_panel_title_spans("hako", None, Style::default(), Style::default());
+        assert_eq!(single.len(), 1);
+        assert_eq!(single[0].content.as_ref(), "hako");
     }
 
     #[test]
@@ -6368,8 +6448,8 @@ mod tests {
         let entries = agent_panel_entries(&app);
 
         assert_eq!(entries.len(), 2);
-        assert_eq!(entries[0].primary_label, "personal / Pane 1");
-        assert_eq!(entries[1].primary_label, "personal / Pane 2");
+        assert_eq!(entries[0].primary_label, "personal/Pane 1");
+        assert_eq!(entries[1].primary_label, "personal/Pane 2");
     }
 
     #[test]
@@ -6406,32 +6486,18 @@ mod tests {
 
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0].pane_id, left_pane);
-        assert_eq!(entries[0].primary_label, "gardn");
+        assert_eq!(entries[0].primary_label, "gardn/Pane 1");
         assert_eq!(entries[0].primary_tab_label.as_deref(), Some("1"));
         assert_eq!(entries[0].agent_label.as_deref(), Some("pi"));
         assert_eq!(entries[0].state, AgentState::Working);
     }
 
-    #[tokio::test]
-    async fn all_workspaces_agent_panel_entries_use_live_root_runtime_cwd_for_workspace_label() {
-        let unique = format!(
-            "gardn-agent-panel-runtime-cwd-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        );
-        let root = std::env::temp_dir().join(unique);
-        let stale_cwd = root.join("issue-264-nix-support");
-        let live_cwd = root.join("Gardn");
-        std::fs::create_dir_all(stale_cwd.join(".git")).unwrap();
-        std::fs::create_dir_all(live_cwd.join(".git")).unwrap();
-
+    #[test]
+    fn agent_panel_entries_use_terminal_cwd_basename_not_workspace_identity() {
         let mut app = crate::app::state::AppState::test_new();
         let mut workspace = Workspace::test_new("stale-name");
         workspace.custom_name = None;
-        workspace.identity_cwd = stale_cwd.clone();
+        workspace.identity_cwd = std::path::PathBuf::from("/tmp/issue-264-nix-support");
         let pane = workspace.tabs[0].root_pane;
 
         app.workspaces = vec![workspace];
@@ -6440,44 +6506,15 @@ mod tests {
             .attached_terminal_id
             .clone();
         let terminal = app.terminals.get_mut(&terminal_id).unwrap();
-        terminal.cwd = stale_cwd;
+        terminal.cwd = std::path::PathBuf::from("/tmp/Gardn");
         terminal.detected_agent = Some(Agent::Pi);
         app.active = Some(0);
         app.selected = 0;
         app.agent_panel_scope = AgentPanelScope::AllWorkspaces;
 
-        let (events, _) = tokio::sync::mpsc::channel(4);
-        let runtime = crate::terminal::TerminalRuntime::spawn(
-            pane,
-            24,
-            80,
-            live_cwd.clone(),
-            0,
-            crate::terminal_theme::TerminalTheme::default(),
-            crate::pane::PaneShellConfig::new("/bin/sh", crate::config::ShellModeConfig::NonLogin),
-            &crate::pane::PaneLaunchEnv::default(),
-            events,
-            std::sync::Arc::new(tokio::sync::Notify::new()),
-            std::sync::Arc::new(crate::render_signal::RenderSignal::new()),
-        )
-        .unwrap();
+        let entries = agent_panel_entries(&app);
 
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
-        while runtime.cwd() != Some(live_cwd.clone()) && std::time::Instant::now() < deadline {
-            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-        }
-
-        let mut runtime_registry = TerminalRuntimeRegistry::new();
-        runtime_registry.insert(terminal_id, runtime);
-        let entries = agent_panel_entries_from(&app, &runtime_registry);
-        let primary_label = entries[0].primary_label.clone();
-
-        for (_, runtime) in runtime_registry.drain() {
-            runtime.shutdown();
-        }
-        let _ = std::fs::remove_dir_all(root);
-
-        assert_eq!(primary_label, "Gardn");
+        assert_eq!(entries[0].primary_label, "Gardn");
     }
 
     #[test]
@@ -6982,8 +7019,8 @@ mod tests {
             .expect("render sidebar");
 
         let text = buffer_text(terminal.backend().buffer(), 34, 22);
-        assert!(text.contains("personal / 1"), "rendered UI:\n{text}");
-        assert!(text.contains("personal / 2"), "rendered UI:\n{text}");
+        assert!(text.contains("personal/1"), "rendered UI:\n{text}");
+        assert!(text.contains("personal/2"), "rendered UI:\n{text}");
     }
 
     #[test]
