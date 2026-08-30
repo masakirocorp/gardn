@@ -3416,6 +3416,8 @@ pub struct AppState {
     pub collapsed_command_status_groups: Vec<String>,
     pub collapsed_workspace_groups: Vec<String>,
     pub agent_panel_scope: AgentPanelScope,
+    /// Keep a just-focused Done agent in Triage until focus leaves that pane.
+    pub(crate) triage_hold: Option<(String, crate::layout::PaneId)>,
     /// Capture mouse input for Gardn's own mouse UI. When false, Gardn only
     /// captures mouse while the focused pane app requests mouse reporting.
     pub mouse_capture: bool,
@@ -4462,6 +4464,7 @@ impl AppState {
             collapsed_command_status_groups: Vec::new(),
             collapsed_workspace_groups: Vec::new(),
             agent_panel_scope: AgentPanelScope::CurrentWorkspace,
+            triage_hold: None,
             mouse_capture: true,
             copy_on_select: true,
             right_click_passthrough_modifiers: None,

@@ -247,6 +247,7 @@ impl AppState {
         if previous.as_ref() != Some(&target) {
             self.previous_pane_focus = previous;
         }
+        self.sync_triage_hold_to_focus();
     }
 
     fn record_pane_focus_after_navigation(&mut self, previous: Option<PaneFocusTarget>) {
@@ -254,6 +255,99 @@ impl AppState {
         if previous != current {
             self.previous_pane_focus = previous;
         }
+        self.sync_triage_hold_to_focus();
+    }
+
+    fn pane_is_idle_agent(&self, pane: &crate::pane::PaneState) -> bool {
+        let terminal_state = self
+            .terminals
+            .get(&pane.attached_terminal_id)
+            .map(|terminal| terminal.state);
+        let state = match terminal_state {
+            Some(AgentState::Unknown) | None => {
+                #[cfg(test)]
+                {
+                    pane.state
+                }
+                #[cfg(not(test))]
+                {
+                    AgentState::Unknown
+                }
+            }
+            Some(state) => state,
+        };
+        state == AgentState::Idle
+    }
+
+    pub(crate) fn unseen_idle_hold_for_pane(
+        &self,
+        ws_idx: usize,
+        pane_id: PaneId,
+    ) -> Option<(String, PaneId)> {
+        let workspace = self.workspaces.get(ws_idx)?;
+        let tab_idx = workspace.find_tab_index_for_pane(pane_id)?;
+        let pane = workspace.tabs.get(tab_idx)?.panes.get(&pane_id)?;
+        if pane.seen || !self.pane_is_idle_agent(pane) {
+            return None;
+        }
+        Some((workspace.id.clone(), pane_id))
+    }
+
+    fn unseen_idle_hold_target(&self, ws_idx: usize, tab_idx: usize) -> Option<(String, PaneId)> {
+        let pane_id = self
+            .workspaces
+            .get(ws_idx)?
+            .tabs
+            .get(tab_idx)?
+            .layout
+            .focused();
+        self.unseen_idle_hold_for_pane(ws_idx, pane_id)
+    }
+
+    pub(crate) fn adopt_triage_hold(&mut self, hold: Option<(String, PaneId)>) {
+        if let Some(hold) = hold {
+            self.triage_hold = Some(hold);
+        }
+    }
+
+    fn sync_triage_hold_to_focus(&mut self) {
+        let Some(focus) = self.current_pane_focus_target() else {
+            self.triage_hold = None;
+            return;
+        };
+        if self
+            .triage_hold
+            .as_ref()
+            .is_some_and(|(workspace_id, pane_id)| {
+                workspace_id != &focus.workspace_id || *pane_id != focus.pane_id
+            })
+        {
+            self.triage_hold = None;
+        }
+    }
+
+    pub(crate) fn focus_workspace_tab_pane(
+        &mut self,
+        ws_idx: usize,
+        tab_idx: usize,
+        pane_id: PaneId,
+    ) {
+        let hold = self.unseen_idle_hold_for_pane(ws_idx, pane_id);
+        self.switch_workspace(ws_idx);
+        self.switch_tab(tab_idx);
+        let previous = self.current_pane_focus_target();
+        if let Some(tab) = self
+            .workspaces
+            .get_mut(ws_idx)
+            .and_then(|ws| ws.tabs.get_mut(tab_idx))
+        {
+            if tab.layout.focused() != pane_id {
+                tab.layout.focus_pane(pane_id);
+                self.record_pane_focus_change(previous, ws_idx, pane_id);
+                self.mark_session_dirty();
+            }
+        }
+        self.adopt_triage_hold(hold);
     }
 
     pub(crate) fn focus_pane_in_workspace(&mut self, ws_idx: usize, pane_id: PaneId) -> bool {
@@ -272,6 +366,7 @@ impl AppState {
             return false;
         }
 
+        let hold = self.unseen_idle_hold_for_pane(ws_idx, pane_id);
         self.switch_workspace_tab(ws_idx, tab_idx);
         if let Some(tab) = self
             .workspaces
@@ -281,6 +376,8 @@ impl AppState {
             tab.layout.focus_pane(pane_id);
             self.previous_pane_focus = previous;
             self.mark_session_dirty();
+            self.sync_triage_hold_to_focus();
+            self.adopt_triage_hold(hold);
             return true;
         }
         false
@@ -2565,6 +2662,7 @@ impl AppState {
             })
             .collect()
     }
+
     pub(crate) fn pane_is_in_active_tab(&self, ws_idx: usize, pane_id: PaneId) -> bool {
         let Some(active_ws_idx) = self.active else {
             return false;
@@ -2580,6 +2678,11 @@ impl AppState {
     pub fn switch_workspace(&mut self, idx: usize) {
         if idx < self.workspaces.len() {
             let previous_focus = self.current_pane_focus_target();
+            let hold = self
+                .workspaces
+                .get(idx)
+                .map(|workspace| workspace.active_tab)
+                .and_then(|tab_idx| self.unseen_idle_hold_target(idx, tab_idx));
             let group_id = self.workspaces[idx].group_id.clone();
             if let Some(group_idx) = self.group_index_for_id(&group_id) {
                 self.active_group = group_idx;
@@ -2608,6 +2711,7 @@ impl AppState {
             self.tab_scroll_follow_active = true;
             self.refresh_tab_bar_view();
             self.record_pane_focus_after_navigation(previous_focus);
+            self.adopt_triage_hold(hold);
         }
     }
 
@@ -2624,6 +2728,7 @@ impl AppState {
         }
 
         let previous_focus = self.current_pane_focus_target();
+        let hold = self.unseen_idle_hold_target(ws_idx, tab_idx);
         let workspace_changed = self.active != Some(ws_idx);
         let group_id = self.workspaces[ws_idx].group_id.clone();
         if let Some(group_idx) = self.group_index_for_id(&group_id) {
@@ -2655,6 +2760,7 @@ impl AppState {
         self.tab_scroll_follow_active = true;
         self.refresh_tab_bar_view();
         self.record_pane_focus_after_navigation(previous_focus);
+        self.adopt_triage_hold(hold);
         true
     }
 
@@ -2753,6 +2859,7 @@ impl AppState {
     pub fn switch_tab(&mut self, idx: usize) {
         if let Some(ws_idx) = self.active {
             let previous_focus = self.current_pane_focus_target();
+            let hold = self.unseen_idle_hold_target(ws_idx, idx);
             self.selection = None;
             self.selection_autoscroll = None;
             let Some(ws) = self.workspaces.get_mut(ws_idx) else {
@@ -2766,6 +2873,7 @@ impl AppState {
             self.tab_scroll_follow_active = true;
             self.refresh_tab_bar_view();
             self.record_pane_focus_after_navigation(previous_focus);
+            self.adopt_triage_hold(hold);
         }
     }
 
@@ -2773,6 +2881,14 @@ impl AppState {
         let Some(ws_idx) = self.active else {
             return false;
         };
+        let tab_idx = self
+            .workspaces
+            .get(ws_idx)
+            .map(|workspace| workspace.active_tab);
+        let Some(tab_idx) = tab_idx else {
+            return false;
+        };
+        let hold = self.unseen_idle_hold_target(ws_idx, tab_idx);
         let Some(tab) = self
             .workspaces
             .get_mut(ws_idx)
@@ -2788,6 +2904,9 @@ impl AppState {
                 changed = true;
             }
         }
+        if hold.is_some() {
+            self.adopt_triage_hold(hold);
+        }
         changed
     }
 
@@ -2795,12 +2914,16 @@ impl AppState {
         let Some(ws_idx) = view.active_workspace else {
             return false;
         };
-        let Some(workspace) = self.workspaces.get_mut(ws_idx) else {
+        let Some(workspace) = self.workspaces.get(ws_idx) else {
             return false;
         };
         let tab_idx = view
             .active_tab_for_workspace(&workspace.id)
             .unwrap_or(workspace.active_tab);
+        let hold = self.unseen_idle_hold_target(ws_idx, tab_idx);
+        let Some(workspace) = self.workspaces.get_mut(ws_idx) else {
+            return false;
+        };
         let Some(tab) = workspace.tabs.get_mut(tab_idx) else {
             return false;
         };
@@ -2811,6 +2934,9 @@ impl AppState {
                 pane.seen = true;
                 changed = true;
             }
+        }
+        if hold.is_some() {
+            self.adopt_triage_hold(hold);
         }
         changed
     }
@@ -4541,20 +4667,29 @@ impl AppState {
             .unwrap_or_else(|| self.pane_is_in_active_tab(ws_idx, pane_id));
         let suppress_active_tab_notifications =
             active_tab_suppresses_notifications(is_active_tab, self.outer_terminal_focus);
-        let Some(pane) = self.workspaces[ws_idx]
-            .tabs
-            .iter_mut()
-            .find_map(|tab| tab.panes.get_mut(&pane_id))
-        else {
-            return;
-        };
-
-        if change.state != AgentState::Idle {
-            pane.seen = true;
-        } else if !suppress_completion
-            && is_background_completion_transition(change.previous_state, change.state)
+        let workspace_id = self.workspaces[ws_idx].id.clone();
         {
-            pane.seen = suppress_active_tab_notifications;
+            let Some(pane) = self.workspaces[ws_idx]
+                .tabs
+                .iter_mut()
+                .find_map(|tab| tab.panes.get_mut(&pane_id))
+            else {
+                return;
+            };
+
+            if change.state != AgentState::Idle {
+                pane.seen = true;
+            } else if !suppress_completion
+                && is_background_completion_transition(change.previous_state, change.state)
+            {
+                pane.seen = suppress_active_tab_notifications;
+            }
+        }
+
+        if change.state == AgentState::Working
+            && self.triage_hold.as_ref() == Some(&(workspace_id, pane_id))
+        {
+            self.triage_hold = None;
         }
 
         if !suppress_completion {

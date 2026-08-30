@@ -36,16 +36,8 @@ impl App {
         target: &str,
     ) -> Result<crate::api::schema::AgentInfo, TerminalTargetError> {
         let resolved = self.resolve_agent_target(target)?;
-        self.state.switch_workspace(resolved.ws_idx);
-        self.state.switch_tab(resolved.tab_idx);
-        if let Some(tab) = self
-            .state
-            .workspaces
-            .get_mut(resolved.ws_idx)
-            .and_then(|ws| ws.tabs.get_mut(resolved.tab_idx))
-        {
-            tab.layout.focus_pane(resolved.pane_id);
-        }
+        self.state
+            .focus_workspace_tab_pane(resolved.ws_idx, resolved.tab_idx, resolved.pane_id);
         self.state.mark_active_tab_seen();
         self.state.mode = Mode::Terminal;
         self.agent_info(resolved.ws_idx, resolved.pane_id)

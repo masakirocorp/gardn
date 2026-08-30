@@ -987,6 +987,7 @@ impl App {
             collapsed_command_status_groups: Vec::new(),
             collapsed_workspace_groups: Vec::new(),
             agent_panel_scope,
+            triage_hold: None,
             mouse_capture: config.ui.mouse_capture,
             copy_on_select: config.ui.copy_on_select,
             right_click_passthrough_modifiers: config.ui.right_click_passthrough_modifiers(),

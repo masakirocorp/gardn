@@ -524,8 +524,23 @@ fn append_follow_up_fallback_entries(
     }
 }
 
-fn agent_panel_entry_needs_triage(entry: &AgentPanelEntry) -> bool {
-    entry.state == AgentState::Blocked || (entry.state == AgentState::Idle && !entry.seen)
+fn agent_panel_entry_needs_triage(app: &AppState, entry: &AgentPanelEntry) -> bool {
+    if entry.state == AgentState::Blocked {
+        return true;
+    }
+    if entry.state != AgentState::Idle {
+        return false;
+    }
+    if !entry.seen {
+        return true;
+    }
+    let Some((workspace_id, pane_id)) = app.triage_hold.as_ref() else {
+        return false;
+    };
+    app.workspaces
+        .get(entry.ws_idx)
+        .is_some_and(|workspace| workspace.id == *workspace_id)
+        && entry.pane_id == *pane_id
 }
 
 #[cfg(test)]
@@ -533,7 +548,7 @@ pub(crate) fn agent_panel_triage_entries(app: &AppState) -> Vec<AgentPanelEntry>
     let empty_runtimes = TerminalRuntimeRegistry::new();
     let mut entries: Vec<_> = agent_panel_entries_from(app, &empty_runtimes)
         .into_iter()
-        .filter(agent_panel_entry_needs_triage)
+        .filter(|entry| agent_panel_entry_needs_triage(app, entry))
         .collect();
     sort_agent_panel_entries_by_oldest_activity(&mut entries);
     entries
@@ -617,7 +632,7 @@ fn agent_panel_sections_from_entries(
 
     let mut triage: Vec<_> = rest
         .iter()
-        .filter(|entry| agent_panel_entry_needs_triage(entry))
+        .filter(|entry| agent_panel_entry_needs_triage(app, entry))
         .cloned()
         .collect();
     sort_agent_panel_entries_by_oldest_activity(&mut triage);
@@ -651,7 +666,7 @@ fn agent_panel_sections_from_entries(
     let mut idle: Vec<_> = rest
         .into_iter()
         .filter(|entry| {
-            entry.state != AgentState::Working && !agent_panel_entry_needs_triage(entry)
+            entry.state != AgentState::Working && !agent_panel_entry_needs_triage(app, entry)
         })
         .collect();
     if sort_by_recent_activity {
@@ -6647,6 +6662,135 @@ mod tests {
         assert_eq!(sections[2].entries[0].primary_label, "Working");
         assert_eq!(sections[3].group, AgentStatusGroup::Idle);
         assert_eq!(sections[3].entries[0].primary_label, "Idle");
+    }
+
+    #[test]
+    fn focusing_unseen_idle_agent_keeps_it_in_triage_until_focus_leaves() {
+        let mut app = crate::app::state::AppState::test_new();
+
+        let mut done = Workspace::test_new("Done");
+        let done_pane = done.tabs[0].root_pane;
+        let done_state = done.tabs[0].panes.get_mut(&done_pane).unwrap();
+        done_state.detected_agent = Some(Agent::Pi);
+        done_state.state = AgentState::Idle;
+        done_state.seen = false;
+
+        let mut idle = Workspace::test_new("Idle");
+        let idle_pane = idle.tabs[0].root_pane;
+        let idle_state = idle.tabs[0].panes.get_mut(&idle_pane).unwrap();
+        idle_state.detected_agent = Some(Agent::Codex);
+        idle_state.state = AgentState::Idle;
+        idle_state.seen = true;
+
+        app.workspaces = vec![done, idle];
+        app.active = Some(1);
+        app.selected = 1;
+        app.agent_panel_scope = AgentPanelScope::AllWorkspaces;
+
+        app.focus_workspace_tab_pane(0, 0, done_pane);
+
+        let sections = agent_panel_sections(&app);
+        let triage = sections
+            .iter()
+            .find(|section| section.group == AgentStatusGroup::Triage)
+            .expect("triage");
+        assert_eq!(triage.entries.len(), 1);
+        assert_eq!(triage.entries[0].primary_label, "Done");
+        assert!(triage.entries[0].seen);
+        assert!(app.workspaces[0].tabs[0].panes[&done_pane].seen);
+
+        app.switch_workspace(1);
+
+        let sections = agent_panel_sections(&app);
+        assert!(sections
+            .iter()
+            .all(|section| section.group != AgentStatusGroup::Triage));
+        let idle_section = sections
+            .iter()
+            .find(|section| section.group == AgentStatusGroup::Idle)
+            .expect("idle");
+        let labels: Vec<_> = idle_section
+            .entries
+            .iter()
+            .map(|entry| entry.primary_label.as_str())
+            .collect();
+        assert_eq!(labels, vec!["Done", "Idle"]);
+    }
+
+    #[test]
+    fn focusing_unseen_idle_agent_leaves_triage_when_it_starts_working() {
+        let mut app = crate::app::state::AppState::test_new();
+
+        let mut done = Workspace::test_new("Done");
+        let done_pane = done.tabs[0].root_pane;
+        let done_state = done.tabs[0].panes.get_mut(&done_pane).unwrap();
+        done_state.detected_agent = Some(Agent::Pi);
+        done_state.state = AgentState::Idle;
+        done_state.seen = false;
+
+        app.workspaces = vec![done];
+        app.active = Some(0);
+        app.selected = 0;
+        app.agent_panel_scope = AgentPanelScope::AllWorkspaces;
+
+        app.focus_workspace_tab_pane(0, 0, done_pane);
+        app.workspaces[0].tabs[0]
+            .panes
+            .get_mut(&done_pane)
+            .unwrap()
+            .state = AgentState::Working;
+
+        let sections = agent_panel_sections(&app);
+        assert!(sections
+            .iter()
+            .all(|section| section.group != AgentStatusGroup::Triage));
+        let working = sections
+            .iter()
+            .find(|section| section.group == AgentStatusGroup::Working)
+            .expect("working");
+        assert_eq!(working.entries[0].primary_label, "Done");
+    }
+
+    #[test]
+    fn focusing_unseen_idle_agent_not_already_focused_keeps_it_in_triage() {
+        let mut app = crate::app::state::AppState::test_new();
+
+        let mut workspace = Workspace::test_new("split");
+        let first_pane = workspace.tabs[0].root_pane;
+        let second_pane = workspace.test_split(ratatui::layout::Direction::Horizontal);
+        workspace.tabs[0].layout.focus_pane(second_pane);
+
+        let first_state = workspace.tabs[0].panes.get_mut(&first_pane).unwrap();
+        first_state.detected_agent = Some(Agent::Pi);
+        first_state.state = AgentState::Idle;
+        first_state.seen = false;
+
+        let second_state = workspace.tabs[0].panes.get_mut(&second_pane).unwrap();
+        second_state.detected_agent = Some(Agent::Codex);
+        second_state.state = AgentState::Idle;
+        second_state.seen = true;
+
+        app.workspaces = vec![workspace];
+        app.active = Some(0);
+        app.selected = 0;
+        app.agent_panel_scope = AgentPanelScope::AllWorkspaces;
+
+        app.focus_workspace_tab_pane(0, 0, first_pane);
+
+        let sections = agent_panel_sections(&app);
+        let triage = sections
+            .iter()
+            .find(|section| section.group == AgentStatusGroup::Triage)
+            .expect("triage");
+        assert_eq!(triage.entries.len(), 1);
+        assert_eq!(triage.entries[0].pane_id, first_pane);
+        assert!(triage.entries[0].seen);
+        let idle = sections
+            .iter()
+            .find(|section| section.group == AgentStatusGroup::Idle)
+            .expect("idle");
+        assert_eq!(idle.entries.len(), 1);
+        assert_eq!(idle.entries[0].pane_id, second_pane);
     }
 
     #[test]

@@ -1283,9 +1283,7 @@ impl AppState {
                             if let Some((ws_idx, tab_idx, pane_id)) = self
                                 .resolve_live_agent_target(&press.workspace_id, press.pane_number)
                             {
-                                self.switch_workspace(ws_idx);
-                                self.switch_tab(tab_idx);
-                                self.focus_pane(pane_id);
+                                self.focus_workspace_tab_pane(ws_idx, tab_idx, pane_id);
                                 self.mode = Mode::Terminal;
                             }
                             return None;
@@ -1644,9 +1642,7 @@ impl AppState {
                 tab_idx,
                 pane_id,
             } => {
-                self.switch_workspace(ws_idx);
-                self.switch_tab(tab_idx);
-                self.focus_pane(pane_id);
+                self.focus_workspace_tab_pane(ws_idx, tab_idx, pane_id);
                 self.mobile_agents_expanded = false;
                 self.mode = Mode::Terminal;
             }
@@ -1953,9 +1949,7 @@ impl AppState {
             return;
         };
 
-        self.switch_workspace(ws_idx);
-        self.switch_tab(tab_idx);
-        self.focus_pane(target.pane_id);
+        self.focus_workspace_tab_pane(ws_idx, tab_idx, target.pane_id);
         self.toast = None;
         self.mode = Mode::Terminal;
     }
