@@ -20,6 +20,8 @@ A session is a persistent Gardn runtime with its own sockets, panes, tabs, works
 - **Multiple clients** — more than one client can connect to a server; each client owns its navigation and sidebar view. Interactive terminal control is assigned per stable tab identity: the first client may claim a free tab, switching to another free tab may claim it, and an occupied tab is view-only until explicit takeover with `prefix+t` or the persistent desktop/mobile **Take control** action. The controller owns the tab's canonical PTY size and interactive input authority; watchers keep navigation, scroll, copy, and search local and see the canonical terminal canvas cropped or padded to their viewport. Watcher focus, resize, and input do not change PTY size or content, so different client sizes do not cause layout shifts until takeover. Controller navigation, disconnect, and direct terminal attach release control without auto-promoting a watcher. Local API and system automation bypass interactive tab ownership. Global foreground remains host focus, theme, keybinding, and notification context, not PTY sizing or input authority.
 - **Clipboard bridging** — thin clients forward OSC 52 clipboard writes locally and can bridge local clipboard-image paste into server panes.
 - **Live server handoff** — supported updates can move live pane PTYs and session state into a replacement server so running pane processes survive a server swap.
+- **Beta Direct Install** — install a GitHub prerelease as `gardn-beta` to dogfood the next stable on the same `~/.config/gardn` session. Stop the running server before switching binaries; a beta client will not attach to a stable server.
+
 
 ### Workspaces
 

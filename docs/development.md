@@ -23,6 +23,8 @@ Run `just --list` for the live index. The Justfile comments are the source of tr
 | `just sync-upstream` | Create a merge-commit PR from the upstream repository. |
 | `just upstream-status` | Report upstream commits as ported, skipped, superseded, or pending. |
 | `just release` | Draft a Tegami version commit, tag it, push, and trigger GitHub Release. |
+| `just release-beta` | Same as `just release`, with Tegami prerelease id `beta`. |
+
 
 **Checks and benches**
 
@@ -68,14 +70,23 @@ Run `just --list` for the live index. The Justfile comments are the source of tr
 
 ## Binaries
 
-Keep two binaries on the machine:
+Keep these binaries on the machine:
 
 | Binary | Source | Config and logs |
 | --- | --- | --- |
-| `gardn` | Latest GitHub release | `~/.config/gardn/` |
+| `gardn` | Latest stable GitHub release | `~/.config/gardn/` |
+| `gardn-beta` | Latest GitHub prerelease `vX.Y.Z-beta.N` | `~/.config/gardn/` |
 | `gardn-dev` | Current checkout | `~/.config/gardn-dev/` |
 
 `gardn` must stay on the latest stable release. Do not install a source build over `~/.local/bin/gardn`. Use `gardn update` or the GitHub release assets when the production binary needs a new version.
+
+Install a beta Direct Install next to it:
+
+```bash
+install -m 755 gardn-macos-aarch64 ~/.local/bin/gardn-beta
+```
+
+`gardn` and `gardn-beta` are both official release builds, so they share `~/.config/gardn`. Only one of those servers may run at a time. Stop the running server before launching the other binary. A beta client will not attach to a stable server.
 
 `gardn-dev` is the daily development binary. Install it from this checkout:
 
@@ -83,9 +94,10 @@ Keep two binaries on the machine:
 just install-local
 ```
 
-`just install-dev` is the same command. The installer writes `~/.local/bin/gardn-dev`, signs it on macOS, installs matching Linux workers under the `gardn-dev` data directory, and stops the running `gardn-dev` server. It does not touch `gardn`.
+`just install-dev` is the same command. The installer writes `~/.local/bin/gardn-dev`, signs it on macOS, installs matching Linux workers under the `gardn-dev` data directory, and stops the running `gardn-dev` server. It does not touch `gardn` or `gardn-beta`.
 
-A debug source build uses the `gardn-dev` application directory. A release build uses `gardn`. The two namespaces do not share sockets, logs, or session files.
+A debug source build uses the `gardn-dev` application directory. Official release builds use `gardn`. The development namespace does not share sockets, logs, or session files with official installs.
+
 
 ## Copy a release session into gardn-dev
 
