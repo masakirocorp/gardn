@@ -59,6 +59,7 @@ final class ExtraAppDelegate: NSObject, NSApplicationDelegate {
             popover.performClose(sender)
         } else {
             NSApp.activate(ignoringOtherApps: true)
+            store.refresh()
             popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
         }
     }

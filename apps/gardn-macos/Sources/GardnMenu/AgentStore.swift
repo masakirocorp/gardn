@@ -13,7 +13,7 @@ final class AgentStore: ObservableObject {
 
 
     private var client: GardnClient
-    private var timer: Timer?
+    private var poll: DispatchSourceTimer?
     private var knownAttention = [String: AgentNotifications.Kind]()
     private var hasBaseline = false
 
@@ -25,23 +25,27 @@ final class AgentStore: ObservableObject {
     }
 
     func start() {
-        if timer != nil {
+        if poll != nil {
             refresh()
             return
         }
         refresh()
-        let timer = Timer(timeInterval: 2, repeats: true) { [weak self] _ in
-            Task { @MainActor in
-                self?.refresh()
-            }
+        let poll = DispatchSource.makeTimerSource(queue: .main)
+        poll.schedule(
+            deadline: .now() + .seconds(2),
+            repeating: .seconds(2),
+            leeway: .milliseconds(200)
+        )
+        poll.setEventHandler { [weak self] in
+            self?.refresh()
         }
-        RunLoop.main.add(timer, forMode: .common)
-        self.timer = timer
+        poll.resume()
+        self.poll = poll
     }
 
     func stop() {
-        timer?.invalidate()
-        timer = nil
+        poll?.cancel()
+        poll = nil
     }
 
     func refresh() {
@@ -96,7 +100,7 @@ final class AgentStore: ObservableObject {
             guard let kind = AgentNotifications.Kind.of(agent) else { continue }
             guard seen.insert(agent.terminalId).inserted else { continue }
             next[agent.terminalId] = kind
-            if hasBaseline, knownAttention[agent.terminalId] != kind {
+            if hasBaseline, knownAttention[agent.terminalId] == nil {
                 AgentNotifications.post(agent: agent, kind: kind)
             }
         }

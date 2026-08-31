@@ -81,23 +81,19 @@ enum AgentNotifications {
         case blocked
         case done
         case followUp
-        case triage
 
         var headline: String {
             switch self {
             case .blocked: return "Needs attention"
             case .done: return "Finished"
             case .followUp: return "Follow Up"
-            case .triage: return "Triage"
             }
         }
-
 
         static func of(_ agent: AgentRecord) -> Kind? {
             if agent.status == .blocked { return .blocked }
             if agent.status == .done { return .done }
             if agent.followUp { return .followUp }
-            if agent.inTriage { return .triage }
             return nil
         }
     }
