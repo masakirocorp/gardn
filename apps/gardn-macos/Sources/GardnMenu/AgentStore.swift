@@ -91,6 +91,7 @@ final class AgentStore: ObservableObject {
     }
 
     private func publishAttentionChanges() {
+        guard connected else { return }
         var next = [String: AgentNotifications.Kind]()
         for agent in agents {
             guard let kind = AgentNotifications.Kind.of(agent) else { continue }
@@ -102,6 +103,7 @@ final class AgentStore: ObservableObject {
         knownAttention = next
         hasBaseline = true
     }
+
 
     private static func friendlyError(_ error: Error) -> String {
         let message = error.localizedDescription
