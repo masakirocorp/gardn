@@ -3910,11 +3910,7 @@ impl AppState {
             .any(|entry| entry.matches(&workspace_id, pane_number))
     }
 
-    pub(crate) fn pane_is_in_triage(
-        &self,
-        ws_idx: usize,
-        pane_id: crate::layout::PaneId,
-    ) -> bool {
+    pub(crate) fn pane_is_in_triage(&self, ws_idx: usize, pane_id: crate::layout::PaneId) -> bool {
         let Some(workspace) = self.workspaces.get(ws_idx) else {
             return false;
         };
@@ -3935,11 +3931,12 @@ impl AppState {
         if !pane.seen {
             return true;
         }
-        self.triage_hold.as_ref().is_some_and(|(workspace_id, hold_pane)| {
-            workspace_id == &workspace.id && *hold_pane == pane_id
-        })
+        self.triage_hold
+            .as_ref()
+            .is_some_and(|(workspace_id, hold_pane)| {
+                workspace_id == &workspace.id && *hold_pane == pane_id
+            })
     }
-
 
     pub(crate) fn follow_up_added_at(
         &self,

@@ -389,7 +389,6 @@ mod tests {
         workspace::Workspace,
     };
 
-
     fn test_app() -> App {
         let (_api_tx, api_rx) = tokio::sync::mpsc::unbounded_channel();
         let mut app = App::new(
@@ -456,15 +455,10 @@ mod tests {
             .expect("root pane")
             .attached_terminal_id
             .clone();
-        let terminal = app
-            .state
-            .terminals
-            .get_mut(&terminal_id)
-            .expect("terminal");
+        let terminal = app.state.terminals.get_mut(&terminal_id).expect("terminal");
         terminal.agent_name = Some("omp".into());
         terminal.state = AgentState::Idle;
-        app.state.workspaces[0]
-            .tabs[0]
+        app.state.workspaces[0].tabs[0]
             .panes
             .get_mut(&pane_id)
             .expect("pane")
@@ -490,15 +484,10 @@ mod tests {
             .expect("root pane")
             .attached_terminal_id
             .clone();
-        let terminal = app
-            .state
-            .terminals
-            .get_mut(&terminal_id)
-            .expect("terminal");
+        let terminal = app.state.terminals.get_mut(&terminal_id).expect("terminal");
         terminal.agent_name = Some("omp".into());
         terminal.state = AgentState::Idle;
-        app.state.workspaces[0]
-            .tabs[0]
+        app.state.workspaces[0].tabs[0]
             .panes
             .get_mut(&pane_id)
             .expect("pane")
@@ -514,6 +503,4 @@ mod tests {
         assert!(agents[0].in_triage);
         assert_eq!(agents[0].agent_status, AgentStatus::Idle);
     }
-
-
 }
