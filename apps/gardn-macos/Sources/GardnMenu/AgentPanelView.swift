@@ -40,7 +40,7 @@ struct AgentPanelView: View {
             if rows.isEmpty {
                 height += 16
             } else {
-                height += CGFloat(rows.count) * 30
+                height += CGFloat(rows.count) * 34
             }
         }
         return min(560, height + 8)
@@ -110,7 +110,7 @@ struct AgentPanelView: View {
                     Text(section.rawValue)
                     Spacer(minLength: 0)
                 }
-                .font(.system(size: 11, weight: .semibold))
+                .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(sectionColor(section))
                 .padding(.horizontal, 8)
                 .padding(.vertical, 3)
@@ -124,14 +124,14 @@ struct AgentPanelView: View {
                         onFocus: { store.focus(agent) },
                         onFollowUp: { store.setFollowUp(agent, enabled: $0) }
                     )
-                    .padding(.leading, 14)
+                    .padding(.leading, 32)
                     .padding(.trailing, 6)
                 }
                 if section == .followUp, rows.isEmpty {
                     Text("Drop an agent here")
                         .font(.system(size: 11))
                         .foregroundStyle(.tertiary)
-                        .padding(.leading, 22)
+                        .padding(.leading, 38)
                         .padding(.vertical, 2)
                 }
             }
@@ -167,7 +167,7 @@ private struct AgentRow: View {
         Button(action: onFocus) {
             VStack(alignment: .leading, spacing: 0) {
                 titleLabel(agent.title)
-                    .font(.system(size: 12, weight: agent.focused ? .semibold : .regular))
+                    .font(.system(size: 13, weight: agent.focused ? .semibold : .regular))
                 metaLine
             }
             .padding(.horizontal, 6)
@@ -217,7 +217,7 @@ private struct AgentRow: View {
                 Text(age).foregroundStyle(.secondary)
             }
         }
-        .font(.system(size: 10))
+        .font(.system(size: 12))
         .lineLimit(1)
     }
 
