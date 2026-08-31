@@ -68,15 +68,6 @@ struct GardnClient {
         return "\(home)/.config/gardn-dev/gardn.sock"
     }
 
-    var clientSocketPath: String {
-        Self.clientSocketPath(from: socketPath)
-    }
-
-    static func clientSocketPath(from apiSocketPath: String) -> String {
-        let url = URL(fileURLWithPath: apiSocketPath)
-        let stem = url.deletingPathExtension().lastPathComponent
-        return url.deletingLastPathComponent().appendingPathComponent("\(stem)-client.sock").path
-    }
 
     func listAgents() throws -> [AgentRecord] {
         let agents = try resultObject(transact([

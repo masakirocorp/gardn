@@ -679,18 +679,6 @@ impl HeadlessServer {
         }
     }
 
-    fn reconcile_all_client_tab_controls(&mut self) {
-        let client_ids = self
-            .clients
-            .iter()
-            .filter(|(_, client)| client.view_state.is_some())
-            .map(|(&client_id, _)| client_id)
-            .collect::<Vec<_>>();
-        for client_id in client_ids {
-            self.reconcile_client_tab_control(client_id);
-        }
-    }
-
     fn resize_all_controlled_tabs(&mut self) {
         let controller_ids = self
             .clients
@@ -3772,6 +3760,17 @@ impl HeadlessServer {
             }
         }
 
+        if changed {
+            if let Some(client_id) = self.foreground_client_id {
+                if self
+                    .clients
+                    .get(&client_id)
+                    .is_some_and(|client| client.view_state.is_some())
+                {
+                    changed |= self.reconcile_client_tab_control(client_id);
+                }
+            }
+        }
         changed
     }
 
@@ -3890,7 +3889,6 @@ impl HeadlessServer {
         allow_empty_pending_agent_theme: bool,
     ) -> bool {
         self.prune_deleted_tab_controls();
-        self.reconcile_all_client_tab_controls();
         self.sync_all_tab_control_projections();
         let mut pending_resume_started = false;
         let render_targets = render_targets(&self.clients, self.foreground_client_id);
@@ -7310,15 +7308,17 @@ next_tab = ""
         let tab_number = server.app.state.workspaces[0].tabs[1].number;
         let tab_id = crate::workspace::public_tab_id_for_number(&workspace_id, tab_number);
         let (respond_to, response_rx) = std::sync::mpsc::channel();
-        assert!(server.handle_api_request_with_shutdown_check(api::ApiRequestMessage {
-            request: api::schema::Request {
-                id: "focus".into(),
-                method: api::schema::Method::TabFocus(api::schema::TabTarget { tab_id }),
-            },
-            respond_to,
-            response_written: None,
-            stream_active: None,
-        }));
+        assert!(
+            server.handle_api_request_with_shutdown_check(api::ApiRequestMessage {
+                request: api::schema::Request {
+                    id: "focus".into(),
+                    method: api::schema::Method::TabFocus(api::schema::TabTarget { tab_id }),
+                },
+                respond_to,
+                response_written: None,
+                stream_active: None,
+            })
+        );
         let _ = response_rx.recv_timeout(std::time::Duration::from_millis(100));
 
         server.render_and_stream();

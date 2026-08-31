@@ -66,15 +66,14 @@ final class AgentStore: ObservableObject {
 
 
     func focus(_ agent: AgentRecord) {
-        focus(terminalId: agent.terminalId, titleHint: agent.title)
+        focus(terminalId: agent.terminalId)
     }
 
-    func focus(terminalId: String, titleHint: String? = nil) {
+    func focus(terminalId: String) {
         do {
             try client.focus(terminalId: terminalId)
-            let hint = titleHint ?? agents.first { $0.terminalId == terminalId }?.title
             onDidFocus?()
-            HostTerminal.raise(clientSocketPath: client.clientSocketPath, titleHint: hint)
+            HostTerminal.raise(apiSocketPath: client.socketPath)
             refresh()
         } catch {
             connectionMessage = error.localizedDescription
@@ -104,7 +103,7 @@ final class AgentStore: ObservableObject {
             guard let kind = AgentNotifications.Kind.of(agent) else { continue }
             guard seen.insert(agent.terminalId).inserted else { continue }
             next[agent.terminalId] = kind
-            if hasBaseline, knownAttention[agent.terminalId] == nil {
+            if hasBaseline, knownAttention[agent.terminalId] != kind {
                 AgentNotifications.post(agent: agent, kind: kind)
             }
         }
