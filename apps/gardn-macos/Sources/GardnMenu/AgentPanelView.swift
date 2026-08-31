@@ -7,6 +7,13 @@ struct AgentPanelView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             header
+            if let actionError = store.actionError {
+                Text(actionError)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.red)
+                    .padding(.horizontal, 12)
+                    .padding(.bottom, 6)
+            }
             if !store.connected {
                 disconnected
             } else if store.agents.isEmpty {
@@ -23,8 +30,10 @@ struct AgentPanelView: View {
         if !store.connected || store.agents.isEmpty {
             return 92
         }
-        let sections = AgentRecord.Section.allCases.filter { !store.agents(in: $0).isEmpty }.count
-        let height = 40 + CGFloat(sections) * 28 + CGFloat(store.agents.count) * 30 + 12
+        let filled = AgentRecord.Section.allCases.filter { !store.agents(in: $0).isEmpty }.count
+        let followUpEmpty = store.agents(in: .followUp).isEmpty
+        let sections = filled + (followUpEmpty ? 1 : 0)
+        let height = 40 + CGFloat(sections) * 28 + CGFloat(store.agents.count) * 30 + (followUpEmpty ? 22 : 0) + (store.actionError == nil ? 0 : 22) + 12
         return min(560, height)
     }
 
@@ -68,7 +77,7 @@ struct AgentPanelView: View {
             LazyVStack(alignment: .leading, spacing: 2) {
                 ForEach(AgentRecord.Section.allCases, id: \.self) { section in
                     let rows = store.agents(in: section)
-                    if !rows.isEmpty {
+                    if section == .followUp || !rows.isEmpty {
                         sectionBlock(section, rows: rows)
                     }
                 }
@@ -93,6 +102,13 @@ struct AgentPanelView: View {
                     onFocus: { store.focus(agent) },
                     onFollowUp: { store.setFollowUp(agent, enabled: $0) }
                 )
+            }
+            if section == .followUp, rows.isEmpty {
+                Text("Right-click an agent to add")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.tertiary)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
             }
         }
     }

@@ -5,6 +5,7 @@ import SwiftUI
 final class AgentStore: ObservableObject {
     @Published private(set) var agents: [AgentRecord] = []
     @Published private(set) var connectionMessage: String?
+    @Published private(set) var actionError: String?
     @Published private(set) var connected = false
 
     private var client: GardnClient
@@ -68,10 +69,19 @@ final class AgentStore: ObservableObject {
             } else {
                 try client.removeFollowUp(terminalId: agent.terminalId)
             }
+            actionError = nil
             refresh()
         } catch {
-            connectionMessage = error.localizedDescription
+            actionError = Self.friendlyError(error)
         }
+    }
+
+    private static func friendlyError(_ error: Error) -> String {
+        let message = error.localizedDescription
+        if message.contains("unknown variant") || message.contains("invalid_request") {
+            return "Restart Gardn from macos-menu-extra to enable Follow Up."
+        }
+        return message
     }
 
     func agents(in section: AgentRecord.Section) -> [AgentRecord] {
