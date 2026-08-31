@@ -1,12 +1,12 @@
 core:changelogs:
-  - content: "---\npackages:\n  gardn:\n    type: patch\n---\n\n### Focus an agent from the macOS extra\n\nClicking an agent in the menu extra now switches the last-active Gardn client to that pane. If no client is attached, the next attach opens there. The menu bar leaf fills the three cube faces when Follow Up or Triage needs attention.\n"
-    filename: extra-agent-focus.md
+  - content: "---\npackages:\n  gardn:\n    type: patch\n---\n\n### Focus Follow Up agents from the extra\n\nClicking a Follow Up row now opens that pane even when the queued agent no longer has a live agent identity.\n"
+    filename: follow-up-agent-focus.md
     v: 0.0.0
 core:packages:
   - id: npm:@gardn/website
     updated: false
   - changelogIds:
-      - extra-agent-focus.md
+      - follow-up-agent-focus.md
     id: cargo:gardn
     updated: true
   - id: cargo:gardn-local-api
