@@ -25,27 +25,29 @@ struct AgentRecord: Identifiable, Hashable {
     var id: String { terminalId }
     var terminalId: String
     var title: String
-    var subtitle: String
+    var groupName: String?
+    var groupAccent: String?
     var status: Status
+    var statusLabel: String?
+    var age: String?
     var followUp: Bool
-    var cwd: String?
+    var focused: Bool
 
     var section: Section {
-        if followUp {
-            return .followUp
-        }
+        if followUp { return .followUp }
         switch status {
-        case .blocked, .done:
-            return .triage
-        case .working:
-            return .working
-        case .idle, .unknown:
-            return .idle
+        case .blocked, .done: return .triage
+        case .working: return .working
+        case .idle, .unknown: return .idle
         }
     }
 
     var needsAttention: Bool {
         followUp || status == .blocked || status == .done
+    }
+
+    var showsStatus: Bool {
+        section == .triage || section == .followUp
     }
 }
 
@@ -56,29 +58,41 @@ struct GardnClient {
         if let override = ProcessInfo.processInfo.environment["GARDN_SOCKET_PATH"], !override.isEmpty {
             return override
         }
-        let home = FileManager.default.homeDirectoryForCurrentUser
-        let primary = home.appendingPathComponent(".config/gardn/gardn.sock").path
-        if FileManager.default.fileExists(atPath: primary) {
-            return primary
-        }
-        return home.appendingPathComponent(".config/gardn-dev/gardn.sock").path
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        let candidates = [
+            "\(home)/.config/gardn/gardn.sock",
+            "\(home)/.config/gardn-dev/gardn.sock",
+        ]
+        return candidates.first { FileManager.default.fileExists(atPath: $0) } ?? candidates[0]
     }
 
     func listAgents() throws -> [AgentRecord] {
-        let json = try transact([
+        let agents = try resultObject(transact([
             "id": "menu:agent.list",
             "method": "agent.list",
             "params": [:],
-        ])
-        let result = try resultObject(json)
-        let type = result["type"] as? String
-        guard type == "agent_list" else {
-            throw GardnClientError(message: "unexpected result type \(type ?? "nil")")
-        }
-        let raw = result["agents"] as? [[String: Any]] ?? []
-        var agents = raw.compactMap(Self.parseAgent)
-        Self.disambiguateTitles(&agents)
-        return agents
+        ]))
+        let workspaces = (try? resultObject(transact([
+            "id": "menu:workspace.list",
+            "method": "workspace.list",
+            "params": [:],
+        ]))) ?? [:]
+        let groups = (try? resultObject(transact([
+            "id": "menu:group.list",
+            "method": "group.list",
+            "params": [:],
+        ]))) ?? [:]
+        let tabs = (try? resultObject(transact([
+            "id": "menu:tab.list",
+            "method": "tab.list",
+            "params": [:],
+        ]))) ?? [:]
+        return Self.assemble(
+            agents: agents["agents"] as? [[String: Any]] ?? [],
+            workspaces: workspaces["workspaces"] as? [[String: Any]] ?? [],
+            groups: groups["groups"] as? [[String: Any]] ?? [],
+            tabs: tabs["tabs"] as? [[String: Any]] ?? []
+        )
     }
 
     func focus(terminalId: String) throws {
@@ -107,8 +121,7 @@ struct GardnClient {
 
     private func resultObject(_ json: [String: Any]) throws -> [String: Any] {
         if let error = json["error"] as? [String: Any] {
-            let message = error["message"] as? String ?? "request failed"
-            throw GardnClientError(message: message)
+            throw GardnClientError(message: error["message"] as? String ?? "request failed")
         }
         guard let result = json["result"] as? [String: Any] else {
             throw GardnClientError(message: "missing result")
@@ -127,63 +140,91 @@ struct GardnClient {
         return json
     }
 
-    private static func parseAgent(_ raw: [String: Any]) -> AgentRecord? {
-        guard let terminalId = raw["terminal_id"] as? String else {
-            return nil
+    private static func assemble(
+        agents: [[String: Any]],
+        workspaces: [[String: Any]],
+        groups: [[String: Any]],
+        tabs: [[String: Any]]
+    ) -> [AgentRecord] {
+        var workspaceById: [String: [String: Any]] = [:]
+        for workspace in workspaces {
+            if let id = workspace["workspace_id"] as? String {
+                workspaceById[id] = workspace
+            }
         }
-        let status = AgentRecord.Status(rawValue: raw["agent_status"] as? String ?? "unknown") ?? .unknown
-        if status == .unknown, raw["agent"] == nil, raw["display_agent"] == nil, raw["name"] == nil {
-            return nil
+        var groupById: [String: [String: Any]] = [:]
+        for group in groups {
+            if let id = group["group_id"] as? String {
+                groupById[id] = group
+            }
         }
-        let cwd = (raw["foreground_cwd"] as? String) ?? (raw["cwd"] as? String)
-        let leaf = cwd.flatMap { URL(fileURLWithPath: $0).lastPathComponent }
-        let title = leaf
-            ?? (raw["name"] as? String)
-            ?? (raw["display_agent"] as? String)
-            ?? (raw["agent"] as? String)
-            ?? terminalId
-        let agent = (raw["display_agent"] as? String) ?? (raw["agent"] as? String)
-        let custom = raw["custom_status"] as? String
-        let followUp = (raw["follow_up"] as? Bool) ?? (raw["follow_up"] as? NSNumber)?.boolValue ?? false
-        let age = Self.activityAge(
-            unixSecs: Self.unixSecs(raw["follow_up_added_at_unix_secs"])
-                ?? Self.unixSecs(raw["last_meaningful_agent_activity_unix_secs"])
-        )
-        let subtitle = [agent, custom, age].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")
-        return AgentRecord(
-            terminalId: terminalId,
-            title: title,
-            subtitle: subtitle,
-            status: status,
-            followUp: followUp,
-            cwd: cwd
-        )
+        var tabById: [String: [String: Any]] = [:]
+        for tab in tabs {
+            if let id = tab["tab_id"] as? String {
+                tabById[id] = tab
+            }
+        }
+
+        return agents.compactMap { raw in
+            guard let terminalId = raw["terminal_id"] as? String else { return nil }
+            let status = AgentRecord.Status(rawValue: raw["agent_status"] as? String ?? "unknown") ?? .unknown
+            if status == .unknown, raw["agent"] == nil, raw["display_agent"] == nil, raw["name"] == nil {
+                return nil
+            }
+            let workspaceId = raw["workspace_id"] as? String
+            let workspace = workspaceId.flatMap { workspaceById[$0] }
+            let tab = (raw["tab_id"] as? String).flatMap { tabById[$0] }
+            let group = (workspace?["group_id"] as? String).flatMap { groupById[$0] }
+
+            var title = (workspace?["label"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+            if title == nil || title?.isEmpty == true {
+                let cwd = (raw["foreground_cwd"] as? String) ?? (raw["cwd"] as? String)
+                title = cwd.flatMap { URL(fileURLWithPath: $0).lastPathComponent }
+                    ?? (raw["name"] as? String)
+                    ?? terminalId
+            }
+            let tabCount = workspace?["tab_count"] as? Int ?? (workspace?["tab_count"] as? NSNumber)?.intValue ?? 1
+            if tabCount > 1, let tabLabel = tab?["label"] as? String, !tabLabel.isEmpty {
+                title = "\(title!) / \(tabLabel)"
+            }
+            let paneCount = tab?["pane_count"] as? Int ?? (tab?["pane_count"] as? NSNumber)?.intValue ?? 1
+            if paneCount > 1, let paneLabel = raw["name"] as? String, !paneLabel.isEmpty {
+                title = "\(title!) / \(paneLabel)"
+            }
+
+            let followUp = (raw["follow_up"] as? Bool) ?? (raw["follow_up"] as? NSNumber)?.boolValue ?? false
+            let focused = (raw["focused"] as? Bool) ?? (raw["focused"] as? NSNumber)?.boolValue ?? false
+            let age = activityAge(
+                unixSecs: unixSecs(raw["follow_up_added_at_unix_secs"])
+                    ?? unixSecs(raw["last_meaningful_agent_activity_unix_secs"])
+            )
+            return AgentRecord(
+                terminalId: terminalId,
+                title: title ?? terminalId,
+                groupName: group?["name"] as? String,
+                groupAccent: group?["accent"] as? String,
+                status: status,
+                statusLabel: statusText(status),
+                age: age,
+                followUp: followUp,
+                focused: focused
+            )
+        }
     }
 
-    private static func disambiguateTitles(_ agents: inout [AgentRecord]) {
-        var counts: [String: Int] = [:]
-        for agent in agents {
-            counts[agent.title, default: 0] += 1
-        }
-        for index in agents.indices {
-            guard counts[agents[index].title, default: 0] > 1 else { continue }
-            guard let cwd = agents[index].cwd else { continue }
-            let parent = URL(fileURLWithPath: cwd).deletingLastPathComponent().lastPathComponent
-            guard !parent.isEmpty, parent != "/" else { continue }
-            agents[index].title = "\(parent)/\(agents[index].title)"
+    private static func statusText(_ status: AgentRecord.Status) -> String {
+        switch status {
+        case .blocked: return "Blocked"
+        case .working: return "Working"
+        case .done: return "Done"
+        case .idle, .unknown: return "Idle"
         }
     }
 
     private static func unixSecs(_ value: Any?) -> UInt64? {
-        if let n = value as? NSNumber {
-            return n.uint64Value
-        }
-        if let n = value as? UInt64 {
-            return n
-        }
-        if let n = value as? Int, n >= 0 {
-            return UInt64(n)
-        }
+        if let n = value as? NSNumber { return n.uint64Value }
+        if let n = value as? UInt64 { return n }
+        if let n = value as? Int, n >= 0 { return UInt64(n) }
         return nil
     }
 
@@ -191,26 +232,18 @@ struct GardnClient {
         guard let unixSecs else { return nil }
         let now = UInt64(Date().timeIntervalSince1970)
         let elapsed = now > unixSecs ? now - unixSecs : 0
-        if elapsed < 60 {
-            return "Now"
-        }
+        if elapsed < 60 { return "Now" }
         let minutes = elapsed / 60
-        if minutes < 60 {
-            return "\(minutes)m"
-        }
+        if minutes < 60 { return "\(minutes)m" }
         let hours = minutes / 60
-        if hours < 24 {
-            return "\(hours)h"
-        }
+        if hours < 24 { return "\(hours)h" }
         return "\(hours / 24)d"
     }
 }
 
 private func unixRequest(path: String, payload: Data) throws -> Data {
     let fd = socket(AF_UNIX, SOCK_STREAM, 0)
-    guard fd >= 0 else {
-        throw GardnClientError(message: "socket() failed")
-    }
+    guard fd >= 0 else { throw GardnClientError(message: "socket() failed") }
     defer { close(fd) }
 
     var addr = sockaddr_un()
@@ -242,9 +275,7 @@ private func unixRequest(path: String, payload: Data) throws -> Data {
         let bytes = buffer.bindMemory(to: UInt8.self)
         while written < bytes.count {
             let n = send(fd, bytes.baseAddress! + written, bytes.count - written, 0)
-            if n <= 0 {
-                throw GardnClientError(message: "write failed")
-            }
+            if n <= 0 { throw GardnClientError(message: "write failed") }
             written += n
         }
     }
@@ -253,19 +284,11 @@ private func unixRequest(path: String, payload: Data) throws -> Data {
     var chunk = [UInt8](repeating: 0, count: 4096)
     while true {
         let n = recv(fd, &chunk, chunk.count, 0)
-        if n < 0 {
-            throw GardnClientError(message: "read failed")
-        }
-        if n == 0 {
-            break
-        }
+        if n < 0 { throw GardnClientError(message: "read failed") }
+        if n == 0 { break }
         collected.append(contentsOf: chunk.prefix(n))
-        if collected.last == 0x0A {
-            break
-        }
+        if collected.last == 0x0A { break }
     }
-    if collected.last == 0x0A {
-        collected.removeLast()
-    }
+    if collected.last == 0x0A { collected.removeLast() }
     return collected
 }

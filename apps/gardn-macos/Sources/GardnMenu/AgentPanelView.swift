@@ -22,7 +22,7 @@ struct AgentPanelView: View {
                 list
             }
         }
-        .frame(width: 276, height: panelHeight, alignment: .top)
+        .frame(width: 280, height: panelHeight, alignment: .top)
         .background { PopoverChrome().ignoresSafeArea() }
     }
 
@@ -33,32 +33,34 @@ struct AgentPanelView: View {
         let filled = AgentRecord.Section.allCases.filter { !store.agents(in: $0).isEmpty }.count
         let followUpEmpty = store.agents(in: .followUp).isEmpty
         let sections = filled + (followUpEmpty ? 1 : 0)
-        let height = 40 + CGFloat(sections) * 28 + CGFloat(store.agents.count) * 30 + (followUpEmpty ? 22 : 0) + (store.actionError == nil ? 0 : 22) + 12
-        return min(560, height)
+        let height = 44 + CGFloat(sections) * 26 + CGFloat(store.agents.count) * 38 + (followUpEmpty ? 22 : 0) + (store.actionError == nil ? 0 : 22) + 10
+        return min(580, height)
     }
 
     private var header: some View {
-        HStack(alignment: .firstTextBaseline) {
+        HStack {
             Text("Agents")
                 .font(.system(size: 13, weight: .semibold))
             Spacer()
-            if store.connected, !store.agents.isEmpty {
-                Text("\(store.agents.count)")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(.tertiary)
-                    .monospacedDigit()
-            }
+            Text("All")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 7)
+                .padding(.vertical, 2)
+                .background(
+                    RoundedRectangle(cornerRadius: 4, style: .continuous)
+                        .fill(Color.primary.opacity(0.08))
+                )
         }
         .padding(.horizontal, 12)
         .padding(.top, 10)
-        .padding(.bottom, 8)
+        .padding(.bottom, 6)
     }
 
     private var disconnected: some View {
         Text(store.connectionMessage ?? "Gardn isn’t running")
             .font(.system(size: 12))
             .foregroundStyle(.secondary)
-            .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 12)
             .padding(.bottom, 12)
     }
@@ -67,7 +69,6 @@ struct AgentPanelView: View {
         Text("No agents")
             .font(.system(size: 12))
             .foregroundStyle(.secondary)
-            .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 12)
             .padding(.bottom, 12)
     }
@@ -89,13 +90,15 @@ struct AgentPanelView: View {
 
     private func sectionBlock(_ section: AgentRecord.Section, rows: [AgentRecord]) -> some View {
         VStack(alignment: .leading, spacing: 1) {
-            Text(section.rawValue.uppercased())
-                .font(.system(size: 10, weight: .semibold))
-                .tracking(0.6)
-                .foregroundStyle(sectionColor(section))
-                .padding(.horizontal, 8)
-                .padding(.top, 8)
-                .padding(.bottom, 3)
+            HStack(spacing: 6) {
+                Text(sectionIcon(section))
+                Text(section.rawValue)
+            }
+            .font(.system(size: 12, weight: .semibold))
+            .foregroundStyle(sectionColor(section))
+            .padding(.horizontal, 8)
+            .padding(.top, 8)
+            .padding(.bottom, 2)
             ForEach(rows) { agent in
                 AgentRow(
                     agent: agent,
@@ -113,16 +116,21 @@ struct AgentPanelView: View {
         }
     }
 
+    private func sectionIcon(_ section: AgentRecord.Section) -> String {
+        switch section {
+        case .triage: return "!"
+        case .followUp: return "*"
+        case .working: return ":"
+        case .idle: return "✓"
+        }
+    }
+
     private func sectionColor(_ section: AgentRecord.Section) -> Color {
         switch section {
-        case .triage:
-            return Color(red: 1.00, green: 0.72, blue: 0.42)
-        case .followUp:
-            return Color(red: 0.78, green: 0.52, blue: 0.86)
-        case .working:
-            return Color(red: 0.90, green: 0.76, blue: 0.22)
-        case .idle:
-            return Color(red: 0.42, green: 0.73, blue: 0.48)
+        case .triage: return Color(red: 1.00, green: 0.72, blue: 0.42)
+        case .followUp: return Color(red: 0.70, green: 0.47, blue: 0.85)
+        case .working: return Color(red: 0.86, green: 0.56, blue: 0.18)
+        case .idle: return Color(red: 0.38, green: 0.68, blue: 0.42)
         }
     }
 }
@@ -135,23 +143,18 @@ private struct AgentRow: View {
 
     var body: some View {
         Button(action: onFocus) {
-            HStack(spacing: 8) {
+            VStack(alignment: .leading, spacing: 1) {
                 titleLabel(agent.title)
-                Spacer(minLength: 8)
-                if !agent.subtitle.isEmpty {
-                    Text(agent.subtitle)
-                        .font(.system(size: 11))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
+                    .font(.system(size: 13, weight: agent.focused ? .semibold : .regular))
+                metaLine
             }
             .padding(.horizontal, 8)
-            .padding(.vertical, 5)
+            .padding(.vertical, 4)
             .frame(maxWidth: .infinity, alignment: .leading)
             .contentShape(Rectangle())
             .background(
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .fill(hovering ? Color.primary.opacity(0.08) : Color.clear)
+                RoundedRectangle(cornerRadius: 5, style: .continuous)
+                    .fill(rowFill)
             )
         }
         .buttonStyle(.plain)
@@ -165,25 +168,72 @@ private struct AgentRow: View {
         }
     }
 
+    private var rowFill: Color {
+        if agent.focused {
+            return Color.accentColor.opacity(0.22)
+        }
+        if hovering {
+            return Color.accentColor.opacity(0.14)
+        }
+        return .clear
+    }
+
+    private var metaLine: some View {
+        HStack(spacing: 0) {
+            if let group = agent.groupName, !group.isEmpty {
+                Text(group)
+                    .foregroundStyle(accentColor(agent.groupAccent))
+            }
+            if agent.showsStatus, let status = agent.statusLabel {
+                if agent.groupName != nil { Text(" - ").foregroundStyle(.tertiary) }
+                Text(status).foregroundStyle(statusColor(agent.status))
+            }
+            if let age = agent.age {
+                if agent.groupName != nil || agent.showsStatus {
+                    Text(" - ").foregroundStyle(.tertiary)
+                }
+                Text(age).foregroundStyle(.secondary)
+            }
+        }
+        .font(.system(size: 11))
+        .lineLimit(1)
+    }
+
     private func titleLabel(_ title: String) -> some View {
         let parts = splitTitle(title)
         return HStack(spacing: 0) {
             if !parts.prefix.isEmpty {
-                Text(parts.prefix)
-                    .foregroundStyle(.tertiary)
+                Text(parts.prefix).foregroundStyle(.tertiary)
             }
-            Text(parts.leaf)
-                .foregroundStyle(.primary)
+            Text(parts.leaf).foregroundStyle(.primary)
         }
-        .font(.system(size: 13))
         .lineLimit(1)
     }
 
     private func splitTitle(_ title: String) -> (prefix: String, leaf: String) {
-        guard let idx = title.lastIndex(of: "/") else {
-            return ("", title)
-        }
+        guard let idx = title.lastIndex(of: "/") else { return ("", title) }
         return (String(title[...idx]), String(title[title.index(after: idx)...]))
+    }
+
+    private func accentColor(_ name: String?) -> Color {
+        switch name {
+        case "blue": return Color(red: 0.32, green: 0.52, blue: 0.92)
+        case "magenta": return Color(red: 0.85, green: 0.42, blue: 0.68)
+        case "cyan": return Color(red: 0.28, green: 0.72, blue: 0.82)
+        case "green": return Color(red: 0.36, green: 0.68, blue: 0.38)
+        case "yellow": return Color(red: 0.88, green: 0.62, blue: 0.20)
+        case "red": return Color(red: 0.86, green: 0.36, blue: 0.36)
+        default: return Color(red: 0.70, green: 0.47, blue: 0.85)
+        }
+    }
+
+    private func statusColor(_ status: AgentRecord.Status) -> Color {
+        switch status {
+        case .blocked: return Color(red: 0.90, green: 0.35, blue: 0.35)
+        case .working: return Color(red: 0.86, green: 0.56, blue: 0.18)
+        case .done: return Color(red: 0.30, green: 0.68, blue: 0.72)
+        case .idle, .unknown: return Color(red: 0.38, green: 0.68, blue: 0.42)
+        }
     }
 }
 

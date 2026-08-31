@@ -1255,6 +1255,7 @@ impl App {
                 .default_location
                 .as_ref()
                 .map(crate::api::schema::resource_location_params_from),
+            accent: group.accent.map(|accent| accent.as_str().to_string()),
         }
     }
     pub(crate) fn set_pending_remote_container_name(
