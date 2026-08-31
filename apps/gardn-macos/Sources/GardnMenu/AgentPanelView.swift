@@ -184,8 +184,9 @@ private struct SectionHeader: View {
             .contentShape(Rectangle())
             .background(
                 RoundedRectangle(cornerRadius: 4, style: .continuous)
-                    .fill(hovering ? Color.accentColor.opacity(0.12) : .clear)
+                    .fill(hovering ? Color(nsColor: .quaternarySystemFill) : .clear)
             )
+
         }
         .buttonStyle(.plain)
         .onHover { hovering = $0 }
@@ -227,14 +228,9 @@ private struct AgentRow: View {
     }
 
     private var rowFill: Color {
-        if agent.focused {
-            return Color.accentColor.opacity(0.22)
-        }
-        if hovering {
-            return Color.accentColor.opacity(0.12)
-        }
-        return .clear
+        hovering ? Color(nsColor: .quaternarySystemFill) : .clear
     }
+
 
     private var metaLine: some View {
         HStack(spacing: 0) {
