@@ -1,0 +1,257 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 56;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		A01 /* GardnMenuApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = F01 /* GardnMenuApp.swift */; };
+		A02 /* AgentNotifications.swift in Sources */ = {isa = PBXBuildFile; fileRef = F02 /* AgentNotifications.swift */; };
+		A03 /* AgentStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = F03 /* AgentStore.swift */; };
+		A04 /* AgentPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F04 /* AgentPanelView.swift */; };
+		A05 /* GardnClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = F05 /* GardnClient.swift */; };
+		A06 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = F06 /* Assets.xcassets */; };
+		CBBBED55304584740002C11D /* AppIcon.icon in Resources */ = {isa = PBXBuildFile; fileRef = CBBBED54304584740002C11D /* AppIcon.icon */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		CBBBED54304584740002C11D /* AppIcon.icon */ = {isa = PBXFileReference; lastKnownFileType = folder.iconcomposer.icon; path = Assets/AppIcon.icon; sourceTree = "<group>"; };
+		F01 /* GardnMenuApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GardnMenuApp.swift; sourceTree = "<group>"; };
+		F02 /* AgentNotifications.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentNotifications.swift; sourceTree = "<group>"; };
+		F03 /* AgentStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentStore.swift; sourceTree = "<group>"; };
+		F04 /* AgentPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentPanelView.swift; sourceTree = "<group>"; };
+		F05 /* GardnClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GardnClient.swift; sourceTree = "<group>"; };
+		F06 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		F07 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		P00 /* GardnMenu.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = GardnMenu.app; sourceTree = BUILT_PRODUCTS_DIR; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		FW0 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		G00 = {
+			isa = PBXGroup;
+			children = (
+				G10 /* Sources */,
+				F06 /* Assets.xcassets */,
+				F07 /* Info.plist */,
+				G90 /* Products */,
+				CBBBED54304584740002C11D /* AppIcon.icon */,
+			);
+			sourceTree = "<group>";
+		};
+		G10 /* Sources */ = {
+			isa = PBXGroup;
+			children = (
+				F01 /* GardnMenuApp.swift */,
+				F02 /* AgentNotifications.swift */,
+				F03 /* AgentStore.swift */,
+				F04 /* AgentPanelView.swift */,
+				F05 /* GardnClient.swift */,
+			);
+			name = Sources;
+			path = Sources/GardnMenu;
+			sourceTree = "<group>";
+		};
+		G90 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				P00 /* GardnMenu.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		T00 /* GardnMenu */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = C10 /* Build configuration list for PBXNativeTarget "GardnMenu" */;
+			buildPhases = (
+				S00 /* Sources */,
+				FW0 /* Frameworks */,
+				R00 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = GardnMenu;
+			productName = GardnMenu;
+			productReference = P00 /* GardnMenu.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		PR0 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 2600;
+				LastUpgradeCheck = 2600;
+				TargetAttributes = {
+					T00 = {
+						CreatedOnToolsVersion = 26.0;
+					};
+				};
+			};
+			buildConfigurationList = C00 /* Build configuration list for PBXProject "GardnMenu" */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = G00;
+			productRefGroup = G90 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				T00 /* GardnMenu */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		R00 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A06 /* Assets.xcassets in Resources */,
+				CBBBED55304584740002C11D /* AppIcon.icon in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		S00 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A01 /* GardnMenuApp.swift in Sources */,
+				A02 /* AgentNotifications.swift in Sources */,
+				A03 /* AgentStore.swift in Sources */,
+				A04 /* AgentPanelView.swift in Sources */,
+				A05 /* GardnClient.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		D00 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_TESTABILITY = YES;
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = macosx;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
+		};
+		D01 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
+				SDKROOT = macosx;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+			};
+			name = Release;
+		};
+		T10 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 9;
+				ENABLE_HARDENED_RUNTIME = NO;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.masakiro.gardn.menu;
+				PRODUCT_NAME = GardnMenu;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		T11 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 9;
+				ENABLE_HARDENED_RUNTIME = NO;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.masakiro.gardn.menu;
+				PRODUCT_NAME = GardnMenu;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		C00 /* Build configuration list for PBXProject "GardnMenu" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				D00 /* Debug */,
+				D01 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		C10 /* Build configuration list for PBXNativeTarget "GardnMenu" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				T10 /* Debug */,
+				T11 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = PR0 /* Project object */;
+}
