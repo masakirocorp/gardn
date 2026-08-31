@@ -8684,7 +8684,7 @@ next_tab = ""
     }
 
     #[test]
-    fn gardn_toast_delivery_keeps_toast_in_frame_without_client_notify() {
+    fn gardn_toast_delivery_keeps_update_ready_in_frame_without_client_notify() {
         let mut server = test_headless_server();
         let (client_tx, client_control_rx, _client_rx) = test_client_writer();
 
@@ -8709,12 +8709,13 @@ next_tab = ""
         });
 
         assert!(changed);
-        assert!(server.app.state.toast.is_some());
+        assert_eq!(server.app.state.update_available.as_deref(), Some("9.9.9"));
+        assert_eq!(server.app.state.toast, None);
         assert!(
             client_control_rx
                 .recv_timeout(Duration::from_millis(50))
                 .is_err(),
-            "gardn delivery should render in-frame instead of forwarding a client-local notification"
+            "gardn delivery should keep update-ready in the sidebar instead of forwarding a client-local notification"
         );
     }
 

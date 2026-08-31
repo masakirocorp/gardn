@@ -4180,18 +4180,6 @@ impl AppState {
                 self.update_install_command = install_command.clone();
                 self.latest_release_notes_available = true;
                 self.update_dismissed = true;
-                if matches!(
-                    self.toast_config.delivery,
-                    crate::config::ToastDelivery::Gardn
-                ) {
-                    self.toast = Some(ToastNotification {
-                        kind: ToastKind::UpdateInstalled,
-                        title: format!("v{version} Available"),
-                        context: format!("Detach, then run `{install_command}`"),
-                        position: None,
-                        target: None,
-                    });
-                }
                 Vec::new()
             }
             AppEvent::AgentDetectionManifestsUpdated { updated, status } => {
@@ -6574,7 +6562,7 @@ mod tests {
     }
 
     #[test]
-    fn update_ready_sets_explicit_upgrade_toast() {
+    fn update_ready_marks_available_without_toast() {
         let mut state = AppState::test_new();
         state.toast_config.delivery = crate::config::ToastDelivery::Gardn;
 
@@ -6586,9 +6574,7 @@ mod tests {
         assert!(updates.is_empty());
         assert_eq!(state.update_available.as_deref(), Some("0.5.0"));
         assert!(state.latest_release_notes_available);
-        let toast = state.toast.as_ref().expect("update toast");
-        assert_eq!(toast.title, "v0.5.0 Available");
-        assert_eq!(toast.context, "Detach, then run `gardn update`");
+        assert_eq!(state.toast, None);
     }
 
     fn mark_agent(state: &mut AppState, ws_idx: usize, tab_idx: usize, pane_id: PaneId) {
@@ -7822,7 +7808,7 @@ mod tests {
     }
 
     #[test]
-    fn update_ready_sets_manual_update_toast() {
+    fn update_ready_sets_manual_update_state() {
         let mut state = AppState::test_new();
         state.toast_config.delivery = crate::config::ToastDelivery::Gardn;
 
@@ -7835,14 +7821,11 @@ mod tests {
         assert_eq!(state.update_available.as_deref(), Some("0.5.0"));
         assert!(state.latest_release_notes_available);
         assert!(state.update_dismissed);
-        let toast = state.toast.as_ref().expect("update toast");
-        assert_eq!(toast.kind, ToastKind::UpdateInstalled);
-        assert_eq!(toast.title, "v0.5.0 Available");
-        assert_eq!(toast.context, "Detach, then run `gardn update`");
+        assert_eq!(state.toast, None);
     }
 
     #[test]
-    fn update_ready_uses_event_install_command_in_toast() {
+    fn update_ready_stores_event_install_command() {
         let mut state = AppState::test_new();
         state.toast_config.delivery = crate::config::ToastDelivery::Gardn;
 
@@ -7852,8 +7835,7 @@ mod tests {
         });
 
         assert_eq!(state.update_install_command, "custom upgrade gardn");
-        let toast = state.toast.as_ref().expect("update toast");
-        assert_eq!(toast.context, "Detach, then run `custom upgrade gardn`");
+        assert_eq!(state.toast, None);
     }
 
     #[test]

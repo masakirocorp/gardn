@@ -432,7 +432,7 @@ Configurable areas include:
 
 Direct installs use GitHub Releases for update checks, release metadata, and binary downloads on Linux, macOS, and Windows. mise and Nix-managed installs are routed to their package manager instead of self-update.
 
-- The app can notify when a new release or managed-install update is available.
+- When a newer release is available, the sidebar `?` control stays on `? Update Ready` until you install it.
 - `gardn update` downloads and swaps supported direct binary installs.
 - mise and Nix-managed installs are blocked from self-update and should use their package manager.
 - Live handoff can preserve running pane processes during updates when both the old and new server support the handoff protocol.

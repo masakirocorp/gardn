@@ -3482,13 +3482,7 @@ pub(crate) fn global_launcher_rect_for_view(app: &AppState, client_view: &Client
         .saturating_add(1)
         .min(footer.x.saturating_add(footer.width.saturating_sub(1)));
     let available = footer.x.saturating_add(footer.width).saturating_sub(x);
-    let width = if app.config_issue.is_some() && available >= 14 {
-        14
-    } else if app.config_issue.is_some() && available >= 2 {
-        2
-    } else {
-        1.min(available)
-    };
+    let width = app.global_launcher_width(available);
     Rect::new(x, footer.y, width, footer.height)
 }
 

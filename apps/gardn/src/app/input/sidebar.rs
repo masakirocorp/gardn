@@ -251,23 +251,41 @@ impl AppState {
             .saturating_add(1)
             .min(footer.x.saturating_add(footer.width.saturating_sub(1)));
         let available = footer.x.saturating_add(footer.width).saturating_sub(x);
-        let width = if self.config_issue.is_some() && available >= 14 {
-            14
-        } else if self.config_issue.is_some() && available >= 2 {
-            2
-        } else {
-            1.min(available)
-        };
+        let width = self.global_launcher_width(available);
         Rect::new(x, footer.y, width, footer.height)
     }
 
+    pub(crate) fn global_launcher_is_expanded(&self) -> bool {
+        self.config_issue.is_some() || self.update_available.is_some()
+    }
+
+    pub(crate) fn global_launcher_width(&self, available: u16) -> u16 {
+        if self.global_launcher_is_expanded() && available >= 14 {
+            14
+        } else if self.global_launcher_is_expanded() && available >= 2 {
+            2
+        } else {
+            1.min(available)
+        }
+    }
+
     pub(crate) fn global_launcher_label(&self, width: u16) -> &'static str {
-        if self.config_issue.is_none() {
-            "?"
-        } else if width >= 14 {
-            "? Config Issue"
-        } else if width >= 2 {
-            "?!"
+        if self.config_issue.is_some() {
+            if width >= 14 {
+                "? Config Issue"
+            } else if width >= 2 {
+                "?!"
+            } else {
+                "?"
+            }
+        } else if self.update_available.is_some() {
+            if width >= 14 {
+                "? Update Ready"
+            } else if width >= 2 {
+                "?*"
+            } else {
+                "?"
+            }
         } else {
             "?"
         }
@@ -2140,6 +2158,22 @@ mod tests {
         );
         assert!(text.contains("Jump PgUp / PgDn"), "rendered modal:\n{text}");
         assert!(text.contains("Esc Close"));
+    }
+
+    #[test]
+    fn update_available_replaces_footer_help_with_persistent_label() {
+        let mut app = app_for_mouse_test();
+        app.state.integration_recommendations.clear();
+        app.state.update_available = Some("0.10.0".into());
+        app.state.mode = Mode::Terminal;
+
+        let (_, buffer) = render_app(&mut app, 120, 30);
+        let launcher = app.state.global_launcher_rect();
+        assert_eq!(buffer_rect_text(&buffer, launcher), "? Update Ready");
+        assert_eq!(
+            buffer[(launcher.x, launcher.y)].style().fg,
+            Some(app.state.palette.accent)
+        );
     }
 
     #[test]
