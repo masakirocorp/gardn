@@ -120,15 +120,18 @@ struct AgentPanelView: View {
                         onFocus: { store.focus(agent) },
                         onFollowUp: { store.setFollowUp(agent, enabled: $0) }
                     )
-                    .padding(.horizontal, 8)
+                    .padding(.leading, 20)
+                    .padding(.trailing, 8)
                 }
                 if section == .followUp, rows.isEmpty {
                     Text("None")
                         .font(.system(size: 11))
                         .foregroundStyle(.tertiary)
-                        .padding(.horizontal, 8)
+                        .padding(.leading, 20)
+                        .padding(.trailing, 8)
                         .padding(.vertical, 2)
                 }
+
             }
         }
     }
