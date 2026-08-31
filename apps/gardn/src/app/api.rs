@@ -1069,6 +1069,14 @@ impl App {
                 client_view.reconcile(&self.state);
                 crate::api::ApiRequestDisposition::Respond(response)
             }
+            crate::api::schema::Method::AgentFocus(target) => {
+                self.drain_internal_events();
+                client_view.reconcile(&self.state);
+                let response = self.handle_agent_focus_for_view(client_view, request.id, target);
+                client_view.reconcile(&self.state);
+                crate::api::ApiRequestDisposition::Respond(response)
+            }
+
             crate::api::schema::Method::PaneSplit(params) => {
                 self.drain_internal_events();
                 client_view.reconcile(&self.state);

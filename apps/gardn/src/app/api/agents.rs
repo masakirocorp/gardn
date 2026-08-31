@@ -6,7 +6,7 @@ use crate::api::schema::{
     AgentPromptParams, AgentRenameParams, AgentSendKeysParams, AgentStartParams, AgentTarget,
     PaneReadResult, ResponseResult,
 };
-use crate::app::App;
+use crate::app::{view_state::ClientViewState, App, Mode};
 
 use super::responses::{encode_error, encode_error_body, encode_success};
 
@@ -35,6 +35,42 @@ impl App {
         let agent = match self.focus_agent_target(&target.target) {
             Ok(agent) => agent,
             Err(err) => return encode_error_body(id, self.agent_target_error_body(err)),
+        };
+
+        encode_success(id, ResponseResult::AgentInfo { agent })
+    }
+
+    pub(super) fn handle_agent_focus_for_view(
+        &mut self,
+        view: &mut ClientViewState,
+        id: String,
+        target: AgentTarget,
+    ) -> String {
+        view.reconcile(&self.state);
+        let resolved = match self.resolve_agent_target(&target.target) {
+            Ok(resolved) => resolved,
+            Err(err) => return encode_error_body(id, self.agent_target_error_body(err)),
+        };
+        view.focus_pane_in_workspace(
+            &self.state,
+            resolved.ws_idx,
+            resolved.tab_idx,
+            resolved.pane_id,
+        );
+        view.active_workspace = Some(resolved.ws_idx);
+        view.selected_workspace = resolved.ws_idx;
+        view.mode = Mode::Terminal;
+        if view.can_mutate_tab() {
+            self.state.focus_workspace_tab_pane(
+                resolved.ws_idx,
+                resolved.tab_idx,
+                resolved.pane_id,
+            );
+            self.state.mark_active_tab_seen();
+            self.state.mode = Mode::Terminal;
+        }
+        let Some(agent) = self.agent_info(resolved.ws_idx, resolved.pane_id) else {
+            return agent_not_found(id, &target.target);
         };
 
         encode_success(id, ResponseResult::AgentInfo { agent })
@@ -351,6 +387,7 @@ impl App {
         if !super::super::agents::runtime_hosts_agent(runtime, expected_agent) {
             return agent_not_ready(id, &params.target);
         }
+
         let encoded_keys = match super::super::api_helpers::encode_api_keys(runtime, &params.keys) {
             Ok(encoded_keys) => encoded_keys,
             Err(key) => return encode_error(id, "invalid_key", format!("unsupported key {key}")),
@@ -383,7 +420,8 @@ fn agent_not_ready(id: String, target: &str) -> String {
 mod tests {
     use super::*;
     use crate::{
-        api::schema::{AgentStatus, SuccessResponse},
+        api::schema::{AgentStatus, AgentTarget, SuccessResponse},
+        app::{view_state::ClientViewState, Mode},
         config::Config,
         detect::AgentState,
         workspace::Workspace,
@@ -502,5 +540,44 @@ mod tests {
         assert_eq!(agents.len(), 1);
         assert!(agents[0].in_triage);
         assert_eq!(agents[0].agent_status, AgentStatus::Idle);
+    }
+
+    #[test]
+    fn agent_focus_for_view_switches_the_invoking_client() {
+        let mut app = test_app();
+        app.state.workspaces = vec![Workspace::test_new("one"), Workspace::test_new("two")];
+        app.state.ensure_test_terminals();
+        let pane_id = app.state.workspaces[1].tabs[0].root_pane;
+        let terminal_id = app.state.workspaces[1]
+            .pane_state(pane_id)
+            .expect("root pane")
+            .attached_terminal_id
+            .clone();
+        app.state
+            .terminals
+            .get_mut(&terminal_id)
+            .expect("terminal")
+            .agent_name = Some("omp".into());
+        app.state.active = Some(0);
+        app.state.selected = 0;
+
+        let mut view = ClientViewState::from_default_client_state(&app.state);
+        assert_eq!(view.active_workspace, Some(0));
+
+        let response = app.handle_agent_focus_for_view(
+            &mut view,
+            "focus".into(),
+            AgentTarget {
+                target: terminal_id.to_string(),
+            },
+        );
+        let success: SuccessResponse = serde_json::from_str(&response).unwrap();
+        let ResponseResult::AgentInfo { agent } = success.result else {
+            panic!("expected agent info");
+        };
+        assert_eq!(agent.terminal_id, terminal_id.to_string());
+        assert_eq!(view.active_workspace, Some(1));
+        assert_eq!(view.selected_workspace, 1);
+        assert_eq!(view.mode, Mode::Terminal);
     }
 }
