@@ -15401,6 +15401,23 @@ mod tests {
     }
 
     #[test]
+    fn agent_target_accepts_follow_up_without_agent_identity() {
+        let mut app = test_app();
+        let workspace = Workspace::test_new("follow-up-target");
+        let pane = workspace.tabs[0].root_pane;
+        let terminal_id = workspace.terminal_id(pane).unwrap().to_string();
+        app.state.workspaces = vec![workspace];
+        app.state.ensure_test_terminals();
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        assert!(app.state.insert_agent_follow_up(0, pane));
+
+        let resolved = app.resolve_agent_target(&terminal_id).unwrap();
+        assert_eq!(resolved.pane_id, pane);
+        assert_eq!(resolved.terminal_id, terminal_id);
+    }
+
+    #[test]
     fn agent_prompt_rejects_empty_text_at_api_boundary() {
         let mut app = test_app();
 

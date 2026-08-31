@@ -88,7 +88,11 @@ impl App {
         let is_agent = self.state.terminals.values().any(|terminal| {
             terminal.id.to_string() == resolved.terminal_id && terminal.is_agent_terminal()
         });
-        if is_agent {
+        if is_agent
+            || self
+                .state
+                .is_agent_follow_up(resolved.ws_idx, resolved.pane_id)
+        {
             Ok(resolved)
         } else {
             Err(TerminalTargetError::NotFound {

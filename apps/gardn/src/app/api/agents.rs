@@ -577,4 +577,35 @@ mod tests {
         assert_eq!(view.selected_workspace, 1);
         assert_eq!(view.mode, Mode::Terminal);
     }
+
+    #[test]
+    fn agent_focus_for_view_switches_follow_up_without_agent_identity() {
+        let mut app = test_app();
+        app.state.workspaces = vec![Workspace::test_new("one"), Workspace::test_new("queued")];
+        app.state.ensure_test_terminals();
+        let pane_id = app.state.workspaces[1].tabs[0].root_pane;
+        let terminal_id = app.state.workspaces[1]
+            .pane_state(pane_id)
+            .expect("root pane")
+            .attached_terminal_id
+            .clone();
+        assert!(app.state.insert_agent_follow_up(1, pane_id));
+        app.state.active = Some(0);
+        app.state.selected = 0;
+
+        let mut view = ClientViewState::from_default_client_state(&app.state);
+        let response = app.handle_agent_focus_for_view(
+            &mut view,
+            "focus".into(),
+            AgentTarget {
+                target: terminal_id.to_string(),
+            },
+        );
+        let success: SuccessResponse = serde_json::from_str(&response).unwrap();
+        let ResponseResult::AgentInfo { .. } = success.result else {
+            panic!("expected agent info, got {response}");
+        };
+        assert_eq!(view.active_workspace, Some(1));
+        assert_eq!(view.mode, Mode::Terminal);
+    }
 }
