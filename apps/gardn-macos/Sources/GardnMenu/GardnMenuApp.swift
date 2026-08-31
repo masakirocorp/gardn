@@ -20,6 +20,7 @@ final class ExtraAppDelegate: NSObject, NSApplicationDelegate {
     private let popover = NSPopover()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        Self.terminateOtherCopies()
         NSApp.setActivationPolicy(.accessory)
         UNUserNotificationCenter.current().delegate = self
         AgentNotifications.requestAuthorization()
@@ -35,7 +36,16 @@ final class ExtraAppDelegate: NSObject, NSApplicationDelegate {
         store.onNeedsAttentionChange = { [weak self] alert in
             self?.applyIcon(alert)
         }
+        store.start()
         applyIcon(store.needsAttention)
+    }
+
+    private static func terminateOtherCopies() {
+        let id = Bundle.main.bundleIdentifier ?? "com.masakiro.gardn.menu"
+        let me = NSRunningApplication.current
+        for app in NSRunningApplication.runningApplications(withBundleIdentifier: id) where app != me {
+            app.forceTerminate()
+        }
     }
 
 

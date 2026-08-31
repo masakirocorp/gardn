@@ -22,7 +22,6 @@ final class AgentStore: ObservableObject {
     init(socketPath: String = GardnClient.defaultSocketPath()) {
         client = GardnClient(socketPath: socketPath)
         collapsed = Self.loadCollapsed()
-        start()
     }
 
     func start() {
@@ -31,14 +30,13 @@ final class AgentStore: ObservableObject {
             return
         }
         refresh()
-        timer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
+        let timer = Timer(timeInterval: 2, repeats: true) { [weak self] _ in
             Task { @MainActor in
                 self?.refresh()
             }
         }
-        if let timer {
-            RunLoop.main.add(timer, forMode: .common)
-        }
+        RunLoop.main.add(timer, forMode: .common)
+        self.timer = timer
     }
 
     func stop() {
@@ -93,8 +91,10 @@ final class AgentStore: ObservableObject {
     private func publishAttentionChanges() {
         guard connected else { return }
         var next = [String: AgentNotifications.Kind]()
+        var seen = Set<String>()
         for agent in agents {
             guard let kind = AgentNotifications.Kind.of(agent) else { continue }
+            guard seen.insert(agent.terminalId).inserted else { continue }
             next[agent.terminalId] = kind
             if hasBaseline, knownAttention[agent.terminalId] != kind {
                 AgentNotifications.post(agent: agent, kind: kind)

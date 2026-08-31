@@ -47,12 +47,16 @@ enum AgentNotifications {
         content.sound = .default
         content.userInfo = [terminalIdKey: agent.terminalId]
         content.threadIdentifier = agent.terminalId
+        let identifier = agent.terminalId
         let request = UNNotificationRequest(
-            identifier: agent.terminalId,
+            identifier: identifier,
             content: content,
             trigger: nil
         )
-        UNUserNotificationCenter.current().add(request) { error in
+        let center = UNUserNotificationCenter.current()
+        center.removeDeliveredNotifications(withIdentifiers: [identifier])
+        center.removePendingNotificationRequests(withIdentifiers: [identifier])
+        center.add(request) { error in
             if let error {
                 log.error("notification post failed: \(error.localizedDescription, privacy: .public)")
             }
