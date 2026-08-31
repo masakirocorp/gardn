@@ -156,7 +156,7 @@ List every agent terminal across all workspaces and tabs.
 | ------------ | ------ | ----------------------------------- |
 | `agent.list` | none   | `AgentList { agents: AgentInfo[] }` |
 
-`agents` contains one `AgentInfo` per pane whose terminal is marked as an agent terminal, in workspace then tab then traversal order. Empty when no agents exist.
+`agents` contains one `AgentInfo` per pane whose terminal is marked as an agent terminal, in workspace then tab then traversal order. Empty when no agents exist. `follow_up` and `follow_up_added_at_unix_secs` come from the same Follow Up queue the Agents sidebar uses. `last_meaningful_agent_activity_unix_secs` is the timestamp that sidebar uses for age.
 
 ```json
 { "id": "ex:agent-list", "method": "agent.list", "params": {} }
@@ -177,7 +177,9 @@ List every agent terminal across all workspaces and tabs.
         "tab_id": "w1943cd2b11a1:t1",
         "pane_id": "w1943cd2b11a1:p2",
         "focused": false,
-        "revision": 12
+        "revision": 12,
+        "follow_up": true,
+        "follow_up_added_at_unix_secs": 1700000000
       }
     ]
   }

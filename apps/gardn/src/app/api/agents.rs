@@ -382,3 +382,55 @@ fn agent_not_ready(id: String, target: &str) -> String {
         format!("agent target {target} is not ready for input"),
     )
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        api::schema::{AgentStatus, SuccessResponse},
+        config::Config,
+        workspace::Workspace,
+    };
+
+    fn test_app() -> App {
+        let (_api_tx, api_rx) = tokio::sync::mpsc::unbounded_channel();
+        let mut app = App::new(
+            &Config::default(),
+            true,
+            None,
+            api_rx,
+            crate::api::EventHub::default(),
+        );
+        app.state.workspaces = vec![Workspace::test_new("agents")];
+        app.state.ensure_test_terminals();
+        app
+    }
+
+    #[test]
+    fn agent_list_includes_follow_up_from_session_state() {
+        let mut app = test_app();
+        let pane_id = app.state.workspaces[0].tabs[0].root_pane;
+        let terminal_id = app.state.workspaces[0]
+            .pane_state(pane_id)
+            .expect("root pane")
+            .attached_terminal_id
+            .clone();
+        app.state
+            .terminals
+            .get_mut(&terminal_id)
+            .expect("terminal")
+            .agent_name = Some("omp".into());
+        assert!(app.state.insert_agent_follow_up(0, pane_id));
+        app.state.agent_follow_up[0].added_at_unix_secs = 1_700_000_000;
+
+        let response = app.handle_agent_list("list".into());
+        let success: SuccessResponse = serde_json::from_str(&response).unwrap();
+        let ResponseResult::AgentList { agents } = success.result else {
+            panic!("expected agent list");
+        };
+        assert_eq!(agents.len(), 1);
+        assert!(agents[0].follow_up);
+        assert_eq!(agents[0].follow_up_added_at_unix_secs, Some(1_700_000_000));
+        assert_eq!(agents[0].agent_status, AgentStatus::Unknown);
+    }
+}
