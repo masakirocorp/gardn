@@ -36,6 +36,9 @@ final class ExtraAppDelegate: NSObject, NSApplicationDelegate {
         store.onNeedsAttentionChange = { [weak self] alert in
             self?.applyIcon(alert)
         }
+        store.onDidFocus = { [weak self] in
+            self?.popover.performClose(nil)
+        }
         store.start()
         applyIcon(store.needsAttention)
     }

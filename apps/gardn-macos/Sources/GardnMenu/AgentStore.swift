@@ -10,6 +10,7 @@ final class AgentStore: ObservableObject {
     @Published private(set) var collapsed: Set<AgentRecord.Section>
     @Published private(set) var needsAttention = false
     var onNeedsAttentionChange: ((Bool) -> Void)?
+    var onDidFocus: (() -> Void)?
 
 
     private var client: GardnClient
@@ -65,12 +66,15 @@ final class AgentStore: ObservableObject {
 
 
     func focus(_ agent: AgentRecord) {
-        focus(terminalId: agent.terminalId)
+        focus(terminalId: agent.terminalId, titleHint: agent.title)
     }
 
-    func focus(terminalId: String) {
+    func focus(terminalId: String, titleHint: String? = nil) {
         do {
             try client.focus(terminalId: terminalId)
+            let hint = titleHint ?? agents.first { $0.terminalId == terminalId }?.title
+            onDidFocus?()
+            HostTerminal.raise(clientSocketPath: client.clientSocketPath, titleHint: hint)
             refresh()
         } catch {
             connectionMessage = error.localizedDescription
