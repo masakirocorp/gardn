@@ -679,6 +679,18 @@ impl HeadlessServer {
         }
     }
 
+    fn reconcile_all_client_tab_controls(&mut self) {
+        let client_ids = self
+            .clients
+            .iter()
+            .filter(|(_, client)| client.view_state.is_some())
+            .map(|(&client_id, _)| client_id)
+            .collect::<Vec<_>>();
+        for client_id in client_ids {
+            self.reconcile_client_tab_control(client_id);
+        }
+    }
+
     fn resize_all_controlled_tabs(&mut self) {
         let controller_ids = self
             .clients
@@ -3878,6 +3890,7 @@ impl HeadlessServer {
         allow_empty_pending_agent_theme: bool,
     ) -> bool {
         self.prune_deleted_tab_controls();
+        self.reconcile_all_client_tab_controls();
         self.sync_all_tab_control_projections();
         let mut pending_resume_started = false;
         let render_targets = render_targets(&self.clients, self.foreground_client_id);
@@ -7270,6 +7283,53 @@ next_tab = ""
         );
     }
 
+    #[test]
+    fn api_tab_focus_does_not_paint_take_control_on_the_foreground_client() {
+        let mut server = test_headless_server();
+        let mut workspace = crate::workspace::Workspace::test_new("control");
+        workspace.test_add_tab(Some("logs"));
+        server.app.state.workspaces = vec![workspace];
+        server.app.state.ensure_test_terminals();
+        server.app.state.active = Some(0);
+        server.app.state.selected = 0;
+        server.app.state.mode = crate::app::Mode::Terminal;
+
+        let mut client = test_app_client(Some(true), 1);
+        client.view_state = Some(crate::app::ClientViewState::from_default_client_state(
+            &server.app.state,
+        ));
+        server.clients.insert(1, client);
+        server.foreground_client_id = Some(1);
+        assert!(server.reconcile_client_tab_control(1));
+        assert!(matches!(
+            server.clients[&1].view_state.as_ref().unwrap().tab_control,
+            crate::app::ClientTabControl::Controlling { .. }
+        ));
+
+        let workspace_id = server.app.state.workspaces[0].id.clone();
+        let tab_number = server.app.state.workspaces[0].tabs[1].number;
+        let tab_id = crate::workspace::public_tab_id_for_number(&workspace_id, tab_number);
+        let (respond_to, response_rx) = std::sync::mpsc::channel();
+        assert!(server.handle_api_request_with_shutdown_check(api::ApiRequestMessage {
+            request: api::schema::Request {
+                id: "focus".into(),
+                method: api::schema::Method::TabFocus(api::schema::TabTarget { tab_id }),
+            },
+            respond_to,
+            response_written: None,
+            stream_active: None,
+        }));
+        let _ = response_rx.recv_timeout(std::time::Duration::from_millis(100));
+
+        server.render_and_stream();
+        assert!(
+            matches!(
+                server.clients[&1].view_state.as_ref().unwrap().tab_control,
+                crate::app::ClientTabControl::Controlling { .. }
+            ),
+            "API focus must reclaim the destination tab before the next paint, not flash Take Control"
+        );
+    }
     #[test]
     fn terminal_attach_disconnect_restores_app_pane_size() {
         let rt = tokio::runtime::Builder::new_current_thread()
