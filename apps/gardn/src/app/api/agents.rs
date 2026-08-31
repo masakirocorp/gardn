@@ -40,11 +40,7 @@ impl App {
         encode_success(id, ResponseResult::AgentInfo { agent })
     }
 
-    pub(super) fn handle_agent_follow_up_add(
-        &mut self,
-        id: String,
-        target: AgentTarget,
-    ) -> String {
+    pub(super) fn handle_agent_follow_up_add(&mut self, id: String, target: AgentTarget) -> String {
         let resolved = match self.resolve_agent_target(&target.target) {
             Ok(resolved) => resolved,
             Err(err) => return encode_error_body(id, self.agent_target_error_body(err)),

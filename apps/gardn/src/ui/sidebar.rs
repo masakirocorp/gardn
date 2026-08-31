@@ -327,35 +327,33 @@ fn agent_panel_pane_disambiguator(app: &AppState, entry: &AgentPanelEntry) -> Op
 }
 
 fn disambiguate_agent_panel_labels(app: &AppState, entries: &mut [AgentPanelEntry]) {
-    for idx in 0..entries.len() {
-        let ws_idx = entries[idx].ws_idx;
-        let tab_idx = entries[idx].tab_idx;
-        let Some(workspace) = app.workspaces.get(ws_idx) else {
+    for entry in entries.iter_mut() {
+        let Some(workspace) = app.workspaces.get(entry.ws_idx) else {
             continue;
         };
         let include_tab = workspace.tabs.len() > 1;
         let include_pane = workspace
             .tabs
-            .get(tab_idx)
+            .get(entry.tab_idx)
             .is_some_and(|tab| tab.layout.pane_count() > 1);
         if !include_tab && !include_pane {
             continue;
         }
 
-        let mut label = entries[idx].primary_label.clone();
+        let mut label = entry.primary_label.clone();
         if include_tab {
-            if let Some(tab_label) = entries[idx].primary_tab_label.as_deref() {
+            if let Some(tab_label) = entry.primary_tab_label.as_deref() {
                 label.push('/');
                 label.push_str(tab_label);
             }
         }
         if include_pane {
-            if let Some(pane_label) = agent_panel_pane_disambiguator(app, &entries[idx]) {
+            if let Some(pane_label) = agent_panel_pane_disambiguator(app, entry) {
                 label.push('/');
                 label.push_str(&pane_label);
             }
         }
-        entries[idx].primary_label = label;
+        entry.primary_label = label;
     }
 }
 fn agent_panel_entries_with_context(
@@ -6414,14 +6412,14 @@ mod tests {
     #[test]
     fn agent_panel_title_mutes_text_before_the_last_slash() {
         let spans =
-            agent_panel_title_spans("hako/2/Pane 1", None, Style::default(), Style::default());
+            agent_panel_title_spans("repo/2/Pane 1", None, Style::default(), Style::default());
         assert_eq!(spans.len(), 2);
-        assert_eq!(spans[0].content.as_ref(), "hako/2/");
+        assert_eq!(spans[0].content.as_ref(), "repo/2/");
         assert_eq!(spans[1].content.as_ref(), "Pane 1");
 
-        let single = agent_panel_title_spans("hako", None, Style::default(), Style::default());
+        let single = agent_panel_title_spans("repo", None, Style::default(), Style::default());
         assert_eq!(single.len(), 1);
-        assert_eq!(single[0].content.as_ref(), "hako");
+        assert_eq!(single[0].content.as_ref(), "repo");
     }
 
     #[test]

@@ -1,3 +1,21 @@
+## gardn@0.10.0
+
+### Expose Follow Up on the local agent API
+
+`agent.list` and `agent.get` now include the same Follow Up queue and activity timestamps the Agents sidebar uses. `group.list` includes each group's accent color.
+
+### Use pane cwd for agent row titles
+
+Agent sidebar titles use the pane cwd. Multi-tab spaces append the tab name. Split tabs append the pane name or number. Prefix segments before the last slash are muted.
+
+### Add a beta Direct Install
+
+Install a GitHub prerelease as `gardn-beta` to dogfood the next stable on the same session. Stop the running server before switching binaries.
+
+### Left-align tab names and hide a single-tab bar
+
+Tab titles sit on the left of each tab cell. The Hide Single-Tab Bar setting now removes the tab row when a workspace has one tab.
+
 ## gardn@0.10.0-beta.0
 
 ### Add a beta Direct Install
