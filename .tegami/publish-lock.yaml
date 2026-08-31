@@ -1,16 +1,12 @@
 core:changelogs:
-  - content: "---\npackages:\n  gardn:\n    type: patch\n---\n\n### Match the macOS extra to the Agents sidebar\n\nThe menu extra lists agents in the same Triage, Follow Up, Working, and Idle groups as the app. The menu bar leaf fills when Follow Up or Triage needs attention.\n"
-    filename: macos-menu-extra.md
-    v: 0.0.0
-  - content: "---\npackages:\n  gardn:\n    type: patch\n---\n\n### Keep Update Ready on the help control\n\nWhen a new Gardn release is available, the sidebar `?` control stays on `? Update Ready` instead of a short toast. Opening that menu includes an Update Ready row that opens the changelog.\n"
-    filename: update-ready-footer.md
+  - content: "---\npackages:\n  gardn:\n    type: patch\n---\n\n### Focus an agent from the macOS extra\n\nClicking an agent in the menu extra now switches the last-active Gardn client to that pane. If no client is attached, the next attach opens there. The menu bar leaf fills the three cube faces when Follow Up or Triage needs attention.\n"
+    filename: extra-agent-focus.md
     v: 0.0.0
 core:packages:
   - id: npm:@gardn/website
     updated: false
   - changelogIds:
-      - macos-menu-extra.md
-      - update-ready-footer.md
+      - extra-agent-focus.md
     id: cargo:gardn
     updated: true
   - id: cargo:gardn-local-api
