@@ -1,17 +1,17 @@
 core:changelogs:
-  - content: "---\npackages:\n  gardn:\n    type: patch\n---\n\n### Focus Follow Up agents from the extra\n\nClicking a Follow Up row now opens that pane even when the queued agent no longer has a live agent identity.\n"
-    filename: follow-up-agent-focus.md
+  - content: "---\npackages:\n  gardn:\n    type: patch\n---\n\n### Notify from the macOS extra when an agent needs you\n\nThe menu extra posts a Notification Center alert when an agent finishes, blocks, or joins Follow Up. Alerts fire when that state changes, not when you later open the extra.\n\n### Bring the host terminal forward from the extra\n\nClicking an extra row or a notification focuses that pane and activates the terminal that is running Gardn.\n\n### Keep control when focusing from the extra\n\nFocusing an agent from the extra no longer flashes Take Control.\n"
+    filename: macos-extra-notify-and-focus.md
     v: 0.0.0
 core:packages:
   - id: npm:@gardn/website
     updated: false
-  - changelogIds:
-      - follow-up-agent-focus.md
-    id: cargo:gardn
-    updated: true
   - id: cargo:gardn-local-api
     updated: false
   - id: cargo:portable-pty
     updated: false
+  - changelogIds:
+      - macos-extra-notify-and-focus.md
+    id: cargo:gardn
+    updated: true
 npm:packages:
   - id: npm:@gardn/website
