@@ -56,7 +56,8 @@ enum StatusItemImage {
         let image = NSImage(size: size, flipped: false) { rect in
             let inset = rect.insetBy(dx: 2.5, dy: 1)
             if alert {
-                NSColor.black.withAlphaComponent(0.5).setFill()
+                NSColor.black.withAlphaComponent(0.3).setFill()
+
                 leafFaces(in: inset).fill()
             }
             NSColor.black.setStroke()
