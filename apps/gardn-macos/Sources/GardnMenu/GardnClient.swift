@@ -31,20 +31,22 @@ struct AgentRecord: Identifiable, Hashable {
     var statusLabel: String?
     var age: String?
     var followUp: Bool
+    var inTriage: Bool
     var focused: Bool
 
     var section: Section {
         if followUp { return .followUp }
+        if inTriage || status == .blocked || status == .done { return .triage }
         switch status {
-        case .blocked, .done: return .triage
         case .working: return .working
-        case .idle, .unknown: return .idle
+        case .idle, .unknown, .blocked, .done: return .idle
         }
     }
 
     var needsAttention: Bool {
-        followUp || status == .blocked || status == .done
+        followUp || inTriage || status == .blocked || status == .done
     }
+
 
     var showsStatus: Bool {
         section == .triage || section == .followUp
@@ -213,7 +215,9 @@ struct GardnClient {
                         ?? unixSecs(raw["last_meaningful_agent_activity_unix_secs"])
                 ),
                 followUp: followUp,
+                inTriage: boolValue(raw["in_triage"]) || status == .blocked || status == .done,
                 focused: boolValue(raw["focused"])
+
             )
         }
 
@@ -235,7 +239,9 @@ struct GardnClient {
                 statusLabel: statusText(.idle),
                 age: activityAge(unixSecs: addedAt > 0 ? addedAt : nil),
                 followUp: true,
+                inTriage: false,
                 focused: false
+
             ))
         }
         return records

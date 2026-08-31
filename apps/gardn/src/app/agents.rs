@@ -604,6 +604,8 @@ impl App {
             last_meaningful_agent_activity_unix_secs: terminal
                 .last_meaningful_agent_activity_unix_secs(),
             follow_up: self.state.is_agent_follow_up(ws_idx, pane_id),
+            in_triage: self.state.pane_is_in_triage(ws_idx, pane_id),
+
             follow_up_added_at_unix_secs: self.state.follow_up_added_at(ws_idx, pane_id),
         })
     }

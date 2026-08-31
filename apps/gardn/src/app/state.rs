@@ -3910,6 +3910,37 @@ impl AppState {
             .any(|entry| entry.matches(&workspace_id, pane_number))
     }
 
+    pub(crate) fn pane_is_in_triage(
+        &self,
+        ws_idx: usize,
+        pane_id: crate::layout::PaneId,
+    ) -> bool {
+        let Some(workspace) = self.workspaces.get(ws_idx) else {
+            return false;
+        };
+        let Some(pane) = workspace.pane_state(pane_id) else {
+            return false;
+        };
+        let state = self
+            .terminals
+            .get(&pane.attached_terminal_id)
+            .map(|terminal| terminal.state)
+            .unwrap_or(AgentState::Unknown);
+        if state == AgentState::Blocked {
+            return true;
+        }
+        if state != AgentState::Idle {
+            return false;
+        }
+        if !pane.seen {
+            return true;
+        }
+        self.triage_hold.as_ref().is_some_and(|(workspace_id, hold_pane)| {
+            workspace_id == &workspace.id && *hold_pane == pane_id
+        })
+    }
+
+
     pub(crate) fn follow_up_added_at(
         &self,
         ws_idx: usize,

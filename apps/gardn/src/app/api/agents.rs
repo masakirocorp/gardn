@@ -385,8 +385,10 @@ mod tests {
     use crate::{
         api::schema::{AgentStatus, SuccessResponse},
         config::Config,
+        detect::AgentState,
         workspace::Workspace,
     };
+
 
     fn test_app() -> App {
         let (_api_tx, api_rx) = tokio::sync::mpsc::unbounded_channel();
@@ -444,5 +446,74 @@ mod tests {
         assert_eq!(agents.len(), 1);
         assert!(agents[0].follow_up);
     }
+
+    #[test]
+    fn agent_list_marks_unseen_idle_as_in_triage() {
+        let mut app = test_app();
+        let pane_id = app.state.workspaces[0].tabs[0].root_pane;
+        let terminal_id = app.state.workspaces[0]
+            .pane_state(pane_id)
+            .expect("root pane")
+            .attached_terminal_id
+            .clone();
+        let terminal = app
+            .state
+            .terminals
+            .get_mut(&terminal_id)
+            .expect("terminal");
+        terminal.agent_name = Some("omp".into());
+        terminal.state = AgentState::Idle;
+        app.state.workspaces[0]
+            .tabs[0]
+            .panes
+            .get_mut(&pane_id)
+            .expect("pane")
+            .seen = false;
+
+        let response = app.handle_agent_list("list".into());
+        let success: SuccessResponse = serde_json::from_str(&response).unwrap();
+        let ResponseResult::AgentList { agents } = success.result else {
+            panic!("expected agent list");
+        };
+        assert_eq!(agents.len(), 1);
+        assert!(agents[0].in_triage);
+        assert_eq!(agents[0].agent_status, AgentStatus::Done);
+    }
+
+    #[test]
+    fn agent_list_keeps_focused_done_agent_in_triage() {
+        let mut app = test_app();
+        let workspace_id = app.state.workspaces[0].id.clone();
+        let pane_id = app.state.workspaces[0].tabs[0].root_pane;
+        let terminal_id = app.state.workspaces[0]
+            .pane_state(pane_id)
+            .expect("root pane")
+            .attached_terminal_id
+            .clone();
+        let terminal = app
+            .state
+            .terminals
+            .get_mut(&terminal_id)
+            .expect("terminal");
+        terminal.agent_name = Some("omp".into());
+        terminal.state = AgentState::Idle;
+        app.state.workspaces[0]
+            .tabs[0]
+            .panes
+            .get_mut(&pane_id)
+            .expect("pane")
+            .seen = true;
+        app.state.triage_hold = Some((workspace_id, pane_id));
+
+        let response = app.handle_agent_list("list".into());
+        let success: SuccessResponse = serde_json::from_str(&response).unwrap();
+        let ResponseResult::AgentList { agents } = success.result else {
+            panic!("expected agent list");
+        };
+        assert_eq!(agents.len(), 1);
+        assert!(agents[0].in_triage);
+        assert_eq!(agents[0].agent_status, AgentStatus::Idle);
+    }
+
 
 }

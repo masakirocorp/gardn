@@ -52,7 +52,8 @@ final class AgentStore: ObservableObject {
             connectionMessage = error.localizedDescription
         }
         needsAttention = agents.contains { $0.needsAttention }
-        StatusItemImage.applyToStatusItem(alert: needsAttention)
+        StatusItemImage.apply(alert: needsAttention)
+
     }
 
     func focus(_ agent: AgentRecord) {

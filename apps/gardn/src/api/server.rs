@@ -965,6 +965,8 @@ mod tests {
             revision: 0,
             last_meaningful_agent_activity_unix_secs: None,
             follow_up: false,
+            in_triage: false,
+
             follow_up_added_at_unix_secs: None,
         }
     }
@@ -1038,6 +1040,8 @@ mod tests {
             revision: 0,
             last_meaningful_agent_activity_unix_secs: None,
             follow_up: false,
+            in_triage: false,
+
             follow_up_added_at_unix_secs: None,
         }
     }
