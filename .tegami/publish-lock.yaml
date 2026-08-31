@@ -1,29 +1,21 @@
 core:changelogs:
-  - content: "---\npackages:\n  gardn:\n    type: patch\n  gardn-docs:\n    type: patch\n---\n\n### Expose Follow Up on the local agent API\n\n`agent.list` and `agent.get` now include the same Follow Up queue and activity timestamps the Agents sidebar uses. `group.list` includes each group's accent color.\n"
-    filename: agent-list-follow-up.md
+  - content: "---\npackages:\n  gardn:\n    type: patch\n---\n\n### Match the macOS extra to the Agents sidebar\n\nThe menu extra lists agents in the same Triage, Follow Up, Working, and Idle groups as the app. The menu bar leaf fills when Follow Up or Triage needs attention.\n"
+    filename: macos-menu-extra.md
     v: 0.0.0
-  - content: "---\npackages:\n  gardn:\n    type: patch\n---\n\n### Use pane cwd for agent row titles\n\nAgent sidebar titles use the pane cwd. Multi-tab spaces append the tab name. Split tabs append the pane name or number. Prefix segments before the last slash are muted.\n"
-    filename: agent-row-cwd-titles.md
-    v: 0.0.0
-  - content: "---\npackages:\n  gardn:\n    replay:\n      - exit-prerelease(cargo:gardn)\n---\n\n### Add a beta Direct Install\n\nInstall a GitHub prerelease as `gardn-beta` to dogfood the next stable on the same session. Stop the running server before switching binaries.\n"
-    filename: beta-release-line.md
-    v: 0.0.0
-  - content: "---\npackages:\n  gardn:\n    replay:\n      - exit-prerelease(cargo:gardn)\n---\n\n### Left-align tab names and hide a single-tab bar\n\nTab titles sit on the left of each tab cell. The Hide Single-Tab Bar setting now removes the tab row when a workspace has one tab.\n"
-    filename: tab-bar-chrome.md
+  - content: "---\npackages:\n  gardn:\n    type: patch\n---\n\n### Keep Update Ready on the help control\n\nWhen a new Gardn release is available, the sidebar `?` control stays on `? Update Ready` instead of a short toast. Opening that menu includes an Update Ready row that opens the changelog.\n"
+    filename: update-ready-footer.md
     v: 0.0.0
 core:packages:
   - id: npm:@gardn/website
     updated: false
+  - changelogIds:
+      - macos-menu-extra.md
+      - update-ready-footer.md
+    id: cargo:gardn
+    updated: true
   - id: cargo:gardn-local-api
     updated: false
   - id: cargo:portable-pty
     updated: false
-  - changelogIds:
-      - agent-list-follow-up.md
-      - agent-row-cwd-titles.md
-      - beta-release-line.md
-      - tab-bar-chrome.md
-    id: cargo:gardn
-    updated: true
 npm:packages:
   - id: npm:@gardn/website

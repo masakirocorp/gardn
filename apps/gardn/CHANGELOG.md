@@ -1,3 +1,13 @@
+## gardn@0.10.1
+
+### Match the macOS extra to the Agents sidebar
+
+The menu extra lists agents in the same Triage, Follow Up, Working, and Idle groups as the app. The menu bar leaf fills when Follow Up or Triage needs attention.
+
+### Keep Update Ready on the help control
+
+When a new Gardn release is available, the sidebar `?` control stays on `? Update Ready` instead of a short toast. Opening that menu includes an Update Ready row that opens the changelog.
+
 ## gardn@0.10.0
 
 ### Expose Follow Up on the local agent API
