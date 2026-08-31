@@ -12,8 +12,6 @@ struct GardnMenuApp: App {
     var body: some Scene {
         MenuBarExtra {
             AgentPanelView(store: store)
-                .onAppear { store.start() }
-                .onDisappear { store.stop() }
         } label: {
             StatusItemLabel(alert: store.needsAttention)
                 .id(store.needsAttention)
@@ -36,7 +34,7 @@ private struct StatusItemLabel: View {
     }
 }
 
-private enum StatusItemImage {
+enum StatusItemImage {
     static func load(alert: Bool) -> NSImage? {
         let base = alert ? "StatusAlertTemplate" : "StatusTemplate"
         guard let image = loadPNG(base) ?? loadPNG(base + "@2x") else {
@@ -47,10 +45,37 @@ private enum StatusItemImage {
         return image
     }
 
+    static func applyToStatusItem(alert: Bool) {
+        guard let image = load(alert: alert) else { return }
+        for button in statusBarButtons() {
+            button.image = image
+            button.image?.isTemplate = true
+        }
+    }
+
     private static func loadPNG(_ name: String) -> NSImage? {
         guard let url = Bundle.module.url(forResource: name, withExtension: "png") else {
             return nil
         }
         return NSImage(contentsOf: url)
+    }
+
+    private static func statusBarButtons() -> [NSStatusBarButton] {
+        var buttons: [NSStatusBarButton] = []
+        for window in NSApp.windows {
+            collectButtons(from: window.contentView, into: &buttons)
+            collectButtons(from: window.contentView?.superview, into: &buttons)
+        }
+        return buttons
+    }
+
+    private static func collectButtons(from view: NSView?, into buttons: inout [NSStatusBarButton]) {
+        guard let view else { return }
+        if let button = view as? NSStatusBarButton {
+            buttons.append(button)
+        }
+        for subview in view.subviews {
+            collectButtons(from: subview, into: &buttons)
+        }
     }
 }

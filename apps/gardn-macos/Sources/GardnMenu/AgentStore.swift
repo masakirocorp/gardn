@@ -8,14 +8,11 @@ final class AgentStore: ObservableObject {
     @Published private(set) var actionError: String?
     @Published private(set) var connected = false
     @Published private(set) var collapsed: Set<AgentRecord.Section>
+    @Published private(set) var needsAttention = false
 
     private var client: GardnClient
     private var timer: Timer?
     private static let collapsedKey = "gardn.extra.collapsedSections"
-
-    var needsAttention: Bool {
-        agents.contains { $0.needsAttention }
-    }
 
     init(socketPath: String = GardnClient.defaultSocketPath()) {
         client = GardnClient(socketPath: socketPath)
@@ -54,6 +51,8 @@ final class AgentStore: ObservableObject {
             connected = false
             connectionMessage = error.localizedDescription
         }
+        needsAttention = agents.contains { $0.needsAttention }
+        StatusItemImage.applyToStatusItem(alert: needsAttention)
     }
 
     func focus(_ agent: AgentRecord) {
