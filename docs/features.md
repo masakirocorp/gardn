@@ -121,6 +121,8 @@ Supported built-in detection includes:
 ### Agent UI
 
 - **Activity sidebar** — shows agents in Triage (when nonempty), always-present Follow Up, Working, and Idle. An expanded empty Follow Up section shows a muted `Drop an agent here` row on desktop and mobile. Its full desktop width and the section header accept drops. Follow Up is shared placement, not a lifecycle state: drag an agent row onto the Follow Up header or body to queue it, or right-click any agent row to add it to or remove it from Follow Up. Queued agents keep their real runtime state and waiting age, ordered oldest-added first. Successful unmodified Enter from the human terminal input path clears that pane's placement; typing, paste, failed sends, and API automation do not. Closing a pane or restoring without that target drops stale queue entries. Triage lists oldest meaningful activity first (no activity counts as oldest); Working and Idle stay newest-first.
+- **macOS extra** — a menu extra lists the same Triage, Follow Up, Working, and Idle groups as the Agents sidebar. The menu bar leaf fills when Follow Up or Triage needs attention. Click a row to focus that agent. Right-click to add or remove Follow Up.
+
 - **Agent focus** — focus agents from the activity panel, command surfaces, CLI, or socket API.
 - **Agent labels** — manual, detected, and integration-reported labels are surfaced in lists and pane borders.
 - **Agent metadata tokens** — pane metadata token patches are exposed consistently through pane/agent API snapshots and rendered without leaking one client's sidebar view into another.
