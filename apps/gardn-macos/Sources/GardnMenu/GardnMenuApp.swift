@@ -55,13 +55,12 @@ enum StatusItemImage {
         let size = NSSize(width: 22, height: 22)
         let image = NSImage(size: size, flipped: false) { rect in
             let inset = rect.insetBy(dx: 2.5, dy: 1)
-            let fill = leafFill(in: inset)
-            let stroke = leafStroke(in: inset)
             if alert {
-                NSColor.black.setFill()
-                fill.fill()
+                NSColor.black.withAlphaComponent(0.5).setFill()
+                leafFaces(in: inset).fill()
             }
             NSColor.black.setStroke()
+            let stroke = leafStroke(in: inset)
             stroke.lineWidth = 1.4
             stroke.lineJoinStyle = .round
             stroke.lineCapStyle = .round
@@ -80,17 +79,26 @@ enum StatusItemImage {
         )
     }
 
-    private static func leafFill(in rect: NSRect) -> NSBezierPath {
+    private static func leafFaces(in rect: NSRect) -> NSBezierPath {
         let path = NSBezierPath()
         path.move(to: map(128, 38, in: rect))
         path.line(to: map(176, 72, in: rect))
+        path.line(to: map(128, 112, in: rect))
+        path.line(to: map(80, 72, in: rect))
+        path.close()
+        path.move(to: map(80, 72, in: rect))
+        path.line(to: map(80, 140, in: rect))
+        path.line(to: map(128, 180, in: rect))
+        path.line(to: map(128, 112, in: rect))
+        path.close()
+        path.move(to: map(176, 72, in: rect))
         path.line(to: map(176, 140, in: rect))
         path.line(to: map(128, 180, in: rect))
-        path.line(to: map(80, 140, in: rect))
-        path.line(to: map(80, 72, in: rect))
+        path.line(to: map(128, 112, in: rect))
         path.close()
         return path
     }
+
 
     private static func leafStroke(in rect: NSRect) -> NSBezierPath {
         let path = NSBezierPath()
