@@ -167,7 +167,7 @@ private struct AgentRow: View {
         Button(action: onFocus) {
             VStack(alignment: .leading, spacing: 0) {
                 titleLabel(agent.title)
-                    .font(.system(size: 13, weight: agent.focused ? .semibold : .regular))
+                    .font(.system(size: 11, weight: agent.focused ? .semibold : .regular))
                 metaLine
             }
             .padding(.horizontal, 6)
@@ -217,7 +217,7 @@ private struct AgentRow: View {
                 Text(age).foregroundStyle(.secondary)
             }
         }
-        .font(.system(size: 12))
+        .font(.system(size: 13))
         .lineLimit(1)
     }
 
