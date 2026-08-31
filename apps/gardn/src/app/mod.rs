@@ -5513,7 +5513,9 @@ impl App {
                 );
             }
             input::GlobalMenuAction::Keybinds => Self::open_client_view_keybind_help(client_view),
-            input::GlobalMenuAction::Changelog => Self::open_client_view_changelog(client_view),
+            input::GlobalMenuAction::Changelog | input::GlobalMenuAction::UpdateReady => {
+                Self::open_client_view_changelog(client_view)
+            }
         }
     }
 

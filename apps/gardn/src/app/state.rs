@@ -4151,7 +4151,8 @@ impl AppState {
     }
 
     pub(crate) fn global_menu_item_has_badge(&self, item: &str) -> bool {
-        (item == "Configuration issue" && self.config_issue.is_some())
+        (item == "Configuration Issue" && self.config_issue.is_some())
+            || (item == "Update Ready" && self.update_available.is_some())
             || (item == "Changelog"
                 && (self.update_available.is_some() || self.latest_release_notes_available))
             || (item == "Integrations" && self.integration_updates_available())

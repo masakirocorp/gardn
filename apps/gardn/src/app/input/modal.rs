@@ -71,6 +71,7 @@ pub(crate) fn modal_action_from_buttons<A: Copy>(
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum GlobalMenuAction {
     ConfigIssue,
+    UpdateReady,
     Detach,
     UpdateIntegrations,
     Changelog,
@@ -83,6 +84,9 @@ pub(crate) fn global_menu_actions(state: &AppState) -> Vec<GlobalMenuAction> {
     let mut actions = Vec::new();
     if state.config_issue.is_some() {
         actions.push(GlobalMenuAction::ConfigIssue);
+    }
+    if state.update_available.is_some() {
+        actions.push(GlobalMenuAction::UpdateReady);
     }
     actions.push(GlobalMenuAction::Changelog);
     if state.integration_updates_available() {
@@ -216,11 +220,11 @@ pub(crate) fn request_detach(state: &mut AppState) {
 pub(super) fn apply_global_menu_action(state: &mut AppState, action: GlobalMenuAction) {
     match action {
         GlobalMenuAction::ConfigIssue => open_config_diagnostics(state),
+        GlobalMenuAction::UpdateReady | GlobalMenuAction::Changelog => open_changelog(state),
         GlobalMenuAction::Detach => {
             leave_modal(state);
             request_detach(state);
         }
-        GlobalMenuAction::Changelog => open_changelog(state),
         GlobalMenuAction::UpdateIntegrations => super::settings::open_settings_at(
             state,
             crate::app::state::SettingsSection::Integrations,
@@ -1909,6 +1913,19 @@ mod tests {
             .expect("release notes modal state");
         assert_eq!(notes.version, env!("CARGO_PKG_VERSION"));
         assert!(!notes.body.is_empty());
+    }
+
+    #[test]
+    fn global_menu_includes_update_ready_when_a_release_is_available() {
+        let mut state = state_with_workspaces(&["test"]);
+        state.update_available = Some("0.10.0".into());
+
+        assert!(global_menu_actions(&state).contains(&GlobalMenuAction::UpdateReady));
+        assert!(state.global_menu_item_has_badge("Update Ready"));
+
+        apply_global_menu_action(&mut state, GlobalMenuAction::UpdateReady);
+
+        assert_eq!(state.mode, Mode::ReleaseNotes);
     }
 
     #[test]

@@ -296,6 +296,9 @@ impl AppState {
         if self.config_issue.is_some() {
             labels.push("Configuration Issue");
         }
+        if self.update_available.is_some() {
+            labels.push("Update Ready");
+        }
         labels.push("Changelog");
         if self.integration_updates_available() {
             labels.push("Integrations");
@@ -2182,10 +2185,10 @@ mod tests {
         app.state.update_available = Some("0.3.2".into());
         app.state.latest_release_notes_available = true;
         app.state.integration_recommendations.clear();
-
         assert_eq!(
             app.state.global_menu_labels(),
             vec![
+                "Update Ready",
                 "Changelog",
                 "Settings",
                 "Keybinds",
