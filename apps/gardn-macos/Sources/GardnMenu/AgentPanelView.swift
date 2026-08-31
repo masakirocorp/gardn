@@ -91,12 +91,12 @@ struct AgentPanelView: View {
                 store.toggleCollapsed(section)
             } label: {
                 HStack(spacing: 5) {
-                    Text(collapsed ? "▸" : "▾")
-                        .foregroundStyle(.tertiary)
-                        .frame(width: 8, alignment: .center)
                     Text(sectionIcon(section))
                     Text(section.rawValue)
                     Spacer(minLength: 0)
+                    Text(collapsed ? "▸" : "▾")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(.tertiary)
                 }
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(sectionColor(section))
@@ -112,17 +112,18 @@ struct AgentPanelView: View {
                         onFocus: { store.focus(agent) },
                         onFollowUp: { store.setFollowUp(agent, enabled: $0) }
                     )
-                    .padding(.leading, 32)
+                    .padding(.leading, 24)
                     .padding(.trailing, 6)
                 }
                 if section == .followUp, rows.isEmpty {
                     Text("Drop an agent here")
                         .font(.system(size: 11))
                         .foregroundStyle(.tertiary)
-                        .padding(.leading, 38)
+                        .padding(.leading, 24)
                         .padding(.vertical, 2)
                 }
             }
+
         }
     }
 
