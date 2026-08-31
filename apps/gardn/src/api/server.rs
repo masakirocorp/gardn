@@ -961,6 +961,7 @@ mod tests {
             cwd: None,
             foreground_cwd: None,
             revision: 0,
+            last_meaningful_agent_activity_unix_secs: None,
         }
     }
 
@@ -1031,6 +1032,7 @@ mod tests {
             cwd: None,
             foreground_cwd: None,
             revision: 0,
+            last_meaningful_agent_activity_unix_secs: None,
         }
     }
 

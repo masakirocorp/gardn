@@ -84,55 +84,54 @@ struct AgentPanelView: View {
                     store.focus(agent)
                 } label: {
                     HStack(alignment: .firstTextBaseline, spacing: 8) {
-                        Circle()
-                            .fill(statusColor(agent.status))
-                            .frame(width: 7, height: 7)
-                        VStack(alignment: .leading, spacing: 1) {
-                            Text(agent.title)
-                                .font(.callout)
-                                .foregroundStyle(.primary)
+                        titleLabel(agent.title)
+                        Spacer(minLength: 4)
+                        if !agent.subtitle.isEmpty {
+                            Text(agent.subtitle)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
                                 .lineLimit(1)
-                            if !agent.subtitle.isEmpty {
-                                Text(agent.subtitle)
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                                    .lineLimit(1)
-                            }
                         }
-                        Spacer(minLength: 0)
                     }
                     .padding(.horizontal, 8)
                     .padding(.vertical, 6)
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .background(
-                    RoundedRectangle(cornerRadius: 6)
-                        .fill(Color.primary.opacity(0.04))
-                )
             }
         }
+    }
+
+    private func titleLabel(_ title: String) -> some View {
+        let prefix: String
+        let leaf: String
+        if let idx = title.lastIndex(of: "/") {
+            prefix = String(title[...idx])
+            leaf = String(title[title.index(after: idx)...])
+        } else {
+            prefix = ""
+            leaf = title
+        }
+        return HStack(spacing: 0) {
+            if !prefix.isEmpty {
+                Text(prefix)
+                    .foregroundStyle(.tertiary)
+            }
+            Text(leaf)
+                .foregroundStyle(.primary)
+        }
+        .font(.callout)
+        .lineLimit(1)
     }
 
     private func sectionColor(_ section: AgentRecord.Section) -> Color {
         switch section {
         case .triage:
-            return Color(red: 0.72, green: 0.42, blue: 0.18)
+            return Color(red: 1.0, green: 0.72, blue: 0.42)
         case .working:
-            return Color(red: 0.11, green: 0.35, blue: 0.24)
+            return Color(red: 0.95, green: 0.82, blue: 0.22)
         case .idle:
-            return Color.secondary
-        }
-    }
-
-    private func statusColor(_ status: AgentRecord.Status) -> Color {
-        switch status {
-        case .blocked, .done:
-            return Color(red: 0.72, green: 0.42, blue: 0.18)
-        case .working:
             return Color(red: 0.49, green: 0.73, blue: 0.45)
-        case .idle, .unknown:
-            return Color.secondary
         }
     }
 }

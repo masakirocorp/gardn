@@ -601,6 +601,8 @@ impl App {
             cwd: pane.cwd,
             foreground_cwd: pane.foreground_cwd,
             revision: pane.revision,
+            last_meaningful_agent_activity_unix_secs: terminal
+                .last_meaningful_agent_activity_unix_secs(),
         })
     }
 

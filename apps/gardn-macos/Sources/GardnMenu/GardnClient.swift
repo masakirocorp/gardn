@@ -119,13 +119,46 @@ struct GardnClient {
             ?? (raw["agent"] as? String)
             ?? terminalId
         let agent = (raw["display_agent"] as? String) ?? (raw["agent"] as? String)
-        let subtitle = [agent, raw["agent_status"] as? String].compactMap { $0 }.joined(separator: " · ")
+        let custom = raw["custom_status"] as? String
+        let age = Self.activityAge(unixSecs: Self.unixSecs(raw["last_meaningful_agent_activity_unix_secs"]))
+        let subtitle = [agent, custom, age].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")
         return AgentRecord(
             terminalId: terminalId,
             title: title,
             subtitle: subtitle,
             status: status
         )
+    }
+
+    private static func unixSecs(_ value: Any?) -> UInt64? {
+        if let n = value as? NSNumber {
+            return n.uint64Value
+        }
+        if let n = value as? UInt64 {
+            return n
+        }
+        if let n = value as? Int, n >= 0 {
+            return UInt64(n)
+        }
+        return nil
+    }
+
+    private static func activityAge(unixSecs: UInt64?) -> String? {
+        guard let unixSecs else { return nil }
+        let now = UInt64(Date().timeIntervalSince1970)
+        let elapsed = now > unixSecs ? now - unixSecs : 0
+        if elapsed < 60 {
+            return "Now"
+        }
+        let minutes = elapsed / 60
+        if minutes < 60 {
+            return "\(minutes)m"
+        }
+        let hours = minutes / 60
+        if hours < 24 {
+            return "\(hours)h"
+        }
+        return "\(hours / 24)d"
     }
 }
 
