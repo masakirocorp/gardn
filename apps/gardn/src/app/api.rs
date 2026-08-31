@@ -1609,6 +1609,16 @@ impl App {
                     self.handle_agent_focus(request.id, target),
                 )
             }
+            Method::AgentFollowUpAdd(target) => {
+                return crate::api::ApiRequestDisposition::Respond(
+                    self.handle_agent_follow_up_add(request.id, target),
+                )
+            }
+            Method::AgentFollowUpRemove(target) => {
+                return crate::api::ApiRequestDisposition::Respond(
+                    self.handle_agent_follow_up_remove(request.id, target),
+                )
+            }
             Method::AgentRename(params) => {
                 return crate::api::ApiRequestDisposition::Respond(
                     self.handle_agent_rename(request.id, params),

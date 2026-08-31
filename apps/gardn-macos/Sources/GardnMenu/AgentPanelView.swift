@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 struct AgentPanelView: View {
@@ -15,7 +16,7 @@ struct AgentPanelView: View {
             }
         }
         .frame(width: 276, height: panelHeight, alignment: .top)
-        .background(.regularMaterial)
+        .background { PopoverChrome().ignoresSafeArea() }
     }
 
     private var panelHeight: CGFloat {
@@ -87,9 +88,11 @@ struct AgentPanelView: View {
                 .padding(.top, 8)
                 .padding(.bottom, 3)
             ForEach(rows) { agent in
-                AgentRow(agent: agent) {
-                    store.focus(agent)
-                }
+                AgentRow(
+                    agent: agent,
+                    onFocus: { store.focus(agent) },
+                    onFollowUp: { store.setFollowUp(agent, enabled: $0) }
+                )
             }
         }
     }
@@ -110,11 +113,12 @@ struct AgentPanelView: View {
 
 private struct AgentRow: View {
     var agent: AgentRecord
-    var action: () -> Void
+    var onFocus: () -> Void
+    var onFollowUp: (Bool) -> Void
     @State private var hovering = false
 
     var body: some View {
-        Button(action: action) {
+        Button(action: onFocus) {
             HStack(spacing: 8) {
                 titleLabel(agent.title)
                 Spacer(minLength: 8)
@@ -136,6 +140,13 @@ private struct AgentRow: View {
         }
         .buttonStyle(.plain)
         .onHover { hovering = $0 }
+        .contextMenu {
+            if agent.followUp {
+                Button("Remove from Follow Up") { onFollowUp(false) }
+            } else {
+                Button("Add to Follow Up") { onFollowUp(true) }
+            }
+        }
     }
 
     private func titleLabel(_ title: String) -> some View {
@@ -157,5 +168,26 @@ private struct AgentRow: View {
             return ("", title)
         }
         return (String(title[...idx]), String(title[title.index(after: idx)...]))
+    }
+}
+
+private struct PopoverChrome: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSVisualEffectView {
+        let view = NSVisualEffectView()
+        view.material = .hudWindow
+        view.blendingMode = .behindWindow
+        view.state = .active
+        view.isEmphasized = true
+        return view
+    }
+
+    func updateNSView(_ view: NSVisualEffectView, context: Context) {
+        guard let window = view.window else { return }
+        window.isOpaque = false
+        window.backgroundColor = .clear
+        window.hasShadow = true
+        window.titlebarAppearsTransparent = true
+        window.titleVisibility = .hidden
+        window.styleMask.insert(.fullSizeContentView)
     }
 }

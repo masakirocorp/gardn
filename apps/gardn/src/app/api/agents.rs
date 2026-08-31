@@ -40,6 +40,46 @@ impl App {
         encode_success(id, ResponseResult::AgentInfo { agent })
     }
 
+    pub(super) fn handle_agent_follow_up_add(
+        &mut self,
+        id: String,
+        target: AgentTarget,
+    ) -> String {
+        let resolved = match self.resolve_agent_target(&target.target) {
+            Ok(resolved) => resolved,
+            Err(err) => return encode_error_body(id, self.agent_target_error_body(err)),
+        };
+        self.state
+            .insert_agent_follow_up(resolved.ws_idx, resolved.pane_id);
+        let agent = match self.agent_info(resolved.ws_idx, resolved.pane_id) {
+            Some(agent) => agent,
+            None => return agent_not_found(id, &target.target),
+        };
+        encode_success(id, ResponseResult::AgentInfo { agent })
+    }
+
+    pub(super) fn handle_agent_follow_up_remove(
+        &mut self,
+        id: String,
+        target: AgentTarget,
+    ) -> String {
+        let resolved = match self.resolve_agent_target(&target.target) {
+            Ok(resolved) => resolved,
+            Err(err) => return encode_error_body(id, self.agent_target_error_body(err)),
+        };
+        let workspace_id = match self.state.workspaces.get(resolved.ws_idx) {
+            Some(workspace) => workspace.id.clone(),
+            None => return agent_not_found(id, &target.target),
+        };
+        self.state
+            .clear_agent_follow_up_for_pane(&workspace_id, resolved.pane_id);
+        let agent = match self.agent_info(resolved.ws_idx, resolved.pane_id) {
+            Some(agent) => agent,
+            None => return agent_not_found(id, &target.target),
+        };
+        encode_success(id, ResponseResult::AgentInfo { agent })
+    }
+
     pub(super) fn handle_agent_rename(&mut self, id: String, params: AgentRenameParams) -> String {
         let agent = match self.rename_agent_target(&params.target, params.name) {
             Ok(agent) => agent,

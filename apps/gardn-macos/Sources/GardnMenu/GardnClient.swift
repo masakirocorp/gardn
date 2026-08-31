@@ -89,6 +89,22 @@ struct GardnClient {
         ])
     }
 
+    func addFollowUp(terminalId: String) throws {
+        _ = try transact([
+            "id": "menu:agent.follow_up.add",
+            "method": "agent.follow_up.add",
+            "params": ["target": terminalId],
+        ])
+    }
+
+    func removeFollowUp(terminalId: String) throws {
+        _ = try transact([
+            "id": "menu:agent.follow_up.remove",
+            "method": "agent.follow_up.remove",
+            "params": ["target": terminalId],
+        ])
+    }
+
     private func resultObject(_ json: [String: Any]) throws -> [String: Any] {
         if let error = json["error"] as? [String: Any] {
             let message = error["message"] as? String ?? "request failed"

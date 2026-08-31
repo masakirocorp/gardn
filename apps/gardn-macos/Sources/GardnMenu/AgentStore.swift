@@ -61,6 +61,19 @@ final class AgentStore: ObservableObject {
         }
     }
 
+    func setFollowUp(_ agent: AgentRecord, enabled: Bool) {
+        do {
+            if enabled {
+                try client.addFollowUp(terminalId: agent.terminalId)
+            } else {
+                try client.removeFollowUp(terminalId: agent.terminalId)
+            }
+            refresh()
+        } catch {
+            connectionMessage = error.localizedDescription
+        }
+    }
+
     func agents(in section: AgentRecord.Section) -> [AgentRecord] {
         agents.filter { $0.section == section }
     }

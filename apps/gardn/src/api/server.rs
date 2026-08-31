@@ -469,6 +469,8 @@ fn api_method_name(method: &Method) -> &'static str {
         Method::AgentViewSet(_) => "agent.view.set",
         Method::AgentViewClear(_) => "agent.view.clear",
         Method::AgentFocus(_) => "agent.focus",
+        Method::AgentFollowUpAdd(_) => "agent.follow_up.add",
+        Method::AgentFollowUpRemove(_) => "agent.follow_up.remove",
         Method::AgentStart(_) => "agent.start",
         Method::AgentWait(_) => "agent.wait",
         Method::PaneFocus(_) => "pane.focus",

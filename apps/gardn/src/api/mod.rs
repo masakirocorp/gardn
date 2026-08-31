@@ -44,6 +44,8 @@ pub(crate) fn request_changes_ui(request: &Request) -> bool {
             | Method::AgentViewSet(_)
             | Method::AgentViewClear(_)
             | Method::AgentFocus(_)
+            | Method::AgentFollowUpAdd(_)
+            | Method::AgentFollowUpRemove(_)
             | Method::AgentStart(_)
             | Method::PaneSplit(_)
             | Method::PaneSwap(_)

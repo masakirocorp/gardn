@@ -148,6 +148,10 @@ pub enum Method {
     AgentViewClear(AgentViewClearParams),
     #[serde(rename = "agent.focus")]
     AgentFocus(AgentTarget),
+    #[serde(rename = "agent.follow_up.add")]
+    AgentFollowUpAdd(AgentTarget),
+    #[serde(rename = "agent.follow_up.remove")]
+    AgentFollowUpRemove(AgentTarget),
     #[serde(rename = "agent.start")]
     AgentStart(AgentStartParams),
     #[serde(rename = "agent.wait")]
