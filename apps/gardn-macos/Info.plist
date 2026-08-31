@@ -8,6 +8,9 @@
 	<string>GardnMenu</string>
 	<key>CFBundleIconFile</key>
 	<string>AppIcon</string>
+	<key>CFBundleIconName</key>
+	<string>AppIcon</string>
+
 	<key>CFBundleIdentifier</key>
 	<string>com.masakiro.gardn.menu</string>
 	<key>CFBundleInfoDictionaryVersion</key>

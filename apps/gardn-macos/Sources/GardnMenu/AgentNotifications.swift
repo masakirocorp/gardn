@@ -41,7 +41,9 @@ enum AgentNotifications {
         guard allowed else { return }
         let content = UNMutableNotificationContent()
         content.title = agent.title
-        content.body = kind.body
+        content.subtitle = kind.headline
+        let details = detailLine(agent)
+        content.body = details.isEmpty ? kind.headline : details
         content.sound = .default
         content.userInfo = [terminalIdKey: agent.terminalId]
         content.threadIdentifier = agent.terminalId
@@ -57,13 +59,27 @@ enum AgentNotifications {
         }
     }
 
+    private static func detailLine(_ agent: AgentRecord) -> String {
+        var parts: [String] = []
+        if let group = agent.groupName?.trimmingCharacters(in: .whitespacesAndNewlines), !group.isEmpty {
+            parts.append(group)
+        }
+        if let status = agent.statusLabel, !status.isEmpty {
+            parts.append(status)
+        }
+        if let age = agent.age, !age.isEmpty {
+            parts.append(age)
+        }
+        return parts.joined(separator: " · ")
+    }
+
     enum Kind: Equatable {
         case blocked
         case done
         case followUp
         case triage
 
-        var body: String {
+        var headline: String {
             switch self {
             case .blocked: return "Needs attention"
             case .done: return "Finished"
@@ -71,6 +87,7 @@ enum AgentNotifications {
             case .triage: return "Triage"
             }
         }
+
 
         static func of(_ agent: AgentRecord) -> Kind? {
             if agent.status == .blocked { return .blocked }
