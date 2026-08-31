@@ -32,10 +32,13 @@ struct AgentPanelView: View {
         }
         var height: CGFloat = 36
         if store.actionError != nil { height += 18 }
+        var firstSection = true
         for section in AgentRecord.Section.allCases {
             let rows = store.agents(in: section)
             if section != .followUp, rows.isEmpty { continue }
-            height += 20
+            if !firstSection { height += 6 }
+            firstSection = false
+            height += 24
             if store.isCollapsed(section) { continue }
             if rows.isEmpty {
                 height += 16
@@ -46,13 +49,27 @@ struct AgentPanelView: View {
         return min(560, height + 8)
     }
 
+
     private var header: some View {
-        Text("Agents")
-            .font(.system(size: 12, weight: .semibold))
-            .padding(.horizontal, 10)
-            .padding(.top, 8)
-            .padding(.bottom, 4)
+        HStack(alignment: .firstTextBaseline) {
+            Text("Agents")
+            Spacer(minLength: 0)
+            if attentionCount > 0 {
+                Text("\(attentionCount)")
+                    .font(.system(size: 11, weight: .semibold).monospacedDigit())
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .font(.system(size: 12, weight: .semibold))
+        .padding(.horizontal, 10)
+        .padding(.top, 8)
+        .padding(.bottom, 4)
     }
+
+    private var attentionCount: Int {
+        store.agents.filter(\.needsAttention).count
+    }
+
 
     private var disconnected: some View {
         Text(store.connectionMessage ?? "Gardn isn’t running")
@@ -72,7 +89,7 @@ struct AgentPanelView: View {
 
     private var list: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 0) {
+            VStack(alignment: .leading, spacing: 6) {
                 ForEach(AgentRecord.Section.allCases, id: \.self) { section in
                     let rows = store.agents(in: section)
                     if section == .followUp || !rows.isEmpty {
@@ -87,24 +104,15 @@ struct AgentPanelView: View {
     private func sectionBlock(_ section: AgentRecord.Section, rows: [AgentRecord]) -> some View {
         let collapsed = store.isCollapsed(section)
         return VStack(alignment: .leading, spacing: 0) {
-            Button {
+            SectionHeader(
+                section: section,
+                icon: sectionIcon(section),
+                color: sectionColor(section),
+                collapsed: collapsed,
+                count: rows.count
+            ) {
                 store.toggleCollapsed(section)
-            } label: {
-                HStack(spacing: 5) {
-                    Text(sectionIcon(section))
-                    Text(section.rawValue)
-                    Spacer(minLength: 0)
-                    Text(collapsed ? "▸" : "▾")
-                        .font(.system(size: 10, weight: .semibold))
-                        .foregroundStyle(.tertiary)
-                }
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(sectionColor(section))
-                .padding(.horizontal, 8)
-                .padding(.vertical, 3)
-                .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
             if !collapsed {
                 ForEach(rows) { agent in
                     AgentRow(
@@ -112,18 +120,16 @@ struct AgentPanelView: View {
                         onFocus: { store.focus(agent) },
                         onFollowUp: { store.setFollowUp(agent, enabled: $0) }
                     )
-                    .padding(.leading, 24)
-                    .padding(.trailing, 6)
+                    .padding(.horizontal, 8)
                 }
                 if section == .followUp, rows.isEmpty {
-                    Text("Drop an agent here")
+                    Text("None")
                         .font(.system(size: 11))
                         .foregroundStyle(.tertiary)
-                        .padding(.leading, 24)
+                        .padding(.horizontal, 8)
                         .padding(.vertical, 2)
                 }
             }
-
         }
     }
 
@@ -144,7 +150,45 @@ struct AgentPanelView: View {
         case .idle: return Color(red: 0.38, green: 0.68, blue: 0.42)
         }
     }
+
 }
+
+private struct SectionHeader: View {
+    var section: AgentRecord.Section
+    var icon: String
+    var color: Color
+    var collapsed: Bool
+    var count: Int
+    var onToggle: () -> Void
+    @State private var hovering = false
+
+    var body: some View {
+        Button(action: onToggle) {
+            HStack(spacing: 5) {
+                Text(icon)
+                Text(section.rawValue)
+                Spacer(minLength: 0)
+                if collapsed, count > 0 {
+                    Text("\(count)")
+                        .font(.system(size: 11, weight: .semibold).monospacedDigit())
+                }
+            }
+            .font(.system(size: 13, weight: .semibold))
+            .foregroundStyle(color.opacity(collapsed ? 0.55 : 1))
+            .padding(.horizontal, 8)
+            .padding(.vertical, 5)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+            .background(
+                RoundedRectangle(cornerRadius: 4, style: .continuous)
+                    .fill(hovering ? Color.accentColor.opacity(0.12) : .clear)
+            )
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
+    }
+}
+
 
 private struct AgentRow: View {
     var agent: AgentRecord
