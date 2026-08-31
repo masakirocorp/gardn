@@ -9,6 +9,8 @@ final class AgentStore: ObservableObject {
     @Published private(set) var connected = false
     @Published private(set) var collapsed: Set<AgentRecord.Section>
     @Published private(set) var needsAttention = false
+    var onNeedsAttentionChange: ((Bool) -> Void)?
+
 
     private var client: GardnClient
     private var timer: Timer?
@@ -52,7 +54,8 @@ final class AgentStore: ObservableObject {
             connectionMessage = error.localizedDescription
         }
         needsAttention = agents.contains { $0.needsAttention }
-        StatusItemImage.apply(alert: needsAttention)
+        onNeedsAttentionChange?(needsAttention)
+
 
     }
 
