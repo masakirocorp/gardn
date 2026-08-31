@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import UserNotifications
 
 @main
 struct GardnMenuApp: App {
@@ -20,6 +21,8 @@ final class ExtraAppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
+        UNUserNotificationCenter.current().delegate = self
+        AgentNotifications.requestAuthorization()
         popover.behavior = .transient
         popover.animates = false
         popover.contentViewController = NSHostingController(
@@ -35,6 +38,7 @@ final class ExtraAppDelegate: NSObject, NSApplicationDelegate {
         applyIcon(store.needsAttention)
     }
 
+
     func applyIcon(_ alert: Bool) {
         statusItem.button?.image = StatusItemImage.make(alert: alert)
     }
@@ -49,6 +53,31 @@ final class ExtraAppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 }
+
+extension ExtraAppDelegate: UNUserNotificationCenterDelegate {
+    nonisolated func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        willPresent notification: UNNotification,
+        withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
+    ) {
+        completionHandler([.banner, .list, .sound])
+    }
+
+    nonisolated func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        didReceive response: UNNotificationResponse,
+        withCompletionHandler completionHandler: @escaping () -> Void
+    ) {
+        let terminalId = response.notification.request.content.userInfo[AgentNotifications.terminalIdKey] as? String
+        Task { @MainActor in
+            if let terminalId {
+                store.focus(terminalId: terminalId)
+            }
+            completionHandler()
+        }
+    }
+}
+
 
 enum StatusItemImage {
     static func make(alert: Bool) -> NSImage {

@@ -1755,6 +1755,10 @@ pub fn show_desktop_notification(title: &str, body: Option<&str>) -> std::io::Re
         })?
 }
 
+pub fn menu_extra_is_running() -> bool {
+    false
+}
+
 fn show_desktop_notification_on_thread(
     title: &str,
     body: &str,

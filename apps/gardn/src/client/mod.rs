@@ -1537,6 +1537,9 @@ fn handle_notify_with_notifiers(
                 crate::sound::play(sound, sound_config);
             }
         }
+        NotifyKind::Toast | NotifyKind::SystemToast if crate::platform::menu_extra_is_running() => {
+        }
+
         NotifyKind::Toast => {
             debug!(
                 message = message,

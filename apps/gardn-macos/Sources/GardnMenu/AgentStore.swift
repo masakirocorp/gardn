@@ -14,6 +14,9 @@ final class AgentStore: ObservableObject {
 
     private var client: GardnClient
     private var timer: Timer?
+    private var knownAttention = [String: AgentNotifications.Kind]()
+    private var hasBaseline = false
+
     private static let collapsedKey = "gardn.extra.collapsedSections"
 
     init(socketPath: String = GardnClient.defaultSocketPath()) {
@@ -55,18 +58,23 @@ final class AgentStore: ObservableObject {
         }
         needsAttention = agents.contains { $0.needsAttention }
         onNeedsAttentionChange?(needsAttention)
-
-
+        publishAttentionChanges()
     }
 
+
     func focus(_ agent: AgentRecord) {
+        focus(terminalId: agent.terminalId)
+    }
+
+    func focus(terminalId: String) {
         do {
-            try client.focus(terminalId: agent.terminalId)
+            try client.focus(terminalId: terminalId)
             refresh()
         } catch {
             connectionMessage = error.localizedDescription
         }
     }
+
 
     func setFollowUp(_ agent: AgentRecord, enabled: Bool) {
         do {
@@ -80,6 +88,19 @@ final class AgentStore: ObservableObject {
         } catch {
             actionError = Self.friendlyError(error)
         }
+    }
+
+    private func publishAttentionChanges() {
+        var next = [String: AgentNotifications.Kind]()
+        for agent in agents {
+            guard let kind = AgentNotifications.Kind.of(agent) else { continue }
+            next[agent.terminalId] = kind
+            if hasBaseline, knownAttention[agent.terminalId] != kind {
+                AgentNotifications.post(agent: agent, kind: kind)
+            }
+        }
+        knownAttention = next
+        hasBaseline = true
     }
 
     private static func friendlyError(_ error: Error) -> String {

@@ -537,6 +537,10 @@ pub fn show_desktop_notification(title: &str, body: Option<&str>) -> std::io::Re
     show_desktop_notification_with_command(title, body, |program| Command::new(program))
 }
 
+pub fn menu_extra_is_running() -> bool {
+    false
+}
+
 fn show_desktop_notification_with_command(
     title: &str,
     body: Option<&str>,

@@ -392,7 +392,7 @@ impl App {
                     &format!("v{version} Available"),
                     Some(&format!("Detach, then run `{install_command}`")),
                 );
-            } else {
+            } else if !crate::platform::menu_extra_is_running() {
                 for update in &pane_updates {
                     if update.suppress_completion {
                         continue;
@@ -742,6 +742,7 @@ impl App {
         deliveries: &[crate::app::state::AgentNotificationDelivery],
     ) {
         if !self.local_terminal_notifications
+            || crate::platform::menu_extra_is_running()
             || !matches!(
                 self.state.toast_config.delivery,
                 crate::config::ToastDelivery::Terminal | crate::config::ToastDelivery::System

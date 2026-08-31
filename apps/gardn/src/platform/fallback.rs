@@ -174,6 +174,10 @@ pub fn show_desktop_notification(_title: &str, _body: Option<&str>) -> std::io::
     Ok(false)
 }
 
+pub fn menu_extra_is_running() -> bool {
+    false
+}
+
 /// Unsupported platform stub.
 pub(crate) fn hostname_platform() -> Option<String> {
     None

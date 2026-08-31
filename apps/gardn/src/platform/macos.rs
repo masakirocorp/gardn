@@ -655,6 +655,16 @@ pub fn show_desktop_notification(title: &str, body: Option<&str>) -> std::io::Re
     show_desktop_notification_with_command(title, body, |program| Command::new(program))
 }
 
+pub fn menu_extra_is_running() -> bool {
+    Command::new("/usr/bin/pgrep")
+        .args(["-x", "GardnMenu"])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .map(|status| status.success())
+        .unwrap_or(false)
+}
+
 fn show_desktop_notification_with_command(
     title: &str,
     body: Option<&str>,
