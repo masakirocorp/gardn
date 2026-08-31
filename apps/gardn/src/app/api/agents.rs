@@ -60,15 +60,12 @@ impl App {
         view.active_workspace = Some(resolved.ws_idx);
         view.selected_workspace = resolved.ws_idx;
         view.mode = Mode::Terminal;
-        if view.can_mutate_tab() {
-            self.state.focus_workspace_tab_pane(
-                resolved.ws_idx,
-                resolved.tab_idx,
-                resolved.pane_id,
-            );
-            self.state.mark_active_tab_seen();
-            self.state.mode = Mode::Terminal;
-        }
+
+        self.state
+            .focus_workspace_tab_pane(resolved.ws_idx, resolved.tab_idx, resolved.pane_id);
+        self.state.mark_active_tab_seen();
+        self.state.mode = Mode::Terminal;
+
         let Some(agent) = self.agent_info(resolved.ws_idx, resolved.pane_id) else {
             return agent_not_found(id, &target.target);
         };
