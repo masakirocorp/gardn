@@ -17,6 +17,7 @@ struct AgentRecord: Identifiable, Hashable {
 
     enum Section: String, CaseIterable {
         case triage = "Triage"
+        case followUp = "Follow Up"
         case working = "Working"
         case idle = "Idle"
     }
@@ -26,8 +27,13 @@ struct AgentRecord: Identifiable, Hashable {
     var title: String
     var subtitle: String
     var status: Status
+    var followUp: Bool
+    var cwd: String?
 
     var section: Section {
+        if followUp {
+            return .followUp
+        }
         switch status {
         case .blocked, .done:
             return .triage
@@ -39,7 +45,7 @@ struct AgentRecord: Identifiable, Hashable {
     }
 
     var needsAttention: Bool {
-        status == .blocked || status == .done
+        followUp || status == .blocked || status == .done
     }
 }
 
@@ -70,7 +76,9 @@ struct GardnClient {
             throw GardnClientError(message: "unexpected result type \(type ?? "nil")")
         }
         let raw = result["agents"] as? [[String: Any]] ?? []
-        return raw.compactMap(Self.parseAgent)
+        var agents = raw.compactMap(Self.parseAgent)
+        Self.disambiguateTitles(&agents)
+        return agents
     }
 
     func focus(terminalId: String) throws {
@@ -120,14 +128,34 @@ struct GardnClient {
             ?? terminalId
         let agent = (raw["display_agent"] as? String) ?? (raw["agent"] as? String)
         let custom = raw["custom_status"] as? String
-        let age = Self.activityAge(unixSecs: Self.unixSecs(raw["last_meaningful_agent_activity_unix_secs"]))
+        let followUp = (raw["follow_up"] as? Bool) ?? (raw["follow_up"] as? NSNumber)?.boolValue ?? false
+        let age = Self.activityAge(
+            unixSecs: Self.unixSecs(raw["follow_up_added_at_unix_secs"])
+                ?? Self.unixSecs(raw["last_meaningful_agent_activity_unix_secs"])
+        )
         let subtitle = [agent, custom, age].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")
         return AgentRecord(
             terminalId: terminalId,
             title: title,
             subtitle: subtitle,
-            status: status
+            status: status,
+            followUp: followUp,
+            cwd: cwd
         )
+    }
+
+    private static func disambiguateTitles(_ agents: inout [AgentRecord]) {
+        var counts: [String: Int] = [:]
+        for agent in agents {
+            counts[agent.title, default: 0] += 1
+        }
+        for index in agents.indices {
+            guard counts[agents[index].title, default: 0] > 1 else { continue }
+            guard let cwd = agents[index].cwd else { continue }
+            let parent = URL(fileURLWithPath: cwd).deletingLastPathComponent().lastPathComponent
+            guard !parent.isEmpty, parent != "/" else { continue }
+            agents[index].title = "\(parent)/\(agents[index].title)"
+        }
     }
 
     private static func unixSecs(_ value: Any?) -> UInt64? {

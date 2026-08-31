@@ -2145,6 +2145,10 @@ pub struct AgentInfo {
     pub revision: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_meaningful_agent_activity_unix_secs: Option<u64>,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub follow_up: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub follow_up_added_at_unix_secs: Option<u64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
