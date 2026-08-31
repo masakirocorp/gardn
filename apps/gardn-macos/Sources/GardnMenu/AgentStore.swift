@@ -7,9 +7,11 @@ final class AgentStore: ObservableObject {
     @Published private(set) var connectionMessage: String?
     @Published private(set) var actionError: String?
     @Published private(set) var connected = false
+    @Published private(set) var collapsed: Set<AgentRecord.Section>
 
     private var client: GardnClient
     private var timer: Timer?
+    private static let collapsedKey = "gardn.extra.collapsedSections"
 
     var needsAttention: Bool {
         agents.contains { $0.needsAttention }
@@ -17,6 +19,7 @@ final class AgentStore: ObservableObject {
 
     init(socketPath: String = GardnClient.defaultSocketPath()) {
         client = GardnClient(socketPath: socketPath)
+        collapsed = Self.loadCollapsed()
         start()
     }
 
@@ -86,5 +89,23 @@ final class AgentStore: ObservableObject {
 
     func agents(in section: AgentRecord.Section) -> [AgentRecord] {
         agents.filter { $0.section == section }
+    }
+
+    func isCollapsed(_ section: AgentRecord.Section) -> Bool {
+        collapsed.contains(section)
+    }
+
+    func toggleCollapsed(_ section: AgentRecord.Section) {
+        if collapsed.contains(section) {
+            collapsed.remove(section)
+        } else {
+            collapsed.insert(section)
+        }
+        UserDefaults.standard.set(collapsed.map(\.rawValue), forKey: Self.collapsedKey)
+    }
+
+    private static func loadCollapsed() -> Set<AgentRecord.Section> {
+        let names = UserDefaults.standard.stringArray(forKey: collapsedKey) ?? []
+        return Set(names.compactMap(AgentRecord.Section.init(rawValue:)))
     }
 }

@@ -9,10 +9,10 @@ struct AgentPanelView: View {
             header
             if let actionError = store.actionError {
                 Text(actionError)
-                    .font(.system(size: 11))
+                    .font(.system(size: 10))
                     .foregroundStyle(.red)
-                    .padding(.horizontal, 12)
-                    .padding(.bottom, 6)
+                    .padding(.horizontal, 10)
+                    .padding(.bottom, 4)
             }
             if !store.connected {
                 disconnected
@@ -22,60 +22,69 @@ struct AgentPanelView: View {
                 list
             }
         }
-        .frame(width: 280, height: panelHeight, alignment: .top)
+        .frame(width: 268, height: panelHeight, alignment: .top)
         .background { PopoverChrome().ignoresSafeArea() }
     }
 
     private var panelHeight: CGFloat {
         if !store.connected || store.agents.isEmpty {
-            return 92
+            return 80
         }
-        let filled = AgentRecord.Section.allCases.filter { !store.agents(in: $0).isEmpty }.count
-        let followUpEmpty = store.agents(in: .followUp).isEmpty
-        let sections = filled + (followUpEmpty ? 1 : 0)
-        let height = 44 + CGFloat(sections) * 26 + CGFloat(store.agents.count) * 38 + (followUpEmpty ? 22 : 0) + (store.actionError == nil ? 0 : 22) + 10
-        return min(580, height)
+        var height: CGFloat = 36
+        if store.actionError != nil { height += 18 }
+        for section in AgentRecord.Section.allCases {
+            let rows = store.agents(in: section)
+            if section != .followUp, rows.isEmpty { continue }
+            height += 20
+            if store.isCollapsed(section) { continue }
+            if rows.isEmpty {
+                height += 16
+            } else {
+                height += CGFloat(rows.count) * 30
+            }
+        }
+        return min(560, height + 8)
     }
 
     private var header: some View {
-        HStack {
+        HStack(alignment: .firstTextBaseline) {
             Text("Agents")
-                .font(.system(size: 13, weight: .semibold))
+                .font(.system(size: 12, weight: .semibold))
             Spacer()
             Text("All")
-                .font(.system(size: 11, weight: .medium))
+                .font(.system(size: 10, weight: .medium))
                 .foregroundStyle(.secondary)
-                .padding(.horizontal, 7)
-                .padding(.vertical, 2)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 1)
                 .background(
-                    RoundedRectangle(cornerRadius: 4, style: .continuous)
+                    RoundedRectangle(cornerRadius: 3, style: .continuous)
                         .fill(Color.primary.opacity(0.08))
                 )
         }
-        .padding(.horizontal, 12)
-        .padding(.top, 10)
-        .padding(.bottom, 6)
+        .padding(.horizontal, 10)
+        .padding(.top, 8)
+        .padding(.bottom, 4)
     }
 
     private var disconnected: some View {
         Text(store.connectionMessage ?? "Gardn isn’t running")
-            .font(.system(size: 12))
+            .font(.system(size: 11))
             .foregroundStyle(.secondary)
-            .padding(.horizontal, 12)
-            .padding(.bottom, 12)
+            .padding(.horizontal, 10)
+            .padding(.bottom, 10)
     }
 
     private var empty: some View {
         Text("No agents")
-            .font(.system(size: 12))
+            .font(.system(size: 11))
             .foregroundStyle(.secondary)
-            .padding(.horizontal, 12)
-            .padding(.bottom, 12)
+            .padding(.horizontal, 10)
+            .padding(.bottom, 10)
     }
 
     private var list: some View {
         ScrollView {
-            LazyVStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: 0) {
                 ForEach(AgentRecord.Section.allCases, id: \.self) { section in
                     let rows = store.agents(in: section)
                     if section == .followUp || !rows.isEmpty {
@@ -83,35 +92,48 @@ struct AgentPanelView: View {
                     }
                 }
             }
-            .padding(.horizontal, 6)
-            .padding(.bottom, 8)
+            .padding(.bottom, 6)
         }
     }
 
     private func sectionBlock(_ section: AgentRecord.Section, rows: [AgentRecord]) -> some View {
-        VStack(alignment: .leading, spacing: 1) {
-            HStack(spacing: 6) {
-                Text(sectionIcon(section))
-                Text(section.rawValue)
+        let collapsed = store.isCollapsed(section)
+        return VStack(alignment: .leading, spacing: 0) {
+            Button {
+                store.toggleCollapsed(section)
+            } label: {
+                HStack(spacing: 5) {
+                    Text(collapsed ? "▸" : "▾")
+                        .foregroundStyle(.tertiary)
+                        .frame(width: 8, alignment: .center)
+                    Text(sectionIcon(section))
+                    Text(section.rawValue)
+                    Spacer(minLength: 0)
+                }
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(sectionColor(section))
+                .padding(.horizontal, 8)
+                .padding(.vertical, 3)
+                .contentShape(Rectangle())
             }
-            .font(.system(size: 12, weight: .semibold))
-            .foregroundStyle(sectionColor(section))
-            .padding(.horizontal, 8)
-            .padding(.top, 8)
-            .padding(.bottom, 2)
-            ForEach(rows) { agent in
-                AgentRow(
-                    agent: agent,
-                    onFocus: { store.focus(agent) },
-                    onFollowUp: { store.setFollowUp(agent, enabled: $0) }
-                )
-            }
-            if section == .followUp, rows.isEmpty {
-                Text("Right-click an agent to add")
-                    .font(.system(size: 12))
-                    .foregroundStyle(.tertiary)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
+            .buttonStyle(.plain)
+            if !collapsed {
+                ForEach(rows) { agent in
+                    AgentRow(
+                        agent: agent,
+                        onFocus: { store.focus(agent) },
+                        onFollowUp: { store.setFollowUp(agent, enabled: $0) }
+                    )
+                    .padding(.leading, 14)
+                    .padding(.trailing, 6)
+                }
+                if section == .followUp, rows.isEmpty {
+                    Text("Drop an agent here")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.tertiary)
+                        .padding(.leading, 22)
+                        .padding(.vertical, 2)
+                }
             }
         }
     }
@@ -143,17 +165,17 @@ private struct AgentRow: View {
 
     var body: some View {
         Button(action: onFocus) {
-            VStack(alignment: .leading, spacing: 1) {
+            VStack(alignment: .leading, spacing: 0) {
                 titleLabel(agent.title)
-                    .font(.system(size: 13, weight: agent.focused ? .semibold : .regular))
+                    .font(.system(size: 12, weight: agent.focused ? .semibold : .regular))
                 metaLine
             }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
             .frame(maxWidth: .infinity, alignment: .leading)
             .contentShape(Rectangle())
             .background(
-                RoundedRectangle(cornerRadius: 5, style: .continuous)
+                RoundedRectangle(cornerRadius: 4, style: .continuous)
                     .fill(rowFill)
             )
         }
@@ -173,7 +195,7 @@ private struct AgentRow: View {
             return Color.accentColor.opacity(0.22)
         }
         if hovering {
-            return Color.accentColor.opacity(0.14)
+            return Color.accentColor.opacity(0.12)
         }
         return .clear
     }
@@ -185,17 +207,17 @@ private struct AgentRow: View {
                     .foregroundStyle(accentColor(agent.groupAccent))
             }
             if agent.showsStatus, let status = agent.statusLabel {
-                if agent.groupName != nil { Text(" - ").foregroundStyle(.tertiary) }
+                if agent.groupName != nil { Text(" · ").foregroundStyle(.tertiary) }
                 Text(status).foregroundStyle(statusColor(agent.status))
             }
             if let age = agent.age {
                 if agent.groupName != nil || agent.showsStatus {
-                    Text(" - ").foregroundStyle(.tertiary)
+                    Text(" · ").foregroundStyle(.tertiary)
                 }
                 Text(age).foregroundStyle(.secondary)
             }
         }
-        .font(.system(size: 11))
+        .font(.system(size: 10))
         .lineLimit(1)
     }
 

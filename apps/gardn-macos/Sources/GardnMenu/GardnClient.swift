@@ -15,7 +15,7 @@ struct AgentRecord: Identifiable, Hashable {
         case unknown
     }
 
-    enum Section: String, CaseIterable {
+    enum Section: String, CaseIterable, Hashable {
         case triage = "Triage"
         case followUp = "Follow Up"
         case working = "Working"
