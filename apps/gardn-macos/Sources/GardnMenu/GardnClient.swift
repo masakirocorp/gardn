@@ -59,11 +59,11 @@ struct GardnClient {
             return override
         }
         let home = FileManager.default.homeDirectoryForCurrentUser.path
-        let candidates = [
-            "\(home)/.config/gardn/gardn.sock",
-            "\(home)/.config/gardn-dev/gardn.sock",
-        ]
-        return candidates.first { FileManager.default.fileExists(atPath: $0) } ?? candidates[0]
+        let production = "\(home)/.config/gardn/gardn.sock"
+        if FileManager.default.fileExists(atPath: production) {
+            return production
+        }
+        return "\(home)/.config/gardn-dev/gardn.sock"
     }
 
     func listAgents() throws -> [AgentRecord] {
@@ -91,7 +91,8 @@ struct GardnClient {
             agents: agents["agents"] as? [[String: Any]] ?? [],
             workspaces: workspaces["workspaces"] as? [[String: Any]] ?? [],
             groups: groups["groups"] as? [[String: Any]] ?? [],
-            tabs: tabs["tabs"] as? [[String: Any]] ?? []
+            tabs: tabs["tabs"] as? [[String: Any]] ?? [],
+            overlay: sessionOverlay()
         )
     }
 
@@ -140,11 +141,37 @@ struct GardnClient {
         return json
     }
 
+    private func sessionOverlay() -> SessionOverlay {
+        let url = URL(fileURLWithPath: socketPath)
+            .deletingLastPathComponent()
+            .appendingPathComponent("session.json")
+        guard let data = try? Data(contentsOf: url),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else {
+            return SessionOverlay()
+        }
+        var overlay = SessionOverlay()
+        for entry in json["agent_follow_up"] as? [[String: Any]] ?? [] {
+            guard let workspaceId = entry["workspace_id"] as? String,
+                  let pane = intValue(entry["pane_number"]), pane > 0
+            else { continue }
+            overlay.followUpByPane["\(workspaceId):p\(pane)"] = unixSecs(entry["added_at_unix_secs"]) ?? 0
+        }
+        for group in json["groups"] as? [[String: Any]] ?? [] {
+            guard let id = group["id"] as? String else { continue }
+            if let accent = group["accent"] as? String, !accent.isEmpty {
+                overlay.accentByGroup[id] = accent
+            }
+        }
+        return overlay
+    }
+
     private static func assemble(
         agents: [[String: Any]],
         workspaces: [[String: Any]],
         groups: [[String: Any]],
-        tabs: [[String: Any]]
+        tabs: [[String: Any]],
+        overlay: SessionOverlay
     ) -> [AgentRecord] {
         var workspaceById: [String: [String: Any]] = [:]
         for workspace in workspaces {
@@ -164,6 +191,16 @@ struct GardnClient {
                 tabById[id] = tab
             }
         }
+        var agentsInWorkspace: [String: Int] = [:]
+        var agentsInTab: [String: Int] = [:]
+        for raw in agents {
+            if let workspaceId = raw["workspace_id"] as? String {
+                agentsInWorkspace[workspaceId, default: 0] += 1
+            }
+            if let tabId = raw["tab_id"] as? String {
+                agentsInTab[tabId, default: 0] += 1
+            }
+        }
 
         return agents.compactMap { raw in
             guard let terminalId = raw["terminal_id"] as? String else { return nil }
@@ -173,8 +210,11 @@ struct GardnClient {
             }
             let workspaceId = raw["workspace_id"] as? String
             let workspace = workspaceId.flatMap { workspaceById[$0] }
-            let tab = (raw["tab_id"] as? String).flatMap { tabById[$0] }
-            let group = (workspace?["group_id"] as? String).flatMap { groupById[$0] }
+            let tabId = raw["tab_id"] as? String
+            let tab = tabId.flatMap { tabById[$0] }
+            let groupId = workspace?["group_id"] as? String
+            let group = groupId.flatMap { groupById[$0] }
+            let paneId = raw["pane_id"] as? String
 
             var title = (workspace?["label"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
             if title == nil || title?.isEmpty == true {
@@ -183,26 +223,30 @@ struct GardnClient {
                     ?? (raw["name"] as? String)
                     ?? terminalId
             }
-            let tabCount = workspace?["tab_count"] as? Int ?? (workspace?["tab_count"] as? NSNumber)?.intValue ?? 1
-            if tabCount > 1, let tabLabel = tab?["label"] as? String, !tabLabel.isEmpty {
+            if let workspaceId, agentsInWorkspace[workspaceId, default: 0] > 1,
+               let tabLabel = tab?["label"] as? String, isUsefulTabLabel(tabLabel)
+            {
                 title = "\(title!) / \(tabLabel)"
             }
-            let paneCount = tab?["pane_count"] as? Int ?? (tab?["pane_count"] as? NSNumber)?.intValue ?? 1
-            if paneCount > 1, let paneLabel = raw["name"] as? String, !paneLabel.isEmpty {
+            if let tabId, agentsInTab[tabId, default: 0] > 1,
+               let paneLabel = raw["name"] as? String, !paneLabel.isEmpty
+            {
                 title = "\(title!) / \(paneLabel)"
             }
 
-            let followUp = (raw["follow_up"] as? Bool) ?? (raw["follow_up"] as? NSNumber)?.boolValue ?? false
-            let focused = (raw["focused"] as? Bool) ?? (raw["focused"] as? NSNumber)?.boolValue ?? false
+            let persistAdded = paneId.flatMap { overlay.followUpByPane[$0] }
+            let followUp = boolValue(raw["follow_up"]) || persistAdded != nil
+            let focused = boolValue(raw["focused"])
             let age = activityAge(
                 unixSecs: unixSecs(raw["follow_up_added_at_unix_secs"])
+                    ?? persistAdded.flatMap { $0 > 0 ? $0 : nil }
                     ?? unixSecs(raw["last_meaningful_agent_activity_unix_secs"])
             )
             return AgentRecord(
                 terminalId: terminalId,
                 title: title ?? terminalId,
                 groupName: group?["name"] as? String,
-                groupAccent: group?["accent"] as? String,
+                groupAccent: (group?["accent"] as? String) ?? groupId.flatMap { overlay.accentByGroup[$0] },
                 status: status,
                 statusLabel: statusText(status),
                 age: age,
@@ -210,6 +254,11 @@ struct GardnClient {
                 focused: focused
             )
         }
+    }
+
+    private static func isUsefulTabLabel(_ label: String) -> Bool {
+        let trimmed = label.trimmingCharacters(in: .whitespacesAndNewlines)
+        return !trimmed.isEmpty && trimmed.contains(where: { !$0.isNumber })
     }
 
     private static func statusText(_ status: AgentRecord.Status) -> String {
@@ -220,25 +269,42 @@ struct GardnClient {
         case .idle, .unknown: return "Idle"
         }
     }
+}
 
-    private static func unixSecs(_ value: Any?) -> UInt64? {
-        if let n = value as? NSNumber { return n.uint64Value }
-        if let n = value as? UInt64 { return n }
-        if let n = value as? Int, n >= 0 { return UInt64(n) }
-        return nil
-    }
+private struct SessionOverlay {
+    var followUpByPane: [String: UInt64] = [:]
+    var accentByGroup: [String: String] = [:]
+}
 
-    private static func activityAge(unixSecs: UInt64?) -> String? {
-        guard let unixSecs else { return nil }
-        let now = UInt64(Date().timeIntervalSince1970)
-        let elapsed = now > unixSecs ? now - unixSecs : 0
-        if elapsed < 60 { return "Now" }
-        let minutes = elapsed / 60
-        if minutes < 60 { return "\(minutes)m" }
-        let hours = minutes / 60
-        if hours < 24 { return "\(hours)h" }
-        return "\(hours / 24)d"
-    }
+private func boolValue(_ value: Any?) -> Bool {
+    if let value = value as? Bool { return value }
+    if let value = value as? NSNumber { return value.boolValue }
+    return false
+}
+
+private func intValue(_ value: Any?) -> Int? {
+    if let value = value as? Int { return value }
+    if let value = value as? NSNumber { return value.intValue }
+    return nil
+}
+
+private func unixSecs(_ value: Any?) -> UInt64? {
+    if let n = value as? NSNumber { return n.uint64Value }
+    if let n = value as? UInt64 { return n }
+    if let n = value as? Int, n >= 0 { return UInt64(n) }
+    return nil
+}
+
+private func activityAge(unixSecs: UInt64?) -> String? {
+    guard let unixSecs else { return nil }
+    let now = UInt64(Date().timeIntervalSince1970)
+    let elapsed = now > unixSecs ? now - unixSecs : 0
+    if elapsed < 60 { return "Now" }
+    let minutes = elapsed / 60
+    if minutes < 60 { return "\(minutes)m" }
+    let hours = minutes / 60
+    if hours < 24 { return "\(hours)h" }
+    return "\(hours / 24)d"
 }
 
 private func unixRequest(path: String, payload: Data) throws -> Data {
