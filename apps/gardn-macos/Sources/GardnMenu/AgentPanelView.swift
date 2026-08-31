@@ -14,9 +14,17 @@ struct AgentPanelView: View {
                 list
             }
         }
-        .frame(width: 276)
-        .frame(minHeight: 88, maxHeight: 440)
+        .frame(width: 276, height: panelHeight, alignment: .top)
         .background(.regularMaterial)
+    }
+
+    private var panelHeight: CGFloat {
+        if !store.connected || store.agents.isEmpty {
+            return 92
+        }
+        let sections = AgentRecord.Section.allCases.filter { !store.agents(in: $0).isEmpty }.count
+        let height = 40 + CGFloat(sections) * 28 + CGFloat(store.agents.count) * 30 + 12
+        return min(560, height)
     }
 
     private var header: some View {
