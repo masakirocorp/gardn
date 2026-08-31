@@ -91,7 +91,8 @@ struct GardnClient {
             agents: agents["agents"] as? [[String: Any]] ?? [],
             workspaces: workspaces["workspaces"] as? [[String: Any]] ?? [],
             groups: groups["groups"] as? [[String: Any]] ?? [],
-            tabs: tabs["tabs"] as? [[String: Any]] ?? []
+            tabs: tabs["tabs"] as? [[String: Any]] ?? [],
+            followUps: sessionFollowUps()
         )
     }
 
@@ -140,12 +141,31 @@ struct GardnClient {
         return json
     }
 
+    private func sessionFollowUps() -> [String: UInt64] {
+        let url = URL(fileURLWithPath: socketPath)
+            .deletingLastPathComponent()
+            .appendingPathComponent("session.json")
+        guard let data = try? Data(contentsOf: url),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else {
+            return [:]
+        }
+        var followUps: [String: UInt64] = [:]
+        for entry in json["agent_follow_up"] as? [[String: Any]] ?? [] {
+            guard let workspaceId = entry["workspace_id"] as? String,
+                  let pane = intValue(entry["pane_number"]), pane > 0
+            else { continue }
+            followUps["\(workspaceId):p\(pane)"] = unixSecs(entry["added_at_unix_secs"]) ?? 0
+        }
+        return followUps
+    }
 
     private static func assemble(
         agents: [[String: Any]],
         workspaces: [[String: Any]],
         groups: [[String: Any]],
-        tabs: [[String: Any]]
+        tabs: [[String: Any]],
+        followUps: [String: UInt64]
     ) -> [AgentRecord] {
         var workspaceById: [String: [String: Any]] = [:]
         for workspace in workspaces {
@@ -165,66 +185,84 @@ struct GardnClient {
                 tabById[id] = tab
             }
         }
-        var agentsInWorkspace: [String: Int] = [:]
-        var agentsInTab: [String: Int] = [:]
-        for raw in agents {
-            if let workspaceId = raw["workspace_id"] as? String {
-                agentsInWorkspace[workspaceId, default: 0] += 1
-            }
-            if let tabId = raw["tab_id"] as? String {
-                agentsInTab[tabId, default: 0] += 1
-            }
-        }
 
-        return agents.compactMap { raw in
+        var records = agents.compactMap { raw -> AgentRecord? in
             guard let terminalId = raw["terminal_id"] as? String else { return nil }
+            let paneId = raw["pane_id"] as? String
+            let persistAdded = paneId.flatMap { followUps[$0] }
+            let followUp = boolValue(raw["follow_up"]) || persistAdded != nil
             let status = AgentRecord.Status(rawValue: raw["agent_status"] as? String ?? "unknown") ?? .unknown
-            if status == .unknown, raw["agent"] == nil, raw["display_agent"] == nil, raw["name"] == nil {
+            if !followUp, status == .unknown, raw["agent"] == nil, raw["display_agent"] == nil, raw["name"] == nil {
                 return nil
             }
             let workspaceId = raw["workspace_id"] as? String
             let workspace = workspaceId.flatMap { workspaceById[$0] }
-            let tabId = raw["tab_id"] as? String
-            let tab = tabId.flatMap { tabById[$0] }
+            let tab = (raw["tab_id"] as? String).flatMap { tabById[$0] }
             let groupId = workspace?["group_id"] as? String
             let group = groupId.flatMap { groupById[$0] }
-
-            var title = (workspace?["label"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
-            if title == nil || title?.isEmpty == true {
-                let cwd = (raw["foreground_cwd"] as? String) ?? (raw["cwd"] as? String)
-                title = cwd.flatMap { URL(fileURLWithPath: $0).lastPathComponent }
-                    ?? (raw["name"] as? String)
-                    ?? terminalId
-            }
-            if let workspaceId, agentsInWorkspace[workspaceId, default: 0] > 1,
-               let tabLabel = tab?["label"] as? String, isUsefulTabLabel(tabLabel)
-            {
-                title = "\(title!) / \(tabLabel)"
-            }
-            if let tabId, agentsInTab[tabId, default: 0] > 1,
-               let paneLabel = raw["name"] as? String, !paneLabel.isEmpty
-            {
-                title = "\(title!) / \(paneLabel)"
-            }
-
-            let followUp = boolValue(raw["follow_up"])
-            let focused = boolValue(raw["focused"])
-            let age = activityAge(
-                unixSecs: unixSecs(raw["follow_up_added_at_unix_secs"])
-                    ?? unixSecs(raw["last_meaningful_agent_activity_unix_secs"])
-            )
             return AgentRecord(
                 terminalId: terminalId,
-                title: title ?? terminalId,
+                title: sidebarTitle(workspace: workspace, tab: tab, raw: raw, fallback: terminalId),
                 groupName: group?["name"] as? String,
                 groupAccent: group?["accent"] as? String,
                 status: status,
                 statusLabel: statusText(status),
-                age: age,
+                age: activityAge(
+                    unixSecs: unixSecs(raw["follow_up_added_at_unix_secs"])
+                        ?? persistAdded.flatMap { $0 > 0 ? $0 : nil }
+                        ?? unixSecs(raw["last_meaningful_agent_activity_unix_secs"])
+                ),
                 followUp: followUp,
-                focused: focused
+                focused: boolValue(raw["focused"])
             )
         }
+
+        let listedPanes = Set(records.compactMap { record -> String? in
+            agents.first { ($0["terminal_id"] as? String) == record.terminalId }?["pane_id"] as? String
+        })
+        for (paneId, addedAt) in followUps where !listedPanes.contains(paneId) {
+            let workspaceId = paneId.split(separator: ":").first.map(String.init)
+            let workspace = workspaceId.flatMap { workspaceById[$0] }
+            let groupId = workspace?["group_id"] as? String
+            let group = groupId.flatMap { groupById[$0] }
+            let tab = tabs.first { ($0["workspace_id"] as? String) == workspaceId }
+            records.append(AgentRecord(
+                terminalId: paneId,
+                title: sidebarTitle(workspace: workspace, tab: tab, raw: [:], fallback: workspace?["label"] as? String ?? paneId),
+                groupName: group?["name"] as? String,
+                groupAccent: group?["accent"] as? String,
+                status: .idle,
+                statusLabel: statusText(.idle),
+                age: activityAge(unixSecs: addedAt > 0 ? addedAt : nil),
+                followUp: true,
+                focused: false
+            ))
+        }
+        return records
+    }
+
+    private static func sidebarTitle(
+        workspace: [String: Any]?,
+        tab: [String: Any]?,
+        raw: [String: Any],
+        fallback: String
+    ) -> String {
+        var title = (workspace?["label"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if title == nil || title?.isEmpty == true {
+            let cwd = (raw["foreground_cwd"] as? String) ?? (raw["cwd"] as? String)
+            title = cwd.flatMap { URL(fileURLWithPath: $0).lastPathComponent }
+                ?? (raw["name"] as? String)
+                ?? fallback
+        }
+        let tabCount = intValue(workspace?["tab_count"]) ?? 1
+        if tabCount > 1, let tabLabel = tab?["label"] as? String, isUsefulTabLabel(tabLabel) {
+            title = "\(title!)/\(tabLabel)"
+        }
+        let paneCount = intValue(tab?["pane_count"]) ?? 1
+        if paneCount > 1, let paneLabel = raw["name"] as? String, !paneLabel.isEmpty {
+            title = "\(title!)/\(paneLabel)"
+        }
+        return title ?? fallback
     }
 
     private static func isUsefulTabLabel(_ label: String) -> Bool {
@@ -249,6 +287,11 @@ private func boolValue(_ value: Any?) -> Bool {
     return false
 }
 
+private func intValue(_ value: Any?) -> Int? {
+    if let value = value as? Int { return value }
+    if let value = value as? NSNumber { return value.intValue }
+    return nil
+}
 
 private func unixSecs(_ value: Any?) -> UInt64? {
     if let n = value as? NSNumber { return n.uint64Value }

@@ -577,7 +577,7 @@ impl App {
         let ws = self.state.workspaces.get(ws_idx)?;
         let pane_state = ws.pane_state(pane_id)?;
         let terminal = self.state.terminals.get(&pane_state.attached_terminal_id)?;
-        if !terminal.is_agent_terminal() {
+        if !terminal.is_agent_terminal() && !self.state.is_agent_follow_up(ws_idx, pane_id) {
             return None;
         }
         let pane = self.pane_info(ws_idx, pane_id)?;

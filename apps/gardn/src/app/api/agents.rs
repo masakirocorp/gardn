@@ -429,4 +429,20 @@ mod tests {
         assert_eq!(agents[0].follow_up_added_at_unix_secs, Some(1_700_000_000));
         assert_eq!(agents[0].agent_status, AgentStatus::Unknown);
     }
+
+    #[test]
+    fn agent_list_keeps_follow_up_after_agent_identity_is_cleared() {
+        let mut app = test_app();
+        let pane_id = app.state.workspaces[0].tabs[0].root_pane;
+        assert!(app.state.insert_agent_follow_up(0, pane_id));
+
+        let response = app.handle_agent_list("list".into());
+        let success: SuccessResponse = serde_json::from_str(&response).unwrap();
+        let ResponseResult::AgentList { agents } = success.result else {
+            panic!("expected agent list");
+        };
+        assert_eq!(agents.len(), 1);
+        assert!(agents[0].follow_up);
+    }
+
 }
