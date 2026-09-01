@@ -182,7 +182,7 @@ mod tests {
         let (overlay, error) = HostDisplayNameOverlay::from_config_or_hostname_with_profile_names(
             "Build",
             Some("desktop"),
-            ["build"].into_iter(),
+            ["build"],
         );
         assert_eq!(overlay.coordinator().as_str(), "desktop");
         assert!(matches!(
@@ -196,7 +196,7 @@ mod tests {
         let (overlay, error) = HostDisplayNameOverlay::from_config_or_hostname_with_profile_names(
             "",
             Some("Build"),
-            ["build"].into_iter(),
+            ["build"],
         );
         assert_eq!(overlay.coordinator().as_str(), "Build");
         assert!(error.is_none());
