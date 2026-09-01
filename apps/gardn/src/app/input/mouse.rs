@@ -483,6 +483,11 @@ impl AppState {
                         {
                             self.group_modal_selected_field = 1;
                             self.name_input_replace_on_type = false;
+                            super::apply_group_host_cycle(
+                                &self.ssh_connection_profiles,
+                                &mut self.group_default_execution_host_id,
+                                &mut self.group_default_directory_input,
+                            );
                             return None;
                         }
 
@@ -2913,6 +2918,33 @@ mod tests {
 
         assert_eq!(app.state.mode, Mode::RenameGroup);
         assert!(app.state.creating_new_group);
+    }
+
+    #[test]
+    fn new_group_host_click_cycles_to_ssh_profile() {
+        let mut app = app_for_mouse_test();
+        let profile = crate::persist::ssh_profiles::SshConnectionProfile::new(
+            "workbox",
+            "Work box",
+            "alice@workbox",
+            Some(crate::execution_host::HostPath::new("/srv/work").expect("valid path")),
+        )
+        .expect("valid profile");
+        let host_id = profile.execution_host_id();
+        app.state.ssh_connection_profiles.push(profile);
+        super::super::modal::open_new_group_dialog(&mut app.state);
+
+        let inner = app.state.rename_modal_inner().unwrap();
+        let host = crate::ui::group_default_host_rect(&app.state, inner);
+        app.handle_mouse(mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            host.x,
+            host.y,
+        ));
+
+        assert_eq!(app.state.group_default_execution_host_id, host_id);
+        assert_eq!(app.state.group_modal_selected_field, 1);
+        assert_eq!(app.state.group_default_directory_input, "/srv/work");
     }
 
     #[test]

@@ -343,11 +343,11 @@ impl App {
                 let owner = crate::execution_host::auth::AuthenticationOwner::new(
                     self.default_client_view.id(),
                 );
-                self.state.queue_ssh_connection_request(
-                    profile_id,
-                    crate::execution_host::HostConnectionAction::Test,
+                self.request_connection_for(
                     owner,
-                )
+                    &profile_id,
+                    crate::execution_host::HostConnectionAction::Test,
+                );
             }
             SettingsAction::ConnectSshConnection { profile_id } => {
                 let owner = crate::execution_host::auth::AuthenticationOwner::new(
@@ -920,27 +920,27 @@ fn pending_workspace_default_host(state: &AppState) -> crate::execution_host::Ex
 }
 
 fn cycle_default_host(state: &mut AppState, workspace: bool) {
-    let current = if workspace {
-        pending_workspace_default_host(state)
-    } else {
-        pending_group_default_host(state)
-    };
-    let mut choices = vec![crate::execution_host::ExecutionHostId::local()];
-    choices.extend(
-        state
-            .ssh_connection_profiles
-            .iter()
-            .map(|profile| profile.execution_host_id()),
-    );
-    let next = choices
-        .iter()
-        .position(|host| host == &current)
-        .map_or(0, |index| (index + 1) % choices.len());
     if workspace {
+        let current = pending_workspace_default_host(state);
+        let mut choices = vec![crate::execution_host::ExecutionHostId::local()];
+        choices.extend(
+            state
+                .ssh_connection_profiles
+                .iter()
+                .map(|profile| profile.execution_host_id()),
+        );
+        let next = choices
+            .iter()
+            .position(|host| host == &current)
+            .map_or(0, |index| (index + 1) % choices.len());
         state.settings.pending_workspace_default_execution_host_id = choices.get(next).cloned();
-    } else {
-        state.settings.pending_group_default_execution_host_id = choices.get(next).cloned();
+        return;
     }
+    let mut host = pending_group_default_host(state);
+    let mut directory = pending_group_default_directory(state);
+    super::apply_group_host_cycle(&state.ssh_connection_profiles, &mut host, &mut directory);
+    state.settings.pending_group_default_execution_host_id = Some(host);
+    state.settings.pending_group_default_directory = Some(directory);
 }
 
 fn set_pending_group_default_directory(state: &mut AppState, default_directory: String) {
@@ -2635,22 +2635,13 @@ fn selected_group_general_action(state: &mut AppState) -> Option<SettingsAction>
             icon: pending_group_icon(state),
         }),
         GROUP_GENERAL_HOST | GROUP_GENERAL_DIRECTORY => {
-            let default_directory = pending_group_default_directory(state).trim().to_string();
-            let default_location = (!default_directory.is_empty())
-                .then(|| {
-                    crate::execution_host::HostPath::new(default_directory)
-                        .ok()
-                        .map(|path| {
-                            crate::execution_host::ResourceLocation::new(
-                                pending_group_default_host(state),
-                                path,
-                            )
-                        })
-                })
-                .flatten();
             Some(SettingsAction::SaveGroupDefaultLocation {
                 group_idx,
-                default_location,
+                default_location: super::group_default_location_for(
+                    &state.ssh_connection_profiles,
+                    &pending_group_default_host(state),
+                    &pending_group_default_directory(state),
+                ),
             })
         }
         GROUP_GENERAL_DELETE => {
@@ -5761,6 +5752,7 @@ mod tests {
         open_group_settings(&mut app.state, group_idx);
         app.state.settings.section = SettingsSection::GroupGeneral;
         app.state.settings.list.selected = crate::settings_rows::GROUP_GENERAL_ICON;
+
         app.state.settings.list.show();
 
         let action = update_settings_state(
@@ -5798,6 +5790,40 @@ mod tests {
             })
         );
         assert!(!app.state.settings.group_icon_picker_open);
+    }
+
+    #[test]
+    fn group_general_settings_cycles_ssh_host_without_a_directory() {
+        let (_lock, _xdg) = isolated_ssh_catalog("group-host-cycle-empty-dir");
+        let mut app = app_for_mouse_test();
+        let profile = seed_connection_profile(
+            &mut app,
+            "robotbox",
+            "Robotbox",
+            "robotbox",
+            Some("/home/charlie/projects"),
+        );
+        let group_idx = app.state.create_group("Side".to_string());
+        open_group_settings(&mut app.state, group_idx);
+        app.state.settings.section = SettingsSection::GroupGeneral;
+        app.state.settings.list.selected = crate::settings_rows::GROUP_GENERAL_HOST;
+        app.state.settings.list.show();
+
+        let action = update_settings_state(
+            &mut app.state,
+            KeyEvent::new(KeyCode::Char(' '), KeyModifiers::empty()),
+        );
+
+        assert_eq!(
+            action,
+            Some(SettingsAction::SaveGroupDefaultLocation {
+                group_idx,
+                default_location: Some(crate::execution_host::ResourceLocation::new(
+                    profile.execution_host_id(),
+                    crate::execution_host::HostPath::new("/home/charlie/projects").unwrap(),
+                )),
+            })
+        );
     }
 
     #[test]
@@ -8562,6 +8588,14 @@ mod tests {
             })
         );
         app.apply_settings_action(action.expect("test action"));
+        let toast = app
+            .state
+            .toast
+            .as_ref()
+            .expect("test should toast immediately");
+        assert_eq!(toast.title, "SSH connection request failed");
+        assert_eq!(toast.context, "unknown SSH connection profile build-box");
+        app.state.toast = None;
 
         app.state.settings.list.select(
             ConnectionRowId::Action(crate::settings_rows::ConnectionAction::Toggle)
@@ -8580,20 +8614,13 @@ mod tests {
             crate::execution_host::auth::AuthenticationOwner::new(app.default_client_view.id());
         assert_eq!(
             app.state.pending_ssh_connection_requests,
-            vec![
-                crate::app::state::SshConnectionRequest {
-                    profile_id: "build-box".to_string(),
-                    action: crate::execution_host::HostConnectionAction::Test,
-                    authentication_owner: owner,
-                },
-                crate::app::state::SshConnectionRequest {
-                    profile_id: "build-box".to_string(),
-                    action: crate::execution_host::HostConnectionAction::Connect,
-                    authentication_owner: owner,
-                },
-            ]
+            vec![crate::app::state::SshConnectionRequest {
+                profile_id: "build-box".to_string(),
+                action: crate::execution_host::HostConnectionAction::Connect,
+                authentication_owner: owner,
+            }]
         );
-        // Queuing never claims success: pure status stays disconnected, no toast.
+        // Connect still queues; Test already reported through the toast path.
         assert!(app.state.host_connection_states.is_empty());
         assert_eq!(
             app.state.ssh_connection_status(&profile),
@@ -8614,9 +8641,9 @@ mod tests {
             })
         );
         app.apply_settings_action(action.expect("disconnect action"));
-        assert_eq!(app.state.pending_ssh_connection_requests.len(), 3);
+        assert_eq!(app.state.pending_ssh_connection_requests.len(), 2);
         assert_eq!(
-            app.state.pending_ssh_connection_requests[2].action,
+            app.state.pending_ssh_connection_requests[1].action,
             crate::execution_host::HostConnectionAction::Disconnect
         );
     }

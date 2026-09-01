@@ -945,19 +945,11 @@ pub(super) fn apply_rename_action(state: &mut AppState, action: ModalAction) {
                     } else {
                         new_name
                     };
-                    let default_directory = state.group_default_directory_input.trim().to_string();
-                    let default_location = (!default_directory.is_empty())
-                        .then(|| {
-                            crate::execution_host::HostPath::new(default_directory)
-                                .ok()
-                                .map(|path| {
-                                    crate::execution_host::ResourceLocation::new(
-                                        state.group_default_execution_host_id.clone(),
-                                        path,
-                                    )
-                                })
-                        })
-                        .flatten();
+                    let default_location = super::group_default_location_for(
+                        &state.ssh_connection_profiles,
+                        &state.group_default_execution_host_id,
+                        &state.group_default_directory_input,
+                    );
                     let group_idx = state.create_group_with_icon_and_default_location(
                         name,
                         state.group_icon_input.clone(),
@@ -1288,20 +1280,11 @@ pub(crate) fn handle_rename_key(state: &mut AppState, key: KeyEvent) {
                 && state.creating_new_group
                 && state.group_modal_selected_field == 1 =>
         {
-            let mut hosts = vec![crate::execution_host::ExecutionHostId::local()];
-            hosts.extend(
-                state
-                    .ssh_connection_profiles
-                    .iter()
-                    .map(|profile| profile.execution_host_id()),
+            super::apply_group_host_cycle(
+                &state.ssh_connection_profiles,
+                &mut state.group_default_execution_host_id,
+                &mut state.group_default_directory_input,
             );
-            let next = hosts
-                .iter()
-                .position(|host| host == &state.group_default_execution_host_id)
-                .map_or(0, |index| (index + 1) % hosts.len());
-            if let Some(host) = hosts.get(next) {
-                state.group_default_execution_host_id = host.clone();
-            }
         }
         KeyCode::Char('u') if key.modifiers.contains(KeyModifiers::CONTROL) => {
             active_rename_text_mut(state).clear();
@@ -2253,6 +2236,41 @@ mod tests {
         assert_eq!(state.group_modal_selected_field, 2);
         assert_eq!(state.group_default_directory_input, "/");
         assert_eq!(state.name_input, "group 2");
+    }
+    #[test]
+    fn new_group_dialog_persists_ssh_host_without_typed_directory() {
+        let mut state = state_with_workspaces(&["test"]);
+        let profile = crate::persist::ssh_profiles::SshConnectionProfile::new(
+            "workbox",
+            "Work box",
+            "alice@workbox",
+            Some(crate::execution_host::HostPath::new("/srv/work").expect("valid path")),
+        )
+        .expect("valid profile");
+        let host_id = profile.execution_host_id();
+        state.ssh_connection_profiles.push(profile);
+        open_new_group_dialog(&mut state);
+        state.name_input = "client".into();
+        state.name_input_replace_on_type = false;
+        handle_rename_key(
+            &mut state,
+            KeyEvent::new(KeyCode::Tab, KeyModifiers::empty()),
+        );
+        handle_rename_key(
+            &mut state,
+            KeyEvent::new(KeyCode::Char(' '), KeyModifiers::empty()),
+        );
+        handle_rename_key(
+            &mut state,
+            KeyEvent::new(KeyCode::Enter, KeyModifiers::empty()),
+        );
+
+        let location = state.groups[1]
+            .default_location
+            .as_ref()
+            .expect("group default should be saved");
+        assert_eq!(location.execution_host_id, host_id);
+        assert_eq!(location.path.as_path(), std::path::Path::new("/srv/work"));
     }
 
     #[test]

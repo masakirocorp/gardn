@@ -59,6 +59,63 @@ pub(crate) fn rendering_client_may_open_url(url: &str, execution_host_is_local: 
         || host.starts_with("127."))
 }
 
+pub(crate) fn next_group_execution_host(
+    profiles: &[crate::persist::ssh_profiles::SshConnectionProfile],
+    current: &crate::execution_host::ExecutionHostId,
+) -> crate::execution_host::ExecutionHostId {
+    let mut hosts = vec![crate::execution_host::ExecutionHostId::local()];
+    hosts.extend(profiles.iter().map(|profile| profile.execution_host_id()));
+    let next = hosts
+        .iter()
+        .position(|host| host == current)
+        .map_or(0, |index| (index + 1) % hosts.len());
+    hosts
+        .get(next)
+        .cloned()
+        .unwrap_or_else(crate::execution_host::ExecutionHostId::local)
+}
+
+pub(crate) fn apply_group_host_cycle(
+    profiles: &[crate::persist::ssh_profiles::SshConnectionProfile],
+    host: &mut crate::execution_host::ExecutionHostId,
+    directory: &mut String,
+) {
+    *host = next_group_execution_host(profiles, host);
+    if !directory.trim().is_empty() || host.is_local() {
+        return;
+    }
+    *directory = profiles
+        .iter()
+        .find(|profile| profile.execution_host_id() == *host)
+        .and_then(|profile| profile.suggested_directory())
+        .map(|path| path.as_path().display().to_string())
+        .unwrap_or_else(|| ".".to_string());
+}
+
+pub(crate) fn group_default_location_for(
+    profiles: &[crate::persist::ssh_profiles::SshConnectionProfile],
+    host: &crate::execution_host::ExecutionHostId,
+    directory: &str,
+) -> Option<crate::execution_host::ResourceLocation> {
+    let trimmed = directory.trim();
+    let path = if trimmed.is_empty() {
+        if host.is_local() {
+            return None;
+        }
+        profiles
+            .iter()
+            .find(|profile| &profile.execution_host_id() == host)
+            .and_then(|profile| profile.suggested_directory().cloned())
+            .or_else(|| crate::execution_host::HostPath::new(".").ok())?
+    } else {
+        crate::execution_host::HostPath::new(trimmed).ok()?
+    };
+    Some(crate::execution_host::ResourceLocation::new(
+        host.clone(),
+        path,
+    ))
+}
+
 #[cfg(test)]
 #[test]
 fn modified_url_click_modifier_matches_terminal_mouse_reporting() {
@@ -82,6 +139,47 @@ fn remote_execution_urls_never_become_rendering_client_local_targets() {
         "https://example.com/report",
         false
     ));
+}
+
+#[cfg(test)]
+#[test]
+fn group_default_location_keeps_ssh_host_without_typed_directory() {
+    let profile = crate::persist::ssh_profiles::SshConnectionProfile::new(
+        "workbox",
+        "Work box",
+        "alice@workbox",
+        Some(crate::execution_host::HostPath::new("/srv/work").expect("valid path")),
+    )
+    .expect("valid profile");
+    let host = profile.execution_host_id();
+    let location = group_default_location_for(std::slice::from_ref(&profile), &host, " ")
+        .expect("remote default");
+    assert_eq!(location.execution_host_id, host);
+    assert_eq!(location.path.as_path(), std::path::Path::new("/srv/work"));
+    assert!(group_default_location_for(
+        std::slice::from_ref(&profile),
+        &crate::execution_host::ExecutionHostId::local(),
+        " "
+    )
+    .is_none());
+}
+
+#[cfg(test)]
+#[test]
+fn group_host_cycle_fills_suggested_directory_when_empty() {
+    let profile = crate::persist::ssh_profiles::SshConnectionProfile::new(
+        "workbox",
+        "Work box",
+        "alice@workbox",
+        Some(crate::execution_host::HostPath::new("/srv/work").expect("valid path")),
+    )
+    .expect("valid profile");
+    let expected_host = profile.execution_host_id();
+    let mut host = crate::execution_host::ExecutionHostId::local();
+    let mut directory = String::new();
+    apply_group_host_cycle(std::slice::from_ref(&profile), &mut host, &mut directory);
+    assert_eq!(host, expected_host);
+    assert_eq!(directory, "/srv/work");
 }
 
 pub(super) mod agent_profile_picker;
@@ -880,11 +978,11 @@ impl App {
                         let owner = crate::execution_host::auth::AuthenticationOwner::new(
                             self.default_client_view.id(),
                         );
-                        self.state.queue_ssh_connection_request(
-                            profile_id,
-                            crate::execution_host::HostConnectionAction::Test,
+                        self.request_connection_for(
                             owner,
-                        )
+                            &profile_id,
+                            crate::execution_host::HostConnectionAction::Test,
+                        );
                     }
                     SettingsAction::ConnectSshConnection { profile_id } => {
                         let owner = crate::execution_host::auth::AuthenticationOwner::new(

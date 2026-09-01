@@ -2054,21 +2054,7 @@ impl App {
                     changed = true;
                 }
                 crate::execution_host::ExecutionHostEvent::TestFinished { host_id, result } => {
-                    let (kind, context) = match result {
-                        Ok(()) => (
-                            state::ToastKind::Finished,
-                            format!("{} is reachable", host_id.as_str()),
-                        ),
-                        Err(error) => (state::ToastKind::NeedsAttention, error),
-                    };
-                    self.state.toast = Some(state::ToastNotification {
-                        kind,
-                        title: "SSH Connection Test".to_string(),
-                        context,
-                        position: None,
-                        target: None,
-                    });
-                    self.toast_deadline = Some(now + Duration::from_secs(8));
+                    self.show_ssh_test_finished(now, &host_id, result);
                     changed = true;
                 }
             }
@@ -3671,16 +3657,48 @@ impl App {
             .execution_hosts
             .as_mut()
             .ok_or_else(|| "execution hosts unavailable".to_string())
-            .and_then(|hosts| hosts.request_for(owner, profile_id, action).map(|_| ()));
-        if let Err(error) = result {
-            self.state.toast = Some(state::ToastNotification {
-                kind: state::ToastKind::NeedsAttention,
-                title: "SSH connection request failed".to_string(),
-                context: error,
-                position: None,
-                target: None,
-            });
+            .and_then(|hosts| hosts.request_for(owner, profile_id, action));
+        match result {
+            Ok(Some(crate::execution_host::ExecutionHostEvent::TestFinished {
+                host_id,
+                result,
+            })) => {
+                self.show_ssh_test_finished(std::time::Instant::now(), &host_id, result);
+            }
+            Ok(Some(_)) | Ok(None) => {}
+            Err(error) => {
+                self.state.toast = Some(state::ToastNotification {
+                    kind: state::ToastKind::NeedsAttention,
+                    title: "SSH connection request failed".to_string(),
+                    context: error,
+                    position: None,
+                    target: None,
+                });
+            }
         }
+    }
+
+    fn show_ssh_test_finished(
+        &mut self,
+        now: std::time::Instant,
+        host_id: &crate::execution_host::ExecutionHostId,
+        result: Result<(), String>,
+    ) {
+        let (kind, context) = match result {
+            Ok(()) => (
+                state::ToastKind::Finished,
+                format!("{} is reachable", host_id.as_str()),
+            ),
+            Err(error) => (state::ToastKind::NeedsAttention, error),
+        };
+        self.state.toast = Some(state::ToastNotification {
+            kind,
+            title: "SSH Connection Test".to_string(),
+            context,
+            position: None,
+            target: None,
+        });
+        self.toast_deadline = Some(now + Duration::from_secs(8));
     }
 
     pub(crate) fn route_client_events_for_view(
@@ -4932,18 +4950,12 @@ impl App {
                         } else {
                             new_name
                         };
-                        let dir = client_view.group_default_directory_input.trim();
                         let preserve_group_filter = client_view.group_filter_enabled;
-                        let default_location = (!dir.is_empty())
-                            .then(|| {
-                                crate::execution_host::HostPath::new(dir).ok().map(|path| {
-                                    crate::execution_host::ResourceLocation::new(
-                                        client_view.group_default_execution_host_id.clone(),
-                                        path,
-                                    )
-                                })
-                            })
-                            .flatten();
+                        let default_location = input::group_default_location_for(
+                            &self.state.ssh_connection_profiles,
+                            &client_view.group_default_execution_host_id,
+                            &client_view.group_default_directory_input,
+                        );
                         let group_idx = self.state.create_group_with_icon_and_default_location(
                             name,
                             client_view.group_icon_input.clone(),
@@ -5020,43 +5032,16 @@ impl App {
                 }
                 client_view.name_input_replace_on_type = false;
             }
-            crossterm::event::KeyCode::Tab
-                if client_view.mode == Mode::RenameGroup
-                    && client_view.creating_new_group
-                    && !key
-                        .modifiers
-                        .contains(crossterm::event::KeyModifiers::SHIFT) =>
-            {
-                client_view.group_modal_selected_field =
-                    (client_view.group_modal_selected_field + 1) % 3;
-                client_view.name_input_replace_on_type = false;
-            }
-            crossterm::event::KeyCode::BackTab
-                if client_view.mode == Mode::RenameGroup && client_view.creating_new_group =>
-            {
-                client_view.group_modal_selected_field =
-                    (client_view.group_modal_selected_field + 2) % 3;
-                client_view.name_input_replace_on_type = false;
-            }
             crossterm::event::KeyCode::Char(' ')
                 if client_view.mode == Mode::RenameGroup
                     && client_view.creating_new_group
                     && client_view.group_modal_selected_field == 1 =>
             {
-                let mut hosts = vec![crate::execution_host::ExecutionHostId::local()];
-                hosts.extend(
-                    self.state
-                        .ssh_connection_profiles
-                        .iter()
-                        .map(|profile| profile.execution_host_id()),
+                input::apply_group_host_cycle(
+                    &self.state.ssh_connection_profiles,
+                    &mut client_view.group_default_execution_host_id,
+                    &mut client_view.group_default_directory_input,
                 );
-                let next = hosts
-                    .iter()
-                    .position(|host| host == &client_view.group_default_execution_host_id)
-                    .map_or(0, |index| (index + 1) % hosts.len());
-                if let Some(host) = hosts.get(next) {
-                    client_view.group_default_execution_host_id = host.clone();
-                }
             }
             crossterm::event::KeyCode::Char(c)
                 if key
@@ -8007,6 +7992,11 @@ impl App {
             {
                 client_view.group_modal_selected_field = 1;
                 client_view.name_input_replace_on_type = false;
+                input::apply_group_host_cycle(
+                    &self.state.ssh_connection_profiles,
+                    &mut client_view.group_default_execution_host_id,
+                    &mut client_view.group_default_directory_input,
+                );
                 return true;
             }
 
