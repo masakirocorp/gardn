@@ -21,9 +21,6 @@ struct ExtraCoordinator: Identifiable, Hashable, Codable {
         case .local:
             return running ? "This Mac · running" : "This Mac · stopped"
         case .remote:
-            if let session, session != "default" {
-                return "Remote · \(target ?? name) · \(session)"
-            }
             return "Remote · \(target ?? name)"
         }
     }

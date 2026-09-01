@@ -4,7 +4,6 @@ struct ExtraSettingsView: View {
     @ObservedObject var store: AgentStore
     @ObservedObject var catalog: CoordinatorCatalog
     @State private var remoteTarget = ""
-    @State private var remoteSession = ""
 
     var body: some View {
         Form {
@@ -50,8 +49,6 @@ struct ExtraSettingsView: View {
             Section("Add Remote Server") {
                 TextField("SSH target", text: $remoteTarget)
                     .textFieldStyle(.roundedBorder)
-                TextField("Session", text: $remoteSession, prompt: Text("optional"))
-                    .textFieldStyle(.roundedBorder)
                 if let addError = catalog.addError {
                     Text(addError)
                         .foregroundStyle(.red)
@@ -59,13 +56,9 @@ struct ExtraSettingsView: View {
                 HStack {
                     Spacer()
                     Button("Add") {
-                        store.addRemoteCoordinator(
-                            target: remoteTarget,
-                            session: remoteSession
-                        )
+                        store.addRemoteCoordinator(target: remoteTarget, session: "")
                         if catalog.addError == nil {
                             remoteTarget = ""
-                            remoteSession = ""
                         }
                     }
                     .disabled(remoteTarget.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
