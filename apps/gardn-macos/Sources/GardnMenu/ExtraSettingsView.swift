@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 struct ExtraSettingsView: View {
@@ -6,6 +7,20 @@ struct ExtraSettingsView: View {
     @State private var remoteTarget = ""
 
     var body: some View {
+        TabView {
+            servers
+                .tabItem {
+                    Label("Servers", systemImage: "externaldrive.connected.to.line.below")
+                }
+            ExtraAboutView()
+                .tabItem {
+                    Label("About", systemImage: "info.circle")
+                }
+        }
+        .frame(minWidth: 560, minHeight: 420)
+    }
+
+    private var servers: some View {
         Form {
             Section {
                 ForEach(catalog.coordinators) { coordinator in
@@ -67,7 +82,34 @@ struct ExtraSettingsView: View {
             }
         }
         .formStyle(.grouped)
-        .frame(minWidth: 520, minHeight: 380)
         .navigationTitle("Servers")
+    }
+}
+
+struct ExtraAboutView: View {
+    var body: some View {
+        VStack(spacing: 18) {
+            Image(nsImage: NSApplication.shared.applicationIconImage)
+                .resizable()
+                .frame(width: 96, height: 96)
+            Text("Gardn")
+                .font(.system(size: 22, weight: .semibold))
+            Text("Menu extra \(version)")
+                .font(.system(size: 12))
+                .foregroundStyle(.secondary)
+            HStack(spacing: 16) {
+                Link("Website", destination: URL(string: "https://gardn.dev")!)
+                Link("GitHub", destination: URL(string: "https://github.com/masakirocorp/gardn")!)
+            }
+            .font(.system(size: 13))
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(32)
+        .navigationTitle("About")
+    }
+
+    private var version: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
+            ?? "0.1.0"
     }
 }
