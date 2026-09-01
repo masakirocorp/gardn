@@ -17,11 +17,9 @@ mod worker;
 #[cfg(test)]
 mod tests;
 
-#[cfg(test)]
-pub(crate) use codec::HandshakeError;
 pub(crate) use codec::{
     read_worker_message, validate_first_coordinator_message, validate_first_worker_message,
-    write_worker_message,
+    write_worker_message, HandshakeError,
 };
 pub(crate) use coordinator::CoordinatorMessage;
 #[cfg(test)]

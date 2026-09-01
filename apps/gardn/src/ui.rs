@@ -2076,6 +2076,24 @@ mod tests {
 
         assert!(screen.contains("New Workspace"), "{screen}");
         assert!(screen.contains("project"), "{screen}");
+        assert!(screen.contains("Runs On Local"), "{screen}");
+        let buffer = terminal.backend().buffer();
+        let mut caption_row = None;
+        let mut button_row = None;
+        for row in 0..area.height {
+            let text = buffer_row_text(buffer, area, row);
+            if text.contains("Runs On") {
+                caption_row = Some(row);
+            }
+            if text.contains("Save") && text.contains("Clear") {
+                button_row = Some(row);
+            }
+        }
+        assert_ne!(
+            caption_row.expect("Runs On caption"),
+            button_row.expect("Save/Clear"),
+            "{screen}"
+        );
     }
 
     #[tokio::test]

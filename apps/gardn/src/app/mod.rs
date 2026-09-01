@@ -4876,35 +4876,12 @@ impl App {
                             &new_name,
                             &suggested_name,
                         );
-                        let Some(group_id) = self
-                            .state
-                            .groups
-                            .get(group_idx)
-                            .map(|group| group.id.clone())
-                        else {
-                            return;
-                        };
-                        match self.create_workspace_with_launch_env_in_group(
-                            location.path.as_path().to_path_buf(),
-                            false,
-                            group_id,
-                            Vec::new(),
-                        ) {
-                            Ok(ws_idx) => {
-                                if let Some(name) = label {
-                                    if let Some(workspace) = self.state.workspaces.get_mut(ws_idx) {
-                                        workspace.set_custom_name(name);
-                                        self.state.mark_session_dirty();
-                                    }
-                                }
-                                client_view.active_group = group_idx;
-                                self.switch_client_view_workspace(client_view, ws_idx);
-                            }
-                            Err(err) => {
-                                tracing::error!(err = %err, "failed to create named client workspace");
-                                client_view.mode = Mode::Navigate;
-                            }
-                        }
+                        self.create_named_workspace_for_client_view(
+                            client_view,
+                            location,
+                            group_idx,
+                            label,
+                        );
                     }
                     Mode::RenameWorkspace if !new_name.is_empty() => {
                         if let Some(ws_idx) = client_view.active_workspace {
@@ -7944,8 +7921,11 @@ impl App {
             return true;
         }
 
-        let (popup_w, popup_h) =
-            crate::ui::rename_modal_size_for_view(client_view.mode, client_view.creating_new_group);
+        let (popup_w, popup_h) = crate::ui::rename_modal_size_for_view(
+            client_view.mode,
+            client_view.creating_new_group,
+            client_view.pending_workspace_create_location.is_some(),
+        );
         let Some(popup) =
             crate::ui::centered_popup_rect(client_view.screen_rect(), popup_w, popup_h)
         else {
@@ -16623,6 +16603,44 @@ command = "printf literal > '{}'"
     }
 
     #[test]
+    fn named_client_workspace_create_does_not_strip_ssh_host_to_local() {
+        let mut app = test_app();
+        app.state.workspaces = vec![Workspace::test_new("seed")];
+        app.state.active = Some(0);
+        let mut client_view = ClientViewState::from_default_client_state(&app.state);
+        let location = crate::execution_host::ResourceLocation::new(
+            crate::execution_host::ExecutionHostId::new("ssh:eva-01:1").expect("host id"),
+            crate::execution_host::HostPath::new("~/projects").expect("path"),
+        );
+        client_view.mode = Mode::RenameWorkspace;
+        client_view.pending_workspace_create_location = Some(location);
+        client_view.pending_workspace_create_group = Some(0);
+        client_view.name_input = "projects".into();
+        client_view.name_input_replace_on_type = false;
+
+        app.route_client_events_for_view(
+            &mut client_view,
+            vec![raw_key(
+                KeyCode::Enter,
+                KeyModifiers::empty(),
+                KeyEventKind::Press,
+            )],
+            false,
+        );
+
+        assert_eq!(app.state.workspaces.len(), 1);
+        assert!(app.state.workspaces[0].default_location.is_local());
+        assert_ne!(
+            app.state.workspaces[0]
+                .default_location
+                .path
+                .as_path()
+                .to_string_lossy(),
+            "~/projects"
+        );
+    }
+
+    #[test]
     fn route_client_events_for_view_advances_onboarding_with_continue_click() {
         let mut app = test_app();
         app.state.workspaces = vec![Workspace::test_new("test")];
@@ -21457,7 +21475,7 @@ command = "printf literal > '{}'"
             crate::kitty_graphics::HostCellSize::default(),
         );
         let (popup_w, popup_h) =
-            crate::ui::rename_modal_size_for_view(crate::app::Mode::RenameGroup, true);
+            crate::ui::rename_modal_size_for_view(crate::app::Mode::RenameGroup, true, false);
         let popup = crate::ui::centered_popup_rect(first_client.screen_rect(), popup_w, popup_h)
             .expect("new-group popup");
         let inner = ratatui::widgets::Block::default()

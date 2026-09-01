@@ -49,9 +49,22 @@ fn expand_new_terminal_cwd_path(path: &str) -> PathBuf {
 pub(crate) struct PendingRemoteCreation {
     runtime: crate::terminal::TerminalRuntime,
     plan: PendingRemoteCreationPlan,
+    client_focus: Option<(u64, crate::api::PendingFocusMarker)>,
 }
 
 impl PendingRemoteCreation {
+    fn new(runtime: crate::terminal::TerminalRuntime, plan: PendingRemoteCreationPlan) -> Self {
+        Self {
+            runtime,
+            plan,
+            client_focus: None,
+        }
+    }
+
+    fn set_client_focus(&mut self, client_view_id: u64, marker: crate::api::PendingFocusMarker) {
+        self.client_focus = Some((client_view_id, marker));
+    }
+
     pub(crate) fn requested_location(&self) -> &crate::execution_host::ResourceLocation {
         match &self.plan {
             PendingRemoteCreationPlan::Workspace { terminal, .. }
@@ -626,16 +639,65 @@ impl App {
             .with_launch_env(extra_env);
         self.pending_remote_creations.insert(
             terminal_id.clone(),
-            PendingRemoteCreation {
+            PendingRemoteCreation::new(
                 runtime,
-                plan: PendingRemoteCreationPlan::Workspace {
+                PendingRemoteCreationPlan::Workspace {
                     workspace: Box::new(workspace),
                     terminal: Box::new(terminal),
                     focus,
                 },
-            },
+            ),
         );
         Ok(terminal_id)
+    }
+
+    pub(crate) fn create_named_workspace_for_client_view(
+        &mut self,
+        client_view: &mut ClientViewState,
+        location: crate::execution_host::ResourceLocation,
+        group_idx: usize,
+        label: Option<String>,
+    ) {
+        let Some(group_id) = self
+            .state
+            .groups
+            .get(group_idx)
+            .map(|group| group.id.clone())
+        else {
+            return;
+        };
+        match self.create_workspace_with_location_in_group(location, false, group_id, Vec::new()) {
+            Ok(WorkspaceCreation::Committed(ws_idx)) => {
+                if let Some(name) = label {
+                    if let Some(workspace) = self.state.workspaces.get_mut(ws_idx) {
+                        workspace.set_custom_name(name);
+                        self.state.mark_session_dirty();
+                    }
+                }
+                client_view.active_group = group_idx;
+                self.switch_client_view_workspace(client_view, ws_idx);
+            }
+            Ok(WorkspaceCreation::Pending(terminal_id)) => {
+                if let Some(name) = label {
+                    self.set_pending_remote_container_name(&terminal_id, name);
+                }
+                client_view.active_group = group_idx;
+                if let Some(workspace_id) = self.pending_remote_workspace_id(&terminal_id) {
+                    client_view.pending_active_workspace = Some(workspace_id.clone());
+                    if let Some(pending) = self.pending_remote_creations.get_mut(&terminal_id) {
+                        pending.set_client_focus(
+                            client_view.id(),
+                            crate::api::PendingFocusMarker::Workspace { workspace_id },
+                        );
+                    }
+                }
+            }
+            Err(err) => {
+                tracing::error!(err = %err, "failed to create named client workspace");
+                self.show_remote_create_failed_toast(err);
+                client_view.mode = Mode::Navigate;
+            }
+        }
     }
 
     pub(super) fn begin_remote_tab(
@@ -694,15 +756,15 @@ impl App {
             .with_launch_env(extra_env);
         self.pending_remote_creations.insert(
             terminal_id.clone(),
-            PendingRemoteCreation {
+            PendingRemoteCreation::new(
                 runtime,
-                plan: PendingRemoteCreationPlan::Tab {
+                PendingRemoteCreationPlan::Tab {
                     workspace_id,
                     tab: Box::new(tab),
                     terminal: Box::new(terminal),
                     focus,
                 },
-            },
+            ),
         );
         Ok(terminal_id)
     }
@@ -753,9 +815,9 @@ impl App {
             .with_launch_env(extra_env);
         self.pending_remote_creations.insert(
             terminal_id.clone(),
-            PendingRemoteCreation {
+            PendingRemoteCreation::new(
                 runtime,
-                plan: PendingRemoteCreationPlan::Split {
+                PendingRemoteCreationPlan::Split {
                     workspace_id,
                     target_pane_id,
                     tab_number,
@@ -765,7 +827,7 @@ impl App {
                     terminal: Box::new(terminal),
                     focus,
                 },
-            },
+            ),
         );
         Ok(terminal_id)
     }
@@ -810,12 +872,31 @@ impl App {
                 let _ = hosts.cancel_pending_create(&terminal_id);
             }
             pending.runtime.shutdown();
+            let api_pending = self.pending_remote_api_responses.contains_key(&terminal_id);
+            if !api_pending {
+                if let Some((client_view_id, marker)) = pending.client_focus {
+                    self.queue_pending_focus_cleanup(Some(client_view_id), Some(marker));
+                }
+                self.show_remote_create_failed_toast(message.clone());
+            }
             self.remote_creation_completions
                 .push(RemoteCreationCompletion {
                     terminal_id,
                     result: Err(message),
                 });
         }
+    }
+
+    fn show_remote_create_failed_toast(&mut self, message: String) {
+        let previous_toast = self.state.toast.clone();
+        self.state.toast = Some(super::state::ToastNotification {
+            kind: super::state::ToastKind::NeedsAttention,
+            title: "Workspace create failed".to_string(),
+            context: message,
+            position: None,
+            target: None,
+        });
+        self.sync_toast_deadline(previous_toast);
     }
 
     /// Explicit disconnect / source teardown: fail deferred responder promptly while
@@ -842,7 +923,11 @@ impl App {
         identity: crate::execution_host::protocol::RuntimeIdentity,
         resolved_location: crate::execution_host::ResourceLocation,
     ) -> Result<CommittedRemoteCreation, String> {
-        let PendingRemoteCreation { runtime, plan } = pending;
+        let PendingRemoteCreation {
+            runtime,
+            plan,
+            client_focus: _,
+        } = pending;
         match plan {
             PendingRemoteCreationPlan::Workspace {
                 mut workspace,
@@ -1973,6 +2058,44 @@ mod placement_creation_tests {
         assert!(app.pending_remote_creations.is_empty());
         assert!(app.state.workspaces.is_empty());
         assert!(app.remote_creation_completions.is_empty());
+    }
+
+    #[tokio::test]
+    async fn named_remote_workspace_failure_clears_pending_focus_and_toasts() {
+        let mut app = test_app();
+        let host_id = crate::execution_host::ExecutionHostId::new("ssh:atomic").unwrap();
+        app.execution_hosts
+            .as_mut()
+            .unwrap()
+            .connect_test_host(host_id.clone());
+        let location = remote_location(&host_id, "/srv/requested");
+        let mut view = app.default_client_view.clone_reconciled(&app.state);
+        app.create_named_workspace_for_client_view(&mut view, location, 0, Some("lab".into()));
+        let workspace_id = view
+            .pending_active_workspace
+            .clone()
+            .expect("named remote create must mark pending workspace focus");
+        app.default_client_view = view;
+        assert!(app.state.workspaces.is_empty());
+        let terminal_id = app
+            .pending_remote_creations
+            .keys()
+            .next()
+            .cloned()
+            .expect("pending remote create");
+
+        app.complete_remote_creation_failed(terminal_id, "worker rejected".into());
+
+        assert!(app.state.workspaces.is_empty());
+        assert_eq!(
+            app.default_client_view.pending_active_workspace.as_deref(),
+            None,
+            "failed named create must clear the matching pending workspace marker"
+        );
+        let toast = app.state.toast.expect("failed named create must toast");
+        assert_eq!(toast.title, "Workspace create failed");
+        assert_eq!(toast.context, "worker rejected");
+        assert!(!workspace_id.is_empty());
     }
 
     #[tokio::test]

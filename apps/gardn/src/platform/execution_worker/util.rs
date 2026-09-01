@@ -6,6 +6,8 @@ use crate::execution_host::protocol::{WorkerError, WorkerErrorCode};
 pub(super) const READY_TIMEOUT: Duration = Duration::from_secs(15);
 pub(super) const READY_POLL_INTERVAL: Duration = Duration::from_millis(50);
 pub(super) const LIFECYCLE_ACTIVATE_TIMEOUT: Duration = Duration::from_secs(2);
+pub(super) const OCCUPIED_CLIENT_IO_TIMEOUT: Duration = Duration::from_millis(100);
+pub(super) const MAX_OCCUPIED_CLIENTS_PER_POLL: usize = 4;
 pub(super) const LOCK_WAIT_POLL_INTERVAL: Duration = Duration::from_millis(20);
 pub(super) const SESSION_POLL_INTERVAL: Duration = Duration::from_millis(20);
 pub(super) const WORKER_APP_VERSION: &str = env!("CARGO_PKG_VERSION");

@@ -9,10 +9,11 @@ use ratatui::{
 use super::{
     text::display_width_u16,
     widgets::{
-        action_button_row_rects, centered_popup_rect, danger_action_style, panel_contrast_fg,
-        primary_action_style, render_action_button, render_modal_description, render_modal_divider,
+        action_button_row_height, action_button_row_rects, centered_popup_rect,
+        danger_action_style, modal_stack_areas, panel_contrast_fg, primary_action_style,
+        render_action_button, render_modal_description, render_modal_divider,
         render_modal_header_bar, render_modal_shell, render_modal_text_input, render_panel_shell,
-        secondary_action_style, ActionButtonSpec,
+        secondary_action_style, ActionButtonSpec, ModalStackAreas,
     },
 };
 
@@ -21,39 +22,70 @@ use crate::{
     terminal::TerminalRuntimeRegistry,
 };
 
-pub(crate) fn rename_button_rects(inner: Rect) -> (Rect, Rect, Rect) {
-    let rects = action_button_row_rects(
-        inner,
-        &[
-            ActionButtonSpec {
-                hint: Some("↵"),
-                label: "Save",
-            },
-            ActionButtonSpec {
-                hint: Some("^c"),
-                label: "Clear",
-            },
-        ],
-        2,
-        inner.height.saturating_sub(1),
-    );
-    let close =
-        super::widgets::modal_close_button_rect(Rect::new(inner.x, inner.y, inner.width, 1));
-    (rects[0], rects[1], close)
+fn rename_action_buttons() -> [ActionButtonSpec<'static>; 2] {
+    [
+        ActionButtonSpec {
+            hint: Some("↵"),
+            label: "Save",
+        },
+        ActionButtonSpec {
+            hint: Some("^c"),
+            label: "Clear",
+        },
+    ]
 }
 
-pub(crate) fn rename_modal_size_for_view(mode: Mode, creating_new_group: bool) -> (u16, u16) {
+pub(crate) fn rename_stack_areas(inner: Rect) -> ModalStackAreas {
+    let buttons = rename_action_buttons();
+    let actions_rows = action_button_row_height(inner.width, &buttons, 2);
+    modal_stack_areas(inner, 1, 0, actions_rows, 1)
+}
+
+fn rename_inner_height(content_rows: u16, inner_width: u16) -> u16 {
+    let buttons = rename_action_buttons();
+    let actions_rows = action_button_row_height(inner_width, &buttons, 2);
+    1 + 1 + content_rows + 1 + actions_rows
+}
+
+pub(crate) fn rename_button_rects(inner: Rect) -> (Rect, Rect, Rect) {
+    let stack = rename_stack_areas(inner);
+    let actions = stack.actions.unwrap_or_default();
+    let buttons = rename_action_buttons();
+    let rects = action_button_row_rects(actions, &buttons, 2, 0);
+    let close = super::widgets::modal_close_button_rect(stack.header);
+    (
+        rects.first().copied().unwrap_or_default(),
+        rects.get(1).copied().unwrap_or_default(),
+        close,
+    )
+}
+
+pub(crate) fn rename_modal_size_for_view(
+    mode: Mode,
+    creating_new_group: bool,
+    show_workspace_create_location: bool,
+) -> (u16, u16) {
     if matches!(mode, Mode::RenameGroup) && creating_new_group {
         (64, 22)
     } else if matches!(mode, Mode::RenameGroup) {
         (56, 17)
     } else {
-        (56, 7)
+        let content_rows: u16 = if show_workspace_create_location { 2 } else { 1 };
+        let width: u16 = 56;
+        let inner_width = width.saturating_sub(2);
+        (
+            width,
+            rename_inner_height(content_rows, inner_width).saturating_add(2),
+        )
     }
 }
 
 pub(crate) fn rename_modal_size(app: &AppState) -> (u16, u16) {
-    rename_modal_size_for_view(app.mode, app.creating_new_group)
+    rename_modal_size_for_view(
+        app.mode,
+        app.creating_new_group,
+        app.pending_workspace_create_location.is_some(),
+    )
 }
 
 pub(crate) fn rename_name_input_rect(app: &AppState, inner: Rect) -> Rect {
@@ -68,10 +100,19 @@ pub(crate) fn rename_name_input_rect_for_view(
     if matches!(mode, Mode::RenameGroup) {
         return group_name_input_rect_for_view(creating_new_group, inner);
     }
-    if inner.width == 0 || inner.height < 3 {
+    let content = rename_stack_areas(inner).content;
+    if content.width == 0 || content.height == 0 {
         return Rect::default();
     }
-    Rect::new(inner.x, inner.y + 2, inner.width, 1)
+    Rect::new(content.x, content.y, content.width, 1)
+}
+
+fn rename_location_caption_rect(inner: Rect) -> Rect {
+    let content = rename_stack_areas(inner).content;
+    if content.width == 0 || content.height < 2 {
+        return Rect::default();
+    }
+    Rect::new(content.x, content.y.saturating_add(1), content.width, 1)
 }
 
 #[derive(Clone, Copy)]
@@ -426,8 +467,6 @@ fn render_rename_overlay_with_view_state(
     frame: &mut Frame,
     area: Rect,
 ) {
-    // The shared data model owns workspace/group metadata and palettes; all modal
-    // state below is selected from the requesting client's view.
     let title = match client_view.mode {
         Mode::RenameWorkspace if client_view.pending_workspace_create_location.is_some() => {
             "New Workspace"
@@ -451,8 +490,11 @@ fn render_rename_overlay_with_view_state(
             .unwrap_or_else(|| app.palette_for_group(client_view.active_group)),
         _ => app.palette.clone(),
     };
-    let (popup_w, popup_h) =
-        rename_modal_size_for_view(client_view.mode, client_view.creating_new_group);
+    let (popup_w, popup_h) = rename_modal_size_for_view(
+        client_view.mode,
+        client_view.creating_new_group,
+        client_view.pending_workspace_create_location.is_some(),
+    );
     super::dim_background(frame, area);
     let Some(inner) = render_modal_shell(frame, area, popup_w, popup_h, &palette) else {
         return;
@@ -460,15 +502,10 @@ fn render_rename_overlay_with_view_state(
     if inner.height < 4 {
         return;
     }
-    let rows = Layout::vertical([
-        Constraint::Length(1),
-        Constraint::Length(1),
-        Constraint::Min(0),
-    ])
-    .areas::<3>(inner);
-    render_modal_header_bar(frame, rows[0], title, &palette, true);
+    let stack = rename_stack_areas(inner);
+    render_modal_header_bar(frame, stack.header, title, &palette, true);
     if matches!(client_view.mode, Mode::RenameGroup) {
-        render_modal_divider(frame, rows[1], &palette);
+        render_modal_divider(frame, stack.content, &palette);
         render_group_modal_fields(
             app,
             frame,
@@ -494,15 +531,18 @@ fn render_rename_overlay_with_view_state(
             &palette,
         );
         if let Some(location) = client_view.pending_workspace_create_location.as_ref() {
-            frame.render_widget(
-                Paragraph::new(format!(
-                    "Runs On {} · Directory {}",
-                    group_host_label(app, &location.execution_host_id),
-                    location.path.as_path().display()
-                ))
-                .style(Style::default().fg(palette.overlay0)),
-                Rect::new(rows[2].x, rows[2].y + 2, rows[2].width, 1),
-            );
+            let caption = rename_location_caption_rect(inner);
+            if caption.height > 0 {
+                frame.render_widget(
+                    Paragraph::new(format!(
+                        "Runs On {} · Directory {}",
+                        group_host_label(app, &location.execution_host_id),
+                        location.path.as_path().display()
+                    ))
+                    .style(Style::default().fg(palette.overlay0)),
+                    caption,
+                );
+            }
         }
     }
 
@@ -546,16 +586,10 @@ pub(super) fn render_rename_overlay(app: &AppState, frame: &mut Frame, area: Rec
         return;
     }
 
-    let rows = Layout::vertical([
-        Constraint::Length(1),
-        Constraint::Length(1),
-        Constraint::Min(0),
-    ])
-    .areas::<3>(inner);
-
-    render_modal_header_bar(frame, rows[0], title, &palette, true);
+    let stack = rename_stack_areas(inner);
+    render_modal_header_bar(frame, stack.header, title, &palette, true);
     if matches!(app.mode, Mode::RenameGroup) {
-        render_modal_divider(frame, rows[1], &palette);
+        render_modal_divider(frame, stack.content, &palette);
         render_group_modal_fields(
             app,
             frame,
@@ -573,20 +607,22 @@ pub(super) fn render_rename_overlay(app: &AppState, frame: &mut Frame, area: Rec
         let input_rect = rename_name_input_rect(app, inner);
         render_modal_text_input(frame, input_rect, &app.name_input, &palette);
         if let Some(location) = app.pending_workspace_create_location.as_ref() {
-            frame.render_widget(
-                Paragraph::new(format!(
-                    "Runs On {} · Directory {}",
-                    group_host_label(app, &location.execution_host_id),
-                    location.path.as_path().display()
-                ))
-                .style(Style::default().fg(palette.overlay0)),
-                Rect::new(rows[2].x, rows[2].y + 2, rows[2].width, 1),
-            );
+            let caption = rename_location_caption_rect(inner);
+            if caption.height > 0 {
+                frame.render_widget(
+                    Paragraph::new(format!(
+                        "Runs On {} · Directory {}",
+                        group_host_label(app, &location.execution_host_id),
+                        location.path.as_path().display()
+                    ))
+                    .style(Style::default().fg(palette.overlay0)),
+                    caption,
+                );
+            }
         }
     }
 
     let (save_rect, clear_rect, _) = rename_button_rects(inner);
-
     render_action_button(
         frame,
         save_rect,
@@ -1112,10 +1148,10 @@ mod tests {
             popup.width.saturating_sub(2),
             popup.height.saturating_sub(2),
         );
-        assert!(row_text(buffer, inner.x, inner.width, inner.y + 1).contains("─"));
-        assert!(row_text(buffer, inner.x, inner.width, inner.y + 2)
-            .trim()
-            .is_empty());
+        let stack = rename_stack_areas(inner);
+        assert!(row_text(buffer, inner.x, inner.width, stack.content.y).contains("─"));
+        let (save_rect, _, _) = rename_button_rects(inner);
+        assert_eq!(save_rect.y, stack.actions.expect("action row").y);
         assert!(row_text(buffer, inner.x, inner.width, inner.y + 5)
             .trim()
             .is_empty());
@@ -1149,6 +1185,20 @@ mod tests {
             group_default_directory_input_rect(&app, inner),
             Rect::new(inner.x + 1, inner.y + 17, inner.width.saturating_sub(1), 1)
         );
+    }
+
+    #[test]
+    fn new_workspace_location_caption_stays_off_the_action_row() {
+        let inner = Rect::new(10, 4, 54, 6);
+        let caption = rename_location_caption_rect(inner);
+        let (save, clear, _) = rename_button_rects(inner);
+        assert!(caption.height > 0);
+        assert_ne!(caption.y, save.y);
+        assert_ne!(caption.y, clear.y);
+        assert_eq!(save.y, clear.y);
+        let name = rename_name_input_rect_for_view(Mode::RenameWorkspace, false, inner);
+        assert_ne!(name.y, caption.y);
+        assert_ne!(name.y, save.y);
     }
 
     #[test]

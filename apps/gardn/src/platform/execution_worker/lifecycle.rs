@@ -22,7 +22,8 @@ use super::binding::DaemonBinding;
 use super::state::WorkerState;
 use super::util::{
     framing_io, is_disconnect, worker_error, LIFECYCLE_ACTIVATE_TIMEOUT, LOCK_WAIT_POLL_INTERVAL,
-    READY_POLL_INTERVAL, READY_TIMEOUT, SESSION_POLL_INTERVAL, WORKER_APP_VERSION,
+    MAX_OCCUPIED_CLIENTS_PER_POLL, OCCUPIED_CLIENT_IO_TIMEOUT, READY_POLL_INTERVAL, READY_TIMEOUT,
+    SESSION_POLL_INTERVAL, WORKER_APP_VERSION,
 };
 
 #[cfg(unix)]
@@ -566,12 +567,18 @@ pub(super) fn run_daemon(binding: DaemonBinding) -> io::Result<()> {
             let _ = super::touch_artifact_lease();
         }
     });
+    listener.set_nonblocking(true)?;
     let result = loop {
         let (stream, _) = match listener.accept() {
             Ok(accepted) => accepted,
+            Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
+                std::thread::sleep(SESSION_POLL_INTERVAL);
+                continue;
+            }
             Err(error) => break Err(error),
         };
-        match serve_connection(stream, &mut state) {
+        let _ = stream.set_nonblocking(false);
+        match serve_connection_maybe_listening(stream, &mut state, Some(&listener)) {
             Ok(ConnectionOutcome::Continue) => {}
             Ok(ConnectionOutcome::Shutdown) => break Ok(()),
             Err(err) if is_disconnect(&err) => {}
@@ -625,12 +632,20 @@ pub(super) enum ConnectionOutcome {
     Shutdown,
 }
 
-#[cfg(unix)]
+#[cfg(all(test, unix))]
 pub(super) fn serve_connection(
-    mut stream: UnixStream,
+    stream: UnixStream,
     state: &mut WorkerState,
 ) -> io::Result<ConnectionOutcome> {
-    // Discriminate lifecycle preamble from normal worker Hello on the same stream.
+    serve_connection_maybe_listening(stream, state, None)
+}
+
+#[cfg(unix)]
+fn serve_connection_maybe_listening(
+    mut stream: UnixStream,
+    state: &mut WorkerState,
+    listener: Option<&UnixListener>,
+) -> io::Result<ConnectionOutcome> {
     let mut len_prefix = [0u8; 4];
     stream.read_exact(&mut len_prefix)?;
     if len_prefix == LIFECYCLE_FRAME_PREFIX {
@@ -639,14 +654,105 @@ pub(super) fn serve_connection(
             LifecycleServeResult::Done(outcome) => return Ok(outcome),
         }
     } else {
-        // Re-feed the length prefix into the normal worker framing decoder.
         let hello: CoordinatorMessage =
             read_worker_message(&mut (&len_prefix[..]).chain(&mut stream)).map_err(framing_io)?;
-        return serve_normal_hello(stream, state, hello);
+        return serve_normal_hello(stream, state, hello, listener);
     }
 
     let hello: CoordinatorMessage = read_worker_message(&mut stream).map_err(framing_io)?;
-    serve_normal_hello(stream, state, hello)
+    serve_normal_hello(stream, state, hello, listener)
+}
+
+#[cfg(unix)]
+fn drain_occupied_clients(
+    listener: &UnixListener,
+    state: &mut WorkerState,
+) -> io::Result<Option<ConnectionOutcome>> {
+    for _ in 0..MAX_OCCUPIED_CLIENTS_PER_POLL {
+        match listener.accept() {
+            Ok((stream, _)) => {
+                let _ = stream.set_nonblocking(false);
+                match serve_occupied_connection(stream, state) {
+                    Ok(ConnectionOutcome::Shutdown) => {
+                        return Ok(Some(ConnectionOutcome::Shutdown))
+                    }
+                    Ok(ConnectionOutcome::Continue) | Err(_) => {}
+                }
+            }
+            Err(error) if error.kind() == io::ErrorKind::WouldBlock => return Ok(None),
+            Err(_) => return Ok(None),
+        }
+    }
+    Ok(None)
+}
+
+#[cfg(unix)]
+fn serve_occupied_connection(
+    mut stream: UnixStream,
+    state: &mut WorkerState,
+) -> io::Result<ConnectionOutcome> {
+    stream.set_read_timeout(Some(OCCUPIED_CLIENT_IO_TIMEOUT))?;
+    stream.set_write_timeout(Some(OCCUPIED_CLIENT_IO_TIMEOUT))?;
+    let mut len_prefix = [0u8; 4];
+    stream.read_exact(&mut len_prefix)?;
+    if len_prefix == LIFECYCLE_FRAME_PREFIX {
+        match handle_lifecycle_activate(&mut stream, len_prefix, state)? {
+            LifecycleServeResult::UpgradeToHello => {
+                let hello: CoordinatorMessage =
+                    read_worker_message(&mut stream).map_err(framing_io)?;
+                write_occupied_hello_ack(&mut stream, state, &hello)
+            }
+            LifecycleServeResult::Done(outcome) => Ok(outcome),
+        }
+    } else {
+        let hello: CoordinatorMessage =
+            read_worker_message(&mut (&len_prefix[..]).chain(&mut stream)).map_err(framing_io)?;
+        write_occupied_hello_ack(&mut stream, state, &hello)
+    }
+}
+
+#[cfg(unix)]
+fn hello_ack_message(
+    state: &WorkerState,
+    hello: &CoordinatorMessage,
+    error: Option<crate::execution_host::protocol::WorkerError>,
+) -> WorkerMessage {
+    let requested_capabilities = match hello {
+        CoordinatorMessage::Hello { capabilities, .. } => capabilities.clone(),
+        _ => Vec::new(),
+    };
+    let capabilities = state
+        .capabilities()
+        .into_iter()
+        .filter(|capability| requested_capabilities.contains(capability))
+        .collect::<Vec<_>>();
+    WorkerMessage::HelloAck {
+        version: PROTOCOL_VERSION,
+        worker_instance_id: state.binding().worker_instance_id.clone(),
+        host_binding_generation: state.binding().host_binding_generation,
+        execution_host_id: state.binding().execution_host_id.clone(),
+        capabilities,
+        auth_challenge: None,
+        error,
+    }
+}
+
+#[cfg(unix)]
+fn write_occupied_hello_ack(
+    stream: &mut UnixStream,
+    state: &WorkerState,
+    hello: &CoordinatorMessage,
+) -> io::Result<ConnectionOutcome> {
+    let ack = hello_ack_message(
+        state,
+        hello,
+        Some(worker_error(
+            WorkerErrorCode::Busy,
+            "execution worker already has an active coordinator session",
+        )),
+    );
+    write_worker_message(stream, &ack).map_err(framing_io)?;
+    Ok(ConnectionOutcome::Continue)
 }
 
 #[cfg(unix)]
@@ -721,11 +827,8 @@ pub(super) fn serve_normal_hello(
     mut stream: UnixStream,
     state: &mut WorkerState,
     hello: CoordinatorMessage,
+    listener: Option<&UnixListener>,
 ) -> io::Result<ConnectionOutcome> {
-    let requested_capabilities = match &hello {
-        CoordinatorMessage::Hello { capabilities, .. } => capabilities.clone(),
-        _ => Vec::new(),
-    };
     let handshake_error = if state.is_draining() {
         Some(worker_error(
             WorkerErrorCode::Busy,
@@ -744,20 +847,7 @@ pub(super) fn serve_normal_hello(
                 })
             })
     };
-    let capabilities = state
-        .capabilities()
-        .into_iter()
-        .filter(|capability| requested_capabilities.contains(capability))
-        .collect::<Vec<_>>();
-    let ack = WorkerMessage::HelloAck {
-        version: PROTOCOL_VERSION,
-        worker_instance_id: state.binding().worker_instance_id.clone(),
-        host_binding_generation: state.binding().host_binding_generation,
-        execution_host_id: state.binding().execution_host_id.clone(),
-        capabilities,
-        auth_challenge: None,
-        error: handshake_error.clone(),
-    };
+    let ack = hello_ack_message(state, &hello, handshake_error.clone());
     write_worker_message(&mut stream, &ack).map_err(framing_io)?;
     if handshake_error.is_some() {
         return Ok(ConnectionOutcome::Continue);
@@ -796,7 +886,13 @@ pub(super) fn serve_normal_hello(
                 }
                 Ok(Err(err)) if is_disconnect(&err) => break Ok(ConnectionOutcome::Continue),
                 Ok(Err(err)) => return Err(err),
-                Err(std_mpsc::RecvTimeoutError::Timeout) => {}
+                Err(std_mpsc::RecvTimeoutError::Timeout) => {
+                    if let Some(listener) = listener {
+                        if let Some(outcome) = drain_occupied_clients(listener, state)? {
+                            break Ok(outcome);
+                        }
+                    }
+                }
                 Err(std_mpsc::RecvTimeoutError::Disconnected) => {
                     break Ok(ConnectionOutcome::Continue);
                 }

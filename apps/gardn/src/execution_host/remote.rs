@@ -8,8 +8,9 @@ use super::auth::{AskpassServer, AuthenticationChallengeChannel, AuthenticationO
 use super::connection::{ConnectionLifecycle, ConnectionStatus};
 use super::protocol::{
     read_worker_message, validate_first_worker_message, write_worker_message, AuthChallenge,
-    CoordinatorInstallationId, CoordinatorMessage, HostBindingGeneration, RequestId,
-    SessionNamespaceId, WorkerCapability, WorkerMessage, PROTOCOL_VERSION,
+    CoordinatorInstallationId, CoordinatorMessage, HandshakeError, HostBindingGeneration,
+    RequestId, SessionNamespaceId, WorkerCapability, WorkerErrorCode, WorkerMessage,
+    PROTOCOL_VERSION,
 };
 use crate::persist::ssh_profiles::SshConnectionProfile;
 
@@ -93,6 +94,35 @@ fn coordinator_worker_capabilities() -> Vec<WorkerCapability> {
     ]
 }
 
+fn test_handshake_means_reachable(error: &std::io::Error) -> bool {
+    error.get_ref().is_some_and(|inner| {
+        inner
+            .downcast_ref::<HandshakeError>()
+            .is_some_and(|handshake| {
+                matches!(
+                    handshake,
+                    HandshakeError::Rejected(worker)
+                        if matches!(
+                            worker.code,
+                            WorkerErrorCode::Busy | WorkerErrorCode::TimedOut
+                        )
+                )
+            })
+    })
+}
+
+fn tested_from_connect_error(error: std::io::Error) -> SshExecutionHostEvent {
+    if test_handshake_means_reachable(&error) {
+        SshExecutionHostEvent::Tested(Ok(()))
+    } else {
+        SshExecutionHostEvent::Tested(Err(error.to_string()))
+    }
+}
+
+fn tested_event(result: Result<(), String>) -> SshExecutionHostEvent {
+    SshExecutionHostEvent::Tested(result)
+}
+
 impl WorkerConnection {
     fn connect(
         profile: &SshConnectionProfile,
@@ -154,8 +184,7 @@ impl WorkerConnection {
             .map_err(|err| std::io::Error::other(format!("worker hello failed: {err}")))?;
 
         let (first, mut stdout) = read_worker_hello(&mut transport, cancel)?;
-        validate_first_worker_message(&first)
-            .map_err(|err| std::io::Error::other(err.to_string()))?;
+        validate_first_worker_message(&first).map_err(std::io::Error::other)?;
         let WorkerMessage::HelloAck {
             worker_instance_id: _,
             host_binding_generation,
@@ -634,7 +663,7 @@ impl SshExecutionHost {
                         }
                     } else if self.testing {
                         self.testing = false;
-                        events.push(SshExecutionHostEvent::Tested(Err(err.to_string())));
+                        events.push(tested_from_connect_error(err));
                         self.lifecycle.request_disconnect();
                         self.lifecycle.finish_disconnect();
                     } else {
@@ -655,7 +684,7 @@ impl SshExecutionHost {
                         let error = "execution worker connection task stopped".to_string();
                         if self.testing {
                             self.testing = false;
-                            events.push(SshExecutionHostEvent::Tested(Err(error)));
+                            events.push(tested_event(Err(error)));
                             self.lifecycle.request_disconnect();
                             self.lifecycle.finish_disconnect();
                         } else {
@@ -706,7 +735,7 @@ impl SshExecutionHost {
             self.status_override = None;
             if self.testing {
                 self.testing = false;
-                events.push(SshExecutionHostEvent::Tested(Err(error)));
+                events.push(tested_event(Err(error)));
                 self.lifecycle.request_disconnect();
                 self.lifecycle.finish_disconnect();
             } else {
@@ -1089,5 +1118,36 @@ mod tests {
         };
 
         assert!(cancel.is_cancelled());
+    }
+
+    #[test]
+    fn busy_hello_ack_is_reachable_for_connection_test() {
+        let error = std::io::Error::other(HandshakeError::Rejected(
+            crate::execution_host::protocol::WorkerError::new(
+                WorkerErrorCode::Busy,
+                "execution worker already has an active coordinator session",
+            ),
+        ));
+        assert!(test_handshake_means_reachable(&error));
+    }
+
+    #[test]
+    fn incumbent_timed_out_hello_ack_is_reachable_for_connection_test() {
+        let error = std::io::Error::other(HandshakeError::Rejected(
+            crate::execution_host::protocol::WorkerError::new(
+                WorkerErrorCode::TimedOut,
+                "incumbent coordinator left untouched",
+            ),
+        ));
+        assert!(test_handshake_means_reachable(&error));
+    }
+
+    #[test]
+    fn hello_ack_deadline_is_not_reachable_for_connection_test() {
+        let error = std::io::Error::new(
+            std::io::ErrorKind::TimedOut,
+            "execution worker timed out before sending HelloAck",
+        );
+        assert!(!test_handshake_means_reachable(&error));
     }
 }

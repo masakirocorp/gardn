@@ -15,8 +15,9 @@ pub(crate) fn resolve_workspace_creation(
     local_fallback
 }
 
-/// Explicit location wins, then the invoking client's focused terminal, else
-/// the workspace default location.
+/// Explicit location wins. A focused live terminal wins only when it is on the
+/// same execution host as the workspace default, so a changed Space default
+/// actually moves new tabs. Split still follows the source pane.
 pub(crate) fn resolve_tab_creation(
     explicit: Option<ResourceLocation>,
     invoking_client_terminal: Option<ResourceLocation>,
@@ -26,7 +27,9 @@ pub(crate) fn resolve_tab_creation(
         return location;
     }
     if let Some(location) = invoking_client_terminal {
-        return location;
+        if location.execution_host_id == workspace_default.execution_host_id {
+            return location;
+        }
     }
     workspace_default
 }
@@ -74,11 +77,19 @@ mod tests {
     }
 
     #[test]
-    fn tab_creation_prefers_invoking_client_terminal_over_workspace_default() {
+    fn tab_creation_follows_focused_terminal_on_the_workspace_host() {
         let invoking = location("ssh:workbox:1", "/srv/focused");
-        let workspace_default = location("local", "/tmp/workspace");
+        let workspace_default = location("ssh:workbox:1", "/srv/workspace");
         let resolved = resolve_tab_creation(None, Some(invoking.clone()), workspace_default);
         assert_eq!(resolved, invoking);
+    }
+
+    #[test]
+    fn tab_creation_uses_workspace_default_when_focused_host_differs() {
+        let invoking = location("local", "/tmp/focused");
+        let workspace_default = location("ssh:eva-01:1", "~/projects");
+        let resolved = resolve_tab_creation(None, Some(invoking), workspace_default.clone());
+        assert_eq!(resolved, workspace_default);
     }
 
     #[test]
