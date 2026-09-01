@@ -10,6 +10,16 @@ VERSION="$(grep '^version' "$ROOT_DIR/apps/gardn/Cargo.toml" | head -1 | sed 's/
 SIGN_IDENTITY="${SIGN_IDENTITY:-}"
 NOTARIZE="${NOTARIZE:-false}"
 BUNDLE_BIN="${GARDN_BUNDLE_BIN:-}"
+SPARKLE_TOOLS_VERSION="2.9.6"
+SPARKLE_TOOLS_SHA256="52bf9e88cdd972fc0c81501377a880e90d47031bd8ca5462488f843e2609e192"
+
+if [[ "$NOTARIZE" == "true" ]]; then
+  : "${SIGN_IDENTITY:?SIGN_IDENTITY is required to notarize}"
+  : "${APPLE_TEAM_ID:?APPLE_TEAM_ID is required to notarize}"
+  : "${NOTARY_KEY_PATH:?NOTARY_KEY_PATH is required to notarize}"
+  : "${APPLE_NOTARYTOOL_KEY_ID:?APPLE_NOTARYTOOL_KEY_ID is required to notarize}"
+  : "${APPLE_NOTARYTOOL_ISSUER_ID:?APPLE_NOTARYTOOL_ISSUER_ID is required to notarize}"
+fi
 
 echo "Building $APP_NAME v$VERSION..."
 
@@ -21,31 +31,34 @@ if [[ -z "$BUNDLE_BIN" ]]; then
   BUNDLE_BIN="$ROOT_DIR/target/release/gardn"
 fi
 
-if [[ ! -x "$BUNDLE_BIN" ]]; then
+if [[ ! -f "$BUNDLE_BIN" ]]; then
   echo "error: bundled gardn binary not found: $BUNDLE_BIN" >&2
   exit 1
 fi
+chmod +x "$BUNDLE_BIN"
+export GARDN_BUNDLE_BIN="$BUNDLE_BIN"
+
+XCODEBUILD=(
+  xcodebuild
+  -project "$MACOS_DIR/GardnMenu.xcodeproj"
+  -scheme GardnMenu
+  -configuration Release
+  -derivedDataPath "$BUILD_DIR/derived"
+  MARKETING_VERSION="$VERSION"
+  CURRENT_PROJECT_VERSION="$VERSION"
+)
 
 if [[ -n "$SIGN_IDENTITY" ]]; then
+  : "${APPLE_TEAM_ID:?APPLE_TEAM_ID is required to sign}"
   echo "Code signing with: $SIGN_IDENTITY"
-  xcodebuild -project "$MACOS_DIR/GardnMenu.xcodeproj" \
-    -scheme GardnMenu \
-    -configuration Release \
-    -derivedDataPath "$BUILD_DIR/derived" \
-    MARKETING_VERSION="$VERSION" \
-    CURRENT_PROJECT_VERSION="$VERSION" \
+  "${XCODEBUILD[@]}" \
     CODE_SIGN_IDENTITY="$SIGN_IDENTITY" \
     CODE_SIGN_STYLE=Manual \
-    DEVELOPMENT_TEAM="${APPLE_TEAM_ID:-}" \
+    DEVELOPMENT_TEAM="$APPLE_TEAM_ID" \
     OTHER_CODE_SIGN_FLAGS="--options=runtime"
 else
-  echo "Building unsigned (local)"
-  xcodebuild -project "$MACOS_DIR/GardnMenu.xcodeproj" \
-    -scheme GardnMenu \
-    -configuration Release \
-    -derivedDataPath "$BUILD_DIR/derived" \
-    MARKETING_VERSION="$VERSION" \
-    CURRENT_PROJECT_VERSION="$VERSION" \
+  echo "Building unsigned"
+  "${XCODEBUILD[@]}" \
     CODE_SIGN_IDENTITY="-" \
     CODE_SIGNING_REQUIRED=NO
 fi
@@ -55,24 +68,27 @@ if [[ ! -d "$APP_PATH" ]]; then
   echo "error: $APP_PATH not found" >&2
   exit 1
 fi
-
-cp "$BUNDLE_BIN" "$APP_PATH/Contents/MacOS/gardn"
-chmod +x "$APP_PATH/Contents/MacOS/gardn"
+if [[ ! -x "$APP_PATH/Contents/MacOS/gardn" ]]; then
+  echo "error: $APP_PATH is missing Contents/MacOS/gardn" >&2
+  exit 1
+fi
 
 if [[ -n "$SIGN_IDENTITY" ]]; then
   SPARKLE_FRAMEWORK="$APP_PATH/Contents/Frameworks/Sparkle.framework"
-  if [[ -d "$SPARKLE_FRAMEWORK" ]]; then
-    echo "Signing Sparkle..."
-    codesign --force --options runtime --sign "$SIGN_IDENTITY" "$SPARKLE_FRAMEWORK/Versions/B/XPCServices/Downloader.xpc" || true
-    codesign --force --options runtime --sign "$SIGN_IDENTITY" "$SPARKLE_FRAMEWORK/Versions/B/XPCServices/Installer.xpc" || true
-    codesign --force --options runtime --sign "$SIGN_IDENTITY" "$SPARKLE_FRAMEWORK/Versions/B/Autoupdate" || true
-    codesign --force --options runtime --sign "$SIGN_IDENTITY" "$SPARKLE_FRAMEWORK/Versions/B/Updater.app" || true
-    codesign --force --options runtime --sign "$SIGN_IDENTITY" "$SPARKLE_FRAMEWORK"
+  if [[ ! -d "$SPARKLE_FRAMEWORK" ]]; then
+    echo "error: Sparkle.framework missing from $APP_PATH" >&2
+    exit 1
   fi
+  echo "Signing Sparkle..."
+  codesign --force --options runtime --sign "$SIGN_IDENTITY" "$SPARKLE_FRAMEWORK/Versions/B/XPCServices/Downloader.xpc"
+  codesign --force --options runtime --sign "$SIGN_IDENTITY" "$SPARKLE_FRAMEWORK/Versions/B/XPCServices/Installer.xpc"
+  codesign --force --options runtime --sign "$SIGN_IDENTITY" "$SPARKLE_FRAMEWORK/Versions/B/Autoupdate"
+  codesign --force --options runtime --sign "$SIGN_IDENTITY" "$SPARKLE_FRAMEWORK/Versions/B/Updater.app"
+  codesign --force --options runtime --sign "$SIGN_IDENTITY" "$SPARKLE_FRAMEWORK"
   echo "Signing bundled gardn..."
   codesign --force --options runtime --sign "$SIGN_IDENTITY" "$APP_PATH/Contents/MacOS/gardn"
   echo "Signing app..."
-  codesign --force --options runtime --entitlements "$MACOS_DIR/Gardn.entitlements" --sign "$SIGN_IDENTITY" "$APP_PATH"
+  codesign --force --options runtime --sign "$SIGN_IDENTITY" "$APP_PATH"
 fi
 
 ZIP_NAME="Gardn-$VERSION.zip"
@@ -133,6 +149,52 @@ if [[ "$NOTARIZE" == "true" ]]; then
     fi
     exit 1
   fi
+fi
+
+if [[ -n "${SPARKLE_KEY:-}" ]]; then
+  : "${GITHUB_REPOSITORY:?GITHUB_REPOSITORY is required to write appcast.xml}"
+  : "${GITHUB_REF_NAME:?GITHUB_REF_NAME is required to write appcast.xml}"
+  SPARKLE_DOWNLOAD_URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}/Gardn-${VERSION}.zip"
+  TOOLS_DIR="$BUILD_DIR/sparkle-tools"
+  ARCHIVE="$BUILD_DIR/Sparkle-$SPARKLE_TOOLS_VERSION.tar.xz"
+  mkdir -p "$TOOLS_DIR"
+  curl -fsSL "https://github.com/sparkle-project/Sparkle/releases/download/$SPARKLE_TOOLS_VERSION/Sparkle-$SPARKLE_TOOLS_VERSION.tar.xz" -o "$ARCHIVE"
+  ACTUAL_SHA="$(shasum -a 256 "$ARCHIVE" | awk '{print $1}')"
+  if [[ "$ACTUAL_SHA" != "$SPARKLE_TOOLS_SHA256" ]]; then
+    echo "error: Sparkle tools sha256 mismatch: $ACTUAL_SHA" >&2
+    exit 1
+  fi
+  tar xf "$ARCHIVE" -C "$TOOLS_DIR"
+  KEY_FILE="$BUILD_DIR/sparkle.key"
+  printf '%s\n' "$SPARKLE_KEY" > "$KEY_FILE"
+  SIGN_OUTPUT="$("$TOOLS_DIR/bin/sign_update" "$ZIP_PATH" --ed-key-file "$KEY_FILE" 2>&1)"
+  rm -f "$KEY_FILE"
+  SIGNATURE="$(printf '%s\n' "$SIGN_OUTPUT" | grep -o 'sparkle:edSignature="[^"]*"' | cut -d'"' -f2)"
+  if [[ -z "$SIGNATURE" ]]; then
+    echo "error: Sparkle signature missing" >&2
+    echo "$SIGN_OUTPUT" >&2
+    exit 1
+  fi
+  ZIP_SIZE="$(stat -f%z "$ZIP_PATH")"
+  cat > "$BUILD_DIR/appcast.xml" <<EOF
+<?xml version="1.0" encoding="utf-8"?>
+<rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
+  <channel>
+    <title>Gardn Updates</title>
+    <item>
+      <title>Version $VERSION</title>
+      <sparkle:version>$VERSION</sparkle:version>
+      <sparkle:shortVersionString>$VERSION</sparkle:shortVersionString>
+      <pubDate>$(date -R)</pubDate>
+      <enclosure
+        url="$SPARKLE_DOWNLOAD_URL"
+        length="$ZIP_SIZE"
+        type="application/octet-stream"
+        sparkle:edSignature="$SIGNATURE" />
+    </item>
+  </channel>
+</rss>
+EOF
 fi
 
 echo "Done: $DMG_PATH $ZIP_PATH"

@@ -208,7 +208,19 @@ jobs:
         uses: actions/download-artifact@v8
         with:
           name: gardn-macos-aarch64
-          path: gardn-macos-aarch64
+          path: macos-bins
+
+      - name: Download macOS x86_64 binary
+        uses: actions/download-artifact@v8
+        with:
+          name: gardn-macos-x86_64
+          path: macos-bins
+
+      - name: Make a universal bundled CLI
+        run: |
+          chmod +x macos-bins/gardn-macos-aarch64 macos-bins/gardn-macos-x86_64
+          lipo -create macos-bins/gardn-macos-aarch64 macos-bins/gardn-macos-x86_64 -output macos-bins/gardn-universal
+          chmod +x macos-bins/gardn-universal
 
       - name: Import signing certificate
         env:
@@ -244,51 +256,9 @@ jobs:
           NOTARIZE: "true"
           APPLE_NOTARYTOOL_KEY_ID: ${{ secrets.APPLE_NOTARYTOOL_KEY_ID }}
           APPLE_NOTARYTOOL_ISSUER_ID: ${{ secrets.APPLE_NOTARYTOOL_ISSUER_ID }}
-          GARDN_BUNDLE_BIN: ${{ github.workspace }}/gardn-macos-aarch64/gardn-macos-aarch64
+          GARDN_BUNDLE_BIN: ${{ github.workspace }}/macos-bins/gardn-universal
+          SPARKLE_KEY: ${{ contains(github.ref_name, '-beta.') && '' || secrets.SPARKLE_ED25519_PRIVATE_KEY }}
         run: ./scripts/build-macos-app.sh
-      - name: Download Sparkle tools
-        run: |
-          curl -sLO https://github.com/sparkle-project/Sparkle/releases/download/2.8.1/Sparkle-2.8.1.tar.xz
-          tar xf Sparkle-2.8.1.tar.xz -C $RUNNER_TEMP
-
-      - name: Sign update and write appcast
-        env:
-          SPARKLE_KEY: ${{ secrets.SPARKLE_ED25519_PRIVATE_KEY }}
-        run: |
-          VERSION=$(grep '^version' apps/gardn/Cargo.toml | head -1 | sed 's/.*"\(.*\)".*/\1/')
-          TAG="${GITHUB_REF#refs/tags/}"
-          ZIP_PATH="build/Gardn-$VERSION.zip"
-          ZIP_SIZE=$(stat -f%z "$ZIP_PATH")
-          DOWNLOAD_URL="https://github.com/${{ github.repository }}/releases/download/$TAG/Gardn-$VERSION.zip"
-          KEY_FILE=$RUNNER_TEMP/sparkle_key
-          echo "$SPARKLE_KEY" > "$KEY_FILE"
-          SIGN_OUTPUT=$($RUNNER_TEMP/bin/sign_update "$ZIP_PATH" --ed-key-file "$KEY_FILE" 2>&1)
-          rm -f "$KEY_FILE"
-          SIGNATURE=$(echo "$SIGN_OUTPUT" | grep -o 'sparkle:edSignature="[^"]*"' | cut -d'"' -f2)
-          if [ -z "$SIGNATURE" ]; then
-            echo "error: Sparkle signature missing"
-            echo "$SIGN_OUTPUT"
-            exit 1
-          fi
-          cat > build/appcast.xml << EOF
-          <?xml version="1.0" encoding="utf-8"?>
-          <rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
-            <channel>
-              <title>Gardn Updates</title>
-              <item>
-                <title>Version $VERSION</title>
-                <sparkle:version>$VERSION</sparkle:version>
-                <sparkle:shortVersionString>$VERSION</sparkle:shortVersionString>
-                <pubDate>$(date -R)</pubDate>
-                <enclosure
-                  url="$DOWNLOAD_URL"
-                  length="$ZIP_SIZE"
-                  type="application/octet-stream"
-                  sparkle:edSignature="$SIGNATURE" />
-              </item>
-            </channel>
-          </rss>
-          EOF
 
       - name: Upload macOS app
         uses: actions/upload-artifact@v7
@@ -298,6 +268,7 @@ jobs:
             build/*.dmg
             build/*.zip
             build/appcast.xml
+          if-no-files-found: error
 
   release:
     needs: [build, flake-check, macos-app]

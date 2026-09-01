@@ -30,8 +30,12 @@ enum HostTerminal {
         } else if let session = coordinator?.session, session != "default" {
             arguments.append(contentsOf: ["--session", session])
         }
-        guard let process = try? BundledGardn.process(arguments: arguments) else { return }
-        try? process.run()
+        do {
+            let process = try BundledGardn.process(arguments: arguments)
+            try process.run()
+        } catch {
+            BundledGardn.logFailure(error)
+        }
     }
 
     private static func activate(_ app: NSRunningApplication) {

@@ -179,6 +179,7 @@ final class CoordinatorCatalog: ObservableObject {
         do {
             process = try BundledGardn.process(arguments: ["extra", "list", "--json"])
         } catch {
+            BundledGardn.logFailure(error)
             return [fallbackLocal]
         }
         let stdout = Pipe()

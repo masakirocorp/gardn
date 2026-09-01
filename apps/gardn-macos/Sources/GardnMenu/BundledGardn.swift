@@ -1,21 +1,28 @@
 import Foundation
+import os
 
 enum BundledGardn {
-    static var binaryURL: URL? {
+    private static let log = Logger(subsystem: "com.masakiro.gardn.menu", category: "bundled-gardn")
+
+    static func binaryURL() throws -> URL {
         guard let folder = Bundle.main.executableURL?.deletingLastPathComponent() else {
-            return nil
+            throw GardnClientError(message: "This extra has no bundled gardn")
         }
         let url = folder.appendingPathComponent("gardn")
-        return FileManager.default.isExecutableFile(atPath: url.path) ? url : nil
+        guard FileManager.default.isExecutableFile(atPath: url.path) else {
+            throw GardnClientError(message: "This extra has no bundled gardn")
+        }
+        return url
     }
 
     static func process(arguments: [String]) throws -> Process {
-        guard let binaryURL else {
-            throw GardnClientError(message: "This extra has no bundled gardn")
-        }
         let process = Process()
-        process.executableURL = binaryURL
+        process.executableURL = try binaryURL()
         process.arguments = arguments
         return process
+    }
+
+    static func logFailure(_ error: Error) {
+        log.error("bundled gardn failed: \(error.localizedDescription, privacy: .public)")
     }
 }

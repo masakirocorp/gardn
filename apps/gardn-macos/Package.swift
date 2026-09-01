@@ -8,9 +8,15 @@ let package = Package(
     products: [
         .executable(name: "GardnMenu", targets: ["GardnMenu"]),
     ],
+    dependencies: [
+        .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.8.1"),
+    ],
     targets: [
         .executableTarget(
             name: "GardnMenu",
+            dependencies: [
+                .product(name: "Sparkle", package: "Sparkle"),
+            ],
             path: "Sources/GardnMenu",
             resources: [.process("Resources")]
         ),

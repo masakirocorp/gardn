@@ -3,6 +3,7 @@ import SwiftUI
 struct ExtraSettingsView: View {
     @ObservedObject var store: AgentStore
     @ObservedObject var catalog: CoordinatorCatalog
+    var checkForUpdates: () -> Void
     @State private var remoteTarget = ""
 
     var body: some View {
@@ -11,7 +12,7 @@ struct ExtraSettingsView: View {
                 .tabItem {
                     Label("Servers", systemImage: "externaldrive.connected.to.line.below")
                 }
-            ExtraAboutView()
+            ExtraAboutView(checkForUpdates: checkForUpdates)
                 .tabItem {
                     Label("About", systemImage: "info.circle")
                 }
@@ -86,6 +87,8 @@ struct ExtraSettingsView: View {
 }
 
 struct ExtraAboutView: View {
+    var checkForUpdates: () -> Void
+
     var body: some View {
         VStack(spacing: 18) {
             Image("Logo")
@@ -102,17 +105,14 @@ struct ExtraAboutView: View {
                 Link("GitHub", destination: URL(string: "https://github.com/masakirocorp/gardn")!)
             }
             .font(.system(size: 13))
-            Button("Check for Updates") {
-                ExtraAppDelegate.updaterController.updater.checkForUpdates()
-            }
+            Button("Check for Updates", action: checkForUpdates)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding(32)
         .navigationTitle("About")
     }
-
     private var version: String {
         Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
-            ?? "0.1.0"
+            ?? ""
     }
 }

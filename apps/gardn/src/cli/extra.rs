@@ -4,12 +4,12 @@ use serde::Serialize;
 
 use crate::session::{self, SessionInfo};
 
-#[derive(Debug, Serialize)]
+#[derive(Serialize)]
 struct ExtraListResponse {
     coordinators: Vec<ExtraCoordinatorInfo>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Serialize)]
 struct ExtraCoordinatorInfo {
     id: String,
     kind: &'static str,

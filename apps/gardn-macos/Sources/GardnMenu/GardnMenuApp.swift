@@ -9,14 +9,16 @@ struct GardnMenuApp: App {
 
     var body: some Scene {
         Settings {
-            ExtraSettingsView(store: delegate.store, catalog: delegate.store.catalog)
+            ExtraSettingsView(
+                store: delegate.store,
+                catalog: delegate.store.catalog,
+                checkForUpdates: ExtraAppDelegate.checkForUpdates
+            )
         }
         .defaultSize(width: 560, height: 420)
         .commands {
             CommandGroup(after: .appInfo) {
-                Button("Check for Updates…") {
-                    ExtraAppDelegate.updaterController.updater.checkForUpdates()
-                }
+                Button("Check for Updates…", action: ExtraAppDelegate.checkForUpdates)
             }
         }
     }
@@ -29,6 +31,10 @@ final class ExtraAppDelegate: NSObject, NSApplicationDelegate {
         updaterDelegate: nil,
         userDriverDelegate: nil
     )
+
+    static func checkForUpdates() {
+        updaterController.updater.checkForUpdates()
+    }
     let store = AgentStore()
     private let statusItem = NSStatusBar.system.statusItem(withLength: 22)
     private let popover = NSPopover()
