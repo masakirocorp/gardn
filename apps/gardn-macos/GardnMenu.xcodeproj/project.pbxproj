@@ -14,7 +14,7 @@
 		A05 /* GardnClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = F05 /* GardnClient.swift */; };
 		A06 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = F06 /* Assets.xcassets */; };
 		A07 /* HostTerminal.swift in Sources */ = {isa = PBXBuildFile; fileRef = F08 /* HostTerminal.swift */; };
-		CBBBED55304584740002C11D /* AppIcon.icon in Resources */ = {isa = PBXBuildFile; fileRef = CBBBED54304584740002C11D /* AppIcon.icon */; };
+		A08 /* CoordinatorCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = F09 /* CoordinatorCatalog.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -26,6 +26,7 @@
 		F05 /* GardnClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GardnClient.swift; sourceTree = "<group>"; };
 		F06 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		F08 /* HostTerminal.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HostTerminal.swift; sourceTree = "<group>"; };
+		F09 /* CoordinatorCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoordinatorCatalog.swift; sourceTree = "<group>"; };
 		F07 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		P00 /* GardnMenu.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = GardnMenu.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -61,6 +62,7 @@
 				F04 /* AgentPanelView.swift */,
 				F05 /* GardnClient.swift */,
 				F08 /* HostTerminal.swift */,
+				F09 /* CoordinatorCatalog.swift */,
 			);
 			name = Sources;
 			path = Sources/GardnMenu;
@@ -150,6 +152,7 @@
 				A04 /* AgentPanelView.swift in Sources */,
 				A05 /* GardnClient.swift in Sources */,
 				A07 /* HostTerminal.swift in Sources */,
+				A08 /* CoordinatorCatalog.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
