@@ -151,6 +151,11 @@ _Avoid_: Rendering client, execution worker, using `Local` as a host label when 
 The machine running the user's outer terminal or thin client. It owns desktop effects such as clipboard delivery, URL opening, notifications, outer-terminal graphics, and input-source behavior.
 _Avoid_: Coordinator Host, Execution Host
 
+**Extra Coordinator**:
+A Gardn server the macOS menu extra observes. It is either a local Session Namespace on this Mac or a remote Coordinator Host identified by an OpenSSH target and optional session name. The extra's coordinator list is Rendering Client Host state, not Shared Session State, and it is not an Execution Host.
+_Avoid_: SSH Connection Profile, Workspace host, LAN discovery
+
+
 **Execution Host**:
 A coordinator or SSH-reachable operating-system environment where Gardn creates and observes Terminal Runtimes and performs filesystem, process, Git, agent, and port operations.
 _Avoid_: Workspace host, SSH profile, Rendering Client Host

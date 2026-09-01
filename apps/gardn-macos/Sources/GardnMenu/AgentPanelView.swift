@@ -3,6 +3,10 @@ import SwiftUI
 
 struct AgentPanelView: View {
     @ObservedObject var store: AgentStore
+    @ObservedObject var catalog: CoordinatorCatalog
+    @State private var addingRemote = false
+    @State private var remoteTarget = ""
+    @State private var remoteSession = ""
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -24,13 +28,14 @@ struct AgentPanelView: View {
         }
         .frame(width: 268, height: panelHeight, alignment: .top)
         .background { PopoverChrome().ignoresSafeArea() }
+        .sheet(isPresented: $addingRemote) { addRemote }
     }
 
     private var panelHeight: CGFloat {
         if !store.connected || store.agents.isEmpty {
-            return 80
+            return 108
         }
-        var height: CGFloat = 36
+        var height: CGFloat = 58
         if store.actionError != nil { height += 18 }
         var firstSection = true
         for section in AgentRecord.Section.allCases {
@@ -51,19 +56,76 @@ struct AgentPanelView: View {
 
 
     private var header: some View {
-        HStack(alignment: .firstTextBaseline) {
-            Text("Agents")
-            Spacer(minLength: 0)
-            if attentionCount > 0 {
-                Text("\(attentionCount)")
-                    .font(.system(size: 11, weight: .semibold).monospacedDigit())
-                    .foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 4) {
+            Menu {
+                ForEach(catalog.coordinators) { coordinator in
+                    Button {
+                        store.selectCoordinator(coordinator.id)
+                    } label: {
+                        if coordinator.id == catalog.selectedId {
+                            Label(coordinator.title, systemImage: "checkmark")
+                        } else {
+                            Text(coordinator.title)
+                        }
+                    }
+                }
+                Divider()
+                Button("Add Remote Server…") {
+                    remoteTarget = ""
+                    remoteSession = ""
+                    addingRemote = true
+                }
+            } label: {
+                HStack(spacing: 4) {
+                    Text(catalog.selected?.title ?? "Server")
+                    Image(systemName: "chevron.up.chevron.down")
+                        .font(.system(size: 8, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                }
             }
+            .menuStyle(.borderlessButton)
+            .font(.system(size: 12, weight: .semibold))
+            HStack(alignment: .firstTextBaseline) {
+                Text("Agents")
+                Spacer(minLength: 0)
+                if attentionCount > 0 {
+                    Text("\(attentionCount)")
+                        .font(.system(size: 11, weight: .semibold).monospacedDigit())
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .font(.system(size: 12, weight: .semibold))
         }
-        .font(.system(size: 12, weight: .semibold))
         .padding(.horizontal, 10)
         .padding(.top, 8)
         .padding(.bottom, 4)
+    }
+
+    private var addRemote: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Add Remote Server")
+                .font(.system(size: 13, weight: .semibold))
+            TextField("SSH target", text: $remoteTarget)
+            TextField("Session (optional)", text: $remoteSession)
+            if let addError = catalog.addError {
+                Text(addError)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.red)
+            }
+            HStack {
+                Spacer()
+                Button("Cancel") { addingRemote = false }
+                Button("Add") {
+                    store.addRemoteCoordinator(target: remoteTarget, session: remoteSession)
+                    if catalog.addError == nil {
+                        addingRemote = false
+                    }
+                }
+                .keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding(16)
+        .frame(width: 280)
     }
 
     private var attentionCount: Int {
@@ -72,7 +134,7 @@ struct AgentPanelView: View {
 
 
     private var disconnected: some View {
-        Text(store.connectionMessage ?? "Gardn isn’t running")
+        Text(store.connectionMessage ?? "\(catalog.selected?.title ?? "Gardn") isn’t running")
             .font(.system(size: 11))
             .foregroundStyle(.secondary)
             .padding(.horizontal, 10)

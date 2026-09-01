@@ -9,6 +9,7 @@ final class AgentStore: ObservableObject {
     @Published private(set) var connected = false
     @Published private(set) var collapsed: Set<AgentRecord.Section>
     @Published private(set) var needsAttention = false
+    let catalog = CoordinatorCatalog()
     var onNeedsAttentionChange: ((Bool) -> Void)?
     var onDidFocus: (() -> Void)?
 
@@ -23,6 +24,7 @@ final class AgentStore: ObservableObject {
     init(socketPath: String = GardnClient.defaultSocketPath()) {
         client = GardnClient(socketPath: socketPath)
         collapsed = Self.loadCollapsed()
+        reconnectToSelected()
     }
 
     func start() {
@@ -47,6 +49,36 @@ final class AgentStore: ObservableObject {
     func stop() {
         poll?.cancel()
         poll = nil
+        catalog.stopConnectProcess()
+    }
+
+    func selectCoordinator(_ id: String) {
+        catalog.select(id)
+        reconnectToSelected()
+        refresh()
+    }
+
+    func addRemoteCoordinator(target: String, session: String) {
+        if catalog.addRemote(target: target, session: session) != nil {
+            reconnectToSelected()
+            refresh()
+        }
+    }
+
+    private func reconnectToSelected() {
+        catalog.refreshLocals()
+        guard let selected = catalog.selected else {
+            client = GardnClient(socketPath: GardnClient.defaultSocketPath())
+            return
+        }
+        do {
+            let path = try catalog.socketPath(for: selected)
+            client = GardnClient(socketPath: path)
+        } catch {
+            connectionMessage = error.localizedDescription
+            connected = false
+            agents = []
+        }
     }
 
     func refresh() {
@@ -73,7 +105,10 @@ final class AgentStore: ObservableObject {
         do {
             try client.focus(terminalId: terminalId)
             onDidFocus?()
-            HostTerminal.raise(apiSocketPath: client.socketPath)
+            HostTerminal.raise(
+                apiSocketPath: client.socketPath,
+                coordinator: catalog.selected
+            )
             refresh()
         } catch {
             connectionMessage = error.localizedDescription

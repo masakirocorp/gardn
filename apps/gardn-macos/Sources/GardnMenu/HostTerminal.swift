@@ -3,7 +3,7 @@ import Darwin
 import Foundation
 
 enum HostTerminal {
-    static func raise(apiSocketPath: String) {
+    static func raise(apiSocketPath: String, coordinator: ExtraCoordinator? = nil) {
         Task.detached(priority: .userInitiated) {
             let pids = clientPids(matchingApiSocket: apiSocketPath)
             await MainActor.run {
@@ -13,8 +13,27 @@ enum HostTerminal {
                     guard seen.insert(app.processIdentifier).inserted else { continue }
                     activate(app)
                 }
+                if seen.isEmpty {
+                    launchClient(coordinator)
+                }
             }
         }
+    }
+
+    private static func launchClient(_ coordinator: ExtraCoordinator?) {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        var arguments = ["gardn"]
+        if coordinator?.kind == .remote, let target = coordinator?.target {
+            arguments.append(contentsOf: ["--remote", target])
+            if let session = coordinator?.session, session != "default" {
+                arguments.append(contentsOf: ["--session", session])
+            }
+        } else if let session = coordinator?.session, session != "default" {
+            arguments.append(contentsOf: ["--session", session])
+        }
+        process.arguments = arguments
+        try? process.run()
     }
 
     private static func activate(_ app: NSRunningApplication) {

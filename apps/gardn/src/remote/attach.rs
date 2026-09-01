@@ -202,6 +202,22 @@ pub(crate) fn run_remote_client_bridge() -> io::Result<()> {
     ))
 }
 
+pub(crate) fn run_remote_api_bridge() -> io::Result<()> {
+    Err(io::Error::other(
+        "remote Windows hosts are not supported yet",
+    ))
+}
+
+pub(crate) fn run_extra_api_connect(
+    _target: &str,
+    _session_name: &str,
+    _json: bool,
+) -> io::Result<()> {
+    Err(io::Error::other(
+        "remote extra coordinators are not supported on Windows yet",
+    ))
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct RemotePlatform {
     os: &'static str,

@@ -27,7 +27,7 @@ final class ExtraAppDelegate: NSObject, NSApplicationDelegate {
         popover.behavior = .transient
         popover.animates = false
         popover.contentViewController = NSHostingController(
-            rootView: AgentPanelView(store: store)
+            rootView: AgentPanelView(store: store, catalog: store.catalog)
         )
         popover.contentSize = NSSize(width: 268, height: 420)
         statusItem.button?.imagePosition = .imageOnly

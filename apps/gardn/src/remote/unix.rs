@@ -215,20 +215,96 @@ pub(crate) fn run_remote(remote: RemoteLaunch) -> io::Result<()> {
         local_socket.clone(),
         session_name,
         remote_ssh.options(),
+        RemoteBridgeKind::Client,
     )?;
 
     run_client_process(&local_socket, &reattach_command, remote.keybindings)
 }
 
+pub(crate) fn run_extra_api_connect(
+    target: &str,
+    session_name: &str,
+    json: bool,
+) -> io::Result<()> {
+    let local_socket = local_extra_api_socket_path(target, session_name);
+    let manage_ssh_config = crate::config::Config::load()
+        .config
+        .remote
+        .manage_ssh_config;
+    let remote_ssh = RemoteSsh::new(target.to_string(), manage_ssh_config);
+    let prepared_remote = prepare_remote_gardn(&remote_ssh, false, session_name)?;
+    ensure_remote_server_ready(
+        &remote_ssh,
+        &prepared_remote.remote_gardn,
+        prepared_remote.installed_or_replaced,
+        prepared_remote.stop_after_install_approved,
+        false,
+        session_name,
+    )?;
+
+    let _bridge = SshStdioBridge::start(
+        target.to_string(),
+        prepared_remote.remote_gardn,
+        local_socket.clone(),
+        session_name.to_string(),
+        remote_ssh.options(),
+        RemoteBridgeKind::Api,
+    )?;
+    if !local_socket.exists() {
+        return Err(io::Error::new(
+            io::ErrorKind::NotFound,
+            format!(
+                "extra API bridge socket was not created: {}",
+                local_socket.display()
+            ),
+        ));
+    }
+    if json {
+        let payload = serde_json::json!({
+            "id": format!("remote:{target}:{session_name}"),
+            "kind": "remote",
+            "name": extra_remote_display_name(target, session_name),
+            "target": target,
+            "session": session_name,
+            "socket_path": local_socket.display().to_string(),
+        });
+        println!(
+            "{}",
+            serde_json::to_string(&payload).map_err(io::Error::other)?
+        );
+        let _ = io::stdout().flush();
+    } else {
+        println!("{}", local_socket.display());
+    }
+    loop {
+        thread::sleep(Duration::from_secs(1));
+    }
+}
+
+fn extra_remote_display_name(target: &str, session_name: &str) -> String {
+    if session_name == crate::session::DEFAULT_SESSION_NAME {
+        target.to_string()
+    } else {
+        format!("{target} ({session_name})")
+    }
+}
+
 pub(crate) fn run_remote_client_bridge() -> io::Result<()> {
+    run_remote_stdio_bridge(crate::server::socket_paths::client_socket_path(), "client")
+}
+
+pub(crate) fn run_remote_api_bridge() -> io::Result<()> {
+    run_remote_stdio_bridge(crate::api::socket_path(), "api")
+}
+
+fn run_remote_stdio_bridge(socket_path: PathBuf, kind: &str) -> io::Result<()> {
     ensure_remote_server_running()?;
 
-    let socket_path = crate::server::socket_paths::client_socket_path();
     let stream = UnixStream::connect(&socket_path).map_err(|err| {
         io::Error::new(
             err.kind(),
             format!(
-                "failed to connect to remote Gardn client socket {}: {err}",
+                "failed to connect to remote Gardn {kind} socket {}: {err}",
                 socket_path.display()
             ),
         )
@@ -1768,10 +1844,23 @@ fn remote_server_live_handoff_command(remote_gardn: &RemoteGardn, session_name: 
     command
 }
 
-fn remote_bridge_command(remote_gardn: &RemoteGardn, session_name: &str) -> String {
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum RemoteBridgeKind {
+    Client,
+    Api,
+}
+
+fn remote_bridge_command(
+    remote_gardn: &RemoteGardn,
+    session_name: &str,
+    kind: RemoteBridgeKind,
+) -> String {
     let mut command = format!("exec {}", remote_gardn.shell_path);
     append_remote_session_flag(&mut command, session_name);
-    command.push_str(" remote-client-bridge");
+    command.push_str(match kind {
+        RemoteBridgeKind::Client => " remote-client-bridge",
+        RemoteBridgeKind::Api => " remote-api-bridge",
+    });
     command
 }
 
@@ -1838,6 +1927,7 @@ impl SshStdioBridge {
         local_socket: PathBuf,
         session_name: String,
         ssh_options: Option<&ManagedSshOptions>,
+        kind: RemoteBridgeKind,
     ) -> io::Result<Self> {
         let _ = std::fs::remove_file(&local_socket);
         let listener = UnixListener::bind(&local_socket)?;
@@ -1847,6 +1937,7 @@ impl SshStdioBridge {
         let should_stop = Arc::new(AtomicBool::new(false));
         let thread_stop = Arc::clone(&should_stop);
         let thread_ssh_options = ssh_options.cloned();
+        let thread_kind = kind;
         let thread = thread::spawn(move || {
             while !thread_stop.load(Ordering::Acquire) {
                 match listener.accept() {
@@ -1866,6 +1957,7 @@ impl SshStdioBridge {
                             &remote_gardn,
                             &session_name,
                             thread_ssh_options.as_ref(),
+                            thread_kind,
                         ) {
                             eprintln!("gardn: remote bridge failed: {err}");
                         }
@@ -1955,13 +2047,14 @@ fn bridge_connection(
     remote_gardn: &RemoteGardn,
     session_name: &str,
     ssh_options: Option<&ManagedSshOptions>,
+    kind: RemoteBridgeKind,
 ) -> io::Result<()> {
     let mut command = Command::new("ssh");
     apply_managed_ssh_options(&mut command, ssh_options);
     command
         .arg("-T")
         .arg(target)
-        .arg(remote_bridge_command(remote_gardn, session_name));
+        .arg(remote_bridge_command(remote_gardn, session_name, kind));
     command
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -2050,6 +2143,17 @@ fn run_client_process(
             format!("remote client exited with {status}"),
         ))
     }
+}
+
+fn local_extra_api_socket_path(target: &str, session_name: &str) -> PathBuf {
+    let pid = std::process::id();
+    let target_clean = sanitize_path_component(target);
+    let session_clean = sanitize_path_component(session_name);
+    let readable_name = format!("gardn-extra-{pid}-{target_clean}-{session_clean}.sock");
+    let target_prefix: String = target_clean.chars().take(8).collect();
+    let hash = short_socket_hash(target, session_name);
+    let short_name = format!("gardn-e-{pid}-{target_prefix}-{hash}.sock");
+    crate::platform::remote_bridge_endpoint_path(&readable_name, &short_name)
 }
 
 fn local_forward_socket_path(target: &str, session_name: &str) -> PathBuf {
@@ -2797,6 +2901,7 @@ mod tests {
             socket.clone(),
             "default".to_string(),
             None,
+            RemoteBridgeKind::Client,
         )
         .expect("start bridge listener");
 
@@ -3208,7 +3313,11 @@ mod tests {
             arch: "x86_64",
         });
         assert_eq!(
-            remote_bridge_command(&remote_gardn, crate::session::DEFAULT_SESSION_NAME),
+            remote_bridge_command(
+                &remote_gardn,
+                crate::session::DEFAULT_SESSION_NAME,
+                RemoteBridgeKind::Client
+            ),
             "exec \"$HOME/.local/bin/gardn\" remote-client-bridge"
         );
     }
@@ -3236,7 +3345,7 @@ mod tests {
             )
         );
         assert_eq!(
-            remote_bridge_command(&remote_gardn, session),
+            remote_bridge_command(&remote_gardn, session, RemoteBridgeKind::Client),
             "exec \"$HOME/.local/bin/gardn\" remote-client-bridge"
         );
     }
@@ -3264,7 +3373,7 @@ mod tests {
             )
         );
         assert_eq!(
-            remote_bridge_command(&remote_gardn, session),
+            remote_bridge_command(&remote_gardn, session, RemoteBridgeKind::Client),
             "exec \"$HOME/.local/bin/gardn\" --session work remote-client-bridge"
         );
     }
@@ -3288,7 +3397,7 @@ mod tests {
             "/usr/bin/gardn --session 'my session' server stop"
         );
         assert_eq!(
-            remote_bridge_command(&remote_gardn, session),
+            remote_bridge_command(&remote_gardn, session, RemoteBridgeKind::Client),
             "exec /usr/bin/gardn --session 'my session' remote-client-bridge"
         );
     }
@@ -3303,7 +3412,11 @@ mod tests {
             .expect("path binary");
 
         assert_eq!(
-            remote_bridge_command(&remote_gardn, crate::session::DEFAULT_SESSION_NAME),
+            remote_bridge_command(
+                &remote_gardn,
+                crate::session::DEFAULT_SESSION_NAME,
+                RemoteBridgeKind::Client
+            ),
             "exec /usr/bin/gardn remote-client-bridge"
         );
     }
@@ -3319,7 +3432,11 @@ mod tests {
                 .expect("path binary");
 
         assert_eq!(
-            remote_bridge_command(&remote_gardn, crate::session::DEFAULT_SESSION_NAME),
+            remote_bridge_command(
+                &remote_gardn,
+                crate::session::DEFAULT_SESSION_NAME,
+                RemoteBridgeKind::Client
+            ),
             "exec '/opt/gardn bin/gardn' remote-client-bridge"
         );
     }
@@ -3335,7 +3452,11 @@ mod tests {
                 .expect("path binary");
 
         assert_eq!(
-            remote_bridge_command(&remote_gardn, crate::session::DEFAULT_SESSION_NAME),
+            remote_bridge_command(
+                &remote_gardn,
+                crate::session::DEFAULT_SESSION_NAME,
+                RemoteBridgeKind::Client
+            ),
             "exec /opt/homebrew/bin/gardn remote-client-bridge"
         );
         assert_eq!(remote_gardn.platform.asset_key(), "macos-aarch64");
@@ -3352,7 +3473,11 @@ mod tests {
                 .expect("path binary");
 
         assert_eq!(
-            remote_bridge_command(&remote_gardn, crate::session::DEFAULT_SESSION_NAME),
+            remote_bridge_command(
+                &remote_gardn,
+                crate::session::DEFAULT_SESSION_NAME,
+                RemoteBridgeKind::Client
+            ),
             "exec '/opt/gardn'\\''s/bin/gardn' remote-client-bridge"
         );
     }

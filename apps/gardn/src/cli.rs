@@ -16,6 +16,7 @@ use crate::api::schema::{
 #[path = "cli/api.rs"]
 mod api_cli;
 mod connection;
+mod extra;
 mod pane;
 mod plugin;
 mod protocol_guard;
@@ -83,6 +84,7 @@ pub fn maybe_run(args: &[String]) -> std::io::Result<CommandOutcome> {
         "wait" => run_wait_command(&args[2..])?,
         "integration" => run_integration_command(&args[2..])?,
         "session" => run_session_command(&args[2..])?,
+        "extra" => extra::run_extra_command(&args[2..])?,
         _ => return Ok(CommandOutcome::NotCli),
     };
 
