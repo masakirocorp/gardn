@@ -13,6 +13,7 @@
 		A04 /* AgentPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F04 /* AgentPanelView.swift */; };
 		A05 /* GardnClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = F05 /* GardnClient.swift */; };
 		A06 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = F06 /* Assets.xcassets */; };
+		CBBBED55304584740002C11D /* AppIcon.icon in Resources */ = {isa = PBXBuildFile; fileRef = CBBBED54304584740002C11D /* AppIcon.icon */; };
 		A07 /* HostTerminal.swift in Sources */ = {isa = PBXBuildFile; fileRef = F08 /* HostTerminal.swift */; };
 		A08 /* CoordinatorCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = F09 /* CoordinatorCatalog.swift */; };
 		A09 /* ExtraSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F10 /* ExtraSettingsView.swift */; };

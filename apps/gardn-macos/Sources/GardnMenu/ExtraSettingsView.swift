@@ -1,4 +1,3 @@
-import AppKit
 import SwiftUI
 
 struct ExtraSettingsView: View {
@@ -89,8 +88,9 @@ struct ExtraSettingsView: View {
 struct ExtraAboutView: View {
     var body: some View {
         VStack(spacing: 18) {
-            Image(nsImage: NSApplication.shared.applicationIconImage)
+            Image("Logo")
                 .resizable()
+                .interpolation(.high)
                 .frame(width: 96, height: 96)
             Text("Gardn")
                 .font(.system(size: 22, weight: .semibold))
