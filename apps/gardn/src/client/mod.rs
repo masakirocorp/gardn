@@ -1514,6 +1514,7 @@ fn handle_notify(kind: NotifyKind, message: &str, sound_config: &crate::config::
         sound_config,
         crate::terminal_notify::show_notification,
         crate::platform::show_desktop_notification,
+        crate::platform::menu_extra_is_running(),
     );
 }
 
@@ -1523,6 +1524,7 @@ fn handle_notify_with_notifiers(
     sound_config: &crate::config::SoundConfig,
     mut show_terminal_notification: impl FnMut(&str, Option<&str>) -> io::Result<bool>,
     mut show_system_notification: impl FnMut(&str, Option<&str>) -> io::Result<bool>,
+    extra_running: bool,
 ) {
     match kind {
         NotifyKind::Sound => {
@@ -1537,8 +1539,7 @@ fn handle_notify_with_notifiers(
                 crate::sound::play(sound, sound_config);
             }
         }
-        NotifyKind::Toast | NotifyKind::SystemToast if crate::platform::menu_extra_is_running() => {
-        }
+        NotifyKind::Toast | NotifyKind::SystemToast if extra_running => {}
 
         NotifyKind::Toast => {
             debug!(
@@ -2591,6 +2592,7 @@ mod tests {
                 Ok(true)
             },
             |_, _| Ok(false),
+            false,
         );
 
         assert_eq!(
@@ -2613,6 +2615,7 @@ mod tests {
                 emitted = Some((title.to_string(), body.map(str::to_string)));
                 Ok(true)
             },
+            false,
         );
 
         assert_eq!(

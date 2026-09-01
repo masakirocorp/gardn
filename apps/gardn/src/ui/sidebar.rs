@@ -5485,7 +5485,7 @@ mod tests {
         );
         assert_eq!(
             buffer[(home_card.x + SIDEBAR_WORKSPACE_NAME_COL, home_card.y + 1)].symbol(),
-            " "
+            "t"
         );
 
         app.show_counters = true;

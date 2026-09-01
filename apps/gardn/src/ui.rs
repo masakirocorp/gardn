@@ -2076,7 +2076,7 @@ mod tests {
 
         assert!(screen.contains("New Workspace"), "{screen}");
         assert!(screen.contains("project"), "{screen}");
-        assert!(screen.contains("Runs On Local"), "{screen}");
+        assert!(screen.contains("Runs On test-host"), "{screen}");
         let buffer = terminal.backend().buffer();
         let mut caption_row = None;
         let mut button_row = None;
@@ -3144,7 +3144,7 @@ mod tests {
 
         assert!(line1.starts_with("  · one"));
         assert!(!line1.contains("1 one"));
-        assert_eq!(line2, "");
+        assert_eq!(line2, "    test-host");
     }
 
     #[test]
@@ -3169,16 +3169,26 @@ mod tests {
         let card = app.view.workspace_card_areas[0].rect;
         let row = card.y + 1;
 
-        assert_eq!(buffer_row_text(buffer, card, row), "    +2 ~1 -1");
+        let line = buffer_row_text(buffer, card, row);
+        assert_eq!(line, "    test-host · +2 ~1 -1");
+        let plus = line.find('+').expect("added count");
+        let tilde = plus + line[plus..].find('~').expect("modified count");
+        let minus = plus + line[plus..].find('-').expect("deleted count");
+        let plus = u16::try_from(plus).expect("column");
+        let tilde = u16::try_from(tilde).expect("column");
+        let minus = u16::try_from(minus).expect("column");
         assert_eq!(
-            buffer[(card.x + 4, row)].style().fg,
+            buffer[(card.x + plus, row)].style().fg,
             Some(app.palette.green)
         );
         assert_eq!(
-            buffer[(card.x + 7, row)].style().fg,
+            buffer[(card.x + tilde, row)].style().fg,
             Some(app.palette.yellow)
         );
-        assert_eq!(buffer[(card.x + 10, row)].style().fg, Some(app.palette.red));
+        assert_eq!(
+            buffer[(card.x + minus, row)].style().fg,
+            Some(app.palette.red)
+        );
     }
 
     #[test]

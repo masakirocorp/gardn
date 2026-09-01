@@ -19367,7 +19367,7 @@ command = "printf literal > '{}'"
             TerminalRuntime::test_with_screen_bytes(80, 4, b"abcdef\r\nsecond\r\nthird\r\nfourth"),
         );
 
-        let area = ratatui::layout::Rect::new(0, 0, 100, 12);
+        let area = ratatui::layout::Rect::new(0, 0, 100, 20);
         let mut client = ClientViewState::from_default_client_state(&app.state);
         client.set_tab_control(ClientTabControl::WatchingFree { epoch: 1 });
         compute_client_view(&app, &mut client, area);
