@@ -30,7 +30,13 @@
 	<true/>
 	<key>NSHumanReadableCopyright</key>
 	<string>Copyright 2026 Masakiro Corp. All rights reserved.</string>
+	<key>NSPrincipalClass</key>
+	<string>NSApplication</string>
 	<key>NSSupportsAutomaticTermination</key>
 	<false/>
+	<key>SUFeedURL</key>
+	<string>https://github.com/masakirocorp/gardn/releases/latest/download/appcast.xml</string>
+	<key>SUPublicEDKey</key>
+	<string>OCbfKU+0PSftUgeED2VGKoaVmN1RbW2v7wXXOprI18M=</string>
 </dict>
 </plist>

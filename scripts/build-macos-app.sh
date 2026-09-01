@@ -60,11 +60,24 @@ cp "$BUNDLE_BIN" "$APP_PATH/Contents/MacOS/gardn"
 chmod +x "$APP_PATH/Contents/MacOS/gardn"
 
 if [[ -n "$SIGN_IDENTITY" ]]; then
+  SPARKLE_FRAMEWORK="$APP_PATH/Contents/Frameworks/Sparkle.framework"
+  if [[ -d "$SPARKLE_FRAMEWORK" ]]; then
+    echo "Signing Sparkle..."
+    codesign --force --options runtime --sign "$SIGN_IDENTITY" "$SPARKLE_FRAMEWORK/Versions/B/XPCServices/Downloader.xpc" || true
+    codesign --force --options runtime --sign "$SIGN_IDENTITY" "$SPARKLE_FRAMEWORK/Versions/B/XPCServices/Installer.xpc" || true
+    codesign --force --options runtime --sign "$SIGN_IDENTITY" "$SPARKLE_FRAMEWORK/Versions/B/Autoupdate" || true
+    codesign --force --options runtime --sign "$SIGN_IDENTITY" "$SPARKLE_FRAMEWORK/Versions/B/Updater.app" || true
+    codesign --force --options runtime --sign "$SIGN_IDENTITY" "$SPARKLE_FRAMEWORK"
+  fi
   echo "Signing bundled gardn..."
   codesign --force --options runtime --sign "$SIGN_IDENTITY" "$APP_PATH/Contents/MacOS/gardn"
   echo "Signing app..."
   codesign --force --options runtime --entitlements "$MACOS_DIR/Gardn.entitlements" --sign "$SIGN_IDENTITY" "$APP_PATH"
 fi
+
+ZIP_NAME="Gardn-$VERSION.zip"
+ZIP_PATH="$BUILD_DIR/$ZIP_NAME"
+ditto -c -k --keepParent "$APP_PATH" "$ZIP_PATH"
 
 DMG_NAME="Gardn-$VERSION.dmg"
 DMG_PATH="$BUILD_DIR/$DMG_NAME"
@@ -112,6 +125,14 @@ if [[ "$NOTARIZE" == "true" ]]; then
   fi
   echo "Stapling DMG..."
   xcrun stapler staple "$DMG_PATH"
+  echo "Notarizing ZIP..."
+  if ! xcrun notarytool submit "$ZIP_PATH" "${NOTARY_ARGS[@]}" --wait 2>&1 | tee /tmp/notary-zip.log; then
+    SUBMISSION_ID=$(grep -o 'id: [a-f0-9-]*' /tmp/notary-zip.log | head -1 | cut -d' ' -f2)
+    if [[ -n "$SUBMISSION_ID" ]]; then
+      xcrun notarytool log "$SUBMISSION_ID" "${NOTARY_ARGS[@]}" || true
+    fi
+    exit 1
+  fi
 fi
 
-echo "Done: $DMG_PATH"
+echo "Done: $DMG_PATH $ZIP_PATH"

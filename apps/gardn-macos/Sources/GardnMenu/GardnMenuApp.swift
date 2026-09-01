@@ -1,4 +1,5 @@
 import AppKit
+import Sparkle
 import SwiftUI
 import UserNotifications
 
@@ -11,11 +12,23 @@ struct GardnMenuApp: App {
             ExtraSettingsView(store: delegate.store, catalog: delegate.store.catalog)
         }
         .defaultSize(width: 560, height: 420)
+        .commands {
+            CommandGroup(after: .appInfo) {
+                Button("Check for Updates…") {
+                    ExtraAppDelegate.updaterController.updater.checkForUpdates()
+                }
+            }
+        }
     }
 }
 
 @MainActor
 final class ExtraAppDelegate: NSObject, NSApplicationDelegate {
+    static let updaterController = SPUStandardUpdaterController(
+        startingUpdater: true,
+        updaterDelegate: nil,
+        userDriverDelegate: nil
+    )
     let store = AgentStore()
     private let statusItem = NSStatusBar.system.statusItem(withLength: 22)
     private let popover = NSPopover()

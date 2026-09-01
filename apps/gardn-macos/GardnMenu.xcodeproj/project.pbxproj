@@ -18,6 +18,7 @@
 		A08 /* CoordinatorCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = F09 /* CoordinatorCatalog.swift */; };
 		A09 /* ExtraSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F10 /* ExtraSettingsView.swift */; };
 		A10 /* BundledGardn.swift in Sources */ = {isa = PBXBuildFile; fileRef = F11 /* BundledGardn.swift */; };
+		SP03 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = SP02 /* Sparkle */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -41,6 +42,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				SP03 /* Sparkle in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -99,6 +101,9 @@
 			dependencies = (
 			);
 			name = GardnMenu;
+			packageProductDependencies = (
+				SP02 /* Sparkle */,
+			);
 			productName = GardnMenu;
 			productReference = P00 /* Gardn.app */;
 			productType = "com.apple.product-type.application";
@@ -127,6 +132,9 @@
 				Base,
 			);
 			mainGroup = G00;
+			packageReferences = (
+				SP01 /* XCRemoteSwiftPackageReference "Sparkle" */,
+			);
 			productRefGroup = G90 /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
@@ -270,6 +278,25 @@
 			defaultConfigurationName = Debug;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		SP01 /* XCRemoteSwiftPackageReference "Sparkle" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/sparkle-project/Sparkle";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 2.8.1;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		SP02 /* Sparkle */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = SP01 /* XCRemoteSwiftPackageReference "Sparkle" */;
+			productName = Sparkle;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = PR0 /* Project object */;
 }

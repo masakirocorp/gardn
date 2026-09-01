@@ -172,6 +172,8 @@ The release workflow must publish these assets:
 - `gardn-macos-aarch64`
 - `gardn-windows-x86_64.exe`
 - `Gardn-<version>.dmg`
+- `Gardn-<version>.zip`
+- `appcast.xml`
 
 When updating the local development binary, run `just install-local`. That installs `~/.local/bin/gardn-dev` only. Do not install a source build over `~/.local/bin/gardn`. Production `gardn` stays on the latest GitHub release. After install, the next `gardn-dev` launch uses the new binary. `just install-local` runs `cargo clean` after install to avoid accumulating large debug build artifacts.
 

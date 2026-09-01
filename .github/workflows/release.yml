@@ -246,12 +246,58 @@ jobs:
           APPLE_NOTARYTOOL_ISSUER_ID: ${{ secrets.APPLE_NOTARYTOOL_ISSUER_ID }}
           GARDN_BUNDLE_BIN: ${{ github.workspace }}/gardn-macos-aarch64/gardn-macos-aarch64
         run: ./scripts/build-macos-app.sh
+      - name: Download Sparkle tools
+        run: |
+          curl -sLO https://github.com/sparkle-project/Sparkle/releases/download/2.8.1/Sparkle-2.8.1.tar.xz
+          tar xf Sparkle-2.8.1.tar.xz -C $RUNNER_TEMP
+
+      - name: Sign update and write appcast
+        env:
+          SPARKLE_KEY: ${{ secrets.SPARKLE_ED25519_PRIVATE_KEY }}
+        run: |
+          VERSION=$(grep '^version' apps/gardn/Cargo.toml | head -1 | sed 's/.*"\(.*\)".*/\1/')
+          TAG="${GITHUB_REF#refs/tags/}"
+          ZIP_PATH="build/Gardn-$VERSION.zip"
+          ZIP_SIZE=$(stat -f%z "$ZIP_PATH")
+          DOWNLOAD_URL="https://github.com/${{ github.repository }}/releases/download/$TAG/Gardn-$VERSION.zip"
+          KEY_FILE=$RUNNER_TEMP/sparkle_key
+          echo "$SPARKLE_KEY" > "$KEY_FILE"
+          SIGN_OUTPUT=$($RUNNER_TEMP/bin/sign_update "$ZIP_PATH" --ed-key-file "$KEY_FILE" 2>&1)
+          rm -f "$KEY_FILE"
+          SIGNATURE=$(echo "$SIGN_OUTPUT" | grep -o 'sparkle:edSignature="[^"]*"' | cut -d'"' -f2)
+          if [ -z "$SIGNATURE" ]; then
+            echo "error: Sparkle signature missing"
+            echo "$SIGN_OUTPUT"
+            exit 1
+          fi
+          cat > build/appcast.xml << EOF
+          <?xml version="1.0" encoding="utf-8"?>
+          <rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
+            <channel>
+              <title>Gardn Updates</title>
+              <item>
+                <title>Version $VERSION</title>
+                <sparkle:version>$VERSION</sparkle:version>
+                <sparkle:shortVersionString>$VERSION</sparkle:shortVersionString>
+                <pubDate>$(date -R)</pubDate>
+                <enclosure
+                  url="$DOWNLOAD_URL"
+                  length="$ZIP_SIZE"
+                  type="application/octet-stream"
+                  sparkle:edSignature="$SIGNATURE" />
+              </item>
+            </channel>
+          </rss>
+          EOF
 
       - name: Upload macOS app
         uses: actions/upload-artifact@v7
         with:
           name: macos-app
-          path: build/*.dmg
+          path: |
+            build/*.dmg
+            build/*.zip
+            build/appcast.xml
 
   release:
     needs: [build, flake-check, macos-app]
@@ -281,4 +327,6 @@ jobs:
             gardn-macos-aarch64/gardn-macos-aarch64
             gardn-windows-x86_64.exe/gardn-windows-x86_64.exe
             macos-app/*.dmg
+            macos-app/*.zip
+            macos-app/appcast.xml
           body_path: RELEASE_NOTES.md

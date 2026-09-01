@@ -102,6 +102,9 @@ struct ExtraAboutView: View {
                 Link("GitHub", destination: URL(string: "https://github.com/masakirocorp/gardn")!)
             }
             .font(.system(size: 13))
+            Button("Check for Updates") {
+                ExtraAppDelegate.updaterController.updater.checkForUpdates()
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding(32)
