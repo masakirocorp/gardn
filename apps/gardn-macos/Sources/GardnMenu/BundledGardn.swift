@@ -4,11 +4,7 @@ enum BundledGardn {
     private static let fm = FileManager.default
     private static let home = fm.homeDirectoryForCurrentUser
 
-    #if DEBUG
-    static let cliName = "gardn-dev"
-    #else
     static let cliName = "gardn"
-    #endif
 
     static var binaryURL: URL? {
         guard let folder = Bundle.main.executableURL?.deletingLastPathComponent() else {

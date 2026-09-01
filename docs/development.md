@@ -100,7 +100,7 @@ A debug source build uses the `gardn-dev` application directory. Official releas
 
 ## macOS extra
 
-`apps/gardn-macos/scripts/run.sh` builds `gardn`, copies it into `GardnMenu.app/Contents/MacOS/gardn`, and launches the extra. The extra uses that bundled binary for `extra list`, `extra connect`, and launching a client. Debug extras can install PATH as `gardn-dev`. Release extras install `gardn`.
+`apps/gardn-macos/scripts/run.sh` builds `gardn`, copies it into `GardnMenu.app/Contents/MacOS/gardn`, and launches the extra. The extra uses that bundled binary for `extra list`, `extra connect`, and launching a client. Settings can install it as `~/.local/bin/gardn`.
 
 
 
