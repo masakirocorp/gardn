@@ -1,3 +1,13 @@
+## gardn@0.10.6
+
+### Ship the extra with a matching gardn binary
+
+The macOS extra now includes the gardn CLI for its own use. It does not replace the GitHub-release `gardn` on PATH.
+
+### Ship a signed macOS extra
+
+macOS releases now include a signed, notarized `Gardn.app` disk image. The extra can check for updates itself. PATH `gardn` stays the GitHub CLI release.
+
 ## gardn@0.10.5
 
 ### Show SSH test results on a live connection

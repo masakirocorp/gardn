@@ -1,17 +1,21 @@
 core:changelogs:
-  - content: "---\npackages:\n  gardn:\n    type: patch\n---\n\n### Show SSH test results on a live connection\n\nTesting a saved SSH connection now reports success or failure immediately, including when the host is already connected.\n\n### Save an SSH group default without typing a directory\n\nClicking the host field in a new group dialog cycles Local and saved SSH connections. Saving an SSH host with an empty directory keeps that host and uses the connection's suggested directory.\n"
-    filename: ssh-test-and-group-host.md
+  - content: "---\npackages:\n  gardn:\n    type: patch\n---\n\n### Ship the extra with a matching gardn binary\n\nThe macOS extra now includes the gardn CLI for its own use. It does not replace the GitHub-release `gardn` on PATH.\n"
+    filename: mac-extra-bundles-cli.md
+    v: 0.0.0
+  - content: "---\npackages:\n  gardn:\n    type: patch\n---\n\n### Ship a signed macOS extra\n\nmacOS releases now include a signed, notarized `Gardn.app` disk image. The extra can check for updates itself. PATH `gardn` stays the GitHub CLI release.\n"
+    filename: macos-signed-app.md
     v: 0.0.0
 core:packages:
   - id: npm:@gardn/website
     updated: false
   - changelogIds:
-      - ssh-test-and-group-host.md
+      - mac-extra-bundles-cli.md
+      - macos-signed-app.md
     id: cargo:gardn
     updated: true
-  - id: cargo:gardn-local-api
-    updated: false
   - id: cargo:portable-pty
+    updated: false
+  - id: cargo:gardn-local-api
     updated: false
 npm:packages:
   - id: npm:@gardn/website
