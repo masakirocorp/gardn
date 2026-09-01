@@ -145,15 +145,19 @@ _Avoid_: Workspace parent, project
 
 **Coordinator Host**:
 The machine running the Gardn server for a Session Namespace. It owns Shared Session State, routing, SSH Connection Profiles, and system OpenSSH for managed connections.
-_Avoid_: Rendering client, execution worker, Local when the client is remote
+_Avoid_: Rendering client, execution worker, using `Local` as a host label when the client is remote
 
 **Rendering Client Host**:
 The machine running the user's outer terminal or thin client. It owns desktop effects such as clipboard delivery, URL opening, notifications, outer-terminal graphics, and input-source behavior.
 _Avoid_: Coordinator Host, Execution Host
 
 **Execution Host**:
-A Local or SSH-reachable operating-system environment where Gardn creates and observes Terminal Runtimes and performs filesystem, process, Git, agent, and port operations.
+A coordinator or SSH-reachable operating-system environment where Gardn creates and observes Terminal Runtimes and performs filesystem, process, Git, agent, and port operations.
 _Avoid_: Workspace host, SSH profile, Rendering Client Host
+
+**Execution Host Display Name**:
+The user-facing name for an Execution Host. The coordinator name defaults to the coordinator machine's hostname and may be configured independently; SSH hosts use their SSH Connection Profile names. It is presentation metadata and never changes Execution Host identity.
+_Avoid_: `Local` as a host label, hostname as an Execution Host ID
 
 **SSH Connection Profile**:
 Coordinator-owned configuration with a stable profile ID, display name, one OpenSSH target, and optional suggested directory. It contains no credential material and is related to, but not identical with, Execution Host identity.

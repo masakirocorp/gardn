@@ -1152,6 +1152,9 @@ pub struct UiConfig {
     /// Format for the outer terminal window title. Empty leaves the title alone.
     /// Default: "{hostname}: {workspace}".
     pub window_title: String,
+    /// Optional display name for the coordinator's execution host. Empty uses the machine hostname.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub coordinator_display_name: String,
     /// Draw borders around split panes. Default: true.
     pub pane_borders: bool,
     /// Draw interactive scrollbars beside terminal panes. Default: true.
@@ -1369,6 +1372,7 @@ impl Default for UiConfig {
             confirm_close: true,
             prompt_new_tab_name: true,
             prompt_new_workspace_name: false,
+            coordinator_display_name: String::new(),
             pane_border_agent_info: PaneBorderAgentInfoConfig::default(),
             status_indicators: StatusIndicatorStyle::default(),
             window_title: super::window_title::default_window_title(),
@@ -1702,7 +1706,21 @@ window_title = "{workspace}/{tab}"
 window_title = ""
 "#;
         let config: Config = toml::from_str(toml).unwrap();
+
         assert_eq!(config.ui.window_title, "");
+    }
+    #[test]
+    fn coordinator_display_name_defaults_empty_and_parses() {
+        assert_eq!(Config::default().ui.coordinator_display_name, "");
+
+        let config: Config = toml::from_str(
+            r#"
+[ui]
+coordinator_display_name = "build coordinator"
+"#,
+        )
+        .unwrap();
+        assert_eq!(config.ui.coordinator_display_name, "build coordinator");
     }
 
     #[test]

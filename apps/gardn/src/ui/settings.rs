@@ -2331,7 +2331,7 @@ mod tests {
         assert!(text.contains("Work"));
         assert!(text.contains("Icon"));
         assert!(text.contains("Default Location for New Spaces"));
-        assert!(text.contains("‹ Local ›"));
+        assert!(text.contains("‹ test-host ›"));
         assert!(text.contains("Directory"));
         assert!(text.contains("Danger Zone"));
         assert!(text.contains("× Delete Group"));

@@ -14,6 +14,7 @@ mod api_helpers;
 pub(crate) mod command_palette;
 mod config_io;
 mod creation;
+pub(crate) mod host_label;
 mod ids;
 mod input;
 pub(crate) mod integration_host;
@@ -607,7 +608,23 @@ impl App {
         let (event_tx, event_rx) = mpsc::channel::<AppEvent>(64);
         let render_notify = Arc::new(Notify::new());
         let render_dirty = Arc::new(crate::render_signal::RenderSignal::new());
-        let config_issue = config_diagnostics.map(state::ConfigIssue::from_diagnostics);
+        let ssh_connection_profiles = crate::persist::ssh_profiles::load();
+        let hostname = crate::platform::hostname();
+        let (host_display, host_display_error) =
+            crate::app::host_label::HostDisplayNameOverlay::from_config_or_hostname_with_profile_names(
+                &config.ui.coordinator_display_name,
+                hostname.as_deref(),
+                ssh_connection_profiles.iter().map(|profile| profile.name()),
+            );
+        let mut startup_diagnostics = config_diagnostics.unwrap_or_default();
+        if let Some(error) = host_display_error {
+            tracing::warn!(error = %error, "invalid coordinator display name; using hostname");
+            startup_diagnostics.push(format!(
+                "ui.coordinator_display_name {error}; using hostname or coordinator fallback"
+            ));
+        }
+        let config_issue = (!startup_diagnostics.is_empty())
+            .then(|| state::ConfigIssue::from_diagnostics(startup_diagnostics));
         let config_diagnostic = config_issue.as_ref().map(|issue| issue.details.clone());
         let startup_config_toast = config_issue.as_ref().map(|issue| state::ToastNotification {
             kind: state::ToastKind::NeedsAttention,
@@ -962,6 +979,7 @@ impl App {
             prefix_mods,
             headless_size: config.headless_size(),
             window_title_template: config.ui.window_title.clone(),
+            host_display,
 
             default_sidebar_width: config.ui.sidebar_width,
             sidebar_width,
@@ -1123,7 +1141,7 @@ impl App {
             host_integration_observations: std::collections::HashMap::new(),
             host_integration_request_ids: std::collections::HashMap::new(),
             host_integration_install_messages: std::collections::HashMap::new(),
-            ssh_connection_profiles: crate::persist::ssh_profiles::load(),
+            ssh_connection_profiles,
             host_connection_states: std::collections::HashMap::new(),
             pending_ssh_connection_requests: Vec::new(),
             agent_manifest_summaries,
@@ -2564,6 +2582,25 @@ impl App {
                     config.ui.sidebar_min_width, config.ui.sidebar_max_width,
                 ));
             } else {
+                let (host_display, host_display_error) =
+                    crate::app::host_label::HostDisplayNameOverlay::from_config_or_hostname_with_profile_names(
+                        &config.ui.coordinator_display_name,
+                        crate::platform::hostname().as_deref(),
+                        self.state
+                            .ssh_connection_profiles
+                            .iter()
+                            .map(|profile| profile.name()),
+                    );
+                self.state.host_display = host_display;
+                if let Some(error) = host_display_error {
+                    tracing::warn!(
+                        error = %error,
+                        "invalid coordinator display name; using hostname"
+                    );
+                    diagnostics.push(format!(
+                        "ui.coordinator_display_name {error}; using hostname or coordinator fallback"
+                    ));
+                }
                 diagnostics.extend(config.ui.sound.diagnostics());
 
                 self.state.default_sidebar_width = config.ui.sidebar_width;

@@ -255,15 +255,10 @@ pub(crate) fn group_icon_picker_rects(app: &AppState, inner: Rect) -> Vec<(Rect,
 }
 
 fn group_host_label(app: &AppState, host_id: &crate::execution_host::ExecutionHostId) -> String {
-    if host_id.is_local() {
-        "Local".to_string()
-    } else {
-        app.ssh_connection_profiles
-            .iter()
-            .find(|profile| profile.execution_host_id() == *host_id)
-            .map(|profile| profile.name().to_string())
-            .unwrap_or_else(|| host_id.as_str().to_string())
-    }
+    app.host_label(crate::app::host_label::HostLabelTarget::ExecutionHost(
+        host_id,
+    ))
+    .to_string()
 }
 
 fn render_group_status_row(
@@ -1132,7 +1127,7 @@ mod tests {
         assert!(text.contains("New Group"));
         assert!(text.contains("Set this group's name, icon, and default location"));
         assert!(text.contains("Default Location for New Spaces"));
-        assert!(text.contains("‹ Local ›"));
+        assert!(text.contains("‹ test-host ›"));
         assert!(text.contains("Directory"));
         assert!(text.contains("/tmp/work"));
         assert!(text.contains("Save"));

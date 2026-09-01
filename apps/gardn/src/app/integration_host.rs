@@ -1,37 +1,33 @@
+use super::App;
 use crate::app::state::{AppState, SettingsState};
 use crate::execution_host::ExecutionHostId;
+#[cfg(test)]
 use crate::persist::ssh_profiles::SshConnectionProfile;
 
-use super::App;
-
-pub(crate) enum IntegrationHostSelection<'a> {
+pub(crate) enum IntegrationHostSelection {
     Local,
-    Remote {
-        profile: &'a SshConnectionProfile,
-        host_id: ExecutionHostId,
-    },
+    Remote { host_id: ExecutionHostId },
 }
 
-impl IntegrationHostSelection<'_> {
-    pub(crate) fn label(&self) -> &str {
+impl IntegrationHostSelection {
+    pub(crate) fn label<'a>(&'a self, app: &'a AppState) -> crate::app::host_label::HostLabel<'a> {
         match self {
-            Self::Local => "Local",
-            Self::Remote { profile, .. } => profile.name(),
+            Self::Local => app.host_label(crate::app::host_label::HostLabelTarget::Coordinator),
+            Self::Remote { host_id } => app.host_label(
+                crate::app::host_label::HostLabelTarget::ExecutionHost(host_id),
+            ),
         }
     }
 
     pub(crate) fn host_id(&self) -> Option<&ExecutionHostId> {
         match self {
             Self::Local => None,
-            Self::Remote { host_id, .. } => Some(host_id),
+            Self::Remote { host_id } => Some(host_id),
         }
     }
 }
 
-pub(crate) fn resolve<'a>(
-    app: &'a AppState,
-    settings: &SettingsState,
-) -> IntegrationHostSelection<'a> {
+pub(crate) fn resolve(app: &AppState, settings: &SettingsState) -> IntegrationHostSelection {
     let Some(profile) = settings
         .integration_host_profile_id
         .as_deref()
@@ -46,7 +42,6 @@ pub(crate) fn resolve<'a>(
 
     IntegrationHostSelection::Remote {
         host_id: profile.execution_host_id(),
-        profile,
     }
 }
 
@@ -113,7 +108,7 @@ mod tests {
         state.settings.integration_host_profile_id = Some("workbox".to_string());
 
         let selection = resolve(&state, &state.settings);
-        assert_eq!(selection.label(), "Work box");
+        assert_eq!(selection.label(&state).to_string(), "Work box");
         assert_eq!(selection.host_id(), Some(&expected_host_id));
     }
 }

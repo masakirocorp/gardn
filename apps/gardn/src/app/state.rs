@@ -3386,6 +3386,7 @@ pub struct AppState {
     pub headless_size: (u16, u16),
     /// Configured outer terminal window-title template.
     pub window_title_template: String,
+    pub host_display: crate::app::host_label::HostDisplayNameOverlay,
 
     pub default_sidebar_width: u16,
     pub sidebar_width: u16,
@@ -3554,6 +3555,26 @@ pub struct AppState {
 }
 
 impl AppState {
+    pub(crate) fn host_label<'a>(
+        &'a self,
+        target: crate::app::host_label::HostLabelTarget<'a>,
+    ) -> crate::app::host_label::HostLabel<'a> {
+        match target {
+            crate::app::host_label::HostLabelTarget::Coordinator => self.host_display.coordinator(),
+            crate::app::host_label::HostLabelTarget::ExecutionHost(host_id)
+                if host_id.is_local() =>
+            {
+                self.host_display.coordinator()
+            }
+            crate::app::host_label::HostLabelTarget::ExecutionHost(host_id) => self
+                .ssh_connection_profiles
+                .iter()
+                .find(|profile| profile.execution_host_id() == *host_id)
+                .map(|profile| crate::app::host_label::HostLabel::new(profile.name()))
+                .unwrap_or_else(|| crate::app::host_label::HostLabel::new(host_id.as_str())),
+        }
+    }
+
     /// User-visible connection status for a profile's current host binding.
     ///
     /// Pure state: defaults to disconnected until the connection runtime
@@ -4469,6 +4490,10 @@ impl AppState {
                 crate::config::DEFAULT_HEADLESS_ROWS,
             ),
             window_title_template: crate::config::Config::default().ui.window_title,
+            host_display: crate::app::host_label::HostDisplayNameOverlay::from_config_or_hostname(
+                "test-host",
+                None,
+            ),
 
             default_sidebar_width: 26,
             sidebar_width: 26,
@@ -4700,6 +4725,50 @@ mod tests {
     use super::*;
     use crossterm::event::KeyEvent;
     use unicode_width::UnicodeWidthStr;
+    #[test]
+    fn host_labels_use_overlay_and_profile_names() {
+        let mut app = AppState::test_new();
+        let local = crate::execution_host::ExecutionHostId::local();
+        assert_eq!(
+            app.host_label(crate::app::host_label::HostLabelTarget::Coordinator)
+                .as_str(),
+            "test-host"
+        );
+        assert_eq!(
+            app.host_label(crate::app::host_label::HostLabelTarget::ExecutionHost(
+                &local
+            ))
+            .as_str(),
+            "test-host"
+        );
+
+        let profile = crate::persist::ssh_profiles::SshConnectionProfile::new(
+            "workbox",
+            "Work box",
+            "build.example",
+            None,
+        )
+        .expect("valid profile");
+        let host_id = profile.execution_host_id();
+        app.ssh_connection_profiles.push(profile);
+        assert_eq!(
+            app.host_label(crate::app::host_label::HostLabelTarget::ExecutionHost(
+                &host_id
+            ))
+            .as_str(),
+            "Work box"
+        );
+
+        let unresolved =
+            crate::execution_host::ExecutionHostId::new("ssh:missing:1").expect("valid host id");
+        assert_eq!(
+            app.host_label(crate::app::host_label::HostLabelTarget::ExecutionHost(
+                &unresolved
+            ))
+            .as_str(),
+            "ssh:missing:1"
+        );
+    }
 
     #[test]
     fn group_icons_are_single_cell_fun_distinct_set() {

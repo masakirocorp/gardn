@@ -60,13 +60,9 @@ fn pane_border_label(
     terminal: &crate::terminal::TerminalState,
     show_agent_info: crate::config::PaneBorderAgentInfoConfig,
     seen: bool,
-    show_local_host: bool,
 ) -> Option<String> {
     let label = terminal.border_label(show_agent_info, seen);
     let location = &terminal.location;
-    if location.is_local() && !show_local_host {
-        return label;
-    }
     let profile_name = (!location.is_local())
         .then(|| {
             app.ssh_connection_profiles
@@ -75,16 +71,12 @@ fn pane_border_label(
                 .map(|profile| profile.name().to_string())
         })
         .flatten();
-    let host = if location.is_local() {
-        "Local".to_string()
-    } else {
-        profile_name
-            .clone()
-            .unwrap_or_else(|| location.execution_host_id.as_str().to_string())
-    };
+    let host = app
+        .host_label(crate::app::host_label::HostLabelTarget::ExecutionHost(
+            &location.execution_host_id,
+        ))
+        .to_string();
     let health = if location.is_local() {
-        // Local is always available to the coordinator; missing host_connection_states
-        // entries are normal when the manager only tracks SSH hosts.
         None
     } else if profile_name.is_none() {
         Some("Unavailable")
@@ -99,7 +91,10 @@ fn pane_border_label(
             Some(_) => None,
         }
     };
-    let host = health.map_or_else(|| host.clone(), |health| format!("{host} · {health}"));
+    let host = match health {
+        Some(health) => format!("{host} · {health}"),
+        None => host,
+    };
     Some(match label {
         Some(label) => format!("{label} · {host}"),
         None => host,
@@ -809,26 +804,12 @@ pub(super) fn render_panes_for_view(
             } else {
                 (Style::default().fg(app.palette.overlay0), false)
             };
-            let show_local_host = tab
-                .panes
-                .values()
-                .filter_map(|pane| app.terminals.get(&pane.attached_terminal_id))
-                .map(|terminal| &terminal.location.execution_host_id)
-                .collect::<std::collections::HashSet<_>>()
-                .len()
-                > 1;
             let title = pane_state
                 .and_then(|pane| {
                     app.terminals
                         .get(&pane.attached_terminal_id)
                         .and_then(|terminal| {
-                            pane_border_label(
-                                app,
-                                terminal,
-                                app.pane_border_agent_info,
-                                pane.seen,
-                                show_local_host,
-                            )
+                            pane_border_label(app, terminal, app.pane_border_agent_info, pane.seen)
                         })
                 })
                 .and_then(|label| pane_border_title(&label, info.rect.width));
@@ -1518,7 +1499,7 @@ mod tests {
             crate::terminal::TerminalState::new_at(crate::terminal::TerminalId::alloc(), location);
 
         assert_eq!(
-            pane_border_label(&app, &terminal, Default::default(), false, false),
+            pane_border_label(&app, &terminal, Default::default(), false),
             Some("Work box · Offline".to_string())
         );
     }
@@ -1536,7 +1517,7 @@ mod tests {
         );
 
         assert_eq!(
-            pane_border_label(&app, &terminal, Default::default(), false, false),
+            pane_border_label(&app, &terminal, Default::default(), false),
             Some("ssh:missing:1 · Unavailable".to_string())
         );
     }
@@ -1550,8 +1531,8 @@ mod tests {
         );
 
         assert_eq!(
-            pane_border_label(&app, &terminal, Default::default(), false, true),
-            Some("Local".to_string())
+            pane_border_label(&app, &terminal, Default::default(), false),
+            Some("test-host".to_string())
         );
     }
 

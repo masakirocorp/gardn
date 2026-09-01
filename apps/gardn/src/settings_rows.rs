@@ -473,17 +473,11 @@ fn execution_host_label(
     app: &AppState,
     host_id: Option<&crate::execution_host::ExecutionHostId>,
 ) -> String {
-    let Some(host_id) = host_id else {
-        return "Local".into();
-    };
-    if host_id.is_local() {
-        return "Local".into();
-    }
-    app.ssh_connection_profiles
-        .iter()
-        .find(|profile| profile.execution_host_id() == *host_id)
-        .map(|profile| profile.name().to_string())
-        .unwrap_or_else(|| host_id.as_str().to_string())
+    let target = host_id.map_or(
+        crate::app::host_label::HostLabelTarget::Coordinator,
+        crate::app::host_label::HostLabelTarget::ExecutionHost,
+    );
+    app.host_label(target).to_string()
 }
 
 fn group_general_rows(app: &AppState, settings: &SettingsState) -> Vec<SettingsListRow> {
@@ -1875,7 +1869,7 @@ fn connection_detail_rows(
         editor.connection_retirement,
         Some(crate::app::state::ConnectionRetirementState::Failed)
     ) {
-        rows.extend(connection_retirement_preview_rows(editor));
+        rows.extend(connection_retirement_preview_rows(app, editor));
         rows.push(SettingsListRow::Action {
             index: ConnectionRowId::Action(ConnectionAction::ForgetConnection).selection_index(),
             icon: "×".into(),
@@ -1927,12 +1921,13 @@ fn connection_detail_rows(
         label: delete_label.into(),
         tone: delete_tone,
     });
-    rows.extend(connection_retirement_preview_rows(editor));
+    rows.extend(connection_retirement_preview_rows(app, editor));
 
     rows
 }
 
 fn connection_retirement_preview_rows(
+    app: &AppState,
     editor: &crate::app::state::ConnectionEditorState,
 ) -> Vec<SettingsListRow> {
     use crate::app::state::ConnectionRetirementState;
@@ -1977,7 +1972,7 @@ fn connection_retirement_preview_rows(
         }
         .into(),
     )];
-    rows.extend(connection_retirement_plan_rows(&preview.plan));
+    rows.extend(connection_retirement_plan_rows(app, &preview.plan));
     for binding in &preview.bindings.bindings {
         rows.push(SettingsListRow::Caption(
             format!(
@@ -2000,6 +1995,7 @@ fn connection_retirement_preview_rows(
     rows
 }
 fn connection_retirement_plan_rows(
+    app: &AppState,
     plan: &crate::execution_host::connection_retirement::ConnectionRetirementPlan,
 ) -> Vec<SettingsListRow> {
     let mut rows = Vec::new();
@@ -2025,7 +2021,8 @@ fn connection_retirement_plan_rows(
             );
             rows.push(SettingsListRow::Caption(
                 format!(
-                    "Workspace {name}: default becomes Local at {}",
+                    "Workspace {name}: default becomes {} at {}",
+                    app.host_label(crate::app::host_label::HostLabelTarget::Coordinator),
                     workspace.replacement.path.as_path().display(),
                 )
                 .into(),
@@ -2037,7 +2034,7 @@ fn connection_retirement_plan_rows(
 
 fn integration_rows(app: &AppState, settings: &SettingsState) -> Vec<SettingsListRow> {
     let selection = crate::app::integration_host::resolve(app, settings);
-    let host_label = selection.label();
+    let host_label = selection.label(app);
     let host_id = selection.host_id().cloned();
     let has_host_selector = !app.ssh_connection_profiles.is_empty();
     let mut rows = if has_host_selector {
@@ -2045,7 +2042,7 @@ fn integration_rows(app: &AppState, settings: &SettingsState) -> Vec<SettingsLis
             SettingsListRow::Value {
                 index: 0,
                 title: "Integration Host".into(),
-                description: "Choose Local or a configured SSH connection.".into(),
+                description: "Choose the coordinator or a configured SSH connection.".into(),
                 value: host_label.to_string().into(),
                 editable: true,
             },
@@ -2422,8 +2419,8 @@ mod tests {
                 },
             },
         ));
-
-        let rows = connection_retirement_preview_rows(&editor);
+        let app = AppState::test_new();
+        let rows = connection_retirement_preview_rows(&app, &editor);
         let captions: Vec<&str> = rows
             .iter()
             .filter_map(|row| match row {
@@ -2602,7 +2599,7 @@ mod tests {
         assert!(matches!(
             &local_rows[0],
             SettingsListRow::Value { title, value, .. }
-                if title.as_ref() == "Integration Host" && value.as_ref() == "Local"
+                if title.as_ref() == "Integration Host" && value.as_ref() == "test-host"
         ));
 
         app.settings.integration_host_profile_id = Some("workbox".to_string());

@@ -308,6 +308,9 @@ github = "ghui"
 # how agent status is rendered in lists: uniform colored dots or distinct symbols.
 # status_indicators = "dots" # "dots" or "symbols"
 
+# optional coordinator execution-host display name; empty uses the machine hostname.
+# coordinator_display_name = ""
+
 # title oh my gardn writes to the terminal it runs in, which is what window
 # managers show in title, tab, and group bars. tokens are {hostname},
 # {workspace}, {tab}, {pane}, and {terminal_title}; {{ and }} are literal braces.

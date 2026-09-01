@@ -1006,24 +1006,24 @@ fn workspace_host_badge(
         .filter_map(|pane| app.terminals.get(&pane.attached_terminal_id))
         .map(|terminal| terminal.location.execution_host_id.clone())
         .collect::<std::collections::HashSet<_>>();
-    if hosts.is_empty() || (hosts.len() == 1 && hosts.iter().all(|host| host.is_local())) {
-        return None;
-    }
-    let mixed = hosts.len() > 1;
-    let remote = hosts.iter().find(|host| !host.is_local());
-    let name = if mixed {
-        "Mixed".to_string()
+    let host_ids = if hosts.is_empty() {
+        vec![ws.default_location.execution_host_id.clone()]
     } else {
-        remote
-            .and_then(|host| {
-                app.ssh_connection_profiles
-                    .iter()
-                    .find(|profile| profile.execution_host_id() == *host)
-                    .map(|profile| profile.name().to_string())
-            })
-            .or_else(|| remote.map(|host| host.as_str().to_string()))
-            .unwrap_or_else(|| "Remote".to_string())
+        hosts.into_iter().collect::<Vec<_>>()
     };
+    let mut display_names = std::collections::BTreeSet::new();
+    for host_id in &host_ids {
+        display_names.insert(
+            app.host_label(crate::app::host_label::HostLabelTarget::ExecutionHost(
+                host_id,
+            ))
+            .to_string(),
+        );
+    }
+    let name = display_names.into_iter().collect::<Vec<_>>().join(" · ");
+    let remote = (host_ids.len() == 1)
+        .then(|| &host_ids[0])
+        .filter(|host| !host.is_local());
     let health = remote.and_then(|host| app.host_connection_states.get(host));
     let status = health.and_then(|status| match status {
         crate::execution_host::ConnectionStatus::Disconnected => Some("Offline"),
@@ -1031,7 +1031,10 @@ fn workspace_host_badge(
         crate::execution_host::ConnectionStatus::AuthenticationRequired => Some("Unavailable"),
         _ => None,
     });
-    let label = status.map_or(name.clone(), |status| format!("{name} · {status}"));
+    let label = match status {
+        Some(status) => format!("{name} · {status}"),
+        None => name,
+    };
     let color = if status.is_some() {
         app.palette.yellow
     } else {
@@ -5272,7 +5275,7 @@ mod tests {
             workspace_host_badge(&app, &app.workspaces[0])
                 .map(|(label, _)| label)
                 .as_deref(),
-            Some("Mixed")
+            Some("ssh:workbox:1 · test-host")
         );
     }
 
@@ -5297,12 +5300,30 @@ mod tests {
             crate::execution_host::ConnectionStatus::Disconnected,
         );
 
-        assert!(workspace_host_badge(&app, &app.workspaces[0]).is_none());
+        assert_eq!(
+            workspace_host_badge(&app, &app.workspaces[0])
+                .map(|(label, _)| label)
+                .as_deref(),
+            Some("test-host")
+        );
         assert_eq!(
             workspace_host_badge(&app, &app.workspaces[1])
                 .map(|(label, _)| label)
                 .as_deref(),
             Some("ssh:workbox:1 · Offline")
+        );
+    }
+
+    #[test]
+    fn empty_workspace_badge_uses_default_location_host() {
+        let mut app = crate::app::state::AppState::test_new();
+        let workspace = Workspace::test_new("empty");
+        app.workspaces = vec![workspace];
+        assert_eq!(
+            workspace_host_badge(&app, &app.workspaces[0])
+                .map(|(label, _)| label)
+                .as_deref(),
+            Some("test-host")
         );
     }
 

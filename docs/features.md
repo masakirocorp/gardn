@@ -29,6 +29,7 @@ A workspace contains tabs, panes, cwd metadata, and agent state rollups.
 
 - **Workspace creation and focus** — create, focus, rename, close, list, and inspect workspaces from the TUI, CLI, or socket API. Interactive creation derives a workspace name automatically by default; set `ui.prompt_new_workspace_name = true` to ask for a name first.
 - **Workspace sidebar** — expanded workspace rows show the workspace name, activity state, and git/cwd summary.
+- **Execution host labels** — pane borders, Space rows, Runs On, and host pickers name the coordinator by its hostname (or `ui.coordinator_display_name`) and SSH hosts by connection profile name. Mixed Spaces join those names. The UI does not show Local as a host.
 - **Status indicators.** **Appearance > Agent Status > Status Indicators** controls both Space status marks and Agent group headers. Dots is the static default. Symbols uses distinct marks and animates a Braille loader only for Working.
 - **Agent sidebar** — agent rows focus their workspace, tab, and pane when clicked and highlight the active agent row for the attached client. Clicking a Done agent keeps that row in Triage until focus leaves the pane or the agent starts working. Row titles use the pane cwd, then append the tab name when that space has multiple tabs and the pane name or number when that tab is split, joined with `/` and no spaces. Text before the last `/` is muted; the final segment stays at full contrast. Unnamed pane numbers are dense within their tab and update with the current pane layout without changing stable API pane IDs.
 - **Collapsed sidebar rail** — collapsed sidebars keep group boundaries and agent status categories visible: group rows switch directly to that group's remembered workspace, space rows switch directly to a workspace, and activity counts open filtered agent pickers. Compact agent rows sit under expandable triage, follow up, working, and idle headers. Hovering or keyboard-selecting a compact space row reveals its accented group, full space name, and color-coded status. At the bottom of the rail, the help launcher sits directly above the expand control.
@@ -131,7 +132,7 @@ Supported built-in detection includes:
 - **Integration authority** — installed hooks either report native session identity for restore or report state directly. Kilo and MastraCode hooks own lifecycle state. Qwen Code and Antigravity CLI hooks report session identity only while their screen manifests own lifecycle state.
 - **Pi settled lifecycle** — the Pi integration reports only TUI sessions and keeps an active root agent working through compaction. It reports the root agent idle only after Pi emits `agent_settled` while the root session is actually idle. Stale or non-idle settlement signals do not end active work.
 - **Missing integration warning** — if screen detection sees an integration-capable agent such as Codex but no accepted Gardn hook, session, or metadata report arrives for that pane, Gardn shows a pane-targeted toast with the matching `gardn integration install <agent>` command.
-- **Host-scoped integration management** — Settings can inspect, install, update, and uninstall agent integrations on Local or a saved SSH Execution Host. Remote operations run through the managed worker in order, and remote hooks report through a restricted authenticated worker endpoint instead of receiving the coordinator's Local API socket.
+- **Host-scoped integration management** — Settings can inspect, install, update, and uninstall agent integrations on the coordinator or a saved SSH Execution Host. Remote operations run through the managed worker in order, and remote hooks report through a restricted authenticated worker endpoint instead of receiving the coordinator's Local API socket.
 
 
 ### Agent profiles
@@ -282,7 +283,7 @@ Integration management supports:
 - status checks
 - outdated-version detection
 - in-app integration management
-- Local and configured SSH execution-host selection
+- coordinator and configured SSH execution-host selection
 
 Integration install side effects are agent-specific: pi and OMP install extensions; OpenCode and Kilo install JavaScript plugins; Hermes installs and enables a plugin; and the remaining built-in targets install hooks or settings without replacing foreign configuration.
 
@@ -305,7 +306,7 @@ Plugins run unsandboxed as the current user. Remote installs show source, build 
 Installed and linked plugins live in one user-level registry shared by the default and named sessions. Legacy per-session registries migrate into that global registry, and registry entries survive live server handoff.
 `gardn plugin install`, `gardn plugin uninstall`, `gardn plugin link`, and `gardn plugin list` can read or update the registry while no server is running. Runtime operations such as actions, hooks, panes, enable/disable, and `plugin unlink` still require the server.
 Enabled, platform-compatible `[[startup]]` commands run once after server readiness, including after live-handoff replacement. Refreshing plugin manifests does not replay them.
-Plugin panes support overlay, popup, split, tab, and zoomed placement on the Local execution host. Popup dimensions accept terminal cells or percentages and are valid only for popup placement. Plugin v1 rejects a pane whose selected Workspace or source pane resolves to an SSH execution host before it creates a pane. Overlay and popup placement use a detached runtime owned by the requesting client. Split, tab, and zoomed placements are normal session panes; their attribution follows pane moves and is removed when tabs, workspaces, layouts, or plugins remove the pane.
+Plugin panes support overlay, popup, split, tab, and zoomed placement on the coordinator execution host. Popup dimensions accept terminal cells or percentages and are valid only for popup placement. Plugin v1 rejects a pane whose selected Workspace or source pane resolves to an SSH execution host before it creates a pane. Overlay and popup placement use a detached runtime owned by the requesting client. Split, tab, and zoomed placements are normal session panes; their attribution follows pane moves and is removed when tabs, workspaces, layouts, or plugins remove the pane.
 Plugin commands receive protected dialect-compatible context variables. Gardn manifests use `GARDN_*`; Herdr v0.8.2 manifests also receive protected `HERDR_*` aliases that plugin-provided env overrides cannot replace.
 
 ## External tools
