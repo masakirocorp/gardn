@@ -135,13 +135,11 @@ final class CoordinatorCatalog: ObservableObject {
             throw GardnClientError(message: "Remote coordinator is missing an SSH target")
         }
         stopConnectProcess()
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        var arguments = ["gardn", "extra", "connect", "--remote", target, "--json"]
+        var arguments = ["extra", "connect", "--remote", target, "--json"]
         if let session = coordinator.session, session != "default" {
             arguments.append(contentsOf: ["--session", session])
         }
-        process.arguments = arguments
+        let process = try BundledGardn.process(arguments: arguments)
         let stdout = Pipe()
         process.standardOutput = stdout
         process.standardError = Pipe()
@@ -177,9 +175,12 @@ final class CoordinatorCatalog: ObservableObject {
     }
 
     private static func loadLocalCoordinators() -> [ExtraCoordinator] {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        process.arguments = ["gardn", "extra", "list", "--json"]
+        let process: Process
+        do {
+            process = try BundledGardn.process(arguments: ["extra", "list", "--json"])
+        } catch {
+            return [fallbackLocal]
+        }
         let stdout = Pipe()
         process.standardOutput = stdout
         process.standardError = Pipe()

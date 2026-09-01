@@ -9,6 +9,7 @@ struct ExtraListResponse {
     coordinators: Vec<ExtraCoordinatorInfo>,
 }
 
+#[derive(Debug, Serialize)]
 struct ExtraCoordinatorInfo {
     id: String,
     kind: &'static str,

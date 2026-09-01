@@ -11,6 +11,10 @@ struct ExtraSettingsView: View {
                 .tabItem {
                     Label("Servers", systemImage: "externaldrive.connected.to.line.below")
                 }
+            ExtraCLIView()
+                .tabItem {
+                    Label("Command Line", systemImage: "terminal")
+                }
             ExtraAboutView()
                 .tabItem {
                     Label("About", systemImage: "info.circle")
@@ -111,5 +115,70 @@ struct ExtraAboutView: View {
     private var version: String {
         Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
             ?? "0.1.0"
+    }
+}
+
+struct ExtraCLIView: View {
+    @State private var status = BundledGardn.installStatus
+    @State private var error: String?
+
+    var body: some View {
+        Form {
+            Section {
+                Text(status.label)
+                if let binary = BundledGardn.binaryURL {
+                    Text(binary.path)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+                } else {
+                    Text("Rebuild the extra to bundle gardn.")
+                        .foregroundStyle(.red)
+                }
+                if let hint = BundledGardn.pathHint {
+                    Text(hint)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                if let error {
+                    Text(error)
+                        .foregroundStyle(.red)
+                }
+                HStack {
+                    Spacer()
+                    if status == .installed {
+                        Button("Remove CLI", role: .destructive) {
+                            do {
+                                try BundledGardn.uninstallCLI()
+                                error = nil
+                            } catch {
+                                self.error = error.localizedDescription
+                            }
+                            status = BundledGardn.installStatus
+                        }
+                    }
+                    Button("Install CLI") {
+                        do {
+                            try BundledGardn.installCLI()
+                            error = nil
+                        } catch {
+                            self.error = error.localizedDescription
+                        }
+                        status = BundledGardn.installStatus
+                    }
+                    .disabled(BundledGardn.binaryURL == nil)
+                    .keyboardShortcut(.defaultAction)
+                }
+            } header: {
+                Text("Command Line")
+            } footer: {
+                Text("Terminals can use the same gardn binary this extra ships.")
+            }
+        }
+        .formStyle(.grouped)
+        .navigationTitle("Command Line")
+        .onAppear {
+            status = BundledGardn.installStatus
+        }
     }
 }

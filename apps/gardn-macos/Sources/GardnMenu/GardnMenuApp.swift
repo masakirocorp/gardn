@@ -44,6 +44,7 @@ final class ExtraAppDelegate: NSObject, NSApplicationDelegate {
             self?.openSettings()
         }
         store.start()
+        BundledGardn.refreshInstalledCLIIfOwned()
         applyIcon(store.needsAttention)
     }
 

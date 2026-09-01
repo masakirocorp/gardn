@@ -98,6 +98,11 @@ just install-local
 
 A debug source build uses the `gardn-dev` application directory. Official release builds use `gardn`. The development namespace does not share sockets, logs, or session files with official installs.
 
+## macOS extra
+
+`apps/gardn-macos/scripts/run.sh` builds `gardn`, copies it into `GardnMenu.app/Contents/MacOS/gardn`, and launches the extra. The extra uses that bundled binary for `extra list`, `extra connect`, and launching a client. Debug extras can install PATH as `gardn-dev`. Release extras install `gardn`.
+
+
 
 Demo recipes use `gardn-dev --session demo` and an isolated home at `/tmp/gardn-demo` (`GARDN_DEMO_HOME` overrides). They do not touch production `gardn` or `~/.config/gardn`.
 

@@ -21,9 +21,7 @@ enum HostTerminal {
     }
 
     private static func launchClient(_ coordinator: ExtraCoordinator?) {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        var arguments = ["gardn"]
+        var arguments: [String] = []
         if coordinator?.kind == .remote, let target = coordinator?.target {
             arguments.append(contentsOf: ["--remote", target])
             if let session = coordinator?.session, session != "default" {
@@ -32,7 +30,7 @@ enum HostTerminal {
         } else if let session = coordinator?.session, session != "default" {
             arguments.append(contentsOf: ["--session", session])
         }
-        process.arguments = arguments
+        guard let process = try? BundledGardn.process(arguments: arguments) else { return }
         try? process.run()
     }
 
