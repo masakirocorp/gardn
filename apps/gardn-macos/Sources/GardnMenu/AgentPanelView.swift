@@ -33,9 +33,9 @@ struct AgentPanelView: View {
 
     private var panelHeight: CGFloat {
         if !store.connected || store.agents.isEmpty {
-            return 108
+            return 80
         }
-        var height: CGFloat = 58
+        var height: CGFloat = 36
         if store.actionError != nil { height += 18 }
         var firstSection = true
         for section in AgentRecord.Section.allCases {
@@ -56,7 +56,10 @@ struct AgentPanelView: View {
 
 
     private var header: some View {
-        VStack(alignment: .leading, spacing: 4) {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Text("Agents")
+                .font(.system(size: 12, weight: .semibold))
+            Spacer(minLength: 8)
             Menu {
                 ForEach(catalog.coordinators) { coordinator in
                     Button {
@@ -76,25 +79,13 @@ struct AgentPanelView: View {
                     addingRemote = true
                 }
             } label: {
-                HStack(spacing: 4) {
-                    Text(catalog.selected?.title ?? "Server")
-                    Image(systemName: "chevron.up.chevron.down")
-                        .font(.system(size: 8, weight: .semibold))
-                        .foregroundStyle(.secondary)
-                }
+                Text(catalog.selected?.title ?? "Server")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
             }
             .menuStyle(.borderlessButton)
-            .font(.system(size: 12, weight: .semibold))
-            HStack(alignment: .firstTextBaseline) {
-                Text("Agents")
-                Spacer(minLength: 0)
-                if attentionCount > 0 {
-                    Text("\(attentionCount)")
-                        .font(.system(size: 11, weight: .semibold).monospacedDigit())
-                        .foregroundStyle(.secondary)
-                }
-            }
-            .font(.system(size: 12, weight: .semibold))
+            .fixedSize()
         }
         .padding(.horizontal, 10)
         .padding(.top, 8)
@@ -126,10 +117,6 @@ struct AgentPanelView: View {
         }
         .padding(16)
         .frame(width: 280)
-    }
-
-    private var attentionCount: Int {
-        store.agents.filter(\.needsAttention).count
     }
 
 

@@ -196,17 +196,17 @@ final class CoordinatorCatalog: ObservableObject {
                 return [fallbackLocal]
             }
             let locals = rows.compactMap { row -> ExtraCoordinator? in
-                guard let id = row["id"] as? String,
-                      let name = row["name"] as? String
-                else { return nil }
+                guard let id = row["id"] as? String else { return nil }
+                let session = row["session"] as? String ?? row["name"] as? String ?? "default"
+                let jsonName = row["name"] as? String ?? session
                 return ExtraCoordinator(
                     id: id,
                     kind: .local,
-                    name: name,
+                    name: localDisplayName(session: session, jsonName: jsonName),
                     running: row["running"] as? Bool ?? false,
                     socketPath: row["socket_path"] as? String,
                     target: nil,
-                    session: name
+                    session: session
                 )
             }
             return locals.isEmpty ? [fallbackLocal] : locals
@@ -215,11 +215,24 @@ final class CoordinatorCatalog: ObservableObject {
         }
     }
 
+    private static func localDisplayName(session: String, jsonName: String) -> String {
+        if session == "default" || jsonName.isEmpty || jsonName == "default" {
+            return thisMacName
+        }
+        return jsonName
+    }
+
+    private static var thisMacName: String {
+        let name = Host.current().localizedName?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let name, !name.isEmpty { return name }
+        return "This Mac"
+    }
+
     private static var fallbackLocal: ExtraCoordinator {
         ExtraCoordinator(
             id: "local:default",
             kind: .local,
-            name: "default",
+            name: thisMacName,
             running: false,
             socketPath: GardnClient.defaultSocketPath(),
             target: nil,

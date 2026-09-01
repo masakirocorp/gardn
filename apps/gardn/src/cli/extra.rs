@@ -9,11 +9,11 @@ struct ExtraListResponse {
     coordinators: Vec<ExtraCoordinatorInfo>,
 }
 
-#[derive(Debug, Serialize)]
 struct ExtraCoordinatorInfo {
     id: String,
     kind: &'static str,
     name: String,
+    session: String,
     running: bool,
     socket_path: String,
 }
@@ -118,9 +118,21 @@ fn local_coordinator(session: SessionInfo) -> ExtraCoordinatorInfo {
     ExtraCoordinatorInfo {
         id: format!("local:{}", session.name),
         kind: "local",
-        name: session.name,
+        name: local_display_name(&session),
+        session: session.name.clone(),
         running: session.running,
         socket_path: session.socket_path,
+    }
+}
+
+fn local_display_name(session: &SessionInfo) -> String {
+    if session.default {
+        crate::platform::hostname()
+            .map(|name| name.trim().to_string())
+            .filter(|name| !name.is_empty() && !name.eq_ignore_ascii_case("localhost"))
+            .unwrap_or_else(|| "This Mac".to_string())
+    } else {
+        session.name.clone()
     }
 }
 
