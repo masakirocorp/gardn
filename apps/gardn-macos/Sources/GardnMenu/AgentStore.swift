@@ -12,6 +12,7 @@ final class AgentStore: ObservableObject {
     let catalog = CoordinatorCatalog()
     var onNeedsAttentionChange: ((Bool) -> Void)?
     var onDidFocus: (() -> Void)?
+    var onOpenSettings: (() -> Void)?
 
 
     private var client: GardnClient
@@ -63,6 +64,10 @@ final class AgentStore: ObservableObject {
             reconnectToSelected()
             refresh()
         }
+    }
+
+    func openSettings() {
+        onOpenSettings?()
     }
 
     private func reconnectToSelected() {

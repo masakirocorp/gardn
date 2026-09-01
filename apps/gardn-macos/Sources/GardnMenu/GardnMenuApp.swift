@@ -8,8 +8,9 @@ struct GardnMenuApp: App {
 
     var body: some Scene {
         Settings {
-            EmptyView()
+            ExtraSettingsView(store: delegate.store, catalog: delegate.store.catalog)
         }
+        .defaultSize(width: 560, height: 420)
     }
 }
 
@@ -39,6 +40,9 @@ final class ExtraAppDelegate: NSObject, NSApplicationDelegate {
         store.onDidFocus = { [weak self] in
             self?.popover.performClose(nil)
         }
+        store.onOpenSettings = { [weak self] in
+            self?.openSettings()
+        }
         store.start()
         applyIcon(store.needsAttention)
     }
@@ -55,7 +59,6 @@ final class ExtraAppDelegate: NSObject, NSApplicationDelegate {
     func applyIcon(_ alert: Bool) {
         statusItem.button?.image = StatusItemImage.make(alert: alert)
     }
-
     @objc private func togglePopover(_ sender: Any?) {
         guard let button = statusItem.button else { return }
         if popover.isShown {
@@ -65,6 +68,12 @@ final class ExtraAppDelegate: NSObject, NSApplicationDelegate {
             store.refresh()
             popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
         }
+    }
+
+    func openSettings() {
+        popover.performClose(nil)
+        NSApp.activate(ignoringOtherApps: true)
+        NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
     }
 }
 

@@ -4,10 +4,6 @@ import SwiftUI
 struct AgentPanelView: View {
     @ObservedObject var store: AgentStore
     @ObservedObject var catalog: CoordinatorCatalog
-    @State private var addingRemote = false
-    @State private var remoteTarget = ""
-    @State private var remoteSession = ""
-
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             header
@@ -28,7 +24,6 @@ struct AgentPanelView: View {
         }
         .frame(width: 268, height: panelHeight, alignment: .top)
         .background { PopoverChrome().ignoresSafeArea() }
-        .sheet(isPresented: $addingRemote) { addRemote }
     }
 
     private var panelHeight: CGFloat {
@@ -73,10 +68,8 @@ struct AgentPanelView: View {
                     }
                 }
                 Divider()
-                Button("Add Remote Server…") {
-                    remoteTarget = ""
-                    remoteSession = ""
-                    addingRemote = true
+                Button("Settings…") {
+                    store.openSettings()
                 }
             } label: {
                 Text(catalog.selected?.title ?? "Server")
@@ -92,32 +85,6 @@ struct AgentPanelView: View {
         .padding(.bottom, 4)
     }
 
-    private var addRemote: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("Add Remote Server")
-                .font(.system(size: 13, weight: .semibold))
-            TextField("SSH target", text: $remoteTarget)
-            TextField("Session (optional)", text: $remoteSession)
-            if let addError = catalog.addError {
-                Text(addError)
-                    .font(.system(size: 11))
-                    .foregroundStyle(.red)
-            }
-            HStack {
-                Spacer()
-                Button("Cancel") { addingRemote = false }
-                Button("Add") {
-                    store.addRemoteCoordinator(target: remoteTarget, session: remoteSession)
-                    if catalog.addError == nil {
-                        addingRemote = false
-                    }
-                }
-                .keyboardShortcut(.defaultAction)
-            }
-        }
-        .padding(16)
-        .frame(width: 280)
-    }
 
 
     private var disconnected: some View {

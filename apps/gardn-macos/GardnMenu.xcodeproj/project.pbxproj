@@ -15,6 +15,7 @@
 		A06 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = F06 /* Assets.xcassets */; };
 		A07 /* HostTerminal.swift in Sources */ = {isa = PBXBuildFile; fileRef = F08 /* HostTerminal.swift */; };
 		A08 /* CoordinatorCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = F09 /* CoordinatorCatalog.swift */; };
+		A09 /* ExtraSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F10 /* ExtraSettingsView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -27,6 +28,7 @@
 		F06 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		F08 /* HostTerminal.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HostTerminal.swift; sourceTree = "<group>"; };
 		F09 /* CoordinatorCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoordinatorCatalog.swift; sourceTree = "<group>"; };
+		F10 /* ExtraSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExtraSettingsView.swift; sourceTree = "<group>"; };
 		F07 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		P00 /* GardnMenu.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = GardnMenu.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -63,6 +65,7 @@
 				F05 /* GardnClient.swift */,
 				F08 /* HostTerminal.swift */,
 				F09 /* CoordinatorCatalog.swift */,
+				F10 /* ExtraSettingsView.swift */,
 			);
 			name = Sources;
 			path = Sources/GardnMenu;
@@ -153,6 +156,7 @@
 				A05 /* GardnClient.swift in Sources */,
 				A07 /* HostTerminal.swift in Sources */,
 				A08 /* CoordinatorCatalog.swift in Sources */,
+				A09 /* ExtraSettingsView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
