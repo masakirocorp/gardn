@@ -164,13 +164,14 @@ Gardn is pre-public. Old GitHub releases are internal artifacts; do not preserve
 
 After cutting a release, wait for GitHub CI, Nix, and Release workflows to pass. Verify the GitHub release exists and contains all expected assets.
 
-The release workflow must publish these five assets:
+The release workflow must publish these assets:
 
 - `gardn-linux-x86_64`
 - `gardn-linux-aarch64`
 - `gardn-macos-x86_64`
 - `gardn-macos-aarch64`
 - `gardn-windows-x86_64.exe`
+- `Gardn-<version>.dmg`
 
 When updating the local development binary, run `just install-local`. That installs `~/.local/bin/gardn-dev` only. Do not install a source build over `~/.local/bin/gardn`. Production `gardn` stays on the latest GitHub release. After install, the next `gardn-dev` launch uses the new binary. `just install-local` runs `cargo clean` after install to avoid accumulating large debug build artifacts.
 

@@ -100,7 +100,7 @@ A debug source build uses the `gardn-dev` application directory. Official releas
 
 ## macOS extra
 
-`apps/gardn-macos/scripts/run.sh` builds `gardn`, copies it into `GardnMenu.app/Contents/MacOS/gardn`, and launches the extra. The extra uses that bundled binary for `extra list`, `extra connect`, and launching a client. It does not install anything onto PATH. `~/.local/bin/gardn` stays the latest GitHub release.
+`apps/gardn-macos/scripts/run.sh` builds `gardn`, copies it into `Gardn.app/Contents/MacOS/gardn`, and launches the extra. The extra uses that bundled binary for `extra list`, `extra connect`, and launching a client. It does not install anything onto PATH. `~/.local/bin/gardn` stays the latest GitHub release. Tagged releases publish a signed, notarized `Gardn-<version>.dmg`.
 
 
 

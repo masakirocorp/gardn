@@ -81,7 +81,7 @@ just release
 6. tags `v<version>`
 7. pushes the branch and tag
 
-The GitHub Release workflow builds binary assets from the pushed tag and uses the generated `apps/gardn/CHANGELOG.md` section as the release body.
+The GitHub Release workflow builds binary assets from the pushed tag and uses the generated `apps/gardn/CHANGELOG.md` section as the release body. macOS also gets a signed, notarized `Gardn-<version>.dmg` from `scripts/build-macos-app.sh`. That job needs the same Apple Developer ID and notary secrets Hako uses.
 
 ## Beta release
 

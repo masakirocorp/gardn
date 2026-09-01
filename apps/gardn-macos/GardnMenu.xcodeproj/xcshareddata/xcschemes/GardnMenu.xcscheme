@@ -15,7 +15,7 @@
             <BuildableReference
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "T00"
-               BuildableName = "GardnMenu.app"
+               BuildableName = "Gardn.app"
                BlueprintName = "GardnMenu"
                ReferencedContainer = "container:GardnMenu.xcodeproj">
             </BuildableReference>
@@ -44,7 +44,7 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "T00"
-            BuildableName = "GardnMenu.app"
+            BuildableName = "Gardn.app"
             BlueprintName = "GardnMenu"
             ReferencedContainer = "container:GardnMenu.xcodeproj">
          </BuildableReference>
@@ -61,7 +61,7 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "T00"
-            BuildableName = "GardnMenu.app"
+            BuildableName = "Gardn.app"
             BlueprintName = "GardnMenu"
             ReferencedContainer = "container:GardnMenu.xcodeproj">
          </BuildableReference>
