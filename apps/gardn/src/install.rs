@@ -6,7 +6,8 @@ use std::path::{Path, PathBuf};
 
 const GARDN_UPDATE_COMMAND: &str = "gardn update";
 const MISE_UPDATE_COMMAND: &str = "mise upgrade gardn";
-const MACOS_APP_CLI_PATH: &str = "/Applications/Gardn.app/Contents/MacOS/gardn";
+const MACOS_APP_CLI_PATH: &str = "/Applications/Gardn.app/Contents/MacOS/gardn-cli";
+const MACOS_APP_BUNDLED_CLI: &str = "gardn-cli";
 const MISE_INSTALLS_DIR_ENV: &str = "MISE_INSTALLS_DIR";
 const MACOS_APP_UPDATE_ERROR: &str = "Gardn is already installed as an app. Use Check for Updates in Gardn, or uninstall the app first.";
 
@@ -119,7 +120,7 @@ fn is_macos_app_bundle_cli(path: &Path) -> bool {
     let Some(app_bundle) = contents_directory.parent() else {
         return false;
     };
-    path.file_name() == Some("gardn".as_ref())
+    path.file_name() == Some(MACOS_APP_BUNDLED_CLI.as_ref())
         && macos_directory.file_name() == Some("MacOS".as_ref())
         && contents_directory.file_name() == Some("Contents".as_ref())
         && app_bundle.extension() == Some("app".as_ref())
@@ -139,7 +140,7 @@ fn macos_app_cli_paths() -> impl Iterator<Item = PathBuf> {
 }
 
 fn macos_app_cli_path_under_home(home: &Path) -> PathBuf {
-    home.join("Applications/Gardn.app/Contents/MacOS/gardn")
+    home.join("Applications/Gardn.app/Contents/MacOS/gardn-cli")
 }
 
 fn is_macos_app_present_at(path: &Path) -> bool {
@@ -239,11 +240,13 @@ mod tests {
     #[test]
     fn macos_app_bundle_cli_path_is_detected() {
         assert!(is_macos_app_bundle_cli(Path::new(
-            "/Applications/Gardn.app/Contents/MacOS/gardn"
+            "/Applications/Gardn.app/Contents/MacOS/gardn-cli"
         )));
         assert_eq!(
             install_kind_for(
-                Some(Path::new("/Applications/Gardn.app/Contents/MacOS/gardn")),
+                Some(Path::new(
+                    "/Applications/Gardn.app/Contents/MacOS/gardn-cli"
+                )),
                 false,
             ),
             UpdateInstallAction::MacosApp
@@ -258,10 +261,20 @@ mod tests {
     }
 
     #[test]
+    fn extra_and_case_colliding_cli_names_are_not_the_bundled_cli() {
+        assert!(!is_macos_app_bundle_cli(Path::new(
+            "/Applications/Gardn.app/Contents/MacOS/Gardn"
+        )));
+        assert!(!is_macos_app_bundle_cli(Path::new(
+            "/Applications/Gardn.app/Contents/MacOS/gardn"
+        )));
+    }
+
+    #[test]
     fn user_applications_cli_lives_under_home() {
         assert_eq!(
             macos_app_cli_path_under_home(Path::new("/Users/test")),
-            PathBuf::from("/Users/test/Applications/Gardn.app/Contents/MacOS/gardn")
+            PathBuf::from("/Users/test/Applications/Gardn.app/Contents/MacOS/gardn-cli")
         );
     }
 
@@ -276,7 +289,7 @@ mod tests {
                 .unwrap()
                 .as_nanos()
         ));
-        let bundled_cli = root.join("Gardn.app/Contents/MacOS/gardn");
+        let bundled_cli = root.join("Gardn.app/Contents/MacOS/gardn-cli");
         let linked_cli = root.join("bin/gardn");
         fs::create_dir_all(bundled_cli.parent().unwrap()).unwrap();
         fs::create_dir_all(linked_cli.parent().unwrap()).unwrap();
@@ -351,7 +364,7 @@ mod tests {
                 .unwrap()
                 .as_nanos()
         ));
-        let app_cli = root.join("Gardn.app/Contents/MacOS/gardn");
+        let app_cli = root.join("Gardn.app/Contents/MacOS/gardn-cli");
         fs::create_dir_all(app_cli.parent().unwrap()).unwrap();
         fs::write(&app_cli, b"gardn").unwrap();
 

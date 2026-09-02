@@ -68,10 +68,21 @@ if [[ ! -d "$APP_PATH" ]]; then
   echo "error: $APP_PATH not found" >&2
   exit 1
 fi
-if [[ ! -x "$APP_PATH/Contents/MacOS/gardn" ]]; then
-  echo "error: $APP_PATH is missing Contents/MacOS/gardn" >&2
+EXTRA_BIN="$APP_PATH/Contents/MacOS/Gardn"
+CLI_BIN="$APP_PATH/Contents/MacOS/gardn-cli"
+if [[ ! -x "$EXTRA_BIN" ]]; then
+  echo "error: $APP_PATH is missing Contents/MacOS/Gardn" >&2
   exit 1
 fi
+if [[ ! -x "$CLI_BIN" ]]; then
+  echo "error: $APP_PATH is missing Contents/MacOS/gardn-cli" >&2
+  exit 1
+fi
+if [[ "$EXTRA_BIN" -ef "$CLI_BIN" ]]; then
+  echo "error: extra and bundled CLI collapsed to one file at $EXTRA_BIN" >&2
+  exit 1
+fi
+
 
 if [[ -n "$SIGN_IDENTITY" ]]; then
   SPARKLE_FRAMEWORK="$APP_PATH/Contents/Frameworks/Sparkle.framework"
@@ -86,7 +97,7 @@ if [[ -n "$SIGN_IDENTITY" ]]; then
   codesign --force --options runtime --sign "$SIGN_IDENTITY" "$SPARKLE_FRAMEWORK/Versions/B/Updater.app"
   codesign --force --options runtime --sign "$SIGN_IDENTITY" "$SPARKLE_FRAMEWORK"
   echo "Signing bundled gardn..."
-  codesign --force --options runtime --sign "$SIGN_IDENTITY" "$APP_PATH/Contents/MacOS/gardn"
+  codesign --force --options runtime --sign "$SIGN_IDENTITY" "$CLI_BIN"
   echo "Signing app..."
   codesign --force --options runtime --sign "$SIGN_IDENTITY" "$APP_PATH"
 fi

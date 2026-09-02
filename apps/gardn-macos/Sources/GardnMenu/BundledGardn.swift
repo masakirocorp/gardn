@@ -8,7 +8,7 @@ enum BundledGardn {
         guard let folder = Bundle.main.executableURL?.deletingLastPathComponent() else {
             throw GardnClientError(message: "This app is missing its bundled CLI")
         }
-        let url = folder.appendingPathComponent("gardn")
+        let url = folder.appendingPathComponent("gardn-cli")
         guard FileManager.default.isExecutableFile(atPath: url.path) else {
             throw GardnClientError(message: "This app is missing its bundled CLI")
         }

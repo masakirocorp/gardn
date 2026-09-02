@@ -100,7 +100,7 @@ A debug source build uses the `gardn-dev` application directory. Official releas
 
 ## macOS app
 
-`apps/gardn-macos/scripts/run.sh` builds `gardn`, copies it into `Gardn.app/Contents/MacOS/gardn`, and launches Gardn.app. Gardn.app owns `~/.local/bin/gardn` and refreshes that symlink on each launch. The bundled binary powers `extra list`, `extra connect`, and client launches from the menu bar app. `just install-local` still only writes `~/.local/bin/gardn-dev`. Tagged releases publish a signed, notarized `Gardn-<version>.dmg`.
+`apps/gardn-macos/scripts/run.sh` builds `gardn`, copies it into `Gardn.app/Contents/MacOS/gardn-cli`, and launches Gardn.app. The extra stays `Contents/MacOS/Gardn`. Those names must stay distinct on a case-insensitive disk. Gardn.app owns `~/.local/bin/gardn` and refreshes that symlink on each launch. The bundled binary powers `extra list`, `extra connect`, and client launches from the menu bar app. `just install-local` still only writes `~/.local/bin/gardn-dev`. Tagged releases publish a signed, notarized `Gardn-<version>.dmg`.
 
 
 

@@ -1,7 +1,15 @@
 #!/bin/sh
 set -eu
 APP="${BUILT_PRODUCTS_DIR:?}/${FULL_PRODUCT_NAME:?}"
-DEST="$APP/Contents/MacOS/gardn"
+DEST="$APP/Contents/MacOS/gardn-cli"
+EXTRA="$APP/Contents/MacOS/Gardn"
+DEST_NAME="$(basename "$DEST")"
+EXTRA_NAME="$(basename "$EXTRA")"
+if [ "$(printf '%s' "$DEST_NAME" | tr '[:upper:]' '[:lower:]')" = "$(printf '%s' "$EXTRA_NAME" | tr '[:upper:]' '[:lower:]')" ]; then
+  echo "error: bundled CLI path $DEST collides with extra $EXTRA on a case-insensitive filesystem" >&2
+  exit 1
+fi
+
 SRC="${GARDN_BUNDLE_BIN:-}"
 ROOT="${SRCROOT:?}/../.."
 
