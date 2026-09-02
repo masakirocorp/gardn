@@ -27,7 +27,10 @@ enum PathCli {
         #endif
     }
 
-    static func shouldClaimPath(bundleURL: URL) -> Bool {
+    static func shouldClaimPath(
+        bundleURL: URL,
+        homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser
+    ) -> Bool {
         let appURL = bundleURL.standardizedFileURL.resolvingSymlinksInPath()
         let path = appURL.path
         if path.contains("/AppTranslocation/") {
@@ -39,7 +42,12 @@ enum PathCli {
         guard appURL.lastPathComponent == "Gardn.app" else {
             return false
         }
-        return appURL.deletingLastPathComponent().lastPathComponent == "Applications"
+        let parent = appURL.deletingLastPathComponent().standardizedFileURL.resolvingSymlinksInPath()
+        let systemApps = URL(fileURLWithPath: "/Applications").standardizedFileURL
+            .resolvingSymlinksInPath()
+        let userApps = homeDirectory.appendingPathComponent("Applications").standardizedFileURL
+            .resolvingSymlinksInPath()
+        return parent.path == systemApps.path || parent.path == userApps.path
     }
 
     static func installShim(from bundledCLI: URL, into binDirectory: URL) throws {

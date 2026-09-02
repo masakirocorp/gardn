@@ -21,9 +21,7 @@ pub(crate) enum UpdateInstallAction {
 impl UpdateInstallAction {
     pub(crate) fn current() -> Self {
         let current_exe = env::current_exe().ok();
-        let app_present =
-            cfg!(target_os = "macos") && is_macos_app_present_at(Path::new(MACOS_APP_CLI_PATH));
-        install_kind_for(current_exe.as_deref(), app_present)
+        install_kind_for(current_exe.as_deref(), macos_app_is_present())
     }
 
     pub(crate) fn command(self) -> &'static str {
@@ -125,6 +123,23 @@ fn is_macos_app_bundle_cli(path: &Path) -> bool {
         && macos_directory.file_name() == Some("MacOS".as_ref())
         && contents_directory.file_name() == Some("Contents".as_ref())
         && app_bundle.extension() == Some("app".as_ref())
+}
+
+fn macos_app_is_present() -> bool {
+    if !cfg!(target_os = "macos") {
+        return false;
+    }
+    macos_app_cli_paths().any(|path| is_macos_app_present_at(&path))
+}
+
+fn macos_app_cli_paths() -> impl Iterator<Item = PathBuf> {
+    let system = PathBuf::from(MACOS_APP_CLI_PATH);
+    let user = env::var_os("HOME").map(|home| macos_app_cli_path_under_home(Path::new(&home)));
+    std::iter::once(system).chain(user)
+}
+
+fn macos_app_cli_path_under_home(home: &Path) -> PathBuf {
+    home.join("Applications/Gardn.app/Contents/MacOS/gardn")
 }
 
 fn is_macos_app_present_at(path: &Path) -> bool {
@@ -240,6 +255,14 @@ mod tests {
         assert!(!is_macos_app_bundle_cli(Path::new(
             "/Users/test/.local/bin/gardn"
         )));
+    }
+
+    #[test]
+    fn user_applications_cli_lives_under_home() {
+        assert_eq!(
+            macos_app_cli_path_under_home(Path::new("/Users/test")),
+            PathBuf::from("/Users/test/Applications/Gardn.app/Contents/MacOS/gardn")
+        );
     }
 
     #[cfg(unix)]
