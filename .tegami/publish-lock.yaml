@@ -1,21 +1,17 @@
 core:changelogs:
-  - content: "---\npackages:\n  gardn:\n    type: patch\n---\n\n### Ship the extra with a matching gardn binary\n\nThe macOS extra now includes the gardn CLI for its own use. It does not replace the GitHub-release `gardn` on PATH.\n"
-    filename: mac-extra-bundles-cli.md
-    v: 0.0.0
-  - content: "---\npackages:\n  gardn:\n    type: patch\n---\n\n### Ship a signed macOS extra\n\nmacOS releases now include a signed, notarized `Gardn.app` disk image. The extra can check for updates itself. PATH `gardn` stays the GitHub CLI release.\n"
-    filename: macos-signed-app.md
+  - content: "---\npackages:\n  gardn:\n    type: patch\n---\n\n### Make Gardn.app own the macOS CLI\n\nGardn.app now owns `~/.local/bin/gardn` and updates through Sparkle. Standalone `gardn update` refuses when Gardn.app is installed.\n"
+    filename: macos-app-owns-cli.md
     v: 0.0.0
 core:packages:
   - id: npm:@gardn/website
     updated: false
   - changelogIds:
-      - mac-extra-bundles-cli.md
-      - macos-signed-app.md
+      - macos-app-owns-cli.md
     id: cargo:gardn
     updated: true
-  - id: cargo:portable-pty
-    updated: false
   - id: cargo:gardn-local-api
+    updated: false
+  - id: cargo:portable-pty
     updated: false
 npm:packages:
   - id: npm:@gardn/website

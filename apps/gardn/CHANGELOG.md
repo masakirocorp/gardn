@@ -1,3 +1,9 @@
+## gardn@0.10.7
+
+### Make Gardn.app own the macOS CLI
+
+Gardn.app now owns `~/.local/bin/gardn` and updates through Sparkle. Standalone `gardn update` refuses when Gardn.app is installed.
+
 ## gardn@0.10.6
 
 ### Ship the extra with a matching gardn binary
