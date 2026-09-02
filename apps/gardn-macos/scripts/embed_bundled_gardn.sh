@@ -27,3 +27,9 @@ fi
 mkdir -p "$APP/Contents/MacOS"
 cp "$SRC" "$DEST"
 chmod +x "$DEST"
+
+IDENTITY="${EXPANDED_CODE_SIGN_IDENTITY:-${CODE_SIGN_IDENTITY:-}}"
+if [ -n "$IDENTITY" ] && [ "$IDENTITY" != "-" ]; then
+  codesign --force --options runtime --sign "$IDENTITY" "$DEST"
+fi
+
