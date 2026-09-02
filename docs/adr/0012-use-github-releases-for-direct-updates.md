@@ -18,4 +18,6 @@ Managed installs keep their package manager as the installer. mise and Nix insta
 
 Release tags, `apps/gardn/Cargo.toml` versions, and asset names are part of Gardn's update contract. If a release misses `gardn-linux-x86_64`, `gardn-linux-aarch64`, `gardn-macos-x86_64`, `gardn-macos-aarch64`, or `gardn-windows-x86_64.exe`, supported direct installs on that platform cannot update or be distributed through the release asset path. If the latest GitHub Release tag does not parse as a Gardn version, the direct update check fails instead of guessing.
 
+On macOS, Gardn.app owns updates through Sparkle when it is present. Direct Install `gardn update` is for CLI-only machines and refuses when Gardn.app is installed.
+
 Gardn does not currently ship a Homebrew formula. Do not add Homebrew-managed update checks or prompts until a real formula or tap exists.

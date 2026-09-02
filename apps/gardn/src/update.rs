@@ -24,6 +24,10 @@ const GITHUB_RELEASES_API_URL: &str =
 const GARDN_UPDATE_COMMAND: &str = "gardn update";
 const MISE_UPDATE_COMMAND: &str = "mise upgrade gardn";
 const NIX_UPDATE_COMMAND: &str = "update through Nix";
+const MACOS_APP_UPDATE_COMMAND: &str = "Check for Updates in Gardn";
+const MACOS_APP_UPDATE_ERROR: &str =
+    "Gardn is already installed as an app. Use Check for Updates in Gardn, or uninstall the app first.";
+const MACOS_APP_CLI_PATH: &str = "/Applications/Gardn.app/Contents/MacOS/gardn";
 const MISE_INSTALLS_DIR_ENV: &str = "MISE_INSTALLS_DIR";
 const FAKE_UPDATE_VERSION_ENV: &str = "GARDN_FAKE_UPDATE_VERSION";
 const SERVER_STOP_RESPONSE_TIMEOUT: Duration = Duration::from_secs(5);
@@ -1446,14 +1450,56 @@ fn print_running_session_update_outcomes(
 // Installation manager detection
 // ---------------------------------------------------------------------------
 
-pub(crate) fn update_install_command() -> &'static str {
-    if is_mise_managed_install() {
-        MISE_UPDATE_COMMAND
-    } else if is_nix_managed_install() {
-        NIX_UPDATE_COMMAND
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum InstallKind {
+    MacosApp,
+    Mise,
+    Nix,
+    Direct,
+}
+
+fn install_kind_for(
+    current_exe: Option<&Path>,
+    macos_app_present: bool,
+    target_is_macos: bool,
+    mise_managed: bool,
+    nix_managed: bool,
+) -> InstallKind {
+    if target_is_macos && (macos_app_present || current_exe.is_some_and(is_macos_app_bundle_cli)) {
+        InstallKind::MacosApp
+    } else if mise_managed {
+        InstallKind::Mise
+    } else if nix_managed {
+        InstallKind::Nix
     } else {
-        GARDN_UPDATE_COMMAND
+        InstallKind::Direct
     }
+}
+
+fn current_install_kind() -> InstallKind {
+    let current_exe = env::current_exe().ok();
+    let app_present =
+        cfg!(target_os = "macos") && is_macos_app_present_at(Path::new(MACOS_APP_CLI_PATH));
+    install_kind_for(
+        current_exe.as_deref(),
+        app_present,
+        cfg!(target_os = "macos"),
+        is_mise_managed_install(),
+        is_nix_managed_install(),
+    )
+}
+
+fn update_install_command_for(kind: InstallKind) -> &'static str {
+    match kind {
+        InstallKind::MacosApp => MACOS_APP_UPDATE_COMMAND,
+        InstallKind::Mise => MISE_UPDATE_COMMAND,
+        InstallKind::Nix => NIX_UPDATE_COMMAND,
+        InstallKind::Direct => GARDN_UPDATE_COMMAND,
+    }
+}
+
+pub(crate) fn update_install_command() -> &'static str {
+    update_install_command_for(current_install_kind())
 }
 
 pub(crate) fn update_install_instruction(install_command: &str) -> String {
@@ -1468,9 +1514,47 @@ pub(crate) fn update_install_instruction(install_command: &str) -> String {
         NIX_UPDATE_COMMAND => {
             "Detach, update through Nix, then restart this Gardn session when ready".to_string()
         }
+        MACOS_APP_UPDATE_COMMAND => {
+            "Detach, use Check for Updates in Gardn, then restart this Gardn session when ready"
+                .to_string()
+        }
         command => {
             format!("Detach, run `{command}`, then restart this Gardn session when ready")
         }
+    }
+}
+
+fn is_macos_app_bundle_cli(path: &Path) -> bool {
+    let path = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+    let Some(macos_directory) = path.parent() else {
+        return false;
+    };
+    let Some(contents_directory) = macos_directory.parent() else {
+        return false;
+    };
+    let Some(app_bundle) = contents_directory.parent() else {
+        return false;
+    };
+    path.file_name() == Some("gardn".as_ref())
+        && macos_directory.file_name() == Some("MacOS".as_ref())
+        && contents_directory.file_name() == Some("Contents".as_ref())
+        && app_bundle.extension() == Some("app".as_ref())
+}
+
+fn is_macos_app_present_at(path: &Path) -> bool {
+    fs::metadata(path).is_ok_and(|metadata| metadata.is_file())
+}
+
+fn self_update_install_error(kind: InstallKind) -> Option<String> {
+    match kind {
+        InstallKind::MacosApp => Some(MACOS_APP_UPDATE_ERROR.to_string()),
+        InstallKind::Mise => Some(format!(
+            "self-update is disabled for mise installs; run `{MISE_UPDATE_COMMAND}`"
+        )),
+        InstallKind::Nix => Some(
+            "self-update is disabled for Nix installs; update with `nix profile upgrade` or update the flake input that provides Gardn".into(),
+        ),
+        InstallKind::Direct => None,
     }
 }
 
@@ -1580,16 +1664,8 @@ pub fn self_update(options: SelfUpdateOptions) -> Result<Version, String> {
         return Err(message.to_string());
     }
 
-    if is_mise_managed_install() {
-        return Err(format!(
-            "self-update is disabled for mise installs; run `{MISE_UPDATE_COMMAND}`"
-        ));
-    }
-
-    if is_nix_managed_install() {
-        return Err(
-            "self-update is disabled for Nix installs; update with `nix profile upgrade` or update the flake input that provides Gardn".into(),
-        );
+    if let Some(message) = self_update_install_error(current_install_kind()) {
+        return Err(message);
     }
 
     if running_inside_gardn() {
@@ -1991,6 +2067,101 @@ mod tests {
             )
         );
         assert_eq!(self_update_platform_error(false), None);
+    }
+
+    #[test]
+    fn macos_app_bundle_cli_path_is_detected() {
+        assert!(is_macos_app_bundle_cli(Path::new(
+            "/Applications/Gardn.app/Contents/MacOS/gardn"
+        )));
+        assert_eq!(
+            install_kind_for(
+                Some(Path::new("/Applications/Gardn.app/Contents/MacOS/gardn")),
+                false,
+                true,
+                false,
+                false,
+            ),
+            InstallKind::MacosApp
+        );
+    }
+
+    #[test]
+    fn local_path_is_not_a_macos_app_bundle_cli() {
+        assert!(!is_macos_app_bundle_cli(Path::new(
+            "/Users/test/.local/bin/gardn"
+        )));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn macos_app_bundle_cli_path_follows_symlinks() {
+        let root = std::env::temp_dir().join(format!(
+            "gardn-macos-app-path-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let bundled_cli = root.join("Gardn.app/Contents/MacOS/gardn");
+        let linked_cli = root.join("bin/gardn");
+        fs::create_dir_all(bundled_cli.parent().unwrap()).unwrap();
+        fs::create_dir_all(linked_cli.parent().unwrap()).unwrap();
+        fs::write(&bundled_cli, b"gardn").unwrap();
+        std::os::unix::fs::symlink(&bundled_cli, &linked_cli).unwrap();
+
+        assert!(is_macos_app_bundle_cli(&linked_cli));
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn macos_app_presence_is_checked_at_an_injected_path() {
+        let root = std::env::temp_dir().join(format!(
+            "gardn-macos-app-present-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let app_cli = root.join("Gardn.app/Contents/MacOS/gardn");
+        fs::create_dir_all(app_cli.parent().unwrap()).unwrap();
+        fs::write(&app_cli, b"gardn").unwrap();
+
+        assert!(is_macos_app_present_at(&app_cli));
+        let install_kind =
+            install_kind_for(None, is_macos_app_present_at(&app_cli), true, false, false);
+        assert_eq!(install_kind, InstallKind::MacosApp);
+        assert_eq!(
+            self_update_install_error(install_kind),
+            Some(MACOS_APP_UPDATE_ERROR.to_string())
+        );
+
+        fs::remove_file(&app_cli).unwrap();
+        assert!(!is_macos_app_present_at(&app_cli));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn macos_app_install_routes_updates_to_gardn() {
+        assert_eq!(
+            update_install_command_for(InstallKind::MacosApp),
+            MACOS_APP_UPDATE_COMMAND
+        );
+        assert_eq!(
+            update_install_instruction(MACOS_APP_UPDATE_COMMAND),
+            "Detach, use Check for Updates in Gardn, then restart this Gardn session when ready"
+        );
+    }
+
+    #[test]
+    fn macos_app_install_refuses_direct_self_update() {
+        assert_eq!(
+            self_update_install_error(InstallKind::MacosApp),
+            Some(MACOS_APP_UPDATE_ERROR.to_string())
+        );
     }
 
     #[test]

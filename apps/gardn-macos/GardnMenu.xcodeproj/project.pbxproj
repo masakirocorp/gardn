@@ -17,6 +17,7 @@
 		A07 /* HostTerminal.swift in Sources */ = {isa = PBXBuildFile; fileRef = F08 /* HostTerminal.swift */; };
 		A08 /* CoordinatorCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = F09 /* CoordinatorCatalog.swift */; };
 		A09 /* ExtraSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F10 /* ExtraSettingsView.swift */; };
+		A11 /* PathCli.swift in Sources */ = {isa = PBXBuildFile; fileRef = F12 /* PathCli.swift */; };
 		A10 /* BundledGardn.swift in Sources */ = {isa = PBXBuildFile; fileRef = F11 /* BundledGardn.swift */; };
 		SP03 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = SP02 /* Sparkle */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
 /* End PBXBuildFile section */
@@ -32,6 +33,7 @@
 		F08 /* HostTerminal.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HostTerminal.swift; sourceTree = "<group>"; };
 		F09 /* CoordinatorCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoordinatorCatalog.swift; sourceTree = "<group>"; };
 		F10 /* ExtraSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExtraSettingsView.swift; sourceTree = "<group>"; };
+		F12 /* PathCli.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PathCli.swift; sourceTree = "<group>"; };
 		F11 /* BundledGardn.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BundledGardn.swift; sourceTree = "<group>"; };
 		F07 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		P00 /* Gardn.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Gardn.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -71,6 +73,7 @@
 				F08 /* HostTerminal.swift */,
 				F09 /* CoordinatorCatalog.swift */,
 				F10 /* ExtraSettingsView.swift */,
+				F12 /* PathCli.swift */,
 				F11 /* BundledGardn.swift */,
 			);
 			name = Sources;
@@ -194,6 +197,7 @@
 				A08 /* CoordinatorCatalog.swift in Sources */,
 				A09 /* ExtraSettingsView.swift in Sources */,
 				A10 /* BundledGardn.swift in Sources */,
+				A11 /* PathCli.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

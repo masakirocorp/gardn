@@ -59,7 +59,7 @@ struct ExtraSettingsView: View {
             } header: {
                 Text("Servers")
             } footer: {
-                Text("The extra watches one of these Gardn servers.")
+                Text("Gardn watches one of these servers.")
             }
             Section("Add Remote Server") {
                 TextField("SSH target", text: $remoteTarget)
@@ -97,7 +97,7 @@ struct ExtraAboutView: View {
                 .frame(width: 96, height: 96)
             Text("Gardn")
                 .font(.system(size: 22, weight: .semibold))
-            Text("Menu extra \(version)")
+            Text("Version \(version)")
                 .font(.system(size: 12))
                 .foregroundStyle(.secondary)
             HStack(spacing: 16) {

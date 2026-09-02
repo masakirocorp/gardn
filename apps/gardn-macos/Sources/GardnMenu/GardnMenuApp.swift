@@ -41,6 +41,7 @@ final class ExtraAppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         Self.terminateOtherCopies()
+        PathCli.installBundledCLI()
         NSApp.setActivationPolicy(.accessory)
         UNUserNotificationCenter.current().delegate = self
         AgentNotifications.requestAuthorization()
