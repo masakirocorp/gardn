@@ -1,16 +1,16 @@
 core:changelogs:
-  - content: "---\npackages:\n  gardn:\n    type: patch\n---\n\n### Make Gardn.app own the macOS CLI\n\nGardn.app now owns `~/.local/bin/gardn` and updates through Sparkle. Standalone `gardn update` refuses when Gardn.app is installed.\n"
-    filename: macos-app-owns-cli.md
+  - content: "---\npackages:\n  gardn:\n    type: patch\n---\n\n### Keep the macOS extra and CLI as separate binaries\n\nGardn.app now ships the menu bar extra and the bundled CLI under distinct names, so the extra is not overwritten on a case-insensitive disk.\n"
+    filename: macos-app-cli-case.md
     v: 0.0.0
 core:packages:
   - id: npm:@gardn/website
     updated: false
-  - changelogIds:
-      - macos-app-owns-cli.md
-    id: cargo:gardn
-    updated: true
   - id: cargo:gardn-local-api
     updated: false
+  - changelogIds:
+      - macos-app-cli-case.md
+    id: cargo:gardn
+    updated: true
   - id: cargo:portable-pty
     updated: false
 npm:packages:
