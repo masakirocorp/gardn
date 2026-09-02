@@ -4172,12 +4172,9 @@ impl AppState {
                 self.handle_pane_died(terminal_runtimes, pane_id, child_pid, exit_success);
                 Vec::new()
             }
-            AppEvent::UpdateReady {
-                version,
-                install_command,
-            } => {
+            AppEvent::UpdateReady { version, install } => {
                 self.update_available = Some(version.clone());
-                self.update_install_command = install_command.clone();
+                self.update_install = install;
                 self.latest_release_notes_available = true;
                 self.update_dismissed = true;
                 Vec::new()
@@ -6568,7 +6565,7 @@ mod tests {
 
         let updates = state.handle_app_event(crate::events::AppEvent::UpdateReady {
             version: "0.5.0".into(),
-            install_command: "gardn update".into(),
+            install: crate::install::UpdateInstallAction::Direct,
         });
 
         assert!(updates.is_empty());
@@ -7814,7 +7811,7 @@ mod tests {
 
         let updates = state.handle_app_event(AppEvent::UpdateReady {
             version: "0.5.0".into(),
-            install_command: "gardn update".into(),
+            install: crate::install::UpdateInstallAction::Direct,
         });
 
         assert!(updates.is_empty());
@@ -7825,16 +7822,19 @@ mod tests {
     }
 
     #[test]
-    fn update_ready_stores_event_install_command() {
+    fn update_ready_stores_event_install_action() {
         let mut state = AppState::test_new();
         state.toast_config.delivery = crate::config::ToastDelivery::Gardn;
 
         state.handle_app_event(AppEvent::UpdateReady {
             version: "0.5.0".into(),
-            install_command: "custom upgrade gardn".into(),
+            install: crate::install::UpdateInstallAction::Mise,
         });
 
-        assert_eq!(state.update_install_command, "custom upgrade gardn");
+        assert_eq!(
+            state.update_install,
+            crate::install::UpdateInstallAction::Mise
+        );
         assert_eq!(state.toast, None);
     }
 

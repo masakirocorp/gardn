@@ -21,10 +21,6 @@ const GITHUB_LATEST_RELEASE_API_URL: &str =
     "https://api.github.com/repos/masakirocorp/gardn/releases/latest";
 const GITHUB_RELEASES_API_URL: &str =
     "https://api.github.com/repos/masakirocorp/gardn/releases?per_page=100";
-const GARDN_UPDATE_COMMAND: &str = "gardn update";
-const MISE_UPDATE_COMMAND: &str = "mise upgrade gardn";
-const NIX_UPDATE_COMMAND: &str = "update through Nix";
-const MISE_INSTALLS_DIR_ENV: &str = "MISE_INSTALLS_DIR";
 const FAKE_UPDATE_VERSION_ENV: &str = "GARDN_FAKE_UPDATE_VERSION";
 const SERVER_STOP_RESPONSE_TIMEOUT: Duration = Duration::from_secs(5);
 const SERVER_HANDOFF_REQUEST_TIMEOUT: Duration = Duration::from_secs(240);
@@ -1443,134 +1439,6 @@ fn print_running_session_update_outcomes(
 }
 
 // ---------------------------------------------------------------------------
-// Installation manager detection
-// ---------------------------------------------------------------------------
-
-pub(crate) fn update_install_command() -> &'static str {
-    if is_mise_managed_install() {
-        MISE_UPDATE_COMMAND
-    } else if is_nix_managed_install() {
-        NIX_UPDATE_COMMAND
-    } else {
-        GARDN_UPDATE_COMMAND
-    }
-}
-
-pub(crate) fn update_install_instruction(install_command: &str) -> String {
-    match install_command {
-        GARDN_UPDATE_COMMAND => {
-            "Detach, run `gardn update`, then follow its restart guidance".to_string()
-        }
-        MISE_UPDATE_COMMAND => {
-            "Detach, run `mise upgrade gardn`, then restart this Gardn session when ready"
-                .to_string()
-        }
-        NIX_UPDATE_COMMAND => {
-            "Detach, update through Nix, then restart this Gardn session when ready".to_string()
-        }
-        command => {
-            format!("Detach, run `{command}`, then restart this Gardn session when ready")
-        }
-    }
-}
-
-fn is_nix_managed_install() -> bool {
-    let Ok(current_exe) = env::current_exe() else {
-        return false;
-    };
-
-    if is_nix_store_exe_path(&current_exe) {
-        return true;
-    }
-
-    current_exe
-        .canonicalize()
-        .is_ok_and(|path| is_nix_store_exe_path(&path))
-}
-
-fn is_mise_managed_install() -> bool {
-    let Ok(current_exe) = env::current_exe() else {
-        return false;
-    };
-
-    is_mise_managed_exe_path_following_links(&current_exe)
-}
-
-fn is_mise_managed_exe_path_following_links(path: &Path) -> bool {
-    if is_mise_managed_exe_path(path) {
-        return true;
-    }
-
-    path.canonicalize()
-        .is_ok_and(|path| is_mise_managed_exe_path(&path))
-}
-
-fn is_nix_store_exe_path(path: &Path) -> bool {
-    path.starts_with("/nix/store")
-}
-
-fn is_mise_managed_exe_path(path: &Path) -> bool {
-    mise_install_root(path).is_some()
-}
-
-fn mise_install_root(path: &Path) -> Option<PathBuf> {
-    if let Some(root) = mise_install_root_under_configured_installs_dir(path) {
-        return Some(root);
-    }
-
-    mise_install_root_under_named_installs_dir(path)
-}
-
-fn mise_install_root_under_configured_installs_dir(path: &Path) -> Option<PathBuf> {
-    let installs_dir = env::var_os(MISE_INSTALLS_DIR_ENV)
-        .map(PathBuf::from)
-        .filter(|path| !path.as_os_str().is_empty())?;
-    let version_dir = mise_tool_version_dir(path)?;
-    let tool_dir = version_dir.parent()?;
-    paths_match(tool_dir.parent()?, &installs_dir).then_some(version_dir.to_path_buf())
-}
-
-fn mise_install_root_under_named_installs_dir(path: &Path) -> Option<PathBuf> {
-    let version_dir = mise_tool_version_dir(path)?;
-    let tool_dir = version_dir.parent()?;
-    let installs_dir = tool_dir.parent()?;
-    if installs_dir.file_name()? != "installs" {
-        return None;
-    }
-    Some(version_dir.to_path_buf())
-}
-
-fn mise_tool_version_dir(path: &Path) -> Option<&Path> {
-    if path.file_name()? != "gardn" {
-        return None;
-    }
-    let bin_dir = path.parent()?;
-    if bin_dir.file_name()? != "bin" {
-        return None;
-    }
-    let version_dir = bin_dir.parent()?;
-    let tool_dir = version_dir.parent()?;
-    if tool_dir.file_name()? != "gardn" {
-        return None;
-    }
-    Some(version_dir)
-}
-
-fn paths_match(left: &Path, right: &Path) -> bool {
-    if left == right {
-        return true;
-    }
-
-    let Ok(left) = left.canonicalize() else {
-        return false;
-    };
-    let Ok(right) = right.canonicalize() else {
-        return false;
-    };
-    left == right
-}
-
-// ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
 
@@ -1580,16 +1448,8 @@ pub fn self_update(options: SelfUpdateOptions) -> Result<Version, String> {
         return Err(message.to_string());
     }
 
-    if is_mise_managed_install() {
-        return Err(format!(
-            "self-update is disabled for mise installs; run `{MISE_UPDATE_COMMAND}`"
-        ));
-    }
-
-    if is_nix_managed_install() {
-        return Err(
-            "self-update is disabled for Nix installs; update with `nix profile upgrade` or update the flake input that provides Gardn".into(),
-        );
+    if let Some(message) = crate::install::UpdateInstallAction::current().self_update_error() {
+        return Err(message);
     }
 
     if running_inside_gardn() {
@@ -1671,7 +1531,7 @@ pub fn auto_update(events: tokio::sync::mpsc::Sender<crate::events::AppEvent>) {
             }
             let _ = events.blocking_send(crate::events::AppEvent::UpdateReady {
                 version: version.to_string(),
-                install_command: update_install_command().to_string(),
+                install: crate::install::UpdateInstallAction::current(),
             });
         }
         return;
@@ -1700,7 +1560,7 @@ pub fn auto_update(events: tokio::sync::mpsc::Sender<crate::events::AppEvent>) {
 
     let _ = events.blocking_send(crate::events::AppEvent::UpdateReady {
         version: release.label().to_string(),
-        install_command: update_install_command().to_string(),
+        install: crate::install::UpdateInstallAction::current(),
     });
 }
 
@@ -1936,20 +1796,6 @@ mod tests {
     }
 
     #[test]
-    fn nix_store_path_is_detected() {
-        let path = Path::new("/nix/store/abc123-gardn-0.6.1/bin/gardn");
-
-        assert!(is_nix_store_exe_path(path));
-    }
-
-    #[test]
-    fn non_nix_store_path_is_not_detected() {
-        let path = Path::new("/usr/local/bin/gardn");
-
-        assert!(!is_nix_store_exe_path(path));
-    }
-
-    #[test]
     fn fake_release_notes_include_version_and_context() {
         let body = fake_release_notes_body("9.4.9");
         assert!(body.contains("v9.4.9"));
@@ -2015,60 +1861,6 @@ mod tests {
             parse_stop_old_servers_after_update_response("later", true),
             None
         );
-    }
-
-    #[test]
-    fn update_install_instruction_distinguishes_install_from_restart() {
-        assert_eq!(
-            update_install_instruction(GARDN_UPDATE_COMMAND),
-            "Detach, run `gardn update`, then follow its restart guidance"
-        );
-        assert_eq!(
-            update_install_instruction(MISE_UPDATE_COMMAND),
-            "Detach, run `mise upgrade gardn`, then restart this Gardn session when ready"
-        );
-        assert_eq!(
-            update_install_instruction(NIX_UPDATE_COMMAND),
-            "Detach, update through Nix, then restart this Gardn session when ready"
-        );
-    }
-
-    #[test]
-    fn mise_install_path_is_detected() {
-        let path = Path::new("/home/user/.local/share/mise/installs/gardn/0.6.6/bin/gardn");
-
-        assert!(is_mise_managed_exe_path(path));
-        assert_eq!(
-            mise_install_root(path).unwrap(),
-            PathBuf::from("/home/user/.local/share/mise/installs/gardn/0.6.6")
-        );
-    }
-
-    #[test]
-    fn mise_alias_install_path_is_detected() {
-        let path = Path::new("/home/user/.local/share/mise/installs/gardn/latest/bin/gardn");
-
-        assert!(is_mise_managed_exe_path(path));
-    }
-
-    #[test]
-    fn mise_configured_installs_dir_path_is_detected() {
-        let _guard = env_lock().lock().unwrap();
-        let _mise_installs_dir_env = TestEnvVar::set(MISE_INSTALLS_DIR_ENV, "/opt/mise-tools");
-        let path = Path::new("/opt/mise-tools/gardn/0.6.6/bin/gardn");
-
-        assert!(is_mise_managed_exe_path(path));
-        assert_eq!(
-            mise_install_root(path).unwrap(),
-            PathBuf::from("/opt/mise-tools/gardn/0.6.6")
-        );
-    }
-
-    #[test]
-    fn non_mise_install_path_is_not_detected() {
-        let path = Path::new("/home/user/.local/bin/gardn");
-
-        assert!(!is_mise_managed_exe_path(path));
     }
 
     #[test]

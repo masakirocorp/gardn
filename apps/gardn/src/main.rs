@@ -40,6 +40,7 @@ mod ghui_theme;
 mod handoff_runtime;
 mod hunk_theme;
 mod input;
+mod install;
 mod integration;
 mod ipc;
 mod kitty_graphics;

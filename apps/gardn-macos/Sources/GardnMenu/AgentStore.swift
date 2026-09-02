@@ -155,7 +155,7 @@ final class AgentStore: ObservableObject {
     private static func friendlyError(_ error: Error) -> String {
         let message = error.localizedDescription
         if message.contains("unknown variant") || message.contains("invalid_request") {
-            return "Restart Gardn from macos-menu-extra to enable Follow Up."
+            return "Restart Gardn to enable Follow Up."
         }
         return message
     }

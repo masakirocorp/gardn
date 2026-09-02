@@ -6,11 +6,11 @@ enum BundledGardn {
 
     static func binaryURL() throws -> URL {
         guard let folder = Bundle.main.executableURL?.deletingLastPathComponent() else {
-            throw GardnClientError(message: "This extra has no bundled gardn")
+            throw GardnClientError(message: "This app is missing its bundled CLI")
         }
         let url = folder.appendingPathComponent("gardn")
         guard FileManager.default.isExecutableFile(atPath: url.path) else {
-            throw GardnClientError(message: "This extra has no bundled gardn")
+            throw GardnClientError(message: "This app is missing its bundled CLI")
         }
         return url
     }

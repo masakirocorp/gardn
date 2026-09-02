@@ -3715,7 +3715,7 @@ mod tests {
 
         tx.try_send(AppEvent::UpdateReady {
             version: "9.9.9".into(),
-            install_command: "gardn update".into(),
+            install: crate::install::UpdateInstallAction::Direct,
         })
         .unwrap();
 

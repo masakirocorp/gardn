@@ -313,12 +313,8 @@ impl App {
             None
         };
 
-        let update_ready = if let AppEvent::UpdateReady {
-            version,
-            install_command,
-        } = &ev
-        {
-            Some((version.clone(), install_command.clone()))
+        let update_ready = if let AppEvent::UpdateReady { version, install } = &ev {
+            Some((version.clone(), *install))
         } else {
             None
         };
@@ -387,10 +383,10 @@ impl App {
                 _ => unreachable!("toast delivery was checked above"),
             };
 
-            if let Some((version, install_command)) = update_ready {
+            if let Some((version, install)) = update_ready {
                 let _ = notify(
                     &format!("v{version} Available"),
-                    Some(&format!("Detach, then run `{install_command}`")),
+                    Some(&install.availability_notification_detail()),
                 );
             } else if !crate::platform::menu_extra_is_running() {
                 for update in &pane_updates {

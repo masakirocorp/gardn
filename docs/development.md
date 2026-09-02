@@ -74,11 +74,11 @@ Keep these binaries on the machine:
 
 | Binary | Source | Config and logs |
 | --- | --- | --- |
-| `gardn` | Latest stable GitHub release | `~/.config/gardn/` |
+| `gardn` | Gardn.app on macOS; latest stable GitHub release elsewhere | `~/.config/gardn/` |
 | `gardn-beta` | Latest GitHub prerelease `vX.Y.Z-beta.N` | `~/.config/gardn/` |
 | `gardn-dev` | Current checkout | `~/.config/gardn-dev/` |
 
-`gardn` must stay on the latest stable release. Do not install a source build over `~/.local/bin/gardn`. Use `gardn update` or the GitHub release assets when the production binary needs a new version.
+On macOS, Gardn.app is the production install. It owns `~/.local/bin/gardn` by linking that path to its bundled CLI and owns updates through Sparkle. Debug and DMG launches do not claim PATH. The standalone `gardn update` command refuses for the stable Direct CLI when Gardn.app is installed. `gardn-beta` and `gardn-dev` keep their own update owners. On a CLI-only macOS machine or another platform, use `gardn update` or the GitHub release assets when the production binary needs a new version.
 
 Install a beta Direct Install next to it:
 
@@ -98,9 +98,9 @@ just install-local
 
 A debug source build uses the `gardn-dev` application directory. Official release builds use `gardn`. The development namespace does not share sockets, logs, or session files with official installs.
 
-## macOS extra
+## macOS app
 
-`apps/gardn-macos/scripts/run.sh` builds `gardn`, copies it into `Gardn.app/Contents/MacOS/gardn`, and launches the extra. The extra uses that bundled binary for `extra list`, `extra connect`, and launching a client. It does not install anything onto PATH. `~/.local/bin/gardn` stays the latest GitHub release. Tagged releases publish a signed, notarized `Gardn-<version>.dmg`.
+`apps/gardn-macos/scripts/run.sh` builds `gardn`, copies it into `Gardn.app/Contents/MacOS/gardn`, and launches Gardn.app. Gardn.app owns `~/.local/bin/gardn` and refreshes that symlink on each launch. The bundled binary powers `extra list`, `extra connect`, and client launches from the menu bar app. `just install-local` still only writes `~/.local/bin/gardn-dev`. Tagged releases publish a signed, notarized `Gardn-<version>.dmg`.
 
 
 
