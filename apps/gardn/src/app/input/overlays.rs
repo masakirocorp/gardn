@@ -611,11 +611,8 @@ impl AppState {
         let notes = self.release_notes.as_ref()?;
         let body = self.release_notes_body_rect()?;
         let viewport_rows = body.height.max(1) as usize;
-        let lines = crate::ui::release_notes_display_lines(
-            notes,
-            &self.update_install_command,
-            &self.palette,
-        );
+        let lines =
+            crate::ui::release_notes_display_lines(notes, self.update_install, &self.palette);
 
         let rows_for_width = |wrap_width: u16| {
             crate::ui::release_notes_wrapped_line_count(&lines, wrap_width.max(1))
@@ -1044,7 +1041,7 @@ mod tests {
             scroll: 0,
             preview: true,
         });
-        app.state.update_install_command = "gardn update".into();
+        app.state.update_install = crate::install::UpdateInstallAction::Direct;
 
         let inner = app.state.release_notes_modal_inner().unwrap();
         let expected_body = crate::ui::modal_stack_areas(inner, 2, 1, 0, 1).content;

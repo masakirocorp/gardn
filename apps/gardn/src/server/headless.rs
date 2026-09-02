@@ -2323,13 +2323,10 @@ impl HeadlessServer {
 
                 true
             }
-            AppEvent::UpdateReady {
-                version,
-                install_command,
-            } => {
+            AppEvent::UpdateReady { version, install } => {
                 let toast_before = self.app.state.toast.clone();
                 let version = version.clone();
-                let install_command = install_command.clone();
+                let install = *install;
 
                 self.app.handle_internal_event(ev);
 
@@ -2343,9 +2340,7 @@ impl HeadlessServer {
                             .as_ref()
                             .map(|toast| format!("{}: {}", toast.title, toast.context))
                     } else {
-                        Some(format!(
-                            "v{version} Available: Detach, then run `{install_command}`"
-                        ))
+                        Some(install.availability_notification_body(&version))
                     }
                 } else {
                     None
@@ -8765,7 +8760,7 @@ next_tab = ""
 
         let changed = server.handle_internal_event_with_forwarding(AppEvent::UpdateReady {
             version: "9.9.9".to_string(),
-            install_command: "gardn update".into(),
+            install: crate::install::UpdateInstallAction::Direct,
         });
 
         assert!(changed);
@@ -8801,7 +8796,7 @@ next_tab = ""
 
         let changed = server.handle_internal_event_with_forwarding(AppEvent::UpdateReady {
             version: "9.9.9".to_string(),
-            install_command: "gardn update".into(),
+            install: crate::install::UpdateInstallAction::Direct,
         });
 
         assert!(changed);

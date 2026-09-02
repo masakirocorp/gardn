@@ -97,7 +97,7 @@ pub enum AppEvent {
     /// A new version is available through the active installation manager.
     UpdateReady {
         version: String,
-        install_command: String,
+        install: crate::install::UpdateInstallAction,
     },
     /// Remote agent detection manifest update check finished.
     AgentDetectionManifestsUpdated {

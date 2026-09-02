@@ -79,8 +79,7 @@ fn render_release_notes_overlay_with(
     render_modal_subtitle(frame, header_rows[1], subtitle, &app.palette);
 
     let notes_body = stack.content;
-    let display_lines =
-        release_notes_display_lines(notes, &app.update_install_command, &app.palette);
+    let display_lines = release_notes_display_lines(notes, app.update_install, &app.palette);
     let viewport_rows = notes_body.height.max(1) as usize;
     let rows_for_width =
         |width: u16| release_notes_wrapped_line_count(&display_lines, width.max(1));
@@ -363,7 +362,7 @@ pub(crate) fn release_notes_lines<'a>(body: &'a str, p: &Palette) -> Vec<(usize,
 }
 
 fn release_notes_preview_line_entries<'a>(
-    install_command: &str,
+    install: crate::install::UpdateInstallAction,
     p: &Palette,
 ) -> Vec<(usize, Line<'a>)> {
     let title_style = Style::default().fg(p.text).add_modifier(Modifier::BOLD);
@@ -372,7 +371,7 @@ fn release_notes_preview_line_entries<'a>(
         .fg(p.accent)
         .bg(p.surface0)
         .add_modifier(Modifier::BOLD);
-    let instruction = crate::update::update_install_instruction(install_command);
+    let instruction = install.instruction();
     let (instruction_width, mut instruction_spans) =
         release_notes_inline_spans(&instruction, text_style, inline_code_style);
     instruction_spans.insert(0, Span::raw(" "));
@@ -395,12 +394,12 @@ fn release_notes_preview_line_entries<'a>(
 
 pub(crate) fn release_notes_display_lines<'a>(
     notes: &'a ReleaseNotesState,
-    install_command: &str,
+    install: crate::install::UpdateInstallAction,
     p: &Palette,
 ) -> Vec<(usize, Line<'a>)> {
     let mut lines = Vec::new();
     if notes.preview {
-        lines.extend(release_notes_preview_line_entries(install_command, p));
+        lines.extend(release_notes_preview_line_entries(install, p));
         lines.push((0, Line::raw("")));
     }
     lines.extend(release_notes_lines(notes.body.as_str(), p));
@@ -477,10 +476,13 @@ mod tests {
     #[test]
     fn release_notes_preview_lines_show_update_steps() {
         let palette = Palette::catppuccin();
-        let lines = release_notes_preview_line_entries("gardn update", &palette)
-            .into_iter()
-            .map(|(_, line)| line)
-            .collect::<Vec<_>>();
+        let lines = release_notes_preview_line_entries(
+            crate::install::UpdateInstallAction::Direct,
+            &palette,
+        )
+        .into_iter()
+        .map(|(_, line)| line)
+        .collect::<Vec<_>>();
 
         assert_eq!(lines.len(), 2);
         assert_eq!(line_text(&lines[0]), " ● Update Ready");
@@ -505,7 +507,11 @@ mod tests {
             preview: true,
         };
 
-        let lines = release_notes_display_lines(&notes, "gardn update", &palette);
+        let lines = release_notes_display_lines(
+            &notes,
+            crate::install::UpdateInstallAction::Direct,
+            &palette,
+        );
 
         assert_eq!(line_text(&lines[0].1), " ● Update Ready");
         assert_eq!(

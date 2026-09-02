@@ -3369,7 +3369,7 @@ pub struct AppState {
     pub context_menu: Option<ContextMenuState>,
     // Notifications
     pub update_available: Option<String>,
-    pub update_install_command: String,
+    pub update_install: crate::install::UpdateInstallAction,
     pub latest_release_notes_available: bool,
     pub update_dismissed: bool,
     pub config_diagnostic: Option<String>,
@@ -4475,7 +4475,7 @@ impl AppState {
             selection_autoscroll: None,
             context_menu: None,
             update_available: None,
-            update_install_command: "gardn update".into(),
+            update_install: crate::install::UpdateInstallAction::Direct,
             latest_release_notes_available: false,
             update_dismissed: false,
             config_diagnostic: None,

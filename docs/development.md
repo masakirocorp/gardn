@@ -78,7 +78,7 @@ Keep these binaries on the machine:
 | `gardn-beta` | Latest GitHub prerelease `vX.Y.Z-beta.N` | `~/.config/gardn/` |
 | `gardn-dev` | Current checkout | `~/.config/gardn-dev/` |
 
-On macOS, Gardn.app is the production install. It owns `~/.local/bin/gardn` by linking that path to its bundled CLI and owns updates through Sparkle. The standalone `gardn update` command refuses when Gardn.app is installed. Use Check for Updates in Gardn, or uninstall the app before using a standalone CLI update. On a CLI-only macOS machine or another platform, use `gardn update` or the GitHub release assets when the production binary needs a new version.
+On macOS, Gardn.app is the production install. It owns `~/.local/bin/gardn` by linking that path to its bundled CLI and owns updates through Sparkle. Debug and DMG launches do not claim PATH. The standalone `gardn update` command refuses for the stable Direct CLI when Gardn.app is installed. `gardn-beta` and `gardn-dev` keep their own update owners. On a CLI-only macOS machine or another platform, use `gardn update` or the GitHub release assets when the production binary needs a new version.
 
 Install a beta Direct Install next to it:
 

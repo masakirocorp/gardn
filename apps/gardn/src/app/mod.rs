@@ -825,7 +825,7 @@ impl App {
             .filter(|notes| notes.preview)
             .map(|notes| notes.version.clone());
         let latest_release_notes_available = latest_release_notes.is_some();
-        let update_install_command = crate::update::update_install_command().to_string();
+        let update_install = crate::install::UpdateInstallAction::current();
         let startup_product_announcement =
             crate::product_announcements::load_unseen_for_current_version();
 
@@ -966,7 +966,7 @@ impl App {
             selection_autoscroll: None,
             context_menu: None,
             update_available,
-            update_install_command,
+            update_install,
             latest_release_notes_available,
             update_dismissed: false,
             config_diagnostic,
@@ -16111,7 +16111,7 @@ mod tests {
             app.event_tx
                 .try_send(AppEvent::UpdateReady {
                     version: format!("9.9.{i}"),
-                    install_command: "gardn update".into(),
+                    install: crate::install::UpdateInstallAction::Direct,
                 })
                 .expect("fill channel");
         }
@@ -16191,7 +16191,7 @@ mod tests {
             app.event_tx
                 .try_send(AppEvent::UpdateReady {
                     version: format!("9.9.{i}"),
-                    install_command: "gardn update".into(),
+                    install: crate::install::UpdateInstallAction::Direct,
                 })
                 .unwrap();
         }

@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import os
 
@@ -6,27 +7,44 @@ enum PathCli {
     private static let fileManager = FileManager.default
 
     static func installBundledCLI() {
-        do {
-            guard let executableURL = Bundle.main.executableURL else {
-                log.error("Unable to install PATH shim: app executable URL is unavailable")
-                return
+        #if DEBUG
+            return
+        #else
+            do {
+                guard shouldClaimPath(bundleURL: Bundle.main.bundleURL) else {
+                    return
+                }
+                let bundledCLI = try BundledGardn.binaryURL()
+                let binDirectory = fileManager.homeDirectoryForCurrentUser
+                    .appendingPathComponent(".local", isDirectory: true)
+                    .appendingPathComponent("bin", isDirectory: true)
+                try installShim(from: bundledCLI, into: binDirectory)
+            } catch {
+                log.error(
+                    "Unable to install PATH shim: \(error.localizedDescription, privacy: .public)"
+                )
             }
-            let bundledCLI = executableURL
-                .deletingLastPathComponent()
-                .appendingPathComponent("gardn")
-            let binDirectory = fileManager.homeDirectoryForCurrentUser
-                .appendingPathComponent(".local", isDirectory: true)
-                .appendingPathComponent("bin", isDirectory: true)
-            try installShim(from: bundledCLI, into: binDirectory)
-        } catch {
-            log.error("Unable to install PATH shim: \(error.localizedDescription, privacy: .public)")
+        #endif
+    }
+
+    static func shouldClaimPath(bundleURL: URL) -> Bool {
+        let appURL = bundleURL.standardizedFileURL.resolvingSymlinksInPath()
+        let path = appURL.path
+        if path.contains("/AppTranslocation/") {
+            return false
         }
+        if path.hasPrefix("/Volumes/") {
+            return false
+        }
+        guard appURL.lastPathComponent == "Gardn.app" else {
+            return false
+        }
+        return appURL.deletingLastPathComponent().lastPathComponent == "Applications"
     }
 
     static func installShim(from bundledCLI: URL, into binDirectory: URL) throws {
         guard fileManager.isExecutableFile(atPath: bundledCLI.path) else {
-            log.error("Unable to install PATH shim: bundled gardn is unavailable")
-            return
+            throw GardnClientError(message: "This app is missing its bundled CLI")
         }
 
         try fileManager.createDirectory(at: binDirectory, withIntermediateDirectories: true)
@@ -40,20 +58,26 @@ enum PathCli {
             if destinationURL.path == bundledURL.path {
                 return
             }
-            try fileManager.removeItem(at: shim)
         } else {
             var isDirectory = ObjCBool(false)
-            if fileManager.fileExists(atPath: shim.path, isDirectory: &isDirectory) {
-                if isDirectory.boolValue {
-                    log.error(
-                        "Unable to install PATH shim: \(shim.path, privacy: .public) is a directory"
-                    )
-                    return
-                }
-                try fileManager.removeItem(at: shim)
+            if fileManager.fileExists(atPath: shim.path, isDirectory: &isDirectory),
+                isDirectory.boolValue
+            {
+                throw GardnClientError(
+                    message: "Unable to install PATH shim: \(shim.path) is a directory"
+                )
             }
         }
 
-        try fileManager.createSymbolicLink(at: shim, withDestinationURL: bundledCLI)
+        let temporary = binDirectory.appendingPathComponent(".gardn-\(UUID().uuidString)")
+        try fileManager.createSymbolicLink(at: temporary, withDestinationURL: bundledCLI)
+        let status = rename(temporary.path, shim.path)
+        if status != 0 {
+            try? fileManager.removeItem(at: temporary)
+            throw GardnClientError(
+                message:
+                    "Unable to install PATH shim: \(String(cString: strerror(errno)))"
+            )
+        }
     }
 }
