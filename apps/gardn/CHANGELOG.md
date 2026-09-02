@@ -1,3 +1,9 @@
+## gardn@0.10.9
+
+### Sign the bundled macOS CLI with the app
+
+Gardn.app now signs its bundled CLI before the app bundle, so the extra and CLI can ship as separate binaries.
+
 ## gardn@0.10.8
 
 ### Keep the macOS extra and CLI as separate binaries

@@ -1,6 +1,6 @@
 core:changelogs:
-  - content: "---\npackages:\n  gardn:\n    type: patch\n---\n\n### Keep the macOS extra and CLI as separate binaries\n\nGardn.app now ships the menu bar extra and the bundled CLI under distinct names, so the extra is not overwritten on a case-insensitive disk.\n"
-    filename: macos-app-cli-case.md
+  - content: "---\npackages:\n  gardn:\n    type: patch\n---\n\n### Sign the bundled macOS CLI with the app\n\nGardn.app now signs its bundled CLI before the app bundle, so the extra and CLI can ship as separate binaries.\n"
+    filename: macos-app-sign-cli.md
     v: 0.0.0
 core:packages:
   - id: npm:@gardn/website
@@ -8,7 +8,7 @@ core:packages:
   - id: cargo:gardn-local-api
     updated: false
   - changelogIds:
-      - macos-app-cli-case.md
+      - macos-app-sign-cli.md
     id: cargo:gardn
     updated: true
   - id: cargo:portable-pty
