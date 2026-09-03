@@ -1,3 +1,9 @@
+## gardn@0.10.10
+
+### Keep menu Follow Up in sync with the terminal
+
+The macOS menu no longer notifies when you add an agent to Follow Up, and it no longer invents extra Follow Up rows from session files.
+
 ## gardn@0.10.9
 
 ### Sign the bundled macOS CLI with the app

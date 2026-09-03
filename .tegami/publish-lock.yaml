@@ -1,6 +1,6 @@
 core:changelogs:
-  - content: "---\npackages:\n  gardn:\n    type: patch\n---\n\n### Sign the bundled macOS CLI with the app\n\nGardn.app now signs its bundled CLI before the app bundle, so the extra and CLI can ship as separate binaries.\n"
-    filename: macos-app-sign-cli.md
+  - content: "---\npackages:\n  gardn:\n    type: patch\n---\n\n### Keep menu Follow Up in sync with the terminal\n\nThe macOS menu no longer notifies when you add an agent to Follow Up, and it no longer invents extra Follow Up rows from session files.\n"
+    filename: extra-follow-up.md
     v: 0.0.0
 core:packages:
   - id: npm:@gardn/website
@@ -8,7 +8,7 @@ core:packages:
   - id: cargo:gardn-local-api
     updated: false
   - changelogIds:
-      - macos-app-sign-cli.md
+      - extra-follow-up.md
     id: cargo:gardn
     updated: true
   - id: cargo:portable-pty
