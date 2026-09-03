@@ -184,11 +184,10 @@ impl App {
         &mut self,
         first: crate::raw_input::RawInputEvent,
     ) -> bool {
-        let mut changed = self.handle_raw_input_event(first).await;
-
+        let mut events = vec![first];
         while let Some(rx) = self.input_rx.as_mut() {
             match rx.try_recv() {
-                Ok(event) => changed |= self.handle_raw_input_event(event).await,
+                Ok(event) => events.push(event),
                 Err(tokio::sync::mpsc::error::TryRecvError::Empty) => break,
                 Err(tokio::sync::mpsc::error::TryRecvError::Disconnected) => {
                     self.input_rx = None;
@@ -196,7 +195,12 @@ impl App {
                 }
             }
         }
+        crate::raw_input::coalesce_consecutive_mouse_motion(&mut events);
 
+        let mut changed = false;
+        for event in events {
+            changed |= self.handle_raw_input_event(event).await;
+        }
         changed
     }
 

@@ -3840,6 +3840,106 @@ mod tests {
     }
 
     #[tokio::test(flavor = "current_thread")]
+    async fn mouse_move_batch_forwards_only_the_latest_position() {
+        let mut app = app_for_mouse_test();
+        let ws = Workspace::test_new("test");
+        let pane_id = ws.tabs[0].root_pane;
+        app.state.workspaces = vec![ws];
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        crate::ui::compute_view(&mut app.state, Rect::new(0, 0, 106, 20));
+
+        let info = app.state.view.pane_infos[0].clone();
+        let (runtime, mut rx) =
+            crate::terminal::TerminalRuntime::test_with_channel_and_screen_bytes(
+                info.inner_rect.width.max(1),
+                info.inner_rect.height.max(1),
+                b"\x1b[?1003h\x1b[?1006h",
+            );
+        app.state.workspaces[0].insert_test_runtime(pane_id, runtime);
+
+        app.route_client_events(
+            vec![
+                crate::raw_input::RawInputEvent::Mouse(mouse(
+                    MouseEventKind::Moved,
+                    info.inner_rect.x + 1,
+                    info.inner_rect.y + 1,
+                )),
+                crate::raw_input::RawInputEvent::Mouse(mouse(
+                    MouseEventKind::Moved,
+                    info.inner_rect.x + 2,
+                    info.inner_rect.y + 2,
+                )),
+                crate::raw_input::RawInputEvent::Mouse(mouse(
+                    MouseEventKind::Moved,
+                    info.inner_rect.x + 3,
+                    info.inner_rect.y + 2,
+                )),
+            ],
+            false,
+        );
+
+        let bytes = rx.try_recv().expect("latest motion forwarded to pane");
+        assert_eq!(bytes.as_ref(), b"\x1b[<35;4;3M");
+        assert!(rx.try_recv().is_err());
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn mouse_move_batch_flushes_latest_move_before_click() {
+        let mut app = app_for_mouse_test();
+        let ws = Workspace::test_new("test");
+        let pane_id = ws.tabs[0].root_pane;
+        app.state.workspaces = vec![ws];
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        crate::ui::compute_view(&mut app.state, Rect::new(0, 0, 106, 20));
+
+        let info = app.state.view.pane_infos[0].clone();
+        let (runtime, mut rx) =
+            crate::terminal::TerminalRuntime::test_with_channel_and_screen_bytes(
+                info.inner_rect.width.max(1),
+                info.inner_rect.height.max(1),
+                b"\x1b[?1003h\x1b[?1006h",
+            );
+        app.state.workspaces[0].insert_test_runtime(pane_id, runtime);
+
+        app.route_client_events(
+            vec![
+                crate::raw_input::RawInputEvent::Mouse(mouse(
+                    MouseEventKind::Moved,
+                    info.inner_rect.x + 1,
+                    info.inner_rect.y + 1,
+                )),
+                crate::raw_input::RawInputEvent::Mouse(mouse(
+                    MouseEventKind::Moved,
+                    info.inner_rect.x + 3,
+                    info.inner_rect.y + 2,
+                )),
+                crate::raw_input::RawInputEvent::Mouse(mouse(
+                    MouseEventKind::Down(MouseButton::Left),
+                    info.inner_rect.x + 3,
+                    info.inner_rect.y + 2,
+                )),
+            ],
+            false,
+        );
+
+        assert_eq!(
+            rx.try_recv()
+                .expect("coalesced motion before click")
+                .as_ref(),
+            b"\x1b[<35;4;3M"
+        );
+        assert_eq!(
+            rx.try_recv()
+                .expect("click after coalesced motion")
+                .as_ref(),
+            b"\x1b[<0;4;3M"
+        );
+        assert!(rx.try_recv().is_err());
+    }
+
+    #[tokio::test(flavor = "current_thread")]
     async fn mouse_move_is_not_forwarded_for_button_motion_mode() {
         let mut app = app_for_mouse_test();
         let ws = Workspace::test_new("test");
