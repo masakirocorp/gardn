@@ -1283,6 +1283,12 @@ impl Terminal {
         self.get_u16(ffi::GhosttyTerminalData_GHOSTTY_TERMINAL_DATA_ROWS)
     }
 
+    pub fn reported_cell_size_px(&self) -> Option<(u32, u32)> {
+        let width = self.callback_state.size_report.cell_width;
+        let height = self.callback_state.size_report.cell_height;
+        (width > 0 && height > 0).then_some((width, height))
+    }
+
     fn width_px(&self) -> Result<u32, Error> {
         self.get_u32(ffi::GhosttyTerminalData_GHOSTTY_TERMINAL_DATA_WIDTH_PX)
     }

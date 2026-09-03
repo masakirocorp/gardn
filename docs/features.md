@@ -185,6 +185,7 @@ Mouse capture is enabled by default.
 - Scroll lists, panes, modals, and scrollbars. Set `ui.pane_scrollbars = false` to hide pane scrollbars and reclaim the gutter column.
 - Right-click where context menus are available. Shift+F10 opens the same menu for the focused pane or agent.
 - Configure `ui.right_click_passthrough_modifier` to send modified right-click hold/drag gestures to mouse-reporting pane apps while normal right-click keeps Gardn menus.
+- Pane apps that enable SGR pixel mouse (DEC 1016) receive pixel reports derived from host cell size. Without cell geometry, Gardn still falls back to cell SGR.
 - Select pane text for copy workflows.
 - **Mobile layout** — narrow terminals keep the terminal nearly full-height under a compact two-row header: an always-visible agent-status row on top opens the agent list directly, and a breadcrumb below shows the active group, space, tab, and split pane. Each breadcrumb segment opens a compact, bordered dropdown anchored beneath it; group, space, and tab dropdowns include contextual creation, while split actions appear in the pane dropdown when the focused pane has room. Current items are marked, selecting a space, tab, or pane closes the dropdown, Right drills into the highlighted row's children, Left returns to the parent breadcrumb level, Up/Down or `j`/`k` moves within a dropdown, Enter activates the selected row, and Escape closes the dropdown without changing focus.
 
