@@ -2971,6 +2971,8 @@ impl App {
         events: Vec<crate::raw_input::RawInputEvent>,
         apply_host_terminal_theme: bool,
     ) {
+        let mut events = events;
+        crate::raw_input::coalesce_consecutive_mouse_motion(&mut events);
         for event in events {
             let previous_mode = self.state.mode;
             match event {
@@ -3746,6 +3748,8 @@ impl App {
     ) {
         client_view.reconcile(&self.state);
         self.refresh_client_authentication_prompt(client_view);
+        let mut events = events;
+        crate::raw_input::coalesce_consecutive_mouse_motion(&mut events);
         for event in events {
             let previous_mode = client_view.mode;
             match event {

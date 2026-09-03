@@ -151,6 +151,37 @@ pub enum RawInputEvent {
     Unsupported,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum MouseMotionCoalesceKey {
+    Moved,
+    Drag(MouseButton),
+}
+
+fn mouse_motion_coalesce_key(event: &RawInputEvent) -> Option<MouseMotionCoalesceKey> {
+    match event {
+        RawInputEvent::Mouse(mouse) => match mouse.kind {
+            MouseEventKind::Moved => Some(MouseMotionCoalesceKey::Moved),
+            MouseEventKind::Drag(button) => Some(MouseMotionCoalesceKey::Drag(button)),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+/// Keep the latest mouse-move or same-button drag in each consecutive run.
+pub(crate) fn coalesce_consecutive_mouse_motion(events: &mut Vec<RawInputEvent>) {
+    events.dedup_by(|later, earlier| {
+        let Some(key) = mouse_motion_coalesce_key(later) else {
+            return false;
+        };
+        if mouse_motion_coalesce_key(earlier) != Some(key) {
+            return false;
+        }
+        std::mem::swap(later, earlier);
+        true
+    });
+}
+
 #[derive(Default)]
 pub(crate) struct RawInputFramer {
     byte_framer: RawInputByteFramer,
@@ -1255,6 +1286,15 @@ mod tests {
         drain_buffer(buffer, tx);
     }
 
+    fn raw_mouse(kind: MouseEventKind, column: u16, row: u16) -> RawInputEvent {
+        RawInputEvent::Mouse(MouseEvent {
+            kind,
+            column,
+            row,
+            modifiers: KeyModifiers::empty(),
+        })
+    }
+
     #[test]
     fn parses_kitty_shift_letter_release() {
         let (RawInputEvent::Key(key), consumed) = extract_one_event(b"\x1b[108:76;2:3u").unwrap()
@@ -1325,6 +1365,62 @@ mod tests {
         assert_eq!(mouse.column, 19);
         assert_eq!(mouse.row, 9);
         assert_eq!(mouse.modifiers, KeyModifiers::empty());
+    }
+
+    #[test]
+    fn consecutive_mouse_moves_keep_the_latest_position() {
+        let mut events = vec![
+            raw_mouse(MouseEventKind::Moved, 1, 1),
+            raw_mouse(MouseEventKind::Moved, 2, 2),
+            raw_mouse(MouseEventKind::Moved, 3, 4),
+        ];
+        coalesce_consecutive_mouse_motion(&mut events);
+        let [RawInputEvent::Mouse(mouse)] = events.as_slice() else {
+            panic!("expected one mouse event");
+        };
+        assert_eq!((mouse.column, mouse.row), (3, 4));
+        assert_eq!(mouse.kind, MouseEventKind::Moved);
+    }
+
+    #[test]
+    fn mouse_move_run_flushes_before_a_click() {
+        let mut events = vec![
+            raw_mouse(MouseEventKind::Moved, 1, 1),
+            raw_mouse(MouseEventKind::Moved, 8, 9),
+            raw_mouse(MouseEventKind::Down(MouseButton::Left), 8, 9),
+        ];
+        coalesce_consecutive_mouse_motion(&mut events);
+        assert_eq!(events.len(), 2);
+        let RawInputEvent::Mouse(move_event) = &events[0] else {
+            panic!("expected coalesced move");
+        };
+        let RawInputEvent::Mouse(click) = &events[1] else {
+            panic!("expected click");
+        };
+        assert_eq!(move_event.kind, MouseEventKind::Moved);
+        assert_eq!((move_event.column, move_event.row), (8, 9));
+        assert_eq!(click.kind, MouseEventKind::Down(MouseButton::Left));
+        assert_eq!((click.column, click.row), (8, 9));
+    }
+
+    #[test]
+    fn same_button_drags_keep_the_latest_position() {
+        let mut events = vec![
+            raw_mouse(MouseEventKind::Drag(MouseButton::Left), 1, 1),
+            raw_mouse(MouseEventKind::Drag(MouseButton::Left), 4, 5),
+            raw_mouse(MouseEventKind::Drag(MouseButton::Right), 4, 5),
+        ];
+        coalesce_consecutive_mouse_motion(&mut events);
+        assert_eq!(events.len(), 2);
+        let RawInputEvent::Mouse(left) = &events[0] else {
+            panic!("expected left drag");
+        };
+        let RawInputEvent::Mouse(right) = &events[1] else {
+            panic!("expected right drag");
+        };
+        assert_eq!(left.kind, MouseEventKind::Drag(MouseButton::Left));
+        assert_eq!((left.column, left.row), (4, 5));
+        assert_eq!(right.kind, MouseEventKind::Drag(MouseButton::Right));
     }
 
     #[test]
