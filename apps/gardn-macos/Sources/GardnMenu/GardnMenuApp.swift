@@ -114,8 +114,9 @@ final class ExtraAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate 
         let window = NSWindow(contentViewController: controller)
         window.title = "Settings"
         window.styleMask = [.titled, .closable, .miniaturizable, .resizable]
-        window.setContentSize(NSSize(width: 560, height: 420))
-        window.minSize = NSSize(width: 560, height: 420)
+        window.toolbarStyle = .unified
+        window.setContentSize(NSSize(width: 520, height: 400))
+        window.minSize = NSSize(width: 520, height: 400)
         window.isReleasedWhenClosed = false
         window.delegate = self
         window.center()

@@ -1,23 +1,55 @@
+import AppKit
 import SwiftUI
 
 struct ExtraSettingsView: View {
+    enum Pane: String, CaseIterable, Identifiable {
+        case servers
+        case about
+
+        var id: String { rawValue }
+
+        var title: String {
+            switch self {
+            case .servers: "Servers"
+            case .about: "About"
+            }
+        }
+    }
+
     @ObservedObject var store: AgentStore
     @ObservedObject var catalog: CoordinatorCatalog
     var checkForUpdates: () -> Void
+    @State private var pane = Pane.servers
     @State private var remoteTarget = ""
+    @FocusState private var sshFieldFocused: Bool
 
     var body: some View {
-        TabView {
-            servers
-                .tabItem {
-                    Label("Servers", systemImage: "externaldrive.connected.to.line.below")
-                }
-            ExtraAboutView(checkForUpdates: checkForUpdates)
-                .tabItem {
-                    Label("About", systemImage: "info.circle")
-                }
+        Group {
+            switch pane {
+            case .servers:
+                servers
+            case .about:
+                ExtraAboutView(checkForUpdates: checkForUpdates)
+            }
         }
-        .frame(minWidth: 560, minHeight: 420)
+        .frame(minWidth: 520, minHeight: 400)
+        .toolbar {
+            ToolbarItem(placement: .principal) {
+                Picker("Pane", selection: $pane) {
+                    ForEach(Pane.allCases) { item in
+                        Text(item.title).tag(item)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .frame(width: 200)
+            }
+        }
+        .onAppear {
+            sshFieldFocused = false
+            DispatchQueue.main.async {
+                NSApp.keyWindow?.makeFirstResponder(nil)
+            }
+        }
     }
 
     private var servers: some View {
@@ -56,14 +88,12 @@ struct ExtraSettingsView: View {
                         }
                     }
                 }
-            } header: {
-                Text("Servers")
             } footer: {
                 Text("Gardn watches one of these servers.")
             }
             Section("Add Remote Server") {
                 TextField("SSH target", text: $remoteTarget)
-                    .textFieldStyle(.roundedBorder)
+                    .focused($sshFieldFocused)
                 if let addError = catalog.addError {
                     Text(addError)
                         .foregroundStyle(.red)
@@ -77,12 +107,10 @@ struct ExtraSettingsView: View {
                         }
                     }
                     .disabled(remoteTarget.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                    .keyboardShortcut(.defaultAction)
                 }
             }
         }
         .formStyle(.grouped)
-        .navigationTitle("Servers")
     }
 }
 
@@ -90,7 +118,8 @@ struct ExtraAboutView: View {
     var checkForUpdates: () -> Void
 
     var body: some View {
-        VStack(spacing: 18) {
+        VStack(spacing: 16) {
+            Spacer(minLength: 24)
             Image("Logo")
                 .resizable()
                 .interpolation(.high)
@@ -98,7 +127,7 @@ struct ExtraAboutView: View {
             Text("Gardn")
                 .font(.system(size: 22, weight: .semibold))
             Text("Version \(version)")
-                .font(.system(size: 12))
+                .font(.system(size: 13))
                 .foregroundStyle(.secondary)
             HStack(spacing: 16) {
                 Link("Website", destination: URL(string: "https://gardn.dev")!)
@@ -106,11 +135,12 @@ struct ExtraAboutView: View {
             }
             .font(.system(size: 13))
             Button("Check for Updates", action: checkForUpdates)
+            Spacer()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding(32)
-        .navigationTitle("About")
     }
+
     private var version: String {
         Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
             ?? ""

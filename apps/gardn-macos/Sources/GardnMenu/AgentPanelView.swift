@@ -51,7 +51,7 @@ struct AgentPanelView: View {
 
 
     private var header: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
+        HStack(alignment: .center, spacing: 8) {
             Text("Agents")
                 .font(.system(size: 12, weight: .semibold))
             Spacer(minLength: 8)
@@ -67,10 +67,6 @@ struct AgentPanelView: View {
                         }
                     }
                 }
-                Divider()
-                Button("Settings…") {
-                    store.openSettings()
-                }
             } label: {
                 Text(catalog.selected?.title ?? "Server")
                     .font(.system(size: 11, weight: .medium))
@@ -79,6 +75,15 @@ struct AgentPanelView: View {
             }
             .menuStyle(.borderlessButton)
             .fixedSize()
+            Button {
+                store.openSettings()
+            } label: {
+                Image(systemName: "gearshape")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+            .help("Settings")
         }
         .padding(.horizontal, 10)
         .padding(.top, 8)
