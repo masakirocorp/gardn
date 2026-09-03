@@ -108,6 +108,20 @@ fn ghostty_mouse_pixel_cell_size(terminal: &crate::ghostty::Terminal) -> Option<
     terminal.reported_cell_size_px()
 }
 
+pub(super) fn encode_ghostty_mouse(
+    terminal: &crate::ghostty::Terminal,
+    column: u16,
+    row: u16,
+    event: impl FnOnce(f32, f32) -> Option<crate::ghostty::MouseEvent>,
+) -> Option<Vec<u8>> {
+    let (x, y) = ghostty_mouse_surface_position(terminal, column, row);
+    let mut encoder = ghostty_mouse_encoder_for_terminal(terminal)?;
+    encoder
+        .encode(&event(x, y)?)
+        .ok()
+        .filter(|bytes| !bytes.is_empty())
+}
+
 pub(super) fn ghostty_mouse_event_from_button_kind(
     kind: crossterm::event::MouseEventKind,
     x: f32,

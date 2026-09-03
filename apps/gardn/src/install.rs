@@ -9,7 +9,7 @@ const MISE_UPDATE_COMMAND: &str = "mise upgrade gardn";
 const MACOS_APP_CLI_PATH: &str = "/Applications/Gardn.app/Contents/MacOS/gardn-cli";
 const MACOS_APP_BUNDLED_CLI: &str = "gardn-cli";
 const MISE_INSTALLS_DIR_ENV: &str = "MISE_INSTALLS_DIR";
-const MACOS_APP_UPDATE_ERROR: &str = "Gardn is already installed as an app. Use Check for Updates in Gardn, or uninstall the app first.";
+const MACOS_APP_UPDATE_ERROR: &str = "Gardn is already installed as an app. Use Check for Updates in Gardn, or install the latest DMG from GitHub.";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum UpdateInstallAction {
@@ -84,7 +84,7 @@ impl UpdateInstallAction {
 
 pub(crate) fn install_kind_for(
     current_exe: Option<&Path>,
-    macos_app_present: bool,
+    _macos_app_present: bool,
 ) -> UpdateInstallAction {
     let Some(current_exe) = current_exe else {
         return UpdateInstallAction::Direct;
@@ -98,16 +98,11 @@ pub(crate) fn install_kind_for(
     if is_nix_managed_exe_path_following_links(current_exe) {
         return UpdateInstallAction::Nix;
     }
-    if macos_app_present && is_stable_direct_cli(current_exe) {
-        return UpdateInstallAction::MacosApp;
-    }
+
     UpdateInstallAction::Direct
 }
 
-fn is_stable_direct_cli(path: &Path) -> bool {
-    path.file_name()
-        .is_some_and(|name| name == "gardn" || name == "gardn.exe")
-}
+
 
 fn is_macos_app_bundle_cli(path: &Path) -> bool {
     let path = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
@@ -306,10 +301,10 @@ mod tests {
     }
 
     #[test]
-    fn stable_direct_cli_defers_to_installed_app() {
+    fn stable_direct_cli_stays_direct_when_an_app_is_merely_present() {
         assert_eq!(
             install_kind_for(Some(Path::new("/Users/test/.local/bin/gardn")), true),
-            UpdateInstallAction::MacosApp
+            UpdateInstallAction::Direct
         );
         assert_eq!(
             UpdateInstallAction::MacosApp.self_update_error().as_deref(),

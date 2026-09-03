@@ -9,14 +9,10 @@ struct GardnMenuApp: App {
 
     var body: some Scene {
         Settings {
-            ExtraSettingsView(
-                store: delegate.store,
-                catalog: delegate.store.catalog,
-                checkForUpdates: ExtraAppDelegate.checkForUpdates
-            )
+            EmptyView()
         }
-        .defaultSize(width: 560, height: 420)
         .commands {
+            CommandGroup(replacing: .appSettings) {}
             CommandGroup(after: .appInfo) {
                 Button("Check for Updates…", action: ExtraAppDelegate.checkForUpdates)
             }
@@ -41,8 +37,13 @@ final class ExtraAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate 
     private var settingsWindow: NSWindow?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        Self.terminateOtherCopies()
-        PathCli.installBundledCLI()
+        if PathCli.shouldClaimPath(bundleURL: Bundle.main.bundleURL) {
+            Self.terminateOtherCopies()
+            PathCli.installBundledCLI()
+        } else if Self.otherCopiesRunning() {
+            NSApp.terminate(nil)
+            return
+        }
         NSApp.setActivationPolicy(.accessory)
         UNUserNotificationCenter.current().delegate = self
         AgentNotifications.requestAuthorization()
@@ -65,10 +66,18 @@ final class ExtraAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate 
 
     private static func terminateOtherCopies() {
         let id = Bundle.main.bundleIdentifier ?? "com.masakiro.gardn.menu"
-        let me = NSRunningApplication.current
-        for app in NSRunningApplication.runningApplications(withBundleIdentifier: id) where app != me {
+        let pid = ProcessInfo.processInfo.processIdentifier
+        for app in NSRunningApplication.runningApplications(withBundleIdentifier: id)
+        where app.processIdentifier != pid {
             app.forceTerminate()
         }
+    }
+
+    private static func otherCopiesRunning() -> Bool {
+        let id = Bundle.main.bundleIdentifier ?? "com.masakiro.gardn.menu"
+        let pid = ProcessInfo.processInfo.processIdentifier
+        return NSRunningApplication.runningApplications(withBundleIdentifier: id)
+            .contains { $0.processIdentifier != pid }
     }
 
 
@@ -115,14 +124,8 @@ final class ExtraAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate 
 
     func windowWillClose(_ notification: Notification) {
         guard (notification.object as AnyObject?) === settingsWindow else { return }
-        DispatchQueue.main.async { [weak self] in
-            guard let self else { return }
-            let titledVisible = NSApp.windows.contains {
-                $0.isVisible && $0.styleMask.contains(.titled) && $0 !== self.settingsWindow
-            }
-            if !titledVisible {
-                NSApp.setActivationPolicy(.accessory)
-            }
+        DispatchQueue.main.async {
+            NSApp.setActivationPolicy(.accessory)
         }
     }
 }
@@ -150,129 +153,6 @@ extension ExtraAppDelegate: UNUserNotificationCenterDelegate {
         }
     }
 }
-
-@MainActor
-private final class ExtraMenuPanel {
-    let panel: NSPanel
-    private let hosting: NSHostingController<AgentPanelView>
-    private weak var statusItem: NSStatusItem?
-    private var localMonitor: Any?
-    private var globalMonitor: Any?
-
-    var isShown: Bool { panel.isVisible }
-
-    init(store: AgentStore, catalog: CoordinatorCatalog) {
-        let hosting = NSHostingController(
-            rootView: AgentPanelView(store: store, catalog: catalog)
-        )
-        hosting.sizingOptions = .preferredContentSize
-        self.hosting = hosting
-        let panel = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 268, height: 80),
-            styleMask: [.borderless, .nonactivatingPanel],
-            backing: .buffered,
-            defer: false
-        )
-        panel.isFloatingPanel = true
-        panel.level = .popUpMenu
-        panel.isOpaque = false
-        panel.backgroundColor = .clear
-        panel.hasShadow = true
-        panel.hidesOnDeactivate = false
-        panel.becomesKeyOnlyIfNeeded = true
-        panel.isReleasedWhenClosed = false
-        panel.collectionBehavior = [.transient, .ignoresCycle, .fullScreenAuxiliary]
-        let glass = NSGlassEffectView()
-        glass.style = .regular
-        glass.cornerRadius = 12
-        glass.contentView = hosting.view
-        hosting.view.wantsLayer = true
-        hosting.view.layer?.backgroundColor = NSColor.clear.cgColor
-        panel.contentView = glass
-        self.panel = panel
-    }
-
-    func attach(statusItem: NSStatusItem) {
-        self.statusItem = statusItem
-    }
-
-    func show() {
-        guard let button = statusItem?.button else { return }
-        hosting.view.layoutSubtreeIfNeeded()
-        let size = hosting.view.fittingSize
-        if size.width > 0, size.height > 0 {
-            panel.setContentSize(size)
-        }
-        position(relativeTo: button)
-        panel.orderFrontRegardless()
-        installMonitors()
-    }
-
-    func hide() {
-        removeMonitors()
-        panel.orderOut(nil)
-    }
-
-    private func position(relativeTo button: NSStatusBarButton) {
-        guard let buttonWindow = button.window else { return }
-        let buttonScreen = buttonWindow.convertToScreen(button.convert(button.bounds, to: nil))
-        let size = panel.frame.size
-        var x = buttonScreen.minX
-        let y = buttonScreen.minY - size.height - 5
-        if let visible = (buttonWindow.screen ?? NSScreen.main)?.visibleFrame {
-            if x + size.width > visible.maxX - 8 {
-                x = max(visible.minX + 8, visible.maxX - size.width - 8)
-            }
-            if x < visible.minX + 8 {
-                x = visible.minX + 8
-            }
-        }
-        panel.setFrameOrigin(NSPoint(x: x, y: y))
-    }
-
-    private func installMonitors() {
-        removeMonitors()
-        localMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) {
-            [weak self] event in
-            guard let self else { return event }
-            if self.hitsPanel(event) || self.hitsStatusItem(event) {
-                return event
-            }
-            self.hide()
-            return event
-        }
-        globalMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) {
-            [weak self] _ in
-            DispatchQueue.main.async {
-                self?.hide()
-            }
-        }
-    }
-
-    private func removeMonitors() {
-        if let localMonitor {
-            NSEvent.removeMonitor(localMonitor)
-        }
-        if let globalMonitor {
-            NSEvent.removeMonitor(globalMonitor)
-        }
-        localMonitor = nil
-        globalMonitor = nil
-    }
-
-    private func hitsPanel(_ event: NSEvent) -> Bool {
-        event.window === panel
-    }
-
-    private func hitsStatusItem(_ event: NSEvent) -> Bool {
-        guard let button = statusItem?.button, let window = button.window else { return false }
-        guard event.window === window else { return false }
-        let location = button.convert(event.locationInWindow, from: nil)
-        return button.bounds.contains(location)
-    }
-}
-
-
 
 enum StatusItemImage {
     static func make(alert: Bool) -> NSImage {
