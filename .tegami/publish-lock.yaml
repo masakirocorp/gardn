@@ -1,16 +1,12 @@
 core:changelogs:
-  - content: "---\npackages:\n  gardn:\n    type: patch\n---\n\n# Open extra Settings and match menu extra chrome\n\nSettings… now shows a real window. The agent list is a left-aligned glass panel with no arrow.\n"
-    filename: extra-settings-window.md
-    v: 0.0.0
-  - content: "---\npackages:\n  gardn:\n    type: patch\n---\n\n# Forward SGR pixel mouse to pane apps\n\nPane apps that enable DEC 1016, including terminal-browser, now get wheel and pointer reports in pixel coordinates when Gardn knows host cell size.\n"
-    filename: sgr-pixel-mouse.md
+  - content: "---\npackages:\n  gardn:\n    type: patch\n---\n\n# Fix extra Settings ownership and CLI recovery\n\nThe extra keeps one Settings window, only the installed app kills other copies, and a PATH `gardn` binary is no longer treated as app-owned just because Gardn.app exists.\n"
+    filename: extra-ownership-and-settings.md
     v: 0.0.0
 core:packages:
   - id: npm:@gardn/website
     updated: false
   - changelogIds:
-      - extra-settings-window.md
-      - sgr-pixel-mouse.md
+      - extra-ownership-and-settings.md
     id: cargo:gardn
     updated: true
   - id: cargo:gardn-local-api
