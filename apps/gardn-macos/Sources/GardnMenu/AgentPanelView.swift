@@ -310,10 +310,13 @@ private struct AgentRow: View {
 private struct PopoverChrome: NSViewRepresentable {
     func makeNSView(context: Context) -> NSVisualEffectView {
         let view = NSVisualEffectView()
-        view.material = .hudWindow
+        view.material = .popover
         view.blendingMode = .behindWindow
         view.state = .active
-        view.isEmphasized = true
+        view.wantsLayer = true
+        view.layer?.cornerRadius = 10
+        view.layer?.cornerCurve = .continuous
+        view.layer?.masksToBounds = true
         return view
     }
 
@@ -322,8 +325,5 @@ private struct PopoverChrome: NSViewRepresentable {
         window.isOpaque = false
         window.backgroundColor = .clear
         window.hasShadow = true
-        window.titlebarAppearsTransparent = true
-        window.titleVisibility = .hidden
-        window.styleMask.insert(.fullSizeContentView)
     }
 }
