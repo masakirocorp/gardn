@@ -442,10 +442,14 @@ fn write_terminal_restore_postlude(writer: &mut impl io::Write) -> io::Result<()
     writer.flush()
 }
 
-fn set_mouse_capture(enabled: bool) -> io::Result<()> {
+fn set_mouse_capture(enabled: bool, sgr_pixels: bool) -> io::Result<()> {
     crate::terminal_modes::clear_host_mouse_reporting(&mut io::stdout())?;
     if enabled {
-        execute!(io::stdout(), EnableMouseCapture)
+        execute!(io::stdout(), EnableMouseCapture)?;
+        if sgr_pixels {
+            crate::terminal_modes::set_host_sgr_pixels(&mut io::stdout(), true)?;
+        }
+        Ok(())
     } else {
         execute!(io::stdout(), DisableMouseCapture)
     }
@@ -1272,13 +1276,17 @@ async fn run_client_loop(ctx: ClientLoopContext) -> Result<(), ClientError> {
                 }
                 ServerMessage::MouseCapture {
                     enabled,
-                    sgr_pixels: _,
+                    sgr_pixels,
                 } => {
                     let desired = enabled;
                     if desired != state.mouse_capture_active {
-                        set_mouse_capture(desired).map_err(ClientError::ConnectionFailed)?;
+                        set_mouse_capture(desired, sgr_pixels)
+                            .map_err(ClientError::ConnectionFailed)?;
                         state.mouse_capture_active = desired;
                         host_mouse_capture_active.store(desired, Ordering::Release);
+                    } else if desired {
+                        crate::terminal_modes::set_host_sgr_pixels(&mut io::stdout(), sgr_pixels)
+                            .map_err(ClientError::ConnectionFailed)?;
                     }
                 }
                 ServerMessage::TerminalBell { count } => {

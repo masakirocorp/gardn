@@ -3,6 +3,6 @@ packages:
   gardn: patch
 ---
 
-# Coalesce pane mouse motion
+# Coalesce pane pointer events
 
-Keep the latest pane mouse-move in each input batch, then write at most one move per 16ms frame. Clicks and wheel still flush the pending move first so pixel-mouse apps such as terminal-browser are not flooded with Kitty frames.
+Enable host DEC 1016 when the focused pane requests SGR pixels, then convert those reports back to pane coordinates. Keep the latest pane move or drag in each 16ms frame. Accumulate wheel ticks in that same interval and write every tick on flush so trackpad scrolling is not dropped.

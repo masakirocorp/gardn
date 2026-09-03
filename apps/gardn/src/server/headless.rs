@@ -2893,6 +2893,7 @@ impl HeadlessServer {
                 };
                 let theme_changed = self.update_client_host_theme_from_events(client_id, &events);
                 let apply_host_terminal_theme = self.foreground_client_id == Some(client_id);
+                self.apply_client_pointer_context(client_id);
                 if self
                     .clients
                     .get(&client_id)
@@ -3037,6 +3038,7 @@ impl HeadlessServer {
                 };
                 let theme_changed = self.update_client_host_theme_from_events(client_id, &events);
                 let apply_host_terminal_theme = self.foreground_client_id == Some(client_id);
+                self.apply_client_pointer_context(client_id);
                 if self
                     .clients
                     .get(&client_id)
@@ -3768,39 +3770,65 @@ impl HeadlessServer {
         }
         changed
     }
+    fn apply_client_pointer_context(&mut self, client_id: u64) {
+        let Some(client) = self.clients.get(&client_id) else {
+            return;
+        };
+        self.app.state.host_sgr_pixels = client.host_sgr_pixels_active == Some(true);
+        self.app.state.host_cell_size = client.cell_size;
+    }
 
     fn stream_host_mouse_capture_mode(&mut self) {
-        let view = self
+        let default_view = self
             .app
             .default_client_view
             .clone_reconciled(&self.app.state);
-        let enabled = self
-            .app
-            .state
-            .should_capture_host_mouse_from_view(&self.app.terminal_runtimes, &view);
-        let serialized = match Self::frame_server_message(&ServerMessage::MouseCapture {
-            enabled,
-            sgr_pixels: false,
-        }) {
-            Ok(framed) => framed,
-            Err(err) => {
-                warn!(err = %err, "failed to serialize mouse capture mode for clients");
-                return;
-            }
-        };
-
-        let mut broken_clients: Vec<u64> = Vec::new();
-        for (&client_id, client) in &mut self.clients {
+        let mut updates: Vec<(u64, bool, bool)> = Vec::new();
+        for (&client_id, client) in &self.clients {
             if !client.is_full_app_client() {
                 continue;
             }
-            if client.host_mouse_capture_active == Some(enabled) {
+            let view = client
+                .view_state
+                .as_ref()
+                .map(|view| view.clone_reconciled(&self.app.state))
+                .unwrap_or_else(|| default_view.clone());
+            let enabled = self
+                .app
+                .state
+                .should_capture_host_mouse_from_view(&self.app.terminal_runtimes, &view);
+            let sgr_pixels = enabled
+                && self
+                    .app
+                    .state
+                    .focused_pane_requests_sgr_pixels_from_view(&self.app.terminal_runtimes, &view);
+            if client.host_mouse_capture_active == Some(enabled)
+                && client.host_sgr_pixels_active == Some(sgr_pixels)
+            {
                 continue;
             }
+            updates.push((client_id, enabled, sgr_pixels));
+        }
+
+        let mut broken_clients: Vec<u64> = Vec::new();
+        for (client_id, enabled, sgr_pixels) in updates {
+            let serialized = match Self::frame_server_message(&ServerMessage::MouseCapture {
+                enabled,
+                sgr_pixels,
+            }) {
+                Ok(framed) => framed,
+                Err(err) => {
+                    warn!(err = %err, "failed to serialize mouse capture mode for clients");
+                    continue;
+                }
+            };
+            let Some(client) = self.clients.get_mut(&client_id) else {
+                continue;
+            };
             let Some(writer) = &client.writer else {
                 continue;
             };
-            if writer.control.send(serialized.clone()).is_err() {
+            if writer.control.send(serialized).is_err() {
                 debug!(
                     client_id,
                     "client writer channel closed during mouse capture update"
@@ -3809,6 +3837,7 @@ impl HeadlessServer {
                 continue;
             }
             client.host_mouse_capture_active = Some(enabled);
+            client.host_sgr_pixels_active = Some(sgr_pixels);
         }
 
         for client_id in broken_clients {

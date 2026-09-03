@@ -55,6 +55,8 @@ pub(crate) struct ClientConnection {
     pub(crate) render_pending: bool,
     /// Last host mouse capture mode sent to this client.
     pub(crate) host_mouse_capture_active: Option<bool>,
+    /// Last host DEC 1016 SGR-pixels mode sent to this client.
+    pub(crate) host_sgr_pixels_active: Option<bool>,
     /// Temporary files staged on their target terminal's execution host.
     pub(crate) staged_clipboard_files: Vec<StagedClipboardFile>,
     /// Channels for sending framed ServerMessage data to the client writer thread.
@@ -120,6 +122,7 @@ impl ClientConnection {
             graphics_surface_reset_pending: false,
             render_pending: false,
             host_mouse_capture_active: None,
+            host_sgr_pixels_active: None,
             staged_clipboard_files: Vec::new(),
             writer,
         }

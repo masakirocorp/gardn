@@ -15,6 +15,21 @@ pub(crate) fn clear_host_mouse_reporting<W: Write>(_writer: &mut W) -> io::Resul
 }
 
 #[cfg(not(windows))]
+pub(crate) fn set_host_sgr_pixels<W: Write>(writer: &mut W, enabled: bool) -> io::Result<()> {
+    writer.write_all(if enabled {
+        b"\x1b[?1016h"
+    } else {
+        b"\x1b[?1016l"
+    })?;
+    writer.flush()
+}
+
+#[cfg(windows)]
+pub(crate) fn set_host_sgr_pixels<W: Write>(_writer: &mut W, _enabled: bool) -> io::Result<()> {
+    Ok(())
+}
+
+#[cfg(not(windows))]
 pub(crate) fn set_host_kitty_keyboard_report_all<W: Write>(
     writer: &mut W,
     report_all_keys: bool,
@@ -61,5 +76,17 @@ mod tests {
                 "missing mouse mode {mode}"
             );
         }
+    }
+
+    #[test]
+    fn enables_host_sgr_pixels_mode() {
+        let mut output = Vec::new();
+        set_host_sgr_pixels(&mut output, true).unwrap();
+        set_host_sgr_pixels(&mut output, false).unwrap();
+
+        #[cfg(not(windows))]
+        assert_eq!(output, b"\x1b[?1016h\x1b[?1016l");
+        #[cfg(windows)]
+        assert!(output.is_empty());
     }
 }

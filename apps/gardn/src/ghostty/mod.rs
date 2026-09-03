@@ -1399,7 +1399,9 @@ impl Terminal {
                 placements.push(placement);
             }
         }
-        placements.extend(self.kitty_virtual_image_placements(graphics, &mut needs_data)?);
+        if placements.is_empty() {
+            placements.extend(self.kitty_virtual_image_placements(graphics, &mut needs_data)?);
+        }
         placements.sort_by_key(|placement| placement.z);
         self.prune_kitty_fingerprints(&placements);
         Ok(placements)
@@ -1535,11 +1537,22 @@ impl Terminal {
         if specs.is_empty() {
             return Ok(Vec::new());
         }
-
         let cols = self.cols()?.max(1) as u32;
         let rows = self.rows()?.max(1) as u32;
         let cell_width = (self.width_px()? / cols).max(1);
         let cell_height = (self.height_px()? / rows).max(1);
+        if let Some(placement) = self.virtual_full_grid_placement(
+            graphics,
+            &specs,
+            cols,
+            rows,
+            cell_width,
+            cell_height,
+            needs_data,
+        )? {
+            return Ok(vec![placement]);
+        }
+
         let mut render_state = RenderState::new()?;
         render_state.update(self)?;
         let mut row_iterator = RowIterator::new()?;
@@ -1664,6 +1677,138 @@ impl Terminal {
         }
 
         Ok(placements)
+    }
+
+    fn virtual_full_grid_placement<F>(
+        &self,
+        graphics: ffi::GhosttyKittyGraphics,
+        specs: &[KittyVirtualPlacementSpec],
+        cols: u32,
+        rows: u32,
+        cell_width: u32,
+        cell_height: u32,
+        needs_data: &mut F,
+    ) -> Result<Option<KittyImagePlacement>, Error>
+    where
+        F: FnMut(KittyImageDescriptor) -> bool,
+    {
+        let Some(spec) = virtual_full_grid_spec(specs, cols, rows) else {
+            return Ok(None);
+        };
+        let Some((origin_x, origin_y)) = self.first_virtual_placeholder_cell()? else {
+            return Ok(None);
+        };
+        let image = unsafe { ffi::ghostty_kitty_graphics_image(graphics, spec.image_id) };
+        if image.is_null() {
+            return Ok(None);
+        }
+        let image_width = kitty_image_u32(
+            image,
+            ffi::GhosttyKittyGraphicsImageData_GHOSTTY_KITTY_IMAGE_DATA_WIDTH,
+        )?;
+        let image_height = kitty_image_u32(
+            image,
+            ffi::GhosttyKittyGraphicsImageData_GHOSTTY_KITTY_IMAGE_DATA_HEIGHT,
+        )?;
+        let format = kitty_image_format(image)?;
+        let compression = kitty_image_compression(image)?;
+        if compression != ffi::GhosttyKittyImageCompression_GHOSTTY_KITTY_IMAGE_COMPRESSION_NONE {
+            return Ok(None);
+        }
+        let (data_ptr, data_len) = kitty_image_data_ptr_len(image)?;
+        let data_fingerprint = self.kitty_image_fingerprint_cached(
+            image,
+            spec.image_id,
+            (data_ptr, data_len),
+            image_width,
+            image_height,
+            format,
+        );
+        let placement_id = if spec.placement_id == 0 {
+            1
+        } else {
+            spec.placement_id
+        };
+        let descriptor = KittyImageDescriptor {
+            image_id: spec.image_id,
+            placement_id,
+            image_width,
+            image_height,
+            format,
+            data_len,
+            data_fingerprint,
+        };
+        let data = if needs_data(descriptor) {
+            kitty_image_data_from_ptr(data_ptr, data_len)
+        } else {
+            Vec::new()
+        };
+        let grid_cols = spec
+            .columns
+            .min(cols.saturating_sub(u32::from(origin_x)))
+            .max(1);
+        let grid_rows = spec
+            .rows
+            .min(rows.saturating_sub(u32::from(origin_y)))
+            .max(1);
+        Ok(Some(KittyImagePlacement {
+            image_id: spec.image_id,
+            placement_id,
+            z: spec.z,
+            x_offset: 0,
+            y_offset: 0,
+            image_width,
+            image_height,
+            format,
+            data_len,
+            data_fingerprint,
+            data,
+            render: KittyPlacementRenderInfo {
+                pixel_width: grid_cols.saturating_mul(cell_width).max(1),
+                pixel_height: grid_rows.saturating_mul(cell_height).max(1),
+                grid_cols,
+                grid_rows,
+                viewport_col: i32::from(origin_x),
+                viewport_row: i32::from(origin_y),
+                source_x: 0,
+                source_y: 0,
+                source_width: image_width,
+                source_height: image_height,
+            },
+        }))
+    }
+
+    fn first_virtual_placeholder_cell(&self) -> Result<Option<(u16, u16)>, Error> {
+        let mut render_state = RenderState::new()?;
+        render_state.update(self)?;
+        let mut row_iterator = RowIterator::new()?;
+        let mut row_cells = RowCells::new()?;
+        let mut row_iter = render_state.populate_row_iterator(&mut row_iterator)?;
+        let mut graphemes = Vec::new();
+        let mut grapheme_bytes = Vec::new();
+        let mut grapheme_text = String::new();
+        let mut y = 0u16;
+        while row_iter.next() {
+            let mut cells = row_iter.populate_cells(&mut row_cells)?;
+            let mut x = 0u16;
+            while cells.next() {
+                if kitty_virtual_cell(
+                    x,
+                    y,
+                    &cells,
+                    &mut grapheme_bytes,
+                    &mut grapheme_text,
+                    &mut graphemes,
+                )?
+                .is_some()
+                {
+                    return Ok(Some((x, y)));
+                }
+                x = x.saturating_add(1);
+            }
+            y = y.saturating_add(1);
+        }
+        Ok(None)
     }
 
     fn kitty_image_fingerprint_cached(
@@ -1901,6 +2046,24 @@ fn kitty_virtual_placement_specs(
         });
     }
     Ok(specs)
+}
+
+fn virtual_full_grid_spec(
+    specs: &[KittyVirtualPlacementSpec],
+    cols: u32,
+    rows: u32,
+) -> Option<KittyVirtualPlacementSpec> {
+    let [spec] = specs else {
+        return None;
+    };
+    let mut spec = *spec;
+    if spec.columns == 0 || spec.columns > cols {
+        spec.columns = cols;
+    }
+    if spec.rows == 0 || spec.rows > rows {
+        spec.rows = rows;
+    }
+    Some(spec)
 }
 
 fn find_virtual_placement_spec(
@@ -3460,5 +3623,19 @@ mod tests {
 
         render_state.set_dirty(Dirty::Clean).unwrap();
         assert_eq!(render_state.dirty().unwrap(), Dirty::Clean);
+    }
+
+    #[test]
+    fn virtual_full_grid_spec_matches_a_single_covering_placement() {
+        let spec = KittyVirtualPlacementSpec {
+            image_id: 3,
+            placement_id: 1,
+            columns: 80,
+            rows: 24,
+            z: 0,
+        };
+        assert_eq!(virtual_full_grid_spec(&[spec], 80, 24), Some(spec));
+        assert_eq!(virtual_full_grid_spec(&[spec], 193, 63), Some(spec));
+        assert_eq!(virtual_full_grid_spec(&[spec, spec], 80, 24), None);
     }
 }

@@ -30,6 +30,20 @@ pub(crate) struct PendingPaneMouseMotion {
     pub pane_id: PaneId,
     pub inner_rect: Rect,
     pub mouse: MouseEvent,
+    pub host_pixels: Option<(u32, u32)>,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct PendingPaneWheel {
+    pub ws_idx: usize,
+    pub pane_id: PaneId,
+    pub inner_rect: Rect,
+    pub mouse: MouseEvent,
+    pub host_pixels: Option<(u32, u32)>,
+    pub up: u32,
+    pub down: u32,
+    pub left: u32,
+    pub right: u32,
 }
 
 // ---------------------------------------------------------------------------
@@ -3432,8 +3446,16 @@ pub struct AppState {
     pub mouse_capture: bool,
     /// Latest pane mouse-move waiting for the next motion flush.
     pub(crate) pending_pane_mouse_motion: Option<PendingPaneMouseMotion>,
-    /// When pane mouse-move was last written to a PTY.
+    /// When pane pointer events were last written to a PTY.
     pub(crate) last_pane_mouse_motion_flush: Option<Instant>,
+    /// Host is currently in DEC 1016 SGR-pixels mouse reporting.
+    pub(crate) host_sgr_pixels: bool,
+    /// Last known host cell size for converting 1016 pixels to cells.
+    pub(crate) host_cell_size: crate::kitty_graphics::HostCellSize,
+    /// Host-pixel position for the current/queued pointer event.
+    pub(crate) pointer_host_pixels: Option<(u32, u32)>,
+    /// Accumulated pane wheel ticks waiting for the next motion flush.
+    pub(crate) pending_pane_wheel: Option<PendingPaneWheel>,
     /// Automatically copy mouse drag selections on completion. When false, retain drag or double-click word selection until Ctrl+C or a host-forwarded Cmd+C. Default: true.
     pub copy_on_select: bool,
     pub right_click_passthrough_modifiers: Option<KeyModifiers>,
@@ -4247,6 +4269,34 @@ impl AppState {
             .is_some_and(crate::pane::InputState::mouse_reporting_enabled)
     }
 
+    pub(crate) fn focused_pane_requests_sgr_pixels_from_view(
+        &self,
+        terminal_runtimes: &crate::terminal::TerminalRuntimeRegistry,
+        view: &crate::app::ClientViewState,
+    ) -> bool {
+        if view.mode != Mode::Terminal {
+            return false;
+        }
+        let Some(ws_idx) = view.active_workspace else {
+            return false;
+        };
+        let Some(workspace) = self.workspaces.get(ws_idx) else {
+            return false;
+        };
+        let Some(tab_idx) = view.active_tab_for_workspace(&workspace.id) else {
+            return false;
+        };
+        let Some(tab) = workspace.tabs.get(tab_idx) else {
+            return false;
+        };
+        let pane_id = view
+            .focused_pane_for_tab(&workspace.id, tab_idx + 1)
+            .unwrap_or_else(|| tab.layout.focused());
+        self.runtime_for_pane_in_workspace(terminal_runtimes, ws_idx, pane_id)
+            .and_then(crate::terminal::TerminalRuntime::input_state)
+            .is_some_and(crate::pane::InputState::sgr_pixels_enabled)
+    }
+
     pub(crate) fn should_capture_host_mouse_from_view(
         &self,
         terminal_runtimes: &crate::terminal::TerminalRuntimeRegistry,
@@ -4534,6 +4584,10 @@ impl AppState {
             mouse_capture: true,
             pending_pane_mouse_motion: None,
             last_pane_mouse_motion_flush: None,
+            host_sgr_pixels: false,
+            host_cell_size: crate::kitty_graphics::HostCellSize::default(),
+            pointer_host_pixels: None,
+            pending_pane_wheel: None,
             copy_on_select: true,
             right_click_passthrough_modifiers: None,
             right_click_passthrough: None,

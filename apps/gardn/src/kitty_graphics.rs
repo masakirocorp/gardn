@@ -1,10 +1,13 @@
 use std::collections::hash_map::DefaultHasher;
 use std::collections::{HashMap, HashSet};
 use std::fmt::Write as FmtWrite;
+use std::fs::OpenOptions;
 use std::hash::{Hash, Hasher};
 use std::io::{self, Write};
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, OnceLock};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use base64::Engine;
 use ratatui::layout::Rect;
@@ -17,6 +20,21 @@ use crate::terminal::TerminalRuntimeRegistry;
 
 const KITTY_CHUNK_BYTES: usize = 3072;
 const HOST_IMAGE_ID_BASE: u32 = 10_000;
+const DIRECT_UPLOAD_MAX_BYTES: usize = 8 * 1024;
+const TRANSMIT_FILE_TTL: Duration = Duration::from_secs(2);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ImageTransmit {
+    Direct,
+    TempFile,
+}
+
+struct PendingTransmitFile {
+    path: PathBuf,
+    written_at: Instant,
+}
+
+static PENDING_TRANSMIT_FILES: Mutex<Vec<PendingTransmitFile>> = Mutex::new(Vec::new());
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(crate) struct HostCellSize {
@@ -191,13 +209,14 @@ pub(crate) fn encode_local_pane_graphics(
     }
 
     let view_key = active_view_key(app);
-    let uploaded_images = cache.images.clone();
+    let blit_pane = focused_graphics_blit_pane(app);
     let placements = collect_visible_placements(
         app,
         graphics,
         terminal_runtimes,
         cell_size,
-        &uploaded_images,
+        &cache.images,
+        blit_pane,
     );
     tracing::debug!(
         placements_collected = placements.len(),
@@ -206,13 +225,14 @@ pub(crate) fn encode_local_pane_graphics(
 
     let mut bytes = Vec::new();
     let view_changed = cache.update_view(view_key);
-    encode_graphics_update(
+    encode_graphics_update_with(
         &mut bytes,
         &placements,
         view_changed,
         &mut cache.images,
         &mut cache.placements,
         &mut cache.sources,
+        ImageTransmit::TempFile,
     );
     tracing::debug!(
         placements = placements.len(),
@@ -248,25 +268,27 @@ pub(crate) fn encode_local_pane_graphics_for_view(
     }
 
     let view_key = active_view_key_for_view(app, view);
-    let uploaded_images = cache.images.clone();
+    let blit_pane = focused_graphics_blit_pane_for_view(app, view);
     let placements = collect_visible_placements_for_view(
         app,
         view,
         graphics,
         terminal_runtimes,
         cell_size,
-        &uploaded_images,
+        &cache.images,
+        blit_pane,
     );
 
     let mut bytes = Vec::new();
     let view_changed = cache.update_view(view_key);
-    encode_graphics_update(
+    encode_graphics_update_with(
         &mut bytes,
         &placements,
         view_changed,
         &mut cache.images,
         &mut cache.placements,
         &mut cache.sources,
+        ImageTransmit::TempFile,
     );
     bytes
 }
@@ -278,6 +300,26 @@ fn encode_graphics_update(
     host_images: &mut HashMap<u32, ImageSignature>,
     host_placements: &mut HashMap<(u32, u32), PlacementSignature>,
     sources: &mut HashMap<(PaneId, u32), u32>,
+) {
+    encode_graphics_update_with(
+        bytes,
+        placements,
+        view_changed,
+        host_images,
+        host_placements,
+        sources,
+        ImageTransmit::Direct,
+    );
+}
+
+fn encode_graphics_update_with(
+    bytes: &mut Vec<u8>,
+    placements: &[HostPlacement],
+    view_changed: bool,
+    host_images: &mut HashMap<u32, ImageSignature>,
+    host_placements: &mut HashMap<(u32, u32), PlacementSignature>,
+    sources: &mut HashMap<(PaneId, u32), u32>,
+    transmit: ImageTransmit,
 ) {
     let current_sources: HashSet<(PaneId, u32)> = placements
         .iter()
@@ -322,13 +364,13 @@ fn encode_graphics_update(
                         true
                     }
                 });
-                if !encode_upload_image(bytes, placement, format_code, host_id) {
+                if !encode_upload_image(bytes, placement, format_code, host_id, transmit) {
                     continue;
                 }
                 host_images.insert(host_id, image_signature);
             }
             None => {
-                if !encode_upload_image(bytes, placement, format_code, host_id) {
+                if !encode_upload_image(bytes, placement, format_code, host_id, transmit) {
                     continue;
                 }
                 host_images.insert(host_id, image_signature);
@@ -471,6 +513,35 @@ fn active_view_key_for_view(app: &AppState, view: &ClientViewState) -> Option<Ho
     })
 }
 
+fn focused_graphics_blit_pane(app: &AppState) -> Option<PaneId> {
+    if app.mode != Mode::Terminal {
+        return None;
+    }
+    let workspace = app.workspaces.get(app.active?)?;
+    let tab = workspace.active_tab()?;
+    if tab.layout.pane_ids().len() != 1 && !tab.zoomed {
+        return None;
+    }
+    Some(tab.layout.focused())
+}
+
+fn focused_graphics_blit_pane_for_view(app: &AppState, view: &ClientViewState) -> Option<PaneId> {
+    if view.mode != Mode::Terminal {
+        return None;
+    }
+    let ws_idx = view.active_workspace?;
+    let workspace = app.workspaces.get(ws_idx)?;
+    let tab_idx = view.active_tab_for_workspace(&workspace.id)?;
+    let tab = workspace.tabs.get(tab_idx)?;
+    if tab.layout.pane_ids().len() != 1 && !tab.zoomed {
+        return None;
+    }
+    Some(
+        view.focused_pane_for_tab(&workspace.id, tab.number)
+            .unwrap_or_else(|| tab.layout.focused()),
+    )
+}
+
 fn project_host_placement(
     pane_id: PaneId,
     canonical_area: Rect,
@@ -527,6 +598,7 @@ fn collect_visible_placements_for_view(
     terminal_runtimes: &TerminalRuntimeRegistry,
     cell_size: HostCellSize,
     uploaded_images: &HashMap<u32, ImageSignature>,
+    blit_pane: Option<PaneId>,
 ) -> Vec<HostPlacement> {
     let Some(ws_idx) = view.active_workspace else {
         return Vec::new();
@@ -540,17 +612,18 @@ fn collect_visible_placements_for_view(
         return Vec::new();
     };
     for info in &view.computed.pane_infos {
+        if blit_pane.is_some_and(|pane_id| pane_id != info.id) {
+            continue;
+        }
         let Some(terminal_id) = workspace.terminal_id(info.id) else {
             continue;
         };
         let Some(runtime) = terminal_runtimes.get(terminal_id) else {
             continue;
         };
+        let mut copied_images = HashSet::new();
         for placement in runtime.kitty_image_placements_with_data_filter(|descriptor| {
-            let format_code = kitty_format_code(descriptor.format);
-            let signature = image_signature_from_descriptor(descriptor, format_code);
-            let host_id = host_image_id_for_signature(info.id, signature);
-            uploaded_images.get(&host_id).copied() != Some(signature)
+            needs_host_image_data(info.id, descriptor, uploaded_images, &mut copied_images)
         }) {
             let scrollback_offset = view
                 .terminal_offsets_from_bottom
@@ -597,6 +670,7 @@ fn collect_visible_placements(
     terminal_runtimes: &TerminalRuntimeRegistry,
     cell_size: HostCellSize,
     uploaded_images: &HashMap<u32, ImageSignature>,
+    blit_pane: Option<PaneId>,
 ) -> Vec<HostPlacement> {
     let ws_idx = match app.active {
         Some(idx) => idx,
@@ -623,6 +697,9 @@ fn collect_visible_placements(
     );
     let mut placements = Vec::new();
     for info in &app.view.pane_infos {
+        if blit_pane.is_some_and(|pane_id| pane_id != info.id) {
+            continue;
+        }
         let runtime = match app.runtime_for_pane_in_workspace(terminal_runtimes, ws_idx, info.id) {
             Some(rt) => rt,
             None => {
@@ -630,11 +707,9 @@ fn collect_visible_placements(
                 continue;
             }
         };
+        let mut copied_images = HashSet::new();
         for placement in runtime.kitty_image_placements_with_data_filter(|descriptor| {
-            let format_code = kitty_format_code(descriptor.format);
-            let signature = image_signature_from_descriptor(descriptor, format_code);
-            let host_id = host_image_id_for_signature(info.id, signature);
-            uploaded_images.get(&host_id).copied() != Some(signature)
+            needs_host_image_data(info.id, descriptor, uploaded_images, &mut copied_images)
         }) {
             let scrollback_offset = runtime
                 .scroll_metrics()
@@ -847,9 +922,35 @@ fn encode_upload_image(
     placement: &HostPlacement,
     format_code: u32,
     host_id: u32,
+    transmit: ImageTransmit,
 ) -> bool {
     if placement.placement.data.is_empty() {
         return false;
+    }
+
+    if transmit == ImageTransmit::TempFile
+        && placement.placement.data.len() > DIRECT_UPLOAD_MAX_BYTES
+    {
+        match write_temp_image(&placement.placement.data) {
+            Ok(path) => {
+                if let Some(path_str) = path.to_str() {
+                    let control = format!(
+                        "a=t,t=t,f={format_code},s={},v={},i={host_id},q=2",
+                        placement.placement.image_width, placement.placement.image_height,
+                    );
+                    encode_kitty_data(out, &control, path_str.as_bytes());
+                    return true;
+                }
+            }
+            Err(err) => {
+                tracing::warn!(
+                    err = %err,
+                    host_id,
+                    bytes = placement.placement.data.len(),
+                    "falling back to direct Kitty upload after temp file write failed"
+                );
+            }
+        }
     }
 
     let control = format!(
@@ -858,6 +959,47 @@ fn encode_upload_image(
     );
     encode_kitty_data(out, &control, &placement.placement.data);
     true
+}
+
+fn write_temp_image(data: &[u8]) -> io::Result<PathBuf> {
+    sweep_stale_transmit_files();
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_nanos())
+        .unwrap_or(0);
+    let path = std::env::temp_dir().join(format!(
+        "tty-graphics-protocol-gardn-{}-{nanos}.img",
+        std::process::id()
+    ));
+    let mut options = OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    options.open(&path)?.write_all(data)?;
+    if let Ok(mut pending) = PENDING_TRANSMIT_FILES.lock() {
+        pending.push(PendingTransmitFile {
+            path: path.clone(),
+            written_at: Instant::now(),
+        });
+    }
+    Ok(path)
+}
+
+fn sweep_stale_transmit_files() {
+    let Ok(mut pending) = PENDING_TRANSMIT_FILES.lock() else {
+        return;
+    };
+    let now = Instant::now();
+    pending.retain(|file| {
+        if now.saturating_duration_since(file.written_at) < TRANSMIT_FILE_TTL {
+            return true;
+        }
+        let _ = std::fs::remove_file(&file.path);
+        false
+    });
 }
 
 fn encode_display_placement(
@@ -1066,6 +1208,21 @@ fn image_signature_from_descriptor(
         data_len: descriptor.data_len,
         data_fingerprint: descriptor.data_fingerprint,
     }
+}
+
+fn needs_host_image_data(
+    pane_id: PaneId,
+    descriptor: KittyImageDescriptor,
+    uploaded_images: &HashMap<u32, ImageSignature>,
+    copied_images: &mut HashSet<u32>,
+) -> bool {
+    let format_code = kitty_format_code(descriptor.format);
+    let signature = image_signature_from_descriptor(descriptor, format_code);
+    let host_id = host_image_id_for_signature(pane_id, signature);
+    if uploaded_images.get(&host_id).copied() == Some(signature) {
+        return false;
+    }
+    copied_images.insert(descriptor.image_id)
 }
 
 fn placement_signature(
@@ -1630,5 +1787,129 @@ mod tests {
         assert!(output.contains("a=d,d=I"));
         assert_eq!(images.len(), 1);
         assert_eq!(sources.len(), 1);
+    }
+
+    #[test]
+    fn focused_blit_uses_the_only_pane_on_a_terminal_tab() {
+        let mut app = crate::app::state::AppState::test_new();
+        app.mode = Mode::Terminal;
+        app.workspaces = vec![crate::workspace::Workspace::test_new("tb")];
+        app.active = Some(0);
+        let pane_id = app.workspaces[0].tabs[0].root_pane;
+
+        assert_eq!(focused_graphics_blit_pane(&app), Some(pane_id));
+    }
+
+    #[test]
+    fn focused_blit_skips_split_tabs_until_zoomed() {
+        let mut app = crate::app::state::AppState::test_new();
+        app.mode = Mode::Terminal;
+        let mut workspace = crate::workspace::Workspace::test_new("tb");
+        workspace.test_split(ratatui::layout::Direction::Vertical);
+        app.workspaces = vec![workspace];
+        app.active = Some(0);
+
+        assert_eq!(focused_graphics_blit_pane(&app), None);
+
+        app.workspaces[0].tabs[0].zoomed = true;
+        let focused = app.workspaces[0].tabs[0].layout.focused();
+        assert_eq!(focused_graphics_blit_pane(&app), Some(focused));
+    }
+
+    fn large_placement() -> HostPlacement {
+        let mut placement = test_placement(0, 0);
+        placement.placement.data = vec![7; DIRECT_UPLOAD_MAX_BYTES + 1];
+        placement.placement.data_len = placement.placement.data.len();
+        placement
+    }
+
+    #[test]
+    fn large_local_upload_uses_a_temp_file_instead_of_pixel_bytes() {
+        let mut images = HashMap::new();
+        let mut placements = HashMap::new();
+        let mut sources = HashMap::new();
+        let mut bytes = Vec::new();
+        let placement = large_placement();
+
+        encode_graphics_update_with(
+            &mut bytes,
+            &[placement],
+            false,
+            &mut images,
+            &mut placements,
+            &mut sources,
+            ImageTransmit::TempFile,
+        );
+
+        let output = String::from_utf8_lossy(&bytes);
+        assert!(output.contains("t=t"));
+        assert!(!output.contains("t=d"));
+        let payload = output
+            .split(';')
+            .nth(1)
+            .and_then(|value| value.split('\u{1b}').next())
+            .expect("temp-file upload should carry a path payload");
+        let path = String::from_utf8(
+            base64::engine::general_purpose::STANDARD
+                .decode(payload)
+                .expect("temp-file path should be base64"),
+        )
+        .expect("temp-file path should be utf8");
+        assert!(
+            path.contains("tty-graphics-protocol"),
+            "Ghostty only reads temp files whose path contains tty-graphics-protocol, got {path}"
+        );
+        assert!(bytes.len() < DIRECT_UPLOAD_MAX_BYTES);
+    }
+
+    #[test]
+    fn remote_upload_keeps_direct_pixel_bytes() {
+        let mut images = HashMap::new();
+        let mut placements = HashMap::new();
+        let mut sources = HashMap::new();
+        let mut bytes = Vec::new();
+
+        encode_graphics_update(
+            &mut bytes,
+            &[large_placement()],
+            false,
+            &mut images,
+            &mut placements,
+            &mut sources,
+        );
+
+        let output = String::from_utf8_lossy(&bytes);
+        assert!(output.contains("t=d"));
+        assert!(!output.contains("t=t"));
+        assert!(bytes.len() > DIRECT_UPLOAD_MAX_BYTES);
+    }
+
+    #[test]
+    fn host_image_data_is_requested_once_per_image_id() {
+        let descriptor = crate::ghostty::KittyImageDescriptor {
+            image_id: 9,
+            placement_id: 1,
+            image_width: 10,
+            image_height: 10,
+            format: KittyImageFormat::Rgba,
+            data_len: 400,
+            data_fingerprint: 1,
+        };
+        let uploaded = HashMap::new();
+        let mut copied = HashSet::new();
+        let pane_id = PaneId::from_raw(1);
+
+        assert!(needs_host_image_data(
+            pane_id,
+            descriptor,
+            &uploaded,
+            &mut copied
+        ));
+        assert!(!needs_host_image_data(
+            pane_id,
+            descriptor,
+            &uploaded,
+            &mut copied
+        ));
     }
 }

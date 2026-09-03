@@ -115,6 +115,15 @@ pub(super) fn encode_ghostty_mouse(
     event: impl FnOnce(f32, f32) -> Option<crate::ghostty::MouseEvent>,
 ) -> Option<Vec<u8>> {
     let (x, y) = ghostty_mouse_surface_position(terminal, column, row);
+    encode_ghostty_mouse_xy(terminal, x, y, event)
+}
+
+pub(super) fn encode_ghostty_mouse_xy(
+    terminal: &crate::ghostty::Terminal,
+    x: f32,
+    y: f32,
+    event: impl FnOnce(f32, f32) -> Option<crate::ghostty::MouseEvent>,
+) -> Option<Vec<u8>> {
     let mut encoder = ghostty_mouse_encoder_for_terminal(terminal)?;
     encoder
         .encode(&event(x, y)?)

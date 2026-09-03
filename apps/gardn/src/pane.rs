@@ -2736,6 +2736,45 @@ impl PaneRuntime {
             .encode_mouse_motion(kind, column, row, modifiers)
     }
 
+    pub fn encode_mouse_button_xy(
+        &self,
+        kind: crossterm::event::MouseEventKind,
+        x: f32,
+        y: f32,
+        modifiers: crossterm::event::KeyModifiers,
+    ) -> Option<Vec<u8>> {
+        if !self.input_state()?.mouse_protocol_mode.reporting_enabled() {
+            return None;
+        }
+        self.terminal.encode_mouse_button_xy(kind, x, y, modifiers)
+    }
+
+    pub fn encode_mouse_wheel_xy(
+        &self,
+        kind: crossterm::event::MouseEventKind,
+        x: f32,
+        y: f32,
+        modifiers: crossterm::event::KeyModifiers,
+    ) -> Option<Vec<u8>> {
+        if self.wheel_routing()? != WheelRouting::MouseReport {
+            return None;
+        }
+        self.terminal.encode_mouse_wheel_xy(kind, x, y, modifiers)
+    }
+
+    pub fn encode_mouse_motion_xy(
+        &self,
+        kind: crossterm::event::MouseEventKind,
+        x: f32,
+        y: f32,
+        modifiers: crossterm::event::KeyModifiers,
+    ) -> Option<Vec<u8>> {
+        if self.input_state()?.mouse_protocol_mode != crate::input::MouseProtocolMode::AnyMotion {
+            return None;
+        }
+        self.terminal.encode_mouse_motion_xy(kind, x, y, modifiers)
+    }
+
     pub fn encode_alternate_scroll(
         &self,
         kind: crossterm::event::MouseEventKind,
@@ -3428,7 +3467,10 @@ mod tests {
 
         let history = runtime.handoff_history_ansi().unwrap();
 
-        assert!(history.contains("handoff-primary-history"));
+        assert!(
+            history.contains("handoff-primary-history"),
+            "history={history:?}"
+        );
     }
 
     #[cfg(unix)]
@@ -3468,6 +3510,7 @@ mod tests {
                 mouse_alternate_scroll: true,
                 modify_other_keys: true,
                 color_scheme_reporting: false,
+                mouse_sgr_pixels: false,
             })
         );
     }

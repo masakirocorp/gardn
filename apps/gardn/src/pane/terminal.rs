@@ -17,7 +17,7 @@ use crate::layout::PaneId;
 use super::cursor::{CursorPositionSettleState, DecscusrTracker, CURSOR_POSITION_SETTLE};
 use super::{
     input::{
-        encode_ghostty_mouse, ghostty_key_event_from_terminal_key,
+        encode_ghostty_mouse, encode_ghostty_mouse_xy, ghostty_key_event_from_terminal_key,
         ghostty_mouse_event_from_button_kind, ghostty_mouse_event_from_motion_kind,
         ghostty_mouse_event_from_wheel_kind, ghostty_prefers_gardn_text_encoding,
     },
@@ -119,11 +119,17 @@ pub struct InputState {
     pub modify_other_keys: bool,
     #[serde(default)]
     pub color_scheme_reporting: bool,
+    #[serde(default)]
+    pub mouse_sgr_pixels: bool,
 }
 
 impl InputState {
     pub fn mouse_reporting_enabled(self) -> bool {
         self.mouse_protocol_mode.reporting_enabled()
+    }
+
+    pub fn sgr_pixels_enabled(self) -> bool {
+        self.mouse_reporting_enabled() && self.mouse_sgr_pixels
     }
 
     pub fn plain_page_keys_use_host_scrollback(self) -> bool {
@@ -435,6 +441,36 @@ impl PaneTerminal {
     ) -> Option<Vec<u8>> {
         self.ghostty
             .encode_mouse_motion(kind, column, row, modifiers)
+    }
+
+    pub fn encode_mouse_button_xy(
+        &self,
+        kind: crossterm::event::MouseEventKind,
+        x: f32,
+        y: f32,
+        modifiers: crossterm::event::KeyModifiers,
+    ) -> Option<Vec<u8>> {
+        self.ghostty.encode_mouse_button_xy(kind, x, y, modifiers)
+    }
+
+    pub fn encode_mouse_wheel_xy(
+        &self,
+        kind: crossterm::event::MouseEventKind,
+        x: f32,
+        y: f32,
+        modifiers: crossterm::event::KeyModifiers,
+    ) -> Option<Vec<u8>> {
+        self.ghostty.encode_mouse_wheel_xy(kind, x, y, modifiers)
+    }
+
+    pub fn encode_mouse_motion_xy(
+        &self,
+        kind: crossterm::event::MouseEventKind,
+        x: f32,
+        y: f32,
+        modifiers: crossterm::event::KeyModifiers,
+    ) -> Option<Vec<u8>> {
+        self.ghostty.encode_mouse_motion_xy(kind, x, y, modifiers)
     }
 }
 
@@ -1270,6 +1306,10 @@ impl GhosttyPaneTerminal {
                 let _ = core.terminal.mode_set(crate::ghostty::MODE_MOUSE_SGR, true);
             }
         }
+        let _ = core.terminal.mode_set(
+            crate::ghostty::MODE_MOUSE_SGR_PIXELS,
+            input_state.mouse_sgr_pixels,
+        );
 
         if input_state.modify_other_keys {
             const MODIFY_OTHER_KEYS: &[u8] = b"\x1b[>4;2m";
@@ -1421,6 +1461,10 @@ impl GhosttyPaneTerminal {
             .terminal
             .mode_get(crate::ghostty::MODE_MOUSE_SGR)
             .ok()?;
+        let mouse_sgr_pixels = core
+            .terminal
+            .mode_get(crate::ghostty::MODE_MOUSE_SGR_PIXELS)
+            .ok()?;
         let mouse_utf8 = core
             .terminal
             .mode_get(crate::ghostty::MODE_MOUSE_UTF8)
@@ -1440,7 +1484,7 @@ impl GhosttyPaneTerminal {
         } else {
             crate::input::MouseProtocolMode::None
         };
-        let mouse_protocol_encoding = if mouse_sgr {
+        let mouse_protocol_encoding = if mouse_sgr || mouse_sgr_pixels {
             crate::input::MouseProtocolEncoding::Sgr
         } else if mouse_utf8 {
             crate::input::MouseProtocolEncoding::Utf8
@@ -1460,6 +1504,7 @@ impl GhosttyPaneTerminal {
                 .terminal
                 .mode_get(crate::ghostty::MODE_COLOR_SCHEME_REPORT)
                 .ok()?,
+            mouse_sgr_pixels,
         })
     }
 
@@ -1616,6 +1661,54 @@ impl GhosttyPaneTerminal {
         self.encode_mouse(column, row, |x, y| {
             ghostty_mouse_event_from_motion_kind(kind, x, y, modifiers)
         })
+    }
+
+    pub fn encode_mouse_button_xy(
+        &self,
+        kind: crossterm::event::MouseEventKind,
+        x: f32,
+        y: f32,
+        modifiers: crossterm::event::KeyModifiers,
+    ) -> Option<Vec<u8>> {
+        self.encode_mouse_xy(x, y, |x, y| {
+            ghostty_mouse_event_from_button_kind(kind, x, y, modifiers)
+        })
+    }
+
+    pub fn encode_mouse_wheel_xy(
+        &self,
+        kind: crossterm::event::MouseEventKind,
+        x: f32,
+        y: f32,
+        modifiers: crossterm::event::KeyModifiers,
+    ) -> Option<Vec<u8>> {
+        self.encode_mouse_xy(x, y, |x, y| {
+            ghostty_mouse_event_from_wheel_kind(kind, x, y, modifiers)
+        })
+    }
+
+    pub fn encode_mouse_motion_xy(
+        &self,
+        kind: crossterm::event::MouseEventKind,
+        x: f32,
+        y: f32,
+        modifiers: crossterm::event::KeyModifiers,
+    ) -> Option<Vec<u8>> {
+        self.encode_mouse_xy(x, y, |x, y| {
+            ghostty_mouse_event_from_motion_kind(kind, x, y, modifiers)
+        })
+    }
+
+    fn encode_mouse_xy(
+        &self,
+        x: f32,
+        y: f32,
+        event: impl FnOnce(f32, f32) -> Option<crate::ghostty::MouseEvent>,
+    ) -> Option<Vec<u8>> {
+        let Ok(core) = self.core.lock() else {
+            return None;
+        };
+        encode_ghostty_mouse_xy(&core.terminal, x, y, event)
     }
 
     fn encode_mouse(
@@ -3554,6 +3647,7 @@ mod tests {
             mouse_alternate_scroll: false,
             modify_other_keys: false,
             color_scheme_reporting: false,
+            mouse_sgr_pixels: false,
         }
         .plain_page_keys_use_host_scrollback());
     }
@@ -3910,6 +4004,7 @@ mod tests {
             mouse_alternate_scroll: true,
             modify_other_keys: true,
             color_scheme_reporting: true,
+            mouse_sgr_pixels: false,
         });
 
         assert_eq!(
@@ -3924,6 +4019,7 @@ mod tests {
                 mouse_alternate_scroll: true,
                 modify_other_keys: true,
                 color_scheme_reporting: true,
+                mouse_sgr_pixels: false,
             })
         );
 

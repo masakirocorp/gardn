@@ -584,6 +584,36 @@ impl TerminalRuntime {
         self.0.encode_mouse_wheel(kind, column, row, modifiers)
     }
 
+    pub fn encode_mouse_button_xy(
+        &self,
+        kind: crossterm::event::MouseEventKind,
+        x: f32,
+        y: f32,
+        modifiers: crossterm::event::KeyModifiers,
+    ) -> Option<Vec<u8>> {
+        self.0.encode_mouse_button_xy(kind, x, y, modifiers)
+    }
+
+    pub fn encode_mouse_motion_xy(
+        &self,
+        kind: crossterm::event::MouseEventKind,
+        x: f32,
+        y: f32,
+        modifiers: crossterm::event::KeyModifiers,
+    ) -> Option<Vec<u8>> {
+        self.0.encode_mouse_motion_xy(kind, x, y, modifiers)
+    }
+
+    pub fn encode_mouse_wheel_xy(
+        &self,
+        kind: crossterm::event::MouseEventKind,
+        x: f32,
+        y: f32,
+        modifiers: crossterm::event::KeyModifiers,
+    ) -> Option<Vec<u8>> {
+        self.0.encode_mouse_wheel_xy(kind, x, y, modifiers)
+    }
+
     pub fn encode_alternate_scroll(
         &self,
         kind: crossterm::event::MouseEventKind,

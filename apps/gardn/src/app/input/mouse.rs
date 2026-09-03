@@ -7,7 +7,7 @@ use tracing::warn;
 use crate::{
     app::state::{
         AgentPressState, AppState, ContextMenuKind, ContextMenuState, DragState, DragTarget,
-        GroupPressState, ModalListState, Mode, PendingPaneMouseMotion,
+        GroupPressState, ModalListState, Mode, PendingPaneMouseMotion, PendingPaneWheel,
         RightClickPassthroughGesture, TabPressState, ViewLayout, WorkspacePressState,
     },
     layout::{PaneInfo, SplitBorder},
@@ -37,6 +37,7 @@ impl AppState {
         if self.mode != Mode::Terminal {
             return;
         }
+        let mouse = self.normalize_host_mouse_event(mouse);
         let Some(info) = self.pane_at(mouse.column, mouse.row).cloned() else {
             return;
         };
@@ -48,10 +49,10 @@ impl AppState {
             | MouseEventKind::ScrollRight => {
                 self.forward_pane_reported_wheel(terminal_runtimes, &info, mouse);
             }
-            MouseEventKind::Down(_) | MouseEventKind::Up(_) | MouseEventKind::Drag(_) => {
+            MouseEventKind::Down(_) | MouseEventKind::Up(_) => {
                 self.forward_pane_mouse_button(terminal_runtimes, &info, mouse);
             }
-            MouseEventKind::Moved => {
+            MouseEventKind::Drag(_) | MouseEventKind::Moved => {
                 self.forward_pane_mouse_motion(terminal_runtimes, &info, mouse);
             }
         }
@@ -69,6 +70,10 @@ impl AppState {
         let Some(ws_idx) = client_view.active_workspace else {
             return;
         };
+        let mouse = self.normalize_host_mouse_event(mouse);
+        if client_view.tab_canvas_view.is_some() {
+            self.pointer_host_pixels = None;
+        }
         let Some((column, row)) = client_view
             .tab_canvas_view
             .map_or(Some((mouse.column, mouse.row)), |view| {
@@ -109,7 +114,7 @@ impl AppState {
                     mouse,
                 );
             }
-            MouseEventKind::Down(_) | MouseEventKind::Up(_) | MouseEventKind::Drag(_) => {
+            MouseEventKind::Down(_) | MouseEventKind::Up(_) => {
                 self.forward_pane_mouse_button_in_workspace(
                     terminal_runtimes,
                     ws_idx,
@@ -117,7 +122,7 @@ impl AppState {
                     mouse,
                 );
             }
-            MouseEventKind::Moved => {
+            MouseEventKind::Drag(_) | MouseEventKind::Moved => {
                 self.forward_pane_mouse_motion_in_workspace(
                     terminal_runtimes,
                     ws_idx,
@@ -133,6 +138,7 @@ impl AppState {
         terminal_runtimes: &mut TerminalRuntimeRegistry,
         mouse: MouseEvent,
     ) -> Option<SettingsAction> {
+        let mouse = self.normalize_host_mouse_event(mouse);
         if self.mode == Mode::Onboarding {
             self.handle_onboarding_mouse(mouse);
             return None;
@@ -2082,7 +2088,15 @@ impl AppState {
         };
         let column = mouse.column.saturating_sub(info.inner_rect.x);
         let row = mouse.row.saturating_sub(info.inner_rect.y);
-        let Some(bytes) = rt.encode_mouse_button(mouse.kind, column, row, mouse.modifiers) else {
+        let Some(bytes) = self.encode_pane_mouse_button(
+            &rt,
+            mouse.kind,
+            column,
+            row,
+            mouse.modifiers,
+            info.inner_rect,
+            self.pointer_host_pixels,
+        ) else {
             return false;
         };
         if !matches!(mouse.kind, MouseEventKind::Moved) {
@@ -2119,10 +2133,32 @@ impl AppState {
         };
         let column = mouse.column.saturating_sub(info.inner_rect.x);
         let row = mouse.row.saturating_sub(info.inner_rect.y);
-        if rt
-            .encode_mouse_motion(mouse.kind, column, row, mouse.modifiers)
-            .is_none()
-        {
+        let can_encode = match mouse.kind {
+            MouseEventKind::Moved => self
+                .encode_pane_mouse_motion(
+                    &rt,
+                    mouse.kind,
+                    column,
+                    row,
+                    mouse.modifiers,
+                    info.inner_rect,
+                    self.pointer_host_pixels,
+                )
+                .is_some(),
+            MouseEventKind::Drag(_) => self
+                .encode_pane_mouse_button(
+                    &rt,
+                    mouse.kind,
+                    column,
+                    row,
+                    mouse.modifiers,
+                    info.inner_rect,
+                    self.pointer_host_pixels,
+                )
+                .is_some(),
+            _ => false,
+        };
+        if !can_encode {
             return false;
         }
         let now = Instant::now();
@@ -2132,20 +2168,30 @@ impl AppState {
         if due {
             self.pending_pane_mouse_motion = None;
             self.last_pane_mouse_motion_flush = Some(now);
-            self.send_pane_mouse_motion(terminal_runtimes, ws_idx, info.id, info.inner_rect, mouse)
+            self.send_pane_mouse_motion(
+                terminal_runtimes,
+                ws_idx,
+                info.id,
+                info.inner_rect,
+                mouse,
+                self.pointer_host_pixels,
+            )
         } else {
             self.pending_pane_mouse_motion = Some(PendingPaneMouseMotion {
                 ws_idx,
                 pane_id: info.id,
                 inner_rect: info.inner_rect,
                 mouse,
+                host_pixels: self.pointer_host_pixels,
             });
             true
         }
     }
 
     pub(crate) fn pane_mouse_motion_flush_at(&self) -> Option<Instant> {
-        self.pending_pane_mouse_motion.as_ref()?;
+        if self.pending_pane_mouse_motion.is_none() && self.pending_pane_wheel.is_none() {
+            return None;
+        }
         Some(
             self.last_pane_mouse_motion_flush
                 .map(|last| last + super::super::MIN_RENDER_INTERVAL)
@@ -2170,17 +2216,25 @@ impl AppState {
         &mut self,
         terminal_runtimes: &TerminalRuntimeRegistry,
     ) {
-        let Some(pending) = self.pending_pane_mouse_motion.take() else {
+        let pending_motion = self.pending_pane_mouse_motion.take();
+        let pending_wheel = self.pending_pane_wheel.take();
+        if pending_motion.is_none() && pending_wheel.is_none() {
             return;
-        };
+        }
         self.last_pane_mouse_motion_flush = Some(Instant::now());
-        let _ = self.send_pane_mouse_motion(
-            terminal_runtimes,
-            pending.ws_idx,
-            pending.pane_id,
-            pending.inner_rect,
-            pending.mouse,
-        );
+        if let Some(pending) = pending_motion {
+            let _ = self.send_pane_mouse_motion(
+                terminal_runtimes,
+                pending.ws_idx,
+                pending.pane_id,
+                pending.inner_rect,
+                pending.mouse,
+                pending.host_pixels,
+            );
+        }
+        if let Some(pending) = pending_wheel {
+            self.send_pending_pane_wheel(terminal_runtimes, pending);
+        }
     }
 
     fn send_pane_mouse_motion(
@@ -2190,6 +2244,7 @@ impl AppState {
         pane_id: crate::layout::PaneId,
         inner_rect: Rect,
         mouse: MouseEvent,
+        host_pixels: Option<(u32, u32)>,
     ) -> bool {
         let Some(rt) = self.runtime_for_pane_in_workspace(terminal_runtimes, ws_idx, pane_id)
         else {
@@ -2197,7 +2252,26 @@ impl AppState {
         };
         let column = mouse.column.saturating_sub(inner_rect.x);
         let row = mouse.row.saturating_sub(inner_rect.y);
-        let Some(bytes) = rt.encode_mouse_motion(mouse.kind, column, row, mouse.modifiers) else {
+        let Some(bytes) = (match mouse.kind {
+            MouseEventKind::Drag(_) => self.encode_pane_mouse_button(
+                &rt,
+                mouse.kind,
+                column,
+                row,
+                mouse.modifiers,
+                inner_rect,
+                host_pixels,
+            ),
+            _ => self.encode_pane_mouse_motion(
+                &rt,
+                mouse.kind,
+                column,
+                row,
+                mouse.modifiers,
+                inner_rect,
+                host_pixels,
+            ),
+        }) else {
             return false;
         };
         if let Err(err) = rt.try_send_bytes(Bytes::from(bytes)) {
@@ -2225,7 +2299,6 @@ impl AppState {
         info: &PaneInfo,
         mouse: MouseEvent,
     ) -> bool {
-        self.flush_pending_pane_mouse_motion(terminal_runtimes);
         let Some(rt) = self.runtime_for_pane_in_workspace(terminal_runtimes, ws_idx, info.id)
         else {
             return false;
@@ -2236,17 +2309,7 @@ impl AppState {
         {
             return false;
         }
-        rt.scroll_reset();
-        let column = mouse.column.saturating_sub(info.inner_rect.x);
-        let row = mouse.row.saturating_sub(info.inner_rect.y);
-        let Some(bytes) = rt.encode_mouse_wheel(mouse.kind, column, row, mouse.modifiers) else {
-            warn!(pane = info.id.raw(), kind = ?mouse.kind, "failed to encode mouse wheel event");
-            return true;
-        };
-        if let Err(err) = rt.try_send_bytes(Bytes::from(bytes)) {
-            warn!(pane = info.id.raw(), err = %err, "failed to forward mouse wheel event");
-        }
-        true
+        self.queue_or_send_pane_wheel(terminal_runtimes, ws_idx, info, mouse)
     }
 
     pub(crate) fn forward_pane_wheel(
@@ -2255,41 +2318,274 @@ impl AppState {
         info: &PaneInfo,
         mouse: MouseEvent,
     ) -> bool {
-        self.flush_pending_pane_mouse_motion(terminal_runtimes);
         let Some(ws_idx) = self.active else {
             return false;
         };
-        let Some(rt) = self.runtime_for_pane_in_workspace(terminal_runtimes, ws_idx, info.id)
-        else {
-            return false;
+        let routing = {
+            let Some(rt) = self.runtime_for_pane_in_workspace(terminal_runtimes, ws_idx, info.id)
+            else {
+                return false;
+            };
+            rt.wheel_routing()
         };
-        match rt.wheel_routing() {
+        match routing {
             Some(crate::pane::WheelRouting::HostScroll) | None => false,
             Some(crate::pane::WheelRouting::MouseReport) => {
-                rt.scroll_reset();
-                let column = mouse.column.saturating_sub(info.inner_rect.x);
-                let row = mouse.row.saturating_sub(info.inner_rect.y);
-                let Some(bytes) = rt.encode_mouse_wheel(mouse.kind, column, row, mouse.modifiers)
-                else {
-                    warn!(pane = info.id.raw(), kind = ?mouse.kind, "failed to encode mouse wheel event");
-                    return true;
-                };
-                if let Err(err) = rt.try_send_bytes(Bytes::from(bytes)) {
-                    warn!(pane = info.id.raw(), err = %err, "failed to forward mouse wheel event");
-                }
-                true
+                self.queue_or_send_pane_wheel(terminal_runtimes, ws_idx, info, mouse)
             }
             Some(crate::pane::WheelRouting::AlternateScroll) => {
+                self.flush_pending_pane_mouse_motion(terminal_runtimes);
+                let Some(rt) =
+                    self.runtime_for_pane_in_workspace(terminal_runtimes, ws_idx, info.id)
+                else {
+                    return false;
+                };
                 rt.scroll_reset();
                 let Some(bytes) = rt.encode_alternate_scroll(mouse.kind) else {
+                    warn!(pane = info.id.raw(), kind = ?mouse.kind, "failed to encode alternate scroll");
                     return true;
                 };
                 if let Err(err) = rt.try_send_bytes(Bytes::from(bytes)) {
-                    warn!(pane = info.id.raw(), err = %err, "failed to forward alternate-scroll key");
+                    warn!(pane = info.id.raw(), err = %err, "failed to forward alternate scroll");
                 }
                 true
             }
         }
+    }
+
+    pub(crate) fn normalize_host_mouse_event(&mut self, mouse: MouseEvent) -> MouseEvent {
+        if !self.host_sgr_pixels {
+            self.pointer_host_pixels = None;
+            return mouse;
+        }
+        let width = self.host_cell_size.width_px;
+        let height = self.host_cell_size.height_px;
+        if width == 0 || height == 0 {
+            self.pointer_host_pixels = None;
+            return mouse;
+        }
+        let px = u32::from(mouse.column);
+        let py = u32::from(mouse.row);
+        self.pointer_host_pixels = Some((px, py));
+        MouseEvent {
+            column: (px / width) as u16,
+            row: (py / height) as u16,
+            ..mouse
+        }
+    }
+
+    fn pane_pointer_surface(
+        &self,
+        inner_rect: Rect,
+        host_pixels: Option<(u32, u32)>,
+    ) -> Option<(f32, f32)> {
+        let (px, py) = host_pixels?;
+        let width = self.host_cell_size.width_px;
+        let height = self.host_cell_size.height_px;
+        if width == 0 || height == 0 {
+            return None;
+        }
+        Some((
+            px.saturating_sub(u32::from(inner_rect.x).saturating_mul(width)) as f32,
+            py.saturating_sub(u32::from(inner_rect.y).saturating_mul(height)) as f32,
+        ))
+    }
+
+    fn encode_pane_mouse_button(
+        &self,
+        rt: &crate::terminal::TerminalRuntime,
+        kind: MouseEventKind,
+        column: u16,
+        row: u16,
+        modifiers: KeyModifiers,
+        inner_rect: Rect,
+        host_pixels: Option<(u32, u32)>,
+    ) -> Option<Vec<u8>> {
+        if let Some((x, y)) = self.pane_pointer_surface(inner_rect, host_pixels) {
+            rt.encode_mouse_button_xy(kind, x, y, modifiers)
+        } else {
+            rt.encode_mouse_button(kind, column, row, modifiers)
+        }
+    }
+
+    fn encode_pane_mouse_motion(
+        &self,
+        rt: &crate::terminal::TerminalRuntime,
+        kind: MouseEventKind,
+        column: u16,
+        row: u16,
+        modifiers: KeyModifiers,
+        inner_rect: Rect,
+        host_pixels: Option<(u32, u32)>,
+    ) -> Option<Vec<u8>> {
+        if let Some((x, y)) = self.pane_pointer_surface(inner_rect, host_pixels) {
+            rt.encode_mouse_motion_xy(kind, x, y, modifiers)
+        } else {
+            rt.encode_mouse_motion(kind, column, row, modifiers)
+        }
+    }
+
+    fn encode_pane_mouse_wheel(
+        &self,
+        rt: &crate::terminal::TerminalRuntime,
+        kind: MouseEventKind,
+        column: u16,
+        row: u16,
+        modifiers: KeyModifiers,
+        inner_rect: Rect,
+        host_pixels: Option<(u32, u32)>,
+    ) -> Option<Vec<u8>> {
+        if let Some((x, y)) = self.pane_pointer_surface(inner_rect, host_pixels) {
+            rt.encode_mouse_wheel_xy(kind, x, y, modifiers)
+        } else {
+            rt.encode_mouse_wheel(kind, column, row, modifiers)
+        }
+    }
+
+    fn queue_or_send_pane_wheel(
+        &mut self,
+        terminal_runtimes: &TerminalRuntimeRegistry,
+        ws_idx: usize,
+        info: &PaneInfo,
+        mouse: MouseEvent,
+    ) -> bool {
+        let can_encode = {
+            let Some(rt) = self.runtime_for_pane_in_workspace(terminal_runtimes, ws_idx, info.id)
+            else {
+                return false;
+            };
+            let column = mouse.column.saturating_sub(info.inner_rect.x);
+            let row = mouse.row.saturating_sub(info.inner_rect.y);
+            self.encode_pane_mouse_wheel(
+                &rt,
+                mouse.kind,
+                column,
+                row,
+                mouse.modifiers,
+                info.inner_rect,
+                self.pointer_host_pixels,
+            )
+            .is_some()
+        };
+        if !can_encode {
+            return false;
+        }
+        let now = Instant::now();
+        let due = self
+            .last_pane_mouse_motion_flush
+            .is_none_or(|last| now.duration_since(last) >= super::super::MIN_RENDER_INTERVAL);
+        if due {
+            self.pending_pane_wheel = None;
+            self.last_pane_mouse_motion_flush = Some(now);
+            self.send_pane_wheel_ticks(
+                terminal_runtimes,
+                ws_idx,
+                info.id,
+                info.inner_rect,
+                mouse,
+                self.pointer_host_pixels,
+                1,
+            )
+        } else {
+            let mut pending = self.pending_pane_wheel.take().unwrap_or(PendingPaneWheel {
+                ws_idx,
+                pane_id: info.id,
+                inner_rect: info.inner_rect,
+                mouse,
+                host_pixels: self.pointer_host_pixels,
+                up: 0,
+                down: 0,
+                left: 0,
+                right: 0,
+            });
+            pending.ws_idx = ws_idx;
+            pending.pane_id = info.id;
+            pending.inner_rect = info.inner_rect;
+            pending.mouse = mouse;
+            pending.host_pixels = self.pointer_host_pixels;
+            match mouse.kind {
+                MouseEventKind::ScrollUp => pending.up = pending.up.saturating_add(1),
+                MouseEventKind::ScrollDown => pending.down = pending.down.saturating_add(1),
+                MouseEventKind::ScrollLeft => pending.left = pending.left.saturating_add(1),
+                MouseEventKind::ScrollRight => pending.right = pending.right.saturating_add(1),
+                _ => {}
+            }
+            self.pending_pane_wheel = Some(pending);
+            true
+        }
+    }
+
+    fn send_pending_pane_wheel(
+        &self,
+        terminal_runtimes: &TerminalRuntimeRegistry,
+        pending: PendingPaneWheel,
+    ) {
+        let Some(rt) =
+            self.runtime_for_pane_in_workspace(terminal_runtimes, pending.ws_idx, pending.pane_id)
+        else {
+            return;
+        };
+        rt.scroll_reset();
+        for (kind, count) in [
+            (MouseEventKind::ScrollUp, pending.up),
+            (MouseEventKind::ScrollDown, pending.down),
+            (MouseEventKind::ScrollLeft, pending.left),
+            (MouseEventKind::ScrollRight, pending.right),
+        ] {
+            if count == 0 {
+                continue;
+            }
+            let mouse = MouseEvent {
+                kind,
+                ..pending.mouse
+            };
+            let _ = self.send_pane_wheel_ticks(
+                terminal_runtimes,
+                pending.ws_idx,
+                pending.pane_id,
+                pending.inner_rect,
+                mouse,
+                pending.host_pixels,
+                count,
+            );
+        }
+    }
+
+    fn send_pane_wheel_ticks(
+        &self,
+        terminal_runtimes: &TerminalRuntimeRegistry,
+        ws_idx: usize,
+        pane_id: crate::layout::PaneId,
+        inner_rect: Rect,
+        mouse: MouseEvent,
+        host_pixels: Option<(u32, u32)>,
+        count: u32,
+    ) -> bool {
+        let Some(rt) = self.runtime_for_pane_in_workspace(terminal_runtimes, ws_idx, pane_id)
+        else {
+            return false;
+        };
+        rt.scroll_reset();
+        let column = mouse.column.saturating_sub(inner_rect.x);
+        let row = mouse.row.saturating_sub(inner_rect.y);
+        let Some(bytes) = self.encode_pane_mouse_wheel(
+            &rt,
+            mouse.kind,
+            column,
+            row,
+            mouse.modifiers,
+            inner_rect,
+            host_pixels,
+        ) else {
+            return false;
+        };
+        for _ in 0..count {
+            if let Err(err) = rt.try_send_bytes(Bytes::from(bytes.clone())) {
+                warn!(pane = pane_id.raw(), err = %err, kind = ?mouse.kind, "failed to forward mouse wheel event");
+                break;
+            }
+        }
+        true
     }
 
     fn handle_right_click_passthrough(
@@ -4075,6 +4371,147 @@ mod tests {
         assert!(rx.try_recv().is_err());
     }
 
+    #[test]
+    fn host_sgr_pixels_normalize_to_cell_coordinates() {
+        let mut app = app_for_mouse_test();
+        app.state.host_sgr_pixels = true;
+        app.state.host_cell_size = crate::kitty_graphics::HostCellSize {
+            width_px: 10,
+            height_px: 20,
+        };
+
+        let mouse = app
+            .state
+            .normalize_host_mouse_event(mouse(MouseEventKind::Moved, 25, 41));
+
+        assert_eq!(mouse.column, 2);
+        assert_eq!(mouse.row, 2);
+        assert_eq!(app.state.pointer_host_pixels, Some((25, 41)));
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn pane_drag_batch_forwards_only_the_latest_position() {
+        let mut app = app_for_mouse_test();
+        app.state.mouse_capture = false;
+        let ws = Workspace::test_new("test");
+        let pane_id = ws.tabs[0].root_pane;
+        app.state.workspaces = vec![ws];
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        crate::ui::compute_view(&mut app.state, Rect::new(0, 0, 106, 20));
+
+        let info = app.state.view.pane_infos[0].clone();
+        let (runtime, mut rx) =
+            crate::terminal::TerminalRuntime::test_with_channel_and_screen_bytes(
+                info.inner_rect.width.max(1),
+                info.inner_rect.height.max(1),
+                b"\x1b[?1002h\x1b[?1006h",
+            );
+        app.state.workspaces[0].insert_test_runtime(pane_id, runtime);
+
+        app.state.handle_pane_mouse_only(
+            &app.terminal_runtimes,
+            mouse(
+                MouseEventKind::Drag(MouseButton::Left),
+                info.inner_rect.x + 1,
+                info.inner_rect.y + 1,
+            ),
+        );
+        assert_eq!(
+            rx.try_recv().expect("first drag is forwarded").as_ref(),
+            b"\x1b[<32;2;2M"
+        );
+
+        app.state.handle_pane_mouse_only(
+            &app.terminal_runtimes,
+            mouse(
+                MouseEventKind::Drag(MouseButton::Left),
+                info.inner_rect.x + 2,
+                info.inner_rect.y + 2,
+            ),
+        );
+        app.state.handle_pane_mouse_only(
+            &app.terminal_runtimes,
+            mouse(
+                MouseEventKind::Drag(MouseButton::Left),
+                info.inner_rect.x + 3,
+                info.inner_rect.y + 2,
+            ),
+        );
+        assert!(
+            rx.try_recv().is_err(),
+            "later drags in the same interval stay queued"
+        );
+
+        app.state
+            .flush_pending_pane_mouse_motion(&app.terminal_runtimes);
+        assert_eq!(
+            rx.try_recv()
+                .expect("flush forwards the latest drag")
+                .as_ref(),
+            b"\x1b[<32;4;3M"
+        );
+        assert!(rx.try_recv().is_err());
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn pane_wheel_ticks_accumulate_until_flush() {
+        let mut app = app_for_mouse_test();
+        app.state.mouse_capture = false;
+        let ws = Workspace::test_new("test");
+        let pane_id = ws.tabs[0].root_pane;
+        app.state.workspaces = vec![ws];
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        crate::ui::compute_view(&mut app.state, Rect::new(0, 0, 106, 20));
+
+        let info = app.state.view.pane_infos[0].clone();
+        let (runtime, mut rx) =
+            crate::terminal::TerminalRuntime::test_with_channel_and_screen_bytes(
+                info.inner_rect.width.max(1),
+                info.inner_rect.height.max(1),
+                b"\x1b[?1003h\x1b[?1006h",
+            );
+        app.state.workspaces[0].insert_test_runtime(pane_id, runtime);
+
+        let wheel = mouse(
+            MouseEventKind::ScrollDown,
+            info.inner_rect.x + 1,
+            info.inner_rect.y + 1,
+        );
+        app.state
+            .handle_pane_mouse_only(&app.terminal_runtimes, wheel);
+        assert_eq!(
+            rx.try_recv().expect("first wheel is forwarded").as_ref(),
+            b"\x1b[<65;2;2M"
+        );
+
+        app.state
+            .handle_pane_mouse_only(&app.terminal_runtimes, wheel);
+        app.state
+            .handle_pane_mouse_only(&app.terminal_runtimes, wheel);
+        assert!(
+            rx.try_recv().is_err(),
+            "later wheels in the same interval stay queued"
+        );
+
+        app.state
+            .flush_pending_pane_mouse_motion(&app.terminal_runtimes);
+        assert_eq!(
+            rx.try_recv()
+                .expect("flush forwards the first queued wheel")
+                .as_ref(),
+            b"\x1b[<65;2;2M"
+        );
+        assert_eq!(
+            rx.try_recv()
+                .expect("flush forwards the second queued wheel")
+                .as_ref(),
+            b"\x1b[<65;2;2M"
+        );
+        assert!(rx.try_recv().is_err());
+    }
+
     #[tokio::test(flavor = "current_thread")]
     async fn mouse_move_is_not_forwarded_for_button_motion_mode() {
         let mut app = app_for_mouse_test();
@@ -4115,6 +4552,7 @@ mod tests {
             mouse_alternate_scroll: true,
             modify_other_keys: false,
             color_scheme_reporting: false,
+            mouse_sgr_pixels: false,
         };
 
         assert_eq!(wheel_routing(input_state), WheelRouting::MouseReport);
@@ -4682,6 +5120,7 @@ mod tests {
             mouse_alternate_scroll: true,
             modify_other_keys: false,
             color_scheme_reporting: false,
+            mouse_sgr_pixels: false,
         };
 
         assert_eq!(wheel_routing(input_state), WheelRouting::AlternateScroll);
@@ -4699,6 +5138,7 @@ mod tests {
             mouse_alternate_scroll: true,
             modify_other_keys: false,
             color_scheme_reporting: false,
+            mouse_sgr_pixels: false,
         };
 
         assert_eq!(wheel_routing(input_state), WheelRouting::HostScroll);

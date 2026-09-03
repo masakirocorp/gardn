@@ -1009,6 +1009,10 @@ impl App {
             mouse_capture: config.ui.mouse_capture,
             pending_pane_mouse_motion: None,
             last_pane_mouse_motion_flush: None,
+            host_sgr_pixels: false,
+            host_cell_size: crate::kitty_graphics::HostCellSize::default(),
+            pointer_host_pixels: None,
+            pending_pane_wheel: None,
             copy_on_select: config.ui.copy_on_select,
             right_click_passthrough_modifiers: config.ui.right_click_passthrough_modifiers(),
             right_click_passthrough: None,
@@ -2099,6 +2103,7 @@ impl App {
         let mut needs_render = true;
         let mut sent_window_title: Option<Option<String>> = None;
         let mut host_mouse_capture_active = self.state.mouse_capture;
+        let mut host_sgr_pixels_active = false;
         let mut host_keyboard_report_all_active = false;
 
         while !self.state.should_quit {
@@ -2170,7 +2175,10 @@ impl App {
 
             let now = Instant::now();
             self.sync_animation_timer(now);
-            self.sync_host_mouse_capture(&mut host_mouse_capture_active)?;
+            self.sync_host_mouse_capture(
+                &mut host_mouse_capture_active,
+                &mut host_sgr_pixels_active,
+            )?;
             self.sync_host_keyboard_report_all(&mut host_keyboard_report_all_active)?;
 
             // The focused pane's own terminal title arrives through PTY
@@ -2195,46 +2203,48 @@ impl App {
                         sent_window_title = Some(title);
                     }
                 }
-                let _sync_output = SyncOutputGuard::begin()?;
                 let kitty_graphics_enabled = self.state.kitty_graphics_enabled;
-                if self.full_redraw_pending {
-                    // Repaint every cell without a host-surface clear so Kitty
-                    // graphics placements survive focus/resize host redraws.
-                    Self::clear_terminal_for_full_redraw(terminal)?;
-                    self.full_redraw_pending = false;
-                }
                 let overlay = self.loop_stats.overlay_line().map(str::to_owned);
                 let overlay_bg = self.state.palette.surface0;
                 let overlay_fg = self.state.palette.overlay1;
                 let mut cell_size = crate::kitty_graphics::HostCellSize::default();
                 let draw_started = Instant::now();
-                terminal.draw(|frame| {
-                    let area = frame.area();
-                    if kitty_graphics_enabled {
-                        cell_size = crate::kitty_graphics::HostCellSize::from_terminal(area);
-                        crate::ui::compute_view_with_cell_size(
-                            &mut self.state,
-                            &self.terminal_runtimes,
-                            area,
-                            cell_size,
-                        );
-                    } else {
-                        crate::ui::compute_view_with_runtime_registry(
-                            &mut self.state,
-                            &self.terminal_runtimes,
-                            area,
-                        );
+                {
+                    let _sync_output = SyncOutputGuard::begin()?;
+                    if self.full_redraw_pending {
+                        // Repaint every cell without a host-surface clear so Kitty
+                        // graphics placements survive focus/resize host redraws.
+                        Self::clear_terminal_for_full_redraw(terminal)?;
+                        self.full_redraw_pending = false;
                     }
-                    crate::ui::render_with_runtime_registry(
-                        &self.state,
-                        &self.terminal_runtimes,
-                        frame,
-                    );
-                    if let Some(line) = overlay.as_deref() {
-                        crate::ui::render_loop_debug(frame, line, overlay_bg, overlay_fg);
-                    }
-                })?;
-                let draw = draw_started.elapsed();
+                    terminal.draw(|frame| {
+                        let area = frame.area();
+                        if kitty_graphics_enabled {
+                            cell_size = crate::kitty_graphics::HostCellSize::from_terminal(area);
+                            crate::ui::compute_view_with_cell_size(
+                                &mut self.state,
+                                &self.terminal_runtimes,
+                                area,
+                                cell_size,
+                            );
+                        } else {
+                            crate::ui::compute_view_with_runtime_registry(
+                                &mut self.state,
+                                &self.terminal_runtimes,
+                                area,
+                            );
+                        }
+                        crate::ui::render_with_runtime_registry(
+                            &self.state,
+                            &self.terminal_runtimes,
+                            frame,
+                        );
+                        if let Some(line) = overlay.as_deref() {
+                            crate::ui::render_loop_debug(frame, line, overlay_bg, overlay_fg);
+                        }
+                    })?;
+                }
+                self.state.host_cell_size = cell_size;
                 if kitty_graphics_enabled {
                     crate::kitty_graphics::paint_local_pane_graphics(
                         &self.state,
@@ -2243,6 +2253,7 @@ impl App {
                         cell_size,
                     )?;
                 }
+                let draw = draw_started.elapsed();
                 self.sync_pending_agent_resume_deadline(now);
                 if self.start_pending_agent_resumes(self.pending_agent_resume_due(now)) {
                     self.render_dirty.request_generic();
@@ -2332,21 +2343,35 @@ impl App {
         Ok(())
     }
 
-    fn sync_host_mouse_capture(&self, active: &mut bool) -> io::Result<()> {
+    fn sync_host_mouse_capture(
+        &mut self,
+        active: &mut bool,
+        sgr_pixels: &mut bool,
+    ) -> io::Result<()> {
         let view = self.default_client_view.clone_reconciled(&self.state);
         let desired = self
             .state
             .should_capture_host_mouse_from_view(&self.terminal_runtimes, &view);
-        if desired == *active {
+        let desired_pixels = desired
+            && self
+                .state
+                .focused_pane_requests_sgr_pixels_from_view(&self.terminal_runtimes, &view);
+        if desired == *active && desired_pixels == *sgr_pixels {
+            self.state.host_sgr_pixels = desired_pixels;
             return Ok(());
         }
         crate::terminal_modes::clear_host_mouse_reporting(&mut io::stdout())?;
         if desired {
             execute!(io::stdout(), EnableMouseCapture)?;
+            if desired_pixels {
+                crate::terminal_modes::set_host_sgr_pixels(&mut io::stdout(), true)?;
+            }
         } else {
             execute!(io::stdout(), DisableMouseCapture)?;
         }
         *active = desired;
+        *sgr_pixels = desired_pixels;
+        self.state.host_sgr_pixels = desired_pixels;
         Ok(())
     }
 
@@ -8178,6 +8203,7 @@ impl App {
         client_view: &mut ClientViewState,
         mouse: crossterm::event::MouseEvent,
     ) {
+        let mouse = self.state.normalize_host_mouse_event(mouse);
         match mouse.kind {
             crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left) => {
                 client_view.pending_url_click = false;
