@@ -23,7 +23,7 @@ struct AgentPanelView: View {
             }
         }
         .frame(width: 268, height: panelHeight, alignment: .top)
-        .background { PopoverChrome().ignoresSafeArea() }
+        .background(.clear)
     }
 
     private var panelHeight: CGFloat {
@@ -307,23 +307,3 @@ private struct AgentRow: View {
     }
 }
 
-private struct PopoverChrome: NSViewRepresentable {
-    func makeNSView(context: Context) -> NSVisualEffectView {
-        let view = NSVisualEffectView()
-        view.material = .popover
-        view.blendingMode = .behindWindow
-        view.state = .active
-        view.wantsLayer = true
-        view.layer?.cornerRadius = 10
-        view.layer?.cornerCurve = .continuous
-        view.layer?.masksToBounds = true
-        return view
-    }
-
-    func updateNSView(_ view: NSVisualEffectView, context: Context) {
-        guard let window = view.window else { return }
-        window.isOpaque = false
-        window.backgroundColor = .clear
-        window.hasShadow = true
-    }
-}

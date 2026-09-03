@@ -182,13 +182,13 @@ private final class ExtraMenuPanel {
         panel.becomesKeyOnlyIfNeeded = true
         panel.isReleasedWhenClosed = false
         panel.collectionBehavior = [.transient, .ignoresCycle, .fullScreenAuxiliary]
-        panel.contentViewController = hosting
-        if let content = panel.contentView {
-            content.wantsLayer = true
-            content.layer?.cornerRadius = 10
-            content.layer?.cornerCurve = .continuous
-            content.layer?.masksToBounds = true
-        }
+        let glass = NSGlassEffectView()
+        glass.style = .regular
+        glass.cornerRadius = 12
+        glass.contentView = hosting.view
+        hosting.view.wantsLayer = true
+        hosting.view.layer?.backgroundColor = NSColor.clear.cgColor
+        panel.contentView = glass
         self.panel = panel
     }
 
