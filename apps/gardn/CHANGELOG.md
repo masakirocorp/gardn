@@ -1,3 +1,13 @@
+## gardn@0.10.11
+
+### Open extra Settings and match menu extra chrome
+
+Settings… now shows a real window. The agent list is a left-aligned glass panel with no arrow.
+
+### Forward SGR pixel mouse to pane apps
+
+Pane apps that enable DEC 1016, including terminal-browser, now get wheel and pointer reports in pixel coordinates when Gardn knows host cell size.
+
 ## gardn@0.10.10
 
 ### Keep menu Follow Up in sync with the terminal

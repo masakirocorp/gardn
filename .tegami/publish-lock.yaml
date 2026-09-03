@@ -1,16 +1,20 @@
 core:changelogs:
-  - content: "---\npackages:\n  gardn:\n    type: patch\n---\n\n### Keep menu Follow Up in sync with the terminal\n\nThe macOS menu no longer notifies when you add an agent to Follow Up, and it no longer invents extra Follow Up rows from session files.\n"
-    filename: extra-follow-up.md
+  - content: "---\npackages:\n  gardn:\n    type: patch\n---\n\n# Open extra Settings and match menu extra chrome\n\nSettings… now shows a real window. The agent list is a left-aligned glass panel with no arrow.\n"
+    filename: extra-settings-window.md
+    v: 0.0.0
+  - content: "---\npackages:\n  gardn:\n    type: patch\n---\n\n# Forward SGR pixel mouse to pane apps\n\nPane apps that enable DEC 1016, including terminal-browser, now get wheel and pointer reports in pixel coordinates when Gardn knows host cell size.\n"
+    filename: sgr-pixel-mouse.md
     v: 0.0.0
 core:packages:
   - id: npm:@gardn/website
     updated: false
-  - id: cargo:gardn-local-api
-    updated: false
   - changelogIds:
-      - extra-follow-up.md
+      - extra-settings-window.md
+      - sgr-pixel-mouse.md
     id: cargo:gardn
     updated: true
+  - id: cargo:gardn-local-api
+    updated: false
   - id: cargo:portable-pty
     updated: false
 npm:packages:
