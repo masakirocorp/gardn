@@ -63,25 +63,55 @@ pub(super) fn ghostty_mouse_encoder_for_terminal(
 ) -> Option<crate::ghostty::MouseEncoder> {
     let mut encoder = crate::ghostty::MouseEncoder::new().ok()?;
     encoder.set_from_terminal(terminal);
-    if terminal
+    let cols = terminal.cols().ok()? as u32;
+    let rows = terminal.rows().ok()? as u32;
+    if let Some((cell_width, cell_height)) = ghostty_mouse_pixel_cell_size(terminal) {
+        encoder.set_size(
+            cols.saturating_mul(cell_width),
+            rows.saturating_mul(cell_height),
+            cell_width,
+            cell_height,
+        );
+    } else {
+        if terminal
+            .mode_get(crate::ghostty::MODE_MOUSE_SGR_PIXELS)
+            .unwrap_or(false)
+        {
+            encoder.set_format_sgr();
+        }
+        encoder.set_size(cols, rows, 1, 1);
+    }
+    Some(encoder)
+}
+
+pub(super) fn ghostty_mouse_surface_position(
+    terminal: &crate::ghostty::Terminal,
+    column: u16,
+    row: u16,
+) -> (f32, f32) {
+    match ghostty_mouse_pixel_cell_size(terminal) {
+        Some((cell_width, cell_height)) => (
+            f32::from(column) * cell_width as f32,
+            f32::from(row) * cell_height as f32,
+        ),
+        None => (f32::from(column), f32::from(row)),
+    }
+}
+
+fn ghostty_mouse_pixel_cell_size(terminal: &crate::ghostty::Terminal) -> Option<(u32, u32)> {
+    if !terminal
         .mode_get(crate::ghostty::MODE_MOUSE_SGR_PIXELS)
         .unwrap_or(false)
     {
-        // Gardn receives terminal mouse positions in cell coordinates from the
-        // host terminal, not surface pixels. If the child requested SGR-pixels,
-        // downgrade to SGR cells instead of forwarding bogus pixel values.
-        encoder.set_format_sgr();
+        return None;
     }
-    let cols = terminal.cols().ok()? as u32;
-    let rows = terminal.rows().ok()? as u32;
-    encoder.set_size(cols, rows, 1, 1);
-    Some(encoder)
+    terminal.reported_cell_size_px()
 }
 
 pub(super) fn ghostty_mouse_event_from_button_kind(
     kind: crossterm::event::MouseEventKind,
-    column: u16,
-    row: u16,
+    x: f32,
+    y: f32,
     modifiers: crossterm::event::KeyModifiers,
 ) -> Option<crate::ghostty::MouseEvent> {
     let mut event = crate::ghostty::MouseEvent::new().ok()?;
@@ -131,14 +161,14 @@ pub(super) fn ghostty_mouse_event_from_button_kind(
         event.clear_button();
     }
     event.set_mods(ghostty_mods_from_key_modifiers(modifiers));
-    event.set_position(column as f32, row as f32);
+    event.set_position(x, y);
     Some(event)
 }
 
 pub(super) fn ghostty_mouse_event_from_motion_kind(
     kind: crossterm::event::MouseEventKind,
-    column: u16,
-    row: u16,
+    x: f32,
+    y: f32,
     modifiers: crossterm::event::KeyModifiers,
 ) -> Option<crate::ghostty::MouseEvent> {
     if kind != crossterm::event::MouseEventKind::Moved {
@@ -148,14 +178,14 @@ pub(super) fn ghostty_mouse_event_from_motion_kind(
     event.set_action(crate::ghostty::MOUSE_ACTION_MOTION);
     event.clear_button();
     event.set_mods(ghostty_mods_from_key_modifiers(modifiers));
-    event.set_position(column as f32, row as f32);
+    event.set_position(x, y);
     Some(event)
 }
 
 pub(super) fn ghostty_mouse_event_from_wheel_kind(
     kind: crossterm::event::MouseEventKind,
-    column: u16,
-    row: u16,
+    x: f32,
+    y: f32,
     modifiers: crossterm::event::KeyModifiers,
 ) -> Option<crate::ghostty::MouseEvent> {
     let mut event = crate::ghostty::MouseEvent::new().ok()?;
@@ -169,7 +199,7 @@ pub(super) fn ghostty_mouse_event_from_wheel_kind(
     };
     event.set_button(button);
     event.set_mods(ghostty_mods_from_key_modifiers(modifiers));
-    event.set_position(column as f32, row as f32);
+    event.set_position(x, y);
     Some(event)
 }
 

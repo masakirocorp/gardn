@@ -19,7 +19,8 @@ use super::{
     input::{
         ghostty_key_event_from_terminal_key, ghostty_mouse_encoder_for_terminal,
         ghostty_mouse_event_from_button_kind, ghostty_mouse_event_from_motion_kind,
-        ghostty_mouse_event_from_wheel_kind, ghostty_prefers_gardn_text_encoding,
+        ghostty_mouse_event_from_wheel_kind, ghostty_mouse_surface_position,
+        ghostty_prefers_gardn_text_encoding,
     },
     kitty_keyboard::KittyKeyboardTracker,
     osc::{
@@ -1592,8 +1593,9 @@ impl GhosttyPaneTerminal {
         let Ok(core) = self.core.lock() else {
             return None;
         };
+        let (x, y) = ghostty_mouse_surface_position(&core.terminal, column, row);
         let mut encoder = ghostty_mouse_encoder_for_terminal(&core.terminal)?;
-        let event = ghostty_mouse_event_from_button_kind(kind, column, row, modifiers)?;
+        let event = ghostty_mouse_event_from_button_kind(kind, x, y, modifiers)?;
         encoder
             .encode(&event)
             .ok()
@@ -1610,8 +1612,9 @@ impl GhosttyPaneTerminal {
         let Ok(core) = self.core.lock() else {
             return None;
         };
+        let (x, y) = ghostty_mouse_surface_position(&core.terminal, column, row);
         let mut encoder = ghostty_mouse_encoder_for_terminal(&core.terminal)?;
-        let event = ghostty_mouse_event_from_wheel_kind(kind, column, row, modifiers)?;
+        let event = ghostty_mouse_event_from_wheel_kind(kind, x, y, modifiers)?;
         encoder
             .encode(&event)
             .ok()
@@ -1628,8 +1631,9 @@ impl GhosttyPaneTerminal {
         let Ok(core) = self.core.lock() else {
             return None;
         };
+        let (x, y) = ghostty_mouse_surface_position(&core.terminal, column, row);
         let mut encoder = ghostty_mouse_encoder_for_terminal(&core.terminal)?;
-        let event = ghostty_mouse_event_from_motion_kind(kind, column, row, modifiers)?;
+        let event = ghostty_mouse_event_from_motion_kind(kind, x, y, modifiers)?;
         encoder
             .encode(&event)
             .ok()
@@ -4467,6 +4471,31 @@ mod tests {
         );
 
         assert_eq!(encoded.as_deref(), Some(&b"\x1b[<35;5;7M"[..]));
+    }
+
+    #[test]
+    fn ghostty_mouse_sgr_pixels_encodes_cell_origin_as_pixels_when_cell_size_is_known() {
+        let (tx, _rx) = mpsc::channel(4);
+        let mut terminal = crate::ghostty::Terminal::new(80, 24, 0).unwrap();
+        terminal.write(b"\x1b[?1003h\x1b[?1006h\x1b[?1016h");
+        let pane = GhosttyPaneTerminal::new(terminal, tx).unwrap();
+        pane.resize(24, 80, 10, 20);
+
+        let motion = pane.encode_mouse_motion(
+            crossterm::event::MouseEventKind::Moved,
+            4,
+            6,
+            crossterm::event::KeyModifiers::empty(),
+        );
+        assert_eq!(motion.as_deref(), Some(&b"\x1b[<35;40;120M"[..]));
+
+        let wheel = pane.encode_mouse_wheel(
+            crossterm::event::MouseEventKind::ScrollDown,
+            4,
+            6,
+            crossterm::event::KeyModifiers::empty(),
+        );
+        assert_eq!(wheel.as_deref(), Some(&b"\x1b[<65;40;120M"[..]));
     }
 
     #[test]
