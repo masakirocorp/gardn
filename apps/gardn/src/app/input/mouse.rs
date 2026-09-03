@@ -1,13 +1,14 @@
 use bytes::Bytes;
 use crossterm::event::{KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
 use ratatui::layout::{Direction, Rect};
+use std::time::Instant;
 use tracing::warn;
 
 use crate::{
     app::state::{
         AgentPressState, AppState, ContextMenuKind, ContextMenuState, DragState, DragTarget,
-        GroupPressState, ModalListState, Mode, RightClickPassthroughGesture, TabPressState,
-        ViewLayout, WorkspacePressState,
+        GroupPressState, ModalListState, Mode, PendingPaneMouseMotion,
+        RightClickPassthroughGesture, TabPressState, ViewLayout, WorkspacePressState,
     },
     layout::{PaneInfo, SplitBorder},
     selection::Selection,
@@ -57,7 +58,7 @@ impl AppState {
     }
 
     pub(crate) fn handle_pane_mouse_only_for_view(
-        &self,
+        &mut self,
         terminal_runtimes: &TerminalRuntimeRegistry,
         client_view: &crate::app::view_state::ClientViewState,
         mouse: MouseEvent,
@@ -2055,9 +2056,8 @@ impl AppState {
             }
         }
     }
-
     pub(super) fn forward_pane_mouse_button(
-        &self,
+        &mut self,
         terminal_runtimes: &TerminalRuntimeRegistry,
         info: &PaneInfo,
         mouse: MouseEvent,
@@ -2069,12 +2069,13 @@ impl AppState {
     }
 
     pub(crate) fn forward_pane_mouse_button_in_workspace(
-        &self,
+        &mut self,
         terminal_runtimes: &TerminalRuntimeRegistry,
         ws_idx: usize,
         info: &PaneInfo,
         mouse: MouseEvent,
     ) -> bool {
+        self.flush_pending_pane_mouse_motion(terminal_runtimes);
         let Some(rt) = self.runtime_for_pane_in_workspace(terminal_runtimes, ws_idx, info.id)
         else {
             return false;
@@ -2094,7 +2095,7 @@ impl AppState {
     }
 
     pub(super) fn forward_pane_mouse_motion(
-        &self,
+        &mut self,
         terminal_runtimes: &TerminalRuntimeRegistry,
         info: &PaneInfo,
         mouse: MouseEvent,
@@ -2106,7 +2107,7 @@ impl AppState {
     }
 
     pub(crate) fn forward_pane_mouse_motion_in_workspace(
-        &self,
+        &mut self,
         terminal_runtimes: &TerminalRuntimeRegistry,
         ws_idx: usize,
         info: &PaneInfo,
@@ -2118,17 +2119,95 @@ impl AppState {
         };
         let column = mouse.column.saturating_sub(info.inner_rect.x);
         let row = mouse.row.saturating_sub(info.inner_rect.y);
+        if rt
+            .encode_mouse_motion(mouse.kind, column, row, mouse.modifiers)
+            .is_none()
+        {
+            return false;
+        }
+        let now = Instant::now();
+        let due = self
+            .last_pane_mouse_motion_flush
+            .is_none_or(|last| now.duration_since(last) >= super::super::MIN_RENDER_INTERVAL);
+        if due {
+            self.pending_pane_mouse_motion = None;
+            self.last_pane_mouse_motion_flush = Some(now);
+            self.send_pane_mouse_motion(terminal_runtimes, ws_idx, info.id, info.inner_rect, mouse)
+        } else {
+            self.pending_pane_mouse_motion = Some(PendingPaneMouseMotion {
+                ws_idx,
+                pane_id: info.id,
+                inner_rect: info.inner_rect,
+                mouse,
+            });
+            true
+        }
+    }
+
+    pub(crate) fn pane_mouse_motion_flush_at(&self) -> Option<Instant> {
+        self.pending_pane_mouse_motion.as_ref()?;
+        Some(
+            self.last_pane_mouse_motion_flush
+                .map(|last| last + super::super::MIN_RENDER_INTERVAL)
+                .unwrap_or_else(Instant::now),
+        )
+    }
+
+    pub(crate) fn flush_due_pane_mouse_motion(
+        &mut self,
+        terminal_runtimes: &TerminalRuntimeRegistry,
+        now: Instant,
+    ) {
+        let Some(deadline) = self.pane_mouse_motion_flush_at() else {
+            return;
+        };
+        if now >= deadline {
+            self.flush_pending_pane_mouse_motion(terminal_runtimes);
+        }
+    }
+
+    pub(crate) fn flush_pending_pane_mouse_motion(
+        &mut self,
+        terminal_runtimes: &TerminalRuntimeRegistry,
+    ) {
+        let Some(pending) = self.pending_pane_mouse_motion.take() else {
+            return;
+        };
+        self.last_pane_mouse_motion_flush = Some(Instant::now());
+        let _ = self.send_pane_mouse_motion(
+            terminal_runtimes,
+            pending.ws_idx,
+            pending.pane_id,
+            pending.inner_rect,
+            pending.mouse,
+        );
+    }
+
+    fn send_pane_mouse_motion(
+        &self,
+        terminal_runtimes: &TerminalRuntimeRegistry,
+        ws_idx: usize,
+        pane_id: crate::layout::PaneId,
+        inner_rect: Rect,
+        mouse: MouseEvent,
+    ) -> bool {
+        let Some(rt) = self.runtime_for_pane_in_workspace(terminal_runtimes, ws_idx, pane_id)
+        else {
+            return false;
+        };
+        let column = mouse.column.saturating_sub(inner_rect.x);
+        let row = mouse.row.saturating_sub(inner_rect.y);
         let Some(bytes) = rt.encode_mouse_motion(mouse.kind, column, row, mouse.modifiers) else {
             return false;
         };
         if let Err(err) = rt.try_send_bytes(Bytes::from(bytes)) {
-            warn!(pane = info.id.raw(), err = %err, kind = ?mouse.kind, "failed to forward mouse motion event");
+            warn!(pane = pane_id.raw(), err = %err, kind = ?mouse.kind, "failed to forward mouse motion event");
         }
         true
     }
 
     fn forward_pane_reported_wheel(
-        &self,
+        &mut self,
         terminal_runtimes: &TerminalRuntimeRegistry,
         info: &PaneInfo,
         mouse: MouseEvent,
@@ -2140,12 +2219,13 @@ impl AppState {
     }
 
     fn forward_pane_reported_wheel_in_workspace(
-        &self,
+        &mut self,
         terminal_runtimes: &TerminalRuntimeRegistry,
         ws_idx: usize,
         info: &PaneInfo,
         mouse: MouseEvent,
     ) -> bool {
+        self.flush_pending_pane_mouse_motion(terminal_runtimes);
         let Some(rt) = self.runtime_for_pane_in_workspace(terminal_runtimes, ws_idx, info.id)
         else {
             return false;
@@ -2170,11 +2250,12 @@ impl AppState {
     }
 
     pub(crate) fn forward_pane_wheel(
-        &self,
+        &mut self,
         terminal_runtimes: &TerminalRuntimeRegistry,
         info: &PaneInfo,
         mouse: MouseEvent,
     ) -> bool {
+        self.flush_pending_pane_mouse_motion(terminal_runtimes);
         let Some(ws_idx) = self.active else {
             return false;
         };
@@ -3935,6 +4016,61 @@ mod tests {
                 .expect("click after coalesced motion")
                 .as_ref(),
             b"\x1b[<0;4;3M"
+        );
+        assert!(rx.try_recv().is_err());
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn later_mouse_moves_wait_for_motion_flush() {
+        let mut app = app_for_mouse_test();
+        let ws = Workspace::test_new("test");
+        let pane_id = ws.tabs[0].root_pane;
+        app.state.workspaces = vec![ws];
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        crate::ui::compute_view(&mut app.state, Rect::new(0, 0, 106, 20));
+
+        let info = app.state.view.pane_infos[0].clone();
+        let (runtime, mut rx) =
+            crate::terminal::TerminalRuntime::test_with_channel_and_screen_bytes(
+                info.inner_rect.width.max(1),
+                info.inner_rect.height.max(1),
+                b"\x1b[?1003h\x1b[?1006h",
+            );
+        app.state.workspaces[0].insert_test_runtime(pane_id, runtime);
+
+        app.handle_mouse(mouse(
+            MouseEventKind::Moved,
+            info.inner_rect.x + 1,
+            info.inner_rect.y + 1,
+        ));
+        assert_eq!(
+            rx.try_recv().expect("first move is forwarded").as_ref(),
+            b"\x1b[<35;2;2M"
+        );
+
+        app.handle_mouse(mouse(
+            MouseEventKind::Moved,
+            info.inner_rect.x + 2,
+            info.inner_rect.y + 2,
+        ));
+        app.handle_mouse(mouse(
+            MouseEventKind::Moved,
+            info.inner_rect.x + 3,
+            info.inner_rect.y + 2,
+        ));
+        assert!(
+            rx.try_recv().is_err(),
+            "later moves in the same interval stay queued"
+        );
+
+        app.state
+            .flush_pending_pane_mouse_motion(&app.terminal_runtimes);
+        assert_eq!(
+            rx.try_recv()
+                .expect("flush forwards the latest move")
+                .as_ref(),
+            b"\x1b[<35;4;3M"
         );
         assert!(rx.try_recv().is_err());
     }
