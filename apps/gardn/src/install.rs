@@ -102,8 +102,6 @@ pub(crate) fn install_kind_for(
     UpdateInstallAction::Direct
 }
 
-
-
 fn is_macos_app_bundle_cli(path: &Path) -> bool {
     let path = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
     let Some(macos_directory) = path.parent() else {
