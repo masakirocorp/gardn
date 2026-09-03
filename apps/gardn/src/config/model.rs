@@ -1229,7 +1229,7 @@ impl Default for RemoteConfig {
 pub struct ExperimentalConfig {
     /// Allow launching Gardn inside an existing Gardn pane. Default: false.
     pub allow_nested: bool,
-    /// Experimental local Kitty graphics rendering for attached clients. Default: false.
+    /// Experimental local Kitty graphics rendering for attached clients. Default: true.
     pub kitty_graphics: bool,
     /// Persist pane screen history to session-history.json. Default: true.
     pub pane_history: bool,
@@ -1272,7 +1272,7 @@ impl Default for ExperimentalConfig {
     fn default() -> Self {
         Self {
             allow_nested: false,
-            kitty_graphics: false,
+            kitty_graphics: true,
             pane_history: true,
             reveal_hidden_cursor_for_cjk_ime: false,
             cjk_ime_agents: Vec::new(),
@@ -2224,16 +2224,16 @@ pane_history = false
     }
 
     #[test]
-    fn kitty_graphics_default_off_and_parse() {
+    fn kitty_graphics_default_on_and_parse_off() {
         let config = Config::default();
-        assert!(!config.experimental.kitty_graphics);
+        assert!(config.experimental.kitty_graphics);
 
         let toml = r#"
 [experimental]
-kitty_graphics = true
+kitty_graphics = false
 "#;
         let config: Config = toml::from_str(toml).unwrap();
-        assert!(config.experimental.kitty_graphics);
+        assert!(!config.experimental.kitty_graphics);
     }
 
     #[test]

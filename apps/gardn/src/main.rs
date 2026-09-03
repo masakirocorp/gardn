@@ -402,8 +402,8 @@ initial_agent_scope = "all"
 # Allow launching Gardn from inside a Gardn-managed pane.
 # allow_nested = false
 # Experimental local Kitty graphics rendering for attached clients.
-# Requires a Kitty graphics-compatible outer terminal.
-# kitty_graphics = false
+# Requires a Kitty graphics-compatible outer terminal. Default: true.
+# kitty_graphics = true
 # Save recent pane screen history across full server restarts.
 # pane_history = true
 # While prefix mode is active, temporarily switch the host input source to
