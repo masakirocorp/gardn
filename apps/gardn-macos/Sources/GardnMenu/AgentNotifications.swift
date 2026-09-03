@@ -80,21 +80,19 @@ enum AgentNotifications {
     enum Kind: Equatable {
         case blocked
         case done
-        case followUp
 
         var headline: String {
             switch self {
             case .blocked: return "Needs attention"
             case .done: return "Finished"
-            case .followUp: return "Follow Up"
             }
         }
 
         static func of(_ agent: AgentRecord) -> Kind? {
             if agent.status == .blocked { return .blocked }
             if agent.status == .done { return .done }
-            if agent.followUp { return .followUp }
             return nil
         }
     }
+
 }
