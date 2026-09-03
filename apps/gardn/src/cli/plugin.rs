@@ -1498,21 +1498,26 @@ fn read_tail_capped_output(mut reader: impl Read, cap: usize) -> CappedOutput {
 }
 
 fn scrub_gardn_runtime_env(command: &mut Command) {
-    for key in [
+    const GARDN_KEYS: &[&str] = &[
         crate::api::SOCKET_PATH_ENV_VAR,
-        crate::server::socket_paths::CLIENT_SOCKET_PATH_ENV_VAR,
-        crate::session::SESSION_ENV_VAR,
+        crate::GARDN_ENV_VAR,
         "GARDN_BIN_PATH",
-        "GARDN_ENV",
         "GARDN_WORKSPACE_ID",
         "GARDN_TAB_ID",
         "GARDN_PANE_ID",
-    ] {
+    ];
+    for key in GARDN_KEYS {
         command.env_remove(key);
+        if let Some(alias) = crate::product_env::herdr_alias(key) {
+            command.env_remove(alias);
+        }
     }
+    command.env_remove(crate::server::socket_paths::CLIENT_SOCKET_PATH_ENV_VAR);
+    command.env_remove(crate::session::SESSION_ENV_VAR);
     for (key, _) in std::env::vars_os() {
-        if key.to_string_lossy().starts_with("GARDN_PLUGIN_") {
-            command.env_remove(key);
+        let name = key.to_string_lossy();
+        if name.starts_with("GARDN_PLUGIN_") || name.starts_with("HERDR_PLUGIN_") {
+            command.env_remove(&key);
         }
     }
 }

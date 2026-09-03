@@ -5,16 +5,19 @@ pub(super) fn plugin_path_env(plugin: &InstalledPluginInfo) -> Vec<(String, Stri
     let config_dir = crate::config::config_dir().join("plugins").join(&component);
     let state_dir = crate::config::state_dir().join("plugins").join(component);
 
-    let config_dir = config_dir.display().to_string();
-    let state_dir = state_dir.display().to_string();
-    vec![
-        ("GARDN_PLUGIN_ROOT".to_string(), plugin.plugin_root.clone()),
-        ("HERDR_PLUGIN_ROOT".to_string(), plugin.plugin_root.clone()),
-        ("GARDN_PLUGIN_CONFIG_DIR".to_string(), config_dir.clone()),
-        ("HERDR_PLUGIN_CONFIG_DIR".to_string(), config_dir),
-        ("GARDN_PLUGIN_STATE_DIR".to_string(), state_dir.clone()),
-        ("HERDR_PLUGIN_STATE_DIR".to_string(), state_dir),
-    ]
+    let mut env = Vec::new();
+    crate::product_env::push(&mut env, "GARDN_PLUGIN_ROOT", plugin.plugin_root.clone());
+    crate::product_env::push(
+        &mut env,
+        "GARDN_PLUGIN_CONFIG_DIR",
+        config_dir.display().to_string(),
+    );
+    crate::product_env::push(
+        &mut env,
+        "GARDN_PLUGIN_STATE_DIR",
+        state_dir.display().to_string(),
+    );
+    env
 }
 
 #[cfg(test)]

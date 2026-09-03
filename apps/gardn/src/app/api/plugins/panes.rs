@@ -434,50 +434,29 @@ impl App {
             .map_err(|err| ("invalid_plugin_context".to_string(), err.to_string()))?;
         env.retain(|(key, _)| !plugin_pane_protected_env_key(key));
         env.extend(super::env::plugin_path_env(plugin));
-        env.push((
-            "HERDR_SOCKET_PATH".to_string(),
+        crate::product_env::push(
+            &mut env,
+            crate::api::SOCKET_PATH_ENV_VAR,
             crate::api::socket_path().display().to_string(),
-        ));
-        env.push(("HERDR_ENV".to_string(), "1".to_string()));
-        env.push(("GARDN_PLUGIN_ID".to_string(), plugin.plugin_id.clone()));
-        env.push(("HERDR_PLUGIN_ID".to_string(), plugin.plugin_id.clone()));
-        env.push((
-            "GARDN_PLUGIN_ENTRYPOINT_ID".to_string(),
-            entrypoint.to_string(),
-        ));
-        env.push((
-            "HERDR_PLUGIN_ENTRYPOINT_ID".to_string(),
-            entrypoint.to_string(),
-        ));
-        env.push((
-            "GARDN_PLUGIN_CONTEXT_JSON".to_string(),
-            context_json.clone(),
-        ));
-        env.push((
-            "HERDR_PLUGIN_CONTEXT_JSON".to_string(),
-            context_json.clone(),
-        ));
+        );
+        crate::product_env::push(&mut env, "GARDN_PLUGIN_ID", plugin.plugin_id.clone());
+        crate::product_env::push(&mut env, "GARDN_PLUGIN_ENTRYPOINT_ID", entrypoint);
+        crate::product_env::push(&mut env, "GARDN_PLUGIN_CONTEXT_JSON", context_json);
         if let Some(workspace_id) = context.workspace_id.as_ref() {
-            env.push(("GARDN_WORKSPACE_ID".to_string(), workspace_id.clone()));
-            env.push(("HERDR_WORKSPACE_ID".to_string(), workspace_id.clone()));
+            crate::product_env::push(&mut env, "GARDN_WORKSPACE_ID", workspace_id.clone());
         }
         if let Some(tab_id) = context.tab_id.as_ref() {
-            env.push(("GARDN_TAB_ID".to_string(), tab_id.clone()));
-            env.push(("HERDR_TAB_ID".to_string(), tab_id.clone()));
+            crate::product_env::push(&mut env, "GARDN_TAB_ID", tab_id.clone());
         }
         if let Some(pane_id) = context.focused_pane_id.as_ref() {
-            env.push(("GARDN_PANE_ID".to_string(), pane_id.clone()));
-            env.push(("HERDR_PANE_ID".to_string(), pane_id.clone()));
+            crate::product_env::push(&mut env, "GARDN_PANE_ID", pane_id.clone());
         }
         if let Ok(current_exe) = std::env::current_exe() {
-            env.push((
-                "GARDN_BIN_PATH".to_string(),
+            crate::product_env::push(
+                &mut env,
+                "GARDN_BIN_PATH",
                 current_exe.display().to_string(),
-            ));
-            env.push((
-                "HERDR_BIN_PATH".to_string(),
-                current_exe.display().to_string(),
-            ));
+            );
         }
         Ok(env)
     }
@@ -631,31 +610,21 @@ impl App {
 }
 
 fn plugin_pane_protected_env_key(key: &str) -> bool {
-    matches!(
-        key,
-        "GARDN_PLUGIN_ID"
-            | "HERDR_PLUGIN_ID"
-            | "GARDN_PLUGIN_ENTRYPOINT_ID"
-            | "HERDR_PLUGIN_ENTRYPOINT_ID"
-            | "GARDN_PLUGIN_CONTEXT_JSON"
-            | "HERDR_PLUGIN_CONTEXT_JSON"
-            | "GARDN_PLUGIN_ROOT"
-            | "HERDR_PLUGIN_ROOT"
-            | "GARDN_PLUGIN_CONFIG_DIR"
-            | "HERDR_PLUGIN_CONFIG_DIR"
-            | "GARDN_PLUGIN_STATE_DIR"
-            | "HERDR_PLUGIN_STATE_DIR"
-            | "GARDN_WORKSPACE_ID"
-            | "HERDR_WORKSPACE_ID"
-            | "GARDN_TAB_ID"
-            | "HERDR_TAB_ID"
-            | "GARDN_PANE_ID"
-            | "HERDR_PANE_ID"
-            | "GARDN_BIN_PATH"
-            | "HERDR_BIN_PATH"
-            | "HERDR_SOCKET_PATH"
-            | "HERDR_ENV"
-    )
+    const GARDN_KEYS: &[&str] = &[
+        crate::api::SOCKET_PATH_ENV_VAR,
+        crate::GARDN_ENV_VAR,
+        "GARDN_PLUGIN_ID",
+        "GARDN_PLUGIN_ENTRYPOINT_ID",
+        "GARDN_PLUGIN_CONTEXT_JSON",
+        "GARDN_PLUGIN_ROOT",
+        "GARDN_PLUGIN_CONFIG_DIR",
+        "GARDN_PLUGIN_STATE_DIR",
+        "GARDN_WORKSPACE_ID",
+        "GARDN_TAB_ID",
+        "GARDN_PANE_ID",
+        "GARDN_BIN_PATH",
+    ];
+    crate::product_env::is_alias_of(GARDN_KEYS, key)
 }
 
 #[cfg(test)]

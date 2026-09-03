@@ -59,6 +59,8 @@ mod plugin_paths;
 mod popup_size;
 mod ports;
 mod product_announcements;
+mod product_env;
+
 mod protocol;
 mod pty;
 mod raw_input;

@@ -36,15 +36,29 @@ impl App {
             return pane_not_found(id, &target.pane_id);
         };
         let pane_visible = self.pane_graphics_visible(ws_idx, pane_id);
-        let cell_size = crate::kitty_graphics::HostCellSize::from_terminal(ratatui::layout::Rect {
-            x: 0,
-            y: 0,
-            width: 80,
-            height: 24,
-        });
+        let cell_size = self
+            .state
+            .runtime_for_pane_in_workspace(&self.terminal_runtimes, ws_idx, pane_id)
+            .and_then(|runtime| runtime.current_cell_size_px())
+            .map(
+                |(width_px, height_px)| crate::kitty_graphics::HostCellSize {
+                    width_px,
+                    height_px,
+                },
+            )
+            .filter(|cell_size| cell_size.is_known())
+            .unwrap_or_else(|| {
+                crate::kitty_graphics::HostCellSize::from_terminal(ratatui::layout::Rect {
+                    x: 0,
+                    y: 0,
+                    width: 80,
+                    height: 24,
+                })
+            });
         if !cell_size.is_known() {
             return encode_error(id, "cell_size_unavailable", "host cell size is unavailable");
         }
+
         let file_frame_directory = self
             .direct_graphics_available
             .then(|| self.pane_graphics_files.source_directory().ok())
@@ -66,7 +80,8 @@ impl App {
                 file_frame_max_bytes: direct.then_some(PANE_GRAPHICS_STREAM_MAX_BYTES),
                 file_frame_damage: true,
                 max_layers_per_pane: PANE_GRAPHICS_MAX_LAYERS_PER_PANE,
-                pixel_mouse: self.pixel_mouse_available,
+                pixel_mouse: self.pixel_mouse_available || cell_size.is_known(),
+
                 file_frame_transport: direct.then(|| "direct-kitty".into()),
             },
         )
@@ -645,6 +660,23 @@ mod tests {
             crate::api::schema::PaneTarget { pane_id },
         );
         assert!(pane_visible(&short_lived_mode));
+    }
+
+    #[test]
+    fn info_reports_pane_runtime_cell_size_and_pixel_mouse() {
+        let (mut app, pane_id) = app();
+        let pane = app.parse_pane_id(&pane_id).unwrap().1;
+        let (runtime, _rx) = crate::terminal::TerminalRuntime::test_with_channel(80, 24);
+        runtime.resize(24, 80, 9, 18);
+        app.state.workspaces[0].insert_test_runtime(pane, runtime);
+
+        let response = app
+            .handle_pane_graphics_info("info".into(), crate::api::schema::PaneTarget { pane_id });
+        let result =
+            serde_json::from_str::<serde_json::Value>(&response).unwrap()["result"].clone();
+        assert_eq!(result["cell_width_px"], 9);
+        assert_eq!(result["cell_height_px"], 18);
+        assert_eq!(result["pixel_mouse"], true);
     }
 
     #[test]

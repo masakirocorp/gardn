@@ -115,18 +115,21 @@ impl PaneLaunchEnv {
         socket_path: &Path,
         runtime_token: String,
     ) -> Self {
-        const RESERVED_IDENTITY_KEYS: [&str; 4] = [
+        const RESERVED_GARDN_IDENTITY_KEYS: [&str; 4] = [
             crate::api::SOCKET_PATH_ENV_VAR,
             "GARDN_WORKSPACE_ID",
             "GARDN_TAB_ID",
             "GARDN_PANE_ID",
         ];
-        self.extra
-            .retain(|(key, _)| !RESERVED_IDENTITY_KEYS.contains(&key.as_str()));
-        self.extra.push((
-            crate::integration::GARDN_PANE_ID_ENV_VAR.to_string(),
+        self.extra.retain(|(key, _)| {
+            !crate::product_env::is_alias_of(&RESERVED_GARDN_IDENTITY_KEYS, key)
+        });
+        crate::product_env::push(
+            &mut self.extra,
+            crate::integration::GARDN_PANE_ID_ENV_VAR,
             runtime_token,
-        ));
+        );
+
         self.identity = None;
         self.include_pane_identity = false;
         self.socket_path_override = Some(socket_path.to_string_lossy().into_owned());
@@ -165,23 +168,30 @@ fn apply_pane_launch_env(cmd: &mut CommandBuilder, launch_env: &PaneLaunchEnv, p
     for (key, value) in &launch_env.extra {
         cmd.env(key, value);
     }
-    cmd.env(crate::GARDN_ENV_VAR, crate::GARDN_ENV_VALUE);
+    crate::product_env::apply(cmd, crate::GARDN_ENV_VAR, crate::GARDN_ENV_VALUE);
     match launch_env.socket_path_override.as_deref() {
         Some("") => {
             // Worker-owned launches must not inherit a coordinator Local API socket.
             cmd.env_remove(crate::api::SOCKET_PATH_ENV_VAR);
+            if let Some(alias) = crate::product_env::herdr_alias(crate::api::SOCKET_PATH_ENV_VAR) {
+                cmd.env_remove(alias);
+            }
         }
         Some(path) => {
-            cmd.env(crate::api::SOCKET_PATH_ENV_VAR, path);
+            crate::product_env::apply(cmd, crate::api::SOCKET_PATH_ENV_VAR, path);
         }
         None => {
-            cmd.env(crate::api::SOCKET_PATH_ENV_VAR, crate::api::socket_path());
+            crate::product_env::apply(
+                cmd,
+                crate::api::SOCKET_PATH_ENV_VAR,
+                crate::api::socket_path(),
+            );
         }
     }
     if let Some(identity) = &launch_env.identity {
-        cmd.env("GARDN_WORKSPACE_ID", &identity.workspace_id);
-        cmd.env("GARDN_TAB_ID", &identity.tab_id);
-        cmd.env("GARDN_PANE_ID", &identity.pane_id);
+        crate::product_env::apply(cmd, "GARDN_WORKSPACE_ID", &identity.workspace_id);
+        crate::product_env::apply(cmd, "GARDN_TAB_ID", &identity.tab_id);
+        crate::product_env::apply(cmd, "GARDN_PANE_ID", &identity.pane_id);
     } else if launch_env.include_pane_identity {
         crate::integration::apply_pane_env(cmd, pane_id);
     }
@@ -2413,6 +2423,11 @@ impl PaneRuntime {
         (rows, cols)
     }
 
+    pub(crate) fn current_cell_size_px(&self) -> Option<(u32, u32)> {
+        let (_, _, width_px, height_px) = self.current_size.get();
+        (width_px > 0 && height_px > 0).then_some((width_px, height_px))
+    }
+
     /// Resize if the dimensions actually changed.
     pub fn resize(&self, rows: u16, cols: u16, cell_width_px: u32, cell_height_px: u32) {
         let rows = rows.max(2);
@@ -3035,6 +3050,33 @@ mod tests {
         apply_pane_launch_env(&mut cmd, &PaneLaunchEnv::default(), PaneId::from_raw(1));
 
         assert!(cmd.get_env("CODEX_THREAD_ID").is_none());
+    }
+
+    #[test]
+    fn pane_launch_env_publishes_herdr_identity_aliases() {
+        let mut cmd = CommandBuilder::new("shell");
+        let launch_env = PaneLaunchEnv::default().with_identity(
+            "ws-1".to_string(),
+            "tab-1".to_string(),
+            "pane-1".to_string(),
+        );
+
+        apply_pane_launch_env(&mut cmd, &launch_env, PaneId::from_raw(1));
+
+        for (gardn, herdr, value) in [
+            ("GARDN_PANE_ID", "HERDR_PANE_ID", "pane-1"),
+            ("GARDN_TAB_ID", "HERDR_TAB_ID", "tab-1"),
+            ("GARDN_WORKSPACE_ID", "HERDR_WORKSPACE_ID", "ws-1"),
+            ("GARDN_ENV", "HERDR_ENV", "1"),
+        ] {
+            assert_eq!(cmd.get_env(gardn).and_then(|v| v.to_str()), Some(value));
+            assert_eq!(cmd.get_env(herdr).and_then(|v| v.to_str()), Some(value));
+        }
+        assert_eq!(
+            cmd.get_env("GARDN_SOCKET_PATH").and_then(|v| v.to_str()),
+            cmd.get_env("HERDR_SOCKET_PATH").and_then(|v| v.to_str())
+        );
+        assert!(cmd.get_env("HERDR_SOCKET_PATH").is_some());
     }
 
     #[test]

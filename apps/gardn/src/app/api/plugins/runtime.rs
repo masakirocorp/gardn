@@ -35,68 +35,50 @@ impl App {
         self.state.next_plugin_command_log_id += 1;
         let started_unix_ms = current_unix_ms();
         let mut env = super::env::plugin_path_env(plugin);
-        env.extend([
-            (
-                crate::api::SOCKET_PATH_ENV_VAR.to_string(),
-                crate::api::socket_path().display().to_string(),
-            ),
-            (
-                "HERDR_SOCKET_PATH".to_string(),
-                crate::api::socket_path().display().to_string(),
-            ),
-            ("GARDN_ENV".to_string(), "1".to_string()),
-            ("HERDR_ENV".to_string(), "1".to_string()),
-            ("GARDN_PLUGIN_ID".to_string(), plugin.plugin_id.clone()),
-            ("HERDR_PLUGIN_ID".to_string(), plugin.plugin_id.clone()),
-            (
-                "GARDN_PLUGIN_CONTEXT_JSON".to_string(),
-                context_json.clone(),
-            ),
-            ("HERDR_PLUGIN_CONTEXT_JSON".to_string(), context_json),
-        ]);
+        crate::product_env::push(
+            &mut env,
+            crate::api::SOCKET_PATH_ENV_VAR,
+            crate::api::socket_path().display().to_string(),
+        );
+        crate::product_env::push(&mut env, crate::GARDN_ENV_VAR, crate::GARDN_ENV_VALUE);
+        crate::product_env::push(&mut env, "GARDN_PLUGIN_ID", plugin.plugin_id.clone());
+        crate::product_env::push(&mut env, "GARDN_PLUGIN_CONTEXT_JSON", context_json);
         if let Ok(current_exe) = std::env::current_exe() {
-            let current_exe = current_exe.display().to_string();
-            env.push(("GARDN_BIN_PATH".to_string(), current_exe.clone()));
-            env.push(("HERDR_BIN_PATH".to_string(), current_exe));
+            crate::product_env::push(
+                &mut env,
+                "GARDN_BIN_PATH",
+                current_exe.display().to_string(),
+            );
         }
         if let Some(action_id) = action_id.as_ref() {
-            env.push(("GARDN_PLUGIN_ACTION_ID".to_string(), action_id.clone()));
-            env.push(("HERDR_PLUGIN_ACTION_ID".to_string(), action_id.clone()));
+            crate::product_env::push(&mut env, "GARDN_PLUGIN_ACTION_ID", action_id.clone());
         }
         if let Some(event) = event.as_ref() {
-            env.push(("GARDN_PLUGIN_EVENT".to_string(), event.clone()));
-            env.push(("HERDR_PLUGIN_EVENT".to_string(), event.clone()));
+            crate::product_env::push(&mut env, "GARDN_PLUGIN_EVENT", event.clone());
         }
         if let Some(event_json) = event_json.as_ref() {
-            env.push(("GARDN_PLUGIN_EVENT_JSON".to_string(), event_json.clone()));
-            env.push(("HERDR_PLUGIN_EVENT_JSON".to_string(), event_json.clone()));
+            crate::product_env::push(&mut env, "GARDN_PLUGIN_EVENT_JSON", event_json.clone());
         }
         if let Some(workspace_id) = context.workspace_id.as_ref() {
-            env.push(("GARDN_WORKSPACE_ID".to_string(), workspace_id.clone()));
-            env.push(("HERDR_WORKSPACE_ID".to_string(), workspace_id.clone()));
+            crate::product_env::push(&mut env, "GARDN_WORKSPACE_ID", workspace_id.clone());
         }
         if let Some(tab_id) = context.tab_id.as_ref() {
-            env.push(("GARDN_TAB_ID".to_string(), tab_id.clone()));
-            env.push(("HERDR_TAB_ID".to_string(), tab_id.clone()));
+            crate::product_env::push(&mut env, "GARDN_TAB_ID", tab_id.clone());
         }
         if let Some(pane_id) = context.focused_pane_id.as_ref() {
-            env.push(("GARDN_PANE_ID".to_string(), pane_id.clone()));
-            env.push(("HERDR_PANE_ID".to_string(), pane_id.clone()));
+            crate::product_env::push(&mut env, "GARDN_PANE_ID", pane_id.clone());
         }
         if let Some(clicked_url) = context.clicked_url.as_ref() {
-            env.push(("GARDN_PLUGIN_CLICKED_URL".to_string(), clicked_url.clone()));
-            env.push(("HERDR_PLUGIN_CLICKED_URL".to_string(), clicked_url.clone()));
+            crate::product_env::push(&mut env, "GARDN_PLUGIN_CLICKED_URL", clicked_url.clone());
         }
         if let Some(link_handler_id) = context.link_handler_id.as_ref() {
-            env.push((
-                "GARDN_PLUGIN_LINK_HANDLER_ID".to_string(),
+            crate::product_env::push(
+                &mut env,
+                "GARDN_PLUGIN_LINK_HANDLER_ID",
                 link_handler_id.clone(),
-            ));
-            env.push((
-                "HERDR_PLUGIN_LINK_HANDLER_ID".to_string(),
-                link_handler_id.clone(),
-            ));
+            );
         }
+
         if self.state.plugin_commands_in_flight >= MAX_PLUGIN_COMMANDS_IN_FLIGHT {
             let message = format!(
                 "maximum concurrent plugin commands reached ({MAX_PLUGIN_COMMANDS_IN_FLIGHT})"

@@ -602,6 +602,10 @@ impl TerminalRuntime {
     pub(crate) fn current_size(&self) -> (u16, u16) {
         self.0.current_size()
     }
+
+    pub(crate) fn current_cell_size_px(&self) -> Option<(u32, u32)> {
+        self.0.current_cell_size_px()
+    }
 }
 
 #[cfg(test)]
