@@ -66,6 +66,37 @@ The navigator also exposes pane, tab, group, and agent actions through its index
 
 Press the default `ctrl+b`, then `space`. Type part of an action name to filter it, select a result, and press `enter`. The palette includes workspace, tab, pane, group, layout, sidebar, settings, scrollback, and agent actions. It is the safest way to discover an action after changing keybindings.
 
+## Open curated project tools
+
+Gardn provides four project actions. Each action opens in a managed tab and uses the selected workspace context.
+
+| Action  | Default command     | Install                                                      |
+| ------- | ------------------- | ------------------------------------------------------------ |
+| Browser | `terminal-browser`  | `curl -fsSL https://terminal-browser.sh/install \| bash`     |
+| Review  | `hunk diff --watch` | `brew install hunk` or `npm i -g hunkdiff`                   |
+| Editor  | `fresh .`           | `brew install fresh-editor`                                  |
+| GitHub  | `gh dash`           | Install `gh`, then run `gh extension install dlvhdr/gh-dash` |
+
+To open a tool:
+
+1. Press **Ctrl+B**, then **Space**.
+2. Search for **Open Browser**, **Open Review**, **Open Editor**, or **Open GitHub**.
+3. Select the action and press **Enter**.
+
+Browser, Editor, and GitHub start in the workspace directory. Review starts in an observed Git repository. Gardn asks you to select a repository when the workspace contains more than one.
+
+The default tools use the active Gardn theme. A terminal-derived theme passes the terminal colors through. A custom command runs unchanged.
+
+Open **Settings > Commands** to replace a command. Clear a command to hide its action. Use its reset row to restore the default.
+
+To scope GitHub by organization:
+
+1. Right-click the group and select **Settings**.
+2. Enter the GitHub login in **GitHub Organization**.
+3. Press **Enter** to save it.
+
+Each workspace in that group inherits the organization. Gardn adds open pull request and open issue sections for the organization when it starts gh-dash. Gardn applies this as a one-time override and does not modify your global gh-dash configuration.
+
 ## Close and detach safely
 
 Use the command palette when you need to verify what will close. The default actions are:

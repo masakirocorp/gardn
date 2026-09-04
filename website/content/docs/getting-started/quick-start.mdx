@@ -68,7 +68,21 @@ Look at the agent panel in the sidebar. The visible status labels are:
 
 **Checkpoint:** You can identify the agent's current label without opening its pane.
 
-## 6. Detach
+## 6. Open a project tool (optional)
+
+If `terminal-browser` is installed, open it from the command palette:
+
+1. Press **Ctrl+B**, then **Space**.
+2. Type `open browser`.
+3. Press **Enter**.
+
+Gardn opens terminal-browser in a managed tab for the active workspace. The same flow opens the Review, Editor, and GitHub tools when their commands are installed.
+
+**Checkpoint:** The new tab is named for the Browser action and uses the active Gardn terminal theme.
+
+For installation commands, Git repository selection, custom commands, and group-scoped GitHub dashboards, see [Open curated project tools](/docs/guides/workspaces-and-navigation#open-curated-project-tools).
+
+## 7. Detach
 
 Use the default detach sequence:
 
@@ -77,7 +91,7 @@ Use the default detach sequence:
 
 **Checkpoint:** The TUI closes and your shell prompt returns. Detaching leaves the session server and its panes running.
 
-## 7. Reattach
+## 8. Reattach
 
 From the shell, run:
 
