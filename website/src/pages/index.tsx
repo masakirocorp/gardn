@@ -135,6 +135,21 @@ export default function HomePage() {
               label: "Manage integrations",
             },
             {
+              title: "Open project tools",
+              copy: (
+                <>
+                  Choose <span className="gardn-command">open browser</span>,{" "}
+                  <span className="gardn-command">open review</span>,{" "}
+                  <span className="gardn-command">open editor</span>, or{" "}
+                  <span className="gardn-command">open GitHub</span>. Gardn launches each in the
+                  workspace context, themes the defaults, and applies the group&apos;s GitHub
+                  organization to GitHub.
+                </>
+              ),
+              href: "/docs/guides/workspaces-and-navigation#open-curated-project-tools",
+              label: "Use curated project tools",
+            },
+            {
               title: "Split, tab, and resize",
               copy: (
                 <>
@@ -177,14 +192,15 @@ export default function HomePage() {
               href: "/docs/guides/workspaces-and-navigation",
             },
             {
-              title: "Tabs and panes",
+              title: "Curated project tools",
               copy: (
                 <>
-                  Split, focus, zoom, resize, and move panes between tabs and workspaces. Pane
-                  scrollback, selection, and keyboard protocols follow the terminal contract.
+                  Open Browser, Review, Editor, and GitHub in managed tabs. The defaults follow the
+                  active Gardn theme, and GitHub can inherit organization scope from the
+                  workspace&apos;s group.
                 </>
               ),
-              href: "/docs/guides/copy-and-terminal",
+              href: "/docs/guides/workspaces-and-navigation#open-curated-project-tools",
             },
             {
               title: "Agent awareness",
