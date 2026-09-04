@@ -919,7 +919,7 @@ mod tests {
             "  terminal-browser  ",
             r#"  hunk diff --watch --theme auto  "#,
             "  fresh .  ",
-            "  gh dash  ",
+            "  ghui  ",
         );
 
         let content = std::fs::read_to_string(&path).unwrap();
@@ -927,7 +927,7 @@ mod tests {
         assert_eq!(config.commands.browser, "terminal-browser");
         assert_eq!(config.commands.review, "hunk diff --watch --theme auto");
         assert_eq!(config.commands.editor, "fresh .");
-        assert_eq!(config.commands.github, "gh dash");
+        assert_eq!(config.commands.github, "ghui");
         assert!(!content.contains("\ngit ="));
         assert!(!content.contains("\ndiff ="));
         assert!(!content.contains("\nide ="));
@@ -956,7 +956,7 @@ mod tests {
             crate::config::TestEnvVar::set(crate::config::CONFIG_PATH_ENV_VAR, &path);
         let mut app = test_app();
 
-        app.save_commands("terminal-browser", "", "fresh .", "gh dash");
+        app.save_commands("terminal-browser", "", "fresh .", "ghui");
 
         let content = std::fs::read_to_string(&path).unwrap();
         let config: crate::config::Config = toml::from_str(&content).unwrap();

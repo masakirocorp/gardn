@@ -142,9 +142,9 @@ Pass when each enabled bridge reaches the host once, disabled or missing helpers
 2. Exercise the compact layout at narrow widths.
 3. Discover, rerun, and stop a project command. Focus a real port owner.
 4. Open Browser, Review, Editor, and GitHub from the command palette and workspace menus. Verify that each default tool uses the active Gardn theme.
-5. Set different GitHub organizations on two groups. Open GitHub from one workspace in each group. Verify that gh-dash shows open pull request and issue sections for the inherited organization.
+5. Open GitHub in two repository workspaces. Use the mouse to select tabs and rows and to scroll. Verify that ghui uses each workspace's repository context, the active Gardn terminal palette, and visible scrollbars. Verify that Gardn does not change the user's ghui configuration.
 
-Pass when drop targets and hit areas match their visuals, compact layouts retain required controls, reruns do not duplicate managed commands, port focus selects the owning pane, and each curated tool uses the correct workspace, group scope, and theme.
+Pass when drop targets and hit areas match their visuals, compact layouts retain required controls, reruns do not duplicate managed commands, port focus selects the owning pane, and each curated tool uses the correct workspace context and theme.
 
 ## M12: Sleep, wake, and recovery
 

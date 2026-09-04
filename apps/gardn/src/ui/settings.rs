@@ -2214,7 +2214,7 @@ mod tests {
         app.settings.pending_browser_command = Some("terminal-browser".to_string());
         app.settings.pending_review_command = Some("hunk diff --watch".to_string());
         app.settings.pending_editor_command = Some("fresh .".to_string());
-        app.settings.pending_github_command = Some("gh dash".to_string());
+        app.settings.pending_github_command = Some("ghui".to_string());
         app.settings.list.show();
 
         let area = Rect::new(0, 0, 100, 44);
@@ -2259,11 +2259,11 @@ mod tests {
         assert!(text.contains("terminal-browser"));
         assert!(text.contains("hunk diff --watch"));
         assert!(text.contains("fresh ."));
-        assert!(text.contains("gh dash"));
+        assert!(text.contains("ghui"));
         assert!(text.contains("Reset to terminal-browser"));
         assert!(text.contains("Reset to hunk diff --watch"));
         assert!(text.contains("Reset to fresh ."));
-        assert!(text.contains("Reset to gh dash"));
+        assert!(text.contains("Reset to ghui"));
         app.settings.scroll = 4;
         terminal
             .draw(|frame| render_settings_overlay(&app, frame, area))
@@ -2334,7 +2334,7 @@ mod tests {
         assert!(text.contains("Default Location for New Spaces"));
         assert!(text.contains("‹ test-host ›"));
         assert!(text.contains("Directory"));
-        assert!(text.contains("GitHub Organization"));
+        assert!(!text.contains("GitHub Organization"));
         assert!(!text.contains("●"));
         assert!(!text.contains("○"));
         assert!(!text.contains("Work█"));

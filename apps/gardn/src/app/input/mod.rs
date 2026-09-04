@@ -921,13 +921,6 @@ impl App {
                     SettingsAction::SaveGroupIcon { group_idx, icon } => {
                         self.state.set_group_icon(group_idx, icon);
                     }
-                    SettingsAction::SaveGroupGithubOrganization {
-                        group_idx,
-                        organization,
-                    } => {
-                        self.state
-                            .set_group_github_organization(group_idx, organization);
-                    }
 
                     SettingsAction::SaveGroupDefaultLocation {
                         group_idx,

@@ -1717,29 +1717,8 @@ impl AppState {
                     crate::external_tool_theme::is_terminal_passthrough(&self.global_theme_name),
                 )
             }
-            (ProjectCommandKind::Github, crate::gh_dash_theme::GITHUB_COMMAND) => {
-                let palette = ws_idx
-                    .and_then(|idx| {
-                        self.workspaces
-                            .get(idx)
-                            .map(|_| self.palette_for_workspace(idx))
-                    })
-                    .unwrap_or_else(|| self.palette.clone());
-                let organization = ws_idx
-                    .and_then(|idx| self.workspaces.get(idx))
-                    .and_then(|workspace| {
-                        self.groups
-                            .iter()
-                            .find(|group| group.id == workspace.group_id)
-                    })
-                    .and_then(|group| group.github_organization.as_ref());
-                crate::gh_dash_theme::command(
-                    &palette,
-                    self.theme_appearance_for_mode(self.global_theme_mode),
-                    self.host_terminal_theme,
-                    crate::external_tool_theme::is_terminal_passthrough(&self.global_theme_name),
-                    organization,
-                )
+            (ProjectCommandKind::Github, crate::ghui_theme::GITHUB_COMMAND) => {
+                crate::ghui_theme::command()
             }
             _ => configured.clone(),
         };
@@ -1769,7 +1748,7 @@ impl AppState {
                 | (ProjectCommandKind::Editor, crate::fresh_theme::IDE_COMMAND)
                 | (
                     ProjectCommandKind::Github,
-                    crate::gh_dash_theme::GITHUB_COMMAND
+                    crate::ghui_theme::GITHUB_COMMAND
                 )
         );
         if !curated {
@@ -2399,7 +2378,6 @@ impl AppState {
             default_location,
             favorite_agent_profile_ids: Vec::new(),
             default_agent_profile_id: None,
-            github_organization: None,
         });
         self.mark_session_dirty();
         self.groups.len() - 1
@@ -2419,22 +2397,6 @@ impl AppState {
             return false;
         };
         workspace.set_custom_name(name);
-        self.mark_session_dirty();
-        true
-    }
-
-    pub fn set_group_github_organization(
-        &mut self,
-        group_idx: usize,
-        organization: Option<super::state::GithubOrganization>,
-    ) -> bool {
-        let Some(group) = self.groups.get_mut(group_idx) else {
-            return false;
-        };
-        if group.github_organization == organization {
-            return false;
-        }
-        group.github_organization = organization;
         self.mark_session_dirty();
         true
     }
@@ -5847,36 +5809,11 @@ mod tests {
         let command = state
             .configured_project_command(project.clone(), ProjectCommandKind::Github, Some(0))
             .unwrap();
-        assert!(command.command.contains("gh dash --config"));
+        assert!(command.command.contains("GHUI_CONFIG_DIR"));
         assert!(state
             .curated_project_command_terminal_theme(ProjectCommandKind::Github, Some(0))
             .is_none());
         assert_eq!(command.location.path.as_path(), project.as_path());
-    }
-
-    #[test]
-    fn github_command_inherits_organization_from_workspace_group() {
-        let mut state = app_with_workspaces(&["web", "api"]);
-        state.groups[0].github_organization =
-            crate::app::state::GithubOrganization::parse("first-org").expect("valid organization");
-        let mut second_group = Group::default_group();
-        second_group.id = "second".to_string();
-        second_group.name = "Second".to_string();
-        second_group.github_organization =
-            crate::app::state::GithubOrganization::parse("second-org").expect("valid organization");
-        state.groups.push(second_group);
-        state.workspaces[1].group_id = "second".to_string();
-
-        let command = state
-            .configured_project_command(
-                temp_project("group-scoped-github"),
-                ProjectCommandKind::Github,
-                Some(1),
-            )
-            .expect("configured GitHub command");
-
-        assert!(command.command.contains("org:second-org"));
-        assert!(!command.command.contains("org:first-org"));
     }
 
     #[test]
@@ -5912,7 +5849,7 @@ mod tests {
             .command
             .contains("theme_ref=\"file://$theme_dir/theme.json\""));
         assert!(editor.command.contains("\"cursor\": [189, 147, 249]"));
-        assert!(github.command.contains("gh dash --config"));
+        assert!(github.command.contains("GHUI_CONFIG_DIR"));
         let terminal_theme = state
             .curated_project_command_terminal_theme(ProjectCommandKind::Github, Some(0))
             .expect("named curated command should receive a complete terminal theme");

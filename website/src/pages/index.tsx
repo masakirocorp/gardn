@@ -196,8 +196,8 @@ export default function HomePage() {
               copy: (
                 <>
                   Open Browser, Review, Editor, and GitHub in managed tabs. The defaults follow the
-                  active Gardn theme, and GitHub can inherit organization scope from the
-                  workspace&apos;s group.
+                  active Gardn theme, and ghui provides a mouse-aware GitHub interface in the
+                  workspace&apos;s repository context.
                 </>
               ),
               href: "/docs/guides/workspaces-and-navigation#open-curated-project-tools",

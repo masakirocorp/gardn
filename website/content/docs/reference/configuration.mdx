@@ -270,14 +270,14 @@ Agent sound override keys are `pi`, `claude`, `codex`, `gemini`, `cursor`, `agy`
 
 ### `[commands]`
 
-| Key       | Type   | Default             | Description                                   |
-| --------- | ------ | ------------------- | --------------------------------------------- |
-| `browser` | string | `terminal-browser`  | Browser command, launched from the workspace. |
-| `review`  | string | `hunk diff --watch` | Repository review command.                    |
-| `editor`  | string | `fresh .`           | Project editor command.                       |
-| `github`  | string | `gh dash`           | GitHub pull request and issue dashboard.      |
+| Key       | Type   | Default             | Description                                       |
+| --------- | ------ | ------------------- | ------------------------------------------------- |
+| `browser` | string | `terminal-browser`  | Browser command, launched from the workspace.     |
+| `review`  | string | `hunk diff --watch` | Repository review command.                        |
+| `editor`  | string | `fresh .`           | Project editor command.                           |
+| `github`  | string | `ghui`              | Mouse-aware GitHub pull request and issue client. |
 
-**Settings > Commands** edits these values. Clear one field to hide that project action. Each field can restore its built-in value, and **Reset All Commands** restores all four defaults. Group settings can optionally provide a validated GitHub organization; workspaces inherit that setting when launching GitHub.
+**Settings > Commands** edits these values. Clear one field to hide that project action. Each field can restore its built-in value, and **Reset All Commands** restores all four defaults. The curated ghui command starts in the workspace directory and uses an isolated runtime theme configuration.
 
 ### `[update]`
 

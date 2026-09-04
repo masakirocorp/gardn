@@ -862,7 +862,6 @@ mod tests {
                 default_location: None,
                 favorite_agent_profile_ids: Vec::new(),
                 default_agent_profile_id: None,
-                github_organization: None,
             }],
             active_group: 0,
             group_filter_enabled: true,

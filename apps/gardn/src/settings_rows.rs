@@ -16,8 +16,7 @@ pub(crate) const GROUP_GENERAL_NAME: usize = 0;
 pub(crate) const GROUP_GENERAL_ICON: usize = 1;
 pub(crate) const GROUP_GENERAL_HOST: usize = 2;
 pub(crate) const GROUP_GENERAL_DIRECTORY: usize = 3;
-pub(crate) const GROUP_GENERAL_GITHUB_ORGANIZATION: usize = 4;
-pub(crate) const GROUP_GENERAL_DELETE: usize = 5;
+pub(crate) const GROUP_GENERAL_DELETE: usize = 4;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum SettingsListRow {
@@ -501,15 +500,6 @@ fn group_general_rows(app: &AppState, settings: &SettingsState) -> Vec<SettingsL
         .clone()
         .or_else(|| default_location.map(|location| location.path.as_path().display().to_string()))
         .unwrap_or_default();
-    let github_organization = settings
-        .pending_group_github_organization
-        .clone()
-        .or_else(|| {
-            group
-                .and_then(|group| group.github_organization.as_ref())
-                .map(|organization| organization.as_str().to_string())
-        })
-        .unwrap_or_default();
     let host_id = settings
         .pending_group_default_execution_host_id
         .as_ref()
@@ -546,12 +536,6 @@ fn group_general_rows(app: &AppState, settings: &SettingsState) -> Vec<SettingsL
             index: GROUP_GENERAL_DIRECTORY,
             title: "Directory".into(),
             value: default_directory.into(),
-        },
-        SettingsListRow::Spacer,
-        SettingsListRow::TextInput {
-            index: GROUP_GENERAL_GITHUB_ORGANIZATION,
-            title: "GitHub Organization".into(),
-            value: github_organization.into(),
         },
         SettingsListRow::Spacer,
         SettingsListRow::Header("Danger Zone"),
@@ -1252,7 +1236,7 @@ impl CommandField {
             Self::Browser => "Reset to terminal-browser",
             Self::Review => "Reset to hunk diff --watch",
             Self::Editor => "Reset to fresh .",
-            Self::Github => "Reset to gh dash",
+            Self::Github => "Reset to ghui",
         }
     }
 

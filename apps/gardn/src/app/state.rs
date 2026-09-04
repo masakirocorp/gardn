@@ -104,38 +104,6 @@ pub struct Group {
     pub default_location: Option<crate::execution_host::ResourceLocation>,
     pub favorite_agent_profile_ids: Vec<String>,
     pub default_agent_profile_id: Option<String>,
-    pub github_organization: Option<GithubOrganization>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
-pub struct GithubOrganization(String);
-
-impl GithubOrganization {
-    pub fn parse(input: &str) -> Result<Option<Self>, String> {
-        let value = input.trim();
-        if value.is_empty() {
-            return Ok(None);
-        }
-        let valid = (1..=39).contains(&value.len())
-            && value
-                .as_bytes()
-                .iter()
-                .all(|byte| byte.is_ascii_alphanumeric() || *byte == b'-')
-            && !value.starts_with('-')
-            && !value.ends_with('-')
-            && !value.contains("--");
-        valid
-            .then(|| Self(value.to_string()))
-            .ok_or_else(|| {
-                "GitHub organization must be 1-39 ASCII letters or numbers separated by single hyphens"
-                    .to_string()
-            })
-            .map(Some)
-    }
-
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
 }
 
 impl Group {
@@ -148,7 +116,6 @@ impl Group {
             default_location: None,
             favorite_agent_profile_ids: Vec::new(),
             default_agent_profile_id: None,
-            github_organization: None,
         }
     }
 }
@@ -2303,7 +2270,6 @@ pub struct SettingsState {
     pub pending_group_name: Option<String>,
     /// Pending group icon while group settings is open.
     pub pending_group_icon: Option<String>,
-    pub pending_group_github_organization: Option<String>,
 
     /// Pending default directory for future spaces while group settings is open.
     pub pending_group_default_directory: Option<String>,
@@ -4644,7 +4610,7 @@ impl AppState {
             browser_command: "terminal-browser".to_string(),
             review_command: "hunk diff --watch".to_string(),
             editor_command: "fresh .".to_string(),
-            github_command: "gh dash".to_string(),
+            github_command: "ghui".to_string(),
             pane_border_agent_info: PaneBorderAgentInfoConfig::default(),
             status_indicators: StatusIndicatorStyle::default(),
             mobile_width_threshold: crate::config::DEFAULT_MOBILE_WIDTH_THRESHOLD,
@@ -4744,7 +4710,6 @@ impl AppState {
                 pending_group_accent_choice: None,
                 pending_group_name: None,
                 pending_group_icon: None,
-                pending_group_github_organization: None,
 
                 pending_group_default_directory: None,
                 pending_group_default_execution_host_id: None,

@@ -2104,8 +2104,6 @@ pub struct GroupInfo {
     pub default_location: Option<ResourceLocationParams>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub accent: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub github_organization: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]

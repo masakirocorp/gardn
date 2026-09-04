@@ -5430,7 +5430,6 @@ mod tests {
             default_location: None,
             favorite_agent_profile_ids: Vec::new(),
             default_agent_profile_id: None,
-            github_organization: None,
         });
         app.workspaces = vec![Workspace::test_new("home"), Workspace::test_new("api")];
         app.workspaces[1].group_id = "work".into();
@@ -5512,7 +5511,6 @@ mod tests {
             default_location: None,
             favorite_agent_profile_ids: Vec::new(),
             default_agent_profile_id: None,
-            github_organization: None,
         });
         app.workspaces = vec![Workspace::test_new("home"), Workspace::test_new("api")];
         app.workspaces[1].group_id = "work".into();
@@ -5915,7 +5913,6 @@ mod tests {
             default_location: None,
             favorite_agent_profile_ids: Vec::new(),
             default_agent_profile_id: None,
-            github_organization: None,
         });
         app.workspaces = vec![
             Workspace::test_new("home"),
@@ -5956,7 +5953,6 @@ mod tests {
             default_location: None,
             favorite_agent_profile_ids: Vec::new(),
             default_agent_profile_id: None,
-            github_organization: None,
         });
         app.collapsed_workspace_groups.push("work".into());
         app.workspaces = vec![Workspace::test_new("home"), Workspace::test_new("api")];
@@ -6125,7 +6121,6 @@ mod tests {
             default_location: None,
             favorite_agent_profile_ids: Vec::new(),
             default_agent_profile_id: None,
-            github_organization: None,
         });
         app.workspaces[0].group_id = "work".into();
         app.active_group = 1;
@@ -6175,7 +6170,6 @@ mod tests {
             default_location: None,
             favorite_agent_profile_ids: Vec::new(),
             default_agent_profile_id: None,
-            github_organization: None,
         });
 
         let mut triage = Workspace::test_new("Triage");
@@ -6261,7 +6255,6 @@ mod tests {
             default_location: None,
             favorite_agent_profile_ids: Vec::new(),
             default_agent_profile_id: None,
-            github_organization: None,
         });
         app.collapsed_workspace_groups.push("work".into());
         app.workspaces = vec![Workspace::test_new("home"), Workspace::test_new("api")];
@@ -6296,7 +6289,6 @@ mod tests {
             default_location: None,
             favorite_agent_profile_ids: Vec::new(),
             default_agent_profile_id: None,
-            github_organization: None,
         });
         app.workspaces = vec![Workspace::test_new("home")];
         let area = Rect::new(0, 0, 32, 14);

@@ -468,7 +468,7 @@ impl CommandsConfig {
     pub(crate) const DEFAULT_BROWSER: &str = "terminal-browser";
     pub(crate) const DEFAULT_REVIEW: &str = "hunk diff --watch";
     pub(crate) const DEFAULT_EDITOR: &str = "fresh .";
-    pub(crate) const DEFAULT_GITHUB: &str = "gh dash";
+    pub(crate) const DEFAULT_GITHUB: &str = "ghui";
 }
 
 impl Default for CommandsConfig {
@@ -1499,7 +1499,7 @@ shell_mode = "non_login"
         assert_eq!(defaults.browser, "terminal-browser");
         assert_eq!(defaults.review, "hunk diff --watch");
         assert_eq!(defaults.editor, "fresh .");
-        assert_eq!(defaults.github, "gh dash");
+        assert_eq!(defaults.github, "ghui");
 
         let config: Config = toml::from_str(
             r#"

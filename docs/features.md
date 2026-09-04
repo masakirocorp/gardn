@@ -212,7 +212,7 @@ Gardn can discover and run project commands. The command palette is also a gener
 - Command status sections include running, failed, unknown, and stopped commands.
 - Custom keybindings can launch shell helpers or pane commands.
 - **Panel actions** — command rows can run, focus, expand, or stop commands from the right sidebar.
-- **Project commands** — **Settings > Commands** configures four independent project launchers: **Browser** (`terminal-browser`), **Review** (`hunk diff --watch`), **Editor** (`fresh .`), and **GitHub** (`gh dash`). Each field is freely editable; leaving one empty hides only that action. All four appear in the command palette and workspace and `+` menus. Browser, Editor, and GitHub run from the workspace directory; Review uses observed Git repositories. GitHub inherits an optional organization filter from its workspace's group.
+- **Project commands** — **Settings > Commands** configures four independent project launchers: **Browser** (`terminal-browser`), **Review** (`hunk diff --watch`), **Editor** (`fresh .`), and **GitHub** (`ghui`). Each field is freely editable; leaving one empty hides only that action. All four appear in the command palette and workspace and `+` menus. Browser, Editor, and GitHub run from the workspace directory; Review uses observed Git repositories. The curated GitHub launcher uses ghui's mouse-aware interface and repository context. Gardn supplies the active terminal palette and visible scrollbars through an isolated runtime configuration.
 - **Command resets** — Each project command has a reset action. **Reset All Commands** restores all four built-in command values.
 - **Command discovery** — Gardn discovers VS Code tasks, package scripts, just recipes, Make targets, and defaults for common Cargo, Go, Java, Python, .NET, PHP, and Ruby projects.
 - **Managed reruns** — rerunning a managed command focuses an existing run or restarts a stopped/failed run in the same pane instead of spawning duplicates.
@@ -317,7 +317,7 @@ Gardn is a terminal workspace manager, so some features call user-installed tool
 | Tool | Used for | Requirement |
 | --- | --- | --- |
 | `git` | Git status, repository discovery, and Git-aware project commands. | Required for Git-aware features. |
-| Configured project commands | Browser, review, editor, and GitHub actions from project contexts. Configure `[commands].browser`, `[commands].review`, `[commands].editor`, and `[commands].github`; defaults are `terminal-browser`, `hunk diff --watch`, `fresh .`, and `gh dash`. | Each tool is optional; required only when its configured action is used. |
+| Configured project commands | Browser, review, editor, and GitHub actions from project contexts. Configure `[commands].browser`, `[commands].review`, `[commands].editor`, and `[commands].github`; defaults are `terminal-browser`, `hunk diff --watch`, `fresh .`, and `ghui`. | Each tool is optional; required only when its configured action is used. Install ghui on macOS with `brew install kitlangton/tap/ghui`. |
 | Agent CLIs such as `pi`, `omp`, `claude`, `codex`, `grok`, `opencode`, `hermes`, `copilot`, `kimi`, `droid`, `qodercli`, and `cursor-agent` | Launching agent panes and installing/updating matching Gardn integrations. | Required only for the agent/profile the user launches or integrates. |
 | `python3` | Installed hook scripts for agent integrations. | Required for hook-based state/session reports; hooks exit quietly when it is missing. |
 | `curl` | Update checks, release downloads, manifest refreshes, and remote bootstrap downloads. | Required for those networked update/bootstrap features. |
@@ -389,7 +389,7 @@ Gardn supports terminal-derived colors and built-in palettes.
 - **Light and dark palette selection** — choose separate palettes when system mode is enabled.
 - **Live system sync** — in system mode, Gardn follows foreground host-terminal light/dark color changes while it is running and refreshes pane terminal defaults.
 - **Nested terminal palette** — pane applications that query ANSI colors receive the active host palette. Application-defined palette colors keep precedence until the application resets them.
-- **Group settings** — rename groups, choose a group icon, set the default location and directory for new spaces, set the GitHub organization inherited by spaces, assign per-group theme accent colors, choose favorite/default agent profiles, or inherit the global accent. An SSH group default can be saved without a directory; Gardn uses the connection's suggested directory.
+- **Group settings** — rename groups, choose a group icon, set the default location and directory for new spaces, assign per-group theme accent colors, choose favorite/default agent profiles, or inherit the global accent. An SSH group default can be saved without a directory; Gardn uses the connection's suggested directory.
 
 - **Accent color** — choose highlight, border, and navigation accent from the built-in theme palette or, when following terminal colors, from the six terminal ANSI accents (with separate light and dark choices).
 

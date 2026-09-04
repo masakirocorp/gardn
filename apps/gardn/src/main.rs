@@ -36,8 +36,8 @@ mod events;
 mod execution_host;
 mod external_tool_theme;
 mod fresh_theme;
-mod gh_dash_theme;
 mod ghostty;
+mod ghui_theme;
 mod handoff_runtime;
 mod hunk_theme;
 mod input;
@@ -235,7 +235,7 @@ const DEFAULT_CONFIG: &str = r##"# Gardn configuration
 browser = "terminal-browser"
 review = "hunk diff --watch"
 editor = "fresh ."
-github = "gh dash"
+github = "ghui"
 
 # Legacy indexed shortcut config is still parsed for compatibility.
 # Prefer switch_tab, switch_workspace, switch_group, and focus_agent for new configs.
