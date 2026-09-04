@@ -301,6 +301,10 @@ impl HeadlessServer {
         })
     }
 
+    fn reconcile_terminal_themes_before_render(&mut self) -> bool {
+        self.app.reconcile_terminal_themes()
+    }
+
     /// Runs the headless server event loop until shutdown.
     ///
     /// This is the server's main loop — analogous to `App::run()` but without
@@ -423,6 +427,9 @@ impl HeadlessServer {
             }
 
             self.drain_client_config_reload_request();
+            if self.reconcile_terminal_themes_before_render() {
+                needs_render = true;
+            }
             self.stream_host_mouse_capture_mode();
 
             self.sync_animation_timer(now);
