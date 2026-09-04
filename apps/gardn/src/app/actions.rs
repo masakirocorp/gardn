@@ -5858,7 +5858,7 @@ mod tests {
         let command = state
             .configured_project_command(project.clone(), ProjectCommandKind::Github, Some(0))
             .unwrap();
-        assert!(command.command.contains("required:  0.10.0-masakiro.3"));
+        assert!(command.command.contains("required:  0.10.0-masakiro.4"));
         assert!(command.command.contains("GHUI_THEME=system"));
         assert!(command.command.contains("GHUI_SHOW_SCROLLBARS=true"));
         assert!(state
@@ -5925,7 +5925,7 @@ mod tests {
             .command
             .contains("theme_ref=\"file://$theme_dir/theme.json\""));
         assert!(editor.command.contains("\"cursor\": [189, 147, 249]"));
-        assert!(github.command.contains("required:  0.10.0-masakiro.3"));
+        assert!(github.command.contains("required:  0.10.0-masakiro.4"));
         assert!(github.command.contains("GHUI_THEME=system"));
         let terminal_theme = state
             .curated_project_command_terminal_theme(ProjectCommandKind::Github, Some(0))

@@ -1,7 +1,7 @@
 use crate::app::state::GithubOrganization;
 
 pub(crate) const GITHUB_COMMAND: &str = "ghui";
-pub(crate) const REQUIRED_VERSION: &str = "0.10.0-masakiro.3";
+pub(crate) const REQUIRED_VERSION: &str = "0.10.0-masakiro.4";
 pub(crate) const FORK_URL: &str = "https://github.com/masakirocorp/ghui";
 
 pub(crate) fn command(organization: Option<&GithubOrganization>) -> String {
