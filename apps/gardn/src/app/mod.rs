@@ -8204,6 +8204,9 @@ impl App {
         mouse: crossterm::event::MouseEvent,
     ) {
         let mouse = self.state.normalize_host_mouse_event(mouse);
+        if let Some(view) = client_view.tab_canvas_view {
+            self.state.remap_host_pointer_pixels_to_canvas(view);
+        }
         match mouse.kind {
             crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left) => {
                 client_view.pending_url_click = false;
@@ -17305,6 +17308,128 @@ command = "printf literal > '{}'"
             other_client.active_tab_for_workspace(&client_workspace_id),
             Some(0)
         );
+    }
+
+    #[tokio::test]
+    async fn pixel_mouse_coordinates_follow_the_client_canvas_viewport() {
+        let mut app = test_app();
+        let workspace = Workspace::test_new("client");
+        let pane_id = workspace.tabs[0].root_pane;
+        app.state.workspaces = vec![workspace];
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::Terminal;
+        app.state.mouse_capture = true;
+        app.state.host_sgr_pixels = true;
+        app.state.host_cell_size = crate::kitty_graphics::HostCellSize {
+            width_px: 18,
+            height_px: 38,
+        };
+        app.default_client_view = ClientViewState::from_default_client_state(&app.state);
+
+        let mut client = ClientViewState::from_default_client_state(&app.state);
+        compute_client_view(&app, &mut client, ratatui::layout::Rect::new(0, 0, 120, 30));
+        let viewport = client.tab_canvas_view.expect("client canvas viewport");
+        assert!(viewport.destination_rect().x > 0);
+        let pane = client
+            .computed
+            .pane_infos
+            .iter()
+            .find(|pane| pane.id == pane_id)
+            .expect("client pane should be visible")
+            .clone();
+        let (runtime, mut rx) = TerminalRuntime::test_with_channel_and_screen_bytes(
+            pane.inner_rect.width.max(1),
+            pane.inner_rect.height.max(1),
+            b"\x1b[?1002h\x1b[?1006h\x1b[?1016h",
+        );
+        runtime.resize(
+            pane.inner_rect.height.max(1),
+            pane.inner_rect.width.max(1),
+            18,
+            38,
+        );
+        app.state.workspaces[0].insert_test_runtime(pane_id, runtime);
+
+        let (screen_col, screen_row) =
+            screen_point_for_client_canvas(&client, pane.inner_rect.x + 4, pane.inner_rect.y + 2);
+        app.route_client_events_for_view(
+            &mut client,
+            vec![raw_mouse(
+                MouseEventKind::Down(MouseButton::Middle),
+                screen_col * 18 + 7,
+                screen_row * 38 + 11,
+            )],
+            true,
+        );
+
+        assert_eq!(
+            rx.try_recv()
+                .expect("pixel mouse event should be forwarded"),
+            bytes::Bytes::from_static(b"\x1b[<1;79;87M")
+        );
+        assert!(rx.try_recv().is_err());
+    }
+
+    #[tokio::test]
+    async fn pixel_mouse_coordinates_are_normalized_once_without_mouse_capture() {
+        let mut app = test_app();
+        let workspace = Workspace::test_new("client");
+        let pane_id = workspace.tabs[0].root_pane;
+        app.state.workspaces = vec![workspace];
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::Terminal;
+        app.state.mouse_capture = false;
+        app.state.host_sgr_pixels = true;
+        app.state.host_cell_size = crate::kitty_graphics::HostCellSize {
+            width_px: 18,
+            height_px: 38,
+        };
+        app.default_client_view = ClientViewState::from_default_client_state(&app.state);
+
+        let mut client = ClientViewState::from_default_client_state(&app.state);
+        compute_client_view(&app, &mut client, ratatui::layout::Rect::new(0, 0, 120, 30));
+        let viewport = client.tab_canvas_view.expect("client canvas viewport");
+        assert!(viewport.destination_rect().x > 0);
+        let pane = client
+            .computed
+            .pane_infos
+            .iter()
+            .find(|pane| pane.id == pane_id)
+            .expect("client pane should be visible")
+            .clone();
+        let (runtime, mut rx) = TerminalRuntime::test_with_channel_and_screen_bytes(
+            pane.inner_rect.width.max(1),
+            pane.inner_rect.height.max(1),
+            b"\x1b[?1002h\x1b[?1006h\x1b[?1016h",
+        );
+        runtime.resize(
+            pane.inner_rect.height.max(1),
+            pane.inner_rect.width.max(1),
+            18,
+            38,
+        );
+        app.state.workspaces[0].insert_test_runtime(pane_id, runtime);
+
+        let (screen_col, screen_row) =
+            screen_point_for_client_canvas(&client, pane.inner_rect.x + 4, pane.inner_rect.y + 2);
+        app.route_client_events_for_view(
+            &mut client,
+            vec![raw_mouse(
+                MouseEventKind::Down(MouseButton::Middle),
+                screen_col * 18 + 7,
+                screen_row * 38 + 11,
+            )],
+            true,
+        );
+
+        assert_eq!(
+            rx.try_recv()
+                .expect("pixel mouse event should be forwarded"),
+            bytes::Bytes::from_static(b"\x1b[<1;79;87M")
+        );
+        assert!(rx.try_recv().is_err());
     }
 
     #[tokio::test]

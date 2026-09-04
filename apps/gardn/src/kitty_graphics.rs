@@ -25,6 +25,7 @@ const TRANSMIT_FILE_TTL: Duration = Duration::from_secs(2);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ImageTransmit {
+    #[cfg(test)]
     Direct,
     TempFile,
 }
@@ -293,6 +294,7 @@ pub(crate) fn encode_local_pane_graphics_for_view(
     bytes
 }
 
+#[cfg(test)]
 fn encode_graphics_update(
     bytes: &mut Vec<u8>,
     placements: &[HostPlacement],

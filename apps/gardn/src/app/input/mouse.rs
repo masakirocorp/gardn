@@ -70,10 +70,6 @@ impl AppState {
         let Some(ws_idx) = client_view.active_workspace else {
             return;
         };
-        let mouse = self.normalize_host_mouse_event(mouse);
-        if client_view.tab_canvas_view.is_some() {
-            self.pointer_host_pixels = None;
-        }
         let Some((column, row)) = client_view
             .tab_canvas_view
             .map_or(Some((mouse.column, mouse.row)), |view| {
@@ -2089,7 +2085,7 @@ impl AppState {
         let column = mouse.column.saturating_sub(info.inner_rect.x);
         let row = mouse.row.saturating_sub(info.inner_rect.y);
         let Some(bytes) = self.encode_pane_mouse_button(
-            &rt,
+            rt,
             mouse.kind,
             column,
             row,
@@ -2136,7 +2132,7 @@ impl AppState {
         let can_encode = match mouse.kind {
             MouseEventKind::Moved => self
                 .encode_pane_mouse_motion(
-                    &rt,
+                    rt,
                     mouse.kind,
                     column,
                     row,
@@ -2147,7 +2143,7 @@ impl AppState {
                 .is_some(),
             MouseEventKind::Drag(_) => self
                 .encode_pane_mouse_button(
-                    &rt,
+                    rt,
                     mouse.kind,
                     column,
                     row,
@@ -2254,7 +2250,7 @@ impl AppState {
         let row = mouse.row.saturating_sub(inner_rect.y);
         let Some(bytes) = (match mouse.kind {
             MouseEventKind::Drag(_) => self.encode_pane_mouse_button(
-                &rt,
+                rt,
                 mouse.kind,
                 column,
                 row,
@@ -2263,7 +2259,7 @@ impl AppState {
                 host_pixels,
             ),
             _ => self.encode_pane_mouse_motion(
-                &rt,
+                rt,
                 mouse.kind,
                 column,
                 row,
@@ -2374,6 +2370,27 @@ impl AppState {
         }
     }
 
+    pub(crate) fn remap_host_pointer_pixels_to_canvas(
+        &mut self,
+        view: crate::app::view_state::TabCanvasViewport,
+    ) {
+        let Some((px, py)) = self.pointer_host_pixels else {
+            return;
+        };
+        let cell = self.host_cell_size;
+        if !cell.is_known() {
+            return;
+        }
+        let destination = view.destination_rect();
+        let canvas_x = px
+            .saturating_sub(u32::from(destination.x).saturating_mul(cell.width_px))
+            .saturating_add(u32::from(view.origin.col).saturating_mul(cell.width_px));
+        let canvas_y = py
+            .saturating_sub(u32::from(destination.y).saturating_mul(cell.height_px))
+            .saturating_add(u32::from(view.origin.row).saturating_mul(cell.height_px));
+        self.pointer_host_pixels = Some((canvas_x, canvas_y));
+    }
+
     fn pane_pointer_surface(
         &self,
         inner_rect: Rect,
@@ -2457,7 +2474,7 @@ impl AppState {
             let column = mouse.column.saturating_sub(info.inner_rect.x);
             let row = mouse.row.saturating_sub(info.inner_rect.y);
             self.encode_pane_mouse_wheel(
-                &rt,
+                rt,
                 mouse.kind,
                 column,
                 row,
@@ -2569,7 +2586,7 @@ impl AppState {
         let column = mouse.column.saturating_sub(inner_rect.x);
         let row = mouse.row.saturating_sub(inner_rect.y);
         let Some(bytes) = self.encode_pane_mouse_wheel(
-            &rt,
+            rt,
             mouse.kind,
             column,
             row,
@@ -5073,6 +5090,8 @@ mod tests {
                 row,
                 modifiers,
             });
+            app.state
+                .flush_pending_pane_mouse_motion(&app.terminal_runtimes);
 
             assert_eq!(
                 input_rx.try_recv().expect("horizontal wheel reaches pane"),
