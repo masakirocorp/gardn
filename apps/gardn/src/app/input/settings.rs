@@ -22,8 +22,8 @@ use crate::{
         option_hit_for_visual_row, previous_option_index, rows_for_section, selected_visual_row,
         visual_row_count, AdvancedRowId, BehaviorRowId, CommandAction, CommandField, CommandRowId,
         ConnectionField, ConnectionRowId, NotificationRowId, SettingsListRow, SettingsRowHit,
-        GROUP_GENERAL_DELETE, GROUP_GENERAL_DIRECTORY, GROUP_GENERAL_HOST, GROUP_GENERAL_ICON,
-        GROUP_GENERAL_NAME,
+        GROUP_GENERAL_DELETE, GROUP_GENERAL_DIRECTORY, GROUP_GENERAL_GITHUB_ORGANIZATION,
+        GROUP_GENERAL_HOST, GROUP_GENERAL_ICON, GROUP_GENERAL_NAME,
     },
     terminal_theme::ThemeAppearance,
 };
@@ -60,9 +60,9 @@ pub(crate) enum SettingsAction {
         right_click_passthrough_modifier: RightClickPassthroughModifierConfig,
         new_terminal_cwd: NewTerminalCwdConfig,
         mouse_scroll_lines: usize,
-        git_command: String,
-        diff_command: String,
-        ide_command: String,
+        browser_command: String,
+        review_command: String,
+        editor_command: String,
         github_command: String,
         sidebar_width: u16,
         sidebar_min_width: u16,
@@ -101,6 +101,10 @@ pub(crate) enum SettingsAction {
     SaveGroupIcon {
         group_idx: usize,
         icon: String,
+    },
+    SaveGroupGithubOrganization {
+        group_idx: usize,
+        organization: Option<crate::app::state::GithubOrganization>,
     },
 
     SaveGroupDefaultLocation {
@@ -188,9 +192,9 @@ impl App {
                 right_click_passthrough_modifier,
                 new_terminal_cwd,
                 mouse_scroll_lines,
-                git_command,
-                diff_command,
-                ide_command,
+                browser_command,
+                review_command,
+                editor_command,
                 github_command,
                 sidebar_width,
                 sidebar_min_width,
@@ -226,7 +230,12 @@ impl App {
                 );
                 self.save_new_terminal_cwd(&new_terminal_cwd);
                 self.save_mouse_scroll_lines(mouse_scroll_lines);
-                self.save_commands(&git_command, &diff_command, &ide_command, &github_command);
+                self.save_commands(
+                    &browser_command,
+                    &review_command,
+                    &editor_command,
+                    &github_command,
+                );
                 self.save_sidebar_widths(sidebar_width, sidebar_min_width, sidebar_max_width);
                 self.save_sidebar_arrangement(sidebar_arrangement);
                 self.save_context_bar_visibility(context_bar_visibility);
@@ -280,6 +289,13 @@ impl App {
             }
             SettingsAction::SaveGroupIcon { group_idx, icon } => {
                 self.state.set_group_icon(group_idx, icon);
+            }
+            SettingsAction::SaveGroupGithubOrganization {
+                group_idx,
+                organization,
+            } => {
+                self.state
+                    .set_group_github_organization(group_idx, organization);
             }
             SettingsAction::SaveGroupAccent { group_idx, accent } => {
                 self.state.set_group_accent(group_idx, accent);
@@ -947,10 +963,27 @@ fn set_pending_group_default_directory(state: &mut AppState, default_directory: 
     state.settings.pending_group_default_directory = Some(default_directory);
 }
 
+fn pending_group_github_organization(state: &AppState) -> String {
+    state
+        .settings
+        .pending_group_github_organization
+        .clone()
+        .or_else(|| {
+            state
+                .settings
+                .group_settings_target
+                .and_then(|group_idx| state.groups.get(group_idx))
+                .and_then(|group| group.github_organization.as_ref())
+                .map(|organization| organization.as_str().to_string())
+        })
+        .unwrap_or_default()
+}
+
 fn pending_group_field(state: &AppState, selected: usize) -> Option<String> {
     match selected {
         GROUP_GENERAL_NAME => Some(pending_group_name(state)),
         GROUP_GENERAL_DIRECTORY => Some(pending_group_default_directory(state)),
+        GROUP_GENERAL_GITHUB_ORGANIZATION => Some(pending_group_github_organization(state)),
         _ => None,
     }
 }
@@ -959,6 +992,9 @@ fn set_pending_group_field(state: &mut AppState, selected: usize, value: String)
     match selected {
         GROUP_GENERAL_NAME => set_pending_group_name(state, value),
         GROUP_GENERAL_DIRECTORY => set_pending_group_default_directory(state, value),
+        GROUP_GENERAL_GITHUB_ORGANIZATION => {
+            state.settings.pending_group_github_organization = Some(value)
+        }
         _ => {}
     }
 }
@@ -981,7 +1017,10 @@ fn edit_pending_group_field(state: &mut AppState, key: KeyEvent) -> bool {
         return false;
     };
     state.settings.list.select(selected);
-    if !matches!(selected, GROUP_GENERAL_NAME | GROUP_GENERAL_DIRECTORY) {
+    if !matches!(
+        selected,
+        GROUP_GENERAL_NAME | GROUP_GENERAL_DIRECTORY | GROUP_GENERAL_GITHUB_ORGANIZATION
+    ) {
         return false;
     }
 
@@ -2272,21 +2311,21 @@ pub(crate) fn paste_settings_text(
 
 fn pending_command(state: &AppState, field: CommandField) -> String {
     match field {
-        CommandField::Git => state
+        CommandField::Browser => state
             .settings
-            .pending_git_command
+            .pending_browser_command
             .clone()
-            .unwrap_or_else(|| state.git_command.clone()),
-        CommandField::Diff => state
+            .unwrap_or_else(|| state.browser_command.clone()),
+        CommandField::Review => state
             .settings
-            .pending_diff_command
+            .pending_review_command
             .clone()
-            .unwrap_or_else(|| state.git_diff_command.clone()),
-        CommandField::Ide => state
+            .unwrap_or_else(|| state.review_command.clone()),
+        CommandField::Editor => state
             .settings
-            .pending_ide_command
+            .pending_editor_command
             .clone()
-            .unwrap_or_else(|| state.ide_command.clone()),
+            .unwrap_or_else(|| state.editor_command.clone()),
         CommandField::Github => state
             .settings
             .pending_github_command
@@ -2297,9 +2336,9 @@ fn pending_command(state: &AppState, field: CommandField) -> String {
 
 fn set_pending_command(state: &mut AppState, field: CommandField, value: String) {
     match field {
-        CommandField::Git => state.settings.pending_git_command = Some(value),
-        CommandField::Diff => state.settings.pending_diff_command = Some(value),
-        CommandField::Ide => state.settings.pending_ide_command = Some(value),
+        CommandField::Browser => state.settings.pending_browser_command = Some(value),
+        CommandField::Review => state.settings.pending_review_command = Some(value),
+        CommandField::Editor => state.settings.pending_editor_command = Some(value),
         CommandField::Github => state.settings.pending_github_command = Some(value),
     }
 }
@@ -2310,9 +2349,9 @@ fn reset_pending_command(state: &mut AppState, field: CommandField) {
 
 fn reset_all_pending_commands(state: &mut AppState) {
     let defaults = CommandsConfig::default();
-    state.settings.pending_git_command = Some(defaults.git);
-    state.settings.pending_diff_command = Some(defaults.diff);
-    state.settings.pending_ide_command = Some(defaults.ide);
+    state.settings.pending_browser_command = Some(defaults.browser);
+    state.settings.pending_review_command = Some(defaults.review);
+    state.settings.pending_editor_command = Some(defaults.editor);
     state.settings.pending_github_command = Some(defaults.github);
 }
 
@@ -2644,6 +2683,26 @@ fn selected_group_general_action(state: &mut AppState) -> Option<SettingsAction>
                 ),
             })
         }
+        GROUP_GENERAL_GITHUB_ORGANIZATION => {
+            let value = pending_group_github_organization(state);
+            let organization = match crate::app::state::GithubOrganization::parse(&value) {
+                Ok(organization) => organization,
+                Err(context) => {
+                    state.toast = Some(crate::app::state::ToastNotification {
+                        kind: crate::app::state::ToastKind::NeedsAttention,
+                        title: "GitHub Organization Not Saved".to_string(),
+                        context,
+                        position: None,
+                        target: None,
+                    });
+                    return None;
+                }
+            };
+            Some(SettingsAction::SaveGroupGithubOrganization {
+                group_idx,
+                organization,
+            })
+        }
         GROUP_GENERAL_DELETE => {
             close_settings(state);
             Some(SettingsAction::DeleteGroup(group_idx))
@@ -2751,9 +2810,9 @@ fn clear_settings_pending(state: &mut AppState) {
     state.settings.pending_window_title = None;
     state.settings.pending_headless_cols = None;
     state.settings.pending_headless_rows = None;
-    state.settings.pending_git_command = None;
-    state.settings.pending_diff_command = None;
-    state.settings.pending_ide_command = None;
+    state.settings.pending_browser_command = None;
+    state.settings.pending_review_command = None;
+    state.settings.pending_editor_command = None;
     state.settings.pending_github_command = None;
     state.settings.pending_sidebar_width = None;
     state.settings.pending_sidebar_min_width = None;
@@ -2768,6 +2827,7 @@ fn clear_settings_pending(state: &mut AppState) {
     state.settings.pending_group_accent_choice = None;
     state.settings.pending_group_name = None;
     state.settings.pending_group_icon = None;
+    state.settings.pending_group_github_organization = None;
     state.settings.group_icon_picker_open = false;
     state.settings.pending_group_default_directory = None;
 
@@ -2803,9 +2863,9 @@ fn current_settings_action(state: &AppState) -> SettingsAction {
         right_click_passthrough_modifier: pending_right_click_passthrough_modifier(state),
         new_terminal_cwd: pending_new_terminal_cwd(state),
         mouse_scroll_lines: pending_mouse_scroll_lines(state),
-        git_command: pending_command(state, CommandField::Git),
-        diff_command: pending_command(state, CommandField::Diff),
-        ide_command: pending_command(state, CommandField::Ide),
+        browser_command: pending_command(state, CommandField::Browser),
+        review_command: pending_command(state, CommandField::Review),
+        editor_command: pending_command(state, CommandField::Editor),
         github_command: pending_command(state, CommandField::Github),
         sidebar_width: pending_sidebar_width(state),
         sidebar_min_width: pending_sidebar_min_width(state),
@@ -3297,9 +3357,10 @@ fn settings_row_accepts_text_input(state: &AppState, selected: usize) -> bool {
         SettingsSection::Sound => {
             NotificationRowId::from_selection_index(selected) == Some(NotificationRowId::ToastDelay)
         }
-        SettingsSection::GroupGeneral => {
-            matches!(selected, GROUP_GENERAL_NAME | GROUP_GENERAL_DIRECTORY)
-        }
+        SettingsSection::GroupGeneral => matches!(
+            selected,
+            GROUP_GENERAL_NAME | GROUP_GENERAL_DIRECTORY | GROUP_GENERAL_GITHUB_ORGANIZATION
+        ),
 
         SettingsSection::WorkspaceGeneral => matches!(selected, 0 | 2),
         SettingsSection::Agents if agent_profile_editor_open(state) => {
@@ -3807,59 +3868,61 @@ pub(super) fn update_settings_state(state: &mut AppState, key: KeyEvent) -> Opti
                 }
             }
         },
-        SettingsSection::GroupGeneral => match key.code {
-            KeyCode::Up | KeyCode::Char('k') => {
-                select_previous_setting(
-                    state,
-                    settings_section_choice_len(state, SettingsSection::GroupGeneral),
-                );
-            }
-            KeyCode::Down | KeyCode::Char('j') => {
-                select_next_setting(
-                    state,
-                    settings_section_choice_len(state, SettingsSection::GroupGeneral),
-                );
-            }
-            KeyCode::Enter if state.settings.list.selected == GROUP_GENERAL_ICON => {
-                toggle_group_icon_picker(state);
-                return None;
-            }
-            KeyCode::Enter if state.settings.list.selected == GROUP_GENERAL_HOST => {
-                cycle_default_host(state, false);
+        SettingsSection::GroupGeneral => {
+            if state.settings.focused_input.is_some() && edit_pending_group_field(state, key) {
                 return selected_group_general_action(state);
             }
-            KeyCode::Enter => return selected_group_general_action(state),
-            KeyCode::Char(' ') if state.settings.list.selected == GROUP_GENERAL_ICON => {
-                toggle_group_icon_picker(state);
-                return None;
-            }
-
-            KeyCode::Char(' ') if state.settings.list.selected == GROUP_GENERAL_HOST => {
-                cycle_default_host(state, false);
-                return selected_group_general_action(state);
-            }
-            KeyCode::Char(' ') if state.settings.list.selected == GROUP_GENERAL_DELETE => {
-                return selected_group_general_action(state);
-            }
-
-            KeyCode::BackTab | KeyCode::Left | KeyCode::Char('h') => {
-                state.settings.section = SettingsSection::GroupProfiles;
-                state.settings.list.selected = 0;
-            }
-            KeyCode::Tab | KeyCode::Right | KeyCode::Char('l') => {
-                state.settings.section = SettingsSection::Theme;
-                state.settings.list.selected = group_accent_selection_index(state);
-                ensure_settings_selection_visible(state);
-            }
-            _ => {
-                if state.settings.focused_input.is_some() && edit_pending_group_field(state, key) {
+            match key.code {
+                KeyCode::Up | KeyCode::Char('k') => {
+                    select_previous_setting(
+                        state,
+                        settings_section_choice_len(state, SettingsSection::GroupGeneral),
+                    );
+                }
+                KeyCode::Down | KeyCode::Char('j') => {
+                    select_next_setting(
+                        state,
+                        settings_section_choice_len(state, SettingsSection::GroupGeneral),
+                    );
+                }
+                KeyCode::Enter if state.settings.list.selected == GROUP_GENERAL_ICON => {
+                    toggle_group_icon_picker(state);
+                    return None;
+                }
+                KeyCode::Enter if state.settings.list.selected == GROUP_GENERAL_HOST => {
+                    cycle_default_host(state, false);
                     return selected_group_general_action(state);
                 }
-                if let Some(action) = handle_settings_modal_action(state, &key) {
-                    return Some(action);
+                KeyCode::Enter => return selected_group_general_action(state),
+                KeyCode::Char(' ') if state.settings.list.selected == GROUP_GENERAL_ICON => {
+                    toggle_group_icon_picker(state);
+                    return None;
+                }
+
+                KeyCode::Char(' ') if state.settings.list.selected == GROUP_GENERAL_HOST => {
+                    cycle_default_host(state, false);
+                    return selected_group_general_action(state);
+                }
+                KeyCode::Char(' ') if state.settings.list.selected == GROUP_GENERAL_DELETE => {
+                    return selected_group_general_action(state);
+                }
+
+                KeyCode::BackTab | KeyCode::Left | KeyCode::Char('h') => {
+                    state.settings.section = SettingsSection::GroupProfiles;
+                    state.settings.list.selected = 0;
+                }
+                KeyCode::Tab | KeyCode::Right | KeyCode::Char('l') => {
+                    state.settings.section = SettingsSection::Theme;
+                    state.settings.list.selected = group_accent_selection_index(state);
+                    ensure_settings_selection_visible(state);
+                }
+                _ => {
+                    if let Some(action) = handle_settings_modal_action(state, &key) {
+                        return Some(action);
+                    }
                 }
             }
-        },
+        }
         SettingsSection::GroupProfiles => match key.code {
             KeyCode::Up | KeyCode::Char('k') => {
                 select_previous_setting(
@@ -4073,9 +4136,9 @@ pub(crate) fn prepare_general_settings_state(
     settings.pending_window_title = Some(state.window_title_template.clone());
     settings.pending_headless_cols = Some(state.headless_size.0.to_string());
     settings.pending_headless_rows = Some(state.headless_size.1.to_string());
-    settings.pending_git_command = Some(state.git_command.clone());
-    settings.pending_diff_command = Some(state.git_diff_command.clone());
-    settings.pending_ide_command = Some(state.ide_command.clone());
+    settings.pending_browser_command = Some(state.browser_command.clone());
+    settings.pending_review_command = Some(state.review_command.clone());
+    settings.pending_editor_command = Some(state.editor_command.clone());
     settings.pending_github_command = Some(state.github_command.clone());
     settings.pending_sidebar_width = Some(state.default_sidebar_width);
     settings.pending_sidebar_min_width = Some(state.sidebar_min_width);
@@ -4165,14 +4228,15 @@ fn reset_settings_for_scoped_editor(state: &AppState, settings: &mut SettingsSta
     settings.pending_window_title = None;
     settings.pending_headless_cols = None;
     settings.pending_headless_rows = None;
-    settings.pending_git_command = None;
-    settings.pending_diff_command = None;
-    settings.pending_ide_command = None;
+    settings.pending_browser_command = None;
+    settings.pending_review_command = None;
+    settings.pending_editor_command = None;
     settings.pending_github_command = None;
     settings.pending_sidebar_width = None;
     settings.pending_sidebar_min_width = None;
     settings.pending_sidebar_max_width = None;
     settings.pending_sidebar_arrangement = None;
+    settings.pending_group_github_organization = None;
     settings.pending_context_bar_visibility = None;
     settings.pending_sidebar_initial_state = None;
     settings.pending_sidebar_initial_agent_scope = None;
@@ -4195,6 +4259,10 @@ pub(crate) fn prepare_group_settings_state(
     reset_settings_for_scoped_editor(state, settings);
     settings.pending_group_name = Some(group.name.clone());
     settings.pending_group_icon = Some(group.icon.clone());
+    settings.pending_group_github_organization = group
+        .github_organization
+        .as_ref()
+        .map(|organization| organization.as_str().to_string());
     settings.pending_group_default_directory = None;
 
     settings.pending_group_default_execution_host_id = group
@@ -4280,6 +4348,10 @@ pub(crate) fn open_group_settings(state: &mut AppState, group_idx: usize) {
     state.settings.pending_group_accent_choice = None;
     state.settings.pending_group_name = Some(group_name);
     state.settings.pending_group_icon = Some(group_icon);
+    state.settings.pending_group_github_organization = group
+        .github_organization
+        .as_ref()
+        .map(|organization| organization.as_str().to_string());
     state.settings.pending_workspace_name = None;
 
     state.settings.pending_group_default_execution_host_id = group
@@ -4314,9 +4386,9 @@ pub(crate) fn open_group_settings(state: &mut AppState, group_idx: usize) {
     state.settings.pending_window_title = None;
     state.settings.pending_headless_cols = None;
     state.settings.pending_headless_rows = None;
-    state.settings.pending_git_command = None;
-    state.settings.pending_diff_command = None;
-    state.settings.pending_ide_command = None;
+    state.settings.pending_browser_command = None;
+    state.settings.pending_review_command = None;
+    state.settings.pending_editor_command = None;
     state.settings.pending_github_command = None;
     state.settings.pending_sidebar_width = None;
     state.settings.pending_sidebar_min_width = None;
@@ -4366,6 +4438,7 @@ pub(crate) fn open_workspace_settings(state: &mut AppState, ws_idx: usize) {
     state.settings.pending_group_accent_choice = None;
     state.settings.pending_group_name = None;
     state.settings.pending_group_icon = None;
+    state.settings.pending_group_github_organization = None;
     state.settings.pending_workspace_name = Some(workspace_name);
 
     state.settings.pending_workspace_default_cwd = Some(default_cwd);
@@ -4396,9 +4469,9 @@ pub(crate) fn open_workspace_settings(state: &mut AppState, ws_idx: usize) {
     state.settings.pending_window_title = None;
     state.settings.pending_headless_cols = None;
     state.settings.pending_headless_rows = None;
-    state.settings.pending_git_command = None;
-    state.settings.pending_diff_command = None;
-    state.settings.pending_ide_command = None;
+    state.settings.pending_browser_command = None;
+    state.settings.pending_review_command = None;
+    state.settings.pending_editor_command = None;
     state.settings.pending_github_command = None;
     state.settings.pending_sidebar_width = None;
     state.settings.pending_sidebar_min_width = None;
@@ -5676,6 +5749,89 @@ mod tests {
     }
 
     #[test]
+    fn group_general_settings_clears_github_organization() {
+        let mut app = app_for_mouse_test();
+        let group_idx = app.state.create_group("Side".to_string());
+        app.state.groups[group_idx].github_organization =
+            crate::app::state::GithubOrganization::parse("masakirocorp")
+                .expect("valid organization");
+
+        open_group_settings(&mut app.state, group_idx);
+        app.state.settings.list.show();
+        app.state
+            .settings
+            .list
+            .select(GROUP_GENERAL_GITHUB_ORGANIZATION);
+        app.state.settings.pending_group_github_organization = Some(String::new());
+
+        app.handle_settings_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::empty()));
+
+        assert_eq!(app.state.groups[group_idx].github_organization, None);
+    }
+
+    #[test]
+    fn group_organization_input_accepts_navigation_letters() {
+        let mut app = app_for_mouse_test();
+        let group_idx = app.state.create_group("Side".to_string());
+        open_group_settings(&mut app.state, group_idx);
+        app.state.settings.list.show();
+        app.state
+            .settings
+            .list
+            .select(GROUP_GENERAL_GITHUB_ORGANIZATION);
+        app.state.settings.focused_input = Some(GROUP_GENERAL_GITHUB_ORGANIZATION);
+        app.state.settings.pending_group_github_organization = Some(String::new());
+
+        for character in ['h', 'j', 'k', 'l'] {
+            app.handle_settings_key(KeyEvent::new(
+                KeyCode::Char(character),
+                KeyModifiers::empty(),
+            ));
+        }
+
+        assert_eq!(
+            app.state.groups[group_idx]
+                .github_organization
+                .as_ref()
+                .map(crate::app::state::GithubOrganization::as_str),
+            Some("hjkl")
+        );
+        assert_eq!(
+            app.state.settings.focused_input,
+            Some(GROUP_GENERAL_GITHUB_ORGANIZATION)
+        );
+    }
+
+    #[test]
+    fn group_general_settings_rejects_invalid_github_organization() {
+        let mut app = app_for_mouse_test();
+        let group_idx = app.state.create_group("Side".to_string());
+        let original = crate::app::state::GithubOrganization::parse("masakirocorp")
+            .expect("valid organization");
+        app.state.groups[group_idx].github_organization = original.clone();
+
+        open_group_settings(&mut app.state, group_idx);
+        app.state.settings.list.show();
+        app.state
+            .settings
+            .list
+            .select(GROUP_GENERAL_GITHUB_ORGANIZATION);
+        app.state.settings.focused_input = Some(GROUP_GENERAL_GITHUB_ORGANIZATION);
+        app.state.settings.pending_group_github_organization = Some("invalid--org".to_string());
+
+        app.handle_settings_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::empty()));
+
+        assert_eq!(app.state.groups[group_idx].github_organization, original);
+        let toast = app
+            .state
+            .toast
+            .as_ref()
+            .expect("invalid organization toast");
+        assert_eq!(toast.title, "GitHub Organization Not Saved");
+        assert!(toast.context.contains("single hyphens"));
+    }
+
+    #[test]
     fn group_general_settings_edits_default_location_for_future_spaces_inline() {
         let mut state = state_with_workspaces(&["test"]);
         let group_idx = state.create_group("Side".to_string());
@@ -6066,10 +6222,10 @@ mod tests {
                 right_click_passthrough_modifier: RightClickPassthroughModifierConfig::default(),
                 new_terminal_cwd: NewTerminalCwdConfig::Follow,
                 mouse_scroll_lines: crate::config::DEFAULT_MOUSE_SCROLL_LINES,
-                git_command: "lazygit".to_string(),
-                diff_command: "hunk diff --watch".to_string(),
-                ide_command: "fresh .".to_string(),
-                github_command: "ghui".to_string(),
+                browser_command: "terminal-browser".to_string(),
+                review_command: "hunk diff --watch".to_string(),
+                editor_command: "fresh .".to_string(),
+                github_command: "gh dash".to_string(),
                 sidebar_width: 26,
                 sidebar_min_width: 18,
                 sidebar_max_width: 36,
@@ -6602,7 +6758,7 @@ mod tests {
     #[test]
     fn commands_settings_edits_and_saves_diff_command() {
         let mut state = state_with_workspaces(&["test"]);
-        state.git_diff_command = "git diff".to_string();
+        state.review_command = "git diff".to_string();
         open_settings_at(&mut state, SettingsSection::Commands);
         update_settings_state(
             &mut state,
@@ -6613,7 +6769,7 @@ mod tests {
             &mut state,
             KeyEvent::new(KeyCode::Char('u'), KeyModifiers::CONTROL),
         );
-        for ch in "lazygit".chars() {
+        for ch in "terminal-browser".chars() {
             update_settings_state(
                 &mut state,
                 KeyEvent::new(KeyCode::Char(ch), KeyModifiers::empty()),
@@ -6626,9 +6782,9 @@ mod tests {
         assert!(matches!(
             action,
             Some(SettingsAction::SaveSettings {
-                git_command,
+                browser_command,
                 ..
-            }) if git_command == "lazygit"
+            }) if browser_command == "terminal-browser"
         ));
     }
 
@@ -6657,13 +6813,13 @@ mod tests {
         assert!(matches!(
             action,
             Some(SettingsAction::SaveSettings {
-                git_command,
-                diff_command,
-                ide_command,
+                browser_command,
+                review_command,
+                editor_command,
                 ..
-            }) if git_command == "lazygit"
-                && diff_command == "hunk diff --watch"
-                && ide_command == "hx ."
+            }) if browser_command == "terminal-browser"
+                && review_command == "hunk diff --watch"
+                && editor_command == "hx ."
         ));
     }
 
@@ -6671,12 +6827,12 @@ mod tests {
     fn commands_settings_reset_one_preserves_other_drafts() {
         let mut state = state_with_workspaces(&["test"]);
         open_settings_at(&mut state, SettingsSection::Commands);
-        state.settings.pending_git_command = Some("tig".into());
-        state.settings.pending_diff_command = Some(String::new());
-        state.settings.pending_ide_command = Some("hx .".into());
-        state.settings.pending_github_command = Some("custom-ghui".into());
+        state.settings.pending_browser_command = Some("tig".into());
+        state.settings.pending_review_command = Some(String::new());
+        state.settings.pending_editor_command = Some("hx .".into());
+        state.settings.pending_github_command = Some("custom-github".into());
         state.settings.list.select(
-            CommandRowId::Action(CommandAction::Reset(CommandField::Ide)).selection_index(),
+            CommandRowId::Action(CommandAction::Reset(CommandField::Editor)).selection_index(),
         );
 
         let action = update_settings_state(
@@ -6684,28 +6840,31 @@ mod tests {
             KeyEvent::new(KeyCode::Enter, KeyModifiers::empty()),
         );
 
-        assert_eq!(state.settings.pending_git_command.as_deref(), Some("tig"));
-        assert_eq!(state.settings.pending_diff_command.as_deref(), Some(""));
         assert_eq!(
-            state.settings.pending_ide_command.as_deref(),
+            state.settings.pending_browser_command.as_deref(),
+            Some("tig")
+        );
+        assert_eq!(state.settings.pending_review_command.as_deref(), Some(""));
+        assert_eq!(
+            state.settings.pending_editor_command.as_deref(),
             Some("fresh .")
         );
         assert_eq!(
             state.settings.pending_github_command.as_deref(),
-            Some("custom-ghui")
+            Some("custom-github")
         );
         assert!(matches!(
             action,
             Some(SettingsAction::SaveSettings {
-                git_command,
-                diff_command,
-                ide_command,
+                browser_command,
+                review_command,
+                editor_command,
                 github_command,
                 ..
-            }) if git_command == "tig"
-                && diff_command.is_empty()
-                && ide_command == "fresh ."
-                && github_command == "custom-ghui"
+            }) if browser_command == "tig"
+                && review_command.is_empty()
+                && editor_command == "fresh ."
+                && github_command == "custom-github"
         ));
     }
 
@@ -6713,10 +6872,10 @@ mod tests {
     fn commands_settings_reset_all_restores_built_ins() {
         let mut state = state_with_workspaces(&["test"]);
         open_settings_at(&mut state, SettingsSection::Commands);
-        state.settings.pending_git_command = Some("tig".into());
-        state.settings.pending_diff_command = Some(String::new());
-        state.settings.pending_ide_command = Some("hx .".into());
-        state.settings.pending_github_command = Some("custom-ghui".into());
+        state.settings.pending_browser_command = Some("tig".into());
+        state.settings.pending_review_command = Some(String::new());
+        state.settings.pending_editor_command = Some("hx .".into());
+        state.settings.pending_github_command = Some("custom-github".into());
         state
             .settings
             .list
@@ -6728,33 +6887,33 @@ mod tests {
         );
 
         assert_eq!(
-            state.settings.pending_git_command.as_deref(),
-            Some("lazygit")
+            state.settings.pending_browser_command.as_deref(),
+            Some("terminal-browser")
         );
         assert_eq!(
-            state.settings.pending_diff_command.as_deref(),
+            state.settings.pending_review_command.as_deref(),
             Some("hunk diff --watch")
         );
         assert_eq!(
-            state.settings.pending_ide_command.as_deref(),
+            state.settings.pending_editor_command.as_deref(),
             Some("fresh .")
         );
         assert_eq!(
             state.settings.pending_github_command.as_deref(),
-            Some("ghui")
+            Some("gh dash")
         );
         assert!(matches!(
             action,
             Some(SettingsAction::SaveSettings {
-                git_command,
-                diff_command,
-                ide_command,
+                browser_command,
+                review_command,
+                editor_command,
                 github_command,
                 ..
-            }) if git_command == "lazygit"
-                && diff_command == "hunk diff --watch"
-                && ide_command == "fresh ."
-                && github_command == "ghui"
+            }) if browser_command == "terminal-browser"
+                && review_command == "hunk diff --watch"
+                && editor_command == "fresh ."
+                && github_command == "gh dash"
         ));
     }
 
@@ -6763,12 +6922,12 @@ mod tests {
         let mut app = app_for_mouse_test();
         app.state.view.terminal_area = Rect::new(26, 0, 100, 30);
         open_settings_at(&mut app.state, SettingsSection::Commands);
-        app.state.settings.pending_ide_command = Some("hx .".into());
+        app.state.settings.pending_editor_command = Some("hx .".into());
 
         let list_area = settings_section_list_rect(&app.state, SettingsSection::Commands);
         let rows = rows_for_section(&app.state, SettingsSection::Commands).unwrap();
         let reset_ide =
-            CommandRowId::Action(CommandAction::Reset(CommandField::Ide)).selection_index();
+            CommandRowId::Action(CommandAction::Reset(CommandField::Editor)).selection_index();
         let reset_row = selected_visual_row(&rows, reset_ide).unwrap() as u16;
         let action = app.state.handle_settings_mouse(mouse(
             MouseEventKind::Down(MouseButton::Left),
@@ -6778,8 +6937,8 @@ mod tests {
 
         assert!(matches!(
             action,
-            Some(SettingsAction::SaveSettings { ide_command, .. })
-                if ide_command == "fresh ."
+            Some(SettingsAction::SaveSettings { editor_command, .. })
+                if editor_command == "fresh ."
         ));
     }
     #[test]
@@ -6793,7 +6952,7 @@ mod tests {
             &mut state,
             KeyEvent::new(KeyCode::Char('u'), KeyModifiers::CONTROL),
         );
-        for ch in "custom-ghui".chars() {
+        for ch in "custom-github".chars() {
             update_settings_state(
                 &mut state,
                 KeyEvent::new(KeyCode::Char(ch), KeyModifiers::empty()),
@@ -6807,15 +6966,15 @@ mod tests {
         assert!(matches!(
             action,
             Some(SettingsAction::SaveSettings {
-                git_command,
-                diff_command,
-                ide_command,
+                browser_command,
+                review_command,
+                editor_command,
                 github_command,
                 ..
-            }) if git_command == "lazygit"
-                && diff_command == "hunk diff --watch"
-                && ide_command == "fresh ."
-                && github_command == "custom-ghui"
+            }) if browser_command == "terminal-browser"
+                && review_command == "hunk diff --watch"
+                && editor_command == "fresh ."
+                && github_command == "custom-github"
         ));
     }
 

@@ -1012,7 +1012,7 @@ new_tab = "prefix+t"
 
 [[keys.command]]
 key = "prefix+g"
-command = "lazygit"
+command = "terminal-browser"
 "#
             .to_owned(),
         })

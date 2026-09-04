@@ -1490,14 +1490,14 @@ pub(crate) fn apply_context_menu_action(
         (
             ContextMenuKind::Workspace { ws_idx, .. }
             | ContextMenuKind::NewTabButton { ws_idx, .. },
-            Some("ide" | "git" | "diff" | "github"),
+            Some("editor" | "browser" | "review" | "github"),
         ) => {
             state.selected = ws_idx;
             state.active = Some(ws_idx);
             state.request_open_project_command = Some(match item {
-                Some("ide") => crate::app::state::ProjectCommandKind::Ide,
-                Some("git") => crate::app::state::ProjectCommandKind::Git,
-                Some("diff") => crate::app::state::ProjectCommandKind::Diff,
+                Some("editor") => crate::app::state::ProjectCommandKind::Editor,
+                Some("browser") => crate::app::state::ProjectCommandKind::Browser,
+                Some("review") => crate::app::state::ProjectCommandKind::Review,
                 Some("github") => crate::app::state::ProjectCommandKind::Github,
                 _ => unreachable!("project command menu item matched above"),
             });
@@ -2439,9 +2439,9 @@ mod tests {
     #[test]
     fn project_command_context_menu_routes_each_role() {
         for (label, expected_kind) in [
-            ("ide", crate::app::state::ProjectCommandKind::Ide),
-            ("git", crate::app::state::ProjectCommandKind::Git),
-            ("diff", crate::app::state::ProjectCommandKind::Diff),
+            ("editor", crate::app::state::ProjectCommandKind::Editor),
+            ("browser", crate::app::state::ProjectCommandKind::Browser),
+            ("review", crate::app::state::ProjectCommandKind::Review),
             ("github", crate::app::state::ProjectCommandKind::Github),
         ] {
             let mut state = state_with_workspaces(&["test"]);

@@ -3930,9 +3930,9 @@ mod tests {
             crate::config::CustomCommandKeybind {
                 bindings: crate::config::ActionKeybinds::prefix("alt+g"),
                 label: "prefix+alt+g".to_string(),
-                command: "lazygit".to_string(),
+                command: "terminal-browser".to_string(),
                 action: crate::config::CustomCommandAction::Pane,
-                description: Some("open lazygit".to_string()),
+                description: Some("open terminal-browser".to_string()),
             },
             crate::config::CustomCommandKeybind {
                 bindings: crate::config::ActionKeybinds::prefix("alt+h"),
@@ -3950,9 +3950,12 @@ mod tests {
             .expect("custom group")
             .1
             .clone();
-        assert!(custom
-            .iter()
-            .any(|(key, label)| key == "prefix+alt+g" && label.as_ref() == "open lazygit"));
+        assert!(
+            custom
+                .iter()
+                .any(|(key, label)| key == "prefix+alt+g"
+                    && label.as_ref() == "open terminal-browser")
+        );
         assert!(custom
             .iter()
             .any(|(key, label)| key == "prefix+alt+h" && label.as_ref() == "Custom Command"));
@@ -3963,7 +3966,7 @@ mod tests {
             .map(|span| span.content.into_owned())
             .collect::<Vec<_>>()
             .join("");
-        assert!(rendered_help.contains("open lazygit"));
+        assert!(rendered_help.contains("open terminal-browser"));
         assert!(rendered_help.contains("Custom Command"));
     }
 }

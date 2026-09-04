@@ -195,39 +195,48 @@ impl App {
         }
     }
 
-    pub(super) fn save_commands(&mut self, git: &str, diff: &str, ide: &str, github: &str) {
+    pub(super) fn save_commands(
+        &mut self,
+        browser: &str,
+        review: &str,
+        editor: &str,
+        github: &str,
+    ) {
         let commands = crate::config::CommandsConfig {
-            git: git.trim().to_string(),
-            diff: diff.trim().to_string(),
-            ide: ide.trim().to_string(),
+            browser: browser.trim().to_string(),
+            review: review.trim().to_string(),
+            editor: editor.trim().to_string(),
             github: github.trim().to_string(),
         };
-        self.state.git_command.clone_from(&commands.git);
-        self.state.git_diff_command.clone_from(&commands.diff);
-        self.state.ide_command.clone_from(&commands.ide);
+        self.state.browser_command.clone_from(&commands.browser);
+        self.state.review_command.clone_from(&commands.review);
+        self.state.editor_command.clone_from(&commands.editor);
         self.state.github_command.clone_from(&commands.github);
-        self.state.settings.pending_git_command = Some(commands.git.clone());
-        self.state.settings.pending_diff_command = Some(commands.diff.clone());
-        self.state.settings.pending_ide_command = Some(commands.ide.clone());
+        self.state.settings.pending_browser_command = Some(commands.browser.clone());
+        self.state.settings.pending_review_command = Some(commands.review.clone());
+        self.state.settings.pending_editor_command = Some(commands.editor.clone());
         self.state.settings.pending_github_command = Some(commands.github.clone());
         if self.update_config_file("project commands", |content| {
+            let content = crate::config::remove_section_key(content, "commands", "git");
+            let content = crate::config::remove_section_key(&content, "commands", "diff");
+            let content = crate::config::remove_section_key(&content, "commands", "ide");
             let content = crate::config::upsert_section_value(
-                content,
+                &content,
                 "commands",
-                "git",
-                &toml::Value::String(commands.git.clone()).to_string(),
+                "browser",
+                &toml::Value::String(commands.browser.clone()).to_string(),
             );
             let content = crate::config::upsert_section_value(
                 &content,
                 "commands",
-                "diff",
-                &toml::Value::String(commands.diff.clone()).to_string(),
+                "review",
+                &toml::Value::String(commands.review.clone()).to_string(),
             );
             let content = crate::config::upsert_section_value(
                 &content,
                 "commands",
-                "ide",
-                &toml::Value::String(commands.ide.clone()).to_string(),
+                "editor",
+                &toml::Value::String(commands.editor.clone()).to_string(),
             );
             crate::config::upsert_section_value(
                 &content,
@@ -899,24 +908,32 @@ mod tests {
         ));
         let _config_path =
             crate::config::TestEnvVar::set(crate::config::CONFIG_PATH_ENV_VAR, &path);
+        std::fs::write(
+            &path,
+            "[commands]\ngit = \"gitui\"\ndiff = \"difft\"\nide = \"hx .\"\n",
+        )
+        .unwrap();
         let mut app = test_app();
 
         app.save_commands(
-            "  gitui  ",
-            r#"  git difftool --tool="custom"  "#,
+            "  terminal-browser  ",
+            r#"  hunk diff --watch --theme auto  "#,
             "  fresh .  ",
-            "  custom-ghui  ",
+            "  gh dash  ",
         );
 
         let content = std::fs::read_to_string(&path).unwrap();
         let config: crate::config::Config = toml::from_str(&content).unwrap();
-        assert_eq!(config.commands.git, "gitui");
-        assert_eq!(config.commands.diff, r#"git difftool --tool="custom""#);
-        assert_eq!(config.commands.ide, "fresh .");
-        assert_eq!(config.commands.github, "custom-ghui");
-        assert_eq!(app.state.git_command, config.commands.git);
-        assert_eq!(app.state.git_diff_command, config.commands.diff);
-        assert_eq!(app.state.ide_command, config.commands.ide);
+        assert_eq!(config.commands.browser, "terminal-browser");
+        assert_eq!(config.commands.review, "hunk diff --watch --theme auto");
+        assert_eq!(config.commands.editor, "fresh .");
+        assert_eq!(config.commands.github, "gh dash");
+        assert!(!content.contains("\ngit ="));
+        assert!(!content.contains("\ndiff ="));
+        assert!(!content.contains("\nide ="));
+        assert_eq!(app.state.browser_command, config.commands.browser);
+        assert_eq!(app.state.review_command, config.commands.review);
+        assert_eq!(app.state.editor_command, config.commands.editor);
         assert_eq!(app.state.github_command, config.commands.github);
         let _ = std::fs::remove_file(path);
     }
@@ -939,15 +956,15 @@ mod tests {
             crate::config::TestEnvVar::set(crate::config::CONFIG_PATH_ENV_VAR, &path);
         let mut app = test_app();
 
-        app.save_commands("lazygit", "", "fresh .", "ghui");
+        app.save_commands("terminal-browser", "", "fresh .", "gh dash");
 
         let content = std::fs::read_to_string(&path).unwrap();
         let config: crate::config::Config = toml::from_str(&content).unwrap();
-        assert_eq!(config.commands.diff, "");
-        assert_eq!(app.state.git_diff_command, "");
+        assert_eq!(config.commands.review, "");
+        assert_eq!(app.state.review_command, "");
         assert!(!app
             .state
-            .project_command_configured(crate::app::state::ProjectCommandKind::Diff));
+            .project_command_configured(crate::app::state::ProjectCommandKind::Review));
         let _ = std::fs::remove_file(path);
     }
 

@@ -2211,10 +2211,10 @@ mod tests {
     fn commands_settings_show_four_editable_project_roles() {
         let mut app = AppState::test_new();
         app.settings.section = SettingsSection::Commands;
-        app.settings.pending_git_command = Some("lazygit".to_string());
-        app.settings.pending_diff_command = Some("hunk diff --watch".to_string());
-        app.settings.pending_ide_command = Some("fresh .".to_string());
-        app.settings.pending_github_command = Some("ghui".to_string());
+        app.settings.pending_browser_command = Some("terminal-browser".to_string());
+        app.settings.pending_review_command = Some("hunk diff --watch".to_string());
+        app.settings.pending_editor_command = Some("fresh .".to_string());
+        app.settings.pending_github_command = Some("gh dash".to_string());
         app.settings.list.show();
 
         let area = Rect::new(0, 0, 100, 44);
@@ -2228,18 +2228,19 @@ mod tests {
         let text = buffer_text(buffer, area.width, area.height);
         let (header_y, header_x) =
             find_text_cell(&text, "Project Commands").expect("project commands header");
-        let (git_y, git_x) = find_text_cell(&text, "Git ·").expect("git command field");
-        let (diff_y, diff_x) = find_text_cell(&text, "Diff ·").expect("diff command field");
-        let (ide_y, ide_x) = find_text_cell(&text, "IDE ·").expect("ide command field");
+        let (browser_y, browser_x) =
+            find_text_cell(&text, "Browser ·").expect("browser command field");
+        let (review_y, review_x) = find_text_cell(&text, "Review ·").expect("review command field");
+        let (editor_y, editor_x) = find_text_cell(&text, "Editor ·").expect("editor command field");
         let (github_y, github_x) = find_text_cell(&text, "GitHub ·").expect("github command field");
 
-        assert_eq!(diff_y, git_y + 4);
-        assert_eq!(ide_y, diff_y + 4);
-        assert_eq!(github_y, ide_y + 4);
-        assert_eq!(git_x, header_x + 1);
-        assert_eq!(diff_x, git_x);
-        assert_eq!(ide_x, git_x);
-        assert_eq!(github_x, git_x);
+        assert_eq!(review_y, browser_y + 4);
+        assert_eq!(editor_y, review_y + 4);
+        assert_eq!(github_y, editor_y + 4);
+        assert_eq!(browser_x, header_x + 1);
+        assert_eq!(review_x, browser_x);
+        assert_eq!(editor_x, browser_x);
+        assert_eq!(github_x, browser_x);
         assert_eq!(
             buffer[(header_x, header_y)].style().fg,
             Some(app.palette.accent)
@@ -2248,21 +2249,21 @@ mod tests {
             .style()
             .add_modifier
             .contains(Modifier::BOLD));
-        let (git_value_y, git_value_x) =
-            find_text_cell(&text, "lazygit").expect("git command value");
-        assert_eq!(git_value_y, git_y + 1);
+        let (browser_value_y, browser_value_x) =
+            find_text_cell(&text, "terminal-browser").expect("browser command value");
+        assert_eq!(browser_value_y, browser_y + 1);
         assert_eq!(
-            buffer[(git_value_x, git_value_y)].style().bg,
+            buffer[(browser_value_x, browser_value_y)].style().bg,
             Some(app.palette.surface0)
         );
-        assert!(text.contains("lazygit"));
+        assert!(text.contains("terminal-browser"));
         assert!(text.contains("hunk diff --watch"));
         assert!(text.contains("fresh ."));
-        assert!(text.contains("ghui"));
-        assert!(text.contains("Reset to lazygit"));
+        assert!(text.contains("gh dash"));
+        assert!(text.contains("Reset to terminal-browser"));
         assert!(text.contains("Reset to hunk diff --watch"));
         assert!(text.contains("Reset to fresh ."));
-        assert!(text.contains("Reset to ghui"));
+        assert!(text.contains("Reset to gh dash"));
         app.settings.scroll = 4;
         terminal
             .draw(|frame| render_settings_overlay(&app, frame, area))
@@ -2279,7 +2280,7 @@ mod tests {
     fn commands_settings_show_edit_cursor_in_input_field() {
         let mut app = AppState::test_new();
         app.settings.section = SettingsSection::Commands;
-        app.settings.pending_diff_command = Some("hunk diff --watch".to_string());
+        app.settings.pending_review_command = Some("hunk diff --watch".to_string());
         app.settings.list.select(1);
         app.settings.list.show();
         app.settings.focused_input = Some(1);
@@ -2299,7 +2300,7 @@ mod tests {
     fn commands_settings_mark_an_empty_input_disabled() {
         let mut app = AppState::test_new();
         app.settings.section = SettingsSection::Commands;
-        app.settings.pending_diff_command = Some(String::new());
+        app.settings.pending_review_command = Some(String::new());
 
         let area = Rect::new(0, 0, 100, 40);
         let backend = TestBackend::new(area.width, area.height);
@@ -2309,7 +2310,7 @@ mod tests {
             .expect("render Commands settings overlay");
 
         let text = buffer_text(terminal.backend().buffer(), area.width, area.height);
-        assert!(text.contains("Diff · Review UI · Disabled"));
+        assert!(text.contains("Review · Review UI · Disabled"));
         assert!(text.contains("Edit launch commands; clear one to disable and hide it"));
     }
 
@@ -2320,25 +2321,31 @@ mod tests {
         app.settings.group_settings_target = Some(group_idx);
         app.settings.section = SettingsSection::GroupGeneral;
 
-        let backend = TestBackend::new(80, 30);
+        let backend = TestBackend::new(80, 60);
         let mut terminal = Terminal::new(backend).expect("test backend");
         terminal
-            .draw(|frame| render_settings_overlay(&app, frame, Rect::new(0, 0, 80, 30)))
+            .draw(|frame| render_settings_overlay(&app, frame, Rect::new(0, 0, 80, 60)))
             .expect("render group settings overlay");
 
-        let text = buffer_text(terminal.backend().buffer(), 80, 30);
+        let text = buffer_text(terminal.backend().buffer(), 80, 60);
         assert!(text.contains("Name"));
         assert!(text.contains("Work"));
         assert!(text.contains("Icon"));
         assert!(text.contains("Default Location for New Spaces"));
         assert!(text.contains("‹ test-host ›"));
         assert!(text.contains("Directory"));
-        assert!(text.contains("Danger Zone"));
-        assert!(text.contains("× Delete Group"));
-
+        assert!(text.contains("GitHub Organization"));
         assert!(!text.contains("●"));
         assert!(!text.contains("○"));
         assert!(!text.contains("Work█"));
+
+        app.settings.scroll = 4;
+        terminal
+            .draw(|frame| render_settings_overlay(&app, frame, Rect::new(0, 0, 80, 60)))
+            .expect("render scrolled group settings overlay");
+        let text = buffer_text(terminal.backend().buffer(), 80, 60);
+        assert!(text.contains("Danger Zone"));
+        assert!(text.contains("× Delete Group"));
     }
 
     #[test]
@@ -2385,15 +2392,16 @@ mod tests {
         let group_idx = app.create_group("Work".to_string());
         app.settings.group_settings_target = Some(group_idx);
         app.settings.section = SettingsSection::GroupGeneral;
+        app.settings.scroll = 4;
 
-        let backend = TestBackend::new(80, 30);
+        let backend = TestBackend::new(80, 60);
         let mut terminal = Terminal::new(backend).expect("test backend");
         terminal
-            .draw(|frame| render_settings_overlay(&app, frame, Rect::new(0, 0, 80, 30)))
+            .draw(|frame| render_settings_overlay(&app, frame, Rect::new(0, 0, 80, 60)))
             .expect("render group settings overlay");
 
         let buffer = terminal.backend().buffer();
-        let text = buffer_text(buffer, 80, 30);
+        let text = buffer_text(buffer, 80, 60);
         let (y, x) = find_text_cell(&text, "× Delete Group").expect("delete action row");
         assert_eq!(buffer[(x, y)].style().fg, Some(app.palette.red));
         assert_eq!(buffer[(x + 2, y)].style().fg, Some(app.palette.red));
@@ -2402,11 +2410,11 @@ mod tests {
         app.settings.list.selected = crate::settings_rows::GROUP_GENERAL_DELETE;
         app.settings.list.show();
         terminal
-            .draw(|frame| render_settings_overlay(&app, frame, Rect::new(0, 0, 80, 30)))
+            .draw(|frame| render_settings_overlay(&app, frame, Rect::new(0, 0, 80, 60)))
             .expect("render group settings overlay");
 
         let buffer = terminal.backend().buffer();
-        let text = buffer_text(buffer, 80, 30);
+        let text = buffer_text(buffer, 80, 60);
         let (y, x) = find_text_cell(&text, "× Delete Group").expect("delete action row");
         assert_eq!(buffer[(x, y)].style().bg, Some(app.palette.red));
         assert_eq!(buffer[(x + 2, y)].style().bg, Some(app.palette.red));

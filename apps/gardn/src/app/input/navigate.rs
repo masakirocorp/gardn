@@ -2509,6 +2509,7 @@ navigate_pane_right = "ctrl+l"
             default_location: None,
             favorite_agent_profile_ids: Vec::new(),
             default_agent_profile_id: None,
+            github_organization: None,
         });
         state.workspaces[1].group_id = "side".into();
         state.workspaces[2].group_id = "side".into();

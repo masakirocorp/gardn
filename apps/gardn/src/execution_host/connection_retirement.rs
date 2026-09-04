@@ -661,6 +661,7 @@ mod tests {
                 default_location: None,
                 favorite_agent_profile_ids: Vec::new(),
                 default_agent_profile_id: None,
+                github_organization: None,
             }],
             active_group: 0,
             group_filter_enabled: true,
@@ -859,6 +860,7 @@ mod tests {
             default_location: Some(location(&retiring, "/srv/retiring-group")),
             favorite_agent_profile_ids: Vec::new(),
             default_agent_profile_id: None,
+            github_organization: None,
         });
         snap.workspaces
             .push(workspace_at("keep", location(&other, "/srv/keep")));
@@ -937,6 +939,7 @@ mod tests {
             default_location: Some(location(&other, "/srv/keep-group")),
             favorite_agent_profile_ids: vec!["agent-a".to_string()],
             default_agent_profile_id: Some("agent-a".to_string()),
+            github_organization: None,
         });
         snap.workspaces.push(workspace_at(
             "remote-default",

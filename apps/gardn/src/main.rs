@@ -24,6 +24,7 @@ mod agent_profiles;
 mod agent_resume;
 mod api;
 mod app;
+mod browser_theme;
 mod build_info;
 mod checksum;
 mod cli;
@@ -35,8 +36,8 @@ mod events;
 mod execution_host;
 mod external_tool_theme;
 mod fresh_theme;
+mod gh_dash_theme;
 mod ghostty;
-mod ghui_theme;
 mod handoff_runtime;
 mod hunk_theme;
 mod input;
@@ -45,7 +46,6 @@ mod integration;
 mod ipc;
 mod kitty_graphics;
 mod layout;
-mod lazygit_theme;
 mod logging;
 mod metadata_tokens;
 mod noninteractive_process;
@@ -230,18 +230,12 @@ const DEFAULT_CONFIG: &str = r##"# Gardn configuration
 # type = "shell" runs detached in the background.
 # type = "pane" opens a temporary pane and closes it when the command exits.
 # On Windows, command strings run through cmd.exe /d /c.
-# [[keys.command]]
-# key = "prefix+g"
-# type = "pane"
-# command = "lazygit"
-# description = "open lazygit"
-
-#[commands]
+[commands]
 # Commands run in the selected project context.
-git = "lazygit"
-diff = "hunk diff --watch"
-ide = "fresh ."
-github = "ghui"
+browser = "terminal-browser"
+review = "hunk diff --watch"
+editor = "fresh ."
+github = "gh dash"
 
 # Legacy indexed shortcut config is still parsed for compatibility.
 # Prefer switch_tab, switch_workspace, switch_group, and focus_agent for new configs.
@@ -270,7 +264,7 @@ github = "ghui"
 
 # Capture mouse input for Gardn's mouse UI.
 # Set false to let the terminal handle normal clicks, such as Cmd-clicking URLs.
-# Pane apps like lazygit and btop can still receive mouse when they request it.
+# Pane apps such as terminal-browser and btop can still receive mouse when they request it.
 # mouse_capture = true
 
 # Automatically copy text selected by mouse drag.

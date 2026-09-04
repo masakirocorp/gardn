@@ -798,17 +798,17 @@ pub(crate) fn execute_command_palette_action(app: &mut App, action: CommandPalet
         }
         CommandPaletteAction::PreviousAgent => app.state.previous_agent(),
         CommandPaletteAction::NextAgent => app.state.next_agent(),
-        CommandPaletteAction::OpenGit => {
+        CommandPaletteAction::OpenBrowser => {
             app.state.request_open_project_command =
-                Some(crate::app::state::ProjectCommandKind::Git);
+                Some(crate::app::state::ProjectCommandKind::Browser);
         }
-        CommandPaletteAction::OpenDiff => {
+        CommandPaletteAction::OpenReview => {
             app.state.request_open_project_command =
-                Some(crate::app::state::ProjectCommandKind::Diff);
+                Some(crate::app::state::ProjectCommandKind::Review);
         }
-        CommandPaletteAction::OpenIde => {
+        CommandPaletteAction::OpenEditor => {
             app.state.request_open_project_command =
-                Some(crate::app::state::ProjectCommandKind::Ide);
+                Some(crate::app::state::ProjectCommandKind::Editor);
         }
         CommandPaletteAction::OpenGithub => {
             app.state.request_open_project_command =
@@ -1044,15 +1044,15 @@ mod tests {
     }
 
     #[test]
-    fn command_palette_enter_requests_diff_and_closes_palette() {
+    fn command_palette_enter_requests_review_and_closes_palette() {
         let mut app = app_with_space();
-        app.state.command_palette.query = "open diff".to_string();
+        app.state.command_palette.query = "open review".to_string();
 
         app.handle_command_palette_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::empty()));
 
         assert_eq!(
             app.state.request_open_project_command,
-            Some(crate::app::state::ProjectCommandKind::Diff)
+            Some(crate::app::state::ProjectCommandKind::Review)
         );
         assert_eq!(app.state.mode, Mode::Terminal);
     }
@@ -1256,9 +1256,9 @@ mod tests {
         let commands = command_palette_visible_commands(&app.state);
 
         for (title, action) in [
-            ("Open Git", CommandPaletteAction::OpenGit),
-            ("Open Diff", CommandPaletteAction::OpenDiff),
-            ("Open IDE", CommandPaletteAction::OpenIde),
+            ("Open Browser", CommandPaletteAction::OpenBrowser),
+            ("Open Review", CommandPaletteAction::OpenReview),
+            ("Open Editor", CommandPaletteAction::OpenEditor),
             ("Open GitHub", CommandPaletteAction::OpenGithub),
         ] {
             assert!(commands.iter().any(|command| {

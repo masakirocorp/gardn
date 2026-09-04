@@ -248,7 +248,7 @@ new_tab = "prefix+t"
 
 [[keys.command]]
 key = "prefix+g"
-command = "lazygit"
+command = "terminal-browser"
 "#,
         )
         .unwrap();
@@ -258,7 +258,7 @@ command = "lazygit"
         assert!(profile.contains("prefix = \"ctrl+a\""));
         assert!(profile.contains("new_tab = \"prefix+t\""));
         assert!(profile.contains("next_tab = \"prefix+n\""));
-        assert!(!profile.contains("lazygit"));
+        assert!(!profile.contains("terminal-browser"));
         assert!(!profile.contains("command ="));
         assert!(!profile.contains("[[keys.command]]"));
     }

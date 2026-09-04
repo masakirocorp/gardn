@@ -991,7 +991,7 @@ new_tab = "c"
 
 [[keys.command]]
 key = "g"
-command = "lazygit"
+command = "terminal-browser"
 
 [keys.indexed]
 tabs = "ctrl"

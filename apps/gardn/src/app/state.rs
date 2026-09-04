@@ -104,6 +104,38 @@ pub struct Group {
     pub default_location: Option<crate::execution_host::ResourceLocation>,
     pub favorite_agent_profile_ids: Vec<String>,
     pub default_agent_profile_id: Option<String>,
+    pub github_organization: Option<GithubOrganization>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct GithubOrganization(String);
+
+impl GithubOrganization {
+    pub fn parse(input: &str) -> Result<Option<Self>, String> {
+        let value = input.trim();
+        if value.is_empty() {
+            return Ok(None);
+        }
+        let valid = (1..=39).contains(&value.len())
+            && value
+                .as_bytes()
+                .iter()
+                .all(|byte| byte.is_ascii_alphanumeric() || *byte == b'-')
+            && !value.starts_with('-')
+            && !value.ends_with('-')
+            && !value.contains("--");
+        valid
+            .then(|| Self(value.to_string()))
+            .ok_or_else(|| {
+                "GitHub organization must be 1-39 ASCII letters or numbers separated by single hyphens"
+                    .to_string()
+            })
+            .map(Some)
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
 }
 
 impl Group {
@@ -116,6 +148,7 @@ impl Group {
             default_location: None,
             favorite_agent_profile_ids: Vec::new(),
             default_agent_profile_id: None,
+            github_organization: None,
         }
     }
 }
@@ -2236,9 +2269,9 @@ pub struct SettingsState {
     pub pending_headless_cols: Option<String>,
     pub pending_headless_rows: Option<String>,
     /// Pending commands while the Commands settings tab is open.
-    pub pending_git_command: Option<String>,
-    pub pending_diff_command: Option<String>,
-    pub pending_ide_command: Option<String>,
+    pub pending_browser_command: Option<String>,
+    pub pending_review_command: Option<String>,
+    pub pending_editor_command: Option<String>,
     pub pending_github_command: Option<String>,
     /// Pending default sidebar width while settings is open.
     pub pending_sidebar_width: Option<u16>,
@@ -2270,6 +2303,7 @@ pub struct SettingsState {
     pub pending_group_name: Option<String>,
     /// Pending group icon while group settings is open.
     pub pending_group_icon: Option<String>,
+    pub pending_group_github_organization: Option<String>,
 
     /// Pending default directory for future spaces while group settings is open.
     pub pending_group_default_directory: Option<String>,
@@ -2475,84 +2509,86 @@ const WORKSPACE_CONTEXT_MENU_ITEMS: [&[&str]; 16] = [
         "new", "tab", "agent", "---", "manage", "rename", "settings", "---", "danger", "close",
     ],
     &[
-        "new", "tab", "agent", "diff", "---", "manage", "rename", "settings", "---", "danger",
+        "new", "tab", "agent", "review", "---", "manage", "rename", "settings", "---", "danger",
         "close",
     ],
     &[
-        "new", "tab", "agent", "git", "---", "manage", "rename", "settings", "---", "danger",
+        "new", "tab", "agent", "browser", "---", "manage", "rename", "settings", "---", "danger",
         "close",
     ],
     &[
-        "new", "tab", "agent", "git", "diff", "---", "manage", "rename", "settings", "---",
+        "new", "tab", "agent", "browser", "review", "---", "manage", "rename", "settings", "---",
         "danger", "close",
     ],
     &[
-        "new", "tab", "agent", "ide", "---", "manage", "rename", "settings", "---", "danger",
+        "new", "tab", "agent", "editor", "---", "manage", "rename", "settings", "---", "danger",
         "close",
     ],
     &[
-        "new", "tab", "agent", "ide", "diff", "---", "manage", "rename", "settings", "---",
+        "new", "tab", "agent", "editor", "review", "---", "manage", "rename", "settings", "---",
         "danger", "close",
     ],
     &[
-        "new", "tab", "agent", "ide", "git", "---", "manage", "rename", "settings", "---",
+        "new", "tab", "agent", "editor", "browser", "---", "manage", "rename", "settings", "---",
         "danger", "close",
     ],
     &[
-        "new", "tab", "agent", "ide", "git", "diff", "---", "manage", "rename", "settings", "---",
-        "danger", "close",
+        "new", "tab", "agent", "editor", "browser", "review", "---", "manage", "rename",
+        "settings", "---", "danger", "close",
     ],
     &[
         "new", "tab", "agent", "github", "---", "manage", "rename", "settings", "---", "danger",
         "close",
     ],
     &[
-        "new", "tab", "agent", "diff", "github", "---", "manage", "rename", "settings", "---",
+        "new", "tab", "agent", "review", "github", "---", "manage", "rename", "settings", "---",
         "danger", "close",
     ],
     &[
-        "new", "tab", "agent", "git", "github", "---", "manage", "rename", "settings", "---",
+        "new", "tab", "agent", "browser", "github", "---", "manage", "rename", "settings", "---",
         "danger", "close",
     ],
     &[
-        "new", "tab", "agent", "git", "diff", "github", "---", "manage", "rename", "settings",
-        "---", "danger", "close",
+        "new", "tab", "agent", "browser", "review", "github", "---", "manage", "rename",
+        "settings", "---", "danger", "close",
     ],
     &[
-        "new", "tab", "agent", "ide", "github", "---", "manage", "rename", "settings", "---",
+        "new", "tab", "agent", "editor", "github", "---", "manage", "rename", "settings", "---",
         "danger", "close",
     ],
     &[
-        "new", "tab", "agent", "ide", "diff", "github", "---", "manage", "rename", "settings",
+        "new", "tab", "agent", "editor", "review", "github", "---", "manage", "rename", "settings",
         "---", "danger", "close",
     ],
     &[
-        "new", "tab", "agent", "ide", "git", "github", "---", "manage", "rename", "settings",
-        "---", "danger", "close",
+        "new", "tab", "agent", "editor", "browser", "github", "---", "manage", "rename",
+        "settings", "---", "danger", "close",
     ],
     &[
-        "new", "tab", "agent", "ide", "git", "diff", "github", "---", "manage", "rename",
+        "new", "tab", "agent", "editor", "browser", "review", "github", "---", "manage", "rename",
         "settings", "---", "danger", "close",
     ],
 ];
 
 const NEW_TAB_CONTEXT_MENU_ITEMS: [&[&str]; 16] = [
     &["new", "tab", "agent"],
-    &["new", "tab", "agent", "diff"],
-    &["new", "tab", "agent", "git"],
-    &["new", "tab", "agent", "git", "diff"],
-    &["new", "tab", "agent", "ide"],
-    &["new", "tab", "agent", "ide", "diff"],
-    &["new", "tab", "agent", "ide", "git"],
-    &["new", "tab", "agent", "ide", "git", "diff"],
+    &["new", "tab", "agent", "review"],
+    &["new", "tab", "agent", "browser"],
+    &["new", "tab", "agent", "browser", "review"],
+    &["new", "tab", "agent", "editor"],
+    &["new", "tab", "agent", "editor", "review"],
+    &["new", "tab", "agent", "editor", "browser"],
+    &["new", "tab", "agent", "editor", "browser", "review"],
     &["new", "tab", "agent", "github"],
-    &["new", "tab", "agent", "diff", "github"],
-    &["new", "tab", "agent", "git", "github"],
-    &["new", "tab", "agent", "git", "diff", "github"],
-    &["new", "tab", "agent", "ide", "github"],
-    &["new", "tab", "agent", "ide", "diff", "github"],
-    &["new", "tab", "agent", "ide", "git", "github"],
-    &["new", "tab", "agent", "ide", "git", "diff", "github"],
+    &["new", "tab", "agent", "review", "github"],
+    &["new", "tab", "agent", "browser", "github"],
+    &["new", "tab", "agent", "browser", "review", "github"],
+    &["new", "tab", "agent", "editor", "github"],
+    &["new", "tab", "agent", "editor", "review", "github"],
+    &["new", "tab", "agent", "editor", "browser", "github"],
+    &[
+        "new", "tab", "agent", "editor", "browser", "review", "github",
+    ],
 ];
 
 impl ContextMenuState {
@@ -2655,9 +2691,9 @@ impl ContextMenuState {
             "group" => "Group",
             "tab" => "Tab",
             "agent" => "Agent",
-            "git" => "Git",
-            "diff" => "Diff",
-            "ide" => "IDE",
+            "browser" => "Browser",
+            "review" => "Review",
+            "editor" => "Editor",
             "github" => "GitHub",
             "manage" => "Manage",
             "rename" => "Rename",
@@ -2862,8 +2898,8 @@ mod context_menu_tests {
         assert_eq!(
             menu.items(),
             &[
-                "new", "tab", "agent", "ide", "git", "diff", "github", "---", "manage", "rename",
-                "settings", "---", "danger", "close",
+                "new", "tab", "agent", "editor", "browser", "review", "github", "---", "manage",
+                "rename", "settings", "---", "danger", "close",
             ]
         );
     }
@@ -2903,16 +2939,16 @@ mod context_menu_tests {
             &["new", "tab", "agent"]
         );
         assert_eq!(
-            menu(ProjectCommandAvailability::IDE).items(),
-            &["new", "tab", "agent", "ide"]
+            menu(ProjectCommandAvailability::EDITOR).items(),
+            &["new", "tab", "agent", "editor"]
         );
         assert_eq!(
-            menu(ProjectCommandAvailability::GIT).items(),
-            &["new", "tab", "agent", "git"]
+            menu(ProjectCommandAvailability::BROWSER).items(),
+            &["new", "tab", "agent", "browser"]
         );
         assert_eq!(
-            menu(ProjectCommandAvailability::DIFF).items(),
-            &["new", "tab", "agent", "diff"]
+            menu(ProjectCommandAvailability::REVIEW).items(),
+            &["new", "tab", "agent", "review"]
         );
         assert_eq!(
             menu(ProjectCommandAvailability::GITHUB).items(),
@@ -2921,16 +2957,18 @@ mod context_menu_tests {
     }
 
     #[test]
-    fn project_command_availability_requires_repos_only_for_git_roles() {
+    fn project_command_availability_requires_repos_only_for_review_role() {
         assert_eq!(
             ProjectCommandAvailability::from_repo_and_configured(true, true, false, true, true,),
-            ProjectCommandAvailability::GIT
-                .union(ProjectCommandAvailability::IDE)
+            ProjectCommandAvailability::BROWSER
+                .union(ProjectCommandAvailability::EDITOR)
                 .union(ProjectCommandAvailability::GITHUB)
         );
         assert_eq!(
             ProjectCommandAvailability::from_repo_and_configured(false, true, true, true, true,),
-            ProjectCommandAvailability::IDE.union(ProjectCommandAvailability::GITHUB)
+            ProjectCommandAvailability::BROWSER
+                .union(ProjectCommandAvailability::EDITOR)
+                .union(ProjectCommandAvailability::GITHUB)
         );
     }
 
@@ -3200,9 +3238,9 @@ pub struct AgentProfilePickerState {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ProjectCommandKind {
-    Git,
-    Diff,
-    Ide,
+    Browser,
+    Review,
+    Editor,
     Github,
 }
 
@@ -3212,29 +3250,29 @@ pub struct ProjectCommandAvailability(u8);
 impl ProjectCommandAvailability {
     #[cfg(test)]
     pub const NONE: Self = Self(0);
-    pub const GIT: Self = Self(1 << 1);
-    pub const DIFF: Self = Self(1 << 0);
-    pub const IDE: Self = Self(1 << 2);
+    pub const BROWSER: Self = Self(1 << 1);
+    pub const REVIEW: Self = Self(1 << 0);
+    pub const EDITOR: Self = Self(1 << 2);
     pub const GITHUB: Self = Self(1 << 3);
     #[cfg(test)]
-    pub const ALL: Self = Self(Self::GIT.0 | Self::DIFF.0 | Self::IDE.0 | Self::GITHUB.0);
+    pub const ALL: Self = Self(Self::BROWSER.0 | Self::REVIEW.0 | Self::EDITOR.0 | Self::GITHUB.0);
 
     pub(crate) const fn from_repo_and_configured(
         has_repo: bool,
-        git_configured: bool,
-        diff_configured: bool,
-        ide_configured: bool,
+        browser_configured: bool,
+        review_configured: bool,
+        editor_configured: bool,
         github_configured: bool,
     ) -> Self {
         let mut bits = 0;
-        if has_repo && git_configured {
-            bits |= Self::GIT.0;
+        if browser_configured {
+            bits |= Self::BROWSER.0;
         }
-        if has_repo && diff_configured {
-            bits |= Self::DIFF.0;
+        if has_repo && review_configured {
+            bits |= Self::REVIEW.0;
         }
-        if ide_configured {
-            bits |= Self::IDE.0;
+        if editor_configured {
+            bits |= Self::EDITOR.0;
         }
         if github_configured {
             bits |= Self::GITHUB.0;
@@ -3471,9 +3509,9 @@ pub struct AppState {
     pub hide_tab_bar_when_single_tab: bool,
     pub show_counters: bool,
     pub sidebar_collapsed_mode: crate::config::SidebarCollapsedModeConfig,
-    pub git_command: String,
-    pub git_diff_command: String,
-    pub ide_command: String,
+    pub browser_command: String,
+    pub review_command: String,
+    pub editor_command: String,
     pub github_command: String,
     pub pane_border_agent_info: PaneBorderAgentInfoConfig,
     pub status_indicators: StatusIndicatorStyle,
@@ -4097,9 +4135,9 @@ impl AppState {
             .is_empty();
         ProjectCommandAvailability::from_repo_and_configured(
             has_repo,
-            self.project_command_configured(ProjectCommandKind::Git),
-            self.project_command_configured(ProjectCommandKind::Diff),
-            self.project_command_configured(ProjectCommandKind::Ide),
+            self.project_command_configured(ProjectCommandKind::Browser),
+            self.project_command_configured(ProjectCommandKind::Review),
+            self.project_command_configured(ProjectCommandKind::Editor),
             self.project_command_configured(ProjectCommandKind::Github),
         )
     }
@@ -4126,18 +4164,18 @@ impl AppState {
 
     pub(crate) fn project_command_role(&self, kind: ProjectCommandKind) -> &'static str {
         match kind {
-            ProjectCommandKind::Git => "Git",
-            ProjectCommandKind::Diff => "Diff",
-            ProjectCommandKind::Ide => "IDE",
+            ProjectCommandKind::Browser => "Browser",
+            ProjectCommandKind::Review => "Review",
+            ProjectCommandKind::Editor => "Editor",
             ProjectCommandKind::Github => "GitHub",
         }
     }
 
     pub(crate) fn project_command_configured(&self, kind: ProjectCommandKind) -> bool {
         let command = match kind {
-            ProjectCommandKind::Git => &self.git_command,
-            ProjectCommandKind::Diff => &self.git_diff_command,
-            ProjectCommandKind::Ide => &self.ide_command,
+            ProjectCommandKind::Browser => &self.browser_command,
+            ProjectCommandKind::Review => &self.review_command,
+            ProjectCommandKind::Editor => &self.editor_command,
             ProjectCommandKind::Github => &self.github_command,
         };
         !command.trim().is_empty()
@@ -4486,7 +4524,7 @@ impl AppState {
             },
             git_repo_picker: GitRepoPickerState {
                 ws_idx: 0,
-                command_kind: ProjectCommandKind::Diff,
+                command_kind: ProjectCommandKind::Review,
                 roots: Vec::new(),
                 list: ModalListState::hidden(0),
                 scroll: 0,
@@ -4603,10 +4641,10 @@ impl AppState {
             show_counters: false,
             sidebar_collapsed_mode: crate::config::SidebarCollapsedModeConfig::default(),
             copy_feedback: None,
-            git_command: "lazygit".to_string(),
-            git_diff_command: "hunk diff --watch".to_string(),
-            ide_command: "fresh .".to_string(),
-            github_command: "ghui".to_string(),
+            browser_command: "terminal-browser".to_string(),
+            review_command: "hunk diff --watch".to_string(),
+            editor_command: "fresh .".to_string(),
+            github_command: "gh dash".to_string(),
             pane_border_agent_info: PaneBorderAgentInfoConfig::default(),
             status_indicators: StatusIndicatorStyle::default(),
             mobile_width_threshold: crate::config::DEFAULT_MOBILE_WIDTH_THRESHOLD,
@@ -4686,9 +4724,9 @@ impl AppState {
                 pending_new_terminal_cwd: None,
                 pending_context_bar_visibility: None,
                 pending_mouse_scroll_lines: None,
-                pending_git_command: None,
-                pending_diff_command: None,
-                pending_ide_command: None,
+                pending_browser_command: None,
+                pending_review_command: None,
+                pending_editor_command: None,
                 pending_github_command: None,
                 pending_sidebar_width: None,
                 pending_sidebar_arrangement: None,
@@ -4706,6 +4744,7 @@ impl AppState {
                 pending_group_accent_choice: None,
                 pending_group_name: None,
                 pending_group_icon: None,
+                pending_group_github_organization: None,
 
                 pending_group_default_directory: None,
                 pending_group_default_execution_host_id: None,

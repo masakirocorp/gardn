@@ -46,9 +46,9 @@ pub(crate) enum CommandPaletteAction {
     SetAgentScope(AgentPanelScope),
     PreviousAgent,
     NextAgent,
-    OpenGit,
-    OpenDiff,
-    OpenIde,
+    OpenBrowser,
+    OpenReview,
+    OpenEditor,
     OpenGithub,
     ToggleSidebar,
     ToggleContextBar,
@@ -67,9 +67,9 @@ pub(crate) enum CommandPaletteAction {
 impl CommandPaletteAction {
     pub(crate) fn project_command_kind(&self) -> Option<super::state::ProjectCommandKind> {
         match self {
-            Self::OpenGit => Some(super::state::ProjectCommandKind::Git),
-            Self::OpenDiff => Some(super::state::ProjectCommandKind::Diff),
-            Self::OpenIde => Some(super::state::ProjectCommandKind::Ide),
+            Self::OpenBrowser => Some(super::state::ProjectCommandKind::Browser),
+            Self::OpenReview => Some(super::state::ProjectCommandKind::Review),
+            Self::OpenEditor => Some(super::state::ProjectCommandKind::Editor),
             Self::OpenGithub => Some(super::state::ProjectCommandKind::Github),
             _ => None,
         }
@@ -258,9 +258,9 @@ pub(crate) fn command_palette_commands(state: &AppState) -> Vec<CommandPaletteCo
             CommandPaletteAction::PreviousAgent,
         ),
         CommandPaletteCommand::new("Next Agent", "agents", CommandPaletteAction::NextAgent),
-        CommandPaletteCommand::new("Open Git", "project", CommandPaletteAction::OpenGit),
-        CommandPaletteCommand::new("Open Diff", "project", CommandPaletteAction::OpenDiff),
-        CommandPaletteCommand::new("Open IDE", "project", CommandPaletteAction::OpenIde),
+        CommandPaletteCommand::new("Open Browser", "project", CommandPaletteAction::OpenBrowser),
+        CommandPaletteCommand::new("Open Review", "project", CommandPaletteAction::OpenReview),
+        CommandPaletteCommand::new("Open Editor", "project", CommandPaletteAction::OpenEditor),
         CommandPaletteCommand::new("Open GitHub", "project", CommandPaletteAction::OpenGithub),
         CommandPaletteCommand::new(
             "Toggle Sidebar",
@@ -435,9 +435,9 @@ fn command_palette_key_label(state: &AppState, action: &CommandPaletteAction) ->
         CommandPaletteAction::OpenContextMenu => label(&kb.open_context_menu),
         CommandPaletteAction::PreviousAgent => label(&kb.previous_agent),
         CommandPaletteAction::NextAgent => label(&kb.next_agent),
-        CommandPaletteAction::OpenGit
-        | CommandPaletteAction::OpenDiff
-        | CommandPaletteAction::OpenIde
+        CommandPaletteAction::OpenBrowser
+        | CommandPaletteAction::OpenReview
+        | CommandPaletteAction::OpenEditor
         | CommandPaletteAction::OpenGithub => None,
         CommandPaletteAction::ToggleSidebar => label(&kb.toggle_sidebar),
         CommandPaletteAction::ToggleContextBar => label(&kb.toggle_context_bar),

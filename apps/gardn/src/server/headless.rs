@@ -5192,7 +5192,7 @@ mod tests {
     fn headless_handles_project_command_open_request() {
         let mut server = test_headless_server();
         server.app.state.request_open_project_command =
-            Some(crate::app::state::ProjectCommandKind::Diff);
+            Some(crate::app::state::ProjectCommandKind::Review);
 
         assert!(server.handle_open_project_command_request());
 
@@ -5204,7 +5204,7 @@ mod tests {
                 .toast
                 .as_ref()
                 .map(|toast| toast.title.as_str()),
-            Some("Diff Command Failed")
+            Some("Review Command Failed")
         );
         assert!(server.app.toast_deadline.is_some());
     }

@@ -2104,6 +2104,8 @@ pub struct GroupInfo {
     pub default_location: Option<ResourceLocationParams>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub accent: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub github_organization: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
@@ -2157,7 +2159,6 @@ pub struct AgentInfo {
     pub follow_up_added_at_unix_secs: Option<u64>,
     #[serde(default, skip_serializing_if = "is_false")]
     pub in_triage: bool,
-
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]

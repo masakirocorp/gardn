@@ -563,6 +563,7 @@ fn groups_from_snapshot(snap: &crate::persist::SessionSnapshot) -> Vec<state::Gr
             default_location: group.default_location.clone(),
             favorite_agent_profile_ids: group.favorite_agent_profile_ids.clone(),
             default_agent_profile_id: group.default_agent_profile_id.clone(),
+            github_organization: group.github_organization.clone(),
         })
         .collect();
 
@@ -578,6 +579,7 @@ fn groups_from_snapshot(snap: &crate::persist::SessionSnapshot) -> Vec<state::Gr
             default_location: None,
             favorite_agent_profile_ids: Vec::new(),
             default_agent_profile_id: None,
+            github_organization: None,
         });
     }
 
@@ -873,7 +875,7 @@ impl App {
             request_open_project_command_workspace: None,
             git_repo_picker: state::GitRepoPickerState {
                 ws_idx: 0,
-                command_kind: state::ProjectCommandKind::Diff,
+                command_kind: state::ProjectCommandKind::Review,
                 roots: Vec::new(),
                 list: state::ModalListState::hidden(0),
                 scroll: 0,
@@ -1021,9 +1023,9 @@ impl App {
             confirm_close: config.ui.confirm_close,
             prompt_new_tab_name: config.ui.prompt_new_tab_name,
             prompt_new_workspace_name: config.ui.prompt_new_workspace_name,
-            git_command: config.commands.git.clone(),
-            git_diff_command: config.commands.diff.clone(),
-            ide_command: config.commands.ide.clone(),
+            browser_command: config.commands.browser.clone(),
+            review_command: config.commands.review.clone(),
+            editor_command: config.commands.editor.clone(),
             github_command: config.commands.github.clone(),
             pane_border_agent_info: config.ui.pane_border_agent_info,
             status_indicators: config.ui.status_indicators,
@@ -1104,9 +1106,9 @@ impl App {
                 pending_right_click_passthrough_modifier: None,
                 pending_new_terminal_cwd: None,
                 pending_mouse_scroll_lines: None,
-                pending_git_command: None,
-                pending_diff_command: None,
-                pending_ide_command: None,
+                pending_browser_command: None,
+                pending_review_command: None,
+                pending_editor_command: None,
                 pending_github_command: None,
                 pending_sidebar_width: None,
                 pending_sidebar_min_width: None,
@@ -1125,6 +1127,7 @@ impl App {
                 pending_group_accent_choice: None,
                 pending_group_name: None,
                 pending_group_icon: None,
+                pending_group_github_organization: None,
                 pending_group_default_directory: None,
 
                 pending_group_default_execution_host_id: None,
@@ -2583,11 +2586,15 @@ impl App {
         }
 
         if !invalid_section("commands") {
-            self.state.git_command.clone_from(&config.commands.git);
             self.state
-                .git_diff_command
-                .clone_from(&config.commands.diff);
-            self.state.ide_command.clone_from(&config.commands.ide);
+                .browser_command
+                .clone_from(&config.commands.browser);
+            self.state
+                .review_command
+                .clone_from(&config.commands.review);
+            self.state
+                .editor_command
+                .clone_from(&config.commands.editor);
             self.state
                 .github_command
                 .clone_from(&config.commands.github);
@@ -5891,9 +5898,9 @@ impl App {
                 self.state.request_reload_config = true;
                 Self::leave_client_view_command_mode(client_view);
             }
-            action @ (crate::app::command_palette::CommandPaletteAction::OpenGit
-            | crate::app::command_palette::CommandPaletteAction::OpenDiff
-            | crate::app::command_palette::CommandPaletteAction::OpenIde
+            action @ (crate::app::command_palette::CommandPaletteAction::OpenBrowser
+            | crate::app::command_palette::CommandPaletteAction::OpenReview
+            | crate::app::command_palette::CommandPaletteAction::OpenEditor
             | crate::app::command_palette::CommandPaletteAction::OpenGithub) => {
                 let Some(kind) = action.project_command_kind() else {
                     unreachable!("project command action matched above");
@@ -6798,14 +6805,14 @@ impl App {
             (
                 state::ContextMenuKind::Workspace { ws_idx, .. }
                 | state::ContextMenuKind::NewTabButton { ws_idx, .. },
-                Some("ide" | "git" | "diff" | "github"),
+                Some("editor" | "browser" | "review" | "github"),
             ) => {
                 client_view.selected_workspace = ws_idx;
                 client_view.active_workspace = Some(ws_idx);
                 let kind = match item {
-                    Some("ide") => crate::app::state::ProjectCommandKind::Ide,
-                    Some("git") => crate::app::state::ProjectCommandKind::Git,
-                    Some("diff") => crate::app::state::ProjectCommandKind::Diff,
+                    Some("editor") => crate::app::state::ProjectCommandKind::Editor,
+                    Some("browser") => crate::app::state::ProjectCommandKind::Browser,
+                    Some("review") => crate::app::state::ProjectCommandKind::Review,
                     Some("github") => crate::app::state::ProjectCommandKind::Github,
                     _ => unreachable!("project command menu item matched above"),
                 };
@@ -13525,6 +13532,7 @@ mod tests {
             default_location: None,
             favorite_agent_profile_ids: Vec::new(),
             default_agent_profile_id: None,
+            github_organization: None,
         }
     }
 
@@ -14406,7 +14414,7 @@ mod tests {
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         std::fs::write(
             &path,
-            "[commands]\ngit = \"gitui\"\ndiff = \"difft\"\nide = \"hx .\"\n",
+            "[commands]\nbrowser = \"custom-browser\"\nreview = \"custom-review\"\neditor = \"hx .\"\ngithub = \"custom-github\"\n",
         )
         .unwrap();
         let _config_path_env =
@@ -14416,9 +14424,10 @@ mod tests {
         let report = app.reload_config();
 
         assert_eq!(report.status, crate::config::ConfigReloadStatus::Applied);
-        assert_eq!(app.state.git_command, "gitui");
-        assert_eq!(app.state.git_diff_command, "difft");
-        assert_eq!(app.state.ide_command, "hx .");
+        assert_eq!(app.state.browser_command, "custom-browser");
+        assert_eq!(app.state.review_command, "custom-review");
+        assert_eq!(app.state.editor_command, "hx .");
+        assert_eq!(app.state.github_command, "custom-github");
 
         let _ = std::fs::remove_dir_all(path.parent().unwrap());
     }
@@ -14430,22 +14439,22 @@ mod tests {
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         std::fs::write(
             &path,
-            "[commands]\ngit = 42\n[ui]\nmouse_scroll_lines = 7\n",
+            "[commands]\nbrowser = 42\n[ui]\nmouse_scroll_lines = 7\n",
         )
         .unwrap();
         let _config_path_env =
             crate::config::TestEnvVar::set(crate::config::CONFIG_PATH_ENV_VAR, &path);
 
         let mut app = test_app();
-        app.state.git_command = "gitui".to_string();
-        app.state.git_diff_command = "difft".to_string();
-        app.state.ide_command = "hx .".to_string();
+        app.state.browser_command = "gitui".to_string();
+        app.state.review_command = "difft".to_string();
+        app.state.editor_command = "hx .".to_string();
         let report = app.reload_config();
 
         assert_eq!(report.status, crate::config::ConfigReloadStatus::Partial);
-        assert_eq!(app.state.git_command, "gitui");
-        assert_eq!(app.state.git_diff_command, "difft");
-        assert_eq!(app.state.ide_command, "hx .");
+        assert_eq!(app.state.browser_command, "gitui");
+        assert_eq!(app.state.review_command, "difft");
+        assert_eq!(app.state.editor_command, "hx .");
         assert_eq!(app.state.mouse_scroll_lines, 7);
         assert!(app
             .state
@@ -20268,7 +20277,7 @@ command = "printf literal > '{}'"
                 KeyEventKind::Press,
             ),
         ];
-        for ch in "open diff".chars() {
+        for ch in "open review".chars() {
             events.push(raw_key(
                 KeyCode::Char(ch),
                 KeyModifiers::empty(),
@@ -20286,7 +20295,7 @@ command = "printf literal > '{}'"
         let workspace_id = app.state.workspaces[0].id.clone();
         assert_eq!(
             app.state.request_open_project_command,
-            Some(crate::app::state::ProjectCommandKind::Diff)
+            Some(crate::app::state::ProjectCommandKind::Review)
         );
         assert_eq!(app.state.mode, Mode::Terminal);
         assert_eq!(client.mode, Mode::Terminal);
@@ -23376,9 +23385,9 @@ command = "printf literal > '{}'"
             .context_menu
             .as_ref()
             .expect("right-clicking a visible space should open its context menu");
-        assert!(menu.items().contains(&"ide"));
-        assert!(!menu.items().contains(&"git"));
-        assert!(!menu.items().contains(&"diff"));
+        assert!(menu.items().contains(&"editor"));
+        assert!(menu.items().contains(&"browser"));
+        assert!(!menu.items().contains(&"review"));
         match menu.kind {
             state::ContextMenuKind::Workspace { ws_idx, .. } => assert_eq!(ws_idx, 1),
             other => panic!("expected workspace context menu, got {other:?}"),
@@ -23892,7 +23901,7 @@ command = "printf literal > '{}'"
         app.state.mode = Mode::Terminal;
         app.state.mouse_capture = true;
         app.state.prompt_new_tab_name = false;
-        app.state.git_diff_command.clear();
+        app.state.review_command.clear();
 
         let mut client = ClientViewState::from_default_client_state(&app.state);
         compute_client_view(&app, &mut client, ratatui::layout::Rect::new(0, 0, 120, 30));
@@ -23916,7 +23925,7 @@ command = "printf literal > '{}'"
                 .as_ref()
                 .expect("plus menu")
                 .items()
-                .contains(&"diff"),
+                .contains(&"review"),
             "unconfigured diff command stays hidden"
         );
         let menu = context_menu_rect_for_client_view(&app, &client);
@@ -23951,7 +23960,7 @@ command = "printf literal > '{}'"
         app.state.selected = 0;
         app.state.mode = Mode::Terminal;
         app.state.mouse_capture = true;
-        app.state.git_diff_command = "lazygit".to_string();
+        app.state.review_command = "terminal-browser".to_string();
 
         let mut client = ClientViewState::from_default_client_state(&app.state);
         compute_client_view(&app, &mut client, ratatui::layout::Rect::new(0, 0, 120, 30));
@@ -23971,7 +23980,7 @@ command = "printf literal > '{}'"
             .as_ref()
             .expect("plus menu")
             .items()
-            .contains(&"diff"));
+            .contains(&"review"));
     }
 
     #[test]
@@ -24528,7 +24537,7 @@ command = "printf literal > '{}'"
 
         let mut client = ClientViewState::from_default_client_state(&app.state);
         input::open_command_palette_for_view(&mut client);
-        client.command_palette.query = "open diff".to_string();
+        client.command_palette.query = "open review".to_string();
 
         app.route_client_events_for_view(
             &mut client,
@@ -24544,7 +24553,7 @@ command = "printf literal > '{}'"
         assert_eq!(client.mode, Mode::Terminal);
         assert_eq!(
             app.state.request_open_project_command,
-            Some(crate::app::state::ProjectCommandKind::Diff)
+            Some(crate::app::state::ProjectCommandKind::Review)
         );
         assert_eq!(client.active_tabs.get(&workspace_id), Some(&0));
         assert_eq!(client.pending_active_tabs.get(&workspace_id), Some(&1));
@@ -24561,7 +24570,7 @@ command = "printf literal > '{}'"
         app.state.mouse_capture = true;
         app.state.git_repo_picker = state::GitRepoPickerState {
             ws_idx: 0,
-            command_kind: state::ProjectCommandKind::Diff,
+            command_kind: state::ProjectCommandKind::Review,
             roots: vec!["/tmp/one".into(), "/tmp/two".into()],
             list: state::ModalListState::new(0),
             scroll: 0,
@@ -24981,7 +24990,7 @@ command = "printf literal > '{}'"
         client.context_menu = Some(state::ContextMenuState {
             kind: state::ContextMenuKind::NewTabButton {
                 ws_idx: 0,
-                project_commands: state::ProjectCommandAvailability::DIFF,
+                project_commands: state::ProjectCommandAvailability::REVIEW,
             },
             x: 4,
             y: 4,
@@ -25004,7 +25013,7 @@ command = "printf literal > '{}'"
         assert_eq!(client.mode, Mode::Terminal);
         assert_eq!(
             app.state.request_open_project_command,
-            Some(crate::app::state::ProjectCommandKind::Diff)
+            Some(crate::app::state::ProjectCommandKind::Review)
         );
         let workspace_id = app.state.workspaces[0].id.clone();
         assert_eq!(client.active_tabs.get(&workspace_id), Some(&0));
@@ -25018,7 +25027,7 @@ command = "printf literal > '{}'"
         assert_eq!(client.pending_active_tabs.get(&workspace_id), Some(&1));
         assert_eq!(client.active_tabs.get(&workspace_id), Some(&0));
 
-        app.state.workspaces[0].test_add_tab(Some("diff"));
+        app.state.workspaces[0].test_add_tab(Some("review"));
         app.state.workspaces[0].active_tab = 1;
         client.reconcile(&app.state);
 
@@ -25036,7 +25045,7 @@ command = "printf literal > '{}'"
         let mut app = test_app();
         app.state.workspaces = vec![Workspace::test_new("shell")];
         app.state.ensure_test_terminals();
-        app.state.git_diff_command = "sleep 30".to_string();
+        app.state.review_command = "sleep 30".to_string();
         let root_pane = app.state.workspaces[0].tabs[0].root_pane;
         let root_terminal_id = app.state.terminal_id_for_pane(0, root_pane).unwrap();
         app.state.terminals.get_mut(&root_terminal_id).unwrap().cwd = repo;
@@ -25044,7 +25053,7 @@ command = "printf literal > '{}'"
             .open_project_command_for_workspace(
                 &mut app.terminal_runtimes,
                 0,
-                state::ProjectCommandKind::Diff,
+                state::ProjectCommandKind::Review,
             )
             .unwrap();
         app.state.workspaces[0].active_tab = 0;
@@ -25055,7 +25064,7 @@ command = "printf literal > '{}'"
         let menu = state::ContextMenuState {
             kind: state::ContextMenuKind::NewTabButton {
                 ws_idx: 0,
-                project_commands: state::ProjectCommandAvailability::DIFF,
+                project_commands: state::ProjectCommandAvailability::REVIEW,
             },
             x: 4,
             y: 4,
@@ -25081,9 +25090,9 @@ command = "printf literal > '{}'"
     #[test]
     fn route_client_context_menu_queues_each_project_command_kind() {
         for (label, expected_kind) in [
-            ("ide", state::ProjectCommandKind::Ide),
-            ("git", state::ProjectCommandKind::Git),
-            ("diff", state::ProjectCommandKind::Diff),
+            ("editor", state::ProjectCommandKind::Editor),
+            ("browser", state::ProjectCommandKind::Browser),
+            ("review", state::ProjectCommandKind::Review),
             ("github", state::ProjectCommandKind::Github),
         ] {
             let mut app = test_app();

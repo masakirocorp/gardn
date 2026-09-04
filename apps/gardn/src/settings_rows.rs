@@ -16,7 +16,8 @@ pub(crate) const GROUP_GENERAL_NAME: usize = 0;
 pub(crate) const GROUP_GENERAL_ICON: usize = 1;
 pub(crate) const GROUP_GENERAL_HOST: usize = 2;
 pub(crate) const GROUP_GENERAL_DIRECTORY: usize = 3;
-pub(crate) const GROUP_GENERAL_DELETE: usize = 4;
+pub(crate) const GROUP_GENERAL_GITHUB_ORGANIZATION: usize = 4;
+pub(crate) const GROUP_GENERAL_DELETE: usize = 5;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum SettingsListRow {
@@ -500,6 +501,15 @@ fn group_general_rows(app: &AppState, settings: &SettingsState) -> Vec<SettingsL
         .clone()
         .or_else(|| default_location.map(|location| location.path.as_path().display().to_string()))
         .unwrap_or_default();
+    let github_organization = settings
+        .pending_group_github_organization
+        .clone()
+        .or_else(|| {
+            group
+                .and_then(|group| group.github_organization.as_ref())
+                .map(|organization| organization.as_str().to_string())
+        })
+        .unwrap_or_default();
     let host_id = settings
         .pending_group_default_execution_host_id
         .as_ref()
@@ -536,6 +546,12 @@ fn group_general_rows(app: &AppState, settings: &SettingsState) -> Vec<SettingsL
             index: GROUP_GENERAL_DIRECTORY,
             title: "Directory".into(),
             value: default_directory.into(),
+        },
+        SettingsListRow::Spacer,
+        SettingsListRow::TextInput {
+            index: GROUP_GENERAL_GITHUB_ORGANIZATION,
+            title: "GitHub Organization".into(),
+            value: github_organization.into(),
         },
         SettingsListRow::Spacer,
         SettingsListRow::Header("Danger Zone"),
@@ -1188,18 +1204,18 @@ fn command_rows(app: &AppState, settings: &SettingsState) -> Vec<SettingsListRow
 
 fn pending_command_value(app: &AppState, settings: &SettingsState, field: CommandField) -> String {
     match field {
-        CommandField::Git => settings
-            .pending_git_command
+        CommandField::Browser => settings
+            .pending_browser_command
             .clone()
-            .unwrap_or_else(|| app.git_command.clone()),
-        CommandField::Diff => settings
-            .pending_diff_command
+            .unwrap_or_else(|| app.browser_command.clone()),
+        CommandField::Review => settings
+            .pending_review_command
             .clone()
-            .unwrap_or_else(|| app.git_diff_command.clone()),
-        CommandField::Ide => settings
-            .pending_ide_command
+            .unwrap_or_else(|| app.review_command.clone()),
+        CommandField::Editor => settings
+            .pending_editor_command
             .clone()
-            .unwrap_or_else(|| app.ide_command.clone()),
+            .unwrap_or_else(|| app.editor_command.clone()),
         CommandField::Github => settings
             .pending_github_command
             .clone()
@@ -1213,38 +1229,38 @@ fn pending_command_value(app: &AppState, settings: &SettingsState, field: Comman
 /// depends on magic contiguous integers or row-order accidents.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum CommandField {
-    Git,
-    Diff,
-    Ide,
+    Browser,
+    Review,
+    Editor,
     Github,
 }
 
 impl CommandField {
-    pub(crate) const ALL: [Self; 4] = [Self::Git, Self::Diff, Self::Ide, Self::Github];
+    pub(crate) const ALL: [Self; 4] = [Self::Browser, Self::Review, Self::Editor, Self::Github];
 
     const fn title(self) -> &'static str {
         match self {
-            Self::Git => "Git · Terminal Git UI",
-            Self::Diff => "Diff · Review UI",
-            Self::Ide => "IDE · Project Editor",
+            Self::Browser => "Browser · Terminal Browser",
+            Self::Review => "Review · Review UI",
+            Self::Editor => "Editor · Project Editor",
             Self::Github => "GitHub · Pull Requests and Issues",
         }
     }
 
     const fn reset_label(self) -> &'static str {
         match self {
-            Self::Git => "Reset to lazygit",
-            Self::Diff => "Reset to hunk diff --watch",
-            Self::Ide => "Reset to fresh .",
-            Self::Github => "Reset to ghui",
+            Self::Browser => "Reset to terminal-browser",
+            Self::Review => "Reset to hunk diff --watch",
+            Self::Editor => "Reset to fresh .",
+            Self::Github => "Reset to gh dash",
         }
     }
 
     pub(crate) const fn default_value(self) -> &'static str {
         match self {
-            Self::Git => CommandsConfig::DEFAULT_GIT,
-            Self::Diff => CommandsConfig::DEFAULT_DIFF,
-            Self::Ide => CommandsConfig::DEFAULT_IDE,
+            Self::Browser => CommandsConfig::DEFAULT_BROWSER,
+            Self::Review => CommandsConfig::DEFAULT_REVIEW,
+            Self::Editor => CommandsConfig::DEFAULT_EDITOR,
             Self::Github => CommandsConfig::DEFAULT_GITHUB,
         }
     }
@@ -1266,13 +1282,13 @@ impl CommandRowId {
     /// Dense index used by the existing list selection model.
     pub(crate) const fn selection_index(self) -> usize {
         match self {
-            Self::Field(CommandField::Git) => 0,
-            Self::Field(CommandField::Diff) => 1,
-            Self::Field(CommandField::Ide) => 2,
+            Self::Field(CommandField::Browser) => 0,
+            Self::Field(CommandField::Review) => 1,
+            Self::Field(CommandField::Editor) => 2,
             Self::Field(CommandField::Github) => 3,
-            Self::Action(CommandAction::Reset(CommandField::Git)) => 4,
-            Self::Action(CommandAction::Reset(CommandField::Diff)) => 5,
-            Self::Action(CommandAction::Reset(CommandField::Ide)) => 6,
+            Self::Action(CommandAction::Reset(CommandField::Browser)) => 4,
+            Self::Action(CommandAction::Reset(CommandField::Review)) => 5,
+            Self::Action(CommandAction::Reset(CommandField::Editor)) => 6,
             Self::Action(CommandAction::Reset(CommandField::Github)) => 7,
             Self::Action(CommandAction::ResetAll) => 8,
         }
@@ -1280,13 +1296,13 @@ impl CommandRowId {
 
     pub(crate) fn from_selection_index(index: usize) -> Option<Self> {
         Some(match index {
-            0 => Self::Field(CommandField::Git),
-            1 => Self::Field(CommandField::Diff),
-            2 => Self::Field(CommandField::Ide),
+            0 => Self::Field(CommandField::Browser),
+            1 => Self::Field(CommandField::Review),
+            2 => Self::Field(CommandField::Editor),
             3 => Self::Field(CommandField::Github),
-            4 => Self::Action(CommandAction::Reset(CommandField::Git)),
-            5 => Self::Action(CommandAction::Reset(CommandField::Diff)),
-            6 => Self::Action(CommandAction::Reset(CommandField::Ide)),
+            4 => Self::Action(CommandAction::Reset(CommandField::Browser)),
+            5 => Self::Action(CommandAction::Reset(CommandField::Review)),
+            6 => Self::Action(CommandAction::Reset(CommandField::Editor)),
             7 => Self::Action(CommandAction::Reset(CommandField::Github)),
             8 => Self::Action(CommandAction::ResetAll),
             _ => return None,

@@ -454,29 +454,29 @@ impl Default for SessionConfig {
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(default)]
 pub struct CommandsConfig {
-    /// Terminal Git UI launched in the selected repository root.
-    pub git: String,
-    /// Diff review command launched in the selected repository root.
-    pub diff: String,
-    /// Project editor launched in the selected workspace directory.
-    pub ide: String,
+    /// Browser command launched in the selected workspace directory.
+    pub browser: String,
+    /// Review command launched in the selected repository root.
+    pub review: String,
+    /// Editor command launched in the selected workspace directory.
+    pub editor: String,
     /// GitHub pull request and issue UI launched in the selected workspace directory.
     pub github: String,
 }
 
 impl CommandsConfig {
-    pub(crate) const DEFAULT_GIT: &str = "lazygit";
-    pub(crate) const DEFAULT_DIFF: &str = "hunk diff --watch";
-    pub(crate) const DEFAULT_IDE: &str = "fresh .";
-    pub(crate) const DEFAULT_GITHUB: &str = "ghui";
+    pub(crate) const DEFAULT_BROWSER: &str = "terminal-browser";
+    pub(crate) const DEFAULT_REVIEW: &str = "hunk diff --watch";
+    pub(crate) const DEFAULT_EDITOR: &str = "fresh .";
+    pub(crate) const DEFAULT_GITHUB: &str = "gh dash";
 }
 
 impl Default for CommandsConfig {
     fn default() -> Self {
         Self {
-            git: Self::DEFAULT_GIT.to_string(),
-            diff: Self::DEFAULT_DIFF.to_string(),
-            ide: Self::DEFAULT_IDE.to_string(),
+            browser: Self::DEFAULT_BROWSER.to_string(),
+            review: Self::DEFAULT_REVIEW.to_string(),
+            editor: Self::DEFAULT_EDITOR.to_string(),
             github: Self::DEFAULT_GITHUB.to_string(),
         }
     }
@@ -1496,25 +1496,43 @@ shell_mode = "non_login"
     #[test]
     fn commands_default_and_parse_as_four_distinct_roles() {
         let defaults = Config::default().commands;
-        assert_eq!(defaults.git, "lazygit");
-        assert_eq!(defaults.diff, "hunk diff --watch");
-        assert_eq!(defaults.ide, "fresh .");
-        assert_eq!(defaults.github, "ghui");
+        assert_eq!(defaults.browser, "terminal-browser");
+        assert_eq!(defaults.review, "hunk diff --watch");
+        assert_eq!(defaults.editor, "fresh .");
+        assert_eq!(defaults.github, "gh dash");
 
         let config: Config = toml::from_str(
             r#"
 [commands]
-git = "gitui"
-diff = "difft"
-ide = "helix ."
-github = "custom-ghui"
+git = "legacy-browser"
+diff = "legacy-review"
+ide = "legacy-editor"
+browser = "custom-browser"
+review = "custom-review"
+editor = "helix ."
+github = "custom-github"
 "#,
         )
         .unwrap();
-        assert_eq!(config.commands.git, "gitui");
-        assert_eq!(config.commands.diff, "difft");
-        assert_eq!(config.commands.ide, "helix .");
-        assert_eq!(config.commands.github, "custom-ghui");
+        assert_eq!(config.commands.browser, "custom-browser");
+        assert_eq!(config.commands.review, "custom-review");
+        assert_eq!(config.commands.editor, "helix .");
+        assert_eq!(config.commands.github, "custom-github");
+    }
+
+    #[test]
+    fn legacy_command_keys_do_not_override_curated_defaults() {
+        let config: Config = toml::from_str(
+            r#"
+[commands]
+git = "legacy-browser"
+diff = "legacy-review"
+ide = "legacy-editor"
+"#,
+        )
+        .unwrap();
+
+        assert_eq!(config.commands, CommandsConfig::default());
     }
 
     #[test]

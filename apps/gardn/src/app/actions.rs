@@ -35,9 +35,9 @@ fn configured_project_command_at(
     command: &str,
 ) -> crate::commands::ProjectCommand {
     let role = match kind {
-        ProjectCommandKind::Git => "Git",
-        ProjectCommandKind::Diff => "Diff",
-        ProjectCommandKind::Ide => "IDE",
+        ProjectCommandKind::Browser => "Browser",
+        ProjectCommandKind::Review => "Review",
+        ProjectCommandKind::Editor => "Editor",
         ProjectCommandKind::Github => "GitHub",
     };
     let name = location
@@ -1593,7 +1593,10 @@ impl AppState {
         if !self.project_command_configured(kind) {
             return None;
         }
-        let root = if matches!(kind, ProjectCommandKind::Ide | ProjectCommandKind::Github) {
+        let root = if matches!(
+            kind,
+            ProjectCommandKind::Browser | ProjectCommandKind::Editor | ProjectCommandKind::Github
+        ) {
             self.workspaces
                 .get(ws_idx)?
                 .effective_default_cwd_from(&self.terminals, terminal_runtimes)
@@ -1629,7 +1632,10 @@ impl AppState {
                 self.project_command_role(kind)
             ));
         }
-        if matches!(kind, ProjectCommandKind::Ide | ProjectCommandKind::Github) {
+        if matches!(
+            kind,
+            ProjectCommandKind::Browser | ProjectCommandKind::Editor | ProjectCommandKind::Github
+        ) {
             let root = self
                 .workspaces
                 .get(ws_idx)
@@ -1674,27 +1680,16 @@ impl AppState {
         ws_idx: Option<usize>,
     ) -> crate::commands::ProjectCommand {
         let configured = match kind {
-            ProjectCommandKind::Git => &self.git_command,
-            ProjectCommandKind::Diff => &self.git_diff_command,
-            ProjectCommandKind::Ide => &self.ide_command,
+            ProjectCommandKind::Browser => &self.browser_command,
+            ProjectCommandKind::Review => &self.review_command,
+            ProjectCommandKind::Editor => &self.editor_command,
             ProjectCommandKind::Github => &self.github_command,
         };
         let command = match (kind, configured.trim()) {
-            (ProjectCommandKind::Git, crate::lazygit_theme::GIT_COMMAND) => {
-                crate::lazygit_theme::command(
-                    &ws_idx
-                        .and_then(|idx| {
-                            self.workspaces
-                                .get(idx)
-                                .map(|_| self.palette_for_workspace(idx))
-                        })
-                        .unwrap_or_else(|| self.palette.clone()),
-                    self.theme_appearance_for_mode(self.global_theme_mode),
-                    self.host_terminal_theme,
-                    crate::external_tool_theme::is_terminal_passthrough(&self.global_theme_name),
-                )
+            (ProjectCommandKind::Browser, crate::browser_theme::BROWSER_COMMAND) => {
+                crate::browser_theme::command()
             }
-            (ProjectCommandKind::Diff, crate::hunk_theme::DIFF_COMMAND) => {
+            (ProjectCommandKind::Review, crate::hunk_theme::DIFF_COMMAND) => {
                 crate::hunk_theme::command(
                     &ws_idx
                         .and_then(|idx| {
@@ -1708,7 +1703,7 @@ impl AppState {
                     crate::external_tool_theme::is_terminal_passthrough(&self.global_theme_name),
                 )
             }
-            (ProjectCommandKind::Ide, crate::fresh_theme::IDE_COMMAND) => {
+            (ProjectCommandKind::Editor, crate::fresh_theme::IDE_COMMAND) => {
                 crate::fresh_theme::command(
                     &ws_idx
                         .and_then(|idx| {
@@ -1722,8 +1717,29 @@ impl AppState {
                     crate::external_tool_theme::is_terminal_passthrough(&self.global_theme_name),
                 )
             }
-            (ProjectCommandKind::Github, crate::ghui_theme::GITHUB_COMMAND) => {
-                crate::ghui_theme::command()
+            (ProjectCommandKind::Github, crate::gh_dash_theme::GITHUB_COMMAND) => {
+                let palette = ws_idx
+                    .and_then(|idx| {
+                        self.workspaces
+                            .get(idx)
+                            .map(|_| self.palette_for_workspace(idx))
+                    })
+                    .unwrap_or_else(|| self.palette.clone());
+                let organization = ws_idx
+                    .and_then(|idx| self.workspaces.get(idx))
+                    .and_then(|workspace| {
+                        self.groups
+                            .iter()
+                            .find(|group| group.id == workspace.group_id)
+                    })
+                    .and_then(|group| group.github_organization.as_ref());
+                crate::gh_dash_theme::command(
+                    &palette,
+                    self.theme_appearance_for_mode(self.global_theme_mode),
+                    self.host_terminal_theme,
+                    crate::external_tool_theme::is_terminal_passthrough(&self.global_theme_name),
+                    organization,
+                )
             }
             _ => configured.clone(),
         };
@@ -1739,19 +1755,21 @@ impl AppState {
             return None;
         }
         let configured = match kind {
-            ProjectCommandKind::Git => &self.git_command,
-            ProjectCommandKind::Diff => &self.git_diff_command,
-            ProjectCommandKind::Ide => &self.ide_command,
+            ProjectCommandKind::Browser => &self.browser_command,
+            ProjectCommandKind::Review => &self.review_command,
+            ProjectCommandKind::Editor => &self.editor_command,
             ProjectCommandKind::Github => &self.github_command,
         };
         let curated = matches!(
             (kind, configured.trim()),
-            (ProjectCommandKind::Git, crate::lazygit_theme::GIT_COMMAND)
-                | (ProjectCommandKind::Diff, crate::hunk_theme::DIFF_COMMAND)
-                | (ProjectCommandKind::Ide, crate::fresh_theme::IDE_COMMAND)
+            (
+                ProjectCommandKind::Browser,
+                crate::browser_theme::BROWSER_COMMAND
+            ) | (ProjectCommandKind::Review, crate::hunk_theme::DIFF_COMMAND)
+                | (ProjectCommandKind::Editor, crate::fresh_theme::IDE_COMMAND)
                 | (
                     ProjectCommandKind::Github,
-                    crate::ghui_theme::GITHUB_COMMAND
+                    crate::gh_dash_theme::GITHUB_COMMAND
                 )
         );
         if !curated {
@@ -2135,7 +2153,7 @@ impl AppState {
                 if let Some(git_root) = crate::workspace::git_repo_root(&root) {
                     if let Ok(command) = self.configured_project_command(
                         git_root,
-                        crate::app::state::ProjectCommandKind::Diff,
+                        crate::app::state::ProjectCommandKind::Review,
                         scope_ws_idx,
                     ) {
                         commands.push(command);
@@ -2204,11 +2222,11 @@ impl AppState {
                     );
                 }
                 // Merge configured git-diff at each worker-qualified root so it stays host-routed.
-                if self.project_command_configured(ProjectCommandKind::Diff) {
+                if self.project_command_configured(ProjectCommandKind::Review) {
                     for merge_location in merge_locations {
                         catalog.push(self.configured_project_command_for_location(
                             merge_location,
-                            ProjectCommandKind::Diff,
+                            ProjectCommandKind::Review,
                             scope_ws_idx,
                         ));
                     }
@@ -2381,6 +2399,7 @@ impl AppState {
             default_location,
             favorite_agent_profile_ids: Vec::new(),
             default_agent_profile_id: None,
+            github_organization: None,
         });
         self.mark_session_dirty();
         self.groups.len() - 1
@@ -2400,6 +2419,22 @@ impl AppState {
             return false;
         };
         workspace.set_custom_name(name);
+        self.mark_session_dirty();
+        true
+    }
+
+    pub fn set_group_github_organization(
+        &mut self,
+        group_idx: usize,
+        organization: Option<super::state::GithubOrganization>,
+    ) -> bool {
+        let Some(group) = self.groups.get_mut(group_idx) else {
+            return false;
+        };
+        if group.github_organization == organization {
+            return false;
+        }
+        group.github_organization = organization;
         self.mark_session_dirty();
         true
     }
@@ -5681,7 +5716,7 @@ mod tests {
             .open_project_command_for_workspace(
                 &mut terminal_runtimes,
                 0,
-                crate::app::state::ProjectCommandKind::Diff,
+                crate::app::state::ProjectCommandKind::Review,
             )
             .expect("multi-repo diff should open picker");
 
@@ -5729,7 +5764,7 @@ mod tests {
         state.global_theme_name = "system".to_string();
         state.palette = Palette::terminal();
         let command = state
-            .configured_project_command(root, ProjectCommandKind::Diff, Some(0))
+            .configured_project_command(root, ProjectCommandKind::Review, Some(0))
             .unwrap();
         assert!(command
             .command
@@ -5737,36 +5772,35 @@ mod tests {
         assert!(!command.command.contains("XDG_CONFIG_HOME"));
     }
     #[test]
-    fn lazygit_command_uses_native_terminal_palette() {
-        let root = temp_git_repo("lazygit-terminal-command");
+    fn browser_command_preserves_terminal_theme_passthrough() {
+        let root = temp_git_repo("browser-terminal-command");
         let mut state = app_with_workspaces(&["web"]);
         state.theme_name = "system".to_string();
         state.global_theme_name = "system".to_string();
         state.palette = Palette::terminal();
         let command = state
-            .configured_project_command(root, ProjectCommandKind::Git, Some(0))
+            .configured_project_command(root, ProjectCommandKind::Browser, Some(0))
             .unwrap();
 
-        assert!(command.command.contains("exec lazygit"));
-        assert!(!command.command.contains("LG_CONFIG_FILE"));
+        assert!(command.command.contains("exec terminal-browser"));
         assert!(state
-            .curated_project_command_terminal_theme(ProjectCommandKind::Git, Some(0))
+            .curated_project_command_terminal_theme(ProjectCommandKind::Browser, Some(0))
             .is_none());
     }
 
     #[test]
-    fn custom_diff_command_launches_unchanged() {
-        let root = temp_git_repo("plain-diff-command");
+    fn custom_review_command_launches_unchanged() {
+        let root = temp_git_repo("plain-review-command");
         let mut state = app_with_workspaces(&["web"]);
-        state.git_diff_command = "git diff --stat".to_string();
+        state.review_command = "git diff --stat".to_string();
 
         let command = state
-            .configured_project_command(root, ProjectCommandKind::Diff, None)
+            .configured_project_command(root, ProjectCommandKind::Review, None)
             .unwrap();
 
         assert_eq!(command.command, "git diff --stat");
         assert!(state
-            .curated_project_command_terminal_theme(ProjectCommandKind::Diff, None)
+            .curated_project_command_terminal_theme(ProjectCommandKind::Review, None)
             .is_none());
     }
 
@@ -5777,7 +5811,7 @@ mod tests {
         state.theme_name = "system".to_string();
         state.global_theme_name = "system".to_string();
         let command = state
-            .configured_project_command(root, ProjectCommandKind::Ide, Some(0))
+            .configured_project_command(root, ProjectCommandKind::Editor, Some(0))
             .unwrap();
 
         assert!(command
@@ -5813,11 +5847,36 @@ mod tests {
         let command = state
             .configured_project_command(project.clone(), ProjectCommandKind::Github, Some(0))
             .unwrap();
-        assert!(command.command.contains("GHUI_THEME=system exec ghui"));
+        assert!(command.command.contains("gh dash --config"));
         assert!(state
             .curated_project_command_terminal_theme(ProjectCommandKind::Github, Some(0))
             .is_none());
         assert_eq!(command.location.path.as_path(), project.as_path());
+    }
+
+    #[test]
+    fn github_command_inherits_organization_from_workspace_group() {
+        let mut state = app_with_workspaces(&["web", "api"]);
+        state.groups[0].github_organization =
+            crate::app::state::GithubOrganization::parse("first-org").expect("valid organization");
+        let mut second_group = Group::default_group();
+        second_group.id = "second".to_string();
+        second_group.name = "Second".to_string();
+        second_group.github_organization =
+            crate::app::state::GithubOrganization::parse("second-org").expect("valid organization");
+        state.groups.push(second_group);
+        state.workspaces[1].group_id = "second".to_string();
+
+        let command = state
+            .configured_project_command(
+                temp_project("group-scoped-github"),
+                ProjectCommandKind::Github,
+                Some(1),
+            )
+            .expect("configured GitHub command");
+
+        assert!(command.command.contains("org:second-org"));
+        assert!(!command.command.contains("org:first-org"));
     }
 
     #[test]
@@ -5830,14 +5889,14 @@ mod tests {
         state.palette = Palette::dracula();
         state.global_palette = state.palette.clone();
 
-        let git = state
-            .configured_project_command(root.clone(), ProjectCommandKind::Git, Some(0))
+        let browser = state
+            .configured_project_command(root.clone(), ProjectCommandKind::Browser, Some(0))
             .unwrap();
-        let diff = state
-            .configured_project_command(root.clone(), ProjectCommandKind::Diff, Some(0))
+        let review = state
+            .configured_project_command(root.clone(), ProjectCommandKind::Review, Some(0))
             .unwrap();
-        let ide = state
-            .configured_project_command(root, ProjectCommandKind::Ide, Some(0))
+        let editor = state
+            .configured_project_command(root, ProjectCommandKind::Editor, Some(0))
             .unwrap();
         let github = state
             .configured_project_command(
@@ -5847,13 +5906,13 @@ mod tests {
             )
             .unwrap();
 
-        assert!(git.command.contains("LG_CONFIG_FILE"));
-        assert!(diff.command.contains("[custom_theme.syntax_scopes]"));
-        assert!(ide
+        assert!(browser.command.contains("exec terminal-browser"));
+        assert!(review.command.contains("[custom_theme.syntax_scopes]"));
+        assert!(editor
             .command
             .contains("theme_ref=\"file://$theme_dir/theme.json\""));
-        assert!(ide.command.contains("\"cursor\": [189, 147, 249]"));
-        assert!(github.command.contains("GHUI_THEME=system exec ghui"));
+        assert!(editor.command.contains("\"cursor\": [189, 147, 249]"));
+        assert!(github.command.contains("gh dash --config"));
         let terminal_theme = state
             .curated_project_command_terminal_theme(ProjectCommandKind::Github, Some(0))
             .expect("named curated command should receive a complete terminal theme");
@@ -5928,7 +5987,7 @@ mod tests {
             .open_project_command_for_workspace(
                 &mut terminal_runtimes,
                 0,
-                crate::app::state::ProjectCommandKind::Diff,
+                crate::app::state::ProjectCommandKind::Review,
             )
             .expect("single repo diff should open command tab");
 
@@ -5936,7 +5995,7 @@ mod tests {
         assert_eq!(state.workspaces[0].tabs.len(), 2);
         assert_eq!(
             state.workspaces[0].active_tab().unwrap().display_name(),
-            format!("Diff · {}", root.file_name().unwrap().to_string_lossy())
+            format!("Review · {}", root.file_name().unwrap().to_string_lossy())
         );
     }
 
@@ -5954,7 +6013,7 @@ mod tests {
             .open_project_command_for_workspace(
                 &mut terminal_runtimes,
                 0,
-                crate::app::state::ProjectCommandKind::Diff,
+                crate::app::state::ProjectCommandKind::Review,
             )
             .expect_err("empty workspace has no runtime handles for command tab");
 
@@ -6077,15 +6136,15 @@ mod tests {
         let terminal_id = state.terminal_id_for_pane(0, root_pane).unwrap();
         state.terminals.get_mut(&terminal_id).unwrap().cwd = root.clone();
         let expected = state
-            .configured_project_command(root, ProjectCommandKind::Diff, Some(0))
+            .configured_project_command(root, ProjectCommandKind::Review, Some(0))
             .unwrap();
 
         assert!(state.refresh_command_catalog_with_hosts(&terminal_runtimes, None));
         let diff = state
             .command_catalog
             .iter()
-            .find(|command| command.name.starts_with("Diff"))
-            .expect("curated diff command");
+            .find(|command| command.name.starts_with("Review"))
+            .expect("curated review command");
 
         assert_eq!(diff.command, expected.command);
     }
@@ -6192,7 +6251,7 @@ mod tests {
     async fn pending_project_command_tab_tracks_reused_managed_run() {
         let project = temp_git_repo("pending-managed-run");
         let mut state = app_with_workspaces(&["web"]);
-        state.git_diff_command = "sleep 30".to_string();
+        state.review_command = "sleep 30".to_string();
         let mut terminal_runtimes = crate::terminal::TerminalRuntimeRegistry::new();
         let root_pane = state.workspaces[0].tabs[0].root_pane;
         let root_terminal_id = state.terminal_id_for_pane(0, root_pane).unwrap();
@@ -6202,12 +6261,16 @@ mod tests {
             state.pending_project_command_tab_for_workspace(
                 &terminal_runtimes,
                 0,
-                ProjectCommandKind::Diff,
+                ProjectCommandKind::Review,
             ),
             Some(1)
         );
         state
-            .open_project_command_for_workspace(&mut terminal_runtimes, 0, ProjectCommandKind::Diff)
+            .open_project_command_for_workspace(
+                &mut terminal_runtimes,
+                0,
+                ProjectCommandKind::Review,
+            )
             .unwrap();
         let command_id = state.command_runs.keys().next().unwrap().clone();
         let command_terminal_id = state.command_runs[&command_id].terminal_id.clone();
@@ -6218,7 +6281,7 @@ mod tests {
             state.pending_project_command_tab_for_workspace(
                 &terminal_runtimes,
                 0,
-                ProjectCommandKind::Diff,
+                ProjectCommandKind::Review,
             ),
             Some(1)
         );

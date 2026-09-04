@@ -847,9 +847,9 @@ impl App {
                         right_click_passthrough_modifier,
                         new_terminal_cwd,
                         mouse_scroll_lines,
-                        git_command,
-                        diff_command,
-                        ide_command,
+                        browser_command,
+                        review_command,
+                        editor_command,
                         github_command,
                         sidebar_width,
                         sidebar_min_width,
@@ -886,9 +886,9 @@ impl App {
                         self.save_new_terminal_cwd(&new_terminal_cwd);
                         self.save_mouse_scroll_lines(mouse_scroll_lines);
                         self.save_commands(
-                            &git_command,
-                            &diff_command,
-                            &ide_command,
+                            &browser_command,
+                            &review_command,
+                            &editor_command,
                             &github_command,
                         );
                         self.save_sidebar_widths(
@@ -920,6 +920,13 @@ impl App {
                     }
                     SettingsAction::SaveGroupIcon { group_idx, icon } => {
                         self.state.set_group_icon(group_idx, icon);
+                    }
+                    SettingsAction::SaveGroupGithubOrganization {
+                        group_idx,
+                        organization,
+                    } => {
+                        self.state
+                            .set_group_github_organization(group_idx, organization);
                     }
 
                     SettingsAction::SaveGroupDefaultLocation {

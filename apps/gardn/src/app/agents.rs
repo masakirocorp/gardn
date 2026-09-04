@@ -1308,7 +1308,7 @@ mod tests {
     #[tokio::test]
     async fn remote_nested_cwd_discovery_and_configured_diff_are_host_routed() {
         let mut app = test_app();
-        app.state.git_diff_command = "lazygit".to_string();
+        app.state.review_command = "terminal-browser".to_string();
         let outcome = app
             .start_agent(
                 agent_params(
@@ -1407,7 +1407,7 @@ mod tests {
         );
         assert!(
             app.state.command_catalog.iter().any(|command| {
-                command.command.contains("lazygit")
+                command.command.contains("terminal-browser")
                     && command.location.execution_host_id == host_id
                     && (command.location.path.as_path() == root.path.as_path()
                         || command.location.path.as_path() == nested.path.as_path())
