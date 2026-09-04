@@ -345,6 +345,8 @@ pub struct PaneSnapshot {
     pub launch_argv: Option<Vec<String>>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub launch_env: Vec<(String, String)>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub terminal_theme_binding: Option<crate::terminal_theme::TerminalThemeBinding>,
     #[serde(default = "default_true", skip_serializing_if = "is_true")]
     pub seen: bool,
     #[serde(default, skip_serializing_if = "is_false")]
@@ -855,6 +857,7 @@ fn capture_tab(
         let launch_env = terminal
             .map(|terminal| terminal.launch_env.clone())
             .unwrap_or_default();
+        let terminal_theme_binding = terminal.and_then(|terminal| terminal.terminal_theme_binding);
         let agent_session = terminal.and_then(|terminal| {
             if let Some(authority) = terminal.hook_authority.as_ref() {
                 if let Some(session_ref) = authority.session_ref.as_ref() {
@@ -905,6 +908,7 @@ fn capture_tab(
                 agent_session,
                 launch_argv,
                 launch_env,
+                terminal_theme_binding,
                 seen,
                 right_click_passthrough: pane.is_some_and(|pane| pane.right_click_passthrough),
                 terminal_semantics,
@@ -1137,9 +1141,7 @@ mod tests {
             .clone();
         let binding = crate::terminal_theme::TerminalThemeBinding {
             source: crate::terminal_theme::TerminalThemeSource::WorkspacePalette,
-            child_reload: Some(
-                crate::terminal_theme::TerminalThemeChildReloadPolicy::Ghui,
-            ),
+            child_reload: Some(crate::terminal_theme::TerminalThemeChildReloadPolicy::Ghui),
         };
         state
             .terminals
@@ -1169,7 +1171,6 @@ mod tests {
             .flat_map(|tab| tab.panes.values())
             .all(|pane| pane.terminal_theme_binding.is_none()));
     }
-
 
     #[test]
     fn capture_handoff_keeps_terminal_semantics_out_of_durable_snapshot() {
@@ -1479,6 +1480,7 @@ mod tests {
                 agent_session: None,
                 launch_argv: None,
                 launch_env: Vec::new(),
+                terminal_theme_binding: None,
                 seen: true,
                 right_click_passthrough: false,
                 terminal_semantics: None,
@@ -1496,6 +1498,7 @@ mod tests {
                 agent_session: None,
                 launch_argv: None,
                 launch_env: Vec::new(),
+                terminal_theme_binding: None,
                 seen: true,
                 right_click_passthrough: false,
                 terminal_semantics: None,

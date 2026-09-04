@@ -33,6 +33,7 @@ pub enum Signal {
     Hangup,
     Terminate,
     Kill,
+    User2,
 }
 
 pub(crate) const fn preserve_legacy_doubled_escape_input() -> bool {

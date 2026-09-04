@@ -373,6 +373,12 @@ impl PaneTerminal {
     pub fn apply_host_terminal_theme(&self, theme: crate::terminal_theme::TerminalTheme) {
         self.ghostty.apply_host_terminal_theme(theme);
     }
+    pub fn set_resolved_terminal_theme_override(
+        &self,
+        theme: Option<crate::terminal_theme::ResolvedTerminalTheme>,
+    ) {
+        self.ghostty.set_resolved_terminal_theme_override(theme);
+    }
     pub fn apply_host_terminal_appearance(
         &self,
         appearance: Option<crate::terminal_theme::ThemeAppearance>,
@@ -991,21 +997,37 @@ impl GhosttyPaneTerminal {
         appearance.map(|appearance| Bytes::from_static(appearance.color_scheme_report()))
     }
 
-    pub fn apply_resolved_terminal_theme_override(
+    pub fn set_resolved_terminal_theme_override(
         &self,
-        theme: crate::terminal_theme::ResolvedTerminalTheme,
+        theme: Option<crate::terminal_theme::ResolvedTerminalTheme>,
     ) {
-        let appearance = crate::terminal_theme::TerminalTheme::from(theme).appearance();
-        let color_scheme = appearance.map(|appearance| match appearance {
-            crate::terminal_theme::ThemeAppearance::Dark => crate::ghostty::ColorScheme::Dark,
-            crate::terminal_theme::ThemeAppearance::Light => crate::ghostty::ColorScheme::Light,
-        });
         if let Ok(mut core) = self.core.lock() {
-            core.resolved_terminal_theme_override = Some(theme);
-            write_host_terminal_theme(&mut core.terminal, theme.into());
-            write_ansi_palette(&mut core.terminal, theme.palette);
+            core.resolved_terminal_theme_override = theme;
+            let effective_theme = effective_terminal_theme(&core);
+            let color_scheme = effective_theme
+                .appearance()
+                .map(|appearance| match appearance {
+                    crate::terminal_theme::ThemeAppearance::Dark => {
+                        crate::ghostty::ColorScheme::Dark
+                    }
+                    crate::terminal_theme::ThemeAppearance::Light => {
+                        crate::ghostty::ColorScheme::Light
+                    }
+                });
+            write_host_terminal_theme(&mut core.terminal, effective_theme);
+            if let Some(theme) = theme {
+                write_ansi_palette(&mut core.terminal, theme.palette);
+            } else {
+                let ansi_palette = effective_theme
+                    .palette
+                    .map(|color| color.map(host_theme_color_to_ghostty));
+                if let Err(err) = core.terminal.update_default_ansi_palette(ansi_palette) {
+                    error!(%err, "failed to restore host terminal ANSI palette");
+                }
+                core.terminal.write(b"\x1b]104\x1b\\");
+            }
             let _ = core.terminal.set_color_scheme(color_scheme);
-            core.resolve_ansi_palette = true;
+            core.resolve_ansi_palette = theme.is_some();
         }
     }
 
@@ -4953,24 +4975,26 @@ mod tests {
         let pane_id = PaneId::from_raw(1);
 
         pane.apply_host_terminal_appearance(Some(crate::terminal_theme::ThemeAppearance::Dark));
-        pane.apply_resolved_terminal_theme_override(crate::terminal_theme::ResolvedTerminalTheme {
-            foreground: crate::terminal_theme::RgbColor {
-                r: 0x4c,
-                g: 0x4f,
-                b: 0x69,
+        pane.set_resolved_terminal_theme_override(Some(
+            crate::terminal_theme::ResolvedTerminalTheme {
+                foreground: crate::terminal_theme::RgbColor {
+                    r: 0x4c,
+                    g: 0x4f,
+                    b: 0x69,
+                },
+                background: crate::terminal_theme::RgbColor {
+                    r: 0xef,
+                    g: 0xf1,
+                    b: 0xf5,
+                },
+                cursor: crate::terminal_theme::RgbColor {
+                    r: 0x1e,
+                    g: 0x66,
+                    b: 0xf5,
+                },
+                palette: [crate::terminal_theme::RgbColor { r: 0, g: 0, b: 0 }; 16],
             },
-            background: crate::terminal_theme::RgbColor {
-                r: 0xef,
-                g: 0xf1,
-                b: 0xf5,
-            },
-            cursor: crate::terminal_theme::RgbColor {
-                r: 0x1e,
-                g: 0x66,
-                b: 0xf5,
-            },
-            palette: [crate::terminal_theme::RgbColor { r: 0, g: 0, b: 0 }; 16],
-        });
+        ));
 
         let query = pane.process_pty_bytes(pane_id, 0, b"\x1b[?996n", &tx);
         assert_eq!(
@@ -5009,8 +5033,7 @@ mod tests {
         pane.apply_host_terminal_theme(host_theme);
         pane.set_resolved_terminal_theme_override(Some(managed_theme));
 
-        let managed =
-            pane.process_pty_bytes(pane_id, 0, b"\x1b]10;?\x07\x1b]4;0;?\x07", &tx);
+        let managed = pane.process_pty_bytes(pane_id, 0, b"\x1b]10;?\x07\x1b]4;0;?\x07", &tx);
         assert_eq!(
             managed.terminal_responses,
             vec![
@@ -5021,8 +5044,7 @@ mod tests {
 
         pane.set_resolved_terminal_theme_override(None);
 
-        let restored =
-            pane.process_pty_bytes(pane_id, 0, b"\x1b]10;?\x07\x1b]4;0;?\x07", &tx);
+        let restored = pane.process_pty_bytes(pane_id, 0, b"\x1b]10;?\x07\x1b]4;0;?\x07", &tx);
         assert_eq!(
             restored.terminal_responses,
             vec![
@@ -5031,7 +5053,6 @@ mod tests {
             ]
         );
     }
-
 
     fn rgb(r: u8, g: u8, b: u8) -> crate::ghostty::RgbColor {
         crate::ghostty::RgbColor { r, g, b }
@@ -5569,24 +5590,26 @@ mod tests {
             g: 0xe9,
             b: 0xfd,
         };
-        pane.apply_resolved_terminal_theme_override(crate::terminal_theme::ResolvedTerminalTheme {
-            foreground: crate::terminal_theme::RgbColor {
-                r: 0xf8,
-                g: 0xf8,
-                b: 0xf2,
+        pane.set_resolved_terminal_theme_override(Some(
+            crate::terminal_theme::ResolvedTerminalTheme {
+                foreground: crate::terminal_theme::RgbColor {
+                    r: 0xf8,
+                    g: 0xf8,
+                    b: 0xf2,
+                },
+                background: crate::terminal_theme::RgbColor {
+                    r: 0x28,
+                    g: 0x2a,
+                    b: 0x36,
+                },
+                cursor: crate::terminal_theme::RgbColor {
+                    r: 0xbd,
+                    g: 0x93,
+                    b: 0xf9,
+                },
+                palette,
             },
-            background: crate::terminal_theme::RgbColor {
-                r: 0x28,
-                g: 0x2a,
-                b: 0x36,
-            },
-            cursor: crate::terminal_theme::RgbColor {
-                r: 0xbd,
-                g: 0x93,
-                b: 0xf9,
-            },
-            palette,
-        });
+        ));
         {
             let mut core = pane.core.lock().unwrap();
             core.terminal.write(

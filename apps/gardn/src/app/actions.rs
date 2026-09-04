@@ -1567,7 +1567,7 @@ impl AppState {
             .command_target_for_location(terminal_runtimes, &command.location)
             .ok_or_else(|| format!("No pane for {}", command.root().display()))?;
 
-        self.run_project_command_entry(terminal_runtimes, command, ws_idx, None)
+        self.run_project_command_entry(terminal_runtimes, command, ws_idx, None, None)
     }
 
     pub(crate) fn open_project_command(
@@ -1698,9 +1698,9 @@ impl AppState {
                                 .map(|_| self.palette_for_workspace(idx))
                         })
                         .unwrap_or_else(|| self.palette.clone()),
-                    self.theme_appearance_for_mode(self.global_theme_mode),
+                    self.effective_theme_appearance,
                     self.host_terminal_theme,
-                    crate::external_tool_theme::is_terminal_passthrough(&self.global_theme_name),
+                    crate::external_tool_theme::is_terminal_passthrough(&self.theme_name),
                 )
             }
             (ProjectCommandKind::Editor, crate::fresh_theme::IDE_COMMAND) => {
@@ -1712,9 +1712,9 @@ impl AppState {
                                 .map(|_| self.palette_for_workspace(idx))
                         })
                         .unwrap_or_else(|| self.palette.clone()),
-                    self.theme_appearance_for_mode(self.global_theme_mode),
+                    self.effective_theme_appearance,
                     self.host_terminal_theme,
-                    crate::external_tool_theme::is_terminal_passthrough(&self.global_theme_name),
+                    crate::external_tool_theme::is_terminal_passthrough(&self.theme_name),
                 )
             }
             (ProjectCommandKind::Github, crate::ghui_theme::GITHUB_COMMAND) => {
@@ -1733,33 +1733,35 @@ impl AppState {
         configured_project_command_at(location, kind, &command)
     }
 
-    fn curated_project_command_terminal_theme(
+    fn curated_project_command_terminal_theme_binding(
         &self,
         kind: ProjectCommandKind,
-        ws_idx: Option<usize>,
-    ) -> Option<crate::terminal_theme::ResolvedTerminalTheme> {
-        if crate::external_tool_theme::is_terminal_passthrough(&self.global_theme_name) {
-            return None;
-        }
+    ) -> Option<crate::terminal_theme::TerminalThemeBinding> {
         let configured = match kind {
             ProjectCommandKind::Browser => &self.browser_command,
             ProjectCommandKind::Review => &self.review_command,
             ProjectCommandKind::Editor => &self.editor_command,
             ProjectCommandKind::Github => &self.github_command,
         };
-        let curated = matches!(
-            (kind, configured.trim()),
-            (
-                ProjectCommandKind::Browser,
-                crate::browser_theme::BROWSER_COMMAND
-            ) | (ProjectCommandKind::Review, crate::hunk_theme::DIFF_COMMAND)
-                | (ProjectCommandKind::Editor, crate::fresh_theme::IDE_COMMAND)
-                | (
-                    ProjectCommandKind::Github,
-                    crate::ghui_theme::GITHUB_COMMAND
-                )
-        );
-        if !curated {
+        let child_reload = match (kind, configured.trim()) {
+            (ProjectCommandKind::Browser, crate::browser_theme::BROWSER_COMMAND)
+            | (ProjectCommandKind::Review, crate::hunk_theme::DIFF_COMMAND)
+            | (ProjectCommandKind::Editor, crate::fresh_theme::IDE_COMMAND) => None,
+            (ProjectCommandKind::Github, crate::ghui_theme::GITHUB_COMMAND) => {
+                Some(crate::terminal_theme::TerminalThemeChildReloadPolicy::Ghui)
+            }
+            _ => return None,
+        };
+        Some(crate::terminal_theme::TerminalThemeBinding::workspace_palette(child_reload))
+    }
+
+    fn curated_project_command_terminal_theme(
+        &self,
+        kind: ProjectCommandKind,
+        ws_idx: Option<usize>,
+    ) -> Option<crate::terminal_theme::ResolvedTerminalTheme> {
+        self.curated_project_command_terminal_theme_binding(kind)?;
+        if crate::external_tool_theme::is_terminal_passthrough(&self.theme_name) {
             return None;
         }
         let palette = ws_idx
@@ -1771,7 +1773,7 @@ impl AppState {
             .unwrap_or_else(|| self.palette.clone());
         Some(crate::external_tool_theme::resolved_terminal_theme(
             &palette,
-            self.theme_appearance_for_mode(self.global_theme_mode),
+            self.effective_theme_appearance,
             self.host_terminal_theme,
         ))
     }
@@ -1783,9 +1785,16 @@ impl AppState {
         ws_idx: usize,
         kind: ProjectCommandKind,
     ) -> Result<(), String> {
+        let terminal_theme_binding = self.curated_project_command_terminal_theme_binding(kind);
         let terminal_theme = self.curated_project_command_terminal_theme(kind, Some(ws_idx));
         let command = self.configured_project_command(root, kind, Some(ws_idx))?;
-        self.run_project_command_entry(terminal_runtimes, command, ws_idx, terminal_theme)
+        self.run_project_command_entry(
+            terminal_runtimes,
+            command,
+            ws_idx,
+            terminal_theme_binding,
+            terminal_theme,
+        )
     }
 
     fn run_project_command_entry(
@@ -1793,6 +1802,7 @@ impl AppState {
         terminal_runtimes: &mut crate::terminal::TerminalRuntimeRegistry,
         command: crate::commands::ProjectCommand,
         ws_idx: usize,
+        terminal_theme_binding: Option<crate::terminal_theme::TerminalThemeBinding>,
         terminal_theme: Option<crate::terminal_theme::ResolvedTerminalTheme>,
     ) -> Result<(), String> {
         let command_id = command.id.clone();
@@ -1811,6 +1821,7 @@ impl AppState {
                     ws_idx,
                     tab_idx,
                     pane_id,
+                    terminal_theme_binding,
                     terminal_theme,
                 )?;
                 return Ok(());
@@ -1820,7 +1831,13 @@ impl AppState {
             }
         }
 
-        self.open_command_tab(terminal_runtimes, command, ws_idx, terminal_theme)
+        self.open_command_tab(
+            terminal_runtimes,
+            command,
+            ws_idx,
+            terminal_theme_binding,
+            terminal_theme,
+        )
     }
 
     pub(crate) fn observed_git_repos_for_workspace(
@@ -1900,6 +1917,7 @@ impl AppState {
         terminal_runtimes: &mut crate::terminal::TerminalRuntimeRegistry,
         command: crate::commands::ProjectCommand,
         ws_idx: usize,
+        terminal_theme_binding: Option<crate::terminal_theme::TerminalThemeBinding>,
         terminal_theme: Option<crate::terminal_theme::ResolvedTerminalTheme>,
     ) -> Result<(), String> {
         if !command.location.is_local() {
@@ -1922,6 +1940,7 @@ impl AppState {
                 &[],
                 self.pane_scrollback_limit_bytes,
                 self.host_terminal_theme,
+                terminal_theme_binding,
                 terminal_theme,
             )
             .map_err(|err| err.to_string())?;
@@ -1957,6 +1976,7 @@ impl AppState {
         ws_idx: usize,
         tab_idx: usize,
         pane_id: PaneId,
+        terminal_theme_binding: Option<crate::terminal_theme::TerminalThemeBinding>,
         terminal_theme: Option<crate::terminal_theme::ResolvedTerminalTheme>,
     ) -> Result<(), String> {
         if !command.location.is_local() {
@@ -2017,6 +2037,7 @@ impl AppState {
         terminal_runtimes.insert(terminal_id.clone(), runtime);
         if let Some(terminal) = self.terminals.get_mut(terminal_id) {
             terminal.cwd = command.root().to_path_buf();
+            terminal.terminal_theme_binding = terminal_theme_binding;
         }
         if let Some(run) = self.command_runs.get_mut(&command.id) {
             run.status = crate::commands::CommandRunStatus::Running;
@@ -2255,6 +2276,7 @@ impl AppState {
     pub fn apply_effective_theme(&mut self) {
         self.palette = self.global_palette.clone();
         self.theme_name = self.global_theme_name.clone();
+        self.effective_theme_appearance = self.theme_appearance_for_mode(self.global_theme_mode);
     }
     pub fn preview_theme_with_mode(
         &mut self,
@@ -2266,6 +2288,7 @@ impl AppState {
         };
         self.palette = palette;
         self.theme_name = theme_name.to_string();
+        self.effective_theme_appearance = self.theme_appearance_for_mode(mode);
         true
     }
 
@@ -2285,6 +2308,7 @@ impl AppState {
         };
         self.palette = palette;
         self.theme_name = theme_name.to_string();
+        self.effective_theme_appearance = self.theme_appearance_for_mode(mode);
         true
     }
 
@@ -6052,9 +6076,7 @@ mod tests {
                 .and_then(|terminal| terminal.terminal_theme_binding),
             Some(crate::terminal_theme::TerminalThemeBinding {
                 source: crate::terminal_theme::TerminalThemeSource::WorkspacePalette,
-                child_reload: Some(
-                    crate::terminal_theme::TerminalThemeChildReloadPolicy::Ghui,
-                ),
+                child_reload: Some(crate::terminal_theme::TerminalThemeChildReloadPolicy::Ghui,),
             })
         );
     }
@@ -6107,7 +6129,6 @@ mod tests {
             None
         );
     }
-
 
     #[tokio::test]
     async fn git_diff_opens_configured_command_tab_named_after_repo_root() {

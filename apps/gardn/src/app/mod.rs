@@ -310,6 +310,14 @@ pub struct App {
     pub(crate) default_client_view: ClientViewState,
     pub(crate) terminal_runtimes: crate::terminal::TerminalRuntimeRegistry,
     pub(crate) execution_hosts: Option<crate::execution_host::ExecutionHostManager>,
+    reconciled_terminal_themes: std::collections::HashMap<
+        crate::terminal::TerminalId,
+        (
+            usize,
+            Option<crate::terminal_theme::ResolvedTerminalTheme>,
+            Option<crate::terminal_theme::TerminalThemeChildReloadPolicy>,
+        ),
+    >,
     /// Uncommitted remote creates awaiting worker ACK. Not part of AppState/snapshot.
     pub(crate) pending_remote_creations: std::collections::HashMap<
         crate::terminal::TerminalId,
@@ -795,7 +803,8 @@ impl App {
         let (global_light_theme_name, global_dark_theme_name) =
             state::theme_config_names(&config.theme);
         let global_theme_mode = config.theme.mode;
-        let global_theme_name = match global_theme_mode.resolve(host_terminal_theme) {
+        let effective_theme_appearance = global_theme_mode.resolve(host_terminal_theme);
+        let global_theme_name = match effective_theme_appearance {
             crate::terminal_theme::ThemeAppearance::Light => global_light_theme_name.clone(),
             crate::terminal_theme::ThemeAppearance::Dark => global_dark_theme_name.clone(),
         };
@@ -1062,6 +1071,7 @@ impl App {
             theme_name: global_theme_name.clone(),
             global_theme_name,
             global_theme_mode,
+            effective_theme_appearance,
             global_light_theme_name,
             global_dark_theme_name,
             global_terminal_light_accent: config.theme.resolved_terminal_light_accent(),
@@ -1336,6 +1346,7 @@ impl App {
             copy_feedback_deadline: None,
             state,
             default_client_view,
+            reconciled_terminal_themes: std::collections::HashMap::new(),
             terminal_runtimes: restored_terminal_runtimes,
             execution_hosts,
             pending_remote_creations: std::collections::HashMap::new(),
@@ -1398,6 +1409,7 @@ impl App {
             host_terminal_theme_query_count: std::cell::Cell::new(0),
             window_title_template: None,
         };
+        app.reconcile_terminal_themes();
         app.configure_window_title(&config.ui.window_title);
         app
     }
@@ -1562,6 +1574,7 @@ impl App {
                 .get(idx)
                 .and_then(|ws| ws.focused_pane_id().map(|pane_id| (idx, pane_id)))
         });
+        app.reconcile_terminal_themes();
         Ok(app)
     }
 
@@ -2173,6 +2186,10 @@ impl App {
                     });
                     self.sync_toast_deadline(previous_toast);
                 }
+                needs_render = true;
+            }
+
+            if self.reconcile_terminal_themes() {
                 needs_render = true;
             }
 

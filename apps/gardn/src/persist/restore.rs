@@ -530,6 +530,7 @@ fn restore_tab(
         let saved_agent_name = saved_pane.and_then(|p| p.agent_name.clone());
         let saved_launch_argv = saved_pane.and_then(|p| p.launch_argv.clone());
         let saved_launch_env = saved_pane.map(|p| p.launch_env.clone()).unwrap_or_default();
+        let saved_terminal_theme_binding = saved_pane.and_then(|pane| pane.terminal_theme_binding);
         let saved_agent_session = saved_pane.and_then(|p| p.agent_session.as_ref());
         let saved_seen = saved_pane.is_none_or(|p| p.seen);
         let saved_right_click_passthrough = saved_pane.is_some_and(|p| p.right_click_passthrough);
@@ -580,6 +581,9 @@ fn restore_tab(
             if !saved_launch_env.is_empty() {
                 terminal = terminal.with_launch_env(saved_launch_env);
             }
+            if let Some(binding) = saved_terminal_theme_binding {
+                terminal = terminal.with_terminal_theme_binding(binding);
+            }
             if let Some(label) = saved_label {
                 terminal.set_manual_label(label);
             }
@@ -619,6 +623,9 @@ fn restore_tab(
             }
             if !restored_launch_env.is_empty() {
                 terminal = terminal.with_launch_env(restored_launch_env);
+            }
+            if let Some(binding) = saved_terminal_theme_binding {
+                terminal = terminal.with_terminal_theme_binding(binding);
             }
             if let Some(label) = saved_label {
                 terminal.set_manual_label(label);
@@ -721,6 +728,9 @@ fn restore_tab(
                         saved_launch_argv,
                         saved_launch_env,
                     );
+                }
+                if let Some(binding) = saved_terminal_theme_binding {
+                    terminal = terminal.with_terminal_theme_binding(binding);
                 }
                 if let Some(label) = saved_label {
                     terminal.set_manual_label(label);
@@ -1137,6 +1147,7 @@ mod tests {
                             agent_session: None,
                             launch_argv: None,
                             launch_env: Vec::new(),
+                            terminal_theme_binding: None,
                             seen: true,
                             right_click_passthrough: false,
                             terminal_semantics: None,
@@ -1260,6 +1271,7 @@ mod tests {
                             }),
                             launch_argv: Some(vec!["codex".into()]),
                             launch_env: Vec::new(),
+                            terminal_theme_binding: None,
                             seen: true,
                             right_click_passthrough: false,
                             terminal_semantics: None,
@@ -1322,6 +1334,7 @@ mod tests {
                     agent_session: None,
                     launch_argv: None,
                     launch_env: Vec::new(),
+                    terminal_theme_binding: None,
                     seen: true,
                     right_click_passthrough: false,
                     terminal_semantics: None,
@@ -1725,6 +1738,7 @@ mod tests {
                             }),
                             launch_argv: Some(vec![launch_command.clone()]),
                             launch_env: vec![("CODEX_HOME".into(), "/profiles/codex".into())],
+                            terminal_theme_binding: None,
                             seen: true,
                             right_click_passthrough: false,
                             terminal_semantics: None,
@@ -2111,6 +2125,7 @@ mod tests {
                             }),
                             launch_argv: None,
                             launch_env: Vec::new(),
+                            terminal_theme_binding: None,
                             seen: true,
                             right_click_passthrough: false,
                             terminal_semantics: None,
@@ -2222,6 +2237,7 @@ mod tests {
                             }),
                             launch_argv: None,
                             launch_env: Vec::new(),
+                            terminal_theme_binding: None,
                             seen: true,
                             right_click_passthrough: false,
                             terminal_semantics: None,
@@ -2478,6 +2494,7 @@ mod tests {
                 agent_session,
                 launch_argv: None,
                 launch_env: Vec::new(),
+                terminal_theme_binding: None,
                 seen: true,
                 right_click_passthrough: false,
                 terminal_semantics: None,
