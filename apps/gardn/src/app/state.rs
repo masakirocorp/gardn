@@ -4,11 +4,11 @@ use crate::config::{
     ToastDelivery,
 };
 use crate::detect::AgentState;
-use crossterm::event::{KeyCode, KeyModifiers};
+use crossterm::event::{KeyCode, KeyModifiers, MouseEvent};
 use ratatui::layout::{Direction, Rect};
 use ratatui::style::Color;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use crate::execution_host::protocol::SessionNamespaceId;
 use crate::layout::{PaneId, PaneInfo, SplitBorder};
@@ -22,6 +22,14 @@ pub(crate) type InstalledPluginRegistry =
 pub(crate) struct PluginPaneRecord {
     pub plugin_id: String,
     pub entrypoint: String,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct PendingPaneMouseMotion {
+    pub ws_idx: usize,
+    pub pane_id: PaneId,
+    pub inner_rect: Rect,
+    pub mouse: MouseEvent,
 }
 
 // ---------------------------------------------------------------------------
@@ -3422,6 +3430,10 @@ pub struct AppState {
     /// Capture mouse input for Gardn's own mouse UI. When false, Gardn only
     /// captures mouse while the focused pane app requests mouse reporting.
     pub mouse_capture: bool,
+    /// Latest pane mouse-move waiting for the next motion flush.
+    pub(crate) pending_pane_mouse_motion: Option<PendingPaneMouseMotion>,
+    /// When pane mouse-move was last written to a PTY.
+    pub(crate) last_pane_mouse_motion_flush: Option<Instant>,
     /// Automatically copy mouse drag selections on completion. When false, retain drag or double-click word selection until Ctrl+C or a host-forwarded Cmd+C. Default: true.
     pub copy_on_select: bool,
     pub right_click_passthrough_modifiers: Option<KeyModifiers>,
@@ -4520,6 +4532,8 @@ impl AppState {
             agent_panel_scope: AgentPanelScope::CurrentWorkspace,
             triage_hold: None,
             mouse_capture: true,
+            pending_pane_mouse_motion: None,
+            last_pane_mouse_motion_flush: None,
             copy_on_select: true,
             right_click_passthrough_modifiers: None,
             right_click_passthrough: None,

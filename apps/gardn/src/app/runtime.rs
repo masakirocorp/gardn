@@ -184,11 +184,10 @@ impl App {
         &mut self,
         first: crate::raw_input::RawInputEvent,
     ) -> bool {
-        let mut changed = self.handle_raw_input_event(first).await;
-
+        let mut events = vec![first];
         while let Some(rx) = self.input_rx.as_mut() {
             match rx.try_recv() {
-                Ok(event) => changed |= self.handle_raw_input_event(event).await,
+                Ok(event) => events.push(event),
                 Err(tokio::sync::mpsc::error::TryRecvError::Empty) => break,
                 Err(tokio::sync::mpsc::error::TryRecvError::Disconnected) => {
                     self.input_rx = None;
@@ -196,7 +195,12 @@ impl App {
                 }
             }
         }
+        crate::raw_input::coalesce_consecutive_mouse_motion(&mut events);
 
+        let mut changed = false;
+        for event in events {
+            changed |= self.handle_raw_input_event(event).await;
+        }
         changed
     }
 
@@ -471,6 +475,7 @@ impl App {
         let mut resized = false;
 
         self.sync_animation_timer(now);
+        self.flush_due_pane_mouse_motion(now);
 
         if now >= self.next_resize_poll {
             resized = self.handle_resize_poll();
@@ -749,6 +754,11 @@ impl App {
         self.selection_autoscroll_deadline = None;
     }
 
+    pub(crate) fn flush_due_pane_mouse_motion(&mut self, now: Instant) {
+        self.state
+            .flush_due_pane_mouse_motion(&self.terminal_runtimes, now);
+    }
+
     pub(crate) fn can_render_now(&self, now: Instant) -> bool {
         match self.last_render_at {
             Some(last_render_at) => now.duration_since(last_render_at) >= MIN_RENDER_INTERVAL,
@@ -970,6 +980,7 @@ impl App {
             self.selection_autoscroll_deadline,
             self.selection_highlight_clear_deadline,
             render_deadline,
+            self.state.pane_mouse_motion_flush_at(),
         ]
         .into_iter()
         .flatten()

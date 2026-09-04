@@ -4096,6 +4096,7 @@ impl HeadlessServer {
         let mut changed = false;
 
         self.sync_animation_timer(now);
+        self.app.flush_due_pane_mouse_motion(now);
 
         // No resize polling needed — server has no terminal.
         // Client resize messages drive size changes instead.

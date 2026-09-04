@@ -1007,6 +1007,8 @@ impl App {
             agent_panel_scope,
             triage_hold: None,
             mouse_capture: config.ui.mouse_capture,
+            pending_pane_mouse_motion: None,
+            last_pane_mouse_motion_flush: None,
             copy_on_select: config.ui.copy_on_select,
             right_click_passthrough_modifiers: config.ui.right_click_passthrough_modifiers(),
             right_click_passthrough: None,
@@ -2971,6 +2973,8 @@ impl App {
         events: Vec<crate::raw_input::RawInputEvent>,
         apply_host_terminal_theme: bool,
     ) {
+        let mut events = events;
+        crate::raw_input::coalesce_consecutive_mouse_motion(&mut events);
         for event in events {
             let previous_mode = self.state.mode;
             match event {
@@ -3746,6 +3750,8 @@ impl App {
     ) {
         client_view.reconcile(&self.state);
         self.refresh_client_authentication_prompt(client_view);
+        let mut events = events;
+        crate::raw_input::coalesce_consecutive_mouse_motion(&mut events);
         for event in events {
             let previous_mode = client_view.mode;
             match event {
@@ -10171,7 +10177,7 @@ impl App {
     }
 
     fn handle_client_view_right_click_passthrough(
-        &self,
+        &mut self,
         client_view: &mut ClientViewState,
         mouse: crossterm::event::MouseEvent,
     ) -> bool {
@@ -10292,7 +10298,7 @@ impl App {
     }
 
     fn handle_client_view_terminal_mouse_report(
-        &self,
+        &mut self,
         client_view: &mut ClientViewState,
         mouse: crossterm::event::MouseEvent,
     ) -> bool {
