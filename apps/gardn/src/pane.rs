@@ -1416,6 +1416,12 @@ impl PaneRuntime {
     pub fn apply_host_terminal_theme(&self, theme: crate::terminal_theme::TerminalTheme) {
         self.terminal.apply_host_terminal_theme(theme);
     }
+    pub fn set_resolved_terminal_theme_override(
+        &self,
+        theme: Option<crate::terminal_theme::ResolvedTerminalTheme>,
+    ) {
+        self.terminal.set_resolved_terminal_theme_override(theme);
+    }
     pub fn apply_host_terminal_appearance(
         &self,
         appearance: Option<crate::terminal_theme::ThemeAppearance>,
@@ -1426,6 +1432,24 @@ impl PaneRuntime {
 
     pub fn child_pid(&self) -> u32 {
         self.child_pid.load(Ordering::Acquire)
+    }
+
+    pub(crate) fn instance_key(&self) -> usize {
+        Arc::as_ptr(&self.terminal) as usize
+    }
+
+    pub(crate) fn signal_child(&self, signal: crate::platform::Signal) {
+        if self
+            .child_wait_completed
+            .as_ref()
+            .is_some_and(|completed| completed.load(Ordering::Acquire))
+        {
+            return;
+        }
+        let child_pid = self.child_pid();
+        if child_pid != 0 {
+            crate::platform::signal_processes(std::slice::from_ref(&child_pid), signal);
+        }
     }
 
     pub(crate) fn remote(
@@ -1912,7 +1936,7 @@ impl PaneRuntime {
         pane_terminal.apply_host_terminal_appearance(host_terminal_theme.appearance());
 
         if let Some(theme) = initial_state.resolved_terminal_theme_override {
-            pane_terminal.apply_resolved_terminal_theme_override(theme);
+            pane_terminal.set_resolved_terminal_theme_override(Some(theme));
         }
         pane_terminal.set_windows_powershell_prompt_cwd_reporting(
             initial_state.windows_powershell_prompt_cwd_reporting,

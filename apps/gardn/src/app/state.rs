@@ -3552,12 +3552,12 @@ pub struct AppState {
     pub palette: Palette,
     /// Default app palette from config, used when the active group has no override.
     pub global_palette: Palette,
-    /// Currently applied theme name (for settings UI).
     pub theme_name: String,
     /// Default app theme name from config.
     pub global_theme_name: String,
     /// Default app light/dark mode from config.
     pub global_theme_mode: ThemeMode,
+    pub(crate) effective_theme_appearance: ThemeAppearance,
     /// Default app light theme from config.
     pub global_light_theme_name: String,
     /// Default app dark theme from config.
@@ -4685,6 +4685,7 @@ impl AppState {
             theme_name: "catppuccin".to_string(),
             global_theme_name: "catppuccin".to_string(),
             global_theme_mode: ThemeMode::System,
+            effective_theme_appearance: ThemeAppearance::Dark,
             global_light_theme_name: DEFAULT_LIGHT_THEME_NAME.to_string(),
             global_dark_theme_name: DEFAULT_DARK_THEME_NAME.to_string(),
             global_terminal_light_accent: TerminalAccent::Blue,

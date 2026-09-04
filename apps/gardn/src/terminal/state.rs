@@ -146,6 +146,7 @@ pub struct TerminalState {
     pub revision: u64,
     pub launch_argv: Option<Vec<String>>,
     pub launch_env: Vec<(String, String)>,
+    pub(crate) terminal_theme_binding: Option<crate::terminal_theme::TerminalThemeBinding>,
     pub respawn_shell_on_exit: bool,
     pub remote_runtime_identity: Option<crate::execution_host::protocol::RuntimeIdentity>,
     recent_agent_process_exit: Option<RecentAgentProcessExit>,
@@ -195,6 +196,7 @@ impl TerminalState {
             revision: 0,
             launch_argv: None,
             launch_env: Vec::new(),
+            terminal_theme_binding: None,
             remote_runtime_identity: None,
             recent_agent_process_exit: None,
             agent_process_acquisition_pending: false,
@@ -311,6 +313,14 @@ impl TerminalState {
 
     pub fn with_launch_env(mut self, env: Vec<(String, String)>) -> Self {
         self.launch_env = env;
+        self
+    }
+
+    pub(crate) fn with_terminal_theme_binding(
+        mut self,
+        binding: crate::terminal_theme::TerminalThemeBinding,
+    ) -> Self {
+        self.terminal_theme_binding = Some(binding);
         self
     }
 
@@ -1409,6 +1419,7 @@ impl TerminalState {
         self.agent_metadata.clear();
         self.launch_argv = None;
         self.launch_env.clear();
+        self.terminal_theme_binding = None;
         self.state = AgentState::Unknown;
         self.respawn_shell_on_exit = false;
         self.pending_agent_resume_plan = None;

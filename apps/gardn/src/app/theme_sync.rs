@@ -1,7 +1,61 @@
-use super::App;
-
+use super::{state::AppState, App};
 fn is_system_theme(name: &str) -> bool {
     name.eq_ignore_ascii_case("system")
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ManagedTerminalThemeTarget {
+    pub terminal_id: crate::terminal::TerminalId,
+    pub resolved_override: Option<crate::terminal_theme::ResolvedTerminalTheme>,
+    pub child_reload: Option<crate::terminal_theme::TerminalThemeChildReloadPolicy>,
+}
+
+impl AppState {
+    pub(crate) fn managed_terminal_theme_targets(&self) -> Vec<ManagedTerminalThemeTarget> {
+        let mut terminal_ids = std::collections::HashSet::<crate::terminal::TerminalId>::new();
+        let mut targets = Vec::new();
+        for (ws_idx, workspace) in self.workspaces.iter().enumerate() {
+            for terminal_id in workspace
+                .tabs
+                .iter()
+                .flat_map(|tab| tab.panes.values())
+                .map(|pane| &pane.attached_terminal_id)
+            {
+                if !terminal_ids.insert(terminal_id.clone()) {
+                    continue;
+                }
+                let Some(binding) = self
+                    .terminals
+                    .get(terminal_id)
+                    .and_then(|terminal| terminal.terminal_theme_binding)
+                else {
+                    continue;
+                };
+                let resolved_override = match binding.source {
+                    crate::terminal_theme::TerminalThemeSource::WorkspacePalette
+                        if crate::external_tool_theme::is_terminal_passthrough(
+                            &self.theme_name,
+                        ) =>
+                    {
+                        None
+                    }
+                    crate::terminal_theme::TerminalThemeSource::WorkspacePalette => {
+                        Some(crate::external_tool_theme::resolved_terminal_theme(
+                            &self.palette_for_workspace(ws_idx),
+                            self.effective_theme_appearance,
+                            self.host_terminal_theme,
+                        ))
+                    }
+                };
+                targets.push(ManagedTerminalThemeTarget {
+                    terminal_id: terminal_id.clone(),
+                    resolved_override,
+                    child_reload: binding.child_reload,
+                });
+            }
+        }
+        targets
+    }
 }
 
 impl App {
@@ -122,6 +176,63 @@ impl App {
         true
     }
 
+    pub(crate) fn reconcile_terminal_themes(&mut self) -> bool {
+        let targets = self.state.managed_terminal_theme_targets();
+        let target_ids = targets
+            .iter()
+            .map(|target| target.terminal_id.clone())
+            .collect::<std::collections::HashSet<_>>();
+        let stale_ids = self
+            .reconciled_terminal_themes
+            .keys()
+            .filter(|terminal_id| !target_ids.contains(*terminal_id))
+            .cloned()
+            .collect::<Vec<_>>();
+        let mut changed = false;
+        for terminal_id in stale_ids {
+            if let Some(runtime) = self.terminal_runtimes.get(&terminal_id) {
+                runtime.set_resolved_terminal_theme_override(None);
+                changed = true;
+            }
+            self.reconciled_terminal_themes.remove(&terminal_id);
+        }
+
+        for target in targets {
+            let Some(runtime) = self.terminal_runtimes.get(&target.terminal_id) else {
+                self.reconciled_terminal_themes.remove(&target.terminal_id);
+                continue;
+            };
+            let existing_runtime_reconciled = self
+                .reconciled_terminal_themes
+                .get(&target.terminal_id)
+                .is_some_and(|(instance_key, _, _)| *instance_key == runtime.instance_key());
+            let next = (
+                runtime.instance_key(),
+                target.resolved_override,
+                target.child_reload,
+            );
+            if self.reconciled_terminal_themes.get(&target.terminal_id) == Some(&next) {
+                continue;
+            }
+            runtime.set_resolved_terminal_theme_override(target.resolved_override);
+            if existing_runtime_reconciled
+                && target.child_reload
+                    == Some(crate::terminal_theme::TerminalThemeChildReloadPolicy::Ghui)
+            {
+                runtime.signal_child(crate::platform::Signal::User2);
+            }
+            self.reconciled_terminal_themes
+                .insert(target.terminal_id, next);
+            changed = true;
+        }
+
+        if changed {
+            self.render_dirty.request_generic();
+            self.render_notify.notify_one();
+        }
+        changed
+    }
+
     fn apply_host_terminal_theme_to_panes(&self) {
         if self.state.host_terminal_theme.is_empty() {
             return;
@@ -137,8 +248,107 @@ impl App {
         self.render_notify.notify_one();
     }
 }
+
 fn host_terminal_theme_complete(theme: crate::terminal_theme::TerminalTheme) -> bool {
     theme.foreground.is_some()
         && theme.background.is_some()
         && theme.palette.iter().all(Option::is_some)
+}
+#[cfg(test)]
+mod tests {
+    use crate::app::state::{AppState, Group, Palette};
+    use crate::config::{TerminalAccent, ThemeMode};
+    use crate::terminal_theme::{
+        TerminalThemeBinding, TerminalThemeChildReloadPolicy, TerminalThemeSource, ThemeAppearance,
+    };
+    use crate::workspace::Workspace;
+
+    #[test]
+    fn managed_terminal_theme_resolves_from_its_owning_workspace() {
+        let mut state = AppState::test_new();
+        state.workspaces = vec![Workspace::test_new("first"), Workspace::test_new("second")];
+        let mut second_group = Group::default_group();
+        second_group.id = "second".to_string();
+        second_group.name = "Second".to_string();
+        second_group.accent = Some(TerminalAccent::Red);
+        state.groups.push(second_group);
+        state.workspaces[1].group_id = "second".to_string();
+        state.ensure_test_terminals();
+        state.palette = Palette::dracula();
+        state.global_palette = Palette::dracula();
+        state.theme_name = "dracula".to_string();
+        state.global_theme_name = "dracula".to_string();
+        state.global_theme_mode = ThemeMode::Dark;
+        state.effective_theme_appearance = ThemeAppearance::Dark;
+        let pane_id = state.workspaces[1].tabs[0].root_pane;
+        let terminal_id = state.workspaces[1]
+            .terminal_id(pane_id)
+            .expect("second workspace terminal")
+            .clone();
+        state
+            .terminals
+            .get_mut(&terminal_id)
+            .expect("terminal state")
+            .terminal_theme_binding = Some(TerminalThemeBinding {
+            source: TerminalThemeSource::WorkspacePalette,
+            child_reload: Some(TerminalThemeChildReloadPolicy::Ghui),
+        });
+
+        let target = state
+            .managed_terminal_theme_targets()
+            .into_iter()
+            .find(|target| target.terminal_id == terminal_id)
+            .expect("managed terminal target");
+        let expected = crate::external_tool_theme::resolved_terminal_theme(
+            &state.palette_for_workspace(1),
+            ThemeAppearance::Dark,
+            state.host_terminal_theme,
+        );
+
+        assert_eq!(target.resolved_override, Some(expected));
+        assert_eq!(
+            target.child_reload,
+            Some(TerminalThemeChildReloadPolicy::Ghui)
+        );
+    }
+
+    #[test]
+    fn system_preview_clears_managed_override_without_changing_committed_mode() {
+        let mut state = AppState::test_new();
+        state.workspaces.push(Workspace::test_new("web"));
+        state.ensure_test_terminals();
+        let pane_id = state.workspaces[0].tabs[0].root_pane;
+        let terminal_id = state.workspaces[0]
+            .terminal_id(pane_id)
+            .expect("workspace terminal")
+            .clone();
+        state
+            .terminals
+            .get_mut(&terminal_id)
+            .expect("terminal state")
+            .terminal_theme_binding = Some(TerminalThemeBinding {
+            source: TerminalThemeSource::WorkspacePalette,
+            child_reload: None,
+        });
+        state.global_theme_mode = ThemeMode::Dark;
+        assert!(state.preview_theme_with_mode("system", ThemeMode::Light));
+
+        let target = state
+            .managed_terminal_theme_targets()
+            .into_iter()
+            .find(|target| target.terminal_id == terminal_id)
+            .expect("managed terminal target");
+
+        assert_eq!(state.global_theme_mode, ThemeMode::Dark);
+        assert_eq!(state.effective_theme_appearance, ThemeAppearance::Light);
+        assert_eq!(target.resolved_override, None);
+
+        assert!(state.preview_theme_with_mode("terminal", ThemeMode::Light));
+        let target = state
+            .managed_terminal_theme_targets()
+            .into_iter()
+            .find(|target| target.terminal_id == terminal_id)
+            .expect("managed terminal target");
+        assert_eq!(target.resolved_override, None);
+    }
 }

@@ -39,6 +39,7 @@ enum NewTabCommand<'a> {
         command: &'a str,
         launch_env: &'a PaneLaunchEnv,
         resolved_terminal_theme_override: Option<crate::terminal_theme::ResolvedTerminalTheme>,
+        terminal_theme_binding: Option<crate::terminal_theme::TerminalThemeBinding>,
     },
     Profile {
         command: &'a str,
@@ -154,6 +155,7 @@ impl Tab {
         scrollback_limit_bytes: usize,
         host_terminal_theme: crate::terminal_theme::TerminalTheme,
         resolved_terminal_theme_override: Option<crate::terminal_theme::ResolvedTerminalTheme>,
+        terminal_theme_binding: Option<crate::terminal_theme::TerminalThemeBinding>,
         events: mpsc::Sender<AppEvent>,
         render_notify: Arc<Notify>,
         render_dirty: Arc<crate::render_signal::RenderSignal>,
@@ -173,6 +175,7 @@ impl Tab {
             Some(NewTabCommand::Shell {
                 command,
                 launch_env,
+                terminal_theme_binding,
                 resolved_terminal_theme_override,
             }),
         )
@@ -267,11 +270,19 @@ impl Tab {
             Some(NewTabCommand::Shell { launch_env, .. }) => launch_env.extra().to_vec(),
             Some(NewTabCommand::Argv { .. }) | None => launch_env.extra().to_vec(),
         };
+        let terminal_theme_binding = match &command {
+            Some(NewTabCommand::Shell {
+                terminal_theme_binding,
+                ..
+            }) => *terminal_theme_binding,
+            _ => None,
+        };
         let runtime = match command {
             Some(NewTabCommand::Shell {
                 command,
                 launch_env,
                 resolved_terminal_theme_override,
+                ..
             }) => TerminalRuntime::spawn_shell_command(
                 root_id,
                 rows,
@@ -343,6 +354,9 @@ impl Tab {
         };
         if !recorded_env.is_empty() {
             terminal = terminal.with_launch_env(recorded_env);
+        }
+        if let Some(binding) = terminal_theme_binding {
+            terminal = terminal.with_terminal_theme_binding(binding);
         }
         let mut panes = HashMap::new();
         panes.insert(

@@ -287,6 +287,12 @@ impl TerminalRuntime {
     pub fn apply_host_terminal_theme(&self, theme: crate::terminal_theme::TerminalTheme) {
         self.0.apply_host_terminal_theme(theme);
     }
+    pub fn set_resolved_terminal_theme_override(
+        &self,
+        theme: Option<crate::terminal_theme::ResolvedTerminalTheme>,
+    ) {
+        self.0.set_resolved_terminal_theme_override(theme);
+    }
     pub fn apply_host_terminal_appearance(
         &self,
         appearance: Option<crate::terminal_theme::ThemeAppearance>,
@@ -296,6 +302,13 @@ impl TerminalRuntime {
 
     pub fn child_pid(&self) -> u32 {
         self.0.child_pid()
+    }
+
+    pub(crate) fn instance_key(&self) -> usize {
+        self.0.instance_key()
+    }
+    pub(crate) fn signal_child(&self, signal: crate::platform::Signal) {
+        self.0.signal_child(signal);
     }
 
     pub fn begin_graceful_release(&self, agent: crate::detect::Agent) {

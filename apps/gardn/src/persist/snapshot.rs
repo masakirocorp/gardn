@@ -345,6 +345,8 @@ pub struct PaneSnapshot {
     pub launch_argv: Option<Vec<String>>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub launch_env: Vec<(String, String)>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub terminal_theme_binding: Option<crate::terminal_theme::TerminalThemeBinding>,
     #[serde(default = "default_true", skip_serializing_if = "is_true")]
     pub seen: bool,
     #[serde(default, skip_serializing_if = "is_false")]
@@ -855,6 +857,7 @@ fn capture_tab(
         let launch_env = terminal
             .map(|terminal| terminal.launch_env.clone())
             .unwrap_or_default();
+        let terminal_theme_binding = terminal.and_then(|terminal| terminal.terminal_theme_binding);
         let agent_session = terminal.and_then(|terminal| {
             if let Some(authority) = terminal.hook_authority.as_ref() {
                 if let Some(session_ref) = authority.session_ref.as_ref() {
@@ -905,6 +908,7 @@ fn capture_tab(
                 agent_session,
                 launch_argv,
                 launch_env,
+                terminal_theme_binding,
                 seen,
                 right_click_passthrough: pane.is_some_and(|pane| pane.right_click_passthrough),
                 terminal_semantics,
@@ -1126,6 +1130,46 @@ mod tests {
             snap.workspaces[0].tabs[0].panes[&root_pane.raw()].env_pane_id,
             Some(6)
         );
+    }
+    #[test]
+    fn capture_persists_terminal_theme_binding_without_resolved_colors() {
+        let mut state = state_with_workspaces(&["space"]);
+        let root_pane = state.workspaces[0].tabs[0].root_pane;
+        let terminal_id = state.workspaces[0]
+            .terminal_id(root_pane)
+            .expect("workspace terminal")
+            .clone();
+        let binding = crate::terminal_theme::TerminalThemeBinding {
+            source: crate::terminal_theme::TerminalThemeSource::WorkspacePalette,
+            child_reload: Some(crate::terminal_theme::TerminalThemeChildReloadPolicy::Ghui),
+        };
+        state
+            .terminals
+            .get_mut(&terminal_id)
+            .expect("terminal state")
+            .terminal_theme_binding = Some(binding);
+
+        let snapshot = capture_from_state(&state);
+        let pane = &snapshot.workspaces[0].tabs[0].panes[&root_pane.raw()];
+        assert_eq!(pane.terminal_theme_binding, Some(binding));
+        let serialized = serde_json::to_string(pane).expect("serialize pane snapshot");
+        assert!(serialized.contains(
+            r#""terminal_theme_binding":{"source":"workspace_palette","child_reload":"ghui"}"#
+        ));
+        assert!(!serialized.contains("resolved"));
+    }
+
+    #[test]
+    fn snapshots_without_terminal_theme_binding_restore_as_unmanaged() {
+        let snapshot =
+            parse_snapshot(session_fixture("current-gardn")).expect("parse pre-binding snapshot");
+
+        assert!(snapshot
+            .workspaces
+            .iter()
+            .flat_map(|workspace| &workspace.tabs)
+            .flat_map(|tab| tab.panes.values())
+            .all(|pane| pane.terminal_theme_binding.is_none()));
     }
 
     #[test]
@@ -1436,6 +1480,7 @@ mod tests {
                 agent_session: None,
                 launch_argv: None,
                 launch_env: Vec::new(),
+                terminal_theme_binding: None,
                 seen: true,
                 right_click_passthrough: false,
                 terminal_semantics: None,
@@ -1453,6 +1498,7 @@ mod tests {
                 agent_session: None,
                 launch_argv: None,
                 launch_env: Vec::new(),
+                terminal_theme_binding: None,
                 seen: true,
                 right_click_passthrough: false,
                 terminal_semantics: None,

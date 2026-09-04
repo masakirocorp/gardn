@@ -1,7 +1,7 @@
 use crate::app::state::GithubOrganization;
 
 pub(crate) const GITHUB_COMMAND: &str = "ghui";
-pub(crate) const REQUIRED_VERSION: &str = "0.10.0-masakiro.3";
+pub(crate) const REQUIRED_VERSION: &str = "0.10.0-masakiro.4";
 pub(crate) const FORK_URL: &str = "https://github.com/masakirocorp/ghui";
 
 pub(crate) fn command(organization: Option<&GithubOrganization>) -> String {
@@ -10,7 +10,8 @@ pub(crate) fn command(organization: Option<&GithubOrganization>) -> String {
         r#"if command -v ghui >/dev/null 2>&1; then
   installed_version="$(ghui --version 2>/dev/null)"
   if [ "$installed_version" = "{REQUIRED_VERSION}" ]; then
-    GHUI_THEME=system GHUI_SHOW_SCROLLBARS=true GHUI_ORG='{organization}' exec ghui
+    trap '' USR2 2>/dev/null || true
+    GHUI_THEME=system GHUI_SHOW_SCROLLBARS=true GHUI_SYSTEM_THEME_AUTO_RELOAD=true GHUI_ORG='{organization}' exec ghui
   fi
   printf '%s\n' \
     'Gardn requires its pinned ghui companion release.' \
@@ -58,6 +59,8 @@ mod tests {
         assert!(output.contains("GHUI_THEME=system"));
         assert!(output.contains("GHUI_SHOW_SCROLLBARS=true"));
         assert!(output.contains("GHUI_ORG='masakirocorp'"));
+        assert!(output.contains("GHUI_SYSTEM_THEME_AUTO_RELOAD=true"));
+        assert!(output.contains("trap '' USR2"));
     }
 
     #[test]
@@ -85,7 +88,7 @@ if [ "$1" = "--version" ]; then
   printf '%s\n' '{REQUIRED_VERSION}'
   exit 0
 fi
-printf '%s\n%s\n%s\n' "$GHUI_THEME" "$GHUI_SHOW_SCROLLBARS" "$GHUI_ORG" > "$CAPTURE_PATH"
+printf '%s\n%s\n%s\n%s\n' "$GHUI_THEME" "$GHUI_SHOW_SCROLLBARS" "$GHUI_SYSTEM_THEME_AUTO_RELOAD" "$GHUI_ORG" > "$CAPTURE_PATH"
 exit 7
 "#
             ),
@@ -107,7 +110,7 @@ exit 7
         assert_eq!(output.status.code(), Some(7));
         assert_eq!(
             std::fs::read_to_string(&capture_path).expect("captured launch environment"),
-            "system\ntrue\nmasakirocorp\n"
+            "system\ntrue\ntrue\nmasakirocorp\n"
         );
         std::fs::remove_dir_all(root).expect("remove fake ghui directory");
     }

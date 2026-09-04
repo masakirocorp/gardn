@@ -707,6 +707,7 @@ mod tests {
                         agent_session: None,
                         launch_argv: None,
                         launch_env: Vec::new(),
+                        terminal_theme_binding: None,
                         seen: true,
                         right_click_passthrough: false,
                         terminal_semantics: None,

@@ -213,6 +213,7 @@ enum NewWorkspaceTabCommand<'a> {
     Shell {
         command: &'a str,
         resolved_terminal_theme_override: Option<crate::terminal_theme::ResolvedTerminalTheme>,
+        terminal_theme_binding: Option<crate::terminal_theme::TerminalThemeBinding>,
     },
     Profile {
         command: &'a str,
@@ -639,6 +640,7 @@ impl Workspace {
         extra_env: &[(String, String)],
         scrollback_limit_bytes: usize,
         host_terminal_theme: crate::terminal_theme::TerminalTheme,
+        terminal_theme_binding: Option<crate::terminal_theme::TerminalThemeBinding>,
         resolved_terminal_theme_override: Option<crate::terminal_theme::ResolvedTerminalTheme>,
     ) -> std::io::Result<(usize, TerminalState, TerminalRuntime)> {
         self.create_tab_with_runtime(
@@ -650,6 +652,7 @@ impl Workspace {
             crate::pane::PaneShellConfig::new("", crate::config::ShellModeConfig::NonLogin),
             Some(NewWorkspaceTabCommand::Shell {
                 command,
+                terminal_theme_binding,
                 resolved_terminal_theme_override,
             }),
             None,
@@ -738,6 +741,7 @@ impl Workspace {
                 NewWorkspaceTabCommand::Shell {
                     command,
                     resolved_terminal_theme_override,
+                    terminal_theme_binding,
                 } => Tab::new_shell_command(
                     number,
                     cwd,
@@ -748,6 +752,7 @@ impl Workspace {
                     scrollback_limit_bytes,
                     host_terminal_theme,
                     resolved_terminal_theme_override,
+                    terminal_theme_binding,
                     events,
                     render_notify,
                     render_dirty,
