@@ -64,6 +64,10 @@ _Avoid_: Workspace state, session snapshot
 A contextual command surface synthesized from Gardn's current app state, keybindings, and fixed app actions.
 _Avoid_: Static command registry, shell palette
 
+**Companion Fork**:
+A separately released upstream fork whose exact version Gardn requires for one curated integration. Masakiro owns the fork's product behavior and release assets, while the fork keeps its own source, license, and update cadence outside the Gardn binary.
+_Avoid_: Vendored source, bundled dependency, arbitrary PATH tool
+
 **Native Agent Resume**:
 The restore-time flow that launches a supported agent back into its own saved conversation session from a trusted session reference and preserved launch context.
 _Avoid_: Pane history replay, generic relaunch

@@ -104,6 +104,38 @@ pub struct Group {
     pub default_location: Option<crate::execution_host::ResourceLocation>,
     pub favorite_agent_profile_ids: Vec<String>,
     pub default_agent_profile_id: Option<String>,
+    pub github_organization: Option<GithubOrganization>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct GithubOrganization(String);
+
+impl GithubOrganization {
+    pub fn parse(input: &str) -> Result<Option<Self>, String> {
+        let value = input.trim();
+        if value.is_empty() {
+            return Ok(None);
+        }
+        let valid = (1..=39).contains(&value.len())
+            && value
+                .as_bytes()
+                .iter()
+                .all(|byte| byte.is_ascii_alphanumeric() || *byte == b'-')
+            && !value.starts_with('-')
+            && !value.ends_with('-')
+            && !value.contains("--");
+        valid
+            .then(|| Self(value.to_string()))
+            .ok_or_else(|| {
+                "GitHub organization must be 1-39 ASCII letters or numbers separated by single hyphens"
+                    .to_string()
+            })
+            .map(Some)
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
 }
 
 impl Group {
@@ -116,6 +148,7 @@ impl Group {
             default_location: None,
             favorite_agent_profile_ids: Vec::new(),
             default_agent_profile_id: None,
+            github_organization: None,
         }
     }
 }
@@ -1775,6 +1808,7 @@ pub enum SettingsSection {
     GroupProfiles,
     GroupGeneral,
     WorkspaceGeneral,
+    About,
 }
 
 impl SettingsSection {
@@ -1787,6 +1821,7 @@ impl SettingsSection {
         Self::Integrations,
         Self::Connections,
         Self::Experiments,
+        Self::About,
     ];
 
     pub fn label(self) -> &'static str {
@@ -1804,6 +1839,7 @@ impl SettingsSection {
             Self::GroupGeneral => "General",
             Self::GroupProfiles => "Agents",
             Self::WorkspaceGeneral => "General",
+            Self::About => "About",
         }
     }
 }
@@ -2270,6 +2306,8 @@ pub struct SettingsState {
     pub pending_group_name: Option<String>,
     /// Pending group icon while group settings is open.
     pub pending_group_icon: Option<String>,
+    /// Pending GitHub organization while group settings is open.
+    pub pending_group_github_organization: Option<String>,
 
     /// Pending default directory for future spaces while group settings is open.
     pub pending_group_default_directory: Option<String>,
@@ -4710,6 +4748,7 @@ impl AppState {
                 pending_group_accent_choice: None,
                 pending_group_name: None,
                 pending_group_icon: None,
+                pending_group_github_organization: None,
 
                 pending_group_default_directory: None,
                 pending_group_default_execution_host_id: None,
@@ -4797,6 +4836,25 @@ mod tests {
     use super::*;
     use crossterm::event::KeyEvent;
     use unicode_width::UnicodeWidthStr;
+
+    #[test]
+    fn settings_section_order_keeps_about_last() {
+        assert_eq!(
+            SettingsSection::ALL,
+            &[
+                SettingsSection::Theme,
+                SettingsSection::Sound,
+                SettingsSection::PaneLabels,
+                SettingsSection::Commands,
+                SettingsSection::Agents,
+                SettingsSection::Integrations,
+                SettingsSection::Connections,
+                SettingsSection::Experiments,
+                SettingsSection::About,
+            ]
+        );
+    }
+
     #[test]
     fn host_labels_use_overlay_and_profile_names() {
         let mut app = AppState::test_new();
@@ -5196,5 +5254,24 @@ mod tests {
         assert_eq!(palette.red, Color::LightRed);
         assert_eq!(palette.teal, Color::Cyan);
         assert_eq!(palette.mauve, Color::Magenta);
+    }
+
+    #[test]
+    fn github_organization_parser_enforces_github_name_rules() {
+        assert_eq!(
+            GithubOrganization::parse(" masakiro-corp "),
+            Ok(Some(GithubOrganization("masakiro-corp".to_string())))
+        );
+        assert_eq!(GithubOrganization::parse(""), Ok(None));
+        for value in [
+            "-leading",
+            "trailing-",
+            "double--hyphen",
+            "under_score",
+            "é",
+        ] {
+            assert!(GithubOrganization::parse(value).is_err(), "{value}");
+        }
+        assert!(GithubOrganization::parse(&"a".repeat(40)).is_err());
     }
 }

@@ -1718,7 +1718,15 @@ impl AppState {
                 )
             }
             (ProjectCommandKind::Github, crate::ghui_theme::GITHUB_COMMAND) => {
-                crate::ghui_theme::command()
+                let organization = ws_idx
+                    .and_then(|idx| self.workspaces.get(idx))
+                    .and_then(|workspace| {
+                        self.groups
+                            .iter()
+                            .find(|group| group.id == workspace.group_id)
+                    })
+                    .and_then(|group| group.github_organization.as_ref());
+                crate::ghui_theme::command(organization)
             }
             _ => configured.clone(),
         };
@@ -2378,6 +2386,7 @@ impl AppState {
             default_location,
             favorite_agent_profile_ids: Vec::new(),
             default_agent_profile_id: None,
+            github_organization: None,
         });
         self.mark_session_dirty();
         self.groups.len() - 1
@@ -2388,6 +2397,22 @@ impl AppState {
             return false;
         };
         group.name = name;
+        self.mark_session_dirty();
+        true
+    }
+
+    pub fn set_group_github_organization(
+        &mut self,
+        group_idx: usize,
+        organization: Option<super::state::GithubOrganization>,
+    ) -> bool {
+        let Some(group) = self.groups.get_mut(group_idx) else {
+            return false;
+        };
+        if group.github_organization == organization {
+            return false;
+        }
+        group.github_organization = organization;
         self.mark_session_dirty();
         true
     }
@@ -5809,11 +5834,38 @@ mod tests {
         let command = state
             .configured_project_command(project.clone(), ProjectCommandKind::Github, Some(0))
             .unwrap();
-        assert!(command.command.contains("GHUI_CONFIG_DIR"));
+        assert!(command.command.contains("required:  0.10.0-masakiro.2"));
+        assert!(command.command.contains("GHUI_THEME=system"));
+        assert!(command.command.contains("GHUI_SHOW_SCROLLBARS=true"));
         assert!(state
             .curated_project_command_terminal_theme(ProjectCommandKind::Github, Some(0))
             .is_none());
         assert_eq!(command.location.path.as_path(), project.as_path());
+    }
+
+    #[test]
+    fn github_command_uses_workspace_group_organization() {
+        let mut state = app_with_workspaces(&["web", "api"]);
+        state.groups[0].github_organization =
+            crate::app::state::GithubOrganization::parse("first-org").expect("valid organization");
+        let mut second_group = Group::default_group();
+        second_group.id = "second".to_string();
+        second_group.name = "Second".to_string();
+        second_group.github_organization =
+            crate::app::state::GithubOrganization::parse("second-org").expect("valid organization");
+        state.groups.push(second_group);
+        state.workspaces[1].group_id = "second".to_string();
+
+        let command = state
+            .configured_project_command(
+                temp_project("group-scoped-github"),
+                ProjectCommandKind::Github,
+                Some(1),
+            )
+            .expect("configured GitHub command");
+
+        assert!(command.command.contains("GHUI_ORG='second-org'"));
+        assert!(!command.command.contains("GHUI_ORG='first-org'"));
     }
 
     #[test]
@@ -5849,7 +5901,8 @@ mod tests {
             .command
             .contains("theme_ref=\"file://$theme_dir/theme.json\""));
         assert!(editor.command.contains("\"cursor\": [189, 147, 249]"));
-        assert!(github.command.contains("GHUI_CONFIG_DIR"));
+        assert!(github.command.contains("required:  0.10.0-masakiro.2"));
+        assert!(github.command.contains("GHUI_THEME=system"));
         let terminal_theme = state
             .curated_project_command_terminal_theme(ProjectCommandKind::Github, Some(0))
             .expect("named curated command should receive a complete terminal theme");

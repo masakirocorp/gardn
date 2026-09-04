@@ -1,48 +1,45 @@
-pub(crate) const GITHUB_COMMAND: &str = "ghui";
+use crate::app::state::GithubOrganization;
 
-pub(crate) fn command() -> String {
-    let config = config();
+pub(crate) const GITHUB_COMMAND: &str = "ghui";
+pub(crate) const REQUIRED_VERSION: &str = "0.10.0-masakiro.2";
+pub(crate) const FORK_URL: &str = "https://github.com/masakirocorp/ghui";
+
+pub(crate) fn command(organization: Option<&GithubOrganization>) -> String {
+    let organization = organization.map_or("", GithubOrganization::as_str);
     format!(
         r#"if command -v ghui >/dev/null 2>&1; then
-  override_dir="$(mktemp -d "${{TMPDIR:-/tmp}}/gardn-ghui.XXXXXX")" || exit 1
-  cleanup() {{
-    rm -rf "$override_dir"
-  }}
-  trap cleanup EXIT INT TERM
-  cat > "$override_dir/config.json" <<'GARDN_GHUI_CONFIG'
-{config}GARDN_GHUI_CONFIG
-  GHUI_CONFIG_DIR="$override_dir" ghui
-  status=$?
-  cleanup
-  exit "$status"
+  installed_version="$(ghui --version 2>/dev/null)"
+  if [ "$installed_version" = "{REQUIRED_VERSION}" ]; then
+    GHUI_THEME=system GHUI_SHOW_SCROLLBARS=true GHUI_ORG='{organization}' exec ghui
+  fi
+  printf '%s\n' \
+    'Gardn requires its pinned ghui companion release.' \
+    '' \
+    "installed: $installed_version" \
+    'required:  {REQUIRED_VERSION}' \
+    ''
+else
+  printf '%s\n' \
+    'ghui is not installed.' \
+    ''
 fi
 printf '%s\n' \
-  'ghui is not installed.' \
+  'install or upgrade with:' \
+  '  brew install masakirocorp/tap/ghui' \
   '' \
-  'install with:' \
-  '  brew install kitlangton/tap/ghui' \
-  '' \
-  'see https://github.com/kitlangton/ghui' \
+  'release: https://github.com/masakirocorp/ghui/releases/tag/v{REQUIRED_VERSION}' \
+  'source:  {FORK_URL}' \
   '' \
   'press enter to close...'
-read -r _
+read -r _ || true
 "#
     )
 }
 
-fn config() -> &'static str {
-    r#"{
-  "themeMode": "fixed",
-  "theme": "system",
-  "systemThemeAutoReload": false,
-  "showScrollbars": true
-}
-"#
-}
-
 #[cfg(test)]
 mod tests {
-    use super::{command, config};
+    use super::{command, FORK_URL, REQUIRED_VERSION};
+    use crate::app::state::GithubOrganization;
     #[cfg(unix)]
     use std::os::unix::fs::PermissionsExt;
     #[cfg(unix)]
@@ -51,70 +48,123 @@ mod tests {
     use std::time::{SystemTime, UNIX_EPOCH};
 
     #[test]
-    fn generated_override_uses_terminal_theme_and_visible_scrollbars() {
-        let output = config();
+    fn launch_uses_pinned_fork_controls() {
+        let organization = GithubOrganization::parse("masakirocorp")
+            .expect("valid organization")
+            .expect("organization");
+        let output = command(Some(&organization));
 
-        assert!(output.contains(r#""theme": "system""#));
-        assert!(output.contains(r#""showScrollbars": true"#));
-        assert!(output.contains(r#""systemThemeAutoReload": false"#));
+        assert!(output.contains(&format!("required:  {REQUIRED_VERSION}")));
+        assert!(output.contains("GHUI_THEME=system"));
+        assert!(output.contains("GHUI_SHOW_SCROLLBARS=true"));
+        assert!(output.contains("GHUI_ORG='masakirocorp'"));
     }
 
     #[test]
-    fn missing_ghui_guidance_names_homebrew_formula() {
-        let output = command();
+    fn missing_ghui_guidance_names_masakiro_distribution() {
+        let output = command(None);
 
-        assert!(output.contains("brew install kitlangton/tap/ghui"));
+        assert!(output.contains("brew install masakirocorp/tap/ghui"));
+        assert!(output.contains(&format!("releases/tag/v{REQUIRED_VERSION}")));
+        assert!(output.contains(FORK_URL));
     }
 
     #[cfg(unix)]
     #[test]
-    fn launch_passes_isolated_config_and_cleans_up_after_exit() {
-        let nonce = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("system time after epoch")
-            .as_nanos();
-        let root =
-            std::env::temp_dir().join(format!("gardn-ghui-theme-{}-{nonce}", std::process::id()));
+    fn matching_fork_release_receives_launch_scope() {
+        let root = test_root("matching");
         let bin_dir = root.join("bin");
-        let tmp_dir = root.join("tmp");
         std::fs::create_dir_all(&bin_dir).expect("create fake ghui bin directory");
-        std::fs::create_dir_all(&tmp_dir).expect("create temporary directory");
-        let capture_path = root.join("config-dir");
+        let capture_path = root.join("environment");
+        let ghui = bin_dir.join("ghui");
+        std::fs::write(
+            &ghui,
+            format!(
+                r#"#!/bin/sh
+if [ "$1" = "--version" ]; then
+  printf '%s\n' '{REQUIRED_VERSION}'
+  exit 0
+fi
+printf '%s\n%s\n%s\n' "$GHUI_THEME" "$GHUI_SHOW_SCROLLBARS" "$GHUI_ORG" > "$CAPTURE_PATH"
+exit 7
+"#
+            ),
+        )
+        .expect("write fake ghui");
+        make_executable(&ghui);
+        let organization = GithubOrganization::parse("masakirocorp")
+            .expect("valid organization")
+            .expect("organization");
+
+        let output = Command::new("sh")
+            .arg("-c")
+            .arg(command(Some(&organization)))
+            .env("PATH", format!("{}:/usr/bin:/bin", bin_dir.display()))
+            .env("CAPTURE_PATH", &capture_path)
+            .output()
+            .expect("run ghui wrapper");
+
+        assert_eq!(output.status.code(), Some(7));
+        assert_eq!(
+            std::fs::read_to_string(&capture_path).expect("captured launch environment"),
+            "system\ntrue\nmasakirocorp\n"
+        );
+        std::fs::remove_dir_all(root).expect("remove fake ghui directory");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn mismatched_release_fails_closed() {
+        let root = test_root("mismatch");
+        let bin_dir = root.join("bin");
+        std::fs::create_dir_all(&bin_dir).expect("create fake ghui bin directory");
+        let executed_path = root.join("executed");
         let ghui = bin_dir.join("ghui");
         std::fs::write(
             &ghui,
             r#"#!/bin/sh
-printf '%s' "$GHUI_CONFIG_DIR" > "$CAPTURE_PATH"
-cat "$GHUI_CONFIG_DIR/config.json"
-exit 7
+if [ "$1" = "--version" ]; then
+  printf '%s\n' '0.9.1'
+  exit 0
+fi
+touch "$EXECUTED_PATH"
 "#,
         )
         .expect("write fake ghui");
-        let mut permissions = std::fs::metadata(&ghui)
-            .expect("read fake ghui metadata")
-            .permissions();
-        permissions.set_mode(0o755);
-        std::fs::set_permissions(&ghui, permissions).expect("make fake ghui executable");
+        make_executable(&ghui);
 
         let output = Command::new("sh")
             .arg("-c")
-            .arg(command())
+            .arg(command(None))
             .env("PATH", format!("{}:/usr/bin:/bin", bin_dir.display()))
-            .env("TMPDIR", &tmp_dir)
-            .env("CAPTURE_PATH", &capture_path)
+            .env("EXECUTED_PATH", &executed_path)
+            .stdin(std::process::Stdio::null())
             .output()
             .expect("run ghui wrapper");
-        let generated_dir =
-            std::path::PathBuf::from(std::fs::read_to_string(&capture_path).expect("config path"));
-        assert_eq!(output.status.code(), Some(7));
-        assert!(output.stderr.is_empty(), "{output:?}");
-        let rendered = String::from_utf8(output.stdout).expect("ghui config is UTF-8");
-        assert!(rendered.contains(r#""theme": "system""#));
-        assert!(rendered.contains(r#""showScrollbars": true"#));
-        assert!(
-            !generated_dir.exists(),
-            "wrapper should remove its override"
-        );
+
+        assert!(output.status.success());
+        assert!(!executed_path.exists(), "mismatched ghui must not launch");
+        let rendered = String::from_utf8(output.stdout).expect("guidance is UTF-8");
+        assert!(rendered.contains("installed: 0.9.1"));
+        assert!(rendered.contains(&format!("required:  {REQUIRED_VERSION}")));
         std::fs::remove_dir_all(root).expect("remove fake ghui directory");
+    }
+
+    #[cfg(unix)]
+    fn test_root(label: &str) -> std::path::PathBuf {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system time after epoch")
+            .as_nanos();
+        std::env::temp_dir().join(format!("gardn-ghui-{label}-{}-{nonce}", std::process::id()))
+    }
+
+    #[cfg(unix)]
+    fn make_executable(path: &std::path::Path) {
+        let mut permissions = std::fs::metadata(path)
+            .expect("read fake ghui metadata")
+            .permissions();
+        permissions.set_mode(0o755);
+        std::fs::set_permissions(path, permissions).expect("make fake ghui executable");
     }
 }

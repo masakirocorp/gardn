@@ -3002,6 +3002,26 @@ mod tests {
     }
 
     #[test]
+    fn group_info_reports_github_organization() {
+        let (_api_tx, api_rx) = tokio::sync::mpsc::unbounded_channel();
+        let mut app = App::new(
+            &crate::config::Config::default(),
+            true,
+            None,
+            api_rx,
+            crate::api::EventHub::default(),
+        );
+        let group_idx = app.state.create_group("Org".to_string());
+        app.state.groups[group_idx].github_organization =
+            crate::app::state::GithubOrganization::parse("masakirocorp")
+                .expect("valid organization");
+
+        let info = app.group_info(group_idx);
+
+        assert_eq!(info.github_organization.as_deref(), Some("masakirocorp"));
+    }
+
+    #[test]
     fn group_create_persists_remote_default_location_atomically() {
         let (_api_tx, api_rx) = tokio::sync::mpsc::unbounded_channel();
         let mut app = App::new(

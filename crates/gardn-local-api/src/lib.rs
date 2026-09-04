@@ -2104,6 +2104,8 @@ pub struct GroupInfo {
     pub default_location: Option<ResourceLocationParams>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub accent: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub github_organization: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
@@ -3363,6 +3365,7 @@ mod tests {
             workspace_count: 1,
             default_location: Some(workspace.default_location.clone()),
             accent: None,
+            github_organization: None,
         };
         let pane = PaneInfo {
             pane_id: "w_1-3".into(),

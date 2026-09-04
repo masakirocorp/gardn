@@ -16,7 +16,8 @@ pub(crate) const GROUP_GENERAL_NAME: usize = 0;
 pub(crate) const GROUP_GENERAL_ICON: usize = 1;
 pub(crate) const GROUP_GENERAL_HOST: usize = 2;
 pub(crate) const GROUP_GENERAL_DIRECTORY: usize = 3;
-pub(crate) const GROUP_GENERAL_DELETE: usize = 4;
+pub(crate) const GROUP_GENERAL_GITHUB_ORGANIZATION: usize = 4;
+pub(crate) const GROUP_GENERAL_DELETE: usize = 5;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum SettingsListRow {
@@ -183,6 +184,7 @@ fn rows_for_section_with_settings(
         SettingsSection::GroupGeneral => Some(group_general_rows(app, settings)),
         SettingsSection::GroupProfiles => Some(group_profile_rows(app, settings)),
         SettingsSection::WorkspaceGeneral => Some(workspace_general_rows(app, settings)),
+        SettingsSection::About => Some(about_rows()),
     }
 }
 
@@ -500,6 +502,15 @@ fn group_general_rows(app: &AppState, settings: &SettingsState) -> Vec<SettingsL
         .clone()
         .or_else(|| default_location.map(|location| location.path.as_path().display().to_string()))
         .unwrap_or_default();
+    let github_organization = settings
+        .pending_group_github_organization
+        .clone()
+        .or_else(|| {
+            group
+                .and_then(|group| group.github_organization.as_ref())
+                .map(|organization| organization.as_str().to_string())
+        })
+        .unwrap_or_default();
     let host_id = settings
         .pending_group_default_execution_host_id
         .as_ref()
@@ -536,6 +547,12 @@ fn group_general_rows(app: &AppState, settings: &SettingsState) -> Vec<SettingsL
             index: GROUP_GENERAL_DIRECTORY,
             title: "Directory".into(),
             value: default_directory.into(),
+        },
+        SettingsListRow::Spacer,
+        SettingsListRow::TextInput {
+            index: GROUP_GENERAL_GITHUB_ORGANIZATION,
+            title: "GitHub Organization".into(),
+            value: github_organization.into(),
         },
         SettingsListRow::Spacer,
         SettingsListRow::Header("Danger Zone"),
@@ -2197,6 +2214,19 @@ fn toast_rows(app: &AppState, settings: &SettingsState) -> Vec<SettingsListRow> 
     )
 }
 
+fn about_rows() -> Vec<SettingsListRow> {
+    setting_group(
+        "Acknowledgments",
+        [
+            SettingsListRow::Caption("ghui".into()),
+            SettingsListRow::Caption("Copyright (c) 2026 Kit Langton".into()),
+            SettingsListRow::Caption("MIT License".into()),
+            SettingsListRow::Caption("Masakiro fork: https://github.com/masakirocorp/ghui".into()),
+            SettingsListRow::Caption("Upstream: https://github.com/kitlangton/ghui".into()),
+        ],
+    )
+}
+
 fn setting_group(
     header: &'static str,
     settings: impl IntoIterator<Item = SettingsListRow>,
@@ -2694,6 +2724,37 @@ mod tests {
             } if title.as_ref() == "Kitty Graphics"
                 && description.contains("Reconnect Gardn")
         )));
+    }
+
+    #[test]
+    fn about_rows_are_non_interactive_and_identify_ghui_sources() {
+        let app = AppState::test_new();
+        let rows = rows_for_section(&app, SettingsSection::About).expect("about rows");
+
+        assert!(matches!(
+            rows.first(),
+            Some(SettingsListRow::Header("Acknowledgments"))
+        ));
+        let captions = rows
+            .iter()
+            .filter_map(|row| match row {
+                SettingsListRow::Caption(text) => Some(text.as_ref()),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            captions,
+            [
+                "ghui",
+                "Copyright (c) 2026 Kit Langton",
+                "MIT License",
+                "Masakiro fork: https://github.com/masakirocorp/ghui",
+                "Upstream: https://github.com/kitlangton/ghui",
+            ]
+        );
+        assert_eq!(option_count(&rows), 0);
+        assert!((0..visual_row_count(&rows))
+            .all(|visual_row| option_hit_for_visual_row(&rows, visual_row).is_none()));
     }
 
     #[test]

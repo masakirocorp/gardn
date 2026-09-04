@@ -154,6 +154,7 @@ fn settings_sidebar_section_label(section: SettingsSection) -> &'static str {
         SettingsSection::Integrations => "Integrations",
         SettingsSection::Connections => "Connections",
         SettingsSection::Experiments => "Advanced",
+        SettingsSection::About => "About",
         SettingsSection::Layout
         | SettingsSection::Toast
         | SettingsSection::GroupProfiles
@@ -172,7 +173,8 @@ fn settings_subsections(section: SettingsSection) -> &'static [SettingsSubsectio
         SettingsSection::Integrations => INTEGRATION_SUBSECTIONS,
         SettingsSection::Connections => CONNECTION_SUBSECTIONS,
         SettingsSection::Experiments => ADVANCED_SUBSECTIONS,
-        SettingsSection::Layout
+        SettingsSection::About
+        | SettingsSection::Layout
         | SettingsSection::Toast
         | SettingsSection::GroupProfiles
         | SettingsSection::GroupGeneral
@@ -564,6 +566,7 @@ fn settings_section_title(app: &AppState, section: SettingsSection) -> &'static 
             SettingsSection::GroupGeneral => "General",
             SettingsSection::GroupProfiles => "Agents",
             SettingsSection::WorkspaceGeneral => "General",
+            SettingsSection::About => "About",
         }
     }
 }
@@ -610,6 +613,7 @@ fn settings_section_description(app: &AppState, section: SettingsSection) -> &'s
         SettingsSection::WorkspaceGeneral => {
             "Set this space's display name, execution host, and directory"
         }
+        SettingsSection::About => "Open-source projects and contributors behind Gardn",
     }
 }
 
@@ -901,6 +905,7 @@ fn settings_section_title_for_non_editor(section: SettingsSection) -> &'static s
         SettingsSection::GroupGeneral => "General",
         SettingsSection::GroupProfiles => "Agents",
         SettingsSection::WorkspaceGeneral => "General",
+        SettingsSection::About => "About",
     }
 }
 
@@ -946,6 +951,7 @@ fn settings_section_description_for(
         SettingsSection::WorkspaceGeneral => {
             "Set this space's display name, execution host, and directory"
         }
+        SettingsSection::About => "Open-source projects and contributors behind Gardn",
     }
 }
 
@@ -1495,7 +1501,8 @@ pub(super) fn render_settings_overlay(app: &AppState, frame: &mut Frame, area: R
         | SettingsSection::Connections
         | SettingsSection::GroupGeneral
         | SettingsSection::GroupProfiles
-        | SettingsSection::WorkspaceGeneral => {
+        | SettingsSection::WorkspaceGeneral
+        | SettingsSection::About => {
             render_settings_sectioned_toggle_list(app, frame, content_area, p);
         }
         SettingsSection::Integrations => render_settings_integrations(app, frame, content_area, p),
@@ -2334,7 +2341,7 @@ mod tests {
         assert!(text.contains("Default Location for New Spaces"));
         assert!(text.contains("‹ test-host ›"));
         assert!(text.contains("Directory"));
-        assert!(!text.contains("GitHub Organization"));
+        assert!(text.contains("GitHub Organization"));
         assert!(!text.contains("●"));
         assert!(!text.contains("○"));
         assert!(!text.contains("Work█"));
@@ -3248,6 +3255,11 @@ mod tests {
                 "Advanced",
                 "Configure advanced or platform-specific behavior",
             ),
+            (
+                SettingsSection::About,
+                "About",
+                "Open-source projects and contributors behind Gardn",
+            ),
         ];
 
         assert_eq!(expected.len(), SettingsSection::ALL.len());
@@ -3279,6 +3291,31 @@ mod tests {
                 "─",
                 "missing header divider for {section:?}"
             );
+        }
+    }
+
+    #[test]
+    fn about_settings_render_acknowledgments() {
+        let mut app = AppState::test_new();
+        app.settings.section = SettingsSection::About;
+
+        let area = Rect::new(0, 0, 100, 30);
+        let backend = TestBackend::new(area.width, area.height);
+        let mut terminal = Terminal::new(backend).expect("test backend");
+        terminal
+            .draw(|frame| render_settings_overlay(&app, frame, area))
+            .expect("render About settings overlay");
+
+        let text = buffer_text(terminal.backend().buffer(), area.width, area.height);
+        for expected in [
+            "Acknowledgments",
+            "ghui",
+            "Copyright (c) 2026 Kit Langton",
+            "MIT License",
+            "Masakiro fork: https://github.com/masakirocorp/ghui",
+            "Upstream: https://github.com/kitlangton/ghui",
+        ] {
+            assert!(text.contains(expected), "missing About copy: {expected}");
         }
     }
 

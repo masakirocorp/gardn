@@ -563,6 +563,7 @@ fn groups_from_snapshot(snap: &crate::persist::SessionSnapshot) -> Vec<state::Gr
             default_location: group.default_location.clone(),
             favorite_agent_profile_ids: group.favorite_agent_profile_ids.clone(),
             default_agent_profile_id: group.default_agent_profile_id.clone(),
+            github_organization: group.github_organization.clone(),
         })
         .collect();
 
@@ -578,6 +579,7 @@ fn groups_from_snapshot(snap: &crate::persist::SessionSnapshot) -> Vec<state::Gr
             default_location: None,
             favorite_agent_profile_ids: Vec::new(),
             default_agent_profile_id: None,
+            github_organization: None,
         });
     }
 
@@ -1125,6 +1127,7 @@ impl App {
                 pending_group_accent_choice: None,
                 pending_group_name: None,
                 pending_group_icon: None,
+                pending_group_github_organization: None,
                 pending_group_default_directory: None,
 
                 pending_group_default_execution_host_id: None,
@@ -13529,6 +13532,7 @@ mod tests {
             default_location: None,
             favorite_agent_profile_ids: Vec::new(),
             default_agent_profile_id: None,
+            github_organization: None,
         }
     }
 

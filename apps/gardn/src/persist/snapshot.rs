@@ -214,6 +214,8 @@ pub struct GroupSnapshot {
     pub favorite_agent_profile_ids: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub default_agent_profile_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub github_organization: Option<crate::app::state::GithubOrganization>,
 }
 
 #[derive(Deserialize)]
@@ -232,6 +234,8 @@ struct RawGroupSnapshot {
     favorite_agent_profile_ids: Vec<String>,
     #[serde(default)]
     default_agent_profile_id: Option<String>,
+    #[serde(default)]
+    github_organization: Option<String>,
 }
 
 impl<'de> Deserialize<'de> for GroupSnapshot {
@@ -248,6 +252,13 @@ impl<'de> Deserialize<'de> for GroupSnapshot {
             ),
             (None, None) => None,
         };
+        let github_organization = raw
+            .github_organization
+            .as_deref()
+            .map(crate::app::state::GithubOrganization::parse)
+            .transpose()
+            .map_err(serde::de::Error::custom)?
+            .flatten();
         Ok(Self {
             id: raw.id,
             name: raw.name,
@@ -256,6 +267,7 @@ impl<'de> Deserialize<'de> for GroupSnapshot {
             default_location,
             favorite_agent_profile_ids: raw.favorite_agent_profile_ids,
             default_agent_profile_id: raw.default_agent_profile_id,
+            github_organization,
         })
     }
 }
@@ -284,6 +296,7 @@ fn default_groups() -> Vec<GroupSnapshot> {
         default_location: None,
         favorite_agent_profile_ids: Vec::new(),
         default_agent_profile_id: None,
+        github_organization: None,
     }]
 }
 
@@ -777,6 +790,7 @@ fn capture_group(group: &crate::app::state::Group) -> GroupSnapshot {
         default_location: group.default_location.clone(),
         favorite_agent_profile_ids: group.favorite_agent_profile_ids.clone(),
         default_agent_profile_id: group.default_agent_profile_id.clone(),
+        github_organization: group.github_organization.clone(),
     }
 }
 
@@ -1357,6 +1371,8 @@ mod tests {
             default_location: None,
             favorite_agent_profile_ids: Vec::new(),
             default_agent_profile_id: None,
+            github_organization: crate::app::state::GithubOrganization::parse("masakirocorp")
+                .expect("valid organization"),
         });
         state.active_group = 1;
         state.group_filter_enabled = false;
@@ -1372,7 +1388,13 @@ mod tests {
             restored.groups[1].accent,
             Some(crate::config::TerminalAccent::Cyan)
         );
-        assert_eq!(restored.active_group, 1);
+        assert_eq!(
+            restored.groups[1]
+                .github_organization
+                .as_ref()
+                .map(crate::app::state::GithubOrganization::as_str),
+            Some("masakirocorp")
+        );
         assert!(!restored.group_filter_enabled);
         assert_eq!(restored.workspaces[1].group_id, group_id);
     }

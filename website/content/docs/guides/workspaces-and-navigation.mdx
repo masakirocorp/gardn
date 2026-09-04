@@ -75,7 +75,7 @@ Gardn provides four project actions. Each action opens in a managed tab and uses
 | Browser | `terminal-browser`  | `curl -fsSL https://terminal-browser.sh/install \| bash` |
 | Review  | `hunk diff --watch` | `brew install hunk` or `npm i -g hunkdiff`               |
 | Editor  | `fresh .`           | `brew install fresh-editor`                              |
-| GitHub  | `ghui`              | `brew install kitlangton/tap/ghui`                       |
+| GitHub  | `ghui`              | `brew install masakirocorp/tap/ghui`                     |
 
 To open a tool:
 
@@ -89,7 +89,15 @@ The default tools use the active Gardn theme. A terminal-derived theme passes th
 
 Open **Settings > Commands** to replace a command. Clear a command to hide its action. Use its reset row to restore the default.
 
-The curated GitHub launcher uses ghui's repository context and mouse controls. Gardn creates a temporary ghui configuration with the system terminal theme and visible scrollbars. Gardn removes this override after ghui exits and does not modify your global ghui configuration.
+The curated GitHub launcher requires the pinned Masakiro ghui companion release. Gardn passes the active terminal palette and visible scrollbars as launch-only settings. Gardn does not modify your saved ghui configuration. See **Settings > About** for the upstream copyright and MIT acknowledgment.
+
+To scope GitHub for a group:
+
+1. Right-click the group and select **Settings**.
+2. Enter the GitHub login in **GitHub Organization**.
+3. Press **Enter** to save it.
+
+Each workspace in that group inherits the organization. ghui filters its home repository, pull request, and issue collections to that organization. Explicit repository views remain available.
 
 ## Close and detach safely
 
