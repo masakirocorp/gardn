@@ -4,9 +4,9 @@ status: superseded
 
 # Supersede native Git diff sessions
 
-Gardn no longer owns an in-app native Git diff viewer. Workspace-scoped Git diff actions resolve the target repository through ADR 0019's observed-repo rules, then open the configured external diff command in a managed command tab.
+Gardn no longer owns an in-app native Git diff viewer. Workspace-scoped Review actions resolve the target repository through ADR 0019's observed-repo rules, then open the configured external review command in a managed command tab.
 
-The default external diff command is `hunk diff --watch`. Users can set `[commands].diff` to another terminal diff UI or command. Gardn owns repo-target selection and managed command-tab reuse; the external command owns file lists, hunk navigation, staging, unstaging, discard/restore operations, syntax highlighting, and any agent handoff workflow. Git UI and IDE launchers are separate `[commands].git` and `[commands].ide` roles rather than alternate meanings of the diff setting.
+The default external review command is `hunk diff --watch`. Users can set `[commands].review` to another terminal review UI or command. Gardn owns repo-target selection and managed command-tab reuse; the external command owns file lists, hunk navigation, staging, unstaging, discard/restore operations, syntax highlighting, and any agent handoff workflow. Browser, Editor, and GitHub are separate curated roles rather than alternate meanings of the review setting.
 
 ## Consequences
 
