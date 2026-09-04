@@ -995,10 +995,16 @@ impl GhosttyPaneTerminal {
         &self,
         theme: crate::terminal_theme::ResolvedTerminalTheme,
     ) {
+        let appearance = crate::terminal_theme::TerminalTheme::from(theme).appearance();
+        let color_scheme = appearance.map(|appearance| match appearance {
+            crate::terminal_theme::ThemeAppearance::Dark => crate::ghostty::ColorScheme::Dark,
+            crate::terminal_theme::ThemeAppearance::Light => crate::ghostty::ColorScheme::Light,
+        });
         if let Ok(mut core) = self.core.lock() {
             core.resolved_terminal_theme_override = Some(theme);
             write_host_terminal_theme(&mut core.terminal, theme.into());
             write_ansi_palette(&mut core.terminal, theme.palette);
+            let _ = core.terminal.set_color_scheme(color_scheme);
             core.resolve_ansi_palette = true;
         }
     }
@@ -4937,6 +4943,40 @@ mod tests {
             .apply_host_terminal_appearance(Some(crate::terminal_theme::ThemeAppearance::Light))
             .is_none());
         assert!(rx.try_recv().is_err());
+    }
+
+    #[test]
+    fn resolved_terminal_theme_override_controls_color_scheme_queries() {
+        let (tx, _rx) = mpsc::channel(4);
+        let terminal = crate::ghostty::Terminal::new(20, 5, 0).unwrap();
+        let pane = GhosttyPaneTerminal::new(terminal, tx.clone()).unwrap();
+        let pane_id = PaneId::from_raw(1);
+
+        pane.apply_host_terminal_appearance(Some(crate::terminal_theme::ThemeAppearance::Dark));
+        pane.apply_resolved_terminal_theme_override(crate::terminal_theme::ResolvedTerminalTheme {
+            foreground: crate::terminal_theme::RgbColor {
+                r: 0x4c,
+                g: 0x4f,
+                b: 0x69,
+            },
+            background: crate::terminal_theme::RgbColor {
+                r: 0xef,
+                g: 0xf1,
+                b: 0xf5,
+            },
+            cursor: crate::terminal_theme::RgbColor {
+                r: 0x1e,
+                g: 0x66,
+                b: 0xf5,
+            },
+            palette: [crate::terminal_theme::RgbColor { r: 0, g: 0, b: 0 }; 16],
+        });
+
+        let query = pane.process_pty_bytes(pane_id, 0, b"\x1b[?996n", &tx);
+        assert_eq!(
+            query.terminal_responses,
+            vec![Bytes::from_static(b"\x1b[?997;2n")]
+        );
     }
 
     fn rgb(r: u8, g: u8, b: u8) -> crate::ghostty::RgbColor {
