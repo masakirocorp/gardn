@@ -4766,6 +4766,34 @@ mod tests {
     }
 
     #[test]
+    fn headless_pre_render_reconciles_managed_terminal_themes() {
+        let mut server = test_headless_server();
+        server.app.state.workspaces = vec![crate::workspace::Workspace::test_new("test")];
+        server.app.state.ensure_test_terminals();
+        let pane_id = server.app.state.workspaces[0].tabs[0].root_pane;
+        let terminal_id = server.app.state.workspaces[0]
+            .terminal_id(pane_id)
+            .expect("workspace terminal")
+            .clone();
+        server
+            .app
+            .state
+            .terminals
+            .get_mut(&terminal_id)
+            .expect("terminal state")
+            .terminal_theme_binding =
+            Some(crate::terminal_theme::TerminalThemeBinding::workspace_palette(None));
+        let (runtime, _input_rx) = crate::terminal::TerminalRuntime::test_with_channel(80, 24);
+        server
+            .app
+            .terminal_runtimes
+            .insert(terminal_id.clone(), runtime);
+
+        assert!(server.reconcile_terminal_themes_before_render());
+        assert!(!server.reconcile_terminal_themes_before_render());
+    }
+
+    #[test]
     fn drain_server_events_stops_after_quit() {
         let mut server = test_headless_server();
         server.should_quit.store(true, Ordering::Release);
