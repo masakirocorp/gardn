@@ -58,6 +58,8 @@ mod tests {
         assert!(output.contains("GHUI_THEME=system"));
         assert!(output.contains("GHUI_SHOW_SCROLLBARS=true"));
         assert!(output.contains("GHUI_ORG='masakirocorp'"));
+        assert!(output.contains("GHUI_SYSTEM_THEME_AUTO_RELOAD=true"));
+        assert!(output.contains("trap '' USR2"));
     }
 
     #[test]

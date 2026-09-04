@@ -5964,6 +5964,151 @@ mod tests {
             }
         );
     }
+    #[test]
+    fn only_exact_curated_commands_receive_terminal_theme_ownership() {
+        let mut state = app_with_workspaces(&["web"]);
+
+        for kind in [
+            ProjectCommandKind::Browser,
+            ProjectCommandKind::Review,
+            ProjectCommandKind::Editor,
+            ProjectCommandKind::Github,
+        ] {
+            let binding = state
+                .curated_project_command_terminal_theme_binding(kind)
+                .expect("exact built-in command should own its terminal theme");
+            assert_eq!(
+                binding.source,
+                crate::terminal_theme::TerminalThemeSource::WorkspacePalette
+            );
+        }
+
+        state.browser_command = "terminal-browser --debug".to_string();
+        state.review_command = "env HUNK_THEME=dark hunk diff --watch".to_string();
+        state.editor_command = "fresh --profile custom .".to_string();
+        state.github_command = "env GHUI_ORG=custom ghui".to_string();
+
+        for kind in [
+            ProjectCommandKind::Browser,
+            ProjectCommandKind::Review,
+            ProjectCommandKind::Editor,
+            ProjectCommandKind::Github,
+        ] {
+            assert_eq!(
+                state.curated_project_command_terminal_theme_binding(kind),
+                None
+            );
+        }
+    }
+
+    #[test]
+    fn only_exact_builtin_ghui_requests_child_theme_reload() {
+        let state = app_with_workspaces(&["web"]);
+
+        for kind in [
+            ProjectCommandKind::Browser,
+            ProjectCommandKind::Review,
+            ProjectCommandKind::Editor,
+        ] {
+            assert_eq!(
+                state
+                    .curated_project_command_terminal_theme_binding(kind)
+                    .and_then(|binding| binding.child_reload),
+                None
+            );
+        }
+        assert_eq!(
+            state
+                .curated_project_command_terminal_theme_binding(ProjectCommandKind::Github)
+                .and_then(|binding| binding.child_reload),
+            Some(crate::terminal_theme::TerminalThemeChildReloadPolicy::Ghui)
+        );
+    }
+    #[tokio::test]
+    async fn curated_command_launch_records_terminal_theme_binding() {
+        let root = temp_project("curated-binding");
+        let mut state = app_with_workspaces(&["web"]);
+        let mut terminal_runtimes = crate::terminal::TerminalRuntimeRegistry::new();
+        let root_pane = state.workspaces[0].tabs[0].root_pane;
+        let root_terminal_id = state.terminal_id_for_pane(0, root_pane).unwrap();
+        state.terminals.get_mut(&root_terminal_id).unwrap().cwd = root;
+
+        state
+            .open_project_command_for_workspace(
+                &mut terminal_runtimes,
+                0,
+                ProjectCommandKind::Github,
+            )
+            .expect("curated command launch");
+
+        let command_tab = state.workspaces[0].active_tab().expect("command tab");
+        let terminal_id = command_tab
+            .terminal_id(command_tab.root_pane)
+            .expect("command terminal");
+        assert_eq!(
+            state
+                .terminals
+                .get(terminal_id)
+                .and_then(|terminal| terminal.terminal_theme_binding),
+            Some(crate::terminal_theme::TerminalThemeBinding {
+                source: crate::terminal_theme::TerminalThemeSource::WorkspacePalette,
+                child_reload: Some(
+                    crate::terminal_theme::TerminalThemeChildReloadPolicy::Ghui,
+                ),
+            })
+        );
+    }
+
+    #[tokio::test]
+    async fn restarting_with_custom_command_clears_curated_theme_binding() {
+        let root = temp_project("custom-restart-clears-binding");
+        let mut state = app_with_workspaces(&["web"]);
+        let mut terminal_runtimes = crate::terminal::TerminalRuntimeRegistry::new();
+        let root_pane = state.workspaces[0].tabs[0].root_pane;
+        let root_terminal_id = state.terminal_id_for_pane(0, root_pane).unwrap();
+        state.terminals.get_mut(&root_terminal_id).unwrap().cwd = root.clone();
+        state
+            .open_project_command_for_workspace(
+                &mut terminal_runtimes,
+                0,
+                ProjectCommandKind::Github,
+            )
+            .expect("curated command launch");
+        let tab_idx = state.workspaces[0].active_tab;
+        let pane_id = state.workspaces[0].tabs[tab_idx].root_pane;
+        let terminal_id = state.workspaces[0]
+            .terminal_id(pane_id)
+            .expect("command terminal")
+            .clone();
+        let custom = configured_project_command_at(
+            crate::execution_host::ResourceLocation::local(root).unwrap(),
+            ProjectCommandKind::Github,
+            "printf custom",
+        );
+
+        state
+            .restart_command_in_tab(
+                &mut terminal_runtimes,
+                &custom,
+                &terminal_id,
+                0,
+                tab_idx,
+                pane_id,
+                None,
+                None,
+            )
+            .expect("custom command restart");
+
+        assert_eq!(
+            state
+                .terminals
+                .get(&terminal_id)
+                .and_then(|terminal| terminal.terminal_theme_binding),
+            None
+        );
+    }
+
+
     #[tokio::test]
     async fn git_diff_opens_configured_command_tab_named_after_repo_root() {
         let root = temp_git_repo("diff-command-tab");
