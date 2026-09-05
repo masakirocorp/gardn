@@ -68,6 +68,39 @@ Run `just --list` for the live index. The Justfile comments are the source of tr
 | `just demo-capture-day SHOT` | Capture one named shot in day theme. |
 
 
+## Validation ladder
+
+Use focused checks while editing. Keep the complete quality graph at the delivery boundary.
+
+1. Run the narrowest behavioral test:
+
+   ```bash
+   cargo nextest run --package gardn --locked --no-tests fail <test-name>
+   ```
+
+   The `--no-tests fail` option prevents a stale filter from succeeding without running a test.
+
+2. Build and run the checkout for local behavior:
+
+   ```bash
+   cargo build --package=gardn --locked
+   ./target/debug/gardn
+   ```
+
+   A debug source build uses the `gardn-dev` namespace. It does not replace the installed binary.
+   Use an isolated `--session` when a smoke test must not touch the normal development session.
+
+3. Use one complete delivery gate:
+
+   - For a pull request, use focused local proof and required PR CI.
+   - Before a direct push to `master`, run `pnpm check`.
+   - For a release, use the release recipe. It runs the complete check.
+
+Do not use `just install-local` as an edit-loop check. It builds the full-symbol debugging binary
+and two cohort-matched Linux workers. It then installs and signs `gardn-dev`, stops its server, and
+cleans Cargo build artifacts. Use it when the installed binary or remote Linux workers are part of
+the behavior under test, or once after the final merged change.
+
 ## Binaries
 
 Keep these binaries on the machine:
@@ -88,15 +121,20 @@ install -m 755 gardn-macos-aarch64 ~/.local/bin/gardn-beta
 
 `gardn` and `gardn-beta` are both official release builds, so they share `~/.config/gardn`. Only one of those servers may run at a time. Stop the running server before launching the other binary. A beta client will not attach to a stable server.
 
-`gardn-dev` is the daily development binary. Install it from this checkout:
+`gardn-dev` is the installed development binary. Install it from this checkout when the installed
+artifact or cohort-matched Linux workers are part of the behavior under test:
 
 ```bash
 just install-local
 ```
 
-`just install-dev` is the same command. The installer writes `~/.local/bin/gardn-dev`, signs it on macOS, installs matching Linux workers under the `gardn-dev` data directory, and stops the running `gardn-dev` server. It does not touch `gardn` or `gardn-beta`.
+`just install-dev` is the same command. The installer writes `~/.local/bin/gardn-dev`, signs it on
+macOS, installs matching Linux workers under the `gardn-dev` data directory, and stops the running
+`gardn-dev` server. It does not touch `gardn` or `gardn-beta`.
 
-A debug source build uses the `gardn-dev` application directory. Official release builds use `gardn`. The development namespace does not share sockets, logs, or session files with official installs.
+A debug source build also uses the `gardn-dev` application directory. Official release builds use
+`gardn`. The development namespace does not share sockets, logs, or session files with official
+installs.
 
 ## macOS app
 

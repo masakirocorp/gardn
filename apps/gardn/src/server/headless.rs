@@ -301,10 +301,6 @@ impl HeadlessServer {
         })
     }
 
-    fn reconcile_terminal_themes_before_render(&mut self) -> bool {
-        self.app.reconcile_terminal_themes()
-    }
-
     /// Runs the headless server event loop until shutdown.
     ///
     /// This is the server's main loop — analogous to `App::run()` but without
@@ -427,7 +423,7 @@ impl HeadlessServer {
             }
 
             self.drain_client_config_reload_request();
-            if self.reconcile_terminal_themes_before_render() {
+            if self.app.reconcile_terminal_themes() {
                 needs_render = true;
             }
             self.stream_host_mouse_capture_mode();
@@ -4772,8 +4768,8 @@ mod tests {
         }
     }
 
-    #[test]
-    fn headless_pre_render_reconciles_managed_terminal_themes() {
+    #[tokio::test]
+    async fn headless_loop_applies_managed_terminal_theme_before_render() {
         let mut server = test_headless_server();
         server.app.state.workspaces = vec![crate::workspace::Workspace::test_new("test")];
         server.app.state.ensure_test_terminals();
@@ -4790,14 +4786,88 @@ mod tests {
             .expect("terminal state")
             .terminal_theme_binding =
             Some(crate::terminal_theme::TerminalThemeBinding::workspace_palette(None));
-        let (runtime, _input_rx) = crate::terminal::TerminalRuntime::test_with_channel(80, 24);
+        let render_background = |runtime: &crate::terminal::TerminalRuntime| {
+            let backend = ratatui::backend::TestBackend::new(80, 24);
+            let mut terminal = ratatui::Terminal::new(backend).expect("test terminal");
+            terminal
+                .draw(|frame| {
+                    runtime.render_with_theme_background(
+                        frame,
+                        Rect::new(0, 0, 80, 24),
+                        false,
+                        None,
+                    );
+                })
+                .expect("render managed terminal");
+            terminal.backend().buffer()[(0, 0)].style().bg
+        };
+        let (runtime, _input_rx) =
+            crate::terminal::TerminalRuntime::test_with_channel_and_screen_bytes(80, 24, b"X");
         server
             .app
             .terminal_runtimes
             .insert(terminal_id.clone(), runtime);
+        server.app.state.palette = crate::app::state::Palette::dracula();
+        server.app.state.global_palette = server.app.state.palette.clone();
+        server.app.state.theme_name = "dracula".to_string();
+        server.app.state.global_theme_name = "dracula".to_string();
+        server.app.state.global_theme_mode = crate::config::ThemeMode::Dark;
+        server.app.state.effective_theme_appearance = crate::terminal_theme::ThemeAppearance::Dark;
+        assert!(server.app.reconcile_terminal_themes());
+        let previous_background = render_background(
+            server
+                .app
+                .terminal_runtimes
+                .get(&terminal_id)
+                .expect("terminal runtime"),
+        );
 
-        assert!(server.reconcile_terminal_themes_before_render());
-        assert!(!server.reconcile_terminal_themes_before_render());
+        server.app.state.palette = crate::app::state::Palette::gruvbox_light();
+        server.app.state.global_palette = server.app.state.palette.clone();
+        server.app.state.theme_name = "gruvbox-light".to_string();
+        server.app.state.global_theme_name = "gruvbox-light".to_string();
+        server.app.state.global_theme_mode = crate::config::ThemeMode::Light;
+        server.app.state.effective_theme_appearance = crate::terminal_theme::ThemeAppearance::Light;
+        let expected = server
+            .app
+            .state
+            .managed_terminal_theme_targets()
+            .into_iter()
+            .find(|target| target.terminal_id == terminal_id)
+            .and_then(|target| target.resolved_override)
+            .expect("managed terminal theme");
+        let expected_background = Some(ratatui::style::Color::Rgb(
+            expected.background.r,
+            expected.background.g,
+            expected.background.b,
+        ));
+        assert_ne!(previous_background, expected_background);
+
+        server.app.render_notify.notified().await;
+        let render_notify = server.app.render_notify.clone();
+        let should_quit = server.should_quit.clone();
+        let server_event_tx = server.server_event_tx.clone();
+        let shutdown = tokio::spawn(async move {
+            render_notify.notified().await;
+            should_quit.store(true, Ordering::Release);
+            server_event_tx
+                .send(ServerEvent::QuitSignal)
+                .await
+                .expect("wake server for shutdown");
+        });
+        tokio::task::yield_now().await;
+        tokio::time::timeout(Duration::from_secs(1), server.run())
+            .await
+            .expect("headless server reconciled before timeout")
+            .expect("run headless server");
+        shutdown.await.expect("join shutdown task");
+
+        let runtime = server
+            .app
+            .terminal_runtimes
+            .get(&terminal_id)
+            .expect("terminal runtime");
+        assert_eq!(render_background(runtime), expected_background);
     }
 
     #[test]
