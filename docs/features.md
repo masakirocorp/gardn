@@ -393,6 +393,7 @@ Gardn supports terminal-derived colors and built-in palettes.
 - **Live system sync** — in system mode, Gardn follows foreground host-terminal light/dark color changes while it is running and refreshes pane terminal defaults.
 - **Nested terminal palette** — pane applications that query ANSI colors receive the active host palette. Application-defined palette colors keep precedence until the application resets them.
 - **Group settings** — rename groups, choose a group icon, set the default location and directory for new spaces, set the GitHub organization inherited by spaces, assign per-group theme accent colors, choose favorite/default agent profiles, or inherit the global accent. An SSH group default can be saved without a directory; Gardn uses the connection's suggested directory.
+  Press Enter to save the GitHub organization. Editing keeps the current organization unchanged until the new value is valid and saved.
 
 - **Accent color** — choose highlight, border, and navigation accent from the built-in theme palette or, when following terminal colors, from the six terminal ANSI accents (with separate light and dark choices).
 

@@ -3990,6 +3990,9 @@ pub(super) fn update_settings_state(state: &mut AppState, key: KeyEvent) -> Opti
         },
         SettingsSection::GroupGeneral => {
             if state.settings.focused_input.is_some() && edit_pending_group_field(state, key) {
+                if state.settings.focused_input == Some(GROUP_GENERAL_GITHUB_ORGANIZATION) {
+                    return None;
+                }
                 return selected_group_general_action(state);
             }
             match key.code {
@@ -5956,6 +5959,7 @@ mod tests {
                 KeyModifiers::empty(),
             ));
         }
+        app.handle_settings_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::empty()));
 
         assert_eq!(
             app.state.groups[group_idx]
@@ -5968,6 +5972,47 @@ mod tests {
             app.state.settings.focused_input,
             Some(GROUP_GENERAL_GITHUB_ORGANIZATION)
         );
+    }
+
+    #[test]
+    fn group_organization_input_saves_hyphenated_name_only_on_enter() {
+        let mut app = app_for_mouse_test();
+        let group_idx = app.state.create_group("Flex".to_string());
+        let original = crate::app::state::GithubOrganization::parse("masakirocorp")
+            .expect("valid organization");
+        app.state.groups[group_idx].github_organization = original.clone();
+        open_group_settings(&mut app.state, group_idx);
+        app.state.settings.list.show();
+        app.state
+            .settings
+            .list
+            .select(GROUP_GENERAL_GITHUB_ORGANIZATION);
+        app.state.settings.focused_input = Some(GROUP_GENERAL_GITHUB_ORGANIZATION);
+        app.handle_settings_key(KeyEvent::new(KeyCode::Char('u'), KeyModifiers::CONTROL));
+
+        for character in "flex-rental-solutions".chars() {
+            app.handle_settings_key(KeyEvent::new(
+                KeyCode::Char(character),
+                KeyModifiers::empty(),
+            ));
+            assert!(
+                app.state.toast.is_none(),
+                "typing {character:?} raised an error"
+            );
+        }
+        assert_eq!(app.state.groups[group_idx].github_organization, original);
+
+        app.handle_settings_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::empty()));
+        assert_eq!(
+            app.state.groups[group_idx]
+                .github_organization
+                .as_ref()
+                .map(crate::app::state::GithubOrganization::as_str),
+            Some("flex-rental-solutions")
+        );
+        open_group_settings(&mut app.state, group_idx);
+        crate::ui::compute_view(&mut app.state, Rect::new(0, 0, 100, 40));
+        rendered_text_point(&app, "flex-rental-solutions", 100, 40);
     }
 
     #[test]
