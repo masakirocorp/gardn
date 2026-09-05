@@ -8,7 +8,7 @@ Gardn uses `masakirocorp/ghui` as its curated GitHub interface. The fork remains
 
 Gardn pins each supported ghui integration to one immutable fork release and source commit. The curated launcher rejects a different ghui version instead of silently losing launch-scoped behavior. A user can configure a different `[commands].github` command to opt out of the curated integration.
 
-The fork owns Gardn-specific launch inputs. These include terminal theme selection, visible scrollbars, and optional GitHub organization scope. Organization scope filters the ghui home repository, pull request, and issue collections. It does not change explicit repository views.
+The fork owns Gardn-specific launch inputs. These include terminal theme selection, visible scrollbars, Space identity, repository scope, and verified local checkout paths. Each Space stores an Automatic, Selected repositories, or Group organization intent. Gardn resolves that intent at launch. The resolved scope filters HOME collections and remains fixed until ghui exits. Selecting a repository narrows the view without replacing that base scope. Explicit outside-scope views remain available.
 
 Masakiro publishes ghui from its own repository and release workflow. Release assets retain Kit Langton's copyright notice and the MIT License. Gardn documents the pinned release and exposes the same acknowledgment in **Settings > About**. A Masakiro Homebrew tap can package the immutable release assets without transferring update ownership to Gardn.
 
@@ -20,10 +20,14 @@ Gardn is mouse-first. ghui has the interaction model that fits that product dire
 
 Bundling ghui into Gardn would couple two release cadences and mix optional third-party source into the Gardn build. A separately released companion keeps the dependency replaceable while Masakiro still owns the exact behavior that the curated launcher requires.
 
+Repository context belongs to a Space rather than its current pane. A shell directory change must not retarget a running GitHub view. Explicit repository selection takes precedence over the Group organization. Automatic discovery uses the Group organization only when it finds no GitHub repositories. Discovery failures must remain visible rather than silently broadening the scope.
+
+Review handoffs use Worktrunk to create a separate checkout at the selected pull request commit. They never switch the original Space's checkout. Agent handoffs require an explicit target and send context through the existing Gardn CLI readiness gate. The companion receives an explicit binary and socket for the launching session, with no ambient-session fallback.
+
 ## Consequences
 
 A Gardn release that changes the ghui contract must first publish and verify a compatible fork release. The Gardn pin, installation guidance, tests, documentation, and acknowledgment must change together.
 
-Fork releases require upstream synchronization, platform assets, checksums, and license retention. Gardn must fail closed when organization scope is configured but the required fork version is unavailable.
+Fork releases require upstream synchronization, platform assets, checksums, and license retention. Gardn must fail closed when the required fork version is unavailable.
 
 The default `ghui` command remains optional. Browser, review, editor, and custom GitHub commands keep their independent installation and update paths.

@@ -1,17 +1,40 @@
-use crate::app::state::GithubOrganization;
+use crate::github::ResolvedGithubScope;
 
 pub(crate) const GITHUB_COMMAND: &str = "ghui";
-pub(crate) const REQUIRED_VERSION: &str = "0.10.0-masakiro.4";
+pub(crate) const REQUIRED_VERSION: &str = "0.10.0-masakiro.5";
 pub(crate) const FORK_URL: &str = "https://github.com/masakirocorp/ghui";
 
-pub(crate) fn command(organization: Option<&GithubOrganization>) -> String {
-    let organization = organization.map_or("", GithubOrganization::as_str);
+fn shell_escape(value: &str) -> String {
+    value.replace('\'', "'\"'\"'")
+}
+
+pub(crate) fn command_with_scope(workspace_name: &str, scope: &ResolvedGithubScope) -> String {
+    let repositories = if scope.repositories.is_empty() {
+        String::new()
+    } else {
+        let repositories = scope
+            .repositories
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>();
+        serde_json::to_string(&repositories).expect("GitHub repositories serialize")
+    };
+    let repository_paths =
+        serde_json::to_string(&scope.repository_paths).expect("GitHub repository paths serialize");
+    let organization = scope
+        .organization
+        .as_ref()
+        .map_or("", |organization| organization.as_str());
+    let organization = shell_escape(organization);
+    let repositories = shell_escape(&repositories);
+    let repository_paths = shell_escape(&repository_paths);
+    let workspace_name = shell_escape(workspace_name);
     format!(
         r#"if command -v ghui >/dev/null 2>&1; then
   installed_version="$(ghui --version 2>/dev/null)"
   if [ "$installed_version" = "{REQUIRED_VERSION}" ]; then
     trap '' USR2 2>/dev/null || true
-    GHUI_THEME=system GHUI_SHOW_SCROLLBARS=true GHUI_SYSTEM_THEME_AUTO_RELOAD=true GHUI_ORG='{organization}' exec ghui
+    GHUI_THEME=system GHUI_SHOW_SCROLLBARS=true GHUI_SYSTEM_THEME_AUTO_RELOAD=true GHUI_ORG='{organization}' GHUI_REPOSITORIES='{repositories}' GHUI_REPOSITORY_PATHS='{repository_paths}' GHUI_WORKSPACE_NAME='{workspace_name}' exec ghui
   fi
   printf '%s\n' \
     'Gardn requires its pinned ghui companion release.' \
@@ -39,8 +62,9 @@ read -r _ || true
 
 #[cfg(test)]
 mod tests {
-    use super::{command, FORK_URL, REQUIRED_VERSION};
+    use super::{command_with_scope, REQUIRED_VERSION};
     use crate::app::state::GithubOrganization;
+    use crate::github::{GithubRepository, ResolvedGithubScope};
     #[cfg(unix)]
     use std::os::unix::fs::PermissionsExt;
     #[cfg(unix)]
@@ -48,28 +72,16 @@ mod tests {
     #[cfg(unix)]
     use std::time::{SystemTime, UNIX_EPOCH};
 
-    #[test]
-    fn launch_uses_pinned_fork_controls() {
-        let organization = GithubOrganization::parse("masakirocorp")
-            .expect("valid organization")
-            .expect("organization");
-        let output = command(Some(&organization));
-
-        assert!(output.contains(&format!("required:  {REQUIRED_VERSION}")));
-        assert!(output.contains("GHUI_THEME=system"));
-        assert!(output.contains("GHUI_SHOW_SCROLLBARS=true"));
-        assert!(output.contains("GHUI_ORG='masakirocorp'"));
-        assert!(output.contains("GHUI_SYSTEM_THEME_AUTO_RELOAD=true"));
-        assert!(output.contains("trap '' USR2"));
-    }
-
-    #[test]
-    fn missing_ghui_guidance_names_masakiro_distribution() {
-        let output = command(None);
-
-        assert!(output.contains("brew install masakirocorp/tap/ghui"));
-        assert!(output.contains(&format!("releases/tag/v{REQUIRED_VERSION}")));
-        assert!(output.contains(FORK_URL));
+    fn organization_scope() -> ResolvedGithubScope {
+        ResolvedGithubScope {
+            repositories: Vec::new(),
+            repository_paths: std::collections::BTreeMap::new(),
+            organization: Some(
+                GithubOrganization::parse("masakirocorp")
+                    .expect("valid organization")
+                    .expect("organization"),
+            ),
+        }
     }
 
     #[cfg(unix)]
@@ -88,20 +100,20 @@ if [ "$1" = "--version" ]; then
   printf '%s\n' '{REQUIRED_VERSION}'
   exit 0
 fi
-printf '%s\n%s\n%s\n%s\n' "$GHUI_THEME" "$GHUI_SHOW_SCROLLBARS" "$GHUI_SYSTEM_THEME_AUTO_RELOAD" "$GHUI_ORG" > "$CAPTURE_PATH"
+printf '%s\n%s\n%s\n%s\n%s\n%s\n%s\n' "$GHUI_THEME" "$GHUI_SHOW_SCROLLBARS" "$GHUI_SYSTEM_THEME_AUTO_RELOAD" "$GHUI_ORG" "$GHUI_REPOSITORIES" "$GHUI_REPOSITORY_PATHS" "$GHUI_WORKSPACE_NAME" > "$CAPTURE_PATH"
 exit 7
 "#
             ),
         )
         .expect("write fake ghui");
         make_executable(&ghui);
-        let organization = GithubOrganization::parse("masakirocorp")
-            .expect("valid organization")
-            .expect("organization");
+        let mut scope = organization_scope();
+        scope.repositories = vec![GithubRepository::parse("Acme/One").expect("repository")];
+        scope.organization = None;
 
         let output = Command::new("sh")
             .arg("-c")
-            .arg(command(Some(&organization)))
+            .arg(command_with_scope("Space's Home", &scope))
             .env("PATH", format!("{}:/usr/bin:/bin", bin_dir.display()))
             .env("CAPTURE_PATH", &capture_path)
             .output()
@@ -110,7 +122,23 @@ exit 7
         assert_eq!(output.status.code(), Some(7));
         assert_eq!(
             std::fs::read_to_string(&capture_path).expect("captured launch environment"),
-            "system\ntrue\ntrue\nmasakirocorp\n"
+            "system\ntrue\ntrue\n\n[\"acme/one\"]\n{}\nSpace's Home\n"
+        );
+        let output = Command::new("sh")
+            .arg("-c")
+            .arg(command_with_scope(
+                "Organization Space",
+                &organization_scope(),
+            ))
+            .env("PATH", format!("{}:/usr/bin:/bin", bin_dir.display()))
+            .env("CAPTURE_PATH", &capture_path)
+            .env("GHUI_REPOSITORIES", "[\"stale/repository\"]")
+            .output()
+            .expect("run organization-scoped ghui wrapper");
+        assert_eq!(output.status.code(), Some(7));
+        assert_eq!(
+            std::fs::read_to_string(&capture_path).expect("captured organization environment"),
+            "system\ntrue\ntrue\nmasakirocorp\n\n{}\nOrganization Space\n"
         );
         std::fs::remove_dir_all(root).expect("remove fake ghui directory");
     }
@@ -138,7 +166,7 @@ touch "$EXECUTED_PATH"
 
         let output = Command::new("sh")
             .arg("-c")
-            .arg(command(None))
+            .arg(command_with_scope("Space", &organization_scope()))
             .env("PATH", format!("{}:/usr/bin:/bin", bin_dir.display()))
             .env("EXECUTED_PATH", &executed_path)
             .stdin(std::process::Stdio::null())

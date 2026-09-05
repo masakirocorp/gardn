@@ -688,6 +688,7 @@ mod tests {
             group_id: crate::workspace::DEFAULT_GROUP_ID.to_string(),
             identity_cwd: PathBuf::from("/tmp/project"),
             default_location,
+            github_scope: crate::github::GithubRepositoryScope::default(),
             public_pane_numbers: HashMap::new(),
             next_public_pane_number: 0,
             public_tab_numbers: Vec::new(),

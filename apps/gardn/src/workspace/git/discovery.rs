@@ -183,6 +183,142 @@ fn strip_git_config_comment(value: &str) -> &str {
     }
     value
 }
+fn parse_github_origin(origin: &str) -> Option<crate::github::GithubRepository> {
+    let origin = origin.trim();
+    let path = [
+        "git@github.com:",
+        "https://github.com/",
+        "http://github.com/",
+        "ssh://git@github.com/",
+    ]
+    .iter()
+    .find_map(|prefix| origin.strip_prefix(prefix))?;
+    crate::github::GithubRepository::parse(path).ok()
+}
+
+pub(crate) fn discover_github_repositories(
+    cwds: &[PathBuf],
+) -> crate::github::GithubDiscoveryOutcome {
+    use crate::github::{GithubDiscoveryOutcome, GithubRepositoryLocation};
+
+    let mut roots = std::collections::BTreeSet::new();
+    for cwd in cwds {
+        match github_repo_root(cwd) {
+            Ok(Some(root)) => {
+                roots.insert(root);
+            }
+            Ok(None) => {}
+            Err(error) => return GithubDiscoveryOutcome::Failed(error),
+        }
+    }
+    let mut repositories = std::collections::BTreeMap::new();
+    for root in roots {
+        match github_repository_for_repo_root(&root) {
+            Ok(Some(repository)) => {
+                repositories.entry(repository).or_insert(root);
+            }
+            Ok(None) => {}
+            Err(error) => return GithubDiscoveryOutcome::Failed(error),
+        }
+    }
+    if repositories.is_empty() {
+        GithubDiscoveryOutcome::Empty
+    } else {
+        GithubDiscoveryOutcome::Repositories(
+            repositories
+                .into_iter()
+                .map(|(repository, root)| GithubRepositoryLocation {
+                    repository,
+                    local_path: Some(root),
+                })
+                .collect(),
+        )
+    }
+}
+
+fn github_repo_root(cwd: &Path) -> Result<Option<PathBuf>, String> {
+    let failure = |error: std::io::Error| {
+        format!(
+            "failed to discover GitHub repository for {}: {error}",
+            cwd.display()
+        )
+    };
+    let mut current = std::fs::canonicalize(cwd).map_err(failure)?;
+    loop {
+        let mut has_git = false;
+        let mut has_objects = false;
+        let mut has_refs = false;
+        for entry in std::fs::read_dir(&current).map_err(failure)? {
+            let name = entry.map_err(failure)?.file_name();
+            has_git |= name == ".git";
+            has_objects |= name == "objects";
+            has_refs |= name == "refs";
+        }
+        if has_git || (has_objects && has_refs) {
+            let git_dir = if has_git {
+                current.join(".git")
+            } else {
+                current.clone()
+            };
+            let output = crate::noninteractive_process::command("git")
+                .arg("--git-dir")
+                .arg(&git_dir)
+                .args(["rev-parse", "--is-bare-repository"])
+                .output()
+                .map_err(failure)?;
+            if !output.status.success() {
+                return Err(format!(
+                    "failed to inspect Git repository metadata at {}: {}",
+                    git_dir.display(),
+                    String::from_utf8_lossy(&output.stderr).trim()
+                ));
+            }
+            return Ok(Some(current));
+        }
+        if !current.pop() {
+            return Ok(None);
+        }
+    }
+}
+
+fn github_repository_for_repo_root(
+    repo_root: &Path,
+) -> Result<Option<crate::github::GithubRepository>, String> {
+    let output = crate::noninteractive_process::command("git")
+        .arg("-C")
+        .arg(repo_root)
+        .args(["config", "--get", "remote.origin.url"])
+        .output()
+        .map_err(|error| {
+            format!(
+                "failed to read GitHub origin for {}: {error}",
+                repo_root.display()
+            )
+        })?;
+    if !output.status.success() {
+        if output.status.code() == Some(1) {
+            return Ok(None);
+        }
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        let detail = if stderr.is_empty() {
+            format!("git exited with {}", output.status)
+        } else {
+            stderr
+        };
+        return Err(format!(
+            "failed to read GitHub origin for {}: {detail}",
+            repo_root.display()
+        ));
+    }
+
+    let origin = String::from_utf8(output.stdout).map_err(|error| {
+        format!(
+            "GitHub origin for {} was not UTF-8: {error}",
+            repo_root.display()
+        )
+    })?;
+    Ok(parse_github_origin(&origin))
+}
 
 fn git_trimmed_stdout(repo_root: &Path, args: &[&str]) -> Option<String> {
     let output = crate::noninteractive_process::command("git")
@@ -266,6 +402,110 @@ mod tests {
         let path = std::env::temp_dir().join(unique);
         std::fs::create_dir_all(&path).unwrap();
         path
+    }
+    #[test]
+    fn github_origin_parser_accepts_supported_forms_only() {
+        for origin in [
+            "git@github.com:Acme/One.git",
+            "https://github.com/Acme/One",
+            "http://github.com/Acme/One.git",
+            "ssh://git@github.com/Acme/One",
+        ] {
+            assert_eq!(
+                parse_github_origin(origin).expect("GitHub origin"),
+                crate::github::GithubRepository::parse("acme/one").unwrap()
+            );
+        }
+        for origin in [
+            "git@gitlab.com:acme/one.git",
+            "https://github.com/acme/one/issues",
+            "ssh://git@github.com/acme/one?ref=head",
+        ] {
+            assert_eq!(parse_github_origin(origin), None);
+        }
+    }
+
+    #[test]
+    fn github_discovery_rejects_corrupt_metadata_without_broadening_scope() {
+        use crate::github::{resolve_github_scope, GithubDiscoveryOutcome, GithubRepositoryScope};
+
+        for corruption in ["missing-head", "unreadable-head", "gitfile", "commondir"] {
+            let root = temp_test_dir(corruption);
+            run_git(&root, &["init", "-b", "main"]);
+            run_git(
+                &root,
+                &["remote", "add", "origin", "https://github.com/acme/parent"],
+            );
+            let checkout = root.join("checkout");
+            std::fs::create_dir_all(&checkout).unwrap();
+            run_git(&checkout, &["init", "-b", "main"]);
+            match corruption {
+                "missing-head" => std::fs::remove_file(checkout.join(".git/HEAD")).unwrap(),
+                "unreadable-head" => {
+                    std::fs::remove_file(checkout.join(".git/HEAD")).unwrap();
+                    std::fs::create_dir(checkout.join(".git/HEAD")).unwrap();
+                }
+                "gitfile" => {
+                    std::fs::remove_dir_all(checkout.join(".git")).unwrap();
+                    std::fs::write(checkout.join(".git"), "not a gitdir pointer\n").unwrap();
+                }
+                "commondir" => {
+                    std::fs::write(checkout.join(".git/commondir"), "missing\n").unwrap();
+                }
+                _ => unreachable!(),
+            }
+            let discovery = discover_github_repositories(&[checkout]);
+            assert!(
+                matches!(discovery, GithubDiscoveryOutcome::Failed(_)),
+                "{corruption}: {discovery:?}"
+            );
+            let org = crate::app::state::GithubOrganization::parse("acme")
+                .unwrap()
+                .unwrap();
+            assert!(resolve_github_scope(
+                &GithubRepositoryScope::Automatic,
+                &discovery,
+                Some(&org)
+            )
+            .is_err());
+            std::fs::remove_dir_all(root).unwrap();
+        }
+    }
+
+    #[test]
+    fn github_discovery_retains_canonical_checkout_for_selected_identity() {
+        use crate::github::{resolve_github_scope, GithubDiscoveryOutcome, GithubRepositoryScope};
+
+        let root = temp_test_dir("github-checkout");
+        run_git(&root, &["init", "-b", "main"]);
+        run_git(
+            &root,
+            &["remote", "add", "origin", "https://github.com/Acme/One.git"],
+        );
+        let nested = root.join("nested");
+        std::fs::create_dir(&nested).unwrap();
+        let discovery = discover_github_repositories(&[nested, root.clone()]);
+        let GithubDiscoveryOutcome::Repositories(locations) = &discovery else {
+            panic!("expected discovered checkout: {discovery:?}");
+        };
+        assert_eq!(locations.len(), 1);
+        let scope = GithubRepositoryScope::selected_from_input("Acme/One.GIT").unwrap();
+        let resolved = resolve_github_scope(&scope, &discovery, None).unwrap();
+        assert_eq!(
+            resolved.repository_paths.get("acme/one"),
+            Some(&std::fs::canonicalize(&root).unwrap())
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn github_discovery_rejects_missing_working_directory() {
+        let root = temp_test_dir("github-missing-cwd");
+        assert!(matches!(
+            discover_github_repositories(&[root.join("missing")]),
+            crate::github::GithubDiscoveryOutcome::Failed(_)
+        ));
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

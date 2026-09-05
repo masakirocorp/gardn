@@ -942,6 +942,9 @@ impl App {
                     SettingsAction::SaveWorkspaceDefaultLocation { ws_idx, location } => {
                         self.state.set_workspace_default_location(ws_idx, location);
                     }
+                    SettingsAction::SaveWorkspaceGithubScope { ws_idx, scope } => {
+                        self.state.set_workspace_github_scope(ws_idx, scope);
+                    }
                     SettingsAction::DeleteGroup(group_idx) => {
                         modal::open_confirm_delete_group(&mut self.state, group_idx);
                     }

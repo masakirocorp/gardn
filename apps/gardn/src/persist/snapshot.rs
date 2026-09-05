@@ -189,6 +189,8 @@ pub struct WorkspaceSnapshot {
     pub identity_cwd: PathBuf,
     pub default_location: crate::execution_host::ResourceLocation,
     #[serde(default)]
+    pub github_scope: crate::github::GithubRepositoryScope,
+    #[serde(default)]
     pub public_pane_numbers: HashMap<u32, usize>,
     #[serde(default)]
     pub next_public_pane_number: usize,
@@ -420,6 +422,7 @@ impl From<LegacyWorkspaceSnapshot> for WorkspaceSnapshot {
                 crate::execution_host::ExecutionHostId::local(),
                 crate::execution_host::HostPath::new(identity_cwd).unwrap_or_default(),
             ),
+            github_scope: crate::github::GithubRepositoryScope::default(),
             public_pane_numbers: HashMap::new(),
             next_public_pane_number: 0,
             public_tab_numbers: Vec::new(),
@@ -811,6 +814,7 @@ fn capture_workspace(
         group_id: ws.group_id.clone(),
         identity_cwd: ws.identity_cwd.clone(),
         default_location: ws.default_location.clone(),
+        github_scope: ws.github_scope.clone(),
         public_pane_numbers: ws
             .public_pane_numbers
             .iter()
@@ -1532,6 +1536,7 @@ mod tests {
                     "/home/can/Projects/gardn",
                 )
                 .unwrap(),
+                github_scope: crate::github::GithubRepositoryScope::default(),
                 public_pane_numbers: HashMap::from([(0, 1), (1, 2)]),
                 next_public_pane_number: 3,
                 public_tab_numbers: vec![1],

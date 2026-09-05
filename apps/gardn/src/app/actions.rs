@@ -1593,6 +1593,16 @@ impl AppState {
         if !self.project_command_configured(kind) {
             return None;
         }
+        if kind == ProjectCommandKind::Github {
+            let command_id = format!("gardn:github:space:{}", self.workspaces.get(ws_idx)?.id);
+            if let Some(run) = self.command_runs.get(&command_id) {
+                if let Some((run_ws_idx, tab_idx, _)) =
+                    self.command_terminal_target(&run.terminal_id)
+                {
+                    return (run_ws_idx == ws_idx).then_some(tab_idx);
+                }
+            }
+        }
         let root = if matches!(
             kind,
             ProjectCommandKind::Browser | ProjectCommandKind::Editor | ProjectCommandKind::Github
@@ -1607,9 +1617,13 @@ impl AppState {
             };
             root.clone()
         };
-        let command = self
-            .configured_project_command(root, kind, Some(ws_idx))
-            .ok()?;
+        let command = if kind == ProjectCommandKind::Github {
+            self.configured_github_project_command(root, ws_idx, terminal_runtimes)
+                .ok()?
+        } else {
+            self.configured_project_command(root, kind, Some(ws_idx))
+                .ok()?
+        };
         if let Some(run) = self.command_runs.get(&command.id) {
             if let Some((run_ws_idx, tab_idx, _)) = self.command_terminal_target(&run.terminal_id) {
                 return (run_ws_idx == ws_idx).then_some(tab_idx);
@@ -1631,6 +1645,21 @@ impl AppState {
                 "Configure the {} command in Settings > Commands",
                 self.project_command_role(kind)
             ));
+        }
+        if kind == ProjectCommandKind::Github {
+            let workspace = self
+                .workspaces
+                .get(ws_idx)
+                .ok_or_else(|| "Workspace not found".to_string())?;
+            let command_id = format!("gardn:github:space:{}", workspace.id);
+            if self
+                .command_runs
+                .get(&command_id)
+                .is_some_and(|run| run.status == crate::commands::CommandRunStatus::Running)
+                && self.focus_command_run(&command_id)
+            {
+                return Ok(());
+            }
         }
         if matches!(
             kind,
@@ -1660,6 +1689,75 @@ impl AppState {
             }
         };
         self.open_project_command_tab(terminal_runtimes, root, ws_idx, kind)
+    }
+    fn resolved_github_scope(
+        &self,
+        terminal_runtimes: &crate::terminal::TerminalRuntimeRegistry,
+        ws_idx: usize,
+    ) -> Result<crate::github::ResolvedGithubScope, String> {
+        let workspace = self
+            .workspaces
+            .get(ws_idx)
+            .ok_or_else(|| "Workspace not found".to_string())?;
+        let scope = workspace.github_scope.clone();
+        let group_organization = self
+            .groups
+            .iter()
+            .find(|group| group.id == workspace.group_id)
+            .and_then(|group| group.github_organization.as_ref())
+            .cloned();
+        let discovery = match &scope {
+            crate::github::GithubRepositoryScope::Automatic
+            | crate::github::GithubRepositoryScope::Selected(_) => {
+                self.github_discovery_for_workspace(terminal_runtimes, ws_idx)
+            }
+            crate::github::GithubRepositoryScope::GroupOrganization => {
+                crate::github::GithubDiscoveryOutcome::Empty
+            }
+        };
+        crate::github::resolve_github_scope(&scope, &discovery, group_organization.as_ref())
+    }
+
+    fn configured_github_project_command(
+        &self,
+        root: std::path::PathBuf,
+        ws_idx: usize,
+        terminal_runtimes: &crate::terminal::TerminalRuntimeRegistry,
+    ) -> Result<crate::commands::ProjectCommand, String> {
+        let workspace = self
+            .workspaces
+            .get(ws_idx)
+            .ok_or_else(|| "Workspace not found".to_string())?;
+        let has_remote_pane = workspace.tabs.iter().any(|tab| {
+            tab.layout.pane_ids().into_iter().any(|pane_id| {
+                workspace
+                    .terminal_id(pane_id)
+                    .and_then(|terminal_id| self.terminals.get(terminal_id))
+                    .is_some_and(|terminal| !terminal.location.is_local())
+            })
+        });
+        if !workspace.default_location.is_local() || has_remote_pane {
+            return Err(
+                "GitHub curated launches cannot run from a remote Space or pane.".to_string(),
+            );
+        }
+        let root = root
+            .canonicalize()
+            .map_err(|error| format!("Cannot access GitHub launch directory: {error}"))?;
+        let location = crate::execution_host::ResourceLocation::local(root)
+            .map_err(|error| error.to_string())?;
+        let workspace_name = workspace.display_name();
+        let configured = self.github_command.trim();
+        let command = if configured == crate::ghui_theme::GITHUB_COMMAND {
+            let scope = self.resolved_github_scope(terminal_runtimes, ws_idx)?;
+            crate::ghui_theme::command_with_scope(&workspace_name, &scope)
+        } else {
+            self.github_command.clone()
+        };
+        let mut command =
+            configured_project_command_at(location, ProjectCommandKind::Github, &command);
+        command.id = format!("gardn:github:space:{}", workspace.id);
+        Ok(command)
     }
 
     fn configured_project_command(
@@ -1716,17 +1814,6 @@ impl AppState {
                     self.host_terminal_theme,
                     crate::external_tool_theme::is_terminal_passthrough(&self.theme_name),
                 )
-            }
-            (ProjectCommandKind::Github, crate::ghui_theme::GITHUB_COMMAND) => {
-                let organization = ws_idx
-                    .and_then(|idx| self.workspaces.get(idx))
-                    .and_then(|workspace| {
-                        self.groups
-                            .iter()
-                            .find(|group| group.id == workspace.group_id)
-                    })
-                    .and_then(|group| group.github_organization.as_ref());
-                crate::ghui_theme::command(organization)
             }
             _ => configured.clone(),
         };
@@ -1787,7 +1874,11 @@ impl AppState {
     ) -> Result<(), String> {
         let terminal_theme_binding = self.curated_project_command_terminal_theme_binding(kind);
         let terminal_theme = self.curated_project_command_terminal_theme(kind, Some(ws_idx));
-        let command = self.configured_project_command(root, kind, Some(ws_idx))?;
+        let command = if kind == ProjectCommandKind::Github {
+            self.configured_github_project_command(root, ws_idx, terminal_runtimes)?
+        } else {
+            self.configured_project_command(root, kind, Some(ws_idx))?
+        };
         self.run_project_command_entry(
             terminal_runtimes,
             command,
@@ -1838,6 +1929,47 @@ impl AppState {
             terminal_theme_binding,
             terminal_theme,
         )
+    }
+    pub(crate) fn github_discovery_for_workspace(
+        &self,
+        terminal_runtimes: &crate::terminal::TerminalRuntimeRegistry,
+        ws_idx: usize,
+    ) -> crate::github::GithubDiscoveryOutcome {
+        let Some(workspace) = self.workspaces.get(ws_idx) else {
+            return crate::github::GithubDiscoveryOutcome::Failed(
+                "Workspace not found.".to_string(),
+            );
+        };
+        if !workspace.default_location.is_local() {
+            return crate::github::GithubDiscoveryOutcome::Failed(
+                "Automatic GitHub discovery requires a local Space location.".to_string(),
+            );
+        }
+
+        let mut cwds = vec![workspace.default_location.path.as_path().to_path_buf()];
+        for tab in &workspace.tabs {
+            for pane_id in tab.layout.pane_ids() {
+                let Some(terminal_id) = workspace.terminal_id(pane_id) else {
+                    continue;
+                };
+                let Some(terminal) = self.terminals.get(terminal_id) else {
+                    continue;
+                };
+                if !terminal.location.is_local() {
+                    return crate::github::GithubDiscoveryOutcome::Failed(
+                        "Automatic GitHub discovery cannot inspect a remote pane from a local coordinator."
+                            .to_string(),
+                    );
+                }
+                if let Some(cwd) = tab.cwd_for_pane(pane_id, &self.terminals, terminal_runtimes) {
+                    cwds.push(cwd);
+                }
+            }
+        }
+        cwds.sort();
+        cwds.dedup();
+
+        crate::workspace::discover_github_repositories(&cwds)
     }
 
     pub(crate) fn observed_git_repos_for_workspace(
@@ -2463,6 +2595,21 @@ impl AppState {
             return true;
         }
         false
+    }
+    pub fn set_workspace_github_scope(
+        &mut self,
+        ws_idx: usize,
+        scope: crate::github::GithubRepositoryScope,
+    ) -> bool {
+        let Some(workspace) = self.workspaces.get_mut(ws_idx) else {
+            return false;
+        };
+        if workspace.github_scope == scope {
+            return false;
+        }
+        workspace.github_scope = scope;
+        self.mark_session_dirty();
+        true
     }
 
     pub fn set_group_default_location(
@@ -5856,40 +6003,17 @@ mod tests {
             Some(1)
         );
         let command = state
-            .configured_project_command(project.clone(), ProjectCommandKind::Github, Some(0))
+            .configured_github_project_command(project.clone(), 0, &terminal_runtimes)
             .unwrap();
-        assert!(command.command.contains("required:  0.10.0-masakiro.4"));
         assert!(command.command.contains("GHUI_THEME=system"));
         assert!(command.command.contains("GHUI_SHOW_SCROLLBARS=true"));
         assert!(state
             .curated_project_command_terminal_theme(ProjectCommandKind::Github, Some(0))
             .is_none());
-        assert_eq!(command.location.path.as_path(), project.as_path());
-    }
-
-    #[test]
-    fn github_command_uses_workspace_group_organization() {
-        let mut state = app_with_workspaces(&["web", "api"]);
-        state.groups[0].github_organization =
-            crate::app::state::GithubOrganization::parse("first-org").expect("valid organization");
-        let mut second_group = Group::default_group();
-        second_group.id = "second".to_string();
-        second_group.name = "Second".to_string();
-        second_group.github_organization =
-            crate::app::state::GithubOrganization::parse("second-org").expect("valid organization");
-        state.groups.push(second_group);
-        state.workspaces[1].group_id = "second".to_string();
-
-        let command = state
-            .configured_project_command(
-                temp_project("group-scoped-github"),
-                ProjectCommandKind::Github,
-                Some(1),
-            )
-            .expect("configured GitHub command");
-
-        assert!(command.command.contains("GHUI_ORG='second-org'"));
-        assert!(!command.command.contains("GHUI_ORG='first-org'"));
+        assert_eq!(
+            command.location.path.as_path(),
+            project.canonicalize().unwrap()
+        );
     }
 
     #[test]
@@ -5911,11 +6035,12 @@ mod tests {
         let editor = state
             .configured_project_command(root, ProjectCommandKind::Editor, Some(0))
             .unwrap();
+        let terminal_runtimes = crate::terminal::TerminalRuntimeRegistry::new();
         let github = state
-            .configured_project_command(
+            .configured_github_project_command(
                 temp_project("named-themed-github"),
-                ProjectCommandKind::Github,
-                Some(0),
+                0,
+                &terminal_runtimes,
             )
             .unwrap();
 
@@ -5925,7 +6050,7 @@ mod tests {
             .command
             .contains("theme_ref=\"file://$theme_dir/theme.json\""));
         assert!(editor.command.contains("\"cursor\": [189, 147, 249]"));
-        assert!(github.command.contains("required:  0.10.0-masakiro.4"));
+        assert!(github.command.contains("required:  0.10.0-masakiro.5"));
         assert!(github.command.contains("GHUI_THEME=system"));
         let terminal_theme = state
             .curated_project_command_terminal_theme(ProjectCommandKind::Github, Some(0))
@@ -6401,6 +6526,108 @@ mod tests {
         assert!(terminal_runtimes.contains_key(&command_terminal_id));
         wait_for_runtime_pid(&terminal_runtimes, &command_terminal_id).await;
         assert!(state.stop_project_command(&mut terminal_runtimes, &command_id));
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn github_launch_reuses_only_its_own_space_when_names_and_cwds_match() {
+        let project = temp_project("github-space-isolation");
+        let mut state = app_with_workspaces(&["web", "web"]);
+        state.github_command = "sleep 30".to_string();
+        let mut terminal_runtimes = crate::terminal::TerminalRuntimeRegistry::new();
+        for ws_idx in 0..2 {
+            state.workspaces[ws_idx].default_location =
+                crate::execution_host::ResourceLocation::local(project.clone()).unwrap();
+            let pane = state.workspaces[ws_idx].tabs[0].root_pane;
+            let terminal_id = state.terminal_id_for_pane(ws_idx, pane).unwrap();
+            state.terminals.get_mut(&terminal_id).unwrap().cwd = project.clone();
+        }
+
+        state
+            .open_project_command_for_workspace(
+                &mut terminal_runtimes,
+                0,
+                ProjectCommandKind::Github,
+            )
+            .unwrap();
+        let first_command_id = state.command_runs.keys().next().unwrap().clone();
+        let first_terminal_id = state.command_runs[&first_command_id].terminal_id.clone();
+        wait_for_runtime_pid(&terminal_runtimes, &first_terminal_id).await;
+
+        assert_eq!(
+            state.pending_project_command_tab_for_workspace(
+                &terminal_runtimes,
+                1,
+                ProjectCommandKind::Github,
+            ),
+            Some(1)
+        );
+        state
+            .open_project_command_for_workspace(
+                &mut terminal_runtimes,
+                1,
+                ProjectCommandKind::Github,
+            )
+            .unwrap();
+        assert_eq!(state.active, Some(1));
+        assert_eq!(state.workspaces[1].tabs.len(), 2);
+        let second_tab = &state.workspaces[1].tabs[1];
+        let second_terminal_id = second_tab
+            .terminal_id(second_tab.root_pane)
+            .unwrap()
+            .clone();
+        assert_ne!(first_terminal_id, second_terminal_id);
+        wait_for_runtime_pid(&terminal_runtimes, &second_terminal_id).await;
+        let second_pid = terminal_runtimes
+            .get(&second_terminal_id)
+            .unwrap()
+            .child_pid();
+        assert_ne!(second_pid, 0);
+
+        state.github_command = "sleep 60".to_string();
+        assert!(state.stop_project_command(&mut terminal_runtimes, &first_command_id));
+        for ws_idx in [1, 0] {
+            assert_eq!(
+                state.pending_project_command_tab_for_workspace(
+                    &terminal_runtimes,
+                    ws_idx,
+                    ProjectCommandKind::Github,
+                ),
+                Some(1)
+            );
+            state
+                .open_project_command_for_workspace(
+                    &mut terminal_runtimes,
+                    ws_idx,
+                    ProjectCommandKind::Github,
+                )
+                .unwrap();
+            assert_eq!(state.active, Some(ws_idx));
+            assert_eq!(state.workspaces[ws_idx].tabs.len(), 2);
+            assert_eq!(state.workspaces[ws_idx].active_tab, 1);
+            assert_eq!(
+                terminal_runtimes
+                    .get(&second_terminal_id)
+                    .unwrap()
+                    .child_pid(),
+                second_pid
+            );
+            if ws_idx == 1 {
+                assert!(!terminal_runtimes.contains_key(&first_terminal_id));
+            }
+        }
+        assert_eq!(
+            state.command_runs[&first_command_id].terminal_id,
+            first_terminal_id
+        );
+        assert!(terminal_runtimes.contains_key(&first_terminal_id));
+
+        let command_ids = state.command_runs.keys().cloned().collect::<Vec<_>>();
+        for command_id in command_ids {
+            let terminal_id = state.command_runs[&command_id].terminal_id.clone();
+            wait_for_runtime_pid(&terminal_runtimes, &terminal_id).await;
+            assert!(state.stop_project_command(&mut terminal_runtimes, &command_id));
+        }
+        std::fs::remove_dir_all(project).unwrap();
     }
 
     #[tokio::test(flavor = "current_thread")]

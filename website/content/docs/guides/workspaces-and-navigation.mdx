@@ -97,7 +97,17 @@ To scope GitHub for a group:
 2. Enter the GitHub login in **GitHub Organization**.
 3. Press **Enter** to save it.
 
-Each workspace in that group inherits the organization. ghui filters its home repository, pull request, and issue collections to that organization. Explicit repository views remain available.
+Space Settings controls how each Space uses GitHub:
+
+- **Automatic** uses discovered local GitHub repositories. If none exist, it uses the Group organization or your personal queues. Discovery errors do not broaden the scope.
+- **Selected repositories** accepts one or more `owner/repository` identities. Press **Enter** to save the list. This selection overrides the Group organization.
+- **Group organization** uses the configured Group organization.
+
+The curated launcher requires a local Space with local panes. A running ghui keeps its launch scope when directories or settings change. Stop and restart it to apply new settings.
+
+Overview shows authored pull requests, requested reviews, and assigned issues. Actions lists workflow runs across the current scope. Click a run to inspect jobs and step logs. Click the scope header to narrow to one repository; HOME restores the launch scope. Explicit outside-scope views remain available and are marked.
+
+Use ghui's command palette to open a local checkout, create an isolated Worktrunk review Space, or preview context for a selected Gardn agent. Review creation preserves the original checkout and refuses to reuse a changed or dirty review snapshot.
 
 ## Close and detach safely
 

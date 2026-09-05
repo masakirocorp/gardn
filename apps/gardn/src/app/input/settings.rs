@@ -23,7 +23,10 @@ use crate::{
         visual_row_count, AdvancedRowId, BehaviorRowId, CommandAction, CommandField, CommandRowId,
         ConnectionField, ConnectionRowId, NotificationRowId, SettingsListRow, SettingsRowHit,
         GROUP_GENERAL_DELETE, GROUP_GENERAL_DIRECTORY, GROUP_GENERAL_GITHUB_ORGANIZATION,
-        GROUP_GENERAL_HOST, GROUP_GENERAL_ICON, GROUP_GENERAL_NAME,
+        GROUP_GENERAL_HOST, GROUP_GENERAL_ICON, GROUP_GENERAL_NAME, WORKSPACE_GENERAL_DIRECTORY,
+        WORKSPACE_GENERAL_GITHUB_AUTOMATIC, WORKSPACE_GENERAL_GITHUB_GROUP,
+        WORKSPACE_GENERAL_GITHUB_REPOSITORIES, WORKSPACE_GENERAL_GITHUB_SELECTED,
+        WORKSPACE_GENERAL_HOST, WORKSPACE_GENERAL_NAME,
     },
     terminal_theme::ThemeAppearance,
 };
@@ -117,6 +120,10 @@ pub(crate) enum SettingsAction {
     SaveWorkspaceDefaultLocation {
         ws_idx: usize,
         location: crate::execution_host::ResourceLocation,
+    },
+    SaveWorkspaceGithubScope {
+        ws_idx: usize,
+        scope: crate::github::GithubRepositoryScope,
     },
     DeleteGroup(usize),
     CycleIntegrationHost,
@@ -281,6 +288,9 @@ impl App {
             }
             SettingsAction::SaveWorkspaceDefaultLocation { ws_idx, location } => {
                 self.state.set_workspace_default_location(ws_idx, location);
+            }
+            SettingsAction::SaveWorkspaceGithubScope { ws_idx, scope } => {
+                self.state.set_workspace_github_scope(ws_idx, scope);
             }
 
             SettingsAction::SaveGroupName { group_idx, name } => {
@@ -1096,19 +1106,56 @@ fn pending_workspace_default_cwd(state: &AppState) -> String {
         })
         .unwrap_or_default()
 }
+fn pending_workspace_github_scope(state: &AppState) -> crate::github::GithubRepositoryScope {
+    state
+        .settings
+        .pending_workspace_github_scope
+        .clone()
+        .or_else(|| {
+            state
+                .settings
+                .workspace_settings_target
+                .and_then(|ws_idx| state.workspaces.get(ws_idx))
+                .map(|workspace| workspace.github_scope.clone())
+        })
+        .unwrap_or_default()
+}
+
+fn pending_workspace_github_repositories(state: &AppState) -> String {
+    state
+        .settings
+        .pending_workspace_github_repositories
+        .clone()
+        .or_else(|| match pending_workspace_github_scope(state) {
+            crate::github::GithubRepositoryScope::Selected(repositories) => Some(
+                repositories
+                    .iter()
+                    .map(ToString::to_string)
+                    .collect::<Vec<_>>()
+                    .join(", "),
+            ),
+            crate::github::GithubRepositoryScope::Automatic
+            | crate::github::GithubRepositoryScope::GroupOrganization => Some(String::new()),
+        })
+        .unwrap_or_default()
+}
 
 fn set_pending_workspace_field(state: &mut AppState, selected: usize, value: String) {
     match selected {
-        0 => state.settings.pending_workspace_name = Some(value),
-        2 => state.settings.pending_workspace_default_cwd = Some(value),
+        WORKSPACE_GENERAL_NAME => state.settings.pending_workspace_name = Some(value),
+        WORKSPACE_GENERAL_DIRECTORY => state.settings.pending_workspace_default_cwd = Some(value),
+        WORKSPACE_GENERAL_GITHUB_REPOSITORIES => {
+            state.settings.pending_workspace_github_repositories = Some(value)
+        }
         _ => {}
     }
 }
 
 fn pending_workspace_field(state: &AppState, selected: usize) -> Option<String> {
     match selected {
-        0 => Some(pending_workspace_name(state)),
-        2 => Some(pending_workspace_default_cwd(state)),
+        WORKSPACE_GENERAL_NAME => Some(pending_workspace_name(state)),
+        WORKSPACE_GENERAL_DIRECTORY => Some(pending_workspace_default_cwd(state)),
+        WORKSPACE_GENERAL_GITHUB_REPOSITORIES => Some(pending_workspace_github_repositories(state)),
         _ => None,
     }
 }
@@ -1118,7 +1165,12 @@ fn edit_pending_workspace_field(state: &mut AppState, key: KeyEvent) -> bool {
         return false;
     };
     state.settings.list.select(selected);
-    if !matches!(selected, 0 | 2) {
+    if !matches!(
+        selected,
+        WORKSPACE_GENERAL_NAME
+            | WORKSPACE_GENERAL_DIRECTORY
+            | WORKSPACE_GENERAL_GITHUB_REPOSITORIES
+    ) {
         return false;
     }
     match key.code {
@@ -1130,10 +1182,7 @@ fn edit_pending_workspace_field(state: &mut AppState, key: KeyEvent) -> bool {
             set_pending_workspace_field(state, selected, String::new());
             true
         }
-        KeyCode::Backspace
-            if key.modifiers.contains(KeyModifiers::CONTROL)
-                || key.modifiers.contains(KeyModifiers::ALT) =>
-        {
+        KeyCode::Backspace => {
             let Some(mut value) = pending_workspace_field(state, selected) else {
                 return false;
             };
@@ -2290,6 +2339,17 @@ pub(crate) fn paste_settings_text(
     state: &mut AppState,
     text: &str,
 ) -> Option<Option<SettingsAction>> {
+    if state.settings.section == SettingsSection::WorkspaceGeneral {
+        let field = state.settings.focused_input?;
+        let mut value = pending_workspace_field(state, field)?;
+        value.extend(text.chars().filter(|character| !character.is_control()));
+        set_pending_workspace_field(state, field, value);
+        return Some(if field == WORKSPACE_GENERAL_GITHUB_REPOSITORIES {
+            None
+        } else {
+            selected_workspace_general_action(state)
+        });
+    }
     let field = focused_general_text_field(state)?;
     let mut value = pending_general_text(state, field);
     let original_len = value.len();
@@ -2717,11 +2777,11 @@ fn selected_workspace_general_action(state: &mut AppState) -> Option<SettingsAct
     }
     let ws_idx = state.settings.workspace_settings_target?;
     match state.settings.list.selected {
-        0 => {
+        WORKSPACE_GENERAL_NAME => {
             let name = pending_workspace_name(state).trim().to_string();
             (!name.is_empty()).then_some(SettingsAction::SaveWorkspaceName { ws_idx, name })
         }
-        1 | 2 => {
+        WORKSPACE_GENERAL_HOST | WORKSPACE_GENERAL_DIRECTORY => {
             let cwd = pending_workspace_default_cwd(state).trim().to_string();
             let path = crate::execution_host::HostPath::new(cwd).ok()?;
             Some(SettingsAction::SaveWorkspaceDefaultLocation {
@@ -2731,6 +2791,42 @@ fn selected_workspace_general_action(state: &mut AppState) -> Option<SettingsAct
                     path,
                 ),
             })
+        }
+        WORKSPACE_GENERAL_GITHUB_AUTOMATIC => {
+            let scope = crate::github::GithubRepositoryScope::Automatic;
+            state.settings.pending_workspace_github_scope = Some(scope.clone());
+            Some(SettingsAction::SaveWorkspaceGithubScope { ws_idx, scope })
+        }
+        WORKSPACE_GENERAL_GITHUB_SELECTED | WORKSPACE_GENERAL_GITHUB_REPOSITORIES => {
+            let value = pending_workspace_github_repositories(state);
+            let scope = match crate::github::GithubRepositoryScope::selected_from_input(&value) {
+                Ok(scope) => scope,
+                Err(context) => {
+                    state.toast = Some(crate::app::state::ToastNotification {
+                        kind: crate::app::state::ToastKind::NeedsAttention,
+                        title: "GitHub Repositories Not Saved".to_string(),
+                        context,
+                        position: None,
+                        target: None,
+                    });
+                    return None;
+                }
+            };
+            state.settings.pending_workspace_github_scope = Some(scope.clone());
+            state.settings.pending_workspace_github_repositories = Some(
+                scope
+                    .selected_repositories()
+                    .iter()
+                    .map(ToString::to_string)
+                    .collect::<Vec<_>>()
+                    .join(", "),
+            );
+            Some(SettingsAction::SaveWorkspaceGithubScope { ws_idx, scope })
+        }
+        WORKSPACE_GENERAL_GITHUB_GROUP => {
+            let scope = crate::github::GithubRepositoryScope::GroupOrganization;
+            state.settings.pending_workspace_github_scope = Some(scope.clone());
+            Some(SettingsAction::SaveWorkspaceGithubScope { ws_idx, scope })
         }
         _ => None,
     }
@@ -2833,6 +2929,8 @@ fn clear_settings_pending(state: &mut AppState) {
 
     state.settings.pending_workspace_name = None;
     state.settings.pending_workspace_default_cwd = None;
+    state.settings.pending_workspace_github_scope = None;
+    state.settings.pending_workspace_github_repositories = None;
     state.settings.pending_agent_profile_id = None;
     state.settings.pending_agent_profile_name = None;
     state.settings.pending_agent_profile_kind = None;
@@ -3366,7 +3464,12 @@ fn settings_row_accepts_text_input(state: &AppState, selected: usize) -> bool {
             )
         }
 
-        SettingsSection::WorkspaceGeneral => matches!(selected, 0 | 2),
+        SettingsSection::WorkspaceGeneral => matches!(
+            selected,
+            WORKSPACE_GENERAL_NAME
+                | WORKSPACE_GENERAL_DIRECTORY
+                | WORKSPACE_GENERAL_GITHUB_REPOSITORIES
+        ),
         SettingsSection::Agents if agent_profile_editor_open(state) => {
             selected == AGENT_PROFILE_NAME_INDEX || selected == agent_profile_command_index(state)
         }
@@ -3994,39 +4097,50 @@ pub(super) fn update_settings_state(state: &mut AppState, key: KeyEvent) -> Opti
                 }
             }
         },
-        SettingsSection::WorkspaceGeneral => match key.code {
-            KeyCode::Up | KeyCode::Char('k') => {
-                select_previous_setting(
-                    state,
-                    settings_section_choice_len(state, SettingsSection::WorkspaceGeneral),
-                );
-            }
-            KeyCode::Down | KeyCode::Char('j') => {
-                select_next_setting(
-                    state,
-                    settings_section_choice_len(state, SettingsSection::WorkspaceGeneral),
-                );
-            }
-            KeyCode::Enter if state.settings.list.selected == 1 => {
-                cycle_default_host(state, true);
+        SettingsSection::WorkspaceGeneral => {
+            if edit_pending_workspace_field(state, key) {
+                if state.settings.focused_input == Some(WORKSPACE_GENERAL_GITHUB_REPOSITORIES) {
+                    return None;
+                }
                 return selected_workspace_general_action(state);
             }
-            KeyCode::Enter => return selected_workspace_general_action(state),
-            KeyCode::Char(' ') if state.settings.list.selected == 1 => {
-                cycle_default_host(state, true);
-                return selected_workspace_general_action(state);
-            }
-            _ => {
-                if state.settings.focused_input.is_some()
-                    && edit_pending_workspace_field(state, key)
+            match key.code {
+                KeyCode::Up | KeyCode::Char('k') => {
+                    select_previous_setting(
+                        state,
+                        settings_section_choice_len(state, SettingsSection::WorkspaceGeneral),
+                    );
+                }
+                KeyCode::Down | KeyCode::Char('j') => {
+                    select_next_setting(
+                        state,
+                        settings_section_choice_len(state, SettingsSection::WorkspaceGeneral),
+                    );
+                }
+                KeyCode::Enter | KeyCode::Char(' ')
+                    if state.settings.list.selected == WORKSPACE_GENERAL_HOST =>
+                {
+                    cycle_default_host(state, true);
+                    return selected_workspace_general_action(state);
+                }
+                KeyCode::Enter => return selected_workspace_general_action(state),
+                KeyCode::Char(' ')
+                    if matches!(
+                        state.settings.list.selected,
+                        WORKSPACE_GENERAL_GITHUB_AUTOMATIC
+                            | WORKSPACE_GENERAL_GITHUB_SELECTED
+                            | WORKSPACE_GENERAL_GITHUB_GROUP
+                    ) =>
                 {
                     return selected_workspace_general_action(state);
                 }
-                if let Some(action) = handle_settings_modal_action(state, &key) {
-                    return Some(action);
+                _ => {
+                    if let Some(action) = handle_settings_modal_action(state, &key) {
+                        return Some(action);
+                    }
                 }
             }
-        },
+        }
     }
 
     if state.settings.section != section_before_key {
@@ -4174,6 +4288,8 @@ pub(crate) fn prepare_general_settings_state(
     settings.connection_editor = None;
     settings.pending_workspace_name = None;
     settings.pending_workspace_default_cwd = None;
+    settings.pending_workspace_github_scope = None;
+    settings.pending_workspace_github_repositories = None;
     settings.group_settings_target = None;
     settings.workspace_settings_target = None;
     settings.section = section;
@@ -4250,6 +4366,8 @@ fn reset_settings_for_scoped_editor(state: &AppState, settings: &mut SettingsSta
     settings.pending_editor_command = None;
     settings.pending_github_command = None;
     settings.pending_group_github_organization = None;
+    settings.pending_workspace_github_scope = None;
+    settings.pending_workspace_github_repositories = None;
     settings.pending_sidebar_width = None;
     settings.pending_sidebar_min_width = None;
     settings.pending_sidebar_max_width = None;
@@ -4288,6 +4406,8 @@ pub(crate) fn prepare_group_settings_state(
         .map(|location| location.execution_host_id.clone());
     settings.pending_workspace_name = None;
     settings.pending_workspace_default_cwd = None;
+    settings.pending_workspace_github_scope = None;
+    settings.pending_workspace_github_repositories = None;
     settings.pending_workspace_default_execution_host_id = None;
     settings.group_settings_target = Some(group_idx);
     settings.workspace_settings_target = None;
@@ -4320,6 +4440,16 @@ pub(crate) fn prepare_workspace_settings_state(
             .as_path()
             .display()
             .to_string(),
+    );
+    settings.pending_workspace_github_scope = Some(workspace.github_scope.clone());
+    settings.pending_workspace_github_repositories = Some(
+        workspace
+            .github_scope
+            .selected_repositories()
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>()
+            .join(", "),
     );
     settings.pending_workspace_default_execution_host_id =
         Some(workspace.default_location.execution_host_id.clone());
@@ -4372,6 +4502,8 @@ pub(crate) fn open_group_settings(state: &mut AppState, group_idx: usize) {
     state.settings.pending_group_icon = Some(group_icon);
     state.settings.pending_group_github_organization = group_github_organization;
     state.settings.pending_workspace_name = None;
+    state.settings.pending_workspace_github_scope = None;
+    state.settings.pending_workspace_github_repositories = None;
 
     state.settings.pending_group_default_execution_host_id = group
         .default_location
@@ -4446,6 +4578,13 @@ pub(crate) fn open_workspace_settings(state: &mut AppState, ws_idx: usize) {
         .display()
         .to_string();
     let default_execution_host_id = workspace.default_location.execution_host_id.clone();
+    let github_scope = workspace.github_scope.clone();
+    let github_repositories = github_scope
+        .selected_repositories()
+        .iter()
+        .map(ToString::to_string)
+        .collect::<Vec<_>>()
+        .join(", ");
     state.settings.original_palette = Some(state.palette.clone());
     state.settings.original_theme = Some(state.theme_name.clone());
     state.settings.pending_theme_name = None;
@@ -4461,6 +4600,8 @@ pub(crate) fn open_workspace_settings(state: &mut AppState, ws_idx: usize) {
     state.settings.pending_workspace_name = Some(workspace_name);
 
     state.settings.pending_workspace_default_cwd = Some(default_cwd);
+    state.settings.pending_workspace_github_scope = Some(github_scope);
+    state.settings.pending_workspace_github_repositories = Some(github_repositories);
     state.settings.pending_workspace_default_execution_host_id = Some(default_execution_host_id);
     state.settings.pending_sound_enabled = None;
     state.settings.pending_toast_delivery = None;
@@ -4795,8 +4936,13 @@ impl AppState {
                         },
                         SettingsSection::GroupProfiles => None,
                         SettingsSection::WorkspaceGeneral => match idx {
-                            1 => {
+                            WORKSPACE_GENERAL_HOST => {
                                 cycle_default_host(self, true);
+                                selected_workspace_general_action(self)
+                            }
+                            WORKSPACE_GENERAL_GITHUB_AUTOMATIC
+                            | WORKSPACE_GENERAL_GITHUB_SELECTED
+                            | WORKSPACE_GENERAL_GITHUB_GROUP => {
                                 selected_workspace_general_action(self)
                             }
                             _ => None,
@@ -6145,6 +6291,82 @@ mod tests {
                 location: crate::execution_host::ResourceLocation::local("/tmp/gardn-old2")
                     .unwrap(),
             })
+        );
+    }
+
+    #[test]
+    fn workspace_github_scope_input_saves_and_reopens_selected_repositories() {
+        let mut app = app_for_mouse_test();
+        app.state.workspaces = vec![crate::workspace::Workspace::test_new("space")];
+        crate::ui::compute_view(&mut app.state, Rect::new(0, 0, 150, 45));
+        open_workspace_settings(&mut app.state, 0);
+        let (x, y) = rendered_text_point(&app, "Repositories (owner/repository)", 150, 45);
+        app.state
+            .handle_settings_mouse(mouse(MouseEventKind::ScrollDown, x, y));
+        let (x, y) = rendered_text_point(&app, "Repositories (owner/repository)", 150, 45);
+        app.state
+            .handle_settings_mouse(mouse(MouseEventKind::Down(MouseButton::Left), x, y + 1));
+        for character in "Jack/Onex".chars() {
+            app.handle_settings_key(KeyEvent::new(
+                KeyCode::Char(character),
+                KeyModifiers::empty(),
+            ));
+        }
+        app.handle_settings_key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::empty()));
+        assert_eq!(
+            paste_settings_text(&mut app.state, ", jack/Two"),
+            Some(None)
+        );
+        rendered_text_point(&app, "Jack/One, jack/Two", 150, 45);
+        assert_eq!(
+            app.state.workspaces[0].github_scope,
+            crate::github::GithubRepositoryScope::Automatic
+        );
+        app.handle_settings_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::empty()));
+        assert_eq!(
+            app.state.workspaces[0]
+                .github_scope
+                .selected_repositories()
+                .iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>(),
+            ["jack/one", "jack/two"],
+        );
+
+        open_workspace_settings(&mut app.state, 0);
+        let (x, y) = rendered_text_point(&app, "Repositories (owner/repository)", 150, 45);
+        app.state
+            .handle_settings_mouse(mouse(MouseEventKind::ScrollDown, x, y));
+        rendered_text_point(&app, "jack/one, jack/two", 150, 45);
+        for (label, expected) in [
+            (
+                "Group organization",
+                crate::github::GithubRepositoryScope::GroupOrganization,
+            ),
+            ("Automatic", crate::github::GithubRepositoryScope::Automatic),
+        ] {
+            let (x, y) = rendered_text_point(&app, label, 150, 45);
+            let action = app
+                .state
+                .handle_settings_mouse(mouse(MouseEventKind::Down(MouseButton::Left), x, y))
+                .expect("click saves scope choice");
+            app.apply_settings_action(action);
+            assert_eq!(app.state.workspaces[0].github_scope, expected);
+        }
+        let (x, y) = rendered_text_point(&app, "Selected repositories", 150, 45);
+        let action = app
+            .state
+            .handle_settings_mouse(mouse(MouseEventKind::Down(MouseButton::Left), x, y))
+            .expect("click restores selected repositories");
+        app.apply_settings_action(action);
+        assert_eq!(
+            app.state.workspaces[0]
+                .github_scope
+                .selected_repositories()
+                .iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>(),
+            ["jack/one", "jack/two"],
         );
     }
 

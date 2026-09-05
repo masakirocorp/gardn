@@ -421,6 +421,7 @@ fn restore_workspace(
                     identity_cwd: snap.identity_cwd.clone(),
                     default_location: snap.default_location.clone(),
                     cached_identity_cwd: snap.identity_cwd.clone(),
+                    github_scope: snap.github_scope.clone(),
                     cached_auto_label,
                     cached_git_status_key,
                     cached_git_branch: None,
@@ -456,6 +457,7 @@ fn restore_workspace(
             cached_identity_cwd: snap.identity_cwd.clone(),
             cached_auto_label,
             cached_git_status_key,
+            github_scope: snap.github_scope.clone(),
             cached_git_branch: None,
             cached_git_ahead_behind: None,
             cached_git_work_summary: None,
@@ -1128,6 +1130,7 @@ mod tests {
                 identity_cwd: cwd.clone(),
                 default_location: crate::execution_host::ResourceLocation::local(cwd.clone())
                     .unwrap(),
+                github_scope: crate::github::GithubRepositoryScope::default(),
                 public_pane_numbers: HashMap::new(),
                 next_public_pane_number: 0,
                 public_tab_numbers: Vec::new(),
@@ -1247,6 +1250,7 @@ mod tests {
                 identity_cwd: missing.clone(),
                 default_location: crate::execution_host::ResourceLocation::local(missing.clone())
                     .unwrap(),
+                github_scope: crate::github::GithubRepositoryScope::default(),
                 public_pane_numbers: HashMap::new(),
                 next_public_pane_number: 0,
                 public_tab_numbers: Vec::new(),
@@ -1365,6 +1369,7 @@ mod tests {
                 identity_cwd: cwd.clone(),
                 default_location: crate::execution_host::ResourceLocation::local(cwd.clone())
                     .unwrap(),
+                github_scope: crate::github::GithubRepositoryScope::default(),
                 public_pane_numbers: HashMap::from([(10, 1), (20, 3)]),
                 next_public_pane_number: 4,
                 public_tab_numbers: vec![5],
@@ -1433,6 +1438,7 @@ mod tests {
             group_id: crate::workspace::DEFAULT_GROUP_ID.to_string(),
             identity_cwd: cwd.clone(),
             default_location: crate::execution_host::ResourceLocation::local(cwd).unwrap(),
+            github_scope: crate::github::GithubRepositoryScope::default(),
             public_pane_numbers: HashMap::new(),
             next_public_pane_number: 0,
             public_tab_numbers: Vec::new(),
@@ -1714,6 +1720,7 @@ mod tests {
                 identity_cwd: cwd.clone(),
                 default_location: crate::execution_host::ResourceLocation::local(cwd.clone())
                     .unwrap(),
+                github_scope: crate::github::GithubRepositoryScope::default(),
                 public_pane_numbers: HashMap::new(),
                 next_public_pane_number: 0,
                 public_tab_numbers: Vec::new(),
@@ -2032,6 +2039,7 @@ mod tests {
                 identity_cwd: cwd.clone(),
                 default_location: crate::execution_host::ResourceLocation::local(cwd.clone())
                     .unwrap(),
+                github_scope: crate::github::GithubRepositoryScope::default(),
                 public_pane_numbers: HashMap::new(),
                 next_public_pane_number: 0,
                 public_tab_numbers: Vec::new(),
@@ -2101,6 +2109,7 @@ mod tests {
                 identity_cwd: cwd.clone(),
                 default_location: crate::execution_host::ResourceLocation::local(cwd.clone())
                     .unwrap(),
+                github_scope: crate::github::GithubRepositoryScope::default(),
                 public_pane_numbers: HashMap::new(),
                 next_public_pane_number: 0,
                 public_tab_numbers: Vec::new(),
@@ -2212,6 +2221,7 @@ mod tests {
                 identity_cwd: cwd.clone(),
                 default_location: crate::execution_host::ResourceLocation::local(cwd.clone())
                     .unwrap(),
+                github_scope: crate::github::GithubRepositoryScope::default(),
                 public_pane_numbers: HashMap::new(),
                 next_public_pane_number: 0,
                 public_tab_numbers: Vec::new(),
@@ -2477,6 +2487,35 @@ mod tests {
         (terminals, runtimes)
     }
 
+    #[tokio::test]
+    async fn restore_roundtrip_preserves_selected_github_scope() {
+        let scope = crate::github::GithubRepositoryScope::selected_from_input("Acme/One, acme/Two")
+            .expect("valid repository scope");
+        let mut snapshot = single_pane_snapshot(None);
+        snapshot.workspaces[0].github_scope = scope.clone();
+        let encoded = serde_json::to_string(&snapshot).expect("serialize snapshot");
+        let decoded: SessionSnapshot =
+            serde_json::from_str(&encoded).expect("deserialize snapshot");
+        let (events, _events_rx) = mpsc::channel(8);
+        let (workspaces, _terminals, mut runtimes) = restore(
+            &decoded,
+            None,
+            5,
+            40,
+            4096,
+            "/usr/bin/true",
+            crate::config::ShellModeConfig::NonLogin,
+            false,
+            events,
+            Arc::new(Notify::new()),
+            Arc::new(crate::render_signal::RenderSignal::new()),
+        );
+        assert_eq!(workspaces[0].github_scope, scope);
+        for (_, runtime) in runtimes.drain() {
+            runtime.shutdown();
+        }
+    }
+
     fn single_pane_snapshot(
         agent_session: Option<super::super::snapshot::PaneAgentSessionSnapshot>,
     ) -> SessionSnapshot {
@@ -2524,6 +2563,7 @@ mod tests {
                 identity_cwd: cwd.clone(),
                 default_location: crate::execution_host::ResourceLocation::local(cwd.clone())
                     .unwrap(),
+                github_scope: crate::github::GithubRepositoryScope::default(),
                 public_pane_numbers: HashMap::new(),
                 next_public_pane_number: 0,
                 public_tab_numbers: Vec::new(),

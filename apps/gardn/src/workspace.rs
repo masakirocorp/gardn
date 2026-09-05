@@ -27,7 +27,7 @@ enum PaneSplitCommand<'a> {
 pub(crate) use self::aggregate::PaneDetail;
 #[cfg(test)]
 use self::git::git_ahead_behind;
-pub(crate) use self::git::git_repo_root;
+pub(crate) use self::git::{discover_github_repositories, git_repo_root};
 use self::git::{git_work_summary, git_work_summary_for_root as load_git_work_summary_for_root};
 pub(crate) use self::tab::MovedPane;
 pub use self::{
@@ -162,6 +162,8 @@ pub struct Workspace {
     pub identity_cwd: PathBuf,
     /// Durable host-qualified default for future terminals in this workspace.
     pub default_location: crate::execution_host::ResourceLocation,
+    /// GitHub repository scope for this Space's companion launches.
+    pub github_scope: crate::github::GithubRepositoryScope,
     /// CWD from which the cached automatic label and Git metadata were derived.
     pub(crate) cached_identity_cwd: PathBuf,
     /// Automatic workspace label cached outside the render path.
@@ -191,6 +193,7 @@ impl Clone for Workspace {
             custom_name: self.custom_name.clone(),
             group_id: self.group_id.clone(),
             identity_cwd: self.identity_cwd.clone(),
+            github_scope: self.github_scope.clone(),
             default_location: self.default_location.clone(),
             cached_identity_cwd: self.cached_identity_cwd.clone(),
             cached_auto_label: self.cached_auto_label.clone(),
@@ -259,6 +262,7 @@ impl Workspace {
             custom_name,
             group_id: DEFAULT_GROUP_ID.to_string(),
             identity_cwd: identity_cwd.clone(),
+            github_scope: crate::github::GithubRepositoryScope::default(),
             default_location,
             cached_identity_cwd: identity_cwd,
             cached_auto_label,
@@ -290,6 +294,7 @@ impl Workspace {
             custom_name: None,
             group_id: DEFAULT_GROUP_ID.to_string(),
             identity_cwd: initial_cwd.clone(),
+            github_scope: crate::github::GithubRepositoryScope::default(),
             default_location,
             cached_identity_cwd: initial_cwd,
             cached_auto_label,
@@ -491,6 +496,7 @@ impl Workspace {
                 custom_name: None,
                 group_id: DEFAULT_GROUP_ID.to_string(),
                 identity_cwd: initial_cwd.clone(),
+                github_scope: crate::github::GithubRepositoryScope::default(),
                 default_location: terminal.location.clone(),
                 cached_identity_cwd: initial_cwd.clone(),
                 cached_auto_label,
@@ -1637,6 +1643,7 @@ impl Workspace {
             custom_name: Some(name.to_string()),
             group_id: DEFAULT_GROUP_ID.to_string(),
             identity_cwd: identity_cwd.clone(),
+            github_scope: crate::github::GithubRepositoryScope::default(),
             default_location: crate::execution_host::ResourceLocation::local(identity_cwd.clone())
                 .expect("test workspace cwd is non-empty"),
             cached_identity_cwd: identity_cwd.clone(),

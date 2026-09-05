@@ -142,9 +142,11 @@ Pass when each enabled bridge reaches the host once, disabled or missing helpers
 2. Exercise the compact layout at narrow widths.
 3. Discover, rerun, and stop a project command. Focus a real port owner.
 4. Open Browser, Review, Editor, and GitHub from the command palette and workspace menus. Verify that each default tool uses the active Gardn theme.
-5. Set different GitHub organizations on two groups. Open GitHub from one repository workspace in each group. Verify that ghui's home repositories, pull requests, and issues use the selected Group's organization. Use the mouse to select tabs and rows and to scroll. Verify the active Gardn terminal palette, visible scrollbars, and unchanged user ghui configuration.
+5. In a Space with local GitHub checkouts, open GitHub with Automatic scope. Verify that HOME contains only the discovered repositories. Select one repository, then return HOME. The original scope must return.
+6. Save explicit repositories in Space Settings with Enter. Reopen Settings and verify persistence. Stop and restart ghui to apply the new scope. Select Group organization mode and verify that the Group organization applies instead. Renaming the Space or changing directories must not open a duplicate running GitHub tab.
+7. Open Overview and Actions with the mouse. Inspect a run and its step logs. Verify the active terminal palette, visible scrollbars, and unchanged ghui configuration. Create a review Space and verify that the original checkout stays unchanged. Preview an agent handoff and send it only to the selected agent.
 
-Pass when drop targets and hit areas match their visuals, compact layouts retain required controls, reruns do not duplicate managed commands, port focus selects the owning pane, and each curated tool uses the correct workspace, Group scope, and theme.
+Pass when hit areas match their visuals, compact layouts retain required controls, reruns reuse managed command tabs, port focus selects the owning pane, and each curated tool uses the correct Space scope and theme.
 
 ## M12: Sleep, wake, and recovery
 

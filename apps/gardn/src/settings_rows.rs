@@ -18,6 +18,13 @@ pub(crate) const GROUP_GENERAL_HOST: usize = 2;
 pub(crate) const GROUP_GENERAL_DIRECTORY: usize = 3;
 pub(crate) const GROUP_GENERAL_GITHUB_ORGANIZATION: usize = 4;
 pub(crate) const GROUP_GENERAL_DELETE: usize = 5;
+pub(crate) const WORKSPACE_GENERAL_NAME: usize = 0;
+pub(crate) const WORKSPACE_GENERAL_HOST: usize = 1;
+pub(crate) const WORKSPACE_GENERAL_DIRECTORY: usize = 2;
+pub(crate) const WORKSPACE_GENERAL_GITHUB_AUTOMATIC: usize = 3;
+pub(crate) const WORKSPACE_GENERAL_GITHUB_SELECTED: usize = 4;
+pub(crate) const WORKSPACE_GENERAL_GITHUB_GROUP: usize = 5;
+pub(crate) const WORKSPACE_GENERAL_GITHUB_REPOSITORIES: usize = 6;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum SettingsListRow {
@@ -594,25 +601,77 @@ fn workspace_general_rows(app: &AppState, settings: &SettingsState) -> Vec<Setti
         .as_ref()
         .or_else(|| workspace.map(|workspace| &workspace.default_location.execution_host_id));
     let host_label = execution_host_label(app, host_id);
+    let github_scope = settings
+        .pending_workspace_github_scope
+        .clone()
+        .or_else(|| workspace.map(|workspace| workspace.github_scope.clone()))
+        .unwrap_or_default();
+    let github_repositories = settings
+        .pending_workspace_github_repositories
+        .clone()
+        .or_else(|| match &github_scope {
+            crate::github::GithubRepositoryScope::Selected(repositories) => Some(
+                repositories
+                    .iter()
+                    .map(ToString::to_string)
+                    .collect::<Vec<_>>()
+                    .join(", "),
+            ),
+            crate::github::GithubRepositoryScope::Automatic
+            | crate::github::GithubRepositoryScope::GroupOrganization => Some(String::new()),
+        })
+        .unwrap_or_default();
 
     vec![
         SettingsListRow::TextInput {
-            index: 0,
+            index: WORKSPACE_GENERAL_NAME,
             title: "Name".into(),
             value: name.into(),
         },
         SettingsListRow::Spacer,
         SettingsListRow::Status {
-            index: 1,
+            index: WORKSPACE_GENERAL_HOST,
             label: "Location for This Space".into(),
             status: format!("‹ {host_label} ›").into(),
             tone: SettingsMarkerTone::Accent,
         },
         SettingsListRow::Spacer,
         SettingsListRow::TextInput {
-            index: 2,
+            index: WORKSPACE_GENERAL_DIRECTORY,
             title: "Directory".into(),
             value: default_cwd.into(),
+        },
+        SettingsListRow::Spacer,
+        SettingsListRow::Header("GitHub"),
+        SettingsListRow::Caption("Choose which repositories GitHub tools should show.".into()),
+        SettingsListRow::Choice {
+            index: WORKSPACE_GENERAL_GITHUB_AUTOMATIC,
+            label: "Automatic".into(),
+            checked: matches!(
+                &github_scope,
+                crate::github::GithubRepositoryScope::Automatic
+            ),
+        },
+        SettingsListRow::Choice {
+            index: WORKSPACE_GENERAL_GITHUB_SELECTED,
+            label: "Selected repositories".into(),
+            checked: matches!(
+                &github_scope,
+                crate::github::GithubRepositoryScope::Selected(_)
+            ),
+        },
+        SettingsListRow::Choice {
+            index: WORKSPACE_GENERAL_GITHUB_GROUP,
+            label: "Group organization".into(),
+            checked: matches!(
+                &github_scope,
+                crate::github::GithubRepositoryScope::GroupOrganization
+            ),
+        },
+        SettingsListRow::TextInput {
+            index: WORKSPACE_GENERAL_GITHUB_REPOSITORIES,
+            title: "Repositories (owner/repository)".into(),
+            value: github_repositories.into(),
         },
     ]
 }

@@ -6,15 +6,15 @@ mod status;
 #[cfg(test)]
 mod test_support;
 
-pub(crate) use self::{
-    discovery::git_repo_root,
-    status::{git_work_summary, git_work_summary_for_root},
-};
 pub use self::{
     discovery::{
         derive_label_from_cwd, derive_label_from_location, fallback_label_from_cwd, git_branch,
     },
     status::{git_status_cache_key, git_status_snapshot_for_cwd, GitStatusCacheEntry},
+};
+pub(crate) use self::{
+    discovery::{discover_github_repositories, git_repo_root},
+    status::{git_work_summary, git_work_summary_for_root},
 };
 
 #[cfg(test)]

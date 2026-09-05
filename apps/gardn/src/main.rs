@@ -38,6 +38,7 @@ mod external_tool_theme;
 mod fresh_theme;
 mod ghostty;
 mod ghui_theme;
+mod github;
 mod handoff_runtime;
 mod hunk_theme;
 mod input;

@@ -79,6 +79,7 @@ pub(crate) struct RightClickPassthroughGesture {
 }
 use crate::workspace::Workspace;
 
+use crate::github::GithubRepositoryScope;
 static NEXT_GROUP_ID: AtomicU64 = AtomicU64::new(1);
 
 pub const DEFAULT_GROUP_ICON: &str = "☀";
@@ -2302,6 +2303,10 @@ pub struct SettingsState {
     pub pending_workspace_default_cwd: Option<String>,
     /// Pending workspace default execution host while workspace settings is open.
     pub pending_workspace_default_execution_host_id: Option<crate::execution_host::ExecutionHostId>,
+    /// Pending workspace GitHub repository scope while workspace settings is open.
+    pub pending_workspace_github_scope: Option<GithubRepositoryScope>,
+    /// Pending comma-separated selected GitHub repositories.
+    pub pending_workspace_github_repositories: Option<String>,
     /// Pending group name while group settings is open.
     pub pending_group_name: Option<String>,
     /// Pending group icon while group settings is open.
@@ -4757,6 +4762,8 @@ impl AppState {
                 pending_workspace_name: None,
                 pending_workspace_default_cwd: None,
                 pending_workspace_default_execution_host_id: None,
+                pending_workspace_github_scope: None,
+                pending_workspace_github_repositories: None,
                 pending_agent_profile_id: None,
                 pending_agent_profile_name: None,
                 pending_agent_profile_kind: None,

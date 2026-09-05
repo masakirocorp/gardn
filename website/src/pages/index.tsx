@@ -197,7 +197,7 @@ export default function HomePage() {
                 <>
                   Open Browser, Review, Editor, and GitHub in managed tabs. The defaults follow the
                   active Gardn theme, and the Masakiro ghui fork provides a mouse-aware GitHub
-                  interface with optional organization scope from the workspace&apos;s group.
+                  interface scoped to the Space&apos;s repositories or Group organization.
                 </>
               ),
               href: "/docs/guides/workspaces-and-navigation#open-curated-project-tools",
