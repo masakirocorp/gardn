@@ -63,24 +63,21 @@ pnpm test  # local incremental Rust, maintenance, and website tests
 pnpm check # complete non-incremental Rust and website quality graph
 ```
 
-During development, focused `cargo test --locked <test-name>` runs are fine for tight iteration. Turbo also forwards nextest filters with `pnpm turbo run gardn#test -- <filter>`. Before committing non-trivial changes, run `pnpm check` unless Can explicitly accepts a narrower validation for that commit.
+Use this validation ladder:
 
-### Interactive development loop
+- During the edit loop, run the narrowest behavioral test. Prefer
+  `cargo nextest run --package gardn --locked --no-tests fail <test-name>` so a stale filter fails
+  instead of reporting false success with zero tests.
+- For Rust runtime behavior, build with `cargo build --package=gardn --locked` and run
+  `./target/debug/gardn`. Do not install the binary for each edit.
+- For PR-bound work, use focused local proof and let required PR CI own the complete
+  cross-platform quality graph. Run `pnpm check` locally when the change affects CI, the task graph,
+  release tooling, or behavior that PR CI cannot exercise.
+- Before a direct push to `master`, run `pnpm check`. Release flows keep their own complete check.
 
-When the user is actively iterating, prefer the shortest verification that can catch the specific mistake just introduced.
-
-Do not run long gates (`pnpm check`, full `pnpm test`, broad test suites, release builds) during the iteration loop unless the user explicitly asks or the change is about to be committed, merged, or released.
-
-For small UI or behavior tweaks, make the edit, run formatting/build only if needed to produce a usable `gardn-dev`, and let the user manually review. For logic/state changes, run one focused test that covers the changed behavior.
-
-Batch small follow-up fixes before revalidating. Full checks belong at commit, merge, and release boundaries, not after every edit.
-
-For Rust-only edit/build/run iteration, use Cargo directly:
-
-```bash
-cargo build --package=gardn --locked
-./target/debug/gardn
-```
+When the user is actively iterating, batch small follow-up fixes before revalidating. Do not run
+`pnpm check`, full `pnpm test`, broad test suites, release builds, or `just install-local` during the
+edit loop.
 
 Routine development and test builds use limited debug information for faster compilation. When
 full LLDB variable and type information is required, use the separate debugging profile so the
