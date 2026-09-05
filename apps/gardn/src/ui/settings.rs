@@ -28,10 +28,15 @@ use crate::{
 use crate::config::ThemeMode;
 const GROUP_SETTINGS_SECTIONS: &[SettingsSection] = &[
     SettingsSection::GroupGeneral,
+    SettingsSection::GroupDefaults,
     SettingsSection::Theme,
     SettingsSection::GroupProfiles,
+    SettingsSection::GroupGithub,
 ];
-const WORKSPACE_SETTINGS_SECTIONS: &[SettingsSection] = &[SettingsSection::WorkspaceGeneral];
+const WORKSPACE_SETTINGS_SECTIONS: &[SettingsSection] = &[
+    SettingsSection::WorkspaceGeneral,
+    SettingsSection::WorkspaceGithub,
+];
 
 const SETTINGS_SIDEBAR_WIDTH: u16 = 21;
 
@@ -159,7 +164,10 @@ fn settings_sidebar_section_label(section: SettingsSection) -> &'static str {
         | SettingsSection::Toast
         | SettingsSection::GroupProfiles
         | SettingsSection::GroupGeneral
-        | SettingsSection::WorkspaceGeneral => section.label(),
+        | SettingsSection::GroupDefaults
+        | SettingsSection::GroupGithub
+        | SettingsSection::WorkspaceGeneral
+        | SettingsSection::WorkspaceGithub => section.label(),
     }
 }
 
@@ -178,7 +186,10 @@ fn settings_subsections(section: SettingsSection) -> &'static [SettingsSubsectio
         | SettingsSection::Toast
         | SettingsSection::GroupProfiles
         | SettingsSection::GroupGeneral
-        | SettingsSection::WorkspaceGeneral => &[],
+        | SettingsSection::GroupDefaults
+        | SettingsSection::GroupGithub
+        | SettingsSection::WorkspaceGeneral
+        | SettingsSection::WorkspaceGithub => &[],
     }
 }
 
@@ -564,8 +575,11 @@ fn settings_section_title(app: &AppState, section: SettingsSection) -> &'static 
             SettingsSection::Integrations => "Agent Integrations",
             SettingsSection::Connections => "Connections",
             SettingsSection::GroupGeneral => "General",
+            SettingsSection::GroupDefaults => "Space Defaults",
             SettingsSection::GroupProfiles => "Agents",
+            SettingsSection::GroupGithub => "GitHub",
             SettingsSection::WorkspaceGeneral => "General",
+            SettingsSection::WorkspaceGithub => "GitHub",
             SettingsSection::About => "About",
         }
     }
@@ -606,13 +620,13 @@ fn settings_section_description(app: &AppState, section: SettingsSection) -> &'s
         }
         SettingsSection::Connections => "Add SSH hosts and manage their connections",
         SettingsSection::GroupGeneral => "Rename this group, change its icon, or delete it",
-
+        SettingsSection::GroupDefaults => "Choose where new Spaces start",
         SettingsSection::GroupProfiles => {
             "Choose favorite and default agent profiles for this group"
         }
-        SettingsSection::WorkspaceGeneral => {
-            "Set this space's display name, execution host, and directory"
-        }
+        SettingsSection::GroupGithub => "Spaces inherit this organization. Enter saves.",
+        SettingsSection::WorkspaceGeneral => "Set this Space's name, host, and directory",
+        SettingsSection::WorkspaceGithub => "Set repository scope. Enter saves the list.",
         SettingsSection::About => "Open-source projects and contributors behind Gardn",
     }
 }
@@ -903,8 +917,11 @@ fn settings_section_title_for_non_editor(section: SettingsSection) -> &'static s
         SettingsSection::Integrations => "Agent Integrations",
         SettingsSection::Connections => "Connections",
         SettingsSection::GroupGeneral => "General",
+        SettingsSection::GroupDefaults => "Space Defaults",
         SettingsSection::GroupProfiles => "Agents",
+        SettingsSection::GroupGithub => "GitHub",
         SettingsSection::WorkspaceGeneral => "General",
+        SettingsSection::WorkspaceGithub => "GitHub",
         SettingsSection::About => "About",
     }
 }
@@ -944,13 +961,13 @@ fn settings_section_description_for(
         }
         SettingsSection::Connections => "Add SSH hosts and manage their connections",
         SettingsSection::GroupGeneral => "Rename this group, change its icon, or delete it",
-
+        SettingsSection::GroupDefaults => "Choose where new Spaces start",
         SettingsSection::GroupProfiles => {
             "Choose favorite and default agent profiles for this group"
         }
-        SettingsSection::WorkspaceGeneral => {
-            "Set this space's display name, execution host, and directory"
-        }
+        SettingsSection::GroupGithub => "Spaces inherit this organization. Enter saves.",
+        SettingsSection::WorkspaceGeneral => "Set this Space's name, host, and directory",
+        SettingsSection::WorkspaceGithub => "Set repository scope. Enter saves the list.",
         SettingsSection::About => "Open-source projects and contributors behind Gardn",
     }
 }
@@ -1500,8 +1517,11 @@ pub(super) fn render_settings_overlay(app: &AppState, frame: &mut Frame, area: R
         | SettingsSection::Agents
         | SettingsSection::Connections
         | SettingsSection::GroupGeneral
+        | SettingsSection::GroupDefaults
         | SettingsSection::GroupProfiles
+        | SettingsSection::GroupGithub
         | SettingsSection::WorkspaceGeneral
+        | SettingsSection::WorkspaceGithub
         | SettingsSection::About => {
             render_settings_sectioned_toggle_list(app, frame, content_area, p);
         }
@@ -2338,21 +2358,11 @@ mod tests {
         assert!(text.contains("Name"));
         assert!(text.contains("Work"));
         assert!(text.contains("Icon"));
-        assert!(text.contains("Default Location for New Spaces"));
-        assert!(text.contains("‹ test-host ›"));
-        assert!(text.contains("Directory"));
-        assert!(text.contains("GitHub Organization"));
-        assert!(!text.contains("●"));
-        assert!(!text.contains("○"));
-        assert!(!text.contains("Work█"));
-
-        app.settings.scroll = 4;
-        terminal
-            .draw(|frame| render_settings_overlay(&app, frame, Rect::new(0, 0, 80, 60)))
-            .expect("render scrolled group settings overlay");
-        let text = buffer_text(terminal.backend().buffer(), 80, 60);
         assert!(text.contains("Danger Zone"));
         assert!(text.contains("× Delete Group"));
+        assert!(!text.contains("Default Location for New Spaces"));
+        assert!(!text.contains("Directory"));
+        assert!(!text.contains("GitHub Organization"));
     }
 
     #[test]
@@ -2399,7 +2409,7 @@ mod tests {
         let group_idx = app.create_group("Work".to_string());
         app.settings.group_settings_target = Some(group_idx);
         app.settings.section = SettingsSection::GroupGeneral;
-        app.settings.scroll = 4;
+        app.settings.scroll = 0;
 
         let backend = TestBackend::new(80, 60);
         let mut terminal = Terminal::new(backend).expect("test backend");
@@ -2469,54 +2479,6 @@ mod tests {
                 .fg,
             Some(app.group_accent_color(group_idx))
         );
-    }
-
-    #[test]
-    fn workspace_general_settings_separates_fields_with_blank_line() {
-        let mut app = AppState::test_new();
-        app.workspaces = vec![crate::workspace::Workspace::test_new("Space")];
-        app.settings.workspace_settings_target = Some(0);
-        app.settings.section = SettingsSection::WorkspaceGeneral;
-
-        let rows = rows_for_section(&app, SettingsSection::WorkspaceGeneral)
-            .expect("workspace general rows");
-
-        assert!(matches!(
-            rows[0],
-            SettingsListRow::TextInput { index: 0, .. }
-        ));
-        assert!(matches!(rows[1], SettingsListRow::Spacer));
-        assert!(matches!(rows[2], SettingsListRow::Status { index: 1, .. }));
-        assert!(matches!(rows[3], SettingsListRow::Spacer));
-        assert!(matches!(
-            rows[4],
-            SettingsListRow::TextInput { index: 2, .. }
-        ));
-    }
-
-    #[test]
-    fn group_general_settings_separates_location_controls_with_blank_lines() {
-        let mut app = AppState::test_new();
-        let group_idx = app.create_group("Work".to_string());
-        app.settings.group_settings_target = Some(group_idx);
-        app.settings.section = SettingsSection::GroupGeneral;
-
-        let rows =
-            rows_for_section(&app, SettingsSection::GroupGeneral).expect("group general rows");
-
-        assert!(matches!(
-            rows[0],
-            SettingsListRow::TextInput { index: 0, .. }
-        ));
-        assert!(matches!(rows[1], SettingsListRow::Spacer));
-        assert!(matches!(rows[2], SettingsListRow::Status { index: 1, .. }));
-        assert!(matches!(rows[3], SettingsListRow::Spacer));
-        assert!(matches!(rows[4], SettingsListRow::Status { index: 2, .. }));
-        assert!(matches!(rows[5], SettingsListRow::Spacer));
-        assert!(matches!(
-            rows[6],
-            SettingsListRow::TextInput { index: 3, .. }
-        ));
     }
 
     #[test]
@@ -3321,33 +3283,29 @@ mod tests {
 
     #[test]
     fn scoped_settings_screens_separate_headers_from_options() {
-        let area = Rect::new(0, 0, 100, 30);
-        let mut app = AppState::test_new();
-        let group_idx = app.create_group("Work".to_string());
-        app.settings.group_settings_target = Some(group_idx);
-        app.settings.section = SettingsSection::GroupGeneral;
-
-        for description in [
-            "Rename this group, change its icon, or delete it",
-            "Set this space's display name, execution host, and directory",
-        ] {
-            let backend = TestBackend::new(area.width, area.height);
-            let mut terminal = Terminal::new(backend).expect("test backend");
+        for workspace in [false, true] {
+            let area = Rect::new(0, 0, 100, 30);
+            let mut app = AppState::test_new();
+            if workspace {
+                app.workspaces = vec![crate::workspace::Workspace::test_new("Space")];
+                app.settings.workspace_settings_target = Some(0);
+                app.settings.section = SettingsSection::WorkspaceGeneral;
+            } else {
+                let group_idx = app.create_group("Work".to_string());
+                app.settings.group_settings_target = Some(group_idx);
+                app.settings.section = SettingsSection::GroupGeneral;
+            }
+            let mut terminal =
+                Terminal::new(TestBackend::new(area.width, area.height)).expect("test backend");
             terminal
                 .draw(|frame| render_settings_overlay(&app, frame, area))
                 .expect("render scoped settings overlay");
             let text = buffer_text(terminal.backend().buffer(), area.width, area.height);
-            let (description_y, description_x) =
-                find_text_cell(&text, description).expect("scoped settings description");
+            let (name_y, name_x) = find_text_cell(&text, "Name").expect("name control");
             assert_eq!(
-                terminal.backend().buffer()[(description_x, description_y + 1)].symbol(),
+                terminal.backend().buffer()[(name_x, name_y - 1)].symbol(),
                 "─"
             );
-
-            app.settings.group_settings_target = None;
-            app.workspaces = vec![crate::workspace::Workspace::test_new("Space")];
-            app.settings.workspace_settings_target = Some(0);
-            app.settings.section = SettingsSection::WorkspaceGeneral;
         }
     }
 

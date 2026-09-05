@@ -1806,9 +1806,12 @@ pub enum SettingsSection {
     Agents,
     Integrations,
     Connections,
-    GroupProfiles,
     GroupGeneral,
+    GroupDefaults,
+    GroupProfiles,
+    GroupGithub,
     WorkspaceGeneral,
+    WorkspaceGithub,
     About,
 }
 
@@ -1838,8 +1841,11 @@ impl SettingsSection {
             Self::Integrations => "Integrations",
             Self::Connections => "Connections",
             Self::GroupGeneral => "General",
+            Self::GroupDefaults => "Space Defaults",
             Self::GroupProfiles => "Agents",
+            Self::GroupGithub => "GitHub",
             Self::WorkspaceGeneral => "General",
+            Self::WorkspaceGithub => "GitHub",
             Self::About => "About",
         }
     }

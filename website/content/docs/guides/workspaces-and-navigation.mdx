@@ -66,6 +66,20 @@ The navigator also exposes pane, tab, group, and agent actions through its index
 
 Press the default `ctrl+b`, then `space`. Type part of an action name to filter it, select a result, and press `enter`. The palette includes workspace, tab, pane, group, layout, sidebar, settings, scrollback, and agent actions. It is the safest way to discover an action after changing keybindings.
 
+## Configure Groups and Spaces
+
+Right-click a Group or Space and select **Settings**.
+
+Group Settings separates controls by purpose:
+
+- **General** changes the name and icon or deletes the Group.
+- **Space defaults** sets the host and directory for new Spaces. It does not move existing Spaces.
+- **Appearance** selects the Group accent.
+- **Agents** selects favorite and default agent profiles.
+- **GitHub** sets the organization inherited by Spaces.
+
+Space Settings keeps its name, host, and directory in **General**. Its **GitHub** tab selects repository scope.
+
 ## Open curated project tools
 
 Gardn provides four project actions. Each action opens in a managed tab and uses the selected workspace context.
@@ -94,10 +108,10 @@ The curated GitHub launcher requires the pinned Masakiro ghui companion release.
 To scope GitHub for a group:
 
 1. Right-click the group and select **Settings**.
-2. Enter the GitHub login in **GitHub Organization**.
+2. Open **GitHub** and enter the login in **GitHub Organization**.
 3. Press **Enter** to save it.
 
-Space Settings controls how each Space uses GitHub:
+**Space Settings > GitHub** controls how each Space uses GitHub:
 
 - **Automatic** uses discovered local GitHub repositories. If none exist, it uses the Group organization or your personal queues. Discovery errors do not broaden the scope.
 - **Selected repositories** accepts one or more `owner/repository` identities. Press **Enter** to save the list. This selection overrides the Group organization.

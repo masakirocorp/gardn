@@ -22,11 +22,10 @@ use crate::{
         option_hit_for_visual_row, previous_option_index, rows_for_section, selected_visual_row,
         visual_row_count, AdvancedRowId, BehaviorRowId, CommandAction, CommandField, CommandRowId,
         ConnectionField, ConnectionRowId, NotificationRowId, SettingsListRow, SettingsRowHit,
-        GROUP_GENERAL_DELETE, GROUP_GENERAL_DIRECTORY, GROUP_GENERAL_GITHUB_ORGANIZATION,
-        GROUP_GENERAL_HOST, GROUP_GENERAL_ICON, GROUP_GENERAL_NAME, WORKSPACE_GENERAL_DIRECTORY,
-        WORKSPACE_GENERAL_GITHUB_AUTOMATIC, WORKSPACE_GENERAL_GITHUB_GROUP,
-        WORKSPACE_GENERAL_GITHUB_REPOSITORIES, WORKSPACE_GENERAL_GITHUB_SELECTED,
-        WORKSPACE_GENERAL_HOST, WORKSPACE_GENERAL_NAME,
+        GROUP_DEFAULTS_DIRECTORY, GROUP_DEFAULTS_HOST, GROUP_GENERAL_DELETE, GROUP_GENERAL_ICON,
+        GROUP_GENERAL_NAME, GROUP_GITHUB_ORGANIZATION, WORKSPACE_GENERAL_DIRECTORY,
+        WORKSPACE_GENERAL_HOST, WORKSPACE_GENERAL_NAME, WORKSPACE_GITHUB_AUTOMATIC,
+        WORKSPACE_GITHUB_GROUP, WORKSPACE_GITHUB_REPOSITORIES, WORKSPACE_GITHUB_SELECTED,
     },
     terminal_theme::ThemeAppearance,
 };
@@ -716,7 +715,10 @@ fn settings_section_choice_len(state: &AppState, section: SettingsSection) -> us
             | SettingsSection::Connections
             | SettingsSection::GroupProfiles
             | SettingsSection::GroupGeneral
+            | SettingsSection::GroupDefaults
+            | SettingsSection::GroupGithub
             | SettingsSection::WorkspaceGeneral
+            | SettingsSection::WorkspaceGithub
             | SettingsSection::About => 0,
         })
 }
@@ -989,28 +991,51 @@ fn pending_group_github_organization(state: &AppState) -> String {
         .unwrap_or_default()
 }
 
-fn pending_group_field(state: &AppState, selected: usize) -> Option<String> {
-    match selected {
-        GROUP_GENERAL_NAME => Some(pending_group_name(state)),
-        GROUP_GENERAL_DIRECTORY => Some(pending_group_default_directory(state)),
-        GROUP_GENERAL_GITHUB_ORGANIZATION => Some(pending_group_github_organization(state)),
+fn pending_group_field(
+    state: &AppState,
+    section: SettingsSection,
+    selected: usize,
+) -> Option<String> {
+    match section {
+        SettingsSection::GroupGeneral if selected == GROUP_GENERAL_NAME => {
+            Some(pending_group_name(state))
+        }
+        SettingsSection::GroupDefaults if selected == GROUP_DEFAULTS_DIRECTORY => {
+            Some(pending_group_default_directory(state))
+        }
+        SettingsSection::GroupGithub if selected == GROUP_GITHUB_ORGANIZATION => {
+            Some(pending_group_github_organization(state))
+        }
         _ => None,
     }
 }
 
-fn set_pending_group_field(state: &mut AppState, selected: usize, value: String) {
-    match selected {
-        GROUP_GENERAL_NAME => set_pending_group_name(state, value),
-        GROUP_GENERAL_DIRECTORY => set_pending_group_default_directory(state, value),
-        GROUP_GENERAL_GITHUB_ORGANIZATION => {
+fn set_pending_group_field(
+    state: &mut AppState,
+    section: SettingsSection,
+    selected: usize,
+    value: String,
+) {
+    match section {
+        SettingsSection::GroupGeneral if selected == GROUP_GENERAL_NAME => {
+            set_pending_group_name(state, value)
+        }
+        SettingsSection::GroupDefaults if selected == GROUP_DEFAULTS_DIRECTORY => {
+            set_pending_group_default_directory(state, value)
+        }
+        SettingsSection::GroupGithub if selected == GROUP_GITHUB_ORGANIZATION => {
             state.settings.pending_group_github_organization = Some(value)
         }
         _ => {}
     }
 }
 
-fn delete_pending_group_field_word(state: &mut AppState, selected: usize) {
-    let Some(mut value) = pending_group_field(state, selected) else {
+fn delete_pending_group_field_word(
+    state: &mut AppState,
+    section: SettingsSection,
+    selected: usize,
+) {
+    let Some(mut value) = pending_group_field(state, section, selected) else {
         return;
     };
     while value.chars().last().is_some_and(char::is_whitespace) {
@@ -1019,51 +1044,49 @@ fn delete_pending_group_field_word(state: &mut AppState, selected: usize) {
     while value.chars().last().is_some_and(|ch| !ch.is_whitespace()) {
         value.pop();
     }
-    set_pending_group_field(state, selected, value);
+    set_pending_group_field(state, section, selected, value);
 }
 
 fn edit_pending_group_field(state: &mut AppState, key: KeyEvent) -> bool {
     let Some(selected) = state.settings.focused_input else {
         return false;
     };
+    let section = state.settings.section;
     state.settings.list.select(selected);
-    if !matches!(
-        selected,
-        GROUP_GENERAL_NAME | GROUP_GENERAL_DIRECTORY | GROUP_GENERAL_GITHUB_ORGANIZATION
-    ) {
+    if !settings_row_accepts_text_input(state, selected) {
         return false;
     }
 
     match key.code {
         KeyCode::Char('u') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-            set_pending_group_field(state, selected, String::new());
+            set_pending_group_field(state, section, selected, String::new());
             true
         }
         KeyCode::Backspace if key.modifiers.contains(KeyModifiers::SUPER) => {
-            set_pending_group_field(state, selected, String::new());
+            set_pending_group_field(state, section, selected, String::new());
             true
         }
         KeyCode::Backspace
             if key.modifiers.contains(KeyModifiers::CONTROL)
                 || key.modifiers.contains(KeyModifiers::ALT) =>
         {
-            delete_pending_group_field_word(state, selected);
+            delete_pending_group_field_word(state, section, selected);
             true
         }
         KeyCode::Char('h' | 'w') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-            delete_pending_group_field_word(state, selected);
+            delete_pending_group_field_word(state, section, selected);
             true
         }
         KeyCode::Backspace => {
-            let mut value = pending_group_field(state, selected).unwrap_or_default();
+            let mut value = pending_group_field(state, section, selected).unwrap_or_default();
             value.pop();
-            set_pending_group_field(state, selected, value);
+            set_pending_group_field(state, section, selected, value);
             true
         }
         KeyCode::Char(c) if key.modifiers.difference(KeyModifiers::SHIFT).is_empty() => {
-            let mut value = pending_group_field(state, selected).unwrap_or_default();
+            let mut value = pending_group_field(state, section, selected).unwrap_or_default();
             value.push(c);
-            set_pending_group_field(state, selected, value);
+            set_pending_group_field(state, section, selected, value);
             true
         }
         _ => false,
@@ -1140,22 +1163,41 @@ fn pending_workspace_github_repositories(state: &AppState) -> String {
         .unwrap_or_default()
 }
 
-fn set_pending_workspace_field(state: &mut AppState, selected: usize, value: String) {
-    match selected {
-        WORKSPACE_GENERAL_NAME => state.settings.pending_workspace_name = Some(value),
-        WORKSPACE_GENERAL_DIRECTORY => state.settings.pending_workspace_default_cwd = Some(value),
-        WORKSPACE_GENERAL_GITHUB_REPOSITORIES => {
+fn set_pending_workspace_field(
+    state: &mut AppState,
+    section: SettingsSection,
+    selected: usize,
+    value: String,
+) {
+    match section {
+        SettingsSection::WorkspaceGeneral if selected == WORKSPACE_GENERAL_NAME => {
+            state.settings.pending_workspace_name = Some(value)
+        }
+        SettingsSection::WorkspaceGeneral if selected == WORKSPACE_GENERAL_DIRECTORY => {
+            state.settings.pending_workspace_default_cwd = Some(value)
+        }
+        SettingsSection::WorkspaceGithub if selected == WORKSPACE_GITHUB_REPOSITORIES => {
             state.settings.pending_workspace_github_repositories = Some(value)
         }
         _ => {}
     }
 }
 
-fn pending_workspace_field(state: &AppState, selected: usize) -> Option<String> {
-    match selected {
-        WORKSPACE_GENERAL_NAME => Some(pending_workspace_name(state)),
-        WORKSPACE_GENERAL_DIRECTORY => Some(pending_workspace_default_cwd(state)),
-        WORKSPACE_GENERAL_GITHUB_REPOSITORIES => Some(pending_workspace_github_repositories(state)),
+fn pending_workspace_field(
+    state: &AppState,
+    section: SettingsSection,
+    selected: usize,
+) -> Option<String> {
+    match section {
+        SettingsSection::WorkspaceGeneral if selected == WORKSPACE_GENERAL_NAME => {
+            Some(pending_workspace_name(state))
+        }
+        SettingsSection::WorkspaceGeneral if selected == WORKSPACE_GENERAL_DIRECTORY => {
+            Some(pending_workspace_default_cwd(state))
+        }
+        SettingsSection::WorkspaceGithub if selected == WORKSPACE_GITHUB_REPOSITORIES => {
+            Some(pending_workspace_github_repositories(state))
+        }
         _ => None,
     }
 }
@@ -1164,38 +1206,34 @@ fn edit_pending_workspace_field(state: &mut AppState, key: KeyEvent) -> bool {
     let Some(selected) = state.settings.focused_input else {
         return false;
     };
+    let section = state.settings.section;
     state.settings.list.select(selected);
-    if !matches!(
-        selected,
-        WORKSPACE_GENERAL_NAME
-            | WORKSPACE_GENERAL_DIRECTORY
-            | WORKSPACE_GENERAL_GITHUB_REPOSITORIES
-    ) {
+    if !settings_row_accepts_text_input(state, selected) {
         return false;
     }
     match key.code {
         KeyCode::Char('u') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-            set_pending_workspace_field(state, selected, String::new());
+            set_pending_workspace_field(state, section, selected, String::new());
             true
         }
         KeyCode::Backspace if key.modifiers.contains(KeyModifiers::SUPER) => {
-            set_pending_workspace_field(state, selected, String::new());
+            set_pending_workspace_field(state, section, selected, String::new());
             true
         }
         KeyCode::Backspace => {
-            let Some(mut value) = pending_workspace_field(state, selected) else {
+            let Some(mut value) = pending_workspace_field(state, section, selected) else {
                 return false;
             };
             value.pop();
-            set_pending_workspace_field(state, selected, value);
+            set_pending_workspace_field(state, section, selected, value);
             true
         }
         KeyCode::Char(c) if key.modifiers.difference(KeyModifiers::SHIFT).is_empty() => {
-            let Some(mut value) = pending_workspace_field(state, selected) else {
+            let Some(mut value) = pending_workspace_field(state, section, selected) else {
                 return false;
             };
             value.push(c);
-            set_pending_workspace_field(state, selected, value);
+            set_pending_workspace_field(state, section, selected, value);
             true
         }
         _ => false,
@@ -2339,15 +2377,52 @@ pub(crate) fn paste_settings_text(
     state: &mut AppState,
     text: &str,
 ) -> Option<Option<SettingsAction>> {
-    if state.settings.section == SettingsSection::WorkspaceGeneral {
+    if matches!(
+        state.settings.section,
+        SettingsSection::GroupGeneral
+            | SettingsSection::GroupDefaults
+            | SettingsSection::GroupGithub
+            | SettingsSection::WorkspaceGeneral
+            | SettingsSection::WorkspaceGithub
+    ) {
+        let section = state.settings.section;
         let field = state.settings.focused_input?;
-        let mut value = pending_workspace_field(state, field)?;
-        value.extend(text.chars().filter(|character| !character.is_control()));
-        set_pending_workspace_field(state, field, value);
-        return Some(if field == WORKSPACE_GENERAL_GITHUB_REPOSITORIES {
-            None
+        let mut value = if matches!(
+            section,
+            SettingsSection::GroupGeneral
+                | SettingsSection::GroupDefaults
+                | SettingsSection::GroupGithub
+        ) {
+            pending_group_field(state, section, field)?
         } else {
-            selected_workspace_general_action(state)
+            pending_workspace_field(state, section, field)?
+        };
+        value.extend(text.chars().filter(|character| !character.is_control()));
+        if matches!(
+            section,
+            SettingsSection::GroupGeneral
+                | SettingsSection::GroupDefaults
+                | SettingsSection::WorkspaceGeneral
+        ) {
+            if matches!(
+                section,
+                SettingsSection::GroupGeneral | SettingsSection::GroupDefaults
+            ) {
+                set_pending_group_field(state, section, field, value);
+            } else {
+                set_pending_workspace_field(state, section, field, value);
+            }
+        } else if section == SettingsSection::GroupGithub {
+            set_pending_group_field(state, section, field, value);
+        } else {
+            set_pending_workspace_field(state, section, field, value);
+        }
+        return Some(match section {
+            SettingsSection::GroupGeneral => selected_group_general_action(state),
+            SettingsSection::GroupDefaults => selected_group_defaults_action(state),
+            SettingsSection::WorkspaceGeneral => selected_workspace_general_action(state),
+            SettingsSection::GroupGithub | SettingsSection::WorkspaceGithub => None,
+            _ => None,
         });
     }
     let field = focused_general_text_field(state)?;
@@ -2733,7 +2808,21 @@ fn selected_group_general_action(state: &mut AppState) -> Option<SettingsAction>
             group_idx,
             icon: pending_group_icon(state),
         }),
-        GROUP_GENERAL_HOST | GROUP_GENERAL_DIRECTORY => {
+        GROUP_GENERAL_DELETE => {
+            close_settings(state);
+            Some(SettingsAction::DeleteGroup(group_idx))
+        }
+        _ => None,
+    }
+}
+
+fn selected_group_defaults_action(state: &mut AppState) -> Option<SettingsAction> {
+    if !settings_selection_active(state) {
+        return None;
+    }
+    let group_idx = state.settings.group_settings_target?;
+    match state.settings.list.selected {
+        GROUP_DEFAULTS_HOST | GROUP_DEFAULTS_DIRECTORY => {
             Some(SettingsAction::SaveGroupDefaultLocation {
                 group_idx,
                 default_location: super::group_default_location_for(
@@ -2743,32 +2832,35 @@ fn selected_group_general_action(state: &mut AppState) -> Option<SettingsAction>
                 ),
             })
         }
-        GROUP_GENERAL_GITHUB_ORGANIZATION => {
-            let value = pending_group_github_organization(state);
-            let organization = match crate::app::state::GithubOrganization::parse(&value) {
-                Ok(organization) => organization,
-                Err(context) => {
-                    state.toast = Some(crate::app::state::ToastNotification {
-                        kind: crate::app::state::ToastKind::NeedsAttention,
-                        title: "GitHub Organization Not Saved".to_string(),
-                        context,
-                        position: None,
-                        target: None,
-                    });
-                    return None;
-                }
-            };
-            Some(SettingsAction::SaveGroupGithubOrganization {
-                group_idx,
-                organization,
-            })
-        }
-        GROUP_GENERAL_DELETE => {
-            close_settings(state);
-            Some(SettingsAction::DeleteGroup(group_idx))
-        }
         _ => None,
     }
+}
+
+fn selected_group_github_action(state: &mut AppState) -> Option<SettingsAction> {
+    if !settings_selection_active(state)
+        || state.settings.list.selected != GROUP_GITHUB_ORGANIZATION
+    {
+        return None;
+    }
+    let group_idx = state.settings.group_settings_target?;
+    let value = pending_group_github_organization(state);
+    let organization = match crate::app::state::GithubOrganization::parse(&value) {
+        Ok(organization) => organization,
+        Err(context) => {
+            state.toast = Some(crate::app::state::ToastNotification {
+                kind: crate::app::state::ToastKind::NeedsAttention,
+                title: "GitHub Organization Not Saved".to_string(),
+                context,
+                position: None,
+                target: None,
+            });
+            return None;
+        }
+    };
+    Some(SettingsAction::SaveGroupGithubOrganization {
+        group_idx,
+        organization,
+    })
 }
 
 fn selected_workspace_general_action(state: &mut AppState) -> Option<SettingsAction> {
@@ -2792,12 +2884,22 @@ fn selected_workspace_general_action(state: &mut AppState) -> Option<SettingsAct
                 ),
             })
         }
-        WORKSPACE_GENERAL_GITHUB_AUTOMATIC => {
+        _ => None,
+    }
+}
+
+fn selected_workspace_github_action(state: &mut AppState) -> Option<SettingsAction> {
+    if !settings_selection_active(state) {
+        return None;
+    }
+    let ws_idx = state.settings.workspace_settings_target?;
+    match state.settings.list.selected {
+        WORKSPACE_GITHUB_AUTOMATIC => {
             let scope = crate::github::GithubRepositoryScope::Automatic;
             state.settings.pending_workspace_github_scope = Some(scope.clone());
             Some(SettingsAction::SaveWorkspaceGithubScope { ws_idx, scope })
         }
-        WORKSPACE_GENERAL_GITHUB_SELECTED | WORKSPACE_GENERAL_GITHUB_REPOSITORIES => {
+        WORKSPACE_GITHUB_SELECTED | WORKSPACE_GITHUB_REPOSITORIES => {
             let value = pending_workspace_github_repositories(state);
             let scope = match crate::github::GithubRepositoryScope::selected_from_input(&value) {
                 Ok(scope) => scope,
@@ -2823,7 +2925,7 @@ fn selected_workspace_general_action(state: &mut AppState) -> Option<SettingsAct
             );
             Some(SettingsAction::SaveWorkspaceGithubScope { ws_idx, scope })
         }
-        WORKSPACE_GENERAL_GITHUB_GROUP => {
+        WORKSPACE_GITHUB_GROUP => {
             let scope = crate::github::GithubRepositoryScope::GroupOrganization;
             state.settings.pending_workspace_github_scope = Some(scope.clone());
             Some(SettingsAction::SaveWorkspaceGithubScope { ws_idx, scope })
@@ -3167,6 +3269,7 @@ fn switch_settings_section(state: &mut AppState, section: SettingsSection, selec
     state.settings.section = section;
     state.settings.list.selected = selected;
     state.settings.scroll = 0;
+    state.settings.group_icon_picker_open = false;
     clear_settings_selection(state);
 }
 
@@ -3184,7 +3287,10 @@ fn general_settings_section_selection(state: &AppState, section: SettingsSection
         | SettingsSection::Connections
         | SettingsSection::GroupProfiles
         | SettingsSection::GroupGeneral
+        | SettingsSection::GroupDefaults
+        | SettingsSection::GroupGithub
         | SettingsSection::WorkspaceGeneral
+        | SettingsSection::WorkspaceGithub
         | SettingsSection::About => 0,
     }
 }
@@ -3395,8 +3501,11 @@ fn select_pending_setting(state: &mut AppState) -> Option<SettingsAction> {
         SettingsSection::Integrations => selected_integration_action(state),
         SettingsSection::Connections => selected_connection_profile_action(state),
         SettingsSection::GroupGeneral => selected_group_general_action(state),
+        SettingsSection::GroupDefaults => selected_group_defaults_action(state),
+        SettingsSection::GroupGithub => selected_group_github_action(state),
         SettingsSection::GroupProfiles => None,
         SettingsSection::WorkspaceGeneral => selected_workspace_general_action(state),
+        SettingsSection::WorkspaceGithub => selected_workspace_github_action(state),
         SettingsSection::About => None,
     }
 }
@@ -3457,19 +3566,14 @@ fn settings_row_accepts_text_input(state: &AppState, selected: usize) -> bool {
         SettingsSection::Sound => {
             NotificationRowId::from_selection_index(selected) == Some(NotificationRowId::ToastDelay)
         }
-        SettingsSection::GroupGeneral => {
-            matches!(
-                selected,
-                GROUP_GENERAL_NAME | GROUP_GENERAL_DIRECTORY | GROUP_GENERAL_GITHUB_ORGANIZATION
-            )
-        }
-
+        SettingsSection::GroupGeneral => selected == GROUP_GENERAL_NAME,
+        SettingsSection::GroupDefaults => selected == GROUP_DEFAULTS_DIRECTORY,
+        SettingsSection::GroupGithub => selected == GROUP_GITHUB_ORGANIZATION,
         SettingsSection::WorkspaceGeneral => matches!(
             selected,
-            WORKSPACE_GENERAL_NAME
-                | WORKSPACE_GENERAL_DIRECTORY
-                | WORKSPACE_GENERAL_GITHUB_REPOSITORIES
+            WORKSPACE_GENERAL_NAME | WORKSPACE_GENERAL_DIRECTORY
         ),
+        SettingsSection::WorkspaceGithub => selected == WORKSPACE_GITHUB_REPOSITORIES,
         SettingsSection::Agents if agent_profile_editor_open(state) => {
             selected == AGENT_PROFILE_NAME_INDEX || selected == agent_profile_command_index(state)
         }
@@ -3565,15 +3669,22 @@ pub(super) fn update_settings_state(state: &mut AppState, key: KeyEvent) -> Opti
     if state.settings.group_settings_target.is_some()
         && !matches!(
             state.settings.section,
-            SettingsSection::Theme | SettingsSection::GroupGeneral | SettingsSection::GroupProfiles
+            SettingsSection::Theme
+                | SettingsSection::GroupGeneral
+                | SettingsSection::GroupDefaults
+                | SettingsSection::GroupProfiles
+                | SettingsSection::GroupGithub
         )
     {
-        state.settings.section = SettingsSection::GroupGeneral;
+        switch_settings_section(state, SettingsSection::GroupGeneral, 0);
     }
     if state.settings.workspace_settings_target.is_some()
-        && state.settings.section != SettingsSection::WorkspaceGeneral
+        && !matches!(
+            state.settings.section,
+            SettingsSection::WorkspaceGeneral | SettingsSection::WorkspaceGithub
+        )
     {
-        state.settings.section = SettingsSection::WorkspaceGeneral;
+        switch_settings_section(state, SettingsSection::WorkspaceGeneral, 0);
     }
     let general_settings = state.settings.group_settings_target.is_none()
         && state.settings.workspace_settings_target.is_none();
@@ -3650,7 +3761,7 @@ pub(super) fn update_settings_state(state: &mut AppState, key: KeyEvent) -> Opti
             }
             KeyCode::BackTab | KeyCode::Left | KeyCode::Char('h') => {
                 if state.settings.group_settings_target.is_some() {
-                    switch_settings_section(state, SettingsSection::GroupGeneral, 0);
+                    switch_settings_section(state, SettingsSection::GroupDefaults, 0);
                 } else {
                     switch_settings_section(state, SettingsSection::About, 0);
                 }
@@ -3990,9 +4101,6 @@ pub(super) fn update_settings_state(state: &mut AppState, key: KeyEvent) -> Opti
         },
         SettingsSection::GroupGeneral => {
             if state.settings.focused_input.is_some() && edit_pending_group_field(state, key) {
-                if state.settings.focused_input == Some(GROUP_GENERAL_GITHUB_ORGANIZATION) {
-                    return None;
-                }
                 return selected_group_general_action(state);
             }
             match key.code {
@@ -4012,32 +4120,92 @@ pub(super) fn update_settings_state(state: &mut AppState, key: KeyEvent) -> Opti
                     toggle_group_icon_picker(state);
                     return None;
                 }
-                KeyCode::Enter if state.settings.list.selected == GROUP_GENERAL_HOST => {
-                    cycle_default_host(state, false);
-                    return selected_group_general_action(state);
-                }
                 KeyCode::Enter => return selected_group_general_action(state),
                 KeyCode::Char(' ') if state.settings.list.selected == GROUP_GENERAL_ICON => {
                     toggle_group_icon_picker(state);
                     return None;
                 }
-
-                KeyCode::Char(' ') if state.settings.list.selected == GROUP_GENERAL_HOST => {
-                    cycle_default_host(state, false);
-                    return selected_group_general_action(state);
-                }
                 KeyCode::Char(' ') if state.settings.list.selected == GROUP_GENERAL_DELETE => {
                     return selected_group_general_action(state);
                 }
-
                 KeyCode::BackTab | KeyCode::Left | KeyCode::Char('h') => {
-                    state.settings.section = SettingsSection::GroupProfiles;
-                    state.settings.list.selected = 0;
+                    switch_settings_section(state, SettingsSection::GroupGithub, 0);
                 }
                 KeyCode::Tab | KeyCode::Right | KeyCode::Char('l') => {
-                    state.settings.section = SettingsSection::Theme;
-                    state.settings.list.selected = group_accent_selection_index(state);
+                    switch_settings_section(state, SettingsSection::GroupDefaults, 0);
+                }
+                _ => {
+                    if let Some(action) = handle_settings_modal_action(state, &key) {
+                        return Some(action);
+                    }
+                }
+            }
+        }
+        SettingsSection::GroupDefaults => {
+            if state.settings.focused_input.is_some() && edit_pending_group_field(state, key) {
+                return selected_group_defaults_action(state);
+            }
+            match key.code {
+                KeyCode::Up | KeyCode::Char('k') => {
+                    select_previous_setting(
+                        state,
+                        settings_section_choice_len(state, SettingsSection::GroupDefaults),
+                    );
+                }
+                KeyCode::Down | KeyCode::Char('j') => {
+                    select_next_setting(
+                        state,
+                        settings_section_choice_len(state, SettingsSection::GroupDefaults),
+                    );
+                }
+                KeyCode::Enter | KeyCode::Char(' ')
+                    if state.settings.list.selected == GROUP_DEFAULTS_HOST =>
+                {
+                    cycle_default_host(state, false);
+                    return selected_group_defaults_action(state);
+                }
+                KeyCode::Enter => return selected_group_defaults_action(state),
+                KeyCode::BackTab | KeyCode::Left | KeyCode::Char('h') => {
+                    switch_settings_section(state, SettingsSection::GroupGeneral, 0);
+                }
+                KeyCode::Tab | KeyCode::Right | KeyCode::Char('l') => {
+                    switch_settings_section(
+                        state,
+                        SettingsSection::Theme,
+                        group_accent_selection_index(state),
+                    );
                     ensure_settings_selection_visible(state);
+                }
+                _ => {
+                    if let Some(action) = handle_settings_modal_action(state, &key) {
+                        return Some(action);
+                    }
+                }
+            }
+        }
+        SettingsSection::GroupGithub => {
+            if state.settings.focused_input.is_some() && edit_pending_group_field(state, key) {
+                return None;
+            }
+            match key.code {
+                KeyCode::Up | KeyCode::Char('k') => {
+                    select_previous_setting(
+                        state,
+                        settings_section_choice_len(state, SettingsSection::GroupGithub),
+                    );
+                }
+                KeyCode::Down | KeyCode::Char('j') => {
+                    select_next_setting(
+                        state,
+                        settings_section_choice_len(state, SettingsSection::GroupGithub),
+                    );
+                }
+                KeyCode::Enter => return selected_group_github_action(state),
+                KeyCode::BackTab | KeyCode::Left | KeyCode::Char('h') => {
+                    switch_settings_section(state, SettingsSection::GroupProfiles, 0);
+                }
+                KeyCode::Tab | KeyCode::Right | KeyCode::Char('l') => {
+                    switch_settings_section(state, SettingsSection::GroupGeneral, 0);
                 }
                 _ => {
                     if let Some(action) = handle_settings_modal_action(state, &key) {
@@ -4086,13 +4254,15 @@ pub(super) fn update_settings_state(state: &mut AppState, key: KeyEvent) -> Opti
             KeyCode::Enter | KeyCode::Char(' ') => {}
             KeyCode::Left | KeyCode::Right if key.modifiers.contains(KeyModifiers::SHIFT) => {}
             KeyCode::BackTab | KeyCode::Left | KeyCode::Char('h') => {
-                state.settings.section = SettingsSection::Theme;
-                state.settings.list.selected = group_accent_selection_index(state);
+                switch_settings_section(
+                    state,
+                    SettingsSection::Theme,
+                    group_accent_selection_index(state),
+                );
                 ensure_settings_selection_visible(state);
             }
             KeyCode::Tab | KeyCode::Right | KeyCode::Char('l') => {
-                state.settings.section = SettingsSection::GroupGeneral;
-                state.settings.list.selected = 0;
+                switch_settings_section(state, SettingsSection::GroupGithub, 0);
             }
             _ => {
                 if let Some(action) = handle_settings_modal_action(state, &key) {
@@ -4102,9 +4272,6 @@ pub(super) fn update_settings_state(state: &mut AppState, key: KeyEvent) -> Opti
         },
         SettingsSection::WorkspaceGeneral => {
             if edit_pending_workspace_field(state, key) {
-                if state.settings.focused_input == Some(WORKSPACE_GENERAL_GITHUB_REPOSITORIES) {
-                    return None;
-                }
                 return selected_workspace_general_action(state);
             }
             match key.code {
@@ -4127,15 +4294,56 @@ pub(super) fn update_settings_state(state: &mut AppState, key: KeyEvent) -> Opti
                     return selected_workspace_general_action(state);
                 }
                 KeyCode::Enter => return selected_workspace_general_action(state),
-                KeyCode::Char(' ')
+                KeyCode::Tab | KeyCode::Right | KeyCode::Char('l') => {
+                    switch_settings_section(state, SettingsSection::WorkspaceGithub, 0);
+                }
+                KeyCode::BackTab | KeyCode::Left | KeyCode::Char('h') => {
+                    switch_settings_section(state, SettingsSection::WorkspaceGithub, 0);
+                }
+                _ => {
+                    if let Some(action) = handle_settings_modal_action(state, &key) {
+                        return Some(action);
+                    }
+                }
+            }
+        }
+        SettingsSection::WorkspaceGithub => {
+            if edit_pending_workspace_field(state, key) {
+                return None;
+            }
+            match key.code {
+                KeyCode::Up | KeyCode::Char('k') => {
+                    select_previous_setting(
+                        state,
+                        settings_section_choice_len(state, SettingsSection::WorkspaceGithub),
+                    );
+                }
+                KeyCode::Down | KeyCode::Char('j') => {
+                    select_next_setting(
+                        state,
+                        settings_section_choice_len(state, SettingsSection::WorkspaceGithub),
+                    );
+                }
+                KeyCode::Enter | KeyCode::Char(' ')
                     if matches!(
                         state.settings.list.selected,
-                        WORKSPACE_GENERAL_GITHUB_AUTOMATIC
-                            | WORKSPACE_GENERAL_GITHUB_SELECTED
-                            | WORKSPACE_GENERAL_GITHUB_GROUP
+                        WORKSPACE_GITHUB_AUTOMATIC
+                            | WORKSPACE_GITHUB_SELECTED
+                            | WORKSPACE_GITHUB_GROUP
                     ) =>
                 {
-                    return selected_workspace_general_action(state);
+                    return selected_workspace_github_action(state);
+                }
+                KeyCode::Enter if state.settings.list.selected == WORKSPACE_GITHUB_REPOSITORIES => {
+                    return selected_workspace_github_action(state);
+                }
+                KeyCode::Tab
+                | KeyCode::Right
+                | KeyCode::Char('l')
+                | KeyCode::BackTab
+                | KeyCode::Left
+                | KeyCode::Char('h') => {
+                    switch_settings_section(state, SettingsSection::WorkspaceGeneral, 0);
                 }
                 _ => {
                     if let Some(action) = handle_settings_modal_action(state, &key) {
@@ -4320,8 +4528,11 @@ pub(crate) fn prepare_general_settings_state(
         SettingsSection::Integrations => 0,
         SettingsSection::Connections => 0,
         SettingsSection::GroupGeneral => 0,
+        SettingsSection::GroupDefaults => 0,
+        SettingsSection::GroupGithub => 0,
         SettingsSection::GroupProfiles => 0,
         SettingsSection::WorkspaceGeneral => 0,
+        SettingsSection::WorkspaceGithub => 0,
         SettingsSection::About => 0,
     };
     settings.scroll = 0;
@@ -4770,8 +4981,11 @@ impl AppState {
             | SettingsSection::Agents
             | SettingsSection::Connections
             | SettingsSection::GroupGeneral
+            | SettingsSection::GroupDefaults
+            | SettingsSection::GroupGithub
             | SettingsSection::GroupProfiles
             | SettingsSection::WorkspaceGeneral
+            | SettingsSection::WorkspaceGithub
             | SettingsSection::About
             | SettingsSection::Integrations => {
                 let list = settings_section_list_geometry(self, self.settings.section);
@@ -4850,9 +5064,7 @@ impl AppState {
                 }
 
                 if let Some(section) = self.settings_tab_at(mouse.column, mouse.row) {
-                    self.settings.section = section;
-                    self.settings.focused_input = None;
-                    self.settings.list.select(match section {
+                    let selected = match section {
                         SettingsSection::Theme => {
                             if self.settings.group_settings_target.is_some() {
                                 group_accent_selection_index(self)
@@ -4870,12 +5082,15 @@ impl AppState {
                         | SettingsSection::Integrations
                         | SettingsSection::Connections
                         | SettingsSection::GroupGeneral
+                        | SettingsSection::GroupDefaults
+                        | SettingsSection::GroupGithub
                         | SettingsSection::GroupProfiles
                         | SettingsSection::WorkspaceGeneral
+                        | SettingsSection::WorkspaceGithub
                         | SettingsSection::About => 0,
-                    });
+                    };
+                    switch_settings_section(self, section, selected);
                     self.settings.group_icon_picker_open = false;
-                    clear_settings_selection(self);
                     if section == SettingsSection::Theme {
                         ensure_settings_selection_visible(self);
                     }
@@ -4923,11 +5138,6 @@ impl AppState {
                                 toggle_group_icon_picker(self);
                                 None
                             }
-                            GROUP_GENERAL_HOST => {
-                                self.settings.group_icon_picker_open = false;
-                                cycle_default_host(self, false);
-                                selected_group_general_action(self)
-                            }
                             GROUP_GENERAL_DELETE => {
                                 self.settings.group_icon_picker_open = false;
                                 selected_group_general_action(self)
@@ -4937,19 +5147,24 @@ impl AppState {
                                 None
                             }
                         },
+                        SettingsSection::GroupDefaults => match idx {
+                            GROUP_DEFAULTS_HOST => {
+                                self.settings.group_icon_picker_open = false;
+                                cycle_default_host(self, false);
+                                selected_group_defaults_action(self)
+                            }
+                            _ => None,
+                        },
+                        SettingsSection::GroupGithub => selected_group_github_action(self),
                         SettingsSection::GroupProfiles => None,
                         SettingsSection::WorkspaceGeneral => match idx {
                             WORKSPACE_GENERAL_HOST => {
                                 cycle_default_host(self, true);
                                 selected_workspace_general_action(self)
                             }
-                            WORKSPACE_GENERAL_GITHUB_AUTOMATIC
-                            | WORKSPACE_GENERAL_GITHUB_SELECTED
-                            | WORKSPACE_GENERAL_GITHUB_GROUP => {
-                                selected_workspace_general_action(self)
-                            }
                             _ => None,
                         },
+                        SettingsSection::WorkspaceGithub => selected_workspace_github_action(self),
                         SettingsSection::About => None,
                     };
                 }
@@ -5065,6 +5280,25 @@ mod tests {
 
         panic!("rendered text not found: {text}");
     }
+    fn rendered_contains_text(app: &crate::app::App, text: &str, width: u16, height: u16) -> bool {
+        let backend = ratatui::backend::TestBackend::new(width, height);
+        let mut terminal = ratatui::Terminal::new(backend).expect("test backend");
+        terminal
+            .draw(|frame| crate::ui::render(&app.state, frame))
+            .expect("render settings");
+        let buffer = terminal.backend().buffer();
+        let symbols = text.chars().map(|ch| ch.to_string()).collect::<Vec<_>>();
+        let text_width = symbols.len() as u16;
+
+        (0..height).any(|y| {
+            (0..=width.saturating_sub(text_width)).any(|x| {
+                symbols
+                    .iter()
+                    .enumerate()
+                    .all(|(idx, ch)| buffer[(x + idx as u16, y)].symbol() == ch.as_str())
+            })
+        })
+    }
 
     fn rendered_text_point_at_or_after_row(
         app: &crate::app::App,
@@ -5095,6 +5329,29 @@ mod tests {
         }
 
         panic!("rendered text not found after row {min_row}: {text}");
+    }
+    fn click_settings_tab(app: &mut crate::app::App, section: SettingsSection) {
+        let inner = app.state.settings_inner_rect();
+        let header_rows = Layout::vertical([
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Length(1),
+        ])
+        .areas::<4>(crate::ui::settings_stack_areas(&app.state, inner).header);
+        let rect = crate::ui::settings_tab_hit_areas(&app.state, header_rows[2])
+            .into_iter()
+            .find_map(|(candidate, rect)| (candidate == section).then_some(rect))
+            .expect("settings tab");
+        assert_eq!(
+            app.state.handle_settings_mouse(mouse(
+                MouseEventKind::Down(MouseButton::Left),
+                rect.x,
+                rect.y,
+            )),
+            None
+        );
+        assert_eq!(app.state.settings.section, section);
     }
 
     #[test]
@@ -5499,6 +5756,10 @@ mod tests {
         );
         update_settings_state(
             &mut state,
+            KeyEvent::new(KeyCode::Left, KeyModifiers::empty()),
+        );
+        update_settings_state(
+            &mut state,
             KeyEvent::new(KeyCode::Down, KeyModifiers::empty()),
         );
         let action = update_settings_state(
@@ -5824,37 +6085,127 @@ mod tests {
     }
 
     #[test]
-    fn group_settings_switches_general_appearance_agents() {
+    fn group_settings_tabs_follow_general_defaults_appearance_agents_github_order() {
         let mut state = state_with_workspaces(&["test"]);
         let group_idx = state.create_group("Side".to_string());
 
         open_group_settings(&mut state, group_idx);
-
         assert_eq!(state.settings.section, SettingsSection::GroupGeneral);
-        assert_eq!(state.settings.group_settings_target, Some(group_idx));
+
+        for expected in [
+            SettingsSection::GroupDefaults,
+            SettingsSection::Theme,
+            SettingsSection::GroupProfiles,
+            SettingsSection::GroupGithub,
+            SettingsSection::GroupGeneral,
+        ] {
+            update_settings_state(
+                &mut state,
+                KeyEvent::new(KeyCode::Tab, KeyModifiers::empty()),
+            );
+            assert_eq!(state.settings.section, expected);
+            assert_eq!(state.settings.group_settings_target, Some(group_idx));
+            assert!(state.settings.focused_input.is_none());
+        }
 
         update_settings_state(
             &mut state,
-            KeyEvent::new(KeyCode::Tab, KeyModifiers::empty()),
+            KeyEvent::new(KeyCode::BackTab, KeyModifiers::empty()),
+        );
+        assert_eq!(state.settings.section, SettingsSection::GroupGithub);
+    }
+    #[test]
+    fn scoped_settings_tabs_render_only_their_controls_and_save_github_names() {
+        let mut group_app = app_for_mouse_test();
+        let group_idx = group_app.state.create_group("Side".to_string());
+        open_group_settings(&mut group_app.state, group_idx);
+        crate::ui::compute_view(&mut group_app.state, Rect::new(0, 0, 150, 45));
+        assert!(rendered_contains_text(&group_app, "Name", 150, 45));
+        assert!(!rendered_contains_text(&group_app, "Directory", 150, 45));
+        assert!(!rendered_contains_text(
+            &group_app,
+            "GitHub Organization",
+            150,
+            45
+        ));
+
+        click_settings_tab(&mut group_app, SettingsSection::GroupDefaults);
+        crate::ui::compute_view(&mut group_app.state, Rect::new(0, 0, 150, 45));
+        assert!(rendered_contains_text(&group_app, "Directory", 150, 45));
+        assert!(!rendered_contains_text(
+            &group_app,
+            "GitHub Organization",
+            150,
+            45
+        ));
+
+        click_settings_tab(&mut group_app, SettingsSection::GroupGithub);
+        crate::ui::compute_view(&mut group_app.state, Rect::new(0, 0, 150, 45));
+        assert!(rendered_contains_text(
+            &group_app,
+            "GitHub Organization",
+            150,
+            45
+        ));
+        assert!(!rendered_contains_text(&group_app, "Directory", 150, 45));
+        let (x, y) = rendered_text_point(&group_app, "GitHub Organization", 150, 45);
+        assert_eq!(
+            group_app.state.handle_settings_mouse(mouse(
+                MouseEventKind::Down(MouseButton::Left),
+                x,
+                y + 1
+            )),
+            None
+        );
+        for character in "acme-tools".chars() {
+            group_app.handle_settings_key(KeyEvent::new(
+                KeyCode::Char(character),
+                KeyModifiers::empty(),
+            ));
+        }
+        assert!(group_app.state.groups[group_idx]
+            .github_organization
+            .is_none());
+        click_settings_tab(&mut group_app, SettingsSection::GroupDefaults);
+        click_settings_tab(&mut group_app, SettingsSection::GroupGithub);
+        let (x, y) = rendered_text_point(&group_app, "acme-tools", 150, 45);
+        group_app
+            .state
+            .handle_settings_mouse(mouse(MouseEventKind::Down(MouseButton::Left), x, y));
+        group_app.handle_settings_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::empty()));
+        assert_eq!(
+            group_app.state.groups[group_idx]
+                .github_organization
+                .as_ref()
+                .map(crate::app::state::GithubOrganization::as_str),
+            Some("acme-tools")
         );
 
-        assert_eq!(state.settings.section, SettingsSection::Theme);
-        assert_eq!(state.settings.group_settings_target, Some(group_idx));
-
-        update_settings_state(
-            &mut state,
-            KeyEvent::new(KeyCode::Tab, KeyModifiers::empty()),
-        );
-
-        assert_eq!(state.settings.section, SettingsSection::GroupProfiles);
-
-        update_settings_state(
-            &mut state,
-            KeyEvent::new(KeyCode::Tab, KeyModifiers::empty()),
-        );
-
-        assert_eq!(state.settings.section, SettingsSection::GroupGeneral);
-        assert_eq!(state.settings.group_settings_target, Some(group_idx));
+        let mut workspace_app = app_for_mouse_test();
+        workspace_app.state.workspaces = vec![crate::workspace::Workspace::test_new("space")];
+        open_workspace_settings(&mut workspace_app.state, 0);
+        crate::ui::compute_view(&mut workspace_app.state, Rect::new(0, 0, 150, 45));
+        assert!(rendered_contains_text(&workspace_app, "Directory", 150, 45));
+        assert!(!rendered_contains_text(
+            &workspace_app,
+            "Repositories (owner/repository)",
+            150,
+            45
+        ));
+        click_settings_tab(&mut workspace_app, SettingsSection::WorkspaceGithub);
+        crate::ui::compute_view(&mut workspace_app.state, Rect::new(0, 0, 150, 45));
+        assert!(rendered_contains_text(
+            &workspace_app,
+            "Repositories (owner/repository)",
+            150,
+            45
+        ));
+        assert!(!rendered_contains_text(
+            &workspace_app,
+            "Directory",
+            150,
+            45
+        ));
     }
 
     #[test]
@@ -5920,7 +6271,7 @@ mod tests {
     }
 
     #[test]
-    fn group_general_settings_clears_github_organization() {
+    fn group_github_settings_clears_organization() {
         let mut app = app_for_mouse_test();
         let group_idx = app.state.create_group("Side".to_string());
         app.state.groups[group_idx].github_organization =
@@ -5928,11 +6279,9 @@ mod tests {
                 .expect("valid organization");
 
         open_group_settings(&mut app.state, group_idx);
+        app.state.settings.section = SettingsSection::GroupGithub;
         app.state.settings.list.show();
-        app.state
-            .settings
-            .list
-            .select(GROUP_GENERAL_GITHUB_ORGANIZATION);
+        app.state.settings.list.select(GROUP_GITHUB_ORGANIZATION);
         app.state.settings.pending_group_github_organization = Some(String::new());
 
         app.handle_settings_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::empty()));
@@ -5941,18 +6290,15 @@ mod tests {
     }
 
     #[test]
-    fn group_organization_input_accepts_navigation_letters() {
+    fn group_github_organization_accepts_navigation_letters() {
         let mut app = app_for_mouse_test();
         let group_idx = app.state.create_group("Side".to_string());
         open_group_settings(&mut app.state, group_idx);
+        app.state.settings.section = SettingsSection::GroupGithub;
         app.state.settings.list.show();
-        app.state
-            .settings
-            .list
-            .select(GROUP_GENERAL_GITHUB_ORGANIZATION);
-        app.state.settings.focused_input = Some(GROUP_GENERAL_GITHUB_ORGANIZATION);
+        app.state.settings.list.select(GROUP_GITHUB_ORGANIZATION);
+        app.state.settings.focused_input = Some(GROUP_GITHUB_ORGANIZATION);
         app.state.settings.pending_group_github_organization = Some(String::new());
-
         for character in ['h', 'j', 'k', 'l'] {
             app.handle_settings_key(KeyEvent::new(
                 KeyCode::Char(character),
@@ -5970,24 +6316,21 @@ mod tests {
         );
         assert_eq!(
             app.state.settings.focused_input,
-            Some(GROUP_GENERAL_GITHUB_ORGANIZATION)
+            Some(GROUP_GITHUB_ORGANIZATION)
         );
     }
-
     #[test]
-    fn group_organization_input_saves_hyphenated_name_only_on_enter() {
+    fn group_github_organization_saves_hyphenated_name_only_on_enter() {
         let mut app = app_for_mouse_test();
         let group_idx = app.state.create_group("Flex".to_string());
         let original = crate::app::state::GithubOrganization::parse("masakirocorp")
             .expect("valid organization");
         app.state.groups[group_idx].github_organization = original.clone();
         open_group_settings(&mut app.state, group_idx);
+        app.state.settings.section = SettingsSection::GroupGithub;
         app.state.settings.list.show();
-        app.state
-            .settings
-            .list
-            .select(GROUP_GENERAL_GITHUB_ORGANIZATION);
-        app.state.settings.focused_input = Some(GROUP_GENERAL_GITHUB_ORGANIZATION);
+        app.state.settings.list.select(GROUP_GITHUB_ORGANIZATION);
+        app.state.settings.focused_input = Some(GROUP_GITHUB_ORGANIZATION);
         app.handle_settings_key(KeyEvent::new(KeyCode::Char('u'), KeyModifiers::CONTROL));
 
         for character in "flex-rental-solutions".chars() {
@@ -6011,12 +6354,13 @@ mod tests {
             Some("flex-rental-solutions")
         );
         open_group_settings(&mut app.state, group_idx);
+        app.state.settings.section = SettingsSection::GroupGithub;
         crate::ui::compute_view(&mut app.state, Rect::new(0, 0, 100, 40));
         rendered_text_point(&app, "flex-rental-solutions", 100, 40);
     }
 
     #[test]
-    fn group_general_settings_rejects_invalid_github_organization() {
+    fn group_github_organization_rejects_invalid_value() {
         let mut app = app_for_mouse_test();
         let group_idx = app.state.create_group("Side".to_string());
         let original = crate::app::state::GithubOrganization::parse("masakirocorp")
@@ -6024,12 +6368,10 @@ mod tests {
         app.state.groups[group_idx].github_organization = original.clone();
 
         open_group_settings(&mut app.state, group_idx);
+        app.state.settings.section = SettingsSection::GroupGithub;
         app.state.settings.list.show();
-        app.state
-            .settings
-            .list
-            .select(GROUP_GENERAL_GITHUB_ORGANIZATION);
-        app.state.settings.focused_input = Some(GROUP_GENERAL_GITHUB_ORGANIZATION);
+        app.state.settings.list.select(GROUP_GITHUB_ORGANIZATION);
+        app.state.settings.focused_input = Some(GROUP_GITHUB_ORGANIZATION);
         app.state.settings.pending_group_github_organization = Some("invalid--org".to_string());
 
         app.handle_settings_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::empty()));
@@ -6045,7 +6387,7 @@ mod tests {
     }
 
     #[test]
-    fn group_general_settings_edits_default_location_for_future_spaces_inline() {
+    fn group_defaults_settings_edits_default_location_for_future_spaces_inline() {
         let mut state = state_with_workspaces(&["test"]);
         let group_idx = state.create_group("Side".to_string());
         state.set_group_default_location(
@@ -6053,10 +6395,10 @@ mod tests {
             Some(crate::execution_host::ResourceLocation::local("/tmp/gardn-old").unwrap()),
         );
         open_group_settings(&mut state, group_idx);
-        state.settings.section = SettingsSection::GroupGeneral;
-        state.settings.list.selected = crate::settings_rows::GROUP_GENERAL_DIRECTORY;
+        state.settings.section = SettingsSection::GroupDefaults;
+        state.settings.list.selected = crate::settings_rows::GROUP_DEFAULTS_DIRECTORY;
         state.settings.list.show();
-        state.settings.focused_input = Some(crate::settings_rows::GROUP_GENERAL_DIRECTORY);
+        state.settings.focused_input = Some(crate::settings_rows::GROUP_DEFAULTS_DIRECTORY);
 
         let action = update_settings_state(
             &mut state,
@@ -6075,7 +6417,7 @@ mod tests {
     }
 
     #[test]
-    fn group_general_settings_cycles_the_execution_host() {
+    fn group_defaults_settings_cycles_the_execution_host() {
         let (_lock, _xdg) = isolated_ssh_catalog("group-host-cycle");
         let mut app = app_for_mouse_test();
         let profile = seed_connection_profile(
@@ -6091,8 +6433,8 @@ mod tests {
             Some(crate::execution_host::ResourceLocation::local("/tmp/work").unwrap()),
         );
         open_group_settings(&mut app.state, group_idx);
-        app.state.settings.section = SettingsSection::GroupGeneral;
-        app.state.settings.list.selected = crate::settings_rows::GROUP_GENERAL_HOST;
+        app.state.settings.section = SettingsSection::GroupDefaults;
+        app.state.settings.list.selected = crate::settings_rows::GROUP_DEFAULTS_HOST;
 
         app.state.settings.list.show();
 
@@ -6162,7 +6504,7 @@ mod tests {
     }
 
     #[test]
-    fn group_general_settings_cycles_ssh_host_without_a_directory() {
+    fn group_defaults_settings_cycles_ssh_host_without_a_directory() {
         let (_lock, _xdg) = isolated_ssh_catalog("group-host-cycle-empty-dir");
         let mut app = app_for_mouse_test();
         let profile = seed_connection_profile(
@@ -6174,8 +6516,8 @@ mod tests {
         );
         let group_idx = app.state.create_group("Side".to_string());
         open_group_settings(&mut app.state, group_idx);
-        app.state.settings.section = SettingsSection::GroupGeneral;
-        app.state.settings.list.selected = crate::settings_rows::GROUP_GENERAL_HOST;
+        app.state.settings.section = SettingsSection::GroupDefaults;
+        app.state.settings.list.selected = crate::settings_rows::GROUP_DEFAULTS_HOST;
         app.state.settings.list.show();
 
         let action = update_settings_state(
@@ -6208,8 +6550,8 @@ mod tests {
             &mut state,
             KeyEvent::new(KeyCode::Down, KeyModifiers::empty()),
         );
-        assert_eq!(state.settings.list.visible(), Some(0));
-        assert_eq!(state.settings.focused_input, Some(0));
+        assert!(state.settings.list.is_active());
+        assert!(state.settings.focused_input.is_some());
 
         let action = update_settings_state(
             &mut state,
@@ -6230,33 +6572,26 @@ mod tests {
         let group_idx = app.state.create_group("Side".to_string());
         app.state.view.terminal_area = Rect::new(26, 0, 100, 30);
         open_group_settings(&mut app.state, group_idx);
-        app.state.settings.section = SettingsSection::GroupGeneral;
-        app.state.settings.list.selected = crate::settings_rows::GROUP_GENERAL_DELETE;
         app.state.settings.list.hide();
+        crate::ui::compute_view(&mut app.state, Rect::new(0, 0, 126, 30));
 
-        let list_area = settings_section_list_rect(&app.state, SettingsSection::GroupGeneral);
-        for input_row in [1, 8] {
-            let hover_action = app.state.handle_settings_mouse(mouse(
-                MouseEventKind::Moved,
-                list_area.x + 2,
-                list_area.y + input_row,
-            ));
-            assert_eq!(hover_action, None);
-            assert_eq!(
-                app.state.settings.list.selected,
-                crate::settings_rows::GROUP_GENERAL_DELETE
-            );
-            assert!(!app.state.settings.list.is_active());
-        }
+        let (x, y) = rendered_text_point(&app, "Name", 126, 30);
+        assert_eq!(
+            app.state
+                .handle_settings_mouse(mouse(MouseEventKind::Moved, x, y)),
+            None
+        );
+        assert!(!app.state.settings.list.is_active());
 
-        let action = app.state.handle_settings_mouse(mouse(
-            MouseEventKind::Down(crossterm::event::MouseButton::Left),
-            list_area.x + 2,
-            list_area.y + 1,
-        ));
-        assert_eq!(action, None);
-        assert_eq!(app.state.settings.list.selected, 0);
-        assert_eq!(app.state.settings.focused_input, Some(0));
+        assert_eq!(
+            app.state.handle_settings_mouse(mouse(
+                MouseEventKind::Down(MouseButton::Left),
+                x,
+                y + 1,
+            )),
+            None
+        );
+        assert!(app.state.settings.focused_input.is_some());
         let edit_action = update_settings_state(
             &mut app.state,
             KeyEvent::new(KeyCode::Char('!'), KeyModifiers::empty()),
@@ -6347,17 +6682,11 @@ mod tests {
         app.state.groups[group_idx].github_organization =
             crate::app::state::GithubOrganization::parse("masakirocorp").unwrap();
         app.state.workspaces[0].group_id = app.state.groups[group_idx].id.clone();
-        crate::ui::compute_view(&mut app.state, Rect::new(0, 0, 150, 45));
+
         open_workspace_settings(&mut app.state, 0);
-        let (x, y) = rendered_text_point(&app, "Automatic", 150, 45);
-        app.state
-            .handle_settings_mouse(mouse(MouseEventKind::ScrollDown, x, y));
+        switch_settings_section(&mut app.state, SettingsSection::WorkspaceGithub, 0);
+        crate::ui::compute_view(&mut app.state, Rect::new(0, 0, 150, 45));
         let (x, y) = rendered_text_point(&app, "Repositories (owner/repository)", 150, 45);
-        let (_, group_y) = rendered_text_point(&app, "Group organization (masakirocorp)", 150, 45);
-        assert!(
-            y > group_y + 1,
-            "separate scope choices from the repository input"
-        );
         app.state
             .handle_settings_mouse(mouse(MouseEventKind::Down(MouseButton::Left), x, y + 1));
         for character in "Jack/Onex".chars() {
@@ -6388,9 +6717,8 @@ mod tests {
         );
 
         open_workspace_settings(&mut app.state, 0);
-        let (x, y) = rendered_text_point(&app, "Automatic", 150, 45);
-        app.state
-            .handle_settings_mouse(mouse(MouseEventKind::ScrollDown, x, y));
+        switch_settings_section(&mut app.state, SettingsSection::WorkspaceGithub, 0);
+        crate::ui::compute_view(&mut app.state, Rect::new(0, 0, 150, 45));
         rendered_text_point(&app, "jack/one, jack/two", 150, 45);
         for (label, expected) in [
             (

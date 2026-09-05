@@ -14,17 +14,17 @@ use crate::{
 
 pub(crate) const GROUP_GENERAL_NAME: usize = 0;
 pub(crate) const GROUP_GENERAL_ICON: usize = 1;
-pub(crate) const GROUP_GENERAL_HOST: usize = 2;
-pub(crate) const GROUP_GENERAL_DIRECTORY: usize = 3;
-pub(crate) const GROUP_GENERAL_GITHUB_ORGANIZATION: usize = 4;
-pub(crate) const GROUP_GENERAL_DELETE: usize = 5;
+pub(crate) const GROUP_GENERAL_DELETE: usize = 2;
+pub(crate) const GROUP_DEFAULTS_HOST: usize = 0;
+pub(crate) const GROUP_DEFAULTS_DIRECTORY: usize = 1;
+pub(crate) const GROUP_GITHUB_ORGANIZATION: usize = 0;
 pub(crate) const WORKSPACE_GENERAL_NAME: usize = 0;
 pub(crate) const WORKSPACE_GENERAL_HOST: usize = 1;
 pub(crate) const WORKSPACE_GENERAL_DIRECTORY: usize = 2;
-pub(crate) const WORKSPACE_GENERAL_GITHUB_AUTOMATIC: usize = 3;
-pub(crate) const WORKSPACE_GENERAL_GITHUB_SELECTED: usize = 4;
-pub(crate) const WORKSPACE_GENERAL_GITHUB_GROUP: usize = 5;
-pub(crate) const WORKSPACE_GENERAL_GITHUB_REPOSITORIES: usize = 6;
+pub(crate) const WORKSPACE_GITHUB_AUTOMATIC: usize = 0;
+pub(crate) const WORKSPACE_GITHUB_SELECTED: usize = 1;
+pub(crate) const WORKSPACE_GITHUB_GROUP: usize = 2;
+pub(crate) const WORKSPACE_GITHUB_REPOSITORIES: usize = 3;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum SettingsListRow {
@@ -189,8 +189,11 @@ fn rows_for_section_with_settings(
         SettingsSection::Integrations => Some(integration_rows(app, settings)),
         SettingsSection::Connections => Some(connection_rows(app, settings)),
         SettingsSection::GroupGeneral => Some(group_general_rows(app, settings)),
+        SettingsSection::GroupDefaults => Some(group_defaults_rows(app, settings)),
         SettingsSection::GroupProfiles => Some(group_profile_rows(app, settings)),
+        SettingsSection::GroupGithub => Some(group_github_rows(app, settings)),
         SettingsSection::WorkspaceGeneral => Some(workspace_general_rows(app, settings)),
+        SettingsSection::WorkspaceGithub => Some(workspace_github_rows(app, settings)),
         SettingsSection::About => Some(about_rows()),
     }
 }
@@ -503,26 +506,6 @@ fn group_general_rows(app: &AppState, settings: &SettingsState) -> Vec<SettingsL
         .clone()
         .or_else(|| group.map(|group| group.icon.clone()))
         .unwrap_or_else(|| crate::app::state::DEFAULT_GROUP_ICON.to_string());
-    let default_location = group.and_then(|group| group.default_location.as_ref());
-    let default_directory = settings
-        .pending_group_default_directory
-        .clone()
-        .or_else(|| default_location.map(|location| location.path.as_path().display().to_string()))
-        .unwrap_or_default();
-    let github_organization = settings
-        .pending_group_github_organization
-        .clone()
-        .or_else(|| {
-            group
-                .and_then(|group| group.github_organization.as_ref())
-                .map(|organization| organization.as_str().to_string())
-        })
-        .unwrap_or_default();
-    let host_id = settings
-        .pending_group_default_execution_host_id
-        .as_ref()
-        .or_else(|| default_location.map(|location| &location.execution_host_id));
-    let host_label = execution_host_label(app, host_id);
 
     let mut rows = vec![
         SettingsListRow::TextInput {
@@ -543,25 +526,6 @@ fn group_general_rows(app: &AppState, settings: &SettingsState) -> Vec<SettingsL
     }
     rows.extend([
         SettingsListRow::Spacer,
-        SettingsListRow::Status {
-            index: GROUP_GENERAL_HOST,
-            label: "Default Location for New Spaces".into(),
-            status: format!("‹ {host_label} ›").into(),
-            tone: SettingsMarkerTone::Accent,
-        },
-        SettingsListRow::Spacer,
-        SettingsListRow::TextInput {
-            index: GROUP_GENERAL_DIRECTORY,
-            title: "Directory".into(),
-            value: default_directory.into(),
-        },
-        SettingsListRow::Spacer,
-        SettingsListRow::TextInput {
-            index: GROUP_GENERAL_GITHUB_ORGANIZATION,
-            title: "GitHub Organization".into(),
-            value: github_organization.into(),
-        },
-        SettingsListRow::Spacer,
         SettingsListRow::Header("Danger Zone"),
         SettingsListRow::Action {
             index: GROUP_GENERAL_DELETE,
@@ -571,6 +535,59 @@ fn group_general_rows(app: &AppState, settings: &SettingsState) -> Vec<SettingsL
         },
     ]);
     rows
+}
+
+fn group_defaults_rows(app: &AppState, settings: &SettingsState) -> Vec<SettingsListRow> {
+    let group = settings
+        .group_settings_target
+        .and_then(|group_idx| app.groups.get(group_idx));
+    let default_location = group.and_then(|group| group.default_location.as_ref());
+    let default_directory = settings
+        .pending_group_default_directory
+        .clone()
+        .or_else(|| default_location.map(|location| location.path.as_path().display().to_string()))
+        .unwrap_or_default();
+    let host_id = settings
+        .pending_group_default_execution_host_id
+        .as_ref()
+        .or_else(|| default_location.map(|location| &location.execution_host_id));
+    let host_label = execution_host_label(app, host_id);
+
+    vec![
+        SettingsListRow::Status {
+            index: GROUP_DEFAULTS_HOST,
+            label: "Default Location for New Spaces".into(),
+            status: format!("‹ {host_label} ›").into(),
+            tone: SettingsMarkerTone::Accent,
+        },
+        SettingsListRow::Spacer,
+        SettingsListRow::TextInput {
+            index: GROUP_DEFAULTS_DIRECTORY,
+            title: "Directory".into(),
+            value: default_directory.into(),
+        },
+    ]
+}
+
+fn group_github_rows(app: &AppState, settings: &SettingsState) -> Vec<SettingsListRow> {
+    let group = settings
+        .group_settings_target
+        .and_then(|group_idx| app.groups.get(group_idx));
+    let github_organization = settings
+        .pending_group_github_organization
+        .clone()
+        .or_else(|| {
+            group
+                .and_then(|group| group.github_organization.as_ref())
+                .map(|organization| organization.as_str().to_string())
+        })
+        .unwrap_or_default();
+
+    vec![SettingsListRow::TextInput {
+        index: GROUP_GITHUB_ORGANIZATION,
+        title: "GitHub Organization".into(),
+        value: github_organization.into(),
+    }]
 }
 
 fn workspace_general_rows(app: &AppState, settings: &SettingsState) -> Vec<SettingsListRow> {
@@ -601,6 +618,33 @@ fn workspace_general_rows(app: &AppState, settings: &SettingsState) -> Vec<Setti
         .as_ref()
         .or_else(|| workspace.map(|workspace| &workspace.default_location.execution_host_id));
     let host_label = execution_host_label(app, host_id);
+
+    vec![
+        SettingsListRow::TextInput {
+            index: WORKSPACE_GENERAL_NAME,
+            title: "Name".into(),
+            value: name.into(),
+        },
+        SettingsListRow::Spacer,
+        SettingsListRow::Status {
+            index: WORKSPACE_GENERAL_HOST,
+            label: "Location for This Space".into(),
+            status: format!("‹ {host_label} ›").into(),
+            tone: SettingsMarkerTone::Accent,
+        },
+        SettingsListRow::Spacer,
+        SettingsListRow::TextInput {
+            index: WORKSPACE_GENERAL_DIRECTORY,
+            title: "Directory".into(),
+            value: default_cwd.into(),
+        },
+    ]
+}
+
+fn workspace_github_rows(app: &AppState, settings: &SettingsState) -> Vec<SettingsListRow> {
+    let workspace = settings
+        .workspace_settings_target
+        .and_then(|ws_idx| app.workspaces.get(ws_idx));
     let github_scope = settings
         .pending_workspace_github_scope
         .clone()
@@ -631,30 +675,8 @@ fn workspace_general_rows(app: &AppState, settings: &SettingsState) -> Vec<Setti
         .map_or("not configured", |organization| organization.as_str());
 
     vec![
-        SettingsListRow::TextInput {
-            index: WORKSPACE_GENERAL_NAME,
-            title: "Name".into(),
-            value: name.into(),
-        },
-        SettingsListRow::Spacer,
-        SettingsListRow::Status {
-            index: WORKSPACE_GENERAL_HOST,
-            label: "Location for This Space".into(),
-            status: format!("‹ {host_label} ›").into(),
-            tone: SettingsMarkerTone::Accent,
-        },
-        SettingsListRow::Spacer,
-        SettingsListRow::TextInput {
-            index: WORKSPACE_GENERAL_DIRECTORY,
-            title: "Directory".into(),
-            value: default_cwd.into(),
-        },
-        SettingsListRow::Spacer,
-        SettingsListRow::Header("GitHub"),
-        SettingsListRow::Caption("Choose which repositories GitHub tools should show.".into()),
-        SettingsListRow::Spacer,
         SettingsListRow::Choice {
-            index: WORKSPACE_GENERAL_GITHUB_AUTOMATIC,
+            index: WORKSPACE_GITHUB_AUTOMATIC,
             label: "Automatic".into(),
             checked: matches!(
                 &github_scope,
@@ -662,7 +684,7 @@ fn workspace_general_rows(app: &AppState, settings: &SettingsState) -> Vec<Setti
             ),
         },
         SettingsListRow::Choice {
-            index: WORKSPACE_GENERAL_GITHUB_SELECTED,
+            index: WORKSPACE_GITHUB_SELECTED,
             label: "Selected repositories".into(),
             checked: matches!(
                 &github_scope,
@@ -670,7 +692,7 @@ fn workspace_general_rows(app: &AppState, settings: &SettingsState) -> Vec<Setti
             ),
         },
         SettingsListRow::Choice {
-            index: WORKSPACE_GENERAL_GITHUB_GROUP,
+            index: WORKSPACE_GITHUB_GROUP,
             label: format!("Group organization ({github_organization})").into(),
             checked: matches!(
                 &github_scope,
@@ -679,7 +701,7 @@ fn workspace_general_rows(app: &AppState, settings: &SettingsState) -> Vec<Setti
         },
         SettingsListRow::Spacer,
         SettingsListRow::TextInput {
-            index: WORKSPACE_GENERAL_GITHUB_REPOSITORIES,
+            index: WORKSPACE_GITHUB_REPOSITORIES,
             title: "Repositories (owner/repository)".into(),
             value: github_repositories.into(),
         },

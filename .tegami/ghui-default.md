@@ -12,3 +12,5 @@ Each Space can use discovered GitHub repositories, an explicit repository list, 
 The GitHub header keeps the active organization or repositories visible beside the Space name. Space Settings shows the configured Group organization and separates scope choices from the repository input.
 
 Group GitHub organization fields now validate and save on Enter instead of on each keystroke. Typing a hyphenated organization no longer raises errors for incomplete names.
+
+Group Settings separates identity, new-Space location defaults, appearance, agents, and GitHub scope into focused tabs. Space Settings keeps basic controls in General and repository scope in GitHub.
