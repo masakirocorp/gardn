@@ -13272,6 +13272,15 @@ mod tests {
         std::env::temp_dir().join(unique).join("config.toml")
     }
 
+    struct SessionSaveTestApp(App);
+
+    impl Drop for SessionSaveTestApp {
+        fn drop(&mut self) {
+            self.0.no_session = true;
+            self.0.save_session_now();
+        }
+    }
+
     fn temp_git_repo(name: &str) -> std::path::PathBuf {
         let config_path = temp_config_path(name);
         let root = config_path
@@ -16085,7 +16094,18 @@ mod tests {
 
     #[test]
     fn due_session_save_starts_background_writer() {
-        let mut app = test_app();
+        let _lock = match config_env_lock().lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        let config_path = temp_config_path("autosave-background-writer");
+        let home = config_path.parent().expect("temporary config directory");
+        let _config_home = crate::config::TestEnvVar::set("XDG_CONFIG_HOME", home);
+        let _config_path =
+            crate::config::TestEnvVar::set(crate::config::CONFIG_PATH_ENV_VAR, &config_path);
+        let _session = crate::config::TestEnvVar::set(crate::session::SESSION_ENV_VAR, "autosave");
+        let mut guarded_app = SessionSaveTestApp(test_app());
+        let app = &mut guarded_app.0;
         app.no_session = false;
         app.state.workspaces = vec![Workspace::test_new("autosave")];
         app.state.ensure_test_terminals();
@@ -16093,11 +16113,15 @@ mod tests {
 
         app.handle_scheduled_tasks(Instant::now(), false);
 
-        assert!(app.session_save_thread.is_some());
-        assert!(app.session_save_deadline.is_none());
         app.no_session = true;
         app.save_session_now();
-        assert!(app.session_save_thread.is_none());
+        let snapshot = crate::persist::load().expect("autosave persisted a session snapshot");
+        assert_eq!(snapshot.workspaces.len(), 1);
+        assert_eq!(
+            snapshot.workspaces[0].custom_name.as_deref(),
+            Some("autosave")
+        );
+        std::fs::remove_dir_all(home).expect("remove isolated session directory");
     }
 
     #[test]
