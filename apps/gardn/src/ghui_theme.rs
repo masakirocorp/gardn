@@ -1,7 +1,7 @@
 use crate::github::ResolvedGithubScope;
 
 pub(crate) const GITHUB_COMMAND: &str = "ghui";
-pub(crate) const REQUIRED_VERSION: &str = "0.10.0-masakiro.5";
+pub(crate) const REQUIRED_VERSION: &str = "0.10.0-masakiro.6";
 pub(crate) const FORK_URL: &str = "https://github.com/masakirocorp/ghui";
 
 fn shell_escape(value: &str) -> String {

@@ -6298,12 +6298,21 @@ mod tests {
     fn workspace_github_scope_input_saves_and_reopens_selected_repositories() {
         let mut app = app_for_mouse_test();
         app.state.workspaces = vec![crate::workspace::Workspace::test_new("space")];
+        let group_idx = app.state.create_group("Team".to_string());
+        app.state.groups[group_idx].github_organization =
+            crate::app::state::GithubOrganization::parse("masakirocorp").unwrap();
+        app.state.workspaces[0].group_id = app.state.groups[group_idx].id.clone();
         crate::ui::compute_view(&mut app.state, Rect::new(0, 0, 150, 45));
         open_workspace_settings(&mut app.state, 0);
-        let (x, y) = rendered_text_point(&app, "Repositories (owner/repository)", 150, 45);
+        let (x, y) = rendered_text_point(&app, "Automatic", 150, 45);
         app.state
             .handle_settings_mouse(mouse(MouseEventKind::ScrollDown, x, y));
         let (x, y) = rendered_text_point(&app, "Repositories (owner/repository)", 150, 45);
+        let (_, group_y) = rendered_text_point(&app, "Group organization (masakirocorp)", 150, 45);
+        assert!(
+            y > group_y + 1,
+            "separate scope choices from the repository input"
+        );
         app.state
             .handle_settings_mouse(mouse(MouseEventKind::Down(MouseButton::Left), x, y + 1));
         for character in "Jack/Onex".chars() {
@@ -6334,7 +6343,7 @@ mod tests {
         );
 
         open_workspace_settings(&mut app.state, 0);
-        let (x, y) = rendered_text_point(&app, "Repositories (owner/repository)", 150, 45);
+        let (x, y) = rendered_text_point(&app, "Automatic", 150, 45);
         app.state
             .handle_settings_mouse(mouse(MouseEventKind::ScrollDown, x, y));
         rendered_text_point(&app, "jack/one, jack/two", 150, 45);

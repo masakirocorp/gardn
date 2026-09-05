@@ -6050,7 +6050,7 @@ mod tests {
             .command
             .contains("theme_ref=\"file://$theme_dir/theme.json\""));
         assert!(editor.command.contains("\"cursor\": [189, 147, 249]"));
-        assert!(github.command.contains("required:  0.10.0-masakiro.5"));
+        assert!(github.command.contains("required:  0.10.0-masakiro.6"));
         assert!(github.command.contains("GHUI_THEME=system"));
         let terminal_theme = state
             .curated_project_command_terminal_theme(ProjectCommandKind::Github, Some(0))

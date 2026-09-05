@@ -621,6 +621,14 @@ fn workspace_general_rows(app: &AppState, settings: &SettingsState) -> Vec<Setti
             | crate::github::GithubRepositoryScope::GroupOrganization => Some(String::new()),
         })
         .unwrap_or_default();
+    let github_organization = workspace
+        .and_then(|workspace| {
+            app.groups
+                .iter()
+                .find(|group| group.id == workspace.group_id)
+        })
+        .and_then(|group| group.github_organization.as_ref())
+        .map_or("not configured", |organization| organization.as_str());
 
     vec![
         SettingsListRow::TextInput {
@@ -644,6 +652,7 @@ fn workspace_general_rows(app: &AppState, settings: &SettingsState) -> Vec<Setti
         SettingsListRow::Spacer,
         SettingsListRow::Header("GitHub"),
         SettingsListRow::Caption("Choose which repositories GitHub tools should show.".into()),
+        SettingsListRow::Spacer,
         SettingsListRow::Choice {
             index: WORKSPACE_GENERAL_GITHUB_AUTOMATIC,
             label: "Automatic".into(),
@@ -662,12 +671,13 @@ fn workspace_general_rows(app: &AppState, settings: &SettingsState) -> Vec<Setti
         },
         SettingsListRow::Choice {
             index: WORKSPACE_GENERAL_GITHUB_GROUP,
-            label: "Group organization".into(),
+            label: format!("Group organization ({github_organization})").into(),
             checked: matches!(
                 &github_scope,
                 crate::github::GithubRepositoryScope::GroupOrganization
             ),
         },
+        SettingsListRow::Spacer,
         SettingsListRow::TextInput {
             index: WORKSPACE_GENERAL_GITHUB_REPOSITORIES,
             title: "Repositories (owner/repository)".into(),
