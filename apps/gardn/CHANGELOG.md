@@ -1,3 +1,39 @@
+## gardn@0.10.13
+
+### Coalesce pane pointer events
+
+Enable host DEC 1016 when the focused pane requests SGR pixels, then convert those reports back to pane coordinates. Keep the latest pane move or drag in each 16ms frame. Accumulate wheel ticks in that same interval and write every tick on flush so trackpad scrolling is not dropped.
+
+### Fix extra Settings remote add and pane picker
+
+Settings no longer steals first responder from the SSH field. The add row is a real text field plus Add, and the Servers/About picker sits in the center of the titlebar.
+
+### Focused pane graphics blit
+
+When the focused tab is a single pane or zoomed, Gardn paints only that pane's Kitty images. A virtual placement that already covers the whole grid is drawn as one image instead of walking every cell. Split tabs keep the existing compositor. Local compositor uploads larger than 8KiB use a Kitty temp file instead of base64 pixel bytes, and that dump is not held inside synchronized output.
+
+### Bring GitHub into Gardn
+
+GitHub now opens in a dedicated native tab named `GitHub` for the invoking client. The tab is durable session membership: it survives client detachment, disconnection, and session restart. Each client's GitHub screen and breadcrumb selection are transient. After reattach or restart, focusing the tab initializes them from the current Space scope. The source tab stays open, and only that client selects the new tab. Explicit GitHub Close or an ordinary tab close removes the dedicated tab and restores the source pane when it still exists. The header shows an interactive `GitHub / account / repository` breadcrumb. Narrow panes use one `Scope ▾` control and keep the adaptive toolbar on its own row. There is no companion to install, pin, launch, or configure.
+
+Each Space provides the saved default scope. Breadcrumb browsing can switch to the Space default, personal queues, discovered organizations, all repositories, or one repository without changing saved settings. Repository narrowing never widens the selected account scope.
+
+GitHub uses one adaptive control row. All five primary tabs remain visible. Refresh and Filter stay in the row when they fit. Queue, pagination, detail navigation, and selected-item commands move into the `…` menu as space decreases. The menu does not repeat visible controls. Controls, clickable rows, diff lines, and scrollbars show hover feedback without changing the selected item or keyboard focus.
+
+The `…` menu stays local to GitHub instead of opening the global command palette. It supports mouse and keyboard selection and scrolls in compact panes. Ctrl+P keeps access to the global palette.
+
+Pull request and issue descriptions now separate the title, status, and secondary metadata from the body. Markdown headings, lists, checklists, emphasis, and code render with distinct styling. Links show readable labels and support mouse or keyboard activation. Empty metadata is hidden, and commit hashes use seven characters.
+
+Native GitHub retains Overview, pull request and issue conversations, comments and edits to your own comments, labels, draft state, and close actions. Diffs support split and unified views, wrapping, whitespace controls, file navigation, and inline range reviews. Safe merge, auto-merge, queue actions, and scoped Actions runs with jobs, steps, and log links remain available. Filters apply to loaded results, and More loads another page.
+
+The native screen removes companion launch and configuration plumbing, Worktrunk review Spaces, and agent handoffs. It does not offer admin merge, branch deletion, outside-scope browsing, or a matching-Space action. Adapted behavior retains Kit Langton's ghui copyright notice and MIT License attribution.
+
+Group GitHub organization fields validate and save on Enter. Space Settings keeps repository scope in GitHub, and Group Settings separates General, Space defaults, Appearance, Agents, and GitHub.
+
+### Default Kitty graphics on for new installs
+
+New Gardn installs enable `experimental.kitty_graphics` so pane apps that paint with Kitty images, including terminal-browser, render without a blank pane. Existing configs that set the key stay as written.
+
 ## gardn@0.10.12
 
 ### Fix extra Settings ownership and CLI recovery
