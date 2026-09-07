@@ -2488,6 +2488,14 @@ impl PaneZoomState {
             Self::Available
         }
     }
+
+    const fn menu_index(self) -> usize {
+        match self {
+            Self::Unavailable => 0,
+            Self::Available => 1,
+            Self::Zoomed => 2,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -2505,6 +2513,14 @@ impl PaneCloseConsequence {
             Self::Tab
         } else {
             Self::Space
+        }
+    }
+
+    const fn menu_index(self) -> usize {
+        match self {
+            Self::Pane => 0,
+            Self::Tab => 1,
+            Self::Space => 2,
         }
     }
 }
@@ -2720,12 +2736,10 @@ const PANE_CONTEXT_MENU_ITEMS: [[[[PaneMenuItems; 3]; 3]; 2]; 2] = {
             while zoom < 3 {
                 let mut close = 0;
                 while close < 3 {
-                    menus[label][passthrough][zoom][close] = pane_menu_items(
-                        label != 0,
-                        passthrough != 0,
-                        zoom_states[zoom],
-                        close_states[close],
-                    );
+                    let zoom_state = zoom_states[zoom];
+                    let close_state = close_states[close];
+                    menus[label][passthrough][zoom_state.menu_index()][close_state.menu_index()] =
+                        pane_menu_items(label != 0, passthrough != 0, zoom_state, close_state);
                     close += 1;
                 }
                 zoom += 1;
@@ -2780,7 +2794,7 @@ impl ContextMenuState {
                 ..
             } => {
                 let menu = &PANE_CONTEXT_MENU_ITEMS[has_manual_label as usize]
-                    [right_click_passthrough as usize][zoom as usize][close as usize];
+                    [right_click_passthrough as usize][zoom.menu_index()][close.menu_index()];
                 &menu.rows[..menu.len]
             }
         }

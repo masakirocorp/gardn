@@ -131,6 +131,45 @@ pub(super) fn open_agent_menu(state: &mut AppState) {
     state.mode = Mode::AgentMenu;
 }
 
+pub(crate) fn pane_context_menu_state(
+    state: &AppState,
+    ws_idx: usize,
+    pane_id: crate::layout::PaneId,
+    zoom: PaneZoomState,
+    can_mutate: bool,
+) -> Option<ContextMenuState> {
+    let workspace = state.workspaces.get(ws_idx)?;
+    let pane = workspace.pane_state(pane_id)?;
+    let tab_idx = workspace.find_tab_index_for_pane(pane_id)?;
+    let tab = workspace.terminal_tab(tab_idx).ok()?;
+    let (x, y) = state
+        .view
+        .pane_infos
+        .iter()
+        .find(|info| info.id == pane_id)
+        .map(|info| (info.rect.x.saturating_add(1), info.rect.y.saturating_add(1)))
+        .unwrap_or((1, 1));
+    let menu = ContextMenuState {
+        kind: ContextMenuKind::Pane {
+            ws_idx,
+            pane_id,
+            has_manual_label: state
+                .terminals
+                .get(&pane.attached_terminal_id)
+                .and_then(|terminal| terminal.manual_label.as_ref())
+                .is_some(),
+            right_click_passthrough: pane.right_click_passthrough,
+            zoom,
+            close: PaneCloseConsequence::for_tab(tab.layout.pane_count(), workspace.tabs.len()),
+            can_mutate,
+        },
+        x,
+        y,
+        list: ModalListState::hidden(0),
+    };
+    (!menu.items().is_empty()).then_some(menu)
+}
+
 pub(crate) fn context_menu_state_for_pane(
     state: &AppState,
     ws_idx: usize,
@@ -144,52 +183,43 @@ pub(crate) fn context_menu_state_for_pane(
         .terminals
         .get(&pane.attached_terminal_id)
         .is_some_and(|terminal| terminal.is_agent_terminal());
-    let (x, y) = state
-        .view
-        .pane_infos
-        .iter()
-        .find(|info| info.id == pane_id)
-        .map(|info| (info.rect.x.saturating_add(1), info.rect.y.saturating_add(1)))
-        .unwrap_or((1, 1));
-    let kind = if is_agent {
-        ContextMenuKind::Agent {
-            ws_idx,
-            pane_id,
-            in_follow_up: state.is_agent_follow_up(ws_idx, pane_id),
-        }
-    } else {
-        let tab_idx = workspace.find_tab_index_for_pane(pane_id)?;
-        let tab = workspace.terminal_tab(tab_idx).ok()?;
-        ContextMenuKind::Pane {
-            ws_idx,
-            pane_id,
-            has_manual_label: state
-                .terminals
-                .get(&pane.attached_terminal_id)
-                .and_then(|terminal| terminal.manual_label.as_ref())
-                .is_some(),
-            right_click_passthrough: pane.right_click_passthrough,
-            zoom,
-            close: PaneCloseConsequence::for_tab(tab.layout.pane_count(), workspace.tabs.len()),
-            can_mutate,
-        }
-    };
-    if matches!(
-        kind,
-        ContextMenuKind::Pane {
-            zoom: PaneZoomState::Unavailable,
-            can_mutate: false,
-            ..
-        }
-    ) {
-        return None;
+    if is_agent {
+        let (x, y) = state
+            .view
+            .pane_infos
+            .iter()
+            .find(|info| info.id == pane_id)
+            .map(|info| (info.rect.x.saturating_add(1), info.rect.y.saturating_add(1)))
+            .unwrap_or((1, 1));
+        return Some(ContextMenuState {
+            kind: ContextMenuKind::Agent {
+                ws_idx,
+                pane_id,
+                in_follow_up: state.is_agent_follow_up(ws_idx, pane_id),
+            },
+            x,
+            y,
+            list: ModalListState::hidden(0),
+        });
     }
-    Some(ContextMenuState {
-        kind,
-        x,
-        y,
-        list: ModalListState::hidden(0),
-    })
+    pane_context_menu_state(state, ws_idx, pane_id, zoom, can_mutate)
+}
+
+pub(crate) fn pane_context_menu_state_for_local_pane(
+    state: &AppState,
+    ws_idx: usize,
+    pane_id: crate::layout::PaneId,
+) -> Option<ContextMenuState> {
+    let workspace = state.workspaces.get(ws_idx)?;
+    let tab_idx = workspace.find_tab_index_for_pane(pane_id)?;
+    let tab = workspace.terminal_tab(tab_idx).ok()?;
+    pane_context_menu_state(
+        state,
+        ws_idx,
+        pane_id,
+        PaneZoomState::for_tab(tab.layout.pane_count(), tab.zoomed),
+        true,
+    )
 }
 
 pub(crate) fn context_menu_state_for_local_pane(
@@ -1640,18 +1670,24 @@ pub(crate) fn apply_context_menu_action(
         }
         (
             ContextMenuKind::Pane {
-                ws_idx,
-                close: PaneCloseConsequence::Space,
-                ..
+                ws_idx, pane_id, ..
             },
-            Some("close space"),
-        ) if state.confirm_close => {
-            state.selected = ws_idx;
-            open_confirm_close(state);
-        }
-        (ContextMenuKind::Pane { .. }, Some("close pane" | "close tab" | "close space")) => {
-            if !state.close_pane() {
-                state.return_to_active_workspace_mode();
+            Some("close pane" | "close tab" | "close space"),
+        ) => {
+            let target_exists = state
+                .workspaces
+                .get(ws_idx)
+                .is_some_and(|workspace| workspace.find_tab_index_for_pane(pane_id).is_some());
+            if !target_exists {
+                leave_modal(state);
+            } else {
+                state.focus_pane_in_workspace(ws_idx, pane_id);
+                if state.confirm_close && state.close_pane_would_close_workspace(ws_idx, pane_id) {
+                    state.selected = ws_idx;
+                    open_confirm_close(state);
+                } else if !state.close_pane() {
+                    state.return_to_active_workspace_mode();
+                }
             }
         }
         _ => leave_modal(state),
@@ -2636,16 +2672,51 @@ mod tests {
     }
 
     #[test]
-    fn watching_client_pane_menu_only_exposes_view_local_zoom() {
+    fn pane_context_menu_rechecks_close_consequence_before_acting() {
+        let mut state = state_with_workspaces(&["main", "other"]);
+        state.active = Some(0);
+        state.confirm_close = true;
+        let root_pane = state.workspaces[0].terminal_tab(0).unwrap().root_pane;
+        let pane_id = state.workspaces[0].test_split(Direction::Horizontal);
+        let menu =
+            context_menu_state_for_local_pane(&state, 0, pane_id).expect("pane context menu");
+        let close_pane = menu
+            .items()
+            .iter()
+            .position(|item| *item == "close pane")
+            .expect("pane menu initially exposes close pane");
+        assert!(!state.workspaces[0].remove_pane(root_pane));
+        let mut terminal_runtimes = crate::terminal::TerminalRuntimeRegistry::new();
+
+        apply_context_menu_action(&mut state, &mut terminal_runtimes, menu, close_pane);
+
+        assert_eq!(state.mode, Mode::ConfirmClose);
+        assert_eq!(state.workspaces.len(), 2);
+        assert!(state.workspaces[0].pane_state(pane_id).is_some());
+    }
+
+    #[test]
+    fn watching_client_agent_pane_menu_only_exposes_view_local_zoom() {
         let mut state = state_with_workspaces(&["main"]);
         let pane_id = state.workspaces[0].test_split(Direction::Horizontal);
+        state.ensure_test_terminals();
+        let terminal_id = state.workspaces[0]
+            .pane_state(pane_id)
+            .unwrap()
+            .attached_terminal_id
+            .clone();
+        state
+            .terminals
+            .get_mut(&terminal_id)
+            .unwrap()
+            .set_agent_name("codex".into());
 
-        let menu = context_menu_state_for_pane(&state, 0, pane_id, PaneZoomState::Available, false)
+        let menu = pane_context_menu_state(&state, 0, pane_id, PaneZoomState::Available, false)
             .expect("watching client has a zoom action");
         assert_eq!(menu.items(), &["zoom"]);
 
         assert!(
-            context_menu_state_for_pane(&state, 0, pane_id, PaneZoomState::Unavailable, false,)
+            pane_context_menu_state(&state, 0, pane_id, PaneZoomState::Unavailable, false,)
                 .is_none()
         );
     }

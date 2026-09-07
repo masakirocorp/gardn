@@ -21,8 +21,8 @@ use super::{
     modal::{
         apply_context_menu_action, apply_global_menu_action, apply_rename_action,
         confirm_close_accept, confirm_close_cancel, confirm_delete_group_accept,
-        confirm_delete_group_cancel, context_menu_state_for_local_pane, global_menu_actions,
-        leave_modal, modal_action_from_buttons, open_new_group_dialog, request_new_tab_from_ui,
+        confirm_delete_group_cancel, global_menu_actions, leave_modal, modal_action_from_buttons,
+        open_new_group_dialog, pane_context_menu_state_for_local_pane, request_new_tab_from_ui,
         ModalAction,
     },
     ScrollbarClickTarget, SettingsAction, AGENT_DRAG_THRESHOLD, TAB_DRAG_THRESHOLD,
@@ -1513,7 +1513,9 @@ impl AppState {
                 if let Some(info) = self.pane_mouse_target(mouse.column, mouse.row).cloned() {
                     self.focus_pane(info.id);
                     let ws_idx = self.active.unwrap_or(self.selected);
-                    if let Some(menu) = context_menu_state_for_local_pane(self, ws_idx, info.id) {
+                    if let Some(menu) =
+                        pane_context_menu_state_for_local_pane(self, ws_idx, info.id)
+                    {
                         self.context_menu = Some(ContextMenuState {
                             x: mouse.column,
                             y: mouse.row,
@@ -3930,6 +3932,49 @@ mod tests {
 
         let menu = app.state.context_menu.as_ref().expect("pane context menu");
         assert!(!menu.items().contains(&"zoom"));
+    }
+
+    #[test]
+    fn agent_pane_right_click_opens_pane_actions() {
+        let mut app = app_for_mouse_test();
+        let mut workspace = Workspace::test_new("test");
+        let pane_id = workspace.terminal_tab(0).unwrap().root_pane;
+        workspace.test_split(Direction::Horizontal);
+        app.state.workspaces = vec![workspace];
+        app.state.ensure_test_terminals();
+        let terminal_id = app.state.workspaces[0]
+            .pane_state(pane_id)
+            .unwrap()
+            .attached_terminal_id
+            .clone();
+        app.state
+            .terminals
+            .get_mut(&terminal_id)
+            .unwrap()
+            .set_agent_name("codex".into());
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::Terminal;
+        crate::ui::compute_view(&mut app.state, Rect::new(0, 0, 106, 20));
+        let pane = app
+            .state
+            .view
+            .pane_infos
+            .iter()
+            .find(|pane| pane.id == pane_id)
+            .expect("agent pane should render")
+            .clone();
+
+        app.handle_mouse(mouse(
+            MouseEventKind::Down(MouseButton::Right),
+            pane.inner_rect.x + 1,
+            pane.inner_rect.y + 1,
+        ));
+
+        let menu = app.state.context_menu.as_ref().expect("pane context menu");
+        assert!(matches!(menu.kind, ContextMenuKind::Pane { .. }));
+        assert!(menu.items().contains(&"split vertical"));
+        assert!(menu.items().contains(&"zoom"));
     }
     #[test]
     fn pane_context_menu_zoom_toggles_the_clicked_pane_and_restores_the_layout() {
