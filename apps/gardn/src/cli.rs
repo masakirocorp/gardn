@@ -316,7 +316,14 @@ fn print_full_status(format: StatusFormat) -> std::io::Result<i32> {
             println!("  action: {}", runtime_action_label(runtime.action));
             println!();
             println!("update:");
-            println!("  restart_needed: {}", restart_needed(&runtime));
+            println!(
+                "  restart_needed: {}",
+                if restart_needed(&runtime) {
+                    "yes"
+                } else {
+                    "no"
+                }
+            );
         }
         StatusFormat::Json => println!("{}", full_status_json(&server)),
     }
