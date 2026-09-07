@@ -68,6 +68,7 @@ mod release_notes;
 mod render_signal;
 
 mod remote;
+mod runtime_version;
 mod selection;
 mod server;
 mod session;

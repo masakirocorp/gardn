@@ -88,6 +88,7 @@ struct ClientLoopContext {
     remote_image_paste_key: Option<(crossterm::event::KeyCode, crossterm::event::KeyModifiers)>,
     negotiated_encoding: RenderEncoding,
     attach_escape: Option<AttachEscapeState>,
+    runtime: crate::runtime_version::RuntimeVersion,
 }
 
 #[derive(Debug, Default)]
@@ -759,6 +760,19 @@ pub fn run_client() -> io::Result<()> {
         None,
         None,
         "connecting to server",
+        None,
+    )
+}
+
+pub(crate) fn run_client_with_runtime(
+    runtime: crate::runtime_version::RuntimeVersion,
+) -> io::Result<()> {
+    run_client_with_mode(
+        requested_render_encoding(),
+        None,
+        None,
+        "connecting to server",
+        Some(runtime),
     )
 }
 
@@ -769,16 +783,30 @@ pub fn run_terminal_attach(terminal_id: String, takeover: bool) -> io::Result<()
         Some((terminal_id, takeover)),
         Some(AttachEscapeState::default()),
         "attaching to terminal",
+        None,
     )
 }
-
 fn run_client_with_mode(
     requested_encoding: RenderEncoding,
     attach_request: Option<(String, bool)>,
     attach_escape: Option<AttachEscapeState>,
     log_message: &'static str,
+    runtime: Option<crate::runtime_version::RuntimeVersion>,
 ) -> io::Result<()> {
     init_logging();
+
+    let runtime = runtime.unwrap_or_else(client_runtime);
+    let runtime_message = runtime.message();
+    if runtime.state != crate::runtime_version::RuntimeState::ServerNotRunning
+        && !runtime.attachment_allowed()
+    {
+        return Err(io::Error::other(
+            runtime_message
+                .as_deref()
+                .unwrap_or("Gardn server compatibility is unknown. Inspect `gardn status`.")
+                .to_owned(),
+        ));
+    }
 
     let loaded_config = crate::config::Config::load();
     let host_cursor = loaded_config.config.ui.host_cursor;
@@ -825,6 +853,9 @@ fn run_client_with_mode(
             std::process::exit(1);
         }
     };
+    if let Some(message) = runtime_message.as_deref() {
+        eprintln!("gardn: {message}");
+    }
 
     if let Some((terminal_id, takeover)) = attach_request {
         let attach = ClientMessage::AttachTerminal {
@@ -849,6 +880,10 @@ fn run_client_with_mode(
         eprintln!("gardn: failed to set up terminal: {err}");
         err
     })?;
+
+    if let Some(title) = compose_server_title(None, &runtime) {
+        let _ = crate::terminal_effects::write_window_title(&mut io::stdout(), Some(&title));
+    }
 
     // Install a panic hook to restore the terminal on panic (same as monolithic).
     let panic_reset_modify_other_keys = _guard.reset_modify_other_keys;
@@ -897,12 +932,17 @@ fn run_client_with_mode(
             remote_image_paste_key,
             negotiated_encoding,
             attach_escape,
+            runtime,
         })
         .await
     });
 
     // Restore the terminal before printing any final status message.
     let terminal_restore_failed = _guard.restore().is_err();
+
+    if let Some(message) = runtime_message.as_deref() {
+        eprintln!("gardn: {message}");
+    }
 
     if let Err(err) = result {
         let _ = writeln!(io::stderr(), "gardn: {err}");
@@ -944,6 +984,7 @@ async fn run_client_loop(ctx: ClientLoopContext) -> Result<(), ClientError> {
         remote_image_paste_key,
         negotiated_encoding,
         attach_escape,
+        runtime,
     } = ctx;
     let mut state = ClientState {
         blit_encoder: render_ansi::BlitEncoder::new(),
@@ -1261,6 +1302,7 @@ async fn run_client_loop(ctx: ClientLoopContext) -> Result<(), ClientError> {
                     let _ = io::stdout().flush();
                 }
                 ServerMessage::WindowTitle { title } => {
+                    let title = compose_server_title(title.as_deref(), &runtime);
                     let _ = crate::terminal_effects::write_window_title(
                         &mut io::stdout(),
                         title.as_deref(),
@@ -1991,6 +2033,42 @@ fn store_reported_cell_size(reported_cell_size: &AtomicU64, width_px: u32, heigh
     }
 }
 
+fn client_runtime() -> crate::runtime_version::RuntimeVersion {
+    if let Ok(encoded) = std::env::var(crate::runtime_version::ENV_VAR) {
+        if let Ok(runtime) = serde_json::from_str(&encoded) {
+            return runtime;
+        }
+    }
+    let server = match crate::api::read_runtime_status_at(
+        &crate::api::socket_path(),
+        Duration::from_secs(1),
+    ) {
+        Ok(server) => server,
+        Err(_) => Some(crate::api::RuntimeStatus {
+            version: None,
+            protocol: None,
+            capabilities: None,
+        }),
+    };
+    crate::runtime_version::RuntimeVersion::classify(
+        &crate::build_info::version(),
+        PROTOCOL_VERSION,
+        server.as_ref(),
+    )
+}
+
+fn compose_server_title(
+    title: Option<&str>,
+    runtime: &crate::runtime_version::RuntimeVersion,
+) -> Option<String> {
+    match (title, runtime.title_suffix()) {
+        (Some(title), Some(suffix)) => Some(format!("{title} · {suffix}")),
+        (None, Some(suffix)) => Some(format!("Gardn · {suffix}")),
+        (Some(title), None) => Some(title.to_owned()),
+        (None, None) => None,
+    }
+}
+
 #[cfg(any(unix, test))]
 fn reported_cell_size_from_events(
     events: &[crate::raw_input::RawInputEvent],
@@ -2705,5 +2783,59 @@ mod tests {
             client_launch_mode(false, true, 0, 16),
             ClientLaunchMode::App
         );
+    }
+    #[test]
+    fn stale_server_title_keeps_server_title_and_adds_action_suffix() {
+        let server = crate::api::RuntimeStatus {
+            version: Some("0.10.12".into()),
+            protocol: Some(PROTOCOL_VERSION),
+            capabilities: None,
+        };
+        let runtime = crate::runtime_version::RuntimeVersion::classify(
+            "0.10.16",
+            PROTOCOL_VERSION,
+            Some(&server),
+        );
+        assert_eq!(
+            compose_server_title(Some("build shell"), &runtime).as_deref(),
+            Some("build shell · Restart server")
+        );
+    }
+
+    #[test]
+    fn stale_server_title_keeps_action_when_server_clears_title() {
+        let server = crate::api::RuntimeStatus {
+            version: Some("0.10.12".into()),
+            protocol: Some(PROTOCOL_VERSION),
+            capabilities: None,
+        };
+        let runtime = crate::runtime_version::RuntimeVersion::classify(
+            "0.10.16",
+            PROTOCOL_VERSION,
+            Some(&server),
+        );
+        assert_eq!(
+            compose_server_title(None, &runtime).as_deref(),
+            Some("Gardn · Restart server")
+        );
+    }
+
+    #[test]
+    fn current_server_title_is_unchanged() {
+        let server = crate::api::RuntimeStatus {
+            version: Some("0.10.16".into()),
+            protocol: Some(PROTOCOL_VERSION),
+            capabilities: None,
+        };
+        let runtime = crate::runtime_version::RuntimeVersion::classify(
+            "0.10.16",
+            PROTOCOL_VERSION,
+            Some(&server),
+        );
+        assert_eq!(
+            compose_server_title(Some("build shell"), &runtime).as_deref(),
+            Some("build shell")
+        );
+        assert_eq!(compose_server_title(None, &runtime), None);
     }
 }

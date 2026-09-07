@@ -176,7 +176,7 @@ pub(crate) fn run_remote(remote: RemoteLaunch) -> io::Result<()> {
         .manage_ssh_config;
     let remote_ssh = RemoteSsh::new(remote.target.clone(), manage_ssh_config);
     let prepared_remote = prepare_remote_gardn(&remote_ssh, remote.live_handoff, &session_name)?;
-    ensure_remote_server_ready(
+    let runtime = ensure_remote_server_ready(
         &remote_ssh,
         &prepared_remote.remote_gardn,
         prepared_remote.installed_or_replaced,
@@ -193,7 +193,12 @@ pub(crate) fn run_remote(remote: RemoteLaunch) -> io::Result<()> {
         remote_ssh.options(),
     )?;
 
-    run_client_process(&local_socket, &reattach_command, remote.keybindings)
+    run_client_process(
+        &local_socket,
+        &reattach_command,
+        remote.keybindings,
+        runtime,
+    )
 }
 
 pub(crate) fn run_remote_client_bridge() -> io::Result<()> {
@@ -968,7 +973,6 @@ enum RemoteServerStatus {
 enum RemoteServerRestartReason {
     ProtocolMismatch,
     BinaryUpdated,
-    VersionMismatch,
 }
 
 fn ensure_remote_server_ready(
@@ -978,46 +982,70 @@ fn ensure_remote_server_ready(
     stop_after_install_approved: bool,
     live_handoff_enabled: bool,
     session_name: &str,
-) -> io::Result<()> {
+) -> io::Result<crate::runtime_version::RuntimeVersion> {
     let status = remote_server_status(ssh, remote_gardn, session_name)?;
+    let runtime = remote_runtime_version(&status);
     let RemoteServerStatus::Running {
         version,
         protocol,
         live_handoff,
     } = status
     else {
-        return Ok(());
+        return Ok(runtime);
     };
-
     let Some(reason) =
         remote_server_restart_reason(version.as_deref(), protocol, remote_binary_changed)
     else {
-        return Ok(());
+        return Ok(runtime);
     };
-
     if live_handoff_enabled && live_handoff {
         match live_handoff_remote_server(ssh, remote_gardn, session_name) {
-            Ok(()) => return Ok(()),
+            Ok(()) => return Ok(runtime_for_new_server()),
             Err(err) => {
                 eprintln!("remote live handoff failed: {err}");
                 eprintln!("falling back to remote server restart.");
             }
         }
     }
-
     if stop_after_install_approved {
         stop_remote_server(ssh, remote_gardn, session_name)?;
-        return Ok(());
+        return Ok(runtime_for_new_server());
     }
-
     if confirm_remote_server_stop(ssh.target(), version.as_deref(), protocol, reason)? {
         stop_remote_server(ssh, remote_gardn, session_name)?;
+        return Ok(runtime_for_new_server());
     }
-    Ok(())
+    Ok(runtime)
+}
+
+fn remote_runtime_version(status: &RemoteServerStatus) -> crate::runtime_version::RuntimeVersion {
+    let status = match status {
+        RemoteServerStatus::Running {
+            version,
+            protocol,
+            live_handoff,
+        } => Some(crate::api::RuntimeStatus {
+            version: version.clone(),
+            protocol: *protocol,
+            capabilities: Some(crate::api::schema::ServerCapabilities {
+                live_handoff: *live_handoff,
+            }),
+        }),
+        RemoteServerStatus::NotRunning => None,
+    };
+    crate::runtime_version::RuntimeVersion::classify(
+        CURRENT_VERSION,
+        CURRENT_PROTOCOL,
+        status.as_ref(),
+    )
+}
+
+fn runtime_for_new_server() -> crate::runtime_version::RuntimeVersion {
+    crate::runtime_version::RuntimeVersion::classify(CURRENT_VERSION, CURRENT_PROTOCOL, None)
 }
 
 fn remote_server_restart_reason(
-    version: Option<&str>,
+    _version: Option<&str>,
     protocol: Option<u32>,
     remote_binary_changed: bool,
 ) -> Option<RemoteServerRestartReason> {
@@ -1026,9 +1054,6 @@ fn remote_server_restart_reason(
     }
     if remote_binary_changed {
         return Some(RemoteServerRestartReason::BinaryUpdated);
-    }
-    if version != Some(CURRENT_VERSION) {
-        return Some(RemoteServerRestartReason::VersionMismatch);
     }
     None
 }
@@ -1196,11 +1221,6 @@ fn confirm_remote_server_stop(
         RemoteServerRestartReason::BinaryUpdated => {
             eprintln!(
                 "the remote Gardn binary was installed or replaced. restart the remote server so it uses the prepared binary."
-            );
-        }
-        RemoteServerRestartReason::VersionMismatch => {
-            eprintln!(
-                "the remote server is still running a different gardn version. restart it so it uses the prepared binary."
             );
         }
     }
@@ -2044,8 +2064,10 @@ fn run_client_process(
     local_socket: &Path,
     reattach_command: &str,
     keybindings: RemoteKeybindings,
+    runtime: crate::runtime_version::RuntimeVersion,
 ) -> io::Result<()> {
     let exe = std::env::current_exe()?;
+    let encoded_runtime = serde_json::to_string(&runtime).map_err(io::Error::other)?;
     let status = Command::new(exe)
         .arg("client")
         .env(
@@ -2055,6 +2077,7 @@ fn run_client_process(
         .env("GARDN_RENDER_ENCODING", "terminal-ansi")
         .env(REATTACH_COMMAND_ENV_VAR, reattach_command)
         .env(REMOTE_KEYBINDINGS_ENV_VAR, keybindings.as_str())
+        .env(crate::runtime_version::ENV_VAR, encoded_runtime)
         .env_remove(crate::api::SOCKET_PATH_ENV_VAR)
         .stdin(Stdio::inherit())
         .stdout(Stdio::inherit())

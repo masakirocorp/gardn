@@ -300,6 +300,7 @@ fn parse_status_format(args: &[String], usage: &str) -> Result<StatusFormat, i32
 
 fn print_full_status(format: StatusFormat) -> std::io::Result<i32> {
     let server = read_server_runtime_status()?;
+    let runtime = runtime_version(&server);
 
     match format {
         StatusFormat::Text => {
@@ -310,21 +311,21 @@ fn print_full_status(format: StatusFormat) -> std::io::Result<i32> {
             println!("server:");
             print_server_status_body(&server, "  ");
             println!();
+            println!("runtime:");
+            println!("  state: {}", runtime_state_label(runtime.state));
+            println!("  action: {}", runtime_action_label(runtime.action));
+            println!();
             println!("update:");
-            println!("  restart_needed: {}", restart_needed_label(&server));
-        }
-        StatusFormat::Json => {
             println!(
-                "{}",
-                serde_json::json!({
-                    "client": client_status_json(),
-                    "server": server_status_json(&server),
-                    "update": {
-                        "restart_needed": restart_needed(&server),
-                    },
-                })
+                "  restart_needed: {}",
+                if restart_needed(&runtime) {
+                    "yes"
+                } else {
+                    "no"
+                }
             );
         }
+        StatusFormat::Json => println!("{}", full_status_json(&server)),
     }
 
     Ok(0)
@@ -333,10 +334,27 @@ fn print_full_status(format: StatusFormat) -> std::io::Result<i32> {
 fn print_server_status(format: StatusFormat) -> std::io::Result<i32> {
     let server = read_server_runtime_status()?;
     match format {
-        StatusFormat::Text => print_server_status_body(&server, ""),
+        StatusFormat::Text => {
+            print_server_status_body(&server, "");
+            let runtime = runtime_version(&server);
+            println!("runtime state: {}", runtime_state_label(runtime.state));
+            println!("runtime action: {}", runtime_action_label(runtime.action));
+        }
         StatusFormat::Json => println!("{}", server_status_json(&server)),
     }
     Ok(0)
+}
+
+fn full_status_json(server: &ServerRuntimeStatus) -> serde_json::Value {
+    let runtime = runtime_version(server);
+    serde_json::json!({
+        "client": client_status_json(),
+        "server": server_status_json(server),
+        "runtime": runtime,
+        "update": {
+            "restart_needed": restart_needed(&runtime),
+        },
+    })
 }
 
 fn print_client_status(format: StatusFormat) {
@@ -369,6 +387,7 @@ fn print_server_status_body(server: &ServerRuntimeStatus, indent: &str) {
 }
 
 fn server_status_json(server: &ServerRuntimeStatus) -> serde_json::Value {
+    let runtime = runtime_version(server);
     match server {
         ServerRuntimeStatus::Running {
             version,
@@ -384,7 +403,7 @@ fn server_status_json(server: &ServerRuntimeStatus) -> serde_json::Value {
                 "capabilities": capabilities.as_ref().map(|capabilities| serde_json::json!({
                     "live_handoff": capabilities.live_handoff,
                 })),
-                "restart_needed": restart_needed(server),
+                "restart_needed": restart_needed(&runtime),
                 "socket": api::socket_path().display().to_string(),
             })
         }
@@ -460,24 +479,49 @@ fn compatible_protocol(protocol: Option<u32>) -> bool {
     protocol == Some(crate::protocol::PROTOCOL_VERSION)
 }
 
-fn restart_needed(server: &ServerRuntimeStatus) -> bool {
-    match server {
-        ServerRuntimeStatus::Running { version, .. } => {
-            version.as_deref() != Some(crate::build_info::version().as_str())
-        }
-        ServerRuntimeStatus::NotRunning => false,
+fn runtime_version(server: &ServerRuntimeStatus) -> crate::runtime_version::RuntimeVersion {
+    let status = match server {
+        ServerRuntimeStatus::Running {
+            version,
+            protocol,
+            capabilities,
+        } => Some(crate::api::RuntimeStatus {
+            version: version.clone(),
+            protocol: *protocol,
+            capabilities: capabilities.clone(),
+        }),
+        ServerRuntimeStatus::NotRunning => None,
+    };
+    crate::runtime_version::RuntimeVersion::classify(
+        &crate::build_info::version(),
+        crate::protocol::PROTOCOL_VERSION,
+        status.as_ref(),
+    )
+}
+
+fn runtime_state_label(state: crate::runtime_version::RuntimeState) -> &'static str {
+    match state {
+        crate::runtime_version::RuntimeState::Current => "current",
+        crate::runtime_version::RuntimeState::ServerRestartRequired => "server_restart_required",
+        crate::runtime_version::RuntimeState::ClientUpdateRequired => "client_update_required",
+        crate::runtime_version::RuntimeState::VersionSkew => "version_skew",
+        crate::runtime_version::RuntimeState::ProtocolIncompatible => "protocol_incompatible",
+        crate::runtime_version::RuntimeState::Unknown => "unknown",
+        crate::runtime_version::RuntimeState::ServerNotRunning => "server_not_running",
     }
 }
 
-fn restart_needed_label(server: &ServerRuntimeStatus) -> &'static str {
-    match server {
-        ServerRuntimeStatus::Running { version, .. } => match version.as_deref() {
-            Some(version) if version == crate::build_info::version() => "no",
-            Some(_) => "yes",
-            None => "unknown",
-        },
-        ServerRuntimeStatus::NotRunning => "no",
+fn runtime_action_label(action: crate::runtime_version::RuntimeAction) -> &'static str {
+    match action {
+        crate::runtime_version::RuntimeAction::None => "none",
+        crate::runtime_version::RuntimeAction::RestartServer => "restart_server",
+        crate::runtime_version::RuntimeAction::UpdateClient => "update_client",
+        crate::runtime_version::RuntimeAction::InspectStatus => "inspect_status",
     }
+}
+
+fn restart_needed(runtime: &crate::runtime_version::RuntimeVersion) -> bool {
+    runtime.action == crate::runtime_version::RuntimeAction::RestartServer
 }
 
 fn current_exe_label() -> String {
@@ -2603,6 +2647,45 @@ fn print_session_help() {
 
 fn _print_json<T: Serialize>(value: &T) {
     println!("{}", serde_json::to_string(value).unwrap());
+}
+
+#[cfg(test)]
+mod runtime_status_tests {
+    use super::*;
+
+    #[test]
+    fn full_json_status_exposes_typed_runtime_object() {
+        let server = ServerRuntimeStatus::Running {
+            version: Some(crate::build_info::version()),
+            protocol: Some(crate::protocol::PROTOCOL_VERSION),
+            capabilities: None,
+        };
+        let json = full_status_json(&server);
+        assert_eq!(json["runtime"]["state"], "current");
+        assert_eq!(json["runtime"]["action"], "none");
+        assert_eq!(
+            json["runtime"]["client_protocol"],
+            crate::protocol::PROTOCOL_VERSION
+        );
+        assert_eq!(
+            json["runtime"]["server_protocol"],
+            crate::protocol::PROTOCOL_VERSION
+        );
+    }
+
+    #[test]
+    fn full_json_status_reports_restart_for_older_protocol_compatible_server() {
+        let server = ServerRuntimeStatus::Running {
+            version: Some("0.10.12".into()),
+            protocol: Some(13),
+            capabilities: None,
+        };
+        let json = full_status_json(&server);
+        assert_eq!(json["runtime"]["state"], "server_restart_required");
+        assert_eq!(json["runtime"]["action"], "restart_server");
+        assert_eq!(json["runtime"]["server_version"], "0.10.12");
+        assert_eq!(json["runtime"]["server_protocol"], 13);
+    }
 }
 
 #[cfg(test)]

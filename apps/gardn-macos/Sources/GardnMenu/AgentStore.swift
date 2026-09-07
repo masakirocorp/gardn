@@ -17,8 +17,14 @@ final class AgentStore: ObservableObject {
 
     private var client: GardnClient
     private var poll: DispatchSourceTimer?
+    private var runtimePoll: DispatchSourceTimer?
+    private var runtimeProbeGeneration = 0
+    private var runtimeTask: Task<Void, Never>?
+    private var hasCompletedRuntimeStatus = false
     private var knownAttention = [String: AgentNotifications.Kind]()
     private var hasBaseline = false
+    @Published private(set) var runtimeNotice: RuntimeNotice?
+
 
     private static let collapsedKey = "gardn.extra.collapsedSections"
 
@@ -31,9 +37,11 @@ final class AgentStore: ObservableObject {
     func start() {
         if poll != nil {
             refresh()
+            refreshRuntimeStatus()
             return
         }
         refresh()
+        refreshRuntimeStatus()
         let poll = DispatchSource.makeTimerSource(queue: .main)
         poll.schedule(
             deadline: .now() + .seconds(2),
@@ -45,30 +53,80 @@ final class AgentStore: ObservableObject {
         }
         poll.resume()
         self.poll = poll
+
+        let runtimePoll = DispatchSource.makeTimerSource(queue: .main)
+        runtimePoll.schedule(
+            deadline: .now() + .seconds(10),
+            repeating: .seconds(10),
+            leeway: .seconds(1)
+        )
+        runtimePoll.setEventHandler { [weak self] in
+            self?.refreshRuntimeStatus()
+        }
+        runtimePoll.resume()
+        self.runtimePoll = runtimePoll
     }
 
     func stop() {
+        runtimeProbeGeneration += 1
         poll?.cancel()
         poll = nil
+        runtimePoll?.cancel()
+        runtimePoll = nil
+        runtimeTask?.cancel()
+        runtimeTask = nil
         catalog.stopConnectProcess()
     }
-
     func selectCoordinator(_ id: String) {
         catalog.select(id)
+        hasCompletedRuntimeStatus = false
+        runtimeNotice = .unknown
         reconnectToSelected()
         refresh()
+        refreshRuntimeStatus()
     }
 
     func addRemoteCoordinator(target: String, session: String) {
         if catalog.addRemote(target: target, session: session) != nil {
+            hasCompletedRuntimeStatus = false
+            runtimeNotice = .unknown
             reconnectToSelected()
             refresh()
+            refreshRuntimeStatus()
         }
     }
 
     func openSettings() {
         onOpenSettings?()
     }
+
+    func refreshRuntimeStatus() {
+        runtimeProbeGeneration += 1
+        let generation = runtimeProbeGeneration
+        let socketPath = client.socketPath
+        let appVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
+        runtimeTask?.cancel()
+        runtimeTask = Task { [weak self] in
+            do {
+                let runtime = try await BundledGardn.runtimeStatus(socketPath: socketPath)
+                guard !Task.isCancelled else { return }
+                let installation = GardnInstallation.compare(
+                    appVersion: appVersion,
+                    cliVersion: runtime.clientVersion
+                )
+                let notice = RuntimeNotice.presentation(runtime: runtime, installation: installation)
+                guard let self, self.runtimeProbeGeneration == generation else { return }
+                self.hasCompletedRuntimeStatus = true
+                self.runtimeNotice = notice
+            } catch {
+                guard let self, self.runtimeProbeGeneration == generation else { return }
+                if !self.hasCompletedRuntimeStatus {
+                    self.runtimeNotice = .unknown
+                }
+            }
+        }
+    }
+
 
     private func reconnectToSelected() {
         catalog.refreshLocals()
@@ -80,11 +138,13 @@ final class AgentStore: ObservableObject {
             let path = try catalog.socketPath(for: selected)
             client = GardnClient(socketPath: path)
         } catch {
+            client = GardnClient(socketPath: "")
             connectionMessage = error.localizedDescription
             connected = false
             agents = []
         }
     }
+
 
     func refresh() {
         do {
