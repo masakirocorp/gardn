@@ -158,9 +158,8 @@ impl Workspace {
         &self,
         terminals: &HashMap<TerminalId, TerminalState>,
     ) -> (AgentState, bool) {
-        self.tabs
-            .iter()
-            .flat_map(|tab| tab.panes.values())
+        self.terminal_tabs()
+            .flat_map(|(_, tab)| tab.panes.values())
             .filter_map(|pane| {
                 let state = terminals.get(&pane.attached_terminal_id).map_or_else(
                     || {
@@ -193,9 +192,7 @@ impl Workspace {
         terminal_runtimes: &TerminalRuntimeRegistry,
     ) -> Vec<PaneDetail> {
         let multi_tab = self.tabs.len() > 1;
-        self.tabs
-            .iter()
-            .enumerate()
+        self.terminal_tabs()
             .flat_map(|(tab_idx, tab)| {
                 let tab_label = self
                     .tab_display_name(tab_idx)
@@ -236,7 +233,7 @@ mod tests {
     fn aggregate_state_all_unknown() {
         let ws = Workspace::test_new("test");
         let mut terminals = HashMap::new();
-        let root = ws.tabs[0].root_pane;
+        let root = ws.terminal_tab(0).unwrap().root_pane;
         let terminal = terminal_for_pane(&ws, root);
         terminals.insert(terminal.id.clone(), terminal);
         let (state, seen) = ws.aggregate_state(&terminals);
@@ -248,7 +245,9 @@ mod tests {
     fn aggregate_state_priority() {
         let mut ws = Workspace::test_new("test");
         let id2 = ws.test_split(Direction::Horizontal);
-        let root_id = ws.tabs[0]
+        let root_id = ws
+            .terminal_tab(0)
+            .unwrap()
             .panes
             .keys()
             .find(|id| **id != id2)
@@ -272,7 +271,9 @@ mod tests {
     fn aggregate_state_working_beats_done_unseen() {
         let mut ws = Workspace::test_new("test");
         let id2 = ws.test_split(Direction::Horizontal);
-        let root_id = ws.tabs[0]
+        let root_id = ws
+            .terminal_tab(0)
+            .unwrap()
             .panes
             .keys()
             .find(|id| **id != id2)
@@ -285,7 +286,12 @@ mod tests {
         let mut second_terminal = terminal_for_pane(&ws, id2);
         second_terminal.state = AgentState::Working;
         terminals.insert(second_terminal.id.clone(), second_terminal);
-        let root = ws.tabs[0].panes.get_mut(&root_id).unwrap();
+        let root = ws
+            .terminal_tab_mut(0)
+            .unwrap()
+            .panes
+            .get_mut(&root_id)
+            .unwrap();
         root.seen = false;
 
         let (state, seen) = ws.aggregate_state(&terminals);
@@ -297,7 +303,7 @@ mod tests {
     #[test]
     fn pane_details_prefers_agent_name_over_detected_agent_label() {
         let ws = Workspace::test_new("test");
-        let root_pane = ws.tabs[0].root_pane;
+        let root_pane = ws.terminal_tab(0).unwrap().root_pane;
         let mut terminals = HashMap::new();
         let mut terminal = terminal_for_pane(&ws, root_pane);
         terminal.set_detected_state(Some(Agent::Pi), AgentState::Working);
@@ -319,10 +325,10 @@ mod tests {
     #[test]
     fn pane_details_includes_tab_context_for_multi_tab_workspace() {
         let mut ws = Workspace::test_new("test");
-        ws.tabs[0].custom_name = Some("main".into());
-        let root_pane = ws.tabs[0].root_pane;
+        ws.terminal_tab_mut(0).unwrap().custom_name = Some("main".into());
+        let root_pane = ws.terminal_tab(0).unwrap().root_pane;
         let second_tab = ws.test_add_tab(Some("review"));
-        let review_pane = ws.tabs[second_tab].root_pane;
+        let review_pane = ws.terminal_tab(second_tab).unwrap().root_pane;
         let mut terminals = HashMap::new();
         let mut root_terminal = terminal_for_pane(&ws, root_pane);
         root_terminal.set_hook_authority(

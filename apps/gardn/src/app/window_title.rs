@@ -149,7 +149,10 @@ mod tests {
 
         assert_eq!(app.window_title().as_deref(), Some("herd/1"));
 
-        app.state.workspaces[0].tabs[0].custom_name = Some("build".into());
+        app.state.workspaces[0]
+            .terminal_tab_mut(0)
+            .unwrap()
+            .custom_name = Some("build".into());
         assert_eq!(app.window_title().as_deref(), Some("herd/build"));
     }
 
@@ -158,10 +161,9 @@ mod tests {
         let mut app = test_app();
         app.configure_window_title("{pane}|{terminal_title}");
 
-        let pane_id = app.state.workspaces[0].tabs[0].root_pane;
-        let terminal_id = app.state.workspaces[0].tabs[0].panes[&pane_id]
-            .attached_terminal_id
-            .clone();
+        let tab = app.state.workspaces[0].terminal_tab(0).unwrap();
+        let pane_id = tab.root_pane;
+        let terminal_id = tab.panes[&pane_id].attached_terminal_id.clone();
         let terminal = app
             .state
             .terminals
@@ -209,10 +211,9 @@ mod tests {
         let mut app = test_app();
         app.configure_window_title("{terminal_title}");
 
-        let pane_id = app.state.workspaces[0].tabs[0].root_pane;
-        let terminal_id = app.state.workspaces[0].tabs[0].panes[&pane_id]
-            .attached_terminal_id
-            .clone();
+        let tab = app.state.workspaces[0].terminal_tab(0).unwrap();
+        let pane_id = tab.root_pane;
+        let terminal_id = tab.panes[&pane_id].attached_terminal_id.clone();
         let runtime = crate::terminal::TerminalRuntime::test_with_screen_bytes(80, 24, b"");
         app.terminal_runtimes.insert(terminal_id.clone(), runtime);
 

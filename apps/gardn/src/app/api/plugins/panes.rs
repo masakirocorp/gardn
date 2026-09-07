@@ -310,7 +310,7 @@ impl App {
                 .state
                 .workspaces
                 .get_mut(ws_idx)
-                .and_then(|ws| ws.tabs.get_mut(tab_idx))
+                .and_then(|ws| ws.terminal_tab_mut(tab_idx).ok())
             {
                 tab.zoomed = true;
             }
@@ -402,7 +402,11 @@ impl App {
                 ));
             }
         };
-        let pane_id = ws.tabs[tab_idx].root_pane;
+        let pane_id = ws
+            .terminal_tab(tab_idx)
+            .map_err(|error| error.to_string())
+            .map(|tab| tab.root_pane)
+            .unwrap();
         if params.focus {
             self.state.switch_workspace_tab(ws_idx, tab_idx);
             self.state.mode = crate::app::Mode::Terminal;
@@ -594,8 +598,8 @@ impl App {
                     )
                 })?;
                 let pane_id = workspace
-                    .tabs
-                    .get(workspace.active_tab)
+                    .terminal_tab(workspace.active_tab)
+                    .ok()
                     .map(|tab| tab.layout.focused())
                     .ok_or_else(|| ("no_active_pane".to_string(), "no active pane".to_string()))?;
                 pane_location(ws_idx, pane_id).ok_or_else(|| {

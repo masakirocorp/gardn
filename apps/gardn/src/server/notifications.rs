@@ -37,7 +37,7 @@ pub(crate) fn toast_message_from_state_change(
         .iter()
         .enumerate()
         .find_map(|(ws_idx, ws)| {
-            ws.tabs.iter().find_map(|tab| {
+            ws.terminal_tabs().find_map(|(_, tab)| {
                 let pane = tab.panes.get(&pane_id)?;
                 let agent_label = state
                     .terminals
@@ -84,7 +84,7 @@ mod tests {
             .workspaces
             .push(crate::workspace::Workspace::test_new("stale"));
         state.ensure_test_terminals();
-        let root = state.workspaces[0].tabs[0].root_pane;
+        let root = state.workspaces[0].terminal_tab(0).unwrap().root_pane;
         let terminal_id = state.workspaces[0].terminal_id(root).cloned().unwrap();
         let temp_root = std::env::temp_dir().join(format!(
             "gardn-forwarded-toast-context-{}-{}",

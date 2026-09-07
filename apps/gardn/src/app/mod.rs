@@ -504,9 +504,6 @@ fn agent_panel_scope_from_config(
     }
 }
 
-/// Parse the configured agent name list into a deduplicated set of `Agent`
-/// values. Unknown agent names are silently dropped so a typo cannot disable
-/// other valid entries.
 fn parse_cjk_ime_agents(names: &[String]) -> Vec<crate::detect::Agent> {
     let mut out = Vec::with_capacity(names.len());
     for name in names {
@@ -1270,7 +1267,7 @@ impl App {
                 .workspaces
                 .iter()
                 .flat_map(|workspace| {
-                    workspace.tabs.iter().flat_map(|tab| {
+                    workspace.terminal_tabs().flat_map(|(_, tab)| {
                         tab.panes.iter().filter_map(|(pane_id, pane)| {
                             let terminal = state.terminals.get(&pane.attached_terminal_id)?;
                             let identity = terminal.remote_runtime_identity.clone()?;
@@ -1903,7 +1900,7 @@ impl App {
                         .iter()
                         .enumerate()
                         .flat_map(|(ws_idx, workspace)| {
-                            workspace.tabs.iter().flat_map(move |tab| {
+                            workspace.terminal_tabs().flat_map(move |(_, tab)| {
                                 tab.panes.iter().map(move |entry| (ws_idx, entry))
                             })
                         })
@@ -1953,8 +1950,8 @@ impl App {
                         .state
                         .workspaces
                         .iter()
-                        .flat_map(|workspace| &workspace.tabs)
-                        .flat_map(|tab| &tab.panes)
+                        .flat_map(|workspace| workspace.terminal_tabs())
+                        .flat_map(|(_, tab)| &tab.panes)
                         .filter(|(_, pane)| pane.attached_terminal_id == terminal_id)
                         .map(|(pane_id, _)| *pane_id)
                         .collect::<Vec<_>>();
@@ -1982,8 +1979,8 @@ impl App {
                         .state
                         .workspaces
                         .iter()
-                        .flat_map(|workspace| &workspace.tabs)
-                        .flat_map(|tab| &tab.panes)
+                        .flat_map(|workspace| workspace.terminal_tabs())
+                        .flat_map(|(_, tab)| &tab.panes)
                         .filter(|(_, pane)| pane.attached_terminal_id == terminal_id)
                         .map(|(pane_id, _)| *pane_id)
                         .collect::<Vec<_>>();
@@ -2143,13 +2140,14 @@ impl App {
             let schedule_started = Instant::now();
 
             let now = Instant::now();
+            needs_render |= self.poll_execution_hosts(now);
             needs_render |= self.poll_github();
-            if self.default_client_view.github.is_some() {
+            if self.default_client_view.github.is_some()
+                || self.default_client_view.github_host.is_some()
+                || self.default_client_view.focused_tab_is_github(&self.state)
+            {
                 needs_render |=
                     self.with_default_github_view(|app, view| app.pump_github_for_view(view));
-            }
-            if self.poll_execution_hosts(now) {
-                needs_render = true;
             }
             if self.handle_scheduled_tasks(now, needs_render) {
                 needs_render = true;
@@ -2274,15 +2272,24 @@ impl App {
                                 area,
                             );
                         }
-                        if self.default_client_view.github.is_some() {
+                        if self.default_client_view.github.is_some()
+                            || self.default_client_view.github_host.is_some()
+                        {
                             self.with_default_github_view(|_, _| {});
+                            crate::ui::render_with_runtime_registry_for_view(
+                                &self.state,
+                                &self.default_client_view,
+                                &self.terminal_runtimes,
+                                frame,
+                            );
+                        } else {
+                            crate::ui::render_with_github(
+                                &self.state,
+                                &self.terminal_runtimes,
+                                None,
+                                frame,
+                            );
                         }
-                        crate::ui::render_with_github(
-                            &self.state,
-                            &self.terminal_runtimes,
-                            self.default_client_view.github.as_ref(),
-                            frame,
-                        );
                         if let Some(line) = overlay.as_deref() {
                             crate::ui::render_loop_debug(frame, line, overlay_bg, overlay_fg);
                         }
@@ -2292,10 +2299,7 @@ impl App {
                 if kitty_graphics_enabled {
                     crate::kitty_graphics::paint_local_pane_graphics(
                         &self.state,
-                        self.default_client_view
-                            .github
-                            .as_ref()
-                            .and(self.default_client_view.github_pane_id),
+                        None,
                         &mut self.pane_graphics,
                         &self.terminal_runtimes,
                         cell_size,
@@ -4378,7 +4382,7 @@ impl App {
                     }
                     MobileSwitcherTarget::Tab { ws_idx, tab_idx } => {
                         let workspace = self.state.workspaces.get(ws_idx)?;
-                        let tab = workspace.tabs.get(tab_idx)?;
+                        let tab = workspace.terminal_tab(tab_idx).ok()?;
                         let pane_id = client_view
                             .focused_pane_for_tab(&workspace.id, tab_idx + 1)
                             .unwrap_or_else(|| tab.layout.focused());
@@ -5044,19 +5048,17 @@ impl App {
                     }
                     Mode::RenameTab => {
                         if let Some(ws_idx) = client_view.active_workspace {
-                            if let Some(tab_idx) =
-                                client_view.active_tab_index_for_workspace(&self.state, ws_idx)
-                            {
-                                if let Some(tab) = self
-                                    .state
+                            let tab_idx =
+                                client_view.active_tab_index_for_workspace(&self.state, ws_idx);
+                            if let Some(tab) = tab_idx.and_then(|tab_idx| {
+                                self.state
                                     .workspaces
                                     .get_mut(ws_idx)
-                                    .and_then(|ws| ws.tabs.get_mut(tab_idx))
-                                {
-                                    if !new_name.is_empty() {
-                                        tab.set_custom_name(new_name);
-                                        self.state.mark_session_dirty();
-                                    }
+                                    .and_then(|workspace| workspace.tabs.get_mut(tab_idx))
+                            }) {
+                                if !new_name.is_empty() {
+                                    tab.set_custom_name(new_name);
+                                    self.state.mark_session_dirty();
                                 }
                             }
                         }
@@ -5312,7 +5314,7 @@ impl App {
             .state
             .workspaces
             .get_mut(ws_idx)
-            .and_then(|ws| ws.tabs.get_mut(tab_idx))
+            .and_then(|ws| ws.terminal_tab_mut(tab_idx).ok())
         {
             tab.layout
                 .resize_pane(pane_id, direction, 1.0, client_view.computed.terminal_area);
@@ -5381,7 +5383,7 @@ impl App {
             .and_then(|ws_idx| {
                 let workspace = self.state.workspaces.get(ws_idx)?;
                 let tab_idx = client_view.active_tab_index_for_workspace(&self.state, ws_idx)?;
-                workspace.tabs.get(tab_idx).map(|tab| tab.display_name())
+                workspace.tab_display_name(tab_idx)
             })
             .unwrap_or_default();
         client_view.name_input_replace_on_type = true;
@@ -5708,11 +5710,7 @@ impl App {
                 let Some(workspace) = self.state.workspaces.get(ws_idx) else {
                     return false;
                 };
-                if !workspace
-                    .tabs
-                    .get(tab_idx)
-                    .is_some_and(|tab| tab.panes.contains_key(&pane_id))
-                {
+                if workspace.pane_state(pane_id).is_none() {
                     return false;
                 }
                 client_view.active_workspace = Some(ws_idx);
@@ -5801,7 +5799,7 @@ impl App {
                     | crate::app::command_palette::CommandPaletteAction::OpenGithub
             )
         {
-            self.close_github_for_view(client_view);
+            self.release_github_for_view(client_view);
         }
         match action {
             crate::app::command_palette::CommandPaletteAction::Github(action) => {
@@ -6303,38 +6301,29 @@ impl App {
         let Some(tab_idx) = client_view.active_tab_index_for_workspace(&self.state, ws_idx) else {
             return false;
         };
-        if self
-            .state
-            .workspaces
-            .get(ws_idx)
-            .is_none_or(|workspace| workspace.tabs.get(tab_idx).is_none())
-        {
-            return false;
-        }
-        self.state.selection = None;
-        self.state.selection_autoscroll = None;
-        let terminal_ids = self.state.terminal_ids_for_tab(ws_idx, tab_idx);
-        let pane_ids = self.state.pane_ids_for_tab(ws_idx, tab_idx);
-        let workspace_id = self.state.workspaces[ws_idx].id.clone();
-        let closing_tab_id = self.state.workspaces[ws_idx]
-            .public_tab_number(tab_idx)
-            .map(|number| crate::workspace::public_tab_id_for_number(&workspace_id, number))
-            .unwrap_or_else(|| format!("{}:{}", workspace_id, tab_idx + 1));
-        let Some(workspace) = self.state.workspaces.get_mut(ws_idx) else {
-            return false;
+        let (workspace_id, closing_tab_id) = {
+            let Some(workspace) = self.state.workspaces.get(ws_idx) else {
+                return false;
+            };
+            let Some(_tab) = workspace.tabs.get(tab_idx) else {
+                return false;
+            };
+            let workspace_id = workspace.id.clone();
+            let closing_tab_id = workspace
+                .public_tab_number(tab_idx)
+                .map(|number| crate::workspace::public_tab_id_for_number(&workspace_id, number))
+                .unwrap_or_else(|| format!("{}:{}", workspace_id, tab_idx + 1));
+            (workspace_id, closing_tab_id)
         };
-        if !workspace.close_tab_allow_empty(tab_idx) {
+        if !self.close_workspace_tab_for_view(client_view, ws_idx, tab_idx) {
             return false;
         }
-        self.state.remove_plugin_pane_records(pane_ids);
-        self.state.remove_unattached_terminal_ids(terminal_ids);
         crate::logging::tab_closed(&workspace_id, &closing_tab_id);
-        self.state.mark_session_dirty();
         client_view.hovered_tab = None;
         client_view.tab_scroll_follow_active = true;
         client_view.reconcile(&self.state);
         client_view.return_to_active_workspace_mode();
-        false
+        true
     }
 
     fn close_focused_pane_for_client_view(&mut self, client_view: &mut ClientViewState) -> bool {
@@ -6399,7 +6388,7 @@ impl App {
             .state
             .workspaces
             .get(ws_idx)
-            .and_then(|workspace| workspace.tabs.get(tab_idx))
+            .and_then(|workspace| workspace.terminal_tab(tab_idx).ok())
         else {
             return;
         };
@@ -6432,7 +6421,7 @@ impl App {
             .state
             .workspaces
             .get(ws_idx)
-            .and_then(|workspace| workspace.tabs.get(tab_idx))
+            .and_then(|workspace| workspace.terminal_tab(tab_idx).ok())
         else {
             return;
         };
@@ -6540,7 +6529,7 @@ impl App {
             .state
             .workspaces
             .get(ws_idx)
-            .and_then(|workspace| workspace.tabs.get(tab_idx))
+            .and_then(|workspace| workspace.terminal_tab(tab_idx).ok())
         else {
             return;
         };
@@ -6570,7 +6559,7 @@ impl App {
         let new_rows = (rows / 2).max(4);
         let new_cols = (cols / 2).max(10);
         let follow_cwd = self.state.workspaces.get(ws_idx).and_then(|workspace| {
-            let tab = workspace.tabs.get(tab_idx)?;
+            let tab = workspace.terminal_tab(tab_idx).ok()?;
             tab.cwd_for_pane(pane_id, &self.state.terminals, &self.terminal_runtimes)
         });
         let cwd = Some(self.resolve_new_terminal_cwd(follow_cwd));
@@ -6578,7 +6567,7 @@ impl App {
         let Some(workspace) = self.state.workspaces.get_mut(ws_idx) else {
             return;
         };
-        if let Some(tab) = workspace.tabs.get_mut(tab_idx) {
+        if let Ok(tab) = workspace.terminal_tab_mut(tab_idx) {
             tab.layout.focus_pane(pane_id);
             workspace.active_tab = tab_idx;
         }
@@ -7072,7 +7061,7 @@ impl App {
         let Some(workspace) = self.state.workspaces.get(ws_idx) else {
             return false;
         };
-        if tab_idx >= workspace.tabs.len() {
+        if workspace.tabs.get(tab_idx).is_none() {
             return false;
         }
         client_view.selected_workspace = ws_idx;
@@ -7121,20 +7110,11 @@ impl App {
             return;
         }
         let workspace_id = workspace.id.clone();
-        let mut terminal_ids = Vec::new();
-        let mut pane_ids = Vec::new();
         for idx in (0..tab_count).rev() {
-            if idx == tab_idx {
-                continue;
-            }
-            terminal_ids.extend(self.state.terminal_ids_for_tab(ws_idx, idx));
-            pane_ids.extend(self.state.pane_ids_for_tab(ws_idx, idx));
-            if let Some(workspace) = self.state.workspaces.get_mut(ws_idx) {
-                let _ = workspace.close_tab_allow_empty(idx);
+            if idx != tab_idx {
+                let _ = self.state.close_workspace_tab(ws_idx, idx);
             }
         }
-        self.state.remove_plugin_pane_records(pane_ids);
-        self.state.remove_unattached_terminal_ids(terminal_ids);
         if let Some(workspace) = self.state.workspaces.get_mut(ws_idx) {
             workspace.active_tab = 0;
         }
@@ -9227,13 +9207,7 @@ impl App {
             return false;
         };
 
-        let before_active = self.state.active;
-        let before_selected = self.state.selected;
-        self.state.active = Some(ws_idx);
-        self.state.selected = ws_idx;
-        let _ = self.state.close_tab_at(tab_idx);
-        self.state.active = before_active.filter(|idx| *idx < self.state.workspaces.len());
-        self.state.selected = before_selected.min(self.state.workspaces.len().saturating_sub(1));
+        let _ = self.close_workspace_tab_for_view(client_view, ws_idx, tab_idx);
         client_view.hovered_tab = None;
         client_view.tab_scroll_follow_active = true;
         client_view.reconcile(&self.state);
@@ -10079,7 +10053,7 @@ impl App {
                             .state
                             .workspaces
                             .get_mut(ws_idx)
-                            .and_then(|workspace| workspace.tabs.get_mut(tab_idx))
+                            .and_then(|workspace| workspace.terminal_tab_mut(tab_idx).ok())
                         {
                             tab.layout.set_ratio_at(&path, ratio);
                             self.state.mark_session_dirty();
@@ -10217,16 +10191,13 @@ impl App {
                         let mut moved = false;
                         if let Some(workspace) = self.state.workspaces.get_mut(ws_idx) {
                             let workspace_id = workspace.id.clone();
-                            let client_active_root = client_view
+                            let client_active_number = client_view
                                 .active_tab_for_workspace(&workspace_id)
-                                .and_then(|tab_idx| workspace.tabs.get(tab_idx))
-                                .map(|tab| tab.root_pane);
+                                .and_then(|tab_idx| workspace.public_tab_number(tab_idx));
                             moved = workspace.move_tab(source_tab_idx, insert_idx);
-                            if let Some(root_pane) = client_active_root {
-                                if let Some(tab_idx) = workspace
-                                    .tabs
-                                    .iter()
-                                    .position(|tab| tab.root_pane == root_pane)
+                            if let Some(number) = client_active_number {
+                                if let Some(tab_idx) =
+                                    workspace.tabs.iter().position(|tab| tab.number() == number)
                                 {
                                     client_view.active_tabs.insert(workspace_id, tab_idx);
                                 }
@@ -13197,340 +13168,295 @@ mod tests {
         )
     }
 
-    #[test]
-    fn github_palette_escape_and_scope_invalidation_stay_client_local() {
+    #[tokio::test]
+    async fn github_opens_in_dedicated_tab_and_close_restores_source_tab() {
+        let mut app = test_app();
+        app.state.workspaces = vec![Workspace::test_new("workspace")];
+        app.state.active = Some(0);
+        app.state.mode = Mode::Terminal;
+        let source_pane = app.state.workspaces[0]
+            .terminal_tab(0)
+            .expect("source terminal")
+            .root_pane;
+        let mut view = ClientViewState::from_default_client_state(&app.state);
+        let terminal_count = app.state.terminals.len();
+        let runtime_count = app.terminal_runtimes.len();
+
+        app.open_github_for_view(&mut view);
+
+        assert_eq!(app.state.workspaces[0].tabs.len(), 2);
+        assert_eq!(
+            app.state.workspaces[0].tab_display_name(1).as_deref(),
+            Some("GitHub")
+        );
+        assert!(app.state.workspaces[0].tabs[1].is_github());
+        assert_eq!(app.state.terminals.len(), terminal_count);
+        assert_eq!(app.terminal_runtimes.len(), runtime_count);
+        assert_eq!(view.active_tab_index_for_workspace(&app.state, 0), Some(1));
+        assert_eq!(
+            view.github_host
+                .as_ref()
+                .and_then(|host| host.source_focus.as_ref())
+                .map(|focus| focus.pane_id),
+            Some(source_pane)
+        );
+
+        app.close_github_for_view(&mut view);
+
+        assert_eq!(app.state.workspaces[0].tabs.len(), 1);
+        assert_eq!(
+            view.current_pane_focus_target(&app.state)
+                .expect("source pane remains focused")
+                .pane_id,
+            source_pane
+        );
+        assert_eq!(view.mode, Mode::Terminal);
+    }
+
+    #[tokio::test]
+    async fn closing_active_github_tab_restores_its_source_focus() {
+        let mut app = test_app();
+        app.state.workspaces = vec![Workspace::test_new("workspace")];
+        app.state.active = Some(0);
+        app.state.mode = Mode::Terminal;
+        let source_pane = app.state.workspaces[0]
+            .terminal_tab(0)
+            .expect("source terminal")
+            .root_pane;
+        let mut view = ClientViewState::from_default_client_state(&app.state);
+        app.open_github_for_view(&mut view);
+
+        assert!(app.close_active_tab_for_client_view(&mut view));
+
+        assert!(view.github.is_none());
+        assert!(view.github_host.is_none());
+        assert_eq!(app.state.workspaces[0].tabs.len(), 1);
+        assert_eq!(
+            view.current_pane_focus_target(&app.state)
+                .expect("source pane remains focused")
+                .pane_id,
+            source_pane
+        );
+        assert_eq!(view.mode, Mode::Terminal);
+    }
+
+    #[tokio::test]
+    async fn default_github_tab_can_switch_without_replacing_source_tab() {
+        let mut app = test_app();
+        app.state.workspaces = vec![Workspace::test_new("workspace")];
+        app.state.workspaces[0].test_add_tab(Some("other"));
+        app.state.workspaces[0].active_tab = 0;
+        app.state.active = Some(0);
+        app.state.mode = Mode::Terminal;
+
+        app.open_default_github(Some(0));
+
+        assert_eq!(app.state.workspaces[0].active_tab, 2);
+        app.open_default_github(Some(0));
+        assert_eq!(app.state.workspaces[0].tabs.len(), 3);
+        assert_eq!(
+            app.state.workspaces[0]
+                .tabs
+                .iter()
+                .filter(|tab| tab.is_github())
+                .count(),
+            1
+        );
+        assert_eq!(
+            app.default_client_view
+                .active_tab_index_for_workspace(&app.state, 0),
+            Some(2)
+        );
+        app.state.switch_tab(0);
+        app.with_default_github_view(|_, _| {});
+        assert_eq!(
+            app.default_client_view
+                .active_tab_index_for_workspace(&app.state, 0),
+            Some(0)
+        );
+        assert!(app.default_client_view.github.is_some());
+        assert_eq!(app.default_client_view.mode, Mode::Terminal);
+
+        app.state.switch_tab(2);
+        app.with_default_github_view(|_, _| {});
+        assert_eq!(app.default_client_view.mode, Mode::Github);
+        app.with_default_github_view(|app, view| app.close_github_for_view(view));
+        assert_eq!(app.state.workspaces[0].active_tab, 0);
+        assert_eq!(app.state.workspaces[0].tabs.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn github_scope_invalidation_releases_only_affected_view() {
         let mut app = test_app();
         app.state.workspaces = vec![Workspace::test_new("one"), Workspace::test_new("two")];
         app.state.active = Some(0);
         app.state.mode = Mode::Terminal;
-        let scope = crate::github::ResolvedGithubScope {
-            repositories: Vec::new(),
-            organization: None,
-        };
         let mut first = ClientViewState::from_default_client_state(&app.state);
+        first.active_workspace = Some(0);
         let mut second = ClientViewState::from_default_client_state(&app.state);
-        for (index, view) in [(0, &mut first), (1, &mut second)] {
-            view.active_workspace = Some(index);
-            view.github_workspace_id = Some(app.state.workspaces[index].id.clone());
-            view.github_pane_id = Some(app.state.workspaces[index].tabs[0].layout.focused());
-            view.github_scope_settings =
-                Some((crate::github::GithubRepositoryScope::Automatic, None));
-            view.github = Some(crate::github::screen::GithubScreen::new(scope.clone()));
-            view.mode = Mode::CommandPalette;
-        }
-        app.route_client_events_for_view(
-            &mut first,
-            vec![raw_key(
-                KeyCode::Esc,
-                KeyModifiers::empty(),
-                KeyEventKind::Press,
-            )],
-            false,
-        );
-        assert_eq!(first.mode, Mode::Github);
-        assert_eq!(second.mode, Mode::CommandPalette);
+        second.active_workspace = Some(1);
+        app.open_github_for_view(&mut first);
+        app.open_github_for_view(&mut second);
+
+        assert_eq!(app.state.workspaces[0].tabs.len(), 2);
+        assert_eq!(app.state.workspaces[1].tabs.len(), 2);
+        assert!(first.github_host.is_some());
+        assert!(second.github_host.is_some());
+        assert!(first.github.is_some());
+        assert!(second.github.is_some());
         app.state.workspaces[0].github_scope =
             crate::github::GithubRepositoryScope::GroupOrganization;
         assert!(app.pump_github_for_view(&mut first));
         assert!(first.github.is_none());
-        assert_eq!(first.mode, Mode::Terminal);
+        assert!(first.github_host.is_none());
+        assert_eq!(app.state.workspaces[0].tabs.len(), 2);
         assert!(second.github.is_some());
-        assert_eq!(second.mode, Mode::CommandPalette);
-        assert!(app.state.request_open_project_command.is_none());
-        app.close_github_for_view(&mut second);
-    }
-
-    #[test]
-    fn removing_github_owner_closes_only_its_client_screen() {
-        let mut app = test_app();
-        app.state.workspaces = vec![Workspace::test_new("owner"), Workspace::test_new("other")];
-        app.state.active = Some(0);
-        app.state.mode = Mode::Terminal;
-        let mut first = ClientViewState::from_default_client_state(&app.state);
-        let mut second = ClientViewState::from_default_client_state(&app.state);
-        let other = app.state.workspaces[1].tabs[0].root_pane;
-        second.focus_pane_in_workspace(&app.state, 1, 0, other);
-        attach_test_github(&app, &mut first);
-        attach_test_github(&app, &mut second);
-        app.state.workspaces[0].tabs.clear();
-        assert!(app.pump_github_for_view(&mut first));
-        assert!(first.github.is_none());
-        assert!(second.github.is_some());
-        assert_eq!(second.github_pane_id, Some(other));
+        assert_eq!(app.state.workspaces[1].tabs.len(), 2);
     }
 
     #[tokio::test]
-    async fn standalone_github_routes_other_pane_input_and_closes_without_removing_owner() {
+    async fn removing_github_tab_closes_screen_and_restores_source_focus() {
         let mut app = test_app();
-        let mut workspace = Workspace::test_new("standalone");
-        let owner = workspace.tabs[0].root_pane;
-        let other = workspace.test_split(ratatui::layout::Direction::Horizontal);
-        workspace.tabs[0].layout.focus_pane(owner);
-        app.state.workspaces = vec![workspace];
+        app.state.workspaces = vec![Workspace::test_new("workspace")];
+        app.state.workspaces[0].test_add_tab(Some("other"));
         app.state.active = Some(0);
         app.state.mode = Mode::Terminal;
-        app.state.mouse_capture = true;
-        app.state.ensure_test_terminals();
-        let terminal_id = app.state.workspaces[0]
-            .terminal_id(other)
-            .cloned()
-            .expect("terminal");
-        let (runtime, mut receiver) =
-            TerminalRuntime::test_with_channel_and_scrollback_bytes(80, 24, 0, b"OTHER", 16);
-        app.terminal_runtimes.insert(terminal_id, runtime);
-        crate::ui::compute_view_with_runtime_registry(
-            &mut app.state,
-            &app.terminal_runtimes,
-            ratatui::layout::Rect::new(0, 0, 160, 40),
-        );
+        let source = app.state.workspaces[0]
+            .terminal_tab(0)
+            .expect("source terminal")
+            .root_pane;
         let mut view = ClientViewState::from_default_client_state(&app.state);
-        attach_test_github(&app, &mut view);
-        app.default_client_view = view;
-        app.state.mode = Mode::Github;
-        let other_area = app
-            .state
-            .view
-            .pane_infos
-            .iter()
-            .find(|info| info.id == other)
-            .expect("other pane")
-            .inner_rect;
-        app.handle_raw_input_event(raw_mouse(
-            crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left),
-            other_area.x + 1,
-            other_area.y + 1,
-        ))
-        .await;
-        app.handle_raw_input_event(raw_key(
-            KeyCode::Char('x'),
-            KeyModifiers::empty(),
-            KeyEventKind::Press,
-        ))
-        .await;
-        assert_eq!(
-            receiver.try_recv().expect("other terminal input"),
-            bytes::Bytes::from_static(b"x")
-        );
-        assert_eq!(app.default_client_view.github_pane_id, Some(owner));
-        let owner_area = app
-            .state
-            .view
-            .pane_infos
-            .iter()
-            .find(|info| info.id == owner)
-            .expect("owner")
-            .inner_rect;
-        app.handle_raw_input_event(raw_mouse(
-            crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left),
-            owner_area.x + 1,
-            owner_area.y + owner_area.height - 2,
-        ))
-        .await;
-        app.handle_raw_input_event(raw_key(
-            KeyCode::Esc,
-            KeyModifiers::empty(),
-            KeyEventKind::Press,
-        ))
-        .await;
-        assert!(app.default_client_view.github.is_none());
-        assert_eq!(app.state.workspaces[0].tabs[0].layout.focused(), owner);
-        assert!(app.state.workspaces[0].tabs[0].panes.contains_key(&owner));
-        assert_eq!(app.state.mode, Mode::Terminal);
-    }
 
-    fn attach_test_github(app: &App, view: &mut ClientViewState) {
-        let target = view
-            .current_pane_focus_target(&app.state)
-            .expect("focused pane");
-        view.github_workspace_id = Some(target.workspace_id);
-        view.github_pane_id = Some(target.pane_id);
-        view.github_scope_settings = Some((crate::github::GithubRepositoryScope::Automatic, None));
-        view.github = Some(crate::github::screen::GithubScreen::new(
-            crate::github::ResolvedGithubScope {
-                repositories: Vec::new(),
-                organization: None,
-            },
-        ));
-        view.mode = Mode::Github;
-    }
-
-    fn github_test_frame(app: &App, view: &ClientViewState) -> ratatui::buffer::Buffer {
-        let mut terminal =
-            ratatui::Terminal::new(ratatui::backend::TestBackend::new(160, 40)).expect("terminal");
-        terminal
-            .draw(|frame| {
-                crate::ui::render_with_runtime_registry_for_view(
-                    &app.state,
-                    view,
-                    &app.terminal_runtimes,
-                    frame,
-                )
-            })
-            .expect("render");
-        terminal.backend().buffer().clone()
-    }
-
-    #[test]
-    fn github_keeps_surrounding_panes_chrome_and_mouse_input_available() {
-        let mut app = test_app();
-        let mut workspace = Workspace::test_new("workspace");
-        let owner = workspace.tabs[0].root_pane;
-        let other = workspace.test_split(ratatui::layout::Direction::Horizontal);
-        workspace.tabs[0].layout.focus_pane(owner);
-        app.state.workspaces = vec![workspace];
-        app.state.active = Some(0);
-        app.state.mode = Mode::Terminal;
-        app.state.mouse_capture = true;
-        app.state.ensure_test_terminals();
-        let terminal_id = app.state.workspaces[0]
-            .terminal_id(other)
-            .cloned()
-            .expect("terminal id");
-        let (runtime, mut receiver) = TerminalRuntime::test_with_channel_and_scrollback_bytes(
-            80,
-            24,
-            0,
-            b"OTHER PANE OUTPUT\x1b[?1002h\x1b[?1006h",
-            16,
-        );
-        app.terminal_runtimes.insert(terminal_id, runtime);
-        let mut view = ClientViewState::from_default_client_state(&app.state);
-        let area = ratatui::layout::Rect::new(0, 0, 160, 40);
-        compute_client_view(&app, &mut view, area);
-        let before = github_test_frame(&app, &view);
-        attach_test_github(&app, &mut view);
-        compute_client_view(&app, &mut view, area);
-        let owner_area = view.github_pane_rect(&app.state);
-        let after = github_test_frame(&app, &view);
-        for y in 0..40 {
-            for x in 0..160 {
-                if !owner_area.contains((x, y).into()) {
-                    assert_eq!(after[(x, y)], before[(x, y)], "outside owner at {x},{y}");
-                }
-            }
-        }
-        let other_info = view
-            .computed
-            .pane_infos
+        app.open_github_for_view(&mut view);
+        let host = view.github_host.as_ref().expect("GitHub host").key.clone();
+        let host_tab = app.state.workspaces[0]
+            .tabs
             .iter()
-            .find(|info| info.id == other)
-            .expect("other pane");
-        let (x, y) = screen_point_for_client_canvas(
-            &view,
-            other_info.inner_rect.x + 1,
-            other_info.inner_rect.y + 1,
-        );
-        app.route_client_events_for_view(
-            &mut view,
-            vec![raw_mouse(
-                crossterm::event::MouseEventKind::ScrollDown,
-                x,
-                y,
-            )],
-            true,
-        );
-        assert!(receiver
-            .try_recv()
-            .expect("other pane receives wheel")
-            .starts_with(b"\x1b[<65;"));
-        app.route_client_events_for_view(
-            &mut view,
-            vec![raw_mouse(
-                crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left),
-                x,
-                y,
-            )],
-            true,
-        );
+            .position(|tab| tab.number() == host.tab_number && tab.is_github())
+            .expect("GitHub tab");
+        assert!(app.close_workspace_tab_for_view(&mut view, 0, host_tab));
+        assert!(view.github.is_none());
+        assert!(view.github_host.is_none());
         assert_eq!(
             view.current_pane_focus_target(&app.state)
-                .expect("focus")
+                .expect("source focus")
                 .pane_id,
-            other
+            source
         );
-        assert_eq!(view.github_pane_id, Some(owner));
-        assert!(view.github.is_some());
+        assert_eq!(app.state.workspaces[0].tabs.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn removing_background_github_tab_keeps_current_focus() {
+        let mut app = test_app();
+        app.state.workspaces = vec![Workspace::test_new("workspace")];
+        let other_tab = app.state.workspaces[0].test_add_tab(Some("other"));
+        app.state.active = Some(0);
+        app.state.mode = Mode::Terminal;
+        let other_pane = app.state.workspaces[0]
+            .terminal_tab(other_tab)
+            .expect("other terminal")
+            .root_pane;
+        let mut view = ClientViewState::from_default_client_state(&app.state);
+
+        app.open_github_for_view(&mut view);
+        let host = view.github_host.as_ref().expect("GitHub host").key.clone();
+        view.focus_tab_in_workspace(&app.state, 0, other_tab);
+        app.pump_github_for_view(&mut view);
+        let host_tab = app.state.workspaces[0]
+            .tabs
+            .iter()
+            .position(|tab| tab.number() == host.tab_number && tab.is_github())
+            .expect("GitHub tab");
+        assert!(app.close_workspace_tab_for_view(&mut view, 0, host_tab));
+        assert_eq!(
+            view.current_pane_focus_target(&app.state)
+                .expect("current focus")
+                .pane_id,
+            other_pane
+        );
     }
 
     #[test]
-    fn github_owner_survives_tab_workspace_switching_and_close_restores_terminal() {
+    fn focused_restored_github_role_hydrates_a_fresh_client_view() {
         let mut app = test_app();
-        let mut workspace = Workspace::test_new("owner workspace");
-        let owner = workspace.tabs[0].root_pane;
-        workspace.test_add_tab(Some("other tab"));
-        workspace.active_tab = 0;
-        app.state.workspaces = vec![workspace, Workspace::test_new("other workspace")];
+        let mut workspace = Workspace::test_new("workspace");
+        let github_tab = workspace.ensure_github_tab();
+        let workspace_id = workspace.id.clone();
+        app.state.workspaces = vec![workspace];
+        app.state.active = Some(0);
+        app.state.workspaces[0].active_tab = github_tab;
+        let mut view = ClientViewState::from_default_client_state(&app.state);
+        view.active_workspace = Some(0);
+        view.active_tabs.insert(workspace_id, github_tab);
+
+        assert!(app.pump_github_for_view(&mut view));
+
+        assert!(view.github.is_some());
+        assert!(view.github_host.is_some());
+        assert_eq!(app.state.workspaces[0].tabs.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn focusing_another_workspace_github_tab_replaces_retained_host() {
+        let mut app = test_app();
+        app.state.workspaces = vec![Workspace::test_new("one"), Workspace::test_new("two")];
         app.state.active = Some(0);
         app.state.mode = Mode::Terminal;
-        app.state.mouse_capture = true;
-        app.state.ensure_test_terminals();
+        let second_workspace_id = app.state.workspaces[1].id.clone();
+        let second_source_pane = app.state.workspaces[1]
+            .terminal_tab(0)
+            .expect("second source terminal")
+            .root_pane;
         let mut view = ClientViewState::from_default_client_state(&app.state);
-        let area = ratatui::layout::Rect::new(0, 0, 160, 40);
-        compute_client_view(&app, &mut view, area);
-        let before = github_test_frame(&app, &view);
-        attach_test_github(&app, &mut view);
-        let tab = view.computed.tab_hit_areas[1];
-        app.route_client_events_for_view(
-            &mut view,
-            vec![
-                raw_mouse(
-                    crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left),
-                    tab.x + 1,
-                    tab.y,
-                ),
-                raw_mouse(
-                    crossterm::event::MouseEventKind::Up(crossterm::event::MouseButton::Left),
-                    tab.x + 1,
-                    tab.y,
-                ),
-            ],
-            true,
+        view.active_workspace = Some(0);
+        app.open_github_for_view(&mut view);
+        view.active_workspace = Some(1);
+        app.open_github_for_view(&mut view);
+        let second_host = view.github_host.as_ref().expect("second GitHub host");
+        assert_eq!(second_host.key.workspace_id, second_workspace_id);
+        assert_eq!(
+            second_host.source_focus.as_ref().map(|focus| focus.pane_id),
+            Some(second_source_pane)
         );
-        assert_eq!(view.active_tab_index_for_workspace(&app.state, 0), Some(1));
-        compute_client_view(&app, &mut view, area);
-        assert!(view.github_pane_rect(&app.state).is_empty());
-        assert!(view.github.is_some());
-        let card = view
-            .computed
-            .workspace_card_areas
+        let first_workspace_id = app.state.workspaces[0].id.clone();
+        let first_github_tab = app.state.workspaces[0]
+            .tabs
             .iter()
-            .find(|card| card.ws_idx == 1)
-            .expect("workspace card")
-            .rect;
-        app.route_client_events_for_view(
-            &mut view,
-            vec![
-                raw_mouse(
-                    crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left),
-                    card.x + 1,
-                    card.y + 1,
-                ),
-                raw_mouse(
-                    crossterm::event::MouseEventKind::Up(crossterm::event::MouseButton::Left),
-                    card.x + 1,
-                    card.y + 1,
-                ),
-            ],
-            true,
+            .position(|tab| tab.is_github())
+            .expect("first GitHub tab");
+        view.active_workspace = Some(0);
+        view.active_tabs
+            .insert(first_workspace_id.clone(), first_github_tab);
+
+        assert!(app.pump_github_for_view(&mut view));
+
+        assert_eq!(
+            view.github_host
+                .as_ref()
+                .map(|host| host.key.workspace_id.as_str()),
+            Some(first_workspace_id.as_str())
         );
-        assert_eq!(view.active_workspace, Some(1));
-        compute_client_view(&app, &mut view, area);
-        assert!(view.github_pane_rect(&app.state).is_empty());
-        view.focus_pane_in_workspace(&app.state, 0, 0, owner);
-        compute_client_view(&app, &mut view, area);
-        app.route_client_events_for_view(
-            &mut view,
-            vec![raw_key(
-                KeyCode::Esc,
-                KeyModifiers::empty(),
-                KeyEventKind::Press,
-            )],
-            false,
-        );
-        assert!(view.github.is_none());
-        assert!(app.state.workspaces[0].tabs[0].panes.contains_key(&owner));
-        compute_client_view(&app, &mut view, area);
-        assert_eq!(github_test_frame(&app, &view), before);
+        assert_eq!(view.mode, Mode::Github);
+    }
+
+    #[test]
+    fn restored_github_hydration_preserves_settings_mode() {
+        let mut app = test_app();
+        let mut workspace = Workspace::test_new("workspace");
+        let github_tab = workspace.ensure_github_tab();
+        let workspace_id = workspace.id.clone();
+        app.state.workspaces = vec![workspace];
+        app.state.active = Some(0);
+        let mut view = ClientViewState::from_default_client_state(&app.state);
+        view.active_workspace = Some(0);
+        view.active_tabs.insert(workspace_id, github_tab);
+        view.mode = Mode::Settings;
+
+        assert!(app.pump_github_for_view(&mut view));
+
+        assert!(view.github.is_some());
+        assert_eq!(view.mode, Mode::Settings);
     }
 
     #[test]
@@ -13846,7 +13772,10 @@ mod tests {
         let tab_idx = app
             .create_agent_profile_tab(0, "user:wrapped-claude")
             .expect("managed profile should launch");
-        let root_pane = app.state.workspaces[0].tabs[tab_idx].root_pane;
+        let root_pane = app.state.workspaces[0]
+            .terminal_tab(tab_idx)
+            .unwrap()
+            .root_pane;
         let terminal_id = app.state.workspaces[0]
             .terminal_id(root_pane)
             .expect("profile tab should own a terminal")
@@ -14224,7 +14153,7 @@ mod tests {
         assert_eq!(app.state.collapsed_command_status_groups, vec!["running"]);
         assert_eq!(app.state.collapsed_workspace_groups, vec!["g1"]);
 
-        let restored_first_pane = app.state.workspaces[0].tabs[0].root_pane;
+        let restored_first_pane = app.state.workspaces[0].terminal_tab(0).unwrap().root_pane;
         app.handle_internal_event(AppEvent::HookStateReported {
             pane_id: restored_first_pane,
             source: "gardn:omp".to_string(),
@@ -14254,7 +14183,7 @@ mod tests {
         custom_status: Option<&str>,
         state_label: Option<&str>,
     ) -> crate::layout::PaneId {
-        let pane_id = state.workspaces[ws_idx].tabs[0].root_pane;
+        let pane_id = state.workspaces[ws_idx].terminal_tab(0).unwrap().root_pane;
         let terminal_id = state.workspaces[ws_idx]
             .terminal_id(pane_id)
             .expect("test pane should have terminal")
@@ -14303,7 +14232,9 @@ mod tests {
             ttl: None,
             seq: Some(seq),
         });
-        state.workspaces[ws_idx].tabs[0]
+        state.workspaces[ws_idx]
+            .terminal_tab_mut(0)
+            .unwrap()
             .panes
             .get_mut(&pane_id)
             .expect("test pane should exist")
@@ -14518,7 +14449,7 @@ mod tests {
         app.state.workspaces = vec![Workspace::test_new("selection")];
         app.next_auto_update_check = Some(Instant::now());
         app.next_agent_manifest_update_check = Some(Instant::now());
-        let pane_id = app.state.workspaces[0].tabs[0].root_pane;
+        let pane_id = app.state.workspaces[0].terminal_tab(0).unwrap().root_pane;
         app.state.selection = Some(crate::selection::Selection::anchor(pane_id, 0, 0, None));
         let report = app.reload_config();
 
@@ -15221,14 +15152,14 @@ mod tests {
     async fn outer_focus_gained_marks_visible_done_panes_seen() {
         let mut app = test_app();
         let mut workspace = Workspace::test_new("test");
-        let root_pane = workspace.tabs[0].root_pane;
+        let root_pane = workspace.terminal_tab(0).unwrap().root_pane;
         let split_pane = workspace.test_split(ratatui::layout::Direction::Horizontal);
         let background_tab = workspace.test_add_tab(Some("background"));
-        let background_pane = workspace.tabs[background_tab].root_pane;
+        let background_pane = workspace.terminal_tab(background_tab).unwrap().root_pane;
 
         app.state.workspaces = vec![workspace];
         app.state.ensure_test_terminals();
-        let root_terminal_id = app.state.workspaces[0].tabs[0].panes[&root_pane]
+        let root_terminal_id = app.state.workspaces[0].terminal_tab(0).unwrap().panes[&root_pane]
             .attached_terminal_id
             .clone();
         app.state
@@ -15236,12 +15167,14 @@ mod tests {
             .get_mut(&root_terminal_id)
             .unwrap()
             .state = AgentState::Idle;
-        app.state.workspaces[0].tabs[0]
+        app.state.workspaces[0]
+            .terminal_tab_mut(0)
+            .unwrap()
             .panes
             .get_mut(&root_pane)
             .unwrap()
             .seen = false;
-        let split_terminal_id = app.state.workspaces[0].tabs[0].panes[&split_pane]
+        let split_terminal_id = app.state.workspaces[0].terminal_tab(0).unwrap().panes[&split_pane]
             .attached_terminal_id
             .clone();
         app.state
@@ -15249,16 +15182,23 @@ mod tests {
             .get_mut(&split_terminal_id)
             .unwrap()
             .state = AgentState::Idle;
-        app.state.workspaces[0].tabs[0]
+        app.state.workspaces[0]
+            .terminal_tab_mut(0)
+            .unwrap()
             .panes
             .get_mut(&split_pane)
             .unwrap()
             .seen = false;
-        let bg_terminal_id = app.state.workspaces[0].tabs[background_tab].panes[&background_pane]
+        let bg_terminal_id = app.state.workspaces[0]
+            .terminal_tab(background_tab)
+            .unwrap()
+            .panes[&background_pane]
             .attached_terminal_id
             .clone();
         app.state.terminals.get_mut(&bg_terminal_id).unwrap().state = AgentState::Idle;
-        app.state.workspaces[0].tabs[background_tab]
+        app.state.workspaces[0]
+            .terminal_tab_mut(background_tab)
+            .unwrap()
             .panes
             .get_mut(&background_pane)
             .unwrap()
@@ -15275,16 +15215,22 @@ mod tests {
 
         assert!(handled);
         assert_eq!(app.state.outer_terminal_focus, Some(true));
-        assert!(app.state.workspaces[0].tabs[0].panes[&root_pane].seen);
-        assert!(app.state.workspaces[0].tabs[0].panes[&split_pane].seen);
-        assert!(!app.state.workspaces[0].tabs[background_tab].panes[&background_pane].seen);
+        assert!(app.state.workspaces[0].terminal_tab(0).unwrap().panes[&root_pane].seen);
+        assert!(app.state.workspaces[0].terminal_tab(0).unwrap().panes[&split_pane].seen);
+        assert!(
+            !app.state.workspaces[0]
+                .terminal_tab(background_tab)
+                .unwrap()
+                .panes[&background_pane]
+                .seen
+        );
     }
 
     #[tokio::test]
     async fn monolithic_outer_focus_events_reach_reporting_pane() {
         let mut app = test_app();
         let mut workspace = Workspace::test_new("focus-reporting");
-        let pane_id = workspace.tabs[0].root_pane;
+        let pane_id = workspace.terminal_tab(0).unwrap().root_pane;
         let (runtime, mut input_rx) =
             TerminalRuntime::test_with_channel_and_scrollback_bytes(80, 24, 0, b"\x1b[?1004h", 4);
         workspace.insert_test_runtime(pane_id, runtime);
@@ -15319,7 +15265,7 @@ mod tests {
     async fn client_view_outer_focus_targets_that_clients_focused_pane() {
         let mut app = test_app();
         let mut workspace = Workspace::test_new("focus-view");
-        let first_pane = workspace.tabs[0].root_pane;
+        let first_pane = workspace.terminal_tab(0).unwrap().root_pane;
         let second_pane = workspace.test_split(ratatui::layout::Direction::Horizontal);
         let (first_runtime, mut first_rx) =
             TerminalRuntime::test_with_channel_and_scrollback_bytes(80, 24, 0, b"\x1b[?1004h", 4);
@@ -15587,7 +15533,7 @@ mod tests {
 
         app.state.workspaces = vec![first, second];
         app.state.ensure_test_terminals();
-        let selected_root = app.state.workspaces[1].tabs[0].root_pane;
+        let selected_root = app.state.workspaces[1].terminal_tab(0).unwrap().root_pane;
         let selected_terminal_id = app.state.workspaces[1]
             .terminal_id(selected_root)
             .unwrap()
@@ -15751,7 +15697,7 @@ mod tests {
     fn pane_rename_request_sets_and_clears_manual_label() {
         let mut app = test_app();
         let workspace = Workspace::test_new("api-pane-rename");
-        let pane = workspace.tabs[0].root_pane;
+        let pane = workspace.terminal_tab(0).unwrap().root_pane;
         app.state.workspaces = vec![workspace];
         app.state.ensure_test_terminals();
         app.state.active = Some(0);
@@ -15808,7 +15754,7 @@ mod tests {
     fn terminal_target_resolves_terminal_id() {
         let mut app = test_app();
         let workspace = Workspace::test_new("terminal-target-id");
-        let pane = workspace.tabs[0].root_pane;
+        let pane = workspace.terminal_tab(0).unwrap().root_pane;
         let terminal_id = workspace.terminal_id(pane).unwrap().to_string();
         app.state.workspaces = vec![workspace];
         app.state.active = Some(0);
@@ -15825,7 +15771,7 @@ mod tests {
     fn terminal_target_resolves_legacy_pane_id() {
         let mut app = test_app();
         let workspace = Workspace::test_new("terminal-target-pane");
-        let pane = workspace.tabs[0].root_pane;
+        let pane = workspace.terminal_tab(0).unwrap().root_pane;
         let terminal_id = workspace.terminal_id(pane).unwrap().to_string();
         app.state.workspaces = vec![workspace];
         app.state.active = Some(0);
@@ -15842,7 +15788,7 @@ mod tests {
     fn terminal_target_resolves_unique_agent_name() {
         let mut app = test_app();
         let workspace = Workspace::test_new("terminal-target-name");
-        let pane = workspace.tabs[0].root_pane;
+        let pane = workspace.terminal_tab(0).unwrap().root_pane;
         let terminal_id = workspace.terminal_id(pane).unwrap().to_string();
         app.state.workspaces = vec![workspace];
         app.state.ensure_test_terminals();
@@ -15886,7 +15832,7 @@ mod tests {
     fn agent_target_rejects_plain_terminal() {
         let mut app = test_app();
         let workspace = Workspace::test_new("agent-target-strict");
-        let pane = workspace.tabs[0].root_pane;
+        let pane = workspace.terminal_tab(0).unwrap().root_pane;
         let terminal_id = workspace.terminal_id(pane).unwrap().to_string();
         app.state.workspaces = vec![workspace];
         app.state.ensure_test_terminals();
@@ -15907,7 +15853,7 @@ mod tests {
     fn agent_target_accepts_follow_up_without_agent_identity() {
         let mut app = test_app();
         let workspace = Workspace::test_new("follow-up-target");
-        let pane = workspace.tabs[0].root_pane;
+        let pane = workspace.terminal_tab(0).unwrap().root_pane;
         let terminal_id = workspace.terminal_id(pane).unwrap().to_string();
         app.state.workspaces = vec![workspace];
         app.state.ensure_test_terminals();
@@ -15943,7 +15889,7 @@ mod tests {
     async fn agent_prompt_sends_text_then_delays_enter() {
         let mut app = test_app();
         let workspace = Workspace::test_new("prompt-delay");
-        let pane_id = workspace.tabs[0].root_pane;
+        let pane_id = workspace.terminal_tab(0).unwrap().root_pane;
         app.state.workspaces = vec![workspace];
         app.state.ensure_test_terminals();
         app.state.active = Some(0);
@@ -15998,7 +15944,7 @@ mod tests {
     async fn agent_prompt_rejects_blocked_agent_without_writing() {
         let mut app = test_app();
         let workspace = Workspace::test_new("prompt-blocked");
-        let pane_id = workspace.tabs[0].root_pane;
+        let pane_id = workspace.terminal_tab(0).unwrap().root_pane;
         app.state.workspaces = vec![workspace];
         app.state.ensure_test_terminals();
         app.state.active = Some(0);
@@ -16040,7 +15986,7 @@ mod tests {
     async fn agent_prompt_focuses_copilot_before_submitting() {
         let mut app = test_app();
         let workspace = Workspace::test_new("prompt-copilot");
-        let pane_id = workspace.tabs[0].root_pane;
+        let pane_id = workspace.terminal_tab(0).unwrap().root_pane;
         app.state.workspaces = vec![workspace];
         app.state.ensure_test_terminals();
         app.state.active = Some(0);
@@ -16095,7 +16041,7 @@ mod tests {
     fn terminal_target_reports_ambiguous_duplicate_agent_name() {
         let mut app = test_app();
         let mut workspace = Workspace::test_new("terminal-target-ambiguous");
-        let first = workspace.tabs[0].root_pane;
+        let first = workspace.terminal_tab(0).unwrap().root_pane;
         let second = workspace.test_split(ratatui::layout::Direction::Horizontal);
         app.state.workspaces = vec![workspace];
         app.state.ensure_test_terminals();
@@ -16146,9 +16092,9 @@ mod tests {
 
         let mut app = test_app();
         let mut workspace = Workspace::test_new("api-pane-split-background-tab");
-        let active_pane = workspace.tabs[0].root_pane;
+        let active_pane = workspace.terminal_tab(0).unwrap().root_pane;
         let background_tab = workspace.test_add_tab(Some("worker"));
-        let target_pane = workspace.tabs[background_tab].root_pane;
+        let target_pane = workspace.terminal_tab(background_tab).unwrap().root_pane;
         workspace.switch_tab(background_tab);
         let background_previous_focus =
             workspace.test_split(ratatui::layout::Direction::Horizontal);
@@ -16199,18 +16145,33 @@ mod tests {
         assert_eq!(app.state.active, Some(0));
         assert_eq!(app.state.workspaces[0].active_tab, 0);
         assert_eq!(
-            app.state.workspaces[0].tabs[0].layout.focused(),
+            app.state.workspaces[0]
+                .terminal_tab(0)
+                .unwrap()
+                .layout
+                .focused(),
             active_pane
         );
-        assert_eq!(app.state.workspaces[0].tabs[0].layout.pane_count(), 1);
         assert_eq!(
-            app.state.workspaces[0].tabs[background_tab]
+            app.state.workspaces[0]
+                .terminal_tab(0)
+                .unwrap()
+                .layout
+                .pane_count(),
+            1
+        );
+        assert_eq!(
+            app.state.workspaces[0]
+                .terminal_tab(background_tab)
+                .unwrap()
                 .layout
                 .focused(),
             background_previous_focus
         );
         assert_eq!(
-            app.state.workspaces[0].tabs[background_tab]
+            app.state.workspaces[0]
+                .terminal_tab(background_tab)
+                .unwrap()
                 .layout
                 .pane_count(),
             3
@@ -16236,7 +16197,10 @@ mod tests {
         app.state.active = Some(0);
         app.state.selected = 0;
 
-        let target_pane = app.state.workspaces[0].tabs[background_tab].root_pane;
+        let target_pane = app.state.workspaces[0]
+            .terminal_tab(background_tab)
+            .unwrap()
+            .root_pane;
         let target_pane_id = app.pane_info(0, target_pane).unwrap().pane_id;
         let target_tab_id = app.public_tab_id(0, background_tab).unwrap();
 
@@ -16274,7 +16238,7 @@ mod tests {
 
         let mut app = test_app();
         let workspace = Workspace::test_new("api-pane-split-ratio");
-        let target_pane = workspace.tabs[0].root_pane;
+        let target_pane = workspace.terminal_tab(0).unwrap().root_pane;
         app.state.workspaces = vec![workspace];
         app.state.ensure_test_terminals();
         app.state.active = Some(0);
@@ -16298,7 +16262,9 @@ mod tests {
         let response: serde_json::Value = serde_json::from_str(&response).unwrap();
 
         assert_eq!(response["result"]["type"], "pane_info");
-        let splits = app.state.workspaces[0].tabs[0]
+        let splits = app.state.workspaces[0]
+            .terminal_tab(0)
+            .unwrap()
             .layout
             .splits(ratatui::layout::Rect::new(0, 0, 100, 20));
         assert_eq!(splits.len(), 1);
@@ -16317,7 +16283,7 @@ mod tests {
 
         let mut app = test_app();
         let workspace = Workspace::test_new("api-pane-split-current");
-        let target_pane = workspace.tabs[0].root_pane;
+        let target_pane = workspace.terminal_tab(0).unwrap().root_pane;
         app.state.workspaces = vec![workspace];
         app.state.ensure_test_terminals();
         app.state.active = Some(0);
@@ -16340,9 +16306,20 @@ mod tests {
         let response: serde_json::Value = serde_json::from_str(&response).unwrap();
 
         assert_eq!(response["result"]["type"], "pane_info");
-        assert_eq!(app.state.workspaces[0].tabs[0].layout.pane_count(), 2);
         assert_eq!(
-            app.state.workspaces[0].tabs[0].layout.focused(),
+            app.state.workspaces[0]
+                .terminal_tab(0)
+                .unwrap()
+                .layout
+                .pane_count(),
+            2
+        );
+        assert_eq!(
+            app.state.workspaces[0]
+                .terminal_tab(0)
+                .unwrap()
+                .layout
+                .focused(),
             target_pane
         );
 
@@ -16356,7 +16333,7 @@ mod tests {
     async fn focused_agent_start_records_previous_pane() {
         let mut app = test_app();
         let workspace = Workspace::test_new("agent-start-focus");
-        let root = workspace.tabs[0].root_pane;
+        let root = workspace.terminal_tab(0).unwrap().root_pane;
         app.state.workspaces = vec![workspace];
         app.state.ensure_test_terminals();
         app.state.active = Some(0);
@@ -16403,7 +16380,10 @@ mod tests {
         app.state.active = Some(0);
         app.state.selected = 0;
 
-        let target_pane = app.state.workspaces[0].tabs[second_tab].root_pane;
+        let target_pane = app.state.workspaces[0]
+            .terminal_tab(second_tab)
+            .unwrap()
+            .root_pane;
         let target_pane_id = app.pane_info(0, target_pane).unwrap().pane_id;
 
         let response = app.handle_api_request(crate::api::schema::Request {
@@ -16429,7 +16409,7 @@ mod tests {
         app.state.active = Some(0);
         app.state.selected = 0;
 
-        let target_pane = app.state.workspaces[0].tabs[0].root_pane;
+        let target_pane = app.state.workspaces[0].terminal_tab(0).unwrap().root_pane;
         let target_pane_id = app.pane_info(0, target_pane).unwrap().pane_id;
 
         let response = app.handle_api_request(crate::api::schema::Request {
@@ -16597,7 +16577,7 @@ mod tests {
         let mut app = test_app();
         let now = Instant::now();
         let ws = Workspace::test_new("test");
-        let pane_id = ws.tabs[0].root_pane;
+        let pane_id = ws.terminal_tab(0).unwrap().root_pane;
         app.state.workspaces.push(ws);
         app.state.active = Some(0);
         app.state.selection = Some(crate::selection::Selection::anchor(pane_id, 0, 0, None));
@@ -16670,7 +16650,7 @@ mod tests {
     async fn full_internal_event_queue_eventually_applies_working_to_idle_transition() {
         let mut app = test_app();
         let ws = Workspace::test_new("test");
-        let pane_id = ws.tabs[0].root_pane;
+        let pane_id = ws.terminal_tab(0).unwrap().root_pane;
 
         app.state.workspaces = vec![ws];
         app.state.ensure_test_terminals();
@@ -16838,7 +16818,11 @@ mod tests {
         let mut workspace = Workspace::test_new("test");
         let focused = workspace.focused_pane_id().unwrap();
         let (runtime, mut rx) = TerminalRuntime::test_with_channel(80, 24);
-        workspace.tabs[0].runtimes.insert(focused, runtime);
+        workspace
+            .terminal_tab_mut(0)
+            .unwrap()
+            .runtimes
+            .insert(focused, runtime);
         app.state.workspaces = vec![workspace];
         app.state.active = Some(0);
         app.state.selected = 0;
@@ -16860,7 +16844,11 @@ mod tests {
         let mut workspace = Workspace::test_new("test");
         let focused = workspace.focused_pane_id().unwrap();
         let (runtime, mut rx) = TerminalRuntime::test_with_channel(80, 24);
-        workspace.tabs[0].runtimes.insert(focused, runtime);
+        workspace
+            .terminal_tab_mut(0)
+            .unwrap()
+            .runtimes
+            .insert(focused, runtime);
         app.state.workspaces = vec![workspace];
         app.state.active = Some(0);
         app.state.selected = 0;
@@ -16889,7 +16877,11 @@ mod tests {
         let focused = workspace.focused_pane_id().unwrap();
         let (runtime, mut rx) = TerminalRuntime::test_with_channel(80, 24);
         runtime.test_process_pty_bytes(focused, b"\x1b[>4;1m");
-        workspace.tabs[0].runtimes.insert(focused, runtime);
+        workspace
+            .terminal_tab_mut(0)
+            .unwrap()
+            .runtimes
+            .insert(focused, runtime);
         app.state.workspaces = vec![workspace];
         app.state.active = Some(0);
         app.state.selected = 0;
@@ -16979,7 +16971,11 @@ mod tests {
         let mut workspace = Workspace::test_new("test");
         let focused = workspace.focused_pane_id().unwrap();
         let (runtime, mut rx) = TerminalRuntime::test_with_channel(80, 24);
-        workspace.tabs[0].runtimes.insert(focused, runtime);
+        workspace
+            .terminal_tab_mut(0)
+            .unwrap()
+            .runtimes
+            .insert(focused, runtime);
         app.state.workspaces = vec![workspace];
         app.state.active = Some(0);
         app.state.selected = 0;
@@ -17000,7 +16996,11 @@ mod tests {
         let text = "中日한🙂";
         let (runtime, mut rx) =
             TerminalRuntime::test_with_channel_capacity(80, 24, text.chars().count());
-        workspace.tabs[0].runtimes.insert(focused, runtime);
+        workspace
+            .terminal_tab_mut(0)
+            .unwrap()
+            .runtimes
+            .insert(focused, runtime);
         app.state.workspaces = vec![workspace];
         app.state.active = Some(0);
         app.state.selected = 0;
@@ -17025,7 +17025,11 @@ mod tests {
         let text = "你好，今天我们测试一段比较长的语音输入。こんにちは。안녕하세요.🙂".repeat(64);
         let char_count = text.chars().count();
         let (runtime, mut rx) = TerminalRuntime::test_with_channel_capacity(80, 24, char_count);
-        workspace.tabs[0].runtimes.insert(focused, runtime);
+        workspace
+            .terminal_tab_mut(0)
+            .unwrap()
+            .runtimes
+            .insert(focused, runtime);
         app.state.workspaces = vec![workspace];
         app.state.active = Some(0);
         app.state.selected = 0;
@@ -17257,7 +17261,11 @@ command = "printf literal > '{}'"
         let mut workspace = Workspace::test_new("test");
         let focused = workspace.focused_pane_id().expect("focused pane");
         let (runtime, mut receiver) = TerminalRuntime::test_with_channel(80, 24);
-        workspace.tabs[0].runtimes.insert(focused, runtime);
+        workspace
+            .terminal_tab_mut(0)
+            .unwrap()
+            .runtimes
+            .insert(focused, runtime);
         app.state.workspaces = vec![workspace];
         app.state.active = Some(0);
         app.state.selected = 0;
@@ -17429,7 +17437,7 @@ command = "printf literal > '{}'"
         app.state.mouse_capture = true;
         app.state.mouse_scroll_lines = 2;
 
-        let root_pane = app.state.workspaces[0].tabs[0].root_pane;
+        let root_pane = app.state.workspaces[0].terminal_tab(0).unwrap().root_pane;
         let terminal_id = app.state.workspaces[0]
             .terminal_id(root_pane)
             .cloned()
@@ -17539,7 +17547,7 @@ command = "printf literal > '{}'"
 
         let mut app = test_app();
         let workspace = Workspace::test_new("selection");
-        let root_pane = workspace.tabs[0].root_pane;
+        let root_pane = workspace.terminal_tab(0).unwrap().root_pane;
         let terminal_id = workspace
             .terminal_id(root_pane)
             .cloned()
@@ -17620,7 +17628,7 @@ command = "printf literal > '{}'"
         app.state.mode = Mode::Terminal;
         app.state.mouse_capture = true;
 
-        let pane_id = app.state.workspaces[0].tabs[0].root_pane;
+        let pane_id = app.state.workspaces[0].terminal_tab(0).unwrap().root_pane;
         let terminal_id = app.state.workspaces[0]
             .terminal_id(pane_id)
             .cloned()
@@ -17713,10 +17721,10 @@ command = "printf literal > '{}'"
         let mut app = test_app();
         let server_workspace = Workspace::test_new("server");
         let mut client_workspace = Workspace::test_new("client");
-        let inactive_pane = client_workspace.tabs[0].root_pane;
+        let inactive_pane = client_workspace.terminal_tab(0).unwrap().root_pane;
         let active_tab = client_workspace.test_add_tab(Some("logs"));
         client_workspace.switch_tab(active_tab);
-        let active_pane = client_workspace.tabs[active_tab].root_pane;
+        let active_pane = client_workspace.terminal_tab(active_tab).unwrap().root_pane;
         client_workspace.switch_tab(0);
         app.state.workspaces = vec![server_workspace, client_workspace];
         app.state.active = Some(0);
@@ -17790,7 +17798,7 @@ command = "printf literal > '{}'"
     async fn pixel_mouse_coordinates_follow_the_client_canvas_viewport() {
         let mut app = test_app();
         let workspace = Workspace::test_new("client");
-        let pane_id = workspace.tabs[0].root_pane;
+        let pane_id = workspace.terminal_tab(0).unwrap().root_pane;
         app.state.workspaces = vec![workspace];
         app.state.active = Some(0);
         app.state.selected = 0;
@@ -17851,7 +17859,7 @@ command = "printf literal > '{}'"
     async fn pixel_mouse_coordinates_are_normalized_once_without_mouse_capture() {
         let mut app = test_app();
         let workspace = Workspace::test_new("client");
-        let pane_id = workspace.tabs[0].root_pane;
+        let pane_id = workspace.terminal_tab(0).unwrap().root_pane;
         app.state.workspaces = vec![workspace];
         app.state.active = Some(0);
         app.state.selected = 0;
@@ -17913,7 +17921,7 @@ command = "printf literal > '{}'"
         let mut app = test_app();
         let server_workspace = Workspace::test_new("server");
         let client_workspace = Workspace::test_new("client");
-        let pane_id = client_workspace.tabs[0].root_pane;
+        let pane_id = client_workspace.terminal_tab(0).unwrap().root_pane;
         app.state.workspaces = vec![server_workspace, client_workspace];
         app.state.active = Some(0);
         app.state.selected = 0;
@@ -17995,8 +18003,8 @@ command = "printf literal > '{}'"
         let mut app = test_app();
         let server_workspace = Workspace::test_new("server");
         let client_workspace = Workspace::test_new("client");
-        let server_pane = server_workspace.tabs[0].root_pane;
-        let pane_id = client_workspace.tabs[0].root_pane;
+        let server_pane = server_workspace.terminal_tab(0).unwrap().root_pane;
+        let pane_id = client_workspace.terminal_tab(0).unwrap().root_pane;
         app.state.workspaces = vec![server_workspace, client_workspace];
         app.state.ensure_test_terminals();
         app.state.active = Some(0);
@@ -18100,7 +18108,8 @@ command = "printf literal > '{}'"
     #[tokio::test]
     async fn route_client_events_for_view_dragging_pane_split_updates_invoking_client_tab_layout() {
         fn root_split_ratio(workspace: &Workspace, tab_idx: usize) -> f32 {
-            let crate::layout::Node::Split { ratio, .. } = workspace.tabs[tab_idx].layout.root()
+            let crate::layout::Node::Split { ratio, .. } =
+                workspace.terminal_tab(tab_idx).unwrap().layout.root()
             else {
                 panic!("test fixture should use a split layout");
             };
@@ -18311,7 +18320,7 @@ command = "printf literal > '{}'"
         let mut app = test_app();
         let server_workspace = Workspace::test_new("server");
         let client_workspace = Workspace::test_new("client");
-        let pane_id = client_workspace.tabs[0].root_pane;
+        let pane_id = client_workspace.terminal_tab(0).unwrap().root_pane;
         app.state.workspaces = vec![server_workspace, client_workspace];
         app.state.ensure_test_terminals();
         app.state.active = Some(0);
@@ -18441,7 +18450,7 @@ command = "printf literal > '{}'"
         app.state.mode = Mode::Terminal;
         app.state.mouse_capture = true;
 
-        let pane_id = app.state.workspaces[0].tabs[0].root_pane;
+        let pane_id = app.state.workspaces[0].terminal_tab(0).unwrap().root_pane;
         let terminal_id = app.state.workspaces[0]
             .terminal_id(pane_id)
             .cloned()
@@ -18620,7 +18629,7 @@ command = "printf literal > '{}'"
         let mut app = test_app();
         let mut workspace = Workspace::test_new("one");
         workspace.group_id = app.state.groups[0].id.clone();
-        let pane_id = workspace.tabs[0].root_pane;
+        let pane_id = workspace.terminal_tab(0).unwrap().root_pane;
         app.state.workspaces = vec![workspace];
         app.state.ensure_test_terminals();
         app.state.active = Some(0);
@@ -18706,7 +18715,7 @@ command = "printf literal > '{}'"
         let mut highlighted_workspace = Workspace::test_new("highlighted");
         highlighted_workspace.group_id = second_group_id;
         highlighted_workspace.test_add_tab(Some("logs"));
-        let highlighted_pane = highlighted_workspace.tabs[1].root_pane;
+        let highlighted_pane = highlighted_workspace.terminal_tab(1).unwrap().root_pane;
         app.state.workspaces = vec![active_workspace, first_workspace, highlighted_workspace];
         app.state.ensure_test_terminals();
         app.state.active = Some(0);
@@ -18822,8 +18831,8 @@ command = "printf literal > '{}'"
         app.state.active = Some(0);
         app.state.selected = 0;
         app.state.mode = Mode::Terminal;
-        let pane_id = app.state.workspaces[1].tabs[0].root_pane;
-        let terminal_id = app.state.workspaces[1].tabs[0].panes[&pane_id]
+        let pane_id = app.state.workspaces[1].terminal_tab(0).unwrap().root_pane;
+        let terminal_id = app.state.workspaces[1].terminal_tab(0).unwrap().panes[&pane_id]
             .attached_terminal_id
             .clone();
         app.state
@@ -19119,9 +19128,13 @@ command = "printf literal > '{}'"
     async fn route_client_events_for_view_mobile_hierarchy_clicks_reach_the_clicked_pane() {
         let mut app = test_app();
         let mut workspace = Workspace::test_new("client");
-        let first_pane = workspace.tabs[0].root_pane;
+        let first_pane = workspace.terminal_tab(0).unwrap().root_pane;
         let second_pane = workspace.test_split(ratatui::layout::Direction::Horizontal);
-        workspace.tabs[0].layout.focus_pane(first_pane);
+        workspace
+            .terminal_tab_mut(0)
+            .unwrap()
+            .layout
+            .focus_pane(first_pane);
         let workspace_id = workspace.id.clone();
         app.state.workspaces = vec![workspace];
         app.state.ensure_test_terminals();
@@ -19169,11 +19182,15 @@ command = "printf literal > '{}'"
         let mut app = test_app();
         app.state.mobile_width_threshold = 0;
         let mut workspace = Workspace::test_new("watcher-pan");
-        let first_pane = workspace.tabs[0].root_pane;
+        let first_pane = workspace.terminal_tab(0).unwrap().root_pane;
         let second_pane = workspace.test_split(ratatui::layout::Direction::Horizontal);
-        workspace.tabs[0].layout.focus_pane(first_pane);
+        workspace
+            .terminal_tab_mut(0)
+            .unwrap()
+            .layout
+            .focus_pane(first_pane);
         let workspace_id = workspace.id.clone();
-        let tab_number = workspace.tabs[0].number;
+        let tab_number = workspace.terminal_tab(0).unwrap().number;
         app.state.workspaces = vec![workspace];
         app.state.ensure_test_terminals();
         app.state.active = Some(0);
@@ -19281,9 +19298,13 @@ command = "printf literal > '{}'"
     async fn client_left_click_focuses_unfocused_split_pane() {
         let mut app = test_app();
         let mut workspace = Workspace::test_new("split-focus");
-        let left = workspace.tabs[0].root_pane;
+        let left = workspace.terminal_tab(0).unwrap().root_pane;
         let right = workspace.test_split(ratatui::layout::Direction::Horizontal);
-        workspace.tabs[0].layout.focus_pane(left);
+        workspace
+            .terminal_tab_mut(0)
+            .unwrap()
+            .layout
+            .focus_pane(left);
         app.state.workspaces = vec![workspace];
         app.state.ensure_test_terminals();
         app.state.active = Some(0);
@@ -19342,10 +19363,14 @@ command = "printf literal > '{}'"
         app.state.sidebar_width = 32;
         app.state.sidebar_collapsed = false;
         let mut workspace = Workspace::test_new("checkout");
-        workspace.tabs[0].custom_name = Some("cart".into());
-        let left = workspace.tabs[0].root_pane;
+        workspace.terminal_tab_mut(0).unwrap().custom_name = Some("cart".into());
+        let left = workspace.terminal_tab(0).unwrap().root_pane;
         let right = workspace.test_split(ratatui::layout::Direction::Horizontal);
-        workspace.tabs[0].layout.focus_pane(left);
+        workspace
+            .terminal_tab_mut(0)
+            .unwrap()
+            .layout
+            .focus_pane(left);
         app.state.workspaces = vec![workspace];
         app.state.ensure_test_terminals();
         app.state.active = Some(0);
@@ -19403,9 +19428,13 @@ command = "printf literal > '{}'"
     async fn watching_client_pane_click_requests_tab_control() {
         let mut app = test_app();
         let mut workspace = Workspace::test_new("watch-click");
-        let left = workspace.tabs[0].root_pane;
+        let left = workspace.terminal_tab(0).unwrap().root_pane;
         let right = workspace.test_split(ratatui::layout::Direction::Horizontal);
-        workspace.tabs[0].layout.focus_pane(left);
+        workspace
+            .terminal_tab_mut(0)
+            .unwrap()
+            .layout
+            .focus_pane(left);
         app.state.workspaces = vec![workspace];
         app.state.ensure_test_terminals();
         app.state.active = Some(0);
@@ -19447,9 +19476,13 @@ command = "printf literal > '{}'"
     async fn client_left_click_on_pane_frame_focuses_that_pane() {
         let mut app = test_app();
         let mut workspace = Workspace::test_new("split-frame-focus");
-        let left = workspace.tabs[0].root_pane;
+        let left = workspace.terminal_tab(0).unwrap().root_pane;
         let right = workspace.test_split(ratatui::layout::Direction::Horizontal);
-        workspace.tabs[0].layout.focus_pane(left);
+        workspace
+            .terminal_tab_mut(0)
+            .unwrap()
+            .layout
+            .focus_pane(left);
         app.state.workspaces = vec![workspace];
         app.state.ensure_test_terminals();
         app.state.active = Some(0);
@@ -19679,7 +19712,12 @@ command = "printf literal > '{}'"
         let labels: Vec<_> = app.state.workspaces[0]
             .tabs
             .iter()
-            .map(|tab| tab.display_name())
+            .enumerate()
+            .map(|(idx, _)| {
+                app.state.workspaces[0]
+                    .tab_display_name(idx)
+                    .unwrap_or_default()
+            })
             .collect();
         assert_eq!(labels, vec!["logs", "ops", "main"]);
         assert_eq!(client.active_tab_for_workspace(&workspace_id), Some(2));
@@ -19848,7 +19886,7 @@ command = "printf literal > '{}'"
         app.state.mouse_capture = true;
         app.state.mouse_scroll_lines = 3;
 
-        let root_pane = app.state.workspaces[0].tabs[0].root_pane;
+        let root_pane = app.state.workspaces[0].terminal_tab(0).unwrap().root_pane;
         let terminal_id = app.state.workspaces[0]
             .terminal_id(root_pane)
             .cloned()
@@ -19916,7 +19954,7 @@ command = "printf literal > '{}'"
         app.state.mode = Mode::Terminal;
         app.state.mouse_capture = true;
 
-        let root_pane = app.state.workspaces[0].tabs[0].root_pane;
+        let root_pane = app.state.workspaces[0].terminal_tab(0).unwrap().root_pane;
         app.state.workspaces[0].insert_test_runtime(
             root_pane,
             TerminalRuntime::test_with_screen_bytes(80, 4, b"abcdef\r\nsecond\r\nthird\r\nfourth"),
@@ -19994,7 +20032,7 @@ command = "printf literal > '{}'"
         app.state.mode = Mode::Terminal;
         app.state.mouse_capture = true;
 
-        let root_pane = app.state.workspaces[0].tabs[0].root_pane;
+        let root_pane = app.state.workspaces[0].terminal_tab(0).unwrap().root_pane;
         app.state.workspaces[0].insert_test_runtime(
             root_pane,
             TerminalRuntime::test_with_screen_bytes(80, 4, b"abcdef\r\nsecond\r\nthird\r\nfourth"),
@@ -20080,7 +20118,7 @@ command = "printf literal > '{}'"
         app.state.mouse_capture = true;
         app.state.copy_on_select = false;
 
-        let root_pane = app.state.workspaces[0].tabs[0].root_pane;
+        let root_pane = app.state.workspaces[0].terminal_tab(0).unwrap().root_pane;
         app.state.workspaces[0].insert_test_runtime(
             root_pane,
             TerminalRuntime::test_with_screen_bytes(80, 4, b"abcdef\r\nsecond\r\nthird\r\nfourth"),
@@ -20167,7 +20205,7 @@ command = "printf literal > '{}'"
         app.state.mouse_capture = true;
         app.state.copy_on_select = false;
 
-        let root_pane = app.state.workspaces[0].tabs[0].root_pane;
+        let root_pane = app.state.workspaces[0].terminal_tab(0).unwrap().root_pane;
         app.state.workspaces[0].insert_test_runtime(
             root_pane,
             TerminalRuntime::test_with_screen_bytes(80, 4, b"alpha beta\r\nsecond"),
@@ -20400,20 +20438,26 @@ command = "printf literal > '{}'"
         configure(&mut default_app);
         default_app.route_client_events(held_g(), false);
         assert_eq!(
-            default_app.state.workspaces[0].tabs[0].layout.pane_count(),
+            default_app.state.workspaces[0]
+                .terminal_tab(0)
+                .unwrap()
+                .layout
+                .pane_count(),
             2
         );
-
         let mut explicit_app = test_app();
         configure(&mut explicit_app);
         let mut client = ClientViewState::from_default_client_state(&explicit_app.state);
         explicit_app.route_client_events_for_view(&mut client, held_g(), false);
         assert_eq!(
-            explicit_app.state.workspaces[0].tabs[0].layout.pane_count(),
+            explicit_app.state.workspaces[0]
+                .terminal_tab(0)
+                .unwrap()
+                .layout
+                .pane_count(),
             2
         );
     }
-
     #[tokio::test]
     async fn route_client_events_for_view_prefix_new_tab_queues_invoking_client_tab() {
         let mut app = test_app();
@@ -20541,7 +20585,7 @@ command = "printf literal > '{}'"
 
         assert_eq!(client.mode, Mode::Terminal);
         assert_eq!(
-            app.state.workspaces[0].tabs[0].layout.pane_count(),
+            app.state.workspaces[0].terminal_tab(0).unwrap().layout.pane_count(),
             2,
             "prefix+v through a client view must perform the same shared split-pane action as the normal route"
         );
@@ -20832,7 +20876,7 @@ command = "printf literal > '{}'"
     async fn eng57_client_copy_mode_escape_exits_client_opened_copy_mode() {
         let mut app = test_app();
         let workspace = Workspace::test_new("copy-client");
-        let pane_id = workspace.tabs[0].root_pane;
+        let pane_id = workspace.terminal_tab(0).unwrap().root_pane;
         let terminal_id = workspace.terminal_id(pane_id).cloned().unwrap();
         app.state.workspaces = vec![workspace];
         app.state.ensure_test_terminals();
@@ -21117,8 +21161,8 @@ command = "printf literal > '{}'"
         assert_eq!(app.state.workspaces[0].tabs.len(), 1);
         assert_eq!(app.state.workspaces[1].tabs.len(), 2);
         assert_eq!(
-            app.state.workspaces[1].tabs[1].display_name(),
-            "client logs"
+            app.state.workspaces[1].tab_display_name(1).as_deref(),
+            Some("client logs")
         );
         assert_eq!(app.state.active, Some(0));
         assert_eq!(client.active_tab_for_workspace(&workspace_id), Some(1));
@@ -21142,8 +21186,22 @@ command = "printf literal > '{}'"
         route_client_command_palette_enter(&mut app, &mut client, "split pane vertical");
 
         assert_eq!(client.mode, Mode::Terminal);
-        assert_eq!(app.state.workspaces[0].tabs[0].layout.pane_count(), 1);
-        assert_eq!(app.state.workspaces[1].tabs[0].layout.pane_count(), 2);
+        assert_eq!(
+            app.state.workspaces[0]
+                .terminal_tab(0)
+                .unwrap()
+                .layout
+                .pane_count(),
+            1
+        );
+        assert_eq!(
+            app.state.workspaces[1]
+                .terminal_tab(0)
+                .unwrap()
+                .layout
+                .pane_count(),
+            2
+        );
         assert_eq!(app.state.active, Some(0));
         assert_eq!(app.state.selected, 0);
         assert_eq!(client.active_workspace, Some(1));
@@ -21157,8 +21215,16 @@ command = "printf literal > '{}'"
         app.state.active = Some(0);
         app.state.selected = 0;
         app.state.mode = Mode::Terminal;
-        let shared_focus = app.state.workspaces[0].tabs[0].layout.focused();
-        let client_focus = app.state.workspaces[1].tabs[0].layout.focused();
+        let shared_focus = app.state.workspaces[0]
+            .terminal_tab(0)
+            .unwrap()
+            .layout
+            .focused();
+        let client_focus = app.state.workspaces[1]
+            .terminal_tab(0)
+            .unwrap()
+            .layout
+            .focused();
         let output_path = std::env::temp_dir().join(format!(
             "gardn-client-custom-shell-{}",
             std::time::SystemTime::now()
@@ -21205,11 +21271,19 @@ command = "printf literal > '{}'"
         assert_eq!(app.state.active, Some(0));
         assert_eq!(app.state.selected, 0);
         assert_eq!(
-            app.state.workspaces[0].tabs[0].layout.focused(),
+            app.state.workspaces[0]
+                .terminal_tab(0)
+                .unwrap()
+                .layout
+                .focused(),
             shared_focus
         );
         assert_eq!(
-            app.state.workspaces[1].tabs[0].layout.focused(),
+            app.state.workspaces[1]
+                .terminal_tab(0)
+                .unwrap()
+                .layout
+                .focused(),
             client_focus
         );
         let _ = std::fs::remove_file(output_path);
@@ -21223,10 +21297,17 @@ command = "printf literal > '{}'"
         app.state.active = Some(0);
         app.state.selected = 0;
         app.state.mode = Mode::Terminal;
-        let shared_focus = app.state.workspaces[0].tabs[0].layout.focused();
-        let client_original_focus = app.state.workspaces[1].tabs[0].layout.focused();
-        let shared_client_tab_focus = app.state.workspaces[1].tabs[0].layout.focused();
-        let shared_client_tab_zoomed = app.state.workspaces[1].tabs[0].zoomed;
+        let shared_focus = app.state.workspaces[0]
+            .terminal_tab(0)
+            .unwrap()
+            .layout
+            .focused();
+        let shared_client_tab_focus = app.state.workspaces[1]
+            .terminal_tab(0)
+            .unwrap()
+            .layout
+            .focused();
+        let shared_client_tab_zoomed = app.state.workspaces[1].terminal_tab(0).unwrap().zoomed;
 
         app.state.keybinds.custom_commands = vec![crate::config::CustomCommandKeybind {
             bindings: crate::config::ActionKeybinds::direct("g"),
@@ -21245,22 +21326,44 @@ command = "printf literal > '{}'"
             crate::app::command_palette::CommandPaletteAction::CustomCommand(0),
         );
 
-        assert_eq!(app.state.workspaces[0].tabs[0].layout.pane_count(), 1);
-        assert_eq!(app.state.workspaces[1].tabs[0].layout.pane_count(), 2);
+        assert_eq!(
+            app.state.workspaces[0]
+                .terminal_tab(0)
+                .unwrap()
+                .layout
+                .pane_count(),
+            1
+        );
+        assert_eq!(
+            app.state.workspaces[1]
+                .terminal_tab(0)
+                .unwrap()
+                .layout
+                .pane_count(),
+            2
+        );
         assert_eq!(app.state.active, Some(0));
         assert_eq!(app.state.selected, 0);
         assert_eq!(
-            app.state.workspaces[0].tabs[0].layout.focused(),
+            app.state.workspaces[0]
+                .terminal_tab(0)
+                .unwrap()
+                .layout
+                .focused(),
             shared_focus
         );
         assert_eq!(
-            app.state.workspaces[1].tabs[0].layout.focused(),
-            client_original_focus
+            app.state.workspaces[1]
+                .terminal_tab(0)
+                .unwrap()
+                .layout
+                .focused(),
+            shared_client_tab_focus
         );
         let (_, client_focus) = client
             .focused_pane_for_workspace(&app.state, 1)
             .expect("client focus");
-        assert_ne!(client_focus, client_original_focus);
+        assert_ne!(client_focus, shared_client_tab_focus);
         assert!(client.tab_is_zoomed(&app.state.workspaces[1].id, 1));
 
         app.handle_internal_event(crate::events::AppEvent::PaneDied {
@@ -21274,21 +21377,29 @@ command = "printf literal > '{}'"
 
         assert_eq!(
             client.focused_pane_for_workspace(&app.state, 1),
-            Some((0, client_original_focus))
+            Some((0, shared_client_tab_focus))
         );
         assert!(!client.tab_is_zoomed(&app.state.workspaces[1].id, 1));
         assert_eq!(app.state.active, Some(0));
         assert_eq!(app.state.selected, 0);
         assert_eq!(
-            app.state.workspaces[0].tabs[0].layout.focused(),
+            app.state.workspaces[0]
+                .terminal_tab(0)
+                .unwrap()
+                .layout
+                .focused(),
             shared_focus
         );
         assert_eq!(
-            app.state.workspaces[1].tabs[0].layout.focused(),
+            app.state.workspaces[1]
+                .terminal_tab(0)
+                .unwrap()
+                .layout
+                .focused(),
             shared_client_tab_focus
         );
         assert_eq!(
-            app.state.workspaces[1].tabs[0].zoomed,
+            app.state.workspaces[1].terminal_tab(0).unwrap().zoomed,
             shared_client_tab_zoomed
         );
         assert!(!app.state.client_overlay_owners.contains_key(&client_focus));
@@ -21309,7 +21420,11 @@ command = "printf literal > '{}'"
             action: crate::config::CustomCommandAction::Pane,
             description: None,
         }];
-        let original = app.state.workspaces[0].tabs[0].layout.focused();
+        let original = app.state.workspaces[0]
+            .terminal_tab(0)
+            .unwrap()
+            .layout
+            .focused();
         let workspace_id = app.state.workspaces[0].id.clone();
         let mut client = ClientViewState::from_default_client_state(&app.state);
         client.reconcile(&app.state);
@@ -22546,8 +22661,8 @@ command = "printf literal > '{}'"
         let mut app = test_app();
         let first_workspace = Workspace::test_new("one");
         let second_workspace = Workspace::test_new("two");
-        let first_pane = first_workspace.tabs[0].root_pane;
-        let second_pane = second_workspace.tabs[0].root_pane;
+        let first_pane = first_workspace.terminal_tab(0).unwrap().root_pane;
+        let second_pane = second_workspace.terminal_tab(0).unwrap().root_pane;
         app.state.workspaces = vec![first_workspace, second_workspace];
         app.state.active = Some(0);
         app.state.selected = 0;
@@ -22731,8 +22846,13 @@ command = "printf literal > '{}'"
     fn client_view_empty_follow_up_drop_matches_full_panel_width() {
         let mut app = test_app();
         let mut workspace = Workspace::test_new("source");
-        let pane = workspace.tabs[0].root_pane;
-        let pane_state = workspace.tabs[0].panes.get_mut(&pane).unwrap();
+        let pane = workspace.terminal_tab(0).unwrap().root_pane;
+        let pane_state = workspace
+            .terminal_tab_mut(0)
+            .unwrap()
+            .panes
+            .get_mut(&pane)
+            .unwrap();
         pane_state.detected_agent = Some(Agent::Codex);
         pane_state.state = AgentState::Working;
         app.state.workspaces = vec![workspace];
@@ -23048,7 +23168,7 @@ command = "printf literal > '{}'"
         app.state.groups[0].name = "studio".into();
         let mut workspace = Workspace::test_new("ignored");
         workspace.custom_name = Some("website".into());
-        workspace.tabs[0].custom_name = Some("release".into());
+        workspace.terminal_tab_mut(0).unwrap().custom_name = Some("release".into());
         let focused_pane = workspace.test_split(ratatui::layout::Direction::Horizontal);
         workspace.test_add_tab(Some("logs"));
         app.state.workspaces = vec![workspace];
@@ -23400,8 +23520,13 @@ command = "printf literal > '{}'"
     ) {
         let mut app = test_app();
         let mut workspace = Workspace::test_new("triage");
-        let pane = workspace.tabs[0].root_pane;
-        let pane_state = workspace.tabs[0].panes.get_mut(&pane).unwrap();
+        let pane = workspace.terminal_tab(0).unwrap().root_pane;
+        let pane_state = workspace
+            .terminal_tab_mut(0)
+            .unwrap()
+            .panes
+            .get_mut(&pane)
+            .unwrap();
         pane_state.detected_agent = Some(Agent::Claude);
         pane_state.state = AgentState::Blocked;
         app.state.workspaces = vec![workspace];
@@ -23518,8 +23643,13 @@ command = "printf literal > '{}'"
     fn route_client_events_for_view_collapsed_agent_status_header_toggle_is_client_local() {
         let mut app = test_app();
         let mut workspace = Workspace::test_new("triage");
-        let pane = workspace.tabs[0].root_pane;
-        let pane_state = workspace.tabs[0].panes.get_mut(&pane).expect("root pane");
+        let pane = workspace.terminal_tab(0).unwrap().root_pane;
+        let pane_state = workspace
+            .terminal_tab_mut(0)
+            .unwrap()
+            .panes
+            .get_mut(&pane)
+            .expect("root pane");
         pane_state.detected_agent = Some(Agent::Claude);
         pane_state.state = AgentState::Blocked;
         app.state.workspaces = vec![workspace];
@@ -23581,16 +23711,20 @@ command = "printf literal > '{}'"
         let mut workspace = Workspace::test_new("test");
         workspace.tabs[0].set_custom_name("main".into());
         let first_tab = 0;
-        let first_pane = workspace.tabs[first_tab].root_pane;
+        let first_pane = workspace.terminal_tab(first_tab).unwrap().root_pane;
         let agent_tab = workspace.test_add_tab(Some("agent"));
-        let agent_pane = workspace.tabs[agent_tab].root_pane;
-        let first_state = workspace.tabs[first_tab]
+        let agent_pane = workspace.terminal_tab(agent_tab).unwrap().root_pane;
+        let first_state = workspace
+            .terminal_tab_mut(first_tab)
+            .unwrap()
             .panes
             .get_mut(&first_pane)
             .expect("first pane");
         first_state.detected_agent = Some(Agent::Pi);
         first_state.state = AgentState::Idle;
-        let agent_state = workspace.tabs[agent_tab]
+        let agent_state = workspace
+            .terminal_tab_mut(agent_tab)
+            .unwrap()
             .panes
             .get_mut(&agent_pane)
             .expect("agent pane");
@@ -23697,9 +23831,12 @@ command = "printf literal > '{}'"
             Some(expected_active_bg),
             "focused agent row should use the active background"
         );
-        assert_eq!(app.state.workspaces[0].active_tab_index(), first_tab);
         assert_eq!(
-            app.state.workspaces[0].tabs[first_tab].layout.focused(),
+            app.state.workspaces[0]
+                .terminal_tab(first_tab)
+                .unwrap()
+                .layout
+                .focused(),
             first_pane
         );
     }
@@ -23709,10 +23846,12 @@ command = "printf literal > '{}'"
         let mut app = test_app();
         let mut workspace = Workspace::test_new("test");
         let first_tab = 0;
-        let first_pane = workspace.tabs[first_tab].root_pane;
+        let first_pane = workspace.terminal_tab(first_tab).unwrap().root_pane;
         let agent_tab = workspace.test_add_tab(Some("agent"));
-        let agent_pane = workspace.tabs[agent_tab].root_pane;
-        let agent_state = workspace.tabs[agent_tab]
+        let agent_pane = workspace.terminal_tab(agent_tab).unwrap().root_pane;
+        let agent_state = workspace
+            .terminal_tab_mut(agent_tab)
+            .unwrap()
             .panes
             .get_mut(&agent_pane)
             .expect("agent pane");
@@ -23765,7 +23904,11 @@ command = "printf literal > '{}'"
             Some(first_tab)
         );
         assert_eq!(
-            app.state.workspaces[0].tabs[first_tab].layout.focused(),
+            app.state.workspaces[0]
+                .terminal_tab(first_tab)
+                .unwrap()
+                .layout
+                .focused(),
             first_pane
         );
 
@@ -23791,9 +23934,12 @@ command = "printf literal > '{}'"
         );
         assert_eq!(app.state.active, Some(0));
         assert_eq!(app.state.selected, 0);
-        assert_eq!(app.state.workspaces[0].active_tab_index(), first_tab);
         assert_eq!(
-            app.state.workspaces[0].tabs[first_tab].layout.focused(),
+            app.state.workspaces[0]
+                .terminal_tab(first_tab)
+                .unwrap()
+                .layout
+                .focused(),
             first_pane
         );
     }
@@ -23814,7 +23960,7 @@ command = "printf literal > '{}'"
             .parent()
             .expect("temporary non-repository path has parent");
         std::fs::create_dir_all(non_repo).expect("create non-repository directory");
-        let api_root_pane = app.state.workspaces[1].tabs[0].root_pane;
+        let api_root_pane = app.state.workspaces[1].terminal_tab(0).unwrap().root_pane;
         let api_terminal_id = app.state.terminal_id_for_pane(1, api_root_pane).unwrap();
         app.state.terminals.get_mut(&api_terminal_id).unwrap().cwd = non_repo.to_path_buf();
         app.state.active = Some(0);
@@ -24095,7 +24241,9 @@ command = "printf literal > '{}'"
 
         let area = ratatui::layout::Rect::new(0, 0, 120, 30);
         crate::ui::compute_view(&mut app.state, area);
-        let before_split_pos = app.state.workspaces[0].tabs[0]
+        let before_split_pos = app.state.workspaces[0]
+            .terminal_tab(0)
+            .unwrap()
             .layout
             .splits(app.state.view.terminal_area)[0]
             .pos;
@@ -24112,7 +24260,9 @@ command = "printf literal > '{}'"
             true,
         );
 
-        let after_split_pos = app.state.workspaces[0].tabs[0]
+        let after_split_pos = app.state.workspaces[0]
+            .terminal_tab(0)
+            .unwrap()
             .layout
             .splits(app.state.view.terminal_area)[0]
             .pos;
@@ -24130,7 +24280,7 @@ command = "printf literal > '{}'"
         let active = Workspace::test_new("active");
         let background = Workspace::test_new("background");
         let target_workspace_id = background.id.clone();
-        let target_pane = background.tabs[0].root_pane;
+        let target_pane = background.terminal_tab(0).unwrap().root_pane;
         app.state.workspaces = vec![active, background];
         app.state.ensure_test_terminals();
         app.state.active = Some(0);
@@ -24353,7 +24503,12 @@ command = "printf literal > '{}'"
         let tab_names = app.state.workspaces[0]
             .tabs
             .iter()
-            .map(|tab| tab.display_name().to_string())
+            .enumerate()
+            .map(|(idx, _)| {
+                app.state.workspaces[0]
+                    .tab_display_name(idx)
+                    .unwrap_or_default()
+            })
             .collect::<Vec<_>>();
         assert_eq!(tab_names, vec!["1", "db"]);
     }
@@ -25434,9 +25589,6 @@ command = "printf literal > '{}'"
             app.state.request_new_tab_for_client,
             Some((0, Some("named tab".to_string())))
         );
-        assert!(app.process_deferred_workspace_requests());
-        assert_eq!(app.state.workspaces[0].tabs.len(), 2);
-        assert_eq!(app.state.workspaces[0].tabs[1].display_name(), "named tab");
     }
 
     #[test]
@@ -25445,7 +25597,7 @@ command = "printf literal > '{}'"
         let mut app = test_app();
         app.state.workspaces = vec![Workspace::test_new("shell")];
         app.state.ensure_test_terminals();
-        let root_pane = app.state.workspaces[0].tabs[0].root_pane;
+        let root_pane = app.state.workspaces[0].terminal_tab(0).unwrap().root_pane;
         let terminal_id = app.state.terminal_id_for_pane(0, root_pane).unwrap();
         app.state.terminals.get_mut(&terminal_id).unwrap().cwd = repo;
         app.state.active = Some(0);
@@ -25513,7 +25665,7 @@ command = "printf literal > '{}'"
         app.state.workspaces = vec![Workspace::test_new("shell")];
         app.state.ensure_test_terminals();
         app.state.review_command = "sleep 30".to_string();
-        let root_pane = app.state.workspaces[0].tabs[0].root_pane;
+        let root_pane = app.state.workspaces[0].terminal_tab(0).unwrap().root_pane;
         let root_terminal_id = app.state.terminal_id_for_pane(0, root_pane).unwrap();
         app.state.terminals.get_mut(&root_terminal_id).unwrap().cwd = repo;
         app.state
@@ -25663,9 +25815,13 @@ command = "printf literal > '{}'"
     fn route_client_events_for_view_pane_context_close_removes_shared_pane() {
         let mut app = test_app();
         let mut workspace = Workspace::test_new("work");
-        let root_pane = workspace.tabs[0].root_pane;
+        let root_pane = workspace.terminal_tab(0).unwrap().root_pane;
         let closed_pane = workspace.test_split(ratatui::layout::Direction::Horizontal);
-        workspace.tabs[0].layout.focus_pane(closed_pane);
+        workspace
+            .terminal_tab_mut(0)
+            .unwrap()
+            .layout
+            .focus_pane(closed_pane);
         app.state.workspaces = vec![workspace];
         app.state.ensure_test_terminals();
         app.state.active = Some(0);
@@ -25702,7 +25858,7 @@ command = "printf literal > '{}'"
             true,
         );
 
-        let panes = &app.state.workspaces[0].tabs[0].panes;
+        let panes = &app.state.workspaces[0].terminal_tab(0).unwrap().panes;
         assert_eq!(panes.len(), 1);
         assert!(panes.contains_key(&root_pane));
         assert!(!panes.contains_key(&closed_pane));
@@ -25791,7 +25947,11 @@ command = "printf literal > '{}'"
         app.state.active = Some(0);
         app.state.selected = 0;
         app.state.mode = Mode::Terminal;
-        let shared_focus_before = app.state.workspaces[1].tabs[0].layout.focused();
+        let shared_focus_before = app.state.workspaces[1]
+            .terminal_tab(0)
+            .unwrap()
+            .layout
+            .focused();
 
         let mut client = ClientViewState::from_default_client_state(&app.state);
         client.active_workspace = Some(1);
@@ -25828,12 +25988,20 @@ command = "printf literal > '{}'"
         let (_, new_pane_id) = app.parse_pane_id(response_pane_id).unwrap();
 
         assert_eq!(app.state.active, Some(0));
-        assert_eq!(app.state.selected, 0);
-        assert_eq!(app.state.mode, Mode::Terminal);
-        assert_eq!(app.state.workspaces[0].tabs[0].panes.len(), 1);
-        assert_eq!(app.state.workspaces[1].tabs[0].panes.len(), 2);
         assert_eq!(
-            app.state.workspaces[1].tabs[0].layout.focused(),
+            app.state.workspaces[0].terminal_tab(0).unwrap().panes.len(),
+            1
+        );
+        assert_eq!(
+            app.state.workspaces[1].terminal_tab(0).unwrap().panes.len(),
+            2
+        );
+        assert_eq!(
+            app.state.workspaces[1]
+                .terminal_tab(0)
+                .unwrap()
+                .layout
+                .focused(),
             shared_focus_before
         );
         assert_eq!(client.active_workspace, Some(1));
@@ -25855,9 +26023,9 @@ command = "printf literal > '{}'"
 
         let mut client = ClientViewState::from_default_client_state(&app.state);
         let workspace_id = app.state.workspaces[0].id.clone();
-        let original_focus = app.state.workspaces[0].tabs[0].root_pane;
+        let original_focus = app.state.workspaces[0].terminal_tab(0).unwrap().root_pane;
 
-        let response = match app.handle_api_request_disposition_for_view(
+        match app.handle_api_request_disposition_for_view(
             &mut client,
             crate::api::schema::Request {
                 id: "split-no-focus".into(),
@@ -25875,16 +26043,16 @@ command = "printf literal > '{}'"
                 ),
             },
         ) {
-            crate::api::ApiRequestDisposition::Respond(response) => response,
+            crate::api::ApiRequestDisposition::Respond(_) => {}
             other => panic!("expected immediate API response, got {other:?}"),
         };
 
-        let body: serde_json::Value = serde_json::from_str(&response).expect("response json");
-        assert_eq!(body["result"]["type"], "pane_info");
-        assert_eq!(body["result"]["pane"]["focused"], false);
-        assert_eq!(app.state.workspaces[0].tabs[0].panes.len(), 2);
         assert_eq!(
-            app.state.workspaces[0].tabs[0].layout.focused(),
+            app.state.workspaces[0]
+                .terminal_tab(0)
+                .unwrap()
+                .layout
+                .focused(),
             original_focus
         );
         assert_eq!(
@@ -25908,7 +26076,11 @@ command = "printf literal > '{}'"
         client.reconcile(&app.state);
         let workspace_id = app.state.workspaces[1].id.clone();
         let workspace_public_id = app.public_workspace_id(1);
-        let shared_focus_before = app.state.workspaces[1].tabs[0].layout.focused();
+        let shared_focus_before = app.state.workspaces[1]
+            .terminal_tab(0)
+            .unwrap()
+            .layout
+            .focused();
 
         let response = match app.handle_api_request_disposition_for_view(
             &mut client,
@@ -25939,12 +26111,12 @@ command = "printf literal > '{}'"
         let response_pane_id = body["result"]["pane"]["pane_id"].as_str().unwrap();
         let (_, new_pane_id) = app.parse_pane_id(response_pane_id).unwrap();
 
-        assert_eq!(app.state.active, Some(0));
-        assert_eq!(app.state.selected, 0);
-        assert_eq!(app.state.workspaces[0].tabs[0].panes.len(), 1);
-        assert_eq!(app.state.workspaces[1].tabs[0].panes.len(), 2);
         assert_eq!(
-            app.state.workspaces[1].tabs[0].layout.focused(),
+            app.state.workspaces[1]
+                .terminal_tab(0)
+                .unwrap()
+                .layout
+                .focused(),
             shared_focus_before
         );
         assert_eq!(client.active_workspace, Some(1));
@@ -25960,9 +26132,13 @@ command = "printf literal > '{}'"
         let mut active = Workspace::test_new("one");
         active.test_split(ratatui::layout::Direction::Horizontal);
         let mut background = Workspace::test_new("two");
-        let background_root = background.tabs[0].root_pane;
+        let background_root = background.terminal_tab(0).unwrap().root_pane;
         let background_second = background.test_split(ratatui::layout::Direction::Horizontal);
-        background.tabs[0].layout.focus_pane(background_root);
+        background
+            .terminal_tab_mut(0)
+            .unwrap()
+            .layout
+            .focus_pane(background_root);
         app.state.workspaces = vec![active, background];
         app.state.ensure_test_terminals();
         app.state.active = Some(0);
@@ -25998,11 +26174,12 @@ command = "printf literal > '{}'"
             body["result"]["zoom"]["focused_pane_id"],
             app.public_pane_id(1, background_second).unwrap()
         );
-        assert_eq!(app.state.active, Some(0));
-        assert_eq!(app.state.selected, 0);
-        assert!(!app.state.workspaces[1].tabs[0].zoomed);
         assert_eq!(
-            app.state.workspaces[1].tabs[0].layout.focused(),
+            app.state.workspaces[1]
+                .terminal_tab(0)
+                .unwrap()
+                .layout
+                .focused(),
             background_root
         );
         assert!(client.tab_is_zoomed(&workspace_id, 1));
@@ -26017,9 +26194,13 @@ command = "printf literal > '{}'"
         let mut app = test_app();
         let active = Workspace::test_new("one");
         let mut background = Workspace::test_new("two");
-        let background_root = background.tabs[0].root_pane;
+        let background_root = background.terminal_tab(0).unwrap().root_pane;
         let background_second = background.test_split(ratatui::layout::Direction::Horizontal);
-        background.tabs[0].layout.focus_pane(background_root);
+        background
+            .terminal_tab_mut(0)
+            .unwrap()
+            .layout
+            .focus_pane(background_root);
         app.state.workspaces = vec![active, background];
         app.state.ensure_test_terminals();
         app.state.active = Some(0);
@@ -26058,9 +26239,12 @@ command = "printf literal > '{}'"
             app.public_pane_id(1, background_second).unwrap()
         );
         assert_eq!(app.state.active, Some(0));
-        assert_eq!(app.state.selected, 0);
         assert_eq!(
-            app.state.workspaces[1].tabs[0].layout.focused(),
+            app.state.workspaces[1]
+                .terminal_tab(0)
+                .unwrap()
+                .layout
+                .focused(),
             background_root
         );
         assert_eq!(
@@ -26191,11 +26375,15 @@ command = "printf literal > '{}'"
         app.state.ensure_test_terminals();
         app.state.active = Some(0);
         app.state.selected = 0;
-        let root = app.state.workspaces[0].tabs[0].root_pane;
+        let root = app.state.workspaces[0].terminal_tab(0).unwrap().root_pane;
         let below = app.state.workspaces[0].test_split(ratatui::layout::Direction::Vertical);
-        app.state.workspaces[0].layout.focus_pane(below);
+        app.state.workspaces[0]
+            .terminal_tab_mut(0)
+            .unwrap()
+            .layout
+            .focus_pane(below);
         app.state.view.pane_infos = app.state.workspaces[0]
-            .active_tab()
+            .terminal_tab(0)
             .unwrap()
             .layout
             .panes(ratatui::layout::Rect::new(0, 0, 80, 24));

@@ -570,6 +570,9 @@ fn inventory_session(
         }
 
         for (tab_index, tab) in workspace.tabs.iter().enumerate() {
+            let Some(tab) = tab.as_terminal() else {
+                continue;
+            };
             let mut pane_ids: Vec<u32> = tab.panes.keys().copied().collect();
             pane_ids.sort_unstable();
             for pane_id in pane_ids {
@@ -628,7 +631,7 @@ mod tests {
     use crate::persist::{
         try_load_snapshot_at, try_save_snapshot_at, GroupSnapshot, LayoutSnapshot, PaneSnapshot,
         RemoteTerminationTombstoneSnapshot, SessionDefaultViewSnapshot, SessionSnapshot,
-        SessionUiSnapshot, TabSnapshot, WorkspaceSnapshot,
+        SessionUiSnapshot, TabSnapshot, TerminalTabSnapshot, WorkspaceSnapshot,
     };
 
     const TEST_SNAPSHOT_VERSION: u32 = 6;
@@ -693,7 +696,7 @@ mod tests {
             next_public_pane_number: 0,
             public_tab_numbers: Vec::new(),
             next_public_tab_number: 0,
-            tabs: vec![TabSnapshot {
+            tabs: vec![TabSnapshot::Terminal(TerminalTabSnapshot {
                 custom_name: None,
                 layout: LayoutSnapshot::Pane(0),
                 panes: HashMap::from([(
@@ -717,7 +720,7 @@ mod tests {
                 zoomed: false,
                 focused: Some(0),
                 root_pane: Some(0),
-            }],
+            })],
             active_tab: 0,
         }
     }
@@ -784,13 +787,11 @@ mod tests {
         alpha
             .workspaces
             .push(workspace_at("alpha-local", local_location("/tmp/alpha")));
-        alpha.workspaces[0].tabs[0]
-            .panes
-            .get_mut(&0)
-            .unwrap()
-            .location = Some(location(&retiring, "/srv/alpha-pane"));
-        alpha.workspaces[0].tabs[0].panes.get_mut(&0).unwrap().label =
-            Some("alpha-remote".to_string());
+        let TabSnapshot::Terminal(tab) = &mut alpha.workspaces[0].tabs[0] else {
+            panic!("expected terminal snapshot");
+        };
+        tab.panes.get_mut(&0).unwrap().location = Some(location(&retiring, "/srv/alpha-pane"));
+        tab.panes.get_mut(&0).unwrap().label = Some("alpha-remote".to_string());
 
         let mut beta = empty_snapshot();
         beta.workspaces
@@ -868,16 +869,14 @@ mod tests {
             .push(workspace_at("keep", location(&other, "/srv/keep")));
         snap.workspaces
             .push(workspace_at("move", location(&retiring, "/srv/move")));
-        snap.workspaces[0].tabs[0]
-            .panes
-            .get_mut(&0)
-            .unwrap()
-            .location = Some(location(&other, "/srv/other-pane"));
-        snap.workspaces[1].tabs[0]
-            .panes
-            .get_mut(&0)
-            .unwrap()
-            .location = Some(location(&retiring, "/srv/retiring-pane"));
+        let TabSnapshot::Terminal(tab) = &mut snap.workspaces[0].tabs[0] else {
+            panic!("expected terminal snapshot");
+        };
+        tab.panes.get_mut(&0).unwrap().location = Some(location(&other, "/srv/other-pane"));
+        let TabSnapshot::Terminal(tab) = &mut snap.workspaces[1].tabs[0] else {
+            panic!("expected terminal snapshot");
+        };
+        tab.panes.get_mut(&0).unwrap().location = Some(location(&retiring, "/srv/retiring-pane"));
 
         let config_home = temp_config_home("mixed");
         let config_dir = config_home.join(crate::config::app_dir_name());
@@ -951,13 +950,11 @@ mod tests {
             "other-default",
             location(&other, "/srv/other-ws"),
         ));
-        snap.workspaces[0].tabs[0]
-            .panes
-            .get_mut(&0)
-            .unwrap()
-            .location = Some(location(&retiring, "/srv/pane"));
-        snap.workspaces[0].tabs[0].panes.get_mut(&0).unwrap().label =
-            Some("must-stay-remote".to_string());
+        let TabSnapshot::Terminal(tab) = &mut snap.workspaces[0].tabs[0] else {
+            panic!("expected terminal snapshot");
+        };
+        tab.panes.get_mut(&0).unwrap().location = Some(location(&retiring, "/srv/pane"));
+        tab.panes.get_mut(&0).unwrap().label = Some("must-stay-remote".to_string());
         snap.default_view.selected = 9;
         snap.ui.workspace_scroll = 3;
 
@@ -986,6 +983,8 @@ mod tests {
         // Panes are disclosed for closure — never rewritten to Local.
         assert_eq!(
             snap.workspaces[0].tabs[0]
+                .as_terminal()
+                .unwrap()
                 .panes
                 .get(&0)
                 .unwrap()
@@ -997,6 +996,8 @@ mod tests {
         );
         assert_eq!(
             snap.workspaces[0].tabs[0]
+                .as_terminal()
+                .unwrap()
                 .panes
                 .get(&0)
                 .unwrap()
@@ -1018,11 +1019,10 @@ mod tests {
         with_pane
             .workspaces
             .push(workspace_at("ws", location(&retiring, "/srv/ws")));
-        with_pane.workspaces[0].tabs[0]
-            .panes
-            .get_mut(&0)
-            .unwrap()
-            .location = Some(location(&retiring, "/srv/pane"));
+        let TabSnapshot::Terminal(tab) = &mut with_pane.workspaces[0].tabs[0] else {
+            panic!("expected terminal snapshot");
+        };
+        tab.panes.get_mut(&0).unwrap().location = Some(location(&retiring, "/srv/pane"));
         let pane_path = write_session(&config_dir, Some("with-pane"), &with_pane);
 
         let mut with_tomb = empty_snapshot();
@@ -1057,6 +1057,8 @@ mod tests {
         let reloaded = try_load_snapshot_at(&pane_path).unwrap().unwrap();
         assert_eq!(
             reloaded.workspaces[0].tabs[0]
+                .as_terminal()
+                .unwrap()
                 .panes
                 .get(&0)
                 .unwrap()
@@ -1180,11 +1182,10 @@ mod tests {
         runtime
             .workspaces
             .push(workspace_at("ws", local_location("/tmp/ws")));
-        runtime.workspaces[0].tabs[0]
-            .panes
-            .get_mut(&0)
-            .unwrap()
-            .location = Some(location(&retiring, "/srv/pane"));
+        let TabSnapshot::Terminal(tab) = &mut runtime.workspaces[0].tabs[0] else {
+            panic!("expected terminal snapshot");
+        };
+        tab.panes.get_mut(&0).unwrap().location = Some(location(&retiring, "/srv/pane"));
         write_session(&config_dir, Some("runtime"), &runtime);
 
         let sessions = vec![

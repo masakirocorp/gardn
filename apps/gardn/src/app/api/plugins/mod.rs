@@ -1561,7 +1561,7 @@ command = ["echo", " a", "first "]
     async fn remote_plugin_pane_rejects_before_create_without_project_fallback() {
         let mut app = test_app();
         let workspace = crate::workspace::Workspace::test_new("remote-plugin-target");
-        let root_pane = workspace.tabs[0].root_pane;
+        let root_pane = workspace.terminal_tab(0).unwrap().root_pane;
         let source_terminal_id = workspace
             .terminal_id(root_pane)
             .cloned()
@@ -1674,7 +1674,7 @@ title = "Plugin Board"
     async fn remote_plugin_popup_split_and_tab_share_unsupported_host_rejection() {
         let mut app = test_app();
         let workspace = crate::workspace::Workspace::test_new("remote-plugin-shared-resolver");
-        let root_pane = workspace.tabs[0].root_pane;
+        let root_pane = workspace.terminal_tab(0).unwrap().root_pane;
         let source_terminal_id = workspace
             .terminal_id(root_pane)
             .cloned()
@@ -1812,7 +1812,7 @@ command = ["bash", "open.sh"]
         let mut app = test_app();
         let mut workspace = crate::workspace::Workspace::test_new("plugin-target");
         workspace.custom_name = None;
-        let root_pane = workspace.tabs[0].root_pane;
+        let root_pane = workspace.terminal_tab(0).unwrap().root_pane;
         let root_terminal = workspace.terminal_id(root_pane).cloned().unwrap();
         app.state.workspaces = vec![workspace];
         app.state.ensure_test_terminals();
@@ -2473,7 +2473,7 @@ command = ["sh", "-c", "printf '%s\n%s\n%s' \"$GARDN_PLUGIN_ROOT\" \"$GARDN_PLUG
     async fn current_plugin_context_includes_selected_text_for_focused_pane() {
         let mut app = test_app();
         let workspace = crate::workspace::Workspace::test_new("plugin-selection");
-        let pane_id = workspace.tabs[0].root_pane;
+        let pane_id = workspace.terminal_tab(0).unwrap().root_pane;
         let terminal_id = workspace.terminal_id(pane_id).cloned().unwrap();
         app.state.workspaces = vec![workspace];
         app.state.ensure_test_terminals();
@@ -2496,10 +2496,10 @@ command = ["sh", "-c", "printf '%s\n%s\n%s' \"$GARDN_PLUGIN_ROOT\" \"$GARDN_PLUG
     async fn client_plugin_keybind_context_uses_invoking_client_selection() {
         let mut app = test_app();
         let shared_workspace = crate::workspace::Workspace::test_new("shared-selection");
-        let shared_pane = shared_workspace.tabs[0].root_pane;
+        let shared_pane = shared_workspace.terminal_tab(0).unwrap().root_pane;
         let shared_terminal = shared_workspace.terminal_id(shared_pane).cloned().unwrap();
         let client_workspace = crate::workspace::Workspace::test_new("client-selection");
-        let client_pane = client_workspace.tabs[0].root_pane;
+        let client_pane = client_workspace.terminal_tab(0).unwrap().root_pane;
         let client_terminal = client_workspace.terminal_id(client_pane).cloned().unwrap();
         app.state.workspaces = vec![shared_workspace, client_workspace];
         app.state.ensure_test_terminals();
@@ -2690,7 +2690,7 @@ command = ["sh", "-c", "printf '%s' \"$GARDN_PLUGIN_CONTEXT_JSON\" > {}"]
         app.state.ensure_test_terminals();
         app.state.active = Some(0);
         app.state.selected = 0;
-        let active_pane_id = app.state.workspaces[0].tabs[0].root_pane;
+        let active_pane_id = app.state.workspaces[0].terminal_tab(0).unwrap().root_pane;
         let active_public_pane_id = app.public_pane_id(0, active_pane_id).unwrap();
         let workspace_id = app.public_workspace_id(0);
         let closed_tab_id = format!("{workspace_id}:t99");
@@ -2745,7 +2745,7 @@ command = ["sh", "-c", "printf '%s' \"$GARDN_PLUGIN_CONTEXT_JSON\" > {}"]
         app.state.ensure_test_terminals();
         app.state.active = Some(0);
         app.state.selected = 0;
-        let pane_id = app.state.workspaces[0].tabs[0].root_pane;
+        let pane_id = app.state.workspaces[0].terminal_tab(0).unwrap().root_pane;
         let root = unique_temp_path("plugin-link-handler");
         write_manifest_content(
             &root,
@@ -2952,7 +2952,7 @@ action = "missing"
         app.state.active = Some(0);
         app.state.selected = 0;
         app.state.workspaces[0].custom_name = Some("Plugin Work".into());
-        let pane_id = app.state.workspaces[0].tabs[0].root_pane;
+        let pane_id = app.state.workspaces[0].terminal_tab(0).unwrap().root_pane;
         let pane_public = app.public_pane_id(0, pane_id).unwrap();
         let tab_public = app.public_tab_id(0, 0).unwrap();
         let workspace_public = app.public_workspace_id(0);
@@ -3223,7 +3223,7 @@ command = ["sh", "-c", "echo ok"]
         app.state.ensure_test_terminals();
         app.state.active = Some(0);
         app.state.selected = 0;
-        let pane_id = app.state.workspaces[0].tabs[0].root_pane;
+        let pane_id = app.state.workspaces[0].terminal_tab(0).unwrap().root_pane;
         let public_pane_id = app.public_pane_id(0, pane_id).unwrap();
         app.state.plugin_panes.insert(
             pane_id,
@@ -3270,7 +3270,7 @@ command = ["sh", "-c", "echo ok"]
         app.state.ensure_test_terminals();
         app.state.active = Some(0);
         app.state.selected = 0;
-        let pane_id = app.state.workspaces[0].tabs[0].root_pane;
+        let pane_id = app.state.workspaces[0].terminal_tab(0).unwrap().root_pane;
         app.state.plugin_panes.insert(
             pane_id,
             crate::app::state::PluginPaneRecord {

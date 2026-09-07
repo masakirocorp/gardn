@@ -1121,7 +1121,7 @@ impl AppState {
                             if let Some(tab) = self
                                 .active
                                 .and_then(|i| self.workspaces.get_mut(i))
-                                .and_then(|ws| ws.active_tab_mut())
+                                .and_then(|ws| ws.terminal_tab_mut(ws.active_tab).ok())
                             {
                                 tab.layout.set_ratio_at(&path, ratio);
                                 self.mark_session_dirty();
@@ -1925,7 +1925,7 @@ impl AppState {
         if let Some(tab) = self
             .workspaces
             .get_mut(ws_idx)
-            .and_then(|ws| ws.active_tab_mut())
+            .and_then(|ws| ws.terminal_tab_mut(ws.active_tab).ok())
         {
             if tab.layout.focused() != pane_id {
                 tab.layout.focus_pane(pane_id);
@@ -2861,10 +2861,14 @@ mod tests {
     async fn terminal_wheel_uses_configured_mouse_scroll_lines() {
         let mut app = app_for_mouse_test();
         let mut ws = Workspace::test_new("test");
-        let pane_id = ws.tabs[0].root_pane;
-        let pane_infos = ws.tabs[0].layout.panes(Rect::new(26, 2, 80, 18));
+        let pane_id = ws.terminal_tab(0).unwrap().root_pane;
+        let pane_infos = ws
+            .terminal_tab(0)
+            .unwrap()
+            .layout
+            .panes(Rect::new(26, 2, 80, 18));
         let info = pane_infos[0].clone();
-        ws.tabs[0].runtimes.insert(
+        ws.terminal_tab_mut(0).unwrap().runtimes.insert(
             pane_id,
             crate::terminal::TerminalRuntime::test_with_scrollback_bytes(
                 info.inner_rect.width,
@@ -3143,9 +3147,13 @@ mod tests {
         let mut app = app_for_mouse_test();
         let active = Workspace::test_new("active");
         let mut background = Workspace::test_new("background");
-        let first_pane = background.tabs[0].root_pane;
+        let first_pane = background.terminal_tab(0).unwrap().root_pane;
         let target_pane = background.test_split(Direction::Horizontal);
-        background.tabs[0].layout.focus_pane(first_pane);
+        background
+            .terminal_tab_mut(0)
+            .unwrap()
+            .layout
+            .focus_pane(first_pane);
 
         app.state.workspaces = vec![active, background];
         app.state.ensure_test_terminals();
@@ -3153,6 +3161,8 @@ mod tests {
         app.state.selected = 0;
         app.state.toast_config.delivery = crate::config::ToastDelivery::Gardn;
         let target_terminal_id = app.state.workspaces[1]
+            .terminal_tab(0)
+            .unwrap()
             .panes
             .get(&target_pane)
             .unwrap()
@@ -3195,7 +3205,7 @@ mod tests {
         let mut app = app_for_mouse_test();
         let active = Workspace::test_new("active");
         let background = Workspace::test_new("background");
-        let target_pane = background.tabs[0].root_pane;
+        let target_pane = background.terminal_tab(0).unwrap().root_pane;
         let workspace_id = background.id.clone();
 
         app.state.workspaces = vec![active, background];
@@ -3653,7 +3663,7 @@ mod tests {
         app.state.terminals.insert(terminal.id.clone(), terminal);
         app.state.active = Some(0);
         app.state.selected = 0;
-        let pane_id = app.state.workspaces[0].tabs[0].root_pane;
+        let pane_id = app.state.workspaces[0].terminal_tab(0).unwrap().root_pane;
         let runtime_count = app.terminal_runtimes.len();
         app.state.context_menu = Some(ContextMenuState {
             kind: ContextMenuKind::Pane {
@@ -3675,7 +3685,14 @@ mod tests {
         );
 
         assert_eq!(app.state.mode, Mode::Terminal);
-        assert_eq!(app.state.workspaces[0].tabs[0].layout.pane_count(), 2);
+        assert_eq!(
+            app.state.workspaces[0]
+                .terminal_tab(0)
+                .unwrap()
+                .layout
+                .pane_count(),
+            2
+        );
         assert_eq!(app.terminal_runtimes.len(), runtime_count + 1);
 
         let runtimes: Vec<_> = app.terminal_runtimes.drain().collect();
@@ -3827,8 +3844,12 @@ mod tests {
     async fn normal_mouse_capture_forwards_middle_button_gesture_to_pane() {
         let mut app = app_for_mouse_test();
         let mut ws = Workspace::test_new("test");
-        let pane_id = ws.tabs[0].root_pane;
-        let pane_infos = ws.tabs[0].layout.panes(Rect::new(26, 2, 80, 18));
+        let pane_id = ws.terminal_tab(0).unwrap().root_pane;
+        let pane_infos = ws
+            .terminal_tab(0)
+            .unwrap()
+            .layout
+            .panes(Rect::new(26, 2, 80, 18));
         let info = pane_infos[0].clone();
         let (runtime, mut rx) =
             crate::terminal::TerminalRuntime::test_with_channel_and_screen_bytes(
@@ -3880,8 +3901,12 @@ mod tests {
     async fn configured_right_click_passthrough_forwards_full_gesture_to_pane() {
         let mut app = app_for_mouse_test();
         let mut ws = Workspace::test_new("test");
-        let pane_id = ws.tabs[0].root_pane;
-        let pane_infos = ws.tabs[0].layout.panes(Rect::new(26, 2, 80, 18));
+        let pane_id = ws.terminal_tab(0).unwrap().root_pane;
+        let pane_infos = ws
+            .terminal_tab(0)
+            .unwrap()
+            .layout
+            .panes(Rect::new(26, 2, 80, 18));
         let info = pane_infos[0].clone();
         let (runtime, mut input_rx) =
             crate::terminal::TerminalRuntime::test_with_channel_and_scrollback_bytes(
@@ -3937,8 +3962,12 @@ mod tests {
     async fn unset_right_click_passthrough_keeps_modified_right_click_as_gardn_menu() {
         let mut app = app_for_mouse_test();
         let mut ws = Workspace::test_new("test");
-        let pane_id = ws.tabs[0].root_pane;
-        let pane_infos = ws.tabs[0].layout.panes(Rect::new(26, 2, 80, 18));
+        let pane_id = ws.terminal_tab(0).unwrap().root_pane;
+        let pane_infos = ws
+            .terminal_tab(0)
+            .unwrap()
+            .layout
+            .panes(Rect::new(26, 2, 80, 18));
         let info = pane_infos[0].clone();
         let (runtime, mut input_rx) =
             crate::terminal::TerminalRuntime::test_with_channel_and_scrollback_bytes(
@@ -3976,8 +4005,12 @@ mod tests {
     async fn right_click_passthrough_requires_exact_modifier_match() {
         let mut app = app_for_mouse_test();
         let mut ws = Workspace::test_new("test");
-        let pane_id = ws.tabs[0].root_pane;
-        let pane_infos = ws.tabs[0].layout.panes(Rect::new(26, 2, 80, 18));
+        let pane_id = ws.terminal_tab(0).unwrap().root_pane;
+        let pane_infos = ws
+            .terminal_tab(0)
+            .unwrap()
+            .layout
+            .panes(Rect::new(26, 2, 80, 18));
         let info = pane_infos[0].clone();
         let (runtime, mut input_rx) =
             crate::terminal::TerminalRuntime::test_with_channel_and_scrollback_bytes(
@@ -4015,7 +4048,7 @@ mod tests {
     async fn right_click_passthrough_does_not_forward_pane_frame_clicks() {
         let mut app = app_for_mouse_test();
         let mut ws = Workspace::test_new("test");
-        let pane_id = ws.tabs[0].root_pane;
+        let pane_id = ws.terminal_tab(0).unwrap().root_pane;
         let other_pane = ws.test_split(Direction::Vertical);
         app.state.workspaces = vec![ws];
         app.state.active = Some(0);
@@ -4070,7 +4103,7 @@ mod tests {
     async fn dragging_vertical_pane_split_still_resizes_when_pane_mouse_reporting_is_enabled() {
         let mut app = app_for_mouse_test();
         let mut ws = Workspace::test_new("test");
-        let first_pane = ws.tabs[0].root_pane;
+        let first_pane = ws.terminal_tab(0).unwrap().root_pane;
         let second_pane = ws.test_split(Direction::Vertical);
 
         app.state.workspaces = vec![ws];
@@ -4139,7 +4172,7 @@ mod tests {
     async fn dragging_horizontal_pane_split_still_resizes_when_pane_mouse_reporting_is_enabled() {
         let mut app = app_for_mouse_test();
         let mut ws = Workspace::test_new("test");
-        let first_pane = ws.tabs[0].root_pane;
+        let first_pane = ws.terminal_tab(0).unwrap().root_pane;
         let second_pane = ws.test_split(Direction::Horizontal);
 
         app.state.workspaces = vec![ws];
@@ -4208,7 +4241,7 @@ mod tests {
     async fn mouse_move_forwards_to_pane_that_requested_any_motion() {
         let mut app = app_for_mouse_test();
         let ws = Workspace::test_new("test");
-        let pane_id = ws.tabs[0].root_pane;
+        let pane_id = ws.terminal_tab(0).unwrap().root_pane;
         app.state.workspaces = vec![ws];
         app.state.active = Some(0);
         app.state.selected = 0;
@@ -4237,7 +4270,7 @@ mod tests {
     async fn mouse_move_batch_forwards_only_the_latest_position() {
         let mut app = app_for_mouse_test();
         let ws = Workspace::test_new("test");
-        let pane_id = ws.tabs[0].root_pane;
+        let pane_id = ws.terminal_tab(0).unwrap().root_pane;
         app.state.workspaces = vec![ws];
         app.state.active = Some(0);
         app.state.selected = 0;
@@ -4282,7 +4315,7 @@ mod tests {
     async fn mouse_move_batch_flushes_latest_move_before_click() {
         let mut app = app_for_mouse_test();
         let ws = Workspace::test_new("test");
-        let pane_id = ws.tabs[0].root_pane;
+        let pane_id = ws.terminal_tab(0).unwrap().root_pane;
         app.state.workspaces = vec![ws];
         app.state.active = Some(0);
         app.state.selected = 0;
@@ -4337,7 +4370,7 @@ mod tests {
     async fn later_mouse_moves_wait_for_motion_flush() {
         let mut app = app_for_mouse_test();
         let ws = Workspace::test_new("test");
-        let pane_id = ws.tabs[0].root_pane;
+        let pane_id = ws.terminal_tab(0).unwrap().root_pane;
         app.state.workspaces = vec![ws];
         app.state.active = Some(0);
         app.state.selected = 0;
@@ -4411,7 +4444,7 @@ mod tests {
         let mut app = app_for_mouse_test();
         app.state.mouse_capture = false;
         let ws = Workspace::test_new("test");
-        let pane_id = ws.tabs[0].root_pane;
+        let pane_id = ws.terminal_tab(0).unwrap().root_pane;
         app.state.workspaces = vec![ws];
         app.state.active = Some(0);
         app.state.selected = 0;
@@ -4476,7 +4509,7 @@ mod tests {
         let mut app = app_for_mouse_test();
         app.state.mouse_capture = false;
         let ws = Workspace::test_new("test");
-        let pane_id = ws.tabs[0].root_pane;
+        let pane_id = ws.terminal_tab(0).unwrap().root_pane;
         app.state.workspaces = vec![ws];
         app.state.active = Some(0);
         app.state.selected = 0;
@@ -4533,7 +4566,7 @@ mod tests {
     async fn mouse_move_is_not_forwarded_for_button_motion_mode() {
         let mut app = app_for_mouse_test();
         let ws = Workspace::test_new("test");
-        let pane_id = ws.tabs[0].root_pane;
+        let pane_id = ws.terminal_tab(0).unwrap().root_pane;
         app.state.workspaces = vec![ws];
         app.state.active = Some(0);
         app.state.selected = 0;
@@ -4634,8 +4667,11 @@ mod tests {
         ));
 
         assert_eq!(app.state.workspaces[0].tabs.len(), 2);
-        assert_eq!(app.state.workspaces[0].tabs[0].display_name(), "1");
-        assert_eq!(app.state.workspaces[0].tabs[1].display_name(), "three");
+        assert_eq!(app.state.workspaces[0].tab_display_name(0).unwrap(), "1");
+        assert_eq!(
+            app.state.workspaces[0].tab_display_name(1).unwrap(),
+            "three"
+        );
         assert_eq!(app.state.workspaces[0].active_tab, 0);
         assert!(app.state.session_dirty);
     }
@@ -4701,8 +4737,8 @@ mod tests {
         app.state.active = Some(0);
         app.state.selected = 0;
         app.state.mode = Mode::Terminal;
-        let pane_id = app.state.workspaces[1].tabs[0].root_pane;
-        let terminal_id = app.state.workspaces[1].tabs[0].panes[&pane_id]
+        let pane_id = app.state.workspaces[1].terminal_tab(0).unwrap().root_pane;
+        let terminal_id = app.state.workspaces[1].terminal_tab(0).unwrap().panes[&pane_id]
             .attached_terminal_id
             .clone();
         app.state
@@ -4884,9 +4920,13 @@ mod tests {
     fn mobile_switcher_pane_row_focuses_the_clicked_pane() {
         let mut app = app_for_mouse_test();
         let mut workspace = Workspace::test_new("one");
-        let first_pane = workspace.tabs[0].root_pane;
+        let first_pane = workspace.terminal_tab(0).unwrap().root_pane;
         let second_pane = workspace.test_split(Direction::Horizontal);
-        workspace.tabs[0].layout.focus_pane(first_pane);
+        workspace
+            .terminal_tab_mut(0)
+            .unwrap()
+            .layout
+            .focus_pane(first_pane);
         app.state.workspaces = vec![workspace];
         app.state.active = Some(0);
         app.state.selected = 0;
@@ -4940,7 +4980,14 @@ mod tests {
         app.handle_mouse(mouse(MouseEventKind::Down(MouseButton::Left), column, row));
 
         assert_eq!(app.state.mode, Mode::Terminal);
-        assert_eq!(app.state.workspaces[0].tabs[0].layout.pane_count(), 2);
+        assert_eq!(
+            app.state.workspaces[0]
+                .terminal_tab(0)
+                .unwrap()
+                .layout
+                .pane_count(),
+            2
+        );
         assert_eq!(app.terminal_runtimes.len(), 2);
 
         crate::ui::compute_view(&mut app.state, Rect::new(0, 0, 44, 20));
@@ -4950,7 +4997,14 @@ mod tests {
         app.handle_mouse(mouse(MouseEventKind::Down(MouseButton::Left), column, row));
 
         assert_eq!(app.state.mode, Mode::Terminal);
-        assert_eq!(app.state.workspaces[0].tabs[0].layout.pane_count(), 3);
+        assert_eq!(
+            app.state.workspaces[0]
+                .terminal_tab(0)
+                .unwrap()
+                .layout
+                .pane_count(),
+            3
+        );
         assert_eq!(app.terminal_runtimes.len(), 3);
 
         for (_, runtime) in app.terminal_runtimes.drain() {
@@ -5059,8 +5113,12 @@ mod tests {
     async fn mouse_capture_forwards_horizontal_wheel_with_sgr_modifiers() {
         let mut app = app_for_mouse_test();
         let mut ws = Workspace::test_new("test");
-        let pane_id = ws.tabs[0].root_pane;
-        let pane_infos = ws.tabs[0].layout.panes(Rect::new(26, 2, 80, 18));
+        let pane_id = ws.terminal_tab(0).unwrap().root_pane;
+        let pane_infos = ws
+            .terminal_tab(0)
+            .unwrap()
+            .layout
+            .panes(Rect::new(26, 2, 80, 18));
         let info = pane_infos[0].clone();
         let (runtime, mut input_rx) =
             crate::terminal::TerminalRuntime::test_with_channel_and_screen_bytes(
@@ -5105,8 +5163,12 @@ mod tests {
     async fn horizontal_wheel_over_sidebar_stays_local() {
         let mut app = app_for_mouse_test();
         let mut ws = Workspace::test_new("test");
-        let pane_id = ws.tabs[0].root_pane;
-        let pane_infos = ws.tabs[0].layout.panes(Rect::new(26, 2, 80, 18));
+        let pane_id = ws.terminal_tab(0).unwrap().root_pane;
+        let pane_infos = ws
+            .terminal_tab(0)
+            .unwrap()
+            .layout
+            .panes(Rect::new(26, 2, 80, 18));
         let info = pane_infos[0].clone();
         let (runtime, mut input_rx) =
             crate::terminal::TerminalRuntime::test_with_channel_and_screen_bytes(
@@ -5167,7 +5229,7 @@ mod tests {
     async fn pane_right_click_passthrough_is_isolated() {
         let mut app = app_for_mouse_test();
         let mut ws = Workspace::test_new("test");
-        let passthrough_pane = ws.tabs[0].root_pane;
+        let passthrough_pane = ws.terminal_tab(0).unwrap().root_pane;
         let default_pane = ws.test_split(Direction::Horizontal);
         ws.pane_state_mut(passthrough_pane)
             .unwrap()
@@ -5228,7 +5290,7 @@ mod tests {
     async fn pane_right_click_passthrough_falls_back_when_mouse_reporting_is_off() {
         let mut app = app_for_mouse_test();
         let mut ws = Workspace::test_new("test");
-        let pane_id = ws.tabs[0].root_pane;
+        let pane_id = ws.terminal_tab(0).unwrap().root_pane;
         ws.pane_state_mut(pane_id).unwrap().right_click_passthrough = true;
         app.state.workspaces = vec![ws];
         app.state.active = Some(0);

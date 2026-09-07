@@ -386,20 +386,26 @@ impl App {
             self.begin_remote_tab(ws_idx, location, false, None, Vec::new())
                 .map(TabCreation::Pending)
         };
-        if let Ok(TabCreation::Committed(tab_idx)) = &result {
-            if let Some(name) = custom_name {
-                if let Some(tab) = self
-                    .state
-                    .workspaces
-                    .get_mut(ws_idx)
-                    .and_then(|workspace| workspace.tabs.get_mut(*tab_idx))
-                {
+        match &result {
+            Ok(TabCreation::Committed(tab_idx)) => {
+                let tab = &mut self.state.workspaces[ws_idx].tabs[*tab_idx];
+                if let Some(name) = custom_name {
                     tab.set_custom_name(name);
-                    self.schedule_session_save();
+                }
+                self.schedule_session_save();
+            }
+            Ok(TabCreation::Pending(terminal_id)) => {
+                if let Some(PendingRemoteCreation {
+                    plan: PendingRemoteCreationPlan::Tab { tab, .. },
+                    ..
+                }) = self.pending_remote_creations.get_mut(terminal_id)
+                {
+                    if let Some(name) = custom_name {
+                        tab.set_custom_name(name);
+                    }
                 }
             }
-        } else if let (Ok(TabCreation::Pending(terminal_id)), Some(name)) = (&result, custom_name) {
-            self.set_pending_remote_container_name(terminal_id, name);
+            Err(_) => {}
         }
         self.state.active = previous_active;
         self.state.mode = previous_mode;
@@ -435,7 +441,10 @@ impl App {
                 render_notify,
                 render_dirty,
             )?;
-            let root_pane = ws.tabs[idx].root_pane;
+            let root_pane = ws
+                .terminal_tab(idx)
+                .map_err(std::io::Error::other)?
+                .root_pane;
             (idx, terminal, runtime, root_pane)
         };
         self.terminal_runtimes.insert(terminal.id.clone(), runtime);
@@ -449,7 +458,7 @@ impl App {
         let tab_id = self
             .public_tab_id(ws_idx, idx)
             .unwrap_or_else(|| format!("{}:{}", workspace_id, idx + 1));
-        let root_pane = self.state.workspaces[ws_idx].tabs[idx].root_pane.raw();
+        let root_pane = root_pane.raw();
         crate::logging::tab_created(&workspace_id, &tab_id, root_pane);
         self.schedule_session_save();
         Ok(idx)
@@ -500,10 +509,13 @@ impl App {
             )?;
             terminal.launch_argv = Some(profile.argv.clone());
             terminal.launch_env = launch_env;
-            if let Some(tab) = ws.tabs.get_mut(idx) {
-                tab.set_custom_name(profile.name.clone());
-            }
-            let root_pane = ws.tabs[idx].root_pane;
+            ws.terminal_tab_mut(idx)
+                .map_err(std::io::Error::other)?
+                .set_custom_name(profile.name.clone());
+            let root_pane = ws
+                .terminal_tab(idx)
+                .map_err(std::io::Error::other)?
+                .root_pane;
             (idx, terminal, runtime, root_pane)
         };
         self.terminal_runtimes.insert(terminal.id.clone(), runtime);
@@ -559,10 +571,18 @@ impl App {
         self.state.terminals.insert(terminal.id.clone(), terminal);
         self.state.workspaces.push(ws);
         let idx = self.state.workspaces.len() - 1;
-        self.state
-            .remove_alias_shadowed_by_new_pane(self.state.workspaces[idx].tabs[0].root_pane);
+        self.state.remove_alias_shadowed_by_new_pane(
+            self.state.workspaces[idx]
+                .terminal_tab(0)
+                .map_err(std::io::Error::other)?
+                .root_pane,
+        );
         let workspace_id = self.state.workspaces[idx].id.clone();
-        let root_pane = self.state.workspaces[idx].tabs[0].root_pane.raw();
+        let root_pane = self.state.workspaces[idx]
+            .terminal_tab(0)
+            .map_err(std::io::Error::other)?
+            .root_pane
+            .raw();
         crate::logging::workspace_created(&workspace_id, root_pane);
         if focus || self.state.active.is_none() {
             self.state.switch_workspace(idx);
@@ -788,7 +808,7 @@ impl App {
             .ok_or_else(|| "workspace not found".to_string())?;
         let tab_number = workspace
             .find_tab_index_for_pane(target_pane_id)
-            .and_then(|tab_idx| workspace.tabs.get(tab_idx))
+            .and_then(|tab_idx| workspace.terminal_tab(tab_idx).ok())
             .map(|tab| tab.number)
             .ok_or_else(|| "pane not found".to_string())?;
         let workspace_id = workspace.id.clone();
@@ -940,7 +960,10 @@ impl App {
                 terminal.location = resolved_location;
                 terminal.remote_runtime_identity = Some(identity);
                 let terminal_id = terminal.id.clone();
-                let root_pane = workspace.tabs[0].root_pane;
+                let root_pane = workspace
+                    .terminal_tab(0)
+                    .map_err(|error| error.to_string())?
+                    .root_pane;
                 let workspace_id = workspace.id.clone();
                 self.terminal_runtimes.insert(terminal_id.clone(), runtime);
                 self.state.terminals.insert(terminal_id, *terminal);
@@ -1055,9 +1078,8 @@ impl App {
                 ));
             };
             Ok(ws
-                .tabs
-                .iter()
-                .flat_map(|tab| tab.layout.pane_ids().into_iter())
+                .terminal_tabs()
+                .flat_map(|(_, tab)| tab.layout.pane_ids().into_iter())
                 .filter_map(|pane_id| self.pane_info(ws_idx, pane_id))
                 .collect())
         } else {
@@ -1067,9 +1089,8 @@ impl App {
                 .iter()
                 .enumerate()
                 .flat_map(|(ws_idx, ws)| {
-                    ws.tabs
-                        .iter()
-                        .flat_map(|tab| tab.layout.pane_ids().into_iter())
+                    ws.terminal_tabs()
+                        .flat_map(|(_, tab)| tab.layout.pane_ids().into_iter())
                         .filter_map(move |pane_id| self.pane_info(ws_idx, pane_id))
                 })
                 .collect())
@@ -1095,9 +1116,8 @@ impl App {
                 ));
             };
             Ok(ws
-                .tabs
-                .iter()
-                .flat_map(|tab| tab.layout.pane_ids().into_iter())
+                .terminal_tabs()
+                .flat_map(|(_, tab)| tab.layout.pane_ids().into_iter())
                 .filter_map(|pane_id| self.pane_info_for_view(view, ws_idx, pane_id))
                 .collect())
         } else {
@@ -1107,9 +1127,8 @@ impl App {
                 .iter()
                 .enumerate()
                 .flat_map(|(ws_idx, ws)| {
-                    ws.tabs
-                        .iter()
-                        .flat_map(|tab| tab.layout.pane_ids().into_iter())
+                    ws.terminal_tabs()
+                        .flat_map(|(_, tab)| tab.layout.pane_ids().into_iter())
                         .filter_map(move |pane_id| self.pane_info_for_view(view, ws_idx, pane_id))
                 })
                 .collect())
@@ -1122,25 +1141,33 @@ impl App {
         tab_idx: usize,
     ) -> Option<crate::api::schema::TabInfo> {
         let ws = self.state.workspaces.get(ws_idx)?;
-        let tab = ws.tabs.get(tab_idx)?;
-        let (agg_state, seen) = tab
-            .panes
-            .values()
-            .filter_map(|pane| {
-                self.state
-                    .terminals
-                    .get(&pane.attached_terminal_id)
-                    .map(|terminal| (terminal.state, pane.seen))
-            })
-            .max_by_key(|(state, seen)| tab_attention_priority(*state, *seen))
-            .unwrap_or((crate::detect::AgentState::Unknown, true));
+        let entry = ws.tabs.get(tab_idx)?;
+        let (agg_state, seen, pane_count) = match entry {
+            crate::workspace::WorkspaceTab::Terminal(tab) => {
+                let (state, seen) = tab
+                    .panes
+                    .values()
+                    .filter_map(|pane| {
+                        self.state
+                            .terminals
+                            .get(&pane.attached_terminal_id)
+                            .map(|terminal| (terminal.state, pane.seen))
+                    })
+                    .max_by_key(|(state, seen)| tab_attention_priority(*state, *seen))
+                    .unwrap_or((crate::detect::AgentState::Unknown, true));
+                (state, seen, tab.panes.len())
+            }
+            crate::workspace::WorkspaceTab::Github(_) => {
+                (crate::detect::AgentState::Unknown, true, 0)
+            }
+        };
         Some(crate::api::schema::TabInfo {
             tab_id: self.public_tab_id(ws_idx, tab_idx)?,
             workspace_id: self.public_workspace_id(ws_idx),
-            number: tab_idx + 1,
+            number: entry.number(),
             label: ws.tab_display_name(tab_idx)?,
             focused: self.state.active == Some(ws_idx) && ws.active_tab == tab_idx,
-            pane_count: tab.panes.len(),
+            pane_count,
             agent_status: pane_agent_status(agg_state, seen),
         })
     }
@@ -1174,7 +1201,7 @@ impl App {
         tab_idx: usize,
     ) -> Option<crate::api::schema::PaneInfo> {
         let ws = self.state.workspaces.get(ws_idx)?;
-        let tab = ws.tabs.get(tab_idx)?;
+        let tab = ws.terminal_tab(tab_idx).ok()?;
         self.pane_info(ws_idx, tab.root_pane)
     }
 
@@ -1200,10 +1227,14 @@ impl App {
             workspace_id: self.public_workspace_id(ws_idx),
             tab_id: self.public_tab_id(ws_idx, tab_idx)?,
             focused,
-            cwd: ws.tabs[tab_idx]
+            cwd: ws
+                .terminal_tab(tab_idx)
+                .ok()?
                 .cwd_for_pane(pane_id, &self.state.terminals, &self.terminal_runtimes)
                 .map(|cwd| cwd.display().to_string()),
-            foreground_cwd: ws.tabs[tab_idx]
+            foreground_cwd: ws
+                .terminal_tab(tab_idx)
+                .ok()?
                 .foreground_cwd_for_pane(pane_id, &self.terminal_runtimes)
                 .map(|cwd| cwd.display().to_string()),
             label: terminal.manual_label.clone(),
@@ -1243,10 +1274,14 @@ impl App {
             workspace_id: self.public_workspace_id(ws_idx),
             tab_id: self.public_tab_id(ws_idx, tab_idx)?,
             focused,
-            cwd: ws.tabs[tab_idx]
+            cwd: ws
+                .terminal_tab(tab_idx)
+                .ok()?
                 .cwd_for_pane(pane_id, &self.state.terminals, &self.terminal_runtimes)
                 .map(|cwd| cwd.display().to_string()),
-            foreground_cwd: ws.tabs[tab_idx]
+            foreground_cwd: ws
+                .terminal_tab(tab_idx)
+                .ok()?
                 .foreground_cwd_for_pane(pane_id, &self.terminal_runtimes)
                 .map(|cwd| cwd.display().to_string()),
             label: terminal.manual_label.clone(),
@@ -1347,6 +1382,7 @@ impl App {
                 .map(|organization| organization.as_str().to_string()),
         }
     }
+
     pub(crate) fn set_pending_remote_container_name(
         &mut self,
         terminal_id: &crate::terminal::TerminalId,
@@ -1582,13 +1618,18 @@ impl App {
                         &committed,
                     );
                     let agent = match committed {
-                        crate::app::creation::CommittedRemoteCreation::Workspace { ws_idx } => {
-                            let pane_id = self.state.workspaces[ws_idx].tabs[0].root_pane;
-                            self.agent_info(ws_idx, pane_id)
-                        }
+                        crate::app::creation::CommittedRemoteCreation::Workspace { ws_idx } => self
+                            .state
+                            .workspaces
+                            .get(ws_idx)
+                            .and_then(|workspace| workspace.terminal_tab(0).ok())
+                            .and_then(|tab| self.agent_info(ws_idx, tab.root_pane)),
                         crate::app::creation::CommittedRemoteCreation::Tab { ws_idx, tab_idx } => {
-                            let pane_id = self.state.workspaces[ws_idx].tabs[tab_idx].root_pane;
-                            self.agent_info(ws_idx, pane_id)
+                            self.state
+                                .workspaces
+                                .get(ws_idx)
+                                .and_then(|workspace| workspace.terminal_tab(tab_idx).ok())
+                                .and_then(|tab| self.agent_info(ws_idx, tab.root_pane))
                         }
                         crate::app::creation::CommittedRemoteCreation::Split {
                             ws_idx,
@@ -1708,7 +1749,7 @@ impl App {
                 terminal,
                 focus,
             } => {
-                let tab = workspace.tabs.first()?;
+                let tab = workspace.terminal_tab(0).ok()?;
                 Some(PendingRemoteCreationTarget {
                     workspace_id: workspace.id.clone(),
                     tab_number: tab.number,
@@ -1722,13 +1763,17 @@ impl App {
                 tab,
                 terminal,
                 focus,
-            } => Some(PendingRemoteCreationTarget {
-                workspace_id: workspace_id.clone(),
-                tab_number: tab.number,
-                pane_id: tab.root_pane,
-                location: terminal.location.clone(),
-                focus: *focus,
-            }),
+            } => {
+                let tab_number = tab.number;
+                let pane_id = tab.root_pane;
+                Some(PendingRemoteCreationTarget {
+                    workspace_id: workspace_id.clone(),
+                    tab_number,
+                    pane_id,
+                    location: terminal.location.clone(),
+                    focus: *focus,
+                })
+            }
             PendingRemoteCreationPlan::Split {
                 workspace_id,
                 tab_number,
@@ -1813,7 +1858,7 @@ impl App {
             }
             CommittedRemoteCreation::Tab { ws_idx, tab_idx } => {
                 if let Some(workspace) = self.state.workspaces.get(ws_idx) {
-                    if let Some(tab) = workspace.tabs.get(tab_idx) {
+                    if let Ok(tab) = workspace.terminal_tab(tab_idx) {
                         view.focus_pane_in_workspace(&self.state, ws_idx, tab_idx, tab.root_pane);
                     }
                 }
@@ -1842,7 +1887,7 @@ impl App {
                 terminal,
                 focus,
             } => {
-                let tab = workspace.tabs.first()?;
+                let tab = workspace.terminal_tab(0).ok()?;
                 let location = terminal.location.clone();
                 (
                     terminal,
@@ -2114,10 +2159,9 @@ mod placement_creation_tests {
         // Seed a workspace with a pane that we will delete before split commit.
         let mut seed = Workspace::test_new("seed");
         seed.default_location = remote_location(&host_id, "/srv/seed");
-        let target_pane = seed.tabs[0].root_pane;
-        let seed_terminal = seed.tabs[0].panes[&target_pane]
-            .attached_terminal_id
-            .clone();
+        let tab = seed.terminal_tab(0).expect("seed terminal tab");
+        let target_pane = tab.root_pane;
+        let seed_terminal = tab.panes[&target_pane].attached_terminal_id.clone();
         app.state.terminals.insert(
             seed_terminal.clone(),
             crate::terminal::TerminalState::new_at(

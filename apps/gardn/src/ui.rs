@@ -364,22 +364,23 @@ fn compute_context_bar(
             }
         }
         if let Some(tab_idx) = active_tab.filter(|index| *index < workspace.tabs.len()) {
-            let tab = &workspace.tabs[tab_idx];
-            if tab.panes.len() > 1 {
-                if let Some(pane_id) =
-                    focused_pane.filter(|pane_id| tab.panes.contains_key(pane_id))
-                {
-                    let label = workspace
-                        .pane_state(pane_id)
-                        .and_then(|pane| app.terminals.get(&pane.attached_terminal_id))
-                        .and_then(|terminal| terminal.manual_label.clone())
-                        .or_else(|| {
-                            workspace
-                                .pane_display_number(pane_id)
-                                .map(|number| format!("Pane {number}"))
-                        });
-                    if let Some(label) = label {
-                        labels.push((ContextBarTarget::Pane, label));
+            if let Some(tab) = workspace.tabs[tab_idx].as_terminal() {
+                if tab.panes.len() > 1 {
+                    if let Some(pane_id) =
+                        focused_pane.filter(|pane_id| tab.panes.contains_key(pane_id))
+                    {
+                        let label = workspace
+                            .pane_state(pane_id)
+                            .and_then(|pane| app.terminals.get(&pane.attached_terminal_id))
+                            .and_then(|terminal| terminal.manual_label.clone())
+                            .or_else(|| {
+                                workspace
+                                    .pane_display_number(pane_id)
+                                    .map(|number| format!("Pane {number}"))
+                            });
+                        if let Some(label) = label {
+                            labels.push((ContextBarTarget::Pane, label));
+                        }
                     }
                 }
             }
@@ -525,22 +526,23 @@ fn compute_mobile_breadcrumb(
             if let Some(label) = workspace.tab_display_name(tab_idx) {
                 labels.push((ContextBarTarget::Tab, label));
             }
-            let tab = &workspace.tabs[tab_idx];
-            if tab.panes.len() > 1 {
-                if let Some(pane_id) =
-                    focused_pane.filter(|pane_id| tab.panes.contains_key(pane_id))
-                {
-                    if let Some(label) = workspace
-                        .pane_state(pane_id)
-                        .and_then(|pane| app.terminals.get(&pane.attached_terminal_id))
-                        .and_then(|terminal| terminal.manual_label.clone())
-                        .or_else(|| {
-                            workspace
-                                .pane_display_number(pane_id)
-                                .map(|number| format!("Pane {number}"))
-                        })
+            if let Some(tab) = workspace.tabs[tab_idx].as_terminal() {
+                if tab.panes.len() > 1 {
+                    if let Some(pane_id) =
+                        focused_pane.filter(|pane_id| tab.panes.contains_key(pane_id))
                     {
-                        labels.push((ContextBarTarget::Pane, label));
+                        if let Some(label) = workspace
+                            .pane_state(pane_id)
+                            .and_then(|pane| app.terminals.get(&pane.attached_terminal_id))
+                            .and_then(|terminal| terminal.manual_label.clone())
+                            .or_else(|| {
+                                workspace
+                                    .pane_display_number(pane_id)
+                                    .map(|number| format!("Pane {number}"))
+                            })
+                        {
+                            labels.push((ContextBarTarget::Pane, label));
+                        }
                     }
                 }
             }
@@ -884,6 +886,10 @@ fn client_tab_canvas_view(
         client_view.tab_canvas_view = None;
         return (canvas_area, resize_pane_runtimes);
     };
+    let Some(tab) = tab.as_terminal() else {
+        client_view.tab_canvas_view = None;
+        return (canvas_area, false);
+    };
     let key = ClientTabViewKey::new(&workspace.id, tab.number);
     let origin = if client_view.can_mutate_tab() {
         CanvasOrigin::default()
@@ -1109,7 +1115,10 @@ fn compute_view_for_client_internal(
         .and_then(|idx| {
             let workspace = app.workspaces.get(idx)?;
             let tab_idx = client_view.active_tab_index_for_workspace(app, idx)?;
-            workspace.tabs.get(tab_idx)
+            workspace
+                .tabs
+                .get(tab_idx)
+                .and_then(crate::workspace::WorkspaceTab::as_terminal)
         })
         .map(|tab| tab.layout.splits(pane_area))
         .unwrap_or_default();
@@ -1121,7 +1130,7 @@ fn compute_view_for_client_internal(
         resize_pane_runtimes,
         cell_size,
     );
-    if resize_panes {
+    if resize_panes && !pane_infos.is_empty() {
         resize_popup_pane_for_view(app, client_view, terminal_runtimes, area, cell_size);
     }
 
@@ -1323,6 +1332,7 @@ fn compute_view_internal(
         .active
         .and_then(|i| app.workspaces.get(i))
         .and_then(|ws| ws.active_tab())
+        .and_then(crate::workspace::WorkspaceTab::as_terminal)
         .map(|tab| tab.layout.splits(terminal_area))
         .unwrap_or_default();
 
@@ -1425,6 +1435,7 @@ fn compute_mobile_view(
         .active
         .and_then(|i| app.workspaces.get(i))
         .and_then(|ws| ws.active_tab())
+        .and_then(crate::workspace::WorkspaceTab::as_terminal)
         .map(|tab| tab.layout.splits(terminal_area))
         .unwrap_or_default();
 
@@ -1535,7 +1546,10 @@ fn compute_mobile_view_for_client(
         .and_then(|idx| {
             let workspace = app.workspaces.get(idx)?;
             let tab_idx = client_view.active_tab_index_for_workspace(app, idx)?;
-            workspace.tabs.get(tab_idx)
+            workspace
+                .tabs
+                .get(tab_idx)
+                .and_then(crate::workspace::WorkspaceTab::as_terminal)
         })
         .map(|tab| tab.layout.splits(pane_area))
         .unwrap_or_default();
@@ -1645,9 +1659,10 @@ pub(crate) fn render_with_github(
     if !app.zen_mode && app.view.layout != ViewLayout::Mobile {
         render_tab_bar(app, frame, tab_bar_area);
     }
-    render_panes(app, terminal_runtimes, frame, terminal_area);
     if let Some(screen) = screen {
         github::render(screen, &app.palette, frame);
+    } else {
+        render_panes(app, terminal_runtimes, frame, terminal_area);
     }
     if right_sidebar_area != Rect::default() {
         render_right_sidebar(app, terminal_runtimes, frame, right_sidebar_area);
@@ -1751,9 +1766,12 @@ pub fn render_with_runtime_registry_for_view(
     if !client_view.zen_mode && client_view.computed.layout != ViewLayout::Mobile {
         render_tab_bar_for_view(app, client_view, frame, tab_bar_area);
     }
-    render_panes_for_view(app, client_view, terminal_runtimes, frame, terminal_area);
-    if let Some(screen) = &client_view.github {
-        github::render(screen, &app.palette, frame);
+    if client_view.github_is_focused(app) {
+        if let Some(screen) = &client_view.github {
+            github::render(screen, &app.palette, frame);
+        }
+    } else {
+        render_panes_for_view(app, client_view, terminal_runtimes, frame, terminal_area);
     }
     if client_view.tab_control.is_watching() {
         panes::wash_rect(frame, tab_bar_area, &app.palette);
@@ -1981,14 +1999,18 @@ mod tests {
     ) {
         let mut app = crate::app::state::AppState::test_new();
         let mut workspace = Workspace::test_new("canonical");
-        let root = workspace.tabs[0].root_pane;
+        let root = workspace.terminal_tab(0).unwrap().root_pane;
         let split = workspace.test_split(ratatui::layout::Direction::Horizontal);
-        workspace.tabs[0].layout.focus_pane(root);
-        workspace.tabs[0].runtimes.insert(
+        workspace
+            .terminal_tab_mut(0)
+            .unwrap()
+            .layout
+            .focus_pane(root);
+        workspace.terminal_tab_mut(0).unwrap().runtimes.insert(
             root,
             crate::terminal::TerminalRuntime::test_with_screen_bytes(80, 30, b"root"),
         );
-        workspace.tabs[0].runtimes.insert(
+        workspace.terminal_tab_mut(0).unwrap().runtimes.insert(
             split,
             crate::terminal::TerminalRuntime::test_with_screen_bytes(80, 30, b"split"),
         );
@@ -2118,7 +2140,7 @@ mod tests {
     async fn focused_pane_cursor_wins_during_terminal_render() {
         let mut app = crate::app::state::AppState::test_new();
         let mut ws = Workspace::test_new("test");
-        let first_pane = ws.tabs[0].root_pane;
+        let first_pane = ws.terminal_tab(0).unwrap().root_pane;
         let second_pane = ws.test_split(ratatui::layout::Direction::Horizontal);
 
         ws.insert_test_runtime(
@@ -2129,7 +2151,10 @@ mod tests {
             second_pane,
             crate::terminal::TerminalRuntime::test_with_screen_bytes(20, 5, b"r\r\nb"),
         );
-        ws.tabs[0].layout.focus_pane(first_pane);
+        ws.terminal_tab_mut(0)
+            .unwrap()
+            .layout
+            .focus_pane(first_pane);
 
         app.workspaces = vec![ws];
         app.active = Some(0);
@@ -2151,6 +2176,28 @@ mod tests {
         terminal
             .backend_mut()
             .assert_cursor_position((focused.inner_rect.x + 4, focused.inner_rect.y));
+    }
+
+    #[tokio::test]
+    async fn github_hides_the_underlying_terminal_cursor() {
+        let mut app = crate::app::state::AppState::test_new();
+        let mut workspace = Workspace::test_new("test");
+        let pane = workspace.terminal_tab(0).unwrap().root_pane;
+        workspace.insert_test_runtime(
+            pane,
+            crate::terminal::TerminalRuntime::test_with_screen_bytes(20, 5, b"left"),
+        );
+        app.workspaces = vec![workspace];
+        app.active = Some(0);
+        app.selected = 0;
+        app.mode = Mode::Github;
+
+        compute_view(&mut app, Rect::new(0, 0, 80, 20));
+        let backend = TestBackend::new(80, 20);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|frame| render(&app, frame)).unwrap();
+
+        terminal.backend_mut().assert_cursor_position((0, 0));
     }
 
     #[test]
@@ -2201,32 +2248,43 @@ mod tests {
         let mut app = crate::app::state::AppState::test_new();
         let mut workspace = Workspace::test_new("one");
         let background_tab = workspace.test_add_tab(Some("background"));
-        let active_pane = workspace.tabs[0].root_pane;
-        let background_pane = workspace.tabs[background_tab].root_pane;
-        workspace.tabs[0].runtimes.insert(
+        let active_pane = workspace.terminal_tab(0).unwrap().root_pane;
+        let background_pane = workspace.terminal_tab(background_tab).unwrap().root_pane;
+        workspace.terminal_tab_mut(0).unwrap().runtimes.insert(
             active_pane,
             crate::terminal::TerminalRuntime::test_with_screen_bytes(11, 7, b""),
         );
-        workspace.tabs[background_tab].runtimes.insert(
-            background_pane,
-            crate::terminal::TerminalRuntime::test_with_screen_bytes(37, 19, b""),
-        );
+        workspace
+            .terminal_tab_mut(background_tab)
+            .unwrap()
+            .runtimes
+            .insert(
+                background_pane,
+                crate::terminal::TerminalRuntime::test_with_screen_bytes(37, 19, b""),
+            );
         app.workspaces = vec![workspace];
         app.active = Some(0);
         app.selected = 0;
         app.mode = Mode::Terminal;
 
-        let background_before =
-            app.workspaces[0].tabs[background_tab].runtimes[&background_pane].current_size();
+        let background_before = app.workspaces[0]
+            .terminal_tab(background_tab)
+            .unwrap()
+            .runtimes[&background_pane]
+            .current_size();
         compute_view(&mut app, Rect::new(0, 0, 100, 24));
 
         let active_info = app.view.pane_infos.first().expect("active pane info");
         assert_eq!(
-            app.workspaces[0].tabs[0].runtimes[&active_pane].current_size(),
+            app.workspaces[0].terminal_tab(0).unwrap().runtimes[&active_pane].current_size(),
             (active_info.inner_rect.height, active_info.inner_rect.width)
         );
         assert_eq!(
-            app.workspaces[0].tabs[background_tab].runtimes[&background_pane].current_size(),
+            app.workspaces[0]
+                .terminal_tab(background_tab)
+                .unwrap()
+                .runtimes[&background_pane]
+                .current_size(),
             background_before
         );
     }
@@ -2236,32 +2294,43 @@ mod tests {
         let mut app = crate::app::state::AppState::test_new();
         let mut workspace = Workspace::test_new("one");
         let background_tab = workspace.test_add_tab(Some("background"));
-        let active_pane = workspace.tabs[0].root_pane;
-        let background_pane = workspace.tabs[background_tab].root_pane;
-        workspace.tabs[0].runtimes.insert(
+        let active_pane = workspace.terminal_tab(0).unwrap().root_pane;
+        let background_pane = workspace.terminal_tab(background_tab).unwrap().root_pane;
+        workspace.terminal_tab_mut(0).unwrap().runtimes.insert(
             active_pane,
             crate::terminal::TerminalRuntime::test_with_screen_bytes(11, 7, b""),
         );
-        workspace.tabs[background_tab].runtimes.insert(
-            background_pane,
-            crate::terminal::TerminalRuntime::test_with_screen_bytes(37, 19, b""),
-        );
+        workspace
+            .terminal_tab_mut(background_tab)
+            .unwrap()
+            .runtimes
+            .insert(
+                background_pane,
+                crate::terminal::TerminalRuntime::test_with_screen_bytes(37, 19, b""),
+            );
         app.workspaces = vec![workspace];
         app.active = Some(0);
         app.selected = 0;
         app.mode = Mode::Terminal;
 
-        let background_before =
-            app.workspaces[0].tabs[background_tab].runtimes[&background_pane].current_size();
+        let background_before = app.workspaces[0]
+            .terminal_tab(background_tab)
+            .unwrap()
+            .runtimes[&background_pane]
+            .current_size();
         compute_view(&mut app, Rect::new(0, 0, 44, 24));
 
         let active_info = app.view.pane_infos.first().expect("active pane info");
         assert_eq!(
-            app.workspaces[0].tabs[0].runtimes[&active_pane].current_size(),
+            app.workspaces[0].terminal_tab(0).unwrap().runtimes[&active_pane].current_size(),
             (active_info.inner_rect.height, active_info.inner_rect.width)
         );
         assert_eq!(
-            app.workspaces[0].tabs[background_tab].runtimes[&background_pane].current_size(),
+            app.workspaces[0]
+                .terminal_tab(background_tab)
+                .unwrap()
+                .runtimes[&background_pane]
+                .current_size(),
             background_before
         );
     }
@@ -2290,8 +2359,11 @@ mod tests {
         app.context_bar_visibility = crate::config::ContextBarVisibilityConfig::Always;
         let mut workspace = Workspace::test_new("one");
         workspace.custom_name = Some("CHROME-WORKSPACE".into());
-        workspace.tabs[0].custom_name = Some("CHROME-TAB".into());
-        let root = workspace.tabs[0].root_pane;
+        workspace
+            .terminal_tab_mut(0)
+            .unwrap()
+            .set_custom_name("CHROME-TAB".into());
+        let root = workspace.terminal_tab(0).unwrap().root_pane;
         workspace.insert_test_runtime(
             root,
             crate::terminal::TerminalRuntime::test_with_screen_bytes(100, 20, b"ZEN-CONTENT"),
@@ -2337,7 +2409,10 @@ mod tests {
         app.groups[0].name = "studio".into();
         let mut workspace = Workspace::test_new("ignored");
         workspace.custom_name = Some("website".into());
-        workspace.tabs[0].custom_name = Some("release".into());
+        workspace
+            .terminal_tab_mut(0)
+            .unwrap()
+            .set_custom_name("release".into());
         app.workspaces = vec![workspace];
         app.active = Some(0);
         app.selected = 0;
@@ -2377,11 +2452,14 @@ mod tests {
         let mut app = crate::app::state::AppState::test_new();
         app.groups[0].name = "studio".into();
         let mut workspace = Workspace::test_new("website");
-        workspace.tabs[0].custom_name = Some("release".into());
+        workspace
+            .terminal_tab_mut(0)
+            .unwrap()
+            .set_custom_name("release".into());
         let focused_pane = workspace.test_split(ratatui::layout::Direction::Horizontal);
         app.workspaces = vec![workspace];
         app.ensure_test_terminals();
-        let terminal_id = app.workspaces[0].tabs[0].panes[&focused_pane]
+        let terminal_id = app.workspaces[0].terminal_tab(0).unwrap().panes[&focused_pane]
             .attached_terminal_id
             .clone();
         app.terminals
@@ -2419,7 +2497,11 @@ mod tests {
         let closed_pane = workspace.test_split(ratatui::layout::Direction::Horizontal);
         let focused_pane = workspace.test_split(ratatui::layout::Direction::Horizontal);
         assert!(!workspace.close_pane(closed_pane));
-        workspace.tabs[0].layout.focus_pane(focused_pane);
+        workspace
+            .terminal_tab_mut(0)
+            .unwrap()
+            .layout
+            .focus_pane(focused_pane);
         app.workspaces = vec![workspace];
         app.active = Some(0);
         app.selected = 0;
@@ -2442,10 +2524,16 @@ mod tests {
         app.context_bar_visibility = crate::config::ContextBarVisibilityConfig::Always;
         let mut first = Workspace::test_new("ignored");
         first.custom_name = Some("frontend".into());
-        first.tabs[0].custom_name = Some("dev".into());
+        first
+            .terminal_tab_mut(0)
+            .unwrap()
+            .set_custom_name("dev".into());
         let mut second = Workspace::test_new("ignored");
         second.custom_name = Some("backend".into());
-        second.tabs[0].custom_name = Some("logs".into());
+        second
+            .terminal_tab_mut(0)
+            .unwrap()
+            .set_custom_name("logs".into());
         app.workspaces = vec![first, second];
         app.active = Some(0);
         app.selected = 0;
@@ -2501,7 +2589,10 @@ mod tests {
         app.groups[0].name = "engineering-platform".into();
         let mut workspace = Workspace::test_new("ignored");
         workspace.custom_name = Some("customer-operations".into());
-        workspace.tabs[0].custom_name = Some("production-observability".into());
+        workspace
+            .terminal_tab_mut(0)
+            .unwrap()
+            .set_custom_name("production-observability".into());
         app.workspaces = vec![workspace];
         app.active = Some(0);
         app.selected = 0;
@@ -2527,7 +2618,10 @@ mod tests {
         app.mobile_width_threshold = 0;
         let mut workspace = Workspace::test_new("ignored");
         workspace.custom_name = Some("website".into());
-        workspace.tabs[0].custom_name = Some("release".into());
+        workspace
+            .terminal_tab_mut(0)
+            .unwrap()
+            .set_custom_name("release".into());
         app.workspaces = vec![workspace];
         app.active = Some(0);
         app.selected = 0;
@@ -2620,7 +2714,10 @@ mod tests {
         app.mobile_width_threshold = 0;
         let mut workspace = Workspace::test_new("ignored");
         workspace.custom_name = Some("website".into());
-        workspace.tabs[0].custom_name = Some("release".into());
+        workspace
+            .terminal_tab_mut(0)
+            .unwrap()
+            .set_custom_name("release".into());
         app.workspaces = vec![workspace];
         app.active = Some(0);
         app.selected = 0;
@@ -2790,7 +2887,10 @@ mod tests {
         app.groups[0].name = "eng".into();
         let mut workspace = Workspace::test_new("ignored");
         workspace.custom_name = Some("web".into());
-        workspace.tabs[0].custom_name = Some("prod".into());
+        workspace
+            .terminal_tab_mut(0)
+            .unwrap()
+            .set_custom_name("prod".into());
         app.workspaces = vec![workspace];
         app.active = Some(0);
         app.selected = 0;
@@ -2922,8 +3022,8 @@ mod tests {
         let mut app = crate::app::state::AppState::test_new();
         app.palette.panel_bg = Color::Rgb(1, 2, 3);
         let mut ws = Workspace::test_new("test");
-        let root = ws.tabs[0].root_pane;
-        ws.tabs[0].runtimes.insert(
+        let root = ws.terminal_tab(0).unwrap().root_pane;
+        ws.terminal_tab_mut(0).unwrap().runtimes.insert(
             root,
             crate::terminal::TerminalRuntime::test_with_screen_bytes(20, 5, b""),
         );
@@ -3493,7 +3593,7 @@ mod tests {
     async fn compute_view_reserves_terminal_column_when_pane_scrollbar_is_visible() {
         let mut app = crate::app::state::AppState::test_new();
         let mut ws = Workspace::test_new("test");
-        let pane_id = ws.tabs[0].root_pane;
+        let pane_id = ws.terminal_tab(0).unwrap().root_pane;
         ws.insert_test_runtime(
             pane_id,
             crate::terminal::TerminalRuntime::test_with_scrollback_bytes(
@@ -3527,7 +3627,7 @@ mod tests {
     async fn compute_view_reclaims_terminal_column_when_pane_scrollbars_disabled() {
         let mut app = crate::app::state::AppState::test_new();
         let mut ws = Workspace::test_new("test");
-        let pane_id = ws.tabs[0].root_pane;
+        let pane_id = ws.terminal_tab(0).unwrap().root_pane;
         ws.insert_test_runtime(
             pane_id,
             crate::terminal::TerminalRuntime::test_with_scrollback_bytes(

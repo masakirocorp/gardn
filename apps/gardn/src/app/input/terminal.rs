@@ -341,8 +341,12 @@ mod tests {
     fn app_with_screen_bytes(bytes: &[u8]) -> (App, crate::layout::PaneInfo) {
         let mut app = app_for_mouse_test();
         let mut ws = Workspace::test_new("test");
-        let pane_id = ws.tabs[0].root_pane;
-        let pane_infos = ws.tabs[0].layout.panes(Rect::new(26, 2, 80, 18));
+        let pane_id = ws.terminal_tab(0).unwrap().root_pane;
+        let pane_infos = ws
+            .terminal_tab(0)
+            .unwrap()
+            .layout
+            .panes(Rect::new(26, 2, 80, 18));
         let info = pane_infos[0].clone();
         ws.insert_test_runtime(
             pane_id,
@@ -400,8 +404,12 @@ mod tests {
     async fn dragging_selection_above_pane_autoscrolls_and_extends_into_scrollback() {
         let mut app = app_for_mouse_test();
         let mut ws = Workspace::test_new("test");
-        let pane_id = ws.tabs[0].root_pane;
-        let pane_infos = ws.tabs[0].layout.panes(Rect::new(26, 2, 80, 18));
+        let pane_id = ws.terminal_tab(0).unwrap().root_pane;
+        let pane_infos = ws
+            .terminal_tab(0)
+            .unwrap()
+            .layout
+            .panes(Rect::new(26, 2, 80, 18));
         let info = pane_infos[0].clone();
         ws.insert_test_runtime(
             pane_id,
@@ -466,8 +474,12 @@ mod tests {
     async fn releasing_dragged_selection_clears_highlight_after_copy() {
         let mut app = app_for_mouse_test();
         let mut ws = Workspace::test_new("test");
-        let pane_id = ws.tabs[0].root_pane;
-        let pane_infos = ws.tabs[0].layout.panes(Rect::new(26, 2, 80, 18));
+        let pane_id = ws.terminal_tab(0).unwrap().root_pane;
+        let pane_infos = ws
+            .terminal_tab(0)
+            .unwrap()
+            .layout
+            .panes(Rect::new(26, 2, 80, 18));
         let info = pane_infos[0].clone();
         ws.insert_test_runtime(
             pane_id,
@@ -675,7 +687,7 @@ mod tests {
     async fn pane_cell_url_resolver_finds_visible_url() {
         let line = "see https://example.com/pr/307.";
         let (app, info) = app_with_screen_bytes(line.as_bytes());
-        let pane_id = app.state.workspaces[0].tabs[0].root_pane;
+        let pane_id = app.state.workspaces[0].terminal_tab(0).unwrap().root_pane;
         let col = line.find("example").expect("url host") as u16;
 
         assert_eq!(
@@ -700,7 +712,7 @@ mod tests {
         let (app, _info) = app_with_screen_bytes(
             b"\x1b]8;;https://example.com/hidden-target\x1b\\label\x1b]8;;\x1b\\",
         );
-        let pane_id = app.state.workspaces[0].tabs[0].root_pane;
+        let pane_id = app.state.workspaces[0].terminal_tab(0).unwrap().root_pane;
 
         assert_eq!(
             app.state
@@ -747,7 +759,7 @@ mod tests {
         let line = "see https://example.com/issues/1761";
         let col = line.find("example").expect("url host") as u16;
         let (mut app, info) = app_with_screen_bytes(b"");
-        let pane_id = app.state.workspaces[0].tabs[0].root_pane;
+        let pane_id = app.state.workspaces[0].terminal_tab(0).unwrap().root_pane;
         let screen = format!("[?1049h[?1000h[?1006h{line}");
         let (runtime, mut input_rx) =
             crate::terminal::TerminalRuntime::test_with_channel_and_scrollback_bytes(
@@ -784,7 +796,7 @@ mod tests {
         let line = "see https://example.com/issues/1761";
         let col = line.find("example").expect("url host") as u16;
         let (mut app, info) = app_with_screen_bytes(b"");
-        let pane_id = app.state.workspaces[0].tabs[0].root_pane;
+        let pane_id = app.state.workspaces[0].terminal_tab(0).unwrap().root_pane;
         let screen = format!("[?1049h[?1000h[?1006h{line}");
         let (runtime, mut input_rx) =
             crate::terminal::TerminalRuntime::test_with_channel_and_scrollback_bytes(
@@ -837,8 +849,12 @@ mod tests {
     async fn wheel_scroll_keeps_in_progress_selection_and_extends_it() {
         let mut app = app_for_mouse_test();
         let mut ws = Workspace::test_new("test");
-        let pane_id = ws.tabs[0].root_pane;
-        let pane_infos = ws.tabs[0].layout.panes(Rect::new(26, 2, 80, 18));
+        let pane_id = ws.terminal_tab(0).unwrap().root_pane;
+        let pane_infos = ws
+            .terminal_tab(0)
+            .unwrap()
+            .layout
+            .panes(Rect::new(26, 2, 80, 18));
         let info = pane_infos[0].clone();
         ws.insert_test_runtime(
             pane_id,
@@ -895,11 +911,11 @@ mod tests {
     async fn clicking_unfocused_pane_with_mouse_reporting_focuses_it_via_left_button() {
         let mut app = app_for_mouse_test();
         let mut ws = Workspace::test_new("test");
-        let first_pane = ws.tabs[0].root_pane;
+        let first_pane = ws.terminal_tab(0).unwrap().root_pane;
         let second_pane = ws.test_split(ratatui::layout::Direction::Vertical);
 
         let terminal_area = Rect::new(26, 2, 80, 18);
-        let pane_infos = ws.tabs[0].layout.panes(terminal_area);
+        let pane_infos = ws.terminal_tab(0).unwrap().layout.panes(terminal_area);
         let first_info = pane_infos
             .iter()
             .find(|p| p.id == first_pane)
@@ -928,7 +944,10 @@ mod tests {
             ),
         );
 
-        ws.tabs[0].layout.focus_pane(first_pane);
+        ws.terminal_tab_mut(0)
+            .unwrap()
+            .layout
+            .focus_pane(first_pane);
 
         app.state.workspaces = vec![ws];
         app.state.active = Some(0);
@@ -943,7 +962,11 @@ mod tests {
         ));
 
         assert_eq!(
-            app.state.workspaces[0].tabs[0].layout.focused(),
+            app.state.workspaces[0]
+                .terminal_tab(0)
+                .unwrap()
+                .layout
+                .focused(),
             second_pane
         );
         assert_eq!(app.state.mode, Mode::Terminal);
@@ -953,11 +976,11 @@ mod tests {
     async fn clicking_unfocused_pane_with_mouse_reporting_focuses_it_via_right_button() {
         let mut app = app_for_mouse_test();
         let mut ws = Workspace::test_new("test");
-        let first_pane = ws.tabs[0].root_pane;
+        let first_pane = ws.terminal_tab(0).unwrap().root_pane;
         let second_pane = ws.test_split(ratatui::layout::Direction::Vertical);
 
         let terminal_area = Rect::new(26, 2, 80, 18);
-        let pane_infos = ws.tabs[0].layout.panes(terminal_area);
+        let pane_infos = ws.terminal_tab(0).unwrap().layout.panes(terminal_area);
         let first_info = pane_infos
             .iter()
             .find(|p| p.id == first_pane)
@@ -986,7 +1009,10 @@ mod tests {
             ),
         );
 
-        ws.tabs[0].layout.focus_pane(first_pane);
+        ws.terminal_tab_mut(0)
+            .unwrap()
+            .layout
+            .focus_pane(first_pane);
 
         app.state.workspaces = vec![ws];
         app.state.active = Some(0);
@@ -1001,7 +1027,11 @@ mod tests {
         ));
 
         assert_eq!(
-            app.state.workspaces[0].tabs[0].layout.focused(),
+            app.state.workspaces[0]
+                .terminal_tab(0)
+                .unwrap()
+                .layout
+                .focused(),
             second_pane
         );
         assert_eq!(app.state.mode, Mode::ContextMenu);
@@ -1024,17 +1054,28 @@ mod tests {
         app.state.mode = Mode::Terminal;
         app.state.workspaces[0].test_split(ratatui::layout::Direction::Horizontal);
         app.state.view.pane_infos = app.state.workspaces[0]
-            .active_tab()
+            .terminal_tab(0)
             .unwrap()
             .layout
             .panes(Rect::new(0, 0, 80, 24));
-        let focused_before = app.state.workspaces[0].layout.focused();
+        let focused_before = app.state.workspaces[0]
+            .terminal_tab(0)
+            .unwrap()
+            .layout
+            .focused();
         app.state.keybinds.focus_pane_left = crate::config::ActionKeybinds::direct("alt+h");
 
         app.handle_terminal_key(TerminalKey::new(KeyCode::Char('h'), KeyModifiers::ALT))
             .await;
 
-        assert_ne!(app.state.workspaces[0].layout.focused(), focused_before);
+        assert_ne!(
+            app.state.workspaces[0]
+                .terminal_tab(0)
+                .unwrap()
+                .layout
+                .focused(),
+            focused_before
+        );
         assert_eq!(app.state.mode, Mode::Terminal);
     }
 
@@ -1049,8 +1090,8 @@ mod tests {
             crate::api::EventHub::default(),
         );
         let mut workspace = Workspace::test_new("test");
-        let root_pane = workspace.tabs[0].root_pane;
-        workspace.tabs[0].runtimes.insert(
+        let root_pane = workspace.terminal_tab(0).unwrap().root_pane;
+        workspace.terminal_tab_mut(0).unwrap().runtimes.insert(
             root_pane,
             crate::terminal::TerminalRuntime::test_with_scrollback_bytes(
                 20,
@@ -1132,7 +1173,7 @@ mod tests {
             crate::api::EventHub::default(),
         );
         let mut workspace = Workspace::test_new("test");
-        let pane_id = workspace.tabs[0].root_pane;
+        let pane_id = workspace.terminal_tab(0).unwrap().root_pane;
         let (runtime, _rx) = crate::terminal::TerminalRuntime::test_with_channel(80, 24);
         workspace.insert_test_runtime(pane_id, runtime);
         app.state.workspaces = vec![workspace];
@@ -1154,8 +1195,15 @@ mod tests {
         ))
         .await;
 
-        assert_eq!(app.state.workspaces[0].tabs[0].layout.pane_count(), 2);
-        assert!(app.state.workspaces[0].tabs[0].zoomed);
+        assert_eq!(
+            app.state.workspaces[0]
+                .terminal_tab(0)
+                .unwrap()
+                .layout
+                .pane_count(),
+            2
+        );
+        assert!(app.state.workspaces[0].terminal_tab(0).unwrap().zoomed);
         assert_eq!(app.state.mode, Mode::Terminal);
     }
 
@@ -1163,14 +1211,21 @@ mod tests {
     async fn alt_backspace_is_forwarded_to_focused_pane() {
         let mut app = app_for_mouse_test();
         let mut ws = Workspace::test_new("test");
-        let pane_id = ws.tabs[0].root_pane;
-        let pane_infos = ws.tabs[0].layout.panes(Rect::new(0, 0, 80, 24));
+        let pane_id = ws.terminal_tab(0).unwrap().root_pane;
+        let pane_infos = ws
+            .terminal_tab(0)
+            .unwrap()
+            .layout
+            .panes(Rect::new(0, 0, 80, 24));
         let info = pane_infos[0].clone();
         let (runtime, mut rx) = crate::terminal::TerminalRuntime::test_with_channel(
             info.inner_rect.width,
             info.inner_rect.height,
         );
-        ws.tabs[0].runtimes.insert(pane_id, runtime);
+        ws.terminal_tab_mut(0)
+            .unwrap()
+            .runtimes
+            .insert(pane_id, runtime);
 
         app.state.workspaces = vec![ws];
         app.state.active = Some(0);
@@ -1190,10 +1245,14 @@ mod tests {
     async fn page_up_scrolls_plain_shell_pane() {
         let mut app = app_for_mouse_test();
         let mut ws = Workspace::test_new("test");
-        let pane_id = ws.tabs[0].root_pane;
-        let pane_infos = ws.tabs[0].layout.panes(Rect::new(26, 2, 80, 18));
+        let pane_id = ws.terminal_tab(0).unwrap().root_pane;
+        let pane_infos = ws
+            .terminal_tab(0)
+            .unwrap()
+            .layout
+            .panes(Rect::new(26, 2, 80, 18));
         let info = pane_infos[0].clone();
-        ws.tabs[0].runtimes.insert(
+        ws.terminal_tab_mut(0).unwrap().runtimes.insert(
             pane_id,
             crate::terminal::TerminalRuntime::test_with_scrollback_bytes(
                 info.inner_rect.width,
@@ -1233,10 +1292,14 @@ mod tests {
     async fn page_down_returns_to_bottom_after_page_up() {
         let mut app = app_for_mouse_test();
         let mut ws = Workspace::test_new("test");
-        let pane_id = ws.tabs[0].root_pane;
-        let pane_infos = ws.tabs[0].layout.panes(Rect::new(26, 2, 80, 18));
+        let pane_id = ws.terminal_tab(0).unwrap().root_pane;
+        let pane_infos = ws
+            .terminal_tab(0)
+            .unwrap()
+            .layout
+            .panes(Rect::new(26, 2, 80, 18));
         let info = pane_infos[0].clone();
-        ws.tabs[0].runtimes.insert(
+        ws.terminal_tab_mut(0).unwrap().runtimes.insert(
             pane_id,
             crate::terminal::TerminalRuntime::test_with_scrollback_bytes(
                 info.inner_rect.width,
@@ -1276,10 +1339,14 @@ mod tests {
     async fn page_up_release_does_not_scroll_plain_shell_pane_again() {
         let mut app = app_for_mouse_test();
         let mut ws = Workspace::test_new("test");
-        let pane_id = ws.tabs[0].root_pane;
-        let pane_infos = ws.tabs[0].layout.panes(Rect::new(26, 2, 80, 18));
+        let pane_id = ws.terminal_tab(0).unwrap().root_pane;
+        let pane_infos = ws
+            .terminal_tab(0)
+            .unwrap()
+            .layout
+            .panes(Rect::new(26, 2, 80, 18));
         let info = pane_infos[0].clone();
-        ws.tabs[0].runtimes.insert(
+        ws.terminal_tab_mut(0).unwrap().runtimes.insert(
             pane_id,
             crate::terminal::TerminalRuntime::test_with_scrollback_bytes(
                 info.inner_rect.width,
@@ -1326,10 +1393,14 @@ mod tests {
     async fn modified_page_up_does_not_host_scroll_plain_shell_pane() {
         let mut app = app_for_mouse_test();
         let mut ws = Workspace::test_new("test");
-        let pane_id = ws.tabs[0].root_pane;
-        let pane_infos = ws.tabs[0].layout.panes(Rect::new(26, 2, 80, 18));
+        let pane_id = ws.terminal_tab(0).unwrap().root_pane;
+        let pane_infos = ws
+            .terminal_tab(0)
+            .unwrap()
+            .layout
+            .panes(Rect::new(26, 2, 80, 18));
         let info = pane_infos[0].clone();
-        ws.tabs[0].runtimes.insert(
+        ws.terminal_tab_mut(0).unwrap().runtimes.insert(
             pane_id,
             crate::terminal::TerminalRuntime::test_with_scrollback_bytes(
                 info.inner_rect.width,
@@ -1359,8 +1430,12 @@ mod tests {
     async fn page_up_forwarded_to_primary_screen_application_cursor_pane() {
         let mut app = app_for_mouse_test();
         let mut ws = Workspace::test_new("test");
-        let pane_id = ws.tabs[0].root_pane;
-        let pane_infos = ws.tabs[0].layout.panes(Rect::new(26, 2, 80, 18));
+        let pane_id = ws.terminal_tab(0).unwrap().root_pane;
+        let pane_infos = ws
+            .terminal_tab(0)
+            .unwrap()
+            .layout
+            .panes(Rect::new(26, 2, 80, 18));
         let info = pane_infos[0].clone();
         let mut bytes = b"\x1b[?1h".to_vec();
         bytes.extend_from_slice(&numbered_lines_bytes(64));
@@ -1372,7 +1447,10 @@ mod tests {
                 &bytes,
                 4,
             );
-        ws.tabs[0].runtimes.insert(pane_id, runtime);
+        ws.terminal_tab_mut(0)
+            .unwrap()
+            .runtimes
+            .insert(pane_id, runtime);
 
         app.state.workspaces = vec![ws];
         app.state.active = Some(0);
@@ -1403,8 +1481,12 @@ mod tests {
     async fn page_up_forwarded_to_mouse_reporting_pane() {
         let mut app = app_for_mouse_test();
         let mut ws = Workspace::test_new("test");
-        let pane_id = ws.tabs[0].root_pane;
-        let pane_infos = ws.tabs[0].layout.panes(Rect::new(26, 2, 80, 18));
+        let pane_id = ws.terminal_tab(0).unwrap().root_pane;
+        let pane_infos = ws
+            .terminal_tab(0)
+            .unwrap()
+            .layout
+            .panes(Rect::new(26, 2, 80, 18));
         let info = pane_infos[0].clone();
         let mut bytes = b"\x1b[?1002h".to_vec();
         bytes.extend_from_slice(&numbered_lines_bytes(64));
@@ -1416,7 +1498,10 @@ mod tests {
                 &bytes,
                 4,
             );
-        ws.tabs[0].runtimes.insert(pane_id, runtime);
+        ws.terminal_tab_mut(0)
+            .unwrap()
+            .runtimes
+            .insert(pane_id, runtime);
 
         app.state.workspaces = vec![ws];
         app.state.active = Some(0);
@@ -1450,8 +1535,12 @@ mod tests {
     async fn page_up_scrolls_shell_like_decckm_with_bracketed_paste() {
         let mut app = app_for_mouse_test();
         let mut ws = Workspace::test_new("test");
-        let pane_id = ws.tabs[0].root_pane;
-        let pane_infos = ws.tabs[0].layout.panes(Rect::new(26, 2, 80, 18));
+        let pane_id = ws.terminal_tab(0).unwrap().root_pane;
+        let pane_infos = ws
+            .terminal_tab(0)
+            .unwrap()
+            .layout
+            .panes(Rect::new(26, 2, 80, 18));
         let info = pane_infos[0].clone();
         let mut bytes = b"\x1b[?1h\x1b[?2004h".to_vec();
         bytes.extend_from_slice(&numbered_lines_bytes(64));
@@ -1463,7 +1552,10 @@ mod tests {
                 &bytes,
                 4,
             );
-        ws.tabs[0].runtimes.insert(pane_id, runtime);
+        ws.terminal_tab_mut(0)
+            .unwrap()
+            .runtimes
+            .insert(pane_id, runtime);
 
         app.state.workspaces = vec![ws];
         app.state.active = Some(0);
@@ -1491,14 +1583,21 @@ mod tests {
     fn plain_enter_clears_follow_up_only_after_successful_send() {
         let mut app = app_for_mouse_test();
         let mut ws = Workspace::test_new("test");
-        let pane_id = ws.tabs[0].root_pane;
-        let pane_infos = ws.tabs[0].layout.panes(Rect::new(0, 0, 80, 24));
+        let pane_id = ws.terminal_tab(0).unwrap().root_pane;
+        let pane_infos = ws
+            .terminal_tab(0)
+            .unwrap()
+            .layout
+            .panes(Rect::new(0, 0, 80, 24));
         let info = pane_infos[0].clone();
         let (runtime, mut rx) = crate::terminal::TerminalRuntime::test_with_channel(
             info.inner_rect.width,
             info.inner_rect.height,
         );
-        ws.tabs[0].runtimes.insert(pane_id, runtime);
+        ws.terminal_tab_mut(0)
+            .unwrap()
+            .runtimes
+            .insert(pane_id, runtime);
         app.state.workspaces = vec![ws];
         app.state.active = Some(0);
         app.state.selected = 0;
@@ -1535,7 +1634,7 @@ mod tests {
     fn failed_enter_send_does_not_clear_follow_up() {
         let mut app = app_for_mouse_test();
         let ws = Workspace::test_new("test");
-        let pane_id = ws.tabs[0].root_pane;
+        let pane_id = ws.terminal_tab(0).unwrap().root_pane;
         app.state.workspaces = vec![ws];
         app.state.active = Some(0);
         app.state.mode = Mode::Terminal;

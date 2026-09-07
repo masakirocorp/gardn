@@ -640,7 +640,7 @@ impl App {
     ) -> Vec<String> {
         let mut pane_ids = Vec::new();
         for (ws_idx, workspace) in self.state.workspaces.iter().enumerate() {
-            for tab in &workspace.tabs {
+            for (_, tab) in workspace.terminal_tabs() {
                 let mut panes: Vec<_> = tab.panes.iter().collect();
                 panes.sort_by_key(|(pane_id, _)| pane_id.raw());
                 for (pane_id, pane) in panes {
@@ -1288,11 +1288,11 @@ mod tests {
             .set_workspace_default_location(0, remote_location.clone()));
 
         // Keep a local pane and add a remote pane on the same workspace.
-        let local_root = app.state.workspaces[0].tabs[0].root_pane;
+        let local_root = app.state.workspaces[0].terminal_tab(0).unwrap().root_pane;
         let remote_pane =
             app.state.workspaces[0].test_split(ratatui::layout::Direction::Horizontal);
         app.state.ensure_test_terminals();
-        let remote_terminal = app.state.workspaces[0].tabs[0].panes[&remote_pane]
+        let remote_terminal = app.state.workspaces[0].terminal_tab(0).unwrap().panes[&remote_pane]
             .attached_terminal_id
             .clone();
         let terminal = app
@@ -1304,7 +1304,7 @@ mod tests {
         terminal.cwd = std::path::PathBuf::from("/srv/work");
 
         // Local root remains local via ensure_test_terminals defaults.
-        let local_terminal = app.state.workspaces[0].tabs[0].panes[&local_root]
+        let local_terminal = app.state.workspaces[0].terminal_tab(0).unwrap().panes[&local_root]
             .attached_terminal_id
             .clone();
         assert!(app
@@ -1344,8 +1344,8 @@ mod tests {
             return;
         }
         let host_id = seed_mixed_local_remote_session(&mut app);
-        let local_root = app.state.workspaces[0].tabs[0].root_pane;
-        let local_terminal = app.state.workspaces[0].tabs[0].panes[&local_root]
+        let local_root = app.state.workspaces[0].terminal_tab(0).unwrap().root_pane;
+        let local_terminal = app.state.workspaces[0].terminal_tab(0).unwrap().panes[&local_root]
             .attached_terminal_id
             .clone();
 
@@ -1388,7 +1388,10 @@ mod tests {
             app.state.workspaces[0].default_location,
             crate::execution_host::connection_retirement::local_retirement_replacement()
         );
-        assert_eq!(app.state.workspaces[0].tabs[0].panes.len(), 1);
+        assert_eq!(
+            app.state.workspaces[0].terminal_tab(0).unwrap().panes.len(),
+            1
+        );
         assert!(app.state.terminals.contains_key(&local_terminal));
         assert!(app.state.terminals.values().all(|terminal| {
             terminal.location.is_local() || terminal.location.execution_host_id != host_id
@@ -1656,7 +1659,10 @@ mod tests {
         assert_eq!(second_body["result"]["accepted"], true);
         assert_eq!(second_body["result"]["remaining_panes"], 0);
         assert!(app.state.groups[0].default_location.is_none());
-        assert_eq!(app.state.workspaces[0].tabs[0].panes.len(), 1);
+        assert_eq!(
+            app.state.workspaces[0].terminal_tab(0).unwrap().panes.len(),
+            1
+        );
     }
 
     #[test]

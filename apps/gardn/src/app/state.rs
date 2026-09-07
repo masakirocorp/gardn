@@ -4209,8 +4209,8 @@ impl AppState {
             && self
                 .workspaces
                 .iter()
-                .flat_map(|workspace| workspace.tabs.iter())
-                .flat_map(|tab| tab.panes.values())
+                .flat_map(|workspace| workspace.terminal_tabs())
+                .flat_map(|(_, tab)| tab.panes.values())
                 .any(|pane| {
                     self.terminals
                         .get(&pane.attached_terminal_id)
@@ -4311,11 +4311,11 @@ impl AppState {
         let Some(tab_idx) = view.active_tab_for_workspace(&workspace.id) else {
             return false;
         };
-        let Some(tab) = workspace.tabs.get(tab_idx) else {
+        let Ok(tab) = workspace.terminal_tab(tab_idx) else {
             return false;
         };
         let pane_id = view
-            .focused_pane_for_tab(&workspace.id, tab_idx + 1)
+            .focused_pane_for_tab(&workspace.id, tab.number)
             .unwrap_or_else(|| tab.layout.focused());
         self.runtime_for_pane_in_workspace(terminal_runtimes, ws_idx, pane_id)
             .and_then(crate::terminal::TerminalRuntime::input_state)
@@ -4339,11 +4339,11 @@ impl AppState {
         let Some(tab_idx) = view.active_tab_for_workspace(&workspace.id) else {
             return false;
         };
-        let Some(tab) = workspace.tabs.get(tab_idx) else {
+        let Ok(tab) = workspace.terminal_tab(tab_idx) else {
             return false;
         };
         let pane_id = view
-            .focused_pane_for_tab(&workspace.id, tab_idx + 1)
+            .focused_pane_for_tab(&workspace.id, tab.number)
             .unwrap_or_else(|| tab.layout.focused());
         self.runtime_for_pane_in_workspace(terminal_runtimes, ws_idx, pane_id)
             .and_then(crate::terminal::TerminalRuntime::input_state)
@@ -4387,9 +4387,8 @@ impl AppState {
         if let Some(runtime) = self
             .workspaces
             .get(ws_idx)?
-            .tabs
-            .iter()
-            .find_map(|tab| tab.runtimes.get(&pane_id))
+            .terminal_tabs()
+            .find_map(|(_, tab)| tab.runtimes.get(&pane_id))
         {
             return Some(runtime);
         }
@@ -4408,8 +4407,10 @@ impl AppState {
             if let Some(runtime) = ws.test_runtimes.get(&pane_id) {
                 return Some(runtime);
             }
-            #[cfg(test)]
-            if let Some(runtime) = ws.tabs.iter().find_map(|tab| tab.runtimes.get(&pane_id)) {
+            if let Some(runtime) = ws
+                .terminal_tabs()
+                .find_map(|(_, tab)| tab.runtimes.get(&pane_id))
+            {
                 return Some(runtime);
             }
             let terminal_id = ws.terminal_id(pane_id)?;
@@ -4445,7 +4446,9 @@ impl AppState {
         if tab_idx != ws.active_tab_index() {
             return false;
         }
-        ws.active_tab().map(|tab| tab.layout.focused()) == Some(pane_id)
+        ws.terminal_tab(tab_idx)
+            .ok()
+            .is_some_and(|tab| tab.layout.focused() == pane_id)
     }
 }
 
@@ -4812,7 +4815,7 @@ impl AppState {
     pub fn ensure_test_terminals(&mut self) {
         use crate::terminal::TerminalState;
         for ws in &self.workspaces {
-            for tab in &ws.tabs {
+            for (_, tab) in ws.terminal_tabs() {
                 for pane in tab.panes.values() {
                     if !self.terminals.contains_key(&pane.attached_terminal_id) {
                         self.terminals.insert(

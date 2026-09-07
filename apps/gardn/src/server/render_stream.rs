@@ -322,7 +322,7 @@ fn capture_terminal_offsets(
 ) -> std::collections::HashMap<crate::terminal::TerminalId, usize> {
     let mut offsets = std::collections::HashMap::new();
     for workspace in &app_state.workspaces {
-        for tab in &workspace.tabs {
+        for (_, tab) in workspace.terminal_tabs() {
             for pane in tab.panes.values() {
                 let Some(terminal_id) = pane.terminal_id() else {
                     continue;
@@ -343,7 +343,7 @@ fn capture_terminal_offsets(
 fn live_terminal_ids(app_state: &AppState) -> Vec<crate::terminal::TerminalId> {
     let mut ids = Vec::new();
     for workspace in &app_state.workspaces {
-        for tab in &workspace.tabs {
+        for (_, tab) in workspace.terminal_tabs() {
             for pane in tab.panes.values() {
                 if let Some(terminal_id) = pane.terminal_id() {
                     ids.push(terminal_id.clone());
@@ -469,7 +469,7 @@ pub(crate) fn visible_hyperlinks_for_view(
     let Some(tab_idx) = client_view.active_tab_index_for_workspace(app_state, ws_idx) else {
         return Vec::new();
     };
-    let Some(tab) = workspace.tabs.get(tab_idx) else {
+    let Ok(tab) = workspace.terminal_tab(tab_idx) else {
         return Vec::new();
     };
 
@@ -886,7 +886,7 @@ mod tests {
     async fn eng57_controller_copy_mode_suppresses_terminal_cursor() {
         let mut state = AppState::test_new();
         let workspace = Workspace::test_new("copy-controller");
-        let pane_id = workspace.tabs[0].root_pane;
+        let pane_id = workspace.terminal_tab(0).unwrap().root_pane;
         let terminal_id = workspace.terminal_id(pane_id).cloned().unwrap();
         state.workspaces = vec![workspace];
         state.ensure_test_terminals();
@@ -926,7 +926,7 @@ mod tests {
     async fn eng57_client_render_draws_copy_mode_cursor() {
         let mut state = AppState::test_new();
         let workspace = Workspace::test_new("copy-render");
-        let pane_id = workspace.tabs[0].root_pane;
+        let pane_id = workspace.terminal_tab(0).unwrap().root_pane;
         let terminal_id = workspace.terminal_id(pane_id).cloned().unwrap();
         state.workspaces = vec![workspace];
         state.ensure_test_terminals();
@@ -988,7 +988,7 @@ mod tests {
     fn watcher_cursor_fixture() -> (AppState, ClientViewState, TerminalRuntimeRegistry) {
         let mut state = AppState::test_new();
         let workspace = Workspace::test_new("watch-cursor");
-        let pane_id = workspace.tabs[0].root_pane;
+        let pane_id = workspace.terminal_tab(0).unwrap().root_pane;
         let terminal_id = workspace.terminal_id(pane_id).cloned().unwrap();
         state.workspaces = vec![workspace];
         state.ensure_test_terminals();
@@ -1173,7 +1173,7 @@ mod tests {
         state.context_bar_visibility = crate::config::ContextBarVisibilityConfig::Always;
         let mut workspace = Workspace::test_new("ignored");
         workspace.custom_name = Some("website".into());
-        workspace.tabs[0].custom_name = Some("release".into());
+        workspace.tabs[0].set_custom_name("release".into());
         state.workspaces = vec![workspace];
         state.active = Some(0);
         state.selected = 0;
@@ -1222,8 +1222,8 @@ mod tests {
     async fn compute_pane_infos_avoids_aggregate_input_state_reads() {
         let mut state = AppState::test_new();
         let mut workspace = Workspace::test_new("scale");
-        let root = workspace.tabs[0].root_pane;
-        workspace.tabs[0].runtimes.insert(
+        let root = workspace.terminal_tab(0).unwrap().root_pane;
+        workspace.terminal_tab_mut(0).unwrap().runtimes.insert(
             root,
             crate::terminal::TerminalRuntime::test_with_scrollback_bytes(
                 40,

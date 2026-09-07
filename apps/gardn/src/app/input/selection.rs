@@ -181,7 +181,7 @@ mod autoscroll_tests {
     fn make_state_with_pane() -> (AppState, crate::layout::PaneId) {
         let mut state = AppState::test_new();
         let ws = Workspace::test_new("test");
-        let pane_id = ws.tabs[0].root_pane;
+        let pane_id = ws.terminal_tab(0).unwrap().root_pane;
         state.workspaces.push(ws);
         state.active = Some(0);
         state.view.pane_infos.push(PaneInfo {
@@ -198,7 +198,7 @@ mod autoscroll_tests {
     fn above_pane_sets_autoscroll_up() {
         let mut state = AppState::test_new();
         let ws = Workspace::test_new("test");
-        let pane_id = ws.tabs[0].root_pane;
+        let pane_id = ws.terminal_tab(0).unwrap().root_pane;
         state.workspaces.push(ws);
         state.active = Some(0);
         state.mode = crate::app::state::Mode::Terminal;

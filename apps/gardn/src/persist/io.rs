@@ -194,6 +194,9 @@ fn snapshot_references_host(
     }) || snapshot.workspaces.iter().any(|workspace| {
         &workspace.default_location.execution_host_id == host_id
             || workspace.tabs.iter().any(|tab| {
+                let Some(tab) = tab.as_terminal() else {
+                    return false;
+                };
                 tab.panes.values().any(|pane| {
                     pane.location
                         .as_ref()

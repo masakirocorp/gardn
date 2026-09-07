@@ -62,6 +62,16 @@ impl ClientTabViewKey {
     }
 }
 
+#[derive(Debug, Clone)]
+pub(crate) struct GithubHost {
+    pub(crate) key: ClientTabViewKey,
+    pub(crate) source_focus: Option<PaneFocusTarget>,
+    pub(crate) scope_settings: (
+        crate::github::GithubRepositoryScope,
+        Option<crate::app::state::GithubOrganization>,
+    ),
+}
+
 /// Client-scoped effect produced by app logic and applied to matching views.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum ClientViewEffect {
@@ -355,12 +365,7 @@ pub(crate) struct ClientViewState {
     pub(crate) agent_profile_picker: AgentProfilePickerState,
     pub(crate) git_repo_picker: GitRepoPickerState,
     pub(crate) github: Option<crate::github::screen::GithubScreen>,
-    pub(crate) github_workspace_id: Option<String>,
-    pub(crate) github_pane_id: Option<PaneId>,
-    pub(crate) github_scope_settings: Option<(
-        crate::github::GithubRepositoryScope,
-        Option<crate::app::state::GithubOrganization>,
-    )>,
+    pub(crate) github_host: Option<GithubHost>,
     pub(crate) context_menu: Option<ContextMenuState>,
     pub(crate) selection: Option<crate::selection::Selection>,
     pub(crate) selection_autoscroll: Option<SelectionAutoscroll>,
@@ -474,9 +479,7 @@ impl ClientViewState {
             agent_profile_picker: state.agent_profile_picker.clone(),
             git_repo_picker: state.git_repo_picker.clone(),
             github: None,
-            github_workspace_id: None,
-            github_pane_id: None,
-            github_scope_settings: None,
+            github_host: None,
             context_menu: state.context_menu.clone(),
             selection: state.selection.clone(),
             selection_autoscroll: state.selection_autoscroll.clone(),
@@ -774,7 +777,7 @@ impl ClientViewState {
                 workspace
                     .tabs
                     .iter()
-                    .map(|tab| ClientTabViewKey::new(&workspace.id, tab.number))
+                    .map(|tab| ClientTabViewKey::new(&workspace.id, tab.number()))
             })
             .collect();
         self.tab_canvas_origins
@@ -801,9 +804,8 @@ impl ClientViewState {
                 .find(|overlay_pane| {
                     !state.workspaces.iter().any(|workspace| {
                         workspace
-                            .tabs
-                            .iter()
-                            .any(|tab| tab.panes.contains_key(overlay_pane))
+                            .terminal_tabs()
+                            .any(|(_, tab)| tab.panes.contains_key(overlay_pane))
                     })
                 });
             let Some(overlay_pane) = missing_overlay else {
@@ -834,9 +836,7 @@ impl ClientViewState {
                 continue;
             };
             let Some((tab_idx, tab)) = workspace
-                .tabs
-                .iter()
-                .enumerate()
+                .terminal_tabs()
                 .find(|(_, tab)| tab.number == return_state.tab.tab_number)
             else {
                 continue;
@@ -865,10 +865,9 @@ impl ClientViewState {
                 return false;
             };
             workspace
-                .tabs
-                .iter()
-                .find(|tab| tab.number == return_state.tab.tab_number)
-                .is_some_and(|tab| tab.panes.contains_key(&return_state.focused_pane))
+                .terminal_tabs()
+                .find(|(_, tab)| tab.number == return_state.tab.tab_number)
+                .is_some_and(|(_, tab)| tab.panes.contains_key(&return_state.focused_pane))
         });
 
         for workspace in &state.workspaces {
@@ -904,7 +903,7 @@ impl ClientViewState {
                     .unwrap_or_else(|| workspace.active_tab.min(workspace.tabs.len() - 1))
             };
             self.active_tabs.insert(workspace.id.clone(), active_tab);
-            for tab in &workspace.tabs {
+            for (_, tab) in workspace.terminal_tabs() {
                 let tab_number = tab.number;
                 let tab_key = ClientTabViewKey::new(&workspace.id, tab_number);
                 if let Some(pending_pane) = self.pending_focused_panes.get(&tab_key).copied() {
@@ -934,23 +933,20 @@ impl ClientViewState {
             self.focused_panes.retain(|key, _| {
                 key.workspace_id != workspace.id
                     || workspace
-                        .tabs
-                        .iter()
-                        .any(|tab| tab.number == key.tab_number)
+                        .terminal_tabs()
+                        .any(|(_, tab)| tab.number == key.tab_number)
             });
             self.pending_focused_panes.retain(|key, _| {
                 key.workspace_id != workspace.id
                     || workspace
-                        .tabs
-                        .iter()
-                        .any(|tab| tab.number == key.tab_number)
+                        .terminal_tabs()
+                        .any(|(_, tab)| tab.number == key.tab_number)
             });
             self.zoomed_tabs.retain(|key| {
                 key.workspace_id != workspace.id
                     || workspace
-                        .tabs
-                        .iter()
-                        .any(|tab| tab.number == key.tab_number)
+                        .terminal_tabs()
+                        .any(|(_, tab)| tab.number == key.tab_number)
             });
         }
         if self.current_tab_key(state).is_none() {
@@ -971,6 +967,15 @@ impl ClientViewState {
             .get(&ClientTabViewKey::new(workspace_id, tab_number))
             .copied()
     }
+    pub(crate) fn focused_tab_is_github(&self, state: &AppState) -> bool {
+        let Some(ws_idx) = self.active_workspace else {
+            return false;
+        };
+        let Some(tab_idx) = self.active_tab_index_for_workspace(state, ws_idx) else {
+            return false;
+        };
+        state.workspaces[ws_idx].tabs[tab_idx].is_github()
+    }
 
     pub(crate) fn active_tab_index_for_workspace(
         &self,
@@ -987,7 +992,7 @@ impl ClientViewState {
         let workspace = state.workspaces.get(ws_idx)?;
         let tab_idx = self.active_tab_index_for_workspace(state, ws_idx)?;
         let tab = workspace.tabs.get(tab_idx)?;
-        Some(ClientTabViewKey::new(&workspace.id, tab.number))
+        Some(ClientTabViewKey::new(&workspace.id, tab.number()))
     }
 
     pub(crate) fn focused_pane_for_workspace(
@@ -997,12 +1002,9 @@ impl ClientViewState {
     ) -> Option<(usize, PaneId)> {
         let workspace = state.workspaces.get(ws_idx)?;
         let tab_idx = self.active_tab_index_for_workspace(state, ws_idx)?;
-        let tab = workspace.tabs.get(tab_idx)?;
+        let tab = workspace.terminal_tab(tab_idx).ok()?;
         let pane_id = self.focused_pane_for_tab(&workspace.id, tab.number)?;
-        workspace
-            .tabs
-            .get(tab_idx)?
-            .panes
+        tab.panes
             .contains_key(&pane_id)
             .then_some((tab_idx, pane_id))
     }
@@ -1017,6 +1019,55 @@ impl ClientViewState {
         })
     }
 
+    pub(crate) fn focus_tab_in_workspace(
+        &mut self,
+        state: &AppState,
+        ws_idx: usize,
+        tab_idx: usize,
+    ) -> bool {
+        let Some(workspace) = state.workspaces.get(ws_idx) else {
+            return false;
+        };
+        let Some(entry) = workspace.tabs.get(tab_idx) else {
+            return false;
+        };
+        if let Some(tab) = entry.as_terminal() {
+            let pane = self
+                .focused_pane_for_tab(&workspace.id, tab.number)
+                .filter(|pane| tab.panes.contains_key(pane))
+                .unwrap_or_else(|| tab.layout.focused());
+            return self.focus_pane_in_workspace(state, ws_idx, tab_idx, pane);
+        }
+        let changed = self.active_workspace != Some(ws_idx)
+            || self.active_tab_for_workspace(&workspace.id) != Some(tab_idx);
+        self.previous_pane_focus = self.current_pane_focus_target(state);
+        self.active_workspace = Some(ws_idx);
+        self.selected_workspace = ws_idx;
+        self.active_workspace_id = Some(workspace.id.clone());
+        self.selected_workspace_id = Some(workspace.id.clone());
+        self.active_tabs.insert(workspace.id.clone(), tab_idx);
+        let key = ClientTabViewKey::new(&workspace.id, entry.number());
+        self.focused_panes.remove(&key);
+        self.zoomed_tabs.remove(&key);
+        if let Some(group_idx) = state
+            .groups
+            .iter()
+            .position(|group| group.id == workspace.group_id)
+        {
+            self.active_group = group_idx;
+        }
+        self.computed.pane_infos.clear();
+        self.tab_canvas_view = None;
+        self.input_leases.clear();
+        self.selection = None;
+        self.selection_autoscroll = None;
+        self.tab_scroll_follow_active = true;
+        if matches!(self.mode, Mode::Terminal | Mode::Github) {
+            self.mode = Mode::Github;
+        }
+        changed
+    }
+
     pub(crate) fn focus_pane_in_workspace(
         &mut self,
         state: &AppState,
@@ -1027,7 +1078,7 @@ impl ClientViewState {
         let Some(workspace) = state.workspaces.get(ws_idx) else {
             return false;
         };
-        let Some(tab) = workspace.tabs.get(tab_idx) else {
+        let Ok(tab) = workspace.terminal_tab(tab_idx) else {
             return false;
         };
         if !tab.panes.contains_key(&pane_id) {
@@ -1092,7 +1143,7 @@ impl ClientViewState {
         let Some(workspace) = state.workspaces.get(ws_idx) else {
             return;
         };
-        let Some(tab) = workspace.tabs.get(tab_idx) else {
+        let Ok(tab) = workspace.terminal_tab(tab_idx) else {
             return;
         };
         self.active_workspace = Some(ws_idx);
@@ -1184,7 +1235,7 @@ impl ClientViewState {
         let Some(workspace) = state.workspaces.get(ws_idx) else {
             return false;
         };
-        let Some(tab) = workspace.tabs.get(tab_idx) else {
+        let Ok(tab) = workspace.terminal_tab(tab_idx) else {
             return false;
         };
         if !tab.panes.contains_key(&overlay_pane) {
@@ -1281,10 +1332,11 @@ impl ClientViewState {
 
     pub(crate) fn github_is_focused(&self, state: &AppState) -> bool {
         self.github.is_some()
-            && self.current_pane_focus_target(state).is_some_and(|target| {
-                self.github_workspace_id.as_ref() == Some(&target.workspace_id)
-                    && self.github_pane_id == Some(target.pane_id)
-            })
+            && self.focused_tab_is_github(state)
+            && self
+                .github_host
+                .as_ref()
+                .is_some_and(|host| self.current_tab_key(state).as_ref() == Some(&host.key))
     }
 
     pub(crate) fn sync_github_mode(&mut self, state: &AppState) {
@@ -1297,45 +1349,17 @@ impl ClientViewState {
         }
     }
 
-    pub(crate) fn github_pane_rect(&self, state: &AppState) -> Rect {
-        let Some(workspace) = self
-            .active_workspace
-            .and_then(|idx| state.workspaces.get(idx))
-        else {
-            return Rect::default();
-        };
-        if self.github_workspace_id.as_ref() != Some(&workspace.id) {
-            return Rect::default();
-        }
-        let visible_tab = self
-            .active_tab_for_workspace(&workspace.id)
-            .and_then(|idx| workspace.tabs.get(idx));
-        if !visible_tab.is_some_and(|tab| {
-            self.github_pane_id
-                .is_some_and(|pane_id| tab.panes.contains_key(&pane_id))
-        }) {
-            return Rect::default();
-        }
-        let Some(info) = self
-            .computed
-            .pane_infos
-            .iter()
-            .find(|info| Some(info.id) == self.github_pane_id)
-        else {
-            return Rect::default();
-        };
-        match self.tab_canvas_view {
-            Some(canvas) => canvas
-                .project_rect(info.inner_rect)
-                .map(|rect| rect.destination)
-                .unwrap_or_default(),
-            None => info.inner_rect,
+    pub(crate) fn github_content_rect(&self, state: &AppState) -> Rect {
+        if self.github_is_focused(state) {
+            self.computed.terminal_area
+        } else {
+            Rect::default()
         }
     }
 
     pub(crate) fn compute_github(&mut self, state: &AppState) {
         self.sync_github_mode(state);
-        let area = self.github_pane_rect(state);
+        let area = self.github_content_rect(state);
         if let Some(screen) = self.github.as_mut() {
             screen.compute(area);
         }
@@ -1543,12 +1567,20 @@ mod tests {
         state.active = Some(1);
         state.selected = 1;
         state.mode = Mode::Terminal;
-        state.workspaces[0].tabs[0].zoomed = true;
+        state.workspaces[0].terminal_tab_mut(0).unwrap().zoomed = true;
 
         let first_workspace_id = state.workspaces[0].id.clone();
         let second_workspace_id = state.workspaces[1].id.clone();
-        let first_focused = state.workspaces[0].tabs[0].layout.focused();
-        let second_focused = state.workspaces[1].tabs[0].layout.focused();
+        let first_focused = state.workspaces[0]
+            .terminal_tab(0)
+            .unwrap()
+            .layout
+            .focused();
+        let second_focused = state.workspaces[1]
+            .terminal_tab(0)
+            .unwrap()
+            .layout
+            .focused();
 
         let view = ClientViewState::from_default_client_state(&state);
 
@@ -1576,7 +1608,11 @@ mod tests {
         state.active = Some(0);
         state.selected = 0;
         let removed_workspace_id = state.workspaces[1].id.clone();
-        let removed_pane = state.workspaces[1].tabs[0].layout.focused();
+        let removed_pane = state.workspaces[1]
+            .terminal_tab(0)
+            .unwrap()
+            .layout
+            .focused();
 
         let mut view = ClientViewState::from_default_client_state(&state);
         view.active_workspace = Some(9);
@@ -1797,8 +1833,8 @@ mod tests {
         let mut state = AppState::test_new();
         let mut workspace = Workspace::test_new("stable-tabs");
         let second_idx = workspace.test_add_tab(Some("second"));
-        let first_number = workspace.tabs[0].number;
-        let second_number = workspace.tabs[second_idx].number;
+        let first_number = workspace.tabs[0].number();
+        let second_number = workspace.tabs[second_idx].number();
         let workspace_id = workspace.id.clone();
         state.workspaces = vec![workspace];
         state.active = Some(0);
@@ -1829,6 +1865,35 @@ mod tests {
             .keys()
             .all(|key| key.tab_number == first_number || key.tab_number == second_number));
     }
+
+    #[test]
+    fn focusing_native_tab_clears_terminal_focus_without_clobbering_settings() {
+        let mut state = AppState::test_new();
+        state.workspaces = vec![Workspace::test_new("native")];
+        state.active = Some(0);
+        state.selected = 0;
+        let native_tab = state.workspaces[0].ensure_github_tab();
+
+        let mut view = ClientViewState::from_default_client_state(&state);
+        view.mode = Mode::Settings;
+        view.computed.pane_infos.push(crate::layout::PaneInfo {
+            id: state.workspaces[0]
+                .terminal_tab(0)
+                .unwrap()
+                .layout
+                .focused(),
+            rect: Rect::new(0, 0, 10, 10),
+            inner_rect: Rect::new(0, 0, 10, 10),
+            scrollbar_rect: None,
+            is_focused: true,
+        });
+
+        assert!(view.focus_tab_in_workspace(&state, 0, native_tab));
+        assert_eq!(view.mode, Mode::Settings);
+        assert!(view.current_pane_focus_target(&state).is_none());
+        assert!(view.computed.pane_infos.is_empty());
+        assert!(view.input_leases.is_empty());
+    }
 }
 
 #[cfg(test)]
@@ -1854,7 +1919,11 @@ mod tab_control_tests {
         let mut state = AppState::test_new();
         state.workspaces = vec![crate::workspace::Workspace::test_new("control")];
         let mut view = ClientViewState::from_default_client_state(&state);
-        let pane_id = state.workspaces[0].tabs[0].layout.focused();
+        let pane_id = state.workspaces[0]
+            .terminal_tab(0)
+            .unwrap()
+            .layout
+            .focused();
         let key = crate::input::TerminalKey::new(
             crossterm::event::KeyCode::Char('x'),
             crossterm::event::KeyModifiers::empty(),

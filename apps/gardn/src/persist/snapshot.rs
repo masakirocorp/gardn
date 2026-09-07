@@ -315,8 +315,97 @@ struct LegacyWorkspaceSnapshot {
     root_pane: Option<u32>,
 }
 
+pub enum TabSnapshot {
+    Terminal(TerminalTabSnapshot),
+    Github {
+        custom_name: Option<String>,
+        legacy_pane_ids: Vec<u32>,
+    },
+}
+
+impl TabSnapshot {
+    pub fn as_terminal(&self) -> Option<&TerminalTabSnapshot> {
+        match self {
+            Self::Terminal(tab) => Some(tab),
+            Self::Github { .. } => None,
+        }
+    }
+}
+
+impl Serialize for TabSnapshot {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        match self {
+            Self::Terminal(tab) => tab.serialize(serializer),
+            Self::Github { custom_name, .. } => {
+                use serde::ser::SerializeStruct;
+                let mut record = serializer.serialize_struct("GithubTabSnapshot", 2)?;
+                record.serialize_field("role", "github")?;
+                record.serialize_field("custom_name", custom_name)?;
+                record.end()
+            }
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for TabSnapshot {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let raw = serde_json::Value::deserialize(deserializer)?;
+        match raw.get("role").and_then(serde_json::Value::as_str) {
+            Some("github") => {
+                let custom_name = raw.get("custom_name").cloned().unwrap_or_default();
+                let custom_name =
+                    serde_json::from_value(custom_name).map_err(serde::de::Error::custom)?;
+                let mut legacy_pane_ids = Vec::new();
+                if let Some(root_pane) = raw
+                    .get("root_pane")
+                    .and_then(serde_json::Value::as_u64)
+                    .and_then(|id| u32::try_from(id).ok())
+                {
+                    legacy_pane_ids.push(root_pane);
+                }
+                if let Some(panes) = raw.get("panes").and_then(serde_json::Value::as_object) {
+                    legacy_pane_ids.extend(panes.keys().filter_map(|key| key.parse::<u32>().ok()));
+                }
+                if let Some(layout) = raw.get("layout") {
+                    collect_legacy_native_pane_ids(layout, &mut legacy_pane_ids);
+                }
+                legacy_pane_ids.sort_unstable();
+                legacy_pane_ids.dedup();
+                Ok(Self::Github {
+                    custom_name,
+                    legacy_pane_ids,
+                })
+            }
+            Some("terminal") | None
+                if raw.get("role").is_none()
+                    || raw.get("role").and_then(serde_json::Value::as_str) == Some("terminal") =>
+            {
+                serde_json::from_value(raw)
+                    .map(Self::Terminal)
+                    .map_err(serde::de::Error::custom)
+            }
+            _ => Err(serde::de::Error::custom("unknown tab role")),
+        }
+    }
+}
+
+fn collect_legacy_native_pane_ids(layout: &serde_json::Value, ids: &mut Vec<u32>) {
+    if let Some(id) = layout.get("Pane").and_then(serde_json::Value::as_u64) {
+        if let Ok(id) = u32::try_from(id) {
+            ids.push(id);
+        }
+    }
+    if let Some(split) = layout.get("Split") {
+        for child in ["first", "second"] {
+            if let Some(node) = split.get(child) {
+                collect_legacy_native_pane_ids(node, ids);
+            }
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize)]
-pub struct TabSnapshot {
+pub struct TerminalTabSnapshot {
     #[serde(default)]
     pub custom_name: Option<String>,
     pub layout: LayoutSnapshot,
@@ -404,14 +493,14 @@ pub enum DirectionSnapshot {
 impl From<LegacyWorkspaceSnapshot> for WorkspaceSnapshot {
     fn from(snap: LegacyWorkspaceSnapshot) -> Self {
         let identity_cwd = legacy_identity_cwd(&snap);
-        let tab = TabSnapshot {
+        let tab = TabSnapshot::Terminal(TerminalTabSnapshot {
             custom_name: None,
             layout: snap.layout,
             panes: snap.panes,
             zoomed: snap.zoomed,
             focused: snap.focused,
             root_pane: snap.root_pane,
-        };
+        });
 
         Self {
             id: None,
@@ -547,6 +636,9 @@ fn migrate_pane_locations(raw: &mut serde_json::Value) -> Result<(), String> {
         .and_then(serde_json::Value::as_array_mut)
     {
         for tab in tabs {
+            if tab.get("role").and_then(serde_json::Value::as_str) == Some("github") {
+                continue;
+            }
             if let Some(panes) = tab.get_mut("panes") {
                 migrate_pane_map(panes)?;
             }
@@ -821,18 +913,22 @@ fn capture_workspace(
             .map(|(pane_id, number)| (pane_id.raw(), *number))
             .collect(),
         next_public_pane_number: ws.next_public_pane_number,
-        public_tab_numbers: ws.tabs.iter().map(|tab| tab.number).collect(),
+        public_tab_numbers: ws.tabs.iter().map(|tab| tab.number()).collect(),
         next_public_tab_number: ws.next_public_tab_number,
         tabs: ws
             .tabs
             .iter()
-            .map(|tab| {
-                capture_tab(
+            .map(|tab| match tab {
+                crate::workspace::WorkspaceTab::Terminal(tab) => capture_tab(
                     tab,
                     terminals,
                     terminal_runtimes,
                     include_terminal_semantics,
-                )
+                ),
+                crate::workspace::WorkspaceTab::Github(tab) => TabSnapshot::Github {
+                    custom_name: tab.custom_name.clone(),
+                    legacy_pane_ids: Vec::new(),
+                },
             })
             .collect(),
         active_tab: ws.active_tab,
@@ -919,14 +1015,14 @@ fn capture_tab(
             },
         );
     }
-    TabSnapshot {
+    TabSnapshot::Terminal(TerminalTabSnapshot {
         custom_name: tab.custom_name.clone(),
         layout: capture_node(tab.layout.root()),
         panes,
         zoomed: tab.zoomed,
         focused: Some(tab.layout.focused().raw()),
         root_pane: Some(tab.root_pane.raw()),
-    }
+    })
 }
 
 /// Capture pane screen history separately from the structural session snapshot.
@@ -943,7 +1039,10 @@ pub fn capture_history(
                     .tabs
                     .iter()
                     .map(|tab| TabHistorySnapshot {
-                        panes: capture_tab_history(tab, terminal_runtimes),
+                        panes: tab
+                            .as_terminal()
+                            .map(|tab| capture_tab_history(tab, terminal_runtimes))
+                            .unwrap_or_default(),
                     })
                     .collect(),
             })
@@ -1107,10 +1206,12 @@ mod tests {
         state.workspaces[0].identity_cwd = PathBuf::from("/gardn-test/space");
         state.workspaces[0].default_location =
             crate::execution_host::ResourceLocation::local("/gardn-test/default").unwrap();
-        let root_pane = state.workspaces[0].tabs[0].root_pane;
+        let root_pane = state.workspaces[0].terminal_tab(0).unwrap().root_pane;
         let terminal_id = state.workspaces[0].terminal_id(root_pane).unwrap().clone();
         state.terminals.get_mut(&terminal_id).unwrap().cwd = PathBuf::from("/gardn-test/runtime");
-        state.workspaces[0].tabs[0]
+        state.workspaces[0]
+            .terminal_tab_mut(0)
+            .unwrap()
             .panes
             .get_mut(&root_pane)
             .unwrap()
@@ -1127,11 +1228,11 @@ mod tests {
             crate::execution_host::ResourceLocation::local("/gardn-test/default").unwrap()
         );
         assert_eq!(
-            snap.workspaces[0].tabs[0].panes[&root_pane.raw()].cwd,
+            snap.workspaces[0].tabs[0].as_terminal().unwrap().panes[&root_pane.raw()].cwd,
             PathBuf::from("/gardn-test/runtime")
         );
         assert_eq!(
-            snap.workspaces[0].tabs[0].panes[&root_pane.raw()].env_pane_id,
+            snap.workspaces[0].tabs[0].as_terminal().unwrap().panes[&root_pane.raw()].env_pane_id,
             Some(6)
         );
     }
@@ -1145,6 +1246,7 @@ mod tests {
             .workspaces
             .iter()
             .flat_map(|workspace| &workspace.tabs)
+            .filter_map(TabSnapshot::as_terminal)
             .flat_map(|tab| tab.panes.values())
             .all(|pane| pane.terminal_theme_binding.is_none()));
     }
@@ -1152,7 +1254,7 @@ mod tests {
     #[test]
     fn capture_handoff_keeps_terminal_semantics_out_of_durable_snapshot() {
         let mut state = state_with_workspaces(&["space"]);
-        let root_pane = state.workspaces[0].tabs[0].root_pane;
+        let root_pane = state.workspaces[0].terminal_tab(0).unwrap().root_pane;
         let terminal_id = state.workspaces[0].terminal_id(root_pane).unwrap().clone();
         let terminal = state.terminals.get_mut(&terminal_id).unwrap();
         let _ = terminal.set_hook_authority_with_session_ref(
@@ -1183,7 +1285,9 @@ mod tests {
             ttl: None,
             seq: Some(9),
         });
-        state.workspaces[0].tabs[0]
+        state.workspaces[0]
+            .terminal_tab_mut(0)
+            .unwrap()
             .panes
             .get_mut(&root_pane)
             .unwrap()
@@ -1210,8 +1314,10 @@ mod tests {
             state.right_sidebar_collapsed,
             &state.agent_follow_up,
         );
-        let durable_pane = &durable.workspaces[0].tabs[0].panes[&root_pane.raw()];
-        let handoff_pane = &handoff.workspaces[0].tabs[0].panes[&root_pane.raw()];
+        let durable_pane =
+            &durable.workspaces[0].tabs[0].as_terminal().unwrap().panes[&root_pane.raw()];
+        let handoff_pane =
+            &handoff.workspaces[0].tabs[0].as_terminal().unwrap().panes[&root_pane.raw()];
 
         assert!(!durable_pane.seen);
         assert!(durable_pane.terminal_semantics.is_none());
@@ -1246,9 +1352,19 @@ mod tests {
         assert_eq!(
             workspace.public_pane_numbers,
             HashMap::from([
-                (state.workspaces[0].tabs[0].root_pane.raw(), 1),
+                (
+                    state.workspaces[0].terminal_tab(0).unwrap().root_pane.raw(),
+                    1
+                ),
                 (third.raw(), 3),
-                (state.workspaces[0].tabs[second_tab].root_pane.raw(), 4),
+                (
+                    state.workspaces[0]
+                        .terminal_tab(second_tab)
+                        .unwrap()
+                        .root_pane
+                        .raw(),
+                    4
+                ),
             ])
         );
         assert_eq!(workspace.next_public_pane_number, 5);
@@ -1295,6 +1411,7 @@ mod tests {
     }
 
     fn root_split_ratio(tab: &TabSnapshot) -> Option<f32> {
+        let tab = tab.as_terminal()?;
         match &tab.layout {
             LayoutSnapshot::Split { ratio, .. } => Some(*ratio),
             LayoutSnapshot::Pane(_) => None,
@@ -1305,7 +1422,7 @@ mod tests {
     fn follow_up_queue_round_trips_and_drops_stale_targets() {
         let mut state = AppState::test_new();
         state.workspaces = vec![crate::workspace::Workspace::test_new("kept")];
-        let pane = state.workspaces[0].tabs[0].root_pane;
+        let pane = state.workspaces[0].terminal_tab(0).unwrap().root_pane;
         assert!(state.insert_agent_follow_up(0, pane));
         state
             .agent_follow_up
@@ -1514,18 +1631,9 @@ mod tests {
                 next_public_pane_number: 3,
                 public_tab_numbers: vec![1],
                 next_public_tab_number: 2,
-                tabs: vec![TabSnapshot {
+                tabs: vec![TabSnapshot::Github {
                     custom_name: Some("api".to_string()),
-                    layout: LayoutSnapshot::Split {
-                        direction: DirectionSnapshot::Horizontal,
-                        ratio: 0.5,
-                        first: Box::new(LayoutSnapshot::Pane(0)),
-                        second: Box::new(LayoutSnapshot::Pane(1)),
-                    },
-                    panes,
-                    zoomed: false,
-                    focused: Some(0),
-                    root_pane: Some(0),
+                    legacy_pane_ids: vec![0, 1],
                 }],
                 active_tab: 0,
             }],
@@ -1552,15 +1660,13 @@ mod tests {
             Some("pi-mono")
         );
         assert_eq!(restored.workspaces[0].tabs.len(), 1);
-        assert_eq!(restored.workspaces[0].tabs[0].panes.len(), 2);
-        assert_eq!(
-            restored.workspaces[0].tabs[0].panes[&0].cwd,
-            PathBuf::from("/home/can/Projects/gardn")
-        );
-        assert_eq!(
-            restored.workspaces[0].tabs[0].panes[&1].label.as_deref(),
-            Some("website")
-        );
+        assert!(matches!(
+            &restored.workspaces[0].tabs[0],
+            TabSnapshot::Github {
+                custom_name: Some(name),
+                ..
+            } if name == "api"
+        ));
         assert_eq!(
             restored.agent_panel_scope,
             AgentPanelScope::CurrentWorkspace
@@ -1600,7 +1706,10 @@ mod tests {
         assert_eq!(snap.agent_panel_scope, AgentPanelScope::CurrentWorkspace);
         assert_eq!(snap.sidebar_section_split, Some(0.4));
         assert_eq!(snap.workspaces[0].active_tab, 1);
-        assert_eq!(snap.workspaces[1].tabs[0].panes.len(), 2);
+        let TabSnapshot::Terminal(tab) = &snap.workspaces[1].tabs[0] else {
+            panic!("fixture terminal should retain terminal payload");
+        };
+        assert_eq!(tab.panes.len(), 2);
     }
 
     #[test]
@@ -1673,10 +1782,13 @@ mod tests {
         assert_eq!(ws.identity_cwd, PathBuf::from("/tmp/pion"));
         assert_eq!(ws.active_tab, 0);
         assert_eq!(ws.tabs.len(), 1);
-        assert_eq!(ws.tabs[0].focused, Some(1));
-        assert_eq!(ws.tabs[0].root_pane, Some(0));
-        assert_eq!(ws.tabs[0].panes[&0].cwd, PathBuf::from("/tmp/pion"));
-        assert_eq!(ws.tabs[0].panes[&1].cwd, PathBuf::from("/tmp/gardn"));
+        let TabSnapshot::Terminal(tab) = &ws.tabs[0] else {
+            panic!("legacy workspace should restore a terminal tab");
+        };
+        assert_eq!(tab.focused, Some(1));
+        assert_eq!(tab.root_pane, Some(0));
+        assert_eq!(tab.panes[&0].cwd, PathBuf::from("/tmp/pion"));
+        assert_eq!(tab.panes[&1].cwd, PathBuf::from("/tmp/gardn"));
     }
 
     #[test]
@@ -1688,11 +1800,15 @@ mod tests {
         state.move_workspace(1, 0);
 
         let snapshot = capture_from_state(&state);
-        let ids: Vec<_> = state.workspaces.iter().map(|ws| ws.id.clone()).collect();
+        let ids: Vec<_> = state
+            .workspaces
+            .iter()
+            .map(|workspace| workspace.id.clone())
+            .collect();
         let captured_ids: Vec<_> = snapshot
             .workspaces
             .iter()
-            .map(|ws| ws.id.clone().unwrap())
+            .filter_map(|workspace| workspace.id.clone())
             .collect();
         assert_eq!(captured_ids, ids);
         assert_eq!(snapshot.active, state.active);
@@ -1705,14 +1821,23 @@ mod tests {
         state.workspaces[0].set_custom_name("renamed-workspace".into());
         let second_tab = state.workspaces[0].test_add_tab(Some("logs"));
         state.workspaces[0].switch_tab(second_tab);
-        state.workspaces[0].tabs[0].set_custom_name("main".into());
+        state.workspaces[0]
+            .terminal_tab_mut(0)
+            .unwrap()
+            .set_custom_name("main".into());
 
         let snapshot = capture_from_state(&state);
         let workspace = &snapshot.workspaces[0];
         assert_eq!(workspace.custom_name.as_deref(), Some("renamed-workspace"));
         assert_eq!(workspace.active_tab, second_tab);
-        assert_eq!(workspace.tabs[0].custom_name.as_deref(), Some("main"));
-        assert_eq!(workspace.tabs[1].custom_name.as_deref(), Some("logs"));
+        assert!(matches!(
+            &workspace.tabs[0],
+            TabSnapshot::Terminal(tab) if tab.custom_name.as_deref() == Some("main")
+        ));
+        assert!(matches!(
+            &workspace.tabs[1],
+            TabSnapshot::Terminal(tab) if tab.custom_name.as_deref() == Some("logs")
+        ));
     }
 
     #[test]
@@ -1752,13 +1877,19 @@ mod tests {
     #[test]
     fn capture_contract_tracks_layout_focus_zoom_and_root_pane() {
         let mut state = state_with_workspaces(&["one"]);
-        let root = state.workspaces[0].tabs[0].root_pane;
+        let root = state.workspaces[0].terminal_tab(0).unwrap().root_pane;
         let second = state.workspaces[0].test_split(Direction::Horizontal);
-        state.workspaces[0].tabs[0].layout.focus_pane(second);
+        state.workspaces[0]
+            .terminal_tab_mut(0)
+            .unwrap()
+            .layout
+            .focus_pane(second);
         state.toggle_zoom();
-
         let snapshot = capture_from_state(&state);
-        let tab = &snapshot.workspaces[0].tabs[0];
+
+        let TabSnapshot::Terminal(tab) = &snapshot.workspaces[0].tabs[0] else {
+            panic!("terminal capture should retain terminal payload");
+        };
         assert!(matches!(tab.layout, LayoutSnapshot::Split { .. }));
         assert_eq!(tab.focused, Some(second.raw()));
         assert_eq!(tab.root_pane, Some(root.raw()));
@@ -1769,15 +1900,18 @@ mod tests {
     #[test]
     fn capture_contract_tracks_focus_navigation() {
         let mut state = state_with_workspaces(&["one"]);
-        let root = state.workspaces[0].tabs[0].root_pane;
+        let root = state.workspaces[0].terminal_tab(0).unwrap().root_pane;
         let second = state.workspaces[0].test_split(Direction::Horizontal);
         crate::ui::compute_view(&mut state, Rect::new(0, 0, 106, 20));
 
         state.navigate_pane(NavDirection::Right);
 
         let snapshot = capture_from_state(&state);
-        assert_eq!(snapshot.workspaces[0].tabs[0].focused, Some(second.raw()));
-        assert_ne!(snapshot.workspaces[0].tabs[0].focused, Some(root.raw()));
+        let TabSnapshot::Terminal(tab) = &snapshot.workspaces[0].tabs[0] else {
+            panic!("terminal capture should retain terminal payload");
+        };
+        assert_eq!(tab.focused, Some(second.raw()));
+        assert_ne!(tab.focused, Some(root.raw()));
     }
 
     #[test]
@@ -1820,7 +1954,10 @@ mod tests {
         let workspace = &snapshot.workspaces[0];
         assert_eq!(workspace.tabs.len(), 1);
         assert_eq!(workspace.active_tab, 0);
-        assert!(workspace.tabs[0].custom_name.is_none());
+        assert!(matches!(
+            &workspace.tabs[0],
+            TabSnapshot::Terminal(tab) if tab.custom_name.is_none()
+        ));
     }
 
     #[test]
@@ -1829,9 +1966,10 @@ mod tests {
         state.workspaces[0].test_split(Direction::Horizontal);
 
         state.close_pane();
-
         let snapshot = capture_from_state(&state);
-        let tab = &snapshot.workspaces[0].tabs[0];
+        let TabSnapshot::Terminal(tab) = &snapshot.workspaces[0].tabs[0] else {
+            panic!("terminal capture should retain terminal payload");
+        };
         assert_eq!(tab.panes.len(), 1);
         assert!(matches!(tab.layout, LayoutSnapshot::Pane(_)));
         assert!(!tab.zoomed);
@@ -1840,22 +1978,24 @@ mod tests {
     #[test]
     fn capture_contract_tracks_workspace_identity_and_pane_cwds() {
         let mut state = state_with_workspaces(&["one"]);
-        let root = state.workspaces[0].tabs[0].root_pane;
+        let root = state.workspaces[0].terminal_tab(0).unwrap().root_pane;
         state.workspaces[0].identity_cwd = PathBuf::from("/tmp/pion");
         let second = state.workspaces[0].test_split(Direction::Horizontal);
         state.ensure_test_terminals();
-        let root_terminal_id = state.workspaces[0].tabs[0].panes[&root]
+        let root_terminal_id = state.workspaces[0].terminal_tab(0).unwrap().panes[&root]
             .attached_terminal_id
             .clone();
         state.terminals.get_mut(&root_terminal_id).unwrap().cwd = PathBuf::from("/tmp/pion");
-        let second_terminal_id = state.workspaces[0].tabs[0].panes[&second]
+        let second_terminal_id = state.workspaces[0].terminal_tab(0).unwrap().panes[&second]
             .attached_terminal_id
             .clone();
         state.terminals.get_mut(&second_terminal_id).unwrap().cwd = PathBuf::from("/tmp/gardn");
 
         let snapshot = capture_from_state(&state);
         let workspace = &snapshot.workspaces[0];
-        let tab = &workspace.tabs[0];
+        let TabSnapshot::Terminal(tab) = &workspace.tabs[0] else {
+            panic!("terminal capture should retain terminal payload");
+        };
         assert_eq!(workspace.identity_cwd, PathBuf::from("/tmp/pion"));
         assert_eq!(tab.panes[&root.raw()].cwd, PathBuf::from("/tmp/pion"));
         assert_eq!(tab.panes[&second.raw()].cwd, PathBuf::from("/tmp/gardn"));
@@ -1864,8 +2004,8 @@ mod tests {
     #[tokio::test]
     async fn capture_contract_tracks_pane_history_from_runtime() {
         let state = state_with_workspaces(&["one"]);
-        let root = state.workspaces[0].tabs[0].root_pane;
-        let terminal_id = state.workspaces[0].tabs[0].panes[&root]
+        let root = state.workspaces[0].terminal_tab(0).unwrap().root_pane;
+        let terminal_id = state.workspaces[0].terminal_tab(0).unwrap().panes[&root]
             .attached_terminal_id
             .clone();
         let mut terminal_runtimes = TerminalRuntimeRegistry::new();
@@ -1895,12 +2035,12 @@ mod tests {
     #[tokio::test]
     async fn capture_contract_tracks_history_for_each_pane() {
         let mut state = state_with_workspaces(&["one"]);
-        let first = state.workspaces[0].tabs[0].root_pane;
+        let first = state.workspaces[0].terminal_tab(0).unwrap().root_pane;
         let second = state.workspaces[0].test_split(Direction::Horizontal);
-        let first_terminal_id = state.workspaces[0].tabs[0].panes[&first]
+        let first_terminal_id = state.workspaces[0].terminal_tab(0).unwrap().panes[&first]
             .attached_terminal_id
             .clone();
-        let second_terminal_id = state.workspaces[0].tabs[0].panes[&second]
+        let second_terminal_id = state.workspaces[0].terminal_tab(0).unwrap().panes[&second]
             .attached_terminal_id
             .clone();
         let mut terminal_runtimes = TerminalRuntimeRegistry::new();
@@ -1940,9 +2080,9 @@ mod tests {
     #[test]
     fn capture_contract_tracks_hook_authority_agent_session() {
         let mut state = state_with_workspaces(&["one"]);
-        let root = state.workspaces[0].tabs[0].root_pane;
+        let root = state.workspaces[0].terminal_tab(0).unwrap().root_pane;
         state.ensure_test_terminals();
-        let terminal_id = state.workspaces[0].tabs[0].panes[&root]
+        let terminal_id = state.workspaces[0].terminal_tab(0).unwrap().panes[&root]
             .attached_terminal_id
             .clone();
         state
@@ -1958,9 +2098,11 @@ mod tests {
                 crate::agent_resume::AgentSessionRef::path("/tmp/pi-session.jsonl"),
                 Some(20),
             );
-
         let snapshot = capture_from_state(&state);
-        let agent_session = snapshot.workspaces[0].tabs[0].panes[&root.raw()]
+        let TabSnapshot::Terminal(tab) = &snapshot.workspaces[0].tabs[0] else {
+            panic!("terminal capture should retain terminal payload");
+        };
+        let agent_session = tab.panes[&root.raw()]
             .agent_session
             .as_ref()
             .expect("agent session should be captured");
@@ -1977,9 +2119,9 @@ mod tests {
     #[test]
     fn capture_contract_preserves_restored_agent_session() {
         let mut state = state_with_workspaces(&["one"]);
-        let root = state.workspaces[0].tabs[0].root_pane;
+        let root = state.workspaces[0].terminal_tab(0).unwrap().root_pane;
         state.ensure_test_terminals();
-        let terminal_id = state.workspaces[0].tabs[0].panes[&root]
+        let terminal_id = state.workspaces[0].terminal_tab(0).unwrap().panes[&root]
             .attached_terminal_id
             .clone();
         state
@@ -1991,9 +2133,11 @@ mod tests {
                 agent: "opencode".into(),
                 session_ref: crate::agent_resume::AgentSessionRef::id("opencode-session").unwrap(),
             });
-
         let snapshot = capture_from_state(&state);
-        let agent_session = snapshot.workspaces[0].tabs[0].panes[&root.raw()]
+        let TabSnapshot::Terminal(tab) = &snapshot.workspaces[0].tabs[0] else {
+            panic!("terminal capture should retain terminal payload");
+        };
+        let agent_session = tab.panes[&root.raw()]
             .agent_session
             .as_ref()
             .expect("persisted agent session should be captured");
@@ -2066,5 +2210,61 @@ mod tests {
             workspace_location.path.as_path(),
             std::path::Path::new("/legacy/workspace")
         );
+    }
+
+    #[test]
+    fn github_snapshot_is_compact_and_keeps_legacy_pane_ids() {
+        let snapshot = TabSnapshot::Github {
+            custom_name: Some("issues".into()),
+            legacy_pane_ids: vec![7, 11],
+        };
+
+        let value = serde_json::to_value(snapshot).unwrap();
+
+        assert_eq!(
+            value,
+            serde_json::json!({
+                "role": "github",
+                "custom_name": "issues",
+            })
+        );
+    }
+
+    #[test]
+    fn github_role_wins_over_unusable_legacy_pane_payload() {
+        let snapshot = serde_json::from_value::<TabSnapshot>(serde_json::json!({
+            "role": "github",
+            "custom_name": "issues",
+            "layout": {"Split": {"first": {"Pane": 19}, "second": "broken"}},
+            "panes": {
+                "19": "not a pane",
+                "23": null,
+            },
+        }))
+        .unwrap();
+
+        match snapshot {
+            TabSnapshot::Github {
+                custom_name,
+                legacy_pane_ids,
+            } => {
+                assert_eq!(custom_name.as_deref(), Some("issues"));
+                assert_eq!(legacy_pane_ids, &[19, 23]);
+            }
+            TabSnapshot::Terminal(_) => panic!("legacy Github role must stay native"),
+        }
+    }
+
+    #[test]
+    fn explicit_terminal_role_uses_terminal_wire_shape() {
+        let snapshot = serde_json::from_value::<TabSnapshot>(serde_json::json!({
+            "role": "terminal",
+            "layout": {"Pane": 4},
+            "panes": {},
+            "zoomed": false,
+        }))
+        .unwrap();
+
+        assert!(snapshot.as_terminal().is_some());
     }
 }

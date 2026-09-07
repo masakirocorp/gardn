@@ -41,6 +41,16 @@ impl App {
             },
             None => None,
         };
+        if let Some((target_ws_idx, target_tab_idx)) = replace_target {
+            let Some(_) = self
+                .state
+                .workspaces
+                .get(target_ws_idx)
+                .and_then(|workspace| workspace.terminal_tab(target_tab_idx).ok())
+            else {
+                return encode_error(id, "invalid_target", "layout target is not a terminal tab");
+            };
+        }
         if replace_target.is_some() && params.workspace_id.is_some() {
             return encode_error(
                 id,
@@ -70,14 +80,14 @@ impl App {
         }
 
         let replacement_label = params.tab_label.clone().or_else(|| {
-            let (_, tab_idx) = replace_target?;
+            let (target_ws_idx, tab_idx) = replace_target?;
             self.state
                 .workspaces
-                .get(ws_idx)?
+                .get(target_ws_idx)?
                 .tabs
                 .get(tab_idx)?
-                .custom_name
-                .clone()
+                .custom_name()
+                .map(str::to_owned)
         });
         let replace_was_active = replace_target.is_some_and(|(target_ws, target_tab)| {
             self.state.active == Some(target_ws)
@@ -140,7 +150,11 @@ impl App {
             Ok(result) => result,
             Err(err) => return encode_error(id, "layout_apply_failed", err.to_string()),
         };
-        let new_root_pane = self.state.workspaces[ws_idx].tabs[new_tab_idx].root_pane;
+        let new_root_pane = self.state.workspaces[ws_idx]
+            .terminal_tab(new_tab_idx)
+            .map_err(|error| error.to_string())
+            .map(|tab| tab.root_pane)
+            .unwrap();
         self.terminal_runtimes.insert(terminal.id.clone(), runtime);
         self.state.remove_alias_shadowed_by_new_pane(new_root_pane);
         self.state.terminals.insert(terminal.id.clone(), terminal);
@@ -164,17 +178,10 @@ impl App {
                         target_tab_idx + 1
                     )
                 });
-            let terminal_ids = self
+            if self
                 .state
-                .terminal_ids_for_tab(target_ws_idx, target_tab_idx);
-            let plugin_pane_ids = self.state.pane_ids_for_tab(target_ws_idx, target_tab_idx);
-            let Some(ws) = self.state.workspaces.get_mut(target_ws_idx) else {
-                return encode_error(id, "tab_not_found", "tab not found");
-            };
-            if ws.close_tab(target_tab_idx) {
-                self.state.remove_plugin_pane_records(plugin_pane_ids);
-                self.state.remove_unattached_terminal_ids(terminal_ids);
-                self.shutdown_detached_terminal_runtimes();
+                .close_workspace_tab(target_ws_idx, target_tab_idx)
+            {
                 self.emit_event(EventEnvelope {
                     event: EventKind::TabClosed,
                     data: EventData::TabClosed {
@@ -186,9 +193,9 @@ impl App {
         }
 
         let Some(new_tab_idx) = self.state.workspaces[ws_idx]
-            .tabs
-            .iter()
-            .position(|tab| tab.root_pane == new_root_pane)
+            .terminal_tabs()
+            .find(|(_, tab)| tab.root_pane == new_root_pane)
+            .map(|(tab_idx, _)| tab_idx)
         else {
             return encode_error(id, "layout_apply_failed", "new layout tab disappeared");
         };
@@ -204,7 +211,10 @@ impl App {
                 data: EventData::TabCreated { tab },
             });
         }
-        for pane_id in self.state.workspaces[ws_idx].tabs[new_tab_idx]
+        for pane_id in self.state.workspaces[ws_idx]
+            .terminal_tab(new_tab_idx)
+            .map_err(|error| error.to_string())
+            .unwrap()
             .layout
             .pane_ids()
         {
@@ -246,7 +256,7 @@ impl App {
 
     fn layout_description(&self, ws_idx: usize, tab_idx: usize) -> Option<LayoutDescription> {
         let ws = self.state.workspaces.get(ws_idx)?;
-        let tab = ws.tabs.get(tab_idx)?;
+        let tab = ws.terminal_tab(tab_idx).ok()?;
         Some(LayoutDescription {
             workspace_id: self.public_workspace_id(ws_idx),
             tab_id: self.public_tab_id(ws_idx, tab_idx)?,
@@ -290,7 +300,7 @@ impl App {
         pane_id: PaneId,
     ) -> Option<LayoutPane> {
         let ws = self.state.workspaces.get(ws_idx)?;
-        let tab = ws.tabs.get(tab_idx)?;
+        let tab = ws.terminal_tab(tab_idx).ok()?;
         let terminal_id = tab.terminal_id(pane_id)?;
         let terminal = self.state.terminals.get(terminal_id);
         Some(LayoutPane {
@@ -315,7 +325,7 @@ impl App {
         }
         let follow_cwd = replace_target.and_then(|(_, tab_idx)| {
             let ws = self.state.workspaces.get(ws_idx)?;
-            let tab = ws.tabs.get(tab_idx)?;
+            let tab = ws.terminal_tab(tab_idx).ok()?;
             tab.cwd_for_pane(
                 tab.layout.focused(),
                 &self.state.terminals,
@@ -375,7 +385,7 @@ impl App {
         let cwd = pane.cwd.as_ref().map(PathBuf::from).or_else(|| {
             self.state.workspaces.get(ws_idx).and_then(|ws| {
                 let tab_idx = ws.find_tab_index_for_pane(target_pane_id)?;
-                ws.tabs.get(tab_idx)?.cwd_for_pane(
+                ws.terminal_tab(tab_idx).ok()?.cwd_for_pane(
                     target_pane_id,
                     &self.state.terminals,
                     &self.terminal_runtimes,
@@ -466,26 +476,14 @@ impl App {
     }
 
     fn rollback_layout_tab(&mut self, ws_idx: usize, root_pane: PaneId) {
-        let Some(tab_idx) = self
-            .state
-            .workspaces
-            .get(ws_idx)
-            .and_then(|ws| ws.tabs.iter().position(|tab| tab.root_pane == root_pane))
-        else {
+        let Some(tab_idx) = self.state.workspaces.get(ws_idx).and_then(|ws| {
+            ws.terminal_tabs()
+                .find(|(_, tab)| tab.root_pane == root_pane)
+                .map(|(tab_idx, _)| tab_idx)
+        }) else {
             return;
         };
-        let terminal_ids = self.state.terminal_ids_for_tab(ws_idx, tab_idx);
-        let plugin_pane_ids = self.state.pane_ids_for_tab(ws_idx, tab_idx);
-        if self
-            .state
-            .workspaces
-            .get_mut(ws_idx)
-            .is_some_and(|ws| ws.close_tab(tab_idx))
-        {
-            self.state.remove_plugin_pane_records(plugin_pane_ids);
-            self.state.remove_unattached_terminal_ids(terminal_ids);
-            self.shutdown_detached_terminal_runtimes();
-        }
+        self.state.close_workspace_tab(ws_idx, tab_idx);
     }
 }
 
@@ -596,14 +594,22 @@ mod tests {
     #[test]
     fn layout_export_returns_portable_tree() {
         let mut app = app_with_workspace();
-        let root = app.state.workspaces[0].tabs[0].root_pane;
+        let root = app.state.workspaces[0].terminal_tab(0).unwrap().root_pane;
         let right = app.state.workspaces[0].test_split(Direction::Horizontal);
         app.state.ensure_test_terminals();
-        app.state.workspaces[0].tabs[0].layout.focus_pane(root);
-        app.state.workspaces[0].tabs[0]
+        app.state.workspaces[0]
+            .terminal_tab_mut(0)
+            .unwrap()
+            .layout
+            .focus_pane(root);
+        app.state.workspaces[0]
+            .terminal_tab_mut(0)
+            .unwrap()
             .layout
             .set_ratio_at(&[], 0.65);
-        let right_terminal_id = app.state.workspaces[0].tabs[0]
+        let right_terminal_id = app.state.workspaces[0]
+            .terminal_tab(0)
+            .unwrap()
             .terminal_id(right)
             .cloned()
             .unwrap();
@@ -719,7 +725,7 @@ mod tests {
     async fn layout_apply_replace_drops_plugin_pane_records_of_replaced_tab() {
         let mut app = app_with_workspace();
         let original_tab_id = app.public_tab_id(0, 0).unwrap();
-        let replaced_pane = app.state.workspaces[0].tabs[0].root_pane;
+        let replaced_pane = app.state.workspaces[0].terminal_tab(0).unwrap().root_pane;
         app.state.plugin_panes.insert(
             replaced_pane,
             crate::app::state::PluginPaneRecord {

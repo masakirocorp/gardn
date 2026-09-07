@@ -695,7 +695,7 @@ mod tests {
     use crate::persist::{
         try_load_snapshot_at, try_save_snapshot_at, GroupSnapshot, LayoutSnapshot, PaneSnapshot,
         SessionDefaultViewSnapshot, SessionSnapshot, SessionUiSnapshot, TabSnapshot,
-        WorkspaceSnapshot,
+        TerminalTabSnapshot, WorkspaceSnapshot,
     };
     use std::collections::{HashMap, VecDeque};
     use std::path::PathBuf;
@@ -894,7 +894,7 @@ mod tests {
             next_public_pane_number: 0,
             public_tab_numbers: Vec::new(),
             next_public_tab_number: 0,
-            tabs: vec![TabSnapshot {
+            tabs: vec![TabSnapshot::Terminal(TerminalTabSnapshot {
                 custom_name: None,
                 layout: LayoutSnapshot::Pane(0),
                 panes: HashMap::from([(
@@ -918,7 +918,7 @@ mod tests {
                 zoomed: false,
                 focused: Some(0),
                 root_pane: Some(0),
-            }],
+            })],
             active_tab: 0,
         }
     }

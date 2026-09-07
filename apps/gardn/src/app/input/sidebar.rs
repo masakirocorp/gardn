@@ -1167,8 +1167,11 @@ mod tests {
         ws_idx: usize,
         name: &str,
     ) -> crate::layout::PaneId {
-        let pane_id = app.state.workspaces[ws_idx].tabs[0].root_pane;
-        let terminal_id = app.state.workspaces[ws_idx].tabs[0].panes[&pane_id]
+        let pane_id = app.state.workspaces[ws_idx]
+            .terminal_tab(0)
+            .unwrap()
+            .root_pane;
+        let terminal_id = app.state.workspaces[ws_idx].terminal_tab(0).unwrap().panes[&pane_id]
             .attached_terminal_id
             .clone();
         let terminal = app
@@ -2256,12 +2259,12 @@ mod tests {
         let mut app = app_for_mouse_test();
         let mut ws = Workspace::test_new("test");
         ws.tabs[0].set_custom_name("main".into());
-        let first_pane = ws.tabs[0].root_pane;
+        let first_pane = ws.terminal_tab(0).unwrap().root_pane;
         let first_tab = ws.test_add_tab(Some("logs"));
-        let second_pane = ws.tabs[first_tab].root_pane;
+        let second_pane = ws.terminal_tab(first_tab).unwrap().root_pane;
         app.state.workspaces = vec![ws];
         app.state.ensure_test_terminals();
-        let first_terminal_id = app.state.workspaces[0].tabs[0].panes[&first_pane]
+        let first_terminal_id = app.state.workspaces[0].terminal_tab(0).unwrap().panes[&first_pane]
             .attached_terminal_id
             .clone();
         app.state
@@ -2269,7 +2272,10 @@ mod tests {
             .get_mut(&first_terminal_id)
             .unwrap()
             .detected_agent = Some(Agent::Pi);
-        let second_terminal_id = app.state.workspaces[0].tabs[first_tab].panes[&second_pane]
+        let second_terminal_id = app.state.workspaces[0]
+            .terminal_tab(first_tab)
+            .unwrap()
+            .panes[&second_pane]
             .attached_terminal_id
             .clone();
         app.state
@@ -2302,14 +2308,20 @@ mod tests {
 
         assert_eq!(app.state.workspaces[0].active_tab, 1);
         assert_eq!(
-            app.state.workspaces[0].tabs[1].layout.focused(),
+            app.state.workspaces[0]
+                .terminal_tab(1)
+                .unwrap()
+                .layout
+                .focused(),
             second_pane
         );
         assert_eq!(app.state.mode, Mode::Terminal);
         let snapshot = capture_snapshot(&app.state);
         assert_eq!(snapshot.workspaces[0].active_tab, first_tab);
         assert_eq!(
-            snapshot.workspaces[0].tabs[first_tab].focused,
+            snapshot.workspaces[0].tabs[first_tab]
+                .as_terminal()
+                .and_then(|tab| tab.focused),
             Some(second_pane.raw())
         );
     }
@@ -2318,10 +2330,15 @@ mod tests {
     fn right_clicking_agent_row_adds_and_removes_follow_up_without_changing_focus() {
         let mut app = app_for_mouse_test();
         let home = Workspace::test_new("home");
-        let home_pane = home.tabs[0].root_pane;
+        let home_pane = home.terminal_tab(0).unwrap().root_pane;
         let mut api = Workspace::test_new("api");
-        let agent_pane = api.tabs[0].root_pane;
-        let agent_state = api.tabs[0].panes.get_mut(&agent_pane).expect("agent pane");
+        let agent_pane = api.terminal_tab(0).unwrap().root_pane;
+        let agent_state = api
+            .terminal_tab_mut(0)
+            .unwrap()
+            .panes
+            .get_mut(&agent_pane)
+            .expect("agent pane");
         agent_state.detected_agent = Some(Agent::Claude);
         agent_state.state = AgentState::Working;
         app.state.workspaces = vec![home, api];
@@ -2340,7 +2357,9 @@ mod tests {
         let original_active = app.state.active;
         let original_selected = app.state.selected;
         let original_home_tab = app.state.workspaces[0].active_tab_index();
-        let original_home_focus = app.state.workspaces[0].tabs[original_home_tab]
+        let original_home_focus = app.state.workspaces[0]
+            .terminal_tab(original_home_tab)
+            .unwrap()
             .layout
             .focused();
 
@@ -2366,7 +2385,9 @@ mod tests {
             original_home_tab
         );
         assert_eq!(
-            app.state.workspaces[0].tabs[original_home_tab]
+            app.state.workspaces[0]
+                .terminal_tab(original_home_tab)
+                .unwrap()
                 .layout
                 .focused(),
             original_home_focus
@@ -2389,13 +2410,17 @@ mod tests {
             original_home_tab
         );
         assert_eq!(
-            app.state.workspaces[0].tabs[original_home_tab]
+            app.state.workspaces[0]
+                .terminal_tab(original_home_tab)
+                .unwrap()
                 .layout
                 .focused(),
             original_home_focus
         );
         assert_eq!(
-            app.state.workspaces[0].tabs[original_home_tab]
+            app.state.workspaces[0]
+                .terminal_tab(original_home_tab)
+                .unwrap()
                 .layout
                 .focused(),
             home_pane
@@ -2439,7 +2464,9 @@ mod tests {
             original_home_tab
         );
         assert_eq!(
-            app.state.workspaces[0].tabs[original_home_tab]
+            app.state.workspaces[0]
+                .terminal_tab(original_home_tab)
+                .unwrap()
                 .layout
                 .focused(),
             original_home_focus
@@ -2477,17 +2504,21 @@ mod tests {
         let mut app = app_for_mouse_test();
         let mut workspace = Workspace::test_new("test");
         let first_tab = 0;
-        let first_pane = workspace.tabs[first_tab].root_pane;
+        let first_pane = workspace.terminal_tab(first_tab).unwrap().root_pane;
         let second_tab = workspace.test_add_tab(Some("build"));
-        let second_pane = workspace.tabs[second_tab].root_pane;
-        let first_state = workspace.tabs[first_tab]
+        let second_pane = workspace.terminal_tab(second_tab).unwrap().root_pane;
+        let first_state = workspace
+            .terminal_tab_mut(first_tab)
+            .unwrap()
             .panes
             .get_mut(&first_pane)
             .unwrap();
         first_state.detected_agent = Some(Agent::Pi);
         first_state.state = AgentState::Idle;
         first_state.seen = false;
-        let second_state = workspace.tabs[second_tab]
+        let second_state = workspace
+            .terminal_tab_mut(second_tab)
+            .unwrap()
             .panes
             .get_mut(&second_pane)
             .unwrap();
@@ -2501,7 +2532,9 @@ mod tests {
         app.state.agent_panel_scope = AgentPanelScope::AllWorkspaces;
         app.state.sidebar_collapsed = true;
         app.state.workspaces[0].switch_tab(second_tab);
-        app.state.workspaces[0].tabs[second_tab]
+        app.state.workspaces[0]
+            .terminal_tab_mut(second_tab)
+            .unwrap()
             .layout
             .focus_pane(second_pane);
         app.state.view.sidebar_rect = Rect::new(0, 0, 8, 24);
@@ -2542,7 +2575,7 @@ mod tests {
                 highlighted_scope_row,
                 menu_rect_after_scope_click.y,
                 app.state.workspaces[0].active_tab,
-                app.state.workspaces[0].tabs[first_tab].layout.focused(),
+                app.state.workspaces[0].terminal_tab(first_tab).unwrap().layout.focused(),
                 app.state.mode,
             ),
             (
@@ -2561,8 +2594,13 @@ mod tests {
     fn clicking_agent_status_header_toggles_section_rows() {
         let mut app = app_for_mouse_test();
         let mut workspace = Workspace::test_new("test");
-        let pane = workspace.tabs[0].root_pane;
-        let pane_state = workspace.tabs[0].panes.get_mut(&pane).unwrap();
+        let pane = workspace.terminal_tab(0).unwrap().root_pane;
+        let pane_state = workspace
+            .terminal_tab_mut(0)
+            .unwrap()
+            .panes
+            .get_mut(&pane)
+            .unwrap();
         pane_state.detected_agent = Some(Agent::Claude);
         pane_state.state = AgentState::Blocked;
         app.state.workspaces = vec![workspace];
@@ -2611,8 +2649,13 @@ mod tests {
     fn clicking_embedded_agent_status_header_toggles_section_rows() {
         let mut app = app_for_mouse_test();
         let mut workspace = Workspace::test_new("test");
-        let pane = workspace.tabs[0].root_pane;
-        let pane_state = workspace.tabs[0].panes.get_mut(&pane).unwrap();
+        let pane = workspace.terminal_tab(0).unwrap().root_pane;
+        let pane_state = workspace
+            .terminal_tab_mut(0)
+            .unwrap()
+            .panes
+            .get_mut(&pane)
+            .unwrap();
         pane_state.detected_agent = Some(Agent::Claude);
         pane_state.state = AgentState::Blocked;
         app.state.workspaces = vec![workspace];
@@ -2647,22 +2690,37 @@ mod tests {
         let work_group = app.state.create_group("Work".to_string());
 
         let mut triage = Workspace::test_new("triage");
-        let triage_pane = triage.tabs[0].root_pane;
-        let triage_state = triage.tabs[0].panes.get_mut(&triage_pane).unwrap();
+        let triage_pane = triage.terminal_tab(0).unwrap().root_pane;
+        let triage_state = triage
+            .terminal_tab_mut(0)
+            .unwrap()
+            .panes
+            .get_mut(&triage_pane)
+            .unwrap();
         triage_state.detected_agent = Some(Agent::Pi);
         triage_state.state = AgentState::Idle;
         triage_state.seen = false;
 
         let mut working = Workspace::test_new("working");
-        let working_pane = working.tabs[0].root_pane;
-        let working_state = working.tabs[0].panes.get_mut(&working_pane).unwrap();
+        let working_pane = working.terminal_tab(0).unwrap().root_pane;
+        let working_state = working
+            .terminal_tab_mut(0)
+            .unwrap()
+            .panes
+            .get_mut(&working_pane)
+            .unwrap();
         working_state.detected_agent = Some(Agent::Claude);
         working_state.state = AgentState::Working;
 
         let mut idle = Workspace::test_new("idle");
         idle.group_id = app.state.groups[work_group].id.clone();
-        let idle_pane = idle.tabs[0].root_pane;
-        let idle_state = idle.tabs[0].panes.get_mut(&idle_pane).unwrap();
+        let idle_pane = idle.terminal_tab(0).unwrap().root_pane;
+        let idle_state = idle
+            .terminal_tab_mut(0)
+            .unwrap()
+            .panes
+            .get_mut(&idle_pane)
+            .unwrap();
         idle_state.detected_agent = Some(Agent::Codex);
         idle_state.state = AgentState::Idle;
         idle_state.seen = true;
@@ -2729,14 +2787,14 @@ mod tests {
     fn clicking_all_workspaces_agent_row_switches_to_correct_workspace() {
         let mut app = app_for_mouse_test();
         let first = Workspace::test_new("one");
-        let first_pane = first.tabs[0].root_pane;
+        let first_pane = first.terminal_tab(0).unwrap().root_pane;
 
         let second = Workspace::test_new("two");
-        let second_pane = second.tabs[0].root_pane;
+        let second_pane = second.terminal_tab(0).unwrap().root_pane;
 
         app.state.workspaces = vec![first, second];
         app.state.ensure_test_terminals();
-        let first_terminal_id = app.state.workspaces[0].tabs[0].panes[&first_pane]
+        let first_terminal_id = app.state.workspaces[0].terminal_tab(0).unwrap().panes[&first_pane]
             .attached_terminal_id
             .clone();
         app.state
@@ -2744,7 +2802,8 @@ mod tests {
             .get_mut(&first_terminal_id)
             .unwrap()
             .detected_agent = Some(Agent::Pi);
-        let second_terminal_id = app.state.workspaces[1].tabs[0].panes[&second_pane]
+        let second_terminal_id = app.state.workspaces[1].terminal_tab(0).unwrap().panes
+            [&second_pane]
             .attached_terminal_id
             .clone();
         app.state
@@ -2780,7 +2839,11 @@ mod tests {
         assert_eq!(app.state.selected, 1);
         assert_eq!(app.state.workspaces[1].active_tab, 0);
         assert_eq!(
-            app.state.workspaces[1].tabs[0].layout.focused(),
+            app.state.workspaces[1]
+                .terminal_tab(0)
+                .unwrap()
+                .layout
+                .focused(),
             second_pane
         );
     }
@@ -2790,8 +2853,10 @@ mod tests {
         let mut app = app_for_mouse_test();
         let hidden_group = app.state.create_group("Work".to_string());
         let mut first = Workspace::test_new("one");
-        let first_pane = first.tabs[0].root_pane;
-        first.tabs[0]
+        let first_pane = first.terminal_tab(0).unwrap().root_pane;
+        first
+            .terminal_tab_mut(0)
+            .unwrap()
             .panes
             .get_mut(&first_pane)
             .unwrap()
@@ -2799,8 +2864,10 @@ mod tests {
 
         let mut second = Workspace::test_new("two");
         second.group_id = app.state.groups[hidden_group].id.clone();
-        let second_pane = second.tabs[0].root_pane;
-        second.tabs[0]
+        let second_pane = second.terminal_tab(0).unwrap().root_pane;
+        second
+            .terminal_tab_mut(0)
+            .unwrap()
             .panes
             .get_mut(&second_pane)
             .unwrap()
@@ -2836,7 +2903,11 @@ mod tests {
         assert_eq!(app.state.active_group, hidden_group);
         assert_eq!(app.state.visible_workspace_indices(), vec![1]);
         assert_eq!(
-            app.state.workspaces[1].tabs[0].layout.focused(),
+            app.state.workspaces[1]
+                .terminal_tab(0)
+                .unwrap()
+                .layout
+                .focused(),
             second_pane
         );
     }
@@ -2847,16 +2918,26 @@ mod tests {
         let hidden_group = app.state.create_group("Work".to_string());
 
         let mut first = Workspace::test_new("one");
-        let first_pane = first.tabs[0].root_pane;
-        let first_pane_state = first.tabs[0].panes.get_mut(&first_pane).unwrap();
+        let first_pane = first.terminal_tab(0).unwrap().root_pane;
+        let first_pane_state = first
+            .terminal_tab_mut(0)
+            .unwrap()
+            .panes
+            .get_mut(&first_pane)
+            .unwrap();
         first_pane_state.detected_agent = Some(Agent::Pi);
         first_pane_state.state = crate::detect::AgentState::Idle;
         first_pane_state.seen = true;
 
         let mut second = Workspace::test_new("two");
         second.group_id = app.state.groups[hidden_group].id.clone();
-        let second_pane = second.tabs[0].root_pane;
-        let second_pane_state = second.tabs[0].panes.get_mut(&second_pane).unwrap();
+        let second_pane = second.terminal_tab(0).unwrap().root_pane;
+        let second_pane_state = second
+            .terminal_tab_mut(0)
+            .unwrap()
+            .panes
+            .get_mut(&second_pane)
+            .unwrap();
         second_pane_state.detected_agent = Some(Agent::Claude);
         second_pane_state.state = crate::detect::AgentState::Blocked;
 
@@ -2899,7 +2980,11 @@ mod tests {
         assert_eq!(app.state.active_group, hidden_group);
         assert_eq!(app.state.visible_workspace_indices(), vec![1]);
         assert_eq!(
-            app.state.workspaces[1].tabs[0].layout.focused(),
+            app.state.workspaces[1]
+                .terminal_tab(0)
+                .unwrap()
+                .layout
+                .focused(),
             second_pane
         );
     }
@@ -2908,7 +2993,7 @@ mod tests {
     fn scrolling_agent_panel_with_wheel_updates_agent_panel_scroll() {
         let mut app = app_for_mouse_test();
         let mut ws = Workspace::test_new("test");
-        let first_pane = ws.tabs[0].root_pane;
+        let first_pane = ws.terminal_tab(0).unwrap().root_pane;
 
         let mut tabs = Vec::new();
         for (tab_name, agent) in [
@@ -2922,13 +3007,13 @@ mod tests {
             ("kimi", Agent::Kimi),
         ] {
             let tab_idx = ws.test_add_tab(Some(tab_name));
-            let pane_id = ws.tabs[tab_idx].root_pane;
+            let pane_id = ws.terminal_tab(tab_idx).unwrap().root_pane;
             tabs.push((tab_idx, pane_id, agent));
         }
 
         app.state.workspaces = vec![ws];
         app.state.ensure_test_terminals();
-        let first_terminal_id = app.state.workspaces[0].tabs[0].panes[&first_pane]
+        let first_terminal_id = app.state.workspaces[0].terminal_tab(0).unwrap().panes[&first_pane]
             .attached_terminal_id
             .clone();
         app.state
@@ -2937,7 +3022,8 @@ mod tests {
             .unwrap()
             .detected_agent = Some(Agent::Pi);
         for (tab_idx, pane_id, agent) in tabs {
-            let terminal_id = app.state.workspaces[0].tabs[tab_idx].panes[&pane_id]
+            let terminal_id = app.state.workspaces[0].terminal_tab(tab_idx).unwrap().panes
+                [&pane_id]
                 .attached_terminal_id
                 .clone();
             app.state
@@ -2969,19 +3055,19 @@ mod tests {
     fn clicking_scrolled_agent_detail_row_switches_to_correct_tab_and_pane() {
         let mut app = app_for_mouse_test();
         let mut ws = Workspace::test_new("test");
-        let first_pane = ws.tabs[0].root_pane;
+        let first_pane = ws.terminal_tab(0).unwrap().root_pane;
         let second_tab = ws.test_add_tab(Some("logs"));
-        let second_pane = ws.tabs[second_tab].root_pane;
+        let second_pane = ws.terminal_tab(second_tab).unwrap().root_pane;
         let mut extra_tabs = Vec::new();
         for (tab_name, agent) in [("review", Agent::Codex), ("ops", Agent::Gemini)] {
             let tab_idx = ws.test_add_tab(Some(tab_name));
-            let pane_id = ws.tabs[tab_idx].root_pane;
+            let pane_id = ws.terminal_tab(tab_idx).unwrap().root_pane;
             extra_tabs.push((tab_idx, pane_id, agent));
         }
 
         app.state.workspaces = vec![ws];
         app.state.ensure_test_terminals();
-        let first_terminal_id = app.state.workspaces[0].tabs[0].panes[&first_pane]
+        let first_terminal_id = app.state.workspaces[0].terminal_tab(0).unwrap().panes[&first_pane]
             .attached_terminal_id
             .clone();
         app.state
@@ -2989,7 +3075,10 @@ mod tests {
             .get_mut(&first_terminal_id)
             .unwrap()
             .detected_agent = Some(Agent::Pi);
-        let second_terminal_id = app.state.workspaces[0].tabs[second_tab].panes[&second_pane]
+        let second_terminal_id = app.state.workspaces[0]
+            .terminal_tab(second_tab)
+            .unwrap()
+            .panes[&second_pane]
             .attached_terminal_id
             .clone();
         app.state
@@ -2998,7 +3087,8 @@ mod tests {
             .unwrap()
             .detected_agent = Some(Agent::Claude);
         for (tab_idx, pane_id, agent) in extra_tabs {
-            let terminal_id = app.state.workspaces[0].tabs[tab_idx].panes[&pane_id]
+            let terminal_id = app.state.workspaces[0].terminal_tab(tab_idx).unwrap().panes
+                [&pane_id]
                 .attached_terminal_id
                 .clone();
             app.state
@@ -3032,7 +3122,11 @@ mod tests {
 
         assert_eq!(app.state.workspaces[0].active_tab, second_tab);
         assert_eq!(
-            app.state.workspaces[0].tabs[second_tab].layout.focused(),
+            app.state.workspaces[0]
+                .terminal_tab(second_tab)
+                .unwrap()
+                .layout
+                .focused(),
             second_pane
         );
         assert_eq!(app.state.mode, Mode::Terminal);
@@ -3042,12 +3136,12 @@ mod tests {
     fn clicking_collapsed_agent_row_switches_to_correct_tab_and_pane() {
         let mut app = app_for_mouse_test();
         let mut ws = Workspace::test_new("test");
-        let first_pane = ws.tabs[0].root_pane;
+        let first_pane = ws.terminal_tab(0).unwrap().root_pane;
         let second_tab = ws.test_add_tab(Some("logs"));
-        let second_pane = ws.tabs[second_tab].root_pane;
+        let second_pane = ws.terminal_tab(second_tab).unwrap().root_pane;
         app.state.workspaces = vec![ws];
         app.state.ensure_test_terminals();
-        let first_terminal_id = app.state.workspaces[0].tabs[0].panes[&first_pane]
+        let first_terminal_id = app.state.workspaces[0].terminal_tab(0).unwrap().panes[&first_pane]
             .attached_terminal_id
             .clone();
         app.state
@@ -3055,7 +3149,10 @@ mod tests {
             .get_mut(&first_terminal_id)
             .unwrap()
             .detected_agent = Some(Agent::Pi);
-        let second_terminal_id = app.state.workspaces[0].tabs[second_tab].panes[&second_pane]
+        let second_terminal_id = app.state.workspaces[0]
+            .terminal_tab(second_tab)
+            .unwrap()
+            .panes[&second_pane]
             .attached_terminal_id
             .clone();
         app.state
@@ -3095,7 +3192,11 @@ mod tests {
 
         assert_eq!(app.state.workspaces[0].active_tab, 1);
         assert_eq!(
-            app.state.workspaces[0].tabs[1].layout.focused(),
+            app.state.workspaces[0]
+                .terminal_tab(1)
+                .unwrap()
+                .layout
+                .focused(),
             second_pane
         );
         assert_eq!(app.state.mode, Mode::Terminal);
@@ -3105,12 +3206,12 @@ mod tests {
     fn collapsed_right_sidebar_agent_rows_work_when_sidebars_are_separate() {
         let mut app = app_for_mouse_test();
         let mut ws = Workspace::test_new("test");
-        let first_pane = ws.tabs[0].root_pane;
+        let first_pane = ws.terminal_tab(0).unwrap().root_pane;
         let second_tab = ws.test_add_tab(Some("logs"));
-        let second_pane = ws.tabs[second_tab].root_pane;
+        let second_pane = ws.terminal_tab(second_tab).unwrap().root_pane;
         app.state.workspaces = vec![ws];
         app.state.ensure_test_terminals();
-        let first_terminal_id = app.state.workspaces[0].tabs[0].panes[&first_pane]
+        let first_terminal_id = app.state.workspaces[0].terminal_tab(0).unwrap().panes[&first_pane]
             .attached_terminal_id
             .clone();
         app.state
@@ -3118,7 +3219,10 @@ mod tests {
             .get_mut(&first_terminal_id)
             .unwrap()
             .detected_agent = Some(Agent::Pi);
-        let second_terminal_id = app.state.workspaces[0].tabs[second_tab].panes[&second_pane]
+        let second_terminal_id = app.state.workspaces[0]
+            .terminal_tab(second_tab)
+            .unwrap()
+            .panes[&second_pane]
             .attached_terminal_id
             .clone();
         app.state
@@ -3156,7 +3260,11 @@ mod tests {
 
         assert_eq!(app.state.workspaces[0].active_tab, second_tab);
         assert_eq!(
-            app.state.workspaces[0].tabs[second_tab].layout.focused(),
+            app.state.workspaces[0]
+                .terminal_tab(second_tab)
+                .unwrap()
+                .layout
+                .focused(),
             second_pane
         );
         assert_eq!(app.state.mode, Mode::Terminal);
@@ -3649,11 +3757,8 @@ mod tests {
         assert!(!app.state.tab_scroll_follow_active);
         assert_eq!(app.state.workspaces[0].active_tab, 0);
         assert_eq!(app.state.view.tab_hit_areas[0].width, 0);
-        assert!(app.state.workspaces[0].tabs[0].custom_name.is_none());
-        assert_eq!(
-            app.state.workspaces[0].tabs[1].custom_name.as_deref(),
-            Some("logs")
-        );
+        assert!(app.state.workspaces[0].tabs[0].custom_name().is_none());
+        assert_eq!(app.state.workspaces[0].tabs[1].custom_name(), Some("logs"));
     }
 
     #[test]
@@ -3699,7 +3804,7 @@ mod tests {
         let mut ws = Workspace::test_new("test");
         ws.test_add_tab(Some("foo"));
         ws.test_add_tab(None);
-        let moved_root = ws.tabs[0].root_pane;
+        let moved_root = ws.terminal_tab(0).unwrap().root_pane;
         app.state.workspaces = vec![ws];
         app.state.active = Some(0);
         app.state.selected = 0;
@@ -3736,16 +3841,17 @@ mod tests {
         let labels: Vec<_> = app.state.workspaces[0]
             .tabs
             .iter()
-            .map(|tab| tab.display_name())
+            .enumerate()
+            .map(|(index, _)| app.state.workspaces[0].tab_display_name(index).unwrap())
             .collect();
         assert_eq!(labels, vec!["foo", "3", "1"]);
+        assert_eq!(app.state.workspaces[0].tabs[0].custom_name(), Some("foo"));
+        assert!(app.state.workspaces[0].tabs[1].custom_name().is_none());
+        assert!(app.state.workspaces[0].tabs[2].custom_name().is_none());
         assert_eq!(
-            app.state.workspaces[0].tabs[0].custom_name.as_deref(),
-            Some("foo")
+            app.state.workspaces[0].terminal_tab(2).unwrap().root_pane,
+            moved_root
         );
-        assert!(app.state.workspaces[0].tabs[1].custom_name.is_none());
-        assert!(app.state.workspaces[0].tabs[2].custom_name.is_none());
-        assert_eq!(app.state.workspaces[0].tabs[2].root_pane, moved_root);
         assert_eq!(app.state.workspaces[0].active_tab, 2);
     }
 
@@ -3768,24 +3874,25 @@ mod tests {
         let second_repo = temp_git_repo("main");
 
         let mut first = Workspace::test_new("a");
-        let first_root = first.tabs[0].root_pane;
+        let first_root = first.terminal_tab(0).unwrap().root_pane;
         first.identity_cwd = first_repo.clone();
         first.refresh_git_ahead_behind();
         first.cached_git_work_summary = Some(crate::workspace::GitWorkSummary::default());
 
         let mut second = Workspace::test_new("b");
-        let second_root = second.tabs[0].root_pane;
+        let second_root = second.terminal_tab(0).unwrap().root_pane;
         second.identity_cwd = second_repo.clone();
         second.refresh_git_ahead_behind();
         second.cached_git_work_summary = Some(crate::workspace::GitWorkSummary::default());
 
         app.state.workspaces = vec![first, second];
         app.state.ensure_test_terminals();
-        let first_terminal_id = app.state.workspaces[0].tabs[0].panes[&first_root]
+        let first_terminal_id = app.state.workspaces[0].terminal_tab(0).unwrap().panes[&first_root]
             .attached_terminal_id
             .clone();
         app.state.terminals.get_mut(&first_terminal_id).unwrap().cwd = first_repo.clone();
-        let second_terminal_id = app.state.workspaces[1].tabs[0].panes[&second_root]
+        let second_terminal_id = app.state.workspaces[1].terminal_tab(0).unwrap().panes
+            [&second_root]
             .attached_terminal_id
             .clone();
         app.state
@@ -3925,9 +4032,19 @@ mod tests {
     fn dragging_agent_onto_follow_up_queues_without_losing_click_focus() {
         let mut app = app_for_mouse_test();
         let mut ws = Workspace::test_new("agent");
-        let pane = ws.tabs[0].root_pane;
-        ws.tabs[0].panes.get_mut(&pane).unwrap().state = AgentState::Working;
-        ws.tabs[0].panes.get_mut(&pane).unwrap().detected_agent = Some(Agent::Codex);
+        let pane = ws.terminal_tab(0).unwrap().root_pane;
+        ws.terminal_tab_mut(0)
+            .unwrap()
+            .panes
+            .get_mut(&pane)
+            .unwrap()
+            .state = AgentState::Working;
+        ws.terminal_tab_mut(0)
+            .unwrap()
+            .panes
+            .get_mut(&pane)
+            .unwrap()
+            .detected_agent = Some(Agent::Codex);
         app.state.workspaces = vec![ws];
         app.state.ensure_test_terminals();
         app.state.active = Some(0);
@@ -3957,7 +4074,14 @@ mod tests {
             agent_row,
         ));
         assert!(app.state.agent_follow_up.is_empty());
-        assert_eq!(app.state.workspaces[0].tabs[0].layout.focused(), pane);
+        assert_eq!(
+            app.state.workspaces[0]
+                .terminal_tab(0)
+                .unwrap()
+                .layout
+                .focused(),
+            pane
+        );
 
         app.handle_mouse(mouse(
             MouseEventKind::Down(MouseButton::Left),
@@ -4007,9 +4131,19 @@ mod tests {
     fn follow_up_drop_ignores_pointer_outside_agent_panel() {
         let mut app = app_for_mouse_test();
         let mut ws = Workspace::test_new("agent");
-        let pane = ws.tabs[0].root_pane;
-        ws.tabs[0].panes.get_mut(&pane).unwrap().state = AgentState::Working;
-        ws.tabs[0].panes.get_mut(&pane).unwrap().detected_agent = Some(Agent::Codex);
+        let pane = ws.terminal_tab(0).unwrap().root_pane;
+        ws.terminal_tab_mut(0)
+            .unwrap()
+            .panes
+            .get_mut(&pane)
+            .unwrap()
+            .state = AgentState::Working;
+        ws.terminal_tab_mut(0)
+            .unwrap()
+            .panes
+            .get_mut(&pane)
+            .unwrap()
+            .detected_agent = Some(Agent::Codex);
         app.state.workspaces = vec![ws];
         app.state.ensure_test_terminals();
         app.state.active = Some(0);
@@ -4036,8 +4170,13 @@ mod tests {
     fn empty_follow_up_row_accepts_drops_across_full_agent_panel_width() {
         let mut app = app_for_mouse_test();
         let mut workspace = Workspace::test_new("source");
-        let pane = workspace.tabs[0].root_pane;
-        let pane_state = workspace.tabs[0].panes.get_mut(&pane).unwrap();
+        let pane = workspace.terminal_tab(0).unwrap().root_pane;
+        let pane_state = workspace
+            .terminal_tab_mut(0)
+            .unwrap()
+            .panes
+            .get_mut(&pane)
+            .unwrap();
         pane_state.state = AgentState::Working;
         pane_state.detected_agent = Some(Agent::Codex);
         app.state.workspaces = vec![workspace];

@@ -72,8 +72,8 @@ impl Clone for Tab {
         Self {
             custom_name: self.custom_name.clone(),
             number: self.number,
-            root_pane: self.root_pane,
             layout: self.layout.clone(),
+            root_pane: self.root_pane,
             panes: self.panes.clone(),
             #[cfg(test)]
             runtimes: HashMap::new(),
@@ -387,10 +387,6 @@ impl Tab {
         self.custom_name
             .clone()
             .unwrap_or_else(|| self.number.to_string())
-    }
-
-    pub fn is_auto_named(&self) -> bool {
-        self.custom_name.is_none()
     }
 
     pub fn set_custom_name(&mut self, name: String) {

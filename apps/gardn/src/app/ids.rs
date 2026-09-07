@@ -93,7 +93,7 @@ impl App {
                 .get(ws_idx)?
                 .tabs
                 .iter()
-                .position(|tab| tab.number == tab_number)?
+                .position(|tab| tab.number() == tab_number)?
         } else {
             tab_raw.parse::<usize>().ok()?.checked_sub(1)?
         };

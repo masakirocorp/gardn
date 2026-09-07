@@ -504,17 +504,12 @@ impl App {
     }
 
     pub(super) fn handle_mouse(&mut self, mouse: MouseEvent) {
-        if self.default_client_view.github.is_some() {
+        if self.default_client_view.github.is_some()
+            || self.default_client_view.github_host.is_some()
+        {
             let normalized = self.state.normalize_host_mouse_event(mouse);
             let handled = self.with_default_github_view(|app, view| {
-                let owner = view.github_pane_id;
-                let handled = app.handle_github_mouse_for_view(view, normalized);
-                if handled && matches!(normalized.kind, MouseEventKind::Down(_)) {
-                    if let Some(pane_id) = owner {
-                        app.state.focus_pane(pane_id);
-                    }
-                }
-                handled
+                app.handle_github_mouse_for_view(view, normalized)
             });
             if handled {
                 return;
@@ -1411,7 +1406,7 @@ impl AppState {
             .active
             .and_then(|i| self.workspaces.get(i))
             .and_then(|ws| {
-                let tab = ws.active_tab()?;
+                let tab = ws.terminal_tab(ws.active_tab).ok()?;
                 tab.cwd_for_pane(tab.layout.focused(), &self.terminals, terminal_runtimes)
             });
         let cwd = Some(super::creation::resolve_new_terminal_cwd(
@@ -1532,7 +1527,14 @@ fn capture_snapshot(state: &AppState) -> crate::persist::SessionSnapshot {
 
 #[cfg(test)]
 fn root_layout_ratio(snapshot: &crate::persist::SessionSnapshot) -> Option<f32> {
-    match &snapshot.workspaces.first()?.tabs.first()?.layout {
+    match &snapshot
+        .workspaces
+        .first()?
+        .tabs
+        .first()?
+        .as_terminal()?
+        .layout
+    {
         crate::persist::LayoutSnapshot::Split { ratio, .. } => Some(*ratio),
         crate::persist::LayoutSnapshot::Pane(_) => None,
     }
