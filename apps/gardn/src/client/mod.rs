@@ -881,6 +881,10 @@ fn run_client_with_mode(
         err
     })?;
 
+    if let Some(title) = compose_server_title(None, &runtime) {
+        let _ = crate::terminal_effects::write_window_title(&mut io::stdout(), Some(&title));
+    }
+
     // Install a panic hook to restore the terminal on panic (same as monolithic).
     let panic_reset_modify_other_keys = _guard.reset_modify_other_keys;
     #[cfg(windows)]
