@@ -95,3 +95,17 @@ just release-beta
 
 Install the beta asset as `~/.local/bin/gardn-beta`. That binary's updater follows newer beta tags. Stable `gardn` continues to follow `/releases/latest`.
 
+## macOS version fields
+
+Cargo's exact SemVer is the display version. It remains the marketing version in the app bundle
+and the version shown in the Sparkle title, filename, and `shortVersionString`.
+
+Sparkle compares a separate deterministic numeric version. The macOS scripts derive it once as
+`(10 + major).minor.(patch * 1000 + stage)`, where stable releases use stage `999` and beta
+releases use stage `N` from `0` through `998`. The resulting components must fit signed 64-bit
+integers. The same encoded value is used for the app bundle's `CURRENT_PROJECT_VERSION` and
+Sparkle's `sparkle:version`; there is no release-workflow counter.
+
+Released content is immutable. If release content changes, publish it under a new SemVer rather
+than rebuilding an existing released version.
+

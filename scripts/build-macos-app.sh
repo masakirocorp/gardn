@@ -7,6 +7,7 @@ MACOS_DIR="$ROOT_DIR/apps/gardn-macos"
 BUILD_DIR="$ROOT_DIR/build"
 APP_NAME="Gardn"
 VERSION="$(grep '^version' "$ROOT_DIR/apps/gardn/Cargo.toml" | head -1 | sed 's/.*"\(.*\)".*/\1/')"
+BUNDLE_VERSION="$(python3 "$SCRIPT_DIR/macos_app_version.py" "$VERSION")"
 SIGN_IDENTITY="${SIGN_IDENTITY:-}"
 NOTARIZE="${NOTARIZE:-false}"
 BUNDLE_BIN="${GARDN_BUNDLE_BIN:-}"
@@ -45,7 +46,7 @@ XCODEBUILD=(
   -configuration Release
   -derivedDataPath "$BUILD_DIR/derived"
   MARKETING_VERSION="$VERSION"
-  CURRENT_PROJECT_VERSION="$VERSION"
+  CURRENT_PROJECT_VERSION="$BUNDLE_VERSION"
 )
 
 if [[ -n "$SIGN_IDENTITY" ]]; then
@@ -194,7 +195,7 @@ if [[ -n "${SPARKLE_KEY:-}" ]]; then
     <title>Gardn Updates</title>
     <item>
       <title>Version $VERSION</title>
-      <sparkle:version>$VERSION</sparkle:version>
+      <sparkle:version>$BUNDLE_VERSION</sparkle:version>
       <sparkle:shortVersionString>$VERSION</sparkle:shortVersionString>
       <pubDate>$(date -R)</pubDate>
       <enclosure
