@@ -1,17 +1,17 @@
 core:changelogs:
-  - content: "---\npackages:\n  gardn:\n    type: patch\n---\n\n# Keep the menu bar popover on the clicked display\n\nThe Gardn menu bar popover opens on the display you clicked and stays responsive after app replacement or duplicate launches.\n"
-    filename: restore-menu-bar-clicks.md
+  - content: "---\npackages:\n  gardn:\n    type: patch\n---\n\n# Keep the menu bar popover open\n\nThe Gardn menu bar popover stays open after you click the Gardn icon.\n"
+    filename: keep-menu-popover-open.md
     v: 0.0.0
 core:packages:
   - id: npm:@gardn/website
     updated: false
-  - id: cargo:gardn-local-api
-    updated: false
-  - id: cargo:portable-pty
-    updated: false
   - changelogIds:
-      - restore-menu-bar-clicks.md
+      - keep-menu-popover-open.md
     id: cargo:gardn
     updated: true
+  - id: cargo:portable-pty
+    updated: false
+  - id: cargo:gardn-local-api
+    updated: false
 npm:packages:
   - id: npm:@gardn/website

@@ -1,3 +1,9 @@
+## gardn@0.10.16
+
+### Keep the menu bar popover open
+
+The Gardn menu bar popover stays open after you click the Gardn icon.
+
 ## gardn@0.10.15
 
 ### Keep the menu bar popover on the clicked display
