@@ -462,6 +462,7 @@ impl App {
                 format!("tab {} could not be closed", target.tab_id),
             );
         }
+        self.shutdown_detached_terminal_runtimes();
         self.schedule_session_save();
         self.emit_event(EventEnvelope {
             event: EventKind::TabClosed,
@@ -497,6 +498,7 @@ impl App {
                 format!("tab {} could not be closed", target.tab_id),
             );
         }
+        self.shutdown_detached_terminal_runtimes();
         view.reconcile(&self.state);
         self.schedule_session_save();
         self.emit_event(EventEnvelope {
