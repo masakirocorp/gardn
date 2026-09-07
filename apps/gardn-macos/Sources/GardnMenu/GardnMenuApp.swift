@@ -32,7 +32,7 @@ final class ExtraAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate 
         updaterController.updater.checkForUpdates()
     }
     let store = AgentStore()
-    private let statusItem = NSStatusBar.system.statusItem(withLength: 22)
+    private lazy var statusItem = NSStatusBar.system.statusItem(withLength: 22)
     private lazy var menuPanel = ExtraMenuPanel(store: store, catalog: store.catalog)
     private var settingsWindow: NSWindow?
 
@@ -47,7 +47,6 @@ final class ExtraAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate 
         NSApp.setActivationPolicy(.accessory)
         UNUserNotificationCenter.current().delegate = self
         AgentNotifications.requestAuthorization()
-        menuPanel.attach(statusItem: statusItem)
         statusItem.button?.imagePosition = .imageOnly
         statusItem.button?.action = #selector(togglePopover)
         statusItem.button?.target = self
@@ -88,9 +87,10 @@ final class ExtraAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate 
         if menuPanel.isShown {
             menuPanel.hide()
         } else {
+            guard let button = sender as? NSStatusBarButton else { return }
             NSApp.activate(ignoringOtherApps: true)
             store.refresh()
-            menuPanel.show()
+            menuPanel.show(relativeTo: button)
         }
     }
 

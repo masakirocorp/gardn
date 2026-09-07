@@ -5,7 +5,7 @@ import SwiftUI
 final class ExtraMenuPanel {
     let panel: NSPanel
     private let hosting: NSHostingController<AgentPanelView>
-    private weak var statusItem: NSStatusItem?
+    private weak var anchorButton: NSStatusBarButton?
     private var localMonitor: Any?
     private var globalMonitor: Any?
     private var frameObserver: NSObjectProtocol?
@@ -53,28 +53,31 @@ final class ExtraMenuPanel {
         }
     }
 
-
-    func attach(statusItem: NSStatusItem) {
-        self.statusItem = statusItem
-    }
-
-    func show() {
-        guard let button = statusItem?.button else { return }
+    func show(relativeTo button: NSStatusBarButton) {
+        guard button.window != nil else { return }
+        anchorButton = button
         syncSize()
-        position(relativeTo: button)
+        guard position(relativeTo: button) else {
+            anchorButton = nil
+            return
+        }
         panel.orderFrontRegardless()
         installMonitors()
     }
 
     func hide() {
         removeMonitors()
+        anchorButton = nil
         panel.orderOut(nil)
     }
 
     private func syncSizeIfShown() {
-        guard isShown, let button = statusItem?.button else { return }
+        guard isShown, let button = anchorButton else { return }
         syncSize()
-        position(relativeTo: button)
+        guard position(relativeTo: button) else {
+            hide()
+            return
+        }
     }
 
     private func syncSize() {
@@ -85,8 +88,8 @@ final class ExtraMenuPanel {
         }
     }
 
-    private func position(relativeTo button: NSStatusBarButton) {
-        guard let buttonWindow = button.window else { return }
+    private func position(relativeTo button: NSStatusBarButton) -> Bool {
+        guard let buttonWindow = button.window else { return false }
         let buttonScreen = buttonWindow.convertToScreen(button.convert(button.bounds, to: nil))
         let size = panel.frame.size
         var x = buttonScreen.minX
@@ -100,6 +103,7 @@ final class ExtraMenuPanel {
             }
         }
         panel.setFrameOrigin(NSPoint(x: x, y: y))
+        return true
     }
 
     private func installMonitors() {
@@ -146,7 +150,7 @@ final class ExtraMenuPanel {
     }
 
     private func hitsStatusItem(_ event: NSEvent) -> Bool {
-        guard let button = statusItem?.button, let window = button.window else { return false }
+        guard let button = anchorButton, let window = button.window else { return false }
         guard event.window === window else { return false }
         let location = button.convert(event.locationInWindow, from: nil)
         return button.bounds.contains(location)
