@@ -159,6 +159,7 @@
         "scripts.test_extract_release_notes",
         "scripts.test_check_tegami_release_scope",
         "scripts.test_release_build_identity",
+        "scripts.test_macos_app_version",
         "scripts.test_codex_status_fallback",
         "scripts.test_agent_cohort_resolve",
         "scripts.test_agent_image_doctor",
