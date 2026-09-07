@@ -83,28 +83,24 @@ fn read_server_status() -> io::Result<Option<crate::api::RuntimeStatus>> {
     crate::api::read_runtime_status_at(&crate::api::socket_path(), STATUS_REQUEST_TIMEOUT)
 }
 
-fn running_server_matches_this_binary(status: &crate::api::RuntimeStatus) -> Result<(), String> {
-    let client_version = crate::build_info::version();
-    let client_protocol = crate::protocol::PROTOCOL_VERSION;
-    let protocol_ok = status.protocol == Some(client_protocol);
-    let version_ok = status.version.as_deref() == Some(client_version.as_str());
-    if protocol_ok && version_ok {
-        return Ok(());
+fn running_server_matches_this_binary(
+    status: &crate::api::RuntimeStatus,
+) -> Result<crate::runtime_version::RuntimeVersion, String> {
+    let runtime = crate::runtime_version::RuntimeVersion::classify(
+        &crate::build_info::version(),
+        crate::protocol::PROTOCOL_VERSION,
+        Some(status),
+    );
+    if runtime.attachment_allowed() {
+        return Ok(runtime);
     }
 
-    Err(format!(
-        "Gardn server is running from v{} / protocol {}, but this client is v{} / protocol {}.\nStop the old server with `gardn server stop`, then run `gardn` again.",
-        status.version.as_deref().unwrap_or("unknown"),
-        status
-            .protocol
-            .map(|value| value.to_string())
-            .unwrap_or_else(|| "unknown".to_string()),
-        client_version,
-        client_protocol
-    ))
+    Err(runtime
+        .message()
+        .unwrap_or_else(|| "Gardn server compatibility is unknown. Inspect `gardn status`.".into()))
 }
 
-fn validate_running_server_compatibility() -> io::Result<()> {
+fn validate_running_server_compatibility() -> io::Result<crate::runtime_version::RuntimeVersion> {
     let Some(status) = read_server_status()? else {
         return Err(io::Error::other(
             "a Gardn server is listening, but its status API is unavailable. Try `gardn server stop`; if that fails, stop the old server process manually, then run `gardn` again.",
@@ -112,6 +108,14 @@ fn validate_running_server_compatibility() -> io::Result<()> {
     };
 
     running_server_matches_this_binary(&status).map_err(io::Error::other)
+}
+
+fn runtime_for_new_server() -> crate::runtime_version::RuntimeVersion {
+    crate::runtime_version::RuntimeVersion::classify(
+        &crate::build_info::version(),
+        crate::protocol::PROTOCOL_VERSION,
+        None,
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -208,27 +212,23 @@ pub fn wait_for_server_socket(socket_path: &Path, timeout: Duration) -> io::Resu
 ///
 /// This is the entry point called from `main.rs` when the user runs `gardn`
 /// without `--no-session` and without a subcommand.
-///
-/// Flow:
-/// 1. Check if a server is listening on the client socket
-/// 2. If no server → spawn server daemon → wait for socket readiness
-/// 3. Run the thin client (which connects to the server)
 pub fn auto_detect_launch() -> io::Result<()> {
     let socket_path = client_socket_path();
     info!(path = %socket_path.display(), "auto-detect launch starting");
 
-    if is_server_listening_at(&socket_path) {
-        validate_running_server_compatibility()?;
+    let runtime = if is_server_listening_at(&socket_path) {
+        let runtime = validate_running_server_compatibility()?;
         info!("server already running, attaching as client");
+        runtime
     } else {
         info!("no server running, spawning server daemon");
         spawn_server_daemon()?;
         wait_for_server_socket(&socket_path, SERVER_READY_TIMEOUT)?;
         info!("server ready, attaching as client");
-    }
+        runtime_for_new_server()
+    };
 
-    // Now attach as a thin client.
-    crate::client::run_client()
+    crate::client::run_client_with_runtime(runtime)
 }
 
 // ---------------------------------------------------------------------------
@@ -451,7 +451,7 @@ mod tests {
     }
 
     #[test]
-    fn running_server_matches_this_binary_requires_version_and_protocol() {
+    fn running_server_matches_this_binary_uses_protocol_compatibility() {
         let version = crate::build_info::version();
         let protocol = crate::protocol::PROTOCOL_VERSION;
         let matching = crate::api::RuntimeStatus {
@@ -461,13 +461,19 @@ mod tests {
         };
         assert!(running_server_matches_this_binary(&matching).is_ok());
 
-        let other_version = crate::api::RuntimeStatus {
+        let compatible_skew = crate::api::RuntimeStatus {
             version: Some("0.0.1-beta.0".into()),
             protocol: Some(protocol),
             capabilities: None,
         };
-        let err = running_server_matches_this_binary(&other_version).unwrap_err();
-        assert!(err.contains("0.0.1-beta.0"), "{err}");
-        assert!(err.contains(&version), "{err}");
+        assert!(running_server_matches_this_binary(&compatible_skew).is_ok());
+
+        let incompatible_protocol = crate::api::RuntimeStatus {
+            version: Some(version),
+            protocol: Some(protocol.saturating_sub(1)),
+            capabilities: None,
+        };
+        let err = running_server_matches_this_binary(&incompatible_protocol).unwrap_err();
+        assert!(err.contains("incompatible"), "{err}");
     }
 }
