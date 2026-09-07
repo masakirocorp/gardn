@@ -123,6 +123,7 @@ Supported built-in detection includes:
 
 - **Activity sidebar** — shows agents in Triage (when nonempty), always-present Follow Up, Working, and Idle. An expanded empty Follow Up section shows a muted `Drop an agent here` row on desktop and mobile. Its full desktop width and the section header accept drops. Follow Up is shared placement, not a lifecycle state: drag an agent row onto the Follow Up header or body to queue it, or right-click any agent row to add it to or remove it from Follow Up. Queued agents keep their real runtime state and waiting age, ordered oldest-added first. Successful unmodified Enter from the human terminal input path clears that pane's placement; typing, paste, failed sends, and API automation do not. Closing a pane or restoring without that target drops stale queue entries. Triage lists oldest meaningful activity first (no activity counts as oldest); Working and Idle stay newest-first.
 - **macOS app** — Gardn.app is the macOS install. It owns `~/.local/bin/gardn` by linking it to the bundled CLI. The menu bar surface lists the same Triage, Follow Up, Working, and Idle groups as the Agents sidebar. The header picks which coordinator to observe: this Mac's local sessions, or a saved remote Coordinator Host (`gardn extra connect --remote`). Add a remote server from the app. Settings… in the extra header opens a Settings window for servers and updates. Sparkle owns updates when the running `gardn` is that bundled CLI. Use Check for Updates in Gardn, or install the latest DMG from GitHub. A real standalone `gardn` binary keeps Direct updates even if the app is present. `gardn-beta`, `gardn-dev`, mise, and Nix keep their own update owners. The menu bar leaf fills when Follow Up or Triage needs attention. Click a row to focus that agent in an attached client, or launch the bundled `gardn` / `gardn --remote` if none is attached. Right-click to add or remove Follow Up. The app posts Notification Center alerts when an agent enters Follow Up or Triage; clicking an alert focuses that agent. While the app is running, terminal and system agent toasts defer to it.
+- **Runtime version alert** — The macOS menu panel keeps a version notice visible when its bundled CLI and the selected coordinator do not match. The notice identifies whether to restart the server, update the client, repair the app installation, or inspect an unusual compatible version skew.
 
 
 - **Agent focus** — focus agents from the activity panel, command surfaces, CLI, or socket API.
@@ -342,6 +343,7 @@ Gardn exposes the same runtime model through the CLI and local Unix socket API.
 ### CLI areas
 
 - **`gardn status`** — show client/server status and protocol compatibility.
+- **Runtime status model** — JSON status output includes a typed `runtime` object with the client and server versions, protocol versions, live-handoff capability, state, and recommended action. Equal protocol versions remain attachable when release versions differ.
 - **Protocol guard** — operational CLI commands verify the server wire-protocol version before dispatch and return a request-correlated JSON error with update/restart guidance on mismatch; status checks and live handoff remain available for diagnosis and recovery.
 - **`gardn session`** — list, attach, stop, and delete named sessions.
 - **`gardn workspace`** — manage workspaces.
@@ -447,6 +449,7 @@ Configurable areas include:
 Direct installs use GitHub Releases for update checks, release metadata, and binary downloads on Linux, macOS, and Windows. mise and Nix-managed installs are routed to their package manager instead of self-update. On macOS, Gardn.app owns updates through Sparkle when it is installed. The standalone `gardn update` command refuses for the stable Direct CLI (`~/.local/bin/gardn`) in that case. `gardn-beta`, `gardn-dev`, mise, and Nix keep their own update owners.
 
 - When a newer release is available, the sidebar `?` control stays on `? Update Ready` until you install it.
+- Compatible thin clients keep the TUI server-rendered. They show the required restart or update action in the host terminal title and repeat the notice before entry and after exit.
 - `gardn update` downloads and swaps supported direct binary installs.
 - mise and Nix-managed installs are blocked from self-update and should use their package manager.
 - Live handoff can preserve running pane processes during updates when both the old and new server support the handoff protocol.

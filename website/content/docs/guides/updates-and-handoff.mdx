@@ -13,6 +13,14 @@ When background version checks are enabled, Gardn checks for a newer version and
 
 The current public [download status](/download) page still reports that verified release downloads are unavailable. If it does not list a verified artifact for the release you need, do not rely on `gardn update`; use the [source or Nix installation path](/docs/getting-started/install) instead.
 
+## Resolve a runtime version mismatch
+
+Run `gardn status` when the menu app or terminal title asks you to restart or update Gardn. Use `gardn status --json` for the typed `runtime.state` and `runtime.action` values.
+
+Gardn permits a thin client to attach when the client and server use the same protocol. If their release versions differ, the host terminal title keeps the required action visible. Gardn also prints the notice before the TUI starts and after it exits. The server still renders the TUI, so the client cannot add an in-content banner without a protocol and compositor change.
+
+Restart an older server to make it use the installed client version. Update an older client before you depend on behavior from a newer server. Gardn blocks attachment when the protocol versions differ.
+
 ## Understand ownership before updating
 
 The `gardn` process in your terminal is a client view. The session server owns the spaces, tabs, panes, terminals, runtimes, and agent state. Detaching the client does not stop that server or its panes.

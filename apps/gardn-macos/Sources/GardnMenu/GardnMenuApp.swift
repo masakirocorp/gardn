@@ -88,8 +88,9 @@ final class ExtraAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate 
             menuPanel.hide()
         } else {
             guard let button = sender as? NSStatusBarButton else { return }
-            NSApp.activate(ignoringOtherApps: true)
             store.refresh()
+            NSApp.activate(ignoringOtherApps: true)
+            store.refreshRuntimeStatus()
             menuPanel.show(relativeTo: button)
         }
     }

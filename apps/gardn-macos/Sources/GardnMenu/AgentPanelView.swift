@@ -7,6 +7,9 @@ struct AgentPanelView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             header
+            if let runtimeNotice = store.runtimeNotice {
+                RuntimeNoticeRow(notice: runtimeNotice)
+            }
             if let actionError = store.actionError {
                 Text(actionError)
                     .font(.system(size: 10))
@@ -27,10 +30,11 @@ struct AgentPanelView: View {
     }
 
     private var panelHeight: CGFloat {
+        let runtimeHeight: CGFloat = store.runtimeNotice == nil ? 0 : 56
         if !store.connected || store.agents.isEmpty {
-            return 80
+            return max(80, 36 + runtimeHeight + 44)
         }
-        var height: CGFloat = 36
+        var height: CGFloat = 36 + runtimeHeight
         if store.actionError != nil { height += 18 }
         var firstSection = true
         for section in AgentRecord.Section.allCases {
@@ -49,6 +53,13 @@ struct AgentPanelView: View {
         return min(560, height + 8)
     }
 
+    private var disconnected: some View {
+        Text(store.connectionMessage ?? "\(catalog.selected?.title ?? "Gardn") isn’t running")
+            .font(.system(size: 11))
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 10)
+            .padding(.bottom, 10)
+    }
 
     private var header: some View {
         HStack(alignment: .center, spacing: 8) {
@@ -90,15 +101,6 @@ struct AgentPanelView: View {
         .padding(.bottom, 4)
     }
 
-
-
-    private var disconnected: some View {
-        Text(store.connectionMessage ?? "\(catalog.selected?.title ?? "Gardn") isn’t running")
-            .font(.system(size: 11))
-            .foregroundStyle(.secondary)
-            .padding(.horizontal, 10)
-            .padding(.bottom, 10)
-    }
 
     private var empty: some View {
         Text("No agents")
@@ -175,6 +177,24 @@ struct AgentPanelView: View {
         }
     }
 
+}
+
+private struct RuntimeNoticeRow: View {
+    let notice: RuntimeNotice
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(notice.title)
+                .font(.system(size: 11, weight: .semibold))
+            Text(notice.detail)
+                .font(.system(size: 10))
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+    }
 }
 
 private struct SectionHeader: View {
