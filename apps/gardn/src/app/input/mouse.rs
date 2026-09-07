@@ -21,11 +21,12 @@ use super::{
     modal::{
         apply_context_menu_action, apply_global_menu_action, apply_rename_action,
         confirm_close_accept, confirm_close_cancel, confirm_delete_group_accept,
-        confirm_delete_group_cancel, global_menu_actions, leave_modal, modal_action_from_buttons,
-        open_new_group_dialog, request_new_tab_from_ui, ModalAction,
+        confirm_delete_group_cancel, context_menu_state_for_local_pane, global_menu_actions,
+        leave_modal, modal_action_from_buttons, open_new_group_dialog, request_new_tab_from_ui,
+        ModalAction,
     },
-    settings::SettingsAction,
-    ScrollbarClickTarget, AGENT_DRAG_THRESHOLD, TAB_DRAG_THRESHOLD, WORKSPACE_DRAG_THRESHOLD,
+    ScrollbarClickTarget, SettingsAction, AGENT_DRAG_THRESHOLD, TAB_DRAG_THRESHOLD,
+    WORKSPACE_DRAG_THRESHOLD,
 };
 
 impl AppState {
@@ -1512,29 +1513,15 @@ impl AppState {
                 if let Some(info) = self.pane_mouse_target(mouse.column, mouse.row).cloned() {
                     self.focus_pane(info.id);
                     let ws_idx = self.active.unwrap_or(self.selected);
-                    let has_manual_label = self
-                        .workspaces
-                        .get(ws_idx)
-                        .and_then(|ws| ws.pane_state(info.id))
-                        .and_then(|pane| self.terminals.get(&pane.attached_terminal_id))
-                        .and_then(|terminal| terminal.manual_label.as_ref())
-                        .is_some();
-                    self.context_menu = Some(ContextMenuState {
-                        kind: ContextMenuKind::Pane {
-                            ws_idx,
-                            pane_id: info.id,
-                            has_manual_label,
-                            right_click_passthrough: self
-                                .workspaces
-                                .get(ws_idx)
-                                .and_then(|ws| ws.pane_state(info.id))
-                                .is_some_and(|pane| pane.right_click_passthrough),
-                        },
-                        x: mouse.column,
-                        y: mouse.row,
-                        list: ModalListState::hidden(0),
-                    });
-                    self.mode = Mode::ContextMenu;
+                    if let Some(menu) = context_menu_state_for_local_pane(self, ws_idx, info.id) {
+                        self.context_menu = Some(ContextMenuState {
+                            x: mouse.column,
+                            y: mouse.row,
+                            list: ModalListState::hidden(0),
+                            ..menu
+                        });
+                        self.mode = Mode::ContextMenu;
+                    }
                 }
             }
 
@@ -3671,11 +3658,30 @@ mod tests {
                 pane_id,
                 has_manual_label: false,
                 right_click_passthrough: false,
+                zoom: crate::app::state::PaneZoomState::Unavailable,
+                close: crate::app::state::PaneCloseConsequence::Space,
+                can_mutate: true,
             },
             x: 2,
             y: 2,
             list: ModalListState::new(1),
         });
+        let split_vertical = app
+            .state
+            .context_menu
+            .as_ref()
+            .and_then(|menu| {
+                menu.items()
+                    .iter()
+                    .position(|item| *item == "split vertical")
+            })
+            .expect("pane menu exposes split vertical");
+        app.state
+            .context_menu
+            .as_mut()
+            .expect("pane context menu")
+            .list
+            .select(split_vertical);
         app.state.mode = Mode::ContextMenu;
 
         handle_context_menu_key(
@@ -3924,6 +3930,82 @@ mod tests {
 
         let menu = app.state.context_menu.as_ref().expect("pane context menu");
         assert!(!menu.items().contains(&"zoom"));
+    }
+    #[test]
+    fn pane_context_menu_zoom_toggles_the_clicked_pane_and_restores_the_layout() {
+        let mut app = app_for_mouse_test();
+        let mut workspace = Workspace::test_new("test");
+        let first_pane = workspace.terminal_tab(0).unwrap().root_pane;
+        let second_pane = workspace.test_split(Direction::Horizontal);
+        workspace
+            .terminal_tab_mut(0)
+            .unwrap()
+            .layout
+            .focus_pane(first_pane);
+        app.state.workspaces = vec![workspace];
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::Terminal;
+        crate::ui::compute_view(&mut app.state, Rect::new(0, 0, 106, 20));
+        let second = app
+            .state
+            .view
+            .pane_infos
+            .iter()
+            .find(|pane| pane.id == second_pane)
+            .expect("second pane should render")
+            .clone();
+
+        app.handle_mouse(mouse(
+            MouseEventKind::Down(MouseButton::Right),
+            second.inner_rect.x + 1,
+            second.inner_rect.y + 1,
+        ));
+        let zoom_row = app
+            .state
+            .context_menu
+            .as_ref()
+            .and_then(|menu| menu.items().iter().position(|item| *item == "zoom"))
+            .expect("pane menu exposes zoom");
+        let menu_rect = app.state.context_menu_rect().expect("pane menu rect");
+        app.handle_mouse(mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            menu_rect.x + 1,
+            menu_rect.y + 1 + zoom_row as u16,
+        ));
+
+        let tab = app.state.workspaces[0].terminal_tab(0).unwrap();
+        assert!(tab.zoomed);
+        assert_eq!(tab.layout.focused(), second_pane);
+        crate::ui::compute_view(&mut app.state, Rect::new(0, 0, 106, 20));
+        assert_eq!(app.state.view.pane_infos.len(), 1);
+
+        let zoomed_pane = app.state.view.pane_infos[0].clone();
+        app.handle_mouse(mouse(
+            MouseEventKind::Down(MouseButton::Right),
+            zoomed_pane.inner_rect.x + 1,
+            zoomed_pane.inner_rect.y + 1,
+        ));
+        let restore_row = app
+            .state
+            .context_menu
+            .as_ref()
+            .and_then(|menu| {
+                menu.items()
+                    .iter()
+                    .position(|item| *item == "restore panes")
+            })
+            .expect("zoomed pane menu exposes restore panes");
+        let menu_rect = app.state.context_menu_rect().expect("pane menu rect");
+        app.handle_mouse(mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            menu_rect.x + 1,
+            menu_rect.y + 1 + restore_row as u16,
+        ));
+
+        assert!(!app.state.workspaces[0].terminal_tab(0).unwrap().zoomed);
+        crate::ui::compute_view(&mut app.state, Rect::new(0, 0, 106, 20));
+        assert_eq!(app.state.view.pane_infos.len(), 2);
     }
 
     #[tokio::test]

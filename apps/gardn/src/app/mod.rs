@@ -5955,9 +5955,13 @@ impl App {
                             .and_then(|workspace| workspace.focused_pane_id())
                     });
                 if let Some(pane_id) = pane_id {
-                    if let Some(menu) =
-                        input::context_menu_state_for_pane(&self.state, ws_idx, pane_id)
-                    {
+                    if let Some(menu) = input::context_menu_state_for_pane(
+                        &self.state,
+                        ws_idx,
+                        pane_id,
+                        self.client_view_pane_zoom_state(client_view, ws_idx, pane_id),
+                        client_view.can_mutate_tab(),
+                    ) {
                         client_view.context_menu = Some(menu);
                         client_view.mode = Mode::ContextMenu;
                     }
@@ -6517,6 +6521,26 @@ impl App {
         client_view.copy_mode = Some(copy_mode);
         client_view.mode = Mode::Copy;
     }
+    fn client_view_pane_zoom_state(
+        &self,
+        client_view: &ClientViewState,
+        ws_idx: usize,
+        pane_id: crate::layout::PaneId,
+    ) -> state::PaneZoomState {
+        let Some(workspace) = self.state.workspaces.get(ws_idx) else {
+            return state::PaneZoomState::Unavailable;
+        };
+        let Some(tab_idx) = workspace.find_tab_index_for_pane(pane_id) else {
+            return state::PaneZoomState::Unavailable;
+        };
+        let Some(tab) = workspace.terminal_tab(tab_idx).ok() else {
+            return state::PaneZoomState::Unavailable;
+        };
+        state::PaneZoomState::for_tab(
+            tab.layout.pane_count(),
+            client_view.tab_is_zoomed(&workspace.id, tab.number),
+        )
+    }
 
     fn toggle_zoom_for_client_view(&mut self, client_view: &mut ClientViewState) {
         let Some(ws_idx) = client_view.active_workspace else {
@@ -6809,7 +6833,9 @@ impl App {
             client_view.mode = Mode::ContextMenu;
             return;
         }
-        if !client_view.can_mutate_tab() && !matches!(item, Some("agent" | "settings" | "zoom")) {
+        if !client_view.can_mutate_tab()
+            && !matches!(item, Some("agent" | "settings" | "zoom" | "restore panes"))
+        {
             Self::reject_client_view_shared_mutation(client_view);
             return;
         }
@@ -7013,7 +7039,7 @@ impl App {
                 state::ContextMenuKind::Pane {
                     ws_idx, pane_id, ..
                 },
-                Some("zoom"),
+                Some("zoom" | "restore panes"),
             ) => {
                 if self.focus_client_view_pane_context_target(client_view, ws_idx, pane_id) {
                     self.toggle_zoom_for_client_view(client_view);
@@ -7039,9 +7065,19 @@ impl App {
             }
             (
                 state::ContextMenuKind::Pane {
+                    ws_idx,
+                    close: state::PaneCloseConsequence::Space,
+                    ..
+                },
+                Some("close space"),
+            ) if self.state.confirm_close => {
+                self.open_client_view_confirm_close(client_view, ws_idx);
+            }
+            (
+                state::ContextMenuKind::Pane {
                     ws_idx, pane_id, ..
                 },
-                Some("close pane"),
+                Some("close pane" | "close tab" | "close space"),
             ) => {
                 if self.focus_client_view_pane_context_target(client_view, ws_idx, pane_id) {
                     self.close_focused_pane_for_client_view(client_view);
@@ -7554,9 +7590,13 @@ impl App {
                             .and_then(|workspace| workspace.focused_pane_id())
                     });
                 if let Some(pane_id) = pane_id {
-                    if let Some(menu) =
-                        input::context_menu_state_for_pane(&self.state, ws_idx, pane_id)
-                    {
+                    if let Some(menu) = input::context_menu_state_for_pane(
+                        &self.state,
+                        ws_idx,
+                        pane_id,
+                        self.client_view_pane_zoom_state(client_view, ws_idx, pane_id),
+                        client_view.can_mutate_tab(),
+                    ) {
                         client_view.context_menu = Some(menu);
                         client_view.mode = Mode::ContextMenu;
                     }
@@ -10658,29 +10698,20 @@ impl App {
         };
 
         client_view.focus_pane_in_workspace(&self.state, ws_idx, tab_idx, info.id);
-        let has_manual_label = self
-            .state
-            .workspaces
-            .get(ws_idx)
-            .and_then(|workspace| workspace.pane_state(info.id))
-            .and_then(|pane| self.state.terminals.get(&pane.attached_terminal_id))
-            .and_then(|terminal| terminal.manual_label.as_ref())
-            .is_some();
+        let Some(menu) = input::context_menu_state_for_pane(
+            &self.state,
+            ws_idx,
+            info.id,
+            self.client_view_pane_zoom_state(client_view, ws_idx, info.id),
+            client_view.can_mutate_tab(),
+        ) else {
+            return false;
+        };
         client_view.context_menu = Some(state::ContextMenuState {
-            kind: state::ContextMenuKind::Pane {
-                ws_idx,
-                pane_id: info.id,
-                has_manual_label,
-                right_click_passthrough: self
-                    .state
-                    .workspaces
-                    .get(ws_idx)
-                    .and_then(|workspace| workspace.pane_state(info.id))
-                    .is_some_and(|pane| pane.right_click_passthrough),
-            },
             x: mouse.column,
             y: mouse.row,
             list: state::ModalListState::hidden(0),
+            ..menu
         });
         client_view.mode = Mode::ContextMenu;
         true
@@ -18364,6 +18395,7 @@ command = "printf literal > '{}'"
                 pane_id: menu_pane,
                 has_manual_label,
                 right_click_passthrough: _,
+                ..
             } => {
                 assert_eq!(ws_idx, 1);
                 assert_eq!(menu_pane, pane_id);
@@ -25812,6 +25844,51 @@ command = "printf literal > '{}'"
     }
 
     #[test]
+    fn route_client_events_for_view_pane_context_confirms_before_closing_space() {
+        let mut app = test_app();
+        let workspace = Workspace::test_new("work");
+        let pane_id = workspace.terminal_tab(0).unwrap().root_pane;
+        app.state.workspaces = vec![workspace];
+        app.state.ensure_test_terminals();
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.confirm_close = true;
+        app.state.mouse_capture = true;
+        crate::ui::compute_view(&mut app.state, ratatui::layout::Rect::new(0, 0, 120, 30));
+
+        let mut client = ClientViewState::from_default_client_state(&app.state);
+        client.context_menu = input::context_menu_state_for_pane(
+            &app.state,
+            0,
+            pane_id,
+            state::PaneZoomState::Unavailable,
+            true,
+        );
+        client.mode = Mode::ContextMenu;
+        compute_client_view(&app, &mut client, ratatui::layout::Rect::new(0, 0, 120, 30));
+        let menu_rect = context_menu_rect_for_client_view(&app, &client);
+        let close_space_row = client
+            .context_menu
+            .as_ref()
+            .and_then(|menu| menu.items().iter().position(|item| *item == "close space"))
+            .expect("pane menu exposes close space");
+
+        app.route_client_events_for_view(
+            &mut client,
+            vec![raw_mouse(
+                crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left),
+                menu_rect.x + 2,
+                menu_rect.y + 1 + close_space_row as u16,
+            )],
+            true,
+        );
+
+        assert_eq!(client.mode, Mode::ConfirmClose);
+        assert_eq!(client.selected_workspace, 0);
+        assert_eq!(app.state.workspaces.len(), 1);
+    }
+
+    #[test]
     fn route_client_events_for_view_pane_context_close_removes_shared_pane() {
         let mut app = test_app();
         let mut workspace = Workspace::test_new("work");
@@ -25838,6 +25915,9 @@ command = "printf literal > '{}'"
                 pane_id: closed_pane,
                 has_manual_label: false,
                 right_click_passthrough: false,
+                zoom: state::PaneZoomState::Available,
+                close: state::PaneCloseConsequence::Pane,
+                can_mutate: true,
             },
             x: 4,
             y: 4,
@@ -25846,14 +25926,18 @@ command = "printf literal > '{}'"
         client.mode = Mode::ContextMenu;
         compute_client_view(&app, &mut client, ratatui::layout::Rect::new(0, 0, 120, 30));
         let menu = context_menu_rect_for_client_view(&app, &client);
-        let close_pane_row = 5;
+        let close_pane_row = client
+            .context_menu
+            .as_ref()
+            .and_then(|menu| menu.items().iter().position(|item| *item == "close pane"))
+            .expect("pane menu exposes close pane");
 
         app.route_client_events_for_view(
             &mut client,
             vec![raw_mouse(
                 crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left),
                 menu.x + 2,
-                menu.y + 1 + close_pane_row,
+                menu.y + 1 + close_pane_row as u16,
             )],
             true,
         );

@@ -4,7 +4,7 @@ use ratatui::layout::{Direction, Rect};
 use crate::{
     app::state::{
         AppState, ContextMenuKind, ContextMenuState, ModalListState, Mode, NavigatorStateFilter,
-        DEFAULT_GROUP_ICON,
+        PaneCloseConsequence, PaneZoomState, DEFAULT_GROUP_ICON,
     },
     input::TerminalKey,
     layout::NavDirection,
@@ -135,6 +135,8 @@ pub(crate) fn context_menu_state_for_pane(
     state: &AppState,
     ws_idx: usize,
     pane_id: crate::layout::PaneId,
+    zoom: PaneZoomState,
+    can_mutate: bool,
 ) -> Option<ContextMenuState> {
     let workspace = state.workspaces.get(ws_idx)?;
     let pane = workspace.pane_state(pane_id)?;
@@ -156,6 +158,8 @@ pub(crate) fn context_menu_state_for_pane(
             in_follow_up: state.is_agent_follow_up(ws_idx, pane_id),
         }
     } else {
+        let tab_idx = workspace.find_tab_index_for_pane(pane_id)?;
+        let tab = workspace.terminal_tab(tab_idx).ok()?;
         ContextMenuKind::Pane {
             ws_idx,
             pane_id,
@@ -165,8 +169,21 @@ pub(crate) fn context_menu_state_for_pane(
                 .and_then(|terminal| terminal.manual_label.as_ref())
                 .is_some(),
             right_click_passthrough: pane.right_click_passthrough,
+            zoom,
+            close: PaneCloseConsequence::for_tab(tab.layout.pane_count(), workspace.tabs.len()),
+            can_mutate,
         }
     };
+    if matches!(
+        kind,
+        ContextMenuKind::Pane {
+            zoom: PaneZoomState::Unavailable,
+            can_mutate: false,
+            ..
+        }
+    ) {
+        return None;
+    }
     Some(ContextMenuState {
         kind,
         x,
@@ -175,12 +192,29 @@ pub(crate) fn context_menu_state_for_pane(
     })
 }
 
+pub(crate) fn context_menu_state_for_local_pane(
+    state: &AppState,
+    ws_idx: usize,
+    pane_id: crate::layout::PaneId,
+) -> Option<ContextMenuState> {
+    let workspace = state.workspaces.get(ws_idx)?;
+    let tab_idx = workspace.find_tab_index_for_pane(pane_id)?;
+    let tab = workspace.terminal_tab(tab_idx).ok()?;
+    context_menu_state_for_pane(
+        state,
+        ws_idx,
+        pane_id,
+        PaneZoomState::for_tab(tab.layout.pane_count(), tab.zoomed),
+        true,
+    )
+}
+
 pub(crate) fn context_menu_state_for_workspace_focus(
     state: &AppState,
     ws_idx: usize,
 ) -> Option<ContextMenuState> {
     let pane_id = state.workspaces.get(ws_idx)?.focused_pane_id()?;
-    context_menu_state_for_pane(state, ws_idx, pane_id)
+    context_menu_state_for_local_pane(state, ws_idx, pane_id)
 }
 
 pub(super) fn open_context_menu_for_focus(state: &mut AppState) {
@@ -1583,7 +1617,7 @@ pub(crate) fn apply_context_menu_action(
             state.split_pane(terminal_runtimes, Direction::Vertical);
             state.mode = Mode::Terminal;
         }
-        (ContextMenuKind::Pane { .. }, Some("zoom")) => {
+        (ContextMenuKind::Pane { .. }, Some("zoom" | "restore panes")) => {
             state.toggle_zoom();
             state.mode = Mode::Terminal;
         }
@@ -1604,7 +1638,18 @@ pub(crate) fn apply_context_menu_action(
             state.mode = Mode::Terminal;
             state.context_menu = None;
         }
-        (ContextMenuKind::Pane { .. }, Some("close pane")) => {
+        (
+            ContextMenuKind::Pane {
+                ws_idx,
+                close: PaneCloseConsequence::Space,
+                ..
+            },
+            Some("close space"),
+        ) if state.confirm_close => {
+            state.selected = ws_idx;
+            open_confirm_close(state);
+        }
+        (ContextMenuKind::Pane { .. }, Some("close pane" | "close tab" | "close space")) => {
             if !state.close_pane() {
                 state.return_to_active_workspace_mode();
             }
@@ -2540,6 +2585,9 @@ mod tests {
                 pane_id,
                 has_manual_label: false,
                 right_click_passthrough: false,
+                zoom: PaneZoomState::Unavailable,
+                close: PaneCloseConsequence::Space,
+                can_mutate: true,
             },
             x: 0,
             y: 0,
@@ -2557,6 +2605,48 @@ mod tests {
                 .pane_state(pane_id)
                 .unwrap()
                 .right_click_passthrough
+        );
+    }
+    #[test]
+    fn pane_context_menu_confirms_before_closing_its_space() {
+        let mut state = state_with_workspaces(&["main", "other"]);
+        state.active = Some(0);
+        state.selected = 1;
+        state.confirm_close = true;
+        let closed_workspace_id = state.workspaces[0].id.clone();
+        let remaining_workspace_id = state.workspaces[1].id.clone();
+        let pane_id = state.workspaces[0].terminal_tab(0).unwrap().root_pane;
+        let menu =
+            context_menu_state_for_local_pane(&state, 0, pane_id).expect("pane context menu");
+        let close_space = menu
+            .items()
+            .iter()
+            .position(|item| *item == "close space")
+            .expect("pane menu exposes close space");
+        let mut terminal_runtimes = crate::terminal::TerminalRuntimeRegistry::new();
+
+        apply_context_menu_action(&mut state, &mut terminal_runtimes, menu, close_space);
+
+        assert_eq!(state.mode, Mode::ConfirmClose);
+        assert_eq!(state.selected, 0);
+        confirm_close_accept(&mut state);
+        assert_eq!(state.workspaces.len(), 1);
+        assert_ne!(state.workspaces[0].id, closed_workspace_id);
+        assert_eq!(state.workspaces[0].id, remaining_workspace_id);
+    }
+
+    #[test]
+    fn watching_client_pane_menu_only_exposes_view_local_zoom() {
+        let mut state = state_with_workspaces(&["main"]);
+        let pane_id = state.workspaces[0].test_split(Direction::Horizontal);
+
+        let menu = context_menu_state_for_pane(&state, 0, pane_id, PaneZoomState::Available, false)
+            .expect("watching client has a zoom action");
+        assert_eq!(menu.items(), &["zoom"]);
+
+        assert!(
+            context_menu_state_for_pane(&state, 0, pane_id, PaneZoomState::Unavailable, false,)
+                .is_none()
         );
     }
 
