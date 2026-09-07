@@ -20,7 +20,6 @@ final class AgentStore: ObservableObject {
     private var runtimePoll: DispatchSourceTimer?
     private var runtimeProbeGeneration = 0
     private var runtimeTask: Task<Void, Never>?
-    private var hasCompletedRuntimeStatus = false
     private var knownAttention = [String: AgentNotifications.Kind]()
     private var hasBaseline = false
     @Published private(set) var runtimeNotice: RuntimeNotice?
@@ -79,7 +78,6 @@ final class AgentStore: ObservableObject {
     }
     func selectCoordinator(_ id: String) {
         catalog.select(id)
-        hasCompletedRuntimeStatus = false
         runtimeNotice = .unknown
         reconnectToSelected()
         refresh()
@@ -88,7 +86,6 @@ final class AgentStore: ObservableObject {
 
     func addRemoteCoordinator(target: String, session: String) {
         if catalog.addRemote(target: target, session: session) != nil {
-            hasCompletedRuntimeStatus = false
             runtimeNotice = .unknown
             reconnectToSelected()
             refresh()
@@ -116,13 +113,10 @@ final class AgentStore: ObservableObject {
                 )
                 let notice = RuntimeNotice.presentation(runtime: runtime, installation: installation)
                 guard let self, self.runtimeProbeGeneration == generation else { return }
-                self.hasCompletedRuntimeStatus = true
                 self.runtimeNotice = notice
             } catch {
                 guard let self, self.runtimeProbeGeneration == generation else { return }
-                if !self.hasCompletedRuntimeStatus {
-                    self.runtimeNotice = .unknown
-                }
+                self.runtimeNotice = .unknown
             }
         }
     }
