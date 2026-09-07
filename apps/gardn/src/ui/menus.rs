@@ -1276,6 +1276,47 @@ mod tests {
     }
 
     #[test]
+    fn new_actions_render_in_the_same_order_without_separators() {
+        for kind in [
+            crate::app::state::ContextMenuKind::NewTabButton {
+                ws_idx: 0,
+                project_commands: crate::app::state::ProjectCommandAvailability::ALL,
+            },
+            crate::app::state::ContextMenuKind::Workspace {
+                ws_idx: 0,
+                project_commands: crate::app::state::ProjectCommandAvailability::ALL,
+            },
+        ] {
+            let mut app = AppState::test_new();
+            app.view.terminal_area = Rect::new(0, 0, 40, 24);
+            app.context_menu = Some(ContextMenuState {
+                kind,
+                x: 2,
+                y: 2,
+                list: crate::app::state::ModalListState::new(1),
+            });
+            let backend = TestBackend::new(40, 24);
+            let mut terminal = Terminal::new(backend).expect("test backend");
+
+            terminal
+                .draw(|frame| render_context_menu(&app, frame))
+                .expect("render context menu");
+
+            let buffer = terminal.backend().buffer();
+            let rows =
+                ["Terminal", "Agent", "Editor", "Review", "GitHub", "Browser"].map(|label| {
+                    first_cell_with_text(buffer, 40, 24, label)
+                        .expect("new action should render")
+                        .1
+                });
+            assert!(
+                rows.windows(2).all(|pair| pair[0] + 1 == pair[1]),
+                "new actions should render consecutively: {rows:?}"
+            );
+        }
+    }
+
+    #[test]
     fn group_menu_group_line_uses_group_accent() {
         let mut app = AppState::test_new();
         app.show_counters = true;

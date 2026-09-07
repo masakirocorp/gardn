@@ -2533,7 +2533,7 @@ const WORKSPACE_CONTEXT_MENU_ITEMS: [&[&str]; 16] = [
         "close",
     ],
     &[
-        "new", "tab", "agent", "browser", "review", "---", "manage", "rename", "settings", "---",
+        "new", "tab", "agent", "review", "browser", "---", "manage", "rename", "settings", "---",
         "danger", "close",
     ],
     &[
@@ -2549,7 +2549,7 @@ const WORKSPACE_CONTEXT_MENU_ITEMS: [&[&str]; 16] = [
         "danger", "close",
     ],
     &[
-        "new", "tab", "agent", "editor", "browser", "review", "---", "manage", "rename",
+        "new", "tab", "agent", "editor", "review", "browser", "---", "manage", "rename",
         "settings", "---", "danger", "close",
     ],
     &[
@@ -2561,11 +2561,11 @@ const WORKSPACE_CONTEXT_MENU_ITEMS: [&[&str]; 16] = [
         "danger", "close",
     ],
     &[
-        "new", "tab", "agent", "browser", "github", "---", "manage", "rename", "settings", "---",
+        "new", "tab", "agent", "github", "browser", "---", "manage", "rename", "settings", "---",
         "danger", "close",
     ],
     &[
-        "new", "tab", "agent", "browser", "review", "github", "---", "manage", "rename",
+        "new", "tab", "agent", "review", "github", "browser", "---", "manage", "rename",
         "settings", "---", "danger", "close",
     ],
     &[
@@ -2577,11 +2577,11 @@ const WORKSPACE_CONTEXT_MENU_ITEMS: [&[&str]; 16] = [
         "---", "danger", "close",
     ],
     &[
-        "new", "tab", "agent", "editor", "browser", "github", "---", "manage", "rename",
+        "new", "tab", "agent", "editor", "github", "browser", "---", "manage", "rename",
         "settings", "---", "danger", "close",
     ],
     &[
-        "new", "tab", "agent", "editor", "browser", "review", "github", "---", "manage", "rename",
+        "new", "tab", "agent", "editor", "review", "github", "browser", "---", "manage", "rename",
         "settings", "---", "danger", "close",
     ],
 ];
@@ -2590,20 +2590,20 @@ const NEW_TAB_CONTEXT_MENU_ITEMS: [&[&str]; 16] = [
     &["new", "tab", "agent"],
     &["new", "tab", "agent", "review"],
     &["new", "tab", "agent", "browser"],
-    &["new", "tab", "agent", "browser", "review"],
+    &["new", "tab", "agent", "review", "browser"],
     &["new", "tab", "agent", "editor"],
     &["new", "tab", "agent", "editor", "review"],
     &["new", "tab", "agent", "editor", "browser"],
-    &["new", "tab", "agent", "editor", "browser", "review"],
+    &["new", "tab", "agent", "editor", "review", "browser"],
     &["new", "tab", "agent", "github"],
     &["new", "tab", "agent", "review", "github"],
-    &["new", "tab", "agent", "browser", "github"],
-    &["new", "tab", "agent", "browser", "review", "github"],
+    &["new", "tab", "agent", "github", "browser"],
+    &["new", "tab", "agent", "review", "github", "browser"],
     &["new", "tab", "agent", "editor", "github"],
     &["new", "tab", "agent", "editor", "review", "github"],
-    &["new", "tab", "agent", "editor", "browser", "github"],
+    &["new", "tab", "agent", "editor", "github", "browser"],
     &[
-        "new", "tab", "agent", "editor", "browser", "review", "github",
+        "new", "tab", "agent", "editor", "review", "github", "browser",
     ],
 ];
 
@@ -2705,7 +2705,7 @@ impl ContextMenuState {
             "new" => "New",
             "space" => "Space",
             "group" => "Group",
-            "tab" => "Tab",
+            "tab" => "Terminal",
             "agent" => "Agent",
             "browser" => "Browser",
             "review" => "Review",
@@ -2914,9 +2914,30 @@ mod context_menu_tests {
         assert_eq!(
             menu.items(),
             &[
-                "new", "tab", "agent", "editor", "browser", "review", "github", "---", "manage",
+                "new", "tab", "agent", "editor", "review", "github", "browser", "---", "manage",
                 "rename", "settings", "---", "danger", "close",
             ]
+        );
+    }
+
+    #[test]
+    fn new_tab_menu_uses_terminal_label_and_project_role_order() {
+        let menu = ContextMenuState {
+            kind: ContextMenuKind::NewTabButton {
+                ws_idx: 0,
+                project_commands: ProjectCommandAvailability::ALL,
+            },
+            x: 0,
+            y: 0,
+            list: ModalListState::new(1),
+        };
+
+        assert_eq!(
+            menu.items()
+                .iter()
+                .map(|item| ContextMenuState::item_display_label(item))
+                .collect::<Vec<_>>(),
+            &["New", "Terminal", "Agent", "Editor", "Review", "GitHub", "Browser",]
         );
     }
 
