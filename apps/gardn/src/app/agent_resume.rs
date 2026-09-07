@@ -478,6 +478,19 @@ mod tests {
     }
 
     #[cfg(unix)]
+    async fn wait_for_non_empty_file(path: &std::path::Path, description: &str) -> String {
+        for _ in 0..40 {
+            if let Ok(contents) = std::fs::read_to_string(path) {
+                if !contents.is_empty() {
+                    return contents;
+                }
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+        }
+        panic!("{description}: {}", path.display());
+    }
+
+    #[cfg(unix)]
     fn recording_agent_script(dir: &std::path::Path, name: &str) -> std::path::PathBuf {
         use std::os::unix::fs::PermissionsExt;
 
@@ -670,17 +683,9 @@ mod tests {
         });
 
         assert!(app.start_pending_agent_resumes(false));
-        for _ in 0..40 {
-            if output.exists() {
-                break;
-            }
-            tokio::time::sleep(std::time::Duration::from_millis(25)).await;
-        }
+        let recorded = wait_for_non_empty_file(&output, "profile env should be recorded").await;
 
-        assert_eq!(
-            std::fs::read_to_string(&output).expect("profile env should be recorded"),
-            "/profiles/manual-codex"
-        );
+        assert_eq!(recorded, "/profiles/manual-codex");
         assert_eq!(
             app.state
                 .terminals
@@ -798,15 +803,8 @@ mod tests {
             .pending_agent_resume_plan = Some(plan);
 
         assert!(app.start_pending_agent_resumes(false));
-        for _ in 0..40 {
-            if output.exists() {
-                break;
-            }
-            tokio::time::sleep(std::time::Duration::from_millis(25)).await;
-        }
-
         let recorded =
-            std::fs::read_to_string(&output).expect("omp-mk wrapper should record its launch");
+            wait_for_non_empty_file(&output, "omp-mk wrapper should record its launch").await;
         assert_eq!(
             recorded.lines().collect::<Vec<_>>(),
             [
