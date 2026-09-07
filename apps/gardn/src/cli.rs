@@ -2677,14 +2677,17 @@ mod runtime_status_tests {
     fn full_json_status_reports_restart_for_older_protocol_compatible_server() {
         let server = ServerRuntimeStatus::Running {
             version: Some("0.10.12".into()),
-            protocol: Some(13),
+            protocol: Some(crate::protocol::PROTOCOL_VERSION),
             capabilities: None,
         };
         let json = full_status_json(&server);
         assert_eq!(json["runtime"]["state"], "server_restart_required");
         assert_eq!(json["runtime"]["action"], "restart_server");
         assert_eq!(json["runtime"]["server_version"], "0.10.12");
-        assert_eq!(json["runtime"]["server_protocol"], 13);
+        assert_eq!(
+            json["runtime"]["server_protocol"],
+            serde_json::json!(crate::protocol::PROTOCOL_VERSION)
+        );
     }
 }
 
