@@ -452,7 +452,10 @@ impl App {
         else {
             return tab_not_found(id, &target.tab_id);
         };
-        if !self.state.close_workspace_tab(ws_idx, tab_idx) {
+        let closed = self.with_default_github_view(|app, view| {
+            app.close_workspace_tab_for_view(view, ws_idx, tab_idx)
+        });
+        if !closed {
             return encode_error(
                 id,
                 "tab_close_failed",
@@ -487,7 +490,7 @@ impl App {
         else {
             return tab_not_found(id, &target.tab_id);
         };
-        if !self.state.close_workspace_tab(ws_idx, tab_idx) {
+        if !self.close_workspace_tab_for_view(view, ws_idx, tab_idx) {
             return encode_error(
                 id,
                 "tab_close_failed",

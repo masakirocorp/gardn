@@ -81,9 +81,7 @@ impl App {
     }
 
     pub(crate) fn close_github_for_view(&mut self, view: &mut ClientViewState) {
-        let host = view.github_host.clone();
-        self.release_github_for_view(view);
-        let Some(host) = host else {
+        let Some(host) = view.github_host.clone() else {
             return;
         };
         let Some(ws_idx) = self
@@ -101,28 +99,72 @@ impl App {
         else {
             return;
         };
-        if !self.state.close_workspace_tab(ws_idx, tab_idx) {
+        self.close_workspace_tab_for_view(view, ws_idx, tab_idx);
+    }
+
+    fn focus_github_source_for_view(
+        &self,
+        view: &mut ClientViewState,
+        source_focus: Option<crate::app::state::PaneFocusTarget>,
+    ) {
+        let Some(source_focus) = source_focus else {
             return;
+        };
+        let Some(ws_idx) = self
+            .state
+            .workspaces
+            .iter()
+            .position(|workspace| workspace.id == source_focus.workspace_id)
+        else {
+            return;
+        };
+        let Some(tab_idx) =
+            self.state.workspaces[ws_idx].find_tab_index_for_pane(source_focus.pane_id)
+        else {
+            return;
+        };
+        view.focus_pane_in_workspace(&self.state, ws_idx, tab_idx, source_focus.pane_id);
+    }
+
+    pub(crate) fn close_workspace_tab_for_view(
+        &mut self,
+        view: &mut ClientViewState,
+        ws_idx: usize,
+        tab_idx: usize,
+    ) -> bool {
+        let Some(workspace) = self.state.workspaces.get(ws_idx) else {
+            return false;
+        };
+        let Some(tab) = workspace.tabs.get(tab_idx) else {
+            return false;
+        };
+        let closing_key =
+            crate::app::view_state::ClientTabViewKey::new(&workspace.id, tab.number());
+        let closes_host = view
+            .github_host
+            .as_ref()
+            .is_some_and(|host| host.key == closing_key);
+        let source_focus = closes_host
+            .then(|| {
+                (view.current_tab_key(&self.state).as_ref() == Some(&closing_key))
+                    .then(|| {
+                        view.github_host
+                            .as_ref()
+                            .and_then(|host| host.source_focus.clone())
+                    })
+                    .flatten()
+            })
+            .flatten();
+        if !self.state.close_workspace_tab(ws_idx, tab_idx) {
+            return false;
         }
-        if let Some(source_focus) = host.source_focus {
-            if let Some(ws_idx) = self
-                .state
-                .workspaces
-                .iter()
-                .position(|workspace| workspace.id == source_focus.workspace_id)
-            {
-                if let Some(tab_idx) =
-                    self.state.workspaces[ws_idx].find_tab_index_for_pane(source_focus.pane_id)
-                {
-                    view.focus_pane_in_workspace(
-                        &self.state,
-                        ws_idx,
-                        tab_idx,
-                        source_focus.pane_id,
-                    );
-                }
-            }
+        if closes_host {
+            self.release_github_for_view(view);
+            self.focus_github_source_for_view(view, source_focus);
+        } else {
+            view.reconcile(&self.state);
         }
+        true
     }
 
     pub(crate) fn open_github_for_view(&mut self, view: &mut ClientViewState) {

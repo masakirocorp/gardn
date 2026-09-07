@@ -6301,55 +6301,24 @@ impl App {
         let Some(tab_idx) = client_view.active_tab_index_for_workspace(&self.state, ws_idx) else {
             return false;
         };
-        let (is_github, source_focus, workspace_id, closing_tab_id) = {
+        let (workspace_id, closing_tab_id) = {
             let Some(workspace) = self.state.workspaces.get(ws_idx) else {
                 return false;
             };
-            let Some(tab) = workspace.tabs.get(tab_idx) else {
+            let Some(_tab) = workspace.tabs.get(tab_idx) else {
                 return false;
             };
-            let is_github = tab.is_github();
-            let source_focus = is_github
-                .then(|| {
-                    client_view
-                        .github_host
-                        .as_ref()
-                        .and_then(|host| host.source_focus.clone())
-                })
-                .flatten();
             let workspace_id = workspace.id.clone();
             let closing_tab_id = workspace
                 .public_tab_number(tab_idx)
                 .map(|number| crate::workspace::public_tab_id_for_number(&workspace_id, number))
                 .unwrap_or_else(|| format!("{}:{}", workspace_id, tab_idx + 1));
-            (is_github, source_focus, workspace_id, closing_tab_id)
+            (workspace_id, closing_tab_id)
         };
-        if is_github {
-            self.release_github_for_view(client_view);
-        }
-        if !self.state.close_workspace_tab(ws_idx, tab_idx) {
+        if !self.close_workspace_tab_for_view(client_view, ws_idx, tab_idx) {
             return false;
         }
         crate::logging::tab_closed(&workspace_id, &closing_tab_id);
-        if let Some(source_focus) = source_focus {
-            if let Some(source_ws_idx) = self
-                .state
-                .workspaces
-                .iter()
-                .position(|workspace| workspace.id == source_focus.workspace_id)
-            {
-                if let Some(source_tab_idx) = self.state.workspaces[source_ws_idx]
-                    .find_tab_index_for_pane(source_focus.pane_id)
-                {
-                    client_view.focus_pane_in_workspace(
-                        &self.state,
-                        source_ws_idx,
-                        source_tab_idx,
-                        source_focus.pane_id,
-                    );
-                }
-            }
-        }
         client_view.hovered_tab = None;
         client_view.tab_scroll_follow_active = true;
         client_view.reconcile(&self.state);
@@ -9238,7 +9207,7 @@ impl App {
             return false;
         };
 
-        let _ = self.state.close_workspace_tab(ws_idx, tab_idx);
+        let _ = self.close_workspace_tab_for_view(client_view, ws_idx, tab_idx);
         client_view.hovered_tab = None;
         client_view.tab_scroll_follow_active = true;
         client_view.reconcile(&self.state);
@@ -13349,6 +13318,7 @@ mod tests {
     async fn removing_github_tab_closes_screen_and_restores_source_focus() {
         let mut app = test_app();
         app.state.workspaces = vec![Workspace::test_new("workspace")];
+        app.state.workspaces[0].test_add_tab(Some("other"));
         app.state.active = Some(0);
         app.state.mode = Mode::Terminal;
         let source = app.state.workspaces[0]
@@ -13364,9 +13334,7 @@ mod tests {
             .iter()
             .position(|tab| tab.number() == host.tab_number && tab.is_github())
             .expect("GitHub tab");
-        app.state.close_workspace_tab(0, host_tab);
-
-        assert!(app.pump_github_for_view(&mut view));
+        assert!(app.close_workspace_tab_for_view(&mut view, 0, host_tab));
         assert!(view.github.is_none());
         assert!(view.github_host.is_none());
         assert_eq!(
@@ -13375,7 +13343,38 @@ mod tests {
                 .pane_id,
             source
         );
-        assert_eq!(app.state.workspaces[0].tabs.len(), 1);
+        assert_eq!(app.state.workspaces[0].tabs.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn removing_background_github_tab_keeps_current_focus() {
+        let mut app = test_app();
+        app.state.workspaces = vec![Workspace::test_new("workspace")];
+        let other_tab = app.state.workspaces[0].test_add_tab(Some("other"));
+        app.state.active = Some(0);
+        app.state.mode = Mode::Terminal;
+        let other_pane = app.state.workspaces[0]
+            .terminal_tab(other_tab)
+            .expect("other terminal")
+            .root_pane;
+        let mut view = ClientViewState::from_default_client_state(&app.state);
+
+        app.open_github_for_view(&mut view);
+        let host = view.github_host.as_ref().expect("GitHub host").key.clone();
+        view.focus_tab_in_workspace(&app.state, 0, other_tab);
+        app.pump_github_for_view(&mut view);
+        let host_tab = app.state.workspaces[0]
+            .tabs
+            .iter()
+            .position(|tab| tab.number() == host.tab_number && tab.is_github())
+            .expect("GitHub tab");
+        assert!(app.close_workspace_tab_for_view(&mut view, 0, host_tab));
+        assert_eq!(
+            view.current_pane_focus_target(&app.state)
+                .expect("current focus")
+                .pane_id,
+            other_pane
+        );
     }
 
     #[test]
