@@ -26,6 +26,12 @@ use super::{
 type ImportedPaneRuntime = crate::handoff_runtime::ImportedHandoffRuntime;
 #[cfg(not(unix))]
 enum ImportedPaneRuntime {}
+#[cfg(not(unix))]
+impl ImportedPaneRuntime {
+    fn close_imported_descriptor(self) {
+        match self {}
+    }
+}
 
 struct AgentRestoreState<'a> {
     enabled: bool,
@@ -191,14 +197,12 @@ pub fn handoff_pane_aliases(
     aliases
 }
 
-#[cfg(unix)]
 fn collect_snapshot_pane_ids(node: &LayoutSnapshot) -> Vec<u32> {
     let mut ids = Vec::new();
     collect_snapshot_ids_inner(node, &mut ids);
     ids
 }
 
-#[cfg(unix)]
 fn collect_snapshot_ids_inner(node: &LayoutSnapshot, ids: &mut Vec<u32>) {
     match node {
         LayoutSnapshot::Pane(id) => ids.push(*id),
