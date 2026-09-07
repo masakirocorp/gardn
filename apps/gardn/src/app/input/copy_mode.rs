@@ -940,10 +940,14 @@ mod tests {
     ) -> (App, crate::layout::PaneId) {
         let mut app = app_for_mouse_test();
         let mut ws = Workspace::test_new("test");
-        let pane_id = ws.tabs[0].root_pane;
-        let pane_infos = ws.tabs[0].layout.panes(Rect::new(0, 0, 20, 5));
+        let pane_id = ws.terminal_tab(0).unwrap().root_pane;
+        let pane_infos = ws
+            .terminal_tab(0)
+            .unwrap()
+            .layout
+            .panes(Rect::new(0, 0, 20, 5));
         let info = pane_infos[0].clone();
-        ws.tabs[0].runtimes.insert(
+        ws.terminal_tab_mut(0).unwrap().runtimes.insert(
             pane_id,
             runtime(info.inner_rect.width, info.inner_rect.height),
         );

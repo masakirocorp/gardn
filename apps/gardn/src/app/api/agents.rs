@@ -441,7 +441,7 @@ mod tests {
     #[test]
     fn agent_list_includes_follow_up_from_session_state() {
         let mut app = test_app();
-        let pane_id = app.state.workspaces[0].tabs[0].root_pane;
+        let pane_id = app.state.workspaces[0].terminal_tab(0).unwrap().root_pane;
         let terminal_id = app.state.workspaces[0]
             .pane_state(pane_id)
             .expect("root pane")
@@ -469,7 +469,7 @@ mod tests {
     #[test]
     fn agent_list_keeps_follow_up_after_agent_identity_is_cleared() {
         let mut app = test_app();
-        let pane_id = app.state.workspaces[0].tabs[0].root_pane;
+        let pane_id = app.state.workspaces[0].terminal_tab(0).unwrap().root_pane;
         assert!(app.state.insert_agent_follow_up(0, pane_id));
 
         let response = app.handle_agent_list("list".into());
@@ -484,7 +484,7 @@ mod tests {
     #[test]
     fn agent_list_marks_unseen_idle_as_in_triage() {
         let mut app = test_app();
-        let pane_id = app.state.workspaces[0].tabs[0].root_pane;
+        let pane_id = app.state.workspaces[0].terminal_tab(0).unwrap().root_pane;
         let terminal_id = app.state.workspaces[0]
             .pane_state(pane_id)
             .expect("root pane")
@@ -493,7 +493,9 @@ mod tests {
         let terminal = app.state.terminals.get_mut(&terminal_id).expect("terminal");
         terminal.agent_name = Some("omp".into());
         terminal.state = AgentState::Idle;
-        app.state.workspaces[0].tabs[0]
+        app.state.workspaces[0]
+            .terminal_tab_mut(0)
+            .unwrap()
             .panes
             .get_mut(&pane_id)
             .expect("pane")
@@ -513,7 +515,7 @@ mod tests {
     fn agent_list_keeps_focused_done_agent_in_triage() {
         let mut app = test_app();
         let workspace_id = app.state.workspaces[0].id.clone();
-        let pane_id = app.state.workspaces[0].tabs[0].root_pane;
+        let pane_id = app.state.workspaces[0].terminal_tab(0).unwrap().root_pane;
         let terminal_id = app.state.workspaces[0]
             .pane_state(pane_id)
             .expect("root pane")
@@ -522,7 +524,9 @@ mod tests {
         let terminal = app.state.terminals.get_mut(&terminal_id).expect("terminal");
         terminal.agent_name = Some("omp".into());
         terminal.state = AgentState::Idle;
-        app.state.workspaces[0].tabs[0]
+        app.state.workspaces[0]
+            .terminal_tab_mut(0)
+            .unwrap()
             .panes
             .get_mut(&pane_id)
             .expect("pane")
@@ -544,7 +548,7 @@ mod tests {
         let mut app = test_app();
         app.state.workspaces = vec![Workspace::test_new("one"), Workspace::test_new("two")];
         app.state.ensure_test_terminals();
-        let pane_id = app.state.workspaces[1].tabs[0].root_pane;
+        let pane_id = app.state.workspaces[1].terminal_tab(0).unwrap().root_pane;
         let terminal_id = app.state.workspaces[1]
             .pane_state(pane_id)
             .expect("root pane")
@@ -583,7 +587,7 @@ mod tests {
         let mut app = test_app();
         app.state.workspaces = vec![Workspace::test_new("one"), Workspace::test_new("queued")];
         app.state.ensure_test_terminals();
-        let pane_id = app.state.workspaces[1].tabs[0].root_pane;
+        let pane_id = app.state.workspaces[1].terminal_tab(0).unwrap().root_pane;
         let terminal_id = app.state.workspaces[1]
             .pane_state(pane_id)
             .expect("root pane")
@@ -607,5 +611,44 @@ mod tests {
         };
         assert_eq!(view.active_workspace, Some(1));
         assert_eq!(view.mode, Mode::Terminal);
+    }
+
+    #[test]
+    fn agent_start_api_rejects_explicit_native_tab() {
+        let mut app = test_app();
+        let native_tab_idx = app.state.workspaces[0].ensure_github_tab();
+        let native_tab_number = app.state.workspaces[0]
+            .public_tab_number(native_tab_idx)
+            .unwrap();
+        let tab_id = crate::workspace::public_tab_id_for_number(
+            app.state.workspaces[0].id.as_str(),
+            native_tab_number,
+        );
+
+        let response = app.handle_agent_start_disposition(
+            "start".into(),
+            crate::api::schema::AgentStartParams {
+                name: "native-agent".into(),
+                cwd: None,
+                location: None,
+                workspace_id: None,
+                tab_id: Some(tab_id),
+                split: None,
+                focus: false,
+                env: std::collections::HashMap::new(),
+                argv: vec!["/bin/sh".into(), "-c".into(), "sleep 1".into()],
+            },
+        );
+
+        let crate::api::ApiRequestDisposition::Respond(response) = response else {
+            panic!("native tab placement must be rejected synchronously");
+        };
+        let body: serde_json::Value = serde_json::from_str(&response).unwrap();
+        assert_eq!(body["error"]["code"], "agent_placement_conflict");
+        assert_eq!(
+            body["error"]["message"],
+            "agent placement requires a terminal tab, not a native tab"
+        );
+        assert_eq!(app.state.workspaces[0].terminal_tabs().count(), 1);
     }
 }

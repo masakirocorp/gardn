@@ -28,4 +28,5 @@ pub use self::snapshot::{
 #[cfg(test)]
 pub use self::snapshot::{
     GroupSnapshot, PaneSnapshot, RemoteTerminationTombstoneSnapshot, SessionDefaultViewSnapshot,
+    TerminalTabSnapshot,
 };

@@ -44,9 +44,14 @@ impl App {
             focused: view.active_workspace == Some(index),
             pane_count: ws.public_pane_numbers.len(),
             tab_count: ws.tabs.len(),
-            active_tab_id: self
-                .public_tab_id(index, active_tab)
-                .unwrap_or_else(|| format!("{}:{}", ws.id, active_tab + 1)),
+            active_tab_id: self.public_tab_id(index, active_tab).unwrap_or_else(|| {
+                let number = ws
+                    .tabs
+                    .get(active_tab)
+                    .map(|tab| tab.number())
+                    .unwrap_or(active_tab + 1);
+                format!("{}:{}", ws.id, number)
+            }),
             agent_status: pane_agent_status(agg_state, seen),
         }
     }
@@ -235,7 +240,10 @@ impl App {
                         self.pane_info_for_view(
                             view,
                             index,
-                            self.state.workspaces[index].tabs[0].root_pane,
+                            self.state.workspaces[index]
+                                .terminal_tab(0)
+                                .expect("new workspace should have an initial terminal tab")
+                                .root_pane,
                         )
                         .expect("new workspace should have an initial root pane"),
                     )
@@ -403,9 +411,8 @@ impl App {
             .workspaces
             .get(index)
             .map(|ws| {
-                ws.tabs
-                    .iter()
-                    .flat_map(|tab| tab.layout.pane_ids())
+                ws.terminal_tabs()
+                    .flat_map(|(_, tab)| tab.layout.pane_ids())
                     .collect::<Vec<_>>()
             })
             .unwrap_or_default();
@@ -490,9 +497,8 @@ impl App {
             .workspaces
             .get(index)
             .map(|ws| {
-                ws.tabs
-                    .iter()
-                    .flat_map(|tab| tab.layout.pane_ids())
+                ws.terminal_tabs()
+                    .flat_map(|(_, tab)| tab.layout.pane_ids())
                     .collect::<Vec<_>>()
             })
             .unwrap_or_default();

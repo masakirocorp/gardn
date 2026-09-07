@@ -980,8 +980,8 @@ pub(super) fn apply_rename_action(state: &mut AppState, action: ModalAction) {
                             let workspace_id = ws.id.clone();
                             let active_tab = ws.active_tab;
                             if let Some(tab) = ws.active_tab_mut() {
-                                let keep_auto_name =
-                                    tab.is_auto_named() && new_name == tab.number.to_string();
+                                let keep_auto_name = tab.custom_name().is_none()
+                                    && new_name == tab.number().to_string();
                                 if !new_name.is_empty() && !keep_auto_name {
                                     tab.set_custom_name(new_name);
                                     let tab_id = format!("{}:{}", workspace_id, active_tab + 1);
@@ -1950,7 +1950,9 @@ mod tests {
 
         let snapshot = capture_snapshot(&state);
         assert_eq!(
-            snapshot.workspaces[0].tabs[0].custom_name.as_deref(),
+            snapshot.workspaces[0].tabs[0]
+                .as_terminal()
+                .and_then(|tab| tab.custom_name.as_deref()),
             Some("logs")
         );
     }
@@ -2305,8 +2307,8 @@ mod tests {
         state.workspaces[0].close_tab(0);
         state.workspaces[0].switch_tab(0);
 
-        assert_eq!(state.workspaces[0].tabs[0].display_name(), "2");
-        assert!(state.workspaces[0].tabs[0].custom_name.is_none());
+        assert_eq!(state.workspaces[0].tab_display_name(0).unwrap(), "2");
+        assert!(state.workspaces[0].tabs[0].custom_name().is_none());
 
         open_new_tab_dialog(&mut state);
         assert_eq!(state.name_input, "3");
@@ -2325,8 +2327,8 @@ mod tests {
         );
 
         assert_eq!(state.mode, Mode::Terminal);
-        assert!(state.workspaces[0].tabs[1].custom_name.is_none());
-        assert_eq!(state.workspaces[0].tabs[1].display_name(), "2");
+        assert!(state.workspaces[0].tabs[1].custom_name().is_none());
+        assert_eq!(state.workspaces[0].tab_display_name(1).unwrap(), "2");
     }
 
     #[test]
@@ -2517,7 +2519,8 @@ mod tests {
         let remaining: Vec<_> = state.workspaces[1]
             .tabs
             .iter()
-            .map(|tab| tab.display_name().to_string())
+            .enumerate()
+            .map(|(index, _)| state.workspaces[1].tab_display_name(index).unwrap())
             .collect();
         assert_eq!(remaining, vec!["two"]);
         assert_eq!(state.workspaces[1].active_tab, 0);
@@ -2530,7 +2533,7 @@ mod tests {
     fn context_menu_toggles_pane_right_click_passthrough() {
         let mut state = state_with_workspaces(&["main"]);
         state.active = Some(0);
-        let pane_id = state.workspaces[0].tabs[0].root_pane;
+        let pane_id = state.workspaces[0].terminal_tab(0).unwrap().root_pane;
         let menu = ContextMenuState {
             kind: ContextMenuKind::Pane {
                 ws_idx: 0,

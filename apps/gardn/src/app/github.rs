@@ -1,8 +1,4 @@
-use super::{
-    state,
-    view_state::{GithubHost, GithubHostTab},
-    App, ClientViewState, Mode,
-};
+use super::{state, view_state::GithubHost, App, ClientViewState, Mode};
 use crate::events::AppEvent;
 impl App {
     pub(super) fn handle_github_mouse_for_view(
@@ -11,7 +7,7 @@ impl App {
         mouse: crossterm::event::MouseEvent,
     ) -> bool {
         let inside = view
-            .github_pane_rect(&self.state)
+            .github_content_rect(&self.state)
             .contains((mouse.column, mouse.row).into());
         if !inside {
             if let Some(screen) = view.github.as_mut() {
@@ -26,23 +22,23 @@ impl App {
         {
             if matches!(mouse.kind, crossterm::event::MouseEventKind::Down(_)) {
                 if let Some(host) = view.github_host.as_ref() {
-                    if let Some(ws_idx) = self
+                    if let Some((ws_idx, tab_idx)) = self
                         .state
                         .workspaces
                         .iter()
-                        .position(|workspace| workspace.id == host.workspace_id)
+                        .enumerate()
+                        .find_map(|(ws_idx, workspace)| {
+                            (workspace.id == host.key.workspace_id).then(|| {
+                                workspace
+                                    .tabs
+                                    .iter()
+                                    .position(|tab| tab.number() == host.key.tab_number)
+                                    .map(|tab_idx| (ws_idx, tab_idx))
+                            })?
+                        })
                     {
-                        if let Some(tab_idx) =
-                            workspace_tab_for_pane(&self.state.workspaces[ws_idx], host.root_pane())
-                        {
-                            view.focus_pane_in_workspace(
-                                &self.state,
-                                ws_idx,
-                                tab_idx,
-                                host.root_pane(),
-                            );
-                            view.mode = Mode::Github;
-                        }
+                        view.focus_tab_in_workspace(&self.state, ws_idx, tab_idx);
+                        view.mode = Mode::Github;
                     }
                 }
             }
@@ -77,14 +73,8 @@ impl App {
                 self.github_runtime.cancel(id);
             }
         }
-        if let Some(host) = view.github_host.take() {
-            if let GithubHostTab::Pending { terminal_id, .. } = &host.tab {
-                self.pending_github_remote_terminals.remove(terminal_id);
-                self.abort_pending_remote_creation(terminal_id.clone(), "GitHub view released");
-                let _ = self.take_github_remote_completion(terminal_id);
-            }
-        }
-        if matches!(view.mode, Mode::Github | Mode::CommandPalette) {
+        view.github_host.take();
+        if view.mode == Mode::Github {
             view.return_to_active_workspace_mode();
         }
         view.reconcile(&self.state);
@@ -96,7 +86,24 @@ impl App {
         let Some(host) = host else {
             return;
         };
-        self.close_github_host_tab(&host);
+        let Some(ws_idx) = self
+            .state
+            .workspaces
+            .iter()
+            .position(|workspace| workspace.id == host.key.workspace_id)
+        else {
+            return;
+        };
+        let Some(tab_idx) = self.state.workspaces[ws_idx]
+            .tabs
+            .iter()
+            .position(|tab| tab.number() == host.key.tab_number && tab.is_github())
+        else {
+            return;
+        };
+        if !self.state.close_workspace_tab(ws_idx, tab_idx) {
+            return;
+        }
         if let Some(source_focus) = host.source_focus {
             if let Some(ws_idx) = self
                 .state
@@ -105,7 +112,7 @@ impl App {
                 .position(|workspace| workspace.id == source_focus.workspace_id)
             {
                 if let Some(tab_idx) =
-                    workspace_tab_for_pane(&self.state.workspaces[ws_idx], source_focus.pane_id)
+                    self.state.workspaces[ws_idx].find_tab_index_for_pane(source_focus.pane_id)
                 {
                     view.focus_pane_in_workspace(
                         &self.state,
@@ -118,39 +125,17 @@ impl App {
         }
     }
 
-    fn close_github_host_tab(&mut self, host: &GithubHost) {
-        let Some(ws_idx) = self
-            .state
-            .workspaces
-            .iter()
-            .position(|workspace| workspace.id == host.workspace_id)
-        else {
-            return;
-        };
-        let Some(tab_idx) = self.state.workspaces[ws_idx].tabs.iter().position(|tab| {
-            tab.number == host.tab_number && tab.role == crate::workspace::TabRole::Github
-        }) else {
-            return;
-        };
-        let previous_active = self.state.active;
-        let previous_selected = self.state.selected;
-        self.state.active = Some(ws_idx);
-        self.state.selected = ws_idx;
-        let _ = self.state.close_tab_at(tab_idx);
-        self.state.active = previous_active.filter(|idx| *idx < self.state.workspaces.len());
-        self.state.selected = previous_selected.min(self.state.workspaces.len().saturating_sub(1));
-        self.shutdown_detached_terminal_runtimes();
-    }
-
     pub(crate) fn open_github_for_view(&mut self, view: &mut ClientViewState) {
         let Some(ws_idx) = view.active_workspace else {
             return;
         };
-        let source_focus = view
-            .github_host
-            .as_ref()
-            .and_then(|host| host.source_focus.clone())
-            .or_else(|| view.current_pane_focus_target(&self.state));
+        let workspace_id = self.state.workspaces[ws_idx].id.clone();
+        let source_focus = view.current_pane_focus_target(&self.state).or_else(|| {
+            view.github_host
+                .as_ref()
+                .filter(|host| host.key.workspace_id == workspace_id)
+                .and_then(|host| host.source_focus.clone())
+        });
         let scope = match self
             .state
             .resolved_github_scope(&self.terminal_runtimes, ws_idx)
@@ -167,15 +152,6 @@ impl App {
                 return;
             }
         };
-        let workspace_id = self.state.workspaces[ws_idx].id.clone();
-        let existing_tab_idx = self.state.workspaces[ws_idx]
-            .tabs
-            .iter()
-            .position(|tab| tab.role == crate::workspace::TabRole::Github);
-        if existing_tab_idx.is_none() && self.has_pending_github_tab_for_workspace(&workspace_id) {
-            return;
-        }
-        self.release_github_for_view(view);
         let scope_settings = {
             let workspace = &self.state.workspaces[ws_idx];
             (
@@ -187,64 +163,19 @@ impl App {
                     .and_then(|group| group.github_organization.clone()),
             )
         };
-        let tab_result = if let Some(tab_idx) = existing_tab_idx {
-            Ok(crate::app::creation::TabCreation::Committed(tab_idx))
-        } else {
-            self.create_tab_for_workspace(
-                ws_idx,
-                Some("GitHub".into()),
-                crate::workspace::TabRole::Github,
-            )
-        };
-        match tab_result {
-            Ok(crate::app::creation::TabCreation::Committed(tab_idx)) => {
-                let tab_number = self.state.workspaces[ws_idx].tabs[tab_idx].number;
-                let root_pane = self.state.workspaces[ws_idx].tabs[tab_idx].root_pane;
-                view.github_host = Some(GithubHost {
-                    workspace_id,
-                    tab_number,
-                    source_focus,
-                    scope_settings,
-                    tab: GithubHostTab::Committed { root_pane },
-                });
-                view.github = Some(crate::github::screen::GithubScreen::new(scope));
-                view.focus_pane_in_workspace(&self.state, ws_idx, tab_idx, root_pane);
-                view.mode = Mode::Github;
-                self.pump_github_for_view(view);
-            }
-            Ok(crate::app::creation::TabCreation::Pending(terminal_id)) => {
-                let Some(target) = self.pending_remote_creation_target(&terminal_id) else {
-                    self.abort_pending_remote_creation(
-                        terminal_id,
-                        "GitHub tab creation disappeared",
-                    );
-                    return;
-                };
-                self.pending_github_remote_terminals
-                    .insert(terminal_id.clone());
-                view.github_host = Some(GithubHost {
-                    workspace_id: target.workspace_id,
-                    tab_number: target.tab_number,
-                    source_focus,
-                    scope_settings,
-                    tab: GithubHostTab::Pending {
-                        terminal_id,
-                        root_pane: target.pane_id,
-                        scope,
-                    },
-                });
-                view.return_to_active_workspace_mode();
-            }
-            Err(error) => {
-                self.state.toast = Some(state::ToastNotification {
-                    kind: state::ToastKind::NeedsAttention,
-                    title: "Cannot open GitHub".into(),
-                    context: error,
-                    position: None,
-                    target: None,
-                });
-            }
-        }
+        self.release_github_for_view(view);
+        let tab_idx = self.state.workspaces[ws_idx].ensure_github_tab();
+        let tab_number = self.state.workspaces[ws_idx].tabs[tab_idx].number();
+        let key = crate::app::view_state::ClientTabViewKey::new(&workspace_id, tab_number);
+        view.github_host = Some(GithubHost {
+            key,
+            source_focus,
+            scope_settings,
+        });
+        view.github = Some(crate::github::screen::GithubScreen::new(scope));
+        view.focus_tab_in_workspace(&self.state, ws_idx, tab_idx);
+        view.mode = Mode::Github;
+        self.pump_github_for_view(view);
     }
 
     pub(crate) fn poll_github(&mut self) -> bool {
@@ -259,26 +190,26 @@ impl App {
             let tab_idx = view.active_tab_index_for_workspace(&self.state, ws_idx)?;
             let workspace = self.state.workspaces.get(ws_idx)?;
             let tab = workspace.tabs.get(tab_idx)?;
-            (tab.role == crate::workspace::TabRole::Github).then(|| {
+            tab.is_github().then(|| {
                 (
                     ws_idx,
                     tab_idx,
-                    workspace.id.clone(),
-                    tab.number,
-                    tab.root_pane,
+                    crate::app::view_state::ClientTabViewKey::new(&workspace.id, tab.number()),
                 )
             })
         });
+        let hosted_tab_exists = view.github_host.as_ref().is_some_and(|host| {
+            self.state.workspaces.iter().any(|workspace| {
+                workspace.id == host.key.workspace_id
+                    && workspace
+                        .tabs
+                        .iter()
+                        .any(|tab| tab.number() == host.key.tab_number && tab.is_github())
+            })
+        });
         let focused_host_differs = match (&view.github_host, &focused_github) {
-            (
-                Some(GithubHost {
-                    workspace_id,
-                    tab_number,
-                    tab: GithubHostTab::Committed { .. },
-                    ..
-                }),
-                Some((_, _, focused_workspace_id, focused_tab_number, _)),
-            ) => workspace_id != focused_workspace_id || tab_number != focused_tab_number,
+            (Some(host), Some((_, _, key))) => host.key != *key,
+            (Some(_), None) => !hosted_tab_exists,
             _ => false,
         };
         if focused_host_differs {
@@ -286,8 +217,7 @@ impl App {
         }
         let mut changed = focused_host_differs;
         if view.github_host.is_none() {
-            let Some((ws_idx, tab_idx, workspace_id, tab_number, root_pane)) = focused_github
-            else {
+            let Some((ws_idx, tab_idx, key)) = focused_github else {
                 return changed;
             };
             let scope = match self
@@ -309,20 +239,16 @@ impl App {
                 )
             };
             view.github_host = Some(GithubHost {
-                workspace_id,
-                tab_number,
+                key,
                 source_focus: None,
                 scope_settings,
-                tab: GithubHostTab::Committed { root_pane },
             });
             view.github = Some(crate::github::screen::GithubScreen::new(scope));
             let previous_mode = view.mode;
-            view.focus_pane_in_workspace(&self.state, ws_idx, tab_idx, root_pane);
-            view.mode = if matches!(previous_mode, Mode::Terminal | Mode::Github) {
-                Mode::Github
-            } else {
-                previous_mode
-            };
+            view.focus_tab_in_workspace(&self.state, ws_idx, tab_idx);
+            if matches!(previous_mode, Mode::Terminal | Mode::Github) {
+                view.mode = Mode::Github;
+            }
             changed = true;
         }
         let Some(host_snapshot) = view.github_host.clone() else {
@@ -332,7 +258,7 @@ impl App {
             .state
             .workspaces
             .iter()
-            .position(|workspace| workspace.id == host_snapshot.workspace_id)
+            .position(|workspace| workspace.id == host_snapshot.key.workspace_id)
         else {
             self.release_github_for_view(view);
             return true;
@@ -350,75 +276,30 @@ impl App {
             self.release_github_for_view(view);
             return true;
         }
-        if let GithubHostTab::Pending {
-            ref terminal_id,
-            root_pane: expected_root_pane,
-            ref scope,
-        } = host_snapshot.tab
-        {
-            if let Some(completion) = self.take_github_remote_completion(terminal_id) {
-                self.pending_github_remote_terminals.remove(terminal_id);
-                if !matches!(
-                    completion.result,
-                    Ok(crate::app::creation::CommittedRemoteCreation::Tab { .. })
-                ) {
-                    self.release_github_for_view(view);
-                    return true;
-                }
-                let Some(tab_idx) = self.state.workspaces[ws_idx].tabs.iter().position(|tab| {
-                    tab.number == host_snapshot.tab_number
-                        && tab.role == crate::workspace::TabRole::Github
-                        && tab.root_pane == expected_root_pane
-                }) else {
-                    self.release_github_for_view(view);
-                    return true;
-                };
-                let tab = &self.state.workspaces[ws_idx].tabs[tab_idx];
-                if let Some(host) = view.github_host.as_mut() {
-                    host.tab_number = tab.number;
-                    host.tab = GithubHostTab::Committed {
-                        root_pane: tab.root_pane,
-                    };
-                }
-                view.github = Some(crate::github::screen::GithubScreen::new(scope.clone()));
-                view.focus_pane_in_workspace(&self.state, ws_idx, tab_idx, tab.root_pane);
-                view.mode = Mode::Github;
-                return true;
-            }
-            return changed;
-        }
         let Some(tab_idx) = workspace
             .tabs
             .iter()
-            .position(|tab| tab.number == host_snapshot.tab_number)
+            .position(|tab| tab.number() == host_snapshot.key.tab_number && tab.is_github())
         else {
             self.release_github_for_view(view);
             return true;
         };
-        if workspace.tabs[tab_idx].role != crate::workspace::TabRole::Github {
-            self.release_github_for_view(view);
-            return true;
-        }
-        let current_root = workspace.tabs[tab_idx].root_pane;
-        let root_changed = host_snapshot.root_pane() != current_root;
-        if root_changed {
-            if let Some(host) = view.github_host.as_mut() {
-                host.tab = GithubHostTab::Committed {
-                    root_pane: current_root,
-                };
-            }
-            if view.active_workspace == Some(ws_idx)
-                && view.active_tab_index_for_workspace(&self.state, ws_idx) == Some(tab_idx)
+        if view.github.is_none() {
+            let scope = match self
+                .state
+                .resolved_github_scope(&self.terminal_runtimes, ws_idx)
             {
-                let previous_mode = view.mode;
-                view.focus_pane_in_workspace(&self.state, ws_idx, tab_idx, current_root);
-                view.mode = if matches!(previous_mode, Mode::Terminal | Mode::Github) {
-                    Mode::Github
-                } else {
-                    previous_mode
-                };
-            }
+                Ok(scope) => scope,
+                Err(_) => return changed,
+            };
+            view.github = Some(crate::github::screen::GithubScreen::new(scope));
             changed = true;
+        }
+        if view.active_workspace == Some(ws_idx)
+            && view.active_tab_index_for_workspace(&self.state, ws_idx) == Some(tab_idx)
+            && matches!(view.mode, Mode::Terminal | Mode::Github)
+        {
+            view.mode = Mode::Github;
         }
         let Some(screen) = view.github.as_mut() else {
             return changed;
@@ -481,7 +362,7 @@ impl App {
                         self.state
                             .workspaces
                             .iter()
-                            .position(|workspace| workspace.id == host.workspace_id)
+                            .position(|workspace| workspace.id == host.key.workspace_id)
                     }) {
                         self.release_github_for_view(view);
                         view.active_workspace = Some(ws_idx);
@@ -502,7 +383,7 @@ impl App {
     ) -> R {
         let replacement = ClientViewState::from_default_client_state(&self.state);
         let mut view = std::mem::replace(&mut self.default_client_view, replacement);
-        let previous_host_root = view.github_host.as_ref().map(GithubHost::root_pane);
+        let previous_host_key = view.github_host.as_ref().map(|host| host.key.clone());
         let had_screen = view.github.is_some();
         view.active_tabs = self
             .state
@@ -515,7 +396,7 @@ impl App {
             .workspaces
             .iter()
             .flat_map(|workspace| {
-                workspace.tabs.iter().map(|tab| {
+                workspace.terminal_tabs().map(|(_, tab)| {
                     (
                         super::view_state::ClientTabViewKey::new(&workspace.id, tab.number),
                         tab.layout.focused(),
@@ -531,10 +412,31 @@ impl App {
         view.sync_github_mode(&self.state);
         view.compute_github(&self.state);
         let result = action(self, &mut view);
-        let restored_source = previous_host_root.is_some() && view.github_host.is_none();
+        if let Some(key) = view.current_tab_key(&self.state) {
+            if let Some(ws_idx) = self
+                .state
+                .workspaces
+                .iter()
+                .position(|workspace| workspace.id == key.workspace_id)
+            {
+                if let Some(tab_idx) = self.state.workspaces[ws_idx]
+                    .tabs
+                    .iter()
+                    .position(|tab| tab.number() == key.tab_number)
+                {
+                    if self.state.active != Some(ws_idx) {
+                        self.state.switch_workspace(ws_idx);
+                    }
+                    if self.state.workspaces[ws_idx].active_tab != tab_idx {
+                        self.state.switch_tab(tab_idx);
+                    }
+                }
+            }
+        }
+        let restored_source = previous_host_key.is_some() && view.github_host.is_none();
         let opened_screen = view.github.is_some()
             && (!had_screen
-                || previous_host_root != view.github_host.as_ref().map(GithubHost::root_pane));
+                || previous_host_key != view.github_host.as_ref().map(|host| host.key.clone()));
         if opened_screen || restored_source {
             if let Some(target) = view.current_pane_focus_target(&self.state) {
                 if let Some(ws_idx) = self
@@ -557,25 +459,6 @@ impl App {
         self.state.command_palette = view.command_palette.clone();
         self.default_client_view = view;
         result
-    }
-    pub(crate) fn github_remote_completion_owned(
-        &self,
-        terminal_id: &crate::terminal::TerminalId,
-    ) -> bool {
-        self.pending_github_remote_terminals.contains(terminal_id)
-            || self
-                .default_client_view
-                .github_host
-                .as_ref()
-                .is_some_and(|host| {
-                    matches!(
-                        &host.tab,
-                        GithubHostTab::Pending {
-                            terminal_id: pending_id,
-                            ..
-                        } if pending_id == terminal_id
-                    )
-                })
     }
 }
 

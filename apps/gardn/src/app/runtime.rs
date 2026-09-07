@@ -319,31 +319,27 @@ impl App {
             .workspaces
             .iter()
             .flat_map(|workspace| {
-                workspace
-                    .tabs
-                    .iter()
-                    .enumerate()
-                    .flat_map(move |(tab_idx, tab)| {
-                        tab.layout
-                            .pane_ids()
-                            .into_iter()
-                            .filter_map(move |pane_id| {
-                                let terminal_id = tab.terminal_id(pane_id)?.clone();
-                                let terminal = terminals.get(&terminal_id)?;
-                                Some((
-                                    terminal_id,
-                                    terminal.location.clone(),
-                                    crate::ports::PortOwner {
-                                        pid: 0,
-                                        command: None,
-                                        workspace_id: workspace.id.clone(),
-                                        tab_idx,
-                                        pane_id,
-                                        confidence: crate::ports::PortOwnerConfidence::ProcessTree,
-                                    },
-                                ))
-                            })
-                    })
+                workspace.terminal_tabs().flat_map(move |(tab_idx, tab)| {
+                    tab.layout
+                        .pane_ids()
+                        .into_iter()
+                        .filter_map(move |pane_id| {
+                            let terminal_id = tab.terminal_id(pane_id)?.clone();
+                            let terminal = terminals.get(&terminal_id)?;
+                            Some((
+                                terminal_id,
+                                terminal.location.clone(),
+                                crate::ports::PortOwner {
+                                    pid: 0,
+                                    command: None,
+                                    workspace_id: workspace.id.clone(),
+                                    tab_idx,
+                                    pane_id,
+                                    confidence: crate::ports::PortOwnerConfidence::ProcessTree,
+                                },
+                            ))
+                        })
+                })
             })
             .collect::<Vec<_>>();
         let mut owners = std::collections::HashMap::new();
@@ -997,7 +993,8 @@ impl App {
                 let cwd_fingerprint =
                     ws.git_status_cwds_from(&self.state.terminals, &self.terminal_runtimes);
                 let execution_host_id = ws
-                    .active_tab()
+                    .terminal_tab(ws.active_tab_index())
+                    .ok()
                     .and_then(|tab| tab.terminal_id(tab.layout.focused()))
                     .and_then(|terminal_id| self.state.terminals.get(terminal_id))
                     .map(|terminal| terminal.location.execution_host_id.clone())
@@ -1154,7 +1151,7 @@ mod tests {
             crate::api::EventHub::default(),
         );
         let ws = Workspace::test_new("test");
-        let pane_id = ws.tabs[0].root_pane;
+        let pane_id = ws.terminal_tab(0).unwrap().root_pane;
         app.state.workspaces.push(ws);
         app.state.active = Some(0);
         app.state.view.pane_infos.push(crate::layout::PaneInfo {
@@ -1171,7 +1168,7 @@ mod tests {
     fn working_status_animation_runs_only_in_symbols_mode() {
         let (mut app, pane_id) = test_app_with_pane();
         app.state.ensure_test_terminals();
-        let terminal_id = app.state.workspaces[0].tabs[0].panes[&pane_id]
+        let terminal_id = app.state.workspaces[0].terminal_tab(0).unwrap().panes[&pane_id]
             .attached_terminal_id
             .clone();
         let terminal = app
@@ -1200,7 +1197,7 @@ mod tests {
     fn animation_clock_advances_one_braille_frame_every_128_milliseconds() {
         let (mut app, pane_id) = test_app_with_pane();
         app.state.ensure_test_terminals();
-        let terminal_id = app.state.workspaces[0].tabs[0].panes[&pane_id]
+        let terminal_id = app.state.workspaces[0].terminal_tab(0).unwrap().panes[&pane_id]
             .attached_terminal_id
             .clone();
         let terminal = app
@@ -1539,10 +1536,13 @@ mod tests {
             crate::api::EventHub::default(),
         );
         let mut ws = Workspace::test_new("test");
-        let pane_id = ws.tabs[0].root_pane;
+        let pane_id = ws.terminal_tab(0).unwrap().root_pane;
         let runtime =
             crate::terminal::TerminalRuntime::test_with_scrollback_bytes(cols, rows, 0, bytes);
-        ws.tabs[0].runtimes.insert(pane_id, runtime);
+        ws.terminal_tab_mut(0)
+            .unwrap()
+            .runtimes
+            .insert(pane_id, runtime);
         app.state.workspaces.push(ws);
         app.state.active = Some(0);
         app.state.view.pane_infos.push(crate::layout::PaneInfo {
@@ -1818,8 +1818,9 @@ mod tests {
             crate::api::EventHub::default(),
         );
         let ws = crate::workspace::Workspace::test_new("deferred-ok");
-        let root_pane = ws.tabs[0].root_pane;
-        let attached_terminal_id = ws.tabs[0].panes[&root_pane].attached_terminal_id.clone();
+        let tab = ws.terminal_tab(0).unwrap();
+        let root_pane = tab.root_pane;
+        let attached_terminal_id = tab.panes[&root_pane].attached_terminal_id.clone();
         app.state.terminals.insert(
             attached_terminal_id.clone(),
             crate::terminal::TerminalState::new(
@@ -1920,7 +1921,9 @@ mod release_forwarding_tests {
         );
         let mut workspace = Workspace::test_new("test");
         let pane_a = workspace.focused_pane_id().expect("focused pane");
-        let pane_b = workspace.tabs[0]
+        let pane_b = workspace
+            .terminal_tab_mut(0)
+            .unwrap()
             .layout
             .split_focused(ratatui::layout::Direction::Horizontal);
         let make_runtime = || {
@@ -1934,7 +1937,11 @@ mod release_forwarding_tests {
         let (runtime_b, rx_b) = make_runtime();
         workspace.insert_test_runtime(pane_a, runtime_a);
         workspace.insert_test_runtime(pane_b, runtime_b);
-        workspace.tabs[0].layout.focus_pane(pane_a);
+        workspace
+            .terminal_tab_mut(0)
+            .unwrap()
+            .layout
+            .focus_pane(pane_a);
         app.state.workspaces = vec![workspace];
         app.state.active = Some(0);
         app.state.selected = 0;
@@ -1981,7 +1988,11 @@ mod release_forwarding_tests {
         let (mut app, pane_a, pane_b, rx_a, rx_b) = app_with_two_input_channels(true);
         app.handle_raw_input_event(RawInputEvent::Key(key(KeyEventKind::Press)))
             .await;
-        app.state.workspaces[0].tabs[0].layout.focus_pane(pane_b);
+        app.state.workspaces[0]
+            .terminal_tab_mut(0)
+            .unwrap()
+            .layout
+            .focus_pane(pane_b);
         app.handle_raw_input_event(RawInputEvent::Key(key(KeyEventKind::Repeat)))
             .await;
         app.handle_raw_input_event(RawInputEvent::Key(key(KeyEventKind::Release)))
@@ -2029,7 +2040,11 @@ mod release_forwarding_tests {
     async fn default_client_dispatch_keeps_key_stream_on_press_pane() {
         let (mut app, pane_a, pane_b, rx_a, rx_b) = app_with_two_input_channels(true);
         app.route_client_events(vec![RawInputEvent::Key(key(KeyEventKind::Press))], false);
-        app.state.workspaces[0].tabs[0].layout.focus_pane(pane_b);
+        app.state.workspaces[0]
+            .terminal_tab_mut(0)
+            .unwrap()
+            .layout
+            .focus_pane(pane_b);
         app.route_client_events(
             vec![
                 RawInputEvent::Key(key(KeyEventKind::Repeat)),
@@ -2073,7 +2088,11 @@ mod release_forwarding_tests {
             )],
             false,
         );
-        app.state.workspaces[0].tabs[0].layout.focus_pane(pane_b);
+        app.state.workspaces[0]
+            .terminal_tab_mut(0)
+            .unwrap()
+            .layout
+            .focus_pane(pane_b);
         app.route_client_events(
             vec![RawInputEvent::Key(
                 TerminalKey::new(
@@ -2187,7 +2206,11 @@ mod release_forwarding_tests {
             vec![RawInputEvent::Key(physical(KeyEventKind::Press))],
             false,
         );
-        app.state.workspaces[0].tabs[0].layout.focus_pane(pane_b);
+        app.state.workspaces[0]
+            .terminal_tab_mut(0)
+            .unwrap()
+            .layout
+            .focus_pane(pane_b);
         app.route_client_events(
             vec![
                 RawInputEvent::Key(physical(KeyEventKind::Repeat)),

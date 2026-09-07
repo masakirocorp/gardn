@@ -15,9 +15,8 @@ impl AppState {
         let mut targets = Vec::new();
         for (ws_idx, workspace) in self.workspaces.iter().enumerate() {
             for terminal_id in workspace
-                .tabs
-                .iter()
-                .flat_map(|tab| tab.panes.values())
+                .terminal_tabs()
+                .flat_map(|(_, tab)| tab.panes.values())
                 .map(|pane| &pane.attached_terminal_id)
             {
                 if !terminal_ids.insert(terminal_id.clone()) {
@@ -262,7 +261,7 @@ mod tests {
         state.global_theme_name = "dracula".to_string();
         state.global_theme_mode = ThemeMode::Dark;
         state.effective_theme_appearance = ThemeAppearance::Dark;
-        let pane_id = state.workspaces[1].tabs[0].root_pane;
+        let pane_id = state.workspaces[1].terminal_tab(0).unwrap().root_pane;
         let terminal_id = state.workspaces[1]
             .terminal_id(pane_id)
             .expect("second workspace terminal")
@@ -294,7 +293,7 @@ mod tests {
         let mut state = AppState::test_new();
         state.workspaces.push(Workspace::test_new("web"));
         state.ensure_test_terminals();
-        let pane_id = state.workspaces[0].tabs[0].root_pane;
+        let pane_id = state.workspaces[0].terminal_tab(0).unwrap().root_pane;
         let terminal_id = state.workspaces[0]
             .terminal_id(pane_id)
             .expect("workspace terminal")

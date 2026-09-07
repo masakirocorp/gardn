@@ -178,7 +178,7 @@ impl App {
         let split_cwd = Some(location.path.as_path().to_path_buf()).or_else(|| {
             self.state.workspaces.get(ws_idx).and_then(|ws| {
                 let tab_idx = ws.find_tab_index_for_pane(target_pane_id)?;
-                ws.tabs.get(tab_idx)?.cwd_for_pane(
+                ws.terminal_tab(tab_idx).ok()?.cwd_for_pane(
                     target_pane_id,
                     &self.state.terminals,
                     &self.terminal_runtimes,
@@ -213,9 +213,9 @@ impl App {
                             {
                                 if let Some(tab_idx) =
                                     self.state.workspaces.get(ws_idx).and_then(|ws| {
-                                        ws.tabs
-                                            .iter()
-                                            .position(|tab| tab.number == target.tab_number)
+                                        ws.terminal_tabs()
+                                            .find(|(_, tab)| tab.number == target.tab_number)
+                                            .map(|(tab_idx, _)| tab_idx)
                                     })
                                 {
                                     view.mark_pending_remote_split_focus(
@@ -498,8 +498,10 @@ impl App {
         let Some(tab_idx) = self.state.workspaces[ws_idx].find_tab_index_for_pane(pane_id) else {
             return encode_error(id, "pane_not_found", "pane not found");
         };
-        let Some(terminal_id) = self.state.workspaces[ws_idx].tabs[tab_idx]
-            .terminal_id(pane_id)
+        let Some(terminal_id) = self.state.workspaces[ws_idx]
+            .terminal_tab(tab_idx)
+            .ok()
+            .and_then(|tab| tab.terminal_id(pane_id))
             .cloned()
         else {
             return encode_error(id, "pane_not_found", "pane not found");
@@ -758,7 +760,7 @@ impl App {
             .state
             .workspaces
             .get(ws_idx)
-            .and_then(|ws| ws.tabs.get(tab_idx))
+            .and_then(|ws| ws.terminal_tab(tab_idx).ok())
         else {
             return encode_error(id, "pane_layout_unavailable", "pane layout unavailable");
         };
@@ -817,7 +819,7 @@ impl App {
             .state
             .workspaces
             .get(ws_idx)
-            .and_then(|ws| ws.tabs.get(tab_idx))
+            .and_then(|ws| ws.terminal_tab(tab_idx).ok())
         else {
             return encode_error(id, "pane_layout_unavailable", "pane layout unavailable");
         };
@@ -891,7 +893,7 @@ impl App {
             .state
             .workspaces
             .get(ws_idx)
-            .and_then(|ws| ws.tabs.get(tab_idx))
+            .and_then(|ws| ws.terminal_tab(tab_idx).ok())
             .map(|tab| tab.layout.focused())
             .and_then(|pane_id| self.public_pane_id(ws_idx, pane_id));
         let Some(layout) = self.pane_layout_snapshot(ws_idx, tab_idx) else {
@@ -999,7 +1001,7 @@ impl App {
             .state
             .workspaces
             .get_mut(ws_idx)
-            .and_then(|ws| ws.tabs.get_mut(tab_idx))
+            .and_then(|ws| ws.terminal_tab_mut(tab_idx).ok())
             .is_some_and(|tab| {
                 if tab.layout.pane_count() <= 1 {
                     return false;
@@ -1068,7 +1070,7 @@ impl App {
             .state
             .workspaces
             .get_mut(ws_idx)
-            .and_then(|ws| ws.tabs.get_mut(tab_idx))
+            .and_then(|ws| ws.terminal_tab_mut(tab_idx).ok())
             .is_some_and(|tab| {
                 if tab.layout.pane_count() <= 1 {
                     return false;
@@ -1178,8 +1180,8 @@ impl App {
                     self.state
                         .workspaces
                         .get(ws_idx)?
-                        .tabs
-                        .get(tab_idx)
+                        .terminal_tab(tab_idx)
+                        .ok()
                         .map(|tab| tab.layout.focused())
                 })
                 .unwrap_or(PaneId::from_raw(0));
@@ -1207,7 +1209,7 @@ impl App {
                     .state
                     .workspaces
                     .get_mut(ws_idx)
-                    .and_then(|ws| ws.tabs.get_mut(tab_idx))
+                    .and_then(|ws| ws.terminal_tab_mut(tab_idx).ok())
                 {
                     let (root, has_source, has_target) = clone_layout_with_swapped_panes(
                         tab.layout.root(),
@@ -1352,7 +1354,7 @@ impl App {
                 &self.public_pane_id(ws_idx, pane_id).unwrap_or_default(),
             );
         };
-        let Some(tab) = ws.tabs.get(tab_idx) else {
+        let Some(tab) = ws.terminal_tab(tab_idx).ok() else {
             return encode_error(id, "pane_layout_unavailable", "pane layout unavailable");
         };
         let Some(pane_public_id) = self.public_pane_id(ws_idx, pane_id) else {
@@ -1365,7 +1367,7 @@ impl App {
         };
         let pane_count = tab.layout.pane_count();
         let workspace_id = ws.id.clone();
-        let tab_number = tab_idx + 1;
+        let tab_number = tab.number;
         let was_zoomed = view.tab_is_zoomed(&workspace_id, tab_number);
         let mut zoomed = was_zoomed;
         let mut zoom_changed = false;
@@ -1809,14 +1811,20 @@ impl App {
         let Some(previous_tab_id) = self.public_tab_id(source_ws_idx, source_tab_idx) else {
             return encode_error(id, "tab_not_found", "source tab not found");
         };
-        let Some(source_terminal_id) = self.state.workspaces[source_ws_idx].tabs[source_tab_idx]
-            .terminal_id(source_pane_id)
+        let Some(source_terminal_id) = self.state.workspaces[source_ws_idx]
+            .terminal_tab(source_tab_idx)
+            .ok()
+            .and_then(|tab| tab.terminal_id(source_pane_id))
             .cloned()
         else {
             return pane_not_found(id, &pane_id);
         };
 
-        if self.state.workspaces[source_ws_idx].tabs[source_tab_idx].zoomed {
+        if self.state.workspaces[source_ws_idx]
+            .terminal_tab(source_tab_idx)
+            .ok()
+            .is_some_and(|tab| tab.zoomed)
+        {
             let Some(layout) = self.pane_layout_snapshot(source_ws_idx, source_tab_idx) else {
                 return encode_error(id, "pane_layout_unavailable", "pane layout unavailable");
             };
@@ -1845,6 +1853,18 @@ impl App {
                 let Some((target_ws_idx, target_tab_idx)) = self.parse_tab_id(&tab_id) else {
                     return encode_error(id, "tab_not_found", format!("tab {tab_id} not found"));
                 };
+                let Some(target_tab) = self
+                    .state
+                    .workspaces
+                    .get(target_ws_idx)
+                    .and_then(|workspace| workspace.terminal_tab(target_tab_idx).ok())
+                else {
+                    return encode_error(
+                        id,
+                        "pane_layout_unavailable",
+                        "target tab is not a terminal tab",
+                    );
+                };
                 if source_ws_idx == target_ws_idx && source_tab_idx == target_tab_idx {
                     let Some(layout) = self.pane_layout_snapshot(source_ws_idx, source_tab_idx)
                     else {
@@ -1868,7 +1888,7 @@ impl App {
                         layout,
                     );
                 }
-                if self.state.workspaces[target_ws_idx].tabs[target_tab_idx].zoomed {
+                if target_tab.zoomed {
                     let Some(source_layout) =
                         self.pane_layout_snapshot(source_ws_idx, source_tab_idx)
                     else {
@@ -1923,9 +1943,7 @@ impl App {
                         }
                         target_pane_id
                     }
-                    None => self.state.workspaces[target_ws_idx].tabs[target_tab_idx]
-                        .layout
-                        .focused(),
+                    None => target_tab.layout.focused(),
                 };
                 let Some(public_tab_id) = self.public_tab_id(target_ws_idx, target_tab_idx) else {
                     return encode_error(id, "tab_not_found", format!("tab {tab_id} not found"));
@@ -2228,7 +2246,7 @@ impl App {
         tab_idx: usize,
     ) -> Option<PaneLayoutSnapshot> {
         let ws = self.state.workspaces.get(ws_idx)?;
-        let tab = ws.tabs.get(tab_idx)?;
+        let tab = ws.terminal_tab(tab_idx).ok()?;
         let mut area = self.state.view.terminal_area;
         if area.width == 0 || area.height == 0 {
             area = ratatui::layout::Rect::new(0, 0, 80, 24);
@@ -2296,8 +2314,8 @@ impl App {
             .state
             .workspaces
             .get(ws_idx)?
-            .tabs
-            .get(tab_idx)?
+            .terminal_tab(tab_idx)
+            .ok()?
             .layout
             .pane_count();
         (pane_count > 1).then_some((ws_idx, tab_idx))
@@ -2310,10 +2328,10 @@ impl App {
         tab_idx: usize,
     ) -> Option<PaneLayoutSnapshot> {
         let ws = self.state.workspaces.get(ws_idx)?;
-        let tab = ws.tabs.get(tab_idx)?;
+        let tab = ws.terminal_tab(tab_idx).ok()?;
         let area = normalized_terminal_area(self.state.view.terminal_area);
         let focused = view
-            .focused_pane_for_tab(&ws.id, tab_idx + 1)
+            .focused_pane_for_tab(&ws.id, tab.number)
             .filter(|pane_id| tab.panes.contains_key(pane_id))
             .unwrap_or_else(|| tab.layout.focused());
         let focused_pane_id = self.public_pane_id(ws_idx, focused)?;
@@ -2344,7 +2362,7 @@ impl App {
         Some(PaneLayoutSnapshot {
             workspace_id: self.public_workspace_id(ws_idx),
             tab_id: self.public_tab_id(ws_idx, tab_idx)?,
-            zoomed: view.tab_is_zoomed(&ws.id, tab_idx + 1),
+            zoomed: view.tab_is_zoomed(&ws.id, tab.number),
             area: layout_rect(area),
             focused_pane_id,
             panes,
@@ -2389,7 +2407,12 @@ impl App {
         pane_id: PaneId,
         direction: PaneDirection,
     ) -> Option<PaneId> {
-        let tab = self.state.workspaces.get(ws_idx)?.tabs.get(tab_idx)?;
+        let tab = self
+            .state
+            .workspaces
+            .get(ws_idx)?
+            .terminal_tab(tab_idx)
+            .ok()?;
         let panes = tab
             .layout
             .panes(normalized_terminal_area(self.state.view.terminal_area));
@@ -2413,7 +2436,7 @@ impl App {
             .state
             .workspaces
             .get_mut(ws_idx)
-            .and_then(|ws| ws.tabs.get_mut(tab_idx))?;
+            .and_then(|ws| ws.terminal_tab_mut(tab_idx).ok())?;
         let pane_count = tab.layout.pane_count();
         let mut zoom_changed = false;
         let mut reason = None;
@@ -2864,14 +2887,14 @@ mod tests {
         );
         app.state.workspaces = vec![Workspace::test_new("metadata")];
         app.state.ensure_test_terminals();
-        let pane_id = app.state.workspaces[0].tabs[0].root_pane;
+        let pane_id = app.state.workspaces[0].terminal_tab(0).unwrap().root_pane;
         let public_pane_id = app.public_pane_id(0, pane_id).unwrap();
         (app, public_pane_id)
     }
 
     fn app_with_scrollback_runtime() -> (App, String) {
         let (mut app, public_pane_id) = app_with_test_workspace();
-        let pane_id = app.state.workspaces[0].tabs[0].root_pane;
+        let pane_id = app.state.workspaces[0].terminal_tab(0).unwrap().root_pane;
         let mut scrollback = String::new();
         for line in 0..20 {
             scrollback.push_str(&format!("line {line}\r\n"));
@@ -2890,7 +2913,7 @@ mod tests {
         capacity: usize,
     ) -> (App, String, tokio::sync::mpsc::Receiver<Bytes>) {
         let (mut app, public_pane_id) = app_with_test_workspace();
-        let pane_id = app.state.workspaces[0].tabs[0].root_pane;
+        let pane_id = app.state.workspaces[0].terminal_tab(0).unwrap().root_pane;
         let (runtime, rx) =
             crate::terminal::TerminalRuntime::test_with_channel_capacity(80, 24, capacity);
         app.state.workspaces[0].insert_test_runtime(pane_id, runtime);
@@ -3003,8 +3026,10 @@ mod tests {
     fn pane_move_to_existing_tab_preserves_pane_id_and_terminal() {
         let mut app = test_app();
 
-        let source = app.state.workspaces[0].tabs[0].root_pane;
-        let source_terminal = app.state.workspaces[0].tabs[0]
+        let source = app.state.workspaces[0].terminal_tab(0).unwrap().root_pane;
+        let source_terminal = app.state.workspaces[0]
+            .terminal_tab(0)
+            .unwrap()
             .terminal_id(source)
             .unwrap()
             .clone();
@@ -3012,7 +3037,10 @@ mod tests {
         app.state.ensure_test_terminals();
         let source_public = app.public_pane_id(0, source).unwrap();
         let source_tab_public = app.public_tab_id(0, 0).unwrap();
-        let target_pane = app.state.workspaces[0].tabs[target_tab].root_pane;
+        let target_pane = app.state.workspaces[0]
+            .terminal_tab(target_tab)
+            .unwrap()
+            .root_pane;
         let target_public = app.public_pane_id(0, target_pane).unwrap();
         let target_tab_public = app.public_tab_id(0, target_tab).unwrap();
 
@@ -3044,9 +3072,19 @@ mod tests {
         assert_eq!(move_result.closed_workspace_id, None);
         assert_eq!(move_result.target_layout.panes.len(), 2);
         assert_eq!(app.state.workspaces[0].tabs.len(), 1);
-        assert_eq!(app.state.workspaces[0].tabs[0].layout.focused(), source);
         assert_eq!(
-            app.state.workspaces[0].tabs[0].terminal_id(source),
+            app.state.workspaces[0]
+                .terminal_tab(0)
+                .unwrap()
+                .layout
+                .focused(),
+            source
+        );
+        assert_eq!(
+            app.state.workspaces[0]
+                .terminal_tab(0)
+                .unwrap()
+                .terminal_id(source),
             Some(&source_terminal)
         );
     }
@@ -3058,8 +3096,8 @@ mod tests {
             .workspaces
             .push(crate::workspace::Workspace::test_new("target"));
         app.state.ensure_test_terminals();
-        let source = app.state.workspaces[0].tabs[0].root_pane;
-        let target_pane = app.state.workspaces[1].tabs[0].root_pane;
+        let source = app.state.workspaces[0].terminal_tab(0).unwrap().root_pane;
+        let target_pane = app.state.workspaces[1].terminal_tab(0).unwrap().root_pane;
         let previous_pane_id = app.public_pane_id(0, source).unwrap();
         let previous_workspace_id = app.public_workspace_id(0);
         let target_tab_id = app.public_tab_id(1, 0).unwrap();
@@ -3098,13 +3136,13 @@ mod tests {
             .workspaces
             .push(crate::workspace::Workspace::test_new("target"));
         app.state.ensure_test_terminals();
-        let source = app.state.workspaces[0].tabs[0].root_pane;
+        let source = app.state.workspaces[0].terminal_tab(0).unwrap().root_pane;
         let old_workspace_id = app.state.workspaces[0].id.clone();
         let old_pane_number = app.state.workspaces[0].public_pane_number(source).unwrap();
         let added_at = 1_700_000_000;
         assert!(app.state.insert_agent_follow_up(0, source));
         app.state.agent_follow_up[0].added_at_unix_secs = added_at;
-        let target_pane = app.state.workspaces[1].tabs[0].root_pane;
+        let target_pane = app.state.workspaces[1].terminal_tab(0).unwrap().root_pane;
         let dest_workspace_id = app.state.workspaces[1].id.clone();
         let previous_pane_id = app.public_pane_id(0, source).unwrap();
         let target_tab_id = app.public_tab_id(1, 0).unwrap();
@@ -3155,17 +3193,23 @@ mod tests {
         app.state.selected = 0;
         app.state.outer_terminal_focus = Some(false);
 
-        let pane_id = app.state.workspaces[0].tabs[0].root_pane;
-        let terminal_id = app.state.workspaces[0].tabs[0].panes[&pane_id]
+        let pane_id = app.state.workspaces[0].terminal_tab(0).unwrap().root_pane;
+        let terminal_id = app.state.workspaces[0].terminal_tab(0).unwrap().panes[&pane_id]
             .attached_terminal_id
             .clone();
         app.state.terminals.get_mut(&terminal_id).unwrap().state = crate::detect::AgentState::Idle;
-        app.state.workspaces[0].tabs[0]
+        app.state.workspaces[0]
+            .terminal_tab_mut(0)
+            .unwrap()
             .panes
             .get_mut(&pane_id)
             .unwrap()
             .seen = false;
-        app.state.workspaces[0].tabs[0].layout.focus_pane(pane_id);
+        app.state.workspaces[0]
+            .terminal_tab_mut(0)
+            .unwrap()
+            .layout
+            .focus_pane(pane_id);
         let public_pane_id = app.public_pane_id(0, pane_id).unwrap();
 
         let response = app.handle_pane_focus(
@@ -3177,7 +3221,7 @@ mod tests {
 
         let success: SuccessResponse = serde_json::from_str(&response).unwrap();
         assert!(matches!(success.result, ResponseResult::PaneInfo { .. }));
-        assert!(app.state.workspaces[0].tabs[0].panes[&pane_id].seen);
+        assert!(app.state.workspaces[0].terminal_tab(0).unwrap().panes[&pane_id].seen);
     }
 
     #[tokio::test]
@@ -3194,8 +3238,8 @@ mod tests {
             .unwrap()
             .connect_test_host(host_id.clone());
 
-        let root_pane = app.state.workspaces[0].tabs[0].root_pane;
-        let source_terminal = app.state.workspaces[0].tabs[0].panes[&root_pane]
+        let root_pane = app.state.workspaces[0].terminal_tab(0).unwrap().root_pane;
+        let source_terminal = app.state.workspaces[0].terminal_tab(0).unwrap().panes[&root_pane]
             .attached_terminal_id
             .clone();
         let location = crate::execution_host::ResourceLocation::new(
@@ -3245,7 +3289,10 @@ mod tests {
             other.pending_focused_panes.is_empty(),
             "other clients must not inherit initiator pending split focus"
         );
-        assert_eq!(app.state.workspaces[0].tabs[0].panes.len(), 1);
+        assert_eq!(
+            app.state.workspaces[0].terminal_tab(0).unwrap().panes.len(),
+            1
+        );
 
         let (respond_to, response_rx) = std::sync::mpsc::channel();
         let (terminal_id, pending) =
@@ -3269,8 +3316,13 @@ mod tests {
 
         initiator.reconcile(&app.state);
         other.reconcile(&app.state);
-        assert_eq!(app.state.workspaces[0].tabs[0].panes.len(), 2);
-        let new_pane = app.state.workspaces[0].tabs[0]
+        assert_eq!(
+            app.state.workspaces[0].terminal_tab(0).unwrap().panes.len(),
+            2
+        );
+        let new_pane = app.state.workspaces[0]
+            .terminal_tab(0)
+            .unwrap()
             .panes
             .keys()
             .copied()
@@ -3289,7 +3341,11 @@ mod tests {
         assert!(initiator.pending_focused_panes.is_empty());
         // Shared layout focus must not flip for view-scoped focus=true.
         assert_eq!(
-            app.state.workspaces[0].tabs[0].layout.focused(),
+            app.state.workspaces[0]
+                .terminal_tab(0)
+                .unwrap()
+                .layout
+                .focused(),
             root_pane,
             "shared tab layout focus stays on the source pane"
         );
@@ -3309,8 +3365,8 @@ mod tests {
             .unwrap()
             .connect_test_host(host_id.clone());
 
-        let root_pane = app.state.workspaces[0].tabs[0].root_pane;
-        let source_terminal = app.state.workspaces[0].tabs[0].panes[&root_pane]
+        let root_pane = app.state.workspaces[0].terminal_tab(0).unwrap().root_pane;
+        let source_terminal = app.state.workspaces[0].terminal_tab(0).unwrap().panes[&root_pane]
             .attached_terminal_id
             .clone();
         let location = crate::execution_host::ResourceLocation::new(
@@ -3385,7 +3441,14 @@ mod tests {
             other_focus_before
         );
         app.default_client_view.reconcile(&app.state);
-        assert_eq!(app.state.workspaces[0].tabs[0].layout.focused(), root_pane);
+        assert_eq!(
+            app.state.workspaces[0]
+                .terminal_tab(0)
+                .unwrap()
+                .layout
+                .focused(),
+            root_pane
+        );
     }
 
     #[tokio::test]
@@ -3402,8 +3465,8 @@ mod tests {
             .unwrap()
             .connect_test_host(host_id.clone());
 
-        let root_pane = app.state.workspaces[0].tabs[0].root_pane;
-        let source_terminal = app.state.workspaces[0].tabs[0].panes[&root_pane]
+        let root_pane = app.state.workspaces[0].terminal_tab(0).unwrap().root_pane;
+        let source_terminal = app.state.workspaces[0].terminal_tab(0).unwrap().panes[&root_pane]
             .attached_terminal_id
             .clone();
         let location = crate::execution_host::ResourceLocation::new(
@@ -3502,8 +3565,10 @@ mod tests {
             .unwrap()
             .connect_test_host(host_id.clone());
 
-        let pane_id = app.state.workspaces[0].tabs[0].root_pane;
-        let terminal_id = app.state.workspaces[0].tabs[0]
+        let pane_id = app.state.workspaces[0].terminal_tab(0).unwrap().root_pane;
+        let terminal_id = app.state.workspaces[0]
+            .terminal_tab(0)
+            .unwrap()
             .terminal_id(pane_id)
             .unwrap()
             .clone();

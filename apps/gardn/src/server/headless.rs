@@ -605,7 +605,7 @@ impl HeadlessServer {
         let workspace = self.app.state.workspaces.get(workspace_index)?;
         let tab_index = view.active_tab_index_for_workspace(&self.app.state, workspace_index)?;
         let tab = workspace.tabs.get(tab_index)?;
-        Some(TabControlKey::new(&workspace.id, tab.number))
+        Some(TabControlKey::new(&workspace.id, tab.number()))
     }
     fn tab_control_key_exists(&self, key: &TabControlKey) -> bool {
         self.app.state.workspaces.iter().any(|workspace| {
@@ -613,7 +613,7 @@ impl HeadlessServer {
                 && workspace
                     .tabs
                     .iter()
-                    .any(|tab| tab.number == key.tab_number)
+                    .any(|tab| tab.number() == key.tab_number)
         })
     }
 
@@ -899,7 +899,7 @@ impl HeadlessServer {
 
         let mut pane_by_terminal = HashMap::new();
         for ws in &self.app.state.workspaces {
-            for tab in &ws.tabs {
+            for (_, tab) in ws.terminal_tabs() {
                 for (pane_id, pane) in &tab.panes {
                     pane_by_terminal.insert(pane.attached_terminal_id.clone(), pane_id.raw());
                 }
@@ -1249,7 +1249,7 @@ impl HeadlessServer {
         else {
             return false;
         };
-        let Some(tab) = workspace.tabs.get(tab_idx) else {
+        let Ok(tab) = workspace.terminal_tab(tab_idx) else {
             return false;
         };
         if !tab.panes.contains_key(&pane_id) {
@@ -1801,7 +1801,7 @@ impl HeadlessServer {
             .workspaces
             .iter()
             .find_map(|ws| {
-                ws.tabs.iter().find_map(|tab| {
+                ws.terminal_tabs().find_map(|(_, tab)| {
                     let pane = tab.panes.get(&pane_id)?;
                     self.app
                         .state
@@ -2065,7 +2065,7 @@ impl HeadlessServer {
                 continue;
             };
             let owns_workspace_pane = self.app.state.workspaces.iter().any(|workspace| {
-                workspace.tabs.iter().any(|tab| {
+                workspace.terminal_tabs().any(|(_, tab)| {
                     tab.panes
                         .get(&pane_id)
                         .is_some_and(|pane| pane.attached_terminal_id == terminal_id)
@@ -2107,7 +2107,7 @@ impl HeadlessServer {
         }
 
         self.app.state.workspaces.iter().find_map(|workspace| {
-            workspace.tabs.iter().find_map(|tab| {
+            workspace.terminal_tabs().find_map(|(_, tab)| {
                 tab.panes.contains_key(&pane_id).then(|| {
                     self.tab_controls
                         .status(&TabControlKey::new(&workspace.id, tab.number))
@@ -2127,7 +2127,7 @@ impl HeadlessServer {
                 .is_some_and(|terminal| terminal.location.is_local());
         }
         self.app.state.workspaces.iter().any(|workspace| {
-            workspace.tabs.iter().any(|tab| {
+            workspace.terminal_tabs().any(|(_, tab)| {
                 tab.panes.get(&pane_id).is_some_and(|pane| {
                     self.app
                         .state
@@ -2428,7 +2428,7 @@ impl HeadlessServer {
             AppEvent::PaneDied { pane_id, .. } => {
                 let pane_id_val = *pane_id;
                 let terminal_id = self.app.state.workspaces.iter().find_map(|ws| {
-                    ws.tabs.iter().find_map(|tab| {
+                    ws.terminal_tabs().find_map(|(_, tab)| {
                         tab.panes
                             .get(pane_id)
                             .map(|pane| pane.attached_terminal_id.clone())
@@ -3562,7 +3562,7 @@ impl HeadlessServer {
                 .iter()
                 .enumerate()
                 .flat_map(|(ws_idx, ws)| {
-                    ws.tabs.iter().flat_map(move |tab| {
+                    ws.terminal_tabs().flat_map(move |(_, tab)| {
                         tab.panes.iter().filter_map(move |(&pane_id, pane)| {
                             terminals
                                 .get(&pane.attached_terminal_id)
@@ -3720,12 +3720,10 @@ impl HeadlessServer {
         // during the API request. Hook authority is already folded into
         // pane.state, so raw hook transitions must not produce separate sounds.
         for (ws_idx, pane_id, prev_state) in &pane_states_before {
-            let pane_after = self
-                .app
-                .state
-                .workspaces
-                .get(*ws_idx)
-                .and_then(|ws| ws.tabs.iter().find_map(|tab| tab.panes.get(pane_id)));
+            let pane_after = self.app.state.workspaces.get(*ws_idx).and_then(|ws| {
+                ws.terminal_tabs()
+                    .find_map(|(_, tab)| tab.panes.get(pane_id))
+            });
 
             let Some(pane_after) = pane_after else {
                 continue;
@@ -4839,7 +4837,10 @@ mod tests {
         let mut server = test_headless_server();
         server.app.state.workspaces = vec![crate::workspace::Workspace::test_new("test")];
         server.app.state.ensure_test_terminals();
-        let pane_id = server.app.state.workspaces[0].tabs[0].root_pane;
+        let pane_id = server.app.state.workspaces[0]
+            .terminal_tab(0)
+            .unwrap()
+            .root_pane;
         let terminal_id = server.app.state.workspaces[0]
             .terminal_id(pane_id)
             .expect("workspace terminal")
@@ -5018,7 +5019,7 @@ mod tests {
         let mut server = test_headless_server();
         let mut workspace = crate::workspace::Workspace::test_new("test");
         let background_tab = workspace.test_add_tab(Some("background"));
-        let background_pane = workspace.tabs[background_tab].root_pane;
+        let background_pane = workspace.terminal_tab(background_tab).unwrap().root_pane;
         server.app.state.workspaces = vec![workspace];
         server.app.state.active = Some(0);
         server.app.state.selected = 0;
@@ -5079,11 +5080,15 @@ mod tests {
         let mut workspace = crate::workspace::Workspace::test_new("test");
         let workspace_id = workspace.id.clone();
         let background_tab = workspace.test_add_tab(Some("background"));
-        let background_pane = workspace.tabs[background_tab].root_pane;
-        workspace.tabs[background_tab].runtimes.insert(
-            background_pane,
-            crate::terminal::TerminalRuntime::test_with_screen_bytes(80, 24, b"before"),
-        );
+        let background_pane = workspace.terminal_tab(background_tab).unwrap().root_pane;
+        workspace
+            .terminal_tab_mut(background_tab)
+            .unwrap()
+            .runtimes
+            .insert(
+                background_pane,
+                crate::terminal::TerminalRuntime::test_with_screen_bytes(80, 24, b"before"),
+            );
         server.app.state.workspaces = vec![workspace];
         server.app.state.active = Some(0);
         server.app.state.selected = 0;
@@ -5239,7 +5244,7 @@ mod tests {
         terminal_bytes: &[u8],
     ) -> tokio::sync::mpsc::Receiver<Bytes> {
         let mut workspace = crate::workspace::Workspace::test_new("focus-reporting");
-        let pane_id = workspace.tabs[0].root_pane;
+        let pane_id = workspace.terminal_tab(0).unwrap().root_pane;
         let (runtime, input_rx) =
             crate::terminal::TerminalRuntime::test_with_channel_and_scrollback_bytes(
                 80,
@@ -5275,14 +5280,16 @@ mod tests {
         server.app.state.active = Some(0);
         server.app.state.selected = 0;
         server.app.state.mode = crate::app::Mode::Terminal;
+        let workspace_id = server.app.state.workspaces[0].id.clone();
         let mut view = crate::app::ClientViewState::from_default_client_state(&server.app.state);
         server.app.open_github_for_view(&mut view);
-        let workspace_id = server.app.state.workspaces[0].id.clone();
+        assert!(view.focused_tab_is_github(&server.app.state));
         let github_tab = server.app.state.workspaces[0]
             .tabs
             .iter()
-            .position(|tab| tab.role == crate::workspace::TabRole::Github)
+            .position(|tab| tab.is_github())
             .expect("GitHub tab");
+        let github_number = server.app.state.workspaces[0].tabs[github_tab].number();
         let mut client = test_app_client(None, 1);
         client.view_state = Some(view);
         server.clients.insert(1, client);
@@ -5291,13 +5298,15 @@ mod tests {
 
         assert_eq!(server.app.state.workspaces[0].tabs.len(), 2);
         assert_eq!(
-            server.app.state.workspaces[0].tabs[github_tab].role,
-            crate::workspace::TabRole::Github
+            server.app.state.workspaces[0].tabs[github_tab].number(),
+            github_number
         );
+        assert!(server.app.state.workspaces[0].tabs[github_tab].is_github());
         let mut reattached =
             crate::app::ClientViewState::from_default_client_state(&server.app.state);
         reattached.active_tabs.insert(workspace_id, github_tab);
         assert!(server.app.pump_github_for_view(&mut reattached));
+        assert!(reattached.focused_tab_is_github(&server.app.state));
         assert!(reattached.github.is_some());
     }
 
@@ -5439,7 +5448,10 @@ mod tests {
         server.app.state.ensure_test_terminals();
         server.app.state.active = Some(0);
         server.app.state.selected = 0;
-        let root_pane = server.app.state.workspaces[0].tabs[0].root_pane;
+        let root_pane = server.app.state.workspaces[0]
+            .terminal_tab(0)
+            .unwrap()
+            .root_pane;
         let terminal_id = server.app.state.terminal_id_for_pane(0, root_pane).unwrap();
         server
             .app
@@ -5486,10 +5498,13 @@ mod tests {
     fn headless_working_animation_requires_an_app_client() {
         let mut server = test_headless_server();
         let workspace = crate::workspace::Workspace::test_new("working");
-        let pane_id = workspace.tabs[0].root_pane;
+        let pane_id = workspace.terminal_tab(0).unwrap().root_pane;
         server.app.state.workspaces = vec![workspace];
         server.app.state.ensure_test_terminals();
-        let terminal_id = server.app.state.workspaces[0].tabs[0].panes[&pane_id]
+        let terminal_id = server.app.state.workspaces[0]
+            .terminal_tab(0)
+            .unwrap()
+            .panes[&pane_id]
             .attached_terminal_id
             .clone();
         let terminal = server
@@ -6025,7 +6040,7 @@ next_tab = ""
     async fn direct_semantic_terminal_attach_does_not_forward_key_releases() {
         let mut server = test_headless_server();
         let workspace = crate::workspace::Workspace::test_new("attached");
-        let pane_id = workspace.tabs[0].root_pane;
+        let pane_id = workspace.terminal_tab(0).unwrap().root_pane;
         let terminal_id = workspace
             .pane_state(pane_id)
             .expect("root pane")
@@ -6208,7 +6223,7 @@ next_tab = ""
     fn terminal_attach_client_exits_when_attached_pane_dies() {
         let mut server = test_headless_server();
         let workspace = crate::workspace::Workspace::test_new("attached");
-        let pane_id = workspace.tabs[0].root_pane;
+        let pane_id = workspace.terminal_tab(0).unwrap().root_pane;
         server.app.state.workspaces = vec![workspace];
         server.app.state.ensure_test_terminals();
         let terminal_id = server.app.state.workspaces[0]
@@ -6259,7 +6274,7 @@ next_tab = ""
     fn terminal_control_rejects_attach_during_alt_screen_read() {
         let mut server = test_headless_server();
         let workspace = crate::workspace::Workspace::test_new("attached");
-        let pane_id = workspace.tabs[0].root_pane;
+        let pane_id = workspace.terminal_tab(0).unwrap().root_pane;
         server.app.state.workspaces = vec![workspace];
         server.app.state.ensure_test_terminals();
         let terminal_id = server.app.state.workspaces[0]
@@ -6333,7 +6348,7 @@ next_tab = ""
     async fn explicit_agent_history_read_requires_idle_on_alternate_screen() {
         let mut server = test_headless_server();
         let workspace = crate::workspace::Workspace::test_new("agent");
-        let pane_id = workspace.tabs[0].root_pane;
+        let pane_id = workspace.terminal_tab(0).unwrap().root_pane;
         server.app.state.workspaces = vec![workspace];
         server.app.state.ensure_test_terminals();
         let terminal_id = server.app.state.workspaces[0]
@@ -6399,7 +6414,7 @@ next_tab = ""
     fn headless_scheduled_tasks_expire_agent_metadata() {
         let mut server = test_headless_server();
         let workspace = crate::workspace::Workspace::test_new("metadata");
-        let pane_id = workspace.tabs[0].root_pane;
+        let pane_id = workspace.terminal_tab(0).unwrap().root_pane;
         server.app.state.workspaces = vec![workspace];
         server.app.state.ensure_test_terminals();
 
@@ -6511,7 +6526,7 @@ next_tab = ""
     async fn virtual_render_preserves_explicit_frame_cursor_position() {
         let mut state = AppState::test_new();
         let mut ws = crate::workspace::Workspace::test_new("test");
-        let pane_id = ws.tabs[0].root_pane;
+        let pane_id = ws.terminal_tab(0).unwrap().root_pane;
         ws.insert_test_runtime(
             pane_id,
             crate::terminal::TerminalRuntime::test_with_screen_bytes(20, 5, b"left"),
@@ -6547,7 +6562,7 @@ next_tab = ""
     async fn virtual_render_preserves_hidden_focused_pane_cursor_position() {
         let mut state = AppState::test_new();
         let mut ws = crate::workspace::Workspace::test_new("test");
-        let pane_id = ws.tabs[0].root_pane;
+        let pane_id = ws.terminal_tab(0).unwrap().root_pane;
         ws.insert_test_runtime(
             pane_id,
             crate::terminal::TerminalRuntime::test_with_screen_bytes(20, 5, b"left\x1b[?25l"),
@@ -6584,7 +6599,7 @@ next_tab = ""
         let mut state = AppState::test_new();
         state.reveal_hidden_cursor_for_cjk_ime = true;
         let mut ws = crate::workspace::Workspace::test_new("test");
-        let pane_id = ws.tabs[0].root_pane;
+        let pane_id = ws.terminal_tab(0).unwrap().root_pane;
         ws.insert_test_runtime(
             pane_id,
             crate::terminal::TerminalRuntime::test_with_screen_bytes(20, 5, b"left\x1b[?25l"),
@@ -6622,7 +6637,7 @@ next_tab = ""
         let mut state = AppState::test_new();
         state.reveal_hidden_cursor_for_cjk_ime = true;
         let mut ws = crate::workspace::Workspace::test_new("test");
-        let pane_id = ws.tabs[0].root_pane;
+        let pane_id = ws.terminal_tab(0).unwrap().root_pane;
         let mut bytes = Vec::new();
         for line in 0..80 {
             bytes.extend_from_slice(format!("line {line:02}\r\n").as_bytes());
@@ -6659,7 +6674,7 @@ next_tab = ""
         let mut state = AppState::test_new();
         state.reveal_hidden_cursor_for_cjk_ime = true;
         let mut ws = crate::workspace::Workspace::test_new("test");
-        let pane_id = ws.tabs[0].root_pane;
+        let pane_id = ws.terminal_tab(0).unwrap().root_pane;
         // Feed only ?25l with no prior cursor movement — exercises the fallback
         // path for TUIs whose viewport has no cursor position.
         ws.insert_test_runtime(
@@ -6703,7 +6718,7 @@ next_tab = ""
         state.cjk_ime_agent_filter_configured = true;
         state.cjk_ime_agents = vec![crate::detect::Agent::Claude];
         let mut ws = crate::workspace::Workspace::test_new("test");
-        let pane_id = ws.tabs[0].root_pane;
+        let pane_id = ws.terminal_tab(0).unwrap().root_pane;
         ws.insert_test_runtime(
             pane_id,
             crate::terminal::TerminalRuntime::test_with_screen_bytes(20, 5, b"left\x1b[?25l"),
@@ -6731,7 +6746,7 @@ next_tab = ""
         state.cjk_ime_agent_filter_configured = true;
         state.cjk_ime_agents = Vec::new();
         let mut ws = crate::workspace::Workspace::test_new("test");
-        let pane_id = ws.tabs[0].root_pane;
+        let pane_id = ws.terminal_tab(0).unwrap().root_pane;
         ws.insert_test_runtime(
             pane_id,
             crate::terminal::TerminalRuntime::test_with_screen_bytes(20, 5, b"left\x1b[?25l"),
@@ -6756,7 +6771,7 @@ next_tab = ""
     async fn virtual_render_omits_focused_pane_cursor_while_mobile_switcher_open() {
         let mut state = AppState::test_new();
         let mut ws = crate::workspace::Workspace::test_new("test");
-        let pane_id = ws.tabs[0].root_pane;
+        let pane_id = ws.terminal_tab(0).unwrap().root_pane;
         ws.insert_test_runtime(
             pane_id,
             crate::terminal::TerminalRuntime::test_with_screen_bytes(20, 5, b"left"),
@@ -6778,7 +6793,7 @@ next_tab = ""
     async fn virtual_render_hides_focused_pane_cursor_while_scrolled_back() {
         let mut state = AppState::test_new();
         let mut ws = crate::workspace::Workspace::test_new("test");
-        let pane_id = ws.tabs[0].root_pane;
+        let pane_id = ws.terminal_tab(0).unwrap().root_pane;
         let mut bytes = Vec::new();
         for line in 0..80 {
             bytes.extend_from_slice(format!("line {line:02}\r\n").as_bytes());
@@ -7062,8 +7077,10 @@ next_tab = ""
         let mut workspace = crate::workspace::Workspace::test_new("restore");
         let workspace_id = workspace.id.clone();
         let restored_tab = workspace.test_add_tab(Some("restored agent"));
-        let restored_pane = workspace.tabs[restored_tab].root_pane;
-        let restored_terminal = workspace.tabs[restored_tab]
+        let restored_pane = workspace.terminal_tab(restored_tab).unwrap().root_pane;
+        let restored_terminal = workspace
+            .terminal_tab(restored_tab)
+            .unwrap()
             .terminal_id(restored_pane)
             .cloned()
             .expect("restored pane should have terminal");
@@ -7204,7 +7221,7 @@ next_tab = ""
 
         let mut workspace = crate::workspace::Workspace::test_new("A_ONLY");
         workspace.group_id = workspace_group.id.clone();
-        let pane_id = workspace.tabs[0].root_pane;
+        let pane_id = workspace.terminal_tab(0).unwrap().root_pane;
         workspace.insert_test_runtime(
             pane_id,
             crate::terminal::TerminalRuntime::test_with_screen_bytes(80, 24, b"A_ONLY_MARKER"),
@@ -7288,16 +7305,20 @@ next_tab = ""
         let mut server = test_headless_server();
         let mut workspace = crate::workspace::Workspace::test_new("test");
         let background_tab = workspace.test_add_tab(Some("background"));
-        let active_pane = workspace.tabs[0].root_pane;
-        let background_pane = workspace.tabs[background_tab].root_pane;
-        workspace.tabs[0].runtimes.insert(
+        let active_pane = workspace.terminal_tab(0).unwrap().root_pane;
+        let background_pane = workspace.terminal_tab(background_tab).unwrap().root_pane;
+        workspace.terminal_tab_mut(0).unwrap().runtimes.insert(
             active_pane,
             crate::terminal::TerminalRuntime::test_with_screen_bytes(80, 24, b""),
         );
-        workspace.tabs[background_tab].runtimes.insert(
-            background_pane,
-            crate::terminal::TerminalRuntime::test_with_screen_bytes(80, 24, b""),
-        );
+        workspace
+            .terminal_tab_mut(background_tab)
+            .unwrap()
+            .runtimes
+            .insert(
+                background_pane,
+                crate::terminal::TerminalRuntime::test_with_screen_bytes(80, 24, b""),
+            );
         server.app.state.workspaces = vec![workspace];
         server.app.state.active = Some(0);
         server.app.state.selected = 0;
@@ -7352,9 +7373,13 @@ next_tab = ""
     async fn tab_control_is_explicit_and_exclusive_across_clients() {
         let mut server = test_headless_server();
         let mut workspace = crate::workspace::Workspace::test_new("control");
-        let pane_id = workspace.tabs[0].root_pane;
+        let pane_id = workspace.terminal_tab(0).unwrap().root_pane;
         let (runtime, mut input_rx) = crate::terminal::TerminalRuntime::test_with_channel(80, 24);
-        workspace.tabs[0].runtimes.insert(pane_id, runtime);
+        workspace
+            .terminal_tab_mut(0)
+            .unwrap()
+            .runtimes
+            .insert(pane_id, runtime);
         server.app.state.workspaces = vec![workspace];
         server.app.state.active = Some(0);
         server.app.state.selected = 0;
@@ -7534,7 +7559,7 @@ next_tab = ""
         ));
 
         let workspace_id = server.app.state.workspaces[0].id.clone();
-        let tab_number = server.app.state.workspaces[0].tabs[1].number;
+        let tab_number = server.app.state.workspaces[0].tabs[1].number();
         let tab_id = crate::workspace::public_tab_id_for_number(&workspace_id, tab_number);
         let (respond_to, response_rx) = std::sync::mpsc::channel();
         assert!(
@@ -7568,7 +7593,7 @@ next_tab = ""
         let _runtime_guard = rt.enter();
         let mut server = test_headless_server();
         let workspace = crate::workspace::Workspace::test_new("test");
-        let pane_id = workspace.tabs[0].root_pane;
+        let pane_id = workspace.terminal_tab(0).unwrap().root_pane;
         let terminal_id = workspace.terminal_id(pane_id).expect("terminal id").clone();
         let terminal_id_string = terminal_id.to_string();
         server.app.state.workspaces = vec![workspace];
@@ -7809,7 +7834,7 @@ next_tab = ""
     async fn structured_focus_targets_the_clients_focused_pane() {
         let mut server = test_headless_server();
         let mut workspace = crate::workspace::Workspace::test_new("focus-view");
-        let first_pane = workspace.tabs[0].root_pane;
+        let first_pane = workspace.terminal_tab(0).unwrap().root_pane;
         let second_pane = workspace.test_split(ratatui::layout::Direction::Horizontal);
         let (first_runtime, mut first_rx) =
             crate::terminal::TerminalRuntime::test_with_channel_and_scrollback_bytes(
@@ -8460,7 +8485,7 @@ next_tab = ""
     fn terminal_clipboard_write_targets_controller_not_watcher() {
         let mut server = test_headless_server();
         let workspace = crate::workspace::Workspace::test_new("osc-controller");
-        let pane_id = workspace.tabs[0].root_pane;
+        let pane_id = workspace.terminal_tab(0).unwrap().root_pane;
         server.app.state.workspaces = vec![workspace];
         server.app.state.active = Some(0);
         server.app.state.selected = 0;
@@ -8642,7 +8667,7 @@ next_tab = ""
     fn stale_terminal_attach_owner_does_not_mask_valid_ownership() {
         let mut server = test_headless_server();
         let workspace = crate::workspace::Workspace::test_new("stale-owner");
-        let pane_id = workspace.tabs[0].root_pane;
+        let pane_id = workspace.terminal_tab(0).unwrap().root_pane;
         server.app.state.workspaces = vec![workspace];
         server.app.state.active = Some(0);
         server.app.state.selected = 0;
@@ -8864,8 +8889,13 @@ next_tab = ""
         server.app.state.mode = crate::app::Mode::Terminal;
         server.app.state.toast_config.delivery = crate::config::ToastDelivery::Gardn;
 
-        let target_pane = server.app.state.workspaces[1].tabs[0].root_pane;
+        let target_pane = server.app.state.workspaces[1]
+            .terminal_tab(0)
+            .unwrap()
+            .root_pane;
         let target_terminal = server.app.state.workspaces[1]
+            .terminal_tab(0)
+            .unwrap()
             .panes
             .get(&target_pane)
             .expect("target pane")
@@ -8955,10 +8985,12 @@ next_tab = ""
         server.app.state.mode = crate::app::Mode::Terminal;
         server.app.state.toast_config.delivery = crate::config::ToastDelivery::Gardn;
 
-        let target_pane = server.app.state.workspaces[1].tabs[0].root_pane;
+        let target_pane = server.app.state.workspaces[1]
+            .terminal_tab(0)
+            .unwrap()
+            .root_pane;
         let target_terminal = server.app.state.workspaces[1]
-            .panes
-            .get(&target_pane)
+            .pane_state(target_pane)
             .expect("target pane")
             .attached_terminal_id
             .clone();
@@ -9108,7 +9140,7 @@ next_tab = ""
     fn stale_api_agent_report_does_not_forward_done_sound() {
         let mut server = test_headless_server();
         let background = crate::workspace::Workspace::test_new("background");
-        let pane_id = background.tabs[0].root_pane;
+        let pane_id = background.terminal_tab(0).unwrap().root_pane;
         let public_pane_id = format!("{}-1", background.id);
         let foreground = crate::workspace::Workspace::test_new("foreground");
         server.app.state.workspaces = vec![background, foreground];
@@ -9306,7 +9338,10 @@ next_tab = ""
         server.sync_window_title();
         assert_eq!(next_window_title(&control_rx).as_deref(), Some("herd/1"));
 
-        server.app.state.workspaces[0].tabs[0].custom_name = Some("build".into());
+        server.app.state.workspaces[0]
+            .terminal_tab_mut(0)
+            .unwrap()
+            .set_custom_name("build".into());
         server.sync_window_title();
         assert_eq!(
             next_window_title(&control_rx).as_deref(),
@@ -9321,7 +9356,10 @@ next_tab = ""
     #[tokio::test]
     async fn window_title_uses_the_focused_pane_terminal_title() {
         let mut server = window_title_test_server("{terminal_title}");
-        let pane_id = server.app.state.workspaces[0].tabs[0].root_pane;
+        let pane_id = server.app.state.workspaces[0]
+            .terminal_tab(0)
+            .unwrap()
+            .root_pane;
         let runtime = crate::terminal::TerminalRuntime::test_with_screen_bytes(80, 24, b"");
         server.app.state.workspaces[0].insert_test_runtime(pane_id, runtime);
         let (control_rx, _render_rx) = attach_window_title_client(&mut server, 1);

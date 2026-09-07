@@ -530,7 +530,7 @@ fn focused_graphics_blit_pane(app: &AppState) -> Option<PaneId> {
         return None;
     }
     let workspace = app.workspaces.get(app.active?)?;
-    let tab = workspace.active_tab()?;
+    let tab = workspace.terminal_tab(workspace.active_tab_index()).ok()?;
     if tab.layout.pane_ids().len() != 1 && !tab.zoomed {
         return None;
     }
@@ -544,7 +544,7 @@ fn focused_graphics_blit_pane_for_view(app: &AppState, view: &ClientViewState) -
     let ws_idx = view.active_workspace?;
     let workspace = app.workspaces.get(ws_idx)?;
     let tab_idx = view.active_tab_for_workspace(&workspace.id)?;
-    let tab = workspace.tabs.get(tab_idx)?;
+    let tab = workspace.terminal_tab(tab_idx).ok()?;
     if tab.layout.pane_ids().len() != 1 && !tab.zoomed {
         return None;
     }
@@ -624,14 +624,6 @@ fn collect_visible_placements_for_view(
         return Vec::new();
     };
     for info in &view.computed.pane_infos {
-        if view
-            .github
-            .as_ref()
-            .and(view.github_host.as_ref())
-            .is_some_and(|host| host.root_pane() == info.id)
-        {
-            continue;
-        }
         if blit_pane.is_some_and(|pane_id| pane_id != info.id) {
             continue;
         }
@@ -1819,7 +1811,7 @@ mod tests {
         app.mode = Mode::Terminal;
         app.workspaces = vec![crate::workspace::Workspace::test_new("tb")];
         app.active = Some(0);
-        let pane_id = app.workspaces[0].tabs[0].root_pane;
+        let pane_id = app.workspaces[0].terminal_tab(0).unwrap().root_pane;
 
         assert_eq!(focused_graphics_blit_pane(&app), Some(pane_id));
     }
@@ -1835,8 +1827,9 @@ mod tests {
 
         assert_eq!(focused_graphics_blit_pane(&app), None);
 
-        app.workspaces[0].tabs[0].zoomed = true;
-        let focused = app.workspaces[0].tabs[0].layout.focused();
+        let tab = app.workspaces[0].terminal_tab_mut(0).unwrap();
+        tab.zoomed = true;
+        let focused = tab.layout.focused();
         assert_eq!(focused_graphics_blit_pane(&app), Some(focused));
     }
 

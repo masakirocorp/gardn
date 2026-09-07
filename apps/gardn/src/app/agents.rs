@@ -10,7 +10,7 @@ impl App {
             .iter()
             .enumerate()
             .flat_map(|(ws_idx, ws)| {
-                ws.tabs.iter().flat_map(move |tab| {
+                ws.terminal_tabs().flat_map(move |(_, tab)| {
                     tab.layout
                         .pane_ids()
                         .into_iter()
@@ -165,7 +165,16 @@ impl App {
                     return Err(AgentStartError::PlacementConflict);
                 }
             }
-            let target_pane = self.state.workspaces[ws_idx].tabs[tab_idx].layout.focused();
+            let target_pane = self.state.workspaces[ws_idx]
+                .terminal_tab(tab_idx)
+                .map_err(|error| match error {
+                    crate::workspace::TerminalTabError::NotFound => {
+                        AgentStartError::TargetNotFound { target: tab_id }
+                    }
+                    crate::workspace::TerminalTabError::NativeTab => AgentStartError::NativeTab,
+                })?
+                .layout
+                .focused();
             self.spawn_agent_split(
                 ws_idx,
                 target_pane,
@@ -184,7 +193,18 @@ impl App {
                 }
             })?;
             let tab_idx = self.state.workspaces[ws_idx].active_tab;
-            let target_pane = self.state.workspaces[ws_idx].tabs[tab_idx].layout.focused();
+            let target_pane = self.state.workspaces[ws_idx]
+                .terminal_tab(tab_idx)
+                .map_err(|error| match error {
+                    crate::workspace::TerminalTabError::NotFound => {
+                        AgentStartError::TargetNotFound {
+                            target: workspace_id,
+                        }
+                    }
+                    crate::workspace::TerminalTabError::NativeTab => AgentStartError::NativeTab,
+                })?
+                .layout
+                .focused();
             self.spawn_agent_split(
                 ws_idx,
                 target_pane,
@@ -225,9 +245,26 @@ impl App {
                 cwd_was_explicit,
             )?
         } else {
-            let ws_idx = self.state.active.unwrap_or(0);
-            let tab_idx = self.state.workspaces[ws_idx].active_tab;
-            let target_pane = self.state.workspaces[ws_idx].tabs[tab_idx].layout.focused();
+            let ws_idx = invoking_view
+                .active_workspace
+                .or(self.state.active)
+                .unwrap_or(0);
+            let workspace = &self.state.workspaces[ws_idx];
+            let tab_idx = invoking_view
+                .active_tab_for_workspace(&workspace.id)
+                .unwrap_or(workspace.active_tab);
+            let target_pane = workspace
+                .terminal_tab(tab_idx)
+                .map_err(|error| match error {
+                    crate::workspace::TerminalTabError::NotFound => {
+                        AgentStartError::TargetNotFound {
+                            target: workspace.id.to_string(),
+                        }
+                    }
+                    crate::workspace::TerminalTabError::NativeTab => AgentStartError::NativeTab,
+                })?
+                .layout
+                .focused();
             self.spawn_agent_split(
                 ws_idx,
                 target_pane,
@@ -306,6 +343,10 @@ impl App {
             AgentStartError::TargetNotFound { target } => crate::api::schema::ErrorBody {
                 code: "agent_placement_not_found".into(),
                 message: format!("agent placement target {target} not found"),
+            },
+            AgentStartError::NativeTab => crate::api::schema::ErrorBody {
+                code: "agent_placement_conflict".into(),
+                message: "agent placement requires a terminal tab, not a native tab".into(),
             },
             AgentStartError::PlacementConflict => crate::api::schema::ErrorBody {
                 code: "agent_placement_conflict".into(),
@@ -450,18 +491,20 @@ impl App {
             extra_env,
         )
         .map_err(|err| AgentStartError::SpawnFailed(err.to_string()))?;
+        let pane_id = ws
+            .terminal_tab(0)
+            .expect("new agent workspace has a terminal tab")
+            .root_pane;
         self.terminal_runtimes.insert(terminal.id.clone(), runtime);
         self.state.terminals.insert(terminal.id.clone(), terminal);
         self.state.workspaces.push(ws);
         let ws_idx = self.state.workspaces.len() - 1;
-        self.state
-            .remove_alias_shadowed_by_new_pane(self.state.workspaces[ws_idx].tabs[0].root_pane);
+        self.state.remove_alias_shadowed_by_new_pane(pane_id);
         if focus || self.state.active.is_none() {
             self.state.switch_workspace(ws_idx);
             self.state.mode = Mode::Terminal;
         }
         self.schedule_session_save();
-        let pane_id = self.state.workspaces[ws_idx].tabs[0].root_pane;
         Ok(AgentStartPlacement::Committed {
             ws_idx,
             tab_idx: 0,
@@ -683,6 +726,7 @@ pub(super) enum AgentStartError {
     TargetNotFound {
         target: String,
     },
+    NativeTab,
     PlacementConflict,
     CwdLocationConflict,
     InvalidLocation(String),
@@ -1425,5 +1469,30 @@ mod tests {
                 })
                 .collect::<Vec<_>>()
         );
+    }
+
+    #[test]
+    fn agent_start_rejects_explicit_native_tab_before_creating_a_terminal() {
+        let mut app = test_app();
+        let mut workspace = crate::workspace::Workspace::test_new("native-target");
+        let native_tab_idx = workspace.ensure_github_tab();
+        let native_tab_number = workspace.public_tab_number(native_tab_idx).unwrap();
+        let tab_id =
+            crate::workspace::public_tab_id_for_number(workspace.id.as_str(), native_tab_number);
+        app.state.workspaces.push(workspace);
+
+        let mut params = agent_params(
+            "native-target-agent",
+            None,
+            vec!["/bin/sh".into(), "-c".into(), "sleep 1".into()],
+        );
+        params.tab_id = Some(tab_id);
+
+        let result = app.start_agent(params, Vec::new());
+
+        assert!(matches!(result, Err(AgentStartError::NativeTab)));
+        assert_eq!(app.state.workspaces.len(), 1);
+        assert!(app.state.terminals.is_empty());
+        assert_eq!(app.terminal_runtimes.len(), 0);
     }
 }

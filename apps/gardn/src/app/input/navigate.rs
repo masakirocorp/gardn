@@ -226,8 +226,8 @@ impl App {
                             .state
                             .workspaces
                             .get(ws_idx)?
-                            .tabs
-                            .get(tab_idx)?
+                            .terminal_tab(tab_idx)
+                            .ok()?
                             .layout
                             .focused();
                         Some((
@@ -490,8 +490,7 @@ impl App {
                     if let Some(ws) = self.state.workspaces.get(ws_idx) {
                         let tab_idx = ws.active_tab_index();
                         let ids = ws
-                            .tabs
-                            .get(tab_idx)
+                            .terminal_tab(tab_idx)
                             .map(|tab| tab.layout.pane_ids())
                             .unwrap_or_default();
                         if let Some(current) = ws
@@ -591,8 +590,8 @@ impl App {
         let tab_idx = workspace.active_tab_index();
         let pane_id = workspace.focused_pane_id()?;
         workspace
-            .tabs
-            .get(tab_idx)?
+            .terminal_tab(tab_idx)
+            .ok()?
             .panes
             .contains_key(&pane_id)
             .then_some(CustomCommandTarget {
@@ -727,7 +726,7 @@ impl App {
                 .state
                 .workspaces
                 .get(target.ws_idx)
-                .and_then(|workspace| workspace.tabs.get(target.tab_idx))
+                .and_then(|workspace| workspace.terminal_tab(target.tab_idx).ok())
                 .and_then(|tab| {
                     tab.cwd_for_pane(
                         target.pane_id,
@@ -856,7 +855,10 @@ impl App {
         let new_rows = rows.max(4);
         let new_cols = cols.max(10);
         let (env, cwd) = self.custom_command_env(Some(target));
-        let previous_zoomed = self.state.workspaces[target.ws_idx].tabs[target.tab_idx].zoomed;
+        let previous_zoomed = self.state.workspaces[target.ws_idx]
+            .terminal_tab(target.tab_idx)
+            .map_err(|_| std::io::Error::other("no focused pane"))?
+            .zoomed;
 
         #[cfg(test)]
         if self.state.workspaces[target.ws_idx]
@@ -865,18 +867,18 @@ impl App {
         {
             let ws = &mut self.state.workspaces[target.ws_idx];
             let previous_active_tab = ws.active_tab;
-            let previous_layout_focus = ws.tabs[target.tab_idx].layout.focused();
+            let tab = ws.terminal_tab_mut(target.tab_idx).unwrap();
+            let previous_layout_focus = tab.layout.focused();
+            tab.layout.focus_pane(target.pane_id);
             ws.active_tab = target.tab_idx;
-            ws.tabs[target.tab_idx].layout.focus_pane(target.pane_id);
             let new_pane_id = ws.test_split(Direction::Horizontal);
+            let tab = ws.terminal_tab_mut(target.tab_idx).unwrap();
             if client_owner.is_some() {
-                ws.tabs[target.tab_idx]
-                    .layout
-                    .focus_pane(previous_layout_focus);
+                tab.layout.focus_pane(previous_layout_focus);
                 ws.active_tab = previous_active_tab;
             } else {
-                ws.tabs[target.tab_idx].layout.focus_pane(new_pane_id);
-                ws.tabs[target.tab_idx].zoomed = true;
+                tab.layout.focus_pane(new_pane_id);
+                tab.zoomed = true;
             }
             self.overlay_panes.insert(
                 new_pane_id,
@@ -959,8 +961,11 @@ impl App {
         if client_owner.is_none() {
             let ws = &mut self.state.workspaces[target.ws_idx];
             ws.active_tab = tab_idx;
-            ws.tabs[tab_idx].layout.focus_pane(new_pane_id);
-            ws.tabs[tab_idx].zoomed = true;
+            let tab = ws
+                .terminal_tab_mut(tab_idx)
+                .map_err(|_| std::io::Error::other("focused pane disappeared"))?;
+            tab.layout.focus_pane(new_pane_id);
+            tab.zoomed = true;
             self.state.mode = Mode::Terminal;
         }
         Ok((target.ws_idx, tab_idx, new_pane_id))
@@ -990,7 +995,7 @@ impl App {
             .focused_pane_id()
             .ok_or_else(|| std::io::Error::other("no focused pane"))?;
         let cwd = cwd.or_else(|| {
-            ws.active_tab().and_then(|tab| {
+            ws.terminal_tab(ws.active_tab_index()).ok().and_then(|tab| {
                 tab.cwd_for_pane(
                     previous_focus,
                     &self.state.terminals,
@@ -1005,7 +1010,10 @@ impl App {
                 .workspaces
                 .get_mut(ws_idx)
                 .ok_or_else(|| std::io::Error::other("active workspace disappeared"))?;
-            let previous_zoomed = ws.active_tab().map(|tab| tab.zoomed).unwrap_or(false);
+            let previous_zoomed = ws
+                .terminal_tab(ws.active_tab_index())
+                .map_err(|_| std::io::Error::other("no focused pane"))?
+                .zoomed;
             let result = ws.split_pane_argv_command(
                 previous_focus,
                 Direction::Horizontal,
@@ -1023,9 +1031,8 @@ impl App {
                 Some(Err(err)) => return Err(err),
                 None => return Err(std::io::Error::other("focused pane disappeared")),
             };
-            ws.tabs
-                .get_mut(tab_idx)
-                .ok_or_else(|| std::io::Error::other("plugin overlay tab disappeared"))?
+            ws.terminal_tab_mut(tab_idx)
+                .map_err(|_| std::io::Error::other("plugin overlay tab disappeared"))?
                 .zoomed = true;
             self.overlay_panes.insert(
                 new_pane.pane_id,
@@ -1820,8 +1827,8 @@ mod tests {
     #[test]
     fn rename_workspace_prefills_live_terminal_cwd_label() {
         let mut state = state_with_workspaces(&["stale"]);
-        let root = state.workspaces[0].tabs[0].root_pane;
-        let terminal_id = state.workspaces[0].panes[&root]
+        let root = state.workspaces[0].terminal_tab(0).unwrap().root_pane;
+        let terminal_id = state.workspaces[0].terminal_tab(0).unwrap().panes[&root]
             .attached_terminal_id
             .clone();
         state.workspaces[0].custom_name = None;
@@ -2012,7 +2019,7 @@ mod tests {
         state.keybinds.goto = crate::config::ActionKeybinds::default();
         state.keybinds.open_notification_target = crate::config::ActionKeybinds::prefix("g");
         let target_workspace_id = state.workspaces[1].id.clone();
-        let target_pane = state.workspaces[1].tabs[0].root_pane;
+        let target_pane = state.workspaces[1].terminal_tab(0).unwrap().root_pane;
         state.toast = Some(crate::app::state::ToastNotification {
             kind: crate::app::state::ToastKind::NeedsAttention,
             title: "pi needs attention".into(),
@@ -2092,11 +2099,15 @@ navigate_pane_down = "ctrl+j"
     #[test]
     fn navigate_pane_keys_are_configurable() {
         let mut state = state_with_workspaces(&["test"]);
-        let root = state.workspaces[0].tabs[0].root_pane;
+        let root = state.workspaces[0].terminal_tab(0).unwrap().root_pane;
         let below = state.workspaces[0].test_split(Direction::Vertical);
-        state.workspaces[0].layout.focus_pane(root);
+        state.workspaces[0]
+            .terminal_tab_mut(0)
+            .unwrap()
+            .layout
+            .focus_pane(root);
         state.view.pane_infos = state.workspaces[0]
-            .active_tab()
+            .terminal_tab(0)
             .unwrap()
             .layout
             .panes(ratatui::layout::Rect::new(0, 0, 80, 24));
@@ -2122,11 +2133,15 @@ navigate_pane_down = "ctrl+j"
     #[test]
     fn focus_pane_prefix_rhs_does_not_create_navigate_mode_pane_shortcut() {
         let mut state = state_with_workspaces(&["test"]);
-        let root = state.workspaces[0].tabs[0].root_pane;
+        let root = state.workspaces[0].terminal_tab(0).unwrap().root_pane;
         let below = state.workspaces[0].test_split(Direction::Vertical);
-        state.workspaces[0].layout.focus_pane(root);
+        state.workspaces[0]
+            .terminal_tab_mut(0)
+            .unwrap()
+            .layout
+            .focus_pane(root);
         state.view.pane_infos = state.workspaces[0]
-            .active_tab()
+            .terminal_tab(0)
             .unwrap()
             .layout
             .panes(ratatui::layout::Rect::new(0, 0, 80, 24));
@@ -2156,11 +2171,15 @@ focus_pane_down = "prefix+f"
     #[test]
     fn customized_navigate_pane_key_disables_matching_prefix_rhs_fallback() {
         let mut state = state_with_workspaces(&["test"]);
-        let root = state.workspaces[0].tabs[0].root_pane;
+        let root = state.workspaces[0].terminal_tab(0).unwrap().root_pane;
         let below = state.workspaces[0].test_split(Direction::Vertical);
-        state.workspaces[0].layout.focus_pane(root);
+        state.workspaces[0]
+            .terminal_tab_mut(0)
+            .unwrap()
+            .layout
+            .focus_pane(root);
         state.view.pane_infos = state.workspaces[0]
-            .active_tab()
+            .terminal_tab(0)
             .unwrap()
             .layout
             .panes(ratatui::layout::Rect::new(0, 0, 80, 24));
@@ -2190,9 +2209,13 @@ navigate_pane_down = "ctrl+j"
     #[test]
     fn left_and_right_arrows_remain_permanent_navigate_pane_aliases() {
         let mut state = state_with_workspaces(&["test"]);
-        let root = state.workspaces[0].tabs[0].root_pane;
+        let root = state.workspaces[0].terminal_tab(0).unwrap().root_pane;
         let right = state.workspaces[0].test_split(Direction::Horizontal);
-        state.workspaces[0].layout.focus_pane(right);
+        state.workspaces[0]
+            .terminal_tab_mut(0)
+            .unwrap()
+            .layout
+            .focus_pane(right);
         crate::ui::compute_view(&mut state, ratatui::layout::Rect::new(0, 0, 80, 24));
         let config: Config = toml::from_str(
             r#"
@@ -2405,9 +2428,9 @@ navigate_pane_right = "ctrl+l"
     fn open_context_menu_on_agent_pane_offers_add_to_follow_up() {
         let mut state = state_with_workspaces(&["api"]);
         state.active = Some(0);
-        let pane_id = state.workspaces[0].tabs[0].root_pane;
+        let pane_id = state.workspaces[0].terminal_tab(0).unwrap().root_pane;
         state.ensure_test_terminals();
-        let terminal_id = state.workspaces[0].tabs[0].panes[&pane_id]
+        let terminal_id = state.workspaces[0].terminal_tab(0).unwrap().panes[&pane_id]
             .attached_terminal_id
             .clone();
         if let Some(terminal) = state.terminals.get_mut(&terminal_id) {
@@ -2754,11 +2777,15 @@ command = "echo literal"
         app.state.active = Some(0);
         app.state.selected = 0;
         app.state.mode = Mode::Terminal;
-        let root = app.state.workspaces[0].tabs[0].root_pane;
+        let root = app.state.workspaces[0].terminal_tab(0).unwrap().root_pane;
         let right = app.state.workspaces[0].test_split(Direction::Horizontal);
-        app.state.workspaces[0].layout.focus_pane(right);
+        app.state.workspaces[0]
+            .terminal_tab_mut(0)
+            .unwrap()
+            .layout
+            .focus_pane(right);
         app.state.view.pane_infos = app.state.workspaces[0]
-            .active_tab()
+            .terminal_tab(0)
             .unwrap()
             .layout
             .panes(ratatui::layout::Rect::new(0, 0, 80, 24));
@@ -2788,11 +2815,15 @@ command = "echo literal"
         app.state.workspaces = vec![Workspace::test_new("test")];
         app.state.active = Some(0);
         app.state.selected = 0;
-        let root = app.state.workspaces[0].tabs[0].root_pane;
+        let root = app.state.workspaces[0].terminal_tab(0).unwrap().root_pane;
         let below = app.state.workspaces[0].test_split(Direction::Vertical);
-        app.state.workspaces[0].layout.focus_pane(below);
+        app.state.workspaces[0]
+            .terminal_tab_mut(0)
+            .unwrap()
+            .layout
+            .focus_pane(below);
         app.state.view.pane_infos = app.state.workspaces[0]
-            .active_tab()
+            .terminal_tab(0)
             .unwrap()
             .layout
             .panes(ratatui::layout::Rect::new(0, 0, 80, 24));
@@ -3034,23 +3065,42 @@ command = "echo literal"
         app.handle_key(TerminalKey::new(KeyCode::Char('g'), KeyModifiers::empty()))
             .await;
 
-        assert_eq!(app.state.workspaces[0].tabs[0].layout.pane_count(), 2);
+        assert_eq!(
+            app.state.workspaces[0]
+                .terminal_tab(0)
+                .unwrap()
+                .layout
+                .pane_count(),
+            2
+        );
         assert_eq!(app.terminal_runtimes.len(), 2);
-        assert!(app.state.workspaces[0].tabs[0].zoomed);
+        assert!(app.state.workspaces[0].terminal_tab(0).unwrap().zoomed);
 
         let _ = wait_for_file(&output_path);
         let deadline = std::time::Instant::now() + Duration::from_secs(2);
         while std::time::Instant::now() < deadline {
             if app.drain_internal_events()
-                && app.state.workspaces[0].tabs[0].layout.pane_count() == 1
+                && app.state.workspaces[0]
+                    .terminal_tab(0)
+                    .unwrap()
+                    .layout
+                    .pane_count()
+                    == 1
             {
                 break;
             }
             std::thread::sleep(Duration::from_millis(20));
         }
 
-        assert_eq!(app.state.workspaces[0].tabs[0].layout.pane_count(), 1);
-        assert!(!app.state.workspaces[0].tabs[0].zoomed);
+        assert_eq!(
+            app.state.workspaces[0]
+                .terminal_tab(0)
+                .unwrap()
+                .layout
+                .pane_count(),
+            1
+        );
+        assert!(!app.state.workspaces[0].terminal_tab(0).unwrap().zoomed);
         assert_eq!(app.state.mode, Mode::Terminal);
         let _ = std::fs::remove_file(output_path);
 
@@ -3071,8 +3121,8 @@ command = "echo literal"
             crate::api::EventHub::default(),
         );
         let mut workspace = Workspace::test_new("test");
-        let root_pane = workspace.tabs[0].root_pane;
-        workspace.tabs[0].runtimes.insert(
+        let root_pane = workspace.terminal_tab(0).unwrap().root_pane;
+        workspace.terminal_tab_mut(0).unwrap().runtimes.insert(
             root_pane,
             crate::terminal::TerminalRuntime::test_with_scrollback_bytes(
                 5,
@@ -3128,22 +3178,26 @@ command = "echo literal"
             KeyEvent::new(KeyCode::Char('g'), KeyModifiers::empty()),
         );
 
-        assert!(state.workspaces[0].zoomed);
+        assert!(state.workspaces[0].terminal_tab(0).unwrap().zoomed);
         assert_eq!(state.mode, Mode::Terminal);
     }
 
     #[test]
     fn focus_pane_action_keeps_zoomed_when_changing_focus() {
         let mut state = state_with_workspaces(&["test"]);
-        let root = state.workspaces[0].tabs[0].root_pane;
+        let root = state.workspaces[0].terminal_tab(0).unwrap().root_pane;
         let right = state.workspaces[0].test_split(Direction::Horizontal);
-        state.workspaces[0].layout.focus_pane(root);
-        state.workspaces[0].zoomed = true;
+        state.workspaces[0]
+            .terminal_tab_mut(0)
+            .unwrap()
+            .layout
+            .focus_pane(root);
+        state.workspaces[0].terminal_tab_mut(0).unwrap().zoomed = true;
         crate::ui::compute_view(&mut state, ratatui::layout::Rect::new(0, 0, 100, 20));
 
         execute_navigate_action(&mut state, NavigateAction::FocusPaneRight);
 
-        assert!(state.workspaces[0].zoomed);
+        assert!(state.workspaces[0].terminal_tab(0).unwrap().zoomed);
         assert_eq!(state.workspaces[0].focused_pane_id(), Some(right));
     }
 

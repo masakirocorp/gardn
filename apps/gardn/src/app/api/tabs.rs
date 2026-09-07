@@ -263,9 +263,11 @@ impl App {
             Ok((tab_idx, terminal, runtime)) => {
                 self.terminal_runtimes.insert(terminal.id.clone(), runtime);
                 self.state.terminals.insert(terminal.id.clone(), terminal);
-                self.state.remove_alias_shadowed_by_new_pane(
-                    self.state.workspaces[ws_idx].tabs[tab_idx].root_pane,
-                );
+                let root_pane = self.state.workspaces[ws_idx]
+                    .terminal_tab(tab_idx)
+                    .expect("new tab should be terminal")
+                    .root_pane;
+                self.state.remove_alias_shadowed_by_new_pane(root_pane);
                 if let Some(label) = label {
                     let workspace_id = self.state.workspaces[ws_idx].id.clone();
                     let tab_id = self
@@ -283,7 +285,10 @@ impl App {
                 }
                 if let Some(view) = invocation.view_mut() {
                     if focus {
-                        let root_pane = self.state.workspaces[ws_idx].tabs[tab_idx].root_pane;
+                        let root_pane = self.state.workspaces[ws_idx]
+                            .terminal_tab(tab_idx)
+                            .expect("new tab should be terminal")
+                            .root_pane;
                         view.focus_pane_in_workspace(&self.state, ws_idx, tab_idx, root_pane);
                     } else {
                         view.reconcile(&self.state);
@@ -351,16 +356,15 @@ impl App {
         let Some((ws_idx, tab_idx)) = self.parse_tab_id(&target.tab_id) else {
             return tab_not_found(id, &target.tab_id);
         };
-        let Some(root_pane) = self
+        let Some(_) = self
             .state
             .workspaces
             .get(ws_idx)
             .and_then(|ws| ws.tabs.get(tab_idx))
-            .map(|tab| tab.root_pane)
         else {
             return tab_not_found(id, &target.tab_id);
         };
-        view.focus_pane_in_workspace(&self.state, ws_idx, tab_idx, root_pane);
+        view.focus_tab_in_workspace(&self.state, ws_idx, tab_idx);
         self.state.mark_active_tab_seen_for_view(view);
         let tab = self.tab_info_for_view(view, ws_idx, tab_idx).unwrap();
 
@@ -440,30 +444,21 @@ impl App {
         let Some((ws_idx, tab_idx)) = self.parse_tab_id(&target.tab_id) else {
             return tab_not_found(id, &target.tab_id);
         };
-        let terminal_ids = self.state.terminal_ids_for_tab(ws_idx, tab_idx);
-        let pane_ids = self
+        let Some(workspace_id) = self
             .state
             .workspaces
             .get(ws_idx)
-            .and_then(|ws| ws.tabs.get(tab_idx))
-            .map(|tab| tab.layout.pane_ids())
-            .unwrap_or_default();
-        let Some(ws) = self.state.workspaces.get_mut(ws_idx) else {
+            .map(|workspace| workspace.id.clone())
+        else {
             return tab_not_found(id, &target.tab_id);
         };
-        let workspace_id = ws.id.clone();
-        if !ws.close_tab_allow_empty(tab_idx) {
+        if !self.state.close_workspace_tab(ws_idx, tab_idx) {
             return encode_error(
                 id,
                 "tab_close_failed",
                 format!("tab {} could not be closed", target.tab_id),
             );
         }
-        for pane_id in pane_ids {
-            self.state.plugin_panes.remove(&pane_id);
-        }
-        self.state.remove_unattached_terminal_ids(terminal_ids);
-        self.shutdown_detached_terminal_runtimes();
         self.schedule_session_save();
         self.emit_event(EventEnvelope {
             event: EventKind::TabClosed,
@@ -472,7 +467,6 @@ impl App {
                 workspace_id,
             },
         });
-
         encode_success(id, ResponseResult::Ok {})
     }
 
@@ -485,30 +479,21 @@ impl App {
         let Some((ws_idx, tab_idx)) = self.parse_tab_id(&target.tab_id) else {
             return tab_not_found(id, &target.tab_id);
         };
-        let terminal_ids = self.state.terminal_ids_for_tab(ws_idx, tab_idx);
-        let pane_ids = self
+        let Some(workspace_id) = self
             .state
             .workspaces
             .get(ws_idx)
-            .and_then(|ws| ws.tabs.get(tab_idx))
-            .map(|tab| tab.layout.pane_ids())
-            .unwrap_or_default();
-        let Some(ws) = self.state.workspaces.get_mut(ws_idx) else {
+            .map(|workspace| workspace.id.clone())
+        else {
             return tab_not_found(id, &target.tab_id);
         };
-        let workspace_id = ws.id.clone();
-        if !ws.close_tab_allow_empty(tab_idx) {
+        if !self.state.close_workspace_tab(ws_idx, tab_idx) {
             return encode_error(
                 id,
                 "tab_close_failed",
                 format!("tab {} could not be closed", target.tab_id),
             );
         }
-        for pane_id in pane_ids {
-            self.state.plugin_panes.remove(&pane_id);
-        }
-        self.state.remove_unattached_terminal_ids(terminal_ids);
-        self.shutdown_detached_terminal_runtimes();
         view.reconcile(&self.state);
         self.schedule_session_save();
         self.emit_event(EventEnvelope {
@@ -531,24 +516,31 @@ impl App {
         let ws = self.state.workspaces.get(ws_idx)?;
         let tab = ws.tabs.get(tab_idx)?;
         let (agg_state, seen) = tab
-            .panes
-            .values()
-            .filter_map(|pane| {
-                self.state
-                    .terminals
-                    .get(&pane.attached_terminal_id)
-                    .map(|terminal| (terminal.state, pane.seen))
+            .as_terminal()
+            .map(|terminal_tab| {
+                terminal_tab
+                    .panes
+                    .values()
+                    .filter_map(|pane| {
+                        self.state
+                            .terminals
+                            .get(&pane.attached_terminal_id)
+                            .map(|terminal| (terminal.state, pane.seen))
+                    })
+                    .max_by_key(|(state, seen)| tab_attention_priority(*state, *seen))
+                    .unwrap_or((crate::detect::AgentState::Unknown, true))
             })
-            .max_by_key(|(state, seen)| tab_attention_priority(*state, *seen))
             .unwrap_or((crate::detect::AgentState::Unknown, true));
         Some(TabInfo {
             tab_id: self.public_tab_id(ws_idx, tab_idx)?,
             workspace_id: self.public_workspace_id(ws_idx),
-            number: tab_idx + 1,
+            number: tab.number(),
             label: ws.tab_display_name(tab_idx)?,
             focused: view.active_workspace == Some(ws_idx)
                 && view.active_tab_index_for_workspace(&self.state, ws_idx) == Some(tab_idx),
-            pane_count: tab.panes.len(),
+            pane_count: tab
+                .as_terminal()
+                .map_or(0, |terminal_tab| terminal_tab.panes.len()),
             agent_status: pane_agent_status(agg_state, seen),
         })
     }
@@ -560,7 +552,7 @@ impl App {
         tab_idx: usize,
     ) -> Option<crate::api::schema::PaneInfo> {
         let ws = self.state.workspaces.get(ws_idx)?;
-        let tab = ws.tabs.get(tab_idx)?;
+        let tab = ws.terminal_tab(tab_idx).ok()?;
         self.pane_info_for_view(view, ws_idx, tab.root_pane)
     }
 

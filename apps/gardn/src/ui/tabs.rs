@@ -30,10 +30,14 @@ fn tab_width(ws: &crate::workspace::Workspace, tab_idx: usize) -> u16 {
 }
 
 fn tab_chrome_label(ws: &crate::workspace::Workspace, tab_idx: usize) -> String {
-    let name = ws
-        .tab_display_name(tab_idx)
-        .unwrap_or_else(|| (tab_idx + 1).to_string());
-    if ws.tabs.get(tab_idx).is_some_and(|tab| tab.zoomed) {
+    let Some(tab) = ws.tabs.get(tab_idx) else {
+        return (tab_idx + 1).to_string();
+    };
+    let name = tab
+        .custom_name()
+        .map(str::to_owned)
+        .unwrap_or_else(|| tab.number().to_string());
+    if tab.is_zoomed() {
         format!("{name} Z")
     } else {
         name
@@ -466,12 +470,12 @@ pub(super) fn render_tab_bar_for_view(
                 .add_modifier(Modifier::DIM)
         } else if active {
             let base = Style::default().fg(panel_contrast_fg(p)).bg(active_accent);
-            if tab.is_auto_named() {
+            if tab.custom_name().is_none() {
                 base
             } else {
                 base.add_modifier(Modifier::BOLD)
             }
-        } else if tab.is_auto_named() {
+        } else if tab.custom_name().is_none() {
             Style::default()
                 .fg(p.overlay0)
                 .bg(p.surface0)
@@ -638,12 +642,12 @@ pub(super) fn render_tab_bar(app: &AppState, frame: &mut Frame, area: Rect) {
         let active = idx == ws.active_tab;
         let style = if active {
             let base = Style::default().fg(panel_contrast_fg(p)).bg(active_accent);
-            if tab.is_auto_named() {
+            if tab.custom_name().is_none() {
                 base
             } else {
                 base.add_modifier(Modifier::BOLD)
             }
-        } else if tab.is_auto_named() {
+        } else if tab.custom_name().is_none() {
             Style::default()
                 .fg(p.overlay0)
                 .bg(p.surface0)
@@ -751,9 +755,9 @@ mod tests {
     fn tab_bar_marks_zoomed_tabs_without_renaming_them() {
         let mut app = AppState::test_new();
         let mut ws = Workspace::test_new("test");
-        ws.tabs[0].zoomed = true;
+        ws.terminal_tab_mut(0).unwrap().zoomed = true;
         let custom_tab = ws.test_add_tab(Some("test"));
-        ws.tabs[custom_tab].zoomed = true;
+        ws.terminal_tab_mut(custom_tab).unwrap().zoomed = true;
 
         app.workspaces = vec![ws];
         app.active = Some(0);
@@ -788,7 +792,7 @@ mod tests {
     fn zoom_marker_counts_toward_tab_width() {
         let mut ws = Workspace::test_new("test");
         ws.tabs[0].set_custom_name("abcdefgh".into());
-        ws.tabs[0].zoomed = true;
+        ws.terminal_tab_mut(0).unwrap().zoomed = true;
 
         assert_eq!(tab_width(&ws, 0), 14);
     }

@@ -1498,7 +1498,7 @@ mod tests {
     fn agent_follow_up_item_uses_one_leading_space() {
         let mut app = AppState::test_new();
         let workspace = crate::workspace::Workspace::test_new("api");
-        let pane_id = workspace.tabs[0].root_pane;
+        let pane_id = workspace.terminal_tab(0).unwrap().root_pane;
         app.workspaces = vec![workspace];
         app.active = Some(0);
         app.mode = crate::app::state::Mode::ContextMenu;

@@ -470,10 +470,9 @@ mod tests {
         state.active = Some(0);
         state.selected = 0;
         for (ws_idx, agent_state) in [(0, AgentState::Working), (1, AgentState::Idle)] {
-            let pane_id = state.workspaces[ws_idx].tabs[0].root_pane;
-            let terminal_id = state.workspaces[ws_idx].tabs[0].panes[&pane_id]
-                .attached_terminal_id
-                .clone();
+            let tab = state.workspaces[ws_idx].terminal_tab(0).unwrap();
+            let pane_id = tab.root_pane;
+            let terminal_id = tab.panes[&pane_id].attached_terminal_id.clone();
             let terminal = state.terminals.get_mut(&terminal_id).unwrap();
             terminal.detected_agent = Some(Agent::Claude);
             terminal.state = agent_state;

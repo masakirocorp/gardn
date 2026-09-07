@@ -68,9 +68,8 @@ impl App {
             .active_tab_index_for_workspace(&self.state, ws_idx)
             .ok_or_else(|| std::io::Error::other("active tab disappeared"))?;
         let tab = ws
-            .tabs
-            .get(tab_idx)
-            .ok_or_else(|| std::io::Error::other("active tab disappeared"))?;
+            .terminal_tab(tab_idx)
+            .map_err(|_| std::io::Error::other("active tab is not a terminal tab"))?;
         let focused_pane = view
             .focused_pane_for_workspace(&self.state, ws_idx)
             .map(|(_, pane_id)| pane_id)

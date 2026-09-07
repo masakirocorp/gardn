@@ -129,7 +129,7 @@ impl App {
 
         if let AppEvent::OpenUrl { pane_id, url } = ev {
             let execution_host_is_local = self.state.workspaces.iter().any(|workspace| {
-                workspace.tabs.iter().any(|tab| {
+                workspace.terminal_tabs().any(|(_, tab)| {
                     tab.panes.get(&pane_id).is_some_and(|pane| {
                         self.state
                             .terminals
@@ -279,7 +279,7 @@ impl App {
                     .state
                     .workspaces
                     .get(overlay.ws_idx)
-                    .and_then(|ws| ws.tabs.get(overlay.tab_idx));
+                    .and_then(|ws| ws.terminal_tab(overlay.tab_idx).ok());
                 let was_overlay_focused_in_tab =
                     tab_before_exit.is_some_and(|tab| tab.layout.focused() == *pane_id);
                 let tab_zoomed_before_exit = tab_before_exit.map(|tab| tab.zoomed);
@@ -423,9 +423,8 @@ impl App {
                         continue;
                     };
                     let Some(pane) = ws
-                        .tabs
-                        .iter()
-                        .find_map(|tab| tab.panes.get(&update.pane_id))
+                        .terminal_tabs()
+                        .find_map(|(_, tab)| tab.panes.get(&update.pane_id))
                     else {
                         continue;
                     };
@@ -529,7 +528,7 @@ impl App {
 
     fn sync_full_lifecycle_authority_detection_pauses(&self) {
         for workspace in &self.state.workspaces {
-            for tab in &workspace.tabs {
+            for (_, tab) in workspace.terminal_tabs() {
                 for pane in tab.panes.values() {
                     let Some(terminal) = self.state.terminals.get(&pane.attached_terminal_id)
                     else {
@@ -578,21 +577,23 @@ impl App {
         let Some(ws) = self.state.workspaces.get_mut(overlay.ws_idx) else {
             return;
         };
-        if overlay.tab_idx >= ws.tabs.len() {
+        if ws.terminal_tab(overlay.tab_idx).is_err() {
             return;
         }
+        if was_overlay_active {
+            ws.active_tab = overlay.tab_idx;
+        }
+        let Some(tab) = ws.terminal_tab_mut(overlay.tab_idx).ok() else {
+            return;
+        };
 
         if !was_overlay_focused_in_tab {
             if let Some(tab_zoomed_before_exit) = tab_zoomed_before_exit {
-                ws.tabs[overlay.tab_idx].zoomed = tab_zoomed_before_exit;
+                tab.zoomed = tab_zoomed_before_exit;
             }
             return;
         }
 
-        if was_overlay_active {
-            ws.active_tab = overlay.tab_idx;
-        }
-        let tab = &mut ws.tabs[overlay.tab_idx];
         if tab.panes.contains_key(&previous_focus) {
             tab.layout.focus_pane(previous_focus);
         }
@@ -848,7 +849,7 @@ impl App {
                 let tab_idx = view
                     .active_tab_for_workspace(&ws.id)
                     .unwrap_or(ws.active_tab);
-                let tab = ws.tabs.get(tab_idx)?;
+                let tab = ws.terminal_tab(tab_idx).ok()?;
                 let pane_id = view
                     .focused_pane_for_tab(&ws.id, tab_idx + 1)
                     .unwrap_or_else(|| tab.layout.focused());
@@ -2116,9 +2117,9 @@ mod tests {
     #[test]
     fn overlay_exit_preserves_focus_changed_before_exit() {
         let mut workspace = crate::workspace::Workspace::test_new("overlay");
-        let previous_focus = workspace.tabs[0].root_pane;
+        let previous_focus = workspace.terminal_tab(0).unwrap().root_pane;
         let overlay_pane = workspace.test_split(ratatui::layout::Direction::Horizontal);
-        workspace.tabs[0].zoomed = true;
+        workspace.terminal_tab_mut(0).unwrap().zoomed = true;
         let new_tab = workspace.test_add_tab(Some("new"));
         workspace.switch_tab(new_tab);
         let mut app = app_with_overlay(workspace, overlay_pane, previous_focus, true);
@@ -2131,7 +2132,7 @@ mod tests {
             exit_signal: None,
         });
 
-        let overlay_tab = &app.state.workspaces[0].tabs[0];
+        let overlay_tab = app.state.workspaces[0].terminal_tab(0).unwrap();
         assert_eq!(app.state.workspaces[0].active_tab, new_tab);
         assert_eq!(overlay_tab.layout.focused(), previous_focus);
         assert!(overlay_tab.zoomed);
@@ -2141,9 +2142,9 @@ mod tests {
     #[test]
     fn overlay_exit_restores_previous_focus_when_overlay_still_focused() {
         let mut workspace = crate::workspace::Workspace::test_new("overlay");
-        let previous_focus = workspace.tabs[0].root_pane;
+        let previous_focus = workspace.terminal_tab(0).unwrap().root_pane;
         let overlay_pane = workspace.test_split(ratatui::layout::Direction::Horizontal);
-        workspace.tabs[0].zoomed = true;
+        workspace.terminal_tab_mut(0).unwrap().zoomed = true;
         let mut app = app_with_overlay(workspace, overlay_pane, previous_focus, false);
 
         app.handle_internal_event(AppEvent::PaneDied {
@@ -2154,7 +2155,7 @@ mod tests {
             exit_signal: None,
         });
 
-        let tab = &app.state.workspaces[0].tabs[0];
+        let tab = app.state.workspaces[0].terminal_tab(0).unwrap();
         assert_eq!(app.state.workspaces[0].active_tab, 0);
         assert_eq!(tab.layout.focused(), previous_focus);
         assert!(!tab.zoomed);
@@ -2173,10 +2174,9 @@ mod tests {
         );
         app.state.workspaces = vec![crate::workspace::Workspace::test_new("manifest-reset")];
         app.state.ensure_test_terminals();
-        let pane_id = app.state.workspaces[0].tabs[0].root_pane;
-        let terminal_id = app.state.workspaces[0].tabs[0].panes[&pane_id]
-            .attached_terminal_id
-            .clone();
+        let tab = app.state.workspaces[0].terminal_tab(0).unwrap();
+        let pane_id = tab.root_pane;
+        let terminal_id = tab.panes[&pane_id].attached_terminal_id.clone();
         app.state
             .terminals
             .get_mut(&terminal_id)
@@ -2215,10 +2215,9 @@ mod tests {
         );
         app.state.workspaces = vec![crate::workspace::Workspace::test_new("manifest-reload")];
         app.state.ensure_test_terminals();
-        let pane_id = app.state.workspaces[0].tabs[0].root_pane;
-        let terminal_id = app.state.workspaces[0].tabs[0].panes[&pane_id]
-            .attached_terminal_id
-            .clone();
+        let tab = app.state.workspaces[0].terminal_tab(0).unwrap();
+        let pane_id = tab.root_pane;
+        let terminal_id = tab.panes[&pane_id].attached_terminal_id.clone();
         let (runtime, _rx) = crate::terminal::TerminalRuntime::test_with_channel(80, 24);
         let reset_notify = runtime.agent_detection_reset_notify_for_test();
         app.terminal_runtimes.insert(terminal_id, runtime);
@@ -2256,10 +2255,9 @@ mod tests {
         );
         app.state.workspaces = vec![crate::workspace::Workspace::test_new("manifest-status")];
         app.state.ensure_test_terminals();
-        let pane_id = app.state.workspaces[0].tabs[0].root_pane;
-        let terminal_id = app.state.workspaces[0].tabs[0].panes[&pane_id]
-            .attached_terminal_id
-            .clone();
+        let tab = app.state.workspaces[0].terminal_tab(0).unwrap();
+        let pane_id = tab.root_pane;
+        let terminal_id = tab.panes[&pane_id].attached_terminal_id.clone();
         let (runtime, _rx) = crate::terminal::TerminalRuntime::test_with_channel(80, 24);
         let reset_notify = runtime.agent_detection_reset_notify_for_test();
         app.terminal_runtimes.insert(terminal_id, runtime);
@@ -2301,10 +2299,9 @@ mod tests {
         );
         app.state.workspaces = vec![crate::workspace::Workspace::test_new("agent-explain")];
         app.state.ensure_test_terminals();
-        let pane_id = app.state.workspaces[0].tabs[0].root_pane;
-        let terminal_id = app.state.workspaces[0].tabs[0].panes[&pane_id]
-            .attached_terminal_id
-            .clone();
+        let tab = app.state.workspaces[0].terminal_tab(0).unwrap();
+        let pane_id = tab.root_pane;
+        let terminal_id = tab.panes[&pane_id].attached_terminal_id.clone();
         app.state
             .terminals
             .get_mut(&terminal_id)
@@ -2346,10 +2343,9 @@ mod tests {
         );
         app.state.workspaces = vec![crate::workspace::Workspace::test_new("agent-hooks")];
         app.state.ensure_test_terminals();
-        let pane_id = app.state.workspaces[0].tabs[0].root_pane;
-        let terminal_id = app.state.workspaces[0].tabs[0].panes[&pane_id]
-            .attached_terminal_id
-            .clone();
+        let tab = app.state.workspaces[0].terminal_tab(0).unwrap();
+        let pane_id = tab.root_pane;
+        let terminal_id = tab.panes[&pane_id].attached_terminal_id.clone();
         let target = app.public_pane_id(0, pane_id).unwrap();
 
         let response = app.handle_api_request(crate::api::schema::Request {
@@ -2422,10 +2418,9 @@ mod tests {
             "agent-explain-claude",
         )];
         app.state.ensure_test_terminals();
-        let pane_id = app.state.workspaces[0].tabs[0].root_pane;
-        let terminal_id = app.state.workspaces[0].tabs[0].panes[&pane_id]
-            .attached_terminal_id
-            .clone();
+        let tab = app.state.workspaces[0].terminal_tab(0).unwrap();
+        let pane_id = tab.root_pane;
+        let terminal_id = tab.panes[&pane_id].attached_terminal_id.clone();
         app.state
             .terminals
             .get_mut(&terminal_id)
@@ -2476,10 +2471,9 @@ mod tests {
         );
         app.state.workspaces = vec![crate::workspace::Workspace::test_new("agent-explain-omp")];
         app.state.ensure_test_terminals();
-        let pane_id = app.state.workspaces[0].tabs[0].root_pane;
-        let terminal_id = app.state.workspaces[0].tabs[0].panes[&pane_id]
-            .attached_terminal_id
-            .clone();
+        let tab = app.state.workspaces[0].terminal_tab(0).unwrap();
+        let pane_id = tab.root_pane;
+        let terminal_id = tab.panes[&pane_id].attached_terminal_id.clone();
         app.state
             .terminals
             .get_mut(&terminal_id)
@@ -2530,10 +2524,9 @@ mod tests {
         );
         app.state.workspaces = vec![crate::workspace::Workspace::test_new("process-info")];
         app.state.ensure_test_terminals();
-        let pane_id = app.state.workspaces[0].tabs[0].root_pane;
-        let terminal_id = app.state.workspaces[0].tabs[0].panes[&pane_id]
-            .attached_terminal_id
-            .clone();
+        let tab = app.state.workspaces[0].terminal_tab(0).unwrap();
+        let pane_id = tab.root_pane;
+        let terminal_id = tab.panes[&pane_id].attached_terminal_id.clone();
         let (runtime, _rx) = crate::terminal::TerminalRuntime::test_with_channel(80, 24);
         app.terminal_runtimes.insert(terminal_id, runtime);
         let target = app.public_pane_id(0, pane_id).unwrap();
@@ -2601,7 +2594,7 @@ mod tests {
 
         let mut workspace = crate::workspace::Workspace::test_new("stale");
         workspace.custom_name = None;
-        let root = workspace.tabs[0].root_pane;
+        let root = workspace.terminal_tab(0).unwrap().root_pane;
         let terminal_id = workspace.terminal_id(root).cloned().unwrap();
         let temp_root = std::env::temp_dir().join(format!(
             "gardn-toast-context-{}-{}",
@@ -2695,7 +2688,7 @@ mod tests {
 
         let mut workspace = crate::workspace::Workspace::test_new("stale");
         workspace.custom_name = None;
-        let root = workspace.tabs[0].root_pane;
+        let root = workspace.terminal_tab(0).unwrap().root_pane;
         let terminal_id = workspace.terminal_id(root).cloned().unwrap();
         let temp_root = std::env::temp_dir().join(format!(
             "gardn-delayed-toast-context-{}-{}",
@@ -2791,7 +2784,7 @@ mod tests {
             crate::api::EventHub::default(),
         );
         let workspace = crate::workspace::Workspace::test_new("restored");
-        let pane_id = workspace.tabs[0].root_pane;
+        let pane_id = workspace.terminal_tab(0).unwrap().root_pane;
         let terminal_id = workspace.terminal_id(pane_id).cloned().unwrap();
         app.state.workspaces = vec![workspace];
         app.state.ensure_test_terminals();
@@ -2849,7 +2842,7 @@ mod tests {
         let mut workspace = crate::workspace::Workspace::test_new("stale");
         workspace.custom_name = None;
         workspace.identity_cwd = "/__gardn_original__".into();
-        let root = workspace.tabs[0].root_pane;
+        let root = workspace.terminal_tab(0).unwrap().root_pane;
         let terminal_id = workspace.terminal_id(root).cloned().unwrap();
         let workspace_id = workspace.id.clone();
         app.state.workspaces = vec![workspace];

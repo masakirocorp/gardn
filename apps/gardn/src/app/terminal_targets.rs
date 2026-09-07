@@ -131,7 +131,7 @@ impl App {
             .iter()
             .enumerate()
             .flat_map(|(ws_idx, ws)| {
-                ws.tabs.iter().enumerate().flat_map(move |(tab_idx, tab)| {
+                ws.terminal_tabs().flat_map(move |(tab_idx, tab)| {
                     tab.layout
                         .pane_ids()
                         .into_iter()
@@ -182,7 +182,9 @@ impl App {
             pane_id: self.public_pane_id(ws_idx, pane_id)?,
             workspace_id: self.public_workspace_id(ws_idx),
             tab_id: self.public_tab_id(ws_idx, tab_idx)?,
-            cwd: ws.tabs[tab_idx]
+            cwd: ws
+                .terminal_tab(tab_idx)
+                .ok()?
                 .cwd_for_pane(pane_id, &self.state.terminals, &self.terminal_runtimes)
                 .map(|cwd| cwd.display().to_string()),
             agent_status: pane_agent_status(terminal.state, pane.seen),

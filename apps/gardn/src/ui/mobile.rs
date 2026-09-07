@@ -227,7 +227,7 @@ fn mobile_navigation_rows(
             if let Some(tab_idx) = active_tab_idx.filter(|tab_idx| {
                 app.workspaces
                     .get(ws_idx)
-                    .and_then(|workspace| workspace.tabs.get(*tab_idx))
+                    .and_then(|workspace| workspace.terminal_tab(*tab_idx).ok())
                     .is_some_and(|tab| tab.layout.pane_count() == 1)
             }) {
                 append_mobile_split_actions(&mut rows, app, view, ws_idx, tab_idx);
@@ -286,7 +286,7 @@ fn append_mobile_split_actions(
         .workspaces
         .get(ws_idx)
         .and_then(|workspace| {
-            let tab = workspace.tabs.get(tab_idx)?;
+            let tab = workspace.terminal_tab(tab_idx).ok()?;
             let focused_pane = view
                 .and_then(|view| view.focused_pane_for_tab(&workspace.id, tab.number))
                 .unwrap_or_else(|| tab.layout.focused());
@@ -1472,7 +1472,7 @@ fn mobile_hierarchy_label_and_meta(app: &AppState, row: &NavigatorRow) -> (Strin
             let count = app.show_counters.then(|| {
                 app.workspaces
                     .get(ws_idx)
-                    .and_then(|workspace| workspace.tabs.get(tab_idx))
+                    .and_then(|workspace| workspace.terminal_tab(tab_idx).ok())
                     .map(|tab| tab.panes.len())
                     .unwrap_or(0)
                     .to_string()
@@ -1611,7 +1611,11 @@ mod tests {
         let focused_pane = active_space.test_split(ratatui::layout::Direction::Horizontal);
         active_space.test_add_tab(Some("logs"));
         active_space.active_tab = 0;
-        active_space.tabs[0].layout.focus_pane(focused_pane);
+        active_space
+            .terminal_tab_mut(0)
+            .unwrap()
+            .layout
+            .focus_pane(focused_pane);
 
         let mut sibling_space = crate::workspace::Workspace::test_new("alerts");
         sibling_space.group_id = app.groups[group_idx].id.clone();
@@ -1622,7 +1626,7 @@ mod tests {
         app.selected = 1;
         app.active_group = group_idx;
         app.ensure_test_terminals();
-        let terminal_id = app.workspaces[1].tabs[0].panes[&focused_pane]
+        let terminal_id = app.workspaces[1].terminal_tab(0).unwrap().panes[&focused_pane]
             .attached_terminal_id
             .clone();
         app.terminals
@@ -2067,8 +2071,8 @@ mod tests {
         );
         assert!(!collapsed.contains("Agents"), "groups: {collapsed:?}");
 
-        let other_pane = app.workspaces[0].tabs[0].root_pane;
-        let other_terminal = app.workspaces[0].tabs[0].panes[&other_pane]
+        let other_pane = app.workspaces[0].terminal_tab(0).unwrap().root_pane;
+        let other_terminal = app.workspaces[0].terminal_tab(0).unwrap().panes[&other_pane]
             .attached_terminal_id
             .clone();
         app.terminals
@@ -2410,11 +2414,11 @@ mod tests {
         let mut workspace = crate::workspace::Workspace::test_new("stale-name");
         workspace.custom_name = None;
         workspace.identity_cwd = stale_cwd.clone();
-        let pane = workspace.tabs[0].root_pane;
+        let pane = workspace.terminal_tab(0).unwrap().root_pane;
 
         app.workspaces = vec![workspace];
         app.ensure_test_terminals();
-        let terminal_id = app.workspaces[0].tabs[0].panes[&pane]
+        let terminal_id = app.workspaces[0].terminal_tab(0).unwrap().panes[&pane]
             .attached_terminal_id
             .clone();
         app.terminals.get_mut(&terminal_id).unwrap().cwd = stale_cwd;
@@ -2490,7 +2494,7 @@ mod tests {
         let mut app = crate::app::state::AppState::test_new();
         let mut workspace = crate::workspace::Workspace::test_new("ignored");
         workspace.custom_name = Some("website".into());
-        workspace.tabs[0].custom_name = Some("release".into());
+        workspace.tabs[0].set_custom_name("release".into());
         app.workspaces = vec![workspace];
         app.active = Some(0);
         app.selected = 0;
@@ -2560,7 +2564,7 @@ mod tests {
         let mut app = crate::app::state::AppState::test_new();
         let mut workspace = crate::workspace::Workspace::test_new("ignored");
         workspace.custom_name = Some("website".into());
-        workspace.tabs[0].custom_name = Some("release".into());
+        workspace.tabs[0].set_custom_name("release".into());
         app.workspaces = vec![workspace];
         app.active = Some(0);
         app.selected = 0;
@@ -2699,7 +2703,6 @@ mod tests {
         collapsed.workspaces = vec![crate::workspace::Workspace::test_new("plain")];
         collapsed.active = Some(0);
         collapsed.selected = 0;
-        super::super::compute_view(&mut collapsed, area);
         let mut terminal =
             ratatui::Terminal::new(ratatui::backend::TestBackend::new(44, 20)).unwrap();
         terminal
@@ -2709,8 +2712,13 @@ mod tests {
 
         let mut queued = AppState::test_new();
         let mut workspace = crate::workspace::Workspace::test_new("queued");
-        let pane = workspace.tabs[0].root_pane;
-        let pane_state = workspace.tabs[0].panes.get_mut(&pane).unwrap();
+        let pane = workspace.terminal_tab(0).unwrap().root_pane;
+        let pane_state = workspace
+            .terminal_tab_mut(0)
+            .unwrap()
+            .panes
+            .get_mut(&pane)
+            .unwrap();
         pane_state.detected_agent = Some(crate::detect::Agent::Codex);
         pane_state.state = crate::detect::AgentState::Working;
         queued.workspaces = vec![workspace];

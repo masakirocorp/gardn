@@ -169,10 +169,9 @@ fn render_search_for_navigator(
     let count = app
         .workspaces
         .iter()
-        .flat_map(|workspace| workspace.tabs.iter())
-        .map(|tab| tab.panes.len())
+        .flat_map(|workspace| workspace.terminal_tabs())
+        .map(|(_, tab)| tab.panes.len())
         .sum::<usize>();
-    let count = count_label(count, "Pane", "Panes");
     let mut spans = vec![Span::styled(" / ", focus_style)];
     let query = navigator.query.trim();
     match navigator.state_filter {
@@ -527,7 +526,10 @@ fn workspace_detail(app: &AppState, ws_idx: usize, activity: &str) -> String {
     };
     let terminal_runtimes = crate::terminal::TerminalRuntimeRegistry::new();
     let label = ws.display_name_from(&app.terminals, &terminal_runtimes);
-    let pane_count = ws.tabs.iter().map(|tab| tab.panes.len()).sum::<usize>();
+    let pane_count = ws
+        .terminal_tabs()
+        .map(|(_, tab)| tab.panes.len())
+        .sum::<usize>();
     let mut parts = vec![label, count_label(pane_count, "Pane", "Panes")];
     if !activity.is_empty() {
         parts.push(activity.to_string());
@@ -543,9 +545,13 @@ fn tab_detail(app: &AppState, ws_idx: usize, tab_idx: usize, meta: &str) -> Stri
         return String::new();
     };
     let terminal_runtimes = crate::terminal::TerminalRuntimeRegistry::new();
+    let tab_name = tab
+        .custom_name()
+        .map(str::to_owned)
+        .unwrap_or_else(|| tab.number().to_string());
     let mut parts = vec![
         ws.display_name_from(&app.terminals, &terminal_runtimes),
-        format!("Tab: {}", tab.display_name()),
+        format!("Tab: {tab_name}"),
     ];
     if !meta.is_empty() {
         parts.push(meta.to_string());
@@ -562,13 +568,17 @@ fn pane_detail(
     let Some(ws) = app.workspaces.get(ws_idx) else {
         return String::new();
     };
-    let Some(tab) = ws.tabs.get(tab_idx) else {
+    let Some(tab) = ws.terminal_tab(tab_idx).ok() else {
         return String::new();
     };
     let terminal_runtimes = crate::terminal::TerminalRuntimeRegistry::new();
     let mut parts = vec![ws.display_name_from(&app.terminals, &terminal_runtimes)];
     if ws.tabs.len() > 1 {
-        parts.push(format!("Tab: {}", tab.display_name()));
+        let tab_name = tab
+            .custom_name
+            .clone()
+            .unwrap_or_else(|| tab.number.to_string());
+        parts.push(format!("Tab: {tab_name}"));
     }
     let pane_label = tab
         .terminal_id(pane_id)
@@ -626,7 +636,7 @@ fn row_state(
 ) -> crate::detect::AgentState {
     app.workspaces
         .get(ws_idx)
-        .and_then(|ws| ws.tabs.get(tab_idx))
+        .and_then(|ws| ws.terminal_tab(tab_idx).ok())
         .and_then(|tab| tab.terminal_id(pane_id))
         .and_then(|terminal_id| app.terminals.get(terminal_id))
         .map(|terminal| terminal.state)
@@ -705,7 +715,11 @@ mod tests {
         let closed_pane = workspace.test_split(ratatui::layout::Direction::Horizontal);
         let last_pane = workspace.test_split(ratatui::layout::Direction::Horizontal);
         assert!(!workspace.close_pane(closed_pane));
-        workspace.tabs[0].layout.focus_pane(last_pane);
+        workspace
+            .terminal_tab_mut(0)
+            .unwrap()
+            .layout
+            .focus_pane(last_pane);
         app.workspaces = vec![workspace];
         app.active = Some(0);
         app.selected = 0;
@@ -1011,7 +1025,7 @@ mod tests {
     fn navigator_search_renders_singleton_custom_tab_names() {
         let mut app = AppState::test_new();
         let mut workspace = Workspace::test_new("single");
-        workspace.tabs[0].custom_name = Some("Baz".into());
+        workspace.tabs[0].set_custom_name("Baz".into());
         app.workspaces = vec![workspace];
         app.active = Some(0);
         app.selected = 0;

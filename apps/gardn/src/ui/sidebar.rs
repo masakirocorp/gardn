@@ -333,8 +333,8 @@ fn disambiguate_agent_panel_labels(app: &AppState, entries: &mut [AgentPanelEntr
         };
         let include_tab = workspace.tabs.len() > 1;
         let include_pane = workspace
-            .tabs
-            .get(entry.tab_idx)
+            .terminal_tab(entry.tab_idx)
+            .ok()
             .is_some_and(|tab| tab.layout.pane_count() > 1);
         if !include_tab && !include_pane {
             continue;
@@ -967,7 +967,7 @@ fn workspace_metadata_tokens(
     ws: &crate::workspace::Workspace,
 ) -> std::collections::HashMap<String, String> {
     let mut tokens = std::collections::HashMap::new();
-    for tab in &ws.tabs {
+    for (_, tab) in ws.terminal_tabs() {
         for pane in tab.panes.values() {
             if let Some(terminal) = app.terminals.get(&pane.attached_terminal_id) {
                 tokens.extend(terminal.effective_presentation().tokens);
@@ -1000,9 +1000,8 @@ fn workspace_host_badge(
     ws: &crate::workspace::Workspace,
 ) -> Option<(String, ratatui::style::Color)> {
     let hosts = ws
-        .tabs
-        .iter()
-        .flat_map(|tab| tab.panes.values())
+        .terminal_tabs()
+        .flat_map(|(_, tab)| tab.panes.values())
         .filter_map(|pane| app.terminals.get(&pane.attached_terminal_id))
         .map(|terminal| terminal.location.execution_host_id.clone())
         .collect::<std::collections::HashSet<_>>();
@@ -5260,7 +5259,7 @@ mod tests {
         let mut app = crate::app::state::AppState::test_new();
         let mut workspace = Workspace::test_new("mixed");
         let remote_pane = workspace.test_split(ratatui::layout::Direction::Horizontal);
-        let remote_terminal_id = workspace.tabs[0].panes[&remote_pane]
+        let remote_terminal_id = workspace.terminal_tab(0).unwrap().panes[&remote_pane]
             .attached_terminal_id
             .clone();
         app.workspaces = vec![workspace];
@@ -5284,7 +5283,8 @@ mod tests {
         let mut app = crate::app::state::AppState::test_new();
         let local = Workspace::test_new("local");
         let remote = Workspace::test_new("remote");
-        let remote_terminal_id = remote.tabs[0].panes[&remote.tabs[0].root_pane]
+        let remote_terminal_id = remote.terminal_tab(0).unwrap().panes
+            [&remote.terminal_tab(0).unwrap().root_pane]
             .attached_terminal_id
             .clone();
         app.workspaces = vec![local, remote];
@@ -5559,8 +5559,10 @@ mod tests {
     fn collapsed_agent_status_hover_shows_icon_and_name() {
         let mut app = crate::app::state::AppState::test_new();
         let mut workspace = Workspace::test_new("checkout");
-        let pane_id = workspace.tabs[0].root_pane;
-        let pane = workspace.tabs[0]
+        let pane_id = workspace.terminal_tab(0).unwrap().root_pane;
+        let pane = workspace
+            .terminal_tab_mut(0)
+            .unwrap()
             .panes
             .get_mut(&pane_id)
             .expect("root pane");
@@ -5623,8 +5625,10 @@ mod tests {
     fn collapsed_agent_hover_shows_space_agent_and_status() {
         let mut app = crate::app::state::AppState::test_new();
         let mut workspace = Workspace::test_new("checkout");
-        let pane_id = workspace.tabs[0].root_pane;
-        let pane = workspace.tabs[0]
+        let pane_id = workspace.terminal_tab(0).unwrap().root_pane;
+        let pane = workspace
+            .terminal_tab_mut(0)
+            .unwrap()
             .panes
             .get_mut(&pane_id)
             .expect("root pane");
@@ -5759,8 +5763,8 @@ mod tests {
         app.ensure_test_terminals();
 
         for ws_idx in 0..app.workspaces.len() {
-            let pane = app.workspaces[ws_idx].tabs[0].root_pane;
-            let terminal_id = app.workspaces[ws_idx].tabs[0].panes[&pane]
+            let pane = app.workspaces[ws_idx].terminal_tab(0).unwrap().root_pane;
+            let terminal_id = app.workspaces[ws_idx].terminal_tab(0).unwrap().panes[&pane]
                 .attached_terminal_id
                 .clone();
             app.terminals.get_mut(&terminal_id).unwrap().detected_agent = Some(Agent::Claude);
@@ -5795,9 +5799,11 @@ mod tests {
         let mut app = crate::app::state::AppState::test_new();
         app.status_indicators = crate::config::StatusIndicatorStyle::Symbols;
         let mut workspace = Workspace::test_new("blocked");
-        let pane_id = workspace.tabs[0].root_pane;
+        let pane_id = workspace.terminal_tab(0).unwrap().root_pane;
         {
-            let pane = workspace.tabs[0]
+            let pane = workspace
+                .terminal_tab_mut(0)
+                .unwrap()
                 .panes
                 .get_mut(&pane_id)
                 .expect("root pane");
@@ -5807,7 +5813,7 @@ mod tests {
         }
         app.workspaces = vec![workspace];
         app.ensure_test_terminals();
-        let terminal_id = app.workspaces[0].tabs[0].panes[&pane_id]
+        let terminal_id = app.workspaces[0].terminal_tab(0).unwrap().panes[&pane_id]
             .attached_terminal_id
             .clone();
         let attached = app
@@ -5822,26 +5828,30 @@ mod tests {
         let rows_y = ws_area.y + COLLAPSED_SECTION_HEADER_ROWS;
         let mut terminal = Terminal::new(TestBackend::new(area.width, area.height))
             .expect("test terminal should initialize");
-
         terminal
             .draw(|frame| render_sidebar_collapsed(&app, frame, area))
             .expect("collapsed sidebar should render");
 
         let buffer = terminal.backend().buffer();
-        let border_x = area.x + area.width - 1;
-        assert_eq!(buffer[(ws_area.x, rows_y)].symbol(), "1");
-        assert_eq!(buffer[(ws_area.x + 1, rows_y)].symbol(), "●");
+        let border_x = collapsed_rail_separator_x(area, sidebar_is_combined_right(&app));
         assert_eq!(buffer[(border_x, rows_y)].symbol(), "│");
+        assert!(
+            (area.x..area.x + area.width)
+                .filter(|x| *x != border_x)
+                .any(|x| buffer[(x, rows_y)].symbol() == "●"),
+            "blocked status must remain visible inside the rail"
+        );
     }
-
     #[test]
     fn collapsed_workspace_hover_shows_group_name_and_colored_status() {
         let mut app = crate::app::state::AppState::test_new();
         app.groups[0].name = "Core".to_string();
         app.set_group_accent(0, Some(crate::config::TerminalAccent::Cyan));
         let mut workspace = Workspace::test_new("desktop-client");
-        let pane_id = workspace.tabs[0].root_pane;
-        let pane = workspace.tabs[0]
+        let pane_id = workspace.terminal_tab(0).unwrap().root_pane;
+        let pane = workspace
+            .terminal_tab_mut(0)
+            .unwrap()
             .panes
             .get_mut(&pane_id)
             .expect("root pane");
@@ -6024,21 +6034,36 @@ mod tests {
         let mut app = crate::app::state::AppState::test_new();
 
         let mut triage = Workspace::test_new("Done");
-        let triage_pane = triage.tabs[0].root_pane;
-        let triage_state = triage.tabs[0].panes.get_mut(&triage_pane).unwrap();
+        let triage_pane = triage.terminal_tab(0).unwrap().root_pane;
+        let triage_state = triage
+            .terminal_tab_mut(0)
+            .unwrap()
+            .panes
+            .get_mut(&triage_pane)
+            .unwrap();
         triage_state.detected_agent = Some(Agent::Pi);
         triage_state.state = AgentState::Idle;
         triage_state.seen = false;
 
         let mut working = Workspace::test_new("build");
-        let working_pane = working.tabs[0].root_pane;
-        let working_state = working.tabs[0].panes.get_mut(&working_pane).unwrap();
+        let working_pane = working.terminal_tab(0).unwrap().root_pane;
+        let working_state = working
+            .terminal_tab_mut(0)
+            .unwrap()
+            .panes
+            .get_mut(&working_pane)
+            .unwrap();
         working_state.detected_agent = Some(Agent::Codex);
         working_state.state = AgentState::Working;
 
         let mut idle = Workspace::test_new("Idle");
-        let idle_pane = idle.tabs[0].root_pane;
-        let idle_state = idle.tabs[0].panes.get_mut(&idle_pane).unwrap();
+        let idle_pane = idle.terminal_tab(0).unwrap().root_pane;
+        let idle_state = idle
+            .terminal_tab_mut(0)
+            .unwrap()
+            .panes
+            .get_mut(&idle_pane)
+            .unwrap();
         idle_state.detected_agent = Some(Agent::Claude);
         idle_state.state = AgentState::Idle;
         idle_state.seen = true;
@@ -6180,16 +6205,26 @@ mod tests {
 
         let mut triage = Workspace::test_new("Triage");
         triage.group_id = default_group_id;
-        let triage_pane = triage.tabs[0].root_pane;
-        let triage_state = triage.tabs[0].panes.get_mut(&triage_pane).unwrap();
+        let triage_pane = triage.terminal_tab(0).unwrap().root_pane;
+        let triage_state = triage
+            .terminal_tab_mut(0)
+            .unwrap()
+            .panes
+            .get_mut(&triage_pane)
+            .unwrap();
         triage_state.detected_agent = Some(Agent::Pi);
         triage_state.state = AgentState::Idle;
         triage_state.seen = false;
 
         let mut working = Workspace::test_new("Working");
         working.group_id = app.groups[1].id.clone();
-        let working_pane = working.tabs[0].root_pane;
-        let working_state = working.tabs[0].panes.get_mut(&working_pane).unwrap();
+        let working_pane = working.terminal_tab(0).unwrap().root_pane;
+        let working_state = working
+            .terminal_tab_mut(0)
+            .unwrap()
+            .panes
+            .get_mut(&working_pane)
+            .unwrap();
         working_state.detected_agent = Some(Agent::Codex);
         working_state.state = AgentState::Working;
 
@@ -6343,20 +6378,21 @@ mod tests {
     fn all_workspaces_agent_panel_entries_use_workspace_and_tab_labels() {
         let mut app = crate::app::state::AppState::test_new();
         let first = Workspace::test_new("one");
-        let first_pane = first.tabs[0].root_pane;
+        let first_pane = first.terminal_tab(0).unwrap().root_pane;
         let mut second = Workspace::test_new("two");
         let second_tab = second.test_add_tab(Some("logs"));
-        let second_pane = second.tabs[second_tab].root_pane;
+        let second_pane = second.terminal_tab(second_tab).unwrap().root_pane;
 
         app.workspaces = vec![first, second];
         app.ensure_test_terminals();
-        let first_terminal_id = app.workspaces[0].tabs[0].panes[&first_pane]
+        let first_terminal_id = app.workspaces[0].terminal_tab(0).unwrap().panes[&first_pane]
             .attached_terminal_id
             .clone();
         let first_terminal = app.terminals.get_mut(&first_terminal_id).unwrap();
         first_terminal.cwd = std::path::PathBuf::from("/tmp/one");
         first_terminal.detected_agent = Some(Agent::OhMyPi);
-        let second_terminal_id = app.workspaces[1].tabs[second_tab].panes[&second_pane]
+        let second_terminal_id = app.workspaces[1].terminal_tab(second_tab).unwrap().panes
+            [&second_pane]
             .attached_terminal_id
             .clone();
         let second_terminal = app.terminals.get_mut(&second_terminal_id).unwrap();
@@ -6379,20 +6415,21 @@ mod tests {
     fn agent_panel_disambiguates_agents_in_different_tabs() {
         let mut app = crate::app::state::AppState::test_new();
         let mut workspace = Workspace::test_new("personal");
-        let first_pane = workspace.tabs[0].root_pane;
+        let first_pane = workspace.terminal_tab(0).unwrap().root_pane;
         let second_tab = workspace.test_add_tab(None);
-        let second_pane = workspace.tabs[second_tab].root_pane;
+        let second_pane = workspace.terminal_tab(second_tab).unwrap().root_pane;
         app.workspaces = vec![workspace];
         app.ensure_test_terminals();
 
-        let first_terminal_id = app.workspaces[0].tabs[0].panes[&first_pane]
+        let first_terminal_id = app.workspaces[0].terminal_tab(0).unwrap().panes[&first_pane]
             .attached_terminal_id
             .clone();
         app.terminals
             .get_mut(&first_terminal_id)
             .unwrap()
             .detected_agent = Some(Agent::Codex);
-        let second_terminal_id = app.workspaces[0].tabs[second_tab].panes[&second_pane]
+        let second_terminal_id = app.workspaces[0].terminal_tab(second_tab).unwrap().panes
+            [&second_pane]
             .attached_terminal_id
             .clone();
         app.terminals
@@ -6414,11 +6451,11 @@ mod tests {
     fn agent_panel_includes_tab_when_space_has_non_agent_tabs() {
         let mut app = crate::app::state::AppState::test_new();
         let mut workspace = Workspace::test_new("personal");
-        let agent_pane = workspace.tabs[0].root_pane;
+        let agent_pane = workspace.terminal_tab(0).unwrap().root_pane;
         workspace.test_add_tab(Some("shell"));
         app.workspaces = vec![workspace];
         app.ensure_test_terminals();
-        let terminal_id = app.workspaces[0].tabs[0].panes[&agent_pane]
+        let terminal_id = app.workspaces[0].terminal_tab(0).unwrap().panes[&agent_pane]
             .attached_terminal_id
             .clone();
         app.terminals.get_mut(&terminal_id).unwrap().detected_agent = Some(Agent::Codex);
@@ -6449,7 +6486,7 @@ mod tests {
     fn agent_panel_renumbers_unnamed_panes_after_one_closes() {
         let mut app = crate::app::state::AppState::test_new();
         let mut workspace = Workspace::test_new("personal");
-        let first_pane = workspace.tabs[0].root_pane;
+        let first_pane = workspace.terminal_tab(0).unwrap().root_pane;
         let closed_pane = workspace.test_split(ratatui::layout::Direction::Horizontal);
         let last_pane = workspace.test_split(ratatui::layout::Direction::Horizontal);
         assert!(!workspace.close_pane(closed_pane));
@@ -6457,7 +6494,7 @@ mod tests {
         app.ensure_test_terminals();
 
         for (pane_id, agent) in [(first_pane, Agent::Codex), (last_pane, Agent::Claude)] {
-            let terminal_id = app.workspaces[0].tabs[0].panes[&pane_id]
+            let terminal_id = app.workspaces[0].terminal_tab(0).unwrap().panes[&pane_id]
                 .attached_terminal_id
                 .clone();
             app.terminals.get_mut(&terminal_id).unwrap().detected_agent = Some(agent);
@@ -6479,13 +6516,13 @@ mod tests {
         let mut workspace = Workspace::test_new("ignored");
         workspace.custom_name = None;
         workspace.identity_cwd = std::path::PathBuf::from("/tmp/identity");
-        let left_pane = workspace.tabs[0].root_pane;
+        let left_pane = workspace.terminal_tab(0).unwrap().root_pane;
         let right_pane = workspace.test_split(ratatui::layout::Direction::Horizontal);
 
         app.workspaces = vec![workspace];
         app.ensure_test_terminals();
 
-        let left_terminal_id = app.workspaces[0].tabs[0].panes[&left_pane]
+        let left_terminal_id = app.workspaces[0].terminal_tab(0).unwrap().panes[&left_pane]
             .attached_terminal_id
             .clone();
         let left_terminal = app.terminals.get_mut(&left_terminal_id).unwrap();
@@ -6493,7 +6530,7 @@ mod tests {
         left_terminal.detected_agent = Some(Agent::Pi);
         left_terminal.state = AgentState::Working;
 
-        let right_terminal_id = app.workspaces[0].tabs[0].panes[&right_pane]
+        let right_terminal_id = app.workspaces[0].terminal_tab(0).unwrap().panes[&right_pane]
             .attached_terminal_id
             .clone();
         app.terminals.get_mut(&right_terminal_id).unwrap().cwd =
@@ -6519,11 +6556,11 @@ mod tests {
         let mut workspace = Workspace::test_new("stale-name");
         workspace.custom_name = None;
         workspace.identity_cwd = std::path::PathBuf::from("/tmp/issue-264-nix-support");
-        let pane = workspace.tabs[0].root_pane;
+        let pane = workspace.terminal_tab(0).unwrap().root_pane;
 
         app.workspaces = vec![workspace];
         app.ensure_test_terminals();
-        let terminal_id = app.workspaces[0].tabs[0].panes[&pane]
+        let terminal_id = app.workspaces[0].terminal_tab(0).unwrap().panes[&pane]
             .attached_terminal_id
             .clone();
         let terminal = app.terminals.get_mut(&terminal_id).unwrap();
@@ -6542,10 +6579,10 @@ mod tests {
     fn agent_panel_entries_include_named_terminals_before_detection() {
         let mut app = crate::app::state::AppState::test_new();
         let workspace = Workspace::test_new("one");
-        let pane = workspace.tabs[0].root_pane;
+        let pane = workspace.terminal_tab(0).unwrap().root_pane;
         app.workspaces = vec![workspace];
         app.ensure_test_terminals();
-        let terminal_id = app.workspaces[0].tabs[0].panes[&pane]
+        let terminal_id = app.workspaces[0].terminal_tab(0).unwrap().panes[&pane]
             .attached_terminal_id
             .clone();
         app.terminals.get_mut(&terminal_id).unwrap().agent_name = Some("codex".into());
@@ -6566,8 +6603,10 @@ mod tests {
         let hidden_group = app.create_group("Work".to_string());
 
         let mut first = Workspace::test_new("one");
-        let first_pane = first.tabs[0].root_pane;
-        first.tabs[0]
+        let first_pane = first.terminal_tab(0).unwrap().root_pane;
+        first
+            .terminal_tab_mut(0)
+            .unwrap()
             .panes
             .get_mut(&first_pane)
             .unwrap()
@@ -6575,8 +6614,10 @@ mod tests {
 
         let mut second = Workspace::test_new("two");
         second.group_id = app.groups[hidden_group].id.clone();
-        let second_pane = second.tabs[0].root_pane;
-        second.tabs[0]
+        let second_pane = second.terminal_tab(0).unwrap().root_pane;
+        second
+            .terminal_tab_mut(0)
+            .unwrap()
             .panes
             .get_mut(&second_pane)
             .unwrap()
@@ -6605,8 +6646,10 @@ mod tests {
         let work_group = app.create_group("Work".to_string());
 
         let mut first = Workspace::test_new("one");
-        let first_pane = first.tabs[0].root_pane;
-        first.tabs[0]
+        let first_pane = first.terminal_tab(0).unwrap().root_pane;
+        first
+            .terminal_tab_mut(0)
+            .unwrap()
             .panes
             .get_mut(&first_pane)
             .unwrap()
@@ -6614,8 +6657,10 @@ mod tests {
 
         let mut second = Workspace::test_new("two");
         second.group_id = app.groups[work_group].id.clone();
-        let second_pane = second.tabs[0].root_pane;
-        second.tabs[0]
+        let second_pane = second.terminal_tab(0).unwrap().root_pane;
+        second
+            .terminal_tab_mut(0)
+            .unwrap()
             .panes
             .get_mut(&second_pane)
             .unwrap()
@@ -6623,8 +6668,10 @@ mod tests {
 
         let mut third = Workspace::test_new("three");
         third.group_id = app.groups[work_group].id.clone();
-        let third_pane = third.tabs[0].root_pane;
-        third.tabs[0]
+        let third_pane = third.terminal_tab(0).unwrap().root_pane;
+        third
+            .terminal_tab_mut(0)
+            .unwrap()
             .panes
             .get_mut(&third_pane)
             .unwrap()
@@ -6648,23 +6695,38 @@ mod tests {
         let work_group = app.create_group("Work".to_string());
 
         let mut first = Workspace::test_new("Done");
-        let first_pane = first.tabs[0].root_pane;
-        let first_pane_state = first.tabs[0].panes.get_mut(&first_pane).unwrap();
+        let first_pane = first.terminal_tab(0).unwrap().root_pane;
+        let first_pane_state = first
+            .terminal_tab_mut(0)
+            .unwrap()
+            .panes
+            .get_mut(&first_pane)
+            .unwrap();
         first_pane_state.detected_agent = Some(Agent::Pi);
         first_pane_state.state = AgentState::Idle;
         first_pane_state.seen = false;
 
         let mut second = Workspace::test_new("Blocked");
         second.group_id = app.groups[work_group].id.clone();
-        let second_pane = second.tabs[0].root_pane;
-        let second_pane_state = second.tabs[0].panes.get_mut(&second_pane).unwrap();
+        let second_pane = second.terminal_tab(0).unwrap().root_pane;
+        let second_pane_state = second
+            .terminal_tab_mut(0)
+            .unwrap()
+            .panes
+            .get_mut(&second_pane)
+            .unwrap();
         second_pane_state.detected_agent = Some(Agent::Claude);
         second_pane_state.state = AgentState::Blocked;
         second_pane_state.seen = true;
 
         let mut third = Workspace::test_new("Working");
-        let third_pane = third.tabs[0].root_pane;
-        let third_pane_state = third.tabs[0].panes.get_mut(&third_pane).unwrap();
+        let third_pane = third.terminal_tab(0).unwrap().root_pane;
+        let third_pane_state = third
+            .terminal_tab_mut(0)
+            .unwrap()
+            .panes
+            .get_mut(&third_pane)
+            .unwrap();
         third_pane_state.detected_agent = Some(Agent::Codex);
         third_pane_state.state = AgentState::Working;
         third_pane_state.seen = false;
@@ -6685,21 +6747,36 @@ mod tests {
         let mut app = crate::app::state::AppState::test_new();
 
         let mut triage = Workspace::test_new("Done");
-        let triage_pane = triage.tabs[0].root_pane;
-        let triage_state = triage.tabs[0].panes.get_mut(&triage_pane).unwrap();
+        let triage_pane = triage.terminal_tab(0).unwrap().root_pane;
+        let triage_state = triage
+            .terminal_tab_mut(0)
+            .unwrap()
+            .panes
+            .get_mut(&triage_pane)
+            .unwrap();
         triage_state.detected_agent = Some(Agent::Pi);
         triage_state.state = AgentState::Idle;
         triage_state.seen = false;
 
         let mut working = Workspace::test_new("Working");
-        let working_pane = working.tabs[0].root_pane;
-        let working_state = working.tabs[0].panes.get_mut(&working_pane).unwrap();
+        let working_pane = working.terminal_tab(0).unwrap().root_pane;
+        let working_state = working
+            .terminal_tab_mut(0)
+            .unwrap()
+            .panes
+            .get_mut(&working_pane)
+            .unwrap();
         working_state.detected_agent = Some(Agent::Claude);
         working_state.state = AgentState::Working;
 
         let mut idle = Workspace::test_new("Idle");
-        let idle_pane = idle.tabs[0].root_pane;
-        let idle_state = idle.tabs[0].panes.get_mut(&idle_pane).unwrap();
+        let idle_pane = idle.terminal_tab(0).unwrap().root_pane;
+        let idle_state = idle
+            .terminal_tab_mut(0)
+            .unwrap()
+            .panes
+            .get_mut(&idle_pane)
+            .unwrap();
         idle_state.detected_agent = Some(Agent::Codex);
         idle_state.state = AgentState::Idle;
         idle_state.seen = true;
@@ -6727,15 +6804,25 @@ mod tests {
         let mut app = crate::app::state::AppState::test_new();
 
         let mut done = Workspace::test_new("Done");
-        let done_pane = done.tabs[0].root_pane;
-        let done_state = done.tabs[0].panes.get_mut(&done_pane).unwrap();
+        let done_pane = done.terminal_tab(0).unwrap().root_pane;
+        let done_state = done
+            .terminal_tab_mut(0)
+            .unwrap()
+            .panes
+            .get_mut(&done_pane)
+            .unwrap();
         done_state.detected_agent = Some(Agent::Pi);
         done_state.state = AgentState::Idle;
         done_state.seen = false;
 
         let mut idle = Workspace::test_new("Idle");
-        let idle_pane = idle.tabs[0].root_pane;
-        let idle_state = idle.tabs[0].panes.get_mut(&idle_pane).unwrap();
+        let idle_pane = idle.terminal_tab(0).unwrap().root_pane;
+        let idle_state = idle
+            .terminal_tab_mut(0)
+            .unwrap()
+            .panes
+            .get_mut(&idle_pane)
+            .unwrap();
         idle_state.detected_agent = Some(Agent::Codex);
         idle_state.state = AgentState::Idle;
         idle_state.seen = true;
@@ -6755,7 +6842,7 @@ mod tests {
         assert_eq!(triage.entries.len(), 1);
         assert_eq!(triage.entries[0].primary_label, "Done");
         assert!(triage.entries[0].seen);
-        assert!(app.workspaces[0].tabs[0].panes[&done_pane].seen);
+        assert!(app.workspaces[0].terminal_tab(0).unwrap().panes[&done_pane].seen);
 
         app.switch_workspace(1);
 
@@ -6780,8 +6867,13 @@ mod tests {
         let mut app = crate::app::state::AppState::test_new();
 
         let mut done = Workspace::test_new("Done");
-        let done_pane = done.tabs[0].root_pane;
-        let done_state = done.tabs[0].panes.get_mut(&done_pane).unwrap();
+        let done_pane = done.terminal_tab(0).unwrap().root_pane;
+        let done_state = done
+            .terminal_tab_mut(0)
+            .unwrap()
+            .panes
+            .get_mut(&done_pane)
+            .unwrap();
         done_state.detected_agent = Some(Agent::Pi);
         done_state.state = AgentState::Idle;
         done_state.seen = false;
@@ -6792,7 +6884,9 @@ mod tests {
         app.agent_panel_scope = AgentPanelScope::AllWorkspaces;
 
         app.focus_workspace_tab_pane(0, 0, done_pane);
-        app.workspaces[0].tabs[0]
+        app.workspaces[0]
+            .terminal_tab_mut(0)
+            .unwrap()
             .panes
             .get_mut(&done_pane)
             .unwrap()
@@ -6814,16 +6908,30 @@ mod tests {
         let mut app = crate::app::state::AppState::test_new();
 
         let mut workspace = Workspace::test_new("split");
-        let first_pane = workspace.tabs[0].root_pane;
+        let first_pane = workspace.terminal_tab(0).unwrap().root_pane;
         let second_pane = workspace.test_split(ratatui::layout::Direction::Horizontal);
-        workspace.tabs[0].layout.focus_pane(second_pane);
+        workspace
+            .terminal_tab_mut(0)
+            .unwrap()
+            .layout
+            .focus_pane(second_pane);
 
-        let first_state = workspace.tabs[0].panes.get_mut(&first_pane).unwrap();
+        let first_state = workspace
+            .terminal_tab_mut(0)
+            .unwrap()
+            .panes
+            .get_mut(&first_pane)
+            .unwrap();
         first_state.detected_agent = Some(Agent::Pi);
         first_state.state = AgentState::Idle;
         first_state.seen = false;
 
-        let second_state = workspace.tabs[0].panes.get_mut(&second_pane).unwrap();
+        let second_state = workspace
+            .terminal_tab_mut(0)
+            .unwrap()
+            .panes
+            .get_mut(&second_pane)
+            .unwrap();
         second_state.detected_agent = Some(Agent::Codex);
         second_state.state = AgentState::Idle;
         second_state.seen = true;
@@ -6855,9 +6963,9 @@ mod tests {
     fn agent_panel_sections_order_entries_newest_activity_first() {
         let mut app = crate::app::state::AppState::test_new();
         let old = Workspace::test_new("old");
-        let old_pane = old.tabs[0].root_pane;
+        let old_pane = old.terminal_tab(0).unwrap().root_pane;
         let new = Workspace::test_new("New");
-        let new_pane = new.tabs[0].root_pane;
+        let new_pane = new.terminal_tab(0).unwrap().root_pane;
         app.workspaces = vec![old, new];
         app.ensure_test_terminals();
         app.active = Some(0);
@@ -6900,9 +7008,9 @@ mod tests {
     fn stable_visible_refresh_does_not_make_agent_newest() {
         let mut app = crate::app::state::AppState::test_new();
         let first = Workspace::test_new("first");
-        let first_pane = first.tabs[0].root_pane;
+        let first_pane = first.terminal_tab(0).unwrap().root_pane;
         let second = Workspace::test_new("second");
-        let second_pane = second.tabs[0].root_pane;
+        let second_pane = second.terminal_tab(0).unwrap().root_pane;
         app.workspaces = vec![first, second];
         app.ensure_test_terminals();
         app.active = Some(0);
@@ -6955,9 +7063,9 @@ mod tests {
     fn agent_rename_does_not_count_as_activity() {
         let mut app = crate::app::state::AppState::test_new();
         let old = Workspace::test_new("old");
-        let old_pane = old.tabs[0].root_pane;
+        let old_pane = old.terminal_tab(0).unwrap().root_pane;
         let new = Workspace::test_new("New");
-        let new_pane = new.tabs[0].root_pane;
+        let new_pane = new.terminal_tab(0).unwrap().root_pane;
         app.workspaces = vec![old, new];
         app.ensure_test_terminals();
         app.active = Some(0);
@@ -6985,7 +7093,7 @@ mod tests {
             process_exited: false,
             observed_at: now + std::time::Duration::from_millis(1),
         });
-        let old_terminal_id = app.workspaces[0].tabs[0].panes[&old_pane]
+        let old_terminal_id = app.workspaces[0].terminal_tab(0).unwrap().panes[&old_pane]
             .attached_terminal_id
             .clone();
         app.terminals
@@ -7008,21 +7116,33 @@ mod tests {
     fn agent_panel_renders_tab_suffixes_for_duplicate_workspace_labels() {
         let mut app = crate::app::state::AppState::test_new();
         let mut workspace = Workspace::test_new("personal");
-        let first_pane = workspace.tabs[0].root_pane;
-        workspace.tabs[0]
+        let first_pane = workspace.terminal_tab(0).unwrap().root_pane;
+        workspace
+            .terminal_tab_mut(0)
+            .unwrap()
             .panes
             .get_mut(&first_pane)
             .unwrap()
             .detected_agent = Some(Agent::Codex);
-        workspace.tabs[0].panes.get_mut(&first_pane).unwrap().state = AgentState::Working;
+        workspace
+            .terminal_tab_mut(0)
+            .unwrap()
+            .panes
+            .get_mut(&first_pane)
+            .unwrap()
+            .state = AgentState::Working;
         let second_tab = workspace.test_add_tab(None);
-        let second_pane = workspace.tabs[second_tab].root_pane;
-        workspace.tabs[second_tab]
+        let second_pane = workspace.terminal_tab(second_tab).unwrap().root_pane;
+        workspace
+            .terminal_tab_mut(second_tab)
+            .unwrap()
             .panes
             .get_mut(&second_pane)
             .unwrap()
             .detected_agent = Some(Agent::Claude);
-        workspace.tabs[second_tab]
+        workspace
+            .terminal_tab_mut(second_tab)
+            .unwrap()
             .panes
             .get_mut(&second_pane)
             .unwrap()
@@ -7048,8 +7168,13 @@ mod tests {
     fn non_triage_agent_rows_omit_redundant_status() {
         let mut app = crate::app::state::AppState::test_new();
         let mut workspace = Workspace::test_new("worker");
-        let pane = workspace.tabs[0].root_pane;
-        let pane_state = workspace.tabs[0].panes.get_mut(&pane).unwrap();
+        let pane = workspace.terminal_tab(0).unwrap().root_pane;
+        let pane_state = workspace
+            .terminal_tab_mut(0)
+            .unwrap()
+            .panes
+            .get_mut(&pane)
+            .unwrap();
         pane_state.detected_agent = Some(Agent::Codex);
         pane_state.state = AgentState::Working;
         app.workspaces = vec![workspace];
@@ -7073,14 +7198,21 @@ mod tests {
     fn agent_rows_show_agent_names_when_visible_entries_mix_agent_types() {
         let mut app = crate::app::state::AppState::test_new();
         let mut codex_workspace = Workspace::test_new("codex-worker");
-        let codex_pane = codex_workspace.tabs[0].root_pane;
-        let codex_state = codex_workspace.tabs[0].panes.get_mut(&codex_pane).unwrap();
+        let codex_pane = codex_workspace.terminal_tab(0).unwrap().root_pane;
+        let codex_state = codex_workspace
+            .terminal_tab_mut(0)
+            .unwrap()
+            .panes
+            .get_mut(&codex_pane)
+            .unwrap();
         codex_state.detected_agent = Some(Agent::Codex);
         codex_state.state = AgentState::Working;
 
         let mut claude_workspace = Workspace::test_new("claude-worker");
-        let claude_pane = claude_workspace.tabs[0].root_pane;
-        let claude_state = claude_workspace.tabs[0]
+        let claude_pane = claude_workspace.terminal_tab(0).unwrap().root_pane;
+        let claude_state = claude_workspace
+            .terminal_tab_mut(0)
+            .unwrap()
             .panes
             .get_mut(&claude_pane)
             .unwrap();
@@ -7114,8 +7246,13 @@ mod tests {
         app.workspaces = (0..12)
             .map(|_| {
                 let mut workspace = Workspace::test_new("agent-with-a-long-name");
-                let pane = workspace.tabs[0].root_pane;
-                let state = workspace.tabs[0].panes.get_mut(&pane).unwrap();
+                let pane = workspace.terminal_tab(0).unwrap().root_pane;
+                let state = workspace
+                    .terminal_tab_mut(0)
+                    .unwrap()
+                    .panes
+                    .get_mut(&pane)
+                    .unwrap();
                 state.detected_agent = Some(Agent::Codex);
                 state.state = AgentState::Working;
                 workspace
@@ -7152,8 +7289,13 @@ mod tests {
         let mut app = crate::app::state::AppState::test_new();
         app.show_counters = true;
         let mut workspace = Workspace::test_new("needs-action");
-        let pane = workspace.tabs[0].root_pane;
-        let pane_state = workspace.tabs[0].panes.get_mut(&pane).unwrap();
+        let pane = workspace.terminal_tab(0).unwrap().root_pane;
+        let pane_state = workspace
+            .terminal_tab_mut(0)
+            .unwrap()
+            .panes
+            .get_mut(&pane)
+            .unwrap();
         pane_state.detected_agent = Some(Agent::Claude);
         pane_state.state = AgentState::Idle;
         pane_state.seen = false;
@@ -7214,15 +7356,25 @@ mod tests {
     fn idle_agent_rows_start_under_section_label_without_status_icons() {
         let mut app = crate::app::state::AppState::test_new();
         let mut first = Workspace::test_new("first");
-        let first_pane = first.tabs[0].root_pane;
-        let first_state = first.tabs[0].panes.get_mut(&first_pane).unwrap();
+        let first_pane = first.terminal_tab(0).unwrap().root_pane;
+        let first_state = first
+            .terminal_tab_mut(0)
+            .unwrap()
+            .panes
+            .get_mut(&first_pane)
+            .unwrap();
         first_state.detected_agent = Some(Agent::Codex);
         first_state.state = AgentState::Idle;
         first_state.seen = true;
 
         let mut second = Workspace::test_new("second");
-        let second_pane = second.tabs[0].root_pane;
-        let second_state = second.tabs[0].panes.get_mut(&second_pane).unwrap();
+        let second_pane = second.terminal_tab(0).unwrap().root_pane;
+        let second_state = second
+            .terminal_tab_mut(0)
+            .unwrap()
+            .panes
+            .get_mut(&second_pane)
+            .unwrap();
         second_state.detected_agent = Some(Agent::Codex);
         second_state.state = AgentState::Idle;
         second_state.seen = true;
@@ -7374,13 +7526,21 @@ mod tests {
         let body = agent_panel_body_rect(area, false, true);
         let mut app = crate::app::state::AppState::test_new();
         let mut workspace = Workspace::test_new("agent");
-        let pane = workspace.tabs[0].root_pane;
-        workspace.tabs[0]
+        let pane = workspace.terminal_tab(0).unwrap().root_pane;
+        workspace
+            .terminal_tab_mut(0)
+            .unwrap()
             .panes
             .get_mut(&pane)
             .unwrap()
             .detected_agent = Some(Agent::Codex);
-        workspace.tabs[0].panes.get_mut(&pane).unwrap().state = AgentState::Working;
+        workspace
+            .terminal_tab_mut(0)
+            .unwrap()
+            .panes
+            .get_mut(&pane)
+            .unwrap()
+            .state = AgentState::Working;
         app.workspaces = vec![workspace];
         app.active = Some(0);
         assert!(app.insert_agent_follow_up(0, pane));
@@ -7466,11 +7626,11 @@ mod tests {
     fn all_workspaces_agent_panel_entries_prefer_agent_names_for_agent_identity() {
         let mut app = crate::app::state::AppState::test_new();
         let workspace = Workspace::test_new("bridge");
-        let first_pane = workspace.tabs[0].root_pane;
+        let first_pane = workspace.terminal_tab(0).unwrap().root_pane;
 
         app.workspaces = vec![workspace];
         app.ensure_test_terminals();
-        let first_terminal_id = app.workspaces[0].tabs[0].panes[&first_pane]
+        let first_terminal_id = app.workspaces[0].terminal_tab(0).unwrap().panes[&first_pane]
             .attached_terminal_id
             .clone();
         app.terminals
@@ -7494,8 +7654,13 @@ mod tests {
     fn agent_header_and_scope_badge_share_row_above_divider_without_header_chevron() {
         let mut app = crate::app::state::AppState::test_new();
         let mut workspace = Workspace::test_new("worker");
-        let pane = workspace.tabs[0].root_pane;
-        let pane_state = workspace.tabs[0].panes.get_mut(&pane).unwrap();
+        let pane = workspace.terminal_tab(0).unwrap().root_pane;
+        let pane_state = workspace
+            .terminal_tab_mut(0)
+            .unwrap()
+            .panes
+            .get_mut(&pane)
+            .unwrap();
         pane_state.detected_agent = Some(Agent::Codex);
         pane_state.state = AgentState::Working;
         app.workspaces = vec![workspace];
@@ -7538,15 +7703,25 @@ mod tests {
         app.group_filter_enabled = false;
 
         let mut triage = Workspace::test_new("Done");
-        let triage_pane = triage.tabs[0].root_pane;
-        let triage_pane_state = triage.tabs[0].panes.get_mut(&triage_pane).unwrap();
+        let triage_pane = triage.terminal_tab(0).unwrap().root_pane;
+        let triage_pane_state = triage
+            .terminal_tab_mut(0)
+            .unwrap()
+            .panes
+            .get_mut(&triage_pane)
+            .unwrap();
         triage_pane_state.detected_agent = Some(Agent::Claude);
         triage_pane_state.state = AgentState::Idle;
         triage_pane_state.seen = false;
 
         let mut working = Workspace::test_new("worker");
-        let working_pane = working.tabs[0].root_pane;
-        let working_pane_state = working.tabs[0].panes.get_mut(&working_pane).unwrap();
+        let working_pane = working.terminal_tab(0).unwrap().root_pane;
+        let working_pane_state = working
+            .terminal_tab_mut(0)
+            .unwrap()
+            .panes
+            .get_mut(&working_pane)
+            .unwrap();
         working_pane_state.detected_agent = Some(Agent::Codex);
         working_pane_state.state = AgentState::Working;
 
@@ -7657,15 +7832,25 @@ mod tests {
     fn collapsed_right_sidebar_renders_agent_status_groups_and_expand_toggle() {
         let mut app = crate::app::state::AppState::test_new();
         let mut triage = Workspace::test_new("Done");
-        let triage_pane = triage.tabs[0].root_pane;
-        let triage_pane_state = triage.tabs[0].panes.get_mut(&triage_pane).unwrap();
+        let triage_pane = triage.terminal_tab(0).unwrap().root_pane;
+        let triage_pane_state = triage
+            .terminal_tab_mut(0)
+            .unwrap()
+            .panes
+            .get_mut(&triage_pane)
+            .unwrap();
         triage_pane_state.detected_agent = Some(Agent::Claude);
         triage_pane_state.state = AgentState::Idle;
         triage_pane_state.seen = false;
 
         let mut working = Workspace::test_new("build");
-        let working_pane = working.tabs[0].root_pane;
-        let working_pane_state = working.tabs[0].panes.get_mut(&working_pane).unwrap();
+        let working_pane = working.terminal_tab(0).unwrap().root_pane;
+        let working_pane_state = working
+            .terminal_tab_mut(0)
+            .unwrap()
+            .panes
+            .get_mut(&working_pane)
+            .unwrap();
         working_pane_state.detected_agent = Some(Agent::Codex);
         working_pane_state.state = AgentState::Working;
 
@@ -7744,18 +7929,28 @@ mod tests {
     fn follow_up_section_is_always_present_and_header_hit_testable_when_empty() {
         let mut app = crate::app::state::AppState::test_new();
         app.workspaces = vec![Workspace::test_new("idle")];
-        let pane = app.workspaces[0].tabs[0].root_pane;
-        app.workspaces[0].tabs[0]
+        let pane = app.workspaces[0].terminal_tab(0).unwrap().root_pane;
+        app.workspaces[0]
+            .terminal_tab_mut(0)
+            .unwrap()
             .panes
             .get_mut(&pane)
             .unwrap()
             .detected_agent = Some(Agent::Codex);
-        app.workspaces[0].tabs[0]
+        app.workspaces[0]
+            .terminal_tab_mut(0)
+            .unwrap()
             .panes
             .get_mut(&pane)
             .unwrap()
             .state = AgentState::Idle;
-        app.workspaces[0].tabs[0].panes.get_mut(&pane).unwrap().seen = true;
+        app.workspaces[0]
+            .terminal_tab_mut(0)
+            .unwrap()
+            .panes
+            .get_mut(&pane)
+            .unwrap()
+            .seen = true;
         app.active = Some(0);
         app.agent_panel_scope = AgentPanelScope::CurrentWorkspace;
 
@@ -7780,22 +7975,44 @@ mod tests {
     fn queued_follow_up_keeps_runtime_state_and_oldest_added_order() {
         let mut app = crate::app::state::AppState::test_new();
         let mut first = Workspace::test_new("first");
-        let first_pane = first.tabs[0].root_pane;
-        first.tabs[0]
+        let first_pane = first.terminal_tab(0).unwrap().root_pane;
+        first
+            .terminal_tab_mut(0)
+            .unwrap()
             .panes
             .get_mut(&first_pane)
             .unwrap()
             .detected_agent = Some(Agent::Codex);
-        first.tabs[0].panes.get_mut(&first_pane).unwrap().state = AgentState::Working;
+        first
+            .terminal_tab_mut(0)
+            .unwrap()
+            .panes
+            .get_mut(&first_pane)
+            .unwrap()
+            .state = AgentState::Working;
         let mut second = Workspace::test_new("second");
-        let second_pane = second.tabs[0].root_pane;
-        second.tabs[0]
+        let second_pane = second.terminal_tab(0).unwrap().root_pane;
+        second
+            .terminal_tab_mut(0)
+            .unwrap()
             .panes
             .get_mut(&second_pane)
             .unwrap()
             .detected_agent = Some(Agent::Claude);
-        second.tabs[0].panes.get_mut(&second_pane).unwrap().state = AgentState::Blocked;
-        second.tabs[0].panes.get_mut(&second_pane).unwrap().seen = false;
+        second
+            .terminal_tab_mut(0)
+            .unwrap()
+            .panes
+            .get_mut(&second_pane)
+            .unwrap()
+            .state = AgentState::Blocked;
+        second
+            .terminal_tab_mut(0)
+            .unwrap()
+            .panes
+            .get_mut(&second_pane)
+            .unwrap()
+            .seen = false;
         app.workspaces = vec![first, second];
         app.active = Some(0);
         app.agent_panel_scope = AgentPanelScope::AllWorkspaces;
@@ -7826,21 +8043,37 @@ mod tests {
     fn follow_up_equal_added_timestamps_keep_insertion_order() {
         let mut app = crate::app::state::AppState::test_new();
         let mut first = Workspace::test_new("first");
-        let first_pane = first.tabs[0].root_pane;
-        first.tabs[0]
+        let first_pane = first.terminal_tab(0).unwrap().root_pane;
+        first
+            .terminal_tab_mut(0)
+            .unwrap()
             .panes
             .get_mut(&first_pane)
             .unwrap()
             .detected_agent = Some(Agent::Codex);
-        first.tabs[0].panes.get_mut(&first_pane).unwrap().state = AgentState::Working;
+        first
+            .terminal_tab_mut(0)
+            .unwrap()
+            .panes
+            .get_mut(&first_pane)
+            .unwrap()
+            .state = AgentState::Working;
         let mut second = Workspace::test_new("second");
-        let second_pane = second.tabs[0].root_pane;
-        second.tabs[0]
+        let second_pane = second.terminal_tab(0).unwrap().root_pane;
+        second
+            .terminal_tab_mut(0)
+            .unwrap()
             .panes
             .get_mut(&second_pane)
             .unwrap()
             .detected_agent = Some(Agent::Claude);
-        second.tabs[0].panes.get_mut(&second_pane).unwrap().state = AgentState::Working;
+        second
+            .terminal_tab_mut(0)
+            .unwrap()
+            .panes
+            .get_mut(&second_pane)
+            .unwrap()
+            .state = AgentState::Working;
         app.workspaces = vec![first, second];
         app.active = Some(0);
         app.agent_panel_scope = AgentPanelScope::AllWorkspaces;
@@ -7866,29 +8099,53 @@ mod tests {
     fn triage_orders_oldest_meaningful_activity_first() {
         let mut app = crate::app::state::AppState::test_new();
         let mut older = Workspace::test_new("older");
-        let older_pane = older.tabs[0].root_pane;
-        older.tabs[0]
+        let older_pane = older.terminal_tab(0).unwrap().root_pane;
+        older
+            .terminal_tab_mut(0)
+            .unwrap()
             .panes
             .get_mut(&older_pane)
             .unwrap()
             .detected_agent = Some(Agent::Codex);
-        older.tabs[0].panes.get_mut(&older_pane).unwrap().state = AgentState::Blocked;
+        older
+            .terminal_tab_mut(0)
+            .unwrap()
+            .panes
+            .get_mut(&older_pane)
+            .unwrap()
+            .state = AgentState::Blocked;
         let mut newer = Workspace::test_new("newer");
-        let newer_pane = newer.tabs[0].root_pane;
-        newer.tabs[0]
+        let newer_pane = newer.terminal_tab(0).unwrap().root_pane;
+        newer
+            .terminal_tab_mut(0)
+            .unwrap()
             .panes
             .get_mut(&newer_pane)
             .unwrap()
             .detected_agent = Some(Agent::Claude);
-        newer.tabs[0].panes.get_mut(&newer_pane).unwrap().state = AgentState::Blocked;
+        newer
+            .terminal_tab_mut(0)
+            .unwrap()
+            .panes
+            .get_mut(&newer_pane)
+            .unwrap()
+            .state = AgentState::Blocked;
         let mut never = Workspace::test_new("never");
-        let never_pane = never.tabs[0].root_pane;
-        never.tabs[0]
+        let never_pane = never.terminal_tab(0).unwrap().root_pane;
+        never
+            .terminal_tab_mut(0)
+            .unwrap()
             .panes
             .get_mut(&never_pane)
             .unwrap()
             .detected_agent = Some(Agent::Pi);
-        never.tabs[0].panes.get_mut(&never_pane).unwrap().state = AgentState::Blocked;
+        never
+            .terminal_tab_mut(0)
+            .unwrap()
+            .panes
+            .get_mut(&never_pane)
+            .unwrap()
+            .state = AgentState::Blocked;
         app.workspaces = vec![older, newer, never];
         app.ensure_test_terminals();
         app.active = Some(0);
@@ -7897,8 +8154,10 @@ mod tests {
             .workspaces
             .iter()
             .map(|ws| {
-                let pane = ws.tabs[0].root_pane;
-                ws.tabs[0].panes[&pane].attached_terminal_id.clone()
+                let pane = ws.terminal_tab(0).unwrap().root_pane;
+                ws.terminal_tab(0).unwrap().panes[&pane]
+                    .attached_terminal_id
+                    .clone()
             })
             .collect();
         app.terminals
@@ -7926,12 +8185,12 @@ mod tests {
     fn follow_up_keeps_live_pane_after_agent_release() {
         let mut app = crate::app::state::AppState::test_new();
         let workspace = Workspace::test_new("queued");
-        let pane = workspace.tabs[0].root_pane;
+        let pane = workspace.terminal_tab(0).unwrap().root_pane;
         app.workspaces = vec![workspace];
         app.ensure_test_terminals();
         app.active = Some(0);
         app.agent_panel_scope = AgentPanelScope::CurrentWorkspace;
-        let terminal_id = app.workspaces[0].tabs[0].panes[&pane]
+        let terminal_id = app.workspaces[0].terminal_tab(0).unwrap().panes[&pane]
             .attached_terminal_id
             .clone();
         let terminal = app.terminals.get_mut(&terminal_id).unwrap();
@@ -8041,8 +8300,13 @@ mod tests {
 
         let mut queued = crate::app::state::AppState::test_new();
         let mut workspace = Workspace::test_new("queued");
-        let pane = workspace.tabs[0].root_pane;
-        let pane_state = workspace.tabs[0].panes.get_mut(&pane).unwrap();
+        let pane = workspace.terminal_tab(0).unwrap().root_pane;
+        let pane_state = workspace
+            .terminal_tab_mut(0)
+            .unwrap()
+            .panes
+            .get_mut(&pane)
+            .unwrap();
         pane_state.detected_agent = Some(Agent::Codex);
         pane_state.state = AgentState::Working;
         queued.workspaces = vec![workspace];
@@ -8063,8 +8327,13 @@ mod tests {
     fn empty_follow_up_counts_as_one_scroll_item_before_lower_sections() {
         let mut app = crate::app::state::AppState::test_new();
         let mut workspace = Workspace::test_new("reachable");
-        let pane = workspace.tabs[0].root_pane;
-        let pane_state = workspace.tabs[0].panes.get_mut(&pane).unwrap();
+        let pane = workspace.terminal_tab(0).unwrap().root_pane;
+        let pane_state = workspace
+            .terminal_tab_mut(0)
+            .unwrap()
+            .panes
+            .get_mut(&pane)
+            .unwrap();
         pane_state.detected_agent = Some(Agent::Codex);
         pane_state.state = AgentState::Working;
         app.workspaces = vec![workspace];

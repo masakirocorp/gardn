@@ -665,7 +665,11 @@ fn render_confirm_close_overlay_with(
     let pane_count = app
         .workspaces
         .get(selected_workspace)
-        .map(|ws| ws.tabs.iter().map(|tab| tab.layout.pane_count()).sum())
+        .map(|ws| {
+            ws.terminal_tabs()
+                .map(|(_, tab)| tab.layout.pane_count())
+                .sum()
+        })
         .unwrap_or(0);
 
     let pane_text = if pane_count == 1 {
@@ -1010,8 +1014,8 @@ mod tests {
         let mut target = Workspace::test_new("original");
         target.custom_name = None;
         target.identity_cwd = "/projects/original".into();
-        let target_pane = target.tabs[0].root_pane;
-        let target_terminal_id = target.tabs[0].panes[&target_pane]
+        let target_pane = target.terminal_tab(0).unwrap().root_pane;
+        let target_terminal_id = target.terminal_tab(0).unwrap().panes[&target_pane]
             .attached_terminal_id
             .clone();
         app.workspaces = vec![active, target];

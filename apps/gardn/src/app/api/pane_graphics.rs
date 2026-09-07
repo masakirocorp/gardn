@@ -14,7 +14,10 @@ impl App {
         if self.state.active != Some(ws_idx) {
             return false;
         }
-        let Some(tab) = self.state.workspaces[ws_idx].active_tab() else {
+        let Some(tab) = self.state.workspaces[ws_idx]
+            .active_tab()
+            .and_then(|entry| entry.as_terminal())
+        else {
             return false;
         };
         if tab.zoomed {
@@ -22,6 +25,15 @@ impl App {
         } else {
             tab.layout.pane_ids().contains(&pane_id)
         }
+    }
+
+    fn terminal_pane_exists(&self, ws_idx: usize, pane_id: PaneId) -> bool {
+        self.state
+            .workspaces
+            .get(ws_idx)
+            .and_then(|workspace| workspace.find_tab_index_for_pane(pane_id))
+            .and_then(|tab_idx| self.state.workspaces[ws_idx].terminal_tab(tab_idx).ok())
+            .is_some_and(|tab| tab.panes.contains_key(&pane_id))
     }
 
     pub(super) fn handle_pane_graphics_info(
@@ -35,6 +47,9 @@ impl App {
         let Some((ws_idx, pane_id)) = self.parse_pane_id(&target.pane_id) else {
             return pane_not_found(id, &target.pane_id);
         };
+        if !self.terminal_pane_exists(ws_idx, pane_id) {
+            return pane_not_found(id, &target.pane_id);
+        }
         let pane_visible = self.pane_graphics_visible(ws_idx, pane_id);
         let cell_size = self
             .state
@@ -81,7 +96,6 @@ impl App {
                 file_frame_damage: true,
                 max_layers_per_pane: PANE_GRAPHICS_MAX_LAYERS_PER_PANE,
                 pixel_mouse: self.pixel_mouse_available || cell_size.is_known(),
-
                 file_frame_transport: direct.then(|| "direct-kitty".into()),
             },
         )
@@ -96,9 +110,12 @@ impl App {
         if serde_json::from_str::<crate::api::schema::SuccessResponse>(response).is_err() {
             return;
         }
-        let Some((_, pane_id)) = self.parse_pane_id(&params.pane_id) else {
+        let Some((ws_idx, pane_id)) = self.parse_pane_id(&params.pane_id) else {
             return;
         };
+        if !self.terminal_pane_exists(ws_idx, pane_id) {
+            return;
+        }
         let Ok(key) = graphics_key(pane_id, params.layer_id.as_deref()) else {
             return;
         };
@@ -114,9 +131,12 @@ impl App {
         if let Err(response) = require_enabled(self, &id) {
             return response;
         }
-        let Some((_, pane_id)) = self.parse_pane_id(&params.pane_id) else {
+        let Some((ws_idx, pane_id)) = self.parse_pane_id(&params.pane_id) else {
             return pane_not_found(id, &params.pane_id);
         };
+        if !self.terminal_pane_exists(ws_idx, pane_id) {
+            return pane_not_found(id, &params.pane_id);
+        }
         let key = match graphics_key(pane_id, params.layer_id.as_deref()) {
             Ok(key) => key,
             Err(message) => return encode_error(id, "invalid_layer_id", message),
@@ -145,9 +165,12 @@ impl App {
         if let Err(response) = require_enabled(self, &id) {
             return response;
         }
-        let Some((_, pane_id)) = self.parse_pane_id(&params.pane_id) else {
+        let Some((ws_idx, pane_id)) = self.parse_pane_id(&params.pane_id) else {
             return pane_not_found(id, &params.pane_id);
         };
+        if !self.terminal_pane_exists(ws_idx, pane_id) {
+            return pane_not_found(id, &params.pane_id);
+        }
         let key = match graphics_key(pane_id, params.layer_id.as_deref()) {
             Ok(key) => key,
             Err(message) => return encode_error(id, "invalid_layer_id", message),
@@ -179,9 +202,12 @@ impl App {
         if let Err(response) = require_enabled(self, &id) {
             return response;
         }
-        let Some((_, pane_id)) = self.parse_pane_id(&params.pane_id) else {
+        let Some((ws_idx, pane_id)) = self.parse_pane_id(&params.pane_id) else {
             return pane_not_found(id, &params.pane_id);
         };
+        if !self.terminal_pane_exists(ws_idx, pane_id) {
+            return pane_not_found(id, &params.pane_id);
+        }
         let key = match graphics_key(pane_id, params.layer_id.as_deref()) {
             Ok(key) => key,
             Err(message) => return encode_error(id, "invalid_layer_id", message),
@@ -219,9 +245,12 @@ impl App {
                 "pane graphics stream owner is required",
             );
         }
-        let Some((_, pane_id)) = self.parse_pane_id(&params.pane_id) else {
+        let Some((ws_idx, pane_id)) = self.parse_pane_id(&params.pane_id) else {
             return pane_not_found(id, &params.pane_id);
         };
+        if !self.terminal_pane_exists(ws_idx, pane_id) {
+            return pane_not_found(id, &params.pane_id);
+        }
         let key = match graphics_key(pane_id, params.layer_id.as_deref()) {
             Ok(key) => key,
             Err(message) => return encode_error(id, "invalid_layer_id", message),
@@ -277,9 +306,12 @@ impl App {
         id: String,
         params: PaneGraphicsStreamParams,
     ) -> String {
-        let Some((_, pane_id)) = self.parse_pane_id(&params.pane_id) else {
+        let Some((ws_idx, pane_id)) = self.parse_pane_id(&params.pane_id) else {
             return pane_not_found(id, &params.pane_id);
         };
+        if !self.terminal_pane_exists(ws_idx, pane_id) {
+            return pane_not_found(id, &params.pane_id);
+        }
         if let Ok(key) = graphics_key(pane_id, params.layer_id.as_deref()) {
             if self
                 .pane_graphics
@@ -303,9 +335,12 @@ impl App {
         if let Err(response) = require_enabled(self, &id) {
             return response;
         }
-        let Some((_, pane_id)) = self.parse_pane_id(&params.pane_id) else {
+        let Some((ws_idx, pane_id)) = self.parse_pane_id(&params.pane_id) else {
             return pane_not_found(id, &params.pane_id);
         };
+        if !self.terminal_pane_exists(ws_idx, pane_id) {
+            return pane_not_found(id, &params.pane_id);
+        }
         let key = match graphics_key(pane_id, params.layer_id.as_deref()) {
             Ok(key) => key,
             Err(message) => return encode_error(id, "invalid_layer_id", message),
@@ -575,7 +610,7 @@ mod tests {
         );
         app.state.workspaces = vec![Workspace::test_new("graphics")];
         app.state.ensure_test_terminals();
-        let pane = app.state.workspaces[0].tabs[0].root_pane;
+        let pane = app.state.workspaces[0].terminal_tab(0).unwrap().root_pane;
         let public = app.public_pane_id(0, pane).unwrap();
         app.state.kitty_graphics_enabled = true;
         (app, public)
@@ -621,7 +656,7 @@ mod tests {
         assert!(pane_visible(&visible));
 
         let hidden_workspace = Workspace::test_new("hidden");
-        let hidden_workspace_pane = hidden_workspace.tabs[0].root_pane;
+        let hidden_workspace_pane = hidden_workspace.terminal_tab(0).unwrap().root_pane;
         app.state.workspaces.push(hidden_workspace);
         let hidden_workspace_id = app.public_pane_id(1, hidden_workspace_pane).unwrap();
         let hidden = app.handle_pane_graphics_info(
@@ -633,7 +668,10 @@ mod tests {
         assert!(!pane_visible(&hidden));
 
         let inactive_tab = app.state.workspaces[0].test_add_tab(Some("inactive"));
-        let inactive_pane = app.state.workspaces[0].tabs[inactive_tab].root_pane;
+        let inactive_pane = app.state.workspaces[0]
+            .terminal_tab(inactive_tab)
+            .unwrap()
+            .root_pane;
         let inactive_id = app.public_pane_id(0, inactive_pane).unwrap();
         let hidden_tab = app.handle_pane_graphics_info(
             "hidden-tab".into(),
@@ -644,7 +682,7 @@ mod tests {
         assert!(!pane_visible(&hidden_tab));
 
         app.state.workspaces[0].test_split(ratatui::layout::Direction::Horizontal);
-        app.state.workspaces[0].tabs[0].zoomed = true;
+        app.state.workspaces[0].terminal_tab_mut(0).unwrap().zoomed = true;
         let zoomed_away = app.handle_pane_graphics_info(
             "zoomed-away".into(),
             crate::api::schema::PaneTarget {
@@ -653,7 +691,7 @@ mod tests {
         );
         assert!(!pane_visible(&zoomed_away));
 
-        app.state.workspaces[0].tabs[0].zoomed = false;
+        app.state.workspaces[0].terminal_tab_mut(0).unwrap().zoomed = false;
         app.state.mode = crate::app::Mode::Navigate;
         let short_lived_mode = app.handle_pane_graphics_info(
             "navigate".into(),

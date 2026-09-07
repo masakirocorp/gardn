@@ -16,7 +16,7 @@ struct PendingAgentResumeCandidate {
 impl App {
     fn has_pending_agent_resume_pane_without_runtime(&self) -> bool {
         self.state.workspaces.iter().any(|workspace| {
-            workspace.tabs.iter().any(|tab| {
+            workspace.terminal_tabs().any(|(_, tab)| {
                 tab.panes.values().any(|pane| {
                     self.terminal_runtimes
                         .get(&pane.attached_terminal_id)
@@ -123,7 +123,7 @@ impl App {
         let Some(ws) = self.state.workspaces.get(ws_idx) else {
             return Vec::new();
         };
-        let Some(tab) = ws.tabs.get(ws.active_tab) else {
+        let Ok(tab) = ws.terminal_tab(ws.active_tab) else {
             return Vec::new();
         };
         self.pending_agent_resume_candidates_for_tab(tab, &self.state.view.pane_infos)
@@ -142,7 +142,7 @@ impl App {
         let tab_idx = view
             .active_tab_for_workspace(&ws.id)
             .unwrap_or(ws.active_tab);
-        let Some(tab) = ws.tabs.get(tab_idx) else {
+        let Ok(tab) = ws.terminal_tab(tab_idx) else {
             return Vec::new();
         };
         self.pending_agent_resume_candidates_for_tab(tab, &view.computed.pane_infos)
@@ -504,9 +504,11 @@ mod tests {
     ) -> (Vec<String>, Option<Vec<String>>) {
         let mut app = test_app();
         let workspace = crate::workspace::Workspace::test_new("restored");
-        let pane_id = workspace.tabs[0].root_pane;
+        let pane_id = workspace.terminal_tab(0).unwrap().root_pane;
         let terminal_id = workspace.terminal_id(pane_id).cloned().unwrap();
-        app.state.view.pane_infos = workspace.tabs[0]
+        app.state.view.pane_infos = workspace
+            .terminal_tab(0)
+            .unwrap()
             .layout
             .panes(ratatui::layout::Rect::new(0, 0, 100, 30));
         app.state.workspaces = vec![workspace];
@@ -625,9 +627,11 @@ mod tests {
         let output = dir.join("profile-env.txt");
         let mut app = test_app();
         let workspace = crate::workspace::Workspace::test_new("restored");
-        let pane_id = workspace.tabs[0].root_pane;
+        let pane_id = workspace.terminal_tab(0).unwrap().root_pane;
         let terminal_id = workspace.terminal_id(pane_id).cloned().unwrap();
-        app.state.view.pane_infos = workspace.tabs[0]
+        app.state.view.pane_infos = workspace
+            .terminal_tab(0)
+            .unwrap()
             .layout
             .panes(ratatui::layout::Rect::new(0, 0, 100, 30));
         app.state.workspaces = vec![workspace];
@@ -762,9 +766,11 @@ mod tests {
 
         let mut app = test_app();
         let workspace = crate::workspace::Workspace::test_new("restored");
-        let pane_id = workspace.tabs[0].root_pane;
+        let pane_id = workspace.terminal_tab(0).unwrap().root_pane;
         let terminal_id = workspace.terminal_id(pane_id).cloned().unwrap();
-        app.state.view.pane_infos = workspace.tabs[0]
+        app.state.view.pane_infos = workspace
+            .terminal_tab(0)
+            .unwrap()
             .layout
             .panes(ratatui::layout::Rect::new(0, 0, 100, 30));
         app.state.workspaces = vec![workspace];
@@ -835,9 +841,11 @@ mod tests {
         let mut app = test_app();
         let workspace = crate::workspace::Workspace::test_new("restored");
         let workspace_id = workspace.id.clone();
-        let pane_id = workspace.tabs[0].root_pane;
+        let pane_id = workspace.terminal_tab(0).unwrap().root_pane;
         let terminal_id = workspace.terminal_id(pane_id).cloned().unwrap();
-        app.state.view.pane_infos = workspace.tabs[0]
+        app.state.view.pane_infos = workspace
+            .terminal_tab(0)
+            .unwrap()
             .layout
             .panes(ratatui::layout::Rect::new(0, 0, 100, 30));
         app.state.workspaces = vec![workspace];
@@ -897,9 +905,11 @@ mod tests {
     async fn pending_agent_resume_waits_for_host_theme_before_launch() {
         let mut app = test_app();
         let workspace = crate::workspace::Workspace::test_new("restored");
-        let pane_id = workspace.tabs[0].root_pane;
+        let pane_id = workspace.terminal_tab(0).unwrap().root_pane;
         let terminal_id = workspace.terminal_id(pane_id).cloned().unwrap();
-        let pane_infos = workspace.tabs[0]
+        let pane_infos = workspace
+            .terminal_tab(0)
+            .unwrap()
             .layout
             .panes(ratatui::layout::Rect::new(0, 0, 100, 30));
         app.state.workspaces = vec![workspace];
@@ -982,9 +992,11 @@ mod tests {
     async fn pending_agent_resume_can_launch_after_theme_wait_expires() {
         let mut app = test_app();
         let workspace = crate::workspace::Workspace::test_new("restored");
-        let pane_id = workspace.tabs[0].root_pane;
+        let pane_id = workspace.terminal_tab(0).unwrap().root_pane;
         let terminal_id = workspace.terminal_id(pane_id).cloned().unwrap();
-        app.state.view.pane_infos = workspace.tabs[0]
+        app.state.view.pane_infos = workspace
+            .terminal_tab(0)
+            .unwrap()
             .layout
             .panes(ratatui::layout::Rect::new(0, 0, 100, 30));
         app.state.workspaces = vec![workspace];
@@ -1017,12 +1029,14 @@ mod tests {
     async fn pending_agent_resume_keeps_hidden_panes_scheduled_after_visible_resumes_start() {
         let mut app = test_app();
         let active_workspace = crate::workspace::Workspace::test_new("active");
-        let active_pane = active_workspace.tabs[0].root_pane;
+        let active_pane = active_workspace.terminal_tab(0).unwrap().root_pane;
         let active_terminal = active_workspace.terminal_id(active_pane).cloned().unwrap();
         let hidden_workspace = crate::workspace::Workspace::test_new("hidden");
-        let hidden_pane = hidden_workspace.tabs[0].root_pane;
+        let hidden_pane = hidden_workspace.terminal_tab(0).unwrap().root_pane;
         let hidden_terminal = hidden_workspace.terminal_id(hidden_pane).cloned().unwrap();
-        app.state.view.pane_infos = active_workspace.tabs[0]
+        app.state.view.pane_infos = active_workspace
+            .terminal_tab(0)
+            .unwrap()
             .layout
             .panes(ratatui::layout::Rect::new(0, 0, 100, 30));
         app.state.workspaces = vec![active_workspace, hidden_workspace];
@@ -1076,7 +1090,9 @@ mod tests {
         );
 
         app.state.active = Some(1);
-        let hidden_pane_infos = app.state.workspaces[1].tabs[0]
+        let hidden_pane_infos = app.state.workspaces[1]
+            .terminal_tab(0)
+            .unwrap()
             .layout
             .panes(ratatui::layout::Rect::new(0, 0, 100, 30));
         app.state.view.pane_infos = hidden_pane_infos;
@@ -1102,13 +1118,15 @@ mod tests {
     async fn pending_agent_resume_keeps_hidden_panes_scheduled_when_only_stale_geometry_exists() {
         let mut app = test_app();
         let previous_workspace = crate::workspace::Workspace::test_new("previous");
-        let previous_pane = previous_workspace.tabs[0].root_pane;
+        let previous_pane = previous_workspace.terminal_tab(0).unwrap().root_pane;
         let previous_terminal = previous_workspace
             .terminal_id(previous_pane)
             .cloned()
             .unwrap();
         let current_workspace = crate::workspace::Workspace::test_new("current");
-        app.state.view.pane_infos = previous_workspace.tabs[0]
+        app.state.view.pane_infos = previous_workspace
+            .terminal_tab(0)
+            .unwrap()
             .layout
             .panes(ratatui::layout::Rect::new(0, 0, 100, 30));
         app.state.workspaces = vec![previous_workspace, current_workspace];
@@ -1162,7 +1180,9 @@ mod tests {
         );
 
         app.state.active = Some(0);
-        let previous_pane_infos = app.state.workspaces[0].tabs[0]
+        let previous_pane_infos = app.state.workspaces[0]
+            .terminal_tab(0)
+            .unwrap()
             .layout
             .panes(ratatui::layout::Rect::new(0, 0, 100, 30));
         app.state.view.pane_infos = previous_pane_infos;
@@ -1244,12 +1264,14 @@ mod tests {
     async fn pending_remote_agent_resume_uses_terminal_host_and_path() {
         let mut app = test_app();
         let workspace = crate::workspace::Workspace::test_new("remote-resume");
-        let pane_id = workspace.tabs[0].root_pane;
+        let pane_id = workspace.terminal_tab(0).unwrap().root_pane;
         let terminal_id = workspace
             .terminal_id(pane_id)
             .cloned()
             .expect("test workspace should have a terminal");
-        app.state.view.pane_infos = workspace.tabs[0]
+        app.state.view.pane_infos = workspace
+            .terminal_tab(0)
+            .unwrap()
             .layout
             .panes(ratatui::layout::Rect::new(0, 0, 100, 30));
         app.state.workspaces = vec![workspace];
