@@ -3897,6 +3897,35 @@ mod tests {
         assert!(rx.try_recv().is_err());
     }
 
+    #[test]
+    fn single_pane_context_menu_omits_zoom_action() {
+        let mut app = app_for_mouse_test();
+        let workspace = Workspace::test_new("test");
+        let pane_id = workspace.terminal_tab(0).unwrap().root_pane;
+        app.state.workspaces = vec![workspace];
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::Terminal;
+        crate::ui::compute_view(&mut app.state, Rect::new(0, 0, 106, 20));
+        let pane = app
+            .state
+            .view
+            .pane_infos
+            .iter()
+            .find(|pane| pane.id == pane_id)
+            .expect("pane should render")
+            .clone();
+
+        app.handle_mouse(mouse(
+            MouseEventKind::Down(MouseButton::Right),
+            pane.inner_rect.x + 1,
+            pane.inner_rect.y + 1,
+        ));
+
+        let menu = app.state.context_menu.as_ref().expect("pane context menu");
+        assert!(!menu.items().contains(&"zoom"));
+    }
+
     #[tokio::test]
     async fn configured_right_click_passthrough_forwards_full_gesture_to_pane() {
         let mut app = app_for_mouse_test();
