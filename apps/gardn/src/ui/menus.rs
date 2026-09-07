@@ -1536,6 +1536,40 @@ mod tests {
     }
 
     #[test]
+    fn zoomed_pane_menu_renders_restore_and_actual_close_consequence() {
+        let mut app = AppState::test_new();
+        app.workspaces = vec![crate::workspace::Workspace::test_new("api")];
+        app.active = Some(0);
+        app.context_menu = Some(crate::app::state::ContextMenuState {
+            kind: crate::app::state::ContextMenuKind::Pane {
+                ws_idx: 0,
+                pane_id: app.workspaces[0].terminal_tab(0).unwrap().root_pane,
+                has_manual_label: false,
+                right_click_passthrough: false,
+                zoom: crate::app::state::PaneZoomState::Zoomed,
+                close: crate::app::state::PaneCloseConsequence::Tab,
+                can_mutate: true,
+            },
+            x: 4,
+            y: 4,
+            list: crate::app::state::ModalListState::hidden(0),
+        });
+        crate::ui::compute_view(&mut app, Rect::new(0, 0, 80, 20));
+        let backend = TestBackend::new(80, 20);
+        let mut terminal = Terminal::new(backend).expect("test backend");
+
+        terminal
+            .draw(|frame| render_context_menu(&app, frame))
+            .expect("render context menu");
+
+        let text = buffer_text(terminal.backend().buffer(), 80, 20);
+        assert!(text.contains("Restore Panes"));
+        assert!(text.contains("Close Tab"));
+        assert!(!text.contains("Zoom Pane"));
+        assert!(!text.contains("Close Pane"));
+    }
+
+    #[test]
     fn agent_follow_up_item_uses_one_leading_space() {
         let mut app = AppState::test_new();
         let workspace = crate::workspace::Workspace::test_new("api");

@@ -209,8 +209,8 @@ pub(crate) use self::{
         handle_global_menu_key, handle_group_menu_key, handle_keybind_help_key,
         handle_navigator_key, handle_rename_key, handle_resize_key, insert_keybind_help_query_text,
         insert_navigator_search_text, modal_action_from_buttons,
-        open_new_workspace_dialog_at_location, request_detach, GlobalMenuAction,
-        KeybindHelpKeyResult, ModalAction,
+        open_new_workspace_dialog_at_location, pane_context_menu_state, request_detach,
+        GlobalMenuAction, KeybindHelpKeyResult, ModalAction,
     },
     navigate::{
         command_for_key, indexed_navigation_action, non_indexed_action_for_key,

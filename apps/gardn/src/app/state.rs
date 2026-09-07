@@ -2472,6 +2472,60 @@ impl AgentFollowUpEntry {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PaneZoomState {
+    Unavailable,
+    Available,
+    Zoomed,
+}
+
+impl PaneZoomState {
+    pub(crate) fn for_tab(pane_count: usize, zoomed: bool) -> Self {
+        if pane_count <= 1 {
+            Self::Unavailable
+        } else if zoomed {
+            Self::Zoomed
+        } else {
+            Self::Available
+        }
+    }
+
+    const fn menu_index(self) -> usize {
+        match self {
+            Self::Unavailable => 0,
+            Self::Available => 1,
+            Self::Zoomed => 2,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PaneCloseConsequence {
+    Pane,
+    Tab,
+    Space,
+}
+
+impl PaneCloseConsequence {
+    pub(crate) fn for_tab(pane_count: usize, tab_count: usize) -> Self {
+        if pane_count > 1 {
+            Self::Pane
+        } else if tab_count > 1 {
+            Self::Tab
+        } else {
+            Self::Space
+        }
+    }
+
+    const fn menu_index(self) -> usize {
+        match self {
+            Self::Pane => 0,
+            Self::Tab => 1,
+            Self::Space => 2,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ContextMenuKind {
     Sidebar {
         group_idx: usize,
@@ -2502,6 +2556,9 @@ pub enum ContextMenuKind {
         pane_id: PaneId,
         has_manual_label: bool,
         right_click_passthrough: bool,
+        zoom: PaneZoomState,
+        close: PaneCloseConsequence,
+        can_mutate: bool,
     },
 }
 
@@ -2607,6 +2664,93 @@ const NEW_TAB_CONTEXT_MENU_ITEMS: [&[&str]; 16] = [
     ],
 ];
 
+#[derive(Clone, Copy)]
+struct PaneMenuItems {
+    rows: [&'static str; 10],
+    len: usize,
+}
+
+const fn pane_menu_items(
+    has_manual_label: bool,
+    right_click_passthrough: bool,
+    zoom: PaneZoomState,
+    close: PaneCloseConsequence,
+) -> PaneMenuItems {
+    let mut rows = [""; 10];
+    rows[0] = "rename pane";
+    let mut len = 1;
+    if has_manual_label {
+        rows[len] = "clear pane name";
+        len += 1;
+    }
+    rows[len] = "---";
+    rows[len + 1] = "split vertical";
+    rows[len + 2] = "split horizontal";
+    len += 3;
+    match zoom {
+        PaneZoomState::Unavailable => {}
+        PaneZoomState::Available => {
+            rows[len] = "zoom";
+            len += 1;
+        }
+        PaneZoomState::Zoomed => {
+            rows[len] = "restore panes";
+            len += 1;
+        }
+    }
+    rows[len] = "---";
+    rows[len + 1] = if right_click_passthrough {
+        "use gardn right-click menu"
+    } else {
+        "send right-clicks to pane"
+    };
+    rows[len + 2] = "---";
+    rows[len + 3] = match close {
+        PaneCloseConsequence::Pane => "close pane",
+        PaneCloseConsequence::Tab => "close tab",
+        PaneCloseConsequence::Space => "close space",
+    };
+    PaneMenuItems { rows, len: len + 4 }
+}
+
+const PANE_CONTEXT_MENU_ITEMS: [[[[PaneMenuItems; 3]; 3]; 2]; 2] = {
+    let mut menus = [[[[PaneMenuItems {
+        rows: [""; 10],
+        len: 0,
+    }; 3]; 3]; 2]; 2];
+    let zoom_states = [
+        PaneZoomState::Unavailable,
+        PaneZoomState::Available,
+        PaneZoomState::Zoomed,
+    ];
+    let close_states = [
+        PaneCloseConsequence::Pane,
+        PaneCloseConsequence::Tab,
+        PaneCloseConsequence::Space,
+    ];
+    let mut label = 0;
+    while label < 2 {
+        let mut passthrough = 0;
+        while passthrough < 2 {
+            let mut zoom = 0;
+            while zoom < 3 {
+                let mut close = 0;
+                while close < 3 {
+                    let zoom_state = zoom_states[zoom];
+                    let close_state = close_states[close];
+                    menus[label][passthrough][zoom_state.menu_index()][close_state.menu_index()] =
+                        pane_menu_items(label != 0, passthrough != 0, zoom_state, close_state);
+                    close += 1;
+                }
+                zoom += 1;
+            }
+            passthrough += 1;
+        }
+        label += 1;
+    }
+    menus
+};
+
 impl ContextMenuState {
     pub fn items(&self) -> &'static [&'static str] {
         match self.kind {
@@ -2634,55 +2778,25 @@ impl ContextMenuState {
                 project_commands, ..
             } => NEW_TAB_CONTEXT_MENU_ITEMS[project_commands.menu_index()],
             ContextMenuKind::Pane {
-                has_manual_label: true,
-                right_click_passthrough: false,
+                zoom,
+                can_mutate: false,
                 ..
-            } => &[
-                "rename pane",
-                "clear pane name",
-                "split vertical",
-                "split horizontal",
-                "zoom",
-                "send right-clicks to pane",
-                "close pane",
-            ],
+            } => match zoom {
+                PaneZoomState::Unavailable => &[],
+                PaneZoomState::Available => &["zoom"],
+                PaneZoomState::Zoomed => &["restore panes"],
+            },
             ContextMenuKind::Pane {
-                has_manual_label: true,
-                right_click_passthrough: true,
+                has_manual_label,
+                right_click_passthrough,
+                zoom,
+                close,
                 ..
-            } => &[
-                "rename pane",
-                "clear pane name",
-                "split vertical",
-                "split horizontal",
-                "zoom",
-                "use gardn right-click menu",
-                "close pane",
-            ],
-            ContextMenuKind::Pane {
-                has_manual_label: false,
-                right_click_passthrough: false,
-                ..
-            } => &[
-                "rename pane",
-                "split vertical",
-                "split horizontal",
-                "zoom",
-                "send right-clicks to pane",
-                "close pane",
-            ],
-            ContextMenuKind::Pane {
-                has_manual_label: false,
-                right_click_passthrough: true,
-                ..
-            } => &[
-                "rename pane",
-                "split vertical",
-                "split horizontal",
-                "zoom",
-                "use gardn right-click menu",
-                "close pane",
-            ],
+            } => {
+                let menu = &PANE_CONTEXT_MENU_ITEMS[has_manual_label as usize]
+                    [right_click_passthrough as usize][zoom.menu_index()][close.menu_index()];
+                &menu.rows[..menu.len]
+            }
         }
     }
 
@@ -2724,10 +2838,13 @@ impl ContextMenuState {
             "clear pane name" => "Clear Pane Name",
             "split vertical" => "Split Vertical",
             "split horizontal" => "Split Horizontal",
-            "zoom" => "Zoom",
+            "zoom" => "Zoom Pane",
+            "restore panes" => "Restore Panes",
             "send right-clicks to pane" => "Send Right-Clicks to Pane",
             "use gardn right-click menu" => "Use Gardn Right-Click Menu",
             "close pane" => "Close Pane",
+            "close tab" => "Close Tab",
+            "close space" => "Close Space",
             _ => item,
         }
     }
