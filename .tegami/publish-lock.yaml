@@ -1,17 +1,17 @@
 core:changelogs:
-  - content: "---\npackages:\n  gardn:\n    type: patch\n---\n\n# Show runtime version mismatches\n\nGardn now classifies the running client and server versions in `gardn status`. Compatible thin clients can attach across release-version skew. The terminal title and exit message keep the required restart or update action visible without changing the server-rendered TUI.\n\nThe macOS menu panel also keeps a version notice visible for the selected coordinator. It reports stale servers, stale clients, incompatible protocols, and damaged app-to-CLI installations.\n"
-    filename: runtime-version-alerts.md
+  - content: "---\npackages:\n  gardn:\n    type: patch\n---\n\n### Make pane menus accurate\n\nThe New menus now list available actions in a consistent order. Pane menus now show working zoom actions and identify what the close action removes.\n"
+    filename: pane-menu-actions.md
     v: 0.0.0
 core:packages:
   - id: npm:@gardn/website
     updated: false
-  - changelogIds:
-      - runtime-version-alerts.md
-    id: cargo:gardn
-    updated: true
   - id: cargo:gardn-local-api
     updated: false
   - id: cargo:portable-pty
     updated: false
+  - changelogIds:
+      - pane-menu-actions.md
+    id: cargo:gardn
+    updated: true
 npm:packages:
   - id: npm:@gardn/website

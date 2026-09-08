@@ -1,3 +1,9 @@
+## gardn@0.10.18
+
+### Make pane menus accurate
+
+The New menus now list available actions in a consistent order. Pane menus now show working zoom actions and identify what the close action removes.
+
 ## gardn@0.10.17
 
 ### Show runtime version mismatches
